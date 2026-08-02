@@ -398,3 +398,32 @@
   why: The extended-entry variant; the entry extension lengthens the top of the stroke, not the tail.
 - signature: dangle:qsEt.hapax.locked:exit:baseline
   why: The ZWNJ-locked twin of ·Et's baseline terminal; identical drawing.
+
+# ·See's declined-exit crest (E-DANGLE). The shipped font draws the crest's two-pixel rightward top bar unconditionally — isolated, word-final, and before a non-joining follower alike — and carries no withdrawn ·See anywhere in the baseline. The bar ends horizontally, so it cannot earn the automatic `withdrawal: safe` proof; intentional letterform ink on the qsEt/qsRoe terminal precedent, and the ·See·Utter ligature's x-height bar is the same shape one batch later.
+- signature: dangle:qsSee.crested:exit:top
+  why: ·See's top crest on the isolated drawing; the declined exit keeps it.
+- signature: dangle:qsSee.crested.en-y0:exit:top
+  why: ·See entered at the baseline keeps the same crest on a declined exit.
+- signature: dangle:qsSee.crested.locked:exit:top
+  why: The ZWNJ-locked twin of ·See's crest; identical drawing.
+- signature: dangle:qsSee_qsUtter.hapax:exit:x-height
+  why: The ligature's x-height bar is drawn unconditionally — the shipped font carries no withdrawn ·See·Utter — so a declined exit keeps it.
+
+# ·See·Pea joins at the Short letters' top today (baseline row E65A:E650, seam y6); the curled crest's hook at y7 sits one column left of ·Pea's cup — the corner the shipped font already draws, one row off the y6 seam. One signature per curled variant (bare, entered, ZWNJ-locked) and ·Pea receiver (full and half, with and without their onward exits).
+- signature: contact:qsSee.curled.en-y0.ex-y6:qsPea.full.en-y6:y7
+- signature: contact:qsSee.curled.en-y0.ex-y6:qsPea.full.en-y6.ex-y0:y7
+- signature: contact:qsSee.curled.en-y0.ex-y6:qsPea.half.en-y6.ex-y5:y7
+- signature: contact:qsSee.curled.en-y0.ex-y6:qsPea.half.en-y6.ex-y6:y7
+- signature: contact:qsSee.curled.ex-y6:qsPea.full.en-y6:y7
+- signature: contact:qsSee.curled.ex-y6:qsPea.full.en-y6.ex-y0:y7
+- signature: contact:qsSee.curled.ex-y6:qsPea.half.en-y6.ex-y5:y7
+- signature: contact:qsSee.curled.ex-y6:qsPea.half.en-y6.ex-y6:y7
+- signature: contact:qsSee.curled.ex-y6.locked:qsPea.full.en-y6:y7
+- signature: contact:qsSee.curled.ex-y6.locked:qsPea.full.en-y6.ex-y0:y7
+- signature: contact:qsSee.curled.ex-y6.locked:qsPea.half.en-y6.ex-y5:y7
+- signature: contact:qsSee.curled.ex-y6.locked:qsPea.half.en-y6.ex-y6:y7
+
+# The top-entered full ·Tea — ·See is the alphabet's only top exiter — joins ·Utter at the baseline exactly like the bare, x-height-entered, and ss05 both-baseline bars blessed above (baseline row E65A:E652:E67A, seams y8,y0); the same ·Tea-bar-abuts-·Utter's-left-downstroke corner at y1.
+- signature: contact:qsTea.full.en-y8.ex-y0:qsUtter.mono.en-y0:y1
+- signature: contact:qsTea.full.en-y8.ex-y0:qsUtter.mono.en-y0.ex-y5:y1
+- signature: contact:qsTea.full.en-y8.ex-y0:qsUtter.mono.en-y0.ex-y5.ex-ext-1:y1

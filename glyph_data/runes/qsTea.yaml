@@ -98,7 +98,7 @@ stances:
             - {family: qsDay_qsUtter}
         top:
           x: 0
-          selectable: false
+          stroke: vertical
       exits:
         x-height:
           x: 1
@@ -116,6 +116,7 @@ stances:
           left:
             family:
             - qsDay_qsUtter
+            - qsSee_qsUtter
             - qsMay
             - qsLow
             - qsI

@@ -54,6 +54,8 @@ def test_qstea_cells_per_configuration(spec):
         ("full", None, "baseline"),
         ("full", None, None),
         ("half", "x-height", None),
+        ("half", "top", "x-height"),
+        ("half", "top", None),
         ("half", None, "x-height"),
         ("half", None, None),
     }
@@ -167,7 +169,7 @@ def test_resolve_stubs_and_oddities(spec):
     assert plan.entry_stub is not None and plan.entry_stub.cols == (0,)
     assert surface.resolved_cell_bitmap(spec, plan).row_for_y(5) == "#  #"
     plan = surface.resolve_cell(spec, CellId("qsTea", "half", None, "x-height", ()))
-    assert plan.entry_curs_only == (0, 8)
+    assert plan.entry_curs_only is None
 
 
 def test_unlock_only_cells_resolve_with_their_record(spec):

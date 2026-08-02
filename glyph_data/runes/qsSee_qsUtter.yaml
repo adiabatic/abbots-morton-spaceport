@@ -1,0 +1,53 @@
+rune: qsSee_qsUtter
+sequence:
+- qsSee
+- qsUtter
+ductus:
+  hapax: | # DRAFT — pending author sign-off
+    The ·See stroke and the ·Utter stroke drawn as one motion: begun at the crest, the stroke descends leftward down the ·See spine to the x-height, then retraces ·Utter's descent to the baseline; the shared bar at the x-height runs out to the right, where it may connect to the next letter.
+notes: |
+  Entryless by the shipped font's own declaration (`entry: null` on the shipped anchors): the empty entries map is explicit so the obligation is visible, and predecessors withdraw their exits before this ligature — that is cell semantics on their side, never policy here. The shipped un-forming before followers only the unformed alternate ·Utter can reach (·See, ·Low, ·I, ·Ah) is the late-formation guard's derivation, not data carried here.
+stances:
+  hapax:
+    motion: hapax
+    traits: []
+    bitmap:
+    - "  #  "
+    - " #   "
+    - "#    "
+    - "#  ##"  #
+    - "# #  "
+    - " #   "
+    - " #   "
+    - "#    "
+    - "#    "  #
+    surface:
+      entries: {}
+      exits:
+        x-height:
+          x: 5
+          stroke: horizontal
+      cells: []
+      unlocks: []
+      require: []
+policy:
+  order:
+  - hapax
+  refuse: []
+  prefer: []
+  extend:
+  - exit: x-height
+    by: 1
+    when:
+      right: {family: qsFee}
+  - exit: x-height
+    by: 1
+    when:
+      right: {family: qsMay}
+  - exit: x-height
+    by: 1
+    when:
+      right: {family: qsTea}
+      feature: ss03
+  resolve: []
+  groups: {}
