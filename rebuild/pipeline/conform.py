@@ -533,12 +533,16 @@ def merge_boundary_results(font_path: Path, results: Iterable[BoundaryConfigResu
     return report
 
 
-def _matched_windows(spec, text, features, expected, rules_by_input, deep=None, deep4=None, deep4_live=None):
-    """Replay the settlement lookup's view of one string: yield (position, window key, first-matching rule index or None) per letter slot, with labels and rules in the config's renamed (marker-folded) space and the left slot read from the settled stream — the exact first-match-wins semantics the emitted FEA compiles to. `deep` is the table's depth3_inputs set and `deep4` its depth4_inputs set (computed here when not supplied); the third window slot is #NA except where the table enumerates it — a depth-3-bearing input with letters at both nearer slots — and the fourth repeats that one deeper for depth-4-bearing inputs, further gated by `deep4_live` (the table's `fourth_slot_filter`, built here when not supplied) so the replay and the table agree on which windows carry a live fourth slot."""
+def _matched_windows(
+    spec, text, features, expected, rules_by_input, deep=None, deep3_live=None, deep4=None, deep4_live=None
+):
+    """Replay the settlement lookup's view of one string: yield (position, window key, first-matching rule index or None) per letter slot, with labels and rules in the config's renamed (marker-folded) space and the left slot read from the settled stream — the exact first-match-wins semantics the emitted FEA compiles to. `deep` is the table's depth3_inputs set and `deep4` its depth4_inputs set (computed here when not supplied); the third window slot is #NA except where the table enumerates it — a depth-3-bearing input with letters at both nearer slots, gated by `deep3_live` (the table's `third_slot_filter`, built here when not supplied) — and the fourth repeats that one deeper for depth-4-bearing inputs, gated the same way by `deep4_live` (the table's `fourth_slot_filter`), so the replay and the table agree on which windows carry live deep slots."""
     from rebuild.pipeline import table as table_module
 
     if deep is None:
         deep = table_module.depth3_inputs(spec)
+    if deep3_live is None:
+        deep3_live = table_module.third_slot_filter(spec, frozenset(features))
     if deep4 is None:
         deep4 = table_module.depth4_inputs(spec)
     if deep4_live is None:
@@ -570,7 +574,10 @@ def _matched_windows(spec, text, features, expected, rules_by_input, deep=None, 
         )
         right3 = (
             na
-            if right2 in boundaries or right2 in (edge, na) or _label_family(label) not in deep
+            if right2 in boundaries
+            or right2 in (edge, na)
+            or _label_family(label) not in deep
+            or not deep3_live(_label_family(label), _label_family(right1), _label_family(right2))
             else (labels[index + 3] if index + 3 < len(labels) else edge)
         )
         right4 = (
@@ -980,6 +987,7 @@ def find_rule_witnesses(spec, features, decision, glyph_names=None) -> WitnessRe
     prefixes, by_right3 = _shortest_window_prefixes(decision)
     rows_by_rule = _first_match_rows(decision)
     engine = settle_module.Engine(spec, frozenset(features))
+    deep3_live = table_module.third_slot_filter(spec, frozenset(features), engine)
     deep4_live = table_module.fourth_slot_filter(spec, frozenset(features), engine)
     report = WitnessReport(config=decision.config, rules=len(decision.rules))
     for index in range(len(decision.rules)):
@@ -991,7 +999,7 @@ def find_rule_witnesses(spec, features, decision, glyph_names=None) -> WitnessRe
             if any(
                 matched == index
                 for _pos, _window, matched in _matched_windows(
-                    spec, text, features, expected, rules_by_input, deep, deep4, deep4_live
+                    spec, text, features, expected, rules_by_input, deep, deep3_live, deep4, deep4_live
                 )
             ):
                 witness = text
@@ -1094,6 +1102,7 @@ def _conformance_config(
 
     result = ConformanceConfigResult(config=config)
     deep = table_module.depth3_inputs(spec)
+    deep3_live = table_module.third_slot_filter(spec, features, engine)
     deep4 = table_module.depth4_inputs(spec)
     deep4_live = table_module.fourth_slot_filter(spec, features, engine)
     modes: set[str] = set()
@@ -1116,7 +1125,7 @@ def _conformance_config(
         if anchors_of is not None:
             check_join_gaps(text, config, shaper, shaped, anchors_of, result.divergences)
         for _position, window, matched in _matched_windows(
-            spec, text, features, expected_cells, rules_by_input, deep, deep4, deep4_live
+            spec, text, features, expected_cells, rules_by_input, deep, deep3_live, deep4, deep4_live
         ):
             realized.add(window)
             if matched is not None:
