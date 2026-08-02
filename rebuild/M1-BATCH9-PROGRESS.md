@@ -5,6 +5,7 @@ Scratch for the ·See migration. Delete when the batch closes, lifting any survi
 ## Committed
 
 - `1bfb48a` — the sitting's fresh reject and neither (u-119428, u-119427): the §5.7 guard's ranking-grain trail, forming-pair resolution, and edge-bound deep slots, plus the emitter's forming-rows-first bucket; ·Day·Utter and ·See·Utter ligate again before ·See·{Utter, Low}.
+- `f95b6a8` — the conform witness assembler holds formed-ligature labels to their own guard and appends a guard-releasing letter at a stream's end, so the newly reachable (ligature, ·See) windows witness instead of reading dead; census pins refreshed for the retired windows.
 
 ## Parked
 
