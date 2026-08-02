@@ -136,8 +136,8 @@ def test_classify_hard_for_unknown():
     assert ac.classify_rebuild_failure("rebuild/test_review_autosave.py::test_y", update_pins=False) == "hard"
 
 
-def test_classify_update_pins_remembers_census_failures_as_forgivable():
-    """Under --update-pins the census-pinned FAILED ids are hard at classification time (the gate may have read the final pins), but they are remembered so the join can forgive them once the census step is known to have moved the pins mid-run. A collection ERROR in a census module is never forgivable — it wouldn't be a hint on a --check run either."""
+def test_classify_update_pins_keeps_census_failures_hard():
+    """Under --update-pins the gate only starts after the census step has rewritten the pins, so a census-pinned failure is judged against the pins the suite actually read — hard, with no amnesty to earn."""
     stdout = "\n".join(
         [
             "FAILED rebuild/test_review_build.py::test_totals_pinned",
@@ -147,45 +147,12 @@ def test_classify_update_pins_remembers_census_failures_as_forgivable():
     )
     outcome = ac.classify_rebuild_output(stdout, 1, update_pins=True)
     assert outcome.status == "FAILED (3 unexplained)"
-    assert outcome.forgivable_ids == ["rebuild/test_review_build.py::test_totals_pinned"]
-    forgiven = ac.forgive_census_race(outcome)
-    assert forgiven.status == "FAILED (2 unexplained)"
-    assert forgiven.hard_ids == ["rebuild/test_settle.py::test_x", "rebuild/test_review_ink.py::test_y"]
-
-
-def test_forgive_census_race_turns_a_pure_race_green_but_unrecordable():
-    baseline_id = sorted(ac.BASELINE_REBUILD_FAILURES)[0]
-    stdout = "\n".join([f"FAILED {baseline_id}", "FAILED rebuild/test_review_build.py::test_totals_pinned"])
-    forgiven = ac.forgive_census_race(ac.classify_rebuild_output(stdout, 1, update_pins=True))
-    assert forgiven.status.startswith("green")
-    assert "documented baseline" in forgiven.status
-    assert "raced the pin refresh" in forgiven.status
-    assert forgiven.failures == []
-    assert forgiven.hard_ids == []
-    assert not forgiven.recordable
-
-
-def test_classify_a_failed_and_errored_census_id_is_never_forgivable():
-    """A census-pinned test that FAILs and then ERRORs in teardown appears under both markers with one id; forgiving the FAILED copy would mask the teardown crash, so the id is excluded from forgivable_ids and both copies stay hard."""
-    stdout = "\n".join(
-        [
-            "FAILED rebuild/test_review_build.py::test_totals_pinned",
-            "ERROR rebuild/test_review_build.py::test_totals_pinned",
-        ]
-    )
-    outcome = ac.classify_rebuild_output(stdout, 1, update_pins=True)
-    assert outcome.forgivable_ids == []
-    assert outcome.status == "FAILED (2 unexplained)"
-    assert ac.forgive_census_race(outcome) is outcome
-
-
-def test_forgive_census_race_is_a_no_op_without_forgivable_ids():
-    hard = ac.classify_rebuild_output("FAILED rebuild/test_settle.py::test_x", 1, update_pins=True)
-    assert ac.forgive_census_race(hard) is hard
-    checked = ac.classify_rebuild_output(
-        "FAILED rebuild/test_review_build.py::test_totals_pinned", 1, update_pins=False
-    )
-    assert ac.forgive_census_race(checked) is checked
+    assert outcome.hard_ids == [
+        "rebuild/test_review_build.py::test_totals_pinned",
+        "rebuild/test_settle.py::test_x",
+        "rebuild/test_review_ink.py::test_y",
+    ]
+    assert not outcome.recordable
 
 
 def test_dry_run_plan_default():
@@ -628,11 +595,11 @@ def _make_ok(spawn, emit, registry):
     return _step("gate:make-test", 0)
 
 
-def _rebuild_green(pool_policy, make_fut, spawn, emit, registry, update_pins):
+def _rebuild_green(pool_policy, conform_fut, make_fut, spawn, emit, registry, update_pins):
     return ac.RebuildOutcome("green", [], [])
 
 
-def _conform_green(pool_policy, rebuild_fut, make_fut, spawn, emit, registry, argv):
+def _conform_green(pool_policy, make_fut, spawn, emit, registry, argv):
     return "green", []
 
 
@@ -1051,7 +1018,7 @@ def test_gate_rebuild_waits_for_run_m1_pass(monkeypatch):
         record["run_m1_finish"] = time.monotonic()
         return ac.GateOutcome(True, [], 1, 0)
 
-    def fake_rebuild(pool_policy, make_fut, spawn, emit, registry, update_pins):
+    def fake_rebuild(pool_policy, conform_fut, make_fut, spawn, emit, registry, update_pins):
         record["rebuild_invoked"] = time.monotonic()
         return ac.RebuildOutcome("green", [], [])
 
@@ -1075,7 +1042,7 @@ def test_gate_rebuild_skipped_when_run_m1_fails(monkeypatch, capsys):
     def fake_run_m1(report, *, spawn, emit, registry, budget, **_):
         return None
 
-    def fake_rebuild(pool_policy, make_fut, spawn, emit, registry, update_pins):
+    def fake_rebuild(pool_policy, conform_fut, make_fut, spawn, emit, registry, update_pins):
         called["rebuild"] = True
         return ac.RebuildOutcome("green", [], [])
 
@@ -1177,13 +1144,13 @@ def test_pool_overlap_starts_rebuild_before_make_test_done(monkeypatch):
     assert record["rebuild_start"] >= record["run_m1_finish"]
 
 
-def test_pool_queue_conform_waits_for_rebuild_gate(monkeypatch, tmp_path):
+def test_pool_queue_rebuild_waits_for_conform_gate(monkeypatch):
     record = {}
     release_make = threading.Event()
     make_running = threading.Event()
-    release_rebuild = threading.Event()
-    rebuild_running = threading.Event()
-    conform_started = threading.Event()
+    release_conform = threading.Event()
+    conform_running = threading.Event()
+    rebuild_started = threading.Event()
 
     def fake_make(spawn, emit, registry):
         make_running.set()
@@ -1191,29 +1158,23 @@ def test_pool_queue_conform_waits_for_rebuild_gate(monkeypatch, tmp_path):
         record["make_finish"] = time.monotonic()
         return _step("gate:make-test", 0)
 
-    def fake_rebuild(pool_policy, make_fut, spawn, emit, registry, update_pins):
-        rebuild_running.set()
-        release_rebuild.wait()
-        record["rebuild_finish"] = time.monotonic()
-        return ac.RebuildOutcome("green", [], [])
-
-    summary_path = tmp_path / "conform_summary.json"
+    def fake_conform(pool_policy, make_fut, spawn, emit, registry, argv):
+        conform_running.set()
+        release_conform.wait()
+        record["conform_finish"] = time.monotonic()
+        return "green", []
 
     def fake_spawn(name, argv, *, emit, registry, stream):
-        if name == "gate:conform":
-            record["conform_start"] = time.monotonic()
-            record["conform_argv"] = argv
-            summary_path.write_text(
-                json.dumps({"divergences": 0, "uncovered_rules": 0, "uncovered_transitions": 0, "pass": True})
-            )
-            conform_started.set()
+        if name == "gate:rebuild":
+            record["rebuild_start"] = time.monotonic()
+            record["rebuild_argv"] = argv
+            rebuild_started.set()
         return _step(name, 0)
 
-    monkeypatch.setattr(ac, "CONFORM_SUMMARY", summary_path)
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_gate_make_test_task", fake_make)
-    monkeypatch.setattr(ac, "_gate_rebuild_task", fake_rebuild)
+    monkeypatch.setattr(ac, "_gate_conform_task", fake_conform)
     _patch_build_chain(monkeypatch)
 
     plan = _plan(pool_policy="queue")
@@ -1226,33 +1187,26 @@ def test_pool_queue_conform_waits_for_rebuild_gate(monkeypatch, tmp_path):
     )
     t.start()
     make_running.wait()
-    rebuild_running.wait()
-    assert "conform_start" not in record
+    conform_running.wait()
+    assert "rebuild_start" not in record
     release_make.set()
-    assert not conform_started.wait(0.2)
-    release_rebuild.set()
-    conform_started.wait()
+    assert not rebuild_started.wait(0.2)
+    release_conform.set()
+    rebuild_started.wait()
     t.join()
 
-    assert record["conform_start"] >= record["rebuild_finish"]
-    assert record["conform_start"] >= record["make_finish"]
-    assert record["conform_argv"][:6] == [
-        "uv",
-        "run",
-        "python",
-        "-m",
-        "rebuild.pipeline.run_m1",
-        "--conform-only",
-    ]
-    assert report.gate_conform == "green"
+    assert record["rebuild_start"] >= record["conform_finish"]
+    assert record["rebuild_start"] >= record["make_finish"]
+    assert record["rebuild_argv"] == list(ac.REBUILD_PYTEST_ARGV)
+    assert report.gate_rebuild == "green"
     assert box["rc"] == 0
 
 
-def test_pool_queue_conform_falls_back_to_make_test_when_rebuild_skipped(monkeypatch, tmp_path):
+def test_pool_queue_rebuild_falls_back_to_make_test_when_conform_skipped(monkeypatch):
     record = {}
     release_make = threading.Event()
     make_running = threading.Event()
-    conform_started = threading.Event()
+    rebuild_started = threading.Event()
 
     def fake_make(spawn, emit, registry):
         make_running.set()
@@ -1260,24 +1214,18 @@ def test_pool_queue_conform_falls_back_to_make_test_when_rebuild_skipped(monkeyp
         record["make_finish"] = time.monotonic()
         return _step("gate:make-test", 0)
 
-    summary_path = tmp_path / "conform_summary.json"
-
     def fake_spawn(name, argv, *, emit, registry, stream):
-        if name == "gate:conform":
-            record["conform_start"] = time.monotonic()
-            summary_path.write_text(
-                json.dumps({"divergences": 0, "uncovered_rules": 0, "uncovered_transitions": 0, "pass": True})
-            )
-            conform_started.set()
+        if name == "gate:rebuild":
+            record["rebuild_start"] = time.monotonic()
+            rebuild_started.set()
         return _step(name, 0)
 
-    monkeypatch.setattr(ac, "CONFORM_SUMMARY", summary_path)
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_gate_make_test_task", fake_make)
     _patch_build_chain(monkeypatch)
 
-    plan = _plan(pool_policy="queue", skip_rebuild_gate=True, rebuild_gate_note="inputs unchanged")
+    plan = _plan(pool_policy="queue", skip_conform=True)
     report = ac.CycleReport()
     box = {}
     t = threading.Thread(
@@ -1287,14 +1235,14 @@ def test_pool_queue_conform_falls_back_to_make_test_when_rebuild_skipped(monkeyp
     )
     t.start()
     make_running.wait()
-    assert not conform_started.wait(0.2)
+    assert not rebuild_started.wait(0.2)
     release_make.set()
-    conform_started.wait()
+    rebuild_started.wait()
     t.join()
 
-    assert record["conform_start"] >= record["make_finish"]
-    assert report.gate_rebuild == "skipped (inputs unchanged)"
-    assert report.gate_conform == "green"
+    assert record["rebuild_start"] >= record["make_finish"]
+    assert report.gate_conform == "skipped (--skip-conform)"
+    assert report.gate_rebuild == "green"
     assert box["rc"] == 0
 
 
@@ -1325,7 +1273,7 @@ def test_summary_exact_under_out_of_order_completion(monkeypatch, capsys):
         ev_make.wait()
         return _step("gate:make-test", 0)
 
-    def fake_rebuild(pool_policy, make_fut, spawn, emit, registry, update_pins):
+    def fake_rebuild(pool_policy, conform_fut, make_fut, spawn, emit, registry, update_pins):
         ev_rebuild.wait()
         return ac.RebuildOutcome("green (1 documented baseline)", [], [])
 
@@ -1420,7 +1368,7 @@ def test_gate_rebuild_stays_captured_and_parses_failures(capsys):
 
     emit = ac._Emitter()
     registry = ac._ChildRegistry()
-    outcome = ac._gate_rebuild_task("overlap", None, fake_spawn, emit, registry, False)
+    outcome = ac._gate_rebuild_task("overlap", None, None, fake_spawn, emit, registry, False)
 
     assert seen["stream"] is False
     assert len(outcome.hard_ids) == 2
@@ -1430,7 +1378,7 @@ def test_gate_rebuild_stays_captured_and_parses_failures(capsys):
     failures = []
     with ThreadPoolExecutor(max_workers=1) as pool:
         fut = pool.submit(lambda: outcome)
-        ac._join_gates(report, failures, None, fut, None, None, False, emit)
+        ac._join_gates(report, failures, None, fut, None, None, emit)
     assert report.gate_rebuild == "FAILED (2 unexplained)"
 
     out = capsys.readouterr().out
@@ -1516,6 +1464,26 @@ def test_queue_policy_rebuild_runs_when_make_test_task_raises(monkeypatch, capsy
 
     assert rc == 1
     assert report.gate_make_test == "FAILED (exception)"
+    assert report.gate_rebuild == "green"
+    assert capsys.readouterr().out.count("ARTIFACT CYCLE SUMMARY") == 1
+
+
+def test_queue_policy_rebuild_runs_when_conform_task_raises(monkeypatch, capsys):
+    def raising_conform(pool_policy, make_fut, spawn, emit, registry, argv):
+        raise FileNotFoundError("conform pool blew up")
+
+    monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
+    _patch_build_chain(monkeypatch)
+    monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
+    monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
+    monkeypatch.setattr(ac, "_gate_conform_task", raising_conform)
+
+    plan = _plan()
+    report = ac.CycleReport()
+    rc = ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=lambda *a, **k: _step())
+
+    assert rc == 1
+    assert report.gate_conform == "FAILED (exception)"
     assert report.gate_rebuild == "green"
     assert capsys.readouterr().out.count("ARTIFACT CYCLE SUMMARY") == 1
 
@@ -1617,7 +1585,10 @@ def test_dry_run_renders_concurrency():
     assert "Lane build" in text
     assert "Lane rebuild" in text
     assert "Lane conform" in text
-    assert "QUEUED behind gate:rebuild's pool" in text
+    assert "census -> submit gate:rebuild" in text
+    assert "QUEUED behind gate:make-test (queue policy — one heavy pool at a time)" in text
+    assert "submitted after the census step lands its verdict;" in text
+    assert "QUEUED behind gate:conform (queue policy — one heavy pool at a time)" in text
     assert "--jobs budget        : 6" in text
 
     by_name = {step.name: step for step in plan.steps}
@@ -2049,7 +2020,8 @@ def test_dry_run_plan_skip_make_test():
     assert by_name["gate:make-test"].note == "SKIPPED (closure unchanged since its last green run)"
     assert by_name["gate:rebuild"].argv is not None
     rendered = ac.render_plan(plan)
-    assert "gate:make-test auto-skipped" in rendered
+    assert "gate:make-test not running, so no queueing" in rendered
+    assert "Lane t0   [from t=0, background]  : gate:js" in rendered
 
 
 def test_skip_make_test_frees_the_build_stage_budget():
@@ -2309,7 +2281,7 @@ def test_dry_run_plan_auto_skip_conform_note():
 def test_run_cycle_never_spawns_rebuild_gate_when_skipped(monkeypatch):
     record = {"rebuild_calls": 0}
 
-    def fake_rebuild(pool_policy, make_fut, spawn, emit, registry, update_pins):
+    def fake_rebuild(pool_policy, conform_fut, make_fut, spawn, emit, registry, update_pins):
         record["rebuild_calls"] += 1
         return ac.RebuildOutcome("green", [], [])
 
@@ -2368,7 +2340,7 @@ def test_deferring_make_test_frees_the_build_stage_budget():
     assert _argv(by_name["surface-build"])[-2:] == ["--jobs", "4"]
     rendered = ac.render_plan(plan)
     assert "gate:make-test deferred, so the build stages fan out" in rendered
-    assert "gate:make-test deferred, so no queueing" in rendered
+    assert "gate:make-test not running, so no queueing" in rendered
 
 
 def test_a_proved_skip_outranks_deferral_in_the_plan():
@@ -2382,11 +2354,11 @@ def test_a_proved_skip_outranks_deferral_in_the_plan():
 def test_run_cycle_never_spawns_a_deferred_gate(monkeypatch):
     calls = {"rebuild": 0, "conform": 0, "make-test": 0}
 
-    def fake_rebuild(pool_policy, make_fut, spawn, emit, registry, update_pins):
+    def fake_rebuild(pool_policy, conform_fut, make_fut, spawn, emit, registry, update_pins):
         calls["rebuild"] += 1
         return ac.RebuildOutcome("green", [], [])
 
-    def fake_conform(pool_policy, rebuild_fut, make_fut, spawn, emit, registry, argv):
+    def fake_conform(pool_policy, make_fut, spawn, emit, registry, argv):
         calls["conform"] += 1
         return "green", []
 
@@ -2583,12 +2555,17 @@ def test_main_skips_the_census_on_a_recorded_outcome_stale_included(tmp_path, mo
     out = capsys.readouterr().out
     assert "census auto-skipped: surface, pins, and source inputs unchanged since the last stale check" in out
     assert "census: SKIPPED (surface, pins, and source inputs unchanged since the last stale check" in out
+    assert f"gate:rebuild: DEFERRED ({ac.STALE_CENSUS_DEFER_NOTE})" in out
     ac.record_census_result(ac.CENSUS_RESULT, "cen-key", "clean", [])
     assert ac.main(["--dry-run"]) == 0
-    assert "since the last clean check" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "since the last clean check" in out
+    assert "gate:rebuild: uv run pytest" in out
     ac.record_census_result(ac.CENSUS_RESULT, "moved-key", "stale", [])
     assert ac.main(["--dry-run"]) == 0
-    assert "census auto-skipped" not in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "census auto-skipped" not in out
+    assert "gate:rebuild: uv run pytest" in out
 
 
 def test_main_never_defers_a_rehearsal(tmp_path, monkeypatch, capsys):
@@ -2826,26 +2803,22 @@ def test_classify_rebuild_recordable_only_when_unannotated():
     assert not hard.recordable
 
 
-def _raced_rebuild(pool_policy, make_fut, spawn, emit, registry, update_pins):
+def _census_failing_rebuild(pool_policy, conform_fut, make_fut, spawn, emit, registry, update_pins):
     return ac.classify_rebuild_output(
         "FAILED rebuild/test_review_build.py::test_totals_pinned", 1, update_pins=update_pins
     )
 
 
-def test_update_pins_cycle_forgives_census_failures_when_pins_moved(monkeypatch, tmp_path, capsys):
-    """The race the ss02-removal cycle hit: gate:rebuild's pytest pool read the pre-update pins, the census step then re-baselined them, and the cycle failed on phantom hard failures that passed on re-run. With the pins provably moved mid-run, those failures are hints — reported, unrecordable, not red."""
-    pins = tmp_path / "review-census-pins.json"
-    pins.write_text('{"old": 1}')
-    monkeypatch.setattr(ac, "CENSUS_PINS", pins)
+def test_update_pins_cycle_keeps_census_failures_hard(monkeypatch, capsys):
+    """On an --update-pins pass the gate is submitted only after the census step has rewritten the pins, so a census-module failure is judged against the pins the suite actually read — a genuine failure that turns the cycle red."""
 
     def census_update(*, spawn, emit, registry, update_pins, surface, **_):
-        pins.write_text('{"new": 2}')
         return "updated (diff shown above — review every moved number)"
 
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
-    monkeypatch.setattr(ac, "_gate_rebuild_task", _raced_rebuild)
+    monkeypatch.setattr(ac, "_gate_rebuild_task", _census_failing_rebuild)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
     _patch_build_chain(monkeypatch)
     monkeypatch.setattr(ac, "_do_census", census_update)
@@ -2854,65 +2827,257 @@ def test_update_pins_cycle_forgives_census_failures_when_pins_moved(monkeypatch,
     report = ac.CycleReport()
     rc = ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=lambda *a, **k: _step())
 
-    assert rc == 0
-    assert report.gate_rebuild.startswith("green")
-    assert "raced the pin refresh" in report.gate_rebuild
-    assert report.rebuild_recordable is False
-    assert "census-pinned failure forgiven" in capsys.readouterr().out
+    assert rc == 1
+    assert report.gate_rebuild == "FAILED (1 unexplained)"
+    assert "rebuild suite: 1 unexplained failure(s)" in capsys.readouterr().out
 
 
-def test_update_pins_cycle_never_forgives_when_the_census_update_failed(monkeypatch, tmp_path, capsys):
-    """A census update that dies mid-write moves the pins digest without earning any amnesty: the pins on disk may be truncated and the gate's census failures are unproven either way, so the cycle must stay red rather than exit 0 over a corrupt tracked pins file."""
-    pins = tmp_path / "review-census-pins.json"
-    pins.write_text('{"old": 1}')
-    monkeypatch.setattr(ac, "CENSUS_PINS", pins)
+def test_update_pins_cycle_still_submits_the_gate_when_the_update_failed(monkeypatch, capsys):
+    """A failed census --update is not a stale verdict: the gate still runs against whatever pins are on disk, and its census failures stay hard, so the cycle turns red instead of deferring past a broken tracked pins file."""
 
-    def census_dies_mid_write(*, spawn, emit, registry, update_pins, surface, **_):
-        pins.write_text('{"trunc')
+    def census_dies(*, spawn, emit, registry, update_pins, surface, **_):
         return "update FAILED"
 
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
-    monkeypatch.setattr(ac, "_gate_rebuild_task", _raced_rebuild)
+    monkeypatch.setattr(ac, "_gate_rebuild_task", _census_failing_rebuild)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
     _patch_build_chain(monkeypatch)
-    monkeypatch.setattr(ac, "_do_census", census_dies_mid_write)
+    monkeypatch.setattr(ac, "_do_census", census_dies)
 
     plan = _plan(update_pins=True)
     report = ac.CycleReport()
     rc = ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=lambda *a, **k: _step())
 
     assert rc == 1
+    assert report.census_status == "update FAILED"
+    assert report.rebuild_stale_deferred is False
     assert report.gate_rebuild == "FAILED (1 unexplained)"
     assert "census-pinned failure forgiven" not in capsys.readouterr().out
 
 
-def test_update_pins_cycle_keeps_census_failures_hard_when_pins_unmoved(monkeypatch, tmp_path, capsys):
-    """The amnesty's complement: when --update-pins rewrote identical pin content, the gate read the pins that are still on disk, so a census-module failure is genuine and fails the cycle."""
-    pins = tmp_path / "review-census-pins.json"
-    pins.write_text('{"same": 1}')
-    monkeypatch.setattr(ac, "CENSUS_PINS", pins)
+def test_update_pins_census_update_completes_before_the_rebuild_gate_spawns(monkeypatch):
+    record = {}
 
-    def census_rewrite_identical(*, spawn, emit, registry, update_pins, surface, **_):
-        pins.write_text('{"same": 1}')
+    def census_update(*, spawn, emit, registry, update_pins, surface, **_):
+        record["census_finish"] = time.monotonic()
+        return "updated (no change)"
+
+    def fake_spawn(name, argv, *, emit, registry, stream):
+        if name == "gate:rebuild":
+            record["rebuild_start"] = time.monotonic()
+        return _step(name, 0)
+
+    monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
+    monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
+    monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
+    monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
+    _patch_build_chain(monkeypatch)
+    monkeypatch.setattr(ac, "_do_census", census_update)
+
+    plan = _plan(update_pins=True)
+    report = ac.CycleReport()
+    rc = ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=fake_spawn)
+
+    assert rc == 0
+    assert record["rebuild_start"] >= record["census_finish"]
+    assert report.gate_rebuild == "green"
+
+
+def test_update_pins_cycle_records_rebuild_green_after_the_refresh(monkeypatch, tmp_path):
+    """The payoff of census-before-gate: the rebuild key is snapshotted at submission time, after the pins were rewritten, so a recordable suite outcome on the --update-pins pass itself lands in rebuild-gate-green.json instead of demanding one more full run."""
+    rebuild_green = tmp_path / "rebuild-gate-green.json"
+    conform_green = tmp_path / "conform-green.json"
+    monkeypatch.setattr(ac, "run_retention", lambda plan: None)
+    monkeypatch.setattr(ac, "REBUILD_GATE_GREEN", rebuild_green)
+    monkeypatch.setattr(ac, "CONFORM_GREEN", conform_green)
+    monkeypatch.setattr(ac, "rebuild_gate_skip_fingerprint", lambda root=None: "rfp")
+    monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, horizon=None: "cfp")
+
+    def recordable_rebuild(pool_policy, conform_fut, make_fut, spawn, emit, registry, update_pins):
+        return ac.RebuildOutcome("green", [], [], recordable=True)
+
+    def census_update(*, spawn, emit, registry, update_pins, surface, **_):
         return "updated (no change)"
 
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
-    monkeypatch.setattr(ac, "_gate_rebuild_task", _raced_rebuild)
+    monkeypatch.setattr(ac, "_gate_rebuild_task", recordable_rebuild)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
     _patch_build_chain(monkeypatch)
-    monkeypatch.setattr(ac, "_do_census", census_rewrite_identical)
+    monkeypatch.setattr(ac, "_do_census", census_update)
 
-    plan = _plan(update_pins=True)
+    plan = _plan(update_pins=True, record_greens=True)
+    report = ac.CycleReport()
+    rc = ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=lambda *a, **k: _step())
+
+    assert rc == 0
+    assert report.rebuild_recordable is True
+    record = ac.read_green_record(rebuild_green)
+    assert record is not None
+    assert record["fingerprint"] == "rfp"
+
+
+def test_a_stale_census_defers_the_rebuild_gate(monkeypatch, tmp_path, capsys):
+    calls = {"rebuild": 0}
+
+    def fake_rebuild(pool_policy, conform_fut, make_fut, spawn, emit, registry, update_pins):
+        calls["rebuild"] += 1
+        return ac.RebuildOutcome("green", [], [])
+
+    def census_stale(*, spawn, emit, registry, update_pins, surface, **_):
+        return "STALE (informational — re-run with --update-pins or edit by hand)"
+
+    monkeypatch.setattr(ac, "run_retention", lambda plan: None)
+    monkeypatch.setattr(ac, "REBUILD_GATE_GREEN", tmp_path / "rebuild-gate-green.json")
+    monkeypatch.setattr(ac, "CONFORM_GREEN", tmp_path / "conform-green.json")
+    monkeypatch.setattr(ac, "rebuild_gate_skip_fingerprint", lambda root=None: "rfp")
+    monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, horizon=None: "cfp")
+    monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
+    monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
+    monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
+    monkeypatch.setattr(ac, "_gate_rebuild_task", fake_rebuild)
+    monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
+    _patch_build_chain(monkeypatch)
+    monkeypatch.setattr(ac, "_do_census", census_stale)
+
+    plan = _plan(record_greens=True)
+    report = ac.CycleReport()
+    rc = ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=lambda *a, **k: _step())
+
+    assert rc == 0
+    assert calls["rebuild"] == 0
+    assert report.rebuild_stale_deferred is True
+    assert report.gate_rebuild == f"deferred ({ac.STALE_CENSUS_DEFER_NOTE})"
+    assert not (tmp_path / "rebuild-gate-green.json").exists()
+    summary = json.loads(ac.CYCLE_SUMMARY.read_text())
+    assert summary["gates"]["rebuild"]["skip"] == "deferred"
+    assert summary["gates"]["rebuild"]["green"] is False
+    out = capsys.readouterr().out
+    assert f"gate:rebuild deferred: {ac.STALE_CENSUS_DEFER_NOTE}" in out
+    assert "Cycle complete — but gate:rebuild was deferred" in out
+
+
+def test_a_stale_census_never_defers_update_pins_rehearsal_or_no_defer(monkeypatch, tmp_path):
+    calls = {"rebuild": 0}
+
+    def fake_rebuild(pool_policy, conform_fut, make_fut, spawn, emit, registry, update_pins):
+        calls["rebuild"] += 1
+        return ac.RebuildOutcome("green", [], [])
+
+    def census_stale(*, spawn, emit, registry, update_pins, surface, **_):
+        return "STALE (informational — re-run with --update-pins or edit by hand)"
+
+    monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
+    monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
+    monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
+    monkeypatch.setattr(ac, "_gate_rebuild_task", fake_rebuild)
+    monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
+    _patch_build_chain(monkeypatch)
+    monkeypatch.setattr(ac, "_do_census", census_stale)
+
+    plans = [
+        _plan(update_pins=True),
+        _plan(review_out=tmp_path / "rehearse"),
+        _plan(defer_rebuild_on_stale_census=False),
+    ]
+    for plan in plans:
+        report = ac.CycleReport()
+        rc = ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=lambda *a, **k: _step())
+        assert rc == 0
+        assert report.rebuild_stale_deferred is False
+        assert report.gate_rebuild == "green"
+    assert calls["rebuild"] == len(plans)
+
+
+def test_surface_build_failure_leaves_the_rebuild_gate_not_run(monkeypatch, capsys):
+    calls = {"rebuild": 0}
+
+    def fake_rebuild(pool_policy, conform_fut, make_fut, spawn, emit, registry, update_pins):
+        calls["rebuild"] += 1
+        return ac.RebuildOutcome("green", [], [])
+
+    def failing_surface(report, *, spawn, emit, registry, review_out, budget, **_):
+        return False
+
+    monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
+    monkeypatch.setattr(ac, "_do_surface_build", failing_surface)
+    monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
+    monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
+    monkeypatch.setattr(ac, "_gate_rebuild_task", fake_rebuild)
+    monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
+
+    plan = _plan()
     report = ac.CycleReport()
     rc = ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=lambda *a, **k: _step())
 
     assert rc == 1
-    assert report.gate_rebuild == "FAILED (1 unexplained)"
-    assert "rebuild suite: 1 unexplained failure(s)" in capsys.readouterr().out
+    assert calls["rebuild"] == 0
+    assert report.gate_rebuild == "not run (surface build failed)"
+    assert "surface rebuild failed" in capsys.readouterr().out
+
+
+def test_stale_census_known_only_on_the_replay_path():
+    stale_replay = {"fingerprint": "cen-fp", "status": "stale", "mismatches": []}
+    clean_replay = {"fingerprint": "cen-fp", "status": "clean", "mismatches": []}
+    assert ac.stale_census_known(_plan(skip_census=True, census_skip_note="x", census_replay=stale_replay))
+    assert not ac.stale_census_known(
+        _plan(skip_census=True, census_skip_note="x", census_replay=clean_replay)
+    )
+    assert not ac.stale_census_known(
+        _plan(skip_census=True, census_skip_note="x", census_replay=stale_replay, update_pins=True)
+    )
+    assert not ac.stale_census_known(
+        _plan(
+            skip_census=True,
+            census_skip_note="x",
+            census_replay=stale_replay,
+            defer_rebuild_on_stale_census=False,
+        )
+    )
+    assert not ac.stale_census_known(_plan())
+
+
+def test_dry_run_plan_defers_the_rebuild_gate_on_a_recorded_stale_census():
+    plan = _plan(
+        skip_census=True,
+        census_skip_note="surface, pins, and source inputs unchanged since the last stale check; --fresh overrides",
+        census_replay={
+            "fingerprint": "cen-fp",
+            "status": "stale",
+            "mismatches": ["ink.machine_total: pinned 1 != computed 2"],
+        },
+    )
+    by_name = {step.name: step for step in plan.steps}
+    assert by_name["gate:rebuild"].argv is None
+    assert by_name["gate:rebuild"].note == f"DEFERRED ({ac.STALE_CENSUS_DEFER_NOTE})"
+    assert by_name["gate:conform"].argv is not None
+    rendered = ac.render_plan(plan)
+    assert f"Lane rebuild                     : DEFERRED ({ac.STALE_CENSUS_DEFER_NOTE})" in rendered
+
+
+def test_cycle_summary_payload_marks_a_stale_deferred_rebuild_deferred():
+    report = _green_report()
+    report.gate_rebuild = f"deferred ({ac.STALE_CENSUS_DEFER_NOTE})"
+    report.rebuild_stale_deferred = True
+    payload = ac.cycle_summary_payload(report, [], _plan(), "ok")
+    assert payload["gates"]["rebuild"]["skip"] == "deferred"
+    assert payload["gates"]["rebuild"]["green"] is False
+    assert payload["plan"]["deferred"] == []
+
+
+def test_finish_points_a_stale_deferred_cycle_at_update_pins(monkeypatch, capsys):
+    monkeypatch.setattr(ac, "run_retention", lambda plan: None)
+    report = _green_report()
+    report.gate_rebuild = f"deferred ({ac.STALE_CENSUS_DEFER_NOTE})"
+    report.rebuild_stale_deferred = True
+    assert ac._finish(report, [], _plan()) == 0
+    out = capsys.readouterr().out
+    assert "Cycle complete — but gate:rebuild was deferred" in out
+    assert "make review-cycle ARGS='--update-pins'" in out
+    assert "NOT READY" in out
 
 
 def test_do_census_records_clean_and_stale_outcomes(monkeypatch, tmp_path):
@@ -3020,6 +3185,8 @@ def test_run_cycle_replays_a_recorded_stale_census(monkeypatch, capsys):
     rc = ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=lambda *a, **k: _step())
     assert rc == 0
     assert report.census_status.startswith("STALE (recorded outcome replayed")
+    assert report.rebuild_stale_deferred is True
+    assert report.gate_rebuild == f"deferred ({ac.STALE_CENSUS_DEFER_NOTE})"
     out = capsys.readouterr().out
     assert "census pins are stale (recorded outcome replayed" in out
     assert "  ink.machine_total: pinned 1 != computed 2" in out
