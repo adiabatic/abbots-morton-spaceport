@@ -165,7 +165,9 @@ def word_position(left_kind: str, right1_kind: str) -> str | None:
 class Engine:
     """One settlement engine per (spec, feature configuration); caches candidate enumerations so the table builder's fixpoint stays fast."""
 
-    def __init__(self, spec: ResolvedSpec, features: frozenset[str], vote_deep_slot: RightToken | None = None):
+    def __init__(
+        self, spec: ResolvedSpec, features: frozenset[str], vote_deep_slot: RightToken | None = None
+    ):
         self.spec = spec
         self.features = frozenset(features)
         # The follower-vote's second slot (design section 5.9): real settlement keeps it UNKNOWN-optimistic to confine deep-window behavior to own-rune records, but the section 5.7 guard's dedicated engines bind it to the window edge — a guard verdict is a function of two raw slots, so a vote that would need deeper text to fire definitively must not flip a formation verdict.
@@ -1087,7 +1089,10 @@ def _blocked_under(engine: Engine, liga_name: str, right1: RightToken, right2: R
     )
     if not any(c.seam is not None for c in engine.candidates(virtual, trail, right1, right2)):
         return False
-    if engine.transition_trace(virtual, RightToken("letter", trail), right1, right2, EDGE, EDGE).settled.seam is None:
+    if (
+        engine.transition_trace(virtual, RightToken("letter", trail), right1, right2, EDGE, EDGE).settled.seam
+        is None
+    ):
         return False
     return not any(
         c.seam is not None for c in engine.candidates(LeftContext("edge"), liga_name, right1, right2)

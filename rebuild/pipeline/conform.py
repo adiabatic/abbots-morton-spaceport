@@ -860,6 +860,61 @@ def _guard_follower_slots(spec, settle_module, label):
     return settle_module.RightToken("letter", label), None
 
 
+def _formed_liga_guard_repair(spec, settle_module, tokens: list) -> bool:
+    """A formed-ligature label anywhere in an assembled stream must satisfy its own section 5.7 guard over the raw tokens that follow it, or the raw replay would leave the pair unformed and the stream would never realize the window. An interior label has its guard slots pinned by the stream, so a blocked verdict just discards the candidate — the same fate `_refolds_intact` would deliver, caught early. A label whose letter follower is the stream's last token reads the text edge at the guard's second slot, and a blocked verdict there is repaired in place by appending a letter under which the guard releases. First needed when the guard learned right2-dependent verdicts: a `(qsDay_qsUtter, qsSee)` lookahead adjacency with nothing deeper pinned is realizable only under a ·Low or ·Utter continuation. Returns False when the stream is unrealizable."""
+    from rebuild.pipeline.table import BOUNDARY_LEFT_LABELS
+
+    boundary_kinds = {label: kind for kind, label in BOUNDARY_LEFT_LABELS.items() if kind != "edge"}
+    pairs = {
+        (rune.sequence[-2], rune.sequence[-1]): name for name, rune in spec.runes.items() if rune.sequence
+    }
+
+    def slot(index: int):
+        if index >= len(tokens):
+            return settle_module.EDGE
+        token = tokens[index]
+        kind = boundary_kinds.get(token)
+        if kind is not None:
+            return settle_module.RightToken(kind)
+        rune = spec.runes.get(token)
+        if rune is not None and rune.sequence:
+            return settle_module.RightToken("letter", rune.sequence[0])
+        return settle_module.RightToken("letter", token)
+
+    for i in range(len(tokens)):
+        rune = spec.runes.get(tokens[i])
+        if rune is None or not rune.sequence:
+            continue
+        follower, pinned_second = (
+            _guard_follower_slots(spec, settle_module, tokens[i + 1])
+            if i + 1 < len(tokens) and tokens[i + 1] not in boundary_kinds
+            else (slot(i + 1), None)
+        )
+        if follower.kind != "letter":
+            continue
+        second = pinned_second if pinned_second is not None else slot(i + 2)
+        if not settle_module.formation_blocked(spec, tokens[i], follower, second):
+            continue
+        if pinned_second is not None or i + 2 < len(tokens):
+            return False
+        appended = next(
+            (
+                name
+                for name in sorted(spec.runes)
+                if not spec.runes[name].sequence
+                and (tokens[i + 1], name) not in pairs
+                and not settle_module.formation_blocked(
+                    spec, tokens[i], follower, settle_module.RightToken("letter", name)
+                )
+            ),
+            None,
+        )
+        if appended is None:
+            return False
+        tokens.append(appended)
+    return True
+
+
 def _assemble_window_witness(spec, prefix, row) -> tuple[str, ...] | None:
     """One candidate stream from one prefix: the prefix, the input, then just enough right context to pin right1/right2 (a boundary token, a letter, or nothing for the text edge) plus the pinned deep slots. A window whose input and right1 are a formation pair exists only where the section 5.7 guard fires, and the guard's second slot is the token after right2 — beyond what the window pins — so such a witness is extended with a second-slot letter under which the guard fires. The assembled stream must survive the raw replay unchanged (`_refolds_intact`); a stream the guard would refold differently — a prefix ligature un-formed, an adjacent pair re-formed — is discarded so the caller falls through to the next candidate."""
     from rebuild.pipeline import settle as settle_module
@@ -1049,6 +1104,8 @@ def _assemble_window_witness(spec, prefix, row) -> tuple[str, ...] | None:
                     if follower is None:
                         return None
                     tokens.append(follower)
+    if not _formed_liga_guard_repair(spec, settle_module, tokens):
+        return None
     if not _refolds_intact(spec, tokens):
         return None
     return tuple(tokens)
