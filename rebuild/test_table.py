@@ -14,6 +14,7 @@ from rebuild.pipeline.table import (
     depth3_inputs,
     depth4_inputs,
     fourth_slot_filter,
+    third_slot_filter,
 )
 
 SPEC = fixtures.mini_spec()
@@ -215,6 +216,28 @@ class TestDepthThreeTables:
                 saw_enumerated = True
         assert saw_enumerated
 
+    def test_look3_enumerated_only_where_the_chain_is_live(self, real_spec, real_default_decision):
+        live = third_slot_filter(real_spec, frozenset())
+        assert live("qsDay", "qsTea", "qsUtter")
+        assert live("qsDay", "qsTea", "qsNo")
+        assert not live("qsDay", "qsUtter", "qsTea")
+        assert not live("qsMay", "qsTea", "qsUtter")
+        deep = depth3_inputs(real_spec)
+        saw_enumerated = False
+        for row in real_default_decision.transitions:
+            family = row.input_glyph.split(".")[0]
+            if (
+                family not in deep
+                or row.right1 in BOUNDARYISH
+                or row.right2 in BOUNDARYISH
+                or not live(family, row.right1, row.right2)
+            ):
+                assert row.right3 == NA_LABEL, row.key
+            else:
+                assert row.right3 != NA_LABEL, row.key
+                saw_enumerated = True
+        assert saw_enumerated
+
     def test_look4_enumerated_only_where_the_chain_is_live(self, real_spec, real_default_decision):
         live = fourth_slot_filter(real_spec, frozenset())
         assert live("qsDay", "qsTea", "qsUtter", "qsTea")
@@ -373,6 +396,16 @@ class TestDepthFourTablesSynthetic:
             if row.input_glyph.split(".")[0] != "qsTea" or row.right4 == NA_LABEL:
                 continue
             assert (row.right1, row.right2, row.right3) == ("qsMay", "qsMay", "qsMay"), row.key
+
+    def test_third_slot_shares_the_chain_liveness(self, synthetic_spec, synthetic_decision):
+        live = third_slot_filter(synthetic_spec, frozenset())
+        assert live("qsTea", "qsMay", "qsMay")
+        assert not live("qsTea", "qsMay", "qsIt")
+        assert not live("qsTea", "qsIt", "qsMay")
+        for row in synthetic_decision.transitions:
+            if row.input_glyph.split(".")[0] != "qsTea" or row.right3 == NA_LABEL:
+                continue
+            assert (row.right1, row.right2) == ("qsMay", "qsMay"), row.key
 
     def test_hard_invariants_hold_with_the_fourth_slot(self, synthetic_decision):
         synthetic_decision.assert_outcome_partition()

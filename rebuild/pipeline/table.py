@@ -4,7 +4,7 @@
 
 Outcome-partition compression is DFA-style per input and per slot: two fillers land in one class iff their full outcome signatures over the other slots are identical. `assert_outcome_partition` re-derives the partitions and replays every reachable transition against the ordered rules under first-match-wins semantics — the hard build invariant of prototype follow-up 1. Rule ordering per input follows the proven discipline: boundary-outcome rows with `uni200C` explicit in the class first, three-lookahead-slot rows before two-slot rows before one-slot rows, identity rows omitted, the slot-dropped fallback last, plus ZWNJ backtrack-slot coverage guards for never-locked inputs.
 
-Rows carry a fourth window slot, `right3`, enumerated lazily: only an input whose own rune carries a depth-3 prefer record (`depth3_inputs`) gets its windows split by the raw third lookahead, and only where both nearer slots are letters — everywhere else the slot stays `#NA`, mirroring the established convention that no record peeks past a boundary. An enumerated window's settled left state is reachable only alongside right2 equal to that window's right3, so the worklist pins the successor's allowed-right2 set to that singleton — the same exactness plumbing the late-formation guard already rides — and the right3 options replay the right2 filters shifted one slot (formation-impossible adjacent pairs, guard-firing follower sets, `liga_formed_before` with the second slot now pinned). The fifth slot, `right4`, repeats the pattern one deeper and adds a liveness gate: only a depth-4 input (`depth4_inputs`) with letters at all three nearer slots, and only where `fourth_slot_filter` finds some own-rune depth-4 prefer chain still unknown over those three slots, enumerates it — a chain that already resolved definitely cannot be flipped by the fourth token, so those windows keep right4 at `#NA` instead of fanning out per follower. Where it does enumerate, its options replay the same filters shifted once more, and the worklist pins the successor's right3 to the producing window's right4. `_assert_window_arity` ties the Transition/Rule slot count to `model.RIGHT_WINDOW_SLOTS` at import, so the chain cap and the table can only widen together.
+Rows carry a fourth window slot, `right3`, enumerated lazily and only where live: an input whose own rune carries a depth-3 prefer record (`depth3_inputs`) gets its windows split by the raw third lookahead, only where both nearer slots are letters, and only where `third_slot_filter` finds some own-rune depth-3 prefer chain still unknown over (right1, right2) — a chain that already resolved definitely cannot be flipped by a deeper token, so everywhere else the slot stays `#NA`, mirroring the established convention that no record peeks past a boundary. An enumerated window's settled left state is reachable only alongside right2 equal to that window's right3, so the worklist pins the successor's allowed-right2 set to that singleton — the same exactness plumbing the late-formation guard already rides — and the right3 options replay the right2 filters shifted one slot (formation-impossible adjacent pairs, guard-firing follower sets, `liga_formed_before` with the second slot now pinned). The fifth slot, `right4`, repeats the pattern one deeper: only a depth-4 input (`depth4_inputs`) with letters at all three nearer slots, and only where `fourth_slot_filter` finds some own-rune depth-4 prefer chain still unknown over those three slots, enumerates it. Where it does enumerate, its options replay the same filters shifted once more, and the worklist pins the successor's right3 to the producing window's right4. `_assert_window_arity` ties the Transition/Rule slot count to `model.RIGHT_WINDOW_SLOTS` at import, so the chain cap and the table can only widen together.
 
 Joint rows combine both section 6.1 flags: ranking ties broken by the structural floor between candidates differing in seam realization, and windows whose deliberately optimistic prospect diverges from the follower's actual settled choice. Both TSV artifacts are diff-stable (section 8): sorted rows, provenance pointers, deterministic labels.
 
@@ -379,6 +379,41 @@ def _deep_inputs(spec: ResolvedSpec, reach: int) -> frozenset[str]:
     return frozenset(out)
 
 
+def third_slot_filter(
+    spec: ResolvedSpec, features: frozenset[str], engine: Engine | None = None
+) -> Callable[[str, str, str], bool]:
+    """Whether the raw third slot can decide a depth-3 input's window, keyed by rune-family names: (input family, right1 family, right2 family) -> bool. True exactly when some depth-3-reach prefer chain on the input's own rune evaluates to unknown over (right1, right2, UNKNOWN, UNKNOWN) — `cond_matches_right` returns None whenever a consulted constraint touched a beyond-window token, and a definite True/False verdict never consulted one, so a window judged definite here settles identically under every third token and its right3 stays #NA. `fourth_slot_filter` is the same gate one slot deeper; a window this filter judges definite is definite for it too (reach-3 chains are reach-2 chains), so a dead third slot never hides a live fourth. Shared by `build_tables` (enumeration gate) and conform's window replay, which must agree on which windows carry a live third slot."""
+    probe = engine if engine is not None else Engine(spec, features)
+    chains = {
+        name: tuple(
+            record.when.right
+            for record in spec.runes[name].policy.prefer
+            if record.when.right is not None and right_chain_reach(record.when.right) >= 2
+        )
+        for name in depth3_inputs(spec)
+    }
+    verdicts: dict[tuple[str, str, str], bool] = {}
+
+    def matters(input_family: str, right1: str, right2: str) -> bool:
+        key = (input_family, right1, right2)
+        cached = verdicts.get(key)
+        if cached is None:
+            window = (
+                RightToken("letter", right1),
+                RightToken("letter", right2),
+                UNKNOWN,
+                UNKNOWN,
+            )
+            cached = any(
+                probe.cond_matches_right(input_family, chain, window) is None
+                for chain in chains.get(input_family, ())
+            )
+            verdicts[key] = cached
+        return cached
+
+    return matters
+
+
 def fourth_slot_filter(
     spec: ResolvedSpec, features: frozenset[str], engine: Engine | None = None
 ) -> Callable[[str, str, str, str], bool]:
@@ -489,6 +524,7 @@ def build_tables(spec: ResolvedSpec, features: frozenset[str]) -> tuple[Decision
     survivable = _survivable_formation_windows(spec, right_letters, right_boundaries)
     deep_inputs = depth3_inputs(spec)
     deep4_inputs = depth4_inputs(spec)
+    third_slot_matters = third_slot_filter(spec, features, engine)
     fourth_slot_matters = fourth_slot_filter(spec, features, engine)
 
     from rebuild.pipeline import settle as settle_module
@@ -575,7 +611,12 @@ def build_tables(spec: ResolvedSpec, features: frozenset[str]) -> tuple[Decision
                 right2_options = [EDGE]
             for right2 in right2_options:
                 right3_slots: list[RightToken | None]
-                if rune_name in deep_inputs and right1.kind == "letter" and right2.kind == "letter":
+                if (
+                    rune_name in deep_inputs
+                    and right1.kind == "letter"
+                    and right2.kind == "letter"
+                    and third_slot_matters(rune_name, right1.letter, right2.letter)
+                ):
                     right3_options = [
                         r
                         for r in right_boundaries + right_letters
