@@ -1893,7 +1893,7 @@ def _seed_auto_repo(tmp_path, monkeypatch, *, stamp="2026-07-17T20:24:44Z"):
     monkeypatch.setattr(ac, "RUN_M1_GREEN", tmp_path / "rebuild" / "out" / "run-m1-green.json")
     monkeypatch.setattr(ac, "CONFORM_GREEN", tmp_path / "rebuild" / "out" / "conform-green.json")
     monkeypatch.setattr(ac, "REBUILD_GATE_GREEN", tmp_path / "rebuild" / "out" / "rebuild-gate-green.json")
-    monkeypatch.setattr(ac, "CENSUS_GREEN", tmp_path / "rebuild" / "out" / "census-green.json")
+    monkeypatch.setattr(ac, "CENSUS_RESULT", tmp_path / "rebuild" / "out" / "census-result.json")
 
 
 def test_dry_run_auto_resolves_the_carry_source(tmp_path, monkeypatch, capsys):
@@ -2568,6 +2568,29 @@ def test_main_defers_nothing_once_the_artifacts_have_settled(tmp_path, monkeypat
     assert "gate:conform: uv run python -m rebuild.pipeline.run_m1 --conform-only" in out
 
 
+def test_main_skips_the_census_on_a_recorded_outcome_stale_included(tmp_path, monkeypatch, capsys):
+    _defer_repo(tmp_path, monkeypatch)
+    ac.record_green(ac.RUN_M1_GREEN, "key")
+    monkeypatch.setattr(ac, "m1_artifacts_present", lambda root=None: True)
+    monkeypatch.setattr(ac, "surface_build_skippable", lambda root=None: True)
+    monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, horizon=None: "no-match")
+    monkeypatch.setattr(ac, "rebuild_gate_skip_fingerprint", lambda root=None: "no-match")
+    monkeypatch.setattr(ac, "census_skip_fingerprint", lambda root=None, surface=None: "cen-key")
+    ac.record_census_result(
+        ac.CENSUS_RESULT, "cen-key", "stale", ["ink.machine_total: pinned 1 != computed 2"]
+    )
+    assert ac.main(["--dry-run"]) == 0
+    out = capsys.readouterr().out
+    assert "census auto-skipped: surface, pins, and source inputs unchanged since the last stale check" in out
+    assert "census: SKIPPED (surface, pins, and source inputs unchanged since the last stale check" in out
+    ac.record_census_result(ac.CENSUS_RESULT, "cen-key", "clean", [])
+    assert ac.main(["--dry-run"]) == 0
+    assert "since the last clean check" in capsys.readouterr().out
+    ac.record_census_result(ac.CENSUS_RESULT, "moved-key", "stale", [])
+    assert ac.main(["--dry-run"]) == 0
+    assert "census auto-skipped" not in capsys.readouterr().out
+
+
 def test_main_never_defers_a_rehearsal(tmp_path, monkeypatch, capsys):
     """A rehearsal writes its surface elsewhere, so its surface build is unskippable and every pass would look refreshing — deferring would never converge."""
     _defer_repo(tmp_path, monkeypatch)
@@ -2892,9 +2915,9 @@ def test_update_pins_cycle_keeps_census_failures_hard_when_pins_unmoved(monkeypa
     assert "rebuild suite: 1 unexplained failure(s)" in capsys.readouterr().out
 
 
-def test_do_census_records_clean_green_and_clears_on_stale(monkeypatch, tmp_path):
-    green = tmp_path / "census-green.json"
-    monkeypatch.setattr(ac, "CENSUS_GREEN", green)
+def test_do_census_records_clean_and_stale_outcomes(monkeypatch, tmp_path):
+    result_path = tmp_path / "census-result.json"
+    monkeypatch.setattr(ac, "CENSUS_RESULT", result_path)
     monkeypatch.setattr(ac, "census_skip_fingerprint", lambda root=None, surface=None: "cen-fp")
     status = ac._do_census(
         spawn=lambda *a, **k: _step("census", 0),
@@ -2905,11 +2928,19 @@ def test_do_census_records_clean_green_and_clears_on_stale(monkeypatch, tmp_path
         record=True,
     )
     assert status == "clean"
-    record = ac.read_green_record(green)
+    record = ac.read_census_result(result_path)
     assert record is not None
-    assert record["fingerprint"] == "cen-fp"
+    assert (record["fingerprint"], record["status"], record["mismatches"]) == ("cen-fp", "clean", [])
+    stale_stderr = "\n".join(
+        [
+            "census pins are stale:",
+            "  ink.machine_total: pinned 1 != computed 2",
+            "  ink.non_identical: pinned 3 != computed 4",
+            "Re-baseline with: uv run python -m rebuild.review.census --update",
+        ]
+    )
     status = ac._do_census(
-        spawn=lambda *a, **k: _step("census", 1),
+        spawn=lambda *a, **k: _step("census", 1, stderr=stale_stderr),
         emit=ac._Emitter(),
         registry=ac._ChildRegistry(),
         update_pins=False,
@@ -2917,7 +2948,100 @@ def test_do_census_records_clean_green_and_clears_on_stale(monkeypatch, tmp_path
         record=True,
     )
     assert status.startswith("STALE")
-    assert ac.read_green_record(green) is None
+    record = ac.read_census_result(result_path)
+    assert record is not None
+    assert (record["fingerprint"], record["status"]) == ("cen-fp", "stale")
+    assert record["mismatches"] == [
+        "ink.machine_total: pinned 1 != computed 2",
+        "ink.non_identical: pinned 3 != computed 4",
+    ]
+
+
+def test_do_census_never_records_a_verdictless_failure(monkeypatch, tmp_path):
+    """A nonzero check without the stale header — a crash, a missing pins file — has no replayable verdict: it must record nothing, and a prior record its key contradicts must go, so no later cycle can skip on it."""
+    result_path = tmp_path / "census-result.json"
+    monkeypatch.setattr(ac, "CENSUS_RESULT", result_path)
+    monkeypatch.setattr(ac, "census_skip_fingerprint", lambda root=None, surface=None: "cen-fp")
+    ac.record_census_result(result_path, "cen-fp", "clean", [])
+    status = ac._do_census(
+        spawn=lambda *a, **k: _step("census", 1, stderr="Traceback (most recent call last):\n  boom"),
+        emit=ac._Emitter(),
+        registry=ac._ChildRegistry(),
+        update_pins=False,
+        surface=tmp_path,
+        record=True,
+    )
+    assert status.startswith("STALE")
+    assert ac.read_census_result(result_path) is None
+
+
+def test_read_census_result_rejects_a_statusless_record(tmp_path):
+    path = tmp_path / "census-result.json"
+    ac.record_green(path, "cen-fp")
+    assert ac.read_green_record(path) is not None
+    assert ac.read_census_result(path) is None
+
+
+def test_census_stale_stderr_matches_the_cycle_parser(monkeypatch, tmp_path, capsys):
+    """The parse contract with rebuild.review.census, exercised against its real --check output: if the stale report's wording drifts, this fails instead of every stale check silently degrading to a re-run per pass."""
+    from rebuild.review import census
+
+    pins = tmp_path / "pins.json"
+    pins.write_text(json.dumps({"audit": {"row_count": 1}}))
+    monkeypatch.setattr(census, "PINS_PATH", pins)
+    monkeypatch.setattr(census, "compute_pins", lambda surface: {"audit": {"row_count": 2}})
+    assert census.main(["--check"]) == 1
+    err = capsys.readouterr().err
+    assert ac.census_mismatch_lines(err) == ["audit.row_count: pinned 1 != computed 2"]
+
+
+def test_run_cycle_replays_a_recorded_stale_census(monkeypatch, capsys):
+    def census_must_not_run(**_):
+        raise AssertionError("skip path must not run the census")
+
+    monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
+    monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
+    monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
+    monkeypatch.setattr(ac, "_gate_rebuild_task", _rebuild_green)
+    monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
+    _patch_build_chain(monkeypatch)
+    monkeypatch.setattr(ac, "_do_census", census_must_not_run)
+
+    plan = _plan(
+        skip_census=True,
+        census_skip_note="surface, pins, and source inputs unchanged since the last stale check; --fresh overrides",
+        census_replay={
+            "fingerprint": "cen-fp",
+            "status": "stale",
+            "mismatches": ["ink.machine_total: pinned 1 != computed 2"],
+        },
+    )
+    report = ac.CycleReport()
+    rc = ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=lambda *a, **k: _step())
+    assert rc == 0
+    assert report.census_status.startswith("STALE (recorded outcome replayed")
+    out = capsys.readouterr().out
+    assert "census pins are stale (recorded outcome replayed" in out
+    assert "  ink.machine_total: pinned 1 != computed 2" in out
+
+
+def test_run_cycle_reads_a_replayed_clean_outcome_as_an_ordinary_skip(monkeypatch):
+    monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
+    monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
+    monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
+    monkeypatch.setattr(ac, "_gate_rebuild_task", _rebuild_green)
+    monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
+    _patch_build_chain(monkeypatch)
+
+    plan = _plan(
+        skip_census=True,
+        census_skip_note="surface, pins, and source inputs unchanged since the last clean check; --fresh overrides",
+        census_replay={"fingerprint": "cen-fp", "status": "clean", "mismatches": []},
+    )
+    report = ac.CycleReport()
+    rc = ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=lambda *a, **k: _step())
+    assert rc == 0
+    assert report.census_status == f"skipped ({plan.census_skip_note})"
 
 
 def test_snapshot_surface_copies_tree(tmp_path):
