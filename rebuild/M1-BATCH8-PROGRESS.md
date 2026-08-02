@@ -5,6 +5,7 @@ Scratch for the ·Et migration. Delete when the batch closes, lifting any surviv
 ## Committed
 
 - `Don't join ·It·Et (it looks kind of ugly)` — the qsIt x-height-exit refusal toward qsEt; the ·It·Et windows that matched the old font re-queue as deliberate divergences at the next cycle.
+- `Contract ·Et·May by a pixel` — the qsEt baseline-exit contract toward qsMay (plus the ·Low-riser contact re-blessing under the contracted twin's name); every approved ·Et·May sharer re-queues as deliberate churn at the next cycle.
 
 ## Parked
 
