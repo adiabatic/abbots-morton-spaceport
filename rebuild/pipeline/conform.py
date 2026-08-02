@@ -849,6 +849,17 @@ def _window_witness_candidates(spec, prefixes, by_right3, row) -> list[tuple[str
     return candidates
 
 
+def _guard_follower_slots(spec, settle_module, label):
+    """The raw slots a section 5.7 guard reads when the window slot after a formation pair holds `label`: a formed-ligature label stands for its own component sequence in the raw stream, so the guard's two slots are that ligature's lead and trailing components — pinned by the label itself, with no room for a hunted second-slot token between them — while a letter label is its own first slot with the second left open (None) for the caller's hunt. First possible with qsSee_qsUtter, whose lead is itself a member of another ligature's guard class."""
+    rune = spec.runes.get(label)
+    if rune is not None and rune.sequence:
+        return (
+            settle_module.RightToken("letter", rune.sequence[0]),
+            settle_module.RightToken("letter", rune.sequence[-1]),
+        )
+    return settle_module.RightToken("letter", label), None
+
+
 def _assemble_window_witness(spec, prefix, row) -> tuple[str, ...] | None:
     """One candidate stream from one prefix: the prefix, the input, then just enough right context to pin right1/right2 (a boundary token, a letter, or nothing for the text edge) plus the pinned deep slots. A window whose input and right1 are a formation pair exists only where the section 5.7 guard fires, and the guard's second slot is the token after right2 — beyond what the window pins — so such a witness is extended with a second-slot letter under which the guard fires. The assembled stream must survive the raw replay unchanged (`_refolds_intact`); a stream the guard would refold differently — a prefix ligature un-formed, an adjacent pair re-formed — is discarded so the caller falls through to the next candidate."""
     from rebuild.pipeline import settle as settle_module
@@ -888,8 +899,15 @@ def _assemble_window_witness(spec, prefix, row) -> tuple[str, ...] | None:
                         tokens.append(_label_family(right4))
                     liga_at_lookahead = pairs.get((_label_family(row.right1), _label_family(row.right2)))
                     if liga_at_lookahead is not None and right4 in (EDGE_LABEL, NA_LABEL):
-                        follower = settle_module.RightToken("letter", _label_family(right3))
-                        if not settle_module.formation_blocked(
+                        follower, pinned_second = _guard_follower_slots(
+                            spec, settle_module, _label_family(right3)
+                        )
+                        if pinned_second is not None:
+                            if not settle_module.formation_blocked(
+                                spec, liga_at_lookahead, follower, pinned_second
+                            ):
+                                return None
+                        elif not settle_module.formation_blocked(
                             spec, liga_at_lookahead, follower, settle_module.EDGE
                         ):
                             second = next(
@@ -912,8 +930,15 @@ def _assemble_window_witness(spec, prefix, row) -> tuple[str, ...] | None:
                             tokens.append(second)
                     liga_past = pairs.get((_label_family(row.right2), _label_family(right3)))
                     if liga_past is not None and right4_letter:
-                        r4_token = settle_module.RightToken("letter", _label_family(right4))
-                        if not settle_module.formation_blocked(spec, liga_past, r4_token, settle_module.EDGE):
+                        r4_token, pinned_second = _guard_follower_slots(
+                            spec, settle_module, _label_family(right4)
+                        )
+                        if pinned_second is not None:
+                            if not settle_module.formation_blocked(spec, liga_past, r4_token, pinned_second):
+                                return None
+                        elif not settle_module.formation_blocked(
+                            spec, liga_past, r4_token, settle_module.EDGE
+                        ):
                             second = next(
                                 (
                                     name
@@ -980,8 +1005,13 @@ def _assemble_window_witness(spec, prefix, row) -> tuple[str, ...] | None:
             else:
                 liga = pairs.get((_label_family(row.input_glyph), _label_family(row.right1)))
                 if liga is not None:
-                    follower = settle_module.RightToken("letter", _label_family(row.right2))
-                    if not settle_module.formation_blocked(spec, liga, follower, settle_module.EDGE):
+                    follower, pinned_second = _guard_follower_slots(
+                        spec, settle_module, _label_family(row.right2)
+                    )
+                    if pinned_second is not None:
+                        if not settle_module.formation_blocked(spec, liga, follower, pinned_second):
+                            return None
+                    elif not settle_module.formation_blocked(spec, liga, follower, settle_module.EDGE):
                         second = next(
                             (
                                 name
