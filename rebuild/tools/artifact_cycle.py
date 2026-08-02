@@ -4,7 +4,7 @@ It mechanizes the commit-time sequence: snapshot the current review surface (the
 
 The exit-code trap this driver exists to defuse: run_m1.main() SystemExits nonzero whenever any oracle rows are UNMATCHED, which is always true mid-migration. Its exit code is therefore not the gate; the four summary JSONs it writes are. The real gates are defect_errors, the boundary and Manual-pin passes, and multi_matched == 0.
 
-The two artifact-independent gates (js, make-test) run from t=0 in a small thread pool while the build chain runs inline-serial in the main thread; gate:rebuild starts after the run_m1 gate passes, queued behind make-test by default so only one 12-way pytest pool is ever hot. gate:conform (the exhaustive font-vs-settle sweep, run_m1 --conform-only) also starts after the run_m1 gate passes and, by default, parks at the tail of the make-test -> rebuild chain, so only one heavy gate pool is hot at a time — the build chain rides alongside whichever one that is at half width rather than serial (see stage_job_budget). Co-resident, the two heavy pools oversubscribe the cores roughly 2:1, and measured that contention roughly tripled gate:rebuild's wall time — a worse critical path than running the same work in sequence. --rebuild-pool overlap restores full co-residency.
+The two artifact-independent gates (js, make-test) run from t=0 in a small thread pool while the build chain runs inline-serial in the main thread. gate:conform (the exhaustive font-vs-settle sweep, run_m1 --conform-only) starts after the run_m1 gate passes, queued behind make-test by default. gate:rebuild is submitted later, only once the build lane's census step has landed its verdict — the pins are part of the suite's input closure, so submitting earlier means running against pins the same cycle is about to judge or rewrite. That ordering carries two rules. On a pass without --update-pins, a census outcome of STALE (live or replayed) defers the gate outright (skip: "deferred", remedy --update-pins) instead of running it: census-pinned failures under known-stale pins are foregone, so the long suite run could report nothing but hints and could never record green. On an --update-pins pass, the suite always reads the pins the census step just rewrote, so a census-module failure is a real failure, the old start-before-update race and its amnesty are gone, and the pass records rebuild-gate-green.json itself. Under the default queue policy gate:rebuild parks at the tail of the make-test -> conform chain, so only one heavy gate pool is hot at a time — the build chain (census included) rides alongside whichever one that is at half width rather than serial (see stage_job_budget), which is why the late submission costs no wall time. Co-resident, the two heavy pools oversubscribe the cores roughly 2:1, and measured that contention roughly tripled gate:rebuild's wall time — a worse critical path than running the same work in sequence. --rebuild-pool overlap restores full co-residency (gate:rebuild still waits for the census step).
 
 gate:make-test is auto-skipped when its input closure is provably unchanged since the last green run. The closure is every tracked or untracked-unignored file outside rebuild/, glyph_data/runes/, doc/, tmp/, .claude/, and Markdown — nothing `make test` executes (make all -> build_font over glyph_data/*.yaml non-recursively, typst, pyright over tools/ test/ conftest.py, pytest test/ site/) reads those trees, so a diff confined to them cannot move the gate's outcome and re-running its ~15 CPU-minutes would verify nothing. The last green fingerprint lives in rebuild/out/make-test-green.json, written by rebuild.tools.make_test_gate — the `make test` entry point — on every green run, so interactive greens and cycle greens share one record and `make test` itself self-skips on the same test. cycle_summary.json still records the fingerprint the cycle ran (or validly skipped) against, and prior_make_test_fingerprint falls back to it when the shared record is absent. The fingerprint sees file content only — a system-toolchain change (a typst upgrade, say; pyright and pytest are pinned through uv.lock, which is in the closure) is invisible to it. --force-make-test runs the gate regardless (as does `make test FORCE=1` inside the wrapper).
 
@@ -64,6 +64,7 @@ POOL_POLICIES = ("queue", "overlap")
 REBUILD_POOL_POLICY_DEFAULT = "queue"
 DEFERRABLE_GATES = ("rebuild", "conform", "make-test")
 DEFER_NOTE = "surface refreshed this pass; run the cycle again to run it"
+STALE_CENSUS_DEFER_NOTE = "stale census pins; re-run with --update-pins to refresh them first"
 _GATE_POOL_WORKERS = 5
 _CONFORM_JOBS_CAP = 8
 CONFORM_HORIZON_DEFAULT = 5
@@ -525,6 +526,7 @@ class Plan:
     skip_census: bool = False
     census_skip_note: str = ""
     census_replay: dict | None = None
+    defer_rebuild_on_stale_census: bool = True
     deferred: frozenset[str] = frozenset()
     preserve_snapshot: Path | None = None
     record_greens: bool = False
@@ -537,6 +539,17 @@ class Plan:
     complaints_note: str = ""
     retention: bool = False
     steps: list[Step] = field(default_factory=list)
+
+
+def stale_census_known(plan: Plan) -> bool:
+    """Whether the pass already knows, before running anything, that the census outcome is stale: a recorded stale result whose key matched, i.e. the replay path. A live --check discovers staleness only mid-cycle, so the plan can promise the deferral only here; _run_cycle applies the same policy to a live STALE at submission time."""
+    return (
+        plan.defer_rebuild_on_stale_census
+        and not plan.update_pins
+        and plan.skip_census
+        and plan.census_replay is not None
+        and plan.census_replay.get("status") == "stale"
+    )
 
 
 def jstest_argv() -> list[str]:
@@ -582,6 +595,7 @@ def build_plan(
     skip_census: bool = False,
     census_skip_note: str = "",
     census_replay: dict | None = None,
+    defer_rebuild_on_stale_census: bool = True,
     deferred: frozenset[str] = frozenset(),
     preserve_snapshot: Path | None = None,
     record_greens: bool = False,
@@ -632,6 +646,7 @@ def build_plan(
         skip_census=skip_census,
         census_skip_note=census_skip_note,
         census_replay=census_replay,
+        defer_rebuild_on_stale_census=defer_rebuild_on_stale_census,
         deferred=deferred,
         preserve_snapshot=preserve_snapshot,
         record_greens=record_greens,
@@ -807,30 +822,6 @@ def build_plan(
         plan.steps.append(Step("gates", None, "SKIPPED (--skip-gates)"))
     else:
         plan.steps.append(Step("gate:js", jstest_argv(), lane="t0"))
-        if skip_rebuild_gate:
-            plan.steps.append(Step("gate:rebuild", None, f"SKIPPED ({rebuild_gate_note})", lane="rebuild"))
-        elif "rebuild" in deferred:
-            plan.steps.append(Step("gate:rebuild", None, f"DEFERRED ({DEFER_NOTE})", lane="rebuild"))
-        else:
-            plan.steps.append(
-                Step(
-                    "gate:rebuild",
-                    [
-                        "uv",
-                        "run",
-                        "pytest",
-                        "rebuild/",
-                        "-n",
-                        "auto",
-                        "--dist",
-                        "worksteal",
-                        "-q",
-                        "--tb=no",
-                        "-rfE",
-                    ],
-                    lane="rebuild",
-                )
-            )
         if skip_conform:
             plan.steps.append(
                 Step("gate:conform", None, f"SKIPPED ({conform_note or '--skip-conform'})", lane="conform")
@@ -840,6 +831,27 @@ def build_plan(
         else:
             plan.steps.append(
                 Step("gate:conform", conform_gate_argv(conform_jobs, conform_horizon), lane="conform")
+            )
+        if skip_rebuild_gate:
+            plan.steps.append(Step("gate:rebuild", None, f"SKIPPED ({rebuild_gate_note})", lane="rebuild"))
+        elif "rebuild" in deferred:
+            plan.steps.append(Step("gate:rebuild", None, f"DEFERRED ({DEFER_NOTE})", lane="rebuild"))
+        elif stale_census_known(plan):
+            plan.steps.append(
+                Step("gate:rebuild", None, f"DEFERRED ({STALE_CENSUS_DEFER_NOTE})", lane="rebuild")
+            )
+        else:
+            plan.steps.append(
+                Step(
+                    "gate:rebuild",
+                    list(REBUILD_PYTEST_ARGV),
+                    (
+                        "submitted once the census step has rewritten the pins"
+                        if update_pins
+                        else "submitted after the census step; a STALE outcome defers it instead"
+                    ),
+                    lane="rebuild",
+                )
             )
         if skip_make_test:
             plan.steps.append(Step("gate:make-test", None, f"SKIPPED ({make_test_note})", lane="t0"))
@@ -929,36 +941,14 @@ def _render_concurrency(plan: Plan) -> list[str]:
     defer_conform = "conform" in plan.deferred
     defer_make_test = "make-test" in plan.deferred
     no_make_test = plan.skip_make_test or defer_make_test
-    no_rebuild = plan.skip_rebuild_gate or defer_rebuild
+    no_conform = plan.skip_conform or defer_conform
     t0_lane = "gate:js" if no_make_test else "gate:js, gate:make-test"
     lines = [
         "",
         f"  Concurrency (pool policy: {plan.pool_policy}):",
         f"    Lane t0   [from t=0, background]  : {t0_lane}",
-        "    Lane build[serial, main thread]  : snapshot -> run_m1 -> surface-build -> carry -> merge -> census",
+        "    Lane build[serial, main thread]  : snapshot -> run_m1 -> surface-build -> carry -> merge -> census -> submit gate:rebuild",
     ]
-    if plan.skip_rebuild_gate:
-        lines.append(
-            "    Lane rebuild                     : SKIPPED (inputs unchanged since its last green run)"
-        )
-    elif defer_rebuild:
-        lines.append(f"    Lane rebuild                     : DEFERRED ({DEFER_NOTE})")
-    else:
-        lines.append("    Lane rebuild                     : starts when run_m1's four JSONs pass;")
-        if plan.skip_make_test:
-            lines.append(
-                "                                       gate:make-test auto-skipped (closure unchanged), so no queueing"
-            )
-        elif defer_make_test:
-            lines.append("                                       gate:make-test deferred, so no queueing")
-        elif plan.pool_policy == "overlap":
-            lines.append(
-                "                                       CO-RESIDENT with gate:make-test (overlap policy — two 12-way pytest pools)"
-            )
-        else:
-            lines.append(
-                "                                       QUEUED behind gate:make-test  (queue policy)"
-            )
     if plan.skip_conform:
         lines.append("    Lane conform                     : SKIPPED (--skip-conform)")
     elif defer_conform:
@@ -967,18 +957,40 @@ def _render_concurrency(plan: Plan) -> list[str]:
         lines.append(
             f"    Lane conform                     : starts when run_m1's four JSONs pass; CO-RESIDENT with the pytest pools (--jobs {plan.conform_jobs})"
         )
-    elif not no_rebuild:
-        lines.append(
-            f"    Lane conform                     : starts when run_m1's four JSONs pass; QUEUED behind gate:rebuild's pool (queue policy — one heavy pool at a time) (--jobs {plan.conform_jobs})"
-        )
     elif not no_make_test:
         lines.append(
-            f"    Lane conform                     : starts when run_m1's four JSONs pass; QUEUED behind gate:make-test (queue policy; gate:rebuild skipped) (--jobs {plan.conform_jobs})"
+            f"    Lane conform                     : starts when run_m1's four JSONs pass; QUEUED behind gate:make-test (queue policy — one heavy pool at a time) (--jobs {plan.conform_jobs})"
         )
     else:
         lines.append(
-            f"    Lane conform                     : starts when run_m1's four JSONs pass; both pytest gates skipped, so no queueing (--jobs {plan.conform_jobs})"
+            f"    Lane conform                     : starts when run_m1's four JSONs pass; gate:make-test not running, so no queueing (--jobs {plan.conform_jobs})"
         )
+    if plan.skip_rebuild_gate:
+        lines.append(
+            "    Lane rebuild                     : SKIPPED (inputs unchanged since its last green run)"
+        )
+    elif defer_rebuild:
+        lines.append(f"    Lane rebuild                     : DEFERRED ({DEFER_NOTE})")
+    elif stale_census_known(plan):
+        lines.append(f"    Lane rebuild                     : DEFERRED ({STALE_CENSUS_DEFER_NOTE})")
+    else:
+        lines.append(
+            "    Lane rebuild                     : submitted after the census step lands its verdict;"
+        )
+        if plan.pool_policy == "overlap":
+            lines.append(
+                "                                       CO-RESIDENT with the other pools (overlap policy)"
+            )
+        elif not no_conform:
+            lines.append(
+                "                                       QUEUED behind gate:conform (queue policy — one heavy pool at a time)"
+            )
+        elif not no_make_test:
+            lines.append(
+                "                                       QUEUED behind gate:make-test (queue policy; gate:conform not running)"
+            )
+        else:
+            lines.append("                                       no other heavy pool running, so no queueing")
     if plan.skip_make_test:
         budget_reason = "gate:make-test skipped, so the build stages fan out"
     elif defer_make_test:
@@ -1047,6 +1059,7 @@ class CycleReport:
     gate_conform: str = "not run"
     gate_make_test: str = "not run"
     rebuild_recordable: bool = False
+    rebuild_stale_deferred: bool = False
     interrupted: bool = False
 
 
@@ -1208,19 +1221,15 @@ class RebuildOutcome:
     hard_ids: list[str]
     recordable: bool = False
     baseline_ids: list[str] = field(default_factory=list)
-    forgivable_ids: list[str] = field(default_factory=list)
 
 
 _ANSI_SGR = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 
 _STALE_PINS_NOTE = "stale census pins? (re-run with --update-pins)"
-_RACED_PINS_NOTE = (
-    "census-pinned failure(s) raced the pin refresh (the gate read the pre-update pins; re-run to verify)"
-)
 
 
 def _rebuild_verdict(
-    baseline: list[str], census: list[str], hard: list[str], census_note: str, forgivable: list[str]
+    baseline: list[str], census: list[str], hard: list[str], census_note: str
 ) -> RebuildOutcome:
     failures: list[str] = []
     if hard:
@@ -1239,12 +1248,11 @@ def _rebuild_verdict(
         hard_ids=list(hard),
         recordable=not hard and not census,
         baseline_ids=list(baseline),
-        forgivable_ids=list(forgivable),
     )
 
 
 def classify_rebuild_output(stdout: str, returncode: int, update_pins: bool) -> RebuildOutcome:
-    """Bucket the rebuild suite's FAILED/ERROR summary lines into baseline / census-hint / hard and turn them into a gate verdict — the one judgment of the suite's output, shared by the cycle's gate:rebuild and the interactive wrapper (rebuild.tools.rebuild_gate). pytest emits ANSI color whenever FORCE_COLOR is set (as it is under the agent harness), wrapping each summary line in escape codes, so strip those first — otherwise no line begins with a literal "FAILED "/"ERROR ", the documented baseline can't be subtracted, and every colored run reads as an unexplained hard failure. On an --update-pins run the census-pinned FAILED ids land in hard but are also remembered as forgivable_ids: the gate races the census refresh, so the cycle re-judges them through forgive_census_race once it knows whether the pins actually moved mid-run."""
+    """Bucket the rebuild suite's FAILED/ERROR summary lines into baseline / census-hint / hard and turn them into a gate verdict — the one judgment of the suite's output, shared by the cycle's gate:rebuild and the interactive wrapper (rebuild.tools.rebuild_gate). pytest emits ANSI color whenever FORCE_COLOR is set (as it is under the agent harness), wrapping each summary line in escape codes, so strip those first — otherwise no line begins with a literal "FAILED "/"ERROR ", the documented baseline can't be subtracted, and every colored run reads as an unexplained hard failure. On an --update-pins run the census-pinned ids stay hard: the cycle submits the suite only after the census step has rewritten the pins, so a census-module failure is judged against the pins the suite actually read."""
     lines = [_ANSI_SGR.sub("", line) for line in stdout.splitlines()]
     failed_ids = [line.split(None, 2)[1] for line in lines if line.startswith("FAILED ")]
     error_ids = [line.split(None, 2)[1] for line in lines if line.startswith("ERROR ")]
@@ -1254,29 +1262,7 @@ def classify_rebuild_output(stdout: str, returncode: int, update_pins: bool) -> 
     buckets["hard"].extend(error_ids)
     if returncode != 0 and not failed_ids and not error_ids:
         buckets["hard"].append(f"pytest exited {returncode} with no parsed FAILED/ERROR lines")
-    errored = set(error_ids)
-    forgivable = (
-        [
-            tid
-            for tid in failed_ids
-            if tid not in errored and classify_rebuild_failure(tid, update_pins=False) == "census-hint"
-        ]
-        if update_pins
-        else []
-    )
-    return _rebuild_verdict(
-        buckets["baseline"], buckets["census-hint"], buckets["hard"], _STALE_PINS_NOTE, forgivable
-    )
-
-
-def forgive_census_race(outcome: RebuildOutcome) -> RebuildOutcome:
-    """The --update-pins race amnesty, applied at gate join once the census step is known to have moved the pins while the gates ran: gate:rebuild's pytest pool starts as soon as the run_m1 gate passes, so it can read the pre-update pins, and a census-pinned module's failure then proves nothing about the pins now on disk. Those failures get the same census-hint treatment they get without --update-pins — reported as hints, never recorded green — while every other hard failure stays hard. Only the FAILED ids the no-update-pins classifier would itself forgive are eligible (forgivable_ids), so a collection ERROR in a census module stays hard here exactly as it would on a --check run, and an id that both FAILED and ERRORed in one run (a teardown crash) is never forgivable — both copies stay hard rather than letting the FAILED copy's amnesty mask the crash."""
-    forgivable = set(outcome.forgivable_ids)
-    forgiven = [tid for tid in outcome.hard_ids if tid in forgivable]
-    if not forgiven:
-        return outcome
-    hard = [tid for tid in outcome.hard_ids if tid not in forgivable]
-    return _rebuild_verdict(outcome.baseline_ids, forgiven, hard, _RACED_PINS_NOTE, [])
+    return _rebuild_verdict(buckets["baseline"], buckets["census-hint"], buckets["hard"], _STALE_PINS_NOTE)
 
 
 def _do_run_m1(
@@ -1472,14 +1458,6 @@ def _do_standing_merge(
     return result.returncode == 0
 
 
-def _pins_digest() -> str | None:
-    """The census pins' content identity, None when the file is absent or unreadable. The cycle captures it just before submitting gate:rebuild and again after the census step; a change between the two means --update-pins actually moved the pins while the gates ran, which is what arms forgive_census_race. A git diff cannot stand in for this — pins left dirty by an earlier run would read as moved even when this cycle's update rewrote identical content, forgiving a genuine failure."""
-    try:
-        return hashlib.sha256(CENSUS_PINS.read_bytes()).hexdigest()
-    except OSError:
-        return None
-
-
 _CENSUS_STALE_HEADER = "census pins are stale:"
 
 
@@ -1505,7 +1483,7 @@ def _do_census(
     surface: Path,
     record: bool = False,
 ) -> str:
-    """Check (or re-baseline) the census pins, and record the outcome in census-result.json so an unchanged check never re-runs: a clean check records status clean under the key it checked, a stale check records status stale with its mismatch lines (staleness is deterministic over the fingerprinted inputs and non-gating, so it is as replayable as a clean result — and it is the steady state between a rune edit and the next --update-pins), --update records clean over the pins it just wrote (they are current by construction), and a check with no verdict to record — a crash, a missing pins file, an unparseable report — records nothing and deletes a record its key contradicts. The key is computed before a --check spawn (the check mutates nothing) but after an --update (which rewrites the pins the key hashes). The "updated" prefix on the two success statuses is load-bearing: the cycle arms forgive_census_race only when it sees it alongside a moved pins digest, so a census update that died mid-write — digest moved, pins possibly truncated — never forgives the gate's census failures."""
+    """Check (or re-baseline) the census pins, and record the outcome in census-result.json so an unchanged check never re-runs: a clean check records status clean under the key it checked, a stale check records status stale with its mismatch lines (staleness is deterministic over the fingerprinted inputs and non-gating, so it is as replayable as a clean result — and it is the steady state between a rune edit and the next --update-pins), --update records clean over the pins it just wrote (they are current by construction), and a check with no verdict to record — a crash, a missing pins file, an unparseable report — records nothing and deletes a record its key contradicts. The key is computed before a --check spawn (the check mutates nothing) but after an --update (which rewrites the pins the key hashes). This step finishes before gate:rebuild is submitted: on an --update-pins pass the suite therefore always reads the pins just rewritten here, and on a --check pass a STALE verdict defers that gate instead of letting it run against pins it could only re-report as stale."""
     if update_pins:
         census = spawn(
             "census",
@@ -1594,22 +1572,19 @@ def _gate_make_test_task(spawn, emit: _Emitter, registry: _ChildRegistry) -> _St
 
 def _gate_conform_task(
     pool_policy: str,
-    rebuild_fut: Future | None,
     make_fut: Future | None,
     spawn,
     emit: _Emitter,
     registry: _ChildRegistry,
     argv: list[str],
 ) -> tuple[str, list[str]]:
-    """gate:conform shapes the exhaustive font-vs-settle sweep against the fresh M1.otf via run_m1 --conform-only. Under the queue policy it parks at the tail of the make-test -> rebuild chain — behind gate:rebuild's future when that gate runs (which itself already waited out make-test), else directly behind gate:make-test — so its per-config process pool only spins up once the pytest pools have drained. Co-resident, the two heavy gates oversubscribe the box roughly 2:1, and measured that contention roughly tripled gate:rebuild's wall time — a worse critical path than the same work in sequence. The stale conform_summary.json is unlinked here, just before the sweep spawns, so the verdict can only come from this cycle's subprocess (an auto-skipped gate never runs this task and never reads the file)."""
+    """gate:conform shapes the exhaustive font-vs-settle sweep against the fresh M1.otf via run_m1 --conform-only. Under the queue policy it queues behind gate:make-test, and gate:rebuild in turn parks behind this sweep, so only one heavy pool is ever hot: co-resident, two heavy pools oversubscribe the box roughly 2:1, and measured that contention roughly tripled gate:rebuild's wall time — a worse critical path than the same work in sequence. Conform runs ahead of rebuild in the chain because rebuild's submission waits on the build lane's census step, and the sweep is long enough to hide that wait entirely. The stale conform_summary.json is unlinked here, just before the sweep spawns, so the verdict can only come from this cycle's subprocess (an auto-skipped gate never runs this task and never reads the file)."""
     CONFORM_SUMMARY.unlink(missing_ok=True)
-    if pool_policy == "queue":
-        for fut in (rebuild_fut, make_fut):
-            if fut is not None:
-                try:
-                    fut.result()
-                except Exception:
-                    pass
+    if pool_policy == "queue" and make_fut is not None:
+        try:
+            make_fut.result()
+        except Exception:
+            pass
     result = spawn("gate:conform", argv, emit=emit, registry=registry, stream=False)
     summary = None
     if CONFORM_SUMMARY.exists():
@@ -1626,17 +1601,21 @@ def _gate_conform_task(
 
 def _gate_rebuild_task(
     pool_policy: str,
+    conform_fut: Future | None,
     make_fut: Future | None,
     spawn,
     emit: _Emitter,
     registry: _ChildRegistry,
     update_pins: bool,
 ) -> RebuildOutcome:
-    if pool_policy == "queue" and make_fut is not None:
-        try:
-            make_fut.result()
-        except Exception:
-            pass
+    """The rebuild pytest suite, submitted by the build lane only after the census step lands its verdict: an --update-pins pass therefore always runs it against the freshly rewritten pins, and a STALE verdict on a --check pass deferred the gate before this task could exist. Under the queue policy it parks at the tail of the make-test -> conform chain so only one heavy pool is hot at a time."""
+    if pool_policy == "queue":
+        for fut in (conform_fut, make_fut):
+            if fut is not None:
+                try:
+                    fut.result()
+                except Exception:
+                    pass
     result = spawn("gate:rebuild", REBUILD_PYTEST_ARGV, emit=emit, registry=registry, stream=False)
     return classify_rebuild_output(result.stdout, result.returncode, update_pins)
 
@@ -1656,10 +1635,7 @@ def _join_gates(
     rebuild_fut: Future | None,
     conform_fut: Future | None,
     make_fut: Future | None,
-    update_pins: bool,
     emit: _Emitter,
-    *,
-    pins_moved: bool = False,
 ) -> None:
     if js_fut is not None:
         js = _gate_result(js_fut, "gate:js", failures)
@@ -1674,12 +1650,6 @@ def _join_gates(
         if outcome is None:
             report.gate_rebuild = "FAILED (exception)"
         else:
-            if update_pins and pins_moved:
-                reclassified = forgive_census_race(outcome)
-                for test_id in outcome.hard_ids:
-                    if test_id not in reclassified.hard_ids:
-                        emit.emit(f"  census-pinned failure forgiven (raced the pin refresh): {test_id}")
-                outcome = reclassified
             report.gate_rebuild = outcome.status
             report.rebuild_recordable = outcome.recordable
             for test_id in outcome.hard_ids:
@@ -1704,7 +1674,7 @@ def _join_gates(
 
 
 def _record_gate_greens(report: CycleReport, plan: Plan, gate_keys: dict[str, str], emit: _Emitter) -> None:
-    """Persist the concurrent gates' green records after they joined. Each key was snapshotted right after run_m1 finished (the artifacts it hashes are final from then on) and is recomputed here before recording, so a source file edited while the gates ran — content the gates never tested — can never be recorded green. A red gate whose key still matches its record deletes the falsified record."""
+    """Persist the concurrent gates' green records after they joined. gate:conform's key was snapshotted right after run_m1 finished (the artifacts it hashes are final from then on); gate:rebuild's at its later submission, after the census step, so on an --update-pins pass it hashes the pins the suite actually read. Each is recomputed here before recording, so a source file edited while the gates ran — content the gates never tested — can never be recorded green. A red gate whose key still matches its record deletes the falsified record."""
     key = gate_keys.get("conform")
     if key:
         if report.gate_conform == "green":
@@ -1784,31 +1754,21 @@ def _run_cycle(
                 report.gate_rebuild = "not run (run_m1 gate failed)"
             if not plan.skip_gates and not plan.skip_conform and not defer_conform:
                 report.gate_conform = "not run (run_m1 gate failed)"
-            _join_gates(report, failures, js_fut, None, None, make_fut, plan.update_pins, emit)
+            _join_gates(report, failures, js_fut, None, None, make_fut, emit)
             return _finish(report, failures, plan, timings)
 
-        if plan.record_greens and not plan.skip_gates:
-            if not plan.skip_conform and not defer_conform:
+        if not plan.skip_gates and not plan.skip_conform and not defer_conform:
+            if plan.record_greens:
                 gate_keys["conform"] = conform_skip_fingerprint(ROOT, plan.conform_horizon)
-            if not plan.skip_rebuild_gate and not defer_rebuild:
-                gate_keys["rebuild"] = rebuild_gate_skip_fingerprint(ROOT) or ""
-        pins_before = _pins_digest() if plan.update_pins else None
-        if not plan.skip_gates:
-            if not plan.skip_rebuild_gate and not defer_rebuild:
-                rebuild_fut = pool.submit(
-                    _gate_rebuild_task, plan.pool_policy, make_fut, spawn, emit, registry, plan.update_pins
-                )
-            if not plan.skip_conform and not defer_conform:
-                conform_fut = pool.submit(
-                    _gate_conform_task,
-                    plan.pool_policy,
-                    rebuild_fut,
-                    make_fut,
-                    spawn,
-                    emit,
-                    registry,
-                    conform_gate_argv(plan.conform_jobs, plan.conform_horizon),
-                )
+            conform_fut = pool.submit(
+                _gate_conform_task,
+                plan.pool_policy,
+                make_fut,
+                spawn,
+                emit,
+                registry,
+                conform_gate_argv(plan.conform_jobs, plan.conform_horizon),
+            )
 
         if not _do_surface_build(
             report,
@@ -1821,7 +1781,9 @@ def _run_cycle(
             skip_note=plan.surface_note,
         ):
             failures.append("surface rebuild failed")
-            _join_gates(report, failures, js_fut, rebuild_fut, conform_fut, make_fut, plan.update_pins, emit)
+            if not plan.skip_gates and not plan.skip_rebuild_gate and not defer_rebuild:
+                report.gate_rebuild = "not run (surface build failed)"
+            _join_gates(report, failures, js_fut, None, conform_fut, make_fut, emit)
             _record_gate_greens(report, plan, gate_keys, emit)
             return _finish(report, failures, plan, timings)
 
@@ -1867,25 +1829,35 @@ def _run_cycle(
                 surface=plan.census_surface,
                 record=plan.record_greens and plan.review_out is None,
             )
+        if not plan.skip_gates and not plan.skip_rebuild_gate and not defer_rebuild:
+            if (
+                plan.defer_rebuild_on_stale_census
+                and not plan.update_pins
+                and plan.review_out is None
+                and report.census_status.startswith("STALE")
+            ):
+                report.rebuild_stale_deferred = True
+                report.gate_rebuild = f"deferred ({STALE_CENSUS_DEFER_NOTE})"
+                emit.emit(f"gate:rebuild deferred: {STALE_CENSUS_DEFER_NOTE}")
+            else:
+                if plan.record_greens:
+                    gate_keys["rebuild"] = rebuild_gate_skip_fingerprint(ROOT) or ""
+                rebuild_fut = pool.submit(
+                    _gate_rebuild_task,
+                    plan.pool_policy,
+                    conform_fut,
+                    make_fut,
+                    spawn,
+                    emit,
+                    registry,
+                    plan.update_pins,
+                )
         if plan.complaints_note:
             report.complaints_status = f"skipped ({plan.complaints_note})"
         else:
             report.complaints_status = _do_complaints(spawn=spawn, emit=emit, registry=registry)
 
-        pins_moved = (
-            plan.update_pins and report.census_status.startswith("updated") and _pins_digest() != pins_before
-        )
-        _join_gates(
-            report,
-            failures,
-            js_fut,
-            rebuild_fut,
-            conform_fut,
-            make_fut,
-            plan.update_pins,
-            emit,
-            pins_moved=pins_moved,
-        )
+        _join_gates(report, failures, js_fut, rebuild_fut, conform_fut, make_fut, emit)
         _record_gate_greens(report, plan, gate_keys, emit)
         return _finish(report, failures, plan, timings)
     except KeyboardInterrupt:
@@ -1983,7 +1955,10 @@ def cycle_summary_payload(report: CycleReport, failures: list[str], plan: Plan, 
             "js": _gate_entry(report.gate_js),
             "rebuild": _gate_entry(
                 report.gate_rebuild,
-                _skip_kind(proved=plan.skip_rebuild_gate, deferred="rebuild" in plan.deferred),
+                _skip_kind(
+                    proved=plan.skip_rebuild_gate,
+                    deferred="rebuild" in plan.deferred or report.rebuild_stale_deferred,
+                ),
             ),
             "conform": _gate_entry(
                 report.gate_conform,
@@ -2483,6 +2458,7 @@ def main(argv: list[str] | None = None) -> int:
         skip_census=skip_census,
         census_skip_note=census_skip_note,
         census_replay=census_replay,
+        defer_rebuild_on_stale_census=not args.fresh,
         deferred=deferred,
         preserve_snapshot=preserve_snapshot,
         record_greens=True,
@@ -2523,6 +2499,12 @@ def _finish(report: CycleReport, failures: list[str], plan: Plan, timings: Cycle
             run_retention(plan)
         except Exception as exc:
             print(f"warning: retention pass failed: {exc!r}", file=sys.stderr)
+    if report.rebuild_stale_deferred:
+        print("\nCycle complete — but gate:rebuild was deferred: the census pins are stale, and a suite")
+        print("  run under pins already known stale can never record green. Refresh them first —")
+        print("  `make review-cycle ARGS='--update-pins'` — and that pass runs the suite against the")
+        print("  fresh pins. `make verdict-ready` stays NOT READY until it is green.")
+        return 0
     if plan.deferred:
         names = ", ".join("gate:" + name for name in sorted(plan.deferred))
         print("\nCycle complete — the surface is refreshed and the verdicts are carried onto it.")
