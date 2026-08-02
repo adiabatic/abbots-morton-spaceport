@@ -1,14 +1,14 @@
 rune: qsSee
 codepoint: 0xE65A
 ductus:
-  crested: |
+  normal: |
     Begun at the left end of the baseline foot, the stroke runs right along the baseline, rises to the right, snakes back leftward through the waist, and climbs right again into the crest, exiting rightward at the top, where it may connect to the next letter.
-  curled: |
-    As the crested form, but the crest hooks over and down on the right, exiting rightward to connect slightly above the x-height.
-  grounded: |
+  curled-over: |
+    As the normal form, but the crest hooks over and down on the right, exiting rightward to connect slightly above the x-height.
+  straighter: |
     Begun at the top, the stroke snakes down the spine — leftward through the waist, back out to the right — and then back again to the left a teeny bit by the time it hits the baseline. It may connect to the next letter there.
-  grounded-straight: |
-    As the grounded form, but the tail finishes straight down onto the baseline.
+  straightest: |
+    As the straighter form, but the tail finishes straight down onto the baseline.
 mono:
   bitmap:
   - "   ##"
@@ -21,8 +21,8 @@ mono:
   - "   # "
   - "###  "  #
 stances:
-  crested:
-    motion: crested
+  normal:
+    motion: normal
     traits: []
     bitmap:
     - "   ##"
@@ -46,8 +46,8 @@ stances:
       cells: []
       unlocks: []
       require: []
-  curled:
-    motion: curled
+  curled-over:
+    motion: curled-over
     traits: []
     bitmap:
     - "   ## "
@@ -71,8 +71,8 @@ stances:
       cells: []
       unlocks: []
       require: []
-  grounded:
-    motion: grounded
+  straighter:
+    motion: straighter
     traits: []
     bitmap:
     - "   #"
@@ -98,8 +98,8 @@ stances:
       cells: []
       unlocks: []
       require: []
-  grounded-straight:
-    motion: grounded-straight
+  straightest:
+    motion: straightest
     traits: []
     bitmap:
     - "   #"
@@ -124,10 +124,10 @@ stances:
       require: []
 policy:
   order:
-  - crested
-  - curled
-  - grounded
-  - grounded-straight
+  - normal
+  - curled-over
+  - straighter
+  - straightest
   refuse:
   - entry: baseline
     when:
@@ -151,13 +151,13 @@ policy:
         - qsOut
         - qsOoze
   extend:
-  - stance: grounded
+  - stance: straighter
     exit: baseline
     by: 2
     when:
       right: {family: qsLow}
   contract:
-  - stance: grounded
+  - stance: straighter
     exit: baseline
     by: 1
     when:
