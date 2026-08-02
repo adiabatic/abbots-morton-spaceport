@@ -30,6 +30,19 @@ def _make_env() -> dict[str, str]:
     return env
 
 
+def _is_rebuild_only(config: pytest.Config) -> bool:
+    rebuild = (ROOT / "rebuild").resolve()
+    invocation_dir = Path(config.invocation_params.dir)
+    targets = [(invocation_dir / arg.split("::", 1)[0]).resolve() for arg in config.args]
+    return bool(targets) and all(target == rebuild or rebuild in target.parents for target in targets)
+
+
+def _rebuild_suite_fonts_present() -> bool:
+    from rebuild.pipeline.fingerprint import font_paths
+
+    return all(path.is_file() for path in font_paths(ROOT))
+
+
 def pytest_configure(config: pytest.Config) -> None:
     # Under xdist, the controller dispatches but doesn't run tests, so the lazy build in _ensure_shaping_cache would never fire on it. Build here before workers spawn, and mark built so each worker skips the no-op `make all` it would otherwise spawn on first shaping test.
     if hasattr(config, "workerinput"):
@@ -37,12 +50,13 @@ def pytest_configure(config: pytest.Config) -> None:
         return
     if config.getoption("dist", "no") == "no":
         return
-    # `make test` / `make test-slowly` / `make test-rebuild` set AMS_RUN_PYRIGHT so the pyright gate overlaps the ~18s font build instead of running back-to-back as a serial prelude; both finish before the workers spawn, so a type error still fast-fails the whole run. Direct `uv run pytest -n …` invocations leave it unset and skip pyright, so iterating on a subset isn't aborted by an unrelated type error elsewhere in the tree. The argv carries no paths: `[tool.pyright] include` in pyproject.toml is the single authority for what gets checked, which is how rebuild/ gets covered from test-rebuild without a second path list to keep in sync.
+    # `make test` / `make test-slowly` / `make test-rebuild` set AMS_RUN_PYRIGHT so the pyright gate overlaps the ~18s font build instead of running back-to-back as a serial prelude; both finish before the workers spawn, so a type error still fast-fails the whole run. A run that collects only under rebuild/ skips the font build — that suite shapes against the site fonts exactly as its input-closure fingerprint already hashed them, so rebuilding at suite head would either churn mtimes the review-surface fixture cache depends on or test bytes nobody fingerprinted — while pyright still starts here and still fast-fails before the workers spawn. The one exception: when the closure's fonts (fingerprint.font_paths) are absent, as after `make clean`, the build runs anyway, since a missing input the suite cannot shape against beats every mtime concern. Direct `uv run pytest -n …` invocations leave it unset and skip pyright, so iterating on a subset isn't aborted by an unrelated type error elsewhere in the tree. The argv carries no paths: `[tool.pyright] include` in pyproject.toml is the single authority for what gets checked, which is how rebuild/ gets covered from test-rebuild without a second path list to keep in sync.
     pyright = None
     if os.environ.get("AMS_RUN_PYRIGHT") == "1":
         pyright = subprocess.Popen(["uv", "run", "pyright"], cwd=ROOT, env=_make_env())
-    subprocess.run(["make", "all"], cwd=ROOT, check=True, env=_make_env())
-    _shaping_cache["_built"] = True
+    if not _is_rebuild_only(config) or not _rebuild_suite_fonts_present():
+        subprocess.run(["make", "all"], cwd=ROOT, check=True, env=_make_env())
+        _shaping_cache["_built"] = True
     if pyright is not None and pyright.wait() != 0:
         raise pytest.UsageError("pyright type check failed (see output above)")
 

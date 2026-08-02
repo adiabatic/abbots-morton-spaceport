@@ -1,8 +1,9 @@
-"""Tests for the review-app build CLI: a full M1 build validated by the §7 contract checker (the same checker run over rebuild/review/fixtures/, so fixtures and real output can never drift), the per-config ink_deltas map both at the checker and over every shipped unit, font sha256s, the HTML sanity check, node --check over every shipped script, the export round-trip, byte-identical determinism, and the table-diff build. The built surface comes from the `built_review_surface` session cache in rebuild/conftest.py — built at most once per input state across workers and runs — and every test here treats it as read-only; test_builds_are_byte_identical is the one that still builds fresh, precisely to keep the cache's byte-identity premise honest."""
+"""Tests for the review-app build CLI: a full M1 build validated by the §7 contract checker (the same checker run over rebuild/review/fixtures/, so fixtures and real output can never drift), the per-config ink_deltas map both at the checker and over every shipped unit, font sha256s, the HTML sanity check, node --check over every shipped script, the export round-trip, byte-identical determinism, and the table-diff build. The built surface comes from `built_review_surface` in rebuild/conftest.py — the artifact cycle's own rebuild/out/review when it is provably fresh, else a cross-process cache built at most once per input state across workers and runs — and every test here treats it as read-only; test_builds_are_byte_identical is the one that still builds fresh, precisely to keep that reuse honest: identical bytes modulo the manifest's two provenance stamps, across differing jobs counts."""
 
 import copy
 import hashlib
 import json
+import re
 import shutil
 import subprocess
 from html.parser import HTMLParser
@@ -11,6 +12,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from rebuild.conftest import SURFACE_BUILD_JOBS
 from rebuild.pipeline import fingerprint
 from rebuild.review.audit import ACCEPTANCE_CONFIGS
 from rebuild.review.build import (
@@ -640,17 +642,29 @@ def test_prune_orphan_shards_no_units_dir_is_noop(tmp_path):
     assert _prune_orphan_shards(tmp_path, {"classes": []}) == []
 
 
+_PROVENANCE_STAMPS = re.compile(r'("(?:generated_at|repo_head)": )"[^"]*"')
+
+
+def _mask_provenance(manifest_text: str) -> str:
+    return _PROVENANCE_STAMPS.sub(r'\1"MASKED"', manifest_text)
+
+
 def test_builds_are_byte_identical(built, tmp_path):
+    """A fresh build at yet another jobs count (differing from both the fixture's half-width and the cycle's budget) reproduces the fixture surface byte for byte, masking only the manifest's generated_at/repo_head provenance stamps — mtime- and commit-derived scalars that can move with no content change."""
     out_dir, _manifest = built
     second = tmp_path / "again"
     (second / "units").mkdir(parents=True)
     (second / "units" / "zzz-orphan.json").write_text("[]", encoding="utf-8")
-    build_m1(second)
+    build_m1(second, jobs=SURFACE_BUILD_JOBS + 1)
     assert not (second / "units" / "zzz-orphan.json").exists()
-    first_manifest = (out_dir / "manifest.json").read_bytes()
-    assert first_manifest == (second / "manifest.json").read_bytes()
-    for shard in sorted((out_dir / "units").glob("*.json")):
-        assert shard.read_bytes() == (second / "units" / shard.name).read_bytes()
+    first_manifest = _mask_provenance((out_dir / "manifest.json").read_text(encoding="utf-8"))
+    second_manifest = _mask_provenance((second / "manifest.json").read_text(encoding="utf-8"))
+    assert first_manifest == second_manifest
+    first_shards = sorted(path.name for path in (out_dir / "units").glob("*.json"))
+    second_shards = sorted(path.name for path in (second / "units").glob("*.json"))
+    assert first_shards == second_shards
+    for name in first_shards:
+        assert (out_dir / "units" / name).read_bytes() == (second / "units" / name).read_bytes()
 
 
 def _join_notation_tokens(tokens):
