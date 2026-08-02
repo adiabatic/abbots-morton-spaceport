@@ -48,6 +48,10 @@ policy:
         - qsPea
         - qsTea
         - qsHe
-  contract: []
+  contract:
+  - exit: baseline
+    by: 1
+    when:
+      right: {family: qsMay}
   resolve: []
   groups: {}
