@@ -379,6 +379,10 @@
 - signature: contact:qsLow.hapax.en-y0.ex-y5:qsEt.hapax.en-y5.ex-y0:y4
 - signature: contact:qsLow.hapax.ex-y5.locked:qsEt.hapax.en-y5:y4
 - signature: contact:qsLow.hapax.ex-y5.locked:qsEt.hapax.en-y5.ex-y0:y4
+# The ·Et·May exit contraction mints a contracted onward-exit twin; the pull-back blanks tail ink at ·Et's exit, so the entry column and this same corner are unchanged. Only the ·Low exiters meet it, because ·It·Et settles unjoined when ·May follows.
+- signature: contact:qsLow.hapax.ex-y5:qsEt.hapax.en-y5.ex-y0.ex-con-1:y4
+- signature: contact:qsLow.hapax.en-y0.ex-y5:qsEt.hapax.en-y5.ex-y0.ex-con-1:y4
+- signature: contact:qsLow.hapax.ex-y5.locked:qsEt.hapax.en-y5.ex-y0.ex-con-1:y4
 
 # The ss05 both-baseline ·Tea — entered from ·Et, the only left the unlock admits — joins ·Utter at the baseline exactly like the bare and x-height-entered bars blessed above (ss05 row E672:E652:E67A, seams y0,y0); the same ·Tea-bar-abuts-·Utter's-left-downstroke corner at y1.
 - signature: contact:qsTea.full.en-y0.ex-y0:qsUtter.mono.en-y0:y1
