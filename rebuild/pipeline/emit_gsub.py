@@ -95,7 +95,7 @@ def _marker_lookups(spec: ResolvedSpec) -> tuple[dict[str, list[str]], dict[str,
 
 
 def _formation_lines(spec: ResolvedSpec, registry: _ClassRegistry) -> tuple[list[str], list[str], list[str]]:
-    """Formation lines split by the section 5.7 late-formation guard: (guarded chaining-context lookup lines, plain type-4 lookup lines, the generated `ignore sub` statements for the invariant exemption). Guard verdicts come from `settle.formation_blocked` over the two raw slots past the sequence — the same function the kernel and the table builder consult, so model, table, and font agree by construction. A blocked follower whose second-slot verdicts cover every letter and every boundary gets a one-slot ignore; a follower blocked only under specific second slots gets a two-slot ignore over a letter class (a boundary or text-edge second slot then falls through to the forming fallback, matching its False verdict). ZWNJ-explicit forming rows precede the ignores because HarfBuzz skips default-ignorables in contextual matching — without them a guard class could match across a skipped ZWNJ that the model treats as a boundary."""
+    """Formation lines split by the section 5.7 late-formation guard: (guarded chaining-context lookup lines, plain type-4 lookup lines, the generated `ignore sub` statements for the invariant exemption). Guard verdicts come from `settle.formation_blocked` over the two raw slots past the sequence — the same function the kernel and the table builder consult, so model, table, and font agree by construction. A blocked follower whose second-slot verdicts cover every letter and every boundary gets a one-slot ignore; a follower blocked only under specific second slots gets a two-slot ignore over a letter class (a boundary or text-edge second slot then falls through to the forming fallback, matching its False verdict); a follower blocked at every boundary second slot but released under specific letter seconds inverts the discipline — explicit two-slot forming rows for the released letters, behind a ZWNJ-explicit two-slot ignore so a skipped ZWNJ cannot satisfy a released slot, ahead of a blanket one-slot ignore whose match-at-anything (text edge included) realizes the boundary blocks. A verdict that differs among the boundary second slots themselves remains inexpressible and errors. ZWNJ-explicit forming rows precede the ignores because HarfBuzz skips default-ignorables in contextual matching — without them a guard class could match across a skipped ZWNJ that the model treats as a boundary."""
     from rebuild.pipeline import settle as settle_module
     from rebuild.pipeline.settle import EDGE, NAMER_DOT, SPACE, ZWNJ, RightToken
 
@@ -109,6 +109,7 @@ def _formation_lines(spec: ResolvedSpec, registry: _ClassRegistry) -> tuple[list
             continue
         full_followers: list[str] = []
         partial_followers: list[tuple[str, tuple[str, ...]]] = []
+        released_followers: list[tuple[str, tuple[str, ...]]] = []
         for follower in letters:
             follower_token = RightToken("letter", follower)
             blocked_letters = tuple(
@@ -128,19 +129,29 @@ def _formation_lines(spec: ResolvedSpec, registry: _ClassRegistry) -> tuple[list
                 continue
             if len(blocked_letters) == len(letters) and all(blocked_boundaries):
                 full_followers.append(follower)
+            elif all(blocked_boundaries):
+                released = tuple(sorted(set(letters) - set(blocked_letters)))
+                released_followers.append((follower, released))
             elif any(blocked_boundaries):
                 raise EmitError(
-                    f"late-formation guard for {name} before {follower} blocks at a boundary second slot without blocking everywhere — inexpressible in the pre-marker formation lookup"
+                    f"late-formation guard for {name} before {follower} blocks at some but not all boundary second slots — inexpressible in the pre-marker formation lookup"
                 )
             else:
                 partial_followers.append((follower, blocked_letters))
-        if not full_followers and not partial_followers:
+        if not full_followers and not partial_followers and not released_followers:
             plain_lines.append(f"    sub {' '.join(rune.sequence)} by {name};")
             continue
         marked_input = " ".join(f"{part}'" for part in rune.sequence)
         guarded_lines.append(f"    sub {marked_input} uni200C by {name};")
         for follower, _blocked in partial_followers:
             guarded_lines.append(f"    sub {marked_input} {follower} uni200C by {name};")
+        for follower, _released in released_followers:
+            line = f"ignore sub {marked_input} {follower} uni200C;"
+            guarded_lines.append(f"    {line}")
+            ignores.append(line)
+        for follower, released in released_followers:
+            for second in released:
+                guarded_lines.append(f"    sub {marked_input} {follower} {second} by {name};")
         if full_followers:
             ref = registry.ref(tuple(full_followers), f"m1_form_guard_{_fea_safe(name)}")
             line = f"ignore sub {marked_input} {ref};"
@@ -149,6 +160,10 @@ def _formation_lines(spec: ResolvedSpec, registry: _ClassRegistry) -> tuple[list
         for follower, blocked in partial_followers:
             ref = registry.ref(blocked, f"m1_form_guard_{_fea_safe(name)}_{_fea_safe(follower)}")
             line = f"ignore sub {marked_input} {follower} {ref};"
+            guarded_lines.append(f"    {line}")
+            ignores.append(line)
+        for follower, _released in released_followers:
+            line = f"ignore sub {marked_input} {follower};"
             guarded_lines.append(f"    {line}")
             ignores.append(line)
         guarded_lines.append(f"    sub {marked_input} by {name};")

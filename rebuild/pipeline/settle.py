@@ -165,9 +165,11 @@ def word_position(left_kind: str, right1_kind: str) -> str | None:
 class Engine:
     """One settlement engine per (spec, feature configuration); caches candidate enumerations so the table builder's fixpoint stays fast."""
 
-    def __init__(self, spec: ResolvedSpec, features: frozenset[str]):
+    def __init__(self, spec: ResolvedSpec, features: frozenset[str], vote_deep_slot: RightToken | None = None):
         self.spec = spec
         self.features = frozenset(features)
+        # The follower-vote's second slot (design section 5.9): real settlement keeps it UNKNOWN-optimistic to confine deep-window behavior to own-rune records, but the section 5.7 guard's dedicated engines bind it to the window edge — a guard verdict is a function of two raw slots, so a vote that would need deeper text to fire definitively must not flip a formation verdict.
+        self._vote_deep_slot = vote_deep_slot if vote_deep_slot is not None else UNKNOWN
         self._closure_cache: dict[tuple, bool] = {}
         self._prospect_cache: dict[tuple, int] = {}
         # YAML provenance of every authored record that demonstrably fired during settlement under this configuration: refusals that killed a candidate, unlocks that granted capability, row scopes that admitted a side, and extends/contracts/prefers that shaped a committed cell. Closure and prospect evaluations count — a refusal firing inside the lookahead closure is load-bearing for the window that consulted it. The dead-policy gate reads this through DecisionTable.cited_provenance.
@@ -642,7 +644,7 @@ class Engine:
         if right1.kind != "letter" or right1.rune != owner:
             return None
         virtual = self._virtual_left(rune_name, candidate)
-        follower_cells = self.candidates(virtual, owner, right2, UNKNOWN)
+        follower_cells = self.candidates(virtual, owner, right2, self._vote_deep_slot)
         relevant = False
         for cell in follower_cells:
             verdict = self.when_matches(
@@ -652,7 +654,7 @@ class Engine:
                 entry=cell.entry,
                 seam=cell.seam,
                 right1=right2,
-                right2=UNKNOWN,
+                right2=self._vote_deep_slot,
             )
             if verdict is False:
                 continue
@@ -1037,7 +1039,7 @@ def _guard_state(spec: ResolvedSpec) -> dict:
         }
     )
     engines = tuple(
-        Engine(spec, frozenset(combo))
+        Engine(spec, frozenset(combo), vote_deep_slot=EDGE)
         for size in range(len(capability_features) + 1)
         for combo in combinations(capability_features, size)
     )
@@ -1048,10 +1050,27 @@ def _guard_state(spec: ResolvedSpec) -> dict:
     return state
 
 
+def _follower_formation(spec: ResolvedSpec, right1: RightToken, right2: RightToken) -> str | None:
+    """The ligature the guard's two raw slots will themselves have formed by the time the guarded rule's own window settles: the modeled rune whose sequence is exactly (right1, right2) and whose own guard, evaluated with its slots unknown-optimistic, does not block. None when the slots are not a forming pair."""
+    if right1.kind != "letter" or right2.kind != "letter":
+        return None
+    for name, rune in spec.runes.items():
+        if (
+            rune.sequence is not None
+            and tuple(rune.sequence) == (right1.rune, right2.rune)
+            and not formation_blocked(spec, name, UNKNOWN, UNKNOWN)
+        ):
+            return name
+    return None
+
+
 def _blocked_under(engine: Engine, liga_name: str, right1: RightToken, right2: RightToken) -> bool:
     rune = engine.spec.runes[liga_name]
     assert rune.sequence is not None
     lead, trail = rune.sequence[-2], rune.sequence[-1]
+    formed = _follower_formation(engine.spec, right1, right2)
+    if formed is not None:
+        right1, right2 = RightToken("letter", formed), UNKNOWN
     virtual = LeftContext(
         "letter",
         Settled(
@@ -1068,13 +1087,15 @@ def _blocked_under(engine: Engine, liga_name: str, right1: RightToken, right2: R
     )
     if not any(c.seam is not None for c in engine.candidates(virtual, trail, right1, right2)):
         return False
+    if engine.transition_trace(virtual, RightToken("letter", trail), right1, right2, EDGE, EDGE).settled.seam is None:
+        return False
     return not any(
         c.seam is not None for c in engine.candidates(LeftContext("edge"), liga_name, right1, right2)
     )
 
 
 def formation_blocked(spec: ResolvedSpec, liga_name: str, right1: RightToken, right2: RightToken) -> bool:
-    """The section 5.7 late-formation guard: the ligature yields to its components in this window iff the trailing component, left unformed, could realize a seam toward the follower while the formed ligature could realize none — refusal-aware at candidacy grain, with the trail's left approximated by the lead's default stance (unjoined) and the ligature's by the run edge. The verdict is quantified over the powerset of capability-unlock features and fires only when every configuration agrees, because the emitted formation lookup stages before the ss marker substitutions and is therefore config-blind by design. `right1`/`right2` are the raw tokens after the ligature's sequence — the same slots the emitted lookup reads — so the guard never depends on state formation cannot see."""
+    """The section 5.7 late-formation guard: the ligature yields to its components in this window iff the trailing component, left unformed, would realize a seam toward the follower while the formed ligature could realize none — the trail side settled at ranking grain (a full `transition_trace` with the lead's default unjoined stance as its left, so follower votes and the runes' prefers count, not just candidacy: ·See's grounded prefer withholds the unformed ·Utter's reach before ·See·Low, and the ligature forms exactly as the shipped font does), the ligature side kept generously at candidacy grain with the run edge as its left. The guard's dedicated engines bind every slot past the two the verdict is keyed on to the window edge — `vote_deep_slot=EDGE`, plus EDGE third/fourth slots on the trace — so a vote or prefer whose condition would need deeper raw text to fire definitively never flips a formation verdict (·Day·Utter·Utter·Tea stays blocked: the vote that withholds the trail's reach there rides an unknown-slot chain, unlike ·See's grounded prefer, which fires inside the window). The verdict is quantified over the powerset of capability-unlock features and fires only when every configuration agrees, because the emitted formation lookup stages before the ss marker substitutions and is therefore config-blind by design. `right1`/`right2` are the raw tokens after the ligature's sequence — the same slots the emitted lookup reads — so the guard never depends on state formation cannot see. One refinement over the raw slots: when they are themselves a forming ligature pair (`_follower_formation`), both tests face that ligature, not the bare first slot — a follower whose entry the pair's own formation is about to consume must not count as reachable, else the guard un-forms the left ligature in service of a seam the settled world cannot contain (·Day·Utter·See·Utter is the worked case: the old font forms both ligatures, and the raw-slot reading kept ·Day·Utter apart to serve a ·See that qsSee_qsUtter swallows). The verdict stays a pure function of the two raw slots, so it still compiles to the same lookahead classes the emitted lookup reads."""
     if right1.kind != "letter":
         return False
     state = _guard_state(spec)
