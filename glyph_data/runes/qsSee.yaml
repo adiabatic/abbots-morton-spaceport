@@ -1,13 +1,13 @@
 rune: qsSee
 codepoint: 0xE65A
 ductus:
-  crested: | # DRAFT — pending author sign-off
+  crested: |
     Begun at the left end of the baseline foot, the stroke runs right along the baseline, rises to the right, snakes back leftward through the waist, and climbs right again into the crest, exiting rightward at the top, where it may connect to the next letter.
-  curled: | # DRAFT — pending author sign-off
-    As the crested form, but the crest hooks over and down on the right, exiting rightward at the top of the Short letters.
-  grounded: | # DRAFT — pending author sign-off
-    Begun at the top, the stroke snakes down the spine — leftward through the waist, back out to the right — and curls in to rest on the baseline, exiting rightward, where it may connect to the next letter.
-  grounded-straight: | # DRAFT — pending author sign-off
+  curled: |
+    As the crested form, but the crest hooks over and down on the right, exiting rightward to connect slightly above the x-height.
+  grounded: |
+    Begun at the top, the stroke snakes down the spine — leftward through the waist, back out to the right — and then back again to the left a teeny bit by the time it hits the baseline. It may connect to the next letter there.
+  grounded-straight: |
     As the grounded form, but the tail finishes straight down onto the baseline.
 mono:
   bitmap:
