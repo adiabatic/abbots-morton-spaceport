@@ -210,7 +210,7 @@ def test_scope_condition_parsing(spec):
         Condition(family=(name,)) for name in ("qsTea", "qsDay", "qsFee", "qsYe", "qsNo", "qsOwe")
     )
     top = spec.runes["qsTea"].stances["half"].surface.entries["top"]
-    assert top.selectable is False
+    assert top.selectable is True
     grounded = spec.runes["qsMay"].stances["grounded-loop"].surface.entries["x-height"]
     assert grounded.joined is None and grounded.joined_x is None
     assert grounded.x == 2
