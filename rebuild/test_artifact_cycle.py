@@ -14,6 +14,7 @@ import pytest
 
 from rebuild.review import journal
 from rebuild.tools import artifact_cycle as ac
+from rebuild.tools.cycle_timings import CycleTimings
 
 
 @pytest.fixture(autouse=True)
@@ -3169,3 +3170,106 @@ def test_finish_survives_a_retention_error(monkeypatch):
     plan = _plan(record_greens=True)
     rc = ac._finish(ac.CycleReport(), [], plan)
     assert rc == 0
+
+
+def _spawning_run_m1(report, *, spawn, emit, registry, budget, **_):
+    spawn("run_m1", ["uv", "run", "fake-m1"], emit=emit, registry=registry, stream=True)
+    report.unmatched = 1
+    report.multi_matched = 0
+    report.boundary_pass = True
+    report.pins_pass = True
+    return ac.GateOutcome(True, [], 1, 0)
+
+
+def _spawning_surface(report, *, spawn, emit, registry, review_out, budget, **_):
+    spawn("surface", ["uv", "run", "fake-surface"], emit=emit, registry=registry, stream=False)
+    report.surface_units = 1
+    return True
+
+
+def _complaints_ok(*, spawn, emit, registry):
+    return "no open complaints"
+
+
+def _patch_timing_cycle(monkeypatch):
+    monkeypatch.setattr(ac, "_do_run_m1", _spawning_run_m1)
+    monkeypatch.setattr(ac, "_do_surface_build", _spawning_surface)
+    monkeypatch.setattr(ac, "_do_carry", _carry_ok)
+    monkeypatch.setattr(ac, "_do_merge", _merge_ok)
+    monkeypatch.setattr(ac, "_do_echo_fill", _echo_fill_ok)
+    monkeypatch.setattr(ac, "_do_echo_merge", _echo_merge_ok)
+    monkeypatch.setattr(ac, "_do_standing_fill", _standing_fill_ok)
+    monkeypatch.setattr(ac, "_do_standing_merge", _standing_merge_ok)
+    monkeypatch.setattr(ac, "_do_census", _census_clean)
+    monkeypatch.setattr(ac, "_do_complaints", _complaints_ok)
+    monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
+    monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
+    monkeypatch.setattr(ac, "_gate_rebuild_task", _rebuild_green)
+    monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
+
+
+def test_green_cycle_journals_steps_then_one_run_line(monkeypatch, tmp_path):
+    _patch_timing_cycle(monkeypatch)
+
+    journal_path = tmp_path / "timings.ndjson"
+    plan = _plan()
+    report = ac.CycleReport()
+    rc = ac._run_cycle(
+        plan,
+        report,
+        ac._Emitter(),
+        ac._ChildRegistry(),
+        spawn=lambda name, argv, **k: _step(name),
+        timings=CycleTimings(journal_path),
+    )
+
+    assert rc == 0
+    entries = [json.loads(line) for line in journal_path.read_text(encoding="utf-8").splitlines()]
+    steps = [entry for entry in entries if entry["kind"] == "step"]
+    runs = [entry for entry in entries if entry["kind"] == "run"]
+    assert [entry["name"] for entry in steps] == ["run_m1", "surface"]
+    assert len(runs) == 1
+    assert entries[-1]["kind"] == "run"
+    assert entries[-1]["exit"] == "ok"
+    assert entries[-1]["interrupted"] is False
+    assert {entry["run"] for entry in entries} == {entries[-1]["run"]}
+
+
+def test_failing_cycle_still_journals_a_run_line(monkeypatch, tmp_path):
+    def failing_merge(report, *, spawn, emit, registry, plan):
+        report.merge_status = "FAILED (exit 1)"
+        return False
+
+    _patch_timing_cycle(monkeypatch)
+    monkeypatch.setattr(ac, "_do_merge", failing_merge)
+
+    journal_path = tmp_path / "timings.ndjson"
+    plan = _plan()
+    report = ac.CycleReport()
+    rc = ac._run_cycle(
+        plan,
+        report,
+        ac._Emitter(),
+        ac._ChildRegistry(),
+        spawn=lambda name, argv, **k: _step(name),
+        timings=CycleTimings(journal_path),
+    )
+
+    assert rc == 1
+    entries = [json.loads(line) for line in journal_path.read_text(encoding="utf-8").splitlines()]
+    assert entries[-1]["kind"] == "run"
+    assert entries[-1]["exit"] == "failed"
+    assert "verdict merge failed" in entries[-1]["failures"]
+
+
+def test_cycle_without_timings_writes_no_journal(monkeypatch, tmp_path):
+    _patch_timing_cycle(monkeypatch)
+
+    plan = _plan()
+    report = ac.CycleReport()
+    rc = ac._run_cycle(
+        plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=lambda name, argv, **k: _step(name)
+    )
+
+    assert rc == 0
+    assert not list(tmp_path.glob("*.ndjson"))

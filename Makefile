@@ -1,4 +1,4 @@
-.PHONY: all test test-rebuild test-slowly test-leaks leak-snapshot typecheck print-job serve explainer check-html-before check-html-after build-kerning-hardcases review test-and-review review-build review-serve review-cycle artifact-cycle verdict-ready complaint-docket novelty-order prettier woff2 clean
+.PHONY: all test test-rebuild test-slowly test-leaks leak-snapshot typecheck print-job serve explainer check-html-before check-html-after build-kerning-hardcases review test-and-review review-build review-serve review-cycle artifact-cycle verdict-ready cycle-timings complaint-docket novelty-order prettier woff2 clean
 
 all:
 	uv run python tools/build_font.py glyph_data/ site/
@@ -89,6 +89,10 @@ endif
 # Answer "am I ready to verdict?": surface freshness, gate greenness, verdict-store alignment, server, blanks. Exit 0 when ready.
 verdict-ready:
 	uv run python -m rebuild.tools.verdict_ready $(ARGS)
+
+# Answer "what is the cycle spending its time on, on this machine?": every artifact cycle appends per-step wall times (host-tagged, with each child's inner [t] phase lines) to rebuild/out/cycle-timings.ndjson — append-only, gitignored with the rest of rebuild/out, never pruned by retention, so each machine accumulates its own history. Default view: recent runs, steps slowest-first. ARGS='--by-step' aggregates count/median/max/latest per step and host; ARGS='--inner' expands the phase lines; ARGS='--journal <path>' reads a concatenation of journals from several machines.
+cycle-timings:
+	uv run python -m rebuild.tools.cycle_timings $(ARGS)
 
 # Cluster the open complaints (reject/neither verdicts) by the rune records that decided them, with park candidates for the still-blank lookalikes; writes tmp/complaints-data.json. Reads the live autosave unless ARGS names a verdicts file; ARGS='--park g-XXXXXXXX' emits a verdicts-park-*.json for the app's Import dialog.
 complaint-docket:

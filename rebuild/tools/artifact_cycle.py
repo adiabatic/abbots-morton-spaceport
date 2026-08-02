@@ -34,10 +34,13 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
+if TYPE_CHECKING:
+    from rebuild.tools.cycle_timings import CycleTimings
 REVIEW_OUT = ROOT / "rebuild" / "out" / "review"
 AUTOSAVE = ROOT / "verdicts-autosave.json"
 M1_OUT = ROOT / "rebuild" / "out" / "m1"
@@ -48,6 +51,7 @@ ECHO_FILL = ROOT / "verdicts-echo-fill.json"
 STANDING_TOOL = ROOT / "rebuild" / "tools" / "standing_verdicts.py"
 STANDING_FILL = ROOT / "verdicts-standing-fill.json"
 CYCLE_SUMMARY = ROOT / "rebuild" / "out" / "cycle_summary.json"
+CYCLE_TIMINGS = ROOT / "rebuild" / "out" / "cycle-timings.ndjson"
 MAKE_TEST_GREEN = ROOT / "rebuild" / "out" / "make-test-green.json"
 RUN_M1_GREEN = ROOT / "rebuild" / "out" / "run-m1-green.json"
 CONFORM_GREEN = ROOT / "rebuild" / "out" / "conform-green.json"
@@ -1027,13 +1031,6 @@ def _load_summary(path: Path) -> dict:
     return json.loads(path.read_text())
 
 
-def _cmd_label(argv: list[str]) -> str:
-    parts = [token for token in argv if token not in {"uv", "run", "python", "python3"}]
-    if parts and parts[0] == "-m":
-        parts = parts[1:]
-    return " ".join(parts[:3])
-
-
 class _Emitter:
     """Whole-line-atomic, lock-serialized stdout. Every write in the concurrent region routes through here so overlapping children never splice mid-line; cross-line interleave is expected and disambiguated by the [name] prefix."""
 
@@ -1153,7 +1150,7 @@ def _run_step(
     returncode = proc.wait()
     registry.remove(proc)
     elapsed = time.perf_counter() - start
-    emit.emit(f"[t] {_cmd_label(argv)} {elapsed:.1f}s")
+    emit.emit(f"[t] {name} {elapsed:.1f}s")
     return _StepResult(name, returncode, "\n".join(out_buf), "\n".join(err_buf), elapsed)
 
 
@@ -1680,8 +1677,15 @@ def _record_gate_greens(report: CycleReport, plan: Plan, gate_keys: dict[str, st
 
 
 def _run_cycle(
-    plan: Plan, report: CycleReport, emit: _Emitter, registry: _ChildRegistry, spawn=_run_step
+    plan: Plan,
+    report: CycleReport,
+    emit: _Emitter,
+    registry: _ChildRegistry,
+    spawn=_run_step,
+    timings: CycleTimings | None = None,
 ) -> int:
+    if timings is not None:
+        spawn = timings.wrap_spawn(spawn)
     pool = ThreadPoolExecutor(max_workers=_GATE_POOL_WORKERS)
     failures: list[str] = []
     try:
@@ -1728,7 +1732,7 @@ def _run_cycle(
             if not plan.skip_gates and not plan.skip_conform and not defer_conform:
                 report.gate_conform = "not run (run_m1 gate failed)"
             _join_gates(report, failures, js_fut, None, None, make_fut, plan.update_pins, emit)
-            return _finish(report, failures, plan)
+            return _finish(report, failures, plan, timings)
 
         if plan.record_greens and not plan.skip_gates:
             if not plan.skip_conform and not defer_conform:
@@ -1766,7 +1770,7 @@ def _run_cycle(
             failures.append("surface rebuild failed")
             _join_gates(report, failures, js_fut, rebuild_fut, conform_fut, make_fut, plan.update_pins, emit)
             _record_gate_greens(report, plan, gate_keys, emit)
-            return _finish(report, failures, plan)
+            return _finish(report, failures, plan, timings)
 
         if plan.carry_out is not None:
             carried = _do_carry(report, spawn=spawn, emit=emit, registry=registry, plan=plan)
@@ -1830,12 +1834,12 @@ def _run_cycle(
             pins_moved=pins_moved,
         )
         _record_gate_greens(report, plan, gate_keys, emit)
-        return _finish(report, failures, plan)
+        return _finish(report, failures, plan, timings)
     except KeyboardInterrupt:
         registry.terminate_all()
         pool.shutdown(wait=False, cancel_futures=True)
         report.interrupted = True
-        return _finish_interrupted(report, failures, registry.killed_count, plan)
+        return _finish_interrupted(report, failures, registry.killed_count, plan, timings)
     finally:
         pool.shutdown(wait=True)
 
@@ -2001,11 +2005,20 @@ def write_cycle_summary(payload: dict) -> None:
     os.replace(tmp, target)
 
 
-def _emit_cycle_summary(report: CycleReport, failures: list[str], plan: Plan, exit_kind: str) -> None:
+def _emit_cycle_summary(
+    report: CycleReport,
+    failures: list[str],
+    plan: Plan,
+    exit_kind: str,
+    timings: CycleTimings | None = None,
+) -> None:
+    payload = cycle_summary_payload(report, failures, plan, exit_kind)
     try:
-        write_cycle_summary(cycle_summary_payload(report, failures, plan, exit_kind))
+        write_cycle_summary(payload)
     except Exception as exc:
         print(f"warning: failed to write {CYCLE_SUMMARY}: {exc!r}", file=sys.stderr)
+    if timings is not None:
+        timings.finish(payload)
 
 
 def _preflight(args: argparse.Namespace) -> bool:
@@ -2422,6 +2435,9 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     report = CycleReport()
+    from rebuild.tools.cycle_timings import CycleTimings
+
+    timings = CycleTimings(CYCLE_TIMINGS)
 
     if not first_run:
         if plan.snapshot_dir.exists():
@@ -2436,12 +2452,12 @@ def main(argv: list[str] | None = None) -> int:
 
     emit = _Emitter()
     registry = _ChildRegistry()
-    return _run_cycle(plan, report, emit, registry)
+    return _run_cycle(plan, report, emit, registry, timings=timings)
 
 
-def _finish(report: CycleReport, failures: list[str], plan: Plan) -> int:
+def _finish(report: CycleReport, failures: list[str], plan: Plan, timings: CycleTimings | None = None) -> int:
     _print_summary(report)
-    _emit_cycle_summary(report, failures, plan, "failed" if failures else "ok")
+    _emit_cycle_summary(report, failures, plan, "failed" if failures else "ok", timings)
     if failures:
         print("\nCYCLE FAILED:")
         for reason in failures:
@@ -2464,9 +2480,15 @@ def _finish(report: CycleReport, failures: list[str], plan: Plan) -> int:
     return 0
 
 
-def _finish_interrupted(report: CycleReport, failures: list[str], killed_count: int, plan: Plan) -> int:
+def _finish_interrupted(
+    report: CycleReport,
+    failures: list[str],
+    killed_count: int,
+    plan: Plan,
+    timings: CycleTimings | None = None,
+) -> int:
     _print_summary(report)
-    _emit_cycle_summary(report, failures, plan, "interrupted")
+    _emit_cycle_summary(report, failures, plan, "interrupted", timings)
     print(f"\nCYCLE INTERRUPTED (SIGINT): terminated {killed_count} child process(es).")
     return 130
 
