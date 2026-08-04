@@ -97,6 +97,8 @@ policy:
                   - qsIt
                   - qsAh
                   - qsUtter
+        - family: qsIt
+          then: {family: qsNo}
   extend: []
   contract: []
   resolve: []

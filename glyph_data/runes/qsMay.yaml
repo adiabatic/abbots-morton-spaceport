@@ -151,6 +151,11 @@ policy:
         except:
         - {family: qsTea}
         - {family: qsFee}
+        - family: qsRoe
+          then:
+            family:
+            - qsNo
+            - qsRoe
   - cell: {exit: baseline}
     when:
       left: {is: boundary}
