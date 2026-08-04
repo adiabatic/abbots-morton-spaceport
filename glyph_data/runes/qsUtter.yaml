@@ -132,6 +132,13 @@ policy:
     when:
       right: {family: qsLow}
     why: 'Claude figured that this would be the best (least disruptive) way to have `·Day | ·Utter.alt ~b~ ·Low` happen; The Manual requires this'
+  - stance: mono
+    mode: absolute
+    when:
+      right:
+        family: qsTea
+        then: {family: qsDay}
+    why: I want a word-final ·Tea·Day pair to bind more tightly than the average. ·Utter is mentioned here because ·Utter.alt has a mandatory exit, so it can’t help consuming ·Tea’s baseline slot. Only the letter before ·Utter can prevent this.
   - cell: {exit: none}
     over: {exit: x-height}
     mode: absolute
