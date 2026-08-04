@@ -24,6 +24,7 @@ from rebuild.pipeline.model import (
     SurfaceRow,
     When,
 )
+from rebuild.pipeline import settle as settle_module
 from rebuild.pipeline.settle import (
     EDGE,
     UNKNOWN,
@@ -35,6 +36,7 @@ from rebuild.pipeline.settle import (
     cell_label,
     is_entry_bearing,
     settle,
+    settle_with_engine,
     word_position,
 )
 
@@ -400,7 +402,8 @@ def test_follower_cell_grain_prefer_withholds_the_predecessor_exit():
     assert labels == ("A.stroke", "B.hook.ex-y0", "C.base.en-y0")
 
 
-def test_prefer_deep_slots_reach_the_own_record_but_not_a_follower():
+def test_prefer_deep_slots_reach_the_own_record_and_shift_for_a_follower_vote():
+    """The own-rune branch reads the seat's raw deep slots directly in every mode. The vote branch's reading is the stage-4b flag's whole subject: with `vote_slots` off (the pinned world) everything past the vote's right1 is UNKNOWN and a chained vote fires optimistically no matter what the deep slots hold; with it on (the shipping default) the vote reads the seat's slots shifted once, so the same chain resolves definitively — firing where the third slot satisfies its hop and going irrelevant where it refutes it."""
     spec = _synthetic_spec()
     engine = Engine(spec, frozenset())
     candidate = Candidate("stroke", None, "x-height", 0)
@@ -420,10 +423,15 @@ def test_prefer_deep_slots_reach_the_own_record_but_not_a_follower():
         stance="hook",
         when=When(right=Condition(family=("C",), then=Condition(family=("A",)))),
     )
-    baseline = engine._prefer_favors("B", follower, "A", candidate, left, b, c, UNKNOWN, UNKNOWN)
+    pinned = Engine(spec, frozenset(), vote_slots=False)
+    baseline = pinned._prefer_favors("B", follower, "A", candidate, left, b, c, UNKNOWN, UNKNOWN)
     assert baseline is True
-    assert engine._prefer_favors("B", follower, "A", candidate, left, b, c, a, a) is baseline
-    assert engine._prefer_favors("B", follower, "A", candidate, left, b, c, c, c) is baseline
+    assert pinned._prefer_favors("B", follower, "A", candidate, left, b, c, a, a) is baseline
+    assert pinned._prefer_favors("B", follower, "A", candidate, left, b, c, c, c) is baseline
+    shifted = Engine(spec, frozenset(), vote_slots=True)
+    assert shifted._prefer_favors("B", follower, "A", candidate, left, b, c, a, UNKNOWN) is True
+    assert shifted._prefer_favors("B", follower, "A", candidate, left, b, c, c, UNKNOWN) is None
+    assert shifted._prefer_favors("B", follower, "A", candidate, left, b, c, UNKNOWN, UNKNOWN) is True
 
 
 def test_absolute_prefer_outranks_join_count():
@@ -450,6 +458,142 @@ def test_bind_contract_lands_in_the_adjustments_grammar():
     spec = _synthetic_spec(contract_b=(contract,))
     labels = _labels(spec, [0xE001, 0xE002])
     assert labels == ("A.stroke.ex-y5", "B.hook.en-y5.en-bind-hook-after-a")
+
+
+def _prospect_spec() -> ResolvedSpec:
+    """Four letters replaying the issue-28 signature (the ·No·No·Tea·Day shape). A exits at both heights and prefers x-height over baseline as a yielding tie-break; B enters at both heights, is exitless when entered at the x-height, and yields its baseline exit before C·D; entered C is exitless, so B joining C forecloses C·D while B declining buys it. The optimistic prospect therefore scores A's baseline candidate as if B's onward join will happen, but B's own cascade provably yields it one seat later — the simulated prospect sees the yield from A's seat."""
+    a = Rune(
+        name="A",
+        codepoint=0xE011,
+        ductus={"stroke": "synthetic"},
+        stances={
+            "stroke": Stance(
+                "stroke",
+                motion="stroke",
+                surface=Surface(
+                    exits={
+                        "x-height": SurfaceRow("x-height", x=1, withdrawal="safe"),
+                        "baseline": SurfaceRow("baseline", x=1, withdrawal="safe"),
+                    },
+                ),
+            ),
+        },
+        policy=Policy(
+            order=("stroke",),
+            prefer=(
+                PolicyRecord(
+                    kind="prefer", cell={"exit": "x-height"}, over={"exit": "baseline"}, when=When()
+                ),
+            ),
+        ),
+    )
+    b = Rune(
+        name="B",
+        codepoint=0xE012,
+        ductus={"hook": "synthetic"},
+        stances={
+            "hook": Stance(
+                "hook",
+                motion="hook",
+                surface=Surface(
+                    entries={
+                        "x-height": SurfaceRow("x-height", x=0),
+                        "baseline": SurfaceRow("baseline", x=0),
+                    },
+                    exits={"baseline": SurfaceRow("baseline", x=1, withdrawal="safe")},
+                    pairings=Pairings(never=(Pairing("x-height", "baseline"),)),
+                ),
+            ),
+        },
+        policy=Policy(
+            order=("hook",),
+            prefer=(
+                PolicyRecord(
+                    kind="prefer",
+                    cell={"exit": "none"},
+                    over={"exit": "baseline"},
+                    when=When(right=Condition(family=("C",), then=Condition(family=("D",)))),
+                ),
+            ),
+        ),
+    )
+    c = Rune(
+        name="C",
+        codepoint=0xE013,
+        ductus={"base": "synthetic"},
+        stances={
+            "base": Stance(
+                "base",
+                motion="base",
+                surface=Surface(
+                    entries={"baseline": SurfaceRow("baseline", x=0)},
+                    exits={"baseline": SurfaceRow("baseline", x=1, withdrawal="safe")},
+                    pairings=Pairings(never=(Pairing("baseline", "baseline"),)),
+                ),
+            ),
+        },
+        policy=Policy(order=("base",)),
+    )
+    d = Rune(
+        name="D",
+        codepoint=0xE014,
+        ductus={"base": "synthetic"},
+        stances={
+            "base": Stance(
+                "base",
+                motion="base",
+                surface=Surface(entries={"baseline": SurfaceRow("baseline", x=0)}),
+            ),
+        },
+        policy=Policy(order=("base",)),
+    )
+    registry = ScriptRegistry(
+        heights={"baseline": 0, "x-height": 5, "y6": 6, "top": 8},
+        boundary_tokens={
+            "space": BoundaryToken(0x0020, splits_runs=True),
+            "zwnj": BoundaryToken(0x200C, splits_runs=True),
+            "namer-dot": BoundaryToken(0x00B7, splits_runs=False),
+        },
+        predicate_classes={},
+        families={
+            "A": FamilyInfo(codepoint=0xE011),
+            "B": FamilyInfo(codepoint=0xE012),
+            "C": FamilyInfo(codepoint=0xE013),
+            "D": FamilyInfo(codepoint=0xE014),
+        },
+    )
+    return ResolvedSpec(runes={"A": a, "B": b, "C": c, "D": d}, registry=registry)
+
+
+def test_simulated_prospect_sees_the_follower_yield_the_promised_join():
+    spec = _prospect_spec()
+    sequence = [0xE011, 0xE012, 0xE013, 0xE014]
+    optimistic = Engine(spec, frozenset(), simulated_prospect=False)
+    off = tuple(cell_label(spec, s.cell) for s in settle_with_engine(optimistic, sequence))
+    assert off == ("A.stroke.ex-y0", "B.hook.en-y0", "C.base.ex-y0", "D.base.en-y0")
+    simulated = Engine(spec, frozenset(), simulated_prospect=True)
+    on = tuple(cell_label(spec, s.cell) for s in settle_with_engine(simulated, sequence))
+    assert on == ("A.stroke.ex-y5", "B.hook.en-y5", "C.base.ex-y0", "D.base.en-y0")
+
+
+def test_simulated_prospect_bottoms_out_at_the_window_edge():
+    spec = _prospect_spec()
+    sequence = [0xE011, 0xE012]
+    optimistic = Engine(spec, frozenset(), simulated_prospect=False)
+    simulated = Engine(spec, frozenset(), simulated_prospect=True)
+    assert settle_with_engine(optimistic, sequence) == settle_with_engine(simulated, sequence)
+    candidate = Candidate("stroke", None, "baseline", 0, 1)
+    assert simulated._prospect("A", candidate, RightToken("letter", "B"), EDGE) == 0
+    assert simulated._prospect("A", candidate, RightToken("letter", "B"), UNKNOWN) == 0
+
+
+def test_guard_engines_stay_candidacy_grain_under_the_simulated_default(monkeypatch):
+    monkeypatch.setattr(settle_module, "SIMULATED_PROSPECT_DEFAULT", True)
+    spec = _prospect_spec()
+    assert Engine(spec, frozenset()).simulated_prospect is True
+    state = settle_module._guard_state(spec)
+    assert state["engines"]
+    assert not any(engine.simulated_prospect for engine in state["engines"])
 
 
 # Round-1 verdict pins over the real loaded rune YAML. The fixture spec above is the frozen M1 transcription and intentionally predates the round-1 verdict records, so these rows load glyph_data/runes/*.yaml directly. They pin the greedy ·May·May pairing of the round-1 verdict (u-0341, "the old way seems nicer to write out by hand"): chains pair up y0 | break | y0 | break, like the shipped font does at every length. The quad is the verdicted window; the quint and sextet are the only gate that sees qsMay's chain-interior prefer (the one scoped on an unjoined ·May to its left) — the acceptance oracle's window universe tops out at four letters, where the word-start record alone reproduces every outcome, and without the chain-interior record chains of five or more regress to the rejected defer-to-the-tail grouping.
@@ -541,7 +685,7 @@ ORPHANED_TEA_ROWS = (
     ("qsTea qsUtter qsLow", ("qsTea.full", "qsUtter.alternate.ex-y0", "qsLow.hapax.en-y0")),
     (
         "qsDay qsIt qsUtter qsLow",
-        ("qsDay.full", "qsIt.hapax", "qsUtter.alternate.ex-y0", "qsLow.hapax.en-y0"),
+        ("qsDay.full.ex-y0", "qsIt.hapax.en-y0", "qsUtter.alternate.ex-y0", "qsLow.hapax.en-y0"),
     ),
 )
 

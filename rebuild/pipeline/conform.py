@@ -541,7 +541,7 @@ def _window_rights(
     deep4: frozenset[str],
     deep4_live: Callable[[str, str, str, str], bool],
 ) -> tuple[str, str, str, str]:
-    """The normalized lookahead slots of the settlement window at `index`: right2 is #NA past a boundary or the edge, and the deep slots open only where the table enumerates them — a depth-3-/depth-4-bearing input whose own-rune chain is still live over the nearer slots (`deep3_live` / `deep4_live`, the table's `third_slot_filter` / `fourth_slot_filter`). Shared by `_matched_windows` and `_SettledWindowWalk` so the replay, the memo key, and the table agree on which slots a window carries."""
+    """The normalized lookahead slots of the settlement window at `index`: right2 is #NA past a boundary or the edge, and the deep slots open only where the table enumerates them — an input `deep`/`deep4` admits (the table's `third_slot_inputs` / `fourth_slot_inputs`) whose window is still live over the nearer slots (`deep3_live` / `deep4_live`, the table's `third_slot_filter` / `fourth_slot_filter`, whose verdicts carry the simulated-prospect arm whenever the engines do). Shared by `_matched_windows` and `_SettledWindowWalk` so the replay, the memo key, and the table agree on which slots a window carries."""
     label = labels[index]
     right1 = labels[index + 1] if index + 1 < len(labels) else _EDGE_LABEL
     right2 = (
@@ -600,15 +600,15 @@ def _first_matching_rule(
 def _matched_windows(
     spec, text, features, expected, rules_by_input, deep=None, deep3_live=None, deep4=None, deep4_live=None
 ):
-    """Replay the settlement lookup's view of one string: yield (position, window key, first-matching rule index or None) per letter slot, with labels and rules in the config's renamed (marker-folded) space and the left slot read from the settled stream — the exact first-match-wins semantics the emitted FEA compiles to. `deep` is the table's depth3_inputs set and `deep4` its depth4_inputs set (computed here when not supplied); the third window slot is #NA except where the table enumerates it — a depth-3-bearing input with letters at both nearer slots, gated by `deep3_live` (the table's `third_slot_filter`, built here when not supplied) — and the fourth repeats that one deeper for depth-4-bearing inputs, gated the same way by `deep4_live` (the table's `fourth_slot_filter`), so the replay and the table agree on which windows carry live deep slots."""
+    """Replay the settlement lookup's view of one string: yield (position, window key, first-matching rule index or None) per letter slot, with labels and rules in the config's renamed (marker-folded) space and the left slot read from the settled stream — the exact first-match-wins semantics the emitted FEA compiles to. `deep` is the table's `third_slot_inputs` set and `deep4` its `fourth_slot_inputs` set (computed here when not supplied); the third window slot is #NA except where the table enumerates it — an admitted input with letters at both nearer slots, gated by `deep3_live` (the table's `third_slot_filter`, built here when not supplied) — and the fourth repeats that one deeper, gated the same way by `deep4_live` (the table's `fourth_slot_filter`), so the replay and the table agree on which windows carry live deep slots."""
     from rebuild.pipeline import table as table_module
 
     if deep is None:
-        deep = table_module.depth3_inputs(spec)
+        deep = table_module.third_slot_inputs(spec)
     if deep3_live is None:
         deep3_live = table_module.third_slot_filter(spec, frozenset(features))
     if deep4 is None:
-        deep4 = table_module.depth4_inputs(spec)
+        deep4 = table_module.fourth_slot_inputs(spec)
     if deep4_live is None:
         deep4_live = table_module.fourth_slot_filter(spec, frozenset(features))
     try:
@@ -648,7 +648,7 @@ def _label_family(label: str) -> str:
 
 
 class _SettledWindowWalk:
-    """The memoized settle-and-replay walk one conformance config runs over every swept text: a single left-to-right pass computes each letter slot's normalized window key — exactly `_matched_windows`' slots, with the left read from the just-settled stream — and resolves it through `windows`, a window -> (Settled, glyph name, first-matching rule index) memo, calling `engine.transition_trace` only on a miss; the memoized Settled feeds the next slot's left exactly as `settle_traces` does. Sound because every memoized outcome is a pure function of the normalized window: the left label is the settled cell's glyph name (injective over every CellId field, whether minted by `cell_label` or `geometry.display_name`), and the deep slots blank only where the table's own relevance filters prove no own-rune chain can read them — the same rules the build's partition gates assert. The memo thereby inherits the table's enumeration assumption: a record shape that read a token through a normalized-away slot (none exists today — no `then` hop follows an `is:` boundary condition) would settle wrongly only via each window's first-reached representative rather than diverging on every text, so the walk-equivalence sweeps in rebuild/test_conform.py are the alarm that must move first. A hit skips `transition_trace` and so stops re-recording into `engine.fired`, which the conform run never reads. `windows` doubles as the sweep's realized-window record — its keys are precisely the distinct windows the walk has settled — so it is deliberately unbounded: coverage bookkeeping needs every key anyway, and the interned labels plus deduplicated outcome tuples keep the residual cost to the key tuples themselves."""
+    """The memoized settle-and-replay walk one conformance config runs over every swept text: a single left-to-right pass computes each letter slot's normalized window key — exactly `_matched_windows`' slots, with the left read from the just-settled stream — and resolves it through `windows`, a window -> (Settled, glyph name, first-matching rule index) memo, calling `engine.transition_trace` only on a miss; the memoized Settled feeds the next slot's left exactly as `settle_traces` does. Sound because every memoized outcome is a pure function of the normalized window: the left label is the settled cell's glyph name (injective over every CellId field, whether minted by `cell_label` or `geometry.display_name`), and the deep slots blank only where the table's own relevance filters prove nothing can read them — no own-rune chain, and no simulated follower choice when the engines carry the issue-28 prospect — the same rules the build's partition gates assert. The memo thereby inherits the table's enumeration assumption: a record shape that read a token through a normalized-away slot (none exists today — no `then` hop follows an `is:` boundary condition) would settle wrongly only via each window's first-reached representative rather than diverging on every text, so the walk-equivalence sweeps in rebuild/test_conform.py are the alarm that must move first. A hit skips `transition_trace` and so stops re-recording into `engine.fired`, which the conform run never reads. `windows` doubles as the sweep's realized-window record — its keys are precisely the distinct windows the walk has settled — so it is deliberately unbounded: coverage bookkeeping needs every key anyway, and the interned labels plus deduplicated outcome tuples keep the residual cost to the key tuples themselves."""
 
     def __init__(
         self,
@@ -1174,12 +1174,12 @@ def find_rule_witnesses(spec, features, decision, glyph_names=None) -> WitnessRe
         glyph_names = {cell: cell_label(spec, cell) for cell in decision.reachable_cells()}
     from rebuild.pipeline import table as table_module
 
-    deep = table_module.depth3_inputs(spec)
-    deep4 = table_module.depth4_inputs(spec)
     rules_by_input = _renamed_rules_by_input(spec, features, decision)
     prefixes, by_right3 = _shortest_window_prefixes(decision)
     rows_by_rule = _first_match_rows(decision)
     engine = settle_module.Engine(spec, frozenset(features))
+    deep = table_module.third_slot_inputs(spec, engine)
+    deep4 = table_module.fourth_slot_inputs(spec, engine)
     deep3_live = table_module.third_slot_filter(spec, frozenset(features), engine)
     deep4_live = table_module.fourth_slot_filter(spec, frozenset(features), engine)
     report = WitnessReport(config=decision.config, rules=len(decision.rules))
@@ -1294,9 +1294,9 @@ def _conformance_config(
     rules_by_input = _renamed_rules_by_input(spec, features, decision)
 
     result = ConformanceConfigResult(config=config)
-    deep = table_module.depth3_inputs(spec)
+    deep = table_module.third_slot_inputs(spec, engine)
     deep3_live = table_module.third_slot_filter(spec, features, engine)
-    deep4 = table_module.depth4_inputs(spec)
+    deep4 = table_module.fourth_slot_inputs(spec, engine)
     deep4_live = table_module.fourth_slot_filter(spec, features, engine)
     modes: set[str] = set()
     rules_hit: set[int] = set()

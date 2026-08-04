@@ -41,6 +41,7 @@ from rebuild.pipeline.model import (
     relevant_marker_features,
     ss10_twin_name,
 )
+from rebuild.pipeline import settle as settle_module
 from rebuild.pipeline.settle import cell_label
 from rebuild.pipeline.spec_load import load_default_spec
 from rebuild.pipeline.table import DecisionTable
@@ -252,9 +253,19 @@ def serialized_tables(out_dir: Path, inputs: str) -> dict[str, DecisionTable] | 
     return tables
 
 
+def tables_inputs() -> str:
+    """The stamp serialized windows carry: `fingerprint.tables_value` plus a token per semantics-mode default that is on (the simulated prospect, the stage-4b shifted vote slots). The environment flags change settlement semantics without moving any hashed source, so without the tokens a flag-on enumeration would read as fresh to a flag-off process (and the reverse) and the sweep would replay tables the in-process kernel no longer produces."""
+    inputs = fingerprint.tables_value(REPO_ROOT)
+    if settle_module.SIMULATED_PROSPECT_DEFAULT:
+        inputs = f"{inputs}+simulated-prospect"
+    if settle_module.VOTE_SLOTS_DEFAULT:
+        inputs = f"{inputs}+vote-slots"
+    return inputs
+
+
 def run_font_conformance(out_dir: Path = OUT_DIR, max_length: int = 5, jobs: int = 1) -> dict:
     """The exhaustive font-vs-settle sweep. The tables it replays are the ones the build stage already produced from these same sources, read back per configuration; only when that fingerprint fails to match does the fixpoint run again here, which is the standalone case of a sweep against a font whose runes have since moved."""
-    inputs = fingerprint.tables_value(REPO_ROOT)
+    inputs = tables_inputs()
     spec = load_default_spec()
     start = time.perf_counter()
     serialized = serialized_tables(out_dir, inputs)
@@ -495,7 +506,7 @@ def main(argv: list[str] | None = None) -> None:
         f"[t] baseline_subset {time.perf_counter() - start:.1f}s ({'refiltered' if refiltered else 'fresh'})",
         flush=True,
     )
-    inputs = fingerprint.tables_value(REPO_ROOT)
+    inputs = tables_inputs()
     spec = load_default_spec()
     before = run_m1_key()
     try:
