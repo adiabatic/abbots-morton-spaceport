@@ -1,22 +1,22 @@
 {
   "_surface": {
-    "generated_at": "2026-08-02T21:33:22Z",
-    "repo_head": "1bfb48a"
+    "generated_at": "2026-08-03T23:48:07Z",
+    "repo_head": "06c547b"
   },
   "manifest": {
     "totals": {
-      "units": 137003,
+      "units": 137000,
       "rows": 467005,
       "batches": 77,
-      "echo_groups": 2262
+      "echo_groups": 2303
     },
     "classes_count": 27,
     "machine_approved": {
-      "units": 108106,
+      "units": 108062,
       "by_class": {
-        "boundary-echo": 29067,
-        "dangling-anchor-dropped": 18865,
-        "bare-name-live-join": 26369,
+        "boundary-echo": 29063,
+        "dangling-anchor-dropped": 18851,
+        "bare-name-live-join": 26343,
         "ss10-isolation-completed": 20571,
         "ss10-ligature-suppressed": 1468,
         "kern-channel-out-of-scope": 1494,
@@ -25,22 +25,22 @@
     },
     "class_unit_count": {
       "boundary-echo": 34886,
-      "dangling-anchor-dropped": 19921,
-      "bare-name-live-join": 28860
+      "dangling-anchor-dropped": 19906,
+      "bare-name-live-join": 28833
     },
     "secondary_seams": {
-      "units_with_markers": 13786,
-      "seams_homed": 8318,
-      "seams_homeless": 6642,
+      "units_with_markers": 13844,
+      "seams_homed": 8339,
+      "seams_homeless": 6712,
       "seams_suppressed_invisible": 0
     }
   },
   "built": {
-    "human_units": 22897,
+    "human_units": 22941,
     "config_note_distribution": [
       [
         null,
-        76376
+        76379
       ],
       [
         "only under ss10",
@@ -48,7 +48,7 @@
       ],
       [
         "only when ss03 is off",
-        4259
+        4253
       ],
       [
         "only when ss03 is off and ss04 is off",
@@ -60,7 +60,7 @@
       ],
       [
         "only when ss03 is on",
-        6134
+        6128
       ],
       [
         "only when ss03 is on and ss05 is off",
@@ -72,7 +72,7 @@
       ],
       [
         "only when ss04 is off",
-        2498
+        2501
       ],
       [
         "only when ss04 is off and ss05 is off",
@@ -80,7 +80,7 @@
       ],
       [
         "only when ss04 is on",
-        2659
+        2662
       ],
       [
         "only when ss05 is off",
@@ -98,33 +98,33 @@
   },
   "audit": {
     "row_count": 467005,
-    "units": 139015
+    "units": 139009
   },
   "ink": {
-    "machine_total": 66350,
-    "non_identical": 72665,
+    "machine_total": 66309,
+    "non_identical": 72700,
     "by_class": {
-      "boundary-echo": 20267,
-      "dangling-anchor-dropped": 19714,
-      "bare-name-live-join": 26369
+      "boundary-echo": 20263,
+      "dangling-anchor-dropped": 19703,
+      "bare-name-live-join": 26343
     },
-    "boundary_echo_exempt": 15641,
-    "human_units": 57024,
+    "boundary_echo_exempt": 15638,
+    "human_units": 57062,
     "batches": 191
   },
   "families": {
     "census": {
-      "no-chain-gains": 459,
+      "no-chain-gains": 473,
       "tea-it-xheight": 88,
-      "oy-it-baseline": 25,
-      "may-utter-gains": 278,
-      "seam-loss-withdrawal": 2004,
-      "extension-non-summing": 4965,
-      "unmatched-misc": 1464,
-      "deferred-ss04": 1312,
+      "oy-it-baseline": 26,
+      "may-utter-gains": 272,
+      "seam-loss-withdrawal": 2024,
+      "extension-non-summing": 4961,
+      "unmatched-misc": 1467,
+      "deferred-ss04": 1309,
       "deferred-ss10": 10272,
-      "deferred-ss03": 1405
+      "deferred-ss03": 1404
     },
-    "total": 22272
+    "total": 22296
   }
 }

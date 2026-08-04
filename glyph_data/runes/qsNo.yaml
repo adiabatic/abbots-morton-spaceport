@@ -122,16 +122,6 @@ policy:
     when:
       left: {is: boundary}
       right: {family: qsMay}
-  - cell: {exit: none}
-    over: {exit: x-height}
-    mode: absolute
-    when:
-      right:
-        family: qsUtter
-        then:
-          family: qsTea
-          then: {family: qsDay}
-    why: I want a word-final ·Tea·Day pair to bind more tightly than the average. ·Utter is mentioned here because ·Utter.alt has a mandatory exit, so it can’t help consuming ·Tea’s baseline slot. Only the letter before ·Utter can prevent this.
   - cell: {exit: baseline}
     over: {exit: none}
     when:
@@ -141,22 +131,6 @@ policy:
         except:
         - family: qsUtter
           then: {family: qsMay}
-  - cell: {exit: x-height}
-    over: {exit: baseline}
-    mode: absolute
-    when:
-      left: {is: boundary}
-      right:
-        family: qsNo
-        then:
-          family: qsSee
-          then:
-            family:
-            - qsLow
-            - qsAt
-            - qsOut
-            - qsOoze
-    why: Since ·See doesn't join to the ·No letters, the ·No letters shouldn't change at all. That this is happening is indicative of a bug
   extend:
   - exit: x-height
     by: 1
