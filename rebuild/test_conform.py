@@ -494,9 +494,9 @@ class TestSettledWindowWalk:
         from rebuild.pipeline import table as table_module
 
         engine = settle_module.Engine(spec, features)
-        deep = table_module.depth3_inputs(spec)
+        deep = table_module.third_slot_inputs(spec, engine)
         deep3_live = table_module.third_slot_filter(spec, features, engine)
-        deep4 = table_module.depth4_inputs(spec)
+        deep4 = table_module.fourth_slot_inputs(spec, engine)
         deep4_live = table_module.fourth_slot_filter(spec, features, engine)
         walker = conform._SettledWindowWalk(
             spec, engine, features, rules_by_input, deep, deep3_live, deep4, deep4_live, {}
@@ -546,3 +546,17 @@ class TestSettledWindowWalk:
             real_spec = load_default_spec()
         alphabet = tuple(chr(cp) for cp in (0x0020, 0xE652, 0xE653, 0xE665, 0xE666, 0xE679, 0xE67A))
         self._assert_walk_matches(real_spec, frozenset(), {}, alphabet, 5)
+
+    def test_prospect_live_slots_agree_between_walk_and_replay(self, monkeypatch):
+        """The issue-28 arm of the deep-slot filters, exercised end to end: under the simulated-prospect default, the `_prospect_spec` fixture's A-before-B-C windows carry a live third slot the table enumerates, and the memoized walk, the unmemoized replay, and the built rules must agree on the split — the same observational-identity bar as the chain-arm sweeps above."""
+        from rebuild.pipeline import settle as settle_module
+        from rebuild.pipeline.table import build_tables
+        from rebuild.test_settle import _prospect_spec
+
+        monkeypatch.setattr(settle_module, "SIMULATED_PROSPECT_DEFAULT", True)
+        spec = _prospect_spec()
+        decision = build_tables(spec, frozenset())[0]
+        assert any(row.right3 != "#NA" for row in decision.transitions)
+        assert any(rule.look3 for rule in decision.rules)
+        rules_by_input = conform._renamed_rules_by_input(spec, frozenset(), decision)
+        self._assert_walk_matches(spec, frozenset(), rules_by_input, conform.spec_alphabet(spec), 5)

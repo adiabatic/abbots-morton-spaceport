@@ -1,6 +1,6 @@
 """The section 6.1 settlement function over a ResolvedSpec (doc/rebuild-design.md), promoted from prototype/settle.py per the Recon B promotion map.
 
-Per run (boundary to boundary), after guarded type-4 formation (the section 5.7 late-formation guard: a ligature yields per window when leaving its components unformed would realize a seam toward the follower that the formed ligature cannot realize under any capability configuration), left to right: at each position the unit being ranked is the pair candidate (cell of rune i, seam state toward i+1). The kernel implements entry binding with the bilateral-commitment rule and the E-STRANDED raise, the refusal-aware lookahead closure (mutuality is definitional: an exit with no refusal-aware acceptor is never a candidate), refusals from both seam runes at all three grains with except carve-outs, and the strictly lexicographic ranking: absolute prefers (most-specific first) -> window join-count with the deliberately optimistic third term -> yielding prefers -> the runes' declared order: -> the structural floor (lower seam height, row declaration order, none last) -> the weak lead preference (unreachable in practice because the floor is total; kept as the documented final stage). Extensions and contracts apply per (seam, side) by section 6.2 most-specific-wins and never sum on one side; a follower's entry extension is suppressed when the predecessor's exit already carries the seam's pixels (the same-seam non-summing rule, prototype divergence 3).
+Per run (boundary to boundary), after guarded type-4 formation (the section 5.7 late-formation guard: a ligature yields per window when leaving its components unformed would realize a seam toward the follower that the formed ligature cannot realize under any capability configuration), left to right: at each position the unit being ranked is the pair candidate (cell of rune i, seam state toward i+1). The kernel implements entry binding with the bilateral-commitment rule and the E-STRANDED raise, the refusal-aware lookahead closure (mutuality is definitional: an exit with no refusal-aware acceptor is never a candidate), refusals from both seam runes at all three grains with except carve-outs, and the strictly lexicographic ranking: absolute prefers (most-specific first) -> window join-count whose third term is the follower's actual simulated choice (issue 28; `SIMULATED_PROSPECT_DEFAULT`, on by default, with the pre-issue-28 optimistic candidacy estimate kept as the AMS_SIMULATED_PROSPECT=0 comparison state) -> yielding prefers -> the runes' declared order: -> the structural floor (lower seam height, row declaration order, none last) -> the weak lead preference (unreachable in practice because the floor is total; kept as the documented final stage). Extensions and contracts apply per (seam, side) by section 6.2 most-specific-wins and never sum on one side; a follower's entry extension is suppressed when the predecessor's exit already carries the seam's pixels (the same-seam non-summing rule, prototype divergence 3).
 
 Boundary semantics: space and ZWNJ split runs and derive word position; the namer dot does not split runs but is addressable as `is: namer-dot` and, having no join surface, breaks adjacency naturally. Post-ZWNJ letters with a live entry surface settle as locked twins (the `locked` adjustment) with the entry side severed — post-ZWNJ behaves word-initial by definition.
 
@@ -11,6 +11,7 @@ Withdrawal is candidate semantics, not a fixup: a join that does not realize mid
 
 from __future__ import annotations
 
+import os
 from collections import OrderedDict
 from collections.abc import Sequence
 from dataclasses import dataclass, field
@@ -38,6 +39,12 @@ from rebuild.pipeline.specificity import EAmbiguousError, EIncomparableError
 SPLITTING_KINDS = ("edge", "space", "zwnj")
 BOUNDARY_KINDS = ("edge", "space", "zwnj", "namer-dot")
 BOUNDARY_STANCE = "boundary"
+
+# The issue-28 flag, default on since stage 3: engines score the third join-count term by the follower's simulated transition instead of seam-bearing candidacy (see Engine._prospect). Module-level so the default is one edit and a comparison run_m1 can opt out across its spawn-pool workers via AMS_SIMULATED_PROSPECT=0; Engine reads it at construction, so tests may monkeypatch it.
+SIMULATED_PROSPECT_DEFAULT = os.environ.get("AMS_SIMULATED_PROSPECT", "1") != "0"
+
+# The issue-28 stage-4b companion flag, default on: follower votes are evaluated over the seat's real shifted slots (vote right1 = seat right2, right2 = seat right3, right3 = seat right4) instead of pinning everything past the vote's own right1 to UNKNOWN, so a chained vote resolves inside the window instead of firing optimistically wherever its then: hop read the pin. Same plumbing contract as SIMULATED_PROSPECT_DEFAULT: module-level, consulted at Engine construction, AMS_VOTE_SLOTS=0 is the comparison state.
+VOTE_SLOTS_DEFAULT = os.environ.get("AMS_VOTE_SLOTS", "1") != "0"
 
 _NO_EXIT_INDEX = 9999
 
@@ -166,12 +173,24 @@ class Engine:
     """One settlement engine per (spec, feature configuration); caches candidate enumerations so the table builder's fixpoint stays fast."""
 
     def __init__(
-        self, spec: ResolvedSpec, features: frozenset[str], vote_deep_slot: RightToken | None = None
+        self,
+        spec: ResolvedSpec,
+        features: frozenset[str],
+        vote_deep_slot: RightToken | None = None,
+        simulated_prospect: bool | None = None,
+        vote_slots: bool | None = None,
     ):
         self.spec = spec
         self.features = frozenset(features)
-        # The follower-vote's second slot (design section 5.9): real settlement keeps it UNKNOWN-optimistic to confine deep-window behavior to own-rune records, but the section 5.7 guard's dedicated engines bind it to the window edge — a guard verdict is a function of two raw slots, so a vote that would need deeper text to fire definitively must not flip a formation verdict.
+        # The follower-vote's beyond-right1 slot when `vote_slots` is off (design section 5.9): UNKNOWN-optimistic in that comparison state to confine deep-window behavior to own-rune records, and bound to the window edge by the section 5.7 guard's dedicated engines — a guard verdict is a function of two raw slots, so a vote that would need deeper text to fire definitively must not flip a formation verdict. With `vote_slots` on (the stage-4b companion) real settlement hands the vote its shifted real slots instead and this pin only ever carries the guard's EDGE.
         self._vote_deep_slot = vote_deep_slot if vote_deep_slot is not None else UNKNOWN
+        # None consults the module default at construction time (not import time), so a test can monkeypatch SIMULATED_PROSPECT_DEFAULT and every engine built afterward follows.
+        self.simulated_prospect = (
+            SIMULATED_PROSPECT_DEFAULT if simulated_prospect is None else simulated_prospect
+        )
+        self.vote_slots = VOTE_SLOTS_DEFAULT if vote_slots is None else vote_slots
+        # How often a simulated prospect's counterfactual cascade raised and fell back to the candidacy-grain estimate; diagnostic only.
+        self.simulated_prospect_fallbacks = 0
         self._closure_cache: dict[tuple, bool] = {}
         self._prospect_cache: dict[tuple, int] = {}
         # YAML provenance of every authored record that demonstrably fired during settlement under this configuration: refusals that killed a candidate, unlocks that granted capability, row scopes that admitted a side, and extends/contracts/prefers that shaped a committed cell. Closure and prospect evaluations count — a refusal firing inside the lookahead closure is load-bearing for the window that consulted it. The dead-policy gate reads this through DecisionTable.cited_provenance.
@@ -588,17 +607,49 @@ class Engine:
         self._closure_cache[key] = result
         return result
 
-    def _prospect(self, rune_name: str, candidate: Candidate, right1: RightToken, right2: RightToken) -> int:
-        """The deliberately optimistic third join-count term: the best refusal-aware static prospect of the (i+1, i+2) seam given this candidate — computed over the follower's surviving cells against the raw right2, optimistic with respect to the follower's own prefers and ordering."""
+    def _prospect(
+        self,
+        rune_name: str,
+        candidate: Candidate,
+        right1: RightToken,
+        right2: RightToken,
+        right3: RightToken = UNKNOWN,
+        right4: RightToken = UNKNOWN,
+    ) -> int:
+        """The third join-count term: the prospect of the (i+1, i+2) seam given this candidate. With `simulated_prospect` on (the shipping default since issue 28's stage 3), the term is the follower's actual simulated transition: the full cascade with the window shifted one right (virtual left = the candidate, slots = right2/right3/right4/UNKNOWN), 1 iff the simulated winner carries a seam. The recursion the inner cascade's own prospect term opens only moves rightward with strictly shrinking slots and bottoms out at the window edge, where non-letter slots return 0 — today's epistemic state, kept on purpose, so beyond-window text stays exactly as unknowable as it is now. A counterfactual cascade can raise where real settlement never would (a prefer conflict or a definitively-firing unlock scope in a window whose candidate never wins); those evaluations fall back to the candidacy-grain estimate — the honest cannot-rank state — and count in `simulated_prospect_fallbacks`. With `simulated_prospect` off (the section 5.7 guard engines' pin, and the AMS_SIMULATED_PROSPECT=0 comparison state), the term is the pre-issue-28 optimistic candidacy estimate — 1 iff any seam-bearing follower cell survives `candidates()`, refusal-aware but blind to the follower's prefers and ordering."""
         if right1.kind != "letter" or right2.kind != "letter":
             return 0
-        key = (rune_name, candidate.stance, candidate.entry, candidate.seam, right1.letter, right2.letter)
+        if not self.simulated_prospect:
+            key = (rune_name, candidate.stance, candidate.entry, candidate.seam, right1.letter, right2.letter)
+            cached = self._prospect_cache.get(key)
+            if cached is not None:
+                return cached
+            virtual = self._virtual_left(rune_name, candidate)
+            follower_cells = self.candidates(virtual, right1.letter, right2, UNKNOWN)
+            result = 1 if any(cell.seam is not None for cell in follower_cells) else 0
+            self._prospect_cache[key] = result
+            return result
+        key = (
+            rune_name,
+            candidate.stance,
+            candidate.entry,
+            candidate.seam,
+            right1.letter,
+            right2,
+            right3,
+            right4,
+        )
         cached = self._prospect_cache.get(key)
         if cached is not None:
             return cached
         virtual = self._virtual_left(rune_name, candidate)
-        follower_cells = self.candidates(virtual, right1.letter, right2, UNKNOWN)
-        result = 1 if any(cell.seam is not None for cell in follower_cells) else 0
+        try:
+            trace = self.transition_trace(virtual, right1, right2, right3, right4, UNKNOWN)
+            result = 1 if trace.settled.seam is not None else 0
+        except EIncomparableError, EAmbiguousError, SettleError:
+            self.simulated_prospect_fallbacks += 1
+            follower_cells = self.candidates(virtual, right1.letter, right2, UNKNOWN)
+            result = 1 if any(cell.seam is not None for cell in follower_cells) else 0
         self._prospect_cache[key] = result
         return result
 
@@ -616,7 +667,7 @@ class Engine:
         right3: RightToken,
         right4: RightToken,
     ) -> bool | None:
-        """Whether a prefer record speaks for this candidate. Our own rune's record targets the candidate's stance/cell directly; a follower's record votes for candidates under which its preferred continuation is refusal-aware admissible (design section 5.9), with joined_at bound to the candidate's seam. Returns None when the record's when does not match this window at all. Only the own-rune branch reads the raw third and fourth slots — a follower's vote is evaluated one position over, where those slots are its right2/right3, so handing them along would double-shift the window; every other consumer of when_matches (closure, prospect, refusals, unlocks) keeps the deep slots UNKNOWN-optimistic, which is what confines deep-window behavior changes to windows where a deep record fires at its own position."""
+        """Whether a prefer record speaks for this candidate. Our own rune's record targets the candidate's stance/cell directly; a follower's record votes for candidates under which its preferred continuation is refusal-aware admissible (design section 5.9), with joined_at bound to the candidate's seam. Returns None when the record's when does not match this window at all. The own-rune branch reads the raw third and fourth slots directly; the vote branch is evaluated one position over, where those slots are its right1/right2/right3, so with `vote_slots` on (the issue-28 stage-4b companion) it is handed the seat's slots shifted once — right2/right3/right4 — and its own fourth slot is the window edge's honest UNKNOWN. With `vote_slots` off everything past the vote's right1 is pinned to `_vote_deep_slot`, whose None verdicts count as firing — the pre-stage-4b optimism that forced a deep-chained fact to be restated on every possible left rune instead of living once on the rune that owns it. Refusals, unlocks, and the closure keep their deep slots UNKNOWN-optimistic in every mode."""
         if owner == rune_name:
             verdict = self.when_matches(
                 owner,
@@ -646,7 +697,11 @@ class Engine:
         if right1.kind != "letter" or right1.rune != owner:
             return None
         virtual = self._virtual_left(rune_name, candidate)
-        follower_cells = self.candidates(virtual, owner, right2, self._vote_deep_slot)
+        if self.vote_slots:
+            vote_right2, vote_right3 = right3, right4
+        else:
+            vote_right2, vote_right3 = self._vote_deep_slot, UNKNOWN
+        follower_cells = self.candidates(virtual, owner, right2, vote_right2)
         relevant = False
         for cell in follower_cells:
             verdict = self.when_matches(
@@ -656,7 +711,8 @@ class Engine:
                 entry=cell.entry,
                 seam=cell.seam,
                 right1=right2,
-                right2=self._vote_deep_slot,
+                right2=vote_right2,
+                right3=vote_right3,
             )
             if verdict is False:
                 continue
@@ -870,8 +926,8 @@ class Engine:
         ranked = {
             candidate: RankedCandidate(
                 candidate,
-                self._score(rune_name, candidate, committed, right1, right2),
-                self._prospect(rune_name, candidate, right1, right2),
+                self._score(rune_name, candidate, committed, right1, right2, right3, right4),
+                self._prospect(rune_name, candidate, right1, right2, right3, right4),
             )
             for candidate in survivors
         }
@@ -951,10 +1007,12 @@ class Engine:
         committed: Height | None,
         right1: RightToken,
         right2: RightToken,
+        right3: RightToken = UNKNOWN,
+        right4: RightToken = UNKNOWN,
     ) -> int:
         left_term = 1 if committed is not None else 0
         own_term = 1 if candidate.seam is not None else 0
-        return left_term + own_term + self._prospect(rune_name, candidate, right1, right2)
+        return left_term + own_term + self._prospect(rune_name, candidate, right1, right2, right3, right4)
 
     def _commit(
         self,
@@ -1040,8 +1098,9 @@ def _guard_state(spec: ResolvedSpec) -> dict:
             for unlock in stance.surface.unlocks
         }
     )
+    # simulated_prospect and vote_slots stay pinned off here regardless of the module defaults: a section 5.7 verdict is a config-blind pure function of two raw slots compiled into the formation lookup, and letting the issue-28 estimator (or the stage-4b shifted vote slots — which would trade the deliberate EDGE pin for the trace's own EDGE-bound deep slots and quietly widen what a vote's then: chain can read) change what the trail's ranking-grain trace scores would flip formation verdicts as a side effect of a settlement-scoring change — if the guard is ever to follow either, that is its own reviewed change with its own flip inventory.
     engines = tuple(
-        Engine(spec, frozenset(combo), vote_deep_slot=EDGE)
+        Engine(spec, frozenset(combo), vote_deep_slot=EDGE, simulated_prospect=False, vote_slots=False)
         for size in range(len(capability_features) + 1)
         for combo in combinations(capability_features, size)
     )

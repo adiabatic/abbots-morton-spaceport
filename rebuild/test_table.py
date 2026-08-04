@@ -20,6 +20,27 @@ from rebuild.pipeline.table import (
 SPEC = fixtures.mini_spec()
 
 
+def candidacy_tables(spec, features):
+    """Build tables in the fully pinned world (`simulated_prospect` and `vote_slots` both off) regardless of the shipping defaults — the world the chain-arm lazy-enumeration tests document, where deep slots open only for own-rune `then:` chains."""
+    from rebuild.pipeline import settle as settle_module
+
+    prior = settle_module.SIMULATED_PROSPECT_DEFAULT
+    prior_votes = settle_module.VOTE_SLOTS_DEFAULT
+    settle_module.SIMULATED_PROSPECT_DEFAULT = False
+    settle_module.VOTE_SLOTS_DEFAULT = False
+    try:
+        return build_tables(spec, features)
+    finally:
+        settle_module.SIMULATED_PROSPECT_DEFAULT = prior
+        settle_module.VOTE_SLOTS_DEFAULT = prior_votes
+
+
+def candidacy_engine(spec, features=frozenset()):
+    from rebuild.pipeline.settle import Engine
+
+    return Engine(spec, frozenset(features), simulated_prospect=False, vote_slots=False)
+
+
 @pytest.fixture(scope="module")
 def default_tables():
     return build_tables(SPEC, frozenset())
@@ -146,6 +167,36 @@ def test_joint_rows_accessor(default_tables):
         assert decision.rules[index].joint
 
 
+def test_unflagged_rows_have_no_prospect_divergence(default_tables):
+    decision, _treaty = default_tables
+    index = table.prospect_successor_index(list(decision.transitions))
+    for row in decision.transitions:
+        if row.joint:
+            continue
+        for successor in table.prospect_successors(index, row):
+            realized = 1 if successor.settled.seam is not None else 0
+            assert realized == row.prospect, f"{row.key} diverges but is not flagged joint"
+
+
+def test_prospect_divergence_inventory_rows_are_flagged_joint(default_tables, tmp_path):
+    from rebuild.tools import prospect_divergence
+
+    decision, _treaty = default_tables
+    first = tmp_path / "prospect-a.tsv"
+    second = tmp_path / "prospect-b.tsv"
+    prospect_divergence.write_divergences(decision, first)
+    prospect_divergence.write_divergences(decision, second)
+    assert first.read_text() == second.read_text()
+    lines = first.read_text().splitlines()
+    assert lines[0] == f"# prospect divergence, config {decision.config}"
+    assert lines[1] == "\t".join(prospect_divergence.COLUMNS)
+    assert lines[2:] == sorted(lines[2:])
+    joint_by_key = {row.key: row.joint for row in decision.transitions}
+    for line in lines[2:]:
+        parts = line.split("\t")
+        assert joint_by_key[tuple(parts[:6])], f"inventory window {parts[:6]} is not flagged joint"
+
+
 def test_cited_provenance_records_demonstrably_firing_policy(default_tables, ss03_tables):
     decision, _treaty = default_tables
     # qsTea's full-baseline-entry refusal fires only inside the lookahead closure (it is what keeps ·It·Tea broken), so its citation proves the closure channel records firings, not just direct-window ones.
@@ -160,16 +211,16 @@ def test_cited_provenance_records_demonstrably_firing_policy(default_tables, ss0
     assert "glyph_data/runes/qsTea.yaml:stances.half.surface.unlocks[0]" in ss03_decision.cited_provenance
 
 
-def test_fixture_spec_has_no_depth3_inputs_and_no_look3(default_tables):
+def test_fixture_spec_has_no_depth3_inputs_and_no_look3():
     assert depth3_inputs(SPEC) == frozenset()
-    decision, _treaty = default_tables
+    decision, _treaty = candidacy_tables(SPEC, frozenset())
     assert all(row.right3 == NA_LABEL for row in decision.transitions)
     assert all(rule.look3 is None for rule in decision.rules)
 
 
-def test_fixture_spec_has_no_depth4_inputs_and_no_look4(default_tables):
+def test_fixture_spec_has_no_depth4_inputs_and_no_look4():
     assert depth4_inputs(SPEC) == frozenset()
-    decision, _treaty = default_tables
+    decision, _treaty = candidacy_tables(SPEC, frozenset())
     assert all(row.right4 == NA_LABEL for row in decision.transitions)
     assert all(rule.look4 is None for rule in decision.rules)
 
@@ -181,7 +232,7 @@ def test_cap_and_slot_arity_are_tied():
 
 
 class TestDepthThreeTables:
-    """The lazy third and fourth lookahead slots over the real loaded rune YAML: only depth-3-bearing inputs get their windows split by right3 and only the `depth4_inputs` runes split on right4 — and only in the chain-live windows `fourth_slot_filter` admits — the split rows compile to deeper-slot rules ordered ahead of their shallower fallbacks, and the hard invariants hold with the extra slots — which is also the corpus-wide proof that the depth-3 and depth-4 chain records introduce no E-INCOMPARABLE/E-AMBIGUOUS prefer conflict."""
+    """The lazy third and fourth lookahead slots over the real loaded rune YAML: only depth-3-bearing inputs get their windows split by right3 and only the `depth4_inputs` runes split on right4 — and only in the chain-live windows `fourth_slot_filter` admits — the split rows compile to deeper-slot rules ordered ahead of their shallower fallbacks, and the hard invariants hold with the extra slots — which is also the corpus-wide proof that the depth-3 and depth-4 chain records introduce no E-INCOMPARABLE/E-AMBIGUOUS prefer conflict. Built via `candidacy_tables`: the class documents the chain arm, and under the shipping simulated-prospect default the prospect arm would open deep slots for every input."""
 
     @pytest.fixture(scope="class")
     def real_spec(self):
@@ -195,13 +246,11 @@ class TestDepthThreeTables:
 
     @pytest.fixture(scope="class")
     def real_default_decision(self, real_spec):
-        decision, _treaty = build_tables(real_spec, frozenset())
+        decision, _treaty = candidacy_tables(real_spec, frozenset())
         return decision
 
     def test_depth3_inputs_census(self, real_spec):
-        assert depth3_inputs(real_spec) == frozenset(
-            {"qsDay", "qsFee", "qsMay", "qsNo", "qsOy", "qsTea_qsOy", "qsUtter"}
-        )
+        assert depth3_inputs(real_spec) == frozenset({"qsDay", "qsOy", "qsTea_qsOy", "qsUtter"})
 
     def test_depth4_inputs_census(self, real_spec):
         assert depth4_inputs(real_spec) == frozenset({"qsDay", "qsOy", "qsTea_qsOy"})
@@ -217,7 +266,7 @@ class TestDepthThreeTables:
         assert saw_enumerated
 
     def test_look3_enumerated_only_where_the_chain_is_live(self, real_spec, real_default_decision):
-        live = third_slot_filter(real_spec, frozenset())
+        live = third_slot_filter(real_spec, frozenset(), candidacy_engine(real_spec))
         assert live("qsDay", "qsTea", "qsUtter")
         assert live("qsDay", "qsTea", "qsNo")
         assert not live("qsDay", "qsUtter", "qsTea")
@@ -239,7 +288,7 @@ class TestDepthThreeTables:
         assert saw_enumerated
 
     def test_look4_enumerated_only_where_the_chain_is_live(self, real_spec, real_default_decision):
-        live = fourth_slot_filter(real_spec, frozenset())
+        live = fourth_slot_filter(real_spec, frozenset(), candidacy_engine(real_spec))
         assert live("qsDay", "qsTea", "qsUtter", "qsTea")
         assert not live("qsDay", "qsTea", "qsUtter", "qsLow")
         assert not live("qsDay", "qsTea", "qsTea", "qsUtter")
@@ -340,7 +389,7 @@ class TestDepthThreeTables:
 
 
 class TestDepthFourTablesSynthetic:
-    """The lazy fourth lookahead slot, exercised over a synthetic reach-3 record because the frozen fixture spec carries no depth-4 chain of its own (the real loaded YAML's chains are covered by TestDepthThreeTables). One fixture rune (·Tea) is handed an absolute-stance prefer whose right condition chains three `then:` hops, built straight from `model.Condition` objects, with the innermost hop distinguishing outcomes by the fourth raw token: only that input's chain-live windows get their fourth slot split, the split rows compile to four-slot rules ordered ahead of their three-slot fallbacks, and the hard invariants hold with the extra slot."""
+    """The lazy fourth lookahead slot, exercised over a synthetic reach-3 record because the frozen fixture spec carries no depth-4 chain of its own (the real loaded YAML's chains are covered by TestDepthThreeTables). One fixture rune (·Tea) is handed an absolute-stance prefer whose right condition chains three `then:` hops, built straight from `model.Condition` objects, with the innermost hop distinguishing outcomes by the fourth raw token: only that input's chain-live windows get their fourth slot split, the split rows compile to four-slot rules ordered ahead of their three-slot fallbacks, and the hard invariants hold with the extra slot. Built via `candidacy_tables`, like TestDepthThreeTables and for the same reason."""
 
     @pytest.fixture(scope="class")
     def synthetic_spec(self):
@@ -365,7 +414,7 @@ class TestDepthFourTablesSynthetic:
 
     @pytest.fixture(scope="class")
     def synthetic_decision(self, synthetic_spec):
-        decision, _treaty = build_tables(synthetic_spec, frozenset())
+        decision, _treaty = candidacy_tables(synthetic_spec, frozenset())
         return decision
 
     def test_depth4_inputs_census(self, synthetic_spec):
@@ -388,7 +437,7 @@ class TestDepthFourTablesSynthetic:
         assert saw_enumerated
 
     def test_look4_enumerated_only_where_the_chain_is_live(self, synthetic_spec, synthetic_decision):
-        live = fourth_slot_filter(synthetic_spec, frozenset())
+        live = fourth_slot_filter(synthetic_spec, frozenset(), candidacy_engine(synthetic_spec))
         assert live("qsTea", "qsMay", "qsMay", "qsMay")
         assert not live("qsTea", "qsMay", "qsMay", "qsIt")
         assert not live("qsTea", "qsIt", "qsMay", "qsMay")
@@ -398,7 +447,7 @@ class TestDepthFourTablesSynthetic:
             assert (row.right1, row.right2, row.right3) == ("qsMay", "qsMay", "qsMay"), row.key
 
     def test_third_slot_shares_the_chain_liveness(self, synthetic_spec, synthetic_decision):
-        live = third_slot_filter(synthetic_spec, frozenset())
+        live = third_slot_filter(synthetic_spec, frozenset(), candidacy_engine(synthetic_spec))
         assert live("qsTea", "qsMay", "qsMay")
         assert not live("qsTea", "qsMay", "qsIt")
         assert not live("qsTea", "qsIt", "qsMay")
@@ -470,3 +519,112 @@ def test_rule_provenance_carries_yaml_pointers(default_tables):
     }
     assert any("policy.extend" in pointer for pointer in pointers)
     assert any("policy.refuse" in pointer for pointer in pointers)
+
+
+class TestProspectLiveSlots:
+    """The issue-28 arm of the deep-slot filters: under the simulated prospect, a window whose simulated follower choice a raw deep token can move enumerates that slot, and nothing else does — flag-off, the arm is inert and the chain census stays the only authority."""
+
+    @pytest.fixture()
+    def prospect_spec(self):
+        from rebuild.test_settle import _prospect_spec
+
+        return _prospect_spec()
+
+    def test_flag_off_keeps_the_chain_only_world(self, prospect_spec):
+        from rebuild.pipeline.settle import Engine
+
+        engine = Engine(prospect_spec, frozenset(), simulated_prospect=False, vote_slots=False)
+        assert table.third_slot_inputs(prospect_spec, engine) == frozenset()
+        assert table.fourth_slot_inputs(prospect_spec, engine) == frozenset()
+        live = third_slot_filter(prospect_spec, frozenset(), engine)
+        assert not live("A", "B", "C")
+        decision, _treaty = candidacy_tables(prospect_spec, frozenset())
+        assert all(row.right3 == NA_LABEL for row in decision.transitions)
+
+    def test_flag_on_opens_exactly_the_sensitive_window(self, prospect_spec, monkeypatch):
+        from rebuild.pipeline import settle as settle_module
+        from rebuild.pipeline.settle import Engine
+
+        engine = Engine(prospect_spec, frozenset(), simulated_prospect=True)
+        assert table.third_slot_inputs(prospect_spec, engine) == frozenset(prospect_spec.runes)
+        live = third_slot_filter(prospect_spec, frozenset(), engine)
+        assert live("A", "B", "C")
+        assert not live("A", "C", "D")
+        monkeypatch.setattr(settle_module, "SIMULATED_PROSPECT_DEFAULT", True)
+        decision, _treaty = build_tables(prospect_spec, frozenset())
+        decision.assert_outcome_partition()
+        decision.assert_e_stranded()
+        split = {
+            row.right3: row.outcome
+            for row in decision.transitions
+            if row.input_glyph == "A" and row.left == "#EDGE" and row.right1 == "B" and row.right2 == "C"
+        }
+        assert split["D"] == "A.stroke.ex-y5"
+        assert split["#EDGE"] == "A.stroke.ex-y0"
+        assert all(outcome == "A.stroke.ex-y0" for right3, outcome in split.items() if right3 != "D")
+        assert any(rule.look3 == ("D",) for rule in decision.rules if rule.input_glyph == "A")
+
+    def test_two_stage_probe_matches_the_uncollapsed_probes_on_the_real_spec(self):
+        """Both collapse layers verified against brute references on a fixed sample: stage one (follower-prospect variance, signature-collapsed) against the uncollapsed per-shape sweep, and — where stage one fires — the final verdict against the uncollapsed seat-outcome sweep over every (family, stance, seam) virtual left plus the boundary kinds."""
+        import warnings
+
+        from rebuild.pipeline.settle import EDGE, UNKNOWN, Candidate, Engine, LeftContext, RightToken
+        from rebuild.pipeline.spec_load import load_default_spec
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            spec = load_default_spec()
+        engine = Engine(spec, frozenset(), simulated_prospect=True)
+        probe = table._liveness_probe(spec, engine)
+        tokens = probe._probe_tokens()
+
+        def brute_stage1(family, r1tok, r2tok):
+            for stance, seam in probe._input_shapes(family):
+                candidate = Candidate(stance, None, seam, 0)
+                baseline = engine._prospect(family, candidate, r1tok, r2tok, EDGE, EDGE)
+                for token in tokens:
+                    edge4 = engine._prospect(family, candidate, r1tok, r2tok, token, EDGE)
+                    unknown4 = engine._prospect(family, candidate, r1tok, r2tok, token, UNKNOWN)
+                    if edge4 != baseline or unknown4 != edge4:
+                        return True
+            return False
+
+        def brute_seat(family, r1tok, r2tok):
+            token = RightToken("letter", family)
+            lefts = [
+                LeftContext("edge"),
+                LeftContext("space"),
+                LeftContext("zwnj"),
+                LeftContext("namer-dot"),
+            ]
+            for left_family in spec.runes:
+                for stance, seam in probe._input_shapes(left_family):
+                    lefts.append(probe._virtual(left_family, stance, seam))
+            for left in lefts:
+                baseline = probe._seat_outcome(left, token, r1tok, r2tok, EDGE, EDGE)
+                if baseline is table._SEAT_RAISED:
+                    return True
+                if baseline is table._SEAT_UNREACHABLE:
+                    continue
+                for v in tokens:
+                    edge4 = probe._seat_outcome(left, token, r1tok, r2tok, v, EDGE)
+                    if edge4 is not baseline and edge4 != baseline:
+                        return True
+                    unknown4 = probe._seat_outcome(left, token, r1tok, r2tok, v, UNKNOWN)
+                    if unknown4 is not edge4 and unknown4 != edge4:
+                        return True
+            return False
+
+        dead_sample = [("qsIt", "qsNo", "qsTea"), ("qsSee", "qsLow", "qsIt"), ("qsRoe", "qsIt", "qsNo")]
+        live_sample = [("qsNo", "qsNo", "qsTea"), ("qsNo", "qsNo", "qsUtter"), ("qsMay", "qsUtter", "qsTea")]
+        for family, right1, right2 in dead_sample + live_sample:
+            r1tok, r2tok = RightToken("letter", right1), RightToken("letter", right2)
+            stage1 = brute_stage1(family, r1tok, r2tok)
+            if not stage1:
+                assert not probe.third_live(family, right1, right2), (family, right1, right2)
+                continue
+            assert probe.third_live(family, right1, right2) == brute_seat(family, r1tok, r2tok), (
+                family,
+                right1,
+                right2,
+            )

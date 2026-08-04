@@ -4,7 +4,7 @@
 
 Outcome-partition compression is DFA-style per input and per slot: two fillers land in one class iff their full outcome signatures over the other slots are identical. `assert_outcome_partition` re-derives the partitions and replays every reachable transition against the ordered rules under first-match-wins semantics — the hard build invariant of prototype follow-up 1. Rule ordering per input follows the proven discipline: boundary-outcome rows with `uni200C` explicit in the class first, three-lookahead-slot rows before two-slot rows before one-slot rows, identity rows omitted, the slot-dropped fallback last, plus ZWNJ backtrack-slot coverage guards for never-locked inputs.
 
-Rows carry a fourth window slot, `right3`, enumerated lazily and only where live: an input whose own rune carries a depth-3 prefer record (`depth3_inputs`) gets its windows split by the raw third lookahead, only where both nearer slots are letters, and only where `third_slot_filter` finds some own-rune depth-3 prefer chain still unknown over (right1, right2) — a chain that already resolved definitely cannot be flipped by a deeper token, so everywhere else the slot stays `#NA`, mirroring the established convention that no record peeks past a boundary. An enumerated window's settled left state is reachable only alongside right2 equal to that window's right3, so the worklist pins the successor's allowed-right2 set to that singleton — the same exactness plumbing the late-formation guard already rides — and the right3 options replay the right2 filters shifted one slot (formation-impossible adjacent pairs, guard-firing follower sets, `liga_formed_before` with the second slot now pinned). The fifth slot, `right4`, repeats the pattern one deeper: only a depth-4 input (`depth4_inputs`) with letters at all three nearer slots, and only where `fourth_slot_filter` finds some own-rune depth-4 prefer chain still unknown over those three slots, enumerates it. Where it does enumerate, its options replay the same filters shifted once more, and the worklist pins the successor's right3 to the producing window's right4. `_assert_window_arity` ties the Transition/Rule slot count to `model.RIGHT_WINDOW_SLOTS` at import, so the chain cap and the table can only widen together.
+Rows carry a fourth window slot, `right3`, enumerated lazily and only where live: an input admitted by `third_slot_inputs` (the depth-3 chain census `depth3_inputs` under the candidacy-grain prospect; every rune under the simulated prospect, where any input's third join-count term can read the slot through its follower's replayed cascade) gets its windows split by the raw third lookahead, only where both nearer slots are letters, and only where `third_slot_filter` judges the window live — some own-rune depth-3 prefer chain still unknown over (right1, right2), or, flag-on, some candidate shape's simulated follower choice moved by the third token (`_ProspectLiveness`) — a window judged definite settles identically under every third token, so everywhere else the slot stays `#NA`, mirroring the established convention that no record peeks past a boundary. An enumerated window's settled left state is reachable only alongside right2 equal to that window's right3, so the worklist pins the successor's allowed-right2 set to that singleton — the same exactness plumbing the late-formation guard already rides — and the right3 options replay the right2 filters shifted one slot (formation-impossible adjacent pairs, guard-firing follower sets, `liga_formed_before` with the second slot now pinned). The fifth slot, `right4`, repeats the pattern one deeper: only a `fourth_slot_inputs` input with letters at all three nearer slots, and only where `fourth_slot_filter` finds the window live over those three slots, enumerates it. Where it does enumerate, its options replay the same filters shifted once more, and the worklist pins the successor's right3 to the producing window's right4. `_assert_window_arity` ties the Transition/Rule slot count to `model.RIGHT_WINDOW_SLOTS` at import, so the chain cap and the table can only widen together.
 
 Joint rows combine both section 6.1 flags: ranking ties broken by the structural floor between candidates differing in seam realization, and windows whose deliberately optimistic prospect diverges from the follower's actual settled choice. Both TSV artifacts are diff-stable (section 8): sorted rows, provenance pointers, deterministic labels.
 
@@ -15,13 +15,16 @@ from __future__ import annotations
 
 import gzip
 import json
+from collections import OrderedDict
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Callable
 
+from rebuild.pipeline import settle as settle_module
 from rebuild.pipeline.model import (
     RIGHT_WINDOW_SLOTS,
     CellId,
+    Height,
     ResolvedSpec,
     Settled,
     feature_config_token,
@@ -34,12 +37,15 @@ from rebuild.pipeline.settle import (
     SPACE,
     UNKNOWN,
     ZWNJ,
+    Candidate,
     Engine,
     LeftContext,
     RightToken,
+    SettleError,
     cell_label,
     is_entry_bearing,
 )
+from rebuild.pipeline.specificity import EAmbiguousError, EIncomparableError
 
 EDGE_LABEL = "#EDGE"
 NA_LABEL = "#NA"
@@ -379,10 +385,384 @@ def _deep_inputs(spec: ResolvedSpec, reach: int) -> frozenset[str]:
     return frozenset(out)
 
 
+def _deep_world(engine: Engine | None) -> bool:
+    """Whether the process's engines read deep slots beyond the own-rune chain arm: the simulated prospect replays the follower's cascade over them (issue 28 stage 2), and shifted vote slots hand them to the seam's follower votes (stage 4b). Either one makes any input's window deep-slot-decidable, so the pre-gates widen to every rune and the per-window probes do the pruning. `engine=None` follows the module defaults the way Engine construction does, so the fallback paths that build their own filters stay consistent with the process's engines."""
+    if engine is not None:
+        return engine.simulated_prospect or engine.vote_slots
+    return settle_module.SIMULATED_PROSPECT_DEFAULT or settle_module.VOTE_SLOTS_DEFAULT
+
+
+def third_slot_inputs(spec: ResolvedSpec, engine: Engine | None = None) -> frozenset[str]:
+    """The inputs whose windows can carry a live third slot — the pre-gate build_tables' enumeration and conform's window replay share ahead of the per-window `third_slot_filter` verdict. In the pinned candidacy world only an own-rune depth-3 prefer chain ever reads the slot, so this is exactly `depth3_inputs`; with the simulated prospect or shifted vote slots on (`_deep_world`), the raw third token can decide any input's window, so every rune is admitted and the per-window probe does all the pruning."""
+    return frozenset(spec.runes) if _deep_world(engine) else depth3_inputs(spec)
+
+
+def fourth_slot_inputs(spec: ResolvedSpec, engine: Engine | None = None) -> frozenset[str]:
+    """`third_slot_inputs` one slot deeper: the depth-4 chain census in the pinned world, every rune under `_deep_world`."""
+    return frozenset(spec.runes) if _deep_world(engine) else depth4_inputs(spec)
+
+
+class _ProspectLiveness:
+    """The simulated-prospect arm of the deep-slot filters (issue 28 stage 2): whether a raw deep token can move the settled outcome of some reachable window at (input, right1, right2). Two value-level stages, because every cheaper grain fails in a measured way — consultation-level tracking over-opens catastrophically (the recursion consults beyond-window slots almost everywhere), and stopping at follower-prospect variance still over-opens 15-fold (measured on the real spec: 1,543 of the consulted triples carry a token-movable prospect but only 103 ever move a seat outcome), enough to push the emitted settlement lookup through the budget gate's headroom floor. Stage one is the cheap prefilter: for each (stance, seam) shape the input can commit — the virtual left's entry is never read, so entry states collapse — the follower's simulated prospect is evaluated per concrete token and compared against the EDGE the table bakes for a dead slot; no variance anywhere means no channel into the seat's ranking (deep tokens reach the flag-on kernel only through prospect values and own-rune chains, and the chain arm runs before this probe), so the slot is definitely dead. Stage two, only where stage one fires, probes at outcome grain: the seat's own transition is replayed per token over the collapsed left-classes — every (family, stance, seam) virtual left plus the four boundary kinds, collapsed by the input-frame signature (committed seam, left kind, and the verdict vector of the input's own left-reading conditions: entry-row from-scopes and refuse/prefer/unlock left conditions — extend and contract records shape adjustments only, and neither the extension nor the left cell's entry interacts with a deep token, so reachable settled lefts are covered by the enumerated shapes) — and the slot is live only if some class's settled cell varies. Left-classes the fixpoint can never reach raise E-STRANDED in the replay and are skipped; a prefer conflict raising E-INCOMPARABLE/E-AMBIGUOUS marks the slot live so the enumeration surfaces it properly. The third-slot probes also compare each token's unknown-fourth evaluation against its EDGE-fourth one, and `third_live` additionally ORs in `fourth_live` over every concrete letter third — a live fourth slot hanging off an unenumerated third would otherwise never be consulted, and the EDGE/UNKNOWN-fourth comparisons alone cannot see a seat that moves only under a specific (third, fourth) letter pair, because unknown-optimism bottoms the recursion identically for both. With shifted vote slots on (stage 4b) stage one grows a vote arm beside the prospect arm: `_vote_class_live` probes `_prefer_favors`' vote branch itself per deep token, because a vote reads the deep slots both through its record's shifted when: chain and through the follower-cell enumeration the vote runs over the shifted window; a same-family seam is skipped (the own branch shadows the vote there and the chain arm models it), and stage two prunes vote-verdict variance that never moves the seat. Verdict caches key on the probed window and instances cache per engine (`_liveness_probe`), so both filters and every consultation share one memo, and the conform gate remains the standing alarm for any residual under-opening."""
+
+    def __init__(self, spec: ResolvedSpec, engine: Engine):
+        self.spec = spec
+        self.engine = engine
+        self._conds: dict[str, tuple] = {}
+        self._votes: dict[str, tuple] = {}
+        self._shapes: dict[str, tuple[tuple[str, Height | None], ...]] = {}
+        self._sigs: dict[tuple[str, str, str, Height | None], tuple] = {}
+        self._third: dict[tuple, bool] = {}
+        self._fourth: dict[tuple, bool] = {}
+        self._tokens: list[RightToken] | None = None
+        self._left_classes: dict[str, tuple[LeftContext, ...]] = {}
+
+    def _probe_tokens(self) -> list[RightToken]:
+        if self._tokens is None:
+            self._tokens = [EDGE, SPACE, ZWNJ, NAMER_DOT] + [
+                RightToken("letter", name) for name in sorted(self.spec.runes)
+            ]
+        return self._tokens
+
+    def _input_shapes(self, family: str) -> tuple[tuple[str, Height | None], ...]:
+        shapes = self._shapes.get(family)
+        if shapes is None:
+            out: list[tuple[str, Height | None]] = []
+            for stance_name, stance in self.spec.runes[family].stances.items():
+                seams: list[Height | None] = [] if "exit" in stance.surface.require else [None]
+                seams.extend(stance.surface.exits)
+                seams.extend(
+                    unlock.exit
+                    for unlock in stance.surface.unlocks
+                    if unlock.exit is not None and unlock.exit not in stance.surface.exits
+                )
+                out.extend((stance_name, seam) for seam in dict.fromkeys(seams))
+            shapes = tuple(out)
+            self._shapes[family] = shapes
+        return shapes
+
+    def _left_conditions(self, follower: str) -> tuple:
+        conds = self._conds.get(follower)
+        if conds is None:
+            rune = self.spec.runes[follower]
+            gathered = []
+            for stance in rune.stances.values():
+                for row in stance.surface.entries.values():
+                    gathered.extend(row.scope)
+                for unlock in stance.surface.unlocks:
+                    if unlock.when is not None and unlock.when.left is not None:
+                        gathered.append(unlock.when.left)
+            for record in tuple(rune.policy.refuse) + tuple(rune.policy.prefer):
+                if record.when is not None and record.when.left is not None:
+                    gathered.append(record.when.left)
+            conds = tuple(gathered)
+            self._conds[follower] = conds
+        return conds
+
+    def _virtual(self, family: str, stance: str, seam: Height | None) -> LeftContext:
+        cell = CellId(rune=family, stance=stance, entry=None, exit=seam, adjustments=())
+        return LeftContext("letter", Settled(cell=cell, seam=seam, extension=0))
+
+    def _signature(self, follower: str, family: str, stance: str, seam: Height | None) -> tuple:
+        key = (follower, family, stance, seam)
+        sig = self._sigs.get(key)
+        if sig is None:
+            virtual = self._virtual(family, stance, seam)
+            sig = (
+                seam,
+                tuple(
+                    self.engine.cond_matches_left(follower, cond, virtual, seam)
+                    for cond in self._left_conditions(follower)
+                ),
+            )
+            self._sigs[key] = sig
+        return sig
+
+    def third_live(self, family: str, right1: str, right2: str) -> bool:
+        r1tok, r2tok = RightToken("letter", right1), RightToken("letter", right2)
+        stage_one = (
+            self.engine.simulated_prospect
+            and self._prospect_varies_third(family, right1, right2, r1tok, r2tok)
+        ) or (self.engine.vote_slots and self._vote_varies_third(family, right1, right2, r1tok, r2tok))
+        if stage_one:
+            key = ("seat3", family, right1, right2)
+            verdict = self._third.get(key)
+            if verdict is None:
+                verdict = self._seat_varies(family, r1tok, r2tok, None)
+                self._third[key] = verdict
+            if verdict:
+                return True
+        key = ("joint34", family, right1, right2)
+        verdict = self._third.get(key)
+        if verdict is None:
+            # A live fourth slot at a concrete third must force the third open, or the enumeration never consults it: the per-token probes above compare only EDGE- and UNKNOWN-fourths, and unknown-optimism bottoms the recursion identically for both, so a seat whose outcome moves only under a specific (third, fourth) letter pair — ·See·No·No·Roe·No·Oy, where the fourth-slot ·Oy flips the seat through two simulation levels while every EDGE/UNKNOWN-fourth agrees — reads dead at this grain alone. Witness-coverage in rebuild/test_rule_witnesses.py is the alarm that caught the hang.
+            verdict = any(
+                self.fourth_live(family, right1, right2, token.letter)
+                for token in self._probe_tokens()
+                if token.kind == "letter"
+            )
+            self._third[key] = verdict
+        return verdict
+
+    def _prospect_varies_third(
+        self, family: str, right1: str, right2: str, r1tok: RightToken, r2tok: RightToken
+    ) -> bool:
+        for stance, seam in self._input_shapes(family):
+            key = (right1, right2, self._signature(right1, family, stance, seam))
+            verdict = self._third.get(key)
+            if verdict is None:
+                verdict = self._third_class_live(family, stance, seam, r1tok, r2tok)
+                self._third[key] = verdict
+            if verdict:
+                return True
+        return False
+
+    def _third_class_live(
+        self, family: str, stance: str, seam: Height | None, r1tok: RightToken, r2tok: RightToken
+    ) -> bool:
+        candidate = Candidate(stance, None, seam, 0)
+        baseline = self.engine._prospect(family, candidate, r1tok, r2tok, EDGE, EDGE)
+        for token in self._probe_tokens():
+            edge4 = self.engine._prospect(family, candidate, r1tok, r2tok, token, EDGE)
+            if edge4 != baseline:
+                return True
+            if self.engine._prospect(family, candidate, r1tok, r2tok, token, UNKNOWN) != edge4:
+                return True
+        return False
+
+    def fourth_live(self, family: str, right1: str, right2: str, right3: str) -> bool:
+        r1tok, r2tok = RightToken("letter", right1), RightToken("letter", right2)
+        r3tok = RightToken("letter", right3)
+        stage_one = (
+            self.engine.simulated_prospect
+            and self._prospect_varies_fourth(family, right1, right2, right3, r1tok, r2tok, r3tok)
+        ) or (
+            self.engine.vote_slots
+            and self._vote_varies_fourth(family, right1, right2, right3, r1tok, r2tok, r3tok)
+        )
+        if not stage_one:
+            return False
+        key = ("seat4", family, right1, right2, right3)
+        verdict = self._fourth.get(key)
+        if verdict is None:
+            verdict = self._seat_varies(family, r1tok, r2tok, r3tok)
+            self._fourth[key] = verdict
+        return verdict
+
+    def _prospect_varies_fourth(
+        self,
+        family: str,
+        right1: str,
+        right2: str,
+        right3: str,
+        r1tok: RightToken,
+        r2tok: RightToken,
+        r3tok: RightToken,
+    ) -> bool:
+        for stance, seam in self._input_shapes(family):
+            key = (right1, right2, right3, self._signature(right1, family, stance, seam))
+            verdict = self._fourth.get(key)
+            if verdict is None:
+                verdict = self._fourth_class_live(family, stance, seam, r1tok, r2tok, r3tok)
+                self._fourth[key] = verdict
+            if verdict:
+                return True
+        return False
+
+    def _fourth_class_live(
+        self,
+        family: str,
+        stance: str,
+        seam: Height | None,
+        r1tok: RightToken,
+        r2tok: RightToken,
+        r3tok: RightToken,
+    ) -> bool:
+        candidate = Candidate(stance, None, seam, 0)
+        baseline = self.engine._prospect(family, candidate, r1tok, r2tok, r3tok, EDGE)
+        return any(
+            self.engine._prospect(family, candidate, r1tok, r2tok, r3tok, token) != baseline
+            for token in self._probe_tokens()
+        )
+
+    def _vote_records(self, follower: str) -> tuple:
+        records = self._votes.get(follower)
+        if records is None:
+            records = tuple(self.spec.runes[follower].policy.prefer)
+            self._votes[follower] = records
+        return records
+
+    def _vote_varies_third(
+        self, family: str, right1: str, right2: str, r1tok: RightToken, r2tok: RightToken
+    ) -> bool:
+        # A same-family seam never votes: _apply_prefers' second gather duplicates the owner string and _prefer_favors takes the own branch, whose real slots the chain arm already models.
+        if right1 == family or not self._vote_records(right1):
+            return False
+        for stance, seam in self._input_shapes(family):
+            key = ("vote3", right1, right2, self._signature(right1, family, stance, seam))
+            verdict = self._third.get(key)
+            if verdict is None:
+                verdict = self._vote_class_live(family, stance, seam, r1tok, r2tok, None)
+                self._third[key] = verdict
+            if verdict:
+                return True
+        return False
+
+    def _vote_varies_fourth(
+        self,
+        family: str,
+        right1: str,
+        right2: str,
+        right3: str,
+        r1tok: RightToken,
+        r2tok: RightToken,
+        r3tok: RightToken,
+    ) -> bool:
+        if right1 == family or not self._vote_records(right1):
+            return False
+        for stance, seam in self._input_shapes(family):
+            key = ("vote4", right1, right2, right3, self._signature(right1, family, stance, seam))
+            verdict = self._fourth.get(key)
+            if verdict is None:
+                verdict = self._vote_class_live(family, stance, seam, r1tok, r2tok, r3tok)
+                self._fourth[key] = verdict
+            if verdict:
+                return True
+        return False
+
+    def _vote_class_live(
+        self,
+        family: str,
+        stance: str,
+        seam: Height | None,
+        r1tok: RightToken,
+        r2tok: RightToken,
+        r3tok: RightToken | None,
+    ) -> bool:
+        """Whether some follower vote's verdict at this seat moves with the probed deep token — the stage-4b analogue of `_third_class_live`/`_fourth_class_live`, probing `_prefer_favors`' vote branch itself because a vote reads the deep slots two ways at once: its record's shifted when: chain, and the follower-cell enumeration `candidates()` runs over the shifted window (a row scope or closure verdict changing with the token changes which continuations the vote can favor). `r3tok=None` probes the third slot (right4 held to EDGE and to UNKNOWN, the same belt the prospect probes wear); a concrete `r3tok` probes the fourth at that third."""
+        candidate = Candidate(stance, None, seam, 0)
+        owner = r1tok.letter
+        edge_left = LeftContext("edge")
+        for record in self._vote_records(owner):
+            if r3tok is None:
+                baseline = self.engine._prefer_favors(
+                    owner, record, family, candidate, edge_left, r1tok, r2tok, EDGE, EDGE
+                )
+                for token in self._probe_tokens():
+                    edge4 = self.engine._prefer_favors(
+                        owner, record, family, candidate, edge_left, r1tok, r2tok, token, EDGE
+                    )
+                    if edge4 != baseline:
+                        return True
+                    if (
+                        self.engine._prefer_favors(
+                            owner, record, family, candidate, edge_left, r1tok, r2tok, token, UNKNOWN
+                        )
+                        != edge4
+                    ):
+                        return True
+            else:
+                baseline = self.engine._prefer_favors(
+                    owner, record, family, candidate, edge_left, r1tok, r2tok, r3tok, EDGE
+                )
+                for token in self._probe_tokens():
+                    if (
+                        self.engine._prefer_favors(
+                            owner, record, family, candidate, edge_left, r1tok, r2tok, r3tok, token
+                        )
+                        != baseline
+                    ):
+                        return True
+        return False
+
+    def _seat_left_classes(self, family: str) -> tuple[LeftContext, ...]:
+        reps = self._left_classes.get(family)
+        if reps is None:
+            out: list[LeftContext] = [
+                LeftContext("edge"),
+                LeftContext("space"),
+                LeftContext("zwnj"),
+                LeftContext("namer-dot"),
+            ]
+            seen: set[tuple] = set()
+            for left_family in self.spec.runes:
+                for stance, seam in self._input_shapes(left_family):
+                    sig = self._signature(family, left_family, stance, seam)
+                    if sig in seen:
+                        continue
+                    seen.add(sig)
+                    out.append(self._virtual(left_family, stance, seam))
+            reps = tuple(out)
+            self._left_classes[family] = reps
+        return reps
+
+    def _seat_varies(
+        self, family: str, r1tok: RightToken, r2tok: RightToken, r3tok: RightToken | None
+    ) -> bool:
+        token = RightToken("letter", family)
+        for left in self._seat_left_classes(family):
+            if r3tok is None:
+                baseline = self._seat_outcome(left, token, r1tok, r2tok, EDGE, EDGE)
+            else:
+                baseline = self._seat_outcome(left, token, r1tok, r2tok, r3tok, EDGE)
+            if baseline is _SEAT_RAISED:
+                return True
+            if baseline is _SEAT_UNREACHABLE:
+                continue
+            for probe_token in self._probe_tokens():
+                if r3tok is None:
+                    edge4 = self._seat_outcome(left, token, r1tok, r2tok, probe_token, EDGE)
+                    if edge4 is _SEAT_RAISED or edge4 is _SEAT_UNREACHABLE or edge4 != baseline:
+                        return True
+                    unknown4 = self._seat_outcome(left, token, r1tok, r2tok, probe_token, UNKNOWN)
+                    if unknown4 is _SEAT_RAISED or unknown4 is _SEAT_UNREACHABLE or unknown4 != edge4:
+                        return True
+                else:
+                    varied = self._seat_outcome(left, token, r1tok, r2tok, r3tok, probe_token)
+                    if varied is _SEAT_RAISED or varied is _SEAT_UNREACHABLE or varied != baseline:
+                        return True
+        return False
+
+    def _seat_outcome(
+        self,
+        left: LeftContext,
+        token: RightToken,
+        r1tok: RightToken,
+        r2tok: RightToken,
+        r3tok: RightToken,
+        r4tok: RightToken,
+    ):
+        try:
+            return self.engine.transition_trace(left, token, r1tok, r2tok, r3tok, r4tok).settled.cell
+        except EIncomparableError, EAmbiguousError:
+            return _SEAT_RAISED
+        except SettleError:
+            return _SEAT_UNREACHABLE
+
+
+_SEAT_RAISED = object()
+_SEAT_UNREACHABLE = object()
+
+_LIVENESS_PROBES: OrderedDict[int, tuple[Engine, _ProspectLiveness]] = OrderedDict()
+_LIVENESS_PROBES_CAP = 8
+
+
+def _liveness_probe(spec: ResolvedSpec, engine: Engine) -> _ProspectLiveness:
+    entry = _LIVENESS_PROBES.get(id(engine))
+    if entry is not None and entry[0] is engine:
+        _LIVENESS_PROBES.move_to_end(id(engine))
+        return entry[1]
+    probe = _ProspectLiveness(spec, engine)
+    _LIVENESS_PROBES[id(engine)] = (engine, probe)
+    while len(_LIVENESS_PROBES) > _LIVENESS_PROBES_CAP:
+        _LIVENESS_PROBES.popitem(last=False)
+    return probe
+
+
 def third_slot_filter(
     spec: ResolvedSpec, features: frozenset[str], engine: Engine | None = None
 ) -> Callable[[str, str, str], bool]:
-    """Whether the raw third slot can decide a depth-3 input's window, keyed by rune-family names: (input family, right1 family, right2 family) -> bool. True exactly when some depth-3-reach prefer chain on the input's own rune evaluates to unknown over (right1, right2, UNKNOWN, UNKNOWN) — `cond_matches_right` returns None whenever a consulted constraint touched a beyond-window token, and a definite True/False verdict never consulted one, so a window judged definite here settles identically under every third token and its right3 stays #NA. `fourth_slot_filter` is the same gate one slot deeper; a window this filter judges definite is definite for it too (reach-3 chains are reach-2 chains), so a dead third slot never hides a live fourth. Shared by `build_tables` (enumeration gate) and conform's window replay, which must agree on which windows carry a live third slot."""
+    """Whether the raw third slot can decide an input's window, keyed by rune-family names: (input family, right1 family, right2 family) -> bool. The chain arm is true exactly when some depth-3-reach prefer chain on the input's own rune evaluates to unknown over (right1, right2, UNKNOWN, UNKNOWN) — `cond_matches_right` returns None whenever a consulted constraint touched a beyond-window token, and a definite True/False verdict never consulted one, so a window judged definite here settles identically under every third token and its right3 stays #NA. When the probing engine scores the simulated prospect (issue 28) or hands votes their shifted slots (stage 4b), the `_ProspectLiveness` arm is ORed in: the slot also opens where some candidate shape's simulated follower choice, or some follower vote's verdict, moves with the third token — together with the chain arm those are the only ways any kernel mode reads it (seat-side refusals and unlocks are never handed the deep slots). `fourth_slot_filter` is the same gate one slot deeper; a window this filter judges definite is definite for it too — reach-3 chains are reach-2 chains, and the liveness arm's `third_live` ORs in `fourth_live` over every concrete letter third, so a dead third slot never hides a live fourth by construction. Shared by `build_tables` (enumeration gate) and conform's window replay, which must agree on which windows carry a live third slot."""
     probe = engine if engine is not None else Engine(spec, features)
     chains = {
         name: tuple(
@@ -392,6 +772,7 @@ def third_slot_filter(
         )
         for name in depth3_inputs(spec)
     }
+    liveness = _liveness_probe(spec, probe) if probe.simulated_prospect or probe.vote_slots else None
     verdicts: dict[tuple[str, str, str], bool] = {}
 
     def matters(input_family: str, right1: str, right2: str) -> bool:
@@ -408,6 +789,8 @@ def third_slot_filter(
                 probe.cond_matches_right(input_family, chain, window) is None
                 for chain in chains.get(input_family, ())
             )
+            if not cached and liveness is not None:
+                cached = liveness.third_live(input_family, right1, right2)
             verdicts[key] = cached
         return cached
 
@@ -417,7 +800,7 @@ def third_slot_filter(
 def fourth_slot_filter(
     spec: ResolvedSpec, features: frozenset[str], engine: Engine | None = None
 ) -> Callable[[str, str, str, str], bool]:
-    """Whether the raw fourth slot can decide a depth-4 input's window, keyed by rune-family names: (input family, right1 family, right2 family, right3 family) -> bool. True exactly when some depth-4-reach prefer chain on the input's own rune evaluates to unknown over (right1, right2, right3, UNKNOWN) — `cond_matches_right` returns None whenever a consulted constraint touched the fourth token, and a definite True/False verdict never consulted it, so a window judged definite here settles identically under every fourth token and its right4 stays #NA. Shared by `build_tables` (enumeration gate) and conform's window replay, which must agree on which windows carry a live fourth slot."""
+    """Whether the raw fourth slot can decide an input's window, keyed by rune-family names: (input family, right1 family, right2 family, right3 family) -> bool. The chain arm is true exactly when some depth-4-reach prefer chain on the input's own rune evaluates to unknown over (right1, right2, right3, UNKNOWN) — `cond_matches_right` returns None whenever a consulted constraint touched the fourth token, and a definite True/False verdict never consulted it, so a window judged definite here settles identically under every fourth token and its right4 stays #NA. When the probing engine scores the simulated prospect (issue 28) or hands votes their shifted slots (stage 4b), the `_ProspectLiveness` arm is ORed in: the slot also opens where some candidate shape's simulated follower choice, or some follower vote's verdict, moves with the fourth token at this concrete third. Shared by `build_tables` (enumeration gate) and conform's window replay, which must agree on which windows carry a live fourth slot."""
     probe = engine if engine is not None else Engine(spec, features)
     chains = {
         name: tuple(
@@ -427,6 +810,7 @@ def fourth_slot_filter(
         )
         for name in depth4_inputs(spec)
     }
+    liveness = _liveness_probe(spec, probe) if probe.simulated_prospect or probe.vote_slots else None
     verdicts: dict[tuple[str, str, str, str], bool] = {}
 
     def matters(input_family: str, right1: str, right2: str, right3: str) -> bool:
@@ -443,6 +827,8 @@ def fourth_slot_filter(
                 probe.cond_matches_right(input_family, chain, window) is None
                 for chain in chains.get(input_family, ())
             )
+            if not cached and liveness is not None:
+                cached = liveness.fourth_live(input_family, right1, right2, right3)
             verdicts[key] = cached
         return cached
 
@@ -522,8 +908,8 @@ def build_tables(spec: ResolvedSpec, features: frozenset[str]) -> tuple[Decision
         return BOUNDARY_LEFT_LABELS[token.kind]
 
     survivable = _survivable_formation_windows(spec, right_letters, right_boundaries)
-    deep_inputs = depth3_inputs(spec)
-    deep4_inputs = depth4_inputs(spec)
+    deep_inputs = third_slot_inputs(spec, engine)
+    deep4_inputs = fourth_slot_inputs(spec, engine)
     third_slot_matters = third_slot_filter(spec, features, engine)
     fourth_slot_matters = fourth_slot_filter(spec, features, engine)
 
@@ -785,22 +1171,36 @@ def build_tables(spec: ResolvedSpec, features: frozenset[str]) -> tuple[Decision
     return decision, TreatyTable(config=config, rows=tuple(treaty_rows))
 
 
-def _flag_prospect_joints(rows: list[Transition]) -> list[Transition]:
-    """Compare every row's optimistic prospect against the follower's actual settled choice and flag divergent rows joint (design section 6.1 step 4.2)."""
+def prospect_successor_index(rows: list[Transition]) -> dict[tuple[str, str], list[Transition]]:
+    """The (left label, input glyph) index `prospect_successors` walks — built once per table because the flag pass and the divergence inventory both scan every row against it."""
     successors: dict[tuple[str, str], list[Transition]] = {}
     for row in rows:
         successors.setdefault((row.left, row.input_glyph), []).append(row)
+    return successors
+
+
+def prospect_successors(index: dict[tuple[str, str], list[Transition]], row: Transition):
+    """The successor transitions a row's optimistic prospect is scored against (design section 6.1 step 4.2): the follower's windows whose settled left is this row's outcome, whose input is this row's right1, whose right1 is this row's right2, and whose deeper slots agree wherever this row enumerated them. Yields nothing when either lookahead is boundaryish — the prospect term is defined only over letter-letter windows. Shared by `_flag_prospect_joints` and `rebuild.tools.prospect_divergence` so the flag and the inventory can never disagree about what was compared."""
+    if row.right1 in BOUNDARYISH or row.right2 in BOUNDARYISH:
+        return
+    for successor in index.get((row.outcome, row.right1), ()):
+        if successor.right1 != row.right2:
+            continue
+        if row.right3 != NA_LABEL and successor.right2 != row.right3:
+            continue
+        if row.right4 != NA_LABEL and successor.right3 != row.right4:
+            continue
+        yield successor
+
+
+def _flag_prospect_joints(rows: list[Transition]) -> list[Transition]:
+    """Compare every row's optimistic prospect against the follower's actual settled choice and flag divergent rows joint (design section 6.1 step 4.2)."""
+    successors = prospect_successor_index(rows)
     flagged: list[Transition] = []
     for row in rows:
         joint = row.joint
-        if not joint and row.right1 not in BOUNDARYISH and row.right2 not in BOUNDARYISH:
-            for successor in successors.get((row.outcome, row.right1), ()):
-                if successor.right1 != row.right2:
-                    continue
-                if row.right3 != NA_LABEL and successor.right2 != row.right3:
-                    continue
-                if row.right4 != NA_LABEL and successor.right3 != row.right4:
-                    continue
+        if not joint:
+            for successor in prospect_successors(successors, row):
                 realized = 1 if successor.settled.seam is not None else 0
                 if realized != row.prospect:
                     joint = True
