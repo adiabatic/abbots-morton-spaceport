@@ -170,10 +170,11 @@ class Stance:
 
 @dataclass(frozen=True)
 class PolicyRecord:
-    """One rider: refuse | prefer | extend | contract | resolve, in the single grammatical shape of design section 3.3."""
+    """One rider: refuse | prefer | extend | contract | resolve, in the single grammatical shape of design section 3.3. `id` makes a record addressable by a resolve's `against:`; `against`/`pick`/`migrated` are the resolve kind's own fields (design section 5.8, the against-a-named-record slice)."""
 
     kind: str
     when: When = field(default_factory=When)
+    id: str | None = None
     stance: str | None = None
     entry: Height | None = None
     exit: Height | None = None
@@ -185,6 +186,11 @@ class PolicyRecord:
     bind: str | None = None
     trim: int | None = None
     split: tuple[int, int] | None = None
+    against: tuple[str, str | None] | None = None  # (rune, record id) the resolve arbitrates against
+    pick: Mapping[str, str] | None = (
+        None  # the winning cell pattern (or {stance: ...}) at the conflicted window
+    )
+    migrated: str | None = None
     why: str | None = None
     provenance: Provenance | None = None
 

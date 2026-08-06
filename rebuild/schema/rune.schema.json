@@ -34,6 +34,7 @@
   ],
   "$defs": {
     "familyName": {"type": "string", "pattern": "^qs[A-Z][A-Za-z]*(_qs[A-Z][A-Za-z]*)*$"},
+    "recordId": {"type": "string", "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$", "description": "Optional stable name for this record — kebab-case, unique within the rune — so a resolve's `against:` can point at it (e.g. `plant-word-initial`)."},
     "familyOrList": {
       "description": "A single family (`qsMay`) or a list of families (`[qsMay, qsUtter]`). Matches if any family matches.",
       "oneOf": [
@@ -221,6 +222,7 @@
       "additionalProperties": false,
       "required": ["when"],
       "properties": {
+        "id": {"$ref": "#/$defs/recordId"},
         "stance": {"$ref": "#/$defs/motionName", "description": "Limits the refusal to this stance."},
         "entry": {"$ref": "#/$defs/height", "description": "Limits the refusal to joins that enter at this height."},
         "exit": {"$ref": "#/$defs/height", "description": "Limits the refusal to joins that exit at this height."},
@@ -233,6 +235,7 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "id": {"$ref": "#/$defs/recordId"},
         "stance": {"$ref": "#/$defs/motionName"},
         "cell": {"$ref": "#/$defs/cellPattern"},
         "over": {"$ref": "#/$defs/cellPattern"},
@@ -258,6 +261,7 @@
       "additionalProperties": false,
       "required": ["by", "when"],
       "properties": {
+        "id": {"$ref": "#/$defs/recordId"},
         "stance": {"$ref": "#/$defs/motionName"},
         "entry": {"$ref": "#/$defs/height"},
         "exit": {"$ref": "#/$defs/height"},
@@ -279,6 +283,7 @@
       "additionalProperties": false,
       "required": ["when"],
       "properties": {
+        "id": {"$ref": "#/$defs/recordId"},
         "stance": {"$ref": "#/$defs/motionName"},
         "entry": {"$ref": "#/$defs/height"},
         "exit": {"$ref": "#/$defs/height"},
@@ -310,6 +315,7 @@
       "additionalProperties": false,
       "required": ["pick", "why"],
       "properties": {
+        "id": {"$ref": "#/$defs/recordId"},
         "against": {
           "type": "object",
           "additionalProperties": false,
