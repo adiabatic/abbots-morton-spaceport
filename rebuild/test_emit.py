@@ -315,12 +315,9 @@ class TestLateFormationGuardLines:
         assert "ignore sub qsDay' qsUtter' qsSee;" in ignores
         assert "ignore sub qsDay' qsUtter' qsSee uni200C;" in ignores
 
-    def test_partial_second_slot_guard_gets_a_two_slot_ignore(self, real_spec):
+    def test_utter_second_slot_releases_uniformly(self, real_spec):
+        """Ligature-transparent left scopes let the formed ligature serve a following alternate ·Utter wherever the unformed trail could, so the guard's old partial second-slot ·Utter rows (a two-slot ignore over nine third letters, pinning the unformed renderings of u-119433/u-119447/u-119448) compile away entirely — before a following ·Utter the ligature always forms."""
         registry = emit_gsub._ClassRegistry()
         guarded, _plain, _ignores = emit_gsub._formation_lines(real_spec, registry)
-        two_slot = [line for line in guarded if line.startswith("    ignore sub qsDay' qsUtter' qsUtter ")]
-        assert len(two_slot) == 1
-        class_name = two_slot[0].split()[-1].rstrip(";")
-        definition = next(line for line in registry.definitions if line.startswith(class_name + " "))
-        assert definition == f"{class_name} = [qsAh qsDay qsI qsIt qsLow qsMay qsNo qsSee qsTea];"
-        assert "    sub qsDay' qsUtter' qsUtter uni200C by qsDay_qsUtter;" in guarded
+        utter_second = [line for line in guarded if "qsDay' qsUtter' qsUtter" in line]
+        assert utter_second == []

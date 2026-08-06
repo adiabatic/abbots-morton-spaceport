@@ -792,6 +792,52 @@ def test_formation_blocked_verdicts_are_config_blind(real_spec):
     assert formation_blocked(real_spec, "qsDay_qsUtter", low, tea)
     assert not formation_blocked(real_spec, "qsDay_qsUtter", tea, EDGE)
     assert not formation_blocked(real_spec, "qsDay_qsUtter", utter, EDGE)
-    assert formation_blocked(real_spec, "qsDay_qsUtter", utter, tea)
+    assert not formation_blocked(real_spec, "qsDay_qsUtter", utter, tea)
     for follower in list(real_spec.runes):
         assert not formation_blocked(real_spec, "qsTea_qsOy", RightToken("letter", follower), EDGE)
+
+
+# Ligature-transparent left scopes (spec_load._expand_ligature_lefts): a family named in an entry from-scope also admits every registered ligature whose sequence ends in that family, so the sitting's rejected windows u-121942/u-121944 settle the half ·Pea after ·See+Utter exactly as they do after bare ·Utter, and the follower's own join lands. The ·No arm deliberately pins the approved divergence (u-119404/u-135614): full ·Pea takes the baseline join into flipped ·No behind every qsUtter-trailing left alike.
+
+
+LIGATURE_TRANSPARENT_PEA_ROWS = (
+    (
+        "qsSee qsUtter qsPea qsRoe",
+        ("qsSee_qsUtter.hapax.ex-y5", "qsPea.half.en-y5.ex-y5", "qsRoe.hapax.en-y5.en-con-1"),
+    ),
+    (
+        "qsSee qsUtter qsPea qsIt",
+        ("qsSee_qsUtter.hapax.ex-y5", "qsPea.half.en-y5.ex-y5", "qsIt.hapax.en-y5"),
+    ),
+    (
+        "qsSee qsUtter qsPea qsEt",
+        ("qsSee_qsUtter.hapax.ex-y5", "qsPea.half.en-y5.ex-y5", "qsEt.hapax.en-y5.en-ext-1"),
+    ),
+    (
+        "qsSee qsUtter qsPea qsNo",
+        ("qsSee_qsUtter.hapax.ex-y5", "qsPea.full.en-y5.ex-y0", "qsNo.flipped.en-y0"),
+    ),
+    (
+        "qsUtter qsPea qsRoe",
+        ("qsUtter.mono.ex-y5", "qsPea.half.en-y5.ex-y5", "qsRoe.hapax.en-y5.en-con-1"),
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    "sequence,expected",
+    LIGATURE_TRANSPARENT_PEA_ROWS,
+    ids=[row[0].replace(" ", "|") for row in LIGATURE_TRANSPARENT_PEA_ROWS],
+)
+def test_ligature_left_admits_trailing_family_scopes(real_spec, sequence, expected):
+    assert _real_labels(real_spec, sequence) == expected
+
+
+def test_resolve_record_breaks_the_tea_oy_it_no_crossing(real_spec):
+    """The section 5.8 against-a-named-record slice, live: qsTea_qsOy's resolve against qsIt's withhold-before-no-after-oy vote picks the ligature's baseline exit at the tied (·It, ·No, live-third) windows, so the ligature arm renders like the approved bare-·Oy arm instead of raising E-INCOMPARABLE."""
+    assert _real_labels(real_spec, "qsTea qsOy qsIt qsNo qsAh") == (
+        "qsTea_qsOy.hapax.ex-y0",
+        "qsIt.hapax.en-y0",
+        "qsNo.flipped.ex-y0",
+        "qsAh.hapax.en-y0",
+    )

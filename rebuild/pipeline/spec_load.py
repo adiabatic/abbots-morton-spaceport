@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 import re
 import warnings
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Iterable
 
@@ -907,8 +907,91 @@ def _evaluate_predicate_classes(registry_raw: dict, rune_raws: dict[str, dict]) 
     return members
 
 
+def _ligatures_by_trailing(rune_raws: dict[str, dict]) -> dict[str, tuple[str, ...]]:
+    """Registered ligature runes keyed by trailing component, the index behind left-facing family transparency (`_expand_ligature_lefts`). Only modeled runes count: a registry family with a sequence but no rune file joins the index when it migrates."""
+    by_trailing: dict[str, list[str]] = {}
+    for name in sorted(rune_raws):
+        sequence = rune_raws[name].get("sequence") or ()
+        if sequence:
+            by_trailing.setdefault(sequence[-1], []).append(name)
+    return {family: tuple(names) for family, names in by_trailing.items()}
+
+
+def _expanded_family(family: tuple[str, ...], by_trailing: dict[str, tuple[str, ...]]) -> tuple[str, ...]:
+    additions = [
+        ligature for name in family for ligature in by_trailing.get(name, ()) if ligature not in family
+    ]
+    if not additions:
+        return family
+    return family + tuple(dict.fromkeys(additions))
+
+
+def _expanded_left_condition(cond: Condition, by_trailing: dict[str, tuple[str, ...]]) -> Condition:
+    family = _expanded_family(cond.family, by_trailing)
+    if family is cond.family:
+        return cond
+    return replace(cond, family=family)
+
+
+def _expanded_when(when: When | None, by_trailing: dict[str, tuple[str, ...]]) -> When | None:
+    if when is None or when.left is None:
+        return when
+    left = _expanded_left_condition(when.left, by_trailing)
+    if left is when.left:
+        return when
+    return replace(when, left=left)
+
+
+def _expanded_surface(surface: Surface, by_trailing: dict[str, tuple[str, ...]]) -> Surface:
+    entries = {
+        height: (
+            replace(row, scope=tuple(_expanded_left_condition(cond, by_trailing) for cond in row.scope))
+            if row.scope
+            else row
+        )
+        for height, row in surface.entries.items()
+    }
+    unlocks = tuple(
+        replace(unlock, when=_expanded_when(unlock.when, by_trailing)) for unlock in surface.unlocks
+    )
+    return replace(surface, entries=entries, unlocks=unlocks)
+
+
+def _expanded_records(
+    records: tuple[PolicyRecord, ...], by_trailing: dict[str, tuple[str, ...]]
+) -> tuple[PolicyRecord, ...]:
+    return tuple(replace(record, when=_expanded_when(record.when, by_trailing)) for record in records)
+
+
+def _expand_ligature_lefts(
+    runes: dict[str, Rune], by_trailing: dict[str, tuple[str, ...]]
+) -> dict[str, Rune]:
+    """Left-facing family transparency: a family named in an entry `from:` scope or a `when.left` also matches every registered ligature rune whose sequence ends in that family, so a new ligature inherits its trailing component's standing with every follower instead of demanding a hand edit in each of their runes. The same expansion covers the family atoms of rune-local group unions (`_resolve_groups`), where the raw atoms are still visible so `minus` can stay literal. This is the settled-world restatement of the shipped font's `expand_selectors_for_ligatures` (tools/quikscript_ir.py), and it keeps that pass's doctrine: expansion is positive-only — `except:` entries and group `minus` atoms stay literal, so carving a ligature out still means naming it — and right-facing lists (`toward:` scopes, `when.right` chains) are untouched, since nothing joins into today's entryless ligatures and lead-side semantics is an open design question. Literal ligature names in a list stay legal and redundant-safe, and extensional specificity stays coherent because the expansion is applied before any record comparison."""
+    if not by_trailing:
+        return runes
+    expanded: dict[str, Rune] = {}
+    for name, rune in runes.items():
+        stances = {
+            stance_name: replace(stance, surface=_expanded_surface(stance.surface, by_trailing))
+            for stance_name, stance in rune.stances.items()
+        }
+        policy = replace(
+            rune.policy,
+            refuse=_expanded_records(rune.policy.refuse, by_trailing),
+            prefer=_expanded_records(rune.policy.prefer, by_trailing),
+            extend=_expanded_records(rune.policy.extend, by_trailing),
+            contract=_expanded_records(rune.policy.contract, by_trailing),
+            resolve=_expanded_records(rune.policy.resolve, by_trailing),
+        )
+        expanded[name] = replace(rune, stances=stances, policy=policy)
+    return expanded
+
+
 def _resolve_groups(
-    context: _FileContext, policy_raw: dict, classes: dict[str, frozenset[str]]
+    context: _FileContext,
+    policy_raw: dict,
+    classes: dict[str, frozenset[str]],
+    by_trailing: dict[str, tuple[str, ...]],
 ) -> dict[str, frozenset[str]]:
     resolved: dict[str, frozenset[str]] = {}
     for group_name, group in (policy_raw.get("groups") or {}).items():
@@ -920,7 +1003,7 @@ def _resolve_groups(
                     SpecWarning,
                     stacklevel=2,
                 )
-            members.update(_as_tuple(atom.get("family")))
+            members.update(_expanded_family(_as_tuple(atom.get("family")), by_trailing))
             for klass in _as_tuple(atom.get("class")):
                 members.update(classes.get(klass, frozenset()))
         for atom in group.get("minus", ()) or ():
@@ -939,7 +1022,11 @@ def _resolve_groups(
     return resolved
 
 
-def _build_rune(context: _FileContext, classes: dict[str, frozenset[str]]) -> Rune:
+def _build_rune(
+    context: _FileContext,
+    classes: dict[str, frozenset[str]],
+    by_trailing: dict[str, tuple[str, ...]],
+) -> Rune:
     raw = context.data
     ductus = dict(raw.get("ductus") or {})
     stances = {}
@@ -978,7 +1065,7 @@ def _build_rune(context: _FileContext, classes: dict[str, frozenset[str]]) -> Ru
             )
             for index, record in enumerate(policy_raw.get("resolve", ()))
         ),
-        groups=_resolve_groups(context, policy_raw, classes),
+        groups=_resolve_groups(context, policy_raw, classes, by_trailing),
     )
     seen_ids: dict[str, str] = {}
     for kind in ("refuse", "prefer", "extend", "contract", "resolve"):
@@ -1110,9 +1197,11 @@ def load_spec(runes_dir: Path, registry_path: Path, schema_dir: Path) -> Resolve
         raise SpecError(str(runes_dir), "", f"duplicate rune files for {duplicates}")
 
     classes = _evaluate_predicate_classes(registry_raw, rune_raws)
-    runes = {context.data["rune"]: _build_rune(context, classes) for context in contexts}
+    by_trailing = _ligatures_by_trailing(rune_raws)
+    runes = {context.data["rune"]: _build_rune(context, classes, by_trailing) for context in contexts}
     if issues:
         raise SpecError.from_issues(issues)
+    runes = _expand_ligature_lefts(runes, by_trailing)
     context_by_rune = {context.data["rune"]: context for context in contexts}
     for rune in runes.values():
         for record in rune.policy.resolve:
