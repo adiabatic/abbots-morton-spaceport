@@ -724,6 +724,44 @@ def test_builtin_checker_rejects_broken_documents():
         assert checker.check(yaml.safe_load(text)), text
 
 
+def test_ligature_transparency_expands_left_facing_family_lists(spec):
+    """A family in an entry from-scope or a when.left admits every registered ligature whose sequence ends in it; toward-scopes, when.right, and except: lists stay literal, and predicate-class membership stays the ligature's own surface geometry."""
+    half_from = spec.runes["qsPea"].stances["half"].surface.entries["x-height"].scope
+    utter_cond = next(cond for cond in half_from if "qsUtter" in cond.family)
+    assert "qsDay_qsUtter" in utter_cond.family
+    assert "qsSee_qsUtter" in utter_cond.family
+
+    alt_from = spec.runes["qsUtter"].stances["alternate"].surface.entries["x-height"].scope
+    assert set(alt_from[0].family) >= {"qsUtter", "qsDay_qsUtter", "qsSee_qsUtter"}
+
+    vote = spec.runes["qsIt"].policy.prefer[0]
+    assert vote.when.left is not None
+    assert set(vote.when.left.family) == {"qsOy", "qsTea_qsOy"}
+    assert vote.when.right is not None and vote.when.right.family == ("qsNo",)
+
+    tea_half_from = spec.runes["qsTea"].stances["half"].surface.entries["x-height"].scope
+    assert tea_half_from[0].except_[0].family == ("qsDay_qsUtter",)
+
+    refuse = spec.runes["qsPea"].policy.refuse[0]
+    assert refuse.when.right is not None
+    assert "qsTea_qsOy" not in refuse.when.right.family
+
+    classes = spec.registry.predicate_classes
+    assert "qsSee_qsUtter" not in classes.get("can-exit-at-baseline", frozenset())
+    assert "qsTea_qsOy" in classes.get("can-exit-at-baseline", frozenset())
+
+
+def test_ligature_transparency_keeps_literal_names_more_specific(spec):
+    from rebuild.pipeline import specificity
+    from rebuild.pipeline.model import Condition, PolicyRecord, When
+
+    literal = PolicyRecord(kind="refuse", when=When(left=Condition(family=("qsSee_qsUtter",))))
+    broad = PolicyRecord(
+        kind="refuse", when=When(left=Condition(family=("qsUtter", "qsDay_qsUtter", "qsSee_qsUtter")))
+    )
+    assert specificity.outranks(spec, literal, broad) is specificity.Ordering.A_OUTRANKS
+
+
 def test_resolve_record_slice_validation(tmp_path):
     floor = MINIMAL_RUNE + textwrap.dedent("""\
         policy:

@@ -146,7 +146,9 @@ policy:
   - cell: {exit: x-height}
     over: {entry: x-height}
     when:
-      left: {family: qsUtter}
+      left:
+        family: qsUtter
+        class: can-exit-at-baseline
       right:
         except:
         - {family: qsTea}
