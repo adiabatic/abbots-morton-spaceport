@@ -142,7 +142,8 @@ policy:
         stance: half
       right: {family: qsUtter}
   prefer:
-  - cell: {exit: none}
+  - id: withhold-before-no-after-oy
+    cell: {exit: none}
     over: {exit: x-height}
     when:
       left:

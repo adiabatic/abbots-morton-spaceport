@@ -806,12 +806,146 @@ class Engine:
                 continue
             for prev_owner, prev_record in applied:
                 rank = specificity.outranks(self.spec, prev_record, record, prev_owner, owner)
-                if rank in (specificity.Ordering.EQUAL, specificity.Ordering.INCOMPARABLE):
-                    message = f"prefer records demand different outcomes at non-nested specificity: {prev_record.provenance} vs {record.provenance}"
-                    if prev_owner != owner:
-                        raise EIncomparableError(f"E-INCOMPARABLE: {message}")
-                    raise EAmbiguousError(f"E-AMBIGUOUS: {message}")
+                if rank not in (specificity.Ordering.EQUAL, specificity.Ordering.INCOMPARABLE):
+                    continue
+                if prev_owner == owner:
+                    raise EAmbiguousError(
+                        f"E-AMBIGUOUS: prefer records demand different outcomes at non-nested specificity: {prev_record.provenance} vs {record.provenance}"
+                    )
+                resolved = self._apply_resolution(
+                    prev_owner,
+                    prev_record,
+                    owner,
+                    record,
+                    survivors,
+                    left,
+                    right1,
+                    right2,
+                    right3,
+                    right4,
+                    notes,
+                )
+                if resolved is not None:
+                    current = resolved
+                    applied.append((owner, record))
+                    break
+                raise EIncomparableError(
+                    self._incomparable_message(
+                        prev_owner, prev_record, owner, record, rune_name, survivors, left, right1, right2
+                    )
+                )
         return current
+
+    def _apply_resolution(
+        self,
+        a_owner: str,
+        a_record: PolicyRecord,
+        b_owner: str,
+        b_record: PolicyRecord,
+        survivors: list[Candidate],
+        left: LeftContext,
+        right1: RightToken,
+        right2: RightToken,
+        right3: RightToken,
+        right4: RightToken,
+        notes: list[str],
+    ) -> list[Candidate] | None:
+        """The section 5.8 against-a-named-record slice: a crossing between two runes' prefers resolves without an error when a resolve on either rune names the other record in `against:` and its `when:` matches the window (unknown deep slots count as matching, the refusal-and-unlock optimism). The `pick:` pattern filters the stage's full survivor set — the resolve overrides both colliding records, not just the later one — and its provenance lands in the fired set and the notes so explain and the dead-policy gate see it. Matching resolves that disagree on the pick, or a pick admitting no survivor, stay hard errors."""
+        matches: list[tuple[str, PolicyRecord]] = []
+        for holder, other_owner, other_record in (
+            (a_owner, b_owner, b_record),
+            (b_owner, a_owner, a_record),
+        ):
+            holder_rune = self.spec.runes.get(holder)
+            if holder_rune is None:
+                continue
+            for res in holder_rune.policy.resolve:
+                if res.against is None or res.pick is None:
+                    continue
+                target_name, target_id = res.against
+                if target_name != other_owner:
+                    continue
+                if target_id is not None and target_id != other_record.id:
+                    continue
+                verdict = self.when_matches(
+                    holder,
+                    res.when,
+                    left=left,
+                    entry=None,
+                    seam=None,
+                    right1=right1,
+                    right2=right2,
+                    right3=right3,
+                    right4=right4,
+                )
+                if verdict is False:
+                    continue
+                matches.append((holder, res))
+        if not matches:
+            return None
+        picks = {tuple(sorted(res.pick.items())) for _, res in matches if res.pick is not None}
+        if len(picks) > 1:
+            described = "; ".join(str(res.provenance) for _, res in matches)
+            raise EIncomparableError(
+                f"E-INCOMPARABLE: conflicting resolve records match one window: {described}"
+            )
+        _, res = matches[0]
+        assert res.pick is not None
+        picked = [c for c in survivors if self._resolve_pick_matches(res.pick, c)]
+        if not picked:
+            raise EIncomparableError(
+                f"E-INCOMPARABLE: resolve {res.provenance} matched but its pick admits no surviving candidate"
+            )
+        self._record_fired(res.provenance)
+        notes.append(f"resolve applied: {res.provenance}")
+        return picked
+
+    @staticmethod
+    def _resolve_pick_matches(pick, candidate: Candidate) -> bool:
+        wanted_stance = pick.get("stance")
+        if wanted_stance is not None and candidate.stance != wanted_stance:
+            return False
+        cell_pattern = {key: value for key, value in pick.items() if key in ("entry", "exit")}
+        return Engine._cell_pattern_matches(cell_pattern, candidate) if cell_pattern else True
+
+    def _incomparable_message(
+        self,
+        a_owner: str,
+        a_record: PolicyRecord,
+        b_owner: str,
+        b_record: PolicyRecord,
+        rune_name: str,
+        survivors: list[Candidate],
+        left: LeftContext,
+        right1: RightToken,
+        right2: RightToken,
+    ) -> str:
+        left_name = left.settled.cell.rune if left.kind == "letter" and left.settled is not None else None
+        tokens = [left_name, rune_name] + [t.rune for t in (right1, right2) if t.kind == "letter"]
+        example = " ".join(name for name in tokens if name)
+        cells = ", ".join(
+            f"({c.stance}, entry {c.entry or 'none'}, exit {c.seam or 'none'})" for c in survivors
+        )
+        other_owner, other_record = (b_owner, b_record) if a_owner == rune_name else (a_owner, a_record)
+        against_id = other_record.id or "<give that record an id: first>"
+        when_clause = ""
+        if right1.kind == "letter":
+            inner = f"family: {right1.rune}"
+            if right2.kind == "letter":
+                inner += f", then: {{family: {right2.rune}}}"
+            when_clause = f"    when: {{right: {{{inner}}}}}\n"
+        stub = (
+            f"  - against: {{rune: {other_owner}, id: {against_id}}}\n"
+            f"{when_clause}"
+            "    pick: {exit: <the winning cell>}\n"
+            "    why: <author rationale, mandatory>"
+        )
+        return (
+            f"E-INCOMPARABLE: prefer records demand different outcomes at non-nested specificity: {a_record.provenance} vs {b_record.provenance}.\n"
+            f"  example window: {example}\n"
+            f"  conflicted candidates on {rune_name}: {cells}\n"
+            f"  paste-ready resolve for glyph_data/runes/{rune_name}.yaml policy.resolve (design section 5.8):\n{stub}"
+        )
 
     # --- extensions ----------------------------------------------------------------
 

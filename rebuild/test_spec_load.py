@@ -663,14 +663,14 @@ def test_duplicate_groups_flagged_across_files(tmp_path):
         load_tmp_spec(tmp_path, {"qsIt": MINIMAL_RUNE + group_block, "qsMay": may_text + group_block})
 
 
-def test_resolve_records_rejected(tmp_path):
+def test_resolve_floor_form_still_rejected(tmp_path):
     text = MINIMAL_RUNE + textwrap.dedent("""\
         policy:
           resolve:
           - {pick: {stance: hapax}, why: Recorded tie-break.}
         """)
     error = load_tmp_error(tmp_path, {"qsIt": text})
-    assert any("resolve records" in issue.message for issue in error.issues)
+    assert any("not yet implemented" in issue.message for issue in error.issues)
 
 
 def test_rune_name_must_match_file_stem(tmp_path):
@@ -722,3 +722,34 @@ def test_builtin_checker_rejects_broken_documents():
     checker = spec_load._SchemaChecker(schema, "rune.schema.json")
     for text in BROKEN_DOCUMENTS:
         assert checker.check(yaml.safe_load(text)), text
+
+
+def test_resolve_record_slice_validation(tmp_path):
+    floor = MINIMAL_RUNE + textwrap.dedent("""\
+        policy:
+          resolve:
+          - at: {right: {family: qsDay}}
+            pick: {exit: baseline}
+            why: x
+        """)
+    assert "not yet implemented" in str(load_tmp_error(tmp_path, {"qsIt": floor}))
+
+    dangling = MINIMAL_RUNE + textwrap.dedent("""\
+        policy:
+          resolve:
+          - against: {rune: qsIt, id: no-such}
+            when: {right: {family: qsDay}}
+            pick: {exit: baseline}
+            why: x
+        """)
+    assert "no record with id" in str(load_tmp_error(tmp_path, {"qsIt": dangling}))
+
+    duplicate = MINIMAL_RUNE + textwrap.dedent("""\
+        policy:
+          refuse:
+          - id: dup
+            when: {right: {family: qsDay}}
+          - id: dup
+            when: {right: {family: qsMay}}
+        """)
+    assert "already used" in str(load_tmp_error(tmp_path, {"qsIt": duplicate}))

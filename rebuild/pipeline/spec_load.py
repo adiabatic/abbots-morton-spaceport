@@ -422,6 +422,7 @@ def _policy_record(kind: str, raw: dict, provenance: Provenance) -> PolicyRecord
     return PolicyRecord(
         kind=kind,
         when=_when(raw.get("when")),
+        id=raw.get("id"),
         stance=raw.get("stance"),
         entry=raw.get("entry"),
         exit=raw.get("exit"),
@@ -433,6 +434,32 @@ def _policy_record(kind: str, raw: dict, provenance: Provenance) -> PolicyRecord
         bind=raw.get("bind"),
         trim=raw.get("trim"),
         split=(split[0], split[1]) if split else None,
+        why=raw.get("why"),
+        provenance=provenance,
+    )
+
+
+def _resolve_record(context: _FileContext, raw: dict, path: str, provenance: Provenance) -> PolicyRecord:
+    """The section 5.8 against-a-named-record slice: `{against: {rune, id}, when, pick, why}`. The floor form (`at:`) and case-group promotion are designed but not yet implemented, and a resolve's `when:` may not carry `self:` — the record is consulted at the seat where two prefers collided, before any cell of the seat is chosen, so there is no self state to read."""
+    against_raw = raw.get("against")
+    if "at" in raw or against_raw is None:
+        context.error(
+            path,
+            "resolve floor form (at:) and case-group promotion are not yet implemented; only against-a-named-record resolves ({against: {rune, id}, when, pick, why}) are supported",
+        )
+    if isinstance(raw.get("when"), dict) and "self" in raw["when"]:
+        context.error(
+            path,
+            "self: conditions on a resolve are not yet implemented (a resolve is consulted before any cell of its seat is chosen)",
+        )
+    against = (against_raw["rune"], against_raw.get("id")) if against_raw else None
+    return PolicyRecord(
+        kind="resolve",
+        when=_when(raw.get("when")),
+        id=raw.get("id"),
+        against=against,
+        pick=raw.get("pick"),
+        migrated=raw.get("migrated"),
         why=raw.get("why"),
         provenance=provenance,
     )
@@ -770,10 +797,12 @@ class _Linter:
                 record_path = f"policy.{kind}[{index}]"
                 self._lint_record(kind, record, record_path, stances)
         for index, record in enumerate(policy.get("resolve", ())):
-            self.context.error(
-                f"policy.resolve[{index}]",
-                "resolve records are not representable in the frozen M1 model contract; M1 expects zero (M1-PLAN section 5)",
-            )
+            record_path = f"policy.resolve[{index}]"
+            if not (record.get("why") or "").strip():
+                self.context.error(record_path, "a resolve is a judgment call and its why: is mandatory")
+            against = record.get("against")
+            if isinstance(against, dict):
+                self._check_family(against.get("rune", ""), f"{record_path}.against.rune")
         for group_name, group in (policy.get("groups") or {}).items():
             group_path = f"policy.groups.{group_name}"
             if group_name in self.classes:
@@ -943,8 +972,26 @@ def _build_rune(context: _FileContext, classes: dict[str, frozenset[str]]) -> Ru
             _policy_record("contract", record, context.provenance(f"policy.contract[{index}]"))
             for index, record in enumerate(policy_raw.get("contract", ()))
         ),
+        resolve=tuple(
+            _resolve_record(
+                context, record, f"policy.resolve[{index}]", context.provenance(f"policy.resolve[{index}]")
+            )
+            for index, record in enumerate(policy_raw.get("resolve", ()))
+        ),
         groups=_resolve_groups(context, policy_raw, classes),
     )
+    seen_ids: dict[str, str] = {}
+    for kind in ("refuse", "prefer", "extend", "contract", "resolve"):
+        for record in getattr(policy, kind):
+            if record.id is None:
+                continue
+            if record.id in seen_ids:
+                context.error(
+                    str(record.provenance.path) if record.provenance else f"policy.{kind}",
+                    f"record id {record.id!r} is already used by {seen_ids[record.id]} — ids are unique within a rune",
+                )
+            elif record.provenance is not None:
+                seen_ids[record.id] = record.provenance.path
     return Rune(
         name=raw["rune"],
         codepoint=raw.get("codepoint"),
@@ -1064,6 +1111,33 @@ def load_spec(runes_dir: Path, registry_path: Path, schema_dir: Path) -> Resolve
 
     classes = _evaluate_predicate_classes(registry_raw, rune_raws)
     runes = {context.data["rune"]: _build_rune(context, classes) for context in contexts}
+    if issues:
+        raise SpecError.from_issues(issues)
+    context_by_rune = {context.data["rune"]: context for context in contexts}
+    for rune in runes.values():
+        for record in rune.policy.resolve:
+            if record.against is None:
+                continue
+            target_name, target_id = record.against
+            path = record.provenance.path if record.provenance else "policy.resolve"
+            target = runes.get(target_name)
+            if target is None:
+                context_by_rune[rune.name].error(
+                    path, f"resolve names unknown rune {target_name!r} in against:"
+                )
+                continue
+            if target_id is not None:
+                target_ids = {
+                    r.id
+                    for kind in ("refuse", "prefer", "extend", "contract", "resolve")
+                    for r in getattr(target.policy, kind)
+                    if r.id is not None
+                }
+                if target_id not in target_ids:
+                    context_by_rune[rune.name].error(
+                        path,
+                        f"resolve's against: names no record — {target_name} has no record with id {target_id!r}",
+                    )
     if issues:
         raise SpecError.from_issues(issues)
     _flag_duplicate_groups(contexts, runes)
