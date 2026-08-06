@@ -2,12 +2,6 @@
 
 Scratch for the ·See migration. Delete when the batch closes, lifting any surviving forward-pointer into `WHATNEXT.md`.
 
-## Committed
-
-- `1bfb48a` — the sitting's fresh reject and neither (u-119428, u-119427): the §5.7 guard's ranking-grain trail, forming-pair resolution, and edge-bound deep slots, plus the emitter's forming-rows-first bucket; ·Day·Utter and ·See·Utter ligate again before ·See·{Utter, Low}.
-- `f95b6a8` — the conform witness assembler holds formed-ligature labels to their own guard and appends a guard-releasing letter at a stream's end, so the newly reachable (ligature, ·See) windows witness instead of reading dead; census pins refreshed for the retired windows.
-- `86cc4a3` — the sitting's fresh reject (u-124331): word-initial ·No·No keeps its x-height join when ·See plus a receiver ·See yields to (·Low, or the deferred qsAt/qsOut/qsOoze) follows — a boundary-scoped absolute prefer on qsNo, on the qsNo depth-3-chain precedent; the boundary left scope is load-bearing, since without it the record's follower vote breaks approved ·Day/·It·No·No·See windows.
-
 ## Parked
 
 Nothing yet.
@@ -71,5 +65,5 @@ Oracle evidence is derived by scanning `rebuild/out/baseline-<config>.tsv.gz` di
 ## Resume
 
 ```zsh
-make review-cycle
+make review-cycle ARGS='--update-pins'
 ```
