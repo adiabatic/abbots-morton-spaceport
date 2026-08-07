@@ -155,6 +155,16 @@ policy:
       left: {joined_at: x-height}
       right: {family: qsMay}
     why: 'if `·Utter.alt ~b~ ·May` works, then `·No ~x~ ·Utter.alt ~b~ ·May` should work too; we should have an ·Utter.alt that can connect to the previous letter at the x-height'
+  - cell: {entry: baseline}
+    over: {entry: x-height}
+    when:
+      left: {family: qsNo}
+      right:
+        family:
+        - qsNo
+        - qsIt
+    why: |
+      I would rather have ·Utter.!alt here when the letters around it can connect at either the baseline or x-height and don’t look better or worse one way or the other
   extend:
   - exit: x-height
     by: 1
