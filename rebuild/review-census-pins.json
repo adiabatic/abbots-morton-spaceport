@@ -1,22 +1,22 @@
 {
   "_surface": {
-    "generated_at": "2026-08-03T23:48:07Z",
-    "repo_head": "06c547b"
+    "generated_at": "2026-08-06T21:18:30Z",
+    "repo_head": "e5d2946e"
   },
   "manifest": {
     "totals": {
-      "units": 137000,
-      "rows": 467005,
+      "units": 137033,
+      "rows": 467070,
       "batches": 77,
-      "echo_groups": 2303
+      "echo_groups": 2300
     },
     "classes_count": 27,
     "machine_approved": {
-      "units": 108062,
+      "units": 108063,
       "by_class": {
         "boundary-echo": 29063,
         "dangling-anchor-dropped": 18851,
-        "bare-name-live-join": 26343,
+        "bare-name-live-join": 26344,
         "ss10-isolation-completed": 20571,
         "ss10-ligature-suppressed": 1468,
         "kern-channel-out-of-scope": 1494,
@@ -24,19 +24,19 @@
       }
     },
     "class_unit_count": {
-      "boundary-echo": 34886,
+      "boundary-echo": 34889,
       "dangling-anchor-dropped": 19906,
-      "bare-name-live-join": 28833
+      "bare-name-live-join": 28856
     },
     "secondary_seams": {
-      "units_with_markers": 13844,
+      "units_with_markers": 13832,
       "seams_homed": 8339,
-      "seams_homeless": 6712,
+      "seams_homeless": 6690,
       "seams_suppressed_invisible": 0
     }
   },
   "built": {
-    "human_units": 22941,
+    "human_units": 22970,
     "config_note_distribution": [
       [
         null,
@@ -48,7 +48,7 @@
       ],
       [
         "only when ss03 is off",
-        4253
+        4252
       ],
       [
         "only when ss03 is off and ss04 is off",
@@ -60,7 +60,7 @@
       ],
       [
         "only when ss03 is on",
-        6128
+        6162
       ],
       [
         "only when ss03 is on and ss05 is off",
@@ -97,19 +97,19 @@
     ]
   },
   "audit": {
-    "row_count": 467005,
-    "units": 139009
+    "row_count": 467070,
+    "units": 139042
   },
   "ink": {
-    "machine_total": 66309,
-    "non_identical": 72700,
+    "machine_total": 66310,
+    "non_identical": 72732,
     "by_class": {
       "boundary-echo": 20263,
       "dangling-anchor-dropped": 19703,
-      "bare-name-live-join": 26343
+      "bare-name-live-join": 26344
     },
-    "boundary_echo_exempt": 15638,
-    "human_units": 57062,
+    "boundary_echo_exempt": 15641,
+    "human_units": 57091,
     "batches": 191
   },
   "families": {
@@ -118,13 +118,13 @@
       "tea-it-xheight": 88,
       "oy-it-baseline": 26,
       "may-utter-gains": 272,
-      "seam-loss-withdrawal": 2024,
-      "extension-non-summing": 4961,
-      "unmatched-misc": 1467,
+      "seam-loss-withdrawal": 2021,
+      "extension-non-summing": 4943,
+      "unmatched-misc": 1485,
       "deferred-ss04": 1309,
       "deferred-ss10": 10272,
       "deferred-ss03": 1404
     },
-    "total": 22296
+    "total": 22293
   }
 }
