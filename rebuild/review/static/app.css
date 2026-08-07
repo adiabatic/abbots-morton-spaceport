@@ -120,13 +120,35 @@ summary:focus-visible {
   .position {
     margin: 0;
     display: flex;
+    align-items: baseline;
     font-size: 14px;
     color: light-dark(#444, #ccc);
 
-    > span + span:not([hidden])::before,
-    .stamp::after {
+    > span + span:not([hidden])::before {
       content: '·';
       margin-inline: 2ch;
+    }
+
+    #surface-total {
+      font: inherit;
+      color: inherit;
+      background: none;
+      border: 1px solid var(--hairline);
+      border-radius: 999px;
+      padding: 0 0.7em;
+      margin-inline-end: 2ch;
+      cursor: pointer;
+
+      &::after {
+        content: ' ▾';
+        opacity: 0.65;
+      }
+
+      &:hover,
+      &:focus-visible {
+        border-color: var(--accent);
+        color: var(--accent);
+      }
     }
 
     #unexported-nudge {
@@ -139,6 +161,77 @@ summary:focus-visible {
     margin-left: auto;
     display: flex;
     gap: 0.5rem;
+  }
+}
+
+#surface-detail {
+  position: fixed;
+  inset: auto;
+  top: 2.9rem;
+  left: 1.5rem;
+  margin: 0;
+  padding: 0.55rem 0.9rem 0.65rem;
+  max-width: min(30rem, 92vw);
+  font-family: var(--chrome-font);
+  font-size: 13px;
+  color: light-dark(#444, #ccc);
+  background: var(--card);
+  border: 1px solid var(--hairline);
+  border-radius: 6px;
+  box-shadow: 0 6px 20px light-dark(rgba(0, 0, 0, 0.2), rgba(0, 0, 0, 0.55));
+
+  .stamp {
+    margin: 0 0 0.45rem;
+    padding-bottom: 0.4rem;
+    border-bottom: 1px solid var(--hairline);
+    font-family: var(--code-font);
+    font-size: 11px;
+    color: var(--muted);
+  }
+
+  dl {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 0.2rem 2ch;
+    margin: 0;
+
+    dt,
+    dd {
+      margin: 0;
+    }
+
+    dd {
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .sub {
+      color: var(--muted);
+    }
+
+    dt.sub {
+      padding-inline-start: 1.2em;
+    }
+
+    dt:last-of-type,
+    dd:last-of-type {
+      margin-top: 0.2rem;
+      padding-top: 0.3rem;
+      border-top: 1px solid var(--hairline);
+    }
+  }
+}
+
+@supports (anchor-name: --surface-chip) {
+  .progress-strip .position #surface-total {
+    anchor-name: --surface-chip;
+  }
+
+  #surface-detail {
+    position-anchor: --surface-chip;
+    position-area: bottom span-right;
+    inset: auto;
+    margin-block-start: 0.35rem;
   }
 }
 

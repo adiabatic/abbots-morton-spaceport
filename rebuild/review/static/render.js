@@ -255,15 +255,36 @@ export function machineChannels(manifest) {
   };
 }
 
-export function surfaceLine(manifest) {
-  return `Surface: ${formatCount(manifest.totals.units)} units`;
+export function surfaceChipLabel(manifest) {
+  return `${formatCount(manifest.totals.units)} units`;
 }
 
-export function machineLine(manifest) {
-  const { units, juniorEquivalent } = machineChannels(manifest);
-  if (units === 0) return null;
-  if (juniorEquivalent === 0) return `${formatCount(units)} ink-identical machine-approved`;
-  return `${formatCount(units)} machine-approved`;
+export function surfaceStampLine(manifest) {
+  if (!manifest.generated_at) return null;
+  return manifest.repo_head
+    ? `Generated ${manifest.generated_at} at ${manifest.repo_head}`
+    : `Generated ${manifest.generated_at}`;
+}
+
+const NO_VERDICT_DETAIL_TITLE =
+  'Units in a no-verdict ledger class are adjudicated wholesale by a ratified rule and never need individual verdicts; hover the class in the sidebar for its rationale.';
+
+export function surfaceDetailRows(manifest) {
+  const rows = [{ label: 'Surface', value: surfaceChipLabel(manifest) }];
+  const { units, inkIdentical, juniorEquivalent } = machineChannels(manifest);
+  if (units > 0) {
+    const channels = manifest.machine_approved?.channels ?? {};
+    const label = juniorEquivalent === 0 ? 'ink-identical machine-approved' : 'machine-approved';
+    rows.push({ label, value: formatCount(units), title: machineTitle(manifest) });
+    if (juniorEquivalent > 0) {
+      rows.push({ label: 'ink-identical', value: formatCount(inkIdentical), sub: true, title: channels.ink_identical?.method ?? '' });
+      rows.push({ label: 'junior-equivalent', value: formatCount(juniorEquivalent), sub: true, title: channels.junior_equivalent?.method ?? '' });
+    }
+  }
+  const exempt = noVerdictTotal(manifest);
+  if (exempt > 0) rows.push({ label: 'in no-verdict classes', value: formatCount(exempt), title: NO_VERDICT_DETAIL_TITLE });
+  rows.push({ label: 'for human review', value: formatCount(humanTotal(manifest)), title: 'The Overall denominator: everything the surface leaves to a person.' });
+  return rows;
 }
 
 export function machineTitle(manifest) {
@@ -272,11 +293,6 @@ export function machineTitle(manifest) {
   if (units === 0 || juniorEquivalent === 0) return method;
   const split = `${formatCount(inkIdentical)} ink-identical + ${formatCount(juniorEquivalent)} junior-equivalent.`;
   return method ? `${split} ${method}` : split;
-}
-
-export function noVerdictLine(manifest) {
-  const exempt = noVerdictTotal(manifest);
-  return exempt > 0 ? `${formatCount(exempt)} in no-verdict classes` : null;
 }
 
 export function classCountsLine(cls, verdicted = null) {
