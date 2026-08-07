@@ -153,10 +153,6 @@ policy:
         - qsExam
         - qsIt
     why: ·Tea and ·It are both vertical, and two adjacent verticals joined at the baseline render as one extra-thick stroke.
-  - exit: baseline
-    when:
-      self: {entry: none}
-      right: {family: qsRoe}
   - stance: half
     entry: x-height
     when:
@@ -190,11 +186,6 @@ policy:
         - qsKey
         - qsJay
         - qsEight
-  - exit: baseline
-    by: 1
-    when:
-      right: {family: qsRoe}
-    why: For ·Tea.!half ~b~ ·Roe, I want one pixel of extension so only the bottom part of ·Roe connects to ·Tea — not both sides
   contract:
   - exit: x-height
     by: 1

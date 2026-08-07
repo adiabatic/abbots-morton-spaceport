@@ -135,7 +135,6 @@ policy:
         - qsZoo
         - qsCheer
         - qsJay
-        - qsRoe
         - qsLlan
         - qsIt
         - qsEt
@@ -163,6 +162,16 @@ policy:
       right:
         family: qsIt
         then: {family: qsEt}
+  - cell: {entry: y6}
+    over: {entry: none}
+    when:
+      right: {family: qsRoe}
+  - cell: {exit: y6}
+    over: {exit: none}
+    when:
+      right:
+        family: qsPea
+        then: {family: qsRoe}
   extend: []
   contract: []
   resolve: []
