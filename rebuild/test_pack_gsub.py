@@ -64,6 +64,9 @@ def _build_font():
     builder.setupOS2()
     builder.setupPost()
     addOpenTypeFeaturesFromString(builder.font, FEA)
+    builder.font.recalcTimestamp = False
+    builder.font["head"].created = 0
+    builder.font["head"].modified = 0
     return builder.font
 
 
