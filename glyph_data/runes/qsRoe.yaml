@@ -116,6 +116,11 @@ policy:
         - qsIt
         - qsEat
         - qsEight
+  - entry: baseline
+    by: 1
+    when:
+      self: {exit: none}
+      left: {family: qsTea}
   - entry: x-height
     by: 1
     when:
@@ -134,6 +139,7 @@ policy:
   - entry: baseline
     by: 1
     when:
+      self: {exit: live}
       left:
         family:
         - qsPea

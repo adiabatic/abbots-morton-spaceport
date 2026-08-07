@@ -314,10 +314,6 @@
   why: ·Roe entered at the baseline keeps both arm tips on a declined exit.
 - signature: dangle:qsRoe.hapax.en-y0:exit:x-height
   why: The upper arm's tip on the baseline-entered cell.
-- signature: dangle:qsRoe.hapax.en-y0.en-con-1:exit:baseline
-  why: The contracted baseline entry pulls ·Roe onto the bar without moving either tip.
-- signature: dangle:qsRoe.hapax.en-y0.en-con-1:exit:x-height
-  why: The upper arm's tip on the entry-contracted baseline cell.
 - signature: dangle:qsRoe.hapax.en-y0.ex-y5.en-con-1:exit:baseline
   why: The same contracted cell with the upper arm run out over the bowl; the lower arm's tip is the one left dangling.
 - signature: dangle:qsRoe.hapax.en-y0.en-ext-1:exit:baseline
@@ -371,11 +367,8 @@
 
 - signature: contact:qsTea.full.en-y5.ex-y0:qsRoe.hapax.en-y0:y5
   why: Under ss03 an x-height exiter carries ·Tea's full bar down past the x-height and on into ·Roe at the baseline (baseline row E658:E652:E668 under ss03, seams y5,y0). ·Roe's upper arm starts in the column beside the bar at y5 — the corner the shipped font already draws there. Without ss03 the bar stops at the x-height instead, and qsTea's own refusal keeps the unentered full bar out of ·Roe entirely.
-
-- signature: contact:qsTea.full.en-y5.ex-y0:qsRoe.hapax.en-y0.en-con-1:overlap
-  why: The reviewer asked for the ·Tea·Roe baseline join two pixels tighter, so the contracted ·Roe tucks its upper arm's first pixel onto the bar at y5 and the shared ink reads as the arm growing out of the stroke. This is the ss03 arm (·Fee·Tea·Roe and friends), where the x-height-entered full bar carries down into ·Roe.
-- signature: contact:qsTea.full.en-y0.ex-y0:qsRoe.hapax.en-y0.en-con-1:overlap
-  why: The ss05 twin of the corner above (·Et·Tea·Roe, both baseline joins unlocked) — the same upper-arm pixel shared with the baseline-entered bar.
+- signature: contact:qsTea.full.en-y0.ex-y0:qsRoe.hapax.en-y0:y5
+  why: The ss05 twin of the corner above (·Et·Tea·Roe, both baseline joins unlocked) — the baseline-entered full bar carries the same ink at y5. The baseline contraction fires only when ·Roe's own cell has an onward exit, so a ·Roe that connects to nothing after it stands uncontracted, its upper arm starting in the column beside the bar rather than tucked onto it.
 
 # ·It·Et and ·Low·Et join at the x-height today (baseline rows E670:E672 and E667:E672, seam y5); the exiter's riser at y4 sits one column left of ·Et's descending left edge — the same corner the blessed ·Low·Day/·Low·It block above records, now with ·Et as the follower. One signature per exiter variant (bare, entered, ZWNJ-locked) and ·Et exit variant (the onward baseline exit does not move the entry column); the entry-extended ·Et twins never meet these exiters, because the extension fires only after the halves trio.
 - signature: contact:qsIt.hapax.ex-y5:qsEt.hapax.en-y5:y4
