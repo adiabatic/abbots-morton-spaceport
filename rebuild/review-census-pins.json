@@ -1,21 +1,21 @@
 {
   "_surface": {
-    "generated_at": "2026-08-06T21:18:30Z",
-    "repo_head": "e5d2946e"
+    "generated_at": "2026-08-07T06:49:44Z",
+    "repo_head": "be50273b"
   },
   "manifest": {
     "totals": {
       "units": 137033,
       "rows": 467070,
       "batches": 77,
-      "echo_groups": 2300
+      "echo_groups": 2298
     },
     "classes_count": 27,
     "machine_approved": {
-      "units": 108063,
+      "units": 108065,
       "by_class": {
         "boundary-echo": 29063,
-        "dangling-anchor-dropped": 18851,
+        "dangling-anchor-dropped": 18853,
         "bare-name-live-join": 26344,
         "ss10-isolation-completed": 20571,
         "ss10-ligature-suppressed": 1468,
@@ -25,18 +25,18 @@
     },
     "class_unit_count": {
       "boundary-echo": 34889,
-      "dangling-anchor-dropped": 19906,
+      "dangling-anchor-dropped": 19908,
       "bare-name-live-join": 28856
     },
     "secondary_seams": {
-      "units_with_markers": 13832,
+      "units_with_markers": 13830,
       "seams_homed": 8339,
-      "seams_homeless": 6690,
+      "seams_homeless": 6688,
       "seams_suppressed_invisible": 0
     }
   },
   "built": {
-    "human_units": 22970,
+    "human_units": 22968,
     "config_note_distribution": [
       [
         null,
@@ -101,20 +101,20 @@
     "units": 139042
   },
   "ink": {
-    "machine_total": 66310,
-    "non_identical": 72732,
+    "machine_total": 66312,
+    "non_identical": 72730,
     "by_class": {
       "boundary-echo": 20263,
-      "dangling-anchor-dropped": 19703,
+      "dangling-anchor-dropped": 19705,
       "bare-name-live-join": 26344
     },
     "boundary_echo_exempt": 15641,
-    "human_units": 57091,
+    "human_units": 57089,
     "batches": 191
   },
   "families": {
     "census": {
-      "no-chain-gains": 473,
+      "no-chain-gains": 471,
       "tea-it-xheight": 88,
       "oy-it-baseline": 26,
       "may-utter-gains": 272,
@@ -125,6 +125,6 @@
       "deferred-ss10": 10272,
       "deferred-ss03": 1404
     },
-    "total": 22293
+    "total": 22291
   }
 }

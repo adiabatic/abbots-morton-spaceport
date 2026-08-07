@@ -131,6 +131,13 @@ policy:
         - qsLow
         - qsI
   contract:
+  - entry: baseline
+    by: 1
+    when:
+      left:
+        family:
+        - qsPea
+        - qsTea
   - entry: x-height
     by: 1
     when:

@@ -65,7 +65,7 @@ def _build_font():
     builder.setupPost()
     addOpenTypeFeaturesFromString(builder.font, FEA)
     builder.font.recalcTimestamp = False
-    builder.font["head"].created = 0
+    builder.font["head"].created = 0  # pyright: ignore[reportAttributeAccessIssue]
     builder.font["head"].modified = 0
     return builder.font
 
