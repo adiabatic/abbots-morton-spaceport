@@ -10,14 +10,23 @@
     <header class="progress-strip">
       <h1>AMS review</h1>
       <p class="position" role="status">
-        <span id="surface-total">Loading…</span>
-        <span id="machine-approved-line" hidden></span>
-        <span id="no-verdict-line" hidden></span>
+        <button
+          type="button"
+          id="surface-total"
+          popovertarget="surface-detail"
+          title="How the surface divides: machine-approved, no-verdict classes, and the human workload the Overall count is against"
+        >
+          Loading…
+        </button>
         <span id="overall-progress"></span>
         <span id="class-progress" hidden></span>
         <span id="batch-progress"></span>
         <span id="unexported-nudge" hidden></span>
       </p>
+      <div id="surface-detail" popover>
+        <p class="stamp" id="surface-stamp" hidden></p>
+        <dl id="surface-detail-rows"></dl>
+      </div>
       <div class="search">
         <label for="unit-search">Find</label>
         <input

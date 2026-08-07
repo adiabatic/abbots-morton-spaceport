@@ -26,10 +26,10 @@ import {
   noVerdictTotal,
   formatCount,
   machineChannels,
-  surfaceLine,
-  machineLine,
+  surfaceChipLabel,
+  surfaceStampLine,
+  surfaceDetailRows,
   machineTitle,
-  noVerdictLine,
   classCountsLine,
   nextUnverdictedIndex,
   stepIndex,
@@ -590,10 +590,16 @@ test('machineChannels splits the machine-approved total and treats a channel-les
   assert.deepEqual(machineChannels({}), { units: 0, inkIdentical: 0, juniorEquivalent: 0 });
 });
 
-test('the header strip lines run big to small: surface total, machine channels, no-verdict exemptions', () => {
-  assert.equal(surfaceLine(manifest), 'Surface: 6 units');
-  assert.equal(machineLine(manifest), '1 ink-identical machine-approved');
-  assert.equal(noVerdictLine(manifest), null);
+test('the collapsed chip carries the surface total and the popover breaks it down to the human workload', () => {
+  assert.equal(surfaceChipLabel(manifest), '6 units');
+  assert.deepEqual(
+    surfaceDetailRows(manifest).map((row) => [row.label, row.value]),
+    [
+      ['Surface', '6 units'],
+      ['ink-identical machine-approved', '1'],
+      ['for human review', '5'],
+    ],
+  );
   const channelled = {
     totals: { units: 15960 },
     machine_approved: {
@@ -601,12 +607,37 @@ test('the header strip lines run big to small: surface total, machine channels, 
       method: 'Shaped in both fonts and compared.',
       channels: { ink_identical: { units: 8350 }, junior_equivalent: { units: 3576 } },
     },
-    classes: [{ id: 'boundary-echo', no_verdict: true, unit_count: 6256, machine_approved_count: 4940 }],
+    classes: [
+      { id: 'boundary-echo', no_verdict: true, unit_count: 6256, machine_approved_count: 4940 },
+      { id: 'x', no_verdict: false, unit_count: 9704, machine_approved_count: 6986 },
+    ],
   };
-  assert.equal(surfaceLine(channelled), 'Surface: 15,960 units');
-  assert.equal(machineLine(channelled), '11,926 machine-approved');
-  assert.equal(noVerdictLine(channelled), '1,316 in no-verdict classes');
-  assert.equal(machineLine({ machine_approved: { units: 0 } }), null);
+  assert.equal(surfaceChipLabel(channelled), '15,960 units');
+  assert.deepEqual(
+    surfaceDetailRows(channelled).map((row) => [row.label, row.value, row.sub ?? false]),
+    [
+      ['Surface', '15,960 units', false],
+      ['machine-approved', '11,926', false],
+      ['ink-identical', '8,350', true],
+      ['junior-equivalent', '3,576', true],
+      ['in no-verdict classes', '1,316', false],
+      ['for human review', '2,718', false],
+    ],
+  );
+  const rows = surfaceDetailRows({ totals: { units: 4 }, machine_approved: { units: 0 }, classes: [] });
+  assert.deepEqual(
+    rows.map((row) => row.label),
+    ['Surface', 'for human review'],
+  );
+});
+
+test('the popover stamp names the generation and the head it was generated at', () => {
+  assert.equal(
+    surfaceStampLine({ generated_at: '2026-06-10T17:02:11Z', repo_head: 'abc1234' }),
+    'Generated 2026-06-10T17:02:11Z at abc1234',
+  );
+  assert.equal(surfaceStampLine({ generated_at: '2026-06-10T17:02:11Z' }), 'Generated 2026-06-10T17:02:11Z');
+  assert.equal(surfaceStampLine({}), null);
 });
 
 test('the machine-approved tooltip leads with the channel split, then the verification method', () => {

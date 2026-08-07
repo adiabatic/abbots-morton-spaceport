@@ -40,10 +40,9 @@ import {
   noVerdictTotal,
   NO_VERDICT_BADGE,
   formatCount,
-  surfaceLine,
-  machineLine,
-  machineTitle,
-  noVerdictLine,
+  surfaceChipLabel,
+  surfaceStampLine,
+  surfaceDetailRows,
   classCountsLine,
   nextUnverdictedIndex,
   stepIndex,
@@ -2360,19 +2359,7 @@ function renderChrome() {
   document.getElementById('serve-command').textContent = manifest.serve_command ?? '';
   const machine = manifest.machine_approved;
   const exempt = noVerdictTotal(manifest);
-  const surface = document.getElementById('surface-total');
-  surface.textContent = '';
-  if (manifest.generated_at) {
-    const stamp = document.createElement('span');
-    stamp.className = 'stamp';
-    stamp.textContent = manifest.generated_at;
-    surface.append(stamp);
-  }
-  surface.append(surfaceLine(manifest));
-  surface.title =
-    `${formatCount(manifest.totals.units)} units = ${formatCount(machine?.units ?? 0)} machine-approved + ` +
-    `${formatCount(exempt)} in no-verdict classes + ${formatCount(humanTotal(manifest))} for human review, ` +
-    `covering ${formatCount(manifest.totals.rows)} rows in ${manifest.classes.length} classes.`;
+  document.getElementById('surface-total').textContent = surfaceChipLabel(manifest);
   document.getElementById('manifest-meta').textContent =
     `Mode ${manifest.mode}, generated ${manifest.generated_at} at ${manifest.repo_head}; ` +
     `${formatCount(manifest.totals.units)} units on the surface — ` +
@@ -2380,20 +2367,26 @@ function renderChrome() {
     `${exempt ? `, ${formatCount(exempt)} in no-verdict classes` : ''}, and ` +
     `${formatCount(humanTotal(manifest))} human-workload in ${manifest.totals.batches} batches — ` +
     `covering ${formatCount(manifest.totals.rows)} rows.`;
-  const machineText = machineLine(manifest);
-  if (machineText) {
-    const line = document.getElementById('machine-approved-line');
-    line.textContent = machineText;
-    line.title = machineTitle(manifest);
-    line.hidden = false;
-  }
-  const exemptText = noVerdictLine(manifest);
-  if (exemptText) {
-    const line = document.getElementById('no-verdict-line');
-    line.textContent = exemptText;
-    line.title =
-      'Units in a no-verdict ledger class are adjudicated wholesale by a ratified rule and never need individual verdicts; hover the class in the sidebar for its rationale.';
-    line.hidden = false;
+  const stamp = document.getElementById('surface-stamp');
+  const stampText = surfaceStampLine(manifest);
+  stamp.textContent = stampText ?? '';
+  stamp.hidden = stampText === null;
+  const rows = document.getElementById('surface-detail-rows');
+  rows.replaceChildren();
+  for (const row of surfaceDetailRows(manifest)) {
+    const term = document.createElement('dt');
+    const value = document.createElement('dd');
+    term.textContent = row.label;
+    value.textContent = row.value;
+    if (row.sub) {
+      term.className = 'sub';
+      value.className = 'sub';
+    }
+    if (row.title) {
+      term.title = row.title;
+      value.title = row.title;
+    }
+    rows.append(term, value);
   }
 }
 
