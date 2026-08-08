@@ -8,9 +8,15 @@ The two artifact-independent gates (js, make-test) run from t=0 in a small threa
 
 gate:make-test is auto-skipped when its input closure is provably unchanged since the last green run. The closure is every tracked or untracked-unignored file outside rebuild/, glyph_data/runes/, doc/, tmp/, .claude/, and Markdown — nothing `make test` executes (make all -> build_font over glyph_data/*.yaml non-recursively, typst, pyright over tools/ test/ conftest.py, pytest test/ site/) reads those trees, so a diff confined to them cannot move the gate's outcome and re-running its ~15 CPU-minutes would verify nothing. The last green fingerprint lives in rebuild/out/make-test-green.json, written by rebuild.tools.make_test_gate — the `make test` entry point — on every green run, so interactive greens and cycle greens share one record and `make test` itself self-skips on the same test. cycle_summary.json still records the fingerprint the cycle ran (or validly skipped) against, and prior_make_test_fingerprint falls back to it when the shared record is absent. The fingerprint sees file content only — a system-toolchain change (a typst upgrade, say; pyright and pytest are pinned through uv.lock, which is in the closure) is invisible to it. --force-make-test runs the gate regardless (as does `make test FORCE=1` inside the wrapper).
 
+The verdict plumbing — snapshot, carry, merge, echo-fill and its merge, standing-fill and its merge, complaints — is guarded the same way, by rebuild/out/plumbing-green.json. Every one of those steps is a pure function of the surface, the verdicts master, the live store, the checked-in standing approvals, and its own code, so the key is (the surface's inputs fingerprint and stamp, the master's path and bytes, the autosave's bytes, standing-approvals' bytes, all of rebuild/tools/ plus review/serve.py). Two of those components are there because a narrower key looked sufficient and was not. The master, because it is the one input the autosave's hash cannot see: an export dropped at the repo root can outrank the autosave in the auto-resolution and carry verdicts the store has never held. The code, because every sibling key folds in its own stage's executable and this chain's lives in a tree no other fingerprint reads — without it a fix to a fill's matcher or the carry's ink fallback would be skipped as already proven, silently never running.
+
+The key is captured the moment the chain closes, not at the end of the pass, so a store write landing while the census runs cannot be absorbed into a fixpoint nothing verified; the record itself is written later, once complaints has also succeeded. And the fixpoint is claimed only when the chain can witness it. The steps feed forward — the carry's merge gives echo-fill new agreement to read, and echo-fill only removes blanks, so it can never hand standing-fill work it did not already have — but standing-fill runs last with nothing to re-read it, and a standing fill can make an echo group unanimous while a blank sibling remains. So a green is recorded only when the standing merge moved nothing, which is exactly when that cascade is closed; a pass whose standing fills did land leaves the next pass to finish it. That ordering is also why complaints is not deferrable: deferring it would keep a settled pass from ever recording the fixpoint it reached, trading ~3s once for the whole chain's ~23s on every pass after.
+
+The skip demands that the surface build be skipping too, which is what makes the stamp knowable before the pass runs, and it takes the snapshot with it: the snapshot exists to survive this cycle's surface rewrite and to feed this cycle's carry, and a pass doing neither needs no copy. Such a pass also leaves the snapshot pile alone rather than pruning it to the copy it never made, so the stamp-aligned snapshot the last refreshing pass left stays on disk as the recovery source describe_carry_source points at. A flag that names a carry output or a snapshot directory refuses the skip outright, since honoring it would mean writing neither.
+
 The same provably-unchanged principle guards every other heavy stage, each keyed by a content fingerprint over that stage's full input closure and a green record written only after that exact content passed live: run_m1 skips on rebuild/out/run-m1-green.json (the Stage A fingerprint components plus the oracle's subset tables and uv.lock) and re-evaluates its gate from the four summary JSONs already on disk; gate:conform skips on conform-green.json (the run_m1 key plus the M1.otf bytes and the sweep horizon); gate:rebuild skips on rebuild-gate-green.json (the suite's repo closure under rebuild/ and glyph_data/ plus the out/m1 artifacts, site fonts, baselines, conftest.py, pyproject.toml, and uv.lock — also written by rebuild.tools.rebuild_gate, the `make test-rebuild` entry point, so interactive suite greens and cycle greens share one record); surface-build skips when the manifest's recorded inputs fingerprint already equals the one a build would stamp now (a rebuild would be byte-identical, mtime-floored generated_at included, so the autosave stays aligned); and the census check skips on census-result.json, which — unlike the green records — is written after stale checks too: the check is informational (staleness never fails a cycle) and deterministic over its fingerprinted inputs, so a pass whose key matches a recorded stale outcome replays the recorded mismatch lines instead of re-running the check. Pins go stale on every rune edit and stay stale until --update-pins, so without the stale record the converging loop re-paid the full census — three parses of the divergence audit plus a serial ink re-shape of every pre-merge unit — on every pass. The surface, conform, rebuild, and census skips engage only on cycles where run_m1 itself skipped, so a live M1 rebuild can never invalidate a key mid-cycle; green records are written only when the key still matches after the work ran, and a red result whose key matches its record deletes the record (for the census that deletion covers only a check with no verdict to record — a crash or a missing pins file). --fresh runs everything regardless.
 
---defer-gates, which `make review-cycle` passes, turns the cycle from a one-pass verification into a converging loop. On a *refreshing* pass — one where run_m1 or the surface build has real work — the three heavy gates (rebuild, conform, make-test) are recorded pending instead of run, so a rune edit costs only the artifact chain and the letters are on screen in a fraction of the time. Only a gate that would otherwise run live is deferred: one an auto-skip already proved stays proved, so a pass that merely restamps the review UI can never turn a green gate pending. The next pass has no artifact work left, every stage auto-skips, and the pending gates run against settled artifacts; the pass after that skips those too and costs seconds. Deferral is never a waiver — a deferred gate rides `skip: "deferred"` into the cycle summary, which rebuild.review.status counts as unverified, so `make verdict-ready` and the app banner both stay NOT READY until the loop converges. --no-defer-gates runs them in the one pass, which is what `make artifact-cycle` does at commit time, and --fresh and --force-make-test likewise override deferral for the gates they force. Rehearsal mode (--review-out) never defers: it writes its surface somewhere else, so there is no live surface to see sooner, and its surface build is unskippable by construction — every rehearsal pass would look refreshing and the loop would never converge.
+--defer-gates, which `make review-cycle` passes, turns the cycle from a one-pass verification into a converging loop. On a *refreshing* pass — one where run_m1 or the surface build has real work — the three heavy gates (rebuild, conform, make-test) are recorded pending instead of run, so a rune edit costs only the artifact chain and the letters are on screen in a fraction of the time. The census rides the same deferral: it is informational, no gate reads it, and the one step whose scheduling depends on it — gate:rebuild, submitted only after the census lands a verdict — is itself deferred on any refreshing pass, so leaving it for the converging pass takes a minute off the time to letters-on-screen without changing what any pass verifies. An --update-pins pass never defers it, since refreshing the pins is that pass's whole point. Only a gate that would otherwise run live is deferred: one an auto-skip already proved stays proved, so a pass that merely restamps the review UI can never turn a green gate pending. The next pass has no artifact work left, every stage auto-skips, and the pending gates run against settled artifacts; the pass after that skips those too and costs seconds. Deferral is never a waiver — a deferred gate rides `skip: "deferred"` into the cycle summary, which rebuild.review.status counts as unverified, so `make verdict-ready` and the app banner both stay NOT READY until the loop converges. --no-defer-gates runs them in the one pass, which is what `make artifact-cycle` does at commit time, and --fresh and --force-make-test likewise override deferral for the gates they force. Rehearsal mode (--review-out) never defers: it writes its surface somewhere else, so there is no live surface to see sooner, and its surface build is unskippable by construction — every rehearsal pass would look refreshing and the loop would never converge.
 
 A green finish ends with a retention pass over the cycle's own disk piles, all of them regenerable or journal-covered: every tmp/review-pre-* snapshot except this cycle's is deleted (a snapshot is read once, by its own cycle's carry, and never again), root verdicts-carried-*.json files not stamped for the live surface are deleted (only the stamp-aligned frontier is ever read; the tracked copy under rebuild/evidence/ is never touched), verdicts-autosave-* stashes not referenced by a journal event at or after the last base event are deleted (the journal, not the stashes, is the sanctioned recovery path — and the reference index is the test because a stash's mtime predates the event that created it), and the journal itself is compacted to the newest base event older than RETENTION_WINDOW_DAYS, keeping at least that many days of --restore-as-of history. Failed, interrupted, first-run, and rehearsal cycles never prune; --keep-history opts out entirely; a retention error warns and never turns a green cycle red.
 
@@ -57,6 +63,7 @@ RUN_M1_GREEN = ROOT / "rebuild" / "out" / "run-m1-green.json"
 CONFORM_GREEN = ROOT / "rebuild" / "out" / "conform-green.json"
 REBUILD_GATE_GREEN = ROOT / "rebuild" / "out" / "rebuild-gate-green.json"
 CENSUS_RESULT = ROOT / "rebuild" / "out" / "census-result.json"
+PLUMBING_GREEN = ROOT / "rebuild" / "out" / "plumbing-green.json"
 JSTEST_DIR = ROOT / "rebuild" / "review" / "jstests"
 REVIEW_PORT = 7294
 
@@ -64,6 +71,7 @@ POOL_POLICIES = ("queue", "overlap")
 REBUILD_POOL_POLICY_DEFAULT = "queue"
 DEFERRABLE_GATES = ("rebuild", "conform", "make-test")
 DEFER_NOTE = "surface refreshed this pass; run the cycle again to run it"
+PLUMBING_SKIP_NOTE = "surface, verdicts master, live store, and standing approvals unchanged since the last complete plumbing pass; --fresh overrides"
 STALE_CENSUS_DEFER_NOTE = "stale census pins; re-run with --update-pins to refresh them first"
 _GATE_POOL_WORKERS = 5
 _CONFORM_JOBS_CAP = 8
@@ -189,6 +197,14 @@ def read_census_result(path: Path) -> dict | None:
     ):
         return record
     return None
+
+
+def record_plumbing_green(fingerprint: str, carry_out: Path | None, path: Path | None = None) -> None:
+    """The verdict plumbing's last-green record. It carries the carried-verdicts file the recorded pass wrote as well as the key, so a later pass that skips the chain can still name the live frontier in its summary instead of reporting no carry at all."""
+    _record_outcome(
+        path if path is not None else PLUMBING_GREEN,
+        {"fingerprint": fingerprint, "carry_out": None if carry_out is None else str(carry_out)},
+    )
 
 
 def read_make_test_green(path: Path | None = None) -> dict | None:
@@ -374,6 +390,34 @@ def census_skip_fingerprint(root: Path = ROOT, surface: Path | None = None) -> s
     return _digest_lines(lines)
 
 
+def plumbing_skip_fingerprint(
+    root: Path = ROOT, surface: Path | None = None, master: Path | None = None
+) -> str | None:
+    """Content key over everything the verdict plumbing reads: the surface it resolves unit ids against, the verdicts master it carries forward, the live store it merges into, the checked-in standing approvals, and the chain's own code. Carry, merge, both fills with their merges, and the complaint docket are pure functions of exactly those, and the chain is idempotent once it has run — so a key matching the record a *complete* chain left behind proves re-running it would write nothing new. The master is in the key because it is the one input the autosave's hash cannot see: an export dropped at the repo root can outrank the autosave in the auto-resolution and carry verdicts the store has never held. The code is in it for the same reason every sibling key carries its own stage's executable — a fix to a fill's matcher or to the carry's fallback must run rather than be skipped as proven — and it is the whole of rebuild/tools/ plus review/serve.py: this driver builds the chain's argv and merge_verdicts reads the store through serve.py, while review/'s other modules already ride inside the manifest fingerprint's review_code. None when the surface has no fingerprinted manifest or no master was resolved."""
+    if master is None:
+        return None
+    surface_dir = surface if surface is not None else REVIEW_OUT
+    try:
+        manifest = json.loads((surface_dir / "manifest.json").read_text())
+    except OSError, ValueError:
+        return None
+    fp = manifest.get("inputs_fingerprint")
+    if not isinstance(fp, dict):
+        return None
+    from rebuild.pipeline import fingerprint
+
+    lines = [
+        f"manifest\t{json.dumps(fp, sort_keys=True)}",
+        f"generated_at\t{manifest.get('generated_at')}",
+        f"master\t{master}\t{_sha256_path(Path(master))}",
+        f"autosave\t{_sha256_path(root / 'verdicts-autosave.json')}",
+        f"standing\t{_sha256_path(root / 'rebuild' / 'standing-approvals.yaml')}",
+        f"tools_code\t{fingerprint.hash_paths(root, sorted((root / 'rebuild' / 'tools').glob('*.py')))}",
+        f"serve\t{_sha256_path(root / 'rebuild' / 'review' / 'serve.py')}",
+    ]
+    return _digest_lines(lines)
+
+
 def resolve_snapshot_dir(tmp_dir: Path, short_id: str) -> Path:
     """A free name for this pass's surface snapshot. The short id names the commit, but a snapshot names one run: two cycles at an unmoved HEAD — every look-edit-look pass, and every retry after a cycle that stopped early — would otherwise land on the same directory, and the driver refuses to overwrite one because an unfinished cycle's snapshot can be the only copy of a surface it already clobbered. So take the first free `-2`, `-3`, … suffix instead, and let unfinished_cycle_snapshot spare the copy that refusal was protecting. They cannot pile up otherwise: prune_snapshots globs `review-pre-*` and keeps only the current pass's. The carried-verdicts filename keeps the bare short id, since that one is deliberately commit-stamped."""
     base = tmp_dir / f"review-pre-{short_id}"
@@ -526,6 +570,10 @@ class Plan:
     skip_census: bool = False
     census_skip_note: str = ""
     census_replay: dict | None = None
+    defer_census: bool = False
+    skip_plumbing: bool = False
+    plumbing_note: str = ""
+    plumbing_carry_out: Path | None = None
     defer_rebuild_on_stale_census: bool = True
     deferred: frozenset[str] = frozenset()
     preserve_snapshot: Path | None = None
@@ -595,6 +643,10 @@ def build_plan(
     skip_census: bool = False,
     census_skip_note: str = "",
     census_replay: dict | None = None,
+    defer_census: bool = False,
+    skip_plumbing: bool = False,
+    plumbing_note: str = "",
+    plumbing_carry_out: Path | None = None,
     defer_rebuild_on_stale_census: bool = True,
     deferred: frozenset[str] = frozenset(),
     preserve_snapshot: Path | None = None,
@@ -604,7 +656,7 @@ def build_plan(
     resolved_snapshot = (
         snapshot_dir if snapshot_dir is not None else resolve_snapshot_dir(ROOT / "tmp", short_id)
     )
-    do_carry = not no_carry and not first_run
+    do_carry = not no_carry and not first_run and not skip_plumbing
     resolved_carry_out: Path | None = None
     if do_carry:
         resolved_carry_out = (
@@ -646,6 +698,10 @@ def build_plan(
         skip_census=skip_census,
         census_skip_note=census_skip_note,
         census_replay=census_replay,
+        defer_census=defer_census,
+        skip_plumbing=skip_plumbing,
+        plumbing_note=plumbing_note,
+        plumbing_carry_out=plumbing_carry_out,
         defer_rebuild_on_stale_census=defer_rebuild_on_stale_census,
         deferred=deferred,
         preserve_snapshot=preserve_snapshot,
@@ -662,6 +718,15 @@ def build_plan(
     if first_run:
         plan.steps.append(
             Step("snapshot", None, "SKIPPED (first run: no existing surface to snapshot)", lane="build")
+        )
+    elif skip_plumbing:
+        plan.steps.append(
+            Step(
+                "snapshot",
+                None,
+                f"SKIPPED ({plumbing_note}); no carry reads it and no surface write threatens the live copy",
+                lane="build",
+            )
         )
     else:
         plan.steps.append(
@@ -714,6 +779,8 @@ def build_plan(
         if review_out is not None:
             carry_argv += ["--current-surface", str(review_out)]
         plan.steps.append(Step("carry", carry_argv, lane="build"))
+    elif skip_plumbing:
+        plan.steps.append(Step("carry", None, f"SKIPPED ({plumbing_note})", lane="build"))
     elif first_run:
         plan.steps.append(Step("carry", None, "SKIPPED (first run)", lane="build"))
     else:
@@ -734,6 +801,8 @@ def build_plan(
         )
     elif do_carry:
         plan.steps.append(Step("merge", None, "SKIPPED (--no-merge)", lane="build"))
+    elif skip_plumbing:
+        plan.steps.append(Step("merge", None, f"SKIPPED ({plumbing_note})", lane="build"))
     elif first_run:
         plan.steps.append(Step("merge", None, "SKIPPED (first run)", lane="build"))
     else:
@@ -765,6 +834,8 @@ def build_plan(
             echo_note = "SKIPPED (rehearsal: the live autosave is never written)"
         elif do_carry:
             echo_note = "SKIPPED (--no-merge)"
+        elif skip_plumbing:
+            echo_note = f"SKIPPED ({plumbing_note})"
         elif first_run:
             echo_note = "SKIPPED (first run)"
         else:
@@ -774,7 +845,9 @@ def build_plan(
         plan.steps.append(Step("standing-fill", None, echo_note, lane="build"))
         plan.steps.append(Step("standing-merge", None, echo_note, lane="build"))
 
-    if skip_census:
+    if defer_census:
+        plan.steps.append(Step("census", None, f"DEFERRED ({DEFER_NOTE})", lane="build"))
+    elif skip_census:
         plan.steps.append(Step("census", None, f"SKIPPED ({census_skip_note})", lane="build"))
     else:
         census_mode = "--update" if update_pins else "--check"
@@ -804,6 +877,8 @@ def build_plan(
         plan.complaints_note = "rehearsal: reads the live autosave"
     elif first_run:
         plan.complaints_note = "first run: no verdicts to cluster"
+    elif skip_plumbing:
+        plan.complaints_note = plumbing_note
     elif not AUTOSAVE.exists():
         plan.complaints_note = "no verdicts store"
     if plan.complaints_note:
@@ -998,10 +1073,9 @@ def _render_concurrency(plan: Plan) -> list[str]:
     else:
         budget_reason = "half the cores, sharing the box with gate:make-test's full-width pytest pool"
     lines.append(f"    build-stage --jobs budget        : {plan.job_budget}  ({budget_reason})")
-    if plan.deferred:
-        lines.append(
-            f"    deferred to the next pass        : {', '.join('gate:' + name for name in sorted(plan.deferred))}"
-        )
+    pending = ["gate:" + name for name in sorted(plan.deferred)] + (["census"] if plan.defer_census else [])
+    if pending:
+        lines.append(f"    deferred to the next pass        : {', '.join(pending)}")
     return lines
 
 
@@ -1542,6 +1616,18 @@ def _replay_census(plan: Plan, emit: _Emitter) -> str:
     return "STALE (recorded outcome replayed — informational; re-run with --update-pins or edit by hand)"
 
 
+def _skip_plumbing(report: CycleReport, plan: Plan, emit: _Emitter) -> None:
+    """The verdict plumbing's skip path. Nothing ran, so the summary says so for every step of the chain — and the carried file the recorded pass wrote is still the stamp-aligned frontier (the surface it was carried onto has not moved), so the report keeps naming it rather than reading as a pass with no carry at all."""
+    emit.emit(f"\nverdict plumbing: SKIPPED — {plan.plumbing_note}.")
+    note = f"skipped ({plan.plumbing_note})"
+    report.carry_out = plan.plumbing_carry_out
+    report.merge_status = note
+    report.echo_fill_status = note
+    report.echo_merge_status = note
+    report.standing_fill_status = note
+    report.standing_merge_status = note
+
+
 def _do_complaints(*, spawn, emit: _Emitter, registry: _ChildRegistry) -> str:
     result = spawn(
         "complaints",
@@ -1673,6 +1759,11 @@ def _join_gates(
                 failures.append("make test failed")
 
 
+def _plumbing_settled(report: CycleReport) -> bool:
+    """Whether the chain closed at a fixpoint, which is what the plumbing green claims and only the last step can witness. Each step feeds the next — the carry's merge gives echo-fill new agreement to read, and echo-fill only ever removes blanks, so it can never hand standing-fill work it did not already have — but standing-fill runs last and nothing re-reads it: a standing fill landing on one unit can make its echo group unanimous and leave a blank sibling that echo-fill would have taken on the following pass. So the fixpoint is provable exactly when the standing merge moved nothing, and a pass whose standing fills did land records no green and lets the next pass close the cascade."""
+    return any(line.startswith("nothing changed") for line in report.standing_merge_lines)
+
+
 def _record_gate_greens(report: CycleReport, plan: Plan, gate_keys: dict[str, str], emit: _Emitter) -> None:
     """Persist the concurrent gates' green records after they joined. gate:conform's key was snapshotted right after run_m1 finished (the artifacts it hashes are final from then on); gate:rebuild's at its later submission, after the census step, so on an --update-pins pass it hashes the pins the suite actually read. Each is recomputed here before recording, so a source file edited while the gates ran — content the gates never tested — can never be recorded green. A red gate whose key still matches its record deletes the falsified record."""
     key = gate_keys.get("conform")
@@ -1787,7 +1878,10 @@ def _run_cycle(
             _record_gate_greens(report, plan, gate_keys, emit)
             return _finish(report, failures, plan, timings)
 
-        if plan.carry_out is not None:
+        plumbing_key: str | None = None
+        if plan.skip_plumbing:
+            _skip_plumbing(report, plan, emit)
+        elif plan.carry_out is not None:
             carried = _do_carry(report, spawn=spawn, emit=emit, registry=registry, plan=plan)
             if not carried:
                 failures.append("carry_verdicts failed")
@@ -1818,7 +1912,12 @@ def _run_cycle(
                     report.standing_merge_status = "not run (standing-fill failed)"
                 elif not _do_standing_merge(report, spawn=spawn, emit=emit, registry=registry, plan=plan):
                     failures.append("standing-merge failed")
-        if plan.skip_census:
+                elif _plumbing_settled(report):
+                    plumbing_key = plumbing_skip_fingerprint(ROOT, REVIEW_OUT, plan.verdicts)
+        if plan.defer_census:
+            report.census_status = f"deferred ({DEFER_NOTE})"
+            emit.emit(f"\ncensus: DEFERRED — {DEFER_NOTE}.")
+        elif plan.skip_census:
             report.census_status = _replay_census(plan, emit)
         else:
             report.census_status = _do_census(
@@ -1852,10 +1951,14 @@ def _run_cycle(
                     registry,
                     plan.update_pins,
                 )
+        complaints_ran = False
         if plan.complaints_note:
             report.complaints_status = f"skipped ({plan.complaints_note})"
         else:
             report.complaints_status = _do_complaints(spawn=spawn, emit=emit, registry=registry)
+            complaints_ran = not report.complaints_status.startswith("FAILED")
+        if plumbing_key and complaints_ran and plan.record_greens and plan.review_out is None:
+            record_plumbing_green(plumbing_key, plan.carry_out)
 
         _join_gates(report, failures, js_fut, rebuild_fut, conform_fut, make_fut, emit)
         _record_gate_greens(report, plan, gate_keys, emit)
@@ -2014,6 +2117,8 @@ def cycle_summary_payload(report: CycleReport, failures: list[str], plan: Plan, 
             "skip_surface": plan.skip_surface,
             "skip_rebuild_gate": plan.skip_rebuild_gate,
             "skip_census": plan.skip_census,
+            "defer_census": plan.defer_census,
+            "skip_plumbing": plan.skip_plumbing,
             "deferred": sorted(plan.deferred),
             "update_pins": plan.update_pins,
             "review_out": _as_str(plan.review_out),
@@ -2156,13 +2261,18 @@ def run_retention(plan: Plan) -> None:
 
     print("\nRetention (skip with --keep-history):")
 
-    removed = prune_snapshots(ROOT / "tmp", plan.snapshot_dir, plan.preserve_snapshot)
-    if removed:
+    if plan.skip_plumbing:
         print(
-            f"  snapshots : removed {len(removed)} ({', '.join(rel(path) for path in removed)}); kept {rel(plan.snapshot_dir)}"
+            "  snapshots : left intact (this pass took none, so pruning to it would delete the last recovery copy)"
         )
     else:
-        print(f"  snapshots : nothing to remove; kept {rel(plan.snapshot_dir)}")
+        removed = prune_snapshots(ROOT / "tmp", plan.snapshot_dir, plan.preserve_snapshot)
+        if removed:
+            print(
+                f"  snapshots : removed {len(removed)} ({', '.join(rel(path) for path in removed)}); kept {rel(plan.snapshot_dir)}"
+            )
+        else:
+            print(f"  snapshots : nothing to remove; kept {rel(plan.snapshot_dir)}")
 
     try:
         stamp = json.loads((REVIEW_OUT / "manifest.json").read_text()).get("generated_at")
@@ -2357,9 +2467,11 @@ def main(argv: list[str] | None = None) -> int:
             f"The last cycle did not finish green; keeping its snapshot at {preserve_snapshot} as well as this pass's."
         )
 
+    defer_active = args.defer_gates and not args.fresh and args.review_out is None
+    refreshing = not skip_run_m1 or not skip_surface
     deferred = deferred_gates(
-        defer=args.defer_gates and not args.fresh and args.review_out is None,
-        refreshing=not skip_run_m1 or not skip_surface,
+        defer=defer_active,
+        refreshing=refreshing,
         would_run={
             "rebuild": not args.skip_gates and not skip_rebuild_gate,
             "conform": not args.skip_gates and not args.skip_conform and not auto_skip_conform,
@@ -2372,6 +2484,9 @@ def main(argv: list[str] | None = None) -> int:
             + ", ".join("gate:" + name for name in sorted(deferred))
             + f" — {DEFER_NOTE}; --no-defer-gates runs them in this one."
         )
+    defer_census = defer_active and refreshing and not args.update_pins
+    if defer_census:
+        print(f"Census deferred to the next pass — {DEFER_NOTE}; nothing in this pass reads it.")
 
     if not args.no_carry and args.verdicts is None and not first_run:
         resolved = resolve_carry_source()
@@ -2385,6 +2500,29 @@ def main(argv: list[str] | None = None) -> int:
             if not resolved["aligned"]:
                 return 2
             args.verdicts = resolved["path"]
+
+    skip_plumbing = False
+    plumbing_note = ""
+    plumbing_carry_out: Path | None = None
+    if (
+        skip_surface
+        and not args.fresh
+        and not first_run
+        and args.review_out is None
+        and not args.no_carry
+        and not args.no_merge
+        and args.carry_out is None
+        and args.snapshot_dir is None
+    ):
+        plumbing_key = plumbing_skip_fingerprint(ROOT, REVIEW_OUT, args.verdicts)
+        record = read_green_record(PLUMBING_GREEN)
+        if plumbing_key is not None and record is not None and record["fingerprint"] == plumbing_key:
+            skip_plumbing = True
+            plumbing_note = PLUMBING_SKIP_NOTE
+            recorded_carry = record.get("carry_out")
+            if isinstance(recorded_carry, str) and Path(recorded_carry).exists():
+                plumbing_carry_out = Path(recorded_carry)
+            print(f"verdict plumbing auto-skipped: {plumbing_note}")
 
     if args.dry_run:
         plan = build_plan(
@@ -2416,6 +2554,10 @@ def main(argv: list[str] | None = None) -> int:
             skip_census=skip_census,
             census_skip_note=census_skip_note,
             census_replay=census_replay,
+            defer_census=defer_census,
+            skip_plumbing=skip_plumbing,
+            plumbing_note=plumbing_note,
+            plumbing_carry_out=plumbing_carry_out,
             deferred=deferred,
             preserve_snapshot=preserve_snapshot,
             keep_history=args.keep_history,
@@ -2458,6 +2600,10 @@ def main(argv: list[str] | None = None) -> int:
         skip_census=skip_census,
         census_skip_note=census_skip_note,
         census_replay=census_replay,
+        defer_census=defer_census,
+        skip_plumbing=skip_plumbing,
+        plumbing_note=plumbing_note,
+        plumbing_carry_out=plumbing_carry_out,
         defer_rebuild_on_stale_census=not args.fresh,
         deferred=deferred,
         preserve_snapshot=preserve_snapshot,
@@ -2470,7 +2616,7 @@ def main(argv: list[str] | None = None) -> int:
 
     timings = CycleTimings(CYCLE_TIMINGS)
 
-    if not first_run:
+    if not first_run and not plan.skip_plumbing:
         if plan.snapshot_dir.exists():
             print(f"ERROR: snapshot dir already exists: {plan.snapshot_dir}")
             print(
