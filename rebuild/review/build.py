@@ -19,12 +19,13 @@ import sys
 import time
 import traceback
 import warnings
+from collections import Counter
 from dataclasses import dataclass
 from itertools import combinations
 from pathlib import Path
 
 from rebuild.pipeline import fingerprint
-from rebuild.review import families, tablediff
+from rebuild.review import families, tablediff, unit_cache
 from rebuild.review.audit import (
     ACCEPTANCE_CONFIGS,
     BATCH_SIZE,
@@ -53,7 +54,6 @@ from rebuild.review.enrich import (
     notation,
     notation_tokens,
     resolve_home_assignments,
-    resolve_secondary_homes,
     seam_home_projection,
     text_entities,
 )
@@ -263,11 +263,33 @@ def _machine_approved_meta(machine_units, junior_font: Path, repo_root: Path) ->
     }
 
 
-def unit_to_json(enriched: EnrichedUnit, drafter: Drafter, full_configs=ACCEPTANCE_CONFIGS) -> dict:
-    unit = enriched.unit
-    pin = drafter.draft_pin(enriched)
-    policy = drafter.draft_policy(enriched)
-    any_of = drafter.draft_any_of(enriched)
+_SCAFFOLD_HEAD = (
+    "id",
+    "batch",
+    "ink_identical",
+    "junior_equivalent",
+    "ink_deltas",
+    "no_verdict",
+    "echo",
+    "cluster",
+    "class",
+    "group",
+    "codepoints",
+)
+_SCAFFOLD_TAIL = (
+    "configs",
+    "config_note",
+    "config_gate",
+    "config_classes",
+    "config_class_note",
+    "render_groups",
+    "kinds",
+    "exemplar",
+)
+
+
+def unit_scaffold(unit, full_configs=ACCEPTANCE_CONFIGS) -> dict:
+    """Every fragment field the build re-derives from the workload on each pass — the order- and ledger-derived values plus the phase-1 machine flags carried on the unit. One definition serves both emission paths: `unit_to_json` reads it for a freshly enriched unit, and the incremental build patches it over a cache-served fragment, so a served fragment can never freeze a field a full build would have moved."""
     gate, note = config_badge(unit.configs, full_configs)
     return {
         "id": unit.unit_id,
@@ -281,9 +303,6 @@ def unit_to_json(enriched: EnrichedUnit, drafter: Drafter, full_configs=ACCEPTAN
         "class": unit.class_id,
         "group": unit.group,
         "codepoints": unit.codepoints,
-        "text_entities": enriched.text_entities,
-        "notation": enriched.notation,
-        "notation_tokens": list(enriched.notation_tokens),
         "configs": list(unit.configs),
         "config_note": note,
         "config_gate": gate,
@@ -292,6 +311,41 @@ def unit_to_json(enriched: EnrichedUnit, drafter: Drafter, full_configs=ACCEPTAN
         "render_groups": [{"configs": list(group)} for group in unit.render_groups],
         "kinds": list(unit.kinds),
         "exemplar": unit.exemplar,
+    }
+
+
+def patch_cached_fragment(
+    fragment: dict, unit, seams: list[dict], seam_assign, full_configs=ACCEPTANCE_CONFIGS
+) -> dict:
+    """Serve a prior build's fragment as this build's: re-stamp every scaffold field from the current workload and re-emit the secondary seams from the cached rects under this build's home assignments. In-place key assignment keeps the fragment's key order, so the served bytes stay identical to what a fresh `unit_to_json` emission would have written."""
+    for key, value in unit_scaffold(unit, full_configs).items():
+        fragment[key] = value
+    entries = [
+        {
+            "pair": {"left": seam["pair"][0], "right": seam["pair"][1]},
+            "before": seam["before"],
+            "after": seam["after"],
+            "home": home,
+        }
+        for seam, (home, suppressed) in zip(seams, seam_assign)
+        if not suppressed
+    ]
+    fragment["secondary_seams"] = entries or None
+    return fragment
+
+
+def unit_to_json(enriched: EnrichedUnit, drafter: Drafter, full_configs=ACCEPTANCE_CONFIGS) -> dict:
+    unit = enriched.unit
+    pin = drafter.draft_pin(enriched)
+    policy = drafter.draft_policy(enriched)
+    any_of = drafter.draft_any_of(enriched)
+    scaffold = unit_scaffold(unit, full_configs)
+    fragment = {
+        **{key: scaffold[key] for key in _SCAFFOLD_HEAD},
+        "text_entities": enriched.text_entities,
+        "notation": enriched.notation,
+        "notation_tokens": list(enriched.notation_tokens),
+        **{key: scaffold[key] for key in _SCAFFOLD_TAIL},
         "before": {"glyphs": list(enriched.before_glyphs), "seams": list(enriched.before_seams)},
         "after": {
             "cells": list(enriched.after_cells),
@@ -323,6 +377,8 @@ def unit_to_json(enriched: EnrichedUnit, drafter: Drafter, full_configs=ACCEPTAN
             "any_of": any_of.to_json(),
         },
     }
+    fragment["content_key"] = unit_cache.carry_content_hash(fragment)
+    return fragment
 
 
 def _copy_font(source: Path, out_dir: Path, name: str, family: str, repo_root: Path) -> dict:
@@ -380,23 +436,74 @@ def _prune_orphan_shards(out_dir: Path, manifest: dict) -> list[str]:
     return sorted(removed)
 
 
+def _cluster_id_from_repr(configs, class_id, diffs_repr: str) -> str:
+    """`_cluster_id` over a pre-rendered ink-diff repr, so the unit cache can carry the diffs across builds as the repr string instead of the (large, tuple-shaped) diffs themselves. The composed string is byte-for-byte `repr((tuple(configs), class_id, diffs))` — CPython renders a 3-tuple as exactly this join — which `test_cluster_id_repr_composition` pins against the tuple form."""
+    key = f"({tuple(configs)!r}, {class_id!r}, {diffs_repr})"
+    return "c-" + hashlib.sha1(key.encode()).hexdigest()[:8]
+
+
 def _cluster_id(configs, class_id, diffs) -> str:
     """The blank-queue cluster signature the in-app docket view groups by: the echo key minus the judged pair, so every echo group nests inside exactly one cluster. The repr recipe must stay byte-compatible with rebuild/tools/review_docket.py's historical ids so recorded c- references keep resolving."""
-    key = (tuple(configs), class_id, diffs)
-    return "c-" + hashlib.sha1(repr(key).encode()).hexdigest()[:8]
+    return _cluster_id_from_repr(configs, class_id, repr(diffs))
 
 
 @dataclass(frozen=True)
 class _UnitProjection:
-    """The slim, picklable phase-1 result a surface worker returns per unit: everything the parent's serial reduces read, and never the EnrichedUnit (its ~61 KB ExplainReport stays alive worker-side for phase 2)."""
+    """The slim, picklable phase-1 result a surface worker returns per unit: everything the parent's serial reduces read plus everything the unit cache persists, and never the EnrichedUnit (its ~61 KB ExplainReport stays alive worker-side for phase 2). The ink diffs travel as their repr string and its digest — the repr feeds the cluster id byte-contract, the digest is the echo key's diff component — so the parent never round-trips the tuple form."""
 
     unit_id: str
     ink_identical: bool
     junior_equivalent: bool
-    config_diffs: tuple
+    ink_deltas: tuple[tuple[str, str], ...]
+    diffs_repr: str
+    diffs_digest: str
     family: str
     pair_codepoints: tuple[int, int] | None
     seam_home: SeamHomeUnit
+    seam_rects: tuple[tuple[tuple[int, int], dict, dict], ...]
+    mismatches: tuple[str, ...]
+
+
+def _phase1_unit(unit, comparator, oracle, enricher) -> tuple[_UnitProjection, EnrichedUnit]:
+    text = "".join(chr(value) for value in unit.codepoint_values)
+    diffs = tuple(comparator.config_diff(text, config) for config in unit.configs)
+    unit.ink_identical = all(diff == ((), (), 0) for diff in diffs)
+    unit.junior_equivalent = not unit.ink_identical and oracle.approves(unit.configs, text)
+    unit.ink_deltas = {
+        config: delta_digest(diff) for config, diff in zip(unit.configs, diffs) if diff != ((), (), 0)
+    }
+    mismatch_mark = len(enricher.mismatches)
+    enriched = enricher.enrich(unit)
+    family = assign_family(enriched) if unit.class_id == UNMATCHED_CLASS else ""
+    diffs_repr = repr(diffs)
+    projection = _UnitProjection(
+        unit_id=unit.unit_id,
+        ink_identical=unit.ink_identical,
+        junior_equivalent=unit.junior_equivalent,
+        ink_deltas=tuple(unit.ink_deltas.items()),
+        diffs_repr=diffs_repr,
+        diffs_digest=hashlib.sha1(diffs_repr.encode()).hexdigest(),
+        family=family,
+        pair_codepoints=enriched.pair_codepoints,
+        seam_home=seam_home_projection(enriched),
+        seam_rects=tuple(
+            (seam.pair, seam.highlight_before, seam.highlight_after) for seam in enriched.secondary_seams
+        ),
+        mismatches=tuple(enricher.mismatches[mismatch_mark:]),
+    )
+    return projection, enriched
+
+
+def _phase2_unit(enriched: EnrichedUnit, injection, drafter: Drafter) -> dict:
+    batch, echo, cluster, class_id, seam_assign = injection
+    enriched.unit.batch = batch
+    enriched.unit.echo = echo
+    enriched.unit.cluster = cluster
+    enriched.unit.class_id = class_id
+    for seam, (home, suppressed) in zip(enriched.secondary_seams, seam_assign):
+        seam.home = home
+        seam.suppressed = suppressed
+    return unit_to_json(enriched, drafter)
 
 
 def _surface_worker(conn, init: dict) -> None:
@@ -423,42 +530,14 @@ def _surface_worker(conn, init: dict) -> None:
             if message[0] == "phase1":
                 results: list[_UnitProjection] = []
                 for unit in message[1]:
-                    text = "".join(chr(value) for value in unit.codepoint_values)
-                    diffs = tuple(comparator.config_diff(text, config) for config in unit.configs)
-                    unit.ink_identical = all(diff == ((), (), 0) for diff in diffs)
-                    unit.junior_equivalent = not unit.ink_identical and oracle.approves(unit.configs, text)
-                    unit.ink_deltas = {
-                        config: delta_digest(diff)
-                        for config, diff in zip(unit.configs, diffs)
-                        if diff != ((), (), 0)
-                    }
-                    enriched = enricher.enrich(unit)
+                    projection, enriched = _phase1_unit(unit, comparator, oracle, enricher)
                     retained[unit.unit_id] = enriched
-                    family = assign_family(enriched) if unit.class_id == UNMATCHED_CLASS else ""
-                    results.append(
-                        _UnitProjection(
-                            unit_id=unit.unit_id,
-                            ink_identical=unit.ink_identical,
-                            junior_equivalent=unit.junior_equivalent,
-                            config_diffs=diffs,
-                            family=family,
-                            pair_codepoints=enriched.pair_codepoints,
-                            seam_home=seam_home_projection(enriched),
-                        )
-                    )
-                conn.send(("ok", results, list(enricher.mismatches)))
+                    results.append(projection)
+                conn.send(("ok", results))
             elif message[0] == "phase2":
                 fragments: dict[str, dict] = {}
-                for unit_id, (batch, echo, cluster, class_id, seam_assign) in message[1].items():
-                    enriched = retained[unit_id]
-                    enriched.unit.batch = batch
-                    enriched.unit.echo = echo
-                    enriched.unit.cluster = cluster
-                    enriched.unit.class_id = class_id
-                    for seam, (home, suppressed) in zip(enriched.secondary_seams, seam_assign):
-                        seam.home = home
-                        seam.suppressed = suppressed
-                    fragments[unit_id] = unit_to_json(enriched, drafter)
+                for unit_id, injection in message[1].items():
+                    fragments[unit_id] = _phase2_unit(retained[unit_id], injection, drafter)
                 conn.send(("ok", fragments))
     except Exception:
         try:
@@ -481,103 +560,111 @@ def _partition(items: list, parts: int) -> list[list]:
     return slices
 
 
-def _run_parallel(
-    workload,
-    jobs: int,
-    batch_size: int,
-    subset_dir: Path,
-    before_font: Path,
-    after_font: Path,
-    junior_font: Path,
-    repo_root: Path,
-):
-    """The two-phase fan-out of the three per-unit passes across persistent spawn workers, returning exactly what `_write_surface` needs. The parent keeps the frozen ids/triage order and every order-sensitive reduce (batches, family promotion, echo numbering, secondary-home resolution) serial; the workers hold the EnrichedUnits and emit the shard JSON."""
-    units = workload.units
-    nworkers = max(1, min(jobs, len(units)))
-    slices = _partition(units, nworkers)
-    init = {
-        "before_font": before_font,
-        "after_font": after_font,
-        "junior_font": junior_font,
-        "subset_dir": subset_dir,
-        "repo_root": repo_root,
-    }
-    ctx = multiprocessing.get_context("spawn")
-    procs = []
-    conns = []
-    for _ in range(nworkers):
-        parent_conn, child_conn = ctx.Pipe()
-        proc = ctx.Process(target=_surface_worker, args=(child_conn, init))
-        proc.start()
-        child_conn.close()
-        procs.append(proc)
-        conns.append(parent_conn)
+class _FreshRunner:
+    """Phases 1–2 over the units the cache could not serve — in-process when `jobs` is 1, across persistent spawn workers otherwise, with identical per-unit semantics either way, which is what lets the serial and parallel builds share every reduce and stay byte-identical. The parent keeps the frozen ids/triage order and every order-sensitive reduce (batches, family promotion, echo numbering, secondary-home resolution); the runner holds the EnrichedUnits and emits the shard JSON."""
 
-    try:
-        for conn, chunk in zip(conns, slices):
-            conn.send(("phase1", chunk))
-        result_by_id: dict[str, _UnitProjection] = {}
-        projections: list[SeamHomeUnit] = []
-        mismatches: list[str] = []
-        for conn in conns:
-            reply = conn.recv()
-            if reply[0] == "error":
-                raise RuntimeError("surface worker failed in phase 1:\n" + reply[1])
-            for projection in reply[1]:
-                result_by_id[projection.unit_id] = projection
-                projections.append(projection.seam_home)
-            mismatches.extend(reply[2])
-
-        for unit in units:
-            unit.ink_identical = result_by_id[unit.unit_id].ink_identical
-            unit.junior_equivalent = result_by_id[unit.unit_id].junior_equivalent
-        total_batches = assign_batches(units, batch_size)
-        for unit in units:
-            if unit.class_id == UNMATCHED_CLASS:
-                unit.family_id = result_by_id[unit.unit_id].family
-                unit.class_id = unit.family_id
-        echo_ids: dict[tuple, str] = {}
-        for unit in units:
-            if unit.batch is None:
-                continue
-            pair_codepoints = result_by_id[unit.unit_id].pair_codepoints
-            pair = None
-            if pair_codepoints:
-                values = unit.codepoint_values
-                pair = (values[pair_codepoints[0]], values[pair_codepoints[1]])
-            key = (unit.configs, pair, unit.class_id, result_by_id[unit.unit_id].config_diffs)
-            unit.echo = echo_ids.setdefault(key, f"e-{len(echo_ids):04d}")
-            unit.cluster = _cluster_id(unit.configs, unit.class_id, result_by_id[unit.unit_id].config_diffs)
-
-        classes = workload.classes_present + synthesize_family_classes(
-            units, families.FAMILY_ORDER, families.FAMILY_WHY
-        )
-        by_class = workload.units_by_class()
-        assignments, seam_census = resolve_home_assignments(projections)
-
-        for conn, chunk in zip(conns, slices):
-            payload = {
-                unit.unit_id: (unit.batch, unit.echo, unit.cluster, unit.class_id, assignments[unit.unit_id])
-                for unit in chunk
+    def __init__(
+        self,
+        fresh: list,
+        jobs: int,
+        comparator: InkComparator,
+        subset_dir: Path,
+        before_font: Path,
+        after_font: Path,
+        junior_font: Path,
+        repo_root: Path,
+    ) -> None:
+        self._fresh = fresh
+        self._comparator = comparator
+        self._before_font = before_font
+        self._after_font = after_font
+        self._junior_font = junior_font
+        self._subset_dir = subset_dir
+        self._repo_root = repo_root
+        self._retained: dict[str, EnrichedUnit] = {}
+        self._drafter: Drafter | None = None
+        self._procs: list = []
+        self._conns: list = []
+        self._slices: list[list] = []
+        if jobs > 1 and len(fresh) > 1:
+            nworkers = min(jobs, len(fresh))
+            self._slices = _partition(fresh, nworkers)
+            init = {
+                "before_font": before_font,
+                "after_font": after_font,
+                "junior_font": junior_font,
+                "subset_dir": subset_dir,
+                "repo_root": repo_root,
             }
-            conn.send(("phase2", payload))
-        fragments: dict[str, dict] = {}
-        for conn in conns:
-            reply = conn.recv()
-            if reply[0] == "error":
-                raise RuntimeError("surface worker failed in phase 2:\n" + reply[1])
-            fragments.update(reply[1])
+            ctx = multiprocessing.get_context("spawn")
+            for _ in range(nworkers):
+                parent_conn, child_conn = ctx.Pipe()
+                proc = ctx.Process(target=_surface_worker, args=(child_conn, init))
+                proc.start()
+                child_conn.close()
+                self._procs.append(proc)
+                self._conns.append(parent_conn)
 
-        for conn in conns:
-            conn.send(("stop",))
-        return fragments, seam_census, len(echo_ids), total_batches, classes, by_class, mismatches
-    finally:
-        for conn in conns:
+    def phase1(self) -> dict[str, _UnitProjection]:
+        projections: dict[str, _UnitProjection] = {}
+        if self._conns:
+            for conn, chunk in zip(self._conns, self._slices):
+                conn.send(("phase1", chunk))
+            for conn in self._conns:
+                reply = conn.recv()
+                if reply[0] == "error":
+                    raise RuntimeError("surface worker failed in phase 1:\n" + reply[1])
+                for projection in reply[1]:
+                    projections[projection.unit_id] = projection
+        elif self._fresh:
+            oracle = JuniorOracle(self._junior_font, self._before_font, self._after_font)
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                spec = load_spec(self._repo_root)
+            enricher = Enricher(
+                spec,
+                self._subset_dir,
+                self._after_font,
+                repo_root=self._repo_root,
+                before_font=self._before_font,
+            )
+            self._drafter = Drafter(self._after_font, repo_root=self._repo_root)
+            for unit in self._fresh:
+                projection, enriched = _phase1_unit(unit, self._comparator, oracle, enricher)
+                self._retained[unit.unit_id] = enriched
+                projections[projection.unit_id] = projection
+        return projections
+
+    def phase2(self, injections: dict[str, tuple]) -> dict[str, dict]:
+        fragments: dict[str, dict] = {}
+        if self._conns:
+            for conn, chunk in zip(self._conns, self._slices):
+                payload = {unit.unit_id: injections[unit.unit_id] for unit in chunk}
+                conn.send(("phase2", payload))
+            for conn in self._conns:
+                reply = conn.recv()
+                if reply[0] == "error":
+                    raise RuntimeError("surface worker failed in phase 2:\n" + reply[1])
+                fragments.update(reply[1])
+        else:
+            for unit in self._fresh:
+                assert self._drafter is not None
+                fragments[unit.unit_id] = _phase2_unit(
+                    self._retained[unit.unit_id], injections[unit.unit_id], self._drafter
+                )
+        return fragments
+
+    def close(self) -> None:
+        for conn in self._conns:
+            try:
+                conn.send(("stop",))
+            except OSError:
+                pass
             try:
                 conn.close()
             except OSError:
                 pass
-        for proc in procs:
+        for proc in self._procs:
             proc.join(timeout=5)
             if proc.is_alive():
                 proc.terminate()
@@ -603,11 +690,13 @@ def _write_surface(
     static_dir: Path,
     mismatches: list,
 ) -> dict:
-    """Reassemble the per-unit JSON fragments into shards (per class, triage order), copy fonts, and write the manifest with its parent-once `generated_at`/`repo_head` stamps. Shared by the serial and parallel paths so both produce byte-identical output."""
+    """Reassemble the per-unit JSON fragments into shards (per class, triage order), copy fonts, and write the manifest with its parent-once `generated_at`/`repo_head` stamps. The contract check runs over the in-memory shards and manifest it just assembled — the same dicts the writer serialized — instead of re-parsing the hundreds of megabytes it just wrote."""
     classes_meta: list[dict] = []
+    shards_by_class: dict[str, list[dict]] = {}
     for entry in classes:
         units = by_class[entry.id]
         shard = [fragments[unit.unit_id] for unit in units]
+        shards_by_class[entry.id] = shard
         _write_json(out_dir / "units" / f"{entry.id}.json", shard)
         classes_meta.append(
             {
@@ -668,10 +757,58 @@ def _write_surface(
             f"(first: {mismatches[0]})",
             file=sys.stderr,
         )
-    errors = check_output_dir(out_dir)
+    errors = check_manifest(manifest)
+    errors.extend(check_shards(manifest, shards_by_class))
+    errors.extend(_check_output_files(out_dir, manifest))
     if errors:
         raise SystemExit("contract check failed:\n" + "\n".join(errors[:20]))
     return manifest
+
+
+@dataclass
+class _UnitState:
+    """One unit's phase-1 products in the parent, served from the cache or returned by the runner, in the one shape the global reduces and the store writer read."""
+
+    ink_identical: bool
+    junior_equivalent: bool
+    ink_deltas: dict[str, str]
+    diffs_digest: str
+    diffs_repr: str | None
+    cluster: str | None
+    family: str
+    pair_codepoints: tuple[int, int] | None
+    seam_home: SeamHomeUnit
+    seam_rects: list[dict]
+    mismatches: list[str]
+
+
+def _cached_seam_home(unit, cached: unit_cache.CachedUnit) -> SeamHomeUnit:
+    proj = cached.proj
+    return SeamHomeUnit(
+        unit_id=unit.unit_id,
+        codepoint_values=unit.codepoint_values,
+        ink_identical=cached.ink_identical,
+        pair=(proj["pair"][0], proj["pair"][1]) if proj["pair"] else None,
+        after_spans=tuple((span[0], span[1]) for span in proj["after_spans"]),
+        after_cells=tuple(proj["after_cells"]),
+        after_seams=tuple(proj["after_seams"]),
+        before_spans=tuple((span[0], span[1]) for span in proj["before_spans"]),
+        before_glyphs=tuple(proj["before_glyphs"]),
+        before_seams=tuple(proj["before_seams"]),
+        seam_pairs=tuple((seam["pair"][0], seam["pair"][1]) for seam in cached.seams),
+    )
+
+
+def _seam_home_record(seam_home: SeamHomeUnit) -> dict:
+    return {
+        "pair": list(seam_home.pair) if seam_home.pair else None,
+        "after_spans": [list(span) for span in seam_home.after_spans],
+        "after_cells": list(seam_home.after_cells),
+        "after_seams": list(seam_home.after_seams),
+        "before_spans": [list(span) for span in seam_home.before_spans],
+        "before_glyphs": list(seam_home.before_glyphs),
+        "before_seams": list(seam_home.before_seams),
+    }
 
 
 def build_m1(
@@ -686,6 +823,7 @@ def build_m1(
     batch_size: int = BATCH_SIZE,
     static_dir: Path = STATIC_DIR,
     jobs: int = 1,
+    fresh_unit_cache: bool = False,
 ) -> dict:
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -699,74 +837,147 @@ def build_m1(
     workload.classes_present = [entry for entry in workload.ledger if entry.id in present]
     print(f"[t] review.build load {time.perf_counter() - phase:.1f}s", file=sys.stderr, flush=True)
 
-    if jobs > 1:
-        phase = time.perf_counter()
-        fragments, seam_census, echo_count, total_batches, classes, by_class, mismatches = _run_parallel(
-            workload, jobs, batch_size, subset_dir, before_font, after_font, junior_font, repo_root
-        )
-        print(
-            f"[t] review.build parallel(jobs={jobs}) {time.perf_counter() - phase:.1f}s",
-            file=sys.stderr,
-            flush=True,
-        )
-    else:
-        oracle = JuniorOracle(junior_font, before_font, after_font)
-        config_diffs: dict[str, tuple] = {}
+    # The incremental plan (issue 20; rebuild/review/unit_cache.py is the contract): key every unit over its content closure, serve what the previous surface already computed, and hand the runner only the remainder. The reduces below always run over the full universe, so every order- or ledger-derived field is this build's own.
+    phase = time.perf_counter()
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        spec = load_spec(repo_root)
+    family_keys, helpers_digest = unit_cache.family_content_keys(repo_root, spec, after_font)
+    environment = unit_cache.environment_stamp(
+        repo_root, spec, subset_dir, before_font, junior_font, helpers_digest
+    )
+    keyer = unit_cache.UnitKeyer(family_keys, dict(LETTERS))
+    keys = {unit.unit_id: keyer.key(unit) for unit in workload.units}
+    store = None if fresh_unit_cache else unit_cache.load_store(out_dir, environment)
+    served: dict[str, unit_cache.CachedUnit] = {}
+    prior_fragments: dict[str, dict] = {}
+    if store:
+        # A key shared by two current units would hand both the same prior fragment object, and the in-place patch would corrupt one of them; distinct units always carry distinct rows today, so a collision means something upstream broke — recompute both rather than serve either.
+        key_counts = Counter(keys.values())
+        candidates = {
+            unit.unit_id: store[keys[unit.unit_id]]
+            for unit in workload.units
+            if keys[unit.unit_id] in store and key_counts[keys[unit.unit_id]] == 1
+        }
+        wanted: dict[str, set[str]] = {}
+        for cached in candidates.values():
+            wanted.setdefault(cached.prior_class, set()).add(cached.prior_id)
+        prior_fragments = unit_cache.load_prior_fragments(out_dir, wanted)
+        served = {uid: cached for uid, cached in candidates.items() if cached.prior_id in prior_fragments}
+    fresh = [unit for unit in workload.units if unit.unit_id not in served]
+    print(
+        f"[t] review.build plan {time.perf_counter() - phase:.1f}s"
+        f"\t(served {len(served)} of {len(workload.units)} units from cache)",
+        file=sys.stderr,
+        flush=True,
+    )
+
+    phase = time.perf_counter()
+    runner = _FreshRunner(
+        fresh, jobs, comparator, subset_dir, before_font, after_font, junior_font, repo_root
+    )
+    try:
+        projections = runner.phase1()
+
+        states: dict[str, _UnitState] = {}
         for unit in workload.units:
-            text = "".join(chr(value) for value in unit.codepoint_values)
-            diffs = tuple(comparator.config_diff(text, config) for config in unit.configs)
-            unit.ink_identical = all(diff == ((), (), 0) for diff in diffs)
-            unit.junior_equivalent = not unit.ink_identical and oracle.approves(unit.configs, text)
-            unit.ink_deltas = {
-                config: delta_digest(diff) for config, diff in zip(unit.configs, diffs) if diff != ((), (), 0)
-            }
-            config_diffs[unit.unit_id] = diffs
+            cached = served.get(unit.unit_id)
+            if cached is not None:
+                states[unit.unit_id] = _UnitState(
+                    ink_identical=cached.ink_identical,
+                    junior_equivalent=cached.junior_equivalent,
+                    ink_deltas=dict(cached.ink_deltas),
+                    diffs_digest=cached.diffs_digest,
+                    diffs_repr=None,
+                    cluster=cached.cluster,
+                    family=cached.family,
+                    pair_codepoints=cached.pair_codepoints,
+                    seam_home=_cached_seam_home(unit, cached),
+                    seam_rects=cached.seams,
+                    mismatches=cached.mismatches,
+                )
+            else:
+                projection = projections[unit.unit_id]
+                states[unit.unit_id] = _UnitState(
+                    ink_identical=projection.ink_identical,
+                    junior_equivalent=projection.junior_equivalent,
+                    ink_deltas=dict(projection.ink_deltas),
+                    diffs_digest=projection.diffs_digest,
+                    diffs_repr=projection.diffs_repr,
+                    cluster=None,
+                    family=projection.family,
+                    pair_codepoints=projection.pair_codepoints,
+                    seam_home=projection.seam_home,
+                    seam_rects=[
+                        {"pair": list(pair), "before": before, "after": after}
+                        for pair, before, after in projection.seam_rects
+                    ],
+                    mismatches=list(projection.mismatches),
+                )
+
+        for unit in workload.units:
+            state = states[unit.unit_id]
+            unit.ink_identical = state.ink_identical
+            unit.junior_equivalent = state.junior_equivalent
+            unit.ink_deltas = dict(state.ink_deltas)
         total_batches = assign_batches(workload.units, batch_size)
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            spec = load_spec(repo_root)
-        enricher = Enricher(spec, subset_dir, after_font, repo_root=repo_root, before_font=before_font)
-        drafter = Drafter(after_font, repo_root=repo_root)
 
-        # Enrich every unit once. UNMATCHED units were never enriched before (they had no ledger class and so never reached the old per-class loop); this single flat pass both produces their shard fields and yields the before/after seams the verdict-family grouper reads.
-        phase = time.perf_counter()
-        enriched_by_id = {unit.unit_id: enricher.enrich(unit) for unit in workload.units}
-        print(f"[t] review.build enrich_loop {time.perf_counter() - phase:.1f}s", file=sys.stderr, flush=True)
-
-        # Promote each UNMATCHED unit's verdict family to its class so the existing per-class loop shards it under that family.
-        phase = time.perf_counter()
+        # Promote each UNMATCHED unit's verdict family to its class so the per-class shard loop shards it under that family.
         for unit in workload.units:
             if unit.class_id == UNMATCHED_CLASS:
-                unit.family_id = assign_family(enriched_by_id[unit.unit_id])
+                unit.family_id = states[unit.unit_id].family
                 unit.class_id = unit.family_id
+
+        # The cluster signature is computed for every unit, machine-approved ones included, because the store carries it forward: a served unit can cross into the human workload on a ledger edit alone (no_verdict flipping), and its cluster must already exist. Served units trust the stored value — its inputs (configs, final class, the ink diffs) are all under the content key.
+        for unit in workload.units:
+            state = states[unit.unit_id]
+            if state.diffs_repr is not None:
+                state.cluster = _cluster_id_from_repr(unit.configs, unit.class_id, state.diffs_repr)
 
         # Echo groups: human units whose judged pair, class, config set, and per-config ink deltas all agree show the same change in different surroundings, so one verdict answers all of them. Keyed after family promotion so the class component is final; ids are assigned in triage order.
         echo_ids: dict[tuple, str] = {}
         for unit in workload.units:
             if unit.batch is None:
                 continue
-            enriched = enriched_by_id[unit.unit_id]
+            state = states[unit.unit_id]
             pair = None
-            if enriched.pair_codepoints:
+            if state.pair_codepoints:
                 values = unit.codepoint_values
-                pair = (values[enriched.pair_codepoints[0]], values[enriched.pair_codepoints[1]])
-            key = (unit.configs, pair, unit.class_id, config_diffs[unit.unit_id])
+                pair = (values[state.pair_codepoints[0]], values[state.pair_codepoints[1]])
+            key = (unit.configs, pair, unit.class_id, state.diffs_digest)
             unit.echo = echo_ids.setdefault(key, f"e-{len(echo_ids):04d}")
-            unit.cluster = _cluster_id(unit.configs, unit.class_id, config_diffs[unit.unit_id])
+            unit.cluster = state.cluster
 
         classes = workload.classes_present + synthesize_family_classes(
             workload.units, families.FAMILY_ORDER, families.FAMILY_WHY
         )
         by_class = workload.units_by_class()
-        seam_census = resolve_secondary_homes(list(enriched_by_id.values()))
-        fragments = {
-            unit.unit_id: unit_to_json(enriched_by_id[unit.unit_id], drafter) for unit in workload.units
-        }
-        echo_count = len(echo_ids)
-        mismatches = enricher.mismatches
-        print(
-            f"[t] review.build group+shards {time.perf_counter() - phase:.1f}s", file=sys.stderr, flush=True
+        assignments, seam_census = resolve_home_assignments(
+            [states[unit.unit_id].seam_home for unit in workload.units]
         )
+
+        fragments = runner.phase2(
+            {
+                unit.unit_id: (unit.batch, unit.echo, unit.cluster, unit.class_id, assignments[unit.unit_id])
+                for unit in fresh
+            }
+        )
+    finally:
+        runner.close()
+
+    for unit in workload.units:
+        cached = served.get(unit.unit_id)
+        if cached is not None:
+            fragments[unit.unit_id] = patch_cached_fragment(
+                prior_fragments[cached.prior_id], unit, cached.seams, assignments[unit.unit_id]
+            )
+    mismatches = [line for unit in workload.units for line in states[unit.unit_id].mismatches]
+    echo_count = len(echo_ids)
+    print(
+        f"[t] review.build units {time.perf_counter() - phase:.1f}s\t(jobs={jobs}, fresh={len(fresh)})",
+        file=sys.stderr,
+        flush=True,
+    )
 
     phase = time.perf_counter()
     manifest = _write_surface(
@@ -790,6 +1001,31 @@ def build_m1(
         mismatches,
     )
     print(f"[t] review.build manifest+check {time.perf_counter() - phase:.1f}s", file=sys.stderr, flush=True)
+
+    phase = time.perf_counter()
+    records = []
+    for unit in workload.units:
+        state = states[unit.unit_id]
+        assert state.cluster is not None
+        records.append(
+            unit_cache.CachedUnit(
+                key=keys[unit.unit_id],
+                prior_id=unit.unit_id,
+                prior_class=unit.class_id,
+                ink_identical=unit.ink_identical,
+                junior_equivalent=unit.junior_equivalent,
+                ink_deltas=dict(unit.ink_deltas),
+                diffs_digest=state.diffs_digest,
+                cluster=state.cluster,
+                family=state.family,
+                pair_codepoints=state.pair_codepoints,
+                proj=_seam_home_record(state.seam_home),
+                seams=state.seam_rects,
+                mismatches=state.mismatches,
+            )
+        )
+    unit_cache.write_store(out_dir, environment, records)
+    print(f"[t] review.build cache {time.perf_counter() - phase:.1f}s", file=sys.stderr, flush=True)
     return manifest
 
 
@@ -1199,6 +1435,11 @@ def check_unit(unit: dict, mode: str = "m1-audit") -> list[str]:
                 need(not deltas, "ink-identical units must carry empty ink_deltas")
             elif unit.get("ink_identical") is False:
                 need(bool(deltas), "units with ink changes must carry a nonempty ink_deltas")
+        stamp = unit.get("content_key")
+        need(
+            isinstance(stamp, str) and len(stamp) == 64 and all(ch in "0123456789abcdef" for ch in stamp),
+            "content_key must be a sha256 hex stamp in m1-audit mode",
+        )
     need(isinstance(unit.get("no_verdict"), bool), "no_verdict must be a bool")
     if (
         unit.get("ink_identical") is True
@@ -1475,30 +1716,23 @@ def check_unit(unit: dict, mode: str = "m1-audit") -> list[str]:
     return errors
 
 
-def check_output_dir(out_dir: Path) -> list[str]:
-    out_dir = Path(out_dir)
+def check_shards(manifest: dict, shards_by_class: dict[str, list[dict]]) -> list[str]:
+    """The unit-grain half of the §7 contract check over in-memory shard payloads, keyed by class id — shared between the build's post-write self-check (which hands it the very dicts it serialized) and `check_output_dir` (which re-parses them from disk). Classes missing from the mapping are reported by the caller, which knows whether that means an unwritten file or an unassembled shard."""
     errors: list[str] = []
-    manifest_path = out_dir / "manifest.json"
-    if not manifest_path.exists():
-        return [f"{manifest_path} is missing"]
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    errors.extend(check_manifest(manifest))
     mode = manifest.get("mode", "m1-audit")
 
     seen_units = 0
     seen_rows = 0
-    seen_ids: set[str] = set()
+    seen_ids: set[str | None] = set()
     seen_machine_by_class: dict[str, int] = {}
-    seam_homes: list[tuple[str, str]] = []
+    seam_homes: list[tuple[str | None, str]] = []
     seam_units = 0
     seams_homed = 0
     seams_homeless = 0
     for meta in manifest.get("classes", ()):
-        shard_path = out_dir / meta.get("shard", "")
-        if not shard_path.exists():
-            errors.append(f"shard {meta.get('shard')} is missing")
+        shard = shards_by_class.get(meta.get("id", ""))
+        if shard is None:
             continue
-        shard = json.loads(shard_path.read_text(encoding="utf-8"))
         if len(shard) != meta.get("unit_count"):
             errors.append(f"shard {meta['id']}: {len(shard)} units, manifest says {meta.get('unit_count')}")
         machine_count = 0
@@ -1568,15 +1802,39 @@ def check_output_dir(out_dir: Path) -> list[str]:
         ):
             if seam_census.get(key) != observed:
                 errors.append(f"secondary_seams.{key} {seam_census.get(key)} != {observed} in the shards")
+    return errors
 
+
+def _check_output_files(out_dir: Path, manifest: dict) -> list[str]:
+    errors: list[str] = []
     for side, record in (manifest.get("fonts") or {}).items():
-        font_path = out_dir / record.get("file", "")
+        font_path = Path(out_dir) / record.get("file", "")
         if not font_path.exists():
             errors.append(f"fonts.{side}: {record.get('file')} is missing")
         elif _sha256(font_path) != record.get("sha256"):
             errors.append(f"fonts.{side}: sha256 mismatch")
-    if not (out_dir / "index.html").exists():
+    if not (Path(out_dir) / "index.html").exists():
         errors.append("index.html is missing")
+    return errors
+
+
+def check_output_dir(out_dir: Path) -> list[str]:
+    out_dir = Path(out_dir)
+    errors: list[str] = []
+    manifest_path = out_dir / "manifest.json"
+    if not manifest_path.exists():
+        return [f"{manifest_path} is missing"]
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    errors.extend(check_manifest(manifest))
+    shards_by_class: dict[str, list[dict]] = {}
+    for meta in manifest.get("classes", ()):
+        shard_path = out_dir / meta.get("shard", "")
+        if not shard_path.exists():
+            errors.append(f"shard {meta.get('shard')} is missing")
+            continue
+        shards_by_class[meta.get("id", "")] = json.loads(shard_path.read_text(encoding="utf-8"))
+    errors.extend(check_shards(manifest, shards_by_class))
+    errors.extend(_check_output_files(out_dir, manifest))
     return errors
 
 
@@ -1609,6 +1867,11 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument(
         "--jobs", type=int, default=1, help="per-unit worker budget for the surface build; 1 = serial"
     )
+    parser.add_argument(
+        "--fresh-unit-cache",
+        action="store_true",
+        help="ignore the persisted per-unit cache and recompute every unit from scratch",
+    )
     args = parser.parse_args(argv)
 
     if args.mode == "table-diff":
@@ -1630,6 +1893,7 @@ def main(argv: list[str] | None = None) -> None:
             junior_font=args.junior_font,
             batch_size=args.batch_size,
             jobs=args.jobs if args.jobs and args.jobs > 1 else 1,
+            fresh_unit_cache=args.fresh_unit_cache,
         )
     totals = manifest["totals"]
     print(
