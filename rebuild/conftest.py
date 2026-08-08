@@ -1,4 +1,4 @@
-"""Shared fixtures for the rebuild suite. The one resident is `built_review_surface`, which owes every test a read-only review surface at the current input state while building as little as possible. First preference: when `surface_build_skippable` proves the cycle's own rebuild/out/review already reflects these inputs byte for byte, the fixture yields that directory directly and builds nothing — the steady state under the artifact cycle, and the same standard of proof the cycle itself skips its surface step on. That path assumes no artifact cycle is concurrently rewriting rebuild/out/review, the same standing assumption the suite already makes about the out/m1 artifacts it reads.
+"""Shared fixtures for the rebuild suite. Two reside here. `_redirect_cycle_writes` is the standing guarantee that running the suite never costs the working repo a file; it is autouse, so every module in rebuild/ gets it whether or not its author thought about the cycle. `built_review_surface` owes every test a read-only review surface at the current input state while building as little as possible. First preference: when `surface_build_skippable` proves the cycle's own rebuild/out/review already reflects these inputs byte for byte, the fixture yields that directory directly and builds nothing — the steady state under the artifact cycle, and the same standard of proof the cycle itself skips its surface step on. That path assumes no artifact cycle is concurrently rewriting rebuild/out/review, the same standing assumption the suite already makes about the out/m1 artifacts it reads.
 
 When the live surface is stale or absent, the cross-process cache under tmp/review-surface-test-cache/<key>/ serves instead: one worker builds under an exclusive flock (parallel at SURFACE_BUILD_JOBS — the half-width budget the artifact cycle's job_budget uses, and for the same reason: the xdist pool is hot while the builder runs); every other worker blocks on the lock and then loads the finished surface from disk, so a suite run costs at most one build instead of one per worker. The key is content-only — the full inputs fingerprint (data, baselines, pipeline code, review code, static, fonts) plus the out/m1 artifacts build_m1 reads — and deliberately mtime-blind, so cross-run hits survive pure mtime churn (git checkout, a make all that rewrote identical bytes). The manifest's generated_at/repo_head provenance stamps sit outside the key: two content-identical builds can differ in those two scalars, which is why test_builds_are_byte_identical masks them rather than requiring stamp-exact identity. flock (not a sentinel spinloop) serializes builders because the kernel releases it if a building worker dies, so a crash mid-build leaves no deadlock, just a missing DONE marker the next holder rebuilds over.
 """
@@ -12,10 +12,55 @@ from pathlib import Path
 
 import pytest
 
+from rebuild.tools import artifact_cycle
+
+REAL_RUN_RETENTION = artifact_cycle.run_retention
+LIVE_DELETION_TARGETS = (*artifact_cycle.M1_SUMMARY_FILES.values(), artifact_cycle.CONFORM_SUMMARY)
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CACHE_ROOT = REPO_ROOT / "tmp" / "review-surface-test-cache"
 CACHE_KEEP = 2
 SURFACE_BUILD_JOBS = max(1, (os.process_cpu_count() or 2) // 2)
+GREEN_RECORDS = (
+    "PLUMBING_GREEN",
+    "CONFORM_GREEN",
+    "REBUILD_GATE_GREEN",
+    "RUN_M1_GREEN",
+    "MAKE_TEST_GREEN",
+    "CENSUS_RESULT",
+)
+
+
+@pytest.fixture(autouse=True)
+def _redirect_cycle_writes(monkeypatch, tmp_path):
+    """The standard: nothing the suite runs may write to or delete from the live repo. Every cycle stage resolves its paths at call time, so a test that forgets to redirect one still passes while the repo quietly loses a file — which makes the default, not the individual test, the only thing that can be relied on. It is autouse and lives here rather than beside the tests that drive the cycle because a guard that covers one module is no guard at all: a new test module under rebuild/ inherits nothing, and the first one written after the fact will reach straight past it. Everything below is a default, and a test wanting the real behavior overrides it, since a per-test monkeypatch lands after this one and wins.
+
+    The writes are the green records and the cycle summary, each a module constant this can point under tmp_path. Left live, a test driving _run_cycle over mocked stages leaves a record in rebuild/out that the next real cycle reads as proof that content it never tested had passed.
+
+    The deletes are the three stages that clear stale artifacts before rebuilding them: run_m1's four gate summaries and gate:conform's, unlinked just before their subprocess spawns so the verdict can only come from this cycle, and the retention pass. Redirecting a constant is enough for the first two; retention takes none — it resolves every target from ROOT at call time — so it is stubbed out instead. Any test reaching a green finish with record_greens set would otherwise sweep the repo: every tmp/review-pre-* snapshot, the root's verdicts-carried-*.json exports, the autosave stashes, and a compaction of the verdict journal. That is destructive against a cycle running in another terminal — it deleted a live pass's only snapshot out from under its carry, stranding the pass's verdicts — and doubly so now that the rebuild gate is meant to run beside a live review server. A test that wants the real retention takes the `real_run_retention` fixture and points ROOT somewhere disposable; a test asserting that _finish reaches retention patches run_retention itself.
+    """
+    monkeypatch.setattr(artifact_cycle, "CYCLE_SUMMARY", tmp_path / "cycle_summary.json")
+    for name in GREEN_RECORDS:
+        monkeypatch.setattr(artifact_cycle, name, tmp_path / f"{name.lower().replace('_', '-')}.json")
+    monkeypatch.setattr(
+        artifact_cycle,
+        "M1_SUMMARY_FILES",
+        {name: tmp_path / path.name for name, path in artifact_cycle.M1_SUMMARY_FILES.items()},
+    )
+    monkeypatch.setattr(artifact_cycle, "CONFORM_SUMMARY", tmp_path / artifact_cycle.CONFORM_SUMMARY.name)
+    monkeypatch.setattr(artifact_cycle, "run_retention", lambda plan: None)
+
+
+@pytest.fixture
+def real_run_retention():
+    """The unstubbed retention pass, for the three tests that are about retention itself. Captured at import, before the autouse stub can land."""
+    return REAL_RUN_RETENTION
+
+
+@pytest.fixture
+def live_deletion_targets():
+    """The paths the autouse fixture redirects the pre-spawn unlinks away from, as they stand in a real cycle. The tripwire on that redirect compares against these."""
+    return list(LIVE_DELETION_TARGETS)
 
 
 def surface_cache_key() -> str | None:
