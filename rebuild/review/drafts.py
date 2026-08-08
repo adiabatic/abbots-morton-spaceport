@@ -7,7 +7,7 @@ import sys
 from dataclasses import dataclass, replace
 from html.parser import HTMLParser
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import yaml
 
@@ -213,8 +213,9 @@ class Drafter:
         corpus_index: dict | None = None,
         repo_root: Path = REPO_ROOT,
         alias_path: Path | None = None,
+        shaper_factory: Callable = Shaper,
     ):
-        self.after_shaper = Shaper(after_font)
+        self.after_shaper = shaper_factory(after_font)
         self.after_classifier = SeamClassifier(after_font)
         self.corpus_index = corpus_index if corpus_index is not None else build_corpus_index(repo_root)
         self.aliases = load_alias_map(alias_path or repo_root / "rebuild" / "m1-aliases.yaml")

@@ -6,11 +6,12 @@ import hashlib
 import logging
 from collections import Counter
 from pathlib import Path
+from typing import Callable
 
 from fontTools.pens.recordingPen import DecomposingRecordingPen
 from fontTools.ttLib import TTFont
 
-from rebuild.validation.shaping import Shaper
+from rebuild.validation.shaping import Shaper, ShapeResult
 
 # The M1 mini-font carries epoch-zero head timestamps; fontTools logs a "'created' timestamp seems very low" warning for each, which is noise in the build output.
 logging.getLogger("fontTools.ttLib.tables._h_e_a_d").setLevel(logging.ERROR)
@@ -49,6 +50,40 @@ def delta_digest(diff: tuple) -> str:
     return "d-" + hashlib.sha1(repr(diff).encode()).hexdigest()[:12]
 
 
+def signature_digest(signature: tuple) -> str:
+    """The persisted identity of one `InkComparator.signature` result: the sha256 of the tuple's repr. Digest equality is signature equality for the ink-duplicate merge's purposes — the merge only ever groups by the value, never reads inside it — which is what lets the surface build serve signatures from the persisted store (rebuild/review/unit_cache.py) instead of re-shaping every relabel-split window on every pass."""
+    return hashlib.sha256(repr(signature).encode()).hexdigest()
+
+
+class _MemoizedShaper(Shaper):
+    """A Shaper whose `shape` memoizes by (text, features): the surface build shapes the same (text, config) for `config_diff`, again in `Enricher.enrich`, again in the JuniorOracle, and a fourth time in the Drafter's semantics replay, and the memo collapses those to one HarfBuzz call per process. Unbounded on purpose — only the surface build opts in (via `shaper_for`), its working set is bounded by the fresh-unit slice, and the retained EnrichedUnits dominate worker memory anyway."""
+
+    def __init__(self, font_path: Path | str) -> None:
+        super().__init__(font_path)
+        self._memo: dict[tuple, ShapeResult] = {}
+
+    def shape(self, text: str, features: dict[str, bool] | None = None) -> ShapeResult:
+        key = (text, tuple(sorted(features.items())) if features else None)
+        result = self._memo.get(key)
+        if result is None:
+            result = self._memo[key] = super().shape(text, features)
+        return result
+
+
+_shaper_registry: dict[tuple[str, int, int], _MemoizedShaper] = {}
+
+
+def shaper_for(font_path: Path | str) -> Shaper:
+    """The surface build's shared, memoized Shaper for one font, keyed by (resolved path, mtime, size) so a font rewritten in place — a test building two surfaces over different mini fonts at one path — never serves stale shapes. Sharing one instance across the comparator, oracle, enricher, and drafter also collapses their four separate font loads to one per process."""
+    path = Path(font_path).resolve()
+    stat = path.stat()
+    key = (str(path), stat.st_mtime_ns, stat.st_size)
+    shaper = _shaper_registry.get(key)
+    if shaper is None:
+        shaper = _shaper_registry[key] = _MemoizedShaper(path)
+    return shaper
+
+
 def translate_outline(value: tuple, dx: int, dy: int) -> tuple:
     return tuple(
         (operator, tuple(point if point is None else (point[0] + dx, point[1] + dy) for point in points))
@@ -76,12 +111,14 @@ class OutlineCache:
 
 
 class InkComparator:
-    """Holds one Shaper and one OutlineCache per font; `ink_identical` is a deterministic boolean over (text, configs)."""
+    """Holds one Shaper and one OutlineCache per font; `ink_identical` is a deterministic boolean over (text, configs). The surface build passes `shaper_factory=shaper_for` so its components share one memoized Shaper per font; the default keeps a plain private Shaper, because a memo is pure memory cost for callers like carry_verdicts that never shape the same text twice."""
 
-    def __init__(self, before_font: Path | str, after_font: Path | str) -> None:
+    def __init__(
+        self, before_font: Path | str, after_font: Path | str, shaper_factory: Callable = Shaper
+    ) -> None:
         self._sides: dict[str, tuple[Shaper, OutlineCache]] = {}
         for side, path in (("before", before_font), ("after", after_font)):
-            self._sides[side] = (Shaper(path), OutlineCache(path))
+            self._sides[side] = (shaper_factory(path), OutlineCache(path))
 
     def ink_pieces(self, side: str, text: str, features: dict[str, bool]) -> tuple:
         """The placed outlines of one shaped run, sorted: one piece per glyph that carries ink, translated to its pen position. Inkless glyphs (space, ZWNJ, empty markers) contribute no piece. Shaping is always kern-neutral."""
@@ -198,7 +235,13 @@ class InkComparator:
 class JuniorOracle:
     """The second machine-approval channel, alongside ink identity: a unit divergent only under ss10 is approvable when the rebuild's ss10 rendering places exactly the ink the shipped Junior font places for the same string, once Junior's letter tracking is removed. Junior carries the same isolated letterforms as Senior plus one pixel of extra advance on every Quikscript glyph; the constructor verifies that premise against the shipped Senior and derives the tracking from it, refusing to run if the fonts ever drift from it. A pass means the rebuild draws every letter fully isolated — the ratified meaning of ss10 (see the ss10 ledger entries in rebuild/m1-divergences.yaml) — so approval is mechanical regardless of what the old font did."""
 
-    def __init__(self, junior_font: Path | str, before_font: Path | str, after_font: Path | str) -> None:
+    def __init__(
+        self,
+        junior_font: Path | str,
+        before_font: Path | str,
+        after_font: Path | str,
+        shaper_factory: Callable = Shaper,
+    ) -> None:
         junior_metrics = TTFont(str(junior_font))["hmtx"].metrics
         before_metrics = TTFont(str(before_font))["hmtx"].metrics
         shared = set(junior_metrics) & set(before_metrics)
@@ -212,7 +255,7 @@ class JuniorOracle:
                 f"{sorted(other_deltas - {0})} (expected none)"
             )
         self.tracking = next(iter(letter_deltas))
-        self._comparator = InkComparator(junior_font, after_font)
+        self._comparator = InkComparator(junior_font, after_font, shaper_factory)
 
     def approves(self, configs, text: str) -> bool:
         if tuple(configs) != ("ss10",):

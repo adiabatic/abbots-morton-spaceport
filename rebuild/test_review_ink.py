@@ -1,5 +1,6 @@
 """Tests for the review surface's ink-identity comparison: the proven census method (uharfbuzz shaping with kerning disabled, DecomposingRecordingPen outlines translated by cumulative advance plus offsets, pieces sorted and compared) reproduces the census facts — u-0000 is ink-identical, the verdict is deterministic, and the full kern-neutral histogram reproduces the machine-approved census over the live workload at the name-grain (pre-merge) dedupe, concentrated in the name-grain classes whose visible stragglers differ only in the old font's kerning, with the no-verdict exemptions (the boundary-echo blanket plus the two x-height-halves deletion forks) leaving the rest as human workload. Every count is pinned in rebuild/review-census-pins.json (the "ink" group). The built surface then folds ink-duplicate sibling units (merge_ink_duplicate_units), so the shipped manifest's counts are smaller — those are pinned in test_review_build. Also here: `delta_digest`, the persisted identity of one config's localized delta, whose shape check_unit enforces and whose recipe is a byte-identity contract with the digests recorded in rebuild/standing-approvals.yaml."""
 
+import shutil
 from pathlib import Path
 
 import pytest
@@ -7,7 +8,15 @@ import pytest
 from rebuild.review.audit import load_workload
 from rebuild.review.census import ink_histogram, load_pins
 from rebuild.review.enrich import LETTERS
-from rebuild.review.ink import InkComparator, JuniorOracle, delta_digest, features_for, kern_neutral
+from rebuild.review.ink import (
+    InkComparator,
+    JuniorOracle,
+    delta_digest,
+    features_for,
+    kern_neutral,
+    shaper_for,
+    signature_digest,
+)
 from rebuild.validation.shaping import Shaper
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -149,6 +158,38 @@ def test_full_histogram_reproduces_the_census(comparator):
     human = [unit for unit in workload.units if not unit.ink_identical and not unit.no_verdict]
     assert [unit.batch for unit in human] == [index // 300 for index in range(len(human))]
     assert all(unit.batch is None for unit in workload.units if unit.ink_identical or unit.no_verdict)
+
+
+def test_signature_digest_is_determined_by_the_tuple_alone(comparator):
+    """Equal signatures digest equally across comparators and processes — what lets the persisted ink-signature store serve a digest recorded by a prior build — and different placed ink digests apart."""
+    pair = "".join(chr(value) for value in (0xE650, 0xE665))
+    digest = signature_digest(comparator.signature(pair, "default"))
+    again = InkComparator(BEFORE_FONT, AFTER_FONT)
+    assert signature_digest(again.signature(pair, "default")) == digest
+    assert signature_digest(comparator.signature(pair[:1], "default")) != digest
+
+
+def test_shaper_for_shares_one_memoized_shaper_per_font():
+    """The surface build's shared shaper: one instance per font per process, and its memoized `shape` returns exactly what a plain Shaper returns, with the features dict canonicalized so {} and None — and any key order — land on one memo entry."""
+    shared = shaper_for(BEFORE_FONT)
+    assert shaper_for(BEFORE_FONT) is shared
+    plain = Shaper(BEFORE_FONT)
+    text = "".join(chr(value) for value in (0xE650, 0xE665, 0xE667))
+    features = {"ss03": True, "kern": False}
+    assert shared.shape(text, features) == plain.shape(text, features)
+    assert shared.shape(text, {"kern": False, "ss03": True}) is shared.shape(text, features)
+    assert shared.shape(text) == plain.shape(text)
+    assert shared.shape(text, {}) is shared.shape(text)
+
+
+def test_shaper_for_rekeys_when_the_font_changes_on_disk(tmp_path):
+    """A font rewritten in place — a test building surfaces over different mini fonts at one path — must never serve stale shapes: the registry keys on the file's identity, not its path alone."""
+    target = tmp_path / "font.otf"
+    shutil.copyfile(BEFORE_FONT, target)
+    first = shaper_for(target)
+    shutil.copyfile(JUNIOR_FONT, target)
+    second = shaper_for(target)
+    assert second is not first
 
 
 @pytest.fixture(scope="module")
