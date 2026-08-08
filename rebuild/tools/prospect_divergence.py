@@ -72,7 +72,9 @@ def write_divergences(decision: table_module.DecisionTable, path: Path) -> tuple
     return len(lines), len(windows)
 
 
-def _worker(spec: ResolvedSpec, config: str, out_dir: Path) -> tuple[str, int, int]:
+def _worker(
+    spec: ResolvedSpec, config: str, out_dir: Path, share: trace_memo.TraceShare | None = None
+) -> tuple[str, int, int]:
     store = trace_memo.open_store(
         trace_memo.store_path(out_dir, config),
         spec,
@@ -82,7 +84,7 @@ def _worker(spec: ResolvedSpec, config: str, out_dir: Path) -> tuple[str, int, i
         writable=False,
     )
     decision, _treaty = table_module.build_tables(
-        spec, conform.features_for_config(config), trace_store=store
+        spec, conform.features_for_config(config), trace_store=store, share=share
     )
     lines, windows = write_divergences(decision, out_dir / f"prospect-divergence-{config}.tsv")
     return config, lines, windows
@@ -104,9 +106,14 @@ def main(argv: list[str] | None = None) -> None:
                 config, lines, windows = future.result()
                 results[config] = (lines, windows)
     else:
-        for config in conform.ACCEPTANCE_CONFIGS:
-            config, lines, windows = _worker(spec, config, OUT_DIR)
-            results[config] = (lines, windows)
+        # The serial path rides the same cross-config share the build does (issue 15): each non-default configuration re-traces only its feature-sensitive windows. The pool path cannot — the share lives in one process's memory.
+        share = trace_memo.TraceShare(spec)
+        try:
+            for config in conform.ACCEPTANCE_CONFIGS:
+                config, lines, windows = _worker(spec, config, OUT_DIR, share)
+                results[config] = (lines, windows)
+        finally:
+            share.release()
     for config in conform.ACCEPTANCE_CONFIGS:
         lines, windows = results[config]
         print(f"{config}: {lines} divergence rows over {windows} windows", flush=True)

@@ -91,54 +91,35 @@ def _trace_store(
     )
 
 
-def _build_tables_worker(
-    spec: ResolvedSpec, config: str, out_dir: Path | None, inputs: str | None, fresh_memo: bool = False
-) -> tuple[str, object, object]:
-    features = conform.features_for_config(config)
-    store = _trace_store(spec, config, out_dir, inputs, fresh_memo)
-    decision, treaty = table_module.build_tables(spec, features, trace_store=store)
-    if store is not None:
-        print(f"[t] trace_memo[{config}] served {store.served} of {store.saved}", flush=True)
-    decision.assert_outcome_partition()
-    decision.assert_e_stranded()
-    return config, _persist_tables(decision, treaty, out_dir, inputs), treaty
-
-
 def build_tables(
     spec: ResolvedSpec,
     out_dir: Path | None = None,
-    jobs: int = 1,
     inputs: str | None = None,
     fresh_memo: bool = False,
 ) -> dict[str, tuple]:
-    """Every acceptance configuration's decision and treaty tables, built here or fanned out over `jobs` workers, with the section 8 TSVs written under `out_dir` by whichever process built them.
+    """Every acceptance configuration's decision and treaty tables, built serially over one shared trace memo, with the section 8 TSVs written under `out_dir`. The default configuration builds first and donates its finished memo to a `trace_memo.TraceShare` (issue 15); each configuration after it re-traces only the windows some named rune of which owns a record gated on that configuration's feature delta, and serves the rest from the donor — so the config axis costs its sensitive fraction, not a full fixpoint per configuration. Serial on purpose, where this stage once spawned a six-way pool: the share lives in one process's memory, and less total CPU is the point (issue 7's ground rule).
 
-    `inputs` is `fingerprint.tables_value` over the sources this spec was loaded from. Supplying it alongside `out_dir` serializes each configuration's window enumeration next to the TSVs — where `run_font_conformance` picks it up instead of rebuilding the fixpoint — and drops those windows from the tables returned here, since only the rules, the reachable cells and the fired provenance are read after the build; `table.read_windows` gets them back. Omit it and the tables come back whole, which is what a caller building a spec of its own must do: the fingerprint names the repo's rune files and cannot vouch for tables they did not produce. The same pair gates the persisted trace memo (issue 25): each configuration's fixpoint serves still-valid entries from the previous cycle's `trace-memo-<config>.ndjson.gz` and rewrites it; `fresh_memo` distrusts the pile once and re-traces everything.
+    `inputs` is `fingerprint.tables_value` over the sources this spec was loaded from. Supplying it alongside `out_dir` serializes each configuration's window enumeration next to the TSVs — where `run_font_conformance` picks it up instead of rebuilding the fixpoint — and drops those windows from the tables returned here, since only the rules, the reachable cells and the fired provenance are read after the build; `table.read_windows` gets them back. Omit it and the tables come back whole, which is what a caller building a spec of its own must do: the fingerprint names the repo's rune files and cannot vouch for tables they did not produce. The same pair gates the persisted trace memo (issue 25): each configuration's fixpoint serves still-valid entries from the previous cycle's `trace-memo-<config>.ndjson.gz` and rewrites it — a recipient configuration's store now carries only its sensitive windows, since share hits never enter the engine memo the store persists; `fresh_memo` distrusts the pile once and re-traces everything the share cannot serve.
     """
-    if jobs > 1:
-        collected: dict[str, tuple] = {}
-        with _spawn_pool(jobs) as pool:
-            futures = {
-                pool.submit(_build_tables_worker, spec, config, out_dir, inputs, fresh_memo): config
-                for config in conform.ACCEPTANCE_CONFIGS
-            }
-            for future in as_completed(futures):
-                config, decision, treaty = future.result()
-                collected[config] = (decision, treaty)
-                print(f"[t] build_tables[{config}] done", flush=True)
-        return {config: collected[config] for config in conform.ACCEPTANCE_CONFIGS}
+    share = trace_memo.TraceShare(spec)
     tables: dict[str, tuple] = {}
-    for config in conform.ACCEPTANCE_CONFIGS:
-        start = time.perf_counter()
-        features = conform.features_for_config(config)
-        store = _trace_store(spec, config, out_dir, inputs, fresh_memo)
-        decision, treaty = table_module.build_tables(spec, features, trace_store=store)
-        if store is not None:
-            print(f"[t] trace_memo[{config}] served {store.served} of {store.saved}", flush=True)
-        decision.assert_outcome_partition()
-        decision.assert_e_stranded()
-        tables[config] = (_persist_tables(decision, treaty, out_dir, inputs), treaty)
-        print(f"[t] build_tables[{config}] {time.perf_counter() - start:.1f}s", flush=True)
+    try:
+        for config in conform.ACCEPTANCE_CONFIGS:
+            start = time.perf_counter()
+            features = conform.features_for_config(config)
+            store = _trace_store(spec, config, out_dir, inputs, fresh_memo)
+            share.last_reader = None
+            decision, treaty = table_module.build_tables(spec, features, trace_store=store, share=share)
+            if share.last_reader is not None:
+                print(f"[t] trace_share[{config}] served {share.last_reader.served}", flush=True)
+            if store is not None:
+                print(f"[t] trace_memo[{config}] served {store.served} of {store.saved}", flush=True)
+            decision.assert_outcome_partition()
+            decision.assert_e_stranded()
+            tables[config] = (_persist_tables(decision, treaty, out_dir, inputs), treaty)
+            print(f"[t] build_tables[{config}] {time.perf_counter() - start:.1f}s", flush=True)
+    finally:
+        share.release()
     return tables
 
 
@@ -207,7 +188,6 @@ def namer_dot_glyphs() -> dict[CellId, GlyphRecord]:
 def run(
     out_dir: Path = OUT_DIR,
     spec: ResolvedSpec | None = None,
-    jobs: int = 1,
     inputs: str | None = None,
     fresh_memo: bool = False,
 ) -> dict:
@@ -219,7 +199,7 @@ def run(
     print(f"[t] spec_load {time.perf_counter() - start:.1f}s", flush=True)
 
     start = time.perf_counter()
-    tables = build_tables(spec, out_dir, jobs=jobs, inputs=inputs, fresh_memo=fresh_memo)
+    tables = build_tables(spec, out_dir, inputs=inputs, fresh_memo=fresh_memo)
     print(f"[t] build_tables_total {time.perf_counter() - start:.1f}s", flush=True)
 
     start = time.perf_counter()
@@ -307,7 +287,7 @@ def run_font_conformance(out_dir: Path = OUT_DIR, max_length: int = 5, jobs: int
         windows = {config: table_module.windows_path(out_dir, config) for config in serialized}
         print(f"[t] load_tables {time.perf_counter() - start:.1f}s", flush=True)
     else:
-        rebuilt = build_tables(spec, jobs=jobs)
+        rebuilt = build_tables(spec)
         decisions = rebuilt
         print(f"[t] build_tables_total {time.perf_counter() - start:.1f}s", flush=True)
     cell_glyphs = mint_cell_glyphs(spec, decisions)
@@ -506,7 +486,7 @@ def main(argv: list[str] | None = None) -> None:
         "--jobs",
         type=int,
         default=1,
-        help="worker budget for build_tables and the oracle/boundary/conformance shards; 1 = serial",
+        help="worker budget for the oracle/boundary/conformance shards; 1 = serial (build_tables always runs serially over the cross-config trace share)",
     )
     parser.add_argument(
         "--conform-only",
@@ -577,7 +557,7 @@ def main(argv: list[str] | None = None) -> None:
     before = run_m1_key()
     try:
         start = time.perf_counter()
-        summary = run(spec=spec, jobs=jobs, inputs=inputs, fresh_memo=args.fresh_trace_memo)
+        summary = run(spec=spec, inputs=inputs, fresh_memo=args.fresh_trace_memo)
         print(f"[t] run_total {time.perf_counter() - start:.1f}s", flush=True)
         print(json.dumps(summary, indent=2))
         if summary["defect_errors"]:

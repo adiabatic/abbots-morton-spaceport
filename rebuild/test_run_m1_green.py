@@ -50,7 +50,7 @@ def _stub_full_run(monkeypatch, *, defect_errors=(), boundary=True, pins=True, o
     monkeypatch.setattr(
         run_m1,
         "run",
-        lambda spec, jobs, inputs, fresh_memo=False: {"defect_errors": list(defect_errors), "notes": []},
+        lambda spec, inputs, fresh_memo=False: {"defect_errors": list(defect_errors), "notes": []},
     )
     monkeypatch.setattr(run_m1, "run_boundary_gate", lambda spec, jobs: {"pass": boundary, "divergences": 0})
     monkeypatch.setattr(run_m1, "run_manual_pin_gate", lambda spec: {"pass": pins, "disagreements": []})
@@ -83,8 +83,7 @@ def test_main_refreshes_the_baseline_subset_before_anything_reads_it(monkeypatch
     monkeypatch.setattr(
         run_m1,
         "run",
-        lambda spec, jobs, inputs, fresh_memo=False: events.append("run")
-        or {"defect_errors": [], "notes": []},
+        lambda spec, inputs, fresh_memo=False: events.append("run") or {"defect_errors": [], "notes": []},
     )
     monkeypatch.setattr(
         run_m1,
