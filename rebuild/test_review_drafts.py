@@ -5,7 +5,6 @@ from pathlib import Path
 
 import pytest
 
-from rebuild.review.audit import load_workload
 from rebuild.review.drafts import (
     CONNECTORS,
     Drafter,
@@ -15,18 +14,11 @@ from rebuild.review.drafts import (
     features_dict,
     stylistic_set_value,
 )
-from rebuild.review.enrich import LETTERS, Enricher, load_spec
+from rebuild.review.enrich import Enricher, load_spec
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-AUDIT_PATH = REPO_ROOT / "rebuild" / "out" / "m1" / "divergence-audit.tsv"
-LEDGER_PATH = REPO_ROOT / "rebuild" / "m1-divergences.yaml"
 M1_DIR = REPO_ROOT / "rebuild" / "out" / "m1"
 AFTER_FONT = M1_DIR / "M1.otf"
-
-
-@pytest.fixture(scope="module")
-def workload():
-    return load_workload(AUDIT_PATH, LEDGER_PATH, dict(LETTERS))
 
 
 @pytest.fixture(scope="module")

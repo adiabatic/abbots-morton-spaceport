@@ -31,11 +31,6 @@ default\tE652:E670\tcell,seam\thalves-entry-extension-restored\tqsTea.half.ex-y5
 """
 
 
-@pytest.fixture(scope="module")
-def workload():
-    return load_workload(AUDIT_PATH, LEDGER_PATH, dict(LETTERS))
-
-
 def test_load_audit_parses_fixture(tmp_path):
     path = tmp_path / "audit.tsv"
     path.write_text(FIXTURE_AUDIT)

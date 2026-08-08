@@ -21,11 +21,6 @@ PINS = load_pins()
 
 
 @pytest.fixture(scope="module")
-def workload():
-    return load_workload(AUDIT_PATH, LEDGER_PATH, dict(LETTERS))
-
-
-@pytest.fixture(scope="module")
 def comparator():
     return InkComparator(BEFORE_FONT, AFTER_FONT)
 
@@ -135,8 +130,12 @@ def test_the_identity_diff_digests_to_a_pinned_constant():
     assert delta_digest(((), (), 1)) != delta_digest(((), (), 0))
 
 
-def test_full_histogram_reproduces_the_census(workload, comparator):
-    """The kern-neutral census facts the rebatching rests on over the live workload at the name-grain (pre-merge) dedupe: the machine-approved units are ink-identical under every config in their sets, concentrated in the name-grain classes (boundary-echo, dangling-anchor-dropped, bare-name-live-join) whose visible difference is only the old font's kerning; the no-verdict share of the non-identical units — the boundary-echo blanket plus the two x-height-halves deletion forks — is exempt, leaving the human workload in its batches. Every count is pinned in rebuild/review-census-pins.json. No verdict family (the UNMATCHED windows) is ink-identical: each is a real new join under review. The built surface additionally folds ink-duplicate siblings; its smaller counts are pinned in test_review_build."""
+def test_full_histogram_reproduces_the_census(comparator):
+    """The kern-neutral census facts the rebatching rests on over the live workload at the name-grain (pre-merge) dedupe: the machine-approved units are ink-identical under every config in their sets, concentrated in the name-grain classes (boundary-echo, dangling-anchor-dropped, bare-name-live-join) whose visible difference is only the old font's kerning; the no-verdict share of the non-identical units — the boundary-echo blanket plus the two x-height-halves deletion forks — is exempt, leaving the human workload in its batches. Every count is pinned in rebuild/review-census-pins.json. No verdict family (the UNMATCHED windows) is ink-identical: each is a real new join under review. The built surface additionally folds ink-duplicate siblings; its smaller counts are pinned in test_review_build.
+
+    This test loads its own workload rather than taking the shared session fixture: `ink_histogram` writes its verdicts (`ink_identical`, `batch`) into the units it censuses, and those writes are the very state asserted below — on the shared graph they would leak into every later test in the worker.
+    """
+    workload = load_workload(AUDIT_PATH, LEDGER_PATH, dict(LETTERS))
     pins = PINS["ink"]
     stats = ink_histogram(workload, comparator)
     assert stats["machine_total"] == pins["machine_total"]

@@ -1,8 +1,10 @@
-"""Shared fixtures for the rebuild suite. Three reside here. `_redirect_cycle_writes` is the standing guarantee that running the suite never costs the working repo a file; it is autouse, so every module in rebuild/ gets it whether or not its author thought about the cycle. `built_review_surface` owes every test a read-only review surface at the current input state while building as little as possible. First preference: when `surface_build_skippable` proves the cycle's own rebuild/out/review already reflects these inputs byte for byte, the fixture yields that directory directly and builds nothing — the steady state under the artifact cycle, and the same standard of proof the cycle itself skips its surface step on. That path assumes no artifact cycle is concurrently rewriting rebuild/out/review, the same standing assumption the suite already makes about the out/m1 artifacts it reads.
+"""Shared fixtures for the rebuild suite. Four reside here. `_redirect_cycle_writes` is the standing guarantee that running the suite never costs the working repo a file; it is autouse, so every module in rebuild/ gets it whether or not its author thought about the cycle. `built_review_surface` owes every test a read-only review surface at the current input state while building as little as possible. First preference: when `surface_build_skippable` proves the cycle's own rebuild/out/review already reflects these inputs byte for byte, the fixture yields that directory directly and builds nothing — the steady state under the artifact cycle, and the same standard of proof the cycle itself skips its surface step on. That path assumes no artifact cycle is concurrently rewriting rebuild/out/review, the same standing assumption the suite already makes about the out/m1 artifacts it reads.
 
 When the live surface is stale or absent, the cross-process cache under tmp/review-surface-test-cache/<key>/ serves instead: one worker builds under an exclusive flock (parallel at SURFACE_BUILD_JOBS — the half-width budget the artifact cycle's job_budget uses, and for the same reason: the xdist pool is hot while the builder runs); every other worker blocks on the lock and then loads the finished surface from disk, so a suite run costs at most one build instead of one per worker. The key is content-only — the full inputs fingerprint (data, baselines, pipeline code, review code, static, fonts) plus the out/m1 artifacts build_m1 reads — and deliberately mtime-blind, so cross-run hits survive pure mtime churn (git checkout, a make all that rewrote identical bytes). The manifest's generated_at/repo_head provenance stamps sit outside the key: two content-identical builds can differ in those two scalars, which is why test_builds_are_byte_identical masks them rather than requiring stamp-exact identity. flock (not a sentinel spinloop) serializes builders because the kernel releases it if a building worker dies, so a crash mid-build leaves no deadlock, just a missing DONE marker the next holder rebuilds over.
 
 `enriched_units` owes every test the whole live workload enriched, and runs the same cache for the same reason. Scoping that fixture to a module bought nothing: `--dist worksteal` hands each test to whichever worker is free, so a module whose tests sweep the enriched universe scatters over as many workers as it has such tests and every one of them re-enriched the workload from scratch. One worker now builds under the same exclusive flock and writes a compressed pickle; the rest block and unpickle it, at a small fraction of the enrichment it stands in for. That fixture holds its lock through the read as well, for a reason its docstring records: what a reader materializes here is gigabytes, not a manifest.
+
+`workload` is the same collapse one stage upstream: the un-enriched live workload, which four review modules used to load module-scoped, each paying the 92 MB audit parse per worker — and worse than per-worker, since worksteal can hand a worker a module it already finalized and the fixture rebuilds. One session-scoped fixture on the same cache discipline now serves them all.
 """
 
 import fcntl
@@ -22,6 +24,7 @@ import pytest
 from rebuild.tools import artifact_cycle
 
 if TYPE_CHECKING:
+    from rebuild.review.audit import Workload
     from rebuild.review.enrich import EnrichedUnit
 
 REAL_RUN_RETENTION = artifact_cycle.run_retention
@@ -30,6 +33,7 @@ LIVE_DELETION_TARGETS = (*artifact_cycle.M1_SUMMARY_FILES.values(), artifact_cyc
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CACHE_ROOT = REPO_ROOT / "tmp" / "review-surface-test-cache"
 ENRICH_CACHE_ROOT = REPO_ROOT / "tmp" / "review-enrich-test-cache"
+WORKLOAD_CACHE_ROOT = REPO_ROOT / "tmp" / "review-workload-test-cache"
 CACHE_KEEP = 2
 SURFACE_BUILD_JOBS = max(1, (os.process_cpu_count() or 2) // 2)
 GREEN_RECORDS = (
@@ -207,5 +211,56 @@ def enriched_units() -> list[EnrichedUnit]:
                 pickle.dump(_enrich_workload(), handle, protocol=5)
             done.write_text("")
             _prune_stale_entries(ENRICH_CACHE_ROOT, entry)
+        with gzip.open(blob, "rb") as handle:
+            return pickle.load(handle)
+
+
+def workload_cache_key() -> str | None:
+    """`load_workload`'s input closure: the audit and ledger bytes, the letter map, and rebuild/review/audit.py itself — the loader's own code is in the key because a pickle from before an audit.py change would hand every worker units the loader on disk no longer builds, with the gate reading green over them. Deliberately narrower than `surface_cache_key`: nothing else in the inputs fingerprint can move a Workload byte, so a rune edit or a review-code change elsewhere doesn't evict a still-true entry. None when the audit artifact doesn't exist yet (fresh clone); the fixture then falls back to an uncached per-session load."""
+    from rebuild.pipeline import fingerprint
+    from rebuild.review.build import M1_AUDIT, M1_LEDGER
+    from rebuild.review.enrich import LETTERS
+
+    if not M1_AUDIT.exists():
+        return None
+    inputs = [M1_AUDIT, M1_LEDGER, REPO_ROOT / "rebuild" / "review" / "audit.py"]
+    try:
+        digest = fingerprint.hash_paths(REPO_ROOT, inputs)
+    except OSError:
+        return None
+    return hashlib.sha256(f"{digest}\n{sorted(LETTERS.items())!r}".encode()).hexdigest()[:16]
+
+
+def _load_live_workload() -> Workload:
+    """The live M1 workload as `load_workload` builds it — what the cache holds, and what a cacheless run builds directly."""
+    from rebuild.review.audit import load_workload
+    from rebuild.review.build import M1_AUDIT, M1_LEDGER
+    from rebuild.review.enrich import LETTERS
+
+    return load_workload(M1_AUDIT, M1_LEDGER, dict(LETTERS))
+
+
+@pytest.fixture(scope="session")
+def workload() -> Workload:
+    """The live workload, loaded once per suite run instead of once per module per worker. Module scope was never the per-module cost it read as: under `--dist worksteal` it is per-worker at best and measured worse, because worksteal hands out items in no particular module order, so a worker bouncing back into a module it already finalized pays the same load again — a probed gate run built the four modules' fixtures 13 times for 63 CPU-seconds, single workers paying the same module twice. The cache is `enriched_units`' discipline exactly: one builder under an exclusive flock writing a gzipped protocol-5 pickle, every other worker blocking and unpickling at a fraction of the load it stands in for, the lock held through the read so the ~0.8 GB inflations stagger instead of landing at once, and the payload — not the marker — proving the entry usable.
+
+    Each worker's round trip is its own object graph, but within a worker every module now shares one, and `Unit` is mutable, so the graph is read-only by contract. The two tests that write are contained: `test_full_histogram_reproduces_the_census` loads a private workload because `ink_histogram` writes its verdicts (`ink_identical`, `batch`) into the units it censuses, and `test_assign_batches_slices_the_human_workload_and_nulls_machine_units` restores the loader defaults in its `finally` — a restore this fixture now load-bears on, since `test_unit_ids_are_sequential_and_batches_unassigned_until_ink_is_known` asserts those defaults on the shared graph.
+    """
+    key = workload_cache_key()
+    if key is None:
+        return _load_live_workload()
+    WORKLOAD_CACHE_ROOT.mkdir(parents=True, exist_ok=True)
+    entry = WORKLOAD_CACHE_ROOT / key
+    blob = entry / "workload.pickle.gz"
+    done = entry / "DONE"
+    with (WORKLOAD_CACHE_ROOT / f"{key}.lock").open("w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        if not (done.exists() and blob.exists()):
+            shutil.rmtree(entry, ignore_errors=True)
+            entry.mkdir(parents=True)
+            with gzip.open(blob, "wb", compresslevel=1) as handle:
+                pickle.dump(_load_live_workload(), handle, protocol=5)
+            done.write_text("")
+            _prune_stale_entries(WORKLOAD_CACHE_ROOT, entry)
         with gzip.open(blob, "rb") as handle:
             return pickle.load(handle)

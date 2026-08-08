@@ -9,7 +9,6 @@ from fontTools.ttLib import TTFont
 
 from rebuild.pipeline.conform import features_for_config
 from rebuild.pipeline.settle import settle
-from rebuild.review.audit import load_workload
 from rebuild.review.enrich import (
     LETTERS,
     EnrichedUnit,
@@ -28,8 +27,6 @@ from rebuild.review.ink import kern_neutral
 from rebuild.validation.rowmodel import iter_rows
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-AUDIT_PATH = REPO_ROOT / "rebuild" / "out" / "m1" / "divergence-audit.tsv"
-LEDGER_PATH = REPO_ROOT / "rebuild" / "m1-divergences.yaml"
 M1_DIR = REPO_ROOT / "rebuild" / "out" / "m1"
 AFTER_FONT = M1_DIR / "M1.otf"
 
@@ -44,11 +41,6 @@ def spec():
 @pytest.fixture(scope="module")
 def enricher(spec):
     return Enricher(spec, M1_DIR, AFTER_FONT)
-
-
-@pytest.fixture(scope="module")
-def workload():
-    return load_workload(AUDIT_PATH, LEDGER_PATH, dict(LETTERS))
 
 
 @pytest.fixture(scope="module")
