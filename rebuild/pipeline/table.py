@@ -19,7 +19,10 @@ import json
 from collections import OrderedDict
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
+
+if TYPE_CHECKING:
+    from rebuild.pipeline.trace_memo import TraceStore
 
 from rebuild.pipeline import settle as settle_module
 from rebuild.pipeline.model import (
@@ -895,8 +898,10 @@ def _entry_extension(settled: Settled) -> int:
     return total
 
 
-def build_tables(spec: ResolvedSpec, features: frozenset[str]) -> tuple[DecisionTable, TreatyTable]:
-    engine = Engine(spec, features, trace_memo=True)
+def build_tables(
+    spec: ResolvedSpec, features: frozenset[str], trace_store: "TraceStore | None" = None
+) -> tuple[DecisionTable, TreatyTable]:
+    engine = Engine(spec, features, trace_memo=True, trace_store=trace_store)
     config = feature_config_token(features)
     letters = sorted(spec.runes)
     formation_pairs = _formation_pairs(spec)
@@ -1139,9 +1144,12 @@ def build_tables(spec: ResolvedSpec, features: frozenset[str]) -> tuple[Decision
                                 )
                             )
 
-    # The fixpoint and the liveness probes are done tracing; the engine outlives this build in _LIVENESS_PROBES, so drop the memo rather than retain a full trace per window.
+    # The fixpoint and the liveness probes are done tracing; persist the memo for the next cycle (issue 25), then drop it — the engine outlives this build in _LIVENESS_PROBES, so retaining a full trace per window would hold the pile for nothing.
+    if trace_store is not None:
+        trace_store.save(engine)
     if engine._trace_cache is not None:
         engine._trace_cache.clear()
+        engine._trace_fired.clear()
 
     rows = _flag_prospect_joints(sorted(transitions.values(), key=lambda t: t.key))
 

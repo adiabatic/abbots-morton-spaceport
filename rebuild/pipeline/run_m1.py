@@ -31,6 +31,7 @@ from rebuild.pipeline import (
     geometry,
     manual_pins,
     surface,
+    trace_memo,
 )
 from rebuild.pipeline import table as table_module
 from rebuild.pipeline.model import (
@@ -74,28 +75,51 @@ def _persist_tables(decision, treaty, out_dir: Path | None, inputs: str | None):
     return replace(decision, transitions=())
 
 
+def _trace_store(
+    spec: ResolvedSpec, config: str, out_dir: Path | None, inputs: str | None, fresh: bool
+) -> trace_memo.TraceStore | None:
+    """The persisted trace memo for one configuration's build — only when the caller supplied both `out_dir` and `inputs`, the same pair that gates window serialization: `inputs` is the caller vouching that `spec` was loaded from the repo's sources, and the memo's per-rune digests describe exactly those files, so a caller building a spec of its own gets no memo rather than one that would mis-stamp its entries."""
+    if out_dir is None or inputs is None:
+        return None
+    return trace_memo.open_store(
+        trace_memo.store_path(out_dir, config),
+        spec,
+        fingerprint.rune_digests(REPO_ROOT),
+        trace_memo.memo_environment(REPO_ROOT),
+        config,
+        fresh=fresh,
+    )
+
+
 def _build_tables_worker(
-    spec: ResolvedSpec, config: str, out_dir: Path | None, inputs: str | None
+    spec: ResolvedSpec, config: str, out_dir: Path | None, inputs: str | None, fresh_memo: bool = False
 ) -> tuple[str, object, object]:
     features = conform.features_for_config(config)
-    decision, treaty = table_module.build_tables(spec, features)
+    store = _trace_store(spec, config, out_dir, inputs, fresh_memo)
+    decision, treaty = table_module.build_tables(spec, features, trace_store=store)
+    if store is not None:
+        print(f"[t] trace_memo[{config}] served {store.served} of {store.saved}", flush=True)
     decision.assert_outcome_partition()
     decision.assert_e_stranded()
     return config, _persist_tables(decision, treaty, out_dir, inputs), treaty
 
 
 def build_tables(
-    spec: ResolvedSpec, out_dir: Path | None = None, jobs: int = 1, inputs: str | None = None
+    spec: ResolvedSpec,
+    out_dir: Path | None = None,
+    jobs: int = 1,
+    inputs: str | None = None,
+    fresh_memo: bool = False,
 ) -> dict[str, tuple]:
     """Every acceptance configuration's decision and treaty tables, built here or fanned out over `jobs` workers, with the section 8 TSVs written under `out_dir` by whichever process built them.
 
-    `inputs` is `fingerprint.tables_value` over the sources this spec was loaded from. Supplying it alongside `out_dir` serializes each configuration's window enumeration next to the TSVs — where `run_font_conformance` picks it up instead of rebuilding the fixpoint — and drops those windows from the tables returned here, since only the rules, the reachable cells and the fired provenance are read after the build; `table.read_windows` gets them back. Omit it and the tables come back whole, which is what a caller building a spec of its own must do: the fingerprint names the repo's rune files and cannot vouch for tables they did not produce.
+    `inputs` is `fingerprint.tables_value` over the sources this spec was loaded from. Supplying it alongside `out_dir` serializes each configuration's window enumeration next to the TSVs — where `run_font_conformance` picks it up instead of rebuilding the fixpoint — and drops those windows from the tables returned here, since only the rules, the reachable cells and the fired provenance are read after the build; `table.read_windows` gets them back. Omit it and the tables come back whole, which is what a caller building a spec of its own must do: the fingerprint names the repo's rune files and cannot vouch for tables they did not produce. The same pair gates the persisted trace memo (issue 25): each configuration's fixpoint serves still-valid entries from the previous cycle's `trace-memo-<config>.ndjson.gz` and rewrites it; `fresh_memo` distrusts the pile once and re-traces everything.
     """
     if jobs > 1:
         collected: dict[str, tuple] = {}
         with _spawn_pool(jobs) as pool:
             futures = {
-                pool.submit(_build_tables_worker, spec, config, out_dir, inputs): config
+                pool.submit(_build_tables_worker, spec, config, out_dir, inputs, fresh_memo): config
                 for config in conform.ACCEPTANCE_CONFIGS
             }
             for future in as_completed(futures):
@@ -107,7 +131,10 @@ def build_tables(
     for config in conform.ACCEPTANCE_CONFIGS:
         start = time.perf_counter()
         features = conform.features_for_config(config)
-        decision, treaty = table_module.build_tables(spec, features)
+        store = _trace_store(spec, config, out_dir, inputs, fresh_memo)
+        decision, treaty = table_module.build_tables(spec, features, trace_store=store)
+        if store is not None:
+            print(f"[t] trace_memo[{config}] served {store.served} of {store.saved}", flush=True)
         decision.assert_outcome_partition()
         decision.assert_e_stranded()
         tables[config] = (_persist_tables(decision, treaty, out_dir, inputs), treaty)
@@ -178,7 +205,11 @@ def namer_dot_glyphs() -> dict[CellId, GlyphRecord]:
 
 
 def run(
-    out_dir: Path = OUT_DIR, spec: ResolvedSpec | None = None, jobs: int = 1, inputs: str | None = None
+    out_dir: Path = OUT_DIR,
+    spec: ResolvedSpec | None = None,
+    jobs: int = 1,
+    inputs: str | None = None,
+    fresh_memo: bool = False,
 ) -> dict:
     """`inputs` is `fingerprint.tables_value` over the sources `spec` was loaded from, snapshotted before the load so it can only ever name content the tables are at least as new as. Supplying it serializes the window enumeration under `out_dir` for the conformance sweep; a caller running a spec of its own leaves it out."""
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -188,7 +219,7 @@ def run(
     print(f"[t] spec_load {time.perf_counter() - start:.1f}s", flush=True)
 
     start = time.perf_counter()
-    tables = build_tables(spec, out_dir, jobs=jobs, inputs=inputs)
+    tables = build_tables(spec, out_dir, jobs=jobs, inputs=inputs, fresh_memo=fresh_memo)
     print(f"[t] build_tables_total {time.perf_counter() - start:.1f}s", flush=True)
 
     start = time.perf_counter()
@@ -447,8 +478,15 @@ def run_oracle(
     return summary
 
 
-def _settle_green(green_path: Path, key: str, ok: bool, recompute: Callable[[], str], label: str) -> None:
-    """Shared last-green bookkeeping, on the discipline rebuild.tools.make_test_gate established: the key is snapshotted before the work, rechecked after, and recorded only when it still matches — inputs edited mid-run describe content that was never tested. A red result whose key still matches the record deletes it, since the green it claims is contradicted. Recording here is what lets the artifact cycle skip work an interactive run already proved."""
+def _settle_green(
+    green_path: Path,
+    key: str,
+    ok: bool,
+    recompute: Callable[[], str],
+    label: str,
+    files_of: Callable[[], dict[str, str]] | None = None,
+) -> None:
+    """Shared last-green bookkeeping, on the discipline rebuild.tools.make_test_gate established: the key is snapshotted before the work, rechecked after, and recorded only when it still matches — inputs edited mid-run describe content that was never tested. A red result whose key still matches the record deletes it, since the green it claims is contradicted. Recording here is what lets the artifact cycle skip work an interactive run already proved; `files_of` supplies the per-file digest lines behind the key, so a later skip miss can name which input moved."""
     from rebuild.tools.artifact_cycle import clear_contradicted_green, record_green
 
     if not ok:
@@ -457,7 +495,7 @@ def _settle_green(green_path: Path, key: str, ok: bool, recompute: Callable[[], 
     if recompute() != key:
         print(f"{label}: green, but its inputs changed while it ran — green not recorded", flush=True)
         return
-    record_green(green_path, key)
+    record_green(green_path, key, files=files_of() if files_of is not None else None)
     where = green_path.relative_to(REPO_ROOT) if green_path.is_relative_to(REPO_ROOT) else green_path
     print(f"{label}: green — fingerprint recorded in {where}", flush=True)
 
@@ -481,6 +519,11 @@ def main(argv: list[str] | None = None) -> None:
         default=5,
         help="exhaustive sweep length for --conform-only; witnesses complete rule/transition coverage beyond it",
     )
+    parser.add_argument(
+        "--fresh-trace-memo",
+        action="store_true",
+        help="ignore the persisted trace memo and re-trace every window; the finished build still rewrites it",
+    )
     args = parser.parse_args(argv)
     jobs = args.jobs if args.jobs and args.jobs > 1 else 1
 
@@ -488,6 +531,7 @@ def main(argv: list[str] | None = None) -> None:
         from rebuild.tools.artifact_cycle import (
             CONFORM_GREEN,
             conform_skip_fingerprint,
+            conform_skip_files,
             evaluate_conform_gate,
         )
 
@@ -500,12 +544,24 @@ def main(argv: list[str] | None = None) -> None:
         print(f"[t] run_font_conformance {time.perf_counter() - start:.1f}s", flush=True)
         print(json.dumps(conformance, indent=2))
         status, _ = evaluate_conform_gate(conformance)
-        _settle_green(CONFORM_GREEN, before, status == "green", conform_key, "gate:conform")
+        _settle_green(
+            CONFORM_GREEN,
+            before,
+            status == "green",
+            conform_key,
+            "gate:conform",
+            files_of=lambda: conform_skip_files(REPO_ROOT, args.conform_horizon),
+        )
         if not conformance["pass"]:
             raise SystemExit("font conformance failed; see conform_summary.json")
         return
 
-    from rebuild.tools.artifact_cycle import RUN_M1_GREEN, evaluate_run_m1_gate, run_m1_skip_fingerprint
+    from rebuild.tools.artifact_cycle import (
+        RUN_M1_GREEN,
+        evaluate_run_m1_gate,
+        run_m1_skip_files,
+        run_m1_skip_fingerprint,
+    )
 
     def run_m1_key() -> str:
         return run_m1_skip_fingerprint(REPO_ROOT)
@@ -521,7 +577,7 @@ def main(argv: list[str] | None = None) -> None:
     before = run_m1_key()
     try:
         start = time.perf_counter()
-        summary = run(spec=spec, jobs=jobs, inputs=inputs)
+        summary = run(spec=spec, jobs=jobs, inputs=inputs, fresh_memo=args.fresh_trace_memo)
         print(f"[t] run_total {time.perf_counter() - start:.1f}s", flush=True)
         print(json.dumps(summary, indent=2))
         if summary["defect_errors"]:
@@ -546,7 +602,9 @@ def main(argv: list[str] | None = None) -> None:
         _settle_green(RUN_M1_GREEN, before, False, run_m1_key, "run_m1")
         raise
     gate = evaluate_run_m1_gate(summary, boundary_gate, pin_gate, oracle)
-    _settle_green(RUN_M1_GREEN, before, gate.ok, run_m1_key, "run_m1")
+    _settle_green(
+        RUN_M1_GREEN, before, gate.ok, run_m1_key, "run_m1", files_of=lambda: run_m1_skip_files(REPO_ROOT)
+    )
     if not oracle["pass"]:
         raise SystemExit("oracle conformance failed; see oracle_summary.json and divergence-audit.tsv")
 

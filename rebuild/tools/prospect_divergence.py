@@ -1,4 +1,4 @@
-"""The window-grain prospect-divergence inventory (issue #28 stage 0): every settlement window whose deliberately optimistic third join-count term disagrees with the follower's actual settled choice, dumped as a diff-stable TSV per acceptance configuration. This is exactly the comparison `table._flag_prospect_joints` folds into the joint flag — the walk is shared (`table.prospect_successor_index` / `table.prospect_successors`), so the inventory and the flag can never disagree — persisted at row grain instead of collapsed to a bit, because the flip inventory is the before-any-semantics-change record the simulated-prospect stages check their deltas against. Read-only: the tool builds the tables in memory and writes only its own artifact.
+"""The window-grain prospect-divergence inventory (issue #28 stage 0): every settlement window whose deliberately optimistic third join-count term disagrees with the follower's actual settled choice, dumped as a diff-stable TSV per acceptance configuration. This is exactly the comparison `table._flag_prospect_joints` folds into the joint flag — the walk is shared (`table.prospect_successor_index` / `table.prospect_successors`), so the inventory and the flag can never disagree — persisted at row grain instead of collapsed to a bit, because the flip inventory is the before-any-semantics-change record the simulated-prospect stages check their deltas against. Read-only: the tool builds the tables in memory — serving what it can from the build's persisted trace memo without ever rewriting it — and writes only its own artifact.
 
 Run as: uv run python -m rebuild.tools.prospect_divergence [--jobs N]
 """
@@ -11,10 +11,10 @@ import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 
-from rebuild.pipeline import conform
+from rebuild.pipeline import conform, fingerprint, trace_memo
 from rebuild.pipeline import table as table_module
 from rebuild.pipeline.model import ResolvedSpec
-from rebuild.pipeline.run_m1 import OUT_DIR
+from rebuild.pipeline.run_m1 import OUT_DIR, REPO_ROOT
 from rebuild.pipeline.spec_load import load_default_spec
 
 COLUMNS = (
@@ -73,7 +73,17 @@ def write_divergences(decision: table_module.DecisionTable, path: Path) -> tuple
 
 
 def _worker(spec: ResolvedSpec, config: str, out_dir: Path) -> tuple[str, int, int]:
-    decision, _treaty = table_module.build_tables(spec, conform.features_for_config(config))
+    store = trace_memo.open_store(
+        trace_memo.store_path(out_dir, config),
+        spec,
+        fingerprint.rune_digests(REPO_ROOT),
+        trace_memo.memo_environment(REPO_ROOT),
+        config,
+        writable=False,
+    )
+    decision, _treaty = table_module.build_tables(
+        spec, conform.features_for_config(config), trace_store=store
+    )
     lines, windows = write_divergences(decision, out_dir / f"prospect-divergence-{config}.tsv")
     return config, lines, windows
 

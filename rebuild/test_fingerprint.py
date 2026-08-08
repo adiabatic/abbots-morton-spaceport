@@ -1,5 +1,6 @@
 """Tests for the build-input fingerprint module: content sensitivity, order independence, missing-file tolerance, the stat-based baselines component, the Stage A record round trip, the serve.py exclusion, and the prose-blind rune digest."""
 
+import hashlib
 import json
 import textwrap
 
@@ -110,6 +111,34 @@ def test_compute_all_covers_every_component_and_isolates_edits(tmp_path):
     assert {key: after[key] for key in fingerprint.COMPONENTS if key != "data"} == {
         key: before[key] for key in fingerprint.COMPONENTS if key != "data"
     }
+
+
+def test_data_lines_carry_one_label_per_file_and_hash_to_data_value(tmp_path):
+    root = _fake_repo(tmp_path)
+    lines = fingerprint.data_lines(root)
+    labels = [line.split("\t", 1)[0] for line in lines]
+    assert "glyph_data/runes/qsPea.yaml" in labels
+    assert len(labels) == len(set(labels))
+    assert fingerprint.data_value(root) == hashlib.sha256("\n".join(lines).encode()).hexdigest()
+
+
+def test_rune_digests_key_by_family_name(tmp_path):
+    root = _fake_repo(tmp_path)
+    digests = fingerprint.rune_digests(root)
+    assert set(digests) == {"qsPea", "qsBay"}
+    assert digests["qsPea"] == fingerprint.rune_file_digest(root / "glyph_data" / "runes" / "qsPea.yaml")
+
+
+def test_tables_environment_value_is_rune_blind_but_tracks_the_rest(tmp_path):
+    root = _fake_repo(tmp_path)
+    before = fingerprint.tables_environment_value(root)
+    (root / "glyph_data" / "runes" / "qsPea.yaml").write_text("family: qsPea\nedited: true\n")
+    assert fingerprint.tables_environment_value(root) == before
+    (root / "rebuild" / "script.yaml").write_text("alphabet: [edited]\n")
+    moved_data = fingerprint.tables_environment_value(root)
+    assert moved_data != before
+    (root / "rebuild" / "pipeline" / "table.py").write_text("TABLE = 2\n")
+    assert fingerprint.tables_environment_value(root) != moved_data
 
 
 def test_pipeline_code_covers_validation_and_isolates_edits(tmp_path):

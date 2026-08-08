@@ -46,8 +46,11 @@ def test_red_leaves_a_record_for_other_content_alone(green_store):
 def _stub_full_run(monkeypatch, *, defect_errors=(), boundary=True, pins=True, oracle_pass=False):
     monkeypatch.setattr(run_m1.baseline_subset, "ensure_fresh", lambda repo_root: False)
     monkeypatch.setattr(run_m1, "load_default_spec", lambda: object())
+    monkeypatch.setattr(ac, "run_m1_skip_files", lambda root=None: {})
     monkeypatch.setattr(
-        run_m1, "run", lambda spec, jobs, inputs: {"defect_errors": list(defect_errors), "notes": []}
+        run_m1,
+        "run",
+        lambda spec, jobs, inputs, fresh_memo=False: {"defect_errors": list(defect_errors), "notes": []},
     )
     monkeypatch.setattr(run_m1, "run_boundary_gate", lambda spec, jobs: {"pass": boundary, "divergences": 0})
     monkeypatch.setattr(run_m1, "run_manual_pin_gate", lambda spec: {"pass": pins, "disagreements": []})
@@ -78,7 +81,10 @@ def test_main_refreshes_the_baseline_subset_before_anything_reads_it(monkeypatch
 
     monkeypatch.setattr(run_m1.baseline_subset, "ensure_fresh", ensure)
     monkeypatch.setattr(
-        run_m1, "run", lambda spec, jobs, inputs: events.append("run") or {"defect_errors": [], "notes": []}
+        run_m1,
+        "run",
+        lambda spec, jobs, inputs, fresh_memo=False: events.append("run")
+        or {"defect_errors": [], "notes": []},
     )
     monkeypatch.setattr(
         run_m1,
@@ -131,6 +137,7 @@ def test_conform_only_records_its_own_green(monkeypatch, tmp_path):
     store = tmp_path / "conform-green.json"
     monkeypatch.setattr(ac, "CONFORM_GREEN", store)
     monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, horizon=5: "fp-conform")
+    monkeypatch.setattr(ac, "conform_skip_files", lambda root=None, horizon=5: {})
     monkeypatch.setattr(
         run_m1,
         "run_font_conformance",
@@ -171,6 +178,7 @@ def test_the_conform_horizon_default_matches_the_cycle_driver(monkeypatch, tmp_p
     swept = []
     monkeypatch.setattr(ac, "CONFORM_GREEN", store)
     monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, horizon=5: "fp-conform")
+    monkeypatch.setattr(ac, "conform_skip_files", lambda root=None, horizon=5: {})
 
     def fake_sweep(max_length, jobs):
         swept.append(max_length)
