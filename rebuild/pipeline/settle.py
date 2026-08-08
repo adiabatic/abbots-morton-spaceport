@@ -179,6 +179,7 @@ class Engine:
         vote_deep_slot: RightToken | None = None,
         simulated_prospect: bool | None = None,
         vote_slots: bool | None = None,
+        trace_memo: bool = False,
     ):
         self.spec = spec
         self.features = frozenset(features)
@@ -193,6 +194,7 @@ class Engine:
         self.simulated_prospect_fallbacks = 0
         self._closure_cache: dict[tuple, bool] = {}
         self._prospect_cache: dict[tuple, int] = {}
+        self._trace_cache: dict[tuple, TransitionTrace] | None = {} if trace_memo else None
         # YAML provenance of every authored record that demonstrably fired during settlement under this configuration: refusals that killed a candidate, unlocks that granted capability, row scopes that admitted a side, and extends/contracts/prefers that shaped a committed cell. Closure and prospect evaluations count — a refusal firing inside the lookahead closure is load-bearing for the window that consulted it. The dead-policy gate reads this through DecisionTable.cited_provenance.
         self.fired: set[str] = set()
 
@@ -1030,8 +1032,40 @@ class Engine:
         right3: RightToken = UNKNOWN,
         right4: RightToken = UNKNOWN,
     ) -> TransitionTrace:
+        """Under `trace_memo` — the table fixpoint's engines, where lefts arrive as fully settled cells — results are memoized over the collapsed left key (kind, and the settled cell's rune, stance, seam, extension): every left read in the kernel goes through those fields — condition matching consults the cell's rune and stance, `_left_exit_stroke` the committed seam, scoring the seam's presence, and the same-seam non-summing suppression the extension — never the left cell's entry or adjustments, so settled lefts differing only there trace identically and share one entry. Raising windows are not cached: the E-STRANDED message reads the full left label, and the liveness probes that trip settlement errors memoize their own verdicts above this. Everywhere else the memo stays off — the conform walker already memoizes at window grain above this call, so a second cache underneath would hold a full trace per window in memory and never be read."""
         if token.kind != "letter":
             return TransitionTrace(boundary_settled(token.kind), False, 0, (), (), "boundary", None, ())
+        cache = self._trace_cache
+        if cache is None:
+            return self._transition_trace_uncached(left, token, right1, right2, right3, right4)
+        settled = left.settled
+        key = (
+            left.kind,
+            settled.cell.rune if settled is not None else None,
+            settled.cell.stance if settled is not None else None,
+            settled.seam if settled is not None else None,
+            settled.extension if settled is not None else 0,
+            token.rune,
+            right1,
+            right2,
+            right3,
+            right4,
+        )
+        trace = cache.get(key)
+        if trace is None:
+            trace = self._transition_trace_uncached(left, token, right1, right2, right3, right4)
+            cache[key] = trace
+        return trace
+
+    def _transition_trace_uncached(
+        self,
+        left: LeftContext,
+        token: RightToken,
+        right1: RightToken,
+        right2: RightToken,
+        right3: RightToken,
+        right4: RightToken,
+    ) -> TransitionTrace:
         rune_name = token.letter
         if rune_name not in self.spec.runes:
             raise SettleError(f"{rune_name} is not a modeled rune")
