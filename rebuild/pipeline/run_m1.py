@@ -264,7 +264,7 @@ def tables_inputs() -> str:
 
 
 def run_font_conformance(out_dir: Path = OUT_DIR, max_length: int = 5, jobs: int = 1) -> dict:
-    """The exhaustive font-vs-settle sweep. The tables it replays are the ones the build stage already produced from these same sources, read back per configuration; only when that fingerprint fails to match does the fixpoint run again here, which is the standalone case of a sweep against a font whose runes have since moved."""
+    """The exhaustive font-vs-settle sweep. The tables it replays are the ones the build stage already produced from these same sources, read back per configuration; only when that fingerprint fails to match does the fixpoint run again here, which is the standalone case of a sweep against a font whose runes have since moved. Two carried-forward proofs cut the spend: the boundary gate's summary, when green for exactly this M1.otf, hands the sweep its structural checks within the proven horizon, and each config's recorded witness winners (`witnesses-<config>.tsv.gz` beside the windows) spare a hunt whose table did not move."""
     inputs = tables_inputs()
     spec = load_default_spec()
     start = time.perf_counter()
@@ -280,6 +280,12 @@ def run_font_conformance(out_dir: Path = OUT_DIR, max_length: int = 5, jobs: int
         decisions = rebuilt
         print(f"[t] build_tables_total {time.perf_counter() - start:.1f}s", flush=True)
     cell_glyphs = mint_cell_glyphs(spec, decisions)
+    boundary_horizon = conform.proven_boundary_horizon(
+        out_dir / "M1.otf", out_dir / "boundary_equivalence_summary.json"
+    )
+    witness_caches = {
+        config: conform.witnesses_path(out_dir, config) for config in conform.ACCEPTANCE_CONFIGS
+    }
     if jobs > 1:
         collected: dict[str, conform.ConformanceConfigResult] = {}
         with _spawn_pool(jobs) as pool:
@@ -293,6 +299,8 @@ def run_font_conformance(out_dir: Path = OUT_DIR, max_length: int = 5, jobs: int
                     cell_glyphs,
                     decision=None if rebuilt is None else rebuilt[config][0],
                     windows_path=None if windows is None else windows[config],
+                    boundary_horizon=boundary_horizon,
+                    witness_cache_path=witness_caches[config],
                 ): config
                 for config in conform.ACCEPTANCE_CONFIGS
             }
@@ -311,6 +319,8 @@ def run_font_conformance(out_dir: Path = OUT_DIR, max_length: int = 5, jobs: int
             out_dir=out_dir,
             tables=rebuilt,
             windows=windows,
+            boundary_horizon=boundary_horizon,
+            witness_caches=witness_caches,
         )
     summary = {
         "sequences": report.sequences,
@@ -348,7 +358,7 @@ def run_boundary_gate(
                 result = future.result()
                 collected[result.config] = result
         ordered = [collected[config] for config in conform.ACCEPTANCE_CONFIGS]
-        report = conform.merge_boundary_results(out_dir / "M1.otf", ordered)
+        report = conform.merge_boundary_results(out_dir / "M1.otf", ordered, max_length=max_length)
         report.write(out_dir / "boundary_equivalence_summary.json")
     else:
         report = conform.run_boundary_equivalence(

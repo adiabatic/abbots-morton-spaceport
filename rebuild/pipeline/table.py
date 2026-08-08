@@ -14,6 +14,7 @@ Joint rows combine both section 6.1 flags: ranking ties broken by the structural
 from __future__ import annotations
 
 import gzip
+import hashlib
 import json
 from collections import OrderedDict
 from dataclasses import dataclass, field, replace
@@ -353,6 +354,21 @@ def read_windows(path: Path, windows: bool = True) -> tuple[str, DecisionTable]:
         ),
     )
     return head["inputs"], decision
+
+
+def windows_digest(decision: DecisionTable) -> str:
+    """Content hash of everything a witness hunt reads from one configuration's table: the ordered rules and the enumerated windows, in exactly the forms `write_windows` serializes, but without the inputs stamp. The stamp moves on any hashed source edit; the table moves only when settlement itself does — so a cache keyed on this digest survives the ink-only rune edits that dominate glyph work, and staleness the digest cannot see (a rename map or deep-slot filter moving while the raw windows stay put) is safe by construction, because a recorded witness is only ever tried first and re-verified, never trusted."""
+    digest = hashlib.sha256()
+    digest.update(decision.config.encode())
+    digest.update(json.dumps([_rule_row(rule) for rule in decision.rules], separators=(",", ":")).encode())
+    for row in decision.transitions:
+        digest.update(
+            "\t".join(
+                (row.input_glyph, row.left, row.right1, row.right2, row.right3, row.right4, row.outcome)
+            ).encode()
+        )
+        digest.update(b"\n")
+    return digest.hexdigest()
 
 
 def right_chain_reach(cond) -> int:

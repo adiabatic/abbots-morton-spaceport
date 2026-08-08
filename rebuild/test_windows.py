@@ -57,6 +57,31 @@ class TestRoundTrip:
             table_module.read_windows(path)
 
 
+class TestWindowsDigest:
+    """The witness cache's key: the digest must survive everything a rune edit can move without moving the table (the inputs stamp), and move with anything a hunt actually reads (the rules, the windows)."""
+
+    def test_the_loaded_table_digests_like_the_built_one(self, built, written):
+        _inputs, loaded = table_module.read_windows(written)
+        assert table_module.windows_digest(loaded) == table_module.windows_digest(built)
+
+    def test_the_inputs_stamp_is_outside_the_digest(self, built, tmp_path):
+        first, second = tmp_path / "first.tsv.gz", tmp_path / "second.tsv.gz"
+        table_module.write_windows(built, first, "fp-sources")
+        table_module.write_windows(built, second, "fp-moved")
+        digests = {
+            table_module.windows_digest(table_module.read_windows(path)[1]) for path in (first, second)
+        }
+        assert len(digests) == 1
+
+    def test_a_moved_window_or_rule_moves_the_digest(self, built):
+        from dataclasses import replace
+
+        fewer_windows = replace(built, transitions=built.transitions[:-1])
+        fewer_rules = replace(built, rules=built.rules[:-1])
+        digests = {table_module.windows_digest(table) for table in (built, fewer_windows, fewer_rules)}
+        assert len(digests) == 3
+
+
 def _write_every_config(out_dir, inputs):
     for config in conform.ACCEPTANCE_CONFIGS:
         table_module.write_windows(

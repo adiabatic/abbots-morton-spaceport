@@ -1,6 +1,6 @@
 """Conformance gates (M1-PLAN sections 5 and 6, Group 3): HarfBuzz vs the settlement function, and the settlement function vs the section 13.1 baseline oracle.
 
-`run_conformance` promotes prototype/conform.py: the Shaper (MONOTONE_CHARACTERS cluster level; names via TTFont, never HarfBuzz's truncating API), the exhaustive length-1..5 enumeration per acceptance configuration, the ZWNJ structural checks (zero advance, no ink), split-buffer equivalence, gap-0 pen positions, and rule coverage (every emitted settlement rule fired). Coverage past the enumeration horizon is completed by generated witnesses: a settlement rule or decision-table transition the exhaustive sweep never exercises gets a shortest realizing string BFS-derived from the decision table's own windows (`_shortest_window_prefixes`), and that string is shaped and diffed as a top-up like any swept sequence — a rule only counts covered once it actually fires against the settled stream, so the table is a guide, never evidence. `uncovered_rules` / `uncovered_transitions` therefore count only rules and transitions with no verifiable witness at any length, which is dead code in the emitted FEA (a generator defect), not a horizon artifact. The worked example that forced this design: `sub qsNo.loop qsMay' qsMay qsMay` needs six tokens (·Day·Tea·No·May·May·May — ·Day takes ·Tea's baseline entry, the baseline-entered ·Tea is exitless, so ·No stays bare before ·May), one past the five-token sweep. The font-vs-settle diff takes no ledger: any divergence is a compiler defect by definition.
+`run_conformance` promotes prototype/conform.py: the Shaper (MONOTONE_CHARACTERS cluster level; names via TTFont, never HarfBuzz's truncating API), the exhaustive length-1..5 enumeration per acceptance configuration, the ZWNJ structural checks (zero advance, no ink), split-buffer equivalence, gap-0 pen positions, and rule coverage (every emitted settlement rule fired). Coverage past the enumeration horizon is completed by generated witnesses: a settlement rule or decision-table transition the exhaustive sweep never exercises gets a shortest realizing string BFS-derived from the decision table's own windows (`_shortest_window_prefixes`), and that string is shaped and diffed as a top-up like any swept sequence — a rule only counts covered once it actually fires against the settled stream, so the table is a guide, never evidence. `uncovered_rules` / `uncovered_transitions` therefore count only rules and transitions with no verifiable witness at any length, which is dead code in the emitted FEA (a generator defect), not a horizon artifact. The worked example that forced this design: `sub qsNo.loop qsMay' qsMay qsMay` needs six tokens (·Day·Tea·No·May·May·May — ·Day takes ·Tea's baseline entry, the baseline-entered ·Tea is exitless, so ·No stays bare before ·May), one past the five-token sweep. The font-vs-settle diff takes no ledger: any divergence is a compiler defect by definition. The top-ups spend nothing twice: candidate texts are deduplicated against everything already swept, each config's winning witnesses persist beside the enumeration (`read_witnesses` / `write_witnesses`, keyed by `table.windows_digest` so an ink-only rune edit keeps them warm) and are re-verified rather than trusted on the next run, and the sweep inherits the ZWNJ/split-buffer checks within the horizon the boundary gate already proved for the same font bytes (`proven_boundary_horizon`).
 
 `compare_against_baseline` is the section 6 oracle gate: stream the filtered sub-tables, run `settle` per row, compare ligation (clusters), per-seam classification, and cell identity through the hand-written alias map; every divergent row must match exactly one ledger entry (zero matches fails conformance, two-plus fails the ledger). When a font path is supplied, the gate also compares positions old-vs-new (M1-PLAN section 6 step 3d): each row is shaped against the new font and its per-slot (x_offset, y_offset, x_advance) triples are compared against the baseline's, with sidecar kerns normalized out of the old advances via `KernEvaluator` (the new font emits no kerning). Position equality is enforced on every row whose seam topology and ligation match the baseline and whose cell-grain divergence class (if any) claims ink identity (`ink_identical: true` in the ledger); rows whose matched class legitimately redraws ink (extensions restored or suppressed, withdrawal bindings) are excluded and counted, because their advances move with the ink by design.
 
@@ -9,6 +9,8 @@ Group 2's `settle` and `table` modules are imported lazily inside the entry poin
 
 from __future__ import annotations
 
+import gzip
+import hashlib
 import itertools
 import json
 import sys
@@ -64,6 +66,10 @@ class ConformReport:
     topped_up_rules: int = 0
     topped_up_sequences: int = 0
     notes: list[str] = field(default_factory=list)
+    # Set only by the boundary gate, whose green other gates lean on: the horizon and configs it proved, pinned to the exact font bytes it shaped. The conformance report leaves them None and its summary unchanged.
+    max_length: int | None = None
+    configs: tuple[str, ...] | None = None
+    font_sha256: str | None = None
 
     @property
     def passed(self) -> bool:
@@ -73,26 +79,27 @@ class ConformReport:
         by_kind: dict[str, int] = {}
         for divergence in self.divergences:
             by_kind[divergence.kind] = by_kind.get(divergence.kind, 0) + 1
+        summary: dict[str, object] = {
+            "font": self.font,
+            "sequences": self.sequences,
+            "shaping_runs": self.shaping_runs,
+            "divergences": len(self.divergences),
+            "divergences_by_kind": by_kind,
+            "uncovered_rules": self.uncovered_rules,
+            "uncovered_transitions": self.uncovered_transitions,
+            "topped_up_rules": self.topped_up_rules,
+            "topped_up_sequences": self.topped_up_sequences,
+            "pass": self.passed,
+            "notes": self.notes,
+        }
+        if self.max_length is not None:
+            summary["max_length"] = self.max_length
+        if self.configs is not None:
+            summary["configs"] = list(self.configs)
+        if self.font_sha256 is not None:
+            summary["font_sha256"] = self.font_sha256
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(
-            json.dumps(
-                {
-                    "font": self.font,
-                    "sequences": self.sequences,
-                    "shaping_runs": self.shaping_runs,
-                    "divergences": len(self.divergences),
-                    "divergences_by_kind": by_kind,
-                    "uncovered_rules": self.uncovered_rules,
-                    "uncovered_transitions": self.uncovered_transitions,
-                    "topped_up_rules": self.topped_up_rules,
-                    "topped_up_sequences": self.topped_up_sequences,
-                    "pass": self.passed,
-                    "notes": self.notes,
-                },
-                indent=2,
-            )
-            + "\n"
-        )
+        path.write_text(json.dumps(summary, indent=2) + "\n")
 
 
 class Shaper:
@@ -443,7 +450,13 @@ def run_boundary_equivalence(
     shaper = Shaper(Path(font_path))
     alphabet = spec_alphabet(spec)
     splitters = splitting_boundary_chars(spec)
-    report = ConformReport(font=str(font_path))
+    configs = tuple(configs)
+    report = ConformReport(
+        font=str(font_path),
+        max_length=max_length,
+        configs=configs,
+        font_sha256=_font_sha256(Path(font_path)),
+    )
     features_by_config = {config: features_for_config(config) for config in configs}
     secs_by_config = {config: 0.0 for config in features_by_config}
     runs_by_config = {config: 0 for config in features_by_config}
@@ -518,14 +531,45 @@ def boundary_config_worker(
     return _boundary_config(shaper, config, features, alphabet, splitters, max_length)
 
 
-def merge_boundary_results(font_path: Path, results: Iterable[BoundaryConfigResult]) -> ConformReport:
-    report = ConformReport(font=str(font_path))
+def merge_boundary_results(
+    font_path: Path, results: Iterable[BoundaryConfigResult], max_length: int | None = None
+) -> ConformReport:
+    report = ConformReport(font=str(font_path), max_length=max_length)
     results = list(results)
     report.sequences = results[0].sequences if results else 0
+    report.configs = tuple(result.config for result in results)
+    if Path(font_path).is_file():
+        report.font_sha256 = _font_sha256(Path(font_path))
     for result in results:
         report.shaping_runs += result.shaping_runs
         report.divergences.extend(result.divergences)
     return report
+
+
+def _font_sha256(font_path: Path) -> str:
+    return hashlib.sha256(Path(font_path).read_bytes()).hexdigest()
+
+
+def proven_boundary_horizon(
+    font_path: Path, summary_path: Path, configs: Iterable[str] = ACCEPTANCE_CONFIGS
+) -> int | None:
+    """The exhaustive horizon the boundary gate proved for exactly the font bytes at `font_path`, or None when its summary is missing, red, from another font, or short a requested config. Within this horizon `run_boundary_equivalence` already ran `check_zwnj_structure` and `check_split_buffer` over every sequence containing a run-splitting boundary — and a splitter-free text trivially satisfies both — so a conformance sweep may inherit that green instead of re-proving it text by text. Everything the inheritance leans on is checked here: `pass`, the recorded horizon and configs, and the font hash, so a stale summary (the usual case being a font rebuilt since the boundary gate last ran) simply declines rather than skipping unproven checks."""
+    try:
+        summary = json.loads(Path(summary_path).read_text())
+        font_hash = _font_sha256(Path(font_path))
+    except OSError, ValueError:
+        return None
+    horizon = summary.get("max_length")
+    recorded_configs = summary.get("configs")
+    if (
+        not summary.get("pass")
+        or not isinstance(horizon, int)
+        or not isinstance(recorded_configs, list)
+        or not set(configs) <= set(recorded_configs)
+        or summary.get("font_sha256") != font_hash
+    ):
+        return None
+    return horizon
 
 
 _WINDOW_BOUNDARIES = frozenset({"space", "uni200C", "periodcentered"})
@@ -1204,6 +1248,59 @@ def find_rule_witnesses(spec, features, decision, glyph_names=None) -> WitnessRe
     return report
 
 
+WITNESSES_FORMAT = "ams-m1-witnesses/1"
+
+
+def witnesses_path(out_dir: Path, config: str) -> Path:
+    return Path(out_dir) / f"witnesses-{config}.tsv.gz"
+
+
+def _text_codepoints(text: str) -> str:
+    return ":".join(f"{ord(ch):04X}" for ch in text)
+
+
+def _codepoint_text(codepoints: str) -> str:
+    return "".join(chr(int(part, 16)) for part in codepoints.split(":"))
+
+
+def read_witnesses(path: Path, digest: str) -> tuple[dict[int, str], dict[tuple[str, ...], str]]:
+    """The recorded witness texts of one configuration's last hunt — per rule index and per raw window key — or empty maps when the file is missing, unreadable, or carries another table's `windows_digest`. A loaded text is a head start, never a verdict: the top-up loops sweep it and check realization exactly as they would a freshly assembled candidate, so a recording the digest could not see going stale costs one deduplicated sweep and falls through to the normal hunt."""
+    rules: dict[int, str] = {}
+    windows: dict[tuple[str, ...], str] = {}
+    try:
+        with gzip.open(path, "rt", encoding="utf-8") as handle:
+            marker, _, payload = handle.readline().rstrip("\n").partition("\t")
+            if marker != f"# {WITNESSES_FORMAT}" or json.loads(payload).get("windows_digest") != digest:
+                return {}, {}
+            for line in handle:
+                kind, *fields = line.rstrip("\n").split("\t")
+                if kind == "rule":
+                    rules[int(fields[0])] = _codepoint_text(fields[1])
+                elif kind == "window":
+                    windows[tuple(fields[:-1])] = _codepoint_text(fields[-1])
+    except OSError, ValueError, IndexError:
+        return {}, {}
+    return rules, windows
+
+
+def write_witnesses(
+    path: Path,
+    digest: str,
+    rule_witnesses: Mapping[int, str],
+    window_witnesses: Mapping[tuple[str, ...], str],
+) -> None:
+    """Serialize a hunt's winning witness texts under the table digest they realized against, diff-stable like the enumeration beside them: sorted entries, colon-joined hex codepoints (witness texts carry spaces and ZWNJ, which no TSV cell should), and a zeroed gzip stamp."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("wb") as raw, gzip.GzipFile(filename="", fileobj=raw, mode="wb", mtime=0) as handle:
+        head = json.dumps({"windows_digest": digest}, separators=(",", ":"))
+        handle.write(f"# {WITNESSES_FORMAT}\t{head}\n".encode())
+        for index, text in sorted(rule_witnesses.items()):
+            handle.write(f"rule\t{index}\t{_text_codepoints(text)}\n".encode())
+        for key, text in sorted(window_witnesses.items()):
+            handle.write(("\t".join(("window", *key, _text_codepoints(text))) + "\n").encode())
+
+
 def run_conformance(
     font_path: Path,
     spec: ResolvedSpec,
@@ -1213,8 +1310,10 @@ def run_conformance(
     out_dir: Path | None = None,
     tables: Mapping[str, tuple] | None = None,
     windows: Mapping[str, Path] | None = None,
+    boundary_horizon: int | None = None,
+    witness_caches: Mapping[str, Path] | None = None,
 ) -> ConformReport:
-    """The serial conformance entry point: one shared Shaper, each config's sweep run in turn through `_conformance_config`, results merged by `merge_conformance_results`. The per-config fan-out lives in run_m1.run_font_conformance, which submits `conformance_config_worker` per config instead. Either source of decision tables spares this run the fixpoint: `windows` maps a config to the enumeration the build stage serialized (`table.write_windows`), read as its config comes up and released with it so no more than one is ever resident, and `tables` is a caller's in-memory `build_tables` mapping (config -> (decision, treaty)). A config in neither rebuilds."""
+    """The serial conformance entry point: one shared Shaper, each config's sweep run in turn through `_conformance_config`, results merged by `merge_conformance_results`. The per-config fan-out lives in run_m1.run_font_conformance, which submits `conformance_config_worker` per config instead. Either source of decision tables spares this run the fixpoint: `windows` maps a config to the enumeration the build stage serialized (`table.write_windows`), read as its config comes up and released with it so no more than one is ever resident, and `tables` is a caller's in-memory `build_tables` mapping (config -> (decision, treaty)). A config in neither rebuilds. `boundary_horizon` is the boundary gate's proven horizon for this exact font (resolve it with `proven_boundary_horizon`), under which each config's sweep inherits the structural checks instead of re-running them; `witness_caches` maps a config to its recorded-witness file, read and rewritten around the hunt."""
     from rebuild.pipeline import table as table_module
 
     shaper = Shaper(Path(font_path))
@@ -1242,6 +1341,8 @@ def run_conformance(
             anchors_of,
             max_length,
             decision=decision_for(config),
+            boundary_horizon=boundary_horizon,
+            witness_cache=None if witness_caches is None else witness_caches.get(config),
         )
         for config in configs
     ]
@@ -1275,8 +1376,13 @@ def _conformance_config(
     anchors_of: Callable[[str], dict | None] | None,
     max_length: int,
     decision=None,
+    boundary_horizon: int | None = None,
+    witness_cache: Path | None = None,
 ) -> ConformanceConfigResult:
-    """One config's whole conformance run: the exhaustive length-1..max_length sweep, then the witness top-ups for rules and decision-table transitions the sweep never fired. Configs share nothing, so this is the unit both the serial wrapper and the process-pool worker call. Settlement and the rule replay ride `_SettledWindowWalk`'s per-config memo, so the sweep's redundant windows cost dict probes rather than transitions, and the realized-window record is the memo itself. Callers that already hold this config's decision table pass it as `decision`; the fixpoint rebuild here is only the standalone fallback."""
+    """One config's whole conformance run: the exhaustive length-1..max_length sweep, then the witness top-ups for rules and decision-table transitions the sweep never fired. Configs share nothing, so this is the unit both the serial wrapper and the process-pool worker call. Settlement and the rule replay ride `_SettledWindowWalk`'s per-config memo, so the sweep's redundant windows cost dict probes rather than transitions, and the realized-window record is the memo itself. Callers that already hold this config's decision table pass it as `decision`; the fixpoint rebuild here is only the standalone fallback.
+
+    Two more levers keep the top-ups from re-spending what something already paid. A `swept` set deduplicates the hunt: a candidate text at or under the sweep horizon was already swept exhaustively, and a repeat of any text cannot add to `realized` or `rules_hit`, so only genuinely new texts shape — which also makes `topped_up_sequences` count distinct swept texts rather than hunt attempts. `witness_cache` names this config's recorded winners from the last hunt (keyed by `table.windows_digest`, so ink-only rune edits keep it warm); each still-unrealized rule or window tries its recording first and assembles fresh candidates only when that misses, so a warm run skips the candidate assembly — `_shortest_window_prefixes` and `_first_match_rows` build lazily, on the first actual miss — and re-sweeps only the distinct winners. `boundary_horizon` (the boundary gate's proven horizon for this font, `proven_boundary_horizon`) lets the sweep inherit `check_zwnj_structure` and `check_split_buffer` for texts within it, where that gate already proved them; top-up texts run past the horizon and keep their own checks.
+    """
     from rebuild.pipeline import settle as settle_module
     from rebuild.pipeline import table as table_module
     from rebuild.pipeline.emit_gsub import _raw_rename_map
@@ -1309,9 +1415,10 @@ def _conformance_config(
     def sweep_text(text: str) -> None:
         shaped = shaper.shape(text, features)
         result.shaping_runs += 1
-        check_zwnj_structure(text, config, shaper, shaped, result.divergences)
-        if set(text) & splitters:
-            check_split_buffer(text, config, features, shaper, shaped, result.divergences, splitters)
+        if boundary_horizon is None or len(text) > boundary_horizon:
+            check_zwnj_structure(text, config, shaper, shaped, result.divergences)
+            if set(text) & splitters:
+                check_split_buffer(text, config, features, shaper, shaped, result.divergences, splitters)
         settled, expected_cells, matched_rules = walker.walk(text)
         expected = isolated_overlay_names(spec, settled) if overlay else expected_cells
         check_oracle(text, config, shaped, expected, result.divergences, modes)
@@ -1319,21 +1426,61 @@ def _conformance_config(
             check_join_gaps(text, config, shaper, shaped, anchors_of, result.divergences)
         rules_hit.update(index for index in matched_rules if index is not None)
 
+    if boundary_horizon is not None:
+        modes.add(
+            f"zwnj/split-buffer checks for texts within length {boundary_horizon} inherited from the green boundary gate"
+        )
+
     for length in range(1, max_length + 1):
         for combo in itertools.product(alphabet, repeat=length):
             result.sequences += 1
             sweep_text("".join(combo))
 
-    prefixes, by_right3 = _shortest_window_prefixes(decision)
-    rows_by_rule = _first_match_rows(decision)
+    swept: set[str] = set()
 
-    swept = [index for index in range(len(decision.rules)) if index not in rules_hit]
+    def sweep_top_up(text: str) -> None:
+        if len(text) <= max_length or text in swept:
+            return
+        swept.add(text)
+        sweep_text(text)
+        result.topped_up_sequences += 1
+
+    if witness_cache is not None:
+        digest = table_module.windows_digest(decision)
+        recorded_rules, recorded_windows = read_witnesses(witness_cache, digest)
+    else:
+        digest = None
+        recorded_rules, recorded_windows = {}, {}
+
+    hunt_state: tuple[dict, dict] | None = None
+
+    def hunt_prefixes() -> tuple[dict, dict]:
+        nonlocal hunt_state
+        if hunt_state is None:
+            hunt_state = _shortest_window_prefixes(decision)
+        return hunt_state
+
+    rows_by_rule: dict[int, list] | None = None
+
+    def rule_rows(index: int) -> list:
+        nonlocal rows_by_rule
+        if rows_by_rule is None:
+            rows_by_rule = _first_match_rows(decision)
+        return rows_by_rule.get(index, [])
+
+    unhit = [index for index in range(len(decision.rules)) if index not in rules_hit]
     witnessed: dict[int, str] = {}
-    for index in swept:
-        for tokens in _candidate_witness_tokens(spec, prefixes, by_right3, rows_by_rule.get(index, ())):
+    for index in unhit:
+        recorded = recorded_rules.get(index)
+        if recorded is not None:
+            sweep_top_up(recorded)
+            if index in rules_hit:
+                witnessed[index] = recorded
+                continue
+        prefixes, by_right3 = hunt_prefixes()
+        for tokens in _candidate_witness_tokens(spec, prefixes, by_right3, rule_rows(index)):
             text = _token_text(spec, tokens)
-            sweep_text(text)
-            result.topped_up_sequences += 1
+            sweep_top_up(text)
             if index in rules_hit:
                 witnessed[index] = text
                 break
@@ -1343,7 +1490,7 @@ def _conformance_config(
         result.notes.append(
             f"{config}: rule beyond the length-{max_length} sweep, witnessed by {codepoints}: {rule_signature(decision.rules[index])}"
         )
-    dead = [index for index in swept if index not in rules_hit]
+    dead = [index for index in unhit if index not in rules_hit]
     result.uncovered_rules = len(dead)
     for index in dead:
         result.notes.append(
@@ -1360,20 +1507,37 @@ def _conformance_config(
             renames.get(row.right4, row.right4),
         )
 
+    window_witnesses: dict[tuple[str, ...], str] = {}
     for row in decision.transitions:
         key = renamed_key(row)
         if key in realized:
             continue
-        for tokens in _window_witness_candidates(spec, prefixes, by_right3, row):
-            sweep_text(_token_text(spec, tokens))
-            result.topped_up_sequences += 1
+        raw_key = (row.input_glyph, row.left, row.right1, row.right2, row.right3, row.right4)
+        recorded = recorded_windows.get(raw_key)
+        if recorded is not None:
+            sweep_top_up(recorded)
             if key in realized:
+                window_witnesses[raw_key] = recorded
+                continue
+        prefixes, by_right3 = hunt_prefixes()
+        for tokens in _window_witness_candidates(spec, prefixes, by_right3, row):
+            text = _token_text(spec, tokens)
+            sweep_top_up(text)
+            if key in realized:
+                window_witnesses[raw_key] = text
                 break
     unrealized = [row for row in decision.transitions if renamed_key(row) not in realized]
     result.uncovered_transitions = len(unrealized)
     if unrealized:
         result.notes.append(
             f"{config}: {len(unrealized)} decision-table transitions never realized; first: {unrealized[0].key}"
+        )
+    if witness_cache is not None and digest is not None:
+        write_witnesses(
+            witness_cache,
+            digest,
+            {**recorded_rules, **witnessed},
+            {**recorded_windows, **window_witnesses},
         )
 
     result.modes = sorted(modes)
@@ -1388,8 +1552,10 @@ def conformance_config_worker(
     glyphs: Mapping[CellId, GlyphRecord] | None = None,
     decision=None,
     windows_path: Path | None = None,
+    boundary_horizon: int | None = None,
+    witness_cache_path: Path | None = None,
 ) -> ConformanceConfigResult:
-    """One config's sweep in its own process. `windows_path` names the enumeration the build stage serialized for this config, loaded here rather than shipped in: the parent vetted its fingerprint, and a million rows per config is a pickle across the pool boundary that neither side needs to hold."""
+    """One config's sweep in its own process. `windows_path` names the enumeration the build stage serialized for this config, loaded here rather than shipped in: the parent vetted its fingerprint, and a million rows per config is a pickle across the pool boundary that neither side needs to hold. `boundary_horizon` and `witness_cache_path` pass through to `_conformance_config`; the parent resolves the horizon once (`proven_boundary_horizon`) since every config shapes the same font."""
     if decision is None and windows_path is not None:
         from rebuild.pipeline import table as table_module
 
@@ -1401,7 +1567,17 @@ def conformance_config_worker(
     glyphs_by_name = {record.name: record for record in (glyphs or {}).values()}
     anchors_of = anchors_in_font_units(glyphs_by_name) if glyphs else None
     return _conformance_config(
-        shaper, spec, config, alphabet, splitters, glyph_names, anchors_of, max_length, decision=decision
+        shaper,
+        spec,
+        config,
+        alphabet,
+        splitters,
+        glyph_names,
+        anchors_of,
+        max_length,
+        decision=decision,
+        boundary_horizon=boundary_horizon,
+        witness_cache=witness_cache_path,
     )
 
 

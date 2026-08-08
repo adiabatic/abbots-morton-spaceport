@@ -461,6 +461,223 @@ class TestConformanceMerge:
         assert merged.passed is True
 
 
+class TestWitnessCacheFile:
+    def test_round_trip_including_space_and_zwnj_texts(self, tmp_path):
+        path = conform.witnesses_path(tmp_path, "default")
+        rules = {0: PEA + TEA + MAY, 7: " " + ZWNJ + IT}
+        windows = {
+            ("qsPea", "#EDGE", "qsTea", "#NA", "#NA", "#NA"): PEA + TEA,
+            ("qsIt", "space", "qsMay", "qsTea", "#NA", "#NA"): " " + IT + MAY + TEA,
+        }
+        conform.write_witnesses(path, "digest-a", rules, windows)
+        assert conform.read_witnesses(path, "digest-a") == (rules, windows)
+
+    def test_another_tables_digest_reads_as_empty(self, tmp_path):
+        path = conform.witnesses_path(tmp_path, "default")
+        conform.write_witnesses(path, "digest-a", {0: PEA}, {})
+        assert conform.read_witnesses(path, "digest-b") == ({}, {})
+
+    def test_a_missing_or_garbled_file_reads_as_empty(self, tmp_path):
+        path = conform.witnesses_path(tmp_path, "default")
+        assert conform.read_witnesses(path, "digest-a") == ({}, {})
+        path.write_bytes(b"not a cache")
+        assert conform.read_witnesses(path, "digest-a") == ({}, {})
+
+    def test_two_writes_of_one_hunt_are_byte_identical(self, tmp_path):
+        first, second = tmp_path / "first.tsv.gz", tmp_path / "second.tsv.gz"
+        for path in (first, second):
+            conform.write_witnesses(
+                path, "digest-a", {3: PEA + MAY}, {("qsPea", "#EDGE", "#NA", "#NA", "#NA", "#NA"): PEA}
+            )
+        assert first.read_bytes() == second.read_bytes()
+
+
+class TestProvenBoundaryHorizon:
+    def _summary(self, tmp_path, font_bytes=b"font", overrides=None):
+        import hashlib
+        import json
+
+        font = tmp_path / "M1.otf"
+        font.write_bytes(font_bytes)
+        summary = {
+            "pass": True,
+            "max_length": 5,
+            "configs": list(conform.ACCEPTANCE_CONFIGS),
+            "font_sha256": hashlib.sha256(b"font").hexdigest(),
+        }
+        summary.update(overrides or {})
+        path = tmp_path / "boundary_equivalence_summary.json"
+        path.write_text(json.dumps(summary))
+        return font, path
+
+    def test_a_green_summary_for_these_font_bytes_hands_over_its_horizon(self, tmp_path):
+        font, path = self._summary(tmp_path)
+        assert conform.proven_boundary_horizon(font, path) == 5
+
+    def test_a_red_summary_declines(self, tmp_path):
+        font, path = self._summary(tmp_path, overrides={"pass": False})
+        assert conform.proven_boundary_horizon(font, path) is None
+
+    def test_a_rebuilt_font_declines(self, tmp_path):
+        font, path = self._summary(tmp_path, font_bytes=b"rebuilt since")
+        assert conform.proven_boundary_horizon(font, path) is None
+
+    def test_a_summary_short_a_requested_config_declines(self, tmp_path):
+        font, path = self._summary(tmp_path, overrides={"configs": ["default"]})
+        assert conform.proven_boundary_horizon(font, path) is None
+        assert conform.proven_boundary_horizon(font, path, configs=("default",)) == 5
+
+    def test_a_summary_predating_the_provenance_keys_declines(self, tmp_path):
+        font, path = self._summary(tmp_path)
+        import json
+
+        recorded = json.loads(path.read_text())
+        for key in ("max_length", "configs", "font_sha256"):
+            recorded.pop(key)
+        path.write_text(json.dumps(recorded))
+        assert conform.proven_boundary_horizon(font, path) is None
+
+    def test_a_missing_summary_declines(self, tmp_path):
+        font = tmp_path / "M1.otf"
+        font.write_bytes(b"font")
+        assert conform.proven_boundary_horizon(font, tmp_path / "absent.json") is None
+
+
+class TestBoundarySummaryProvenance:
+    def test_merged_boundary_results_carry_the_proof_the_conform_sweep_leans_on(self, tmp_path):
+        import json
+
+        font = tmp_path / "M1.otf"
+        font.write_bytes(b"font")
+        results = [conform.BoundaryConfigResult(config=config) for config in conform.ACCEPTANCE_CONFIGS]
+        report = conform.merge_boundary_results(font, results, max_length=5)
+        summary_path = tmp_path / "boundary_equivalence_summary.json"
+        report.write(summary_path)
+        recorded = json.loads(summary_path.read_text())
+        assert recorded["max_length"] == 5
+        assert recorded["configs"] == list(conform.ACCEPTANCE_CONFIGS)
+        assert conform.proven_boundary_horizon(font, summary_path) == 5
+
+    def test_a_conformance_summary_stays_in_its_established_shape(self, tmp_path):
+        import json
+
+        report = conform.merge_conformance_results(Path("M1.otf"), [])
+        path = tmp_path / "conform_summary.json"
+        report.write(path)
+        recorded = json.loads(path.read_text())
+        assert not {"max_length", "configs", "font_sha256"} & set(recorded)
+
+
+class _SilentShaper:
+    """Enough of a Shaper for the coverage machinery, which never reads shaped output: every text shapes to nothing, so the oracle records one length divergence per text and the structural checks see no slots. The texts it was asked to shape are the observable."""
+
+    def __init__(self):
+        self.shaped: list[str] = []
+
+    def shape(self, text: str, features: frozenset[str]) -> list[dict]:
+        self.shaped.append(text)
+        return []
+
+    def has_ink(self, glyph_name: str) -> bool:
+        return False
+
+    def outline_signature(self, glyph_name: str) -> tuple:
+        return ()
+
+
+class TestTopUpEconomics:
+    """The issue-13 levers over a real decision table (mini spec, horizon short enough that plenty of windows outlive the sweep) with the font faked out: dedupe of the hunt's candidate texts, the recorded-witness warm start, and the boundary gate's structural checks inherited within its proven horizon."""
+
+    HORIZON = 2
+
+    @pytest.fixture(scope="class")
+    def decision(self, spec):
+        from rebuild.pipeline.table import build_tables
+
+        return build_tables(spec, frozenset())[0]
+
+    def _run(self, spec, decision, boundary_horizon=None, witness_cache=None):
+        from rebuild.pipeline.settle import cell_label
+
+        shaper = _SilentShaper()
+        result = conform._conformance_config(
+            shaper,  # pyright: ignore[reportArgumentType]
+            spec,
+            "default",
+            conform.spec_alphabet(spec),
+            conform.splitting_boundary_chars(spec),
+            {cell: cell_label(spec, cell) for cell in decision.reachable_cells()},
+            None,
+            self.HORIZON,
+            decision=decision,
+            boundary_horizon=boundary_horizon,
+            witness_cache=witness_cache,
+        )
+        return result, shaper
+
+    def test_no_text_sweeps_twice_and_top_ups_count_distinct_texts(self, spec, decision, monkeypatch):
+        monkeypatch.setattr(conform, "check_split_buffer", lambda *args, **kwargs: None)
+        result, shaper = self._run(spec, decision)
+        assert result.topped_up_sequences > 0
+        assert len(shaper.shaped) == len(set(shaper.shaped))
+        assert result.shaping_runs == result.sequences + result.topped_up_sequences
+        assert result.uncovered_rules == 0
+        assert result.uncovered_transitions == 0
+
+    def test_a_recorded_hunt_spares_the_next_run_the_assembly(self, spec, decision, monkeypatch, tmp_path):
+        assemblies: list[int] = [0]
+        real = conform._window_witness_candidates
+
+        def counted(*args, **kwargs):
+            assemblies[0] += 1
+            return real(*args, **kwargs)
+
+        monkeypatch.setattr(conform, "_window_witness_candidates", counted)
+        cache = conform.witnesses_path(tmp_path, "default")
+        cold, _shaper = self._run(spec, decision, witness_cache=cache)
+        cold_assemblies = assemblies[0]
+        assert cold_assemblies > 0
+        assert cache.exists()
+        first_bytes = cache.read_bytes()
+        warm, _shaper = self._run(spec, decision, witness_cache=cache)
+        assert assemblies[0] == cold_assemblies
+        assert (warm.uncovered_rules, warm.uncovered_transitions) == (0, 0)
+        assert warm.topped_up_rules == cold.topped_up_rules
+        assert 0 < warm.topped_up_sequences <= cold.topped_up_sequences
+        assert cache.read_bytes() == first_bytes
+
+    def test_a_stale_recording_falls_back_to_the_hunt(self, spec, decision, monkeypatch, tmp_path):
+        from rebuild.pipeline import table as table_module
+
+        cache = conform.witnesses_path(tmp_path, "default")
+        self._run(spec, decision, witness_cache=cache)
+        conform.write_witnesses(cache, table_module.windows_digest(decision), {}, {})
+        result, _shaper = self._run(spec, decision, witness_cache=cache)
+        assert (result.uncovered_rules, result.uncovered_transitions) == (0, 0)
+        assert result.topped_up_sequences > 0
+
+    def test_the_boundary_gates_green_is_inherited_within_its_horizon(self, spec, decision, monkeypatch):
+        checked: list[str] = []
+        monkeypatch.setattr(
+            conform, "check_zwnj_structure", lambda text, *args, **kwargs: checked.append(text)
+        )
+        monkeypatch.setattr(conform, "check_split_buffer", lambda text, *args, **kwargs: checked.append(text))
+        result, _shaper = self._run(spec, decision, boundary_horizon=self.HORIZON)
+        assert checked
+        assert all(len(text) > self.HORIZON for text in checked)
+        assert any("inherited from the green boundary gate" in mode for mode in result.modes)
+
+    def test_without_the_boundary_green_every_text_keeps_its_checks(self, spec, decision, monkeypatch):
+        checked: list[str] = []
+        monkeypatch.setattr(
+            conform, "check_zwnj_structure", lambda text, *args, **kwargs: checked.append(text)
+        )
+        monkeypatch.setattr(conform, "check_split_buffer", lambda *args, **kwargs: None)
+        result, _shaper = self._run(spec, decision)
+        assert any(len(text) <= self.HORIZON for text in checked)
+        assert not any("inherited from the green boundary gate" in mode for mode in result.modes)
+
+
 class TestRawLabelsLateFormation:
     """raw_labels delegates formation to settle.form_ligatures, so the section 5.7 guard shapes the replayed labels exactly as it shapes the kernel's stream (the mini fixture spec above has no guarded ligature)."""
 
