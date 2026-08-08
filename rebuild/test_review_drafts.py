@@ -42,11 +42,6 @@ def drafter():
     return Drafter(AFTER_FONT)
 
 
-@pytest.fixture(scope="module")
-def enriched_units(enricher, workload):
-    return [enricher.enrich(unit) for unit in workload.units]
-
-
 def test_every_drafted_pin_passes_the_real_parser(drafter, enriched_units):
     ts = _import_test_shaping()
     for enriched in enriched_units:

@@ -1,24 +1,35 @@
-"""Shared fixtures for the rebuild suite. Two reside here. `_redirect_cycle_writes` is the standing guarantee that running the suite never costs the working repo a file; it is autouse, so every module in rebuild/ gets it whether or not its author thought about the cycle. `built_review_surface` owes every test a read-only review surface at the current input state while building as little as possible. First preference: when `surface_build_skippable` proves the cycle's own rebuild/out/review already reflects these inputs byte for byte, the fixture yields that directory directly and builds nothing — the steady state under the artifact cycle, and the same standard of proof the cycle itself skips its surface step on. That path assumes no artifact cycle is concurrently rewriting rebuild/out/review, the same standing assumption the suite already makes about the out/m1 artifacts it reads.
+"""Shared fixtures for the rebuild suite. Three reside here. `_redirect_cycle_writes` is the standing guarantee that running the suite never costs the working repo a file; it is autouse, so every module in rebuild/ gets it whether or not its author thought about the cycle. `built_review_surface` owes every test a read-only review surface at the current input state while building as little as possible. First preference: when `surface_build_skippable` proves the cycle's own rebuild/out/review already reflects these inputs byte for byte, the fixture yields that directory directly and builds nothing — the steady state under the artifact cycle, and the same standard of proof the cycle itself skips its surface step on. That path assumes no artifact cycle is concurrently rewriting rebuild/out/review, the same standing assumption the suite already makes about the out/m1 artifacts it reads.
 
 When the live surface is stale or absent, the cross-process cache under tmp/review-surface-test-cache/<key>/ serves instead: one worker builds under an exclusive flock (parallel at SURFACE_BUILD_JOBS — the half-width budget the artifact cycle's job_budget uses, and for the same reason: the xdist pool is hot while the builder runs); every other worker blocks on the lock and then loads the finished surface from disk, so a suite run costs at most one build instead of one per worker. The key is content-only — the full inputs fingerprint (data, baselines, pipeline code, review code, static, fonts) plus the out/m1 artifacts build_m1 reads — and deliberately mtime-blind, so cross-run hits survive pure mtime churn (git checkout, a make all that rewrote identical bytes). The manifest's generated_at/repo_head provenance stamps sit outside the key: two content-identical builds can differ in those two scalars, which is why test_builds_are_byte_identical masks them rather than requiring stamp-exact identity. flock (not a sentinel spinloop) serializes builders because the kernel releases it if a building worker dies, so a crash mid-build leaves no deadlock, just a missing DONE marker the next holder rebuilds over.
+
+`enriched_units` owes every test the whole live workload enriched, and runs the same cache for the same reason. Scoping that fixture to a module bought nothing: `--dist worksteal` hands each test to whichever worker is free, so a module whose tests sweep the enriched universe scatters over as many workers as it has such tests and every one of them re-enriched the workload from scratch. One worker now builds under the same exclusive flock and writes a compressed pickle; the rest block and unpickle it, at a small fraction of the enrichment it stands in for. That fixture holds its lock through the read as well, for a reason its docstring records: what a reader materializes here is gigabytes, not a manifest.
 """
 
 import fcntl
+import gzip
 import hashlib
 import json
 import os
+import pickle
 import shutil
+import warnings
+from functools import cache
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
 from rebuild.tools import artifact_cycle
+
+if TYPE_CHECKING:
+    from rebuild.review.enrich import EnrichedUnit
 
 REAL_RUN_RETENTION = artifact_cycle.run_retention
 LIVE_DELETION_TARGETS = (*artifact_cycle.M1_SUMMARY_FILES.values(), artifact_cycle.CONFORM_SUMMARY)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CACHE_ROOT = REPO_ROOT / "tmp" / "review-surface-test-cache"
+ENRICH_CACHE_ROOT = REPO_ROOT / "tmp" / "review-enrich-test-cache"
 CACHE_KEEP = 2
 SURFACE_BUILD_JOBS = max(1, (os.process_cpu_count() or 2) // 2)
 GREEN_RECORDS = (
@@ -63,8 +74,9 @@ def live_deletion_targets():
     return list(LIVE_DELETION_TARGETS)
 
 
+@cache
 def surface_cache_key() -> str | None:
-    """Content-only key over everything that can move a build byte: the full inputs fingerprint and the out/m1 artifacts build_m1 reads (M1.otf, the divergence audit, the subset tables, the recorded stage-A fingerprint). None when the out/m1 artifacts don't exist yet (fresh clone); the fixture then falls back to an uncached per-session build."""
+    """Content-only key over everything that can move a build byte: the full inputs fingerprint and the out/m1 artifacts build_m1 reads (M1.otf, the divergence audit, the subset tables, the recorded stage-A fingerprint). None when the out/m1 artifacts don't exist yet (fresh clone); the fixture then falls back to an uncached per-session build. Memoized because two fixtures now key off it and the hash reads a hundred-odd megabytes — the audit alone is most of it — which no worker should pay twice; the inputs cannot move under a running session."""
     from rebuild.pipeline import fingerprint
     from rebuild.review import build
 
@@ -82,15 +94,22 @@ def surface_cache_key() -> str | None:
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()[:16]
 
 
-def _prune_stale_entries(current: Path) -> None:
-    """Drop all but the newest CACHE_KEEP-1 sibling entries, taking each victim's own lock non-blocking first so a concurrent pytest run still reading that entry (it holds the lock for its whole read) is skipped instead of yanked out from under. Lock files are never unlinked: removing one while another process holds it open would let a third process lock a fresh inode under the same name, and two holders of "the" lock is exactly the corruption flock exists to prevent."""
+def _entry_mtime(entry: Path) -> float:
+    try:
+        return entry.stat().st_mtime
+    except OSError:
+        return 0.0
+
+
+def _prune_stale_entries(root: Path, current: Path) -> None:
+    """Drop all but the newest CACHE_KEEP-1 sibling entries under `root`, taking each victim's own lock non-blocking first so a concurrent pytest run still reading that entry (it holds the lock for its whole read) is skipped instead of yanked out from under. Lock files are never unlinked: removing one while another process holds it open would let a third process lock a fresh inode under the same name, and two holders of "the" lock is exactly the corruption flock exists to prevent. A victim that vanishes between the listing and its stat sorts last rather than raising: the pruner runs unlocked up to this point, so another session pruning the same root concurrently — two roots means a session now runs this twice — would otherwise take the whole run down over an entry it was about to delete anyway."""
     entries = sorted(
-        (entry for entry in CACHE_ROOT.iterdir() if entry.is_dir() and entry != current),
-        key=lambda entry: entry.stat().st_mtime,
+        (entry for entry in root.iterdir() if entry.is_dir() and entry != current),
+        key=_entry_mtime,
         reverse=True,
     )
     for stale in entries[CACHE_KEEP - 1 :]:
-        with (CACHE_ROOT / f"{stale.name}.lock").open("w") as lock:
+        with (root / f"{stale.name}.lock").open("w") as lock:
             try:
                 fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
             except OSError:
@@ -132,7 +151,61 @@ def built_review_surface(tmp_path_factory):
                 surface.mkdir(parents=True)
                 build_m1(surface, jobs=SURFACE_BUILD_JOBS)
                 done.write_text("")
-                _prune_stale_entries(entry)
+                _prune_stale_entries(CACHE_ROOT, entry)
             fcntl.flock(lock, fcntl.LOCK_SH)
         manifest = json.loads((surface / "manifest.json").read_text(encoding="utf-8"))
         yield surface, manifest
+
+
+def enrich_cache_key() -> str | None:
+    """`surface_cache_key` widened by the shaping and row-model code, which enrichment reads and no fingerprint covers. `compute_all` hashes rebuild/pipeline and rebuild/review; `enrich` also imports `Shaper` and `iter_rows` out of rebuild/validation, and a key blind to those would hand every worker units the code on disk no longer produces — with the gate reading green over them, which is the one failure a test cache must not have."""
+    from rebuild.pipeline import fingerprint
+
+    key = surface_cache_key()
+    if key is None:
+        return None
+    validation = sorted((REPO_ROOT / "rebuild" / "validation").glob("*.py"))
+    payload = f"{key}\n{fingerprint.hash_paths(REPO_ROOT, validation)}"
+    return hashlib.sha256(payload.encode()).hexdigest()[:16]
+
+
+def _enrich_workload() -> list[EnrichedUnit]:
+    """The live M1 workload with every unit enriched — what the cache holds, and what a cacheless run builds directly."""
+    from rebuild.review.audit import load_workload
+    from rebuild.review.build import M1_AFTER_FONT, M1_AUDIT, M1_LEDGER, M1_SUBSETS
+    from rebuild.review.enrich import LETTERS, Enricher, load_spec
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        spec = load_spec(REPO_ROOT)
+    enricher = Enricher(spec, M1_SUBSETS, M1_AFTER_FONT)
+    workload = load_workload(M1_AUDIT, M1_LEDGER, dict(LETTERS))
+    return [enricher.enrich(unit) for unit in workload.units]
+
+
+@pytest.fixture(scope="session")
+def enriched_units() -> list[EnrichedUnit]:
+    """Every unit of the live workload, enriched, read-only for the session. The cache is `built_review_surface`'s — `enrich_cache_key`'s content key, a superset of what enrichment reads so it can only over-invalidate (None on a fresh clone falls back to an uncached build), the same one-builder-under-flock discipline, the same non-blocking prune. What it stores is a gzipped protocol-5 pickle of the real EnrichedUnits, written and read as a stream so neither side ever holds the serialized form beside the objects; at compresslevel 1 it is an order of magnitude smaller than the raw pickle and costs a fraction of a second to inflate. Every worker returns the round trip, the builder included, so no test can quietly come to depend on being the one that enriched.
+
+    The lock is exclusive for the read too, which is where this fixture departs from `built_review_surface` and its shared-hold downgrade. That fixture's readers pull a few files off disk; this one's each materialize an enriched universe several gigabytes live, and letting the queued workers do that at once is not a small pessimization but a machine-wide one — measured on a 34 GB host, concurrent reads spent an order of magnitude more time in the kernel reclaiming pages than the whole serialized run costs, so the exclusive hold buys more by staggering the readers than the parallelism it gives up was ever worth. Staggering the readers is the whole of its job: a shared hold would fend off a concurrent pruner just as well. It is released before the first test runs either way.
+
+    The payload, not the marker, is what proves the entry usable. An interrupted prune deletes the entry's files in directory order and can strand a DONE whose pickle is already gone, which on a one-file payload is the likely outcome rather than a corner — and a marker taken on trust would then wedge that key for every session that ever computes it again.
+    """
+    key = enrich_cache_key()
+    if key is None:
+        return _enrich_workload()
+    ENRICH_CACHE_ROOT.mkdir(parents=True, exist_ok=True)
+    entry = ENRICH_CACHE_ROOT / key
+    blob = entry / "units.pickle.gz"
+    done = entry / "DONE"
+    with (ENRICH_CACHE_ROOT / f"{key}.lock").open("w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        if not (done.exists() and blob.exists()):
+            shutil.rmtree(entry, ignore_errors=True)
+            entry.mkdir(parents=True)
+            with gzip.open(blob, "wb", compresslevel=1) as handle:
+                pickle.dump(_enrich_workload(), handle, protocol=5)
+            done.write_text("")
+            _prune_stale_entries(ENRICH_CACHE_ROOT, entry)
+        with gzip.open(blob, "rb") as handle:
+            return pickle.load(handle)
