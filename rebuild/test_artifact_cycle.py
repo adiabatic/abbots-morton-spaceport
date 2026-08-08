@@ -17,14 +17,6 @@ from rebuild.tools import artifact_cycle as ac
 from rebuild.tools.cycle_timings import CycleTimings
 
 
-@pytest.fixture(autouse=True)
-def _redirect_cycle_writes(monkeypatch, tmp_path):
-    """Every file a cycle records is redirected under tmp_path, so a test driving _run_cycle over mocked stages can never leave a record in the live rebuild/out — where the next real cycle would read it as proof that content it never tested had passed."""
-    monkeypatch.setattr(ac, "CYCLE_SUMMARY", tmp_path / "cycle_summary.json")
-    for name in ("PLUMBING_GREEN", "CONFORM_GREEN", "REBUILD_GATE_GREEN", "RUN_M1_GREEN", "CENSUS_RESULT"):
-        monkeypatch.setattr(ac, name, tmp_path / f"{name.lower().replace('_', '-')}.json")
-
-
 def _pass_summaries():
     return {
         "pipeline": {"defect_errors": []},
@@ -605,6 +597,12 @@ def _rebuild_green(pool_policy, conform_fut, make_fut, spawn, emit, registry, up
 
 def _conform_green(pool_policy, make_fut, spawn, emit, registry, argv):
     return "green", []
+
+
+def _patch_gate_fingerprints(monkeypatch):
+    """The gate greens' keys, for a test that only cares that a green was or wasn't recorded. Unstubbed these are the live ones: _run_cycle snapshots them before the gates and _record_gate_greens recomputes them after, and each pass runs git ls-files over the repo and sha256s all of rebuild/, glyph_data/, the fonts, and the baseline TSVs — several seconds per test, and an answer that depends on the working tree rather than on the arrangement the test set up. Whether a moved key withholds the green is its own test."""
+    monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, horizon=None: "cfp")
+    monkeypatch.setattr(ac, "rebuild_gate_skip_fingerprint", lambda root=None: "rfp")
 
 
 def _patch_build_chain(monkeypatch):
@@ -3368,6 +3366,7 @@ def test_run_cycle_never_spawns_the_plumbing_when_skipped(monkeypatch, tmp_path)
     monkeypatch.setattr(ac, "_gate_rebuild_task", _rebuild_green)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
     _patch_build_chain(monkeypatch)
+    _patch_gate_fingerprints(monkeypatch)
     for name in ("_do_carry", "_do_merge", "_do_echo_fill", "_do_standing_fill", "_do_complaints"):
         monkeypatch.setattr(ac, name, must_not_run)
     monkeypatch.setattr(ac, "PLUMBING_GREEN", tmp_path / "plumbing-green.json")
@@ -3399,6 +3398,7 @@ def test_run_cycle_records_the_plumbing_green_only_after_a_complete_chain(monkey
     monkeypatch.setattr(ac, "_gate_rebuild_task", _rebuild_green)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
     _patch_build_chain(monkeypatch)
+    _patch_gate_fingerprints(monkeypatch)
     green = tmp_path / "plumbing-green.json"
     monkeypatch.setattr(ac, "PLUMBING_GREEN", green)
     monkeypatch.setattr(ac, "plumbing_skip_fingerprint", lambda root=None, surface=None, master=None: "plu")
@@ -3465,6 +3465,7 @@ def test_run_cycle_records_no_plumbing_green_when_standing_fills_landed(monkeypa
     monkeypatch.setattr(ac, "_gate_rebuild_task", _rebuild_green)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
     _patch_build_chain(monkeypatch)
+    _patch_gate_fingerprints(monkeypatch)
     monkeypatch.setattr(ac, "_do_complaints", lambda *, spawn, emit, registry: "no open complaints")
     monkeypatch.setattr(ac, "plumbing_skip_fingerprint", lambda root=None, surface=None, master=None: "plu")
     green = tmp_path / "plumbing-green.json"
@@ -3878,6 +3879,20 @@ def test_build_plan_retention_off_on_rehearsal():
     assert "rehearsal" in by_name["retention"].note
 
 
+def test_retention_never_runs_for_real_during_the_suite(real_run_retention):
+    """The tripwire on the autouse stub. Retention resolves its targets from ac.ROOT at call time — no fixture redirects that — so a real run from inside the suite deletes the live repo's snapshots and carried exports, and compacts its verdict journal. Any test reaching a green finish with record_greens set would do it, and one did: a suite run deleted a live cycle's only snapshot between its build and its carry, stranding the pass's verdicts."""
+    assert ac.run_retention is not real_run_retention
+    assert ac.run_retention(_plan(record_greens=True)) is None
+
+
+def test_the_gate_summaries_a_pass_clears_are_never_the_live_ones(tmp_path, live_deletion_targets):
+    """The same tripwire for the other two stages that delete before they rebuild. run_m1 unlinks its four summaries and gate:conform unlinks its own, both before spawning, and both from constants resolved against the live rebuild/out/m1 — so a test that drives either stage without stubbing it empties the directory the surface build consumes and the cycle's auto-skip keys on, at the price of a full rebuild to get it back. Neither would fail: the missing summaries read as a failed gate, which is what most such tests are asserting anyway."""
+    redirected = [*ac.M1_SUMMARY_FILES.values(), ac.CONFORM_SUMMARY]
+    assert [path.parent for path in redirected] == [tmp_path] * len(redirected)
+    assert [path.name for path in redirected] == [path.name for path in live_deletion_targets]
+    assert all(path.parent == ac.M1_OUT for path in live_deletion_targets)
+
+
 def test_finish_runs_retention_on_a_real_green_finish(monkeypatch):
     calls = {"n": 0}
 
@@ -3892,7 +3907,9 @@ def test_finish_runs_retention_on_a_real_green_finish(monkeypatch):
     assert calls["n"] == 1
 
 
-def test_retention_leaves_the_snapshots_alone_when_the_pass_took_none(tmp_path, monkeypatch, capsys):
+def test_retention_leaves_the_snapshots_alone_when_the_pass_took_none(
+    tmp_path, monkeypatch, capsys, real_run_retention
+):
     """A skip pass never makes the snapshot retention prunes to, so pruning would delete the last stamp-aligned copy — the very one describe_carry_source tells you to recover from when a surface gets restamped outside a cycle."""
     skipping = _plan(skip_plumbing=True, plumbing_note=ac.PLUMBING_SKIP_NOTE)
     ordinary = _plan(snapshot_dir=tmp_path / "tmp" / "review-pre-fresh")
@@ -3905,15 +3922,17 @@ def test_retention_leaves_the_snapshots_alone_when_the_pass_took_none(tmp_path, 
     monkeypatch.setattr(ac, "prune_stashes", lambda root, journal_path: [])
     monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: False)
 
-    ac.run_retention(skipping)
+    real_run_retention(skipping)
     assert survivor.is_dir()
     assert "snapshots : left intact" in capsys.readouterr().out
 
-    ac.run_retention(ordinary)
+    real_run_retention(ordinary)
     assert not survivor.exists()
 
 
-def test_retention_leaves_the_journal_and_stashes_alone_while_the_server_is_up(tmp_path, monkeypatch, capsys):
+def test_retention_leaves_the_journal_and_stashes_alone_while_the_server_is_up(
+    tmp_path, monkeypatch, capsys, real_run_retention
+):
     """The app appends to the journal as the reviewer verdicts, and compact() rewrites the whole file around a read — an append landing in between is gone. The stash sweep reads that same journal for its reference index, so it waits too; the carried sweep, which the app never writes, still runs."""
     plan = _plan(skip_plumbing=True, plumbing_note=ac.PLUMBING_SKIP_NOTE)
     monkeypatch.setattr(ac, "ROOT", tmp_path)
@@ -3930,7 +3949,7 @@ def test_retention_leaves_the_journal_and_stashes_alone_while_the_server_is_up(t
     monkeypatch.setattr(ac, "prune_stashes", lambda root, journal_path: swept.append(root) or [])
     monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: True)
 
-    ac.run_retention(plan)
+    real_run_retention(plan)
 
     out = capsys.readouterr().out
     assert compacted == [] and swept == []
