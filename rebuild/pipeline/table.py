@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Callable
 
 if TYPE_CHECKING:
-    from rebuild.pipeline.trace_memo import TraceStore
+    from rebuild.pipeline.trace_memo import TraceShare, TraceStore
 
 from rebuild.pipeline import settle as settle_module
 from rebuild.pipeline.model import (
@@ -899,9 +899,13 @@ def _entry_extension(settled: Settled) -> int:
 
 
 def build_tables(
-    spec: ResolvedSpec, features: frozenset[str], trace_store: "TraceStore | None" = None
+    spec: ResolvedSpec,
+    features: frozenset[str],
+    trace_store: "TraceStore | None" = None,
+    share: "TraceShare | None" = None,
 ) -> tuple[DecisionTable, TreatyTable]:
-    engine = Engine(spec, features, trace_memo=True, trace_store=trace_store)
+    reader = share.reader_for(features) if share is not None else None
+    engine = Engine(spec, features, trace_memo=True, trace_store=trace_store, trace_share=reader)
     config = feature_config_token(features)
     letters = sorted(spec.runes)
     formation_pairs = _formation_pairs(spec)
@@ -1144,10 +1148,10 @@ def build_tables(
                                 )
                             )
 
-    # The fixpoint and the liveness probes are done tracing; persist the memo for the next cycle (issue 25), then drop it — the engine outlives this build in _LIVENESS_PROBES, so retaining a full trace per window would hold the pile for nothing.
+    # The fixpoint and the liveness probes are done tracing; persist the memo for the next cycle (issue 25), then drop it — the engine outlives this build in _LIVENESS_PROBES, so retaining a full trace per window would hold the pile for nothing. When a share adopts this build's memo (issue 15: the donor configuration of a serial multi-config run), the pile stays alive instead, and TraceShare.release drops it once the last recipient is built.
     if trace_store is not None:
         trace_store.save(engine)
-    if engine._trace_cache is not None:
+    if (share is None or not share.offer(engine)) and engine._trace_cache is not None:
         engine._trace_cache.clear()
         engine._trace_fired.clear()
 

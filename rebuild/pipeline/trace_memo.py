@@ -14,10 +14,11 @@ import hashlib
 import json
 import os
 from pathlib import Path
+from typing import Mapping
 
 from rebuild.pipeline import fingerprint
 from rebuild.pipeline import settle as settle_module
-from rebuild.pipeline.model import CellId, ResolvedSpec, Settled
+from rebuild.pipeline.model import CellId, ResolvedSpec, Settled, When
 from rebuild.pipeline.settle import EDGE, NAMER_DOT, SPACE, UNKNOWN, ZWNJ, Engine, RightToken, TransitionTrace
 
 STORE_FORMAT = "ams-m1-trace-memo/1"
@@ -86,6 +87,148 @@ def rune_closure(spec: ResolvedSpec) -> dict[str, frozenset[str]]:
                     frontier.append(target)
         closure[name] = frozenset(seen)
     return closure
+
+
+class FeatureSensitivity:
+    """Which memo keys can trace differently between two feature configurations (issue 15). The active feature set is read in exactly two places — `unlock.feature` on capability rows and `when.feature` on policy records and unlock `when:`s — and a gate that is off short-circuits to a hard False before the rest of its `when` is consulted, so a key's trace can move between configurations only where some rune the key names owns a record gated on a feature in the symmetric difference whose remaining `when` could evaluate True or None over that key's window. Three grains capture that conservatively. `anywhere` holds the owners whose gate has no verifiable trigger: no `when` at all, an exit unlock (fired at enumeration grain, before any `when` is consulted), a `word:` constraint (unknowable in shifted evaluations), a right condition with `then:`/`except:` hops (which read UNKNOWN past the evaluation site's window), a side with no positive family/class axis, or a `resolve.against` closure that reaches another owner — such an owner marks every key it appears in. `right_triggers` and `left_triggers` map the remaining owners to the first-hop family sets their gates fire toward — positive `family:` axes plus expanded `class:` references, so `except:` carve-outs and non-family axes only ever widen the sensitive set. Right-facing family matching is literal (`cond_matches_right` never lead-expands a ligature), and left-facing lists were already ligature-expanded at load, so the resolved conditions are the right thing to read on both sides. A key is then sensitive when an `anywhere` owner appears at any slot; when a right-trigger owner sits immediately left of a trigger family, an UNKNOWN token, or the window's far edge (shifted evaluations read UNKNOWN there, where the gated condition returns None against the gate-off False); or when a left-trigger owner sits immediately right of a trigger family or at the left slot itself, whose own left lies beyond the key. Boundary tokens are definite non-matches for family conditions and never mark a key sensitive."""
+
+    def __init__(self, spec: ResolvedSpec, delta: frozenset[str]):
+        from rebuild.pipeline.specificity import class_members
+        from rebuild.pipeline.table import right_chain_reach
+
+        self.anywhere: set[str] = set()
+        self.right_triggers: dict[str, frozenset[str]] = {}
+        self.left_triggers: dict[str, frozenset[str]] = {}
+
+        def families(cond, owner: str) -> frozenset[str] | None:
+            gathered = set(cond.family)
+            for name in cond.klass:
+                gathered |= class_members(spec, name, owner)
+            return frozenset(gathered) if gathered else None
+
+        def classify(owner: str, when: When | None) -> None:
+            if when is None or (when.left is None and when.right is None) or when.word is not None:
+                self.anywhere.add(owner)
+                return
+            right = left = None
+            if when.right is not None:
+                right = families(when.right, owner)
+                if right is None or right_chain_reach(when.right) > 0:
+                    self.anywhere.add(owner)
+                    return
+            if when.left is not None:
+                left = families(when.left, owner)
+                if left is None:
+                    self.anywhere.add(owner)
+                    return
+            if right is not None:
+                self.right_triggers[owner] = self.right_triggers.get(owner, frozenset()) | right
+            if left is not None:
+                self.left_triggers[owner] = self.left_triggers.get(owner, frozenset()) | left
+
+        for name, rune in spec.runes.items():
+            for stance in rune.stances.values():
+                for unlock in stance.surface.unlocks:
+                    if unlock.feature in delta or (unlock.when is not None and unlock.when.feature in delta):
+                        classify(name, None if unlock.exit is not None else unlock.when)
+            for kind in ("refuse", "prefer", "extend", "contract", "resolve"):
+                for record in getattr(rune.policy, kind):
+                    if record.when.feature in delta:
+                        classify(name, record.when)
+        owners = self.anywhere | set(self.right_triggers) | set(self.left_triggers)
+        for name, reachable in rune_closure(spec).items():
+            if (reachable & owners) - {name}:
+                self.anywhere.add(name)
+
+    def key_shared(self, key: tuple) -> bool:
+        slots: list[str | RightToken | None] = [key[1] if key[0] == "letter" else None, key[5]]
+        for token in key[6:10]:
+            if token.kind == "letter":
+                slots.append(token.rune)
+            elif token.kind == "unknown":
+                slots.append(UNKNOWN)
+            else:
+                slots.append(None)
+        for index, name in enumerate(slots):
+            if not isinstance(name, str):
+                continue
+            if name in self.anywhere:
+                return False
+            triggers = self.right_triggers.get(name)
+            if triggers is not None:
+                successor = slots[index + 1] if index + 1 < len(slots) else UNKNOWN
+                if successor is UNKNOWN or (isinstance(successor, str) and successor in triggers):
+                    return False
+            triggers = self.left_triggers.get(name)
+            if triggers is not None:
+                if index == 0:
+                    return False
+                predecessor = slots[index - 1]
+                if predecessor is UNKNOWN or (isinstance(predecessor, str) and predecessor in triggers):
+                    return False
+        return True
+
+
+class _TraceShareReader:
+    """The donor-side view one recipient configuration's engine consults: the donor's finished in-memory memo behind that recipient's `FeatureSensitivity` gate. Serving replays the donor's journaled fired delta — an insensitive key's evaluation is identical under both configurations, records consulted, declined and fired alike, so the donor's delta is exactly what a recomputation would journal."""
+
+    def __init__(
+        self,
+        cache: Mapping[tuple, TransitionTrace],
+        fired: Mapping[tuple, tuple[str, ...]],
+        sensitivity: FeatureSensitivity,
+    ):
+        self._cache = cache
+        self._fired = fired
+        self._sensitivity = sensitivity
+        self.served = 0
+
+    def get(self, key: tuple) -> tuple[TransitionTrace, tuple[str, ...]] | None:
+        if not self._sensitivity.key_shared(key):
+            return None
+        trace = self._cache.get(key)
+        if trace is None:
+            return None
+        self.served += 1
+        return trace, self._fired.get(key, ())
+
+
+class TraceShare:
+    """Cross-configuration reuse of one build's finished trace memo within a single process (issue 15): the donor configuration — the default — builds first and `offer` adopts its engine's memo whole; every configuration after it gets a `reader_for` view that serves only the keys whose named runes cannot feel that configuration's feature delta, so a recipient's fixpoint re-traces its sensitive fraction and shares the rest. The fixpoint itself still runs per configuration — reachability and the deep-slot filters are feature-dependent — so a served key is only ever one the recipient independently decided to visit, the same discipline the persisted store keeps. `release` drops the adopted memo when the run is done, because engines outlive builds in module-level caches and the pile is most of a build's resident weight."""
+
+    def __init__(self, spec: ResolvedSpec, donor_features: frozenset[str] = frozenset()):
+        self.spec = spec
+        self.donor_features = frozenset(donor_features)
+        self.last_reader: _TraceShareReader | None = None
+        self._cache: Mapping[tuple, TransitionTrace] | None = None
+        self._fired: Mapping[tuple, tuple[str, ...]] | None = None
+
+    def offer(self, engine: Engine) -> bool:
+        if self._cache is not None or engine.features != self.donor_features:
+            return False
+        if engine._trace_cache is None:
+            return False
+        self._cache = engine._trace_cache
+        self._fired = engine._trace_fired
+        return True
+
+    def reader_for(self, features: frozenset[str]) -> _TraceShareReader | None:
+        if self._cache is None or self._fired is None:
+            return None
+        delta = frozenset(features) ^ self.donor_features
+        if not delta:
+            return None
+        self.last_reader = _TraceShareReader(self._cache, self._fired, FeatureSensitivity(self.spec, delta))
+        return self.last_reader
+
+    def release(self) -> None:
+        cache, fired = self._cache, self._fired
+        self._cache = None
+        self._fired = None
+        if isinstance(cache, dict):
+            cache.clear()
+        if isinstance(fired, dict):
+            fired.clear()
 
 
 def _serialized_token(token: RightToken) -> object:

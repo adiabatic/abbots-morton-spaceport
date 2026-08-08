@@ -1,4 +1,4 @@
-"""The persisted trace memo (issue 25): a rebuild over unchanged runes serves every kernel call from the previous build's store and rewrites it byte for byte; a single moved rune digest re-traces only the entries that could feel it; and a served build's tables — `cited_provenance` above all, since the dead-policy gate reads it and nothing else backstops it — are indistinguishable from a fresh build's."""
+"""The persisted trace memo (issue 25): a rebuild over unchanged runes serves every kernel call from the previous build's store and rewrites it byte for byte; a single moved rune digest re-traces only the entries that could feel it; and a served build's tables — `cited_provenance` above all, since the dead-policy gate reads it and nothing else backstops it — are indistinguishable from a fresh build's. The cross-configuration share (issue 15) rides the same key discipline: a recipient configuration served from the default build's memo must be indistinguishable from a full per-config build, and only keys no named rune of which can feel the feature delta may be served at all."""
 
 from dataclasses import replace
 from types import SimpleNamespace
@@ -8,6 +8,7 @@ import pytest
 from rebuild.pipeline import fixtures, trace_memo
 from rebuild.pipeline import table as table_module
 from rebuild.pipeline.model import PolicyRecord
+from rebuild.pipeline.settle import EDGE, UNKNOWN, RightToken
 
 SPEC = fixtures.mini_spec()
 DIGESTS = {name: f"digest-{name}" for name in SPEC.runes}
@@ -122,6 +123,117 @@ class TestClosure:
         spec = replace(SPEC, runes={**SPEC.runes, owner: patched})
         assert trace_memo.rune_closure(spec)[owner] == {owner, target}
         assert trace_memo.rune_closure(SPEC)[owner] == {owner}
+
+
+def _share_key(left, input_rune, *tokens):
+    filled = list(tokens) + [EDGE] * (4 - len(tokens))
+    return (*left, input_rune, *filled)
+
+
+_EDGE_LEFT = ("edge", None, None, None, 0)
+_MAY_LEFT = ("letter", "qsMay", "loop", "x-height", 0)
+_TEA_LEFT = ("letter", "qsTea", "full", None, 0)
+_LETTER = {name: RightToken("letter", name) for name in SPEC.runes}
+
+
+class TestFeatureSensitivity:
+    def test_the_fixture_ss03_delta_yields_pair_triggers_and_nothing_unverifiable(self):
+        sens = trace_memo.FeatureSensitivity(SPEC, frozenset({"ss03"}))
+        assert sens.anywhere == set()
+        assert sens.right_triggers == {"qsMay": frozenset({"qsTea"})}
+        assert "qsMay" in sens.left_triggers["qsTea"]
+
+    def test_a_gate_with_no_positive_family_axis_marks_its_owner_everywhere(self):
+        # The fixture ss04 unlock's right side is an except:-only condition; nothing verifiable remains, so qsIt's mere presence must mark a key sensitive.
+        sens = trace_memo.FeatureSensitivity(SPEC, frozenset({"ss04"}))
+        assert "qsIt" in sens.anywhere
+
+    def test_a_key_with_no_sensitive_rune_is_shared(self):
+        sens = trace_memo.FeatureSensitivity(SPEC, frozenset({"ss03"}))
+        assert sens.key_shared(_share_key(_EDGE_LEFT, "qsPea", _LETTER["qsOy"]))
+
+    def test_a_right_trigger_owner_before_its_trigger_family_is_sensitive(self):
+        sens = trace_memo.FeatureSensitivity(SPEC, frozenset({"ss03"}))
+        assert not sens.key_shared(_share_key(_EDGE_LEFT, "qsMay", _LETTER["qsTea"]))
+        assert not sens.key_shared(_share_key(_EDGE_LEFT, "qsPea", _LETTER["qsMay"], _LETTER["qsTea"]))
+        assert sens.key_shared(_share_key(_EDGE_LEFT, "qsMay", _LETTER["qsPea"]))
+        assert sens.key_shared(_share_key(_EDGE_LEFT, "qsMay"))
+
+    def test_an_unknown_or_beyond_window_neighbor_keeps_a_trigger_owner_sensitive(self):
+        # Shifted evaluations read UNKNOWN past the window, where a gated condition returns None against the gate-off False — so an owner facing UNKNOWN, or sitting at the last slot, cannot be shared.
+        sens = trace_memo.FeatureSensitivity(SPEC, frozenset({"ss03"}))
+        assert not sens.key_shared(_share_key(_EDGE_LEFT, "qsPea", _LETTER["qsMay"], UNKNOWN))
+        assert not sens.key_shared(
+            _share_key(
+                _EDGE_LEFT, "qsPea", _LETTER["qsOy"], _LETTER["qsOy"], _LETTER["qsOy"], _LETTER["qsMay"]
+            )
+        )
+
+    def test_a_left_trigger_owner_reads_its_own_left(self):
+        sens = trace_memo.FeatureSensitivity(SPEC, frozenset({"ss03"}))
+        assert not sens.key_shared(_share_key(_MAY_LEFT, "qsTea"))
+        assert not sens.key_shared(_share_key(_TEA_LEFT, "qsPea"))
+        assert sens.key_shared(_share_key(_EDGE_LEFT, "qsTea"))
+
+    def test_an_anywhere_owner_marks_any_slot(self):
+        sens = trace_memo.FeatureSensitivity(SPEC, frozenset({"ss04"}))
+        assert not sens.key_shared(_share_key(_EDGE_LEFT, "qsPea", _LETTER["qsIt"]))
+        assert not sens.key_shared(_share_key(("letter", "qsIt", "hapax", None, 0), "qsPea"))
+        assert sens.key_shared(_share_key(_EDGE_LEFT, "qsPea", _LETTER["qsOy"]))
+
+
+class TestConfigShare:
+    @pytest.fixture(scope="class")
+    def shared(self, tmp_path_factory):
+        tmp = tmp_path_factory.mktemp("share")
+        share = trace_memo.TraceShare(SPEC)
+        donor_store = trace_memo.open_store(
+            trace_memo.store_path(tmp, "default"), SPEC, DIGESTS, "env", "default"
+        )
+        table_module.build_tables(SPEC, frozenset(), trace_store=donor_store, share=share)
+        recipient_store = trace_memo.open_store(
+            trace_memo.store_path(tmp, "ss03"), SPEC, DIGESTS, "env", "ss03"
+        )
+        decision, treaty = table_module.build_tables(
+            SPEC, frozenset({"ss03"}), trace_store=recipient_store, share=share
+        )
+        reader = share.last_reader
+        share.release()
+        reference_decision, reference_treaty = table_module.build_tables(SPEC, frozenset({"ss03"}))
+        return SimpleNamespace(
+            donor_store=donor_store,
+            recipient_store=recipient_store,
+            reader=reader,
+            decision=decision,
+            treaty=treaty,
+            reference_decision=reference_decision,
+            reference_treaty=reference_treaty,
+        )
+
+    def test_the_share_actually_serves(self, shared):
+        assert shared.reader is not None
+        assert shared.reader.served > 0
+
+    def test_a_shared_build_is_indistinguishable_from_a_full_one(self, shared):
+        assert _outcomes(shared.decision) == _outcomes(shared.reference_decision)
+        assert shared.decision.rules == shared.reference_decision.rules
+        assert shared.treaty.rows == shared.reference_treaty.rows
+        assert table_module.windows_digest(shared.decision) == table_module.windows_digest(
+            shared.reference_decision
+        )
+
+    def test_served_keys_fill_cited_provenance_exactly_as_a_full_build_would(self, shared):
+        assert shared.decision.cited_provenance == shared.reference_decision.cited_provenance
+
+    def test_share_hits_stay_out_of_the_recipient_store(self, shared):
+        # A recipient's persisted memo should carry only the windows its configuration owns — the sensitive fraction — because share hits never enter the engine cache the store rewrites.
+        assert 0 < shared.recipient_store.saved < shared.donor_store.saved
+
+    def test_the_donor_itself_gets_no_reader(self):
+        share = trace_memo.TraceShare(SPEC)
+        assert share.reader_for(frozenset()) is None
+        engine_less = share.reader_for(frozenset({"ss03"}))
+        assert engine_less is None
 
 
 class TestStructureDigest:
