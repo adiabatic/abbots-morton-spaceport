@@ -79,13 +79,17 @@ def _label(repo_root: Path, path: Path) -> str:
         return path.name
 
 
-def hash_paths(repo_root: Path, paths: list[Path]) -> str:
-    lines = sorted(
+def path_lines(repo_root: Path, paths: list[Path]) -> list[str]:
+    """The per-file `label\\tdigest` lines a path-set hash is built from, sorted — exposed so a green record can store them and a skip miss can name exactly which input moved instead of reporting only that some 64-hex value did."""
+    return sorted(
         f"{_label(repo_root, path)}\t{hashlib.sha256(path.read_bytes()).hexdigest()}"
         for path in paths
         if path.is_file()
     )
-    return hashlib.sha256("\n".join(lines).encode()).hexdigest()
+
+
+def hash_paths(repo_root: Path, paths: list[Path]) -> str:
+    return hashlib.sha256("\n".join(path_lines(repo_root, paths)).encode()).hexdigest()
 
 
 def _without_why(record: object) -> object:
@@ -144,16 +148,38 @@ def rune_file_digest(path: Path) -> str:
     return hashlib.sha256(payload.encode()).hexdigest()
 
 
-def data_value(repo_root: Path) -> str:
-    """The `data` component: rune files by their prose-blind digest, every other data input by raw bytes."""
+def data_lines(repo_root: Path) -> list[str]:
+    """The per-file `label\\tdigest` lines the `data` component is built from: rune files by their prose-blind digest, every other data input by raw bytes. Sorted, like `path_lines`, and exposed for the same reason."""
     root = Path(repo_root)
     runes = set(rune_paths(root))
-    lines = sorted(
+    return sorted(
         f"{_label(root, path)}\t"
         + (rune_file_digest(path) if path in runes else hashlib.sha256(path.read_bytes()).hexdigest())
         for path in data_paths(root)
         if path.is_file()
     )
+
+
+def data_value(repo_root: Path) -> str:
+    """The `data` component: rune files by their prose-blind digest, every other data input by raw bytes."""
+    return hashlib.sha256("\n".join(data_lines(repo_root)).encode()).hexdigest()
+
+
+def rune_digests(repo_root: Path) -> dict[str, str]:
+    """Every rune file's prose-blind digest, keyed by family name (the file stem, which spec_load lints to equal the `rune:` field). This is the per-rune grain the trace-memo store invalidates at: an entry survives a cycle exactly when every family it names still carries the digest recorded beside it."""
+    return {path.stem: rune_file_digest(path) for path in rune_paths(Path(repo_root)) if path.is_file()}
+
+
+def tables_environment_value(repo_root: Path) -> str:
+    """`tables_value` with the per-rune digests factored out: the non-rune data inputs plus the pipeline code. The trace-memo store stamps itself with this wholesale — any of these moving invalidates every entry — while the rune files invalidate at per-entry grain through `rune_digests`."""
+    root = Path(repo_root)
+    runes = set(rune_paths(root))
+    lines = sorted(
+        f"{_label(root, path)}\t{hashlib.sha256(path.read_bytes()).hexdigest()}"
+        for path in data_paths(root)
+        if path.is_file() and path not in runes
+    )
+    lines.append(f"pipeline_code\t{hash_paths(root, pipeline_code_paths(root))}")
     return hashlib.sha256("\n".join(lines).encode()).hexdigest()
 
 

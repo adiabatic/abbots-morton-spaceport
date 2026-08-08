@@ -2141,6 +2141,42 @@ def test_conform_skip_fingerprint_includes_horizon_and_font(tmp_path):
     assert ac.conform_skip_fingerprint(tmp_path, 5) != base
 
 
+def test_run_m1_skip_files_carry_the_lines_behind_the_fingerprint(tmp_path):
+    (tmp_path / "glyph_data" / "runes").mkdir(parents=True)
+    (tmp_path / "rebuild" / "out" / "m1").mkdir(parents=True)
+    (tmp_path / "uv.lock").write_text("lock-1")
+    (tmp_path / "glyph_data" / "runes" / "qsX.yaml").write_text("a: 1\n")
+    files = ac.run_m1_skip_files(tmp_path)
+    assert "glyph_data/runes/qsX.yaml" in files
+    assert "uv.lock" in files
+    assert ac._digest_lines(ac.run_m1_skip_lines(tmp_path)) == ac.run_m1_skip_fingerprint(tmp_path)
+    conform = ac.conform_skip_files(tmp_path, 5)
+    assert conform["horizon"] == "5"
+    assert "M1.otf" in conform
+
+
+def test_record_green_stores_the_files_and_the_reader_returns_them(tmp_path):
+    path = tmp_path / "run-m1-green.json"
+    ac.record_green(path, "fp-1", files={"glyph_data/runes/qsX.yaml": "d1"})
+    record = ac.read_green_record(path)
+    assert record is not None
+    assert record["fingerprint"] == "fp-1"
+    assert record["files"] == {"glyph_data/runes/qsX.yaml": "d1"}
+
+
+def test_moved_inputs_note_names_changed_new_and_gone():
+    record = {"files": {"a.yaml": "1", "b.yaml": "2", "gone.yaml": "3"}}
+    note = ac.moved_inputs_note(record, {"a.yaml": "1", "b.yaml": "9", "new.yaml": "4"})
+    assert note == "b.yaml (changed), new.yaml (new), gone.yaml (gone)"
+    assert ac.moved_inputs_note(None, {"a.yaml": "1"}) is None
+    assert ac.moved_inputs_note({"fingerprint": "fp"}, {"a.yaml": "1"}) is None
+    assert ac.moved_inputs_note(record, dict(record["files"])) is None
+    crowded = {"files": {f"file-{index:02}.yaml": "old" for index in range(12)}}
+    note = ac.moved_inputs_note(crowded, {name: "new" for name in crowded["files"]})
+    assert note is not None
+    assert note.endswith("and 4 more")
+
+
 def test_m1_artifacts_present(tmp_path):
     m1 = tmp_path / "rebuild" / "out" / "m1"
     m1.mkdir(parents=True)

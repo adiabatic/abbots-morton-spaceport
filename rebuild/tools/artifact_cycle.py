@@ -175,8 +175,12 @@ def _record_outcome(path: Path, payload: dict) -> None:
     os.replace(tmp, path)
 
 
-def record_green(path: Path, fingerprint: str) -> None:
-    _record_outcome(path, {"fingerprint": fingerprint})
+def record_green(path: Path, fingerprint: str, files: dict[str, str] | None = None) -> None:
+    """`files` is the per-file `label -> digest` map behind the fingerprint, when the caller has it: stored beside the key so a later skip miss can name exactly which input moved instead of reporting only that some digest did."""
+    payload: dict = {"fingerprint": fingerprint}
+    if files is not None:
+        payload["files"] = files
+    _record_outcome(path, payload)
 
 
 def clear_contradicted_green(path: Path, fingerprint: str | None) -> None:
@@ -270,14 +274,47 @@ def _subset_tables(root: Path) -> list[Path]:
     return sorted((root / "rebuild" / "out" / "m1").glob("baseline-*.subset.tsv.gz"))
 
 
-def run_m1_skip_fingerprint(root: Path = ROOT) -> str:
-    """Content key over everything a full run_m1 reads: the Stage A fingerprint components (rune and config data, the full baselines, the pipeline code), the oracle's subset tables — which Stage A's `baselines` covers only by proxy — and uv.lock for the pinned toolchain. Matching the recorded green means a rerun would reproduce rebuild/out/m1 byte for byte."""
+def run_m1_skip_lines(root: Path = ROOT) -> list[str]:
+    """The per-file `label\\tdigest` lines behind `run_m1_skip_fingerprint`: every data input and pipeline module individually (rune files prose-blind), the full baselines as one value, the oracle's subset tables, and uv.lock. Stored in the green record so a skip miss can name exactly which input moved."""
     from rebuild.pipeline import fingerprint
 
-    lines = [f"{name}\t{value}" for name, value in sorted(fingerprint.stage_a(root).items())]
+    lines = fingerprint.data_lines(root)
+    lines.append(f"baselines\t{fingerprint.baselines_value(root)}")
+    lines += fingerprint.path_lines(root, fingerprint.pipeline_code_paths(root))
     lines += [f"{path.name}\t{_sha256_path(path)}" for path in _subset_tables(root)]
     lines.append(f"uv.lock\t{_sha256_path(root / 'uv.lock')}")
-    return _digest_lines(lines)
+    return lines
+
+
+def _files_of(lines: list[str]) -> dict[str, str]:
+    return dict(line.split("\t", 1) for line in lines)
+
+
+def run_m1_skip_files(root: Path = ROOT) -> dict[str, str]:
+    return _files_of(run_m1_skip_lines(root))
+
+
+def run_m1_skip_fingerprint(root: Path = ROOT) -> str:
+    """Content key over everything a full run_m1 reads: the data inputs and pipeline code per file, the full baselines, the oracle's subset tables — which the `baselines` line covers only by proxy — and uv.lock for the pinned toolchain. Matching the recorded green means a rerun would reproduce rebuild/out/m1 byte for byte."""
+    return _digest_lines(run_m1_skip_lines(root))
+
+
+def moved_inputs_note(record: dict | None, current: dict[str, str], limit: int = 8) -> str | None:
+    """Which inputs moved since a green record that stored its per-file lines — the skip-miss diagnostic. None when the record is absent, predates the `files` payload, or (fingerprint notwithstanding) no stored line actually differs."""
+    if record is None or not isinstance(record.get("files"), dict):
+        return None
+    stored = {name: value for name, value in record["files"].items() if isinstance(value, str)}
+    moved = [
+        f"{name} (changed)"
+        for name in sorted(stored.keys() & current.keys())
+        if stored[name] != current[name]
+    ]
+    moved += [f"{name} (new)" for name in sorted(current.keys() - stored.keys())]
+    moved += [f"{name} (gone)" for name in sorted(stored.keys() - current.keys())]
+    if not moved:
+        return None
+    shown = ", ".join(moved[:limit])
+    return f"{shown} and {len(moved) - limit} more" if len(moved) > limit else shown
 
 
 def m1_artifacts_present(root: Path = ROOT) -> bool:
@@ -287,14 +324,20 @@ def m1_artifacts_present(root: Path = ROOT) -> bool:
     return all((m1 / name).exists() for name in names)
 
 
+def conform_skip_lines(root: Path = ROOT, horizon: int = CONFORM_HORIZON_DEFAULT) -> list[str]:
+    lines = run_m1_skip_lines(root)
+    lines.append(f"M1.otf\t{_sha256_path(root / 'rebuild' / 'out' / 'm1' / 'M1.otf')}")
+    lines.append(f"horizon\t{horizon}")
+    return lines
+
+
+def conform_skip_files(root: Path = ROOT, horizon: int = CONFORM_HORIZON_DEFAULT) -> dict[str, str]:
+    return _files_of(conform_skip_lines(root, horizon))
+
+
 def conform_skip_fingerprint(root: Path = ROOT, horizon: int = CONFORM_HORIZON_DEFAULT) -> str:
-    """The run_m1 key plus the compiled font's bytes and the sweep horizon — exactly what gate:conform sweeps. The horizon is in the key so a green at a shallower horizon can never satisfy a deeper gate."""
-    lines = [
-        f"run-m1\t{run_m1_skip_fingerprint(root)}",
-        f"M1.otf\t{_sha256_path(root / 'rebuild' / 'out' / 'm1' / 'M1.otf')}",
-        f"horizon\t{horizon}",
-    ]
-    return _digest_lines(lines)
+    """The run_m1 lines plus the compiled font's bytes and the sweep horizon — exactly what gate:conform sweeps. The horizon is in the key so a green at a shallower horizon can never satisfy a deeper gate."""
+    return _digest_lines(conform_skip_lines(root, horizon))
 
 
 def rebuild_gate_closure_files(root: Path) -> list[str] | None:
@@ -566,6 +609,7 @@ class Plan:
     skip_run_m1: bool = False
     run_m1_note: str = ""
     run_m1_fingerprint: str | None = None
+    fresh_trace_memo: bool = False
     skip_surface: bool = False
     surface_note: str = ""
     skip_rebuild_gate: bool = False
@@ -639,6 +683,7 @@ def build_plan(
     skip_run_m1: bool = False,
     run_m1_note: str = "",
     run_m1_fingerprint: str | None = None,
+    fresh_trace_memo: bool = False,
     skip_surface: bool = False,
     surface_note: str = "",
     skip_rebuild_gate: bool = False,
@@ -694,6 +739,7 @@ def build_plan(
         skip_run_m1=skip_run_m1,
         run_m1_note=run_m1_note,
         run_m1_fingerprint=run_m1_fingerprint,
+        fresh_trace_memo=fresh_trace_memo,
         skip_surface=skip_surface,
         surface_note=surface_note,
         skip_rebuild_gate=skip_rebuild_gate,
@@ -1371,8 +1417,9 @@ def _do_run_m1(
     skip_note: str = "",
     record: bool = False,
     fingerprint: str | None = None,
+    fresh_memo: bool = False,
 ) -> GateOutcome | None:
-    """Run (or, when `skip` is set, reuse) the M1 build and judge its gate from the four summary JSONs. The skip path leaves rebuild/out/m1 untouched and re-evaluates the recorded summaries, which is sound because run_m1's outputs are deterministic and timestamp-free over the fingerprinted inputs. A live green records the fingerprint only if it still matches — an input edited mid-run means the tested content is no longer on disk — and a live red matching the record deletes it."""
+    """Run (or, when `skip` is set, reuse) the M1 build and judge its gate from the four summary JSONs. The skip path leaves rebuild/out/m1 untouched and re-evaluates the recorded summaries, which is sound because run_m1's outputs are deterministic and timestamp-free over the fingerprinted inputs. A live green records the fingerprint only if it still matches — an input edited mid-run means the tested content is no longer on disk — and a live red matching the record deletes it. `fresh_memo` (a --fresh pass) makes the build distrust its persisted trace memo and re-trace every window."""
     if skip:
         emit.emit(f"\nrun_m1: SKIPPED — {skip_note}; evaluating the gate from the recorded summaries.")
     else:
@@ -1381,6 +1428,8 @@ def _do_run_m1(
         argv = ["uv", "run", "python", "-m", "rebuild.pipeline.run_m1"]
         if budget > 1:
             argv += ["--jobs", str(budget)]
+        if fresh_memo:
+            argv.append("--fresh-trace-memo")
         spawn("run_m1", argv, emit=emit, registry=registry, stream=True)
     missing = [name for name, path in M1_SUMMARY_FILES.items() if not path.exists()]
     if missing:
@@ -1402,7 +1451,7 @@ def _do_run_m1(
             clear_contradicted_green(RUN_M1_GREEN, fingerprint)
         elif not skip:
             if run_m1_skip_fingerprint(ROOT) == fingerprint:
-                record_green(RUN_M1_GREEN, fingerprint)
+                record_green(RUN_M1_GREEN, fingerprint, files=run_m1_skip_files(ROOT))
             else:
                 emit.emit("run_m1 green, but its inputs changed while it ran — green not recorded")
     return gate
@@ -1791,7 +1840,7 @@ def _record_gate_greens(report: CycleReport, plan: Plan, gate_keys: dict[str, st
     if key:
         if report.gate_conform == "green":
             if conform_skip_fingerprint(ROOT, plan.conform_horizon) == key:
-                record_green(CONFORM_GREEN, key)
+                record_green(CONFORM_GREEN, key, files=conform_skip_files(ROOT, plan.conform_horizon))
             else:
                 emit.emit(
                     "gate:conform green, but its inputs changed while the cycle ran — green not recorded"
@@ -1859,6 +1908,7 @@ def _run_cycle(
             skip_note=plan.run_m1_note,
             record=plan.record_greens,
             fingerprint=plan.run_m1_fingerprint,
+            fresh_memo=plan.fresh_trace_memo,
         )
         if gate is None or not gate.ok:
             failures.extend(_run_m1_reasons(gate))
@@ -2481,6 +2531,10 @@ def main(argv: list[str] | None = None) -> int:
             skip_run_m1 = True
             run_m1_note = "build inputs unchanged since the last green M1 build; --fresh overrides"
             print(f"run_m1 auto-skipped: {run_m1_note}")
+        elif green is not None and isinstance(green.get("files"), dict):
+            note = moved_inputs_note(green, run_m1_skip_files(ROOT))
+            if note is not None:
+                print(f"run_m1 will rebuild — inputs moved since its last green: {note}")
     if skip_run_m1:
         if args.review_out is None and not first_run and surface_build_skippable(ROOT):
             skip_surface = True
@@ -2596,6 +2650,7 @@ def main(argv: list[str] | None = None) -> int:
             skip_run_m1=skip_run_m1,
             run_m1_note=run_m1_note,
             run_m1_fingerprint=run_m1_fp,
+            fresh_trace_memo=args.fresh,
             skip_surface=skip_surface,
             surface_note=surface_note,
             skip_rebuild_gate=skip_rebuild_gate,
@@ -2644,6 +2699,7 @@ def main(argv: list[str] | None = None) -> int:
         skip_run_m1=skip_run_m1,
         run_m1_note=run_m1_note,
         run_m1_fingerprint=run_m1_fp,
+        fresh_trace_memo=args.fresh,
         skip_surface=skip_surface,
         surface_note=surface_note,
         skip_rebuild_gate=skip_rebuild_gate,

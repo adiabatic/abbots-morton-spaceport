@@ -16,6 +16,7 @@ from collections import OrderedDict
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from itertools import combinations
+from typing import Protocol
 
 from rebuild.pipeline import specificity
 from rebuild.pipeline.model import (
@@ -118,6 +119,12 @@ class TransitionTrace:
     notes: tuple[str, ...]
 
 
+class TraceStoreReader(Protocol):
+    """What an Engine needs from a persisted trace memo (rebuild.pipeline.trace_memo.TraceStore implements it): a memo-key lookup returning the stripped trace — the fields the table build consumes — and the fired-pointer delta its computation journaled, or None when the key is absent or its stamped rune digests no longer match the files on disk."""
+
+    def get(self, key: tuple) -> "tuple[TransitionTrace, tuple[str, ...]] | None": ...
+
+
 def boundary_cell(kind: str) -> CellId:
     return CellId(rune=kind, stance=BOUNDARY_STANCE, entry=None, exit=None, adjustments=())
 
@@ -180,6 +187,7 @@ class Engine:
         simulated_prospect: bool | None = None,
         vote_slots: bool | None = None,
         trace_memo: bool = False,
+        trace_store: "TraceStoreReader | None" = None,
     ):
         self.spec = spec
         self.features = frozenset(features)
@@ -197,10 +205,54 @@ class Engine:
         self._trace_cache: dict[tuple, TransitionTrace] | None = {} if trace_memo else None
         # YAML provenance of every authored record that demonstrably fired during settlement under this configuration: refusals that killed a candidate, unlocks that granted capability, row scopes that admitted a side, and extends/contracts/prefers that shaped a committed cell. Closure and prospect evaluations count — a refusal firing inside the lookahead closure is load-bearing for the window that consulted it. The dead-policy gate reads this through DecisionTable.cited_provenance.
         self.fired: set[str] = set()
+        # Under `trace_memo`, every fired pointer is also journaled so each memoized evaluation can record its own fired-closure delta (`_begin_capture` / `_end_capture`). The three caches would otherwise confound attribution — the first evaluation to consult a sub-result fires its records, later consumers hit the cache silently — so every cache hit replays its stored delta into the journal, making each entry's delta order-independent. Persisting a trace without its delta would starve `fired` of exactly the pointers only served windows exercise, and the dead-policy gate would read live records as dead.
+        self._fired_log: list[str] | None = [] if trace_memo else None
+        self._capture_starts: list[int] = []
+        self._closure_fired: dict[tuple, tuple[str, ...]] = {}
+        self._prospect_fired: dict[tuple, tuple[str, ...]] = {}
+        self._trace_fired: dict[tuple, tuple[str, ...]] = {}
+        self._pointer_intern: dict[str, str] = {}
+        # An optional persisted trace memo (rebuild.pipeline.trace_memo.TraceStore), consulted between the in-memory cache and the kernel; only build_tables attaches one.
+        self.trace_store: "TraceStoreReader | None" = trace_store
 
     def _record_fired(self, provenance: Provenance | None) -> None:
         if provenance is not None:
-            self.fired.add(str(provenance))
+            pointer = str(provenance)
+            log = self._fired_log
+            if log is not None:
+                pointer = self._pointer_intern.setdefault(pointer, pointer)
+                if self._capture_starts:
+                    log.append(pointer)
+            self.fired.add(pointer)
+
+    def _replay_fired(self, delta: tuple[str, ...]) -> None:
+        if delta:
+            self.fired.update(delta)
+            if self._capture_starts:
+                log = self._fired_log
+                assert log is not None
+                log.extend(delta)
+
+    def _begin_capture(self) -> None:
+        log = self._fired_log
+        assert log is not None
+        self._capture_starts.append(len(log))
+
+    def _end_capture(self) -> tuple[str, ...]:
+        log = self._fired_log
+        assert log is not None
+        start = self._capture_starts.pop()
+        delta = tuple(dict.fromkeys(log[start:]))
+        if not self._capture_starts:
+            del log[:]
+        return delta
+
+    def _abort_capture(self) -> None:
+        # A raising evaluation records no delta, matching the never-cache-raising-windows rule, but its firings stay journaled for any enclosing capture — they demonstrably fired during that evaluation and a fresh replay would fire them again.
+        assert self._fired_log is not None
+        self._capture_starts.pop()
+        if not self._capture_starts:
+            del self._fired_log[:]
 
     # --- condition matching -------------------------------------------------
 
@@ -603,9 +655,24 @@ class Engine:
         key = (rune_name, candidate.stance, candidate.entry, candidate.seam, right1.letter, right2)
         cached = self._closure_cache.get(key)
         if cached is not None:
+            if self._fired_log is not None:
+                self._replay_fired(self._closure_fired.get(key, ()))
             return cached
-        virtual = self._virtual_left(rune_name, candidate)
-        result = bool(self.candidates(virtual, right1.letter, right2, UNKNOWN))
+        if self._fired_log is None:
+            result = bool(
+                self.candidates(self._virtual_left(rune_name, candidate), right1.letter, right2, UNKNOWN)
+            )
+            self._closure_cache[key] = result
+            return result
+        self._begin_capture()
+        try:
+            result = bool(
+                self.candidates(self._virtual_left(rune_name, candidate), right1.letter, right2, UNKNOWN)
+            )
+        except BaseException:
+            self._abort_capture()
+            raise
+        self._closure_fired[key] = self._end_capture()
         self._closure_cache[key] = result
         return result
 
@@ -625,10 +692,22 @@ class Engine:
             key = (rune_name, candidate.stance, candidate.entry, candidate.seam, right1.letter, right2.letter)
             cached = self._prospect_cache.get(key)
             if cached is not None:
+                if self._fired_log is not None:
+                    self._replay_fired(self._prospect_fired.get(key, ()))
                 return cached
-            virtual = self._virtual_left(rune_name, candidate)
-            follower_cells = self.candidates(virtual, right1.letter, right2, UNKNOWN)
-            result = 1 if any(cell.seam is not None for cell in follower_cells) else 0
+            capturing = self._fired_log is not None
+            if capturing:
+                self._begin_capture()
+            try:
+                virtual = self._virtual_left(rune_name, candidate)
+                follower_cells = self.candidates(virtual, right1.letter, right2, UNKNOWN)
+                result = 1 if any(cell.seam is not None for cell in follower_cells) else 0
+            except BaseException:
+                if capturing:
+                    self._abort_capture()
+                raise
+            if capturing:
+                self._prospect_fired[key] = self._end_capture()
             self._prospect_cache[key] = result
             return result
         key = (
@@ -643,15 +722,27 @@ class Engine:
         )
         cached = self._prospect_cache.get(key)
         if cached is not None:
+            if self._fired_log is not None:
+                self._replay_fired(self._prospect_fired.get(key, ()))
             return cached
-        virtual = self._virtual_left(rune_name, candidate)
+        capturing = self._fired_log is not None
+        if capturing:
+            self._begin_capture()
         try:
-            trace = self.transition_trace(virtual, right1, right2, right3, right4, UNKNOWN)
-            result = 1 if trace.settled.seam is not None else 0
-        except EIncomparableError, EAmbiguousError, SettleError:
-            self.simulated_prospect_fallbacks += 1
-            follower_cells = self.candidates(virtual, right1.letter, right2, UNKNOWN)
-            result = 1 if any(cell.seam is not None for cell in follower_cells) else 0
+            virtual = self._virtual_left(rune_name, candidate)
+            try:
+                trace = self.transition_trace(virtual, right1, right2, right3, right4, UNKNOWN)
+                result = 1 if trace.settled.seam is not None else 0
+            except EIncomparableError, EAmbiguousError, SettleError:
+                self.simulated_prospect_fallbacks += 1
+                follower_cells = self.candidates(virtual, right1.letter, right2, UNKNOWN)
+                result = 1 if any(cell.seam is not None for cell in follower_cells) else 0
+        except BaseException:
+            if capturing:
+                self._abort_capture()
+            raise
+        if capturing:
+            self._prospect_fired[key] = self._end_capture()
         self._prospect_cache[key] = result
         return result
 
@@ -1032,7 +1123,7 @@ class Engine:
         right3: RightToken = UNKNOWN,
         right4: RightToken = UNKNOWN,
     ) -> TransitionTrace:
-        """Under `trace_memo` — the table fixpoint's engines, where lefts arrive as fully settled cells — results are memoized over the collapsed left key (kind, and the settled cell's rune, stance, seam, extension): every left read in the kernel goes through those fields — condition matching consults the cell's rune and stance, `_left_exit_stroke` the committed seam, scoring the seam's presence, and the same-seam non-summing suppression the extension — never the left cell's entry or adjustments, so settled lefts differing only there trace identically and share one entry. Raising windows are not cached: the E-STRANDED message reads the full left label, and the liveness probes that trip settlement errors memoize their own verdicts above this. Everywhere else the memo stays off — the conform walker already memoizes at window grain above this call, so a second cache underneath would hold a full trace per window in memory and never be read."""
+        """Under `trace_memo` — the table fixpoint's engines, where lefts arrive as fully settled cells — results are memoized over the collapsed left key (kind, and the settled cell's rune, stance, seam, extension): every left read in the kernel goes through those fields — condition matching consults the cell's rune and stance, `_left_exit_stroke` the committed seam, scoring the seam's presence, and the same-seam non-summing suppression the extension — never the left cell's entry or adjustments, so settled lefts differing only there trace identically and share one entry. Raising windows are not cached: the E-STRANDED message reads the full left label, and the liveness probes that trip settlement errors memoize their own verdicts above this. Between the in-memory memo and the kernel sits the optional persisted store (`trace_store`, attached by build_tables): a hit serves the previous cycle's trace for a key whose stamped rune digests still match the files on disk, replaying its journaled fired-pointer delta so `fired` fills exactly as a recomputation would. Everywhere else the memo stays off — the conform walker already memoizes at window grain above this call, so a second cache underneath would hold a full trace per window in memory and never be read."""
         if token.kind != "letter":
             return TransitionTrace(boundary_settled(token.kind), False, 0, (), (), "boundary", None, ())
         cache = self._trace_cache
@@ -1052,9 +1143,26 @@ class Engine:
             right4,
         )
         trace = cache.get(key)
-        if trace is None:
+        if trace is not None:
+            self._replay_fired(self._trace_fired.get(key, ()))
+            return trace
+        store = self.trace_store
+        if store is not None:
+            entry = store.get(key)
+            if entry is not None:
+                trace, delta = entry
+                cache[key] = trace
+                self._trace_fired[key] = delta
+                self._replay_fired(delta)
+                return trace
+        self._begin_capture()
+        try:
             trace = self._transition_trace_uncached(left, token, right1, right2, right3, right4)
-            cache[key] = trace
+        except BaseException:
+            self._abort_capture()
+            raise
+        self._trace_fired[key] = self._end_capture()
+        cache[key] = trace
         return trace
 
     def _transition_trace_uncached(
