@@ -44,7 +44,11 @@ def data_paths(repo_root: Path) -> list[Path]:
 
 
 def pipeline_code_paths(repo_root: Path) -> list[Path]:
-    return sorted((Path(repo_root) / "rebuild" / "pipeline").glob("*.py"))
+    """rebuild/validation rides in this component: the shaper, row model, seam classifier, and Manual-pin replays are the before side of the M1 comparison — both fingerprinted trees import them — and a key blind to that tree would let every skip fire over changed code. The whole directory, not just the modules currently imported: a list that tracks who happens to import what goes wrong the next time an import is added, and over-invalidation is the safe direction."""
+    root = Path(repo_root)
+    return sorted((root / "rebuild" / "pipeline").glob("*.py")) + sorted(
+        (root / "rebuild" / "validation").glob("*.py")
+    )
 
 
 def review_code_paths(repo_root: Path) -> list[Path]:

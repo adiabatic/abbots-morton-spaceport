@@ -24,6 +24,8 @@ def _fake_repo(tmp_path):
     (root / "rebuild" / "m1-aliases.yaml").write_text("[]\n")
     (root / "rebuild" / "m1-divergences.yaml").write_text("[]\n")
     (root / "rebuild" / "pipeline" / "table.py").write_text("TABLE = 1\n")
+    (root / "rebuild" / "validation").mkdir(parents=True)
+    (root / "rebuild" / "validation" / "shaping.py").write_text("SENIOR_FONT = 1\n")
     (root / "rebuild" / "review" / "build.py").write_text("BUILD = 1\n")
     (root / "rebuild" / "review" / "serve.py").write_text("SERVE = 1\n")
     (root / "rebuild" / "review" / "static" / "app.js").write_text("export const app = 1;\n")
@@ -107,6 +109,18 @@ def test_compute_all_covers_every_component_and_isolates_edits(tmp_path):
     assert after["data"] != before["data"]
     assert {key: after[key] for key in fingerprint.COMPONENTS if key != "data"} == {
         key: before[key] for key in fingerprint.COMPONENTS if key != "data"
+    }
+
+
+def test_pipeline_code_covers_validation_and_isolates_edits(tmp_path):
+    root = _fake_repo(tmp_path)
+    assert root / "rebuild" / "validation" / "shaping.py" in fingerprint.pipeline_code_paths(root)
+    before = fingerprint.compute_all(root)
+    (root / "rebuild" / "validation" / "shaping.py").write_text("SENIOR_FONT = 2\n")
+    after = fingerprint.compute_all(root)
+    assert after["pipeline_code"] != before["pipeline_code"]
+    assert {key: after[key] for key in fingerprint.COMPONENTS if key != "pipeline_code"} == {
+        key: before[key] for key in fingerprint.COMPONENTS if key != "pipeline_code"
     }
 
 

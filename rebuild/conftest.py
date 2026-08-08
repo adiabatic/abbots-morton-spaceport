@@ -161,18 +161,6 @@ def built_review_surface(tmp_path_factory):
         yield surface, manifest
 
 
-def enrich_cache_key() -> str | None:
-    """`surface_cache_key` widened by the shaping and row-model code, which enrichment reads and no fingerprint covers. `compute_all` hashes rebuild/pipeline and rebuild/review; `enrich` also imports `Shaper` and `iter_rows` out of rebuild/validation, and a key blind to those would hand every worker units the code on disk no longer produces — with the gate reading green over them, which is the one failure a test cache must not have."""
-    from rebuild.pipeline import fingerprint
-
-    key = surface_cache_key()
-    if key is None:
-        return None
-    validation = sorted((REPO_ROOT / "rebuild" / "validation").glob("*.py"))
-    payload = f"{key}\n{fingerprint.hash_paths(REPO_ROOT, validation)}"
-    return hashlib.sha256(payload.encode()).hexdigest()[:16]
-
-
 def _enrich_workload() -> list[EnrichedUnit]:
     """The live M1 workload with every unit enriched — what the cache holds, and what a cacheless run builds directly."""
     from rebuild.review.audit import load_workload
@@ -189,13 +177,13 @@ def _enrich_workload() -> list[EnrichedUnit]:
 
 @pytest.fixture(scope="session")
 def enriched_units() -> list[EnrichedUnit]:
-    """Every unit of the live workload, enriched, read-only for the session. The cache is `built_review_surface`'s — `enrich_cache_key`'s content key, a superset of what enrichment reads so it can only over-invalidate (None on a fresh clone falls back to an uncached build), the same one-builder-under-flock discipline, the same non-blocking prune. What it stores is a gzipped protocol-5 pickle of the real EnrichedUnits, written and read as a stream so neither side ever holds the serialized form beside the objects; at compresslevel 1 it is an order of magnitude smaller than the raw pickle and costs a fraction of a second to inflate. Every worker returns the round trip, the builder included, so no test can quietly come to depend on being the one that enriched.
+    """Every unit of the live workload, enriched, read-only for the session. The cache is `built_review_surface`'s — the same `surface_cache_key`, a superset of what enrichment reads (the inputs fingerprint's pipeline_code component covers the rebuild/validation shaping and row-model code enrichment imports) so it can only over-invalidate (None on a fresh clone falls back to an uncached build), the same one-builder-under-flock discipline, the same non-blocking prune. What it stores is a gzipped protocol-5 pickle of the real EnrichedUnits, written and read as a stream so neither side ever holds the serialized form beside the objects; at compresslevel 1 it is an order of magnitude smaller than the raw pickle and costs a fraction of a second to inflate. Every worker returns the round trip, the builder included, so no test can quietly come to depend on being the one that enriched.
 
     The lock is exclusive for the read too, which is where this fixture departs from `built_review_surface` and its shared-hold downgrade. That fixture's readers pull a few files off disk; this one's each materialize an enriched universe several gigabytes live, and letting the queued workers do that at once is not a small pessimization but a machine-wide one — measured on a 34 GB host, concurrent reads spent an order of magnitude more time in the kernel reclaiming pages than the whole serialized run costs, so the exclusive hold buys more by staggering the readers than the parallelism it gives up was ever worth. Staggering the readers is the whole of its job: a shared hold would fend off a concurrent pruner just as well. It is released before the first test runs either way.
 
     The payload, not the marker, is what proves the entry usable. An interrupted prune deletes the entry's files in directory order and can strand a DONE whose pickle is already gone, which on a one-file payload is the likely outcome rather than a corner — and a marker taken on trust would then wedge that key for every session that ever computes it again.
     """
-    key = enrich_cache_key()
+    key = surface_cache_key()
     if key is None:
         return _enrich_workload()
     ENRICH_CACHE_ROOT.mkdir(parents=True, exist_ok=True)
