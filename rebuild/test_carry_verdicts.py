@@ -1,11 +1,12 @@
 """Tests for the cross-surface carry: the content key a prior surface's verdict is re-resolved against when the surface is rebuilt, and the stamp guard that refuses a source pair whose verdicts were recorded against a different surface than the one offered. For the key, everything the rebuild churns — ids, batches, drafts, provenance, the derived group ids, and the per-config ink_deltas map — is presentation and stays out, so a field's first appearance cannot strand the verdicts recorded before it; everything the reviewer actually judged stays in, so a real change to the window loses its old verdict rather than inheriting one. The key tests' units are the shipped review fixtures, which the §7 contract checker also gates in test_review_build."""
 
+import hashlib
 import json
 from pathlib import Path
 
 import pytest
 
-from rebuild.tools.carry_verdicts import PRESENTATION_KEYS, content_key, main
+from rebuild.tools.carry_verdicts import PRESENTATION_KEYS, content_hash, content_key, main
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 FIXTURE_UNITS = REPO_ROOT / "rebuild" / "review" / "fixtures" / "units"
@@ -38,6 +39,27 @@ def test_every_presentation_key_is_invisible_to_the_content_key():
         for key in PRESENTATION_KEYS:
             prior = {name: value for name, value in current.items() if name != key}
             assert content_key(prior) == content_key(current), f"{current['id']}: {key}"
+
+
+def test_content_key_stamp_does_not_move_the_content_key():
+    """The build-time stamp is itself presentation: a prior-surface unit predating the stamp and the same current-surface unit carrying it key identically, so the stamp's introduction cannot strand a single verdict recorded against an unstamped surface."""
+    units = _fixture_units()
+    assert all("content_key" in unit for unit in units), "the fixtures predate the stamp"
+    for current in units:
+        prior = {key: value for key, value in current.items() if key != "content_key"}
+        assert content_key(prior) == content_key(current), current["id"]
+
+
+def test_content_key_stamp_is_declared_presentation():
+    assert "content_key" in PRESENTATION_KEYS
+
+
+def test_content_hash_reads_the_stamp_or_computes_the_same_value():
+    """Stamped and unstamped surfaces resolve against each other: the fixture stamps are exactly the sha256 of the projection an unstamped unit hashes to, so a mixed source pair carries losslessly. This also pins the checked-in fixture stamps against rot."""
+    for current in _fixture_units():
+        stripped = {key: value for key, value in current.items() if key != "content_key"}
+        assert content_hash(current) == content_hash(stripped), current["id"]
+        assert current["content_key"] == hashlib.sha256(content_key(stripped).encode()).hexdigest()
 
 
 def _write_surface(root, stamp, units):

@@ -609,7 +609,7 @@ class Plan:
     skip_run_m1: bool = False
     run_m1_note: str = ""
     run_m1_fingerprint: str | None = None
-    fresh_trace_memo: bool = False
+    fresh: bool = False
     skip_surface: bool = False
     surface_note: str = ""
     skip_rebuild_gate: bool = False
@@ -683,7 +683,7 @@ def build_plan(
     skip_run_m1: bool = False,
     run_m1_note: str = "",
     run_m1_fingerprint: str | None = None,
-    fresh_trace_memo: bool = False,
+    fresh: bool = False,
     skip_surface: bool = False,
     surface_note: str = "",
     skip_rebuild_gate: bool = False,
@@ -739,7 +739,7 @@ def build_plan(
         skip_run_m1=skip_run_m1,
         run_m1_note=run_m1_note,
         run_m1_fingerprint=run_m1_fingerprint,
-        fresh_trace_memo=fresh_trace_memo,
+        fresh=fresh,
         skip_surface=skip_surface,
         surface_note=surface_note,
         skip_rebuild_gate=skip_rebuild_gate,
@@ -812,6 +812,8 @@ def build_plan(
             surface_argv += ["--jobs", str(job_budget)]
         if review_out is not None:
             surface_argv += ["--out", str(review_out)]
+        if fresh:
+            surface_argv += ["--fresh-unit-cache"]
         plan.steps.append(Step("surface-build", surface_argv, lane="build"))
 
     if do_carry:
@@ -1473,6 +1475,7 @@ def _do_surface_build(
     budget: int,
     skip: bool = False,
     skip_note: str = "",
+    fresh: bool = False,
 ) -> bool:
     if skip:
         surface_dir = review_out if review_out is not None else REVIEW_OUT
@@ -1493,6 +1496,8 @@ def _do_surface_build(
         argv += ["--jobs", str(budget)]
     if review_out is not None:
         argv += ["--out", str(review_out)]
+    if fresh:
+        argv += ["--fresh-unit-cache"]
     result = spawn("surface-build", argv, emit=emit, registry=registry, stream=True)
     parsed = _parse_surface_build(result.stderr) if result.returncode == 0 else None
     if result.returncode != 0 or parsed is None:
@@ -1908,7 +1913,7 @@ def _run_cycle(
             skip_note=plan.run_m1_note,
             record=plan.record_greens,
             fingerprint=plan.run_m1_fingerprint,
-            fresh_memo=plan.fresh_trace_memo,
+            fresh_memo=plan.fresh,
         )
         if gate is None or not gate.ok:
             failures.extend(_run_m1_reasons(gate))
@@ -1941,6 +1946,7 @@ def _run_cycle(
             budget=plan.job_budget,
             skip=plan.skip_surface,
             skip_note=plan.surface_note,
+            fresh=plan.fresh,
         ):
             failures.append("surface rebuild failed")
             if not plan.skip_gates and not plan.skip_rebuild_gate and not defer_rebuild:
@@ -2650,7 +2656,7 @@ def main(argv: list[str] | None = None) -> int:
             skip_run_m1=skip_run_m1,
             run_m1_note=run_m1_note,
             run_m1_fingerprint=run_m1_fp,
-            fresh_trace_memo=args.fresh,
+            fresh=args.fresh,
             skip_surface=skip_surface,
             surface_note=surface_note,
             skip_rebuild_gate=skip_rebuild_gate,
@@ -2699,7 +2705,7 @@ def main(argv: list[str] | None = None) -> int:
         skip_run_m1=skip_run_m1,
         run_m1_note=run_m1_note,
         run_m1_fingerprint=run_m1_fp,
-        fresh_trace_memo=args.fresh,
+        fresh=args.fresh,
         skip_surface=skip_surface,
         surface_note=surface_note,
         skip_rebuild_gate=skip_rebuild_gate,

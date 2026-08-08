@@ -1,5 +1,6 @@
 import argparse
 import collections
+import hashlib
 import json
 import pathlib
 import sys
@@ -8,24 +9,13 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from rebuild.review.ink import InkComparator  # noqa: E402
+from rebuild.review.unit_cache import CARRY_PRESENTATION_KEYS, carry_projection  # noqa: E402
 from rebuild.tools.verdict_notes import cap_markers  # noqa: E402
 
 OUT = ROOT / "verdicts-carried-forward.json"
 CURRENT_SURFACE = ROOT / "rebuild/out/review"
-# secondary_seams is derived data whose `home` field embeds another unit's id, so it churns whenever the surface renumbers; echo is an order-derived group id absent from older surfaces, cluster is a derived ink-signature id that churns with any font change, and ink_deltas is the same delta identity persisted per config, likewise absent from older surfaces; everything adjudicable any of them describes is already covered by the window plus both fonts' glyphs, cells, and seams.
-PRESENTATION_KEYS = {
-    "id",
-    "batch",
-    "no_verdict",
-    "exemplar",
-    "explain",
-    "drafts",
-    "provenance",
-    "secondary_seams",
-    "echo",
-    "cluster",
-    "ink_deltas",
-}
+# The exclusion set and the projection recipe live in rebuild.review.unit_cache so the build stamps each unit with exactly the hash this tool probes; the rationale for what is excluded rides the definition there.
+PRESENTATION_KEYS = CARRY_PRESENTATION_KEYS
 
 
 def load_surface(root):
@@ -36,10 +26,13 @@ def load_surface(root):
 
 
 def content_key(unit):
-    return json.dumps(
-        {k: v for k, v in sorted(unit.items()) if k not in PRESENTATION_KEYS},
-        sort_keys=True,
-    )
+    return carry_projection(unit)
+
+
+def content_hash(unit):
+    """The unit's carry identity as a digest: the build-time `content_key` stamp when the surface carries one, else the sha256 of the projection computed here — the same value, so stamped and unstamped surfaces (every snapshot predating the stamp) resolve against each other freely."""
+    stamped = unit.get("content_key")
+    return stamped if stamped else hashlib.sha256(content_key(unit).encode()).hexdigest()
 
 
 def surface_comparator(root):
@@ -113,7 +106,7 @@ def main():
             unit = units_by_id.get(unit_id)
             if unit is None:
                 continue
-            key = content_key(unit)
+            key = content_hash(unit)
             if key not in prior or record["at"] > prior[key][0]["at"]:
                 prior[key] = (record, root.name, unit)
             used += 1
@@ -123,7 +116,8 @@ def main():
     current = load_surface(args.current_surface)
     human = [u for u in current if u.get("batch") is not None and not u.get("no_verdict")]
 
-    keys_seen = collections.Counter(content_key(u) for u in current)
+    key_by_id = {u["id"]: content_hash(u) for u in current}
+    keys_seen = collections.Counter(key_by_id.values())
     collisions = {k for k, n in keys_seen.items() if n > 1}
     if collisions:
         raise SystemExit(
@@ -141,7 +135,7 @@ def main():
 
     unhit = []
     for unit in human:
-        hit = prior.get(content_key(unit))
+        hit = prior.get(key_by_id[unit["id"]])
         if hit is None:
             unhit.append(unit)
             continue
@@ -150,7 +144,7 @@ def main():
             continue
         carry(unit, record, source)
 
-    current_keys = {content_key(u) for u in current}
+    current_keys = set(keys_seen)
     stranded = [
         (record, source, unit)
         for key, (record, source, unit) in prior.items()
