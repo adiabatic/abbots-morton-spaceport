@@ -160,25 +160,10 @@ class DecisionTable:
             ] = row
         for input_glyph, rows in by_input.items():
             lefts = sorted({left for left, _r1, _r2, _r3, _r4 in rows})
-            r1s = sorted({r1 for _left, r1, _r2, _r3, _r4 in rows})
-            r2s = sorted({r2 for _left, _r1, r2, _r3, _r4 in rows})
-            r3s = sorted({r3 for _left, _r1, _r2, r3, _r4 in rows})
-            r4s = sorted({r4 for _left, _r1, _r2, _r3, r4 in rows})
-
-            def outcome(left: str, r1: str, r2: str, r3: str, r4: str) -> str | None:
-                row = rows.get((left, r1, r2, r3, r4))
-                return row.outcome if row is not None else None
-
-            blocks = _signature_blocks(
-                lefts,
-                lambda left: frozenset(
-                    ((r1, r2, r3, r4), outcome(left, r1, r2, r3, r4))
-                    for r1 in r1s
-                    for r2 in r2s
-                    for r3 in r3s
-                    for r4 in r4s
-                ),
-            )
+            signatures: dict[str, set[tuple[tuple[str, str, str, str], str]]] = {}
+            for (left, r1, r2, r3, r4), row in rows.items():
+                signatures.setdefault(left, set()).add(((r1, r2, r3, r4), row.outcome))
+            blocks = _signature_blocks(lefts, lambda left: frozenset(signatures[left]))
             covered: set[str] = set()
             for block in blocks:
                 if covered & set(block):
@@ -911,7 +896,7 @@ def _entry_extension(settled: Settled) -> int:
 
 
 def build_tables(spec: ResolvedSpec, features: frozenset[str]) -> tuple[DecisionTable, TreatyTable]:
-    engine = Engine(spec, features)
+    engine = Engine(spec, features, trace_memo=True)
     config = feature_config_token(features)
     letters = sorted(spec.runes)
     formation_pairs = _formation_pairs(spec)
@@ -1089,34 +1074,46 @@ def build_tables(spec: ResolvedSpec, features: frozenset[str]) -> tuple[Decision
                     else:
                         right4_slots = [None]
                     for right4 in right4_slots:
-                        trace = engine.transition_trace(
-                            left,
-                            token,
-                            right1,
-                            right2,
-                            right3 if right3 is not None else EDGE,
-                            right4 if right4 is not None else EDGE,
+                        # A worklist item with different pins can re-enumerate a window key already recorded; the recorded row's settled state is what a re-trace would return (the left label is injective into the trace's inputs), so a hit skips straight to the successor enqueue, whose pins still differ per item. The left-state comparison below is that premise made executable: it can only fire if cell_label stops being injective over settled lefts (say, two heights aliasing one y), which would otherwise silently merge distinct windows into one row.
+                        window_key = (
+                            input_label,
+                            left_label,
+                            right_label(right1),
+                            right_label(right2) if right1.kind == "letter" else NA_LABEL,
+                            right_label(right3) if right3 is not None else NA_LABEL,
+                            right_label(right4) if right4 is not None else NA_LABEL,
                         )
-                        row = Transition(
-                            input_glyph=input_label,
-                            left=left_label,
-                            right1=right_label(right1),
-                            right2=right_label(right2) if right1.kind == "letter" else NA_LABEL,
-                            right3=right_label(right3) if right3 is not None else NA_LABEL,
-                            right4=right_label(right4) if right4 is not None else NA_LABEL,
-                            outcome=cell_label(spec, trace.settled.cell),
-                            settled=trace.settled,
-                            left_settled=left.settled,
-                            joint=trace.joint_floor,
-                            prospect=trace.prospect,
-                            provenance=tuple(trace.notes),
-                        )
-                        existing = transitions.get(row.key)
-                        if existing is not None and existing.outcome != row.outcome:
-                            raise PartitionError(
-                                f"window {row.key} settles inconsistently: {existing.outcome} vs {row.outcome}"
+                        existing = transitions.get(window_key)
+                        if existing is not None:
+                            if existing.left_settled != left.settled:
+                                raise PartitionError(
+                                    f"window {window_key} reached from two left states sharing one label: {existing.left_settled} vs {left.settled}"
+                                )
+                            settled = existing.settled
+                        else:
+                            trace = engine.transition_trace(
+                                left,
+                                token,
+                                right1,
+                                right2,
+                                right3 if right3 is not None else EDGE,
+                                right4 if right4 is not None else EDGE,
                             )
-                        transitions[row.key] = row
+                            settled = trace.settled
+                            transitions[window_key] = Transition(
+                                input_glyph=input_label,
+                                left=left_label,
+                                right1=window_key[2],
+                                right2=window_key[3],
+                                right3=window_key[4],
+                                right4=window_key[5],
+                                outcome=cell_label(spec, trace.settled.cell),
+                                settled=trace.settled,
+                                left_settled=left.settled,
+                                joint=trace.joint_floor,
+                                prospect=trace.prospect,
+                                provenance=tuple(trace.notes),
+                            )
                         if right1.kind == "letter":
                             if right3 is not None:
                                 successor_allowed = frozenset({right3})
@@ -1134,13 +1131,17 @@ def build_tables(spec: ResolvedSpec, features: frozenset[str]) -> tuple[Decision
                             successor_r3 = frozenset({right4}) if right4 is not None else None
                             worklist.append(
                                 (
-                                    LeftContext("letter", trace.settled),
+                                    LeftContext("letter", settled),
                                     right1.letter,
                                     right2,
                                     successor_allowed,
                                     successor_r3,
                                 )
                             )
+
+    # The fixpoint and the liveness probes are done tracing; the engine outlives this build in _LIVENESS_PROBES, so drop the memo rather than retain a full trace per window.
+    if engine._trace_cache is not None:
+        engine._trace_cache.clear()
 
     rows = _flag_prospect_joints(sorted(transitions.values(), key=lambda t: t.key))
 
@@ -1187,21 +1188,19 @@ def build_tables(spec: ResolvedSpec, features: frozenset[str]) -> tuple[Decision
     return decision, TreatyTable(config=config, rows=tuple(treaty_rows))
 
 
-def prospect_successor_index(rows: list[Transition]) -> dict[tuple[str, str], list[Transition]]:
-    """The (left label, input glyph) index `prospect_successors` walks — built once per table because the flag pass and the divergence inventory both scan every row against it."""
-    successors: dict[tuple[str, str], list[Transition]] = {}
+def prospect_successor_index(rows: list[Transition]) -> dict[tuple[str, str, str], list[Transition]]:
+    """The (left label, input glyph, right1 label) index `prospect_successors` walks — built once per table because the flag pass and the divergence inventory both scan every row against it."""
+    successors: dict[tuple[str, str, str], list[Transition]] = {}
     for row in rows:
-        successors.setdefault((row.left, row.input_glyph), []).append(row)
+        successors.setdefault((row.left, row.input_glyph, row.right1), []).append(row)
     return successors
 
 
-def prospect_successors(index: dict[tuple[str, str], list[Transition]], row: Transition):
-    """The successor transitions a row's optimistic prospect is scored against (design section 6.1 step 4.2): the follower's windows whose settled left is this row's outcome, whose input is this row's right1, whose right1 is this row's right2, and whose deeper slots agree wherever this row enumerated them. Yields nothing when either lookahead is boundaryish — the prospect term is defined only over letter-letter windows. Shared by `_flag_prospect_joints` and `rebuild.tools.prospect_divergence` so the flag and the inventory can never disagree about what was compared."""
+def prospect_successors(index: dict[tuple[str, str, str], list[Transition]], row: Transition):
+    """The successor transitions a row's optimistic prospect is scored against (design section 6.1 step 4.2): the follower's windows whose settled left is this row's outcome, whose input is this row's right1, whose right1 is this row's right2 (the index key, so the scan never touches a window the first three slots already rule out), and whose deeper slots agree wherever this row enumerated them. Yields nothing when either lookahead is boundaryish — the prospect term is defined only over letter-letter windows. Shared by `_flag_prospect_joints` and `rebuild.tools.prospect_divergence` so the flag and the inventory can never disagree about what was compared."""
     if row.right1 in BOUNDARYISH or row.right2 in BOUNDARYISH:
         return
-    for successor in index.get((row.outcome, row.right1), ()):
-        if successor.right1 != row.right2:
-            continue
+    for successor in index.get((row.outcome, row.right1, row.right2), ()):
         if row.right3 != NA_LABEL and successor.right2 != row.right3:
             continue
         if row.right4 != NA_LABEL and successor.right3 != row.right4:
@@ -1226,6 +1225,7 @@ def _flag_prospect_joints(rows: list[Transition]) -> list[Transition]:
 
 
 def _signature_blocks(values, signature_of) -> list[tuple[str, ...]]:
+    """Callers pass signatures built from present rows only, never the full other-slot label product: every value's product is the same per grouping, so identical present-maps imply identical missing-key sets, and grouping by the sparse signature yields exactly the partition the (missing -> None) product signature would — at O(rows) instead of O(label product), which is what keeps folding from regrowing quartically as depth-3/4 windows are authored."""
     groups: dict[frozenset, list[str]] = {}
     for value in values:
         groups.setdefault(signature_of(value), []).append(value)
@@ -1236,25 +1236,15 @@ def _rules_for_input(
     input_glyph: str, rows: dict[tuple[str, str, str, str, str], Transition], never_locked: bool
 ) -> tuple[list[Rule], int]:
     lefts = sorted({left for left, _r1, _r2, _r3, _r4 in rows})
-    r1s = sorted({r1 for _left, r1, _r2, _r3, _r4 in rows})
-    r2s = sorted({r2 for _left, _r1, r2, _r3, _r4 in rows})
-    r3s = sorted({r3 for _left, _r1, _r2, r3, _r4 in rows})
-    r4s = sorted({r4 for _left, _r1, _r2, _r3, r4 in rows})
 
     def outcome(left: str, r1: str, r2: str, r3: str, r4: str) -> str | None:
         row = rows.get((left, r1, r2, r3, r4))
         return row.outcome if row is not None else None
 
-    left_blocks = _signature_blocks(
-        lefts,
-        lambda left: frozenset(
-            ((r1, r2, r3, r4), outcome(left, r1, r2, r3, r4))
-            for r1 in r1s
-            for r2 in r2s
-            for r3 in r3s
-            for r4 in r4s
-        ),
-    )
+    left_signatures: dict[str, set[tuple[tuple[str, str, str, str], str]]] = {}
+    for (left, r1, r2, r3, r4), row in rows.items():
+        left_signatures.setdefault(left, set()).add(((r1, r2, r3, r4), row.outcome))
+    left_blocks = _signature_blocks(lefts, lambda left: frozenset(left_signatures[left]))
     default_blocks = [block for block in left_blocks if set(block) & BOUNDARYISH]
     committed_blocks = [block for block in left_blocks if not set(block) & BOUNDARYISH]
     if len(default_blocks) > 1:
@@ -1272,15 +1262,10 @@ def _rules_for_input(
         }
         group_r1s = sorted({r1 for r1, _r2, _r3, _r4 in group_rows})
 
-        r1_blocks = _signature_blocks(
-            group_r1s,
-            lambda r1: frozenset(
-                ((r2, r3, r4), outcome(representative, r1, r2, r3, r4))
-                for r2 in r2s
-                for r3 in r3s
-                for r4 in r4s
-            ),
-        )
+        r1_signatures: dict[str, set[tuple[tuple[str, str, str], str]]] = {}
+        for (r1, r2, r3, r4), row in group_rows.items():
+            r1_signatures.setdefault(r1, set()).add(((r2, r3, r4), row.outcome))
+        r1_blocks = _signature_blocks(group_r1s, lambda r1: frozenset(r1_signatures[r1]))
 
         boundary_block = next((block for block in r1_blocks if set(block) & BOUNDARYISH), None)
         fallback_outcome = input_glyph
@@ -1336,15 +1321,12 @@ def _rules_for_input(
             if set(r1_block) - set(letters):
                 raise PartitionError(f"{input_glyph}: mixed letter/boundary lookahead block {r1_block}")
             block_r2s = sorted({r2 for (r1, r2, _r3, _r4) in group_rows if r1 == r1_block[0]})
-            r2_blocks = _signature_blocks(
-                block_r2s,
-                lambda r2: frozenset(
-                    ((r1, r3, r4), outcome(representative, r1, r2, r3, r4))
-                    for r1 in r1_block
-                    for r3 in r3s
-                    for r4 in r4s
-                ),
-            )
+            r1_members = set(r1_block)
+            r2_signatures: dict[str, set[tuple[tuple[str, str, str], str]]] = {}
+            for (r1, r2, r3, r4), row in group_rows.items():
+                if r1 in r1_members:
+                    r2_signatures.setdefault(r2, set()).add(((r1, r3, r4), row.outcome))
+            r2_blocks = _signature_blocks(block_r2s, lambda r2: frozenset(r2_signatures[r2]))
             distinct_outcomes = {
                 row.outcome for (r1, _r2, _r3, _r4), row in group_rows.items() if r1 in r1_block
             }
@@ -1448,15 +1430,12 @@ def _rules_for_input(
                     raise PartitionError(
                         f"{input_glyph}: boundary second-slot block {r2_block} splits by the third slot"
                     )
-                r3_blocks = _signature_blocks(
-                    block_r3s,
-                    lambda r3: frozenset(
-                        ((r1, r2, r4), outcome(representative, r1, r2, r3, r4))
-                        for r1 in r1_block
-                        for r2 in r2_block
-                        for r4 in r4s
-                    ),
-                )
+                r2_members = set(r2_block)
+                r3_signatures: dict[str, set[tuple[tuple[str, str, str], str]]] = {}
+                for (r1, r2, r3, r4), row in group_rows.items():
+                    if r1 in r1_members and r2 in r2_members:
+                        r3_signatures.setdefault(r3, set()).add(((r1, r2, r4), row.outcome))
+                r3_blocks = _signature_blocks(block_r3s, lambda r3: frozenset(r3_signatures[r3]))
                 slot3_fallback: Rule | None = None
                 boundary_slot3_rule: Rule | None = None
                 three_slot_rules: list[Rule] = []
@@ -1522,15 +1501,12 @@ def _rules_for_input(
                         raise PartitionError(
                             f"{input_glyph}: boundary third-slot block {r3_block} splits by the fourth slot"
                         )
-                    r4_blocks = _signature_blocks(
-                        block_r4s,
-                        lambda r4: frozenset(
-                            ((r1, r2, r3), outcome(representative, r1, r2, r3, r4))
-                            for r1 in r1_block
-                            for r2 in r2_block
-                            for r3 in r3_block
-                        ),
-                    )
+                    r3_members = set(r3_block)
+                    r4_signatures: dict[str, set[tuple[tuple[str, str, str], str]]] = {}
+                    for (r1, r2, r3, r4), row in group_rows.items():
+                        if r1 in r1_members and r2 in r2_members and r3 in r3_members:
+                            r4_signatures.setdefault(r4, set()).add(((r1, r2, r3), row.outcome))
+                    r4_blocks = _signature_blocks(block_r4s, lambda r4: frozenset(r4_signatures[r4]))
                     slot4_fallback: Rule | None = None
                     boundary_slot4_rule: Rule | None = None
                     four_slot_rules: list[Rule] = []
