@@ -5,6 +5,8 @@ A unit's expensive products — the ink diffs and machine-approval flags, the en
 What the store serves is the previous build's emitted fragment (read back from the shards it lives in) plus the slim projection the parent's global reduces need: the machine flags and ink deltas, the verdict family, the judged pair, the ink-diff digest for echo grouping, the seam-home projection and per-seam rects, and the unit's mismatch lines. Everything order-derived or ledger-derived — id, batch, echo, class, no_verdict, exemplar, the secondary-seam homes — is recomputed over the full universe every build and patched into served fragments, so a cache hit never freezes a global field; the cluster id alone is trusted from the served fragment, because its inputs (configs, final class, ink diffs) are all under the key. The byte-identity gate (rebuild/test_review_build.py::test_builds_are_byte_identical) is the standing proof: an incrementally rebuilt live surface must match a from-scratch build byte for byte.
 
 This module also owns the carry content key (the render identity rebuild/tools/carry_verdicts.py resolves prior verdicts against), so the build can stamp each unit's `content_key` at emission time and carry can probe stamped hashes instead of re-serializing every unit — one definition, shared by both sides, with the stamp itself excluded from the projection it hashes.
+
+Beside the per-unit store lives the ink-signature store (issue 18), which does for the ink-duplicate merge what the unit store does for enrichment: the merge needs one rendered-outcome signature per (window, config) over every relabel-split window — the one per-unit product computed before the unit universe exists, so the unit store can never serve it — and re-shaping those serially was the load phase's floor. Each entry's key follows the unit key's two-grained soundness argument exactly: the audit row pins the window, the config, and both fonts' rendered names (the audit is regenerated from the live fonts, so a GSUB change that moves shaping reaches the key through the names even when no glyph outline moved), and the per-family digests pin the after font's outlines, advances, and cursive anchors for every family the window can touch. The whole-store stamp carries what signatures depend on beyond that: the shaping code and the before font wholesale, plus the after font's non-family glyphs, cmap, and layout wiring. Deliberately absent: the ledger, the subsets, the Junior font, the corpus, and the draft harness — signatures read none of them, so this store survives edits that drop the unit store, and a build that re-enriches everything can still skip re-shaping the merge.
 """
 
 from __future__ import annotations
@@ -19,11 +21,13 @@ from typing import Iterable, Mapping
 from rebuild.pipeline import fingerprint, trace_memo
 from rebuild.pipeline import settle as settle_module
 from rebuild.pipeline.model import ResolvedSpec
-from rebuild.review.audit import ACCEPTANCE_CONFIGS, Unit
+from rebuild.review.audit import ACCEPTANCE_CONFIGS, AuditRow, Unit, parse_codepoints
 from rebuild.review.drafts import CORPUS_FILES
 
 STORE_FORMAT = "ams-review-unit-cache/1"
 STORE_NAME = "unit-cache.ndjson.gz"
+SIGNATURE_STORE_FORMAT = "ams-review-ink-signatures/1"
+SIGNATURE_STORE_NAME = "ink-signatures.tsv.gz"
 
 # The carry identity's non-participating fields (rebuild/tools/carry_verdicts.py imports this): id, batch, no_verdict, exemplar, echo, and cluster are order- or ledger-derived and churn whenever the surface renumbers; explain, drafts, provenance, and secondary_seams are derived presentation whose adjudicable content is already covered by the window plus both fonts' glyphs, cells, and seams; ink_deltas is the same delta identity persisted per config; content_key is the stamp of this very projection and must not feed itself.
 CARRY_PRESENTATION_KEYS = frozenset(
@@ -248,6 +252,15 @@ class UnitKeyer:
         lines += [f"{name}\t{self._family_keys[name]}" for name in self._relevant_families(families)]
         return hashlib.sha256("\n".join(lines).encode()).hexdigest()
 
+    def signature_key(self, row: AuditRow) -> str:
+        """One ink-signature store entry's content key: the audit row's window, config, and both fonts' rendered names — everything the row pins that a signature depends on, deliberately without `kinds` and `matched_entry`, which are classification the shaped ink never reads (a ledger edit must not re-shape a window) — plus the same per-family digests the unit key cites."""
+        families = frozenset(
+            self._family_of[value] for value in parse_codepoints(row.codepoints) if value in self._family_of
+        )
+        lines = ["\t".join((row.config, row.codepoints, "|".join(row.baseline), "|".join(row.new)))]
+        lines += [f"{name}\t{self._family_keys[name]}" for name in self._relevant_families(families)]
+        return hashlib.sha256("\n".join(lines).encode()).hexdigest()
+
 
 @dataclass
 class CachedUnit:
@@ -333,6 +346,52 @@ def load_store(out_dir: Path, environment: str) -> dict[str, CachedUnit] | None:
                 cached = CachedUnit.from_record(json.loads(line))
                 records[cached.key] = cached
             return records
+    except OSError, EOFError, ValueError, KeyError, TypeError, StopIteration:
+        return None
+
+
+def signature_store_path(out_dir: Path) -> Path:
+    return Path(out_dir) / SIGNATURE_STORE_NAME
+
+
+def signature_environment(repo_root: Path, before_font: Path, after_helpers_digest: str) -> str:
+    """The ink-signature store's whole-store stamp: only what a signature reads that the per-entry keys do not cover — the shaping code (both fingerprinted trees, since the Shaper lives in rebuild/validation and the comparator in rebuild/review), the before font wholesale, and the after font's non-family glyphs, cmap, and layout wiring. See the module docstring for why this is narrower than `environment_stamp`."""
+    root = Path(repo_root)
+    lines = [
+        f"format\t{SIGNATURE_STORE_FORMAT}",
+        f"pipeline_code\t{fingerprint.hash_paths(root, fingerprint.pipeline_code_paths(root))}",
+        f"review_code\t{fingerprint.hash_paths(root, fingerprint.review_code_paths(root))}",
+        f"before_font\t{_sha256_file(Path(before_font))}",
+        f"after_helpers\t{after_helpers_digest}",
+    ]
+    return hashlib.sha256("\n".join(lines).encode()).hexdigest()
+
+
+def write_signature_store(out_dir: Path, environment: str, entries: Mapping[str, str]) -> None:
+    """One JSON header line, then one `key\\tdigest` line per entry, sorted by key; the pinned gzip mtime and the sort are what keep consecutive builds of the same inputs byte-identical. Written fresh each build with exactly the entries the merge needed, so stale windows age out rather than accumulating."""
+    header = {"format": SIGNATURE_STORE_FORMAT, "environment": environment}
+    with open(signature_store_path(out_dir), "wb") as handle:
+        with gzip.GzipFile(fileobj=handle, mode="wb", mtime=0) as stream:
+            stream.write((json.dumps(header) + "\n").encode())
+            for key in sorted(entries):
+                stream.write(f"{key}\t{entries[key]}\n".encode())
+
+
+def load_signature_store(out_dir: Path, environment: str) -> dict[str, str] | None:
+    """The prior build's signature digests keyed by content key, or None when there is no usable store — absent, unreadable, or format- or environment-mismatched; a None costs one parallel re-shaping pass, so over-invalidation stays the safe direction here too."""
+    path = signature_store_path(out_dir)
+    if not path.is_file():
+        return None
+    try:
+        with gzip.open(path, "rt", encoding="utf-8") as stream:
+            header = json.loads(next(stream))
+            if header.get("format") != SIGNATURE_STORE_FORMAT or header.get("environment") != environment:
+                return None
+            entries: dict[str, str] = {}
+            for line in stream:
+                key, digest = line.rstrip("\n").split("\t")
+                entries[key] = digest
+            return entries
     except OSError, EOFError, ValueError, KeyError, TypeError, StopIteration:
         return None
 

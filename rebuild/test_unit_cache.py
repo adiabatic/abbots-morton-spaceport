@@ -3,6 +3,7 @@
 import hashlib
 import re
 import shutil
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -130,6 +131,32 @@ def test_serial_and_parallel_builds_are_byte_identical(base_surface, mini_audit,
     assert _tree(parallel) == _tree(base_surface)
 
 
+def _signatures(capfd) -> tuple[int, int]:
+    match = re.search(r"signatures: (\d+) cached, (\d+) shaped", capfd.readouterr().err)
+    assert match, "the build did not report its signature plan"
+    return int(match.group(1)), int(match.group(2))
+
+
+def test_no_change_rebuild_serves_every_signature(base_surface, mini_audit, tmp_path, capfd):
+    surface = _copy(base_surface, tmp_path)
+    build_m1(surface, audit_path=mini_audit, ledger_path=LEDGER, jobs=1)
+    cached, shaped = _signatures(capfd)
+    assert cached > 0
+    assert shaped == 0
+
+
+def test_corrupt_signature_store_reshapes_and_degrades_to_the_same_bytes(
+    base_surface, mini_audit, tmp_path, capfd
+):
+    surface = _copy(base_surface, tmp_path)
+    unit_cache.signature_store_path(surface).write_bytes(b"not a gzip stream")
+    build_m1(surface, audit_path=mini_audit, ledger_path=LEDGER, jobs=1)
+    cached, shaped = _signatures(capfd)
+    assert cached == 0
+    assert shaped > 0
+    assert _tree(surface) == _tree(base_surface)
+
+
 # --- the key and cluster byte-contracts ------------------------------------------------
 
 
@@ -166,6 +193,41 @@ def test_unit_key_moves_only_with_window_families():
 
 def test_unit_key_moves_with_row_content():
     assert _keyer().key(_unit("E650:E652")) != _keyer().key(_unit("E650:E652", matched="UNMATCHED"))
+
+
+_SIGNATURE_ROW = AuditRow(
+    config="default",
+    codepoints="E650:E652",
+    kinds=("seam",),
+    matched_entry="seam-loss-withdrawal",
+    baseline=("a", "b"),
+    new=("c", "d"),
+)
+
+
+def test_signature_key_moves_with_render_identity_not_classification():
+    """The soundness split the signature store rests on: everything that can move the placed ink — the window, the config, either font's rendered names, a window family's rune or compiled glyphs — moves the key, while the row's classification fields (kinds, matched_entry) leave it alone, so a ledger edit never re-shapes a window."""
+    row = _SIGNATURE_ROW
+    base = _keyer().signature_key(row)
+    assert _keyer().signature_key(replace(row, kinds=("cell",))) == base
+    assert _keyer().signature_key(replace(row, matched_entry="UNMATCHED")) == base
+    assert _keyer().signature_key(replace(row, config="ss03")) != base
+    assert _keyer().signature_key(replace(row, codepoints="E650:E650")) != base
+    assert _keyer().signature_key(replace(row, baseline=("a", "x"))) != base
+    assert _keyer().signature_key(replace(row, new=("c", "x"))) != base
+    assert _keyer(qsTea="t1").signature_key(row) != base
+    assert _keyer(qsPea_qsTea="pt1").signature_key(row) != base
+    assert _keyer(qsRoe="r1").signature_key(row) == base
+
+
+def test_signature_store_round_trip_and_invalidation(tmp_path):
+    entries = {"k2": "d2", "k1": "d1"}
+    unit_cache.write_signature_store(tmp_path, "env-a", entries)
+    assert unit_cache.load_signature_store(tmp_path, "env-a") == entries
+    assert unit_cache.load_signature_store(tmp_path, "env-b") is None
+    assert unit_cache.load_signature_store(tmp_path / "missing", "env-a") is None
+    unit_cache.signature_store_path(tmp_path).write_bytes(b"not a gzip stream")
+    assert unit_cache.load_signature_store(tmp_path, "env-a") is None
 
 
 def test_cluster_id_from_repr_matches_the_tuple_recipe():

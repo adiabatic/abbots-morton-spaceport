@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Callable
 
 from rebuild.pipeline import spec_load
 from rebuild.pipeline.conform import (
@@ -290,11 +291,12 @@ class Enricher:
         alias_path: Path | None = None,
         repo_root: Path = REPO_ROOT,
         before_font: Path = SENIOR_FONT,
+        shaper_factory: Callable = Shaper,
     ):
         self.spec = spec
         self.subset_dir = Path(subset_dir)
-        self.after_shaper = Shaper(after_font)
-        self.before_shaper = Shaper(before_font)
+        self.after_shaper = shaper_factory(after_font)
+        self.before_shaper = shaper_factory(before_font)
         self._outlines = {"before": OutlineCache(before_font), "after": OutlineCache(after_font)}
         self.aliases = load_alias_map(alias_path or repo_root / "rebuild" / "m1-aliases.yaml")
         self._subset_rows: dict[str, dict[str, Row]] = {}

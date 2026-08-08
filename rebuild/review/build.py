@@ -30,10 +30,14 @@ from rebuild.review.audit import (
     ACCEPTANCE_CONFIGS,
     BATCH_SIZE,
     UNMATCHED_CLASS,
+    AuditRow,
     _config_index,
     assign_batches,
+    format_codepoints,
     load_workload,
     merge_ink_duplicate_units,
+    parse_codepoints,
+    signature_rows,
     synthesize_family_classes,
 )
 from rebuild.review.drafts import Drafter
@@ -44,6 +48,8 @@ from rebuild.review.ink import (
     InkComparator,
     JuniorOracle,
     delta_digest,
+    shaper_for,
+    signature_digest,
 )
 from rebuild.review.enrich import (
     LETTERS,
@@ -506,11 +512,73 @@ def _phase2_unit(enriched: EnrichedUnit, injection, drafter: Drafter) -> dict:
     return unit_to_json(enriched, drafter)
 
 
+# Below this, pool startup (spawn plus two font loads per worker) stops paying for itself against a serial pass through the parent's shared shapers; see rebuild/out/cycle-timings.ndjson for the measured rates this was set from.
+_SIGNATURE_POOL_THRESHOLD = 20_000
+
+_signature_worker_state: dict = {}
+
+
+def _signature_pool_init(before_font: Path, after_font: Path) -> None:
+    _signature_worker_state["comparator"] = InkComparator(before_font, after_font)
+
+
+def _signature_pair_digest(pair: tuple[str, str]) -> str:
+    text, config = pair
+    return signature_digest(_signature_worker_state["comparator"].signature(text, config))
+
+
+def _resolve_signature_digests(
+    rows: list[AuditRow],
+    keyer: unit_cache.UnitKeyer,
+    out_dir: Path,
+    before_font: Path,
+    after_font: Path,
+    repo_root: Path,
+    helpers_digest: str,
+    jobs: int,
+    fresh: bool,
+) -> tuple[dict[tuple[str, str], str], dict[str, str], str, int]:
+    """The ink-duplicate merge's signature digests, one per row of `signature_rows`, served from the persisted store where the content key still holds and shaped live for the remainder — across a spawn pool when the miss pile is deep enough to amortize its startup, else serially through the parent's shared shapers. Returns the digests keyed (codepoints, config), the store records to persist after the build, the store's environment stamp, and the count actually shaped."""
+    environment = unit_cache.signature_environment(repo_root, before_font, helpers_digest)
+    prior = None if fresh else unit_cache.load_signature_store(out_dir, environment)
+    keys = {(row.codepoints, row.config): keyer.signature_key(row) for row in rows}
+    signatures: dict[tuple[str, str], str] = {}
+    entries: dict[str, str] = {}
+    misses: list[AuditRow] = []
+    for row in rows:
+        digest = prior.get(keys[(row.codepoints, row.config)]) if prior else None
+        if digest is None:
+            misses.append(row)
+        else:
+            signatures[(row.codepoints, row.config)] = digest
+            entries[keys[(row.codepoints, row.config)]] = digest
+    if misses:
+        pairs = [
+            ("".join(chr(value) for value in parse_codepoints(row.codepoints)), row.config) for row in misses
+        ]
+        if jobs > 1 and len(misses) >= _SIGNATURE_POOL_THRESHOLD:
+            ctx = multiprocessing.get_context("spawn")
+            nworkers = min(jobs, len(misses))
+            with ctx.Pool(
+                nworkers, initializer=_signature_pool_init, initargs=(before_font, after_font)
+            ) as pool:
+                digests = pool.map(
+                    _signature_pair_digest, pairs, chunksize=max(1, len(pairs) // (nworkers * 8))
+                )
+        else:
+            comparator = InkComparator(before_font, after_font, shaper_for)
+            digests = [signature_digest(comparator.signature(text, config)) for text, config in pairs]
+        for row, digest in zip(misses, digests):
+            signatures[(row.codepoints, row.config)] = digest
+            entries[keys[(row.codepoints, row.config)]] = digest
+    return signatures, entries, environment, len(misses)
+
+
 def _surface_worker(conn, init: dict) -> None:
     """A persistent, stateful surface worker (spawn-only: uharfbuzz/fontTools C objects are not fork-safe, and drafts._import_test_shaping mutates a module-global singleton). Phase 1 computes config_diff + enrich over its slice and retains each EnrichedUnit in-process; phase 2 injects the parent's global fields and emits the shard JSON from the retained ExplainReports."""
     try:
-        comparator = InkComparator(init["before_font"], init["after_font"])
-        oracle = JuniorOracle(init["junior_font"], init["before_font"], init["after_font"])
+        comparator = InkComparator(init["before_font"], init["after_font"], shaper_for)
+        oracle = JuniorOracle(init["junior_font"], init["before_font"], init["after_font"], shaper_for)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             spec = load_spec(init["repo_root"])
@@ -520,8 +588,9 @@ def _surface_worker(conn, init: dict) -> None:
             init["after_font"],
             repo_root=init["repo_root"],
             before_font=init["before_font"],
+            shaper_factory=shaper_for,
         )
-        drafter = Drafter(init["after_font"], repo_root=init["repo_root"])
+        drafter = Drafter(init["after_font"], repo_root=init["repo_root"], shaper_factory=shaper_for)
         retained: dict[str, EnrichedUnit] = {}
         while True:
             message = conn.recv()
@@ -567,7 +636,6 @@ class _FreshRunner:
         self,
         fresh: list,
         jobs: int,
-        comparator: InkComparator,
         subset_dir: Path,
         before_font: Path,
         after_font: Path,
@@ -575,7 +643,6 @@ class _FreshRunner:
         repo_root: Path,
     ) -> None:
         self._fresh = fresh
-        self._comparator = comparator
         self._before_font = before_font
         self._after_font = after_font
         self._junior_font = junior_font
@@ -617,7 +684,8 @@ class _FreshRunner:
                 for projection in reply[1]:
                     projections[projection.unit_id] = projection
         elif self._fresh:
-            oracle = JuniorOracle(self._junior_font, self._before_font, self._after_font)
+            comparator = InkComparator(self._before_font, self._after_font, shaper_for)
+            oracle = JuniorOracle(self._junior_font, self._before_font, self._after_font, shaper_for)
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
                 spec = load_spec(self._repo_root)
@@ -627,10 +695,11 @@ class _FreshRunner:
                 self._after_font,
                 repo_root=self._repo_root,
                 before_font=self._before_font,
+                shaper_factory=shaper_for,
             )
-            self._drafter = Drafter(self._after_font, repo_root=self._repo_root)
+            self._drafter = Drafter(self._after_font, repo_root=self._repo_root, shaper_factory=shaper_for)
             for unit in self._fresh:
-                projection, enriched = _phase1_unit(unit, self._comparator, oracle, enricher)
+                projection, enriched = _phase1_unit(unit, comparator, oracle, enricher)
                 self._retained[unit.unit_id] = enriched
                 projections[projection.unit_id] = projection
         return projections
@@ -830,23 +899,42 @@ def build_m1(
 
     phase = time.perf_counter()
     workload = load_workload(audit_path, ledger_path, dict(LETTERS))
-    comparator = InkComparator(before_font, after_font)
-    exempt_classes = {entry.id for entry in workload.ledger if entry.no_verdict}
-    merge_ink_duplicate_units(workload.units, comparator.signature, exempt_classes)
-    present = {unit.class_id for unit in workload.units}
-    workload.classes_present = [entry for entry in workload.ledger if entry.id in present]
-    print(f"[t] review.build load {time.perf_counter() - phase:.1f}s", file=sys.stderr, flush=True)
-
-    # The incremental plan (issue 20; rebuild/review/unit_cache.py is the contract): key every unit over its content closure, serve what the previous surface already computed, and hand the runner only the remainder. The reduces below always run over the full universe, so every order- or ledger-derived field is this build's own.
-    phase = time.perf_counter()
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         spec = load_spec(repo_root)
     family_keys, helpers_digest = unit_cache.family_content_keys(repo_root, spec, after_font)
+    keyer = unit_cache.UnitKeyer(family_keys, dict(LETTERS))
+    signatures, signature_entries, signature_environment, signatures_shaped = _resolve_signature_digests(
+        signature_rows(workload.units),
+        keyer,
+        out_dir,
+        before_font,
+        after_font,
+        repo_root,
+        helpers_digest,
+        jobs,
+        fresh_unit_cache,
+    )
+
+    def ink_sig(text: str, config: str) -> str:
+        return signatures[(format_codepoints(tuple(ord(ch) for ch in text)), config)]
+
+    exempt_classes = {entry.id for entry in workload.ledger if entry.no_verdict}
+    merge_ink_duplicate_units(workload.units, ink_sig, exempt_classes)
+    present = {unit.class_id for unit in workload.units}
+    workload.classes_present = [entry for entry in workload.ledger if entry.id in present]
+    print(
+        f"[t] review.build load {time.perf_counter() - phase:.1f}s"
+        f"\t(signatures: {len(signatures) - signatures_shaped} cached, {signatures_shaped} shaped)",
+        file=sys.stderr,
+        flush=True,
+    )
+
+    # The incremental plan (issue 20; rebuild/review/unit_cache.py is the contract): key every unit over its content closure, serve what the previous surface already computed, and hand the runner only the remainder. The reduces below always run over the full universe, so every order- or ledger-derived field is this build's own.
+    phase = time.perf_counter()
     environment = unit_cache.environment_stamp(
         repo_root, spec, subset_dir, before_font, junior_font, helpers_digest
     )
-    keyer = unit_cache.UnitKeyer(family_keys, dict(LETTERS))
     keys = {unit.unit_id: keyer.key(unit) for unit in workload.units}
     store = None if fresh_unit_cache else unit_cache.load_store(out_dir, environment)
     served: dict[str, unit_cache.CachedUnit] = {}
@@ -873,9 +961,7 @@ def build_m1(
     )
 
     phase = time.perf_counter()
-    runner = _FreshRunner(
-        fresh, jobs, comparator, subset_dir, before_font, after_font, junior_font, repo_root
-    )
+    runner = _FreshRunner(fresh, jobs, subset_dir, before_font, after_font, junior_font, repo_root)
     try:
         projections = runner.phase1()
 
@@ -1025,6 +1111,7 @@ def build_m1(
             )
         )
     unit_cache.write_store(out_dir, environment, records)
+    unit_cache.write_signature_store(out_dir, signature_environment, signature_entries)
     print(f"[t] review.build cache {time.perf_counter() - phase:.1f}s", file=sys.stderr, flush=True)
     return manifest
 
