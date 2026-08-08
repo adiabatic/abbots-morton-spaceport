@@ -18,6 +18,8 @@ The same provably-unchanged principle guards every other heavy stage, each keyed
 
 --defer-gates, which `make review-cycle` passes, turns the cycle from a one-pass verification into a converging loop. On a *refreshing* pass — one where run_m1 or the surface build has real work — the three heavy gates (rebuild, conform, make-test) are recorded pending instead of run, so a rune edit costs only the artifact chain and the letters are on screen in a fraction of the time. The census rides the same deferral: it is informational, no gate reads it, and the one step whose scheduling depends on it — gate:rebuild, submitted only after the census lands a verdict — is itself deferred on any refreshing pass, so leaving it for the converging pass takes a minute off the time to letters-on-screen without changing what any pass verifies. An --update-pins pass never defers it, since refreshing the pins is that pass's whole point. Only a gate that would otherwise run live is deferred: one an auto-skip already proved stays proved, so a pass that merely restamps the review UI can never turn a green gate pending. The next pass has no artifact work left, every stage auto-skips, and the pending gates run against settled artifacts; the pass after that skips those too and costs seconds. Deferral is never a waiver — a deferred gate rides `skip: "deferred"` into the cycle summary, which rebuild.review.status counts as unverified, so `make verdict-ready` and the app banner both stay NOT READY until the loop converges. --no-defer-gates runs them in the one pass, which is what `make artifact-cycle` does at commit time, and --fresh and --force-make-test likewise override deferral for the gates they force. Rehearsal mode (--review-out) never defers: it writes its surface somewhere else, so there is no live surface to see sooner, and its surface build is unskippable by construction — every rehearsal pass would look refreshing and the loop would never converge.
 
+Which passes cost the reviewer their letters is decided here rather than by the caller, because only the resolved plan knows. Two of the things a cycle writes belong to the running app — the surface it serves, where livereload watches every shard and a restamped manifest orphans the tab's store, and the verdict store, which merge_verdicts refuses to touch under a live server because an open tab would flush its own copy back over the merge. A pass whose plan skips both writes neither, so a listening server is left alone and the letters stay on screen for the whole run: that is the gate pass, whose half hour of verification the deferred gates exist to move off the look-edit-look path, and which used to black the app out for every minute of it. A pass that does write under the app still needs the port to itself, and --stop-server (which `make review-cycle` passes) is permission to take it — terminate the server and wait out the port — where a bare run still refuses and says how. Retention is the third writer: the app appends to the journal as you verdict, and a compaction rewrites the file around a read, so with a server up the journal and the stash sweep that indexes off it are both left for a later pass.
+
 A green finish ends with a retention pass over the cycle's own disk piles, all of them regenerable or journal-covered: every tmp/review-pre-* snapshot except this cycle's is deleted (a snapshot is read once, by its own cycle's carry, and never again), root verdicts-carried-*.json files not stamped for the live surface are deleted (only the stamp-aligned frontier is ever read; the tracked copy under rebuild/evidence/ is never touched), verdicts-autosave-* stashes not referenced by a journal event at or after the last base event are deleted (the journal, not the stashes, is the sanctioned recovery path — and the reference index is the test because a stash's mtime predates the event that created it), and the journal itself is compacted to the newest base event older than RETENTION_WINDOW_DAYS, keeping at least that many days of --restore-as-of history. Failed, interrupted, first-run, and rehearsal cycles never prune; --keep-history opts out entirely; a retention error warns and never turns a green cycle red.
 
 Run as: uv run python rebuild/tools/artifact_cycle.py — the carry source is auto-resolved from the autosave and the verdicts-*.json exports; pass --verdicts to name one explicitly.
@@ -73,6 +75,9 @@ DEFERRABLE_GATES = ("rebuild", "conform", "make-test")
 DEFER_NOTE = "surface refreshed this pass; run the cycle again to run it"
 PLUMBING_SKIP_NOTE = "surface, verdicts master, live store, and standing approvals unchanged since the last complete plumbing pass; --fresh overrides"
 STALE_CENSUS_DEFER_NOTE = "stale census pins; re-run with --update-pins to refresh them first"
+SERVER_STAYS_UP_NOTE = "writes neither the surface the app serves nor the verdict store it holds"
+SERVER_STOP_PATTERN = r"rebuild\.review\.serve"
+SERVER_STOP_TIMEOUT = 15.0
 _GATE_POOL_WORKERS = 5
 _CONFORM_JOBS_CAP = 8
 CONFORM_HORIZON_DEFAULT = 5
@@ -1003,6 +1008,22 @@ def server_listening(port: int = REVIEW_PORT) -> bool:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.settimeout(0.5)
         return sock.connect_ex(("127.0.0.1", port)) == 0
+
+
+def server_may_stay_up(*, skip_surface: bool, skip_plumbing: bool) -> bool:
+    """Whether a live review server can run right through this pass. Two things a cycle writes are the app's own: the surface it serves — livereload watches every shard, and a restamped manifest orphans the tab's store — and the verdict store, which merge_verdicts refuses to touch under a live server anyway, since an open tab would flush its copy back over the merge. A pass whose plan skips both writes neither, so the letters can stay on screen for its whole run; that is exactly the shape of the gate pass the deferred gates exist to produce. Everything else the cycle writes is either outside the served tree (the census pins, the m1 summaries) or read by the app only as status, where landing fresh mid-pass is the point rather than a hazard."""
+    return skip_surface and skip_plumbing
+
+
+def stop_review_server(timeout: float = SERVER_STOP_TIMEOUT) -> bool:
+    """Terminate the review server and wait for port 7294 to come free, so the surface rewrite that follows cannot race a live reader. False when something is still listening at the deadline — a server started some other way, or one wedged mid-shutdown — which the caller reports rather than building over."""
+    subprocess.run(["pkill", "-f", SERVER_STOP_PATTERN], check=False, capture_output=True)
+    deadline = time.monotonic() + timeout
+    while server_listening():
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(0.2)
+    return True
 
 
 def _render_concurrency(plan: Plan) -> list[str]:
@@ -2154,7 +2175,7 @@ def _emit_cycle_summary(
         timings.finish(payload)
 
 
-def _preflight(args: argparse.Namespace) -> bool:
+def _preflight(args: argparse.Namespace, *, may_stay_up: bool = False) -> bool:
     if args.review_out is not None:
         print(
             f"Rehearsal mode: surface writes redirected to {args.review_out}; the live surface at rebuild/out/review is never written."
@@ -2162,6 +2183,21 @@ def _preflight(args: argparse.Namespace) -> bool:
         return True
     if not server_listening():
         return True
+    if may_stay_up:
+        print(f"The review server stays up: this pass {SERVER_STAYS_UP_NOTE}.")
+        return True
+    if args.stop_server:
+        print("Stopping the review server: this pass writes the surface or the verdict store under it.")
+        if stop_review_server():
+            return True
+        print("=" * 68)
+        print(
+            f"REFUSING TO RUN: something is still listening on 127.0.0.1:{REVIEW_PORT} "
+            f"{SERVER_STOP_TIMEOUT:.0f}s after the stop."
+        )
+        print("Stop it by hand and re-run.")
+        print("=" * 68)
+        return False
     if args.yes:
         print("=" * 68)
         print("WARNING: a review server is listening on 127.0.0.1:7294.")
@@ -2179,6 +2215,7 @@ def _preflight(args: argparse.Namespace) -> bool:
     print("autosave). Before re-running:")
     print("  1. in the review app, export or confirm the autosave of your verdicts")
     print(r"  2. stop the review server:  pkill -f 'rebuild\.review\.serve'")
+    print("     (or pass --stop-server and let this command stop it for you)")
     print("  3. re-run this command (or pass --yes to override at your own risk)")
     print("  (or pass --review-out <dir> to rehearse without touching the live surface)")
     print("=" * 68)
@@ -2289,6 +2326,15 @@ def run_retention(plan: Plan) -> None:
             print(f"              kept {rel(path)} (unreadable, not pruning it)")
 
     journal_path = ROOT / journal.JOURNAL_NAME
+    if server_listening():
+        print(
+            "  stashes   : left intact (the review server is up, and the index of which ones are still referenced comes from the journal this pass is leaving alone)"
+        )
+        print(
+            "  journal   : left intact (the review server is up: the app appends to the journal as you verdict, and a compaction rewrites the whole file around a read, so anything landing in between would be dropped)"
+        )
+        return
+
     removed_stashes = prune_stashes(ROOT, journal_path)
     if removed_stashes is None:
         print("  stashes   : left intact (the journal holds no base event to anchor on)")
@@ -2387,6 +2433,11 @@ def main(argv: list[str] | None = None) -> int:
         help="skip the green-finish retention pass (old snapshots, stale carried files and stashes, and the journal's pre-window history all stay on disk)",
     )
     parser.add_argument("--yes", action="store_true", help="override the running-review-server refusal")
+    parser.add_argument(
+        "--stop-server",
+        action="store_true",
+        help="stop a listening review server instead of refusing, but only when this pass writes under it — the surface it serves or the verdict store it holds. A pass that writes neither leaves the server up whether or not this is passed, so the letters stay on screen through it; `make review-cycle` passes this, which is what makes a gate-only pass background verification rather than a lockout",
+    )
     parser.add_argument(
         "--dry-run",
         action="store_true",
@@ -2565,7 +2616,9 @@ def main(argv: list[str] | None = None) -> int:
         print(render_plan(plan))
         return 0
 
-    if not _preflight(args):
+    if not _preflight(
+        args, may_stay_up=server_may_stay_up(skip_surface=skip_surface, skip_plumbing=skip_plumbing)
+    ):
         return 2
 
     if first_run:

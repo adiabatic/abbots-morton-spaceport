@@ -73,18 +73,19 @@ review-serve:
 artifact-cycle:
 	uv run python rebuild/tools/artifact_cycle.py $(ARGS)
 
-# The whole loop in one command: stop the review server if it's running, run the artifact cycle (whose merge step lands the carried verdicts in the autosave — no browser import), then serve the fresh surface. A failed cycle stops before serving.
+# The whole loop in one command: run the artifact cycle (whose merge step lands the carried verdicts in the autosave — no browser import), then serve the surface. A failed cycle stops before serving.
+# --stop-server hands the server question to the driver, which alone knows whether this pass writes under it. A pass that rebuilds the surface or moves the verdict store stops the server first, as this recipe always did; a pass that does neither — the gate pass the deferred gates exist to produce — leaves it up, so the letters stay on screen through the half-hour of verification instead of vanishing for it. Whichever happened, the serve step below only binds the port when nothing already holds it.
 # --defer-gates makes repeated runs converge instead of re-verifying every time: a pass that rebuilds M1 or the surface leaves the heavy gates pending so the letters are on screen sooner, the next pass has no artifact work left and runs them, and the pass after that costs seconds. A deferred gate is unproven, so `make verdict-ready` stays NOT READY until a pass clears it. ARGS='--no-defer-gates' verifies in the one pass, as `make artifact-cycle` does.
-# SERVE=0 still stops the server and runs the cycle, but prints the restart command instead of serving, so the target terminates. That is what any non-interactive caller wants: served in the foreground, the recipe never exits, the cycle summary never lands as a completed command, and the next run's stop step kills the old server and reports it as a failed exit 143.
+# SERVE=0 runs the same cycle but prints the restart command instead of serving, so the target terminates. That is what any non-interactive caller wants: served in the foreground, the recipe never exits and the cycle summary never lands as a completed command. It no longer costs that caller the server on a gate-only pass, which now keeps serving.
 review-cycle:
-	-@pkill -f 'rebuild\.review\.serve' 2>/dev/null || true
-	@while lsof -ti tcp:7294 -sTCP:LISTEN >/dev/null 2>&1; do sleep 0.2; done
-	uv run python rebuild/tools/artifact_cycle.py --defer-gates $(ARGS)
-ifeq ($(SERVE),0)
-	@printf '\nThe review server was left stopped (SERVE=0). To look at the letters:\n    make review-serve\n\nUntil it is up, `make verdict-ready` reports the server down.\n'
-else
-	uv run python -m rebuild.review.serve
-endif
+	uv run python rebuild/tools/artifact_cycle.py --defer-gates --stop-server $(ARGS)
+	@if lsof -ti tcp:7294 -sTCP:LISTEN >/dev/null 2>&1; then \
+		printf '\nThe review server stayed up through this pass — the letters were on screen for all of it.\n'; \
+	elif [ "$(SERVE)" = "0" ]; then \
+		printf '\nThe review server was left stopped (SERVE=0). To look at the letters:\n    make review-serve\n\nUntil it is up, `make verdict-ready` reports the server down.\n'; \
+	else \
+		uv run python -m rebuild.review.serve; \
+	fi
 
 # Answer "am I ready to verdict?": surface freshness, gate greenness, verdict-store alignment, server, blanks. Exit 0 when ready.
 verdict-ready:

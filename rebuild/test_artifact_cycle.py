@@ -1654,9 +1654,9 @@ def test_review_out_rehearsal_plan(monkeypatch):
     assert str(ac.REVIEW_OUT) in by_name["snapshot"].note
 
     monkeypatch.setattr(ac, "server_listening", lambda *a, **k: True)
-    waiver = argparse.Namespace(review_out=Path("tmp/reh"), yes=False)
+    waiver = argparse.Namespace(review_out=Path("tmp/reh"), yes=False, stop_server=False)
     assert ac._preflight(waiver) is True
-    refuse = argparse.Namespace(review_out=None, yes=False)
+    refuse = argparse.Namespace(review_out=None, yes=False, stop_server=False)
     assert ac._preflight(refuse) is False
 
 
@@ -3583,6 +3583,102 @@ def test_main_skipping_the_plumbing_takes_the_snapshot_with_it(tmp_path, monkeyp
     assert calls == []
 
 
+def test_server_may_stay_up_only_when_the_pass_writes_neither_of_the_apps_files():
+    assert ac.server_may_stay_up(skip_surface=True, skip_plumbing=True) is True
+    assert ac.server_may_stay_up(skip_surface=True, skip_plumbing=False) is False
+    assert ac.server_may_stay_up(skip_surface=False, skip_plumbing=True) is False
+    assert ac.server_may_stay_up(skip_surface=False, skip_plumbing=False) is False
+
+
+def _preflight_args(**overrides):
+    kw = dict(review_out=None, yes=False, stop_server=False)
+    kw.update(overrides)
+    return argparse.Namespace(**kw)
+
+
+def test_preflight_leaves_a_listening_server_up_for_a_pass_that_writes_nothing_under_it(monkeypatch, capsys):
+    """The gate pass: no surface write to strand the tab, no store write for merge_verdicts to refuse. Nothing to take the port for, so the letters stay on screen for the whole half hour — and this holds without --stop-server, since the flag is permission to stop a server, not an instruction to."""
+    stops: list[int] = []
+    monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: True)
+    monkeypatch.setattr(ac, "stop_review_server", lambda timeout=0.0: stops.append(1) or True)
+    for args in (_preflight_args(), _preflight_args(stop_server=True)):
+        assert ac._preflight(args, may_stay_up=True) is True
+    assert stops == []
+    assert ac.SERVER_STAYS_UP_NOTE in capsys.readouterr().out
+
+
+def test_preflight_stops_the_server_for_a_writing_pass_only_when_allowed(monkeypatch, capsys):
+    """--stop-server is what `make review-cycle` passes in place of the recipe's old unconditional pkill; without it the refusal stands, because a bare run has no standing to end someone's verdicting session."""
+    stops: list[int] = []
+    monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: True)
+    monkeypatch.setattr(
+        ac, "stop_review_server", lambda timeout=ac.SERVER_STOP_TIMEOUT: stops.append(1) or True
+    )
+
+    assert ac._preflight(_preflight_args(stop_server=True), may_stay_up=False) is True
+    assert stops == [1]
+    assert "Stopping the review server" in capsys.readouterr().out
+
+    assert ac._preflight(_preflight_args(), may_stay_up=False) is False
+    assert stops == [1]
+    assert "REFUSING TO RUN" in capsys.readouterr().out
+
+
+def test_preflight_refuses_when_the_stop_leaves_the_port_held(monkeypatch, capsys):
+    """Something else is serving 7294, or the server wedged mid-shutdown. Either way the surface rewrite would land under a live reader, so the pass stops rather than building over it."""
+    monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: True)
+    monkeypatch.setattr(ac, "stop_review_server", lambda timeout=ac.SERVER_STOP_TIMEOUT: False)
+    assert ac._preflight(_preflight_args(stop_server=True), may_stay_up=False) is False
+    assert "still listening" in capsys.readouterr().out
+
+
+def test_stop_review_server_waits_for_the_port_to_come_free(monkeypatch):
+    """The wait is the point: pkill returns as soon as the signal is delivered, and a surface build racing the socket's last breath is exactly what the old recipe's lsof loop was for."""
+    killed: list[list[str]] = []
+    monkeypatch.setattr(
+        ac.subprocess, "run", lambda argv, **kw: killed.append(argv) or subprocess.CompletedProcess(argv, 0)
+    )
+    monkeypatch.setattr(ac.time, "sleep", lambda seconds: None)
+    remaining = [True, True, True]
+    monkeypatch.setattr(
+        ac, "server_listening", lambda port=ac.REVIEW_PORT: bool(remaining and remaining.pop())
+    )
+    assert ac.stop_review_server() is True
+    assert killed == [["pkill", "-f", ac.SERVER_STOP_PATTERN]]
+    assert remaining == []
+
+    monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: True)
+    assert ac.stop_review_server(timeout=0.0) is False
+
+
+def test_main_leaves_the_server_up_on_the_settled_pass(tmp_path, monkeypatch, capsys):
+    """End to end through the resolver: the pass that skips the surface and the plumbing is the one that keeps serving, and it never reaches for the port."""
+    _settled_repo(tmp_path, monkeypatch)
+    ac.record_plumbing_green("plu", None)
+    monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: True)
+    monkeypatch.setattr(
+        ac, "stop_review_server", lambda timeout=ac.SERVER_STOP_TIMEOUT: pytest.fail("stopped")
+    )
+    monkeypatch.setattr(ac, "snapshot_surface", lambda src, dst: "cloned")
+    monkeypatch.setattr(ac, "_run_cycle", lambda plan, report, emit, registry, **_: 0)
+    assert ac.main([]) == 0
+    assert ac.SERVER_STAYS_UP_NOTE in capsys.readouterr().out
+
+
+def test_main_stops_the_server_when_the_pass_rebuilds_the_surface(tmp_path, monkeypatch, capsys):
+    _defer_repo(tmp_path, monkeypatch)
+    monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: True)
+    stops: list[int] = []
+    monkeypatch.setattr(
+        ac, "stop_review_server", lambda timeout=ac.SERVER_STOP_TIMEOUT: stops.append(1) or True
+    )
+    monkeypatch.setattr(ac, "snapshot_surface", lambda src, dst: "cloned")
+    monkeypatch.setattr(ac, "_run_cycle", lambda plan, report, emit, registry, **_: 0)
+    assert ac.main(["--stop-server"]) == 0
+    assert stops == [1]
+    assert "Stopping the review server" in capsys.readouterr().out
+
+
 def test_snapshot_surface_copies_tree(tmp_path):
     src = tmp_path / "src"
     (src / "sub").mkdir(parents=True)
@@ -3807,6 +3903,7 @@ def test_retention_leaves_the_snapshots_alone_when_the_pass_took_none(tmp_path, 
     survivor.mkdir()
     monkeypatch.setattr(journal, "compact", lambda path, cutoff: {"compacted": False})
     monkeypatch.setattr(ac, "prune_stashes", lambda root, journal_path: [])
+    monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: False)
 
     ac.run_retention(skipping)
     assert survivor.is_dir()
@@ -3814,6 +3911,32 @@ def test_retention_leaves_the_snapshots_alone_when_the_pass_took_none(tmp_path, 
 
     ac.run_retention(ordinary)
     assert not survivor.exists()
+
+
+def test_retention_leaves_the_journal_and_stashes_alone_while_the_server_is_up(tmp_path, monkeypatch, capsys):
+    """The app appends to the journal as the reviewer verdicts, and compact() rewrites the whole file around a read — an append landing in between is gone. The stash sweep reads that same journal for its reference index, so it waits too; the carried sweep, which the app never writes, still runs."""
+    plan = _plan(skip_plumbing=True, plumbing_note=ac.PLUMBING_SKIP_NOTE)
+    monkeypatch.setattr(ac, "ROOT", tmp_path)
+    monkeypatch.setattr(ac, "REVIEW_OUT", tmp_path / "review")
+    (tmp_path / "review").mkdir()
+    (tmp_path / "review" / "manifest.json").write_text(json.dumps({"generated_at": "2026-08-07T00:00:00Z"}))
+    (tmp_path / "tmp").mkdir()
+    (tmp_path / "verdicts-carried-old.json").write_text(_carried("2026-01-01T00:00:00Z"))
+    compacted: list[str] = []
+    monkeypatch.setattr(
+        journal, "compact", lambda path, cutoff: compacted.append(cutoff) or {"compacted": False}
+    )
+    swept: list[Path] = []
+    monkeypatch.setattr(ac, "prune_stashes", lambda root, journal_path: swept.append(root) or [])
+    monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: True)
+
+    ac.run_retention(plan)
+
+    out = capsys.readouterr().out
+    assert compacted == [] and swept == []
+    assert "journal   : left intact (the review server is up" in out
+    assert "stashes   : left intact (the review server is up" in out
+    assert not (tmp_path / "verdicts-carried-old.json").exists()
 
 
 def test_finish_skips_retention_when_failures(monkeypatch):
