@@ -31,6 +31,10 @@
    "upem": 550
   }
  },
+ "alphabet": {
+  "migrated": 16,
+  "total": 44
+ },
  "configs": [
   "default",
   "ss02",

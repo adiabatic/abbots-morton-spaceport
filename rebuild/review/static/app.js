@@ -41,6 +41,7 @@ import {
   NO_VERDICT_BADGE,
   formatCount,
   surfaceChipLabel,
+  surfaceAlphabetLabel,
   surfaceStampLine,
   surfaceDetailRows,
   classCountsLine,
@@ -2371,23 +2372,33 @@ function renderChrome() {
   const stampText = surfaceStampLine(manifest);
   stamp.textContent = stampText ?? '';
   stamp.hidden = stampText === null;
-  const rows = document.getElementById('surface-detail-rows');
-  rows.replaceChildren();
+  const alphabetLabel = surfaceAlphabetLabel(manifest);
+  const alphabet = document.createElement('td');
+  if (alphabetLabel !== null) {
+    alphabet.textContent = alphabetLabel;
+    alphabet.title = 'Letters migrated to the rebuild engine, against the whole Quikscript alphabet — the surface is built over the migrated ones.';
+  }
+  const unitsHeading = document.createElement('th');
+  unitsHeading.scope = 'col';
+  unitsHeading.textContent = 'units';
+  const headRow = document.createElement('tr');
+  headRow.append(alphabet, unitsHeading);
+  const head = document.createElement('thead');
+  head.append(headRow);
+  const body = document.createElement('tbody');
   for (const row of surfaceDetailRows(manifest)) {
-    const term = document.createElement('dt');
-    const value = document.createElement('dd');
+    const line = document.createElement('tr');
+    const term = document.createElement('th');
+    const value = document.createElement('td');
+    term.scope = 'row';
     term.textContent = row.label;
     value.textContent = row.value;
-    if (row.sub) {
-      term.className = 'sub';
-      value.className = 'sub';
-    }
-    if (row.title) {
-      term.title = row.title;
-      value.title = row.title;
-    }
-    rows.append(term, value);
+    if (row.sub) line.className = 'sub';
+    if (row.title) line.title = row.title;
+    line.append(term, value);
+    body.append(line);
   }
+  document.getElementById('surface-detail-rows').replaceChildren(head, body);
 }
 
 renderChrome();

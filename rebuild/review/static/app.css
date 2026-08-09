@@ -189,34 +189,47 @@ summary:focus-visible {
     color: var(--muted);
   }
 
-  dl {
-    display: grid;
-    grid-template-columns: 1fr auto;
-    gap: 0.2rem 2ch;
-    margin: 0;
+  table {
+    width: 100%;
+    border-collapse: collapse;
 
-    dt,
-    dd {
-      margin: 0;
+    th,
+    td {
+      padding-block: 0.1rem;
+      font-weight: inherit;
     }
 
-    dd {
+    tr > :first-child {
+      text-align: left;
+    }
+
+    tr > :last-child {
+      padding-inline-start: 2ch;
       text-align: right;
       font-variant-numeric: tabular-nums;
     }
 
-    .sub {
+    thead {
+      th,
+      td {
+        padding-bottom: 0.25rem;
+      }
+
+      th {
+        color: var(--muted);
+      }
+    }
+
+    tbody tr.sub {
       color: var(--muted);
+
+      th {
+        padding-inline-start: 1.2em;
+      }
     }
 
-    dt.sub {
-      padding-inline-start: 1.2em;
-    }
-
-    dt:last-of-type,
-    dd:last-of-type {
-      margin-top: 0.2rem;
-      padding-top: 0.3rem;
+    tbody tr:last-child > * {
+      padding-top: 0.35rem;
       border-top: 1px solid var(--hairline);
     }
   }
