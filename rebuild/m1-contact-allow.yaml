@@ -431,3 +431,13 @@
 - signature: contact:qsTea.full.en-y8.ex-y0:qsUtter.mono.en-y0:y1
 - signature: contact:qsTea.full.en-y8.ex-y0:qsUtter.mono.en-y0.ex-y5:y1
 - signature: contact:qsTea.full.en-y8.ex-y0:qsUtter.mono.en-y0.ex-y5.ex-ext-1:y1
+
+# The ·Vie·Utter ligature's declined-exit arm (E-DANGLE). The shipped font draws the ligature's ·Utter arm up to the x-height unconditionally — isolated, word-final, and before a non-joining follower alike (the default ·Vie·Utter·Tea window keeps the full drawing) — and carries no withdrawn ·Vie·Utter anywhere in the baseline. The arm ends horizontally, so it cannot earn the automatic `withdrawal: safe` proof; intentional letterform ink on the qsEt/qsRoe terminal precedent, the same shape as the ·See·Utter bar one batch earlier. One signature per entry/lock variant the gate inspects separately; all are the same arm.
+- signature: dangle:qsVie_qsUtter.hapax:exit:x-height
+  why: The ligature's x-height arm on the isolated drawing; the declined exit keeps it.
+- signature: dangle:qsVie_qsUtter.hapax.en-y0:exit:x-height
+  why: The ligature entered at the baseline keeps the same arm on a declined exit.
+- signature: dangle:qsVie_qsUtter.hapax.en-y0.en-ext-1:exit:x-height
+  why: The extended-entry variant; the entry extension lengthens the baseline bar, not the arm.
+- signature: dangle:qsVie_qsUtter.hapax.locked:exit:x-height
+  why: The ZWNJ-locked twin of the ligature's arm; identical drawing.

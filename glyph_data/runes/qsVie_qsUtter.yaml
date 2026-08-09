@@ -1,0 +1,62 @@
+rune: qsVie_qsUtter
+sequence:
+- qsVie
+- qsUtter
+ductus:
+  hapax: |
+    The ·Vie stroke and the ·Utter stroke drawn as one motion: the ·Vie bowl and descender first, as in the normal ·Vie motion, and then, instead of ending at the descender cup's right lip, the stroke keeps climbing up and to the right as the ·Utter arm, crossing the baseline and ending at the x-height, where it may connect to the next letter.
+stances:
+  hapax:
+    motion: hapax
+    traits: []
+    bitmap:
+    - "  ###     ##"  #
+    - " #   #   #  "
+    - " #   #  #   "
+    - " #   #  #   "
+    - " #  #  #    "
+    - "####   #    "  #
+    - " #    #     "
+    - " #   #      "
+    - "  ###       "
+    y_offset: -3
+    surface:
+      entries:
+        baseline:
+          x: 0
+          stroke: horizontal
+      exits:
+        x-height:
+          x: 12
+          stroke: horizontal
+      cells: []
+      unlocks: []
+      require: []
+policy:
+  order:
+  - hapax
+  refuse: []
+  prefer: []
+  extend:
+  - exit: x-height
+    by: 1
+    when:
+      right: {family: qsFee}
+  - exit: x-height
+    by: 1
+    when:
+      right: {family: qsTea}
+      feature: ss03
+  - entry: baseline
+    by: 1
+    when:
+      left:
+        family:
+        - qsPea
+        - qsTea
+        - qsYe
+        - qsHe
+        - qsIt
+  contract: []
+  resolve: []
+  groups: {}

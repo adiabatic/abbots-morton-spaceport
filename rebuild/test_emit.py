@@ -285,18 +285,20 @@ class TestLateFormationGuardLines:
         assert "    sub qsTea qsOy by qsTea_qsOy;" in plain
         assert all("qsDay" not in line for line in plain)
         assert all("qsSee" not in line for line in plain)
+        assert all("qsVie" not in line for line in plain)
         assert "    ignore sub qsDay' qsUtter' @m1_form_guard_qsDay_qsUtter;" in guarded
         assert "    sub qsDay' qsUtter' by qsDay_qsUtter;" in guarded
         assert "    ignore sub qsSee' qsUtter' @m1_form_guard_qsDay_qsUtter;" in guarded
+        assert "    ignore sub qsVie' qsUtter' @m1_form_guard_qsDay_qsUtter;" in guarded
         assert guarded.index("    sub qsDay' qsUtter' uni200C by qsDay_qsUtter;") < guarded.index(
             "    ignore sub qsDay' qsUtter' @m1_form_guard_qsDay_qsUtter;"
         )
-        assert guarded[-1] == "    sub qsSee' qsUtter' by qsSee_qsUtter;"
+        assert guarded[-1] == "    sub qsVie' qsUtter' by qsVie_qsUtter;"
         assert "ignore sub qsDay' qsUtter' @m1_form_guard_qsDay_qsUtter;" in ignores
         definition = next(
             line for line in registry.definitions if line.startswith("@m1_form_guard_qsDay_qsUtter ")
         )
-        assert definition == "@m1_form_guard_qsDay_qsUtter = [qsAh qsI qsLow];"
+        assert definition == "@m1_form_guard_qsDay_qsUtter = [qsAh qsI qsLow qsVie];"
         see_released = [
             "    ignore sub qsDay' qsUtter' qsSee uni200C;",
             "    sub qsDay' qsUtter' qsSee qsLow by qsDay_qsUtter;",

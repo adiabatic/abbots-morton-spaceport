@@ -55,6 +55,16 @@ qsFee.ex-y5.before-utter: {rune: qsFee, stance: loop, exit: x-height}
 qsFee.ex-y5.before-utter.ex-ext-1: {rune: qsFee, stance: loop, exit: x-height, adjustments: [ex-ext-1]}
 qsFee.ex-y5.ex-ext-1: {rune: qsFee, stance: loop, exit: x-height, adjustments: [ex-ext-1]}
 qsFee.noentry: {rune: qsFee, stance: loop, adjustments: [locked]}
+qsVie: {rune: qsVie, stance: normal}
+qsVie.en-ext-1: {rune: qsVie, stance: normal, entry: baseline, adjustments: [en-ext-1]}
+qsVie.en-y0.ex-y0: {rune: qsVie, stance: swept-out, entry: baseline, exit: baseline}
+qsVie.en-y0.ex-y0.en-ext-1: {rune: qsVie, stance: swept-out, entry: baseline, exit: baseline, adjustments: [en-ext-1]}
+qsVie.en-y0.ex-y0.noentry: {rune: qsVie, stance: swept-out, exit: baseline, adjustments: [locked]}
+qsVie.noentry: {rune: qsVie, stance: normal, adjustments: [locked]}
+qsVie_qsUtter: {rune: qsVie_qsUtter, stance: hapax}
+qsVie_qsUtter.en-ext-1: {rune: qsVie_qsUtter, stance: hapax, entry: baseline, adjustments: [en-ext-1]}
+qsVie_qsUtter.en-ext-1.ex-ext-1: {rune: qsVie_qsUtter, stance: hapax, entry: baseline, exit: x-height, adjustments: [en-ext-1, ex-ext-1]}
+qsVie_qsUtter.ex-ext-1: {rune: qsVie_qsUtter, stance: hapax, exit: x-height, adjustments: [ex-ext-1]}
 qsSee: {rune: qsSee, stance: normal}
 qsSee.en-y0.ex-y6: {rune: qsSee, stance: curled-over, entry: baseline, exit: y6}
 qsSee.en-y0.ex-y6.noentry: {rune: qsSee, stance: curled-over, exit: y6, adjustments: [locked]}
