@@ -1171,7 +1171,7 @@ def build_font(
             fea_code_parts.append(mark_fea)
 
     if is_senior:
-        # The senior FEA is byte-identical for the Regular and Bold members (bold only changes pixel painting, not the join logic) and emitting it costs ~3.2s, so `main()` emits it once and threads it in via `senior_fea`. Fall back to emitting here when a caller (e.g. a test) builds a senior font directly.
+        # The senior FEA is byte-identical for the Regular and Bold members (bold only changes pixel painting, not the join logic) and emitting it costs ≈3.2s, so `main()` emits it once and threads it in via `senior_fea`. Fall back to emitting here when a caller (e.g. a test) builds a senior font directly.
         if senior_fea is None:
             senior_fea = build_senior_fea(glyph_data, join_glyphs, pixel_width, pixel_height)
         if senior_fea:
@@ -1293,7 +1293,7 @@ def _build_one_font(
     # Worker entry point for ProcessPoolExecutor. Each worker reloads glyph data from
     # disk (≈125 ms) so the parent doesn't have to pickle the GlyphData payload over.
     # The senior members receive their shared feature code via senior_fea so neither
-    # worker re-emits it (~3.2s each).
+    # worker re-emits it (≈3.2s each).
     _install_warning_hook()
     glyph_data = load_glyph_data(Path(input_path_str))
     build_font(glyph_data, Path(output_path_str), variant=variant, bold=bold, senior_fea=senior_fea)
@@ -1327,7 +1327,7 @@ def main() -> None:
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # The senior Regular and Bold members share byte-identical senior FEA, so emit it once here and hand it to both jobs instead of paying the ~3.2s emit twice across the pool.
+    # The senior Regular and Bold members share byte-identical senior FEA, so emit it once here and hand it to both jobs instead of paying the ≈3.2s emit twice across the pool.
     parent_data = load_glyph_data(input_path)
     pixel_size: int = parent_data.get("metadata", {})["pixel_size"]
     senior_join_glyphs = compile_glyph_set(parent_data, "senior").join_glyphs
