@@ -1,0 +1,660 @@
+{
+  "slug": "python-levers",
+  "question": "how much of the rewrite's prize is available without a rewrite",
+  "machine": {
+    "python": "3.14.6",
+    "platform": "Darwin 25.6.0",
+    "cpu": "Apple M4 Pro",
+    "logical_cores": 12
+  },
+  "elapsed_s": 161.8,
+  "levers": [
+    {
+      "lever": "yaml.CSafeLoader instead of the pure-Python loader",
+      "site": "every yaml.safe_load / yaml.compose call site (34 in the tree; the hot ones are rebuild/pipeline/fingerprint.py:145, rebuild/pipeline/spec_load.py:243+285, tools/build_font.py:59+95)",
+      "workload": "one font build (`make all` minus typst)",
+      "baseline_s": 23.34,
+      "levered_s": 22.03,
+      "saved_s": 1.31,
+      "unit": "CPU-s per build",
+      "verification": "sha256 over the six OTFs plus the generated FEA, all arms",
+      "verified": true,
+      "tag": "measured",
+      "verdict": "TAKE IT"
+    },
+    {
+      "lever": "gc.disable() for the batch entry points",
+      "site": "tools/build_font.py:main and its ProcessPoolExecutor workers",
+      "workload": "one font build (`make all` minus typst)",
+      "baseline_s": 23.34,
+      "levered_s": 20.98,
+      "saved_s": 2.36,
+      "unit": "CPU-s per build",
+      "verification": "sha256 over the six OTFs plus the generated FEA, all arms",
+      "verified": true,
+      "tag": "measured",
+      "verdict": "TAKE IT"
+    },
+    {
+      "lever": "CSafeLoader + gc.disable() together",
+      "site": "as above",
+      "workload": "one font build (`make all` minus typst)",
+      "baseline_wall_s": 11.499,
+      "levered_wall_s": 10.005,
+      "baseline_s": 23.34,
+      "levered_s": 19.94,
+      "saved_s": 3.4,
+      "unit": "CPU-s per build",
+      "verification": "sha256 over the six OTFs plus the generated FEA, all arms",
+      "verified": true,
+      "tag": "measured",
+      "verdict": "TAKE IT"
+    },
+    {
+      "lever": "CSafeLoader in fingerprint.rune_file_digest (the SKIP path)",
+      "site": "rebuild/pipeline/fingerprint.py:145",
+      "workload": "one fingerprint sweep over the 18 rune files",
+      "baseline_s": 0.046654,
+      "levered_s": 0.00551,
+      "saved_s": 0.041144,
+      "unit": "s per sweep",
+      "verification": "the 18 prose-blind digests compared element-wise",
+      "verified": true,
+      "tag": "measured",
+      "verdict": "TAKE IT"
+    },
+    {
+      "lever": "CSafeLoader in spec_load (each rune file is parsed twice: compose + safe_load)",
+      "site": "rebuild/pipeline/spec_load.py:243 and :285",
+      "workload": "one load_default_spec()",
+      "baseline_s": 0.10565,
+      "levered_s": 0.0163,
+      "saved_s": 0.08935,
+      "unit": "s per spec load",
+      "verification": "every rune file's yaml line index compared exactly, plus a sha256 over the resolved spec's runes and registry",
+      "verified": true,
+      "tag": "measured",
+      "verdict": "TAKE IT"
+    },
+    {
+      "lever": "lru_cache on build.config_badge",
+      "site": "rebuild/review/build.py:189",
+      "workload": "one surface pass (62148 calls, 12 distinct argument tuples)",
+      "baseline_s": 2.4566,
+      "levered_s": 0.010726,
+      "saved_s": 2.4458,
+      "unit": "CPU-s per surface pass",
+      "verification": "every (gate, note) pair compared element-wise across all calls",
+      "verified": true,
+      "tag": "measured",
+      "verdict": "TAKE IT"
+    },
+    {
+      "lever": "persist load_human_unit_ids' id set in manifest.json",
+      "site": "rebuild/review/status.py:103",
+      "workload": "one call (re-parses the whole 265 MB surface)",
+      "baseline_s": 0.8581,
+      "levered_s": 0.00052,
+      "saved_s": 0.8575,
+      "unit": "s per call",
+      "verification": "the id frozenset compared for equality",
+      "verified": true,
+      "tag": "measured",
+      "verdict": "TAKE IT"
+    },
+    {
+      "lever": "signature_digest: repr()+sha256 -> pickle+sha256",
+      "site": "rebuild/review/ink.py:53",
+      "workload": "400 real ink signatures",
+      "baseline_s": 0.03343,
+      "levered_s": 0.01181,
+      "saved_s": 0.02162,
+      "unit": "s per batch",
+      "verification": "the induced partition of the signatures compared exactly (the digest's only contract)",
+      "verified": true,
+      "tag": "measured",
+      "verdict": "TAKE IT, but it re-stamps the persisted signature store once"
+    },
+    {
+      "lever": "gc.freeze()+gc.disable() on the M1 fixpoint, ALONE",
+      "site": "rebuild/pipeline/run_m1.py entry point",
+      "workload": "build_tables over an 8-rune slice of the real spec, default config",
+      "baseline_s": 4.7108,
+      "levered_s": 4.3266,
+      "saved_s": 0.384,
+      "unit": "CPU-s per build",
+      "verification": "sha256 over the whole emitted artifact",
+      "verified": true,
+      "tag": "measured",
+      "verdict": "see the full-scale row; at bounded scale it is inside the noise"
+    },
+    {
+      "lever": "M1 kernel: six memoizations + a NamedTuple token + gc off (P1-P6, P8)",
+      "site": "rebuild/pipeline/settle.py:525,439,475,642,754 and rebuild/pipeline/table.py:963",
+      "workload": "build_tables over an 8-rune slice of the real spec, default config",
+      "baseline_s": 4.7108,
+      "levered_s": 1.9362,
+      "saved_s": 2.775,
+      "unit": "CPU-s per build",
+      "verification": "sha256 over the whole emitted artifact (settlement rules, every window row, treaty rows, reachable cells, cited provenance)",
+      "verified": true,
+      "tag": "measured",
+      "verdict": "TAKE IT"
+    }
+  ],
+  "derived_rollup": {
+    "rows": [
+      {
+        "line": "config_badge lru_cache",
+        "measured_input": "2.4458 CPU-s per surface pass",
+        "assumption": "5.99 surface passes/day",
+        "s_per_day": 14.7,
+        "tag": "derived"
+      },
+      {
+        "line": "load_human_unit_ids, verdict-ready only",
+        "measured_input": "0.8575 s per call",
+        "assumption": "6.0 verdict-ready calls/day",
+        "s_per_day": 5.1,
+        "tag": "derived"
+      },
+      {
+        "line": "the whole plumbing chain's re-parse of the 265 MB surface",
+        "measured_input": "0.8575 s per full-surface parse",
+        "assumption": "the cost model's claim of 7 re-parses per pass, 8 passes/day; the 7 is CITED, not measured here",
+        "s_per_day": 48.0,
+        "tag": "derived, rests on a cited count"
+      },
+      {
+        "line": "font build (CSafeLoader + gc off)",
+        "measured_input": "1.49 wall-s per build",
+        "assumption": "2.56 builds/day",
+        "s_per_day": 3.8,
+        "tag": "derived"
+      },
+      {
+        "line": "CSafeLoader on the skip-path rune digests",
+        "measured_input": "0.041144 s per sweep",
+        "assumption": "13.0 sweeps/day",
+        "s_per_day": 0.53,
+        "tag": "derived"
+      }
+    ],
+    "total_s_per_day": 72.1,
+    "against": "the cost model's 2,062 foreground wall-s/day, of which 1,876 is rewritable Python",
+    "tag": "derived"
+  },
+  "detail": {
+    "yaml": {
+      "lever": "yaml.CSafeLoader",
+      "with_libyaml": true,
+      "corpora": [
+        {
+          "corpus": "runes (18 files)",
+          "files": 18,
+          "bytes": 51331,
+          "pure_python_s": 0.045599,
+          "libyaml_s": 0.004935,
+          "saved_s": 0.040664,
+          "speedup": 9.24,
+          "parses_equal": true
+        },
+        {
+          "corpus": "glyph_data/*.yaml",
+          "files": 10,
+          "bytes": 192782,
+          "pure_python_s": 0.166457,
+          "libyaml_s": 0.019015,
+          "saved_s": 0.147442,
+          "speedup": 8.75,
+          "parses_equal": true
+        },
+        {
+          "corpus": "quikscript.yaml",
+          "files": 1,
+          "bytes": 111142,
+          "pure_python_s": 0.095678,
+          "libyaml_s": 0.01132,
+          "saved_s": 0.084357,
+          "speedup": 8.45,
+          "parses_equal": true
+        },
+        {
+          "corpus": "rebuild ledgers",
+          "files": 5,
+          "bytes": 91119,
+          "pure_python_s": 0.040636,
+          "libyaml_s": 0.004049,
+          "saved_s": 0.036587,
+          "speedup": 10.04,
+          "parses_equal": true
+        }
+      ],
+      "rune_file_digest": {
+        "shipped_s": 0.046654,
+        "cloader_s": 0.00551,
+        "saved_s": 0.041144,
+        "speedup": 8.47,
+        "digests_identical": true,
+        "digest_of_digests": "15d9d9edcf4d430c"
+      },
+      "spec_load_compose": {
+        "pure_python_s": 0.044036,
+        "libyaml_s": 0.003184,
+        "saved_s": 0.040852,
+        "speedup": 13.83
+      }
+    },
+    "spec_load": {
+      "lever": "CSafeLoader inside spec_load (compose + safe_load, per rune file)",
+      "file": "rebuild/pipeline/spec_load.py:243,285",
+      "rune_files": 18,
+      "shipped_s": 0.10565,
+      "cloader_s": 0.0163,
+      "saved_s": 0.08935,
+      "speedup": 6.48,
+      "line_index_identical": true,
+      "spec_digest_identical": true,
+      "equivalent": true,
+      "spec_digest": "9245893bdf01df66",
+      "verification": "every rune file's yaml line index compared exactly, plus a sha256 over the resolved spec's runes and registry"
+    },
+    "surface": {
+      "surface_units": 62148,
+      "config_badge": {
+        "lever": "lru_cache on build.config_badge",
+        "file": "rebuild/review/build.py:189",
+        "calls_in_a_full_surface_pass": 62148,
+        "distinct_argument_tuples": 12,
+        "shipped_s": 2.4566,
+        "cached_s": 0.010726,
+        "saved_s": 2.4458,
+        "speedup": 229.0,
+        "outputs_identical": true,
+        "output_digest": "91d73fa0337aaa97"
+      },
+      "load_human_unit_ids": {
+        "lever": "persist load_human_unit_ids' id set in manifest.json",
+        "file": "rebuild/review/status.py:103",
+        "ids": 10622,
+        "shard_bytes_reparsed_per_call": 264455496,
+        "per_call_s": 0.8581,
+        "persisted_read_s": 0.00052,
+        "saved_per_call_s": 0.8575,
+        "same_id_set": true,
+        "id_set_digest": "c49bb68d928af96b"
+      }
+    },
+    "signature": {
+      "lever": "signature_digest: repr()+sha256 -> binary hash",
+      "file": "rebuild/review/ink.py:53",
+      "signatures": 400,
+      "shape_build_s": 0.0482,
+      "shipped_repr_sha256_s": 0.03343,
+      "pickle_sha256_s": 0.01181,
+      "flatten_sha256_s": 0.05338,
+      "speedup_pickle": 2.83,
+      "speedup_flatten": 0.63,
+      "per_signature_us_shipped": 83.6,
+      "per_signature_us_pickle": 29.5,
+      "partition_identical_pickle": true,
+      "partition_identical_flatten": true,
+      "distinct": {
+        "shipped": 240,
+        "pickle": 240,
+        "flatten": 240
+      },
+      "partition_digest": "192f49be804a177c",
+      "caveat": "digest BYTES change, so the persisted unit_cache is invalidated once"
+    },
+    "fontbuild": {
+      "rows": [
+        {
+          "rep": 0,
+          "levers": "none",
+          "wall": 11.499,
+          "cpu": 23.34,
+          "artifact_digest": "116df276c20ade92175a88e92bcdd214dd24e4ecebcc4bc8396b923fac0a80a4"
+        },
+        {
+          "rep": 0,
+          "levers": "cyaml",
+          "wall": 11.084,
+          "cpu": 22.03,
+          "artifact_digest": "116df276c20ade92175a88e92bcdd214dd24e4ecebcc4bc8396b923fac0a80a4"
+        },
+        {
+          "rep": 0,
+          "levers": "gcoff",
+          "wall": 10.305,
+          "cpu": 20.98,
+          "artifact_digest": "116df276c20ade92175a88e92bcdd214dd24e4ecebcc4bc8396b923fac0a80a4"
+        },
+        {
+          "rep": 0,
+          "levers": "cyaml,gcoff",
+          "wall": 10.005,
+          "cpu": 19.94,
+          "artifact_digest": "116df276c20ade92175a88e92bcdd214dd24e4ecebcc4bc8396b923fac0a80a4"
+        },
+        {
+          "rep": 1,
+          "levers": "cyaml,gcoff",
+          "wall": 10.105,
+          "cpu": 20.19,
+          "artifact_digest": "116df276c20ade92175a88e92bcdd214dd24e4ecebcc4bc8396b923fac0a80a4"
+        },
+        {
+          "rep": 1,
+          "levers": "gcoff",
+          "wall": 10.51,
+          "cpu": 21.61,
+          "artifact_digest": "116df276c20ade92175a88e92bcdd214dd24e4ecebcc4bc8396b923fac0a80a4"
+        },
+        {
+          "rep": 1,
+          "levers": "cyaml",
+          "wall": 11.341,
+          "cpu": 22.77,
+          "artifact_digest": "116df276c20ade92175a88e92bcdd214dd24e4ecebcc4bc8396b923fac0a80a4"
+        },
+        {
+          "rep": 1,
+          "levers": "none",
+          "wall": 12.188,
+          "cpu": 25.19,
+          "artifact_digest": "116df276c20ade92175a88e92bcdd214dd24e4ecebcc4bc8396b923fac0a80a4"
+        }
+      ],
+      "summary": {
+        "none": {
+          "reps": 2,
+          "wall_min": 11.499,
+          "wall_median": 11.844,
+          "cpu_min": 23.34,
+          "cpu_median": 24.265,
+          "digests": [
+            "116df276c20ade92175a88e92bcdd214dd24e4ecebcc4bc8396b923fac0a80a4"
+          ]
+        },
+        "cyaml": {
+          "reps": 2,
+          "wall_min": 11.084,
+          "wall_median": 11.212,
+          "cpu_min": 22.03,
+          "cpu_median": 22.4,
+          "digests": [
+            "116df276c20ade92175a88e92bcdd214dd24e4ecebcc4bc8396b923fac0a80a4"
+          ]
+        },
+        "gcoff": {
+          "reps": 2,
+          "wall_min": 10.305,
+          "wall_median": 10.407,
+          "cpu_min": 20.98,
+          "cpu_median": 21.295,
+          "digests": [
+            "116df276c20ade92175a88e92bcdd214dd24e4ecebcc4bc8396b923fac0a80a4"
+          ]
+        },
+        "cyaml,gcoff": {
+          "reps": 2,
+          "wall_min": 10.005,
+          "wall_median": 10.055,
+          "cpu_min": 19.94,
+          "cpu_median": 20.065,
+          "digests": [
+            "116df276c20ade92175a88e92bcdd214dd24e4ecebcc4bc8396b923fac0a80a4"
+          ]
+        }
+      }
+    },
+    "m1": {
+      "bounded_slice_s8": [
+        {
+          "label": "shipped",
+          "root": "<repo>",
+          "subset": "s8",
+          "gc": "on",
+          "rep": 0,
+          "wall": 4.7164,
+          "cpu": 4.7108,
+          "collections": 790,
+          "rules": 492,
+          "windows": 36022,
+          "treaty_rows": 716,
+          "digest": "693ea08250f3923581d261dd552c79632e2ab1a94041ca17718fbfdbfe7b793c",
+          "cpu_all_reps": [
+            4.9176,
+            4.7108
+          ],
+          "wall_all_reps": [
+            4.9349,
+            4.7164
+          ]
+        },
+        {
+          "label": "control-copy",
+          "root": "raw/perf2/python-levers/run-v-control",
+          "subset": "s8",
+          "gc": "on",
+          "rep": 0,
+          "wall": 4.6576,
+          "cpu": 4.6515,
+          "collections": 790,
+          "rules": 492,
+          "windows": 36022,
+          "treaty_rows": 716,
+          "digest": "693ea08250f3923581d261dd552c79632e2ab1a94041ca17718fbfdbfe7b793c",
+          "cpu_all_reps": [
+            4.6515
+          ],
+          "wall_all_reps": [
+            4.6576
+          ]
+        },
+        {
+          "label": "P1 order-index memo",
+          "root": "raw/perf2/python-levers/run-v-p1",
+          "subset": "s8",
+          "gc": "on",
+          "rep": 0,
+          "wall": 4.6181,
+          "cpu": 4.6031,
+          "collections": 789,
+          "rules": 492,
+          "windows": 36022,
+          "treaty_rows": 716,
+          "digest": "693ea08250f3923581d261dd552c79632e2ab1a94041ca17718fbfdbfe7b793c",
+          "cpu_all_reps": [
+            4.6031
+          ],
+          "wall_all_reps": [
+            4.6181
+          ]
+        },
+        {
+          "label": "P1-P4 (order, exit-sources, pairings, virtual-left)",
+          "root": "raw/perf2/python-levers/run-v-p14",
+          "subset": "s8",
+          "gc": "on",
+          "rep": 0,
+          "wall": 4.0518,
+          "cpu": 3.976,
+          "collections": 789,
+          "rules": 492,
+          "windows": 36022,
+          "treaty_rows": 716,
+          "digest": "693ea08250f3923581d261dd552c79632e2ab1a94041ca17718fbfdbfe7b793c",
+          "cpu_all_reps": [
+            3.976
+          ],
+          "wall_all_reps": [
+            4.0518
+          ]
+        },
+        {
+          "label": "P5 RightToken as NamedTuple (alone)",
+          "root": "raw/perf2/python-levers/run-v-p5",
+          "subset": "s8",
+          "gc": "on",
+          "rep": 0,
+          "wall": 4.5704,
+          "cpu": 4.5651,
+          "collections": 790,
+          "rules": 492,
+          "windows": 36022,
+          "treaty_rows": 716,
+          "digest": "693ea08250f3923581d261dd552c79632e2ab1a94041ca17718fbfdbfe7b793c",
+          "cpu_all_reps": [
+            4.5651
+          ],
+          "wall_all_reps": [
+            4.5704
+          ]
+        },
+        {
+          "label": "P6 candidates() memo (alone)",
+          "root": "raw/perf2/python-levers/run-v-p6",
+          "subset": "s8",
+          "gc": "on",
+          "rep": 0,
+          "wall": 3.0845,
+          "cpu": 3.0185,
+          "collections": 723,
+          "rules": 492,
+          "windows": 36022,
+          "treaty_rows": 716,
+          "digest": "693ea08250f3923581d261dd552c79632e2ab1a94041ca17718fbfdbfe7b793c",
+          "cpu_all_reps": [
+            3.0185
+          ],
+          "wall_all_reps": [
+            3.0845
+          ]
+        },
+        {
+          "label": "P1-P6",
+          "root": "raw/perf2/python-levers/run-v-p16",
+          "subset": "s8",
+          "gc": "on",
+          "rep": 0,
+          "wall": 2.4157,
+          "cpu": 2.3723,
+          "collections": 723,
+          "rules": 492,
+          "windows": 36022,
+          "treaty_rows": 716,
+          "digest": "693ea08250f3923581d261dd552c79632e2ab1a94041ca17718fbfdbfe7b793c",
+          "cpu_all_reps": [
+            2.3723
+          ],
+          "wall_all_reps": [
+            2.4157
+          ]
+        },
+        {
+          "label": "P1-P6,P8",
+          "root": "raw/perf2/python-levers/run-v-p168",
+          "subset": "s8",
+          "gc": "on",
+          "rep": 0,
+          "wall": 2.2787,
+          "cpu": 2.2777,
+          "collections": 723,
+          "rules": 492,
+          "windows": 36022,
+          "treaty_rows": 716,
+          "digest": "693ea08250f3923581d261dd552c79632e2ab1a94041ca17718fbfdbfe7b793c",
+          "cpu_all_reps": [
+            2.2777
+          ],
+          "wall_all_reps": [
+            2.2787
+          ]
+        },
+        {
+          "label": "P7 prefer_favors memo (rejected)",
+          "root": "raw/perf2/python-levers/run-v-p7",
+          "subset": "s8",
+          "gc": "on",
+          "rep": 0,
+          "wall": 2.9469,
+          "cpu": 2.9443,
+          "collections": 1417,
+          "rules": 492,
+          "windows": 36022,
+          "treaty_rows": 716,
+          "digest": "693ea08250f3923581d261dd552c79632e2ab1a94041ca17718fbfdbfe7b793c",
+          "cpu_all_reps": [
+            2.9443
+          ],
+          "wall_all_reps": [
+            2.9469
+          ]
+        },
+        {
+          "label": "shipped + gc off",
+          "root": "<repo>",
+          "subset": "s8",
+          "gc": "off",
+          "rep": 0,
+          "wall": 4.33,
+          "cpu": 4.3266,
+          "collections": 0,
+          "rules": 492,
+          "windows": 36022,
+          "treaty_rows": 716,
+          "digest": "693ea08250f3923581d261dd552c79632e2ab1a94041ca17718fbfdbfe7b793c",
+          "cpu_all_reps": [
+            4.3266,
+            4.3432
+          ],
+          "wall_all_reps": [
+            4.33,
+            4.3465
+          ]
+        },
+        {
+          "label": "P1-P6,P8 + gc off",
+          "root": "raw/perf2/python-levers/run-v-p168",
+          "subset": "s8",
+          "gc": "off",
+          "rep": 0,
+          "wall": 1.9384,
+          "cpu": 1.9362,
+          "collections": 0,
+          "rules": 492,
+          "windows": 36022,
+          "treaty_rows": 716,
+          "digest": "693ea08250f3923581d261dd552c79632e2ab1a94041ca17718fbfdbfe7b793c",
+          "cpu_all_reps": [
+            1.9362,
+            1.939
+          ],
+          "wall_all_reps": [
+            1.9384,
+            1.9417
+          ]
+        }
+      ]
+    },
+    "load_average": {
+      "start": [
+        5.81,
+        14.72,
+        20.6
+      ],
+      "before_m1": [
+        7.02,
+        12.53,
+        19.06
+      ],
+      "end": [
+        6.66,
+        11.51,
+        18.27
+      ]
+    }
+  }
+}

@@ -1,0 +1,650 @@
+commit 704bd210183ef06ffc3196c9314d0beb9ffc97fd
+Author: Nathan Galt <adiabatic@users.noreply.github.com>
+Date:   Sat Aug 8 13:01:40 2026 -0700
+
+    Stop the surface build from re-shaping every window before the letters go up
+    
+    The ink-duplicate merge's signatures now come from a persisted store beside the unit cache, keyed at the same audit-row-plus-family grain, so a steady-state pass shapes nothing there and a rune edit re-shapes only the windows that could feel it. Within the parallel phase the comparator, Junior oracle, enricher, and drafter share one memoized shaper per font, so each (text, config) is shaped once per worker instead of up to four times. The load phase goes from forty-seven seconds to five and a warm rebuild lands near thirty, with the surface byte-identical to what the old build wrote.
+    
+    Closes #18
+
+ WHATNEXT.md                  |   2 +-
+ rebuild/review/README.md     |   2 +-
+ rebuild/review/audit.py      |  19 +++++--
+ rebuild/review/build.py      | 129 ++++++++++++++++++++++++++++++++++++-------
+ rebuild/review/drafts.py     |   5 +-
+ rebuild/review/enrich.py     |   6 +-
+ rebuild/review/ink.py        |  55 ++++++++++++++++--
+ rebuild/review/unit_cache.py |  61 +++++++++++++++++++-
+ rebuild/test_review_ink.py   |  43 ++++++++++++++-
+ rebuild/test_unit_cache.py   |  62 +++++++++++++++++++++
+ 10 files changed, 343 insertions(+), 41 deletions(-)
+
+commit a894e2262e2293c7f3bc2ef685cf06229dfb8a97
+Author: Nathan Galt <adiabatic@users.noreply.github.com>
+Date:   Sat Aug 8 12:10:22 2026 -0700
+
+    Make a review-surface rebuild cost the edit, not the alphabet
+    
+    The surface build treated every rebuild as a first build: touch one letter's rune file and every unit was enriched and drafted again, however little the edit could reach. Each unit now carries a content key over what can actually change it — its audit rows, the prose-blind digests of the window's letters expanded by their resolve.against closure plus any ligature runes, and the after font's per-glyph outlines, advances and cursive anchors — under a whole-store stamp over the pipeline code, the spec structure, the fonts, the subset tables, the draft harness and the site corpus, the same two-grain shape the trace memo keys on. A build serves every key-stable unit from the previous surface's shards and re-runs enrichment and drafting only for the rest, re-patching the order- and ledger-derived fields (id, batch, echo, cluster, class, exemplar, secondary-seam homes) so a served fragment is byte-identical to a freshly built one; the whole output tree hashes equal against a from-scratch build.
+    
+    On the real workload: a full build 114s, a rebuild with nothing changed 72s, and a simulated one-letter edit 84s with the per-unit phase falling from 53s to 13s. The serial and parallel paths now share the one cache-aware pipeline, and the §7 contract check reads the shards in memory instead of re-parsing the half-gigabyte it just wrote.
+    
+    The cycle's --fresh distrusts the store along with everything else (--fresh-unit-cache on the build CLI). Carry resolves prior verdicts by probing the stamped hash rather than re-serializing every unit twice, and content_key joins PRESENTATION_KEYS so introducing the stamp strands nothing already verdicted.
+    
+    Closes #20
+
+ WHATNEXT.md                                        |   1 +
+ rebuild/REVIEW-PLAN.md                             |   2 +-
+ rebuild/review/README.md                           |   4 +-
+ rebuild/review/build.py                            | 666 ++++++++++++++-------
+ rebuild/review/fixtures/units/fixture-drift.json   |   6 +-
+ .../review/fixtures/units/fixture-intended.json    |  12 +-
+ rebuild/review/unit_cache.py                       | 352 +++++++++++
+ rebuild/test_carry_verdicts.py                     |  24 +-
+ rebuild/test_unit_cache.py                         | 219 +++++++
+ rebuild/tools/artifact_cycle.py                    |  18 +-
+ rebuild/tools/carry_verdicts.py                    |  38 +-
+ 11 files changed, 1104 insertions(+), 238 deletions(-)
+
+commit c569e198630ab75d2e149923bf6e3c98f4dec513
+Author: Nathan Galt <adiabatic@users.noreply.github.com>
+Date:   Sat Aug 8 06:35:20 2026 -0700
+
+    Stop the stylistic-set configurations from re-tracing what the default already settled
+    
+    The five non-default acceptance configurations differ from the default's table by between a hundredth of a percent and eleven percent, but each was paying for a full fixpoint anyway. Each now re-traces only the windows some rune of which can feel its own feature delta and takes the rest of the default's word for it, so the build stage costs roughly a third of the CPU it did. All six configurations' settlement TSVs, treaty TSVs and window enumerations come out byte-identical to before.
+    
+    Closes #15.
+
+ WHATNEXT.md                          |   2 +-
+ rebuild/pipeline/run_m1.py           |  68 ++++++----------
+ rebuild/pipeline/settle.py           |  12 ++-
+ rebuild/pipeline/table.py            |  14 ++--
+ rebuild/pipeline/trace_memo.py       | 145 ++++++++++++++++++++++++++++++++++-
+ rebuild/test_run_m1_green.py         |   5 +-
+ rebuild/test_trace_memo.py           | 114 ++++++++++++++++++++++++++-
+ rebuild/tools/prospect_divergence.py |  17 ++--
+ 8 files changed, 316 insertions(+), 61 deletions(-)
+
+commit a649d63027ce14e933531fa95a4b5a2c50cb7466
+Author: Nathan Galt <adiabatic@users.noreply.github.com>
+Date:   Sat Aug 8 05:14:22 2026 -0700
+
+    Stop a one-rune edit from re-tracing every M1 window from scratch
+    
+    The table build's trace memo died with the process, so touching one letter's rune file cost the same as having built nothing: all six configurations re-traced every window. Each configuration now persists its memo beside the other artifacts (trace-memo-<config>.ndjson.gz) and serves it back to the next build, invalidated per entry by the same prose-blind rune digests the rest of the pipeline keys on — plus a whole-store stamp over the non-rune inputs, the pipeline code, the engine's semantics flags and the resolved alphabet and class structure. A rune edit now re-traces only the windows that could feel it.
+    
+    Served entries replay the fired-record delta their computation journaled, so the dead-policy gate's cited_provenance fills exactly as a recomputation would; tables, treaties, rules and windows are byte-identical between a fresh build and a served one, and a no-edit rebuild leaves the store byte-identical without rewriting it. On the real spec, default configuration: fresh 149s, an unchanged-rune rebuild 55s, a single-rune edit about 94s serving two-thirds of its entries.
+    
+    The cycle's --fresh distrusts the memo along with everything else, and the prospect-divergence inventory serves from it read-only. Green records now store the per-file digest lines behind their key, so a run_m1 skip miss names the rune file you edited instead of reporting only that some digest moved.
+    
+    Closes #25
+
+ WHATNEXT.md                          |   1 +
+ rebuild/pipeline/fingerprint.py      |  38 ++++-
+ rebuild/pipeline/run_m1.py           |  88 ++++++++--
+ rebuild/pipeline/settle.py           | 140 ++++++++++++++--
+ rebuild/pipeline/table.py            |  16 +-
+ rebuild/pipeline/trace_memo.py       | 311 +++++++++++++++++++++++++++++++++++
+ rebuild/test_artifact_cycle.py       |  36 ++++
+ rebuild/test_fingerprint.py          |  29 ++++
+ rebuild/test_run_m1_green.py         |  12 +-
+ rebuild/test_trace_memo.py           | 140 ++++++++++++++++
+ rebuild/tools/artifact_cycle.py      |  88 ++++++++--
+ rebuild/tools/prospect_divergence.py |  18 +-
+ 12 files changed, 854 insertions(+), 63 deletions(-)
+
+commit c23362375d10229c6585c8573a91f1a5ff2ca900
+Author: Nathan Galt <adiabatic@users.noreply.github.com>
+Date:   Sat Aug 8 04:03:47 2026 -0700
+
+    Cut the M1 table rebuild from fifty minutes to twelve
+    
+    The fixpoint kept paying three times over. A worklist item with different pins re-enumerates window keys already recorded, and each one was traced again from scratch; the traces are now memoized over the collapsed left state the kernel actually reads — kind, rune, stance, seam, extension, never the left cell's entry or adjustments — with the label-injectivity premise made executable rather than assumed, and the memo dropped before the build returns so the engine that outlives it doesn't retain the pile.
+    
+    Rule folding and the outcome-partition assert built their signature partitions by iterating the full right1×right2×right3×right4 label product, asking about windows nobody enumerated; from present rows only they reach the same partition at O(rows), which is what keeps folding from regrowing quartically as depth-3 and depth-4 windows are authored. The prospect-joint flag pass indexes successors by right1 instead of scanning past it.
+    
+    Every settlement TSV, treaty TSV and window enumeration is byte-identical across all six configurations.
+    
+    Closes #14
+
+ rebuild/pipeline/settle.py |  34 ++++++++
+ rebuild/pipeline/table.py  | 188 ++++++++++++++++++++-------------------------
+ 2 files changed, 116 insertions(+), 106 deletions(-)
+
+commit 8dea26289269dbbbffc3d36403dd400a2e1a6711
+Author: Nathan Galt <adiabatic@users.noreply.github.com>
+Date:   Sat Aug 8 02:31:18 2026 -0700
+
+    Stop the conform gate from paying for the same witness twice
+    
+    Three of the levers from issue 13: candidate texts are deduplicated against the sweep, winning witnesses persist per configuration and are re-verified rather than trusted on the next run, and structural checks within the boundary gate's proven horizon are inherited instead of re-run. Coverage is unchanged — identical divergence and uncovered-rule counts — and the gate drops about 16% on a warm cache. Batching witnesses into space-joined buffers, lever (d), is deliberately not taken.
+
+ WHATNEXT.md                 |   2 +-
+ rebuild/pipeline/conform.py | 258 +++++++++++++++++++++++++++++++++++++-------
+ rebuild/pipeline/run_m1.py  |  14 ++-
+ rebuild/pipeline/table.py   |  16 +++
+ rebuild/test_conform.py     | 217 +++++++++++++++++++++++++++++++++++++
+ rebuild/test_windows.py     |  25 +++++
+ 6 files changed, 488 insertions(+), 44 deletions(-)
+
+commit 22299661d643e35bf2cf17b6ee008182e3f63621
+Author: Nathan Galt <adiabatic@users.noreply.github.com>
+Date:   Sat Aug 8 01:19:01 2026 -0700
+
+    Stop a cycle from reading green over renders the shaper no longer produces
+    
+    Every "provably unchanged" skip in the artifact cycle — run_m1, gate:conform, the surface build, `make verdict-ready`'s freshness, the test caches — decided from five path sets, and rebuild/validation was in none of them. Edit the shaper, the row model, the seam classifier or the Manual-pin replay and nothing moved: the skips fired, the gates passed, and what they passed was a comparison built by code no longer on disk. The whole directory now rides in pipeline_code, so a validation edit stales exactly the components it can move and no others.
+    
+    The enrichment cache stops widening the surface key by hand — the fingerprint covers what it was compensating for, so it keys off `surface_cache_key` directly again.
+    
+    Closes #32
+
+ rebuild/conftest.py             | 16 ++--------------
+ rebuild/pipeline/fingerprint.py |  6 +++++-
+ rebuild/test_fingerprint.py     | 14 ++++++++++++++
+ 3 files changed, 21 insertions(+), 15 deletions(-)
+
+commit 8774c7d308894d602b28d4fdfb0d4be1982fcc79
+Author: Nathan Galt <adiabatic@users.noreply.github.com>
+Date:   Sat Aug 8 00:49:09 2026 -0700
+
+    Load the review workload once a suite run, not thirteen times
+    
+    The four review modules each kept their own module-scoped `workload`, which under worksteal is per-worker at best — and worse in practice, since a worker bounced back into a module it had already finalized paid the load again. One session-scoped fixture on `enriched_units`' flock-and-pickle discipline now serves all four; the ink census keeps a private copy, because it writes its verdicts into the units it counts.
+    
+    Closes #33
+
+ rebuild/conftest.py           | 57 ++++++++++++++++++++++++++++++++++++++++++-
+ rebuild/test_review_audit.py  |  5 ----
+ rebuild/test_review_drafts.py | 10 +-------
+ rebuild/test_review_enrich.py |  8 ------
+ rebuild/test_review_ink.py    | 13 +++++-----
+ 5 files changed, 63 insertions(+), 30 deletions(-)
+
+commit b0a2895e1423172bb5e3965fc266ec861e6ce9a8
+Author: Nathan Galt <adiabatic@users.noreply.github.com>
+Date:   Sat Aug 8 00:04:39 2026 -0700
+
+    Stop the drafts gate from enriching the whole workload once per worker
+    
+    test_review_drafts wants the live M1 workload with every unit enriched, and got it from a module-scoped fixture — which under `--dist worksteal` is per-worker scope, not shared scope. The module's tests land on whichever worker is free, so each worker that drew one rebuilt the enrichment from scratch, better than a minute of work every time, seven times over on a ten-core machine.
+    
+    The fixture now lives in rebuild/conftest.py at session scope, on the same cross-process disk cache `built_review_surface` runs beside it: one worker enriches under an exclusive flock and writes a gzipped pickle, and the rest block on the lock and inflate it in a fraction of a second. Its key is the surface key widened by the shaping and row-model code under rebuild/validation, which enrichment imports and no existing fingerprint covers — without that, a Shaper edit would hand the gate units the code on disk no longer produces and let it read green over them.
+    
+    One deliberate departure from the surface fixture: the lock is not downgraded to shared for the read. What a reader materializes here is an object graph of several gigabytes, not a handful of files, and letting the queued workers do that at once costs the machine an order of magnitude more kernel time than the whole serialized read does. A suite run gives back about seven CPU-minutes for an unchanged wall clock and the same pass/fail set it had before.
+    
+    Closes #30
+
+ rebuild/conftest.py           | 89 +++++++++++++++++++++++++++++++++++++++----
+ rebuild/test_review_drafts.py |  5 ---
+ 2 files changed, 81 insertions(+), 13 deletions(-)
+
+commit 45f95235d94862a7c74a5193b574ae004792ff77
+Author: Nathan Galt <adiabatic@users.noreply.github.com>
+Date:   Fri Aug 7 22:29:54 2026 -0700
+
+    Stop the witness gate from rebuilding tables the build already wrote
+    
+    Each acceptance arm of test_every_rule_has_a_witness re-derived the settlement fixpoint from scratch, minutes per configuration, even though the build stage already serializes every configuration's enumeration under rebuild/out/m1 stamped with the same source fingerprint the conformance sweep trusts. The arms now read the stamped file when its stamp matches the current sources, and fall back to an in-process rebuild with a loud warning when it doesn't — a stale artifact reads as a slow run, never as skipped coverage.
+    
+    A new parity test builds the default configuration fresh once and asserts the stamped artifact carries exactly the same rules, reachable cells, and windows, so the substitution stays checkable without every arm paying for a fresh build. A rebuild suite run now costs roughly half the wall time it did.
+
+ rebuild/test_rule_witnesses.py | 42 ++++++++++++++++++++++++++++++++++++++----
+ 1 file changed, 38 insertions(+), 4 deletions(-)
+
+commit 77e66e84d89505290e11d4384e7a64f402a0e618
+Author: Nathan Galt <adiabatic@users.noreply.github.com>
+Date:   Fri Aug 7 21:57:49 2026 -0700
+
+    Stop a rebuild suite run from deleting real files out of the working repo
+    
+    The suite ran the cycle's retention pass for real, against the live repo, whenever a test reached a green finish: it swept the tmp/review-pre-* snapshots, the root's verdicts-carried-*.json exports and autosave stashes, and compacted the verdict journal. Run beside a live cycle it deleted that cycle's only snapshot between its build and its carry and stranded the store — which is how it was found, and which the gate pass now keeping the review server up makes the intended arrangement rather than a coincidence.
+    
+    The wider audit found two more live-repo deletions of the same shape, run_m1's four gate summaries and gate:conform's, both unlinked just before their subprocess spawns; those are redirected too, and each guard has a tripwire test so the next one that goes missing fails a test instead of a repo. The guard moved to rebuild/conftest.py because one that covers a single module is no guard at all — a new test module inherits nothing, and the throwaway probe written to confirm the hazard walked straight past the old one and emptied rebuild/out/m1.
+    
+    The module also runs in about a third the time, having stopped hashing the whole repo and sweeping the filesystem.
+    
+    Closes #31
+
+ rebuild/conftest.py            | 47 +++++++++++++++++++++++++++++++++++++++++-
+ rebuild/test_artifact_cycle.py | 45 ++++++++++++++++++++++++++++------------
+ 2 files changed, 78 insertions(+), 14 deletions(-)
+
+commit 74b95d9a3dc789384f2d5288bf34e4fcb14416bf
+Author: Nathan Galt <adiabatic@users.noreply.github.com>
+Date:   Fri Aug 7 21:57:04 2026 -0700
+
+    Keep the letters on screen for the gate pass's half hour
+    
+    A pass that rebuilds the surface or moves the verdict store still needs the port to itself, but it now stops the server itself instead of refusing, so `make review-cycle` no longer opens with an unconditional pkill. A pass that writes neither leaves a listening server alone — and that is exactly the shape of the deferred-gate pass, so the verification the loop defers is background work rather than a lockout. Whether the app comes down is the resolved plan's call, because only it knows.
+    
+    Closes #23
+
+ AGENTS.md                       |   2 +-
+ Makefile                        |  21 +++----
+ rebuild/test_artifact_cycle.py  | 127 +++++++++++++++++++++++++++++++++++++++-
+ rebuild/tools/artifact_cycle.py |  57 +++++++++++++++++-
+ 4 files changed, 192 insertions(+), 15 deletions(-)
+
+commit 1d7691dcea6ebe85ffda492bf846c46637ab5703
+Author: Nathan Galt <adiabatic@users.noreply.github.com>
+Date:   Fri Aug 7 18:47:32 2026 -0700
+
+    Put the letters back on screen sooner, and let a settled pass cost seconds
+    
+    A pass that rebuilt the surface no longer counts the census before handing you the letters — nothing in that pass reads it, so it waits for the next one alongside the heavy gates. And a pass that changed nothing stops re-carrying, re-merging and re-filling verdicts it has already carried, merged and filled: the whole chain, snapshot and complaint docket included, rides one green record, written only when the chain closed somewhere it can prove it would stay.
+    
+    Closes #22
+
+ AGENTS.md                       |   2 +-
+ rebuild/test_artifact_cycle.py  | 394 +++++++++++++++++++++++++++++++++++++++-
+ rebuild/tools/README.md         |  22 +--
+ rebuild/tools/artifact_cycle.py | 178 ++++++++++++++++--
+ 4 files changed, 567 insertions(+), 29 deletions(-)
+
+commit 79240452aada94b39ac63396e5eda3159708e352
+Author: Nathan Galt <adiabatic@users.noreply.github.com>
+Date:   Fri Aug 7 17:30:38 2026 -0700
+
+    Join ·Pea·Pea·Roe·No·Oy and ·See·Pea·Roe·No·Oy all the way through
+    
+    The seam after the second letter used to break; now the y6-entered
+    ·Pea takes its baseline exit into ·Roe — with the tuck, since ·Roe
+    carries on over the bowl — and the whole word chains: y6, baseline,
+    x-height, x-height. ·Pea·Pea·Roe·Oy and ·See·Pea·Roe·Oy come along for
+    the ride, going from the shipped font's single join
+    (·Pea | ·Pea ~x~ ·Roe | ·Oy) to three (·Pea ~6~ ·Pea ~b~ ·Roe ~x~
+    ·Oy). ·Pea·Pea·Roe and ·Pea·Pea·Roe·No keep their fully-joined dip
+    route (·Pea ~6~ ·Pea ~x~ ·Roe ~b~ ·No), and the recently-landed
+    ·Tea/·Pea·Roe windows all stay put.
+    
+    Requested directly: "For ·Pea·Pea·Roe·No·Oy and ·See·Pea·Roe·No·Oy,
+    there's an obvious failure to make a perfectly good join at the
+    baseline. Please make the join at the baseline."
+    
+    Mechanically, the whole fix is one except entry: qsRoe joins the
+    except list on qsPea's y6-entered baseline-exit refuse, and the exact
+    prospect engine does the rest — with ·Oy in the fourth slot it already
+    scores the dip route's dead-end, so join-count alone picks the
+    baseline route, and the only genuine tie left is ·Pea·Pea·Roe·No,
+    where ·Roe's joined-into-at-x-height preference correctly keeps the
+    dip. The carve-out also kills qsPea's entry-height vote record
+    ({entry: y6} over {entry: none} before ·Roe) — join-count now
+    separates everything it used to tiebreak, the build's dead-policy list
+    flagged it, and it comes out; its own-chain twin stays, still live.
+    The contact gate stayed quiet — no new blessings.
+
+ glyph_data/runes/qsPea.yaml | 5 +----
+ 1 file changed, 1 insertion(+), 4 deletions(-)
+
+commit 16a6b33cf261d213f84341e46b50540043cd1232
+Author: Nathan Galt <adiabatic@users.noreply.github.com>
+Date:   Fri Aug 7 15:32:44 2026 -0700
+
+    Set ·Roe back a pixel off ·Tea's bar when nothing joins on after it
+    
+    The one-pixel tuck onto the bar now happens only where ·Roe reaches
+    over the bowl and carries the word on — all five newly-joined windows
+    keep it. A ·Roe that connects to nothing after it instead sits one
+    pixel off the bar, exactly the drawing the shipped font has there:
+    the ss03 ·Fee·Tea·Roe and ss05 ·Et·Tea·Roe arms, but also mid-word
+    cases like ss03 ·Fee·Tea·Roe·It, where ·It is unreachable from a
+    baseline-entered ·Roe. Those oracle rows now match the baseline.
+    
+    Three notes from the user drove the shape. First: "this makes
+    ·Fee·Tea·Roe look weird (·Tea appears to connect to ·Roe in two
+    places, so the contraction shouldn't happen under the sorts of
+    conditions that it has where the ·Roe doesn't use
+    `reaches-over-the-bowl`)". Then, once the tuck was scoped away:
+    "·Fee·Tea·Roe doesn't look like there's enough extension between the
+    last two letters. in fact, it looks like it hasn't changed." — a
+    dead-ended ·Roe wants the gap the old extension gave it, not merely no
+    tuck. And on what the condition really is: "word-finalness shouldn't
+    have anything to do with it, though. What matters is that the ·Roe of
+    ·Tea·Roe can't connect to anything after it."
+    
+    Mechanically: qsRoe's baseline entry contraction is scoped
+    self: {exit: live} (for a baseline-entered ·Roe a live exit can only be
+    the x-height, over-the-bowl one), and a new qsRoe extend record —
+    entry: baseline, by: 1, self: {exit: none}, ·Tea on the left — restores
+    the gap wherever ·Roe's settled cell has no onward join. The four
+    blessings for the tucked dead-end cell are removed; one new blessing
+    covers the ss05 bare corner, dormant again now that the gap is back but
+    tolerated as unused.
+
+ glyph_data/runes/qsRoe.yaml   |  6 ++++++
+ rebuild/m1-contact-allow.yaml | 11 ++---------
+ 2 files changed, 8 insertions(+), 9 deletions(-)
+
+commit e2927f8a437099de4c00c48397a64045b9a34796
+Author: Nathan Galt <adiabatic@users.noreply.github.com>
+Date:   Fri Aug 7 12:16:37 2026 -0700
+
+    Join word-initial ·Tea·Roe and ·Pea·Roe at the baseline
+    
+    (but this makes ·Fee·Tea·Roe look weird and doesn’t improve ·Pea·Pea·Roe·No·Oy)
+
+ WHATNEXT.md                     |  2 +-
+ glyph_data/runes/qsPea.yaml     | 11 ++++++++++-
+ glyph_data/runes/qsRoe.yaml     |  7 +++++++
+ glyph_data/runes/qsTea.yaml     |  9 ---------
+ rebuild/m1-contact-allow.yaml   | 11 +++++++++++
+ rebuild/review-census-pins.json | 30 +++++++++++++++---------------
+ rebuild/test_pack_gsub.py       |  2 +-
+ 7 files changed, 45 insertions(+), 27 deletions(-)
+
+commit be50273b131a7092ec4230b10fd26f9cb42fd073
+Author: Nathan Galt <adiabatic@users.noreply.github.com>
+Date:   Fri Aug 7 00:22:36 2026 -0700
+
+    Disprefer ·Utter.alt between ·No and ·It
+
+ glyph_data/runes/qsUtter.yaml | 10 ++++++++++
+ 1 file changed, 10 insertions(+)
+
+commit d41366bc82b2fa7898ac8911a25226dc9bfc5632
+Author: Nathan Galt <adiabatic@users.noreply.github.com>
+Date:   Thu Aug 6 21:54:10 2026 -0700
+
+    Make the GSUB packing determinism test measure packing, not clock luck
+
+ rebuild/test_pack_gsub.py | 3 +++
+ 1 file changed, 3 insertions(+)
+
+commit ac9d59a99ac041db1f6e8b96a926be20377833d6
+Author: Nathan Galt <adiabatic@users.noreply.github.com>
+Date:   Thu Aug 6 20:54:54 2026 -0700
+
+    Collapse the review surface’s standing totals into one units chip
+    
+    Open it for the generation stamp and the whole split: machine-approved by
+    channel, the units in no-verdict classes, and the human-review remainder
+    those two leave behind. Overall, the class line, and the batch line keep
+    their places in the strip.
+
+ rebuild/REVIEW-PLAN.md                |  2 +-
+ rebuild/review/README.md              |  2 +-
+ rebuild/review/jstests/render.test.js | 55 +++++++++++++++-----
+ rebuild/review/static/app.css         | 97 ++++++++++++++++++++++++++++++++++-
+ rebuild/review/static/app.js          | 55 +++++++++-----------
+ rebuild/review/static/index.html      | 15 ++++--
+ rebuild/review/static/render.js       | 40 ++++++++++-----
+ 7 files changed, 204 insertions(+), 62 deletions(-)
+
+commit c7a49f070c462afa908294cc796ffa28139b8655
+Author: Nathan Galt <adiabatic@users.noreply.github.com>
+Date:   Thu Aug 6 18:29:05 2026 -0700
+
+    Refresh census pins
+
+ rebuild/review-census-pins.json | 50 ++++++++++++++++++++---------------------
+ 1 file changed, 25 insertions(+), 25 deletions(-)
+
+commit e5d2946e74254ec8f22c9fe8921891bca746ba55
+Author: Nathan Galt <adiabatic@users.noreply.github.com>
+Date:   Thu Aug 6 16:22:21 2026 -0700
+
+    Let commit bodies carry the per-change story instead of a Committed ledger
+
+ AGENTS.md                     | 2 +-
+ rebuild/M1-BATCH9-PROGRESS.md | 8 +-------
+ 2 files changed, 2 insertions(+), 8 deletions(-)
+
+commit 52e0c85fc6021a0134db05c9315adc36b43487ff
+Author: Nathan Galt <adiabatic@users.noreply.github.com>
+Date:   Thu Aug 6 16:13:30 2026 -0700
+
+    Give ·Pea its half form after ·See·Utter, exactly as after a bare ·Utter
+    
+    ·Pea goes half and joins ·Roe/·It/·Et at the x-height behind ·See·Utter,
+    ·See·Utter·Tea forms and joins under ss03, and ·Day/·See·Utter·Utter form
+    and take the alternate ·Utter join. ·May only regroups behind a left that
+    can actually exit at the baseline, so ·Day·Utter·May·Pea keeps the
+    ligature's join.
+
+ doc/rebuild-design.md            |   4 +-
+ glyph_data/runes/qsMay.yaml      |   4 +-
+ glyph_data/runes/qsTea_qsOy.yaml |  14 +++++-
+ rebuild/pipeline/spec_load.py    | 101 ++++++++++++++++++++++++++++++++++++---
+ rebuild/test_emit.py             |  11 ++---
+ rebuild/test_settle.py           |  48 ++++++++++++++++++-
+ rebuild/test_spec_load.py        |  38 +++++++++++++++
+ 7 files changed, 203 insertions(+), 17 deletions(-)
+
+commit fe73b51add9a96f10472c57577a017fd0ff4055a
+Author: Nathan Galt <adiabatic@users.noreply.github.com>
+Date:   Thu Aug 6 16:12:44 2026 -0700
+
+    Let a rune record which preference wins when two runes' votes cross
+
+ doc/rebuild-design.md           |   2 +-
+ glyph_data/runes/qsIt.yaml      |   3 +-
+ rebuild/pipeline/model.py       |   8 ++-
+ rebuild/pipeline/settle.py      | 144 ++++++++++++++++++++++++++++++++++++++--
+ rebuild/pipeline/spec_load.py   |  82 +++++++++++++++++++++--
+ rebuild/schema/rune.schema.json |   6 ++
+ rebuild/test_spec_load.py       |  35 +++++++++-
+ 7 files changed, 266 insertions(+), 14 deletions(-)
+
+commit 5031f1c4722995281a3dd6cbee92fe7afc4b0c6f
+Author: Nathan Galt <adiabatic@users.noreply.github.com>
+Date:   Mon Aug 3 18:15:38 2026 -0700
+
+    Let ·Utter own the ·Tea·Day fact its neighbors were carrying
+    
+    Also delete the ·No·No·See·Low patch record the simulated prospect made
+    redundant (86cc4a3), and re-baseline the census pins to the new surface.
+    
+    Closes #28
+
+ glyph_data/runes/qsFee.yaml     | 10 ------
+ glyph_data/runes/qsMay.yaml     | 10 ------
+ glyph_data/runes/qsNo.yaml      | 26 ---------------
+ glyph_data/runes/qsUtter.yaml   |  7 ++++
+ rebuild/review-census-pins.json | 72 ++++++++++++++++++++---------------------
+ 5 files changed, 43 insertions(+), 82 deletions(-)
+
+commit 3eb6de5fe965979e74100ee6a9067868d574a47b
+Author: Nathan Galt <adiabatic@users.noreply.github.com>
+Date:   Mon Aug 3 18:15:38 2026 -0700
+
+    Score every promised join by what the follower will actually do
+
+ WHATNEXT.md                          |   8 +-
+ doc/rebuild-design.md                |   9 +-
+ rebuild/pipeline/compile_font.py     |  26 ++-
+ rebuild/pipeline/conform.py          |  18 +-
+ rebuild/pipeline/pack_gsub.py        | 337 +++++++++++++++++++++++++++
+ rebuild/pipeline/run_m1.py           |  15 +-
+ rebuild/pipeline/settle.py           |  89 ++++++--
+ rebuild/pipeline/table.py            | 430 +++++++++++++++++++++++++++++++++--
+ rebuild/test_conform.py              |  18 +-
+ rebuild/test_pack_gsub.py            | 168 ++++++++++++++
+ rebuild/test_settle.py               | 154 ++++++++++++-
+ rebuild/test_table.py                | 188 +++++++++++++--
+ rebuild/tools/prospect_divergence.py | 107 +++++++++
+ 13 files changed, 1491 insertions(+), 76 deletions(-)
+
+commit 144a8693d0b919b781205e852fe95583506dcbc8
+Author: Nathan Galt <adiabatic@users.noreply.github.com>
+Date:   Mon Aug 3 18:15:38 2026 -0700
+
+    Keep two prefer pairs from colliding once the engine sees further
+
+ glyph_data/runes/qsMay.yaml | 5 +++++
+ glyph_data/runes/qsOy.yaml  | 2 ++
+ 2 files changed, 7 insertions(+)
+
+commit 06c547bdaf40b4a8ed6e77c685c955bb91ed7421
+Author: Nathan Galt <adiabatic@users.noreply.github.com>
+Date:   Sun Aug 2 17:19:15 2026 -0700
+
+    Mention a batch thing
+
+ rebuild/M1-BATCH9-PROGRESS.md | 1 +
+ 1 file changed, 1 insertion(+)
+
+commit 86cc4a35e2baefd53d1f6a15a685c131a9f5d5a4
+Author: Nathan Galt <adiabatic@users.noreply.github.com>
+Date:   Sun Aug 2 16:58:03 2026 -0700
+
+    Don't drop ·No·No to the baseline for a ·No·See join that never happens
+
+ glyph_data/runes/qsNo.yaml | 16 ++++++++++++++++
+ 1 file changed, 16 insertions(+)
+
+commit 0b4498bc10e3058a6f7d23262f90d35ddd44e578
+Author: Nathan Galt <adiabatic@users.noreply.github.com>
+Date:   Sun Aug 2 16:07:55 2026 -0700
+
+    Add another batch-9 progress entry
+
+ rebuild/M1-BATCH9-PROGRESS.md | 1 +
+ 1 file changed, 1 insertion(+)
+
+commit f95b6a86dbea6665796f329c8d4ccd8bc743ad1e
+Author: Nathan Galt <adiabatic@users.noreply.github.com>
+Date:   Sun Aug 2 16:07:07 2026 -0700
+
+    Let a conform witness say one letter more, so its ligature still forms on replay
+    
+    ·Day·Utter·See is only a ·Day·Utter ligature if a ·Low or ·Utter comes next; cut the stream there and the guard leaves the pair unformed, and the window the witness was meant to prove goes unreachable. The assembler now checks every formed-ligature label against its own §5.7 guard over the following raw tokens, finishing a stream that ends a token short and discarding a candidate whose interior labels the stream has already contradicted. This was unreachable until the previous commit gave the guard right2-dependent verdicts; with it the conform sweep is green end to end. Also picks up the census pins and a black reflow.
+
+ rebuild/M1-BATCH9-PROGRESS.md   |  2 +-
+ rebuild/pipeline/conform.py     | 57 +++++++++++++++++++++++++++++++++++++++++
+ rebuild/pipeline/settle.py      |  9 +++++--
+ rebuild/review-census-pins.json | 30 +++++++++++-----------
+ 4 files changed, 80 insertions(+), 18 deletions(-)
+
+commit 1bfb48a932816a50a2fbebf77a14f68bc7ce74ee
+Author: Nathan Galt <adiabatic@users.noreply.github.com>
+Date:   Sun Aug 2 15:21:32 2026 -0700
+
+    Stop a ·Low or ·Utter two letters away from breaking the ·Day·Utter ligature
+    
+    ·See sits between them, and its entry is never actually free in these windows — the §5.7 guard was crediting the unformed ·Utter with a join ·See cannot give it. The guard now settles the unformed trail at ranking grain so ·See's vote counts, and reads a forming ·See·Utter as the ligature it becomes rather than as a bare ·See. The approved un-formed ·Day·Utter·Utter·Tea windows are protected by binding slots past the guard's two to the window edge, so an unknown-slot vote can no longer flip a verdict.
+
+ doc/rebuild-design.md         |  4 ++--
+ rebuild/M1-BATCH9-PROGRESS.md |  5 +++--
+ rebuild/pipeline/emit_gsub.py | 21 ++++++++++++++++++---
+ rebuild/pipeline/settle.py    | 31 ++++++++++++++++++++++++++-----
+ rebuild/test_emit.py          | 19 ++++++++++++++++++-
+ 5 files changed, 67 insertions(+), 13 deletions(-)
+
+commit 84cf4f7e55dd03fe69acc1200f414ad13624c240
+Author: Nathan Galt <adiabatic@users.noreply.github.com>
+Date:   Sun Aug 2 13:13:10 2026 -0700
+
+    Rename ·See's stances to normal, curled-over, straighter, and straightest
+
+ WHATNEXT.md                     |  2 +-
+ glyph_data/runes/qsSee.yaml     | 40 ++++++++++++++++++++--------------------
+ rebuild/M1-BATCH9-PROGRESS.md   |  4 ++--
+ rebuild/m1-aliases.yaml         | 10 +++++-----
+ rebuild/m1-contact-allow.yaml   | 32 ++++++++++++++++----------------
+ rebuild/review-census-pins.json |  4 ++--
+ 6 files changed, 46 insertions(+), 46 deletions(-)
+
+commit 2fe12f3b2a82a6f77537015f152a42d884365d47
+Author: Nathan Galt <adiabatic@users.noreply.github.com>
+Date:   Sun Aug 2 05:25:39 2026 -0700
+
+    Make the ductus for ·See good
+
+ glyph_data/runes/qsSee.yaml         | 12 ++++++------
+ glyph_data/runes/qsSee_qsUtter.yaml |  6 ++----
+ 2 files changed, 8 insertions(+), 10 deletions(-)
+
+commit e68cf65ce0b40fd4fb77a074978fed6b91b7ae97
+Author: Nathan Galt <adiabatic@users.noreply.github.com>
+Date:   Sun Aug 2 05:17:44 2026 -0700
+
+    Declare ·Et done and add ·See
+
+ WHATNEXT.md                             |   8 +-
+ glyph_data/runes/qsOy.yaml              |   1 +
+ glyph_data/runes/qsPea.yaml             |   1 +
+ glyph_data/runes/qsSee.yaml             | 166 ++++++++++++++++++++++++++++++++
+ glyph_data/runes/qsSee_qsUtter.yaml     |  53 ++++++++++
+ glyph_data/runes/qsTea.yaml             |   3 +-
+ rebuild/M1-BATCH8-PROGRESS.md           |  66 -------------
+ rebuild/M1-BATCH9-PROGRESS.md           |  72 ++++++++++++++
+ rebuild/m1-aliases.yaml                 |  14 +++
+ rebuild/m1-contact-allow.yaml           |  29 ++++++
+ rebuild/pipeline/baseline_subset.py     |   1 +
+ rebuild/pipeline/smoke_sequences_m1.txt |  38 ++++++++
+ rebuild/review-census-pins.json         | 102 ++++++++++----------
+ rebuild/test_emit.py                    |   8 +-
+ rebuild/test_review_build.py            |   2 +-
+ rebuild/test_review_enrich.py           |   2 +-
+ rebuild/test_spec_load.py               |   2 +-
+ rebuild/test_surface.py                 |   4 +-
+ 18 files changed, 443 insertions(+), 129 deletions(-)
+
+commit da67c147216c0f26ff8be9e93f5a32243f7a5576
+Author: Nathan Galt <adiabatic@users.noreply.github.com>
+Date:   Sun Aug 2 05:17:44 2026 -0700
+
+    Stop gate:conform reporting windows behind a formed ligature as dead
+
+ rebuild/pipeline/conform.py | 42 ++++++++++++++++++++++++++++++++++++------
+ 1 file changed, 36 insertions(+), 6 deletions(-)
+
+commit 9d65669ea5f5a3caa4e4e216ddf81e4a81054d17
+Author: Nathan Galt <adiabatic@users.noreply.github.com>
+Date:   Sun Aug 2 03:33:06 2026 -0700
+
+    Catch the batch log and census pins up to the ·Et·May contraction
+
+ rebuild/M1-BATCH8-PROGRESS.md   |  1 +
+ rebuild/review-census-pins.json | 60 ++++++++++++++++++++---------------------
+ 2 files changed, 31 insertions(+), 30 deletions(-)
+
+commit 019e181ee672675c55abcd50e8763b23b0de829a
+Author: Nathan Galt <adiabatic@users.noreply.github.com>
+Date:   Sun Aug 2 03:10:01 2026 -0700
+
+    Contract ·Et·May by a pixel
+
+ glyph_data/runes/qsEt.yaml    | 6 +++++-
+ rebuild/m1-contact-allow.yaml | 4 ++++
+ 2 files changed, 9 insertions(+), 1 deletion(-)
+
+commit b0860f454a228e999a5cf76c33c8ca905df66edc
+Author: Nathan Galt <adiabatic@users.noreply.github.com>
+Date:   Sun Aug 2 02:03:31 2026 -0700
+
+    Stop gate:conform re-settling windows it has already seen
+    
+    Closes #12
+
+ WHATNEXT.md                 |   2 +-
+ rebuild/pipeline/conform.py | 291 +++++++++++++++++++++++++++++---------------
+ rebuild/test_conform.py     |  66 +++++++++-
+ 3 files changed, 262 insertions(+), 97 deletions(-)
+
+commit 16af0310a549d90d207d0bf0e16a81f8e6f942be
+Author: Nathan Galt <adiabatic@users.noreply.github.com>
+Date:   Sun Aug 2 01:20:26 2026 -0700
+
+    Stop depth-3 windows fanning out over third tokens that can't matter
+    
+    Closes #11
+
+ WHATNEXT.md                 |  2 +-
+ doc/rebuild-design.md       |  2 +-
+ rebuild/pipeline/conform.py | 19 ++++++++++++++-----
+ rebuild/pipeline/table.py   | 45 +++++++++++++++++++++++++++++++++++++++++++--
+ rebuild/test_table.py       | 33 +++++++++++++++++++++++++++++++++
+ 5 files changed, 92 insertions(+), 9 deletions(-)
+
+commit 76ed99b35bc624d90a04231b4faea86e5c207384
+Author: Nathan Galt <adiabatic@users.noreply.github.com>
+Date:   Sun Aug 2 00:41:33 2026 -0700
+
+    Stop stale census pins from holding gate:rebuild short of green
+
+ rebuild/review-census-pins.json | 70 ++++++++++++++++++++---------------------
+ 1 file changed, 35 insertions(+), 35 deletions(-)

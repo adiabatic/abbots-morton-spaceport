@@ -1,0 +1,40 @@
+shards=27 total_bytes=264455496 (252.2 MiB)
+read_bytes  boundary-echo.json (70.6 MiB)            cpu=   0.008s wall=   0.012s
+json.loads  boundary-echo.json                       cpu=   0.224s wall=   0.224s
+json.dumps  boundary-echo.json indent=1 ensure_ascii=True cpu=   0.187s wall=   0.187s
+json.dumps  boundary-echo.json compact (no indent)   cpu=   0.183s wall=   0.183s
+json.dumps  boundary-echo.json indent=1 ensure_ascii=False cpu=   0.221s wall=   0.221s
+read_bytes  dangling-anchor-dropped.json (46.5 MiB)  cpu=   0.005s wall=   0.008s
+json.loads  dangling-anchor-dropped.json             cpu=   0.135s wall=   0.135s
+json.dumps  dangling-anchor-dropped.json indent=1 ensure_ascii=True cpu=   0.119s wall=   0.119s
+json.dumps  dangling-anchor-dropped.json compact (no indent) cpu=   0.114s wall=   0.114s
+json.dumps  dangling-anchor-dropped.json indent=1 ensure_ascii=False cpu=   0.138s wall=   0.138s
+read_bytes  bare-name-live-join.json (42.4 MiB)      cpu=   0.004s wall=   0.008s
+json.loads  bare-name-live-join.json                 cpu=   0.126s wall=   0.126s
+json.dumps  bare-name-live-join.json indent=1 ensure_ascii=True cpu=   0.111s wall=   0.111s
+json.dumps  bare-name-live-join.json compact (no indent) cpu=   0.107s wall=   0.107s
+json.dumps  bare-name-live-join.json indent=1 ensure_ascii=False cpu=   0.126s wall=   0.126s
+read_bytes  may-baseline-entry-extension-dropped.json (5.3 MiB) cpu=   0.001s wall=   0.002s
+json.loads  may-baseline-entry-extension-dropped.json cpu=   0.013s wall=   0.013s
+json.dumps  may-baseline-entry-extension-dropped.json indent=1 ensure_ascii=True cpu=   0.014s wall=   0.014s
+json.dumps  may-baseline-entry-extension-dropped.json compact (no indent) cpu=   0.013s wall=   0.013s
+json.dumps  may-baseline-entry-extension-dropped.json indent=1 ensure_ascii=False cpu=   0.016s wall=   0.016s
+read_bytes  seam-loss-withdrawal.json (4.9 MiB)      cpu=   0.001s wall=   0.002s
+json.loads  seam-loss-withdrawal.json                cpu=   0.011s wall=   0.011s
+json.dumps  seam-loss-withdrawal.json indent=1 ensure_ascii=True cpu=   0.012s wall=   0.012s
+json.dumps  seam-loss-withdrawal.json compact (no indent) cpu=   0.012s wall=   0.012s
+json.dumps  seam-loss-withdrawal.json indent=1 ensure_ascii=False cpu=   0.015s wall=   0.015s
+
+shard                                             MiB   units  loads s/MiB  dumps s/MiB
+boundary-echo.json                               70.6   18368       0.0032       0.0027
+dangling-anchor-dropped.json                     46.5   11485       0.0029       0.0026
+bare-name-live-join.json                         42.4   11028       0.0030       0.0026
+may-baseline-entry-extension-dropped.json         5.3    1255       0.0024       0.0026
+seam-loss-withdrawal.json                         4.9    1012       0.0023       0.0025
+
+aggregate json.loads rate  : 0.0030 s CPU / MiB
+aggregate json.dumps rate  : 0.0026 s CPU / MiB (indent=1, ensure_ascii=True)
+aggregate compact dumps    : 0.0025 s CPU / MiB
+
+EXTRAPOLATED whole-surface json.dumps CPU: 0.7s over 252.2 MiB
+EXTRAPOLATED whole-surface json.loads CPU: 0.8s over 252.2 MiB

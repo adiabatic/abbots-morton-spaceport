@@ -1,0 +1,65 @@
+{
+  "summary": {
+    "label": "wallimport-rebuild.tools.verdict_ready",
+    "runs": 5,
+    "wall_median_s": 0.0264,
+    "wall_min_s": 0.0262,
+    "wall_max_s": 0.0268,
+    "user_median_s": 0.0196,
+    "sys_median_s": 0.0053,
+    "rcs": [
+      0,
+      0,
+      0,
+      0,
+      0
+    ]
+  },
+  "records": [
+    {
+      "label": "wallimport-rebuild.tools.verdict_ready",
+      "run": 0,
+      "wall_s": 0.0262,
+      "user_s": 0.0195,
+      "sys_s": 0.0053,
+      "maxrss_mb": 20.4,
+      "rc": 0
+    },
+    {
+      "label": "wallimport-rebuild.tools.verdict_ready",
+      "run": 1,
+      "wall_s": 0.0264,
+      "user_s": 0.0197,
+      "sys_s": 0.0051,
+      "maxrss_mb": 20.4,
+      "rc": 0
+    },
+    {
+      "label": "wallimport-rebuild.tools.verdict_ready",
+      "run": 2,
+      "wall_s": 0.0264,
+      "user_s": 0.0196,
+      "sys_s": 0.0053,
+      "maxrss_mb": 20.4,
+      "rc": 0
+    },
+    {
+      "label": "wallimport-rebuild.tools.verdict_ready",
+      "run": 3,
+      "wall_s": 0.0263,
+      "user_s": 0.0196,
+      "sys_s": 0.0053,
+      "maxrss_mb": 20.4,
+      "rc": 0
+    },
+    {
+      "label": "wallimport-rebuild.tools.verdict_ready",
+      "run": 4,
+      "wall_s": 0.0268,
+      "user_s": 0.0195,
+      "sys_s": 0.0057,
+      "maxrss_mb": 20.5,
+      "rc": 0
+    }
+  ]
+}

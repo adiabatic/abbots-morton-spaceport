@@ -1,0 +1,4 @@
+cmd: uv run pyright
+  run 0: wall=5.84s child_user=9.79s child_sys=0.26s cpu=10.05s rc=0 stdout_bytes=37
+  run 1: wall=5.81s child_user=9.78s child_sys=0.27s cpu=10.05s rc=0 stdout_bytes=37
+  best wall=5.81s cpu=10.05s

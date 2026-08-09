@@ -1,0 +1,74 @@
+{
+  "python": "3.14.6",
+  "gil_enabled": false,
+  "ops_per_thread": 300000,
+  "hot_shared_entry": [
+    {
+      "threads": 1,
+      "wall_s": 0.035,
+      "ns_per_op": 117.5,
+      "checksum_hits": 300000,
+      "dict_intact": true
+    },
+    {
+      "threads": 2,
+      "wall_s": 0.087,
+      "ns_per_op": 145.6,
+      "checksum_hits": 600000,
+      "dict_intact": true
+    },
+    {
+      "threads": 4,
+      "wall_s": 0.212,
+      "ns_per_op": 176.7,
+      "checksum_hits": 1200000,
+      "dict_intact": true
+    },
+    {
+      "threads": 6,
+      "wall_s": 0.573,
+      "ns_per_op": 318.5,
+      "checksum_hits": 1800000,
+      "dict_intact": true
+    },
+    {
+      "threads": 8,
+      "wall_s": 1.086,
+      "ns_per_op": 452.5,
+      "checksum_hits": 2400000,
+      "dict_intact": true
+    }
+  ],
+  "insert_evict_at_cap": [
+    {
+      "threads": 1,
+      "wall_s": 0.002,
+      "checksum_hits": 15000,
+      "popitem_races": 0
+    },
+    {
+      "threads": 2,
+      "wall_s": 0.006,
+      "checksum_hits": 29657,
+      "popitem_races": 0
+    },
+    {
+      "threads": 4,
+      "wall_s": 0.015,
+      "checksum_hits": 58893,
+      "popitem_races": 0
+    },
+    {
+      "threads": 6,
+      "wall_s": 0.061,
+      "checksum_hits": 86092,
+      "popitem_races": 0
+    },
+    {
+      "threads": 8,
+      "wall_s": 0.133,
+      "checksum_hits": 111407,
+      "popitem_races": 0
+    }
+  ]
+}

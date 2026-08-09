@@ -1,0 +1,4 @@
+cmd: uv run python tools/build_font.py glyph_data/ raw/perf/build-topology/fontout/
+  run 0: wall=11.41s child_user=22.95s child_sys=0.27s cpu=23.22s rc=0 stdout_bytes=2017
+  run 1: wall=11.39s child_user=22.92s child_sys=0.27s cpu=23.19s rc=0 stdout_bytes=2027
+  best wall=11.39s cpu=23.19s

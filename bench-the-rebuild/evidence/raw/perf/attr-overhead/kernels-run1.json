@@ -1,0 +1,84 @@
+{
+ "peak_rss_gb": 1.805,
+ "results": [
+  {
+   "kernel": "K1 place_run (ink_pieces, both sides)",
+   "cpu_s": 0.2982,
+   "items": 3000,
+   "ns_per_item": 99400.3,
+   "glyphs": 23625,
+   "ns_per_glyph": 12622.3
+  },
+  {
+   "kernel": "K2 config_diff (run_ink x2 + delta)",
+   "cpu_s": 0.3978,
+   "items": 3000,
+   "ns_per_item": 132603.0,
+   "nonempty_deltas": 849
+  },
+  {
+   "kernel": "K3 signature_digest (repr + sha256)",
+   "cpu_s": 0.3869,
+   "items": 3000,
+   "ns_per_item": 128980.7,
+   "total_repr_bytes": 26822274,
+   "mean_repr_bytes": 8940.8
+  },
+  {
+   "kernel": "K3a repr() alone",
+   "cpu_s": 0.3807,
+   "items": 3000,
+   "ns_per_item": 126910.0
+  },
+  {
+   "kernel": "K3b sha256 alone (native)",
+   "cpu_s": 0.016,
+   "items": 3000,
+   "ns_per_item": 5329.7
+  },
+  {
+   "kernel": "K4 row_from_tsv (baseline TSV parse)",
+   "cpu_s": 0.1377,
+   "items": 54240,
+   "ns_per_item": 2538.4,
+   "bytes": 6192300
+  },
+  {
+   "kernel": "K5 memo_key build + dict probe",
+   "cpu_s": 0.206,
+   "items": 267976,
+   "ns_per_item": 768.8,
+   "store_entries": 1875829,
+   "hits": 267976,
+   "distinct_tokens": 23
+  },
+  {
+   "kernel": "K5a tuple build + hash only",
+   "cpu_s": 0.1409,
+   "items": 267976,
+   "ns_per_item": 525.7
+  },
+  {
+   "kernel": "K5b store construction (1.9M-entry dict)",
+   "cpu_s": 0.0,
+   "items": 1,
+   "ns_per_item": 0.0,
+   "note": "not timed separately; see peak_rss below"
+  },
+  {
+   "kernel": "K6 shard json.loads (native C decoder) [CONTROL]",
+   "cpu_s": 0.2996,
+   "items": 18368,
+   "ns_per_item": 16308.4,
+   "bytes": 74028465,
+   "mb_per_s": 247.1
+  },
+  {
+   "kernel": "K6a id-set comprehension over parsed units",
+   "cpu_s": 0.0014,
+   "items": 18368,
+   "ns_per_item": 74.9,
+   "ids": 0
+  }
+ ]
+}

@@ -1,0 +1,6 @@
+after (M1.otf): 212 glyphs
+  pen operations per glyph: mean 53.5 median 50 max 100
+  points per glyph        : mean 42.8 median 40 max 80
+before (Senior): 1148 glyphs
+  pen operations per glyph: mean 66.0 median 60 max 245
+  points per glyph        : mean 52.8 median 48 max 196

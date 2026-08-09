@@ -1,0 +1,10 @@
+[setup] load_workload 1.08s CPU, load_spec 0.11s CPU, 63442 raw units
+signature rows: 152730
+
+SIGNATURE over 3000 rows (shaper memo cold per row, outlines warm):
+  signature()        0.606s CPU = 202.1 us/row
+  repr(signature)    0.296s CPU = 98.8 us/row
+  signature_digest() 0.309s CPU = 103.2 us/row  (repr + sha256)
+  repr bytes: mean 9293, max 15674, total 27880187
+  EXTRAPOLATED to 152730 rows: 46.6s CPU
+  repr volume over all rows: 1.42 GB of text hashed

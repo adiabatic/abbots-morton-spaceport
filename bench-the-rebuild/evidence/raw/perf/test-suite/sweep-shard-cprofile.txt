@@ -1,0 +1,51 @@
+context set size = 46  plain letters = 44
+{"warmup_compiled_meta_wall_s": 0.521, "warmup_cpu_s": 0.52}
+{
+  "shard": "qsEt",
+  "failures": 0,
+  "profiled_wall_s": 2.993,
+  "profiled_cpu_s": 2.989,
+  "shape_lru_hits": 47,
+  "shape_lru_misses": 103777,
+  "shape_lru_currsize": 103777
+}
+Sat Aug  8 19:49:34 2026    raw/perf/test-suite/sweep-shard.prof
+
+         5090787 function calls (5090783 primitive calls) in 2.993 seconds
+
+   Ordered by: internal time
+   List reduced from 242 to 30 due to restriction <30>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+   103777    2.066    0.000    2.261    0.000 test/quikscript_shaping_helpers.py:43(_shape)
+        1    0.307    0.307    2.993    2.993 test/test_calt_regressions.py:278(_collect_pair_must_not_join_regardless_of_what_comes_before_or_after)
+  1236000    0.104    0.000    0.104    0.000 {method 'get' of 'dict' objects}
+   613293    0.093    0.000    0.194    0.000 test/quikscript_shaping_helpers.py:34(_gid_to_full_name)
+   311528    0.078    0.000    0.111    0.000 {method 'join' of 'str' objects}
+   613293    0.075    0.000    0.101    0.000 .venv/lib/python3.14/site-packages/fontTools/ttLib/ttFont.py:1181(getGlyphName)
+   103824    0.046    0.000    0.068    0.000 test/quikscript_shaping_helpers.py:125(_qs_text)
+   108291    0.042    0.000    0.164    0.000 test/quikscript_shaping_helpers.py:204(_pair_join_ys)
+   216583    0.038    0.000    0.038    0.000 test/quikscript_shaping_helpers.py:83(_compiled_meta)
+   108291    0.033    0.000    0.055    0.000 test/quikscript_shaping_helpers.py:154(_entry_ys)
+   108291    0.032    0.000    0.063    0.000 test/quikscript_shaping_helpers.py:161(_exit_ys)
+   613293    0.023    0.000    0.026    0.000 .venv/lib/python3.14/site-packages/fontTools/ttLib/ttFont.py:1057(getGlyphOrder)
+   309120    0.018    0.000    0.018    0.000 test/test_calt_regressions.py:310(<genexpr>)
+   309168    0.015    0.000    0.015    0.000 test/test_calt_regressions.py:311(<genexpr>)
+   210916    0.013    0.000    0.013    0.000 {method 'append' of 'list' objects}
+109230/109229    0.005    0.000    0.005    0.000 {built-in method builtins.len}
+        1    0.001    0.001    0.001    0.001 test/quikscript_shaping_helpers.py:21(_font)
+      917    0.000    0.000    0.001    0.000 .venv/lib/python3.14/site-packages/fontTools/cffLib/__init__.py:622(__getitem__)
+        2    0.000    0.000    0.000    0.000 {method 'read' of '_io.BufferedReader' objects}
+        4    0.000    0.000    0.000    0.000 .venv/lib/python3.14/site-packages/fontTools/cffLib/__init__.py:590(__init__)
+        2    0.000    0.000    0.000    0.000 test/test_calt_regressions.py:70(_surround_combos)
+        1    0.000    0.000    0.001    0.001 .venv/lib/python3.14/site-packages/fontTools/cffLib/__init__.py:2750(__init__)
+        1    0.000    0.000    0.000    0.000 .venv/lib/python3.14/site-packages/fontTools/cffLib/__init__.py:1620(parseCharset)
+     4328    0.000    0.000    0.000    0.000 test/test_calt_regressions.py:72(<genexpr>)
+      945    0.000    0.000    0.000    0.000 .venv/lib/python3.14/site-packages/fontTools/misc/textTools.py:123(tostr)
+     2106    0.000    0.000    0.000    0.000 {method 'read' of '_io.BytesIO' objects}
+        1    0.000    0.000    0.001    0.001 .venv/lib/python3.14/site-packages/fontTools/cffLib/__init__.py:1444(_read)
+      930    0.000    0.000    0.000    0.000 {method 'decode' of 'bytes' objects}
+     1189    0.000    0.000    0.000    0.000 {built-in method _struct.unpack}
+     1166    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+
+

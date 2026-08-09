@@ -1,0 +1,85 @@
+{
+  "summary": {
+    "label": "venv-python-pass",
+    "runs": 7,
+    "wall_median_s": 0.0151,
+    "wall_min_s": 0.0148,
+    "wall_max_s": 0.0182,
+    "user_median_s": 0.0104,
+    "sys_median_s": 0.0033,
+    "rcs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ]
+  },
+  "records": [
+    {
+      "label": "venv-python-pass",
+      "run": 0,
+      "wall_s": 0.0182,
+      "user_s": 0.0125,
+      "sys_s": 0.004,
+      "maxrss_mb": 14.7,
+      "rc": 0
+    },
+    {
+      "label": "venv-python-pass",
+      "run": 1,
+      "wall_s": 0.0164,
+      "user_s": 0.0115,
+      "sys_s": 0.0034,
+      "maxrss_mb": 14.8,
+      "rc": 0
+    },
+    {
+      "label": "venv-python-pass",
+      "run": 2,
+      "wall_s": 0.0156,
+      "user_s": 0.0109,
+      "sys_s": 0.0032,
+      "maxrss_mb": 14.8,
+      "rc": 0
+    },
+    {
+      "label": "venv-python-pass",
+      "run": 3,
+      "wall_s": 0.0149,
+      "user_s": 0.0104,
+      "sys_s": 0.0031,
+      "maxrss_mb": 14.8,
+      "rc": 0
+    },
+    {
+      "label": "venv-python-pass",
+      "run": 4,
+      "wall_s": 0.0148,
+      "user_s": 0.0103,
+      "sys_s": 0.0031,
+      "maxrss_mb": 14.8,
+      "rc": 0
+    },
+    {
+      "label": "venv-python-pass",
+      "run": 5,
+      "wall_s": 0.0151,
+      "user_s": 0.0104,
+      "sys_s": 0.0034,
+      "maxrss_mb": 14.8,
+      "rc": 0
+    },
+    {
+      "label": "venv-python-pass",
+      "run": 6,
+      "wall_s": 0.015,
+      "user_s": 0.0103,
+      "sys_s": 0.0033,
+      "maxrss_mb": 14.8,
+      "rc": 0
+    }
+  ]
+}

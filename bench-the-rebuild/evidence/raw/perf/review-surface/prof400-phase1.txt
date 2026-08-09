@@ -1,0 +1,106 @@
+         12963026 function calls (12939822 primitive calls) in 2.867 seconds
+
+   Ordered by: cumulative time
+   List reduced from 359 to 45 due to restriction <45>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+      400    0.004    0.000    2.980    0.007 rebuild/review/build.py:473(_phase1_unit)
+      400    0.009    0.000    2.446    0.006 rebuild/review/enrich.py:337(enrich)
+      400    0.081    0.000    2.138    0.005 rebuild/review/enrich.py:305(subset_row)
+   216964    0.124    0.000    1.855    0.000 rebuild/validation/rowmodel.py:120(iter_rows)
+   216960    0.802    0.000    1.654    0.000 rebuild/validation/rowmodel.py:63(from_tsv)
+     2242    0.016    0.000    0.464    0.000 rebuild/review/build.py:475(<genexpr>)
+     1842    0.018    0.000    0.448    0.000 rebuild/review/ink.py:176(config_diff)
+  1064658    0.238    0.000    0.406    0.000 rebuild/validation/rowmodel.py:71(<genexpr>)
+     3684    0.006    0.000    0.353    0.000 rebuild/review/ink.py:163(run_ink)
+    16179    0.048    0.000    0.319    0.000 rebuild/review/ink.py:87(translate_outline)
+    15132    0.005    0.000    0.300    0.000 rebuild/review/ink.py:108(placed)
+   851174    0.202    0.000    0.271    0.000 rebuild/review/ink.py:88(<genexpr>)
+  2156940    0.225    0.000    0.225    0.000 {method 'split' of 'str' objects}
+225287/223924    0.094    0.000    0.208    0.000 {method 'join' of 'str' objects}
+      400    0.001    0.000    0.199    0.000 rebuild/pipeline/explain.py:91(explain)
+      400    0.002    0.000    0.195    0.000 rebuild/pipeline/settle.py:1538(settle_traces)
+3211/1388    0.002    0.000    0.181    0.000 rebuild/pipeline/settle.py:1120(transition_trace)
+3211/1388    0.019    0.000    0.181    0.000 rebuild/pipeline/settle.py:1178(_transition_trace_uncached)
+  1064658    0.101    0.000    0.168    0.000 rebuild/validation/rowmodel.py:73(<genexpr>)
+13304/5240    0.003    0.000    0.112    0.000 rebuild/pipeline/settle.py:682(_prospect)
+  1069320    0.111    0.000    0.111    0.000 rebuild/review/enrich.py:311(<genexpr>)
+6652/2620    0.002    0.000    0.111    0.000 rebuild/pipeline/settle.py:1289(_score)
+  1069320    0.099    0.000    0.099    0.000 rebuild/validation/rowmodel.py:67(<genexpr>)
+9721/7314    0.030    0.000    0.090    0.000 rebuild/pipeline/settle.py:525(candidates)
+  1064658    0.087    0.000    0.087    0.000 rebuild/validation/rowmodel.py:69(<genexpr>)
+  1502991    0.070    0.000    0.070    0.000 rebuild/review/ink.py:89(<genexpr>)
+    11884    0.004    0.000    0.065    0.000 {built-in method builtins.sorted}
+     4680    0.004    0.000    0.064    0.000 rebuild/review/ink.py:65(shape)
+     3554    0.049    0.000    0.058    0.000 rebuild/validation/shaping.py:36(shape)
+      400    0.002    0.000    0.055    0.000 rebuild/review/enrich.py:555(_ink_visible_positions)
+     1270    0.005    0.000    0.053    0.000 rebuild/review/enrich.py:534(_segment_pieces)
+     3933    0.005    0.000    0.053    0.000 rebuild/pipeline/settle.py:834(_apply_prefers)
+    16403    0.003    0.000    0.050    0.000 rebuild/review/ink.py:101(outline)
+     9718    0.004    0.000    0.046    0.000 rebuild/pipeline/settle.py:754(_prefer_favors)
+      293    0.000    0.000    0.045    0.000 .venv/lib/python3.14/site-packages/fontTools/ttLib/ttGlyphSet.py:278(draw)
+      293    0.000    0.000    0.044    0.000 .venv/lib/python3.14/site-packages/fontTools/misc/psCharStrings.py:1172(draw)
+      293    0.000    0.000    0.042    0.000 .venv/lib/python3.14/site-packages/fontTools/misc/psCharStrings.py:649(execute)
+      293    0.007    0.000    0.042    0.000 .venv/lib/python3.14/site-packages/fontTools/misc/psCharStrings.py:341(execute)
+      910    0.039    0.000    0.039    0.000 {built-in method builtins.repr}
+     7368    0.003    0.000    0.036    0.000 /opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/collections/__init__.py:602(__init__)
+      850    0.000    0.000    0.033    0.000 rebuild/review/ink.py:218(normalize)
+     7368    0.001    0.000    0.033    0.000 /opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/collections/__init__.py:679(update)
+     2052    0.004    0.000    0.033    0.000 rebuild/review/ink.py:220(<genexpr>)
+     3684    0.002    0.000    0.029    0.000 {built-in method _collections._count_elements}
+    72152    0.022    0.000    0.028    0.000 rebuild/review/ink.py:221(<genexpr>)
+
+
+         12963026 function calls (12939822 primitive calls) in 2.867 seconds
+
+   Ordered by: internal time
+   List reduced from 359 to 45 due to restriction <45>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+   216960    0.802    0.000    1.654    0.000 rebuild/validation/rowmodel.py:63(from_tsv)
+  1064658    0.238    0.000    0.406    0.000 rebuild/validation/rowmodel.py:71(<genexpr>)
+  2156940    0.225    0.000    0.225    0.000 {method 'split' of 'str' objects}
+   851174    0.202    0.000    0.271    0.000 rebuild/review/ink.py:88(<genexpr>)
+   216964    0.124    0.000    1.855    0.000 rebuild/validation/rowmodel.py:120(iter_rows)
+  1069320    0.111    0.000    0.111    0.000 rebuild/review/enrich.py:311(<genexpr>)
+  1064658    0.101    0.000    0.168    0.000 rebuild/validation/rowmodel.py:73(<genexpr>)
+  1069320    0.099    0.000    0.099    0.000 rebuild/validation/rowmodel.py:67(<genexpr>)
+225287/223924    0.094    0.000    0.208    0.000 {method 'join' of 'str' objects}
+  1064658    0.087    0.000    0.087    0.000 rebuild/validation/rowmodel.py:69(<genexpr>)
+      400    0.081    0.000    2.138    0.005 rebuild/review/enrich.py:305(subset_row)
+  1502991    0.070    0.000    0.070    0.000 rebuild/review/ink.py:89(<genexpr>)
+     3554    0.049    0.000    0.058    0.000 rebuild/validation/shaping.py:36(shape)
+    16179    0.048    0.000    0.319    0.000 rebuild/review/ink.py:87(translate_outline)
+      910    0.039    0.000    0.039    0.000 {built-in method builtins.repr}
+9721/7314    0.030    0.000    0.090    0.000 rebuild/pipeline/settle.py:525(candidates)
+    72152    0.022    0.000    0.028    0.000 rebuild/review/ink.py:221(<genexpr>)
+3211/1388    0.019    0.000    0.181    0.000 rebuild/pipeline/settle.py:1178(_transition_trace_uncached)
+   216960    0.019    0.000    0.019    0.000 {method 'rstrip' of 'str' objects}
+   216960    0.018    0.000    0.018    0.000 {method 'strip' of 'str' objects}
+     1842    0.018    0.000    0.448    0.000 rebuild/review/ink.py:176(config_diff)
+   219708    0.016    0.000    0.016    0.000 {method 'startswith' of 'str' objects}
+     2242    0.016    0.000    0.464    0.000 rebuild/review/build.py:475(<genexpr>)
+   220087    0.015    0.000    0.015    0.000 /opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/gzip.py:379(closed)
+     3063    0.010    0.000    0.010    0.000 {method 'decompress' of 'zlib._ZlibDecompressor' objects}
+   148032    0.010    0.000    0.010    0.000 {method 'append' of 'list' objects}
+    21340    0.010    0.000    0.018    0.000 .venv/lib/python3.14/site-packages/fontTools/misc/psCharStrings.py:1246(getToken)
+      400    0.009    0.000    2.446    0.006 rebuild/review/enrich.py:337(enrich)
+147560/147267    0.008    0.000    0.008    0.000 {built-in method builtins.len}
+    44984    0.008    0.000    0.012    0.000 {method 'get' of 'dict' objects}
+     3211    0.007    0.000    0.018    0.000 rebuild/pipeline/settle.py:1303(_commit)
+    18763    0.007    0.000    0.010    0.000 rebuild/pipeline/settle.py:475(_pairing_allowed)
+      293    0.007    0.000    0.042    0.000 .venv/lib/python3.14/site-packages/fontTools/misc/psCharStrings.py:341(execute)
+     8282    0.007    0.000    0.014    0.000 rebuild/pipeline/settle.py:642(_virtual_left)
+     3684    0.006    0.000    0.353    0.000 rebuild/review/ink.py:163(run_ink)
+   127710    0.006    0.000    0.006    0.000 rebuild/review/ink.py:224(<genexpr>)
+     3933    0.005    0.000    0.053    0.000 rebuild/pipeline/settle.py:834(_apply_prefers)
+12989/11164    0.005    0.000    0.007    0.000 rebuild/pipeline/settle.py:323(cond_matches_right)
+      400    0.005    0.000    0.011    0.000 rebuild/pipeline/explain.py:36(render)
+     1270    0.005    0.000    0.053    0.000 rebuild/review/enrich.py:534(_segment_pieces)
+      702    0.005    0.000    0.012    0.000 rebuild/pipeline/settle.py:1483(form_ligatures)
+    15132    0.005    0.000    0.300    0.000 rebuild/review/ink.py:108(placed)
+    20282    0.005    0.000    0.012    0.000 rebuild/pipeline/settle.py:370(when_matches)
+    12768    0.005    0.000    0.011    0.000 rebuild/pipeline/settle.py:408(_entry_available)
+     7011    0.005    0.000    0.006    0.000 rebuild/pipeline/settle.py:439(_exit_sources)
+
+

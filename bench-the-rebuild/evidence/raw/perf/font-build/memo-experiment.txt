@@ -1,0 +1,5 @@
+baseline emit:  2.237 s, 2.213 s
+memoized emit:  1.581 s, 1.598 s
+byte-identical FEA: True 15394562 15394562
+saving 0.632 s (28.6%) on the senior FEA emit
+cache entries: 57

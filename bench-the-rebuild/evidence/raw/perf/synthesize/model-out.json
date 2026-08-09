@@ -1,0 +1,240 @@
+{
+ "foreground": {
+  "seconds_per_day": 509.4,
+  "minutes_per_day": 8.5,
+  "rewritable_seconds_per_day": 442.1,
+  "rewritable_fraction": 0.8679,
+  "amdahl": {
+   "ceiling": 7.57,
+   "10x": 4.57,
+   "25x": 5.99,
+   "50x": 6.69
+  },
+  "detail": [
+   {
+    "label": "cycle: rebuild/pipeline edit -- run_m1 cold",
+    "wall_each_s": 394.75,
+    "per_day": 0.53,
+    "seconds_per_day": 208.3,
+    "rewritable_pct": 98.5,
+    "rewritable_seconds_per_day": 205.2
+   },
+   {
+    "label": "cycle: rebuild/pipeline edit -- surface cold",
+    "wall_each_s": 35.56,
+    "per_day": 0.53,
+    "seconds_per_day": 18.8,
+    "rewritable_pct": 91.3,
+    "rewritable_seconds_per_day": 17.1
+   },
+   {
+    "label": "cycle: rebuild/review edit -- surface cold",
+    "wall_each_s": 35.56,
+    "per_day": 0.36,
+    "seconds_per_day": 12.8,
+    "rewritable_pct": 91.3,
+    "rewritable_seconds_per_day": 11.7
+   },
+   {
+    "label": "cycle: rune edit -- run_m1 partial",
+    "wall_each_s": 281.62,
+    "per_day": 0.39,
+    "seconds_per_day": 109.5,
+    "rewritable_pct": 98.5,
+    "rewritable_seconds_per_day": 107.9
+   },
+   {
+    "label": "cycle: rune edit -- surface partial",
+    "wall_each_s": 19.88,
+    "per_day": 0.39,
+    "seconds_per_day": 7.7,
+    "rewritable_pct": 91.3,
+    "rewritable_seconds_per_day": 7.1
+   },
+   {
+    "label": "cycle: plumbing chain + complaints",
+    "wall_each_s": 26.0,
+    "per_day": 3.28,
+    "seconds_per_day": 85.2,
+    "rewritable_pct": 80.0,
+    "rewritable_seconds_per_day": 68.2
+   },
+   {
+    "label": "cycle: gate:js + fingerprints + driver",
+    "wall_each_s": 0.59,
+    "per_day": 5.92,
+    "seconds_per_day": 3.5,
+    "rewritable_pct": 22.9,
+    "rewritable_seconds_per_day": 0.8
+   },
+   {
+    "label": "make test, cold",
+    "wall_each_s": 205.57,
+    "per_day": 0.14,
+    "seconds_per_day": 28.6,
+    "rewritable_pct": 28.6,
+    "rewritable_seconds_per_day": 8.2
+   },
+   {
+    "label": "make test, skip",
+    "wall_each_s": 0.08,
+    "per_day": 2.08,
+    "seconds_per_day": 0.2,
+    "rewritable_pct": 28.6,
+    "rewritable_seconds_per_day": 0.0
+   },
+   {
+    "label": "make all, standalone (check-html / print-job)",
+    "wall_each_s": 11.24,
+    "per_day": 2.0,
+    "seconds_per_day": 22.5,
+    "rewritable_pct": 22.9,
+    "rewritable_seconds_per_day": 5.2
+   },
+   {
+    "label": "make verdict-ready",
+    "wall_each_s": 0.98,
+    "per_day": 6.0,
+    "seconds_per_day": 5.9,
+    "rewritable_pct": 80.0,
+    "rewritable_seconds_per_day": 4.7
+   },
+   {
+    "label": "make review (scoped-anchor report)",
+    "wall_each_s": 21.4,
+    "per_day": 0.3,
+    "seconds_per_day": 6.4,
+    "rewritable_pct": 94.0,
+    "rewritable_seconds_per_day": 6.0
+   }
+  ]
+ },
+ "background": {
+  "seconds_per_day": 404.5,
+  "minutes_per_day": 6.7,
+  "rewritable_seconds_per_day": 388.5,
+  "rewritable_fraction": 0.9606,
+  "amdahl": {
+   "ceiling": 25.35,
+   "10x": 7.38,
+   "25x": 12.84,
+   "50x": 17.05
+  },
+  "detail": [
+   {
+    "label": "gate:conform (six configs)",
+    "wall_each_s": 336.12,
+    "per_day": 0.64,
+    "seconds_per_day": 214.7,
+    "rewritable_pct": 98.5,
+    "rewritable_seconds_per_day": 211.5
+   },
+   {
+    "label": "gate:rebuild (pytest rebuild/)",
+    "wall_each_s": 250.0,
+    "per_day": 0.64,
+    "seconds_per_day": 159.7,
+    "rewritable_pct": 95.0,
+    "rewritable_seconds_per_day": 151.7
+   },
+   {
+    "label": "census --check",
+    "wall_each_s": 47.0,
+    "per_day": 0.64,
+    "seconds_per_day": 30.0,
+    "rewritable_pct": 84.2,
+    "rewritable_seconds_per_day": 25.3
+   }
+  ]
+ },
+ "combined": {
+  "seconds_per_day": 913.9,
+  "rewritable_fraction": 0.9089,
+  "amdahl": {
+   "ceiling": 10.97,
+   "10x": 5.49,
+   "25x": 7.84,
+   "50x": 9.15
+  }
+ },
+ "derived_constants": {
+  "m1_rune_wall_s": 224.7,
+  "surf_rune_wall_s": 19.9,
+  "surf_rune_cpu_s": 50.6,
+  "memo_invalidation_median_frac": 0.2089,
+  "commits_per_day": 2.22,
+  "passes_per_day": {
+   "pipeline": 0.53,
+   "review": 0.36,
+   "rune": 0.39,
+   "gate": 0.64,
+   "verdict": 2.0,
+   "noop": 2.0
+  }
+ },
+ "per_workload_amdahl": {
+  "m1_table": {
+   "rewritable_fraction": 0.985,
+   "ceiling": 66.67,
+   "10x": 8.81,
+   "25x": 18.38,
+   "50x": 28.82
+  },
+  "surface_cold": {
+   "rewritable_fraction": 0.9128,
+   "ceiling": 11.46,
+   "10x": 5.6,
+   "25x": 8.08,
+   "50x": 9.48
+  },
+  "surface_warm": {
+   "rewritable_fraction": 0.8866,
+   "ceiling": 8.82,
+   "10x": 4.95,
+   "25x": 6.72,
+   "50x": 7.62
+  },
+  "census": {
+   "rewritable_fraction": 0.8419,
+   "ceiling": 6.33,
+   "10x": 4.13,
+   "25x": 5.21,
+   "50x": 5.72
+  },
+  "make_all": {
+   "rewritable_fraction": 0.2292,
+   "ceiling": 1.3,
+   "10x": 1.26,
+   "25x": 1.28,
+   "50x": 1.29
+  },
+  "make_test": {
+   "rewritable_fraction": 0.2862,
+   "ceiling": 1.4,
+   "10x": 1.35,
+   "25x": 1.38,
+   "50x": 1.39
+  },
+  "rebuild_suite": {
+   "rewritable_fraction": 0.95,
+   "ceiling": 20.0,
+   "10x": 6.9,
+   "25x": 11.36,
+   "50x": 14.49
+  },
+  "plumbing": {
+   "rewritable_fraction": 0.8,
+   "ceiling": 5.0,
+   "10x": 3.57,
+   "25x": 4.31,
+   "50x": 4.63
+  },
+  "make_review": {
+   "rewritable_fraction": 0.94,
+   "ceiling": 16.67,
+   "10x": 6.49,
+   "25x": 10.25,
+   "50x": 12.69
+  }
+ }
+}

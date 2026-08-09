@@ -1,0 +1,44 @@
+{
+ "read_windows_s": 3.194,
+ "windows_rows": 1321116,
+ "shard_units_total": 18368,
+ "peak_rss_gb": 0.822,
+ "rows": [
+  {
+   "payload": "ResolvedSpec (run_m1 pool task arg)",
+   "bytes": 64595,
+   "mb": 0.065,
+   "dumps_s": 0.0005,
+   "loads_s": 0.0007,
+   "dumps_mb_per_s": 118.3,
+   "loads_mb_per_s": 86.5
+  },
+  {
+   "payload": "DecisionTable WITH 1321116 windows",
+   "bytes": 39640475,
+   "mb": 39.64,
+   "dumps_s": 3.1612,
+   "loads_s": 3.2233,
+   "dumps_mb_per_s": 12.5,
+   "loads_mb_per_s": 12.3
+  },
+  {
+   "payload": "DecisionTable, windows dropped",
+   "bytes": 301239,
+   "mb": 0.301,
+   "dumps_s": 0.0013,
+   "loads_s": 0.0024,
+   "dumps_mb_per_s": 234.3,
+   "loads_mb_per_s": 126.0
+  },
+  {
+   "payload": "2000 real surface unit fragments (phase-2 pipe return)",
+   "bytes": 5799766,
+   "mb": 5.8,
+   "dumps_s": 0.0243,
+   "loads_s": 0.0164,
+   "dumps_mb_per_s": 238.4,
+   "loads_mb_per_s": 353.3
+  }
+ ]
+}

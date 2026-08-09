@@ -1,0 +1,1 @@
+{"mode": "warm", "config": "default", "spec_load_wall_s": 0.102, "build_tables_wall_s": 28.543, "trace_store_save_wall_s": null, "total_wall_s": 33.843, "user_cpu_s": 33.442, "sys_cpu_s": 0.348, "peak_rss_gb": 2.85, "windows": 682842, "rules": 2667, "treaty_rows": 3563, "memo_served": 1498922, "memo_saved": 1875829}

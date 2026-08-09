@@ -1,0 +1,85 @@
+{
+  "summary": {
+    "label": "uv-run-python-pass",
+    "runs": 7,
+    "wall_median_s": 0.026,
+    "wall_min_s": 0.0254,
+    "wall_max_s": 0.0265,
+    "user_median_s": 0.0149,
+    "sys_median_s": 0.0078,
+    "rcs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ]
+  },
+  "records": [
+    {
+      "label": "uv-run-python-pass",
+      "run": 0,
+      "wall_s": 0.0262,
+      "user_s": 0.0149,
+      "sys_s": 0.008,
+      "maxrss_mb": 26.8,
+      "rc": 0
+    },
+    {
+      "label": "uv-run-python-pass",
+      "run": 1,
+      "wall_s": 0.0256,
+      "user_s": 0.0148,
+      "sys_s": 0.0076,
+      "maxrss_mb": 26.8,
+      "rc": 0
+    },
+    {
+      "label": "uv-run-python-pass",
+      "run": 2,
+      "wall_s": 0.0254,
+      "user_s": 0.0146,
+      "sys_s": 0.0076,
+      "maxrss_mb": 26.8,
+      "rc": 0
+    },
+    {
+      "label": "uv-run-python-pass",
+      "run": 3,
+      "wall_s": 0.026,
+      "user_s": 0.0149,
+      "sys_s": 0.0078,
+      "maxrss_mb": 26.8,
+      "rc": 0
+    },
+    {
+      "label": "uv-run-python-pass",
+      "run": 4,
+      "wall_s": 0.0265,
+      "user_s": 0.0151,
+      "sys_s": 0.0082,
+      "maxrss_mb": 26.9,
+      "rc": 0
+    },
+    {
+      "label": "uv-run-python-pass",
+      "run": 5,
+      "wall_s": 0.0264,
+      "user_s": 0.0149,
+      "sys_s": 0.0082,
+      "maxrss_mb": 26.9,
+      "rc": 0
+    },
+    {
+      "label": "uv-run-python-pass",
+      "run": 6,
+      "wall_s": 0.0255,
+      "user_s": 0.0147,
+      "sys_s": 0.0076,
+      "maxrss_mb": 26.9,
+      "rc": 0
+    }
+  ]
+}

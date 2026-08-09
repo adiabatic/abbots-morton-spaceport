@@ -1,0 +1,11 @@
+LEAF-frame sample attribution by binary image (total leaf samples 19744):
+    15265   77.3%  Python
+     1824    9.2%  _harfbuzz.abi3.so
+     1080    5.5%  libdyld.dylib
+      862    4.4%  libsystem_platform.dylib
+      354    1.8%  libsystem_malloc.dylib
+      273    1.4%  libcrypto.3.dylib
+       71    0.4%  libsystem_pthread.dylib
+        8    0.0%  libsystem_kernel.dylib
+        4    0.0%  _hashlib.cpython-314-darwin.so
+        3    0.0%  libsystem_c.dylib

@@ -1,0 +1,100 @@
+=== per worker ===
+worker       tests  proc_cpu_s   shape_calls  shape_cpu_s  shape%
+gw0            149       313.0            68          0.0    0.0%
+gw1            133       174.4         6,543          0.1    0.0%
+gw10            46        28.3       126,890          1.3    4.6%
+gw11           144        24.5         1,310          0.0    0.1%
+gw2            130        42.6       479,197          6.2   14.5%
+gw3             15        35.7             0          0.0    0.0%
+gw4            147        30.7           253          0.0    0.0%
+gw5             92       169.7            36          0.0    0.0%
+gw6             14        16.7             0          0.0    0.0%
+gw7             12       297.7             0          0.0    0.0%
+gw8            167        38.4       134,448          1.9    5.1%
+gw9            113        18.9        19,191          0.3    1.6%
+master           0         0.8             0          0.0    0.0%
+ALL           1162      1191.3       767,936          9.8    0.8%
+
+summed in-test CPU  = 1185.5s  (99.5% of worker process CPU)
+summed in-test wall = 1367.5s
+worker CPU outside any test (import, collection, session fixtures) = 5.7s
+
+=== by file (CPU-seconds inside tests) ===
+file                                              n     cpu_s      %  shape_cpu  shape%   shape_calls
+rebuild/test_rule_witnesses.py                    9     896.3  75.6%        0.0    0.0%             0
+rebuild/test_review_drafts.py                    21      68.5   5.8%        1.3    1.9%       128,169
+rebuild/test_review_ink.py                       19      38.4   3.2%        6.2   16.2%       483,670
+rebuild/test_review_enrich.py                    31      37.0   3.1%        1.9    5.1%       128,579
+rebuild/test_review_build.py                     39      35.4   3.0%        0.0    0.0%            70
+rebuild/test_conform.py                          60      35.3   3.0%        0.0    0.0%             0
+rebuild/test_table.py                            38      32.7   2.8%        0.0    0.0%             0
+rebuild/test_unit_cache.py                       13      10.6   0.9%        0.2    1.5%        13,076
+rebuild/test_review_families.py                   9       7.8   0.7%        0.2    2.9%        13,422
+rebuild/test_trace_memo.py                       27       7.6   0.6%        0.0    0.0%             0
+rebuild/test_windows.py                          15       6.9   0.6%        0.0    0.0%             0
+rebuild/test_review_audit.py                     18       4.0   0.3%        0.0    0.0%             0
+rebuild/test_artifact_cycle.py                  203       1.3   0.1%        0.0    0.0%             0
+rebuild/test_review_tablediff.py                 10       1.0   0.1%        0.0    0.0%             0
+rebuild/test_spec_load.py                        40       0.3   0.0%        0.0    0.0%             0
+rebuild/test_validation_suite.py                 18       0.3   0.0%        0.0    3.7%           663
+rebuild/test_run_m1_green.py                     11       0.3   0.0%        0.0    0.0%             0
+rebuild/test_surface.py                          18       0.3   0.0%        0.0    0.0%             0
+rebuild/test_settle.py                           95       0.2   0.0%        0.0    0.0%             0
+rebuild/test_emit.py                             25       0.2   0.0%        0.0    0.0%             0
+rebuild/test_specificity.py                      22       0.2   0.0%        0.0    0.0%             0
+rebuild/test_manual_pins.py                       9       0.1   0.0%        0.0    0.7%            90
+rebuild/test_standing_verdicts.py                97       0.1   0.0%        0.0    0.0%             0
+rebuild/test_fingerprint.py                      21       0.1   0.0%        0.0    0.0%             0
+rebuild/test_cycle_timings.py                    20       0.1   0.0%        0.0    0.0%             0
+rebuild/test_extractor.py                        17       0.1   0.0%        0.0    3.2%           159
+rebuild/test_verdict_ready.py                    43       0.1   0.0%        0.0    0.0%             0
+rebuild/test_novelty_order.py                    11       0.0   0.0%        0.0    0.0%             0
+rebuild/test_baseline_subset.py                  15       0.0   0.0%        0.0    0.0%             0
+rebuild/test_merge_verdicts.py                   16       0.0   0.0%        0.0    0.0%             0
+rebuild/test_complaint_docket.py                 13       0.0   0.0%        0.0    0.0%             0
+rebuild/test_geometry.py                         35       0.0   0.0%        0.0    0.0%             0
+rebuild/test_compile_font.py                      4       0.0   0.0%        0.0    0.8%             2
+rebuild/test_defects.py                          17       0.0   0.0%        0.0    0.0%             0
+rebuild/test_pack_gsub.py                         7       0.0   0.0%        0.0    0.8%            36
+rebuild/test_verdict_journal.py                  14       0.0   0.0%        0.0    0.0%             0
+rebuild/test_review_autosave.py                  12       0.0   0.0%        0.0    0.0%             0
+rebuild/test_echo_verdicts.py                    11       0.0   0.0%        0.0    0.0%             0
+rebuild/test_rebuild_gate.py                     12       0.0   0.0%        0.0    0.0%             0
+rebuild/test_make_test_gate.py                    9       0.0   0.0%        0.0    0.0%             0
+rebuild/test_carry_verdicts.py                    9       0.0   0.0%        0.0    0.0%             0
+rebuild/test_verdict_notes.py                    15       0.0   0.0%        0.0    0.0%             0
+rebuild/test_model.py                             9       0.0   0.0%        0.0    0.0%             0
+rebuild/test_explain.py                           5       0.0   0.0%        0.0    0.0%             0
+
+=== top 30 test functions (CPU-seconds) ===
+func                                                                       n     cpu_s      %  shape_cpu  shape%  shape_calls  us/shape
+test_rule_witnesses.py::test_every_rule_has_a_witness                      6     891.7  75.2%        0.0    0.0%            0       0.0
+test_review_ink.py::test_full_histogram_reproduces_the_census              1      36.7   3.1%        6.1   16.7%      478,510      76.7
+test_review_enrich.py::test_derived_cells_match_the_audit_for_every_unit     1      27.0   2.3%        1.9    6.8%      126,884     213.0
+test_conform.py::test_deep_slot_keys_replay_the_real_chains                1      21.4   1.8%        0.0    0.0%            0       0.0
+test_review_drafts.py::test_contract_drafts_never_ride_a_new_join          1      17.5   1.5%        0.0    0.0%            0       0.0
+test_table.py::test_tsv_carries_the_lookahead3_column                      1      14.0   1.2%        0.0    0.0%            0       0.0
+test_review_build.py::test_builds_are_byte_identical                       1      12.8   1.1%        0.0    0.0%            0       0.0
+test_table.py::test_look3_enumerated_lazily                                1      12.5   1.1%        0.0    0.0%            0       0.0
+test_review_drafts.py::test_refuse_drafts_never_target_seam_identical_units     1      10.0   0.8%        0.0    0.0%            0       0.0
+test_review_drafts.py::test_every_drafted_pin_passes_the_real_parser       1       8.7   0.7%        0.7    8.1%       63,442     137.3
+test_review_drafts.py::test_real_units_do_not_collide_with_corpus_pins     1       8.6   0.7%        0.0    0.1%          635   13484.1
+test_review_families.py::test_partition_is_total_and_matches_the_measured_census     1       6.3   0.5%        0.2    3.6%       13,418     468.1
+test_review_drafts.py::test_pins_are_whole_word_with_no_variant_assertions     1       6.1   0.5%        0.0    0.1%          635    9669.1
+test_review_build.py::test_export_round_trip                               1       5.7   0.5%        0.0    0.0%            0       0.0
+test_review_drafts.py::test_any_of_candidates_parse_and_are_distinct       1       5.5   0.5%        0.0    0.0%            0       0.0
+test_conform.py::test_the_walk_matches_the_unmemoized_pair_over_the_mini_alphabet     3       4.2   0.4%        0.0    0.0%            0       0.0
+test_unit_cache.py::test_incremental_rebuild_matches_a_from_scratch_build_after_an_edit     1       4.1   0.3%        0.1    2.0%        6,538     629.2
+test_review_enrich.py::test_before_seams_agree_with_subset_rows            1       3.6   0.3%        0.0    0.3%          636    5623.1
+test_review_drafts.py::test_policy_draft_prefers_contract_for_gained_extension     1       3.5   0.3%        0.0    0.0%            2 1756072.0
+test_review_drafts.py::test_any_of_orders_after_behavior_first             1       3.5   0.3%        0.0    0.0%            2 1732451.0
+test_windows.py::test_a_stamped_build_serializes_every_configuration_and_keeps_none     1       3.1   0.3%        0.0    0.0%            0       0.0
+test_review_build.py::test_full_build_passes_the_contract_checker          1       2.6   0.2%        0.0    0.0%            0       0.0
+test_rule_witnesses.py::test_the_stamped_table_is_what_a_fresh_fixpoint_builds     1       2.5   0.2%        0.0    0.0%            0       0.0
+test_windows.py::test_an_unstamped_build_writes_no_enumeration_and_keeps_the_windows     1       2.4   0.2%        0.0    0.0%            0       0.0
+test_review_drafts.py::test_every_drafted_pin_validates_against_the_after_font     1       2.4   0.2%        0.6   25.3%       63,442      37.1
+test_conform.py::test_a_stale_recording_falls_back_to_the_hunt             1       2.3   0.2%        0.0    0.0%            0       0.0
+test_unit_cache.py::test_no_change_rebuild_serves_every_unit_and_is_byte_stable     1       2.3   0.2%        0.1    3.5%        6,538     345.1
+test_review_audit.py::test_ordering_is_deterministic                       1       2.1   0.2%        0.0    0.0%            0       0.0
+test_review_build.py::test_known_secondary_seam_homes_at_the_shorter_primary     1       2.0   0.2%        0.0    0.0%            0       0.0
+test_trace_memo.py::test_the_share_actually_serves                         1       1.9   0.2%        0.0    0.0%            0       0.0

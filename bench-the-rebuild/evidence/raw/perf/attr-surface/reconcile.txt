@@ -1,0 +1,38 @@
+phase weights (measured phase seconds / total):
+  signature/load     35.0s  weight 0.270
+  plan                0.3s  weight 0.002
+  units              88.0s  weight 0.679
+  manifest+check      2.7s  weight 0.021
+  cache               3.6s  weight 0.028
+
+METHOD A, weighted four-way split of the COLD SERIAL build:
+  bytecode    28.5%
+  interp      65.6%
+  native       5.7%
+  wait         0.2%
+  sum        100.1%
+
+  rewritable (bytecode + interpreter overhead) = 94.1%
+  NOT rewritable (native extension)            = 5.7%
+  AMDAHL CEILING (rewritable -> 0)             = 16.9x
+  speedup if the rewritable part gets 10x faster = 6.53x
+  speedup if the rewritable part gets 25x faster = 10.34x
+  speedup if the rewritable part gets 50x faster = 12.84x
+
+BOTTOM-UP NATIVE CROSS-CHECK for the cold serial build (seconds of CPU):
+  harfbuzz, per-unit phase                 2.94s   2.3%
+  harfbuzz, signature phase                2.90s   2.3%
+  zlib, unit-cache + signature stores      1.02s   0.8%
+  _json encoder, shards                    0.94s   0.7%
+  hashlib, signature digests               0.52s   0.4%
+  _json encoder, unit-cache store          0.31s   0.2%
+  hashlib, per-unit digests                0.25s   0.2%
+  TOTAL measured native                    8.88s   7.1% of 125.19 s CPU
+  Method A said 5.7%; bottom-up says 7.1% -> they agree within 1.4 points
+
+WARM REBUILD (13.69 s CPU, 62148/62148 units served from the unit cache):
+  bytecode 14.9%  interp 76.5%  native 7.9%  wait 0.7%
+  rewritable 91.4%  ->  Amdahl ceiling 11.6x
+    at 10x: 5.64x
+    at 25x: 8.16x
+    at 50x: 9.59x

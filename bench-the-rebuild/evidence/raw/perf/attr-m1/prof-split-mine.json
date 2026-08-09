@@ -1,0 +1,324 @@
+{
+  "label": "build_tables[default] cProfile, measured this session",
+  "file": "raw/perf/attr-m1/build_tables-default.prof",
+  "profiled_total_tottime_s": 255.34,
+  "buckets_s": {
+    "python_frames_repo": 208.31,
+    "cpython_builtin_c": 46.83,
+    "python_frames_thirdparty_or_stdlib": 0.21
+  },
+  "buckets_pct": {
+    "python_frames_repo": 81.58,
+    "cpython_builtin_c": 18.34,
+    "python_frames_thirdparty_or_stdlib": 0.08
+  },
+  "top_by_module_s": [
+    [
+      "rebuild/pipeline/settle.py",
+      179.47,
+      70.29
+    ],
+    [
+      "<builtin> <method 'get' of 'dict' objects>",
+      20.64,
+      8.08
+    ],
+    [
+      "<string>",
+      14.28,
+      5.59
+    ],
+    [
+      "rebuild/pipeline/table.py",
+      13.15,
+      5.15
+    ],
+    [
+      "<builtin> <built-in method builtins.hash>",
+      5.35,
+      2.1
+    ],
+    [
+      "<builtin> <method 'append' of 'list' objects>",
+      4.29,
+      1.68
+    ],
+    [
+      "<builtin> <built-in method builtins.len>",
+      3.53,
+      1.38
+    ],
+    [
+      "<builtin> <method 'items' of 'dict' objects>",
+      2.23,
+      0.87
+    ],
+    [
+      "<builtin> <method 'index' of 'list' objects>",
+      2.0,
+      0.78
+    ],
+    [
+      "<builtin> <built-in method builtins.sorted>",
+      1.49,
+      0.58
+    ],
+    [
+      "<builtin> <method 'extend' of 'list' objects>",
+      1.15,
+      0.45
+    ],
+    [
+      "<builtin> <method 'update' of 'set' objects>",
+      0.96,
+      0.37
+    ],
+    [
+      "<builtin> <built-in method fromkeys>",
+      0.89,
+      0.35
+    ],
+    [
+      "<builtin> <built-in method builtins.max>",
+      0.78,
+      0.31
+    ],
+    [
+      "rebuild/pipeline/model.py",
+      0.72,
+      0.28
+    ],
+    [
+      "<builtin> <method 'clear' of 'dict' objects>",
+      0.69,
+      0.27
+    ],
+    [
+      "<builtin> <method 'setdefault' of 'dict' objects>",
+      0.69,
+      0.27
+    ],
+    [
+      "rebuild/pipeline/specificity.py",
+      0.68,
+      0.27
+    ],
+    [
+      "<builtin> <method 'pop' of 'list' objects>",
+      0.57,
+      0.22
+    ],
+    [
+      "<builtin> <method 'add' of 'set' objects>",
+      0.51,
+      0.2
+    ],
+    [
+      "<builtin> <method 'values' of 'dict' objects>",
+      0.26,
+      0.1
+    ],
+    [
+      "<builtin> <built-in method builtins.min>",
+      0.25,
+      0.1
+    ],
+    [
+      "/opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/dataclasses.py",
+      0.21,
+      0.08
+    ],
+    [
+      "<builtin> <method 'join' of 'str' objects>",
+      0.19,
+      0.08
+    ],
+    [
+      "<builtin> <built-in method builtins.next>",
+      0.14,
+      0.05
+    ]
+  ],
+  "top_entries": [
+    [
+      "python_frames_repo",
+      "rebuild/pipeline/settle.py:525(candidates)",
+      42.1,
+      16.49
+    ],
+    [
+      "cpython_builtin_c",
+      "<method 'get' of 'dict' objects>",
+      20.64,
+      8.08
+    ],
+    [
+      "python_frames_repo",
+      "rebuild/pipeline/settle.py:1178(_transition_trace_uncached)",
+      15.1,
+      5.91
+    ],
+    [
+      "python_frames_repo",
+      "rebuild/pipeline/settle.py:475(_pairing_allowed)",
+      12.31,
+      4.82
+    ],
+    [
+      "python_frames_repo",
+      "rebuild/pipeline/settle.py:642(_virtual_left)",
+      10.78,
+      4.22
+    ],
+    [
+      "python_frames_repo",
+      "rebuild/pipeline/settle.py:439(_exit_sources)",
+      8.81,
+      3.45
+    ],
+    [
+      "python_frames_repo",
+      "rebuild/pipeline/settle.py:682(_prospect)",
+      8.74,
+      3.42
+    ],
+    [
+      "python_frames_repo",
+      "<string>:22(__hash__)",
+      8.24,
+      3.23
+    ],
+    [
+      "python_frames_repo",
+      "rebuild/pipeline/settle.py:323(cond_matches_right)",
+      7.75,
+      3.04
+    ],
+    [
+      "python_frames_repo",
+      "rebuild/pipeline/settle.py:754(_prefer_favors)",
+      7.23,
+      2.83
+    ],
+    [
+      "python_frames_repo",
+      "rebuild/pipeline/settle.py:652(_acceptor_exists)",
+      6.45,
+      2.53
+    ],
+    [
+      "python_frames_repo",
+      "rebuild/pipeline/settle.py:1120(transition_trace)",
+      6.24,
+      2.44
+    ],
+    [
+      "python_frames_repo",
+      "rebuild/pipeline/settle.py:1303(_commit)",
+      5.85,
+      2.29
+    ],
+    [
+      "python_frames_repo",
+      "rebuild/pipeline/settle.py:370(when_matches)",
+      5.79,
+      2.27
+    ],
+    [
+      "cpython_builtin_c",
+      "<built-in method builtins.hash>",
+      5.35,
+      2.1
+    ],
+    [
+      "python_frames_repo",
+      "rebuild/pipeline/settle.py:834(_apply_prefers)",
+      4.82,
+      1.89
+    ],
+    [
+      "python_frames_repo",
+      "rebuild/pipeline/table.py:901(build_tables)",
+      4.53,
+      1.77
+    ],
+    [
+      "python_frames_repo",
+      "rebuild/pipeline/settle.py:408(_entry_available)",
+      4.29,
+      1.68
+    ],
+    [
+      "cpython_builtin_c",
+      "<method 'append' of 'list' objects>",
+      4.29,
+      1.68
+    ],
+    [
+      "python_frames_repo",
+      "rebuild/pipeline/settle.py:491(_refusal_hit)",
+      4.18,
+      1.64
+    ],
+    [
+      "cpython_builtin_c",
+      "<built-in method builtins.len>",
+      3.53,
+      1.38
+    ],
+    [
+      "python_frames_repo",
+      "rebuild/pipeline/settle.py:275(cond_matches_left)",
+      3.49,
+      1.37
+    ],
+    [
+      "python_frames_repo",
+      "rebuild/pipeline/settle.py:231(_replay_fired)",
+      3.04,
+      1.19
+    ],
+    [
+      "python_frames_repo",
+      "rebuild/pipeline/settle.py:66(letter)",
+      2.98,
+      1.17
+    ],
+    [
+      "python_frames_repo",
+      "rebuild/pipeline/settle.py:244(_end_capture)",
+      2.69,
+      1.05
+    ],
+    [
+      "python_frames_repo",
+      "<string>:25(__hash__)",
+      2.63,
+      1.03
+    ],
+    [
+      "cpython_builtin_c",
+      "<method 'items' of 'dict' objects>",
+      2.23,
+      0.87
+    ],
+    [
+      "python_frames_repo",
+      "rebuild/pipeline/settle.py:483(<genexpr>)",
+      2.16,
+      0.84
+    ],
+    [
+      "python_frames_repo",
+      "rebuild/pipeline/settle.py:221(_record_fired)",
+      2.09,
+      0.82
+    ],
+    [
+      "cpython_builtin_c",
+      "<method 'index' of 'list' objects>",
+      2.0,
+      0.78
+    ]
+  ]
+}

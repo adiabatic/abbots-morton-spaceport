@@ -1,0 +1,16 @@
+(top-30 leaf frames only; a partial rollup, so shares are lower bounds)
+     614  fontTools:builder.py
+     372  fontTools:otBase.py
+     272  fontTools:parser.py
+     200  repo:quikscript_fea.py
+     184  repo:departure_mono_import.py
+     138  stdlib:copy.py
+      94  repo:<string>
+      92  repo:quikscript_join_analysis.py
+      69  repo:build_font.py
+      26  fontTools:otTables.py
+      24  fontTools:psCharStrings.py
+      22  repo:quikscript_ir.py
+      22  fontTools:specializer.py
+      22  fontTools:textTools.py
+      18  PyYAML:scanner.py

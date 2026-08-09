@@ -1,0 +1,431 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "rune.schema.json",
+  "title": "Quikscript rune file",
+  "description": "One rune per file: ductus (the closed enumeration of motions), stances with complete join surfaces, and policy riders. Stance identity is the structured tuple; generated display names never appear in authored data.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["rune", "ductus", "stances"],
+  "properties": {
+    "rune": {"$ref": "#/$defs/familyName", "description": "The PostScript family name for this letter: `qsX` (e.g. `qsMay`), or an underscore-joined ligature like `qsTea_qsOy`. You author only this and the stances; the build derives every glyph's display name from them, so you never write one. To read a display name back: the rune, then the non-default stance, then `en-y<N>`/`ex-y<N>` for each live anchor (N is the height's y — baseline 0, x-height 5, y6 6, top 8), then `ex-wd` if the exit withdrew from the base bitmap, then any adjustment tokens (`en-ext-1`, `locked`). Capped at 63 bytes; an overflow hashes the tail. Example: `qsMay.grounded-loop.en-y5.ex-y0`."},
+    "codepoint": {"type": "integer", "minimum": 0, "description": "The Unicode code point for this rune's raw glyph. One per rune, mutually exclusive with `sequence` (ligatures use that instead). Example: ·Pea is `codepoint: 0xE650`."},
+    "sequence": {"type": "array", "items": {"$ref": "#/$defs/familyName"}, "minItems": 2, "description": "Ligature runes only (instead of `codepoint`): the component families this single glyph stands in for, in order. Example: `sequence: [qsTea, qsOy]` — the ·Tea·Oy ligature `qsTea_qsOy`."},
+    "ductus": {
+      "description": "How each motion is drawn, in prose, keyed by the motion's name — documentation for readers, never read by the build for geometry. Example: ·Pea declares `full` and `half`. A ductus with exactly one motion names that sole motion `hapax`, the reserved sentinel for one-motion runes.",
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {"$ref": "#/$defs/motionName"},
+      "additionalProperties": {"type": "string"}
+    },
+    "notes": {"description": "Free-form prose about this rune, for human readers — never read by the build. Unlike `ductus` (how the letter is drawn), `notes` records join constraints and design rationale.", "type": "string"},
+    "mono": {"$ref": "#/$defs/drawing", "description": "The monospace (fixed-width) reference `bitmap` of this letter, with an optional `y_offset`. The proportional, contextual shapes live in `stances`."},
+    "stances": {
+      "description": "This letter's proportional shapes, keyed by stance name. Each entry is one stance — a `bitmap` plus its join `surface` — the contextual variants the build picks between, as against the single fixed-width `mono`. At least one is required, and policy records refer back to a stance by this name. A rune with exactly one stance names that sole stance `hapax`, the reserved sentinel for one-stance runes; that rune's single `ductus` motion is likewise named `hapax`, with the pen-motion label kept only in the ductus prose.",
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {"$ref": "#/$defs/motionName"},
+      "additionalProperties": {"$ref": "#/$defs/stance"}
+    },
+    "policy": {"$ref": "#/$defs/policy", "description": "Rules that change how this letter joins depending on which letters sit next to it.\n\nThe `surface` block above gives the join geometry that holds no matter the neighbors; `policy` is where the adjustments for specific neighbors go.\n\nThe riders: `order` (blunt default ranking), `refuse` (veto a join), `prefer` (break a tie), `extend`/`contract` (lengthen/shorten the connector), `resolve` (a hand-arbitrated conflict), `groups` (reusable named letter sets). Most carry a `when:` saying which neighbors they fire for."}
+  },
+  "oneOf": [
+    {"required": ["codepoint"], "not": {"required": ["sequence"]}},
+    {"required": ["sequence"], "not": {"required": ["codepoint"]}}
+  ],
+  "$defs": {
+    "familyName": {"type": "string", "pattern": "^qs[A-Z][A-Za-z]*(_qs[A-Z][A-Za-z]*)*$"},
+    "recordId": {"type": "string", "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$", "description": "Optional stable name for this record — kebab-case, unique within the rune — so a resolve's `against:` can point at it (e.g. `plant-word-initial`)."},
+    "familyOrList": {
+      "description": "A single family (`qsMay`) or a list of families (`[qsMay, qsUtter]`). Matches if any family matches.",
+      "oneOf": [
+        {"$ref": "#/$defs/familyName"},
+        {"type": "array", "items": {"$ref": "#/$defs/familyName"}, "minItems": 1}
+      ]
+    },
+    "motionName": {
+      "type": "string",
+      "allOf": [
+        {"pattern": "^[a-z][a-z0-9-]*$"},
+        {"not": {"pattern": "(before|after|noentry|noexit|nonjoining|ss[0-9])"}}
+      ]
+    },
+    "height": {"enum": ["baseline", "x-height", "y6", "top"]},
+    "heightOrNone": {"enum": ["baseline", "x-height", "y6", "top", "none"]},
+    "cellSide": {"enum": ["baseline", "x-height", "y6", "top", "none", "baseline-withdrawn", "x-height-withdrawn", "y6-withdrawn", "top-withdrawn"]},
+    "strokeOrientation": {"description": "A stroke orientation: `horizontal`, `vertical`, or `diagonal`. Matches when the neighbor presents this stroke at the seam.", "enum": ["horizontal", "vertical", "diagonal"]},
+    "boundaryValue": {"description": "Matches a boundary rather than a letter. `namer-dot` matches just the namer dot; `boundary` matches the namer dot, space, ZWNJ, and the start or end of the text (where there's no glyph at all). Space and ZWNJ are deliberately not addressable on their own: they split runs, so what follows one is definitionally word-initial and what precedes one definitionally word-final (design section 3.4), and no record may render them differently from the same letters at a text edge. The namer dot stays addressable because it does not split runs.", "enum": ["boundary", "namer-dot"]},
+    "featureTag": {"type": "string", "pattern": "^ss[0-9]{2}$"},
+    "drawing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["bitmap"],
+      "properties": {
+        "bitmap": {"type": "array", "items": {"type": "string"}, "minItems": 1, "description": "The letter's pixel grid: row strings top to bottom, `#` for ink and space for blank."},
+        "y_offset": {"type": "integer", "description": "Shifts this bitmap down by N pixels so a Deep letter reaches below the baseline. Deep letters use `-3`; everything else omits it (defaults to 0). Example: qsMay (a Deep letter) sets `y_offset: -3`."}
+      }
+    },
+    "stance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["motion", "bitmap"],
+      "properties": {
+        "motion": {"$ref": "#/$defs/motionName", "description": "The pen-motion this stance is drawn with — must be one of the rune's `ductus` keys. Stances can share a motion."},
+        "traits": {"type": "array", "items": {"enum": ["half", "alt"]}, "description": "The stance's design flags — a closed set: `half` (shortened to the x-height) and `alt` (an alternate form). Omit for neither. Anything else that distinguishes a stance lives in named bitmaps or policy groups, not here. Example: qsPea's half stance — `traits: [half]`."},
+        "bitmap": {"type": "array", "items": {"type": "string"}, "minItems": 1, "description": "The letter's pixel grid: row strings top to bottom, `#` for ink and space for blank."},
+        "y_offset": {"type": "integer", "description": "Shifts this stance's bitmap down by N pixels so a Deep letter reaches below the baseline. Deep letters use `-3`; everything else omits it (defaults to 0) — the same as `mono`'s `y_offset`."},
+        "bitmaps": {
+          "description": "Named alternate bitmaps this stance can swap to — each a full pixel redraw, as opposed to the default `bitmap`. Author one when a join needs a different shape that stub or extension arithmetic can't produce. The names are wired up elsewhere: a row's `joined`/`withdrawal` binding, a `cells.bitmap`, or a policy record's `bind` all refer to a bitmap by name to pull it in. Example: qsMay's loop stance carries a `pulled-back-stubless` bitmap (the entry stub tucked in), bound by its x-height entry when ·May lands joined there.",
+          "type": "object",
+          "propertyNames": {"$ref": "#/$defs/motionName"},
+          "additionalProperties": {"$ref": "#/$defs/drawing"}
+        },
+        "surface": {"$ref": "#/$defs/surface"}
+      }
+    },
+    "surface": {
+      "description": "This stance's join surfaces — how it connects to neighbors. `entries` are the left side: where a predecessor may join in, by height. `exits` are the right side: how this stance reaches toward the successor, by height. The rest constrain those: `pairings`, `cells`, `unlocks`, `require`.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "entries": {
+          "description": "The left side: each height (baseline, x-height, y6, top) where a predecessor may join into this stance, mapped to an entry row.",
+          "type": "object",
+          "propertyNames": {"$ref": "#/$defs/height"},
+          "additionalProperties": {"$ref": "#/$defs/entryRow"}
+        },
+        "exits": {
+          "description": "The right side: each height where this stance reaches toward the successor, mapped to an exit row.",
+          "type": "object",
+          "propertyNames": {"$ref": "#/$defs/height"},
+          "additionalProperties": {"$ref": "#/$defs/exitRow"}
+        },
+        "pairings": {
+          "description": "Which seam height-combinations this letter will and won't make. `never` lists the pairs you forbid; `only` is the complete whitelist of the ones you allow — anything not listed is then off the table. Each side is a height (`baseline`, `x-height`, `y6`, `top`) or `none` when that side isn't joined. It only constrains a stance joined on both sides at once; one-sided and isolated forms always exist. An `unlocks` row can re-admit a pair this forbids. Example: ·May's loop sets `never: [{entry: x-height, exit: x-height}]` — it won't take a join in and pass the stroke straight back out at the x-height.",
+          "type": "object",
+          "additionalProperties": false,
+          "minProperties": 1,
+          "properties": {
+            "never": {"type": "array", "items": {"$ref": "#/$defs/pairing"}, "minItems": 1},
+            "only": {"type": "array", "items": {"$ref": "#/$defs/pairing"}, "minItems": 1}
+          }
+        },
+        "cells": {"type": "array", "items": {"$ref": "#/$defs/cellBinding"}, "description": "Names the exact bitmap for a specific join state this stance settles into. A \"cell\" is one concrete entry-state-plus-exit-state combination. The build normally picks each cell's bitmap on its own — from an entry's `joined` binding, a declined exit's `withdrawal`, or the base bitmap; list a cell here only to override that, giving the state its own named `bitmap`. Each row is `{entry, exit, bitmap}`, where `entry`/`exit` are a height, `none`, or a height plus `-withdrawn` for an exit declined mid-word that pulled its ink back. Example: ·Oy, entered at the x-height and exiting at the baseline, wears the loop that opens on the left to catch the join, its exit anchor pulled in to match — `{entry: x-height, exit: baseline, bitmap: open-on-the-left, exit_x: 5}`.\n\n·Utter's `alternate`, entered at the x-height with its baseline exit withdrawn, swaps the reaching tail away — `{entry: x-height, exit: baseline-withdrawn, bitmap: reaches-way-back-withdrawn}`."},
+        "unlocks": {"type": "array", "items": {"$ref": "#/$defs/unlock"}, "description": "Extra joins this stance gets only when a stylistic set is turned on. Each record names one feature (`ssNN`) and grants exactly one capability: an extra `entry` height, an extra `exit` height, or an extra `pairing` (entry+exit combo) — beyond what `entries`/`exits`/`pairings` allow by default. Add a `when:` to grant it only in context (same left-settled / right-raw rules as `from`). The new anchor's x comes from the base bitmap by convention, so the row must have ink there. (What each set is for is listed in the README's Stylistic sets section.) Example: ·It's baseline-to-baseline pairing opens whenever `ss04` is on — `{pairing: {entry: baseline, exit: baseline}, feature: ss04}`; a `when:` on that record would narrow the grant to specific neighbors instead."},
+        "require": {"type": "array", "items": {"enum": ["entry", "exit"]}, "description": "Which sides must actually be joined for this stance to apply — `entry`, `exit`, or both. A required side that ends up unjoined drops the stance from the running, so it can only appear mid-join, never as an isolated or word-boundary form. Leave it `[]` for an ordinary stance that's free to stand alone. Example: ·Utter's `alternate` stance is a join-born connecting shape — `require: [exit]` keeps it from ever surfacing without a successor to reach toward."}
+      }
+    },
+    "entryRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x"],
+      "properties": {
+        "x": {"type": "integer", "description": "The entry anchor's column at this height's row — conventionally the leftmost-ink column in that row. The build warns if it sits elsewhere; set `x_off_convention` to say it's deliberate."},
+        "stroke": {"$ref": "#/$defs/strokeOrientation", "description": "The stroke orientation where a predecessor lands at this entry: `horizontal`, `vertical`, or `diagonal`. Declarative — it doesn't gate joins by itself; it's the value a `stroke:` condition can filter on."},
+        "from": {"type": "array", "items": {"$ref": "#/$defs/leftCondition"}, "minItems": 1, "description": "Which left neighbors may join at this entry — a list of conditions; absent means anyone.\n\nThe left neighbor is already settled by the time this row is consulted, so a condition here may also name the `stance` it chose and the seam height it landed at (`joined_at`) — axes the right-side `toward` can't use. No `from` scope needs either today; both earn their keep over in `policy`, where a record's `when: {left: …}` reads them — ·No prefers its `flipped` stance after an ·It that `joined_at: baseline`, and ·It lengthens its baseline exit only when the letter before it `joined_at: x-height`.\n\nExample: ·Pea's x-height entry takes ·May, ·Utter, and the ·Day·Utter ligature — `from: [{family: qsMay}, {family: qsUtter}, {family: qsDay_qsUtter}]`."},
+        "joined": {"$ref": "#/$defs/motionName", "description": "The bitmap to use when a predecessor actually joins at this entry height — names one of this stance's own `bitmaps` (its named alternates) to swap in for the base bitmap. Only those names resolve: not the base `bitmap`, and not the rune's `mono`.\n\nThe entry-side mirror of an exit's `withdrawal`: `withdrawal` redraws when nothing joins, `joined` redraws when something does. Omit it to keep the base bitmap. Example: ·May's loop sets `joined: pulled-back-stubless` at the x-height."},
+        "joined_x": {"type": "integer", "description": "The entry anchor's column for the bitmap specified by `joined`. The row's `x` marks the leftmost ink of the stance's default bitmap; when the joined bitmap's leftmost ink lands in a different column, `joined_x` is that column instead. Omit when it doesn't change. Example: ·May's loop drops its x-height entry from `x: 3` to `joined_x: 2` under `joined: pulled-back-stubless`, whose top bar starts one column further left than the base bitmap's."},
+        "stub": {"$ref": "#/$defs/stub"},
+        "selectable": {"type": "boolean", "description": "Default `true`. Set `false` to emit an anchor for GPOS cursive-positioning parity while keeping the join engine from ever joining there — it changes no shaping, only the anchor table. Removing it leaves every settlement identical and just drops the parity anchors. Carried over from the old font's `entry_curs_only`; rarely needed on new work. Example: qsTea's `top: {x: 0, selectable: false}`."},
+        "x_off_convention": {"const": true, "description": "The build warns if an anchor isn't sitting in its usual spot. `x_off_convention: true` just means 'I put it there on purpose — skip the warning.' Nothing in the font uses it yet."}
+      }
+    },
+    "exitRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x"],
+      "properties": {
+        "x": {"type": "integer", "description": "The exit anchor's column at this height's row — conventionally one column to the right of the rightmost ink in that row. The build warns if it lands elsewhere; set `x_off_convention` to say it's deliberate."},
+        "stroke": {"$ref": "#/$defs/strokeOrientation", "description": "The stroke orientation this stance's exit presents at this height: `horizontal`, `vertical`, or `diagonal`. Declarative — it doesn't gate joins by itself; it's the value the following letter's entry `from` `stroke:` condition reads."},
+        "toward": {"type": "array", "items": {"$ref": "#/$defs/rightConditionNoThen"}, "minItems": 1, "description": "Which letters this exit may reach toward — a list of conditions; leave it off to allow anyone.\n\nThe right-side mirror of an entry's `from`, with one catch: the next letter isn't settled yet, so a condition here can only match who it is — `family`, `class`, `stroke`, or a boundary. It can't name the stance that letter will pick or the height it will join at; those are left-side-only, and the build errors if a `toward` uses them.\n\nExample: ·Pea's half reaches its y6 exit only toward another ·Pea — `toward: [family: qsPea]`.\n\nIts x-height exit shows the class form: any letter that can enter at the x-height, except ·Tea, ·Day, ·Fee, ·Ye, ·No, and ·Owe — `toward: [class: can-enter-at-x-height, except: [family: qsTea, …]]`."},
+        "withdrawal": {"$ref": "#/$defs/withdrawalBinding", "description": "What this exit looks like when it isn't joined — either the next letter doesn't join back, or this letter ends the word. `safe` claims the base bitmap already leaves no connector ink reaching at this row when nothing follows, and the build errors if it does. Otherwise, name one of this stance's own `bitmaps` to use instead — a version that doesn't leave that reaching ink, where the base bitmap does. As with `joined`, only those names resolve: not the base `bitmap`, and not the rune's `mono`. Example: ·Pea's baseline exit is `withdrawal: safe`. No rune names a bitmap here today — every declared withdrawal is `safe`; the one declined-exit redraw in the runes (·Utter's `reaches-way-back-withdrawn`) rides a `-withdrawn` cell instead."},
+        "stub": {"$ref": "#/$defs/stub"},
+        "ink_y": {"type": "integer", "description": "The row to scan for ink when the exit anchor's own row is blank, so the build still measures where the stroke really exits. Example: ·Pea's half form sets `ink_y: 6`."},
+        "x_off_convention": {"const": true, "description": "The build warns if an anchor isn't sitting in its usual spot. `x_off_convention: true` just means 'I put it there on purpose — skip the warning.' Nothing in the font uses it yet."}
+      }
+    },
+    "withdrawalBinding": {
+      "anyOf": [
+        {"const": "safe"},
+        {"$ref": "#/$defs/motionName"}
+      ]
+    },
+    "stub": {
+      "description": "A connector nub at this anchor row: bitmap column(s) that appear or vanish depending on whether the side joins. `cols` names the columns; `inks_when` says which state inks them.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cols", "inks_when"],
+      "properties": {
+        "cols": {"type": "array", "items": {"type": "integer", "minimum": 0}, "minItems": 1, "description": "The bitmap column indices the nub occupies."},
+        "inks_when": {"enum": ["joined", "withdrawn"], "description": "The join state in which these stub columns are inked — a connector nub that blinks on with the seam. `joined` = blank in the base bitmap, inks when a neighbor joins this side; `withdrawn` = the reverse, ink that sits in the base bitmap and retracts on joining.\n\nExample: ·Pea's full x-height entry, `stub: {cols: [0], inks_when: joined}` — column 0 is blank until ·May, ·Utter, or ·Day·Utter joins, then a nub sprouts to catch the incoming stroke.\n\nThe other polarity: ·May's grounded loop sets `stub: {cols: [3], inks_when: withdrawn}` on its x-height entry, so the top bar's right-hand pixel is drawn when nothing joins and pulls back the moment a predecessor does."}
+      }
+    },
+    "pairing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["entry", "exit"],
+      "properties": {
+        "entry": {"$ref": "#/$defs/heightOrNone", "description": "The pair's left side: the height a predecessor joins in at (`baseline`, `x-height`, `y6`, `top`), or `none` for no join on that side."},
+        "exit": {"$ref": "#/$defs/heightOrNone", "description": "The pair's right side: the height this letter reaches its successor at, or `none` for no join on that side."}
+      }
+    },
+    "cellBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["entry", "exit", "bitmap"],
+      "properties": {
+        "entry": {"$ref": "#/$defs/cellSide", "description": "The entry-side state this cell is for: the height a predecessor joined at, or `none` when nothing joined there."},
+        "exit": {"$ref": "#/$defs/cellSide", "description": "The exit-side state this cell is for: the height this letter joins onward at, `none` for no exit, or a height plus `-withdrawn` for an exit that was declined mid-word and pulled its ink back."},
+        "bitmap": {"$ref": "#/$defs/motionName", "description": "The bitmap this cell renders — one of this stance's own `bitmaps`.\n\nAs with `joined` and `withdrawal`, only those names resolve: not the base `bitmap`, and not the rune's `mono`. An explicit row here also settles the tie when the entry's `joined` and an exit's `withdrawal` name different bitmaps — the build stops and asks you to pick by writing this row."},
+        "entry_x": {"type": "integer", "description": "Puts this cell's entry anchor in a different column — set it when the cell's bitmap has its entry-side ink somewhere other than where the row's `x` (or `joined_x`) says.\n\nNo rune uses it yet."},
+        "exit_x": {"type": "integer", "description": "Puts this cell's exit anchor in a different column — set it when the cell's bitmap has its exit-side ink somewhere other than where the row's `x` says.\n\nExample: ·Utter's `reaches-way-back` cell reaches further right, so its exit anchor moves out to `exit_x: 6`."}
+      }
+    },
+    "unlock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["feature"],
+      "properties": {
+        "feature": {"$ref": "#/$defs/featureTag", "description": "The stylistic set (`ssNN`) that switches this unlock on — the grant applies only while a user has that set enabled."},
+        "entry": {"$ref": "#/$defs/height", "description": "Grants an extra entry height while the feature is on. Exactly one of `entry`, `exit`, or `pairing` per unlock."},
+        "exit": {"$ref": "#/$defs/height", "description": "Grants an extra exit height while the feature is on. Exactly one of `entry`, `exit`, or `pairing` per unlock."},
+        "pairing": {"$ref": "#/$defs/pairing", "description": "Grants an extra entry+exit combination while the feature is on — a pair `pairings` would otherwise forbid. Exactly one of `entry`, `exit`, or `pairing` per unlock."},
+        "when": {"$ref": "#/$defs/when", "description": "Narrows the grant to a context — the usual `when` rules apply (settled left, raw right). Without it, the unlock holds wherever the feature is on."},
+        "why": {"type": "string", "description": "An optional note saying why this grant exists. It records the author's rationale and changes no shaping."}
+      },
+      "oneOf": [
+        {"required": ["entry"], "allOf": [{"not": {"required": ["exit"]}}, {"not": {"required": ["pairing"]}}]},
+        {"required": ["exit"], "allOf": [{"not": {"required": ["entry"]}}, {"not": {"required": ["pairing"]}}]},
+        {"required": ["pairing"], "allOf": [{"not": {"required": ["entry"]}}, {"not": {"required": ["exit"]}}]}
+      ]
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "order": {"type": "array", "items": {"$ref": "#/$defs/motionName"}, "minItems": 1, "description": "This rune's stances ranked by precedence, default first. The first stance is the one this letter wears in isolation and the base of its name; list every stance so the order is explicit. When two stances survive all the join reasoning and prefers in a tie, the earlier-listed one wins — this is a late, blunt tiebreaker, not a join condition, so reach for `prefer` or `refuse` when the choice actually depends on the neighbors. Any stance you omit is appended in declaration order."},
+        "refuse": {"type": "array", "items": {"$ref": "#/$defs/refuseRecord"}},
+        "prefer": {"type": "array", "items": {"$ref": "#/$defs/preferRecord"}},
+        "extend": {"type": "array", "items": {"$ref": "#/$defs/extendRecord"}},
+        "contract": {"type": "array", "items": {"$ref": "#/$defs/contractRecord"}},
+        "resolve": {"type": "array", "items": {"$ref": "#/$defs/resolveRecord"}},
+        "groups": {
+          "description": "Named sets of letters this rune's own conditions can call up by name. Define one under a name, then reference it as `class: that-name` anywhere a `when:` takes families. It's for a trigger list this rune reuses across records — name it once instead of repeating the families. Shared, cross-rune sets belong in the script-wide predicate-class registry instead; these `groups` are private to this rune. Each group is a `union`/`minus` of families (see `groupDefinition`), and a `trait` or `stance` qualifier on a member is widened away to its whole family. Most runes need none and leave this `{}`. Example: ·May names the letters and ligatures that arrive at its x-height once — `x-height-arrivers: {union: [{family: qsDay_qsUtter}, {family: qsThey_qsUtter}, …, {family: qsUtter}]}` — and both its loop and its grounded loop pull the whole set into their entry scopes as `from: [{class: x-height-arrivers}]`.",
+          "type": "object",
+          "propertyNames": {"$ref": "#/$defs/motionName"},
+          "additionalProperties": {"$ref": "#/$defs/groupDefinition"}
+        }
+      }
+    },
+    "refuseRecord": {
+      "description": "Refuses a join: when its `when` matches, the join this record names is off the table, and the build joins the letters some other way or not at all.\n\nNarrow the target with `stance` and/or an `entry`/`exit` height to refuse only that one join — that stance, joining at that height. Name none of them and every join is refused: the letter sits unjoined whenever the `when` matches.\n\nThe `when` can read the settled left neighbor but only the raw right one.\n\nExample: ·It refuses its x-height exit toward ·Day and the ·Day·Utter ligature — `{exit: x-height, when: {right: {family: [qsDay, qsDay_qsUtter]}}}` — so ·It·Day joins low instead.\n\nName a `stance` only where the height alone doesn't pin the target. ·It has one stance, so it names none; ·Tea writes `{stance: half, entry: x-height, when: {right: {family: qsTea}}}`, because the full bar picks up an x-height entry of its own once `ss02` or `ss03` is on.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["when"],
+      "properties": {
+        "id": {"$ref": "#/$defs/recordId"},
+        "stance": {"$ref": "#/$defs/motionName", "description": "Limits the refusal to this stance."},
+        "entry": {"$ref": "#/$defs/height", "description": "Limits the refusal to joins that enter at this height."},
+        "exit": {"$ref": "#/$defs/height", "description": "Limits the refusal to joins that exit at this height."},
+        "when": {"$ref": "#/$defs/whenWindowDecidable"},
+        "why": {"type": "string", "description": "An optional note saying why this join is forbidden. It shows up in the build's elimination diagnostics but changes no shaping."}
+      }
+    },
+    "preferRecord": {
+      "description": "Tie-breaker records. When more than one stance survives a seam, a `prefer` record speaks for one so it wins. Each names what it favors — a whole `stance`, or a `cell` exit/entry pattern (with `over:` naming the loser) — under a `when` condition. `mode` decides how hard it pushes: `yields-to-joins` (the default) stands down whenever some other choice buys a better join with the neighbor, so it only settles genuine ties; `absolute` wins regardless and so demands a `why`. A record may live on this rune (favoring its own candidate) or on the follower (voting for the seam its own continuation joins best under). Example: ·No prefers its `flipped` stance after an ·It that landed at the baseline (`stance: flipped`, `when: {left: {family: qsIt, joined_at: baseline}}`) — both seam heights tie on join count in isolation, so the tie goes to the baseline join; because it yields to joins, ·It·No·Owe still takes the x-height path when that scores a second join.\n\nA cell-grain record may omit `when` entirely — the design doc's §5.9 follower-preference shape. ·Fee's `{cell: {exit: x-height}, over: {entry: x-height}}` is the live one, unconditioned because the vote mechanism itself supplies the discrimination — the record only ever splits a tie where one continuation carries the preferred cell and another does not.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {"$ref": "#/$defs/recordId"},
+        "stance": {"$ref": "#/$defs/motionName"},
+        "cell": {"$ref": "#/$defs/cellPattern"},
+        "over": {"$ref": "#/$defs/cellPattern"},
+        "mode": {"enum": ["yields-to-joins", "absolute"]},
+        "when": {"$ref": "#/$defs/when"},
+        "why": {"type": "string"}
+      },
+      "if": {"properties": {"mode": {"const": "absolute"}}, "required": ["mode"]},
+      "then": {"required": ["why"]}
+    },
+    "cellPattern": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "entry": {"$ref": "#/$defs/heightOrNone"},
+        "exit": {"$ref": "#/$defs/heightOrNone"}
+      }
+    },
+    "extendRecord": {
+      "description": "Lengthen one side of this stance's seam stroke when the join matches — the inverse of `contract`. Name the side and height with `entry` (left) or `exit` (right) plus a height, then `by: N` to add N pixels: the stroke widens at that row and the neighbor slides over, so the connecting stroke gains N pixels of ink. `when:` gates which joins get it; left-side records can read the settled neighbor's `stance` and `joined_at`, right-side ones can't. Most-specific record wins, and extensions never sum on one side. `ok: [lo, hi]` is the band of total extension the build's seam check will accept (defaults to `[by, by]`); widen it when both sides of a seam can legitimately add up past `by`. `split` is reserved and unused. Example: ·May adds a pixel of x-height exit toward ·Day/·Fee/·Jay and a few others — `{exit: x-height, by: 1, ok: [1, 1], when: {right: {family: [qsDay, qsDay_qsUtter, qsFee, qsJai, qsJay, qsRoe, qsIt]}}}`.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["by", "when"],
+      "properties": {
+        "id": {"$ref": "#/$defs/recordId"},
+        "stance": {"$ref": "#/$defs/motionName"},
+        "entry": {"$ref": "#/$defs/height"},
+        "exit": {"$ref": "#/$defs/height"},
+        "by": {"type": "integer", "minimum": 1},
+        "ok": {"type": "array", "items": {"type": "integer"}, "minItems": 2, "maxItems": 2, "description": "The band of total extension the build's seam check will accept — `[lo, hi]`, defaulting to `[by, by]`. Widen it when extension from both sides of a seam can legitimately push the total past `by`."},
+        "split": {"type": "array", "items": {"type": "integer"}, "minItems": 2, "maxItems": 2, "description": "Reserved and unused — parsed and modeled, but no rune sets it and nothing in the build consumes it."},
+        "bind": {"$ref": "#/$defs/motionName"},
+        "when": {"$ref": "#/$defs/when"},
+        "why": {"type": "string"}
+      },
+      "oneOf": [
+        {"required": ["entry"], "not": {"required": ["exit"]}},
+        {"required": ["exit"], "not": {"required": ["entry"]}}
+      ]
+    },
+    "contractRecord": {
+      "description": "Shorten one side of a join for specific neighbors — the opposite of `extend`.\n\nAim it with `stance` plus `entry` or `exit` at a height, gated by `when:`. Then pick exactly one way to pull back: `by: N` shortens the connecting stroke by N pixels and moves the anchor in with it; `trim: N` blanks N pixels of ink but leaves the anchor where it was; `bind` swaps in one of this stance's own `bitmaps`, for a pull-back that spans rows and isn't simple arithmetic.\n\nThe most specific record wins per side, and a side's adjustment never sums.\n\nExample: ·No's x-height exit shortens by a pixel before ·J'ai — `{exit: x-height, by: 1, when: {right: {family: qsJai}}}` (·Utter's does the same by two). Only `by` is in use today; no rune has a `trim` or `bind` yet.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["when"],
+      "properties": {
+        "id": {"$ref": "#/$defs/recordId"},
+        "stance": {"$ref": "#/$defs/motionName"},
+        "entry": {"$ref": "#/$defs/height"},
+        "exit": {"$ref": "#/$defs/height"},
+        "by": {"type": "integer", "minimum": 1},
+        "trim": {"type": "integer", "minimum": 1},
+        "bind": {"$ref": "#/$defs/motionName"},
+        "when": {"$ref": "#/$defs/when"},
+        "why": {"type": "string"}
+      },
+      "allOf": [
+        {
+          "oneOf": [
+            {"required": ["entry"], "not": {"required": ["exit"]}},
+            {"required": ["exit"], "not": {"required": ["entry"]}}
+          ]
+        },
+        {
+          "anyOf": [
+            {"required": ["by"]},
+            {"required": ["trim"]},
+            {"required": ["bind"]}
+          ]
+        }
+      ]
+    },
+    "resolveRecord": {
+      "description": "A recorded tie-break for a conflict the engine refuses to guess on: when two policy records collide on the same seam and neither is more specific, the build stops with an error and you settle it here. Two shapes. `against` points at the specific competing record on another rune — `{rune: qsGay, id: plant-word-initial}` — and `pick` names the winner. `at` instead overrides the engine's default for a named window class — `{at: {right: {family: qsTea}}}`. Either way `why:` is required, since a resolve is a judgment call. `migrated:` tags one carried over wholesale from the old font, keeping that import debt visible. Every rune carries `resolve: []` today — you only add one when the build hands you an E-INCOMPARABLE or E-AMBIGUOUS conflict to break.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pick", "why"],
+      "properties": {
+        "id": {"$ref": "#/$defs/recordId"},
+        "against": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["rune"],
+          "properties": {
+            "rune": {"$ref": "#/$defs/familyName"},
+            "id": {"type": "string"}
+          }
+        },
+        "at": {"$ref": "#/$defs/whenWindowDecidable"},
+        "when": {"$ref": "#/$defs/when"},
+        "pick": {"type": "object"},
+        "why": {"type": "string"},
+        "migrated": {"type": "string"}
+      }
+    },
+    "groupDefinition": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "union": {"type": "array", "items": {"$ref": "#/$defs/staticCondition"}, "minItems": 1},
+        "minus": {"type": "array", "items": {"$ref": "#/$defs/staticCondition"}, "minItems": 1}
+      }
+    },
+    "staticCondition": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "family": {"$ref": "#/$defs/familyOrList"},
+        "class": {"$ref": "#/$defs/motionName", "description": "A named set of letters — either a group from this rune's `policy.groups`, or a script-wide predicate class. Matches if the letter is a member."},
+        "stance": {"$ref": "#/$defs/motionName"},
+        "trait": {"enum": ["half", "alt"]}
+      }
+    },
+    "when": {
+      "description": "The surroundings a record needs before it fires. List any of `left`, `right`, `self`, `word`, `feature`. The record fires only if all of them match.\n\n`left` reads the already-settled left neighbor, so it can name the `stance` it chose and the height it `joined_at`. `right` reads the raw, not-yet-settled right neighbor, so it matches only static identity (`family`, `class`, `stroke`, boundary) — never a stance or a seam height.\n\n`self` is this letter's own entry/exit state. `word` is its position in the run (initial, medial, final, isolated). `feature` is the active stylistic set (`ssNN`).\n\nExample: ·Pea's baseline-exit refuse uses `{left: {joined_at: y6}, right: {class: can-enter-at-x-height, except: […]}}`: a settled-left height beside a raw-right class.",
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "left": {"$ref": "#/$defs/leftCondition"},
+        "right": {"$ref": "#/$defs/rightCondition"},
+        "self": {"$ref": "#/$defs/selfCondition"},
+        "word": {"description": "Where this letter sits in its word: `initial`, `medial`, `final`, or `isolated`.\n\nA word breaks on a `space`, a `zwnj`, or the start or end of the text. A break on the left makes the letter `initial`, one on the right `final`, both `isolated`, neither `medial`.\n\nThe namer dot does not break a word — a letter beside one stays `medial` on that side, even though `is: namer-dot` still matches it as a neighbor.", "enum": ["initial", "medial", "final", "isolated"]},
+        "feature": {"$ref": "#/$defs/featureTag"}
+      }
+    },
+    "whenWindowDecidable": {
+      "description": "The surroundings this record needs before it fires.\n\nList any of `left`, `right`, `self`, `word`, `feature`; the record fires only if all of them match.",
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "left": {"$ref": "#/$defs/leftCondition"},
+        "right": {"description": "What the letter to the right must be for this record to fire.\n\nList any of `family`, `class`, `stroke`, `is`, `except`.\n\n`then` cannot be used here because it looks past the immediate right neighbor.", "$ref": "#/$defs/rightConditionNoThen"},
+        "self": {"$ref": "#/$defs/selfCondition"},
+        "word": {"enum": ["initial", "medial", "final", "isolated"]},
+        "feature": {"$ref": "#/$defs/featureTag"}
+      }
+    },
+    "leftCondition": {
+      "description": "What the left neighbor must be for this to match. Pin it down by `family`, by `class` (a named group), or by the exact `stance` it settled into; by the height it `joined_at`; by its exit `stroke`; or by `is` for a boundary like a space. `except` lists cases that make it fail instead.\n\nOnly the left side can name `stance` and `joined_at`, because the left neighbor is already settled by the time this letter is placed (see `when`).",
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "family": {"$ref": "#/$defs/familyOrList"},
+        "class": {"$ref": "#/$defs/motionName", "description": "A named set of letters — either a group from this rune's `policy.groups`, or a script-wide predicate class. Matches if the letter is a member."},
+        "stance": {"$ref": "#/$defs/motionName", "description": "The variant the left neighbor settled into. A left-only axis (see `when`)."},
+        "joined_at": {"$ref": "#/$defs/heightOrNone", "description": "The seam height the left neighbor settled at (`baseline`, `x-height`, `y6`, `top`, or `none`). Usable only on the left — the right neighbor isn't settled yet, so it has no seam height to name."},
+        "stroke": {"$ref": "#/$defs/strokeOrientation"},
+        "is": {"$ref": "#/$defs/boundaryValue"},
+        "except": {"description": "Drops neighbors from the match. A neighbor listed here is skipped even when the condition's other keys fit. On its own it's a plain negation — `left: {except: [family: qsIt]}` matches any left neighbor but ·It.", "type": "array", "items": {"$ref": "#/$defs/staticCondition"}, "minItems": 1}
+      }
+    },
+    "rightCondition": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "family": {"$ref": "#/$defs/familyOrList"},
+        "class": {"$ref": "#/$defs/motionName", "description": "A named set of letters — either a group from this rune's `policy.groups`, or a script-wide predicate class. Matches if the letter is a member."},
+        "stroke": {"$ref": "#/$defs/strokeOrientation"},
+        "is": {"$ref": "#/$defs/boundaryValue"},
+        "except": {"description": "Drops neighbors from the match. A neighbor listed here is skipped even when the condition's other keys fit. On its own it's a plain negation — `left: {except: [family: qsIt]}` matches any left neighbor but ·It.\n\nHere on the right side, an `except` entry may carry its own `then:` chain, so the carve-out can depend on what comes after the neighbor it names. The chain walks the same letters as a `then:` at this level would, and counts toward the same three-letter cap.\n\nExample: ·Oy yields its baseline exit before ·Tea or ·It — `{family: [qsTea, qsIt], except: [{family: qsTea, then: {family: qsUtter, then: {family: qsLow}}}, …]}` — except when the ·Tea leads into ·Utter·Low, where the yield would leave ·Tea joined on neither side.", "type": "array", "items": {"$ref": "#/$defs/rightCondition"}, "minItems": 1},
+        "then": {"description": "Lets one join's decision account for the joins just beyond it: it looks past the immediate right neighbor, one letter per hop.\n\nOnly `prefer` may use it. `prefer` just breaks ties between surviving stances, so a wider look is harmless; `refuse` and `require` judge only the join in front of them, never the letter beyond.\n\nInside `then`, only the raw right axes apply (`family`, `class`, `stroke`, `is`, `except`), and it can nest twice — a `then` inside a `then` reaches the third letter, one more `then` reaches the fourth, and the build rejects any chain reaching further. The engine only ever hands those third and fourth letters to a rune's own `prefer` records; everything else treats it as unknown.\n\nExample: ·Utter's `prefer` picks `{exit: none}` over `{exit: x-height}` under `{right: {family: qsTea, then: {family: [qsDay, qsMay, qsIt, qsUtter]}}}` — a ·Tea joined at the x-height can't join onward, so when one of those four follows, ·Utter stands down and leaves ·Tea free to join them instead (·Utter·Tea·Day). The nested hop: ·Day's own version of that yield carves out `except: [{family: qsUtter, then: {family: qsLow}}]` inside its `then`, so ·Day·Tea·Utter·Low keeps the ·Day·Tea join — ·Tea could never reach that ·Utter anyway.", "$ref": "#/$defs/rightCondition"}
+      }
+    },
+    "rightConditionNoThen": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "family": {"$ref": "#/$defs/familyOrList"},
+        "class": {"$ref": "#/$defs/motionName", "description": "A named set of letters — either a group from this rune's `policy.groups`, or a script-wide predicate class. Matches if the letter is a member."},
+        "stroke": {"$ref": "#/$defs/strokeOrientation"},
+        "is": {"$ref": "#/$defs/boundaryValue"},
+        "except": {"description": "Drops neighbors from the match. A neighbor listed here is skipped even when the condition's other keys fit. On its own it's a plain negation — `left: {except: [family: qsIt]}` matches any left neighbor but ·It.", "type": "array", "items": {"$ref": "#/$defs/staticCondition"}, "minItems": 1}
+      }
+    },
+    "selfCondition": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "entry": {"enum": ["live", "none"]},
+        "exit": {"enum": ["live", "none"]}
+      }
+    }
+  }
+}

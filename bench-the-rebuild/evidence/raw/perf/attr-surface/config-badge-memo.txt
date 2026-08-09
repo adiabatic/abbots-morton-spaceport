@@ -1,0 +1,4 @@
+units: 62148, DISTINCT config tuples across the whole surface: 12
+config_badge over all 62148 units: 3.684s CPU (59.3 us/unit)
+  lru_cache'd on (unit_configs, full_configs): 0.019s CPU (0.30 us/unit) -> 198x
+  saving on a build: 3.67s CPU

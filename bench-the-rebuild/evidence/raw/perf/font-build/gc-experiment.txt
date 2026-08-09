@@ -1,0 +1,9 @@
+gc enabled (1)          9.246 s cpu   peak_rss=284 MB
+gc DISABLED (1)         8.371 s cpu   peak_rss=369 MB
+gc enabled (2)         10.339 s cpu   peak_rss=403 MB
+gc DISABLED (2)         9.757 s cpu   peak_rss=403 MB
+
+mean gc-on 9.793s  gc-off 9.064s  saving 0.729s (7.4%)
+emit gc enabled         2.742 s cpu
+emit gc DISABLED        2.213 s cpu
+emit saving 0.529s (19.3%)

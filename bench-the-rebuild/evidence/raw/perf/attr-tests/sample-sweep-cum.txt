@@ -1,0 +1,4 @@
+   20549   81.27%  cumulative under frames matching '_harfbuzz_5shape'
+   20520   81.15%  cumulative under frames matching 'hb_shape_full'
+   20916   82.72%  cumulative under frames matching 'in _harfbuzz.abi3.so'
+   25285  100.00%  root total

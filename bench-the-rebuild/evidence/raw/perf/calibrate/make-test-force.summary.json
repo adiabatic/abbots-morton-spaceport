@@ -1,0 +1,25 @@
+{
+  "summary": {
+    "label": "make-test-force",
+    "runs": 1,
+    "wall_median_s": 205.5728,
+    "wall_min_s": 205.5728,
+    "wall_max_s": 205.5728,
+    "user_median_s": 2197.0213,
+    "sys_median_s": 15.3598,
+    "rcs": [
+      0
+    ]
+  },
+  "records": [
+    {
+      "label": "make-test-force",
+      "run": 0,
+      "wall_s": 205.5728,
+      "user_s": 2197.0213,
+      "sys_s": 15.3598,
+      "maxrss_mb": 2070.3,
+      "rc": 0
+    }
+  ]
+}

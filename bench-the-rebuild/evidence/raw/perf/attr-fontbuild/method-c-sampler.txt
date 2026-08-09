@@ -1,0 +1,82 @@
+serial whole-build with sampler thread: 22.817 s CPU, 22.875 s wall
+samples of the build thread: 3247
+
+-- SELF: owner of the topmost Python frame --
+  fontTools               2088   64.31%
+  repo                     887   27.32%
+  stdlib                   184    5.67%
+  PyYAML                    88    2.71%
+
+-- ROOT: is any repo frame anywhere in the stack? --
+  repo-initiated          3244   99.91%
+  not-repo-initiated         3    0.09%
+
+-- per-module self samples (full rollup) --
+      818  25.19%  fontTools:builder.py
+      560  17.25%  fontTools:otBase.py
+      328  10.10%  repo:quikscript_fea.py
+      324   9.98%  fontTools:parser.py
+      192   5.91%  repo:departure_mono_import.py
+      160   4.93%  stdlib:copy.py
+      111   3.42%  repo:build_font.py
+      110   3.39%  repo:quikscript_join_analysis.py
+       82   2.53%  repo:<string>
+       78   2.40%  fontTools:psCharStrings.py
+       60   1.85%  fontTools:otConverters.py
+       58   1.79%  repo:quikscript_ir.py
+       54   1.66%  fontTools:ttFont.py
+       46   1.42%  PyYAML:scanner.py
+       46   1.42%  fontTools:specializer.py
+       46   1.42%  fontTools:textTools.py
+       38   1.17%  fontTools:otTables.py
+       26   0.80%  PyYAML:reader.py
+       20   0.62%  fontTools:ast.py
+       18   0.55%  fontTools:basePen.py
+       12   0.37%  fontTools:arrayTools.py
+       11   0.34%  stdlib:__init__.py
+       10   0.31%  stdlib:copyreg.py
+        8   0.25%  PyYAML:composer.py
+        6   0.18%  fontTools:roundTools.py
+        4   0.12%  PyYAML:resolver.py
+        4   0.12%  repo:<frozen importlib._bootstrap_external>
+        2   0.06%  PyYAML:constructor.py
+        2   0.06%  fontTools:boundsPen.py
+        2   0.06%  fontTools:_n_a_m_e.py
+        2   0.06%  fontTools:__init__.py
+        2   0.06%  PyYAML:error.py
+        2   0.06%  stdlib:dataclasses.py
+        2   0.06%  fontTools:sfnt.py
+        2   0.06%  repo:glyph_compiler.py
+        1   0.03%  stdlib:threading.py
+
+-- top 30 leaf frames --
+      350  10.78%  fontTools:builder.py:find_chainable_subst
+      342  10.53%  fontTools:builder.py:<genexpr>
+      248   7.64%  fontTools:parser.py:advance_lexer_
+      134   4.13%  repo:departure_mono_import.py:point_in_polygon
+      120   3.70%  fontTools:otBase.py:compile
+      106   3.26%  repo:quikscript_fea.py:<genexpr>
+       86   2.65%  stdlib:copy.py:deepcopy
+       82   2.53%  repo:quikscript_join_analysis.py:_pair_specific_generated_variants
+       80   2.46%  repo:quikscript_fea.py:_expand_join_variants
+       76   2.34%  repo:<string>:<lambda>
+       69   2.13%  repo:build_font.py:load_glyph_data
+       66   2.03%  fontTools:otBase.py:__getattr__
+       44   1.36%  fontTools:otBase.py:_doneWriting
+       32   0.99%  repo:quikscript_fea.py:_split_fea_context_tokens
+       32   0.99%  fontTools:otBase.py:__init__
+       30   0.92%  fontTools:otTables.py:preWrite
+       28   0.86%  fontTools:textTools.py:tobytes
+       28   0.86%  fontTools:parser.py:check_glyph_name_in_glyph_set
+       26   0.80%  repo:departure_mono_import.py:<genexpr>
+       26   0.80%  stdlib:copy.py:_reconstruct
+       26   0.80%  fontTools:otBase.py:packUShort
+       26   0.80%  fontTools:otBase.py:decompile
+       24   0.74%  fontTools:otBase.py:_gatherTables
+       22   0.68%  fontTools:specializer.py:specializeCommands
+       22   0.68%  fontTools:psCharStrings.py:execute
+       22   0.68%  fontTools:builder.py:buildCoverage
+       22   0.68%  fontTools:ttFont.py:getGlyphIDMany
+       22   0.68%  fontTools:otBase.py:populateDefaults
+       22   0.68%  fontTools:otBase.py:readValue
+       20   0.62%  repo:departure_mono_import.py:_cell_inked

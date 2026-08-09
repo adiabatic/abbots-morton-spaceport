@@ -1,0 +1,227 @@
+{
+ "per_workload_sample_buckets_pct": {
+  "m1_table": {
+   "python_bytecode": 32.17,
+   "interpreter_overhead": 67.83
+  },
+  "surface_load": {
+   "python_bytecode": 17.64,
+   "interpreter_overhead": 71.77,
+   "native_extension": 10.19,
+   "io_or_wait": 0.4
+  },
+  "surface_units": {
+   "python_bytecode": 32.18,
+   "interpreter_overhead": 65.25,
+   "native_extension": 2.45,
+   "io_or_wait": 0.12
+  },
+  "census": {
+   "python_bytecode": 28.45,
+   "interpreter_overhead": 55.74,
+   "native_extension": 15.81
+  },
+  "font_build": {
+   "python_bytecode": 28.66,
+   "interpreter_overhead": 71.27,
+   "native_extension": 0.07
+  },
+  "make_test": {
+   "native_extension": 81.61,
+   "python_bytecode": 6.77,
+   "interpreter_overhead": 11.62
+  },
+  "rebuild_witness": {
+   "python_bytecode": 32.43,
+   "interpreter_overhead": 67.57
+  }
+ },
+ "scope_artifact_production": {
+  "total_cpu_s": 549.3,
+  "cpu_s": {
+   "python_bytecode": 164.5,
+   "interpreter_overhead": 368.4,
+   "native_extension": 16.0,
+   "io_or_wait": 0.4
+  },
+  "pct": {
+   "python_bytecode": 29.94,
+   "interpreter_overhead": 67.08,
+   "native_extension": 2.91,
+   "io_or_wait": 0.07
+  },
+  "repo_owned_bytecode_cpu_s": 157.3,
+  "repo_owned_bytecode_pct": 28.64,
+  "repo_owned_interpreter_overhead_cpu_s": 350.4,
+  "rewritable_pct": 92.43,
+  "not_rewritable_pct": 7.57,
+  "detail": [
+   {
+    "workload": "M1 table stage, 6 configs, cold",
+    "cpu_s": 337.7,
+    "share_of_scope_pct": 61.5,
+    "sample": "m1_table",
+    "source": "calibrate (measured)",
+    "bytecode_cpu_s": 108.6,
+    "interp_cpu_s": 229.0,
+    "native_cpu_s": 0.0
+   },
+   {
+    "workload": "review surface build, load phase",
+    "cpu_s": 67.0,
+    "share_of_scope_pct": 12.2,
+    "sample": "surface_load",
+    "source": "calibrate x cold phase split",
+    "bytecode_cpu_s": 11.8,
+    "interp_cpu_s": 48.1,
+    "native_cpu_s": 6.8
+   },
+   {
+    "workload": "review surface build, units phase",
+    "cpu_s": 76.1,
+    "share_of_scope_pct": 13.9,
+    "sample": "surface_units",
+    "source": "calibrate x cold phase split",
+    "bytecode_cpu_s": 24.5,
+    "interp_cpu_s": 49.7,
+    "native_cpu_s": 1.9
+   },
+   {
+    "workload": "census --check",
+    "cpu_s": 46.1,
+    "share_of_scope_pct": 8.4,
+    "sample": "census",
+    "source": "build-topology (measured)",
+    "bytecode_cpu_s": 13.1,
+    "interp_cpu_s": 25.7,
+    "native_cpu_s": 7.3
+   },
+   {
+    "workload": "make all (font build + typst)",
+    "cpu_s": 22.4,
+    "share_of_scope_pct": 4.1,
+    "sample": "font_build",
+    "source": "calibrate (measured); repo share from cProfile",
+    "bytecode_cpu_s": 6.4,
+    "interp_cpu_s": 16.0,
+    "native_cpu_s": 0.0
+   }
+  ],
+  "amdahl": {
+   "rewritable_fraction": 0.9243,
+   "ceiling_infinite": 13.21,
+   "speedup_at_10x": 5.95,
+   "speedup_at_25x": 8.88,
+   "speedup_at_50x": 10.62
+  }
+ },
+ "scope_whole_system": {
+  "total_cpu_s": 4190.4,
+  "cpu_s": {
+   "python_bytecode": 780.7,
+   "interpreter_overhead": 1591.3,
+   "native_extension": 1817.6,
+   "io_or_wait": 0.8
+  },
+  "pct": {
+   "python_bytecode": 18.63,
+   "interpreter_overhead": 37.98,
+   "native_extension": 43.38,
+   "io_or_wait": 0.02
+  },
+  "repo_owned_bytecode_cpu_s": 764.1,
+  "repo_owned_bytecode_pct": 18.24,
+  "repo_owned_interpreter_overhead_cpu_s": 1556.2,
+  "rewritable_pct": 55.37,
+  "not_rewritable_pct": 44.63,
+  "detail": [
+   {
+    "workload": "M1 table stage, 6 configs, cold",
+    "cpu_s": 337.7,
+    "share_of_scope_pct": 8.1,
+    "sample": "m1_table",
+    "source": "calibrate (measured)",
+    "bytecode_cpu_s": 108.6,
+    "interp_cpu_s": 229.0,
+    "native_cpu_s": 0.0
+   },
+   {
+    "workload": "review surface build, load phase",
+    "cpu_s": 67.0,
+    "share_of_scope_pct": 1.6,
+    "sample": "surface_load",
+    "source": "calibrate x cold phase split",
+    "bytecode_cpu_s": 11.8,
+    "interp_cpu_s": 48.1,
+    "native_cpu_s": 6.8
+   },
+   {
+    "workload": "review surface build, units phase",
+    "cpu_s": 76.1,
+    "share_of_scope_pct": 1.8,
+    "sample": "surface_units",
+    "source": "calibrate x cold phase split",
+    "bytecode_cpu_s": 24.5,
+    "interp_cpu_s": 49.7,
+    "native_cpu_s": 1.9
+   },
+   {
+    "workload": "census --check",
+    "cpu_s": 46.1,
+    "share_of_scope_pct": 1.1,
+    "sample": "census",
+    "source": "build-topology (measured)",
+    "bytecode_cpu_s": 13.1,
+    "interp_cpu_s": 25.7,
+    "native_cpu_s": 7.3
+   },
+   {
+    "workload": "make all (font build + typst)",
+    "cpu_s": 22.4,
+    "share_of_scope_pct": 0.5,
+    "sample": "font_build",
+    "source": "calibrate (measured); repo share from cProfile",
+    "bytecode_cpu_s": 6.4,
+    "interp_cpu_s": 16.0,
+    "native_cpu_s": 0.0
+   },
+   {
+    "workload": "make test (6753 tests)",
+    "cpu_s": 2197.0,
+    "share_of_scope_pct": 52.4,
+    "sample": "make_test",
+    "source": "calibrate (measured)",
+    "bytecode_cpu_s": 148.7,
+    "interp_cpu_s": 255.3,
+    "native_cpu_s": 1793.0
+   },
+   {
+    "workload": "pytest rebuild/ (witness-dominated 75.6%)",
+    "cpu_s": 1091.7,
+    "share_of_scope_pct": 26.1,
+    "sample": "rebuild_witness",
+    "source": "test-suite (measured, contended)",
+    "bytecode_cpu_s": 354.1,
+    "interp_cpu_s": 737.7,
+    "native_cpu_s": 0.0
+   },
+   {
+    "workload": "pytest rebuild/ (remainder)",
+    "cpu_s": 352.4,
+    "share_of_scope_pct": 8.4,
+    "sample": "surface_units",
+    "source": "test-suite (measured, contended)",
+    "bytecode_cpu_s": 113.4,
+    "interp_cpu_s": 229.9,
+    "native_cpu_s": 8.6
+   }
+  ],
+  "amdahl": {
+   "rewritable_fraction": 0.5537,
+   "ceiling_infinite": 2.24,
+   "speedup_at_10x": 1.99,
+   "speedup_at_25x": 2.13,
+   "speedup_at_50x": 2.19
+  }
+ }
+}

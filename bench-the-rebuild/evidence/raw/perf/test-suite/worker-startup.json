@@ -1,0 +1,86 @@
+[
+  {
+    "phase": "import uharfbuzz",
+    "wall_s": 0.009,
+    "cpu_s": 0.009,
+    "rss_mb": 20.5
+  },
+  {
+    "phase": "import fontTools.ttLib",
+    "wall_s": 0.011,
+    "cpu_s": 0.011,
+    "rss_mb": 23.7
+  },
+  {
+    "phase": "import yaml",
+    "wall_s": 0.005,
+    "cpu_s": 0.005,
+    "rss_mb": 24.9
+  },
+  {
+    "phase": "import test_shaping",
+    "wall_s": 0.047,
+    "cpu_s": 0.047,
+    "rss_mb": 39.9
+  },
+  {
+    "phase": "load_glyph_data (YAML parse)",
+    "wall_s": 0.169,
+    "cpu_s": 0.169,
+    "rss_mb": 45.2
+  },
+  {
+    "phase": "compile_glyph_set senior",
+    "wall_s": 0.332,
+    "cpu_s": 0.332,
+    "rss_mb": 47.5
+  },
+  {
+    "phase": "compile_glyph_set junior",
+    "wall_s": 0.008,
+    "cpu_s": 0.008,
+    "rss_mb": 47.5
+  },
+  {
+    "phase": "load_font senior (hb)",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "rss_mb": 47.8
+  },
+  {
+    "phase": "load_font junior (hb)",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "rss_mb": 47.8
+  },
+  {
+    "phase": "build_anchor_map senior (full)",
+    "wall_s": 0.504,
+    "cpu_s": 0.503,
+    "rss_mb": 50.5
+  },
+  {
+    "phase": "build_anchor_map junior (full)",
+    "wall_s": 0.177,
+    "cpu_s": 0.177,
+    "rss_mb": 53.0
+  },
+  {
+    "phase": "TTFont senior (glyph order)",
+    "wall_s": 0.001,
+    "cpu_s": 0.001,
+    "rss_mb": 53.2
+  },
+  {
+    "phase": "TTFont junior (glyph order)",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "rss_mb": 53.2
+  },
+  {
+    "phase": "TOTAL process CPU",
+    "wall_s": null,
+    "cpu_s": 1.282,
+    "rss_mb": 53.2
+  }
+]

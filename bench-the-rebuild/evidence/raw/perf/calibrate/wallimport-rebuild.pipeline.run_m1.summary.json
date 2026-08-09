@@ -1,0 +1,65 @@
+{
+  "summary": {
+    "label": "wallimport-rebuild.pipeline.run_m1",
+    "runs": 5,
+    "wall_median_s": 0.0727,
+    "wall_min_s": 0.0717,
+    "wall_max_s": 0.0738,
+    "user_median_s": 0.0612,
+    "sys_median_s": 0.0098,
+    "rcs": [
+      0,
+      0,
+      0,
+      0,
+      0
+    ]
+  },
+  "records": [
+    {
+      "label": "wallimport-rebuild.pipeline.run_m1",
+      "run": 0,
+      "wall_s": 0.0717,
+      "user_s": 0.0607,
+      "sys_s": 0.0094,
+      "maxrss_mb": 33.3,
+      "rc": 0
+    },
+    {
+      "label": "wallimport-rebuild.pipeline.run_m1",
+      "run": 1,
+      "wall_s": 0.0733,
+      "user_s": 0.0615,
+      "sys_s": 0.01,
+      "maxrss_mb": 33.4,
+      "rc": 0
+    },
+    {
+      "label": "wallimport-rebuild.pipeline.run_m1",
+      "run": 2,
+      "wall_s": 0.0727,
+      "user_s": 0.061,
+      "sys_s": 0.0098,
+      "maxrss_mb": 33.4,
+      "rc": 0
+    },
+    {
+      "label": "wallimport-rebuild.pipeline.run_m1",
+      "run": 3,
+      "wall_s": 0.0738,
+      "user_s": 0.0618,
+      "sys_s": 0.0101,
+      "maxrss_mb": 33.4,
+      "rc": 0
+    },
+    {
+      "label": "wallimport-rebuild.pipeline.run_m1",
+      "run": 4,
+      "wall_s": 0.0727,
+      "user_s": 0.0612,
+      "sys_s": 0.0098,
+      "maxrss_mb": 33.4,
+      "rc": 0
+    }
+  ]
+}

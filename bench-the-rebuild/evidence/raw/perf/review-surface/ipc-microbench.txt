@@ -1,0 +1,3 @@
+phase-2 reply pickle for 6000 fragments: 16.6 MB, dumps 0.041s, loads 0.038s
+  per unit: 2760 bytes, 6.9 us dumps, 6.4 us loads
+  EXTRAPOLATED over 62148 units: 172 MB across the pipes, 0.4s dumps (workers) + 0.4s loads (parent, SERIAL)

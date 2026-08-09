@@ -1,0 +1,325 @@
+{
+  "slug": "attr-m1",
+  "scope": "rebuild/pipeline/ — the M1 pipeline",
+  "machine": "Apple M4 Pro, 12 logical cores, macOS 26.6.1, CPython 3.14.6",
+  "contention": "OTHER AGENTS WERE RUNNING THROUGHOUT. 3-5 sibling python processes at ~80-100% CPU were visible in ps during every measurement. All wall-clock numbers here are contention-suspect; CPU numbers come from resource.getrusage(RUSAGE_SELF) and sample-stack FRACTIONS, which are contention-robust. Where the same slice was run twice the second (more contended) run cost 9% more CPU, which bounds the residual contention error.",
+
+  "bounded_slices_measured": {
+    "A_build_tables_default": {
+      "what": "table.build_tables(spec, features_for_config('default'), trace_store=None, share=None) — one configuration's decision-table fixpoint, in-process, no persisted memo, no artifact written",
+      "driver": "raw/perf/attr-m1/slice_tables.py plain default",
+      "wall_s": 85.007,
+      "cpu_s": 83.383,
+      "user_s": 82.735,
+      "sys_s": 0.648,
+      "peak_rss_gb": 3.77,
+      "windows_emitted": 682842,
+      "rules": 2667,
+      "treaty_rows": 3563,
+      "spec_load_cpu_s": 0.105,
+      "process_teardown_s": "~2.7 (87.82 s process real vs 83.07 s of measured work + 0.1 s spec load + ~0.3 s import, /usr/bin/time -l on the sampled rerun)"
+    },
+    "B_conform_sweep_default": {
+      "what": "conform._conformance_config for the default config at horizon 4, against the prebuilt M1.otf and its serialized window enumeration; the unbounded witness top-up hunt is neutered by stubbing _candidate_witness_tokens / _window_witness_candidates to return nothing, so the slice is exactly 'the length-1..L sweep plus the coverage bookkeeping'",
+      "driver": "raw/perf/attr-m1/slice_conform.py raw/perf/attr-m1/m1-artifacts default 4",
+      "L3": {"cpu_s": 69.439, "wall_s": 93.845, "texts": 6174, "shape_calls": 8478, "shape_cpu_s": 0.157, "shape_pct": 0.23},
+      "L4": {"cpu_s": 87.076, "wall_s": 110.324, "texts": 111150, "shape_calls": 172334, "shape_cpu_s": 1.994, "shape_pct": 2.29, "shape_us_per_call": 11.57},
+      "L4_rerun_contended": {"cpu_s": 94.883, "shape_cpu_s": 2.425, "shape_pct": 2.56},
+      "marginal_length4_only": {
+        "delta_texts": 104976,
+        "delta_cpu_s": 17.637,
+        "us_per_text": 168.0,
+        "delta_shape_calls": 163856,
+        "delta_shape_cpu_s": 1.837,
+        "shape_pct_of_marginal": 10.4,
+        "note": "differencing L4 minus L3 removes the fixed cost (the lazily built _ProspectLiveness probe pile and the 682,842-row coverage bookkeeping) and leaves exactly what one more sweep length costs. This is the figure that governs a horizon-5 sweep, because 2,000,718 of its 2,111,868 texts are length 5."
+      }
+    },
+    "C_oracle_default": {
+      "what": "conform.oracle_config_worker for the default config against a freshly filtered current-alphabet subset table (111,150 rows) and the prebuilt M1.otf",
+      "driver": "raw/perf/attr-m1/slice_oracle.py default",
+      "wall_s": 34.764,
+      "cpu_s": 32.241,
+      "rows_compared": 111150,
+      "us_per_row": 290.06,
+      "shape_calls": 75166,
+      "shape_cpu_s": 1.827,
+      "shape_pct_of_oracle_cpu": 5.67,
+      "caveat": "the ledger and alias files are calibrated against the July artifacts while this subset was filtered from the current 18-token alphabet, so divergent_rows (84,008) is far higher than a clean run's. That inflates the divergence-classification and audit-line work, not the shaping, so 5.67% is if anything a slight UNDERestimate of harfbuzz's share of a clean oracle pass."
+    }
+  },
+
+  "method_A_native_sampler": {
+    "tool": "/usr/bin/sample <pid> <sec> 1 -f <out>",
+    "bucketing_script": "raw/perf/attr-m1/bucket_sample.py",
+    "convention": "leaf (top-of-stack) frames. _PyEval_EvalFrameDefault = python_bytecode. Any other frame in the CPython binary, plus libdyld _tlv_get_addr (CPython's thread-state TLS lookup) and libsystem_platform memcpy/memset that the object model drives = interpreter_overhead. Third-party/stdlib C extension .so = native_extension. libsystem_kernel = io_or_wait.",
+    "build_tables_default": {
+      "samples": 25565,
+      "leaf_listed": 25410,
+      "python_bytecode_pct": 30.81,
+      "interpreter_overhead_pct": 69.19,
+      "native_extension_pct": 0.0,
+      "io_or_wait_pct": 0.0,
+      "native_libraries_anywhere_in_call_graph": "NONE. The only non-CPython binaries appearing at all are libdyld (235 frames), libsystem_platform (59), libsystem_malloc (8), libsystem_pthread (1). Zero harfbuzz, zero zlib, zero hashlib, zero _json, zero _pickle, zero _sre.",
+      "interpreter_overhead_breakdown_pct_of_all_leaf_samples": {
+        "garbage_collector": 14.79,
+        "frame_push_pop_and_call_machinery": 12.22,
+        "dict_lookup_and_insert": 7.10,
+        "tuple_build_hash_compare": 6.87,
+        "type_dealloc": 6.29,
+        "attribute_and_type_lookup_incl_frozen_dataclass_setattr": 5.90,
+        "allocator": 3.99,
+        "tls_get_addr_libdyld": 3.30,
+        "richcompare": 3.08,
+        "memcpy_memset_libsystem_platform": 1.17,
+        "hashing": 0.45,
+        "other_cpython": 4.02
+      }
+    },
+    "conform_sweep_L4_window_over_lengths_1_3": {
+      "samples": 25764,
+      "python_bytecode_pct": 38.25,
+      "interpreter_overhead_pct": 61.62,
+      "native_extension_pct": 0.14,
+      "harfbuzz_inclusive_pct": 0.24,
+      "note": "this 30 s window landed inside the length<=3 portion of the run, which does only 8,478 of the run's 172,334 shapes. Unrepresentative of a real horizon-5 sweep; kept for completeness."
+    },
+    "conform_sweep_L4_window_over_length_4": {
+      "samples": 17192,
+      "python_bytecode_pct": 36.24,
+      "interpreter_overhead_pct": 60.44,
+      "native_extension_pct": 3.0,
+      "harfbuzz_inclusive_pct": 3.88,
+      "io_or_wait_pct": 0.31
+    },
+    "oracle_default": {
+      "samples": 13985,
+      "python_bytecode_pct": 44.30,
+      "interpreter_overhead_pct": 51.97,
+      "native_extension_pct": 3.51,
+      "harfbuzz_inclusive_pct": 4.33,
+      "zlib_plus_libz_plus_libcrypto_inclusive_pct": 0.09,
+      "io_or_wait_pct": 0.23
+    }
+  },
+
+  "method_B_cProfile": {
+    "run": "raw/perf/attr-m1/slice_tables.py prof default -> raw/perf/attr-m1/build_tables-default.prof",
+    "analysis_script": "raw/perf/attr-m1/prof_split.py",
+    "profiled_cpu_s": 242.277,
+    "unprofiled_cpu_s": 83.383,
+    "measured_distortion_factor": 2.906,
+    "distortion_direction": "cProfile charges roughly a microsecond per CALL EVENT. This workload is almost nothing but call events (9.2 M Engine.candidates calls alone), so the profiled run inflates uniformly across both the Python-frame and the builtin-C bucket; what it does NOT inflate is time the eval loop spends BETWEEN calls (inline arithmetic, attribute loads, tuple building). So cProfile's split understates pure-bytecode work and overstates per-call work. It cannot manufacture a native-library bucket that Method A says is zero, which is the load-bearing agreement.",
+    "sum_of_tottime_s": 255.34,
+    "buckets_pct": {
+      "python_frames_in_this_repo": 81.58,
+      "cpython_builtin_c_methods": 18.34,
+      "python_frames_stdlib_or_thirdparty": 0.08,
+      "native_extension_library": 0.0
+    },
+    "top_modules_pct_of_profiled_tottime": {
+      "rebuild/pipeline/settle.py": 70.29,
+      "generated dataclass methods (<string>)": 5.59,
+      "rebuild/pipeline/table.py": 5.15,
+      "dict.get": 8.08,
+      "builtins.hash": 2.10,
+      "list.append": 1.68,
+      "builtins.len": 1.38,
+      "list.index": 0.78
+    },
+    "cross_check_prior_agent_profile": "raw/perf/m1-pipeline/build_tables-default.prof (same tree, different session) splits 82.03 / 17.92 / 0.05 / 0.0 — within 0.5 pt of mine."
+  },
+
+  "method_C_python_sampling_thread": {
+    "tool": "raw/perf/attr-m1/sampler.py — a daemon thread reading sys._current_frames()[main] at 200 Hz",
+    "distortion": "84.375 s wall / 83.073 s CPU sampled vs 85.007 / 83.383 unsampled — under 0.4%, i.e. effectively none",
+    "samples": 6087,
+    "leaf_by_module_pct": {
+      "rebuild/pipeline/settle.py": 57.24,
+      "generated dataclass methods (<string>)": 36.95,
+      "rebuild/pipeline/table.py": 5.08,
+      "rebuild/pipeline/model.py": 0.38,
+      "rebuild/pipeline/specificity.py": 0.23,
+      "stdlib dataclasses.py": 0.11
+    },
+    "headline": "25.14% of all Python-level leaf samples are in ONE function: the generated frozen-dataclass __init__ (<string>:2). __hash__ adds 5.44% and __eq__ 2.89%. Every model record is @dataclass(frozen=True) WITHOUT slots=True, so each construction pays object.__setattr__ per field through the wrapper-descriptor path, and each hash rebuilds a tuple.",
+    "stack_inclusive_pct": {
+      "table.build_tables": 99.98,
+      "table.third_slot_filter.<locals>.matters": 79.27,
+      "_ProspectLiveness.third_live": 79.14,
+      "settle.Engine.transition_trace": 71.33,
+      "settle.Engine._transition_trace_uncached": 67.60,
+      "_ProspectLiveness.fourth_live": 63.28,
+      "_ProspectLiveness.third_live.<locals>.<genexpr> (the joint34 fan-out)": 60.64,
+      "settle.Engine._prospect": 48.69,
+      "settle.Engine.candidates": 43.09,
+      "settle.Engine._prefer_favors": 40.74
+    },
+    "note": "this independently reproduces the m1-pipeline agent's cProfile finding that ~84% of build_tables sits under third_slot_filter's `matters` closure, without cProfile in the room."
+  },
+
+  "multiprocessing_and_serialization": {
+    "topology": "run_m1._spawn_pool builds a `spawn` ProcessPoolExecutor three times (conformance, boundary, oracle) with max_workers=min(jobs, 6). build_tables is deliberately SERIAL so the cross-config TraceShare stays in one process.",
+    "measured_pickle_payloads": [
+      {"payload": "ResolvedSpec", "bytes": 64595, "roundtrip_cpu_s": 0.0016, "sent": "once per task, 18 tasks per full run"},
+      {"payload": "cell_glyphs dict[CellId,GlyphRecord] n=197", "bytes": 57084, "roundtrip_cpu_s": 0.0010, "sent": "per conformance task"},
+      {"payload": "DecisionTable WITHOUT windows", "bytes": 875050, "roundtrip_cpu_s": 0.0082, "sent": "per conform task on the normal path"},
+      {"payload": "DecisionTable WITH windows n=682842", "bytes": 21282879, "dumps_cpu_s": 1.3325, "loads_cpu_s": 1.2765, "roundtrip_cpu_s": 2.609, "sent": "ONLY on the standalone fallback at run_m1.py:311, and then to all 6 workers"},
+      {"payload": "oracle audit_lines list[str] n=292099", "bytes": 59587382, "roundtrip_cpu_s": 0.0784, "sent": "returned from each oracle worker"}
+    ],
+    "verdict_cpu_s": {
+      "normal_path_total_across_a_full_run": 0.13,
+      "standalone_fallback_path": 15.7,
+      "spawn_process_births_18_workers_wall_s": 0.85,
+      "per_worker_read_windows_cpu_s": 1.12,
+      "per_worker_read_windows_x6": 6.7
+    },
+    "conclusion": "On the path the pipeline normally takes, pickling is 0.13 CPU-seconds out of ~570 — 0.02%. A threaded Rust/Go rewrite would save it, and it is nothing. The one real serialization hazard is run_m1.py:311's `decision=rebuilt[config][0]`, which ships the whole 682,842-row enumeration (21.3 MB, 2.61 s round trip) to every worker — 15.7 CPU-seconds — and it fires exactly when the serialized tables' fingerprint does not match, which is the state this tree is in.",
+    "note_on_read_windows": "the worker-side alternative the pipeline prefers is table.read_windows, measured at 1.12 s CPU per config, of which zlib decompression of the 2.58 MB gz (49.5 MB raw) is 0.0195 s. 98.3% of read_windows is Python row parsing, not zlib."
+  },
+
+  "native_corners_measured": {
+    "harfbuzz": {
+      "font": "the M1.otf this tree produces — 263 glyphs, a much smaller GSUB than the shipped Senior font",
+      "Shaper.shape_us_per_call": 9.89,
+      "hb_only_us_per_call": 8.71,
+      "python_wrapper_pct_of_Shaper.shape": 12.0,
+      "measured_over": "20,000 length-4 texts, warmed",
+      "share_of_marginal_conformance_sweep_pct": 10.4,
+      "share_of_oracle_config_pct": 5.67,
+      "share_of_build_tables_pct": 0.0
+    },
+    "zlib": {
+      "gzip.decompress(windows-default.tsv.gz)": {"gz_mb": 2.58, "raw_mb": 49.48, "cpu_s": 0.0195},
+      "baseline_subset.filter_table(baseline-default.tsv.gz)": {
+        "source_gz_mb": 42.03, "source_raw_mb": 553.89, "source_rows": 4985767, "kept_rows": 111150,
+        "total_cpu_s": 3.17, "zlib_decompress_only_cpu_s": 0.177, "python_share_pct": 94.4,
+        "x11_tables_derived_cpu_s": 34.9
+      }
+    },
+    "hashlib": {
+      "fingerprint.tables_value_cpu_s": 0.0753,
+      "fingerprint.rune_digests_cpu_s": 0.0531,
+      "sha256_of_the_59MB_divergence_audit_cpu_s": 0.026,
+      "sha256_MBps": 2265.0
+    },
+    "json_plus_gzip_the_trace_memo": {
+      "default_store_entries": 1875829,
+      "gz_mb": 12.83,
+      "raw_mb": 223.26,
+      "decompress_cpu_s": 0.061,
+      "json_loads_200k_cpu_s": 0.45,
+      "json_dumps_200k_cpu_s": 0.328,
+      "sorted_200k_cpu_s": 0.005,
+      "projected_full_store_json_dumps_cpu_s": 3.08,
+      "projected_full_store_gzip_cpu_s": 1.33,
+      "note": "the calibration agent measured the whole trace-memo write at 17.0 s for the default config. Only ~4.4 s of that is the C json encoder plus zlib; the other ~12.6 s is TraceStore.save's own Python — _rows(), _entry_names(), frozenset().union over rune closures, and the intern-table construction. The memo write is Python-bound, not serialization-bound."
+    }
+  },
+
+  "stage_weights_for_a_full_cold_M1_pipeline": {
+    "units": "CPU-seconds",
+    "baseline_subset.ensure_fresh (11 tables)": {"cpu_s": 34.9, "label": "DERIVED from 3.17 s/table MEASURED"},
+    "spec_load": {"cpu_s": 0.105, "label": "MEASURED"},
+    "build_tables x 6 configs, cold": {"cpu_s": 337.87, "label": "MEASURED by the calibration agent on this box; my default-config slice is 83.38 s = 24.7% of it"},
+    "glyph minting + defect gates + emit_gsub/gpos + compile_font": {"cpu_s": 1.0, "label": "CITED from the m1-pipeline agent, not re-measured here"},
+    "run_boundary_gate": {"cpu_s": null, "label": "UNMEASURED"},
+    "run_manual_pin_gate": {"cpu_s": null, "label": "UNMEASURED"},
+    "run_oracle x 6 configs": {"cpu_s": 193.4, "label": "DERIVED from 32.24 s MEASURED for one config"},
+    "run_m1 subtotal": {"cpu_s": 567, "label": "DERIVED sum"},
+    "gate:conform sweep x 6 configs at horizon 5": {"cpu_s": 2400, "label": "DERIVED: 69.4 s fixed + 2,000,718 texts x ~170-210 us, per config, x6. Witness top-ups (which were over half the July run's shaping) are NOT included, so this is a floor."},
+    "total": {"cpu_s": 2967, "label": "DERIVED"}
+  },
+
+  "weighted_split_whole_pipeline_pct": {
+    "python_bytecode": 34.1,
+    "native_extension": 8.3,
+    "interpreter_overhead": 57.6,
+    "io_or_wait": 0.1,
+    "how": "each stage's measured Method-A split weighted by the stage CPU-seconds above; the conform sweep uses the MEASURED marginal harfbuzz share (10.4%, of which ~88% is inside libharfbuzz proper) with the length-4-phase sampler's bytecode:interpreter ratio applied to the remainder; the cold table stage is given 3.0% native for the trace-memo json+gzip it writes (my fixpoint slice, which writes no memo, measured 0.0%)."
+  },
+  "weighted_split_run_m1_only_pct": {
+    "python_bytecode": 35.0,
+    "native_extension": 3.3,
+    "interpreter_overhead": 61.6,
+    "io_or_wait": 0.1
+  },
+  "split_table_stage_only_pct": {
+    "python_bytecode": 30.8,
+    "native_extension": 0.0,
+    "interpreter_overhead": 69.2,
+    "io_or_wait": 0.0,
+    "note": "MEASURED directly, no weighting, no derivation. This is the stage the human waits on serially for 195-338 seconds and it contains no native library at all."
+  },
+
+  "amdahl": {
+    "whole_pipeline": {
+      "rewritable_fraction": 0.917,
+      "ceiling_infinite_speedup": 12.0,
+      "at_10x_on_rewritable": 5.7,
+      "at_25x": 8.4,
+      "at_50x": 9.9
+    },
+    "run_m1_only": {
+      "rewritable_fraction": 0.966,
+      "ceiling_infinite_speedup": 29.5,
+      "at_10x": 7.7,
+      "at_25x": 13.8,
+      "at_50x": 18.8
+    },
+    "table_stage_only": {
+      "rewritable_fraction": 1.0,
+      "ceiling_infinite_speedup": null,
+      "at_10x": 10.0,
+      "at_25x": 25.0,
+      "at_50x": 50.0,
+      "note": "there is no native floor here at all, so the ceiling is unbounded and the realistic speedup is whatever the language delivers"
+    }
+  },
+
+  "python_level_levers_that_need_no_rewrite": {
+    "frozen_dataclasses_without_slots": "MEASURED: 25.14% of Python-level leaf samples are the generated frozen __init__, 5.44% __hash__, 2.89% __eq__ — 36.95% of the sampler's leaf time in generated dataclass methods. Adding slots=True routes attribute stores through a slot descriptor instead of object.__setattr__ + instance dict.",
+    "gc": "MEASURED: 14.79% of native leaf samples are in the collector (gc_collect_main, visit_reachable, visit_decref, subtype_traverse, tuple_traverse). The working set is 682,842 Transition objects plus a 1.9 M-entry memo, none of it cyclic garbage. gc.freeze() after spec load plus gc.disable() around the fixpoint is close to free.",
+    "read_windows": "MEASURED: 1.12 s CPU per config, of which zlib is 0.0195 s. 98% Python row parsing.",
+    "baseline_subset.filter_table": "MEASURED: 3.17 s per table, zlib 0.177 s. 94% Python per-line int(token,16) work over 4,985,767 rows."
+  },
+
+  "evidence_files": [
+    "raw/perf/attr-m1/slice_tables.py",
+    "raw/perf/attr-m1/slice_tables_sampled.py",
+    "raw/perf/attr-m1/slice_conform.py",
+    "raw/perf/attr-m1/slice_oracle.py",
+    "raw/perf/attr-m1/sampler.py",
+    "raw/perf/attr-m1/bucket_sample.py",
+    "raw/perf/attr-m1/prof_split.py",
+    "raw/perf/attr-m1/pickle_costs.py",
+    "raw/perf/attr-m1/native_costs.py",
+    "raw/perf/attr-m1/sample-build-tables-default.txt",
+    "raw/perf/attr-m1/sample-conform-L4.txt",
+    "raw/perf/attr-m1/sample-conform-L4-len4phase.txt",
+    "raw/perf/attr-m1/sample-oracle-default.txt",
+    "raw/perf/attr-m1/bucket-build-tables-default.json",
+    "raw/perf/attr-m1/bucket-conform-L4.json",
+    "raw/perf/attr-m1/bucket-conform-len4phase.json",
+    "raw/perf/attr-m1/bucket-oracle-default.json",
+    "raw/perf/attr-m1/build_tables-default.prof",
+    "raw/perf/attr-m1/prof-split-mine.json",
+    "raw/perf/attr-m1/prof-split-build-tables-default.json",
+    "raw/perf/attr-m1/pysample-build-tables-default.json",
+    "raw/perf/attr-m1/pickle-costs.json",
+    "raw/perf/attr-m1/native-costs.json",
+    "raw/perf/attr-m1/trace-memo-costs.json",
+    "raw/perf/attr-m1/baseline-subset-costs.json",
+    "raw/perf/attr-m1/spawn-costs.json",
+    "raw/perf/attr-m1/native-inclusive.txt",
+    "raw/perf/attr-m1/slice-plain-default.log",
+    "raw/perf/attr-m1/slice-prof-default.log",
+    "raw/perf/attr-m1/slice-sampled-default.log",
+    "raw/perf/attr-m1/conform-L4.log",
+    "raw/perf/attr-m1/conform-L4b.log",
+    "raw/perf/attr-m1/oracle-default.log",
+    "raw/perf/attr-m1/conform-plain-default-L3.json",
+    "raw/perf/attr-m1/conform-plain-default-L4.json",
+    "raw/perf/attr-m1/oracle-default.json"
+  ]
+}

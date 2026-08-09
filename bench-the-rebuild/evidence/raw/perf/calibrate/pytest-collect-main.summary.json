@@ -1,0 +1,35 @@
+{
+  "summary": {
+    "label": "pytest-collect-main",
+    "runs": 2,
+    "wall_median_s": 0.6708,
+    "wall_min_s": 0.5814,
+    "wall_max_s": 0.6708,
+    "user_median_s": 0.5527,
+    "sys_median_s": 0.0493,
+    "rcs": [
+      0,
+      0
+    ]
+  },
+  "records": [
+    {
+      "label": "pytest-collect-main",
+      "run": 0,
+      "wall_s": 0.6708,
+      "user_s": 0.5527,
+      "sys_s": 0.0493,
+      "maxrss_mb": 82.0,
+      "rc": 0
+    },
+    {
+      "label": "pytest-collect-main",
+      "run": 1,
+      "wall_s": 0.5814,
+      "user_s": 0.5422,
+      "sys_s": 0.0332,
+      "maxrss_mb": 82.0,
+      "rc": 0
+    }
+  ]
+}

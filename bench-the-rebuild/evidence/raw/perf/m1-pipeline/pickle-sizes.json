@@ -1,0 +1,17 @@
+{
+  "ResolvedSpec": {
+    "bytes": 64595,
+    "dumps_s": 0.0007031660061329603,
+    "loads_s": 0.002218082983745262
+  },
+  "DecisionTable (rules only)": {
+    "bytes": 301239,
+    "dumps_s": 0.0012092080141883343,
+    "loads_s": 0.001758834026986733
+  },
+  "DecisionTable (with windows)": {
+    "bytes": 39640475,
+    "dumps_s": 3.13912816598895,
+    "loads_s": 2.9802826670056675
+  }
+}

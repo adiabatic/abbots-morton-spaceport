@@ -1,0 +1,45 @@
+{
+  "summary": {
+    "label": "gate-js",
+    "runs": 3,
+    "wall_median_s": 0.1043,
+    "wall_min_s": 0.1028,
+    "wall_max_s": 0.3247,
+    "user_median_s": 0.3567,
+    "sys_median_s": 0.0756,
+    "rcs": [
+      0,
+      0,
+      0
+    ]
+  },
+  "records": [
+    {
+      "label": "gate-js",
+      "run": 0,
+      "wall_s": 0.3247,
+      "user_s": 0.359,
+      "sys_s": 0.1117,
+      "maxrss_mb": 66.7,
+      "rc": 0
+    },
+    {
+      "label": "gate-js",
+      "run": 1,
+      "wall_s": 0.1028,
+      "user_s": 0.3541,
+      "sys_s": 0.072,
+      "maxrss_mb": 66.8,
+      "rc": 0
+    },
+    {
+      "label": "gate-js",
+      "run": 2,
+      "wall_s": 0.1043,
+      "user_s": 0.3567,
+      "sys_s": 0.0756,
+      "maxrss_mb": 67.3,
+      "rc": 0
+    }
+  ]
+}

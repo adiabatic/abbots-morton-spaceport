@@ -1,0 +1,12 @@
+# evidence/ is a verbatim snapshot of one performance study — the two written records and the
+# per-slice numeric trail they cite. It is an archive, not authored prose: reformatting it
+# would edit the record it exists to preserve, so no style rule applies inside it. The whole
+# directory goes when the Rust-port fork closes (see ../RUST-PORT-PLAN.md).
+#
+# `default: false` turns off the rules that are merely on by default; emphasis-style and
+# strong-style need naming because the repo-root config sets them explicitly, and an
+# explicitly-configured rule stays enabled through a default of false.
+config:
+  default: false
+  emphasis-style: false
+  strong-style: false

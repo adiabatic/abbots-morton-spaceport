@@ -1,0 +1,294 @@
+{
+  "elapsed_s": 44.5131714589952,
+  "totals": {
+    "suffix_only_at_depth_2": 22,
+    "prefix_only_at_depth_2": 4,
+    "reachable_depth_le_1": 215
+  },
+  "by_pair": {
+    "qsIt+qsDay": {
+      "suffix": {
+        "reachable_depth_le_1": 8,
+        "reachable_depth_2": 12,
+        "only_at_depth_2": 4,
+        "examples": [
+          [
+            "qsIt.en-y5.ex-y0.ex-ext-1",
+            "qsDay_qsUtter.half.en-y0.ex-y5.ex-con-2"
+          ],
+          [
+            "qsIt.en-y5.ex-y0.ex-ext-1",
+            "qsDay_qsUtter.half.en-y0.ex-y5.ex-ext-1"
+          ]
+        ]
+      },
+      "prefix": {
+        "reachable_depth_le_1": 8,
+        "reachable_depth_2": 9,
+        "only_at_depth_2": 1,
+        "examples": [
+          [
+            "qsIt.en-y5.ex-y0",
+            "qsDay_qsUtter"
+          ]
+        ]
+      }
+    },
+    "qsUtter+qsGay": {
+      "suffix": {
+        "reachable_depth_le_1": 5,
+        "reachable_depth_2": 8,
+        "only_at_depth_2": 3,
+        "examples": [
+          [
+            "qsGay.en-y5.ex-noentry"
+          ],
+          [
+            "qsUtter.ex-ext-1",
+            "qsGay.en-y5.ex-noentry"
+          ]
+        ]
+      },
+      "prefix": {
+        "reachable_depth_le_1": 5,
+        "reachable_depth_2": 5,
+        "only_at_depth_2": 0,
+        "examples": []
+      }
+    },
+    "qsSee+qsOut": {
+      "suffix": {
+        "reachable_depth_le_1": 8,
+        "reachable_depth_2": 9,
+        "only_at_depth_2": 1,
+        "examples": [
+          [
+            "qsSee.ex-y0.ex-con-1",
+            "qsOut"
+          ]
+        ]
+      },
+      "prefix": {
+        "reachable_depth_le_1": 8,
+        "reachable_depth_2": 8,
+        "only_at_depth_2": 0,
+        "examples": []
+      }
+    },
+    "qsYe+qsIt": {
+      "suffix": {
+        "reachable_depth_le_1": 29,
+        "reachable_depth_2": 30,
+        "only_at_depth_2": 1,
+        "examples": [
+          [
+            "qsYe.noentry",
+            "qsIt"
+          ]
+        ]
+      },
+      "prefix": {
+        "reachable_depth_le_1": 29,
+        "reachable_depth_2": 29,
+        "only_at_depth_2": 0,
+        "examples": []
+      }
+    },
+    "qsIt+qsIt": {
+      "suffix": {
+        "reachable_depth_le_1": 29,
+        "reachable_depth_2": 30,
+        "only_at_depth_2": 1,
+        "examples": [
+          [
+            "qsIt.noentry",
+            "qsIt"
+          ]
+        ]
+      },
+      "prefix": {
+        "reachable_depth_le_1": 29,
+        "reachable_depth_2": 32,
+        "only_at_depth_2": 3,
+        "examples": [
+          [
+            "qsIt",
+            "qsIt"
+          ],
+          [
+            "qsIt",
+            "qsIt.ex-y0"
+          ]
+        ]
+      }
+    },
+    "qsEat+qsYe": {
+      "suffix": {
+        "reachable_depth_le_1": 9,
+        "reachable_depth_2": 9,
+        "only_at_depth_2": 0,
+        "examples": []
+      },
+      "prefix": {
+        "reachable_depth_le_1": 9,
+        "reachable_depth_2": 9,
+        "only_at_depth_2": 0,
+        "examples": []
+      }
+    },
+    "qsJay+qsHe": {
+      "suffix": {
+        "reachable_depth_le_1": 25,
+        "reachable_depth_2": 25,
+        "only_at_depth_2": 0,
+        "examples": []
+      },
+      "prefix": {
+        "reachable_depth_le_1": 25,
+        "reachable_depth_2": 25,
+        "only_at_depth_2": 0,
+        "examples": []
+      }
+    },
+    "qsHe+qsOwe": {
+      "suffix": {
+        "reachable_depth_le_1": 12,
+        "reachable_depth_2": 12,
+        "only_at_depth_2": 0,
+        "examples": []
+      },
+      "prefix": {
+        "reachable_depth_le_1": 12,
+        "reachable_depth_2": 12,
+        "only_at_depth_2": 0,
+        "examples": []
+      }
+    },
+    "qsYe+qsOwe": {
+      "suffix": {
+        "reachable_depth_le_1": 16,
+        "reachable_depth_2": 16,
+        "only_at_depth_2": 0,
+        "examples": []
+      },
+      "prefix": {
+        "reachable_depth_le_1": 16,
+        "reachable_depth_2": 16,
+        "only_at_depth_2": 0,
+        "examples": []
+      }
+    },
+    "qsJay+qsYe": {
+      "suffix": {
+        "reachable_depth_le_1": 12,
+        "reachable_depth_2": 12,
+        "only_at_depth_2": 0,
+        "examples": []
+      },
+      "prefix": {
+        "reachable_depth_le_1": 12,
+        "reachable_depth_2": 12,
+        "only_at_depth_2": 0,
+        "examples": []
+      }
+    },
+    "qsJai+qsYe": {
+      "suffix": {
+        "reachable_depth_le_1": 14,
+        "reachable_depth_2": 15,
+        "only_at_depth_2": 1,
+        "examples": [
+          [
+            "qsJai.noentry",
+            "qsYe"
+          ]
+        ]
+      },
+      "prefix": {
+        "reachable_depth_le_1": 14,
+        "reachable_depth_2": 14,
+        "only_at_depth_2": 0,
+        "examples": []
+      }
+    },
+    "qsIt+qsOwe": {
+      "suffix": {
+        "reachable_depth_le_1": 16,
+        "reachable_depth_2": 16,
+        "only_at_depth_2": 0,
+        "examples": []
+      },
+      "prefix": {
+        "reachable_depth_le_1": 16,
+        "reachable_depth_2": 16,
+        "only_at_depth_2": 0,
+        "examples": []
+      }
+    },
+    "qsIt+qsCheer": {
+      "suffix": {
+        "reachable_depth_le_1": 4,
+        "reachable_depth_2": 4,
+        "only_at_depth_2": 0,
+        "examples": []
+      },
+      "prefix": {
+        "reachable_depth_le_1": 4,
+        "reachable_depth_2": 4,
+        "only_at_depth_2": 0,
+        "examples": []
+      }
+    },
+    "qsIt+qsJai": {
+      "suffix": {
+        "reachable_depth_le_1": 13,
+        "reachable_depth_2": 24,
+        "only_at_depth_2": 11,
+        "examples": [
+          [
+            "qsIt.en-y0.ex-y5",
+            "qsJai"
+          ],
+          [
+            "qsIt.en-y0.ex-y5.ex-ext-1",
+            "qsJai_qsUtter.ex-con-2"
+          ]
+        ]
+      },
+      "prefix": {
+        "reachable_depth_le_1": 13,
+        "reachable_depth_2": 13,
+        "only_at_depth_2": 0,
+        "examples": []
+      }
+    },
+    "qsYe+qsI": {
+      "suffix": {
+        "reachable_depth_le_1": 6,
+        "reachable_depth_2": 6,
+        "only_at_depth_2": 0,
+        "examples": []
+      },
+      "prefix": {
+        "reachable_depth_le_1": 6,
+        "reachable_depth_2": 6,
+        "only_at_depth_2": 0,
+        "examples": []
+      }
+    },
+    "qsIt+qsI": {
+      "suffix": {
+        "reachable_depth_le_1": 9,
+        "reachable_depth_2": 9,
+        "only_at_depth_2": 0,
+        "examples": []
+      },
+      "prefix": {
+        "reachable_depth_le_1": 9,
+        "reachable_depth_2": 9,
+        "only_at_depth_2": 0,
+        "examples": []
+      }
+    }
+  }
+}

@@ -1,0 +1,37 @@
+Auto-resolved carry source: verdicts-autosave.json (9260 effective verdicts, stamped for the served surface). Pass --verdicts to override.
+Artifact-cycle plan (resolved, nothing executed):
+
+  git short id : 704bd210
+  first run    : False
+  snapshot dir : tmp/review-pre-704bd210
+  verdicts     : verdicts-autosave.json
+  carry output : verdicts-carried-704bd210.json
+
+  Steps:
+    1. snapshot: snapshot rebuild/out/review -> tmp/review-pre-704bd210 (APFS clone when supported)
+    2. run_m1: uv run python -m rebuild.pipeline.run_m1 --jobs 6
+    3. surface-build: uv run python -m rebuild.review.build --jobs 6
+    4. carry: uv run python rebuild/tools/carry_verdicts.py --source tmp/review-pre-704bd210 verdicts-autosave.json --out verdicts-carried-704bd210.json
+    5. merge: uv run python -m rebuild.tools.merge_verdicts verdicts-carried-704bd210.json
+    6. echo-fill: uv run python rebuild/tools/echo_verdicts.py verdicts-autosave.json
+    7. echo-merge: uv run python -m rebuild.tools.merge_verdicts verdicts-echo-fill.json
+    8. standing-fill: uv run python rebuild/tools/standing_verdicts.py verdicts-autosave.json
+    9. standing-merge: uv run python -m rebuild.tools.merge_verdicts verdicts-standing-fill.json
+    10. census: uv run python -m rebuild.review.census --check --surface rebuild/out/review
+       (staleness reported informationally)
+    11. complaints: uv run python -m rebuild.tools.complaint_docket verdicts-autosave.json
+       (informational, non-gating)
+    12. gate:js: node --test rebuild/review/jstests/docket.test.js rebuild/review/jstests/keyboard.test.js rebuild/review/jstests/preview.test.js rebuild/review/jstests/render.test.js rebuild/review/jstests/state.test.js rebuild/review/jstests/status.test.js rebuild/review/jstests/verdicts.test.js
+    13. gate:conform: uv run python -m rebuild.pipeline.run_m1 --conform-only --jobs 8
+    14. gate:rebuild: uv run pytest rebuild/ -n auto --dist worksteal -q --tb=no -rfE
+       (submitted after the census step; a STALE outcome defers it instead)
+    15. gate:make-test: make test
+    16. retention: on green finish: keep only this cycle's tmp/review-pre-* snapshot and the stamp-aligned verdicts-carried-*.json, drop verdicts-autosave-* stashes older than the journal's last base event, compact the journal to a 7-day restore floor; --keep-history skips
+
+  Concurrency (pool policy: queue):
+    Lane t0   [from t=0, background]  : gate:js, gate:make-test
+    Lane build[serial, main thread]  : snapshot -> run_m1 -> surface-build -> carry -> merge -> census -> submit gate:rebuild
+    Lane conform                     : starts when run_m1's four JSONs pass; QUEUED behind gate:make-test (queue policy — one heavy pool at a time) (--jobs 8)
+    Lane rebuild                     : submitted after the census step lands its verdict;
+                                       QUEUED behind gate:conform (queue policy — one heavy pool at a time)
+    build-stage --jobs budget        : 6  (half the cores, sharing the box with gate:make-test's full-width pytest pool)

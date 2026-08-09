@@ -1,0 +1,3030 @@
+{
+ "slug": "bench",
+ "machine": "Apple M4 Pro, macOS Darwin 25.6, 12 logical cores (8P+4E), CPython 3.14.6 (GIL), Go 1.26.5, Rust 1.97.1",
+ "exclusivity": "exclusive box; load average 1.9-3.4 (idle baseline ~2.4 on this desktop) for every measurement below",
+ "headline_k1_meso": {
+  "one_config_wall": {
+   "python_s": 29.5135,
+   "rust_s": 1.6229,
+   "go_s": 1.9596,
+   "rust_x": 18.19,
+   "go_x": 15.06
+  },
+  "six_config_serial_wall": {
+   "python_s": 181.5983,
+   "rust_s": 9.0472,
+   "go_s": 11.2932,
+   "rust_x": 20.07,
+   "go_x": 16.08
+  },
+  "six_config_parallel_wall": {
+   "rust_donor_then_5_shared_s": 3.3748,
+   "rust_donor_then_5_shared_x": 53.81,
+   "rust_6_independent_s": 1.8826,
+   "rust_6_independent_x": 96.46,
+   "go_donor_then_5_shared_s": 4.2798,
+   "go_donor_then_5_shared_x": 42.43,
+   "go_6_independent_s": 2.5032,
+   "go_6_independent_x": 72.55
+  },
+  "parallelism_alone": {
+   "rust_shared": 2.68,
+   "rust_independent": 4.81,
+   "go_shared": 2.64,
+   "go_independent": 4.51
+  },
+  "does_the_share_still_pay": {
+   "rust_serial_noshare_over_share": 1.04,
+   "go_serial_noshare_over_share": 1.08,
+   "rust_best_with_share_s": 3.3748,
+   "rust_best_without_share_s": 1.8826,
+   "reading": "SOUND HALF: dropping the share unlocks 6-way instead of 5-way-behind-a-serial-donor parallelism, and that is worth a measured 1.79x in Rust (3.375 s -> 1.883 s). UNSOUND HALF: the Build phase read this as 'a packed rewrite makes the share stop paying'. It is not a language finding -- see k1_meso_share_value_per_language, where the model's share is worth 1.7% in Python, 4.1% in Rust and 7.0% in Go. The model's share never paid in any language, so the model cannot price this trade-off. The real kernel's in-cold-build share value is unmeasured anywhere."
+  }
+ },
+ "corrections_to_the_build_phase": [
+  {
+   "claim": "fidelity ratio 0.904 (cost per kernel op), 'treat 21x as 19-23x'",
+   "measured_here": "0.754 median of 3 reps (0.733-0.772). The model's Python is 1.33x CHEAPER per kernel operation than the real kernel, not 1.10x.",
+   "consequence": "the fidelity gap is 3x wider than claimed. The direction argument still holds (a wider gap makes the reported multiplier more of a floor), but the band on the headline widens from 19-23x to roughly 20-27x, and the residual uncertainty is larger than the Build phase stated."
+  },
+  {
+   "claim": "'in a packed rewrite the share stops paying'",
+   "measured_here": "the model's cross-configuration share is worth 1.7% in Python, 4.1% in Rust, 7.0% in Go (L=12, identical per-config checksums both ways).",
+   "consequence": "REFUTED as a language finding. The share is weak in the MODEL, in every language including Python. What survives is the structural fact that a serial donor caps parallelism at 5-way, worth a measured 1.79x in Rust -- but whether giving up the real share to get it is a win is not answerable from this model."
+  },
+  {
+   "claim": "python-six 227.7 CPU-s / 246.2 s wall, rust-six 13.83 s, headline 21.0x one-config",
+   "measured_here": "on an exclusive box python-six is 181.6 s wall and rust-six 9.05 s; one-config Rust is 18.2x, six-config 20.1x.",
+   "consequence": "the contended figures were roughly self-consistent; the clean numbers are lower in absolute terms and slightly lower in ratio for one config. No conclusion changes."
+  },
+  {
+   "claim": "Go is consistently 1.3-1.4x slower than Rust on this workload",
+   "measured_here": "1.21x at one config, 1.25x at six -- but the gap WIDENS with problem size (Go is 18.3x of Python at 75k windows and 15.0x at 429k, while Rust is flat at 20.7x -> 19.8x).",
+   "consequence": "Go's multiplier is volume-dependent on this workload and the real kernel is 1.6x larger again than the largest model instance, so Go's real-kernel figure should be read as an upper bound. Rust's is not volume-dependent over the range measured."
+  }
+ ],
+ "k1_meso_variants": {
+  "python-one": {
+   "wall_s_all": [
+    30.0366,
+    29.5135,
+    29.3147
+   ],
+   "wall_s_median": 29.5135,
+   "wall_s_spread_pct": 2.4,
+   "process_cpu_s_median": 29.49,
+   "peak_rss_mb_median": 1936.2
+  },
+  "python-six": {
+   "wall_s_all": [
+    186.2357,
+    177.6379,
+    181.5983
+   ],
+   "wall_s_median": 181.5983,
+   "wall_s_spread_pct": 4.7,
+   "process_cpu_s_median": 180.8512,
+   "peak_rss_mb_median": 4726.6
+  },
+  "rust-one": {
+   "wall_s_all": [
+    1.6909,
+    1.5913,
+    1.6229
+   ],
+   "wall_s_median": 1.6229,
+   "wall_s_spread_pct": 6.1,
+   "process_cpu_s_median": 1.61,
+   "peak_rss_mb_median": 351.6
+  },
+  "rust-six": {
+   "wall_s_all": [
+    9.4789,
+    8.6477,
+    9.0472
+   ],
+   "wall_s_median": 9.0472,
+   "wall_s_spread_pct": 9.2,
+   "process_cpu_s_median": 8.99,
+   "peak_rss_mb_median": 394.8
+  },
+  "rust-six-noshare": {
+   "wall_s_all": [
+    9.5405,
+    9.4082,
+    9.1602
+   ],
+   "wall_s_median": 9.4082,
+   "wall_s_spread_pct": 4.0,
+   "process_cpu_s_median": 9.38,
+   "peak_rss_mb_median": 519.7
+  },
+  "rust-six-par": {
+   "wall_s_all": [
+    3.3748,
+    3.5468,
+    3.1783
+   ],
+   "wall_s_median": 3.3748,
+   "wall_s_spread_pct": 10.9,
+   "process_cpu_s_median": 9.95,
+   "peak_rss_mb_median": 1672.3
+  },
+  "rust-six-par-noshare": {
+   "wall_s_all": [
+    1.9319,
+    1.8826,
+    1.8688
+   ],
+   "wall_s_median": 1.8826,
+   "wall_s_spread_pct": 3.4,
+   "process_cpu_s_median": 10.72,
+   "peak_rss_mb_median": 2298.1
+  },
+  "go-one": {
+   "wall_s_all": [
+    2.0512,
+    1.9596,
+    1.952
+   ],
+   "wall_s_median": 1.9596,
+   "wall_s_spread_pct": 5.1,
+   "process_cpu_s_median": 2.16,
+   "peak_rss_mb_median": 460.0
+  },
+  "go-six": {
+   "wall_s_all": [
+    11.3775,
+    11.2932,
+    11.189
+   ],
+   "wall_s_median": 11.2932,
+   "wall_s_spread_pct": 1.7,
+   "process_cpu_s_median": 12.08,
+   "peak_rss_mb_median": 619.9
+  },
+  "go-six-noshare": {
+   "wall_s_all": [
+    12.1573,
+    12.2125,
+    12.0367
+   ],
+   "wall_s_median": 12.1573,
+   "wall_s_spread_pct": 1.4,
+   "process_cpu_s_median": 13.27,
+   "peak_rss_mb_median": 614.0
+  },
+  "go-six-par": {
+   "wall_s_all": [
+    4.1932,
+    4.48,
+    4.2798
+   ],
+   "wall_s_median": 4.2798,
+   "wall_s_spread_pct": 6.7,
+   "process_cpu_s_median": 13.56,
+   "peak_rss_mb_median": 2160.6
+  },
+  "go-six-par-noshare": {
+   "wall_s_all": [
+    2.4554,
+    2.5747,
+    2.5032
+   ],
+   "wall_s_median": 2.5032,
+   "wall_s_spread_pct": 4.8,
+   "process_cpu_s_median": 15.36,
+   "peak_rss_mb_median": 2678.6
+  }
+ },
+ "k1_meso_meta": {
+  "reps": 3,
+  "real_kernel_build_tables_cpu_s_all": [
+   78.626,
+   79.149,
+   80.938
+  ],
+  "real_kernel_build_tables_cpu_s_median": 79.149,
+  "real_kernel_cpu_spread_pct": 2.9,
+  "cost_model_exclusive_box_cpu_s": 77.51,
+  "this_box_vs_cost_model": 1.021,
+  "fidelity_ratio_cost_per_kernel_op_all": [
+   0.772,
+   0.754,
+   0.733
+  ],
+  "fidelity_ratio_cost_per_kernel_op_median": 0.754,
+  "fidelity_ratio_cost_per_candidates_call_median": 0.696,
+  "fidelity_discount_factor": 1.326,
+  "equivalence_all_reps": true,
+  "default_config_checksum": 2964411847154100471,
+  "per_config": {
+   "default": {
+    "windows": 428971,
+    "cells": 135,
+    "checksum": 2964411847154100471,
+    "distinct_answers_across_variants": 1
+   },
+   "ss03": {
+    "windows": 428971,
+    "cells": 135,
+    "checksum": 2964411847154100471,
+    "distinct_answers_across_variants": 1
+   },
+   "ss03+ss05": {
+    "windows": 428971,
+    "cells": 135,
+    "checksum": 12287200884778952350,
+    "distinct_answers_across_variants": 1
+   },
+   "ss04": {
+    "windows": 435368,
+    "cells": 137,
+    "checksum": 6543794170556551091,
+    "distinct_answers_across_variants": 1
+   },
+   "ss05": {
+    "windows": 428971,
+    "cells": 135,
+    "checksum": 12287200884778952350,
+    "distinct_answers_across_variants": 1
+   },
+   "ss10": {
+    "windows": 441291,
+    "cells": 135,
+    "checksum": 13177250471350002354,
+    "distinct_answers_across_variants": 1
+   }
+  },
+  "memo_microbenchmark": {
+   "python": {
+    "ns_per_lookup_all": [
+     1367.02,
+     1383.17,
+     1365.34
+    ],
+    "ns_per_lookup_median": 1367.02,
+    "bytes_per_entry_median": 254.2
+   },
+   "rust": {
+    "ns_per_lookup_all": [
+     35.81,
+     34.84,
+     36.06
+    ],
+    "ns_per_lookup_median": 35.81,
+    "key_struct_bytes": 10
+   },
+   "go": {
+    "ns_per_lookup_all": [
+     58.26,
+     74.46,
+     58.43
+    ],
+    "ns_per_lookup_median": 58.43
+   },
+   "rust_vs_python": 38.17,
+   "go_vs_python": 23.4
+  }
+ },
+ "k1_meso_multiplier_vs_problem_size": {
+  "note": "one config, single-threaded, wall seconds inside the fixpoint; tests whether the language multiplier is an artifact of one model size",
+  "rows": [
+   {
+    "letters": 10,
+    "windows": 75290,
+    "checksums_agree": true,
+    "python_wall_s": 5.2247,
+    "rust_wall_s": 0.2527,
+    "go_wall_s": 0.2855,
+    "rust_x": 20.68,
+    "go_x": 18.3
+   },
+   {
+    "letters": 12,
+    "windows": 144963,
+    "checksums_agree": true,
+    "python_wall_s": 10.5173,
+    "rust_wall_s": 0.5269,
+    "go_wall_s": 0.6489,
+    "rust_x": 19.96,
+    "go_x": 16.21
+   },
+   {
+    "letters": 15,
+    "windows": 428971,
+    "checksums_agree": true,
+    "python_wall_s": 29.459,
+    "rust_wall_s": 1.4891,
+    "go_wall_s": 1.9638,
+    "rust_x": 19.78,
+    "go_x": 15.0
+   }
+  ],
+  "reading": "Rust is flat at 19.8-20.7x across a 5.7x change in window count; Go decays 18.3 -> 15.0, so extrapolating Go to the real kernel (1.6x more windows again) would push it lower still"
+ },
+ "k1_meso_share_value_per_language": {
+  "letters": 12,
+  "question": "the Build phase concluded 'in a packed rewrite the share stops paying'. This measures the share's value in ALL THREE languages on the same model, to see whether that is a language finding or a property of the model's share.",
+  "rows": {
+   "python": {
+    "six_with_share_wall_s": 62.0099,
+    "six_without_share_wall_s": 63.0803,
+    "share_saves_x": 1.0173,
+    "checksums_identical": true
+   },
+   "rust": {
+    "six_with_share_wall_s": 2.8413,
+    "six_without_share_wall_s": 2.959,
+    "share_saves_x": 1.0415,
+    "checksums_identical": true
+   },
+   "go": {
+    "six_with_share_wall_s": 3.3438,
+    "six_without_share_wall_s": 3.577,
+    "share_saves_x": 1.0697,
+    "checksums_identical": true
+   }
+  },
+  "reading": "the model's cross-configuration share is worth 1.7% in Python, 4.1% in Rust and 7.0% in Go -- it never paid much in ANY language, so the model cannot support the claim that a rewrite is what made it stop paying. The real kernel's share value inside a cold six-config build is not measured anywhere (the cost model's 337.9 s cold figure already includes it, and its 194.9 s warm figure is the persisted trace STORE, a different mechanism)."
+ },
+ "independent_anchor_real_kernel": {
+  "full_18_runes_default_config": {
+   "runes": 18,
+   "rune_names": [
+    "qsAh",
+    "qsDay",
+    "qsDay_qsUtter",
+    "qsEt",
+    "qsFee",
+    "qsI",
+    "qsIt",
+    "qsLow",
+    "qsMay",
+    "qsNo",
+    "qsOy",
+    "qsPea",
+    "qsRoe",
+    "qsSee",
+    "qsSee_qsUtter",
+    "qsTea",
+    "qsTea_qsOy",
+    "qsUtter"
+   ],
+   "import_wall": 0.0243,
+   "build_tables_wall": 81.82314112500171,
+   "build_tables_cpu": 81.364863,
+   "n_windows": 682842,
+   "n_rules": 2667,
+   "n_treaty": 3563,
+   "n_cells": 197,
+   "windows_digest": "f0abcf1715afc349f2acd4661fb2b2c62078c19c9d0737d7b4da86d9cd0c8b94",
+   "maxrss_bytes": 4045160448,
+   "python": "3.14.6"
+  },
+  "bounded_9_rune_slice": {
+   "runes": 9,
+   "rune_names": [
+    "qsAh",
+    "qsDay",
+    "qsDay_qsUtter",
+    "qsOy",
+    "qsSee",
+    "qsSee_qsUtter",
+    "qsTea",
+    "qsTea_qsOy",
+    "qsUtter"
+   ],
+   "import_wall": 0.0263,
+   "build_tables_wall": 3.1562633749854285,
+   "build_tables_cpu": 3.1413539999999998,
+   "n_windows": 32222,
+   "n_rules": 267,
+   "n_treaty": 490,
+   "n_cells": 58,
+   "windows_digest": "3b227f593527dec6c5f7cbb7f55794cde26e171d52c7d36ad65d46c01697143e",
+   "maxrss_bytes": 201064448,
+   "python": "3.14.6"
+  },
+  "note": "run by this phase, not by any runner, via /usr/bin/time -l uv run python raw/perf2/bench/anchor.py"
+ },
+ "k1_micro": {
+  "equivalence_all_match": true,
+  "checks": 15,
+  "table": [
+   {
+    "operation": "loop skeleton (iterate + store + accumulate)",
+    "kind": "measured",
+    "note": "each kernel's control loop; the interpreter-dispatch floor",
+    "python_op": "construct8/frozen-dataclass [control]",
+    "python_raw_ns": 29.158,
+    "python_min_ns": 29.158,
+    "python_net_ns": 29.158,
+    "python_control_ns": 0.0,
+    "python_spread_pct": 0.0,
+    "rust_op": "construct8/struct-copy [control]",
+    "rust_raw_ns": 1.631,
+    "rust_min_ns": 1.631,
+    "rust_net_ns": 1.631,
+    "rust_control_ns": 0.0,
+    "rust_spread_pct": 0.0,
+    "go_op": "construct8/struct-copy [control]",
+    "go_raw_ns": 1.828,
+    "go_min_ns": 1.828,
+    "go_net_ns": 1.828,
+    "go_control_ns": 0.0,
+    "go_spread_pct": 0.0,
+    "rust_speedup_raw": 17.88,
+    "rust_speedup_min": 17.88,
+    "rust_speedup_net": 17.88,
+    "go_speedup_raw": 15.95,
+    "go_speedup_min": 15.95,
+    "go_speedup_net": 15.95
+   },
+   {
+    "operation": "construct 8-field record",
+    "kind": "measured",
+    "python_op": "construct8/frozen-dataclass",
+    "python_raw_ns": 422.005,
+    "python_min_ns": 416.129,
+    "python_net_ns": 392.848,
+    "python_control_ns": 29.158,
+    "python_spread_pct": 1.6,
+    "rust_op": "construct8/struct-copy",
+    "rust_raw_ns": 3.454,
+    "rust_min_ns": 3.302,
+    "rust_net_ns": 1.824,
+    "rust_control_ns": 1.631,
+    "rust_spread_pct": 6.4,
+    "go_op": "construct8/struct-copy",
+    "go_raw_ns": 4.563,
+    "go_min_ns": 4.375,
+    "go_net_ns": 2.736,
+    "go_control_ns": 1.828,
+    "go_spread_pct": 12.3,
+    "rust_speedup_raw": 122.18,
+    "rust_speedup_net": 215.38,
+    "rust_speedup_min": 126.02,
+    "go_speedup_raw": 92.48,
+    "go_speedup_net": 143.58,
+    "go_speedup_min": 95.12
+   },
+   {
+    "operation": "construct 8-field record (py: plain tuple)",
+    "kind": "measured",
+    "python_op": "construct8/plain-tuple",
+    "python_raw_ns": 40.856,
+    "python_min_ns": 40.586,
+    "python_net_ns": 11.312,
+    "python_control_ns": 29.544,
+    "python_spread_pct": 1.1,
+    "rust_op": "construct8/struct-copy",
+    "rust_raw_ns": 3.454,
+    "rust_min_ns": 3.302,
+    "rust_net_ns": 1.824,
+    "rust_control_ns": 1.631,
+    "rust_spread_pct": 6.4,
+    "go_op": "construct8/struct-copy",
+    "go_raw_ns": 4.563,
+    "go_min_ns": 4.375,
+    "go_net_ns": 2.736,
+    "go_control_ns": 1.828,
+    "go_spread_pct": 12.3,
+    "rust_speedup_raw": 11.83,
+    "rust_speedup_net": 6.2,
+    "rust_speedup_min": 12.29,
+    "go_speedup_raw": 8.95,
+    "go_speedup_net": 4.13,
+    "go_speedup_min": 9.28
+   },
+   {
+    "operation": "construct 5-field settle.Candidate",
+    "kind": "measured",
+    "python_op": "legacy5/frozen-dataclass-construct",
+    "python_raw_ns": 302.445,
+    "python_min_ns": 301.289,
+    "python_net_ns": 278.954,
+    "python_control_ns": 23.491,
+    "python_spread_pct": 1.6,
+    "rust_op": "legacy5/struct-construct",
+    "rust_raw_ns": 0.856,
+    "rust_min_ns": 0.856,
+    "rust_net_ns": 0.462,
+    "rust_control_ns": 0.394,
+    "rust_spread_pct": 0.4,
+    "go_op": "legacy5/struct-construct",
+    "go_raw_ns": 2.625,
+    "go_min_ns": 2.57,
+    "go_net_ns": 2.04,
+    "go_control_ns": 0.585,
+    "go_spread_pct": 4.8,
+    "rust_speedup_raw": 353.32,
+    "rust_speedup_net": 603.8,
+    "rust_speedup_min": 351.97,
+    "go_speedup_raw": 115.22,
+    "go_speedup_net": 136.74,
+    "go_speedup_min": 117.23
+   },
+   {
+    "operation": "hash 8-field record",
+    "kind": "measured",
+    "python_op": "hash8/frozen-dataclass",
+    "python_raw_ns": 112.702,
+    "python_min_ns": 112.153,
+    "python_net_ns": 82.622,
+    "python_control_ns": 30.08,
+    "python_spread_pct": 0.8,
+    "rust_op": "hash8/struct-fx",
+    "rust_raw_ns": 11.242,
+    "rust_min_ns": 11.15,
+    "rust_net_ns": 11.169,
+    "rust_control_ns": 0.073,
+    "rust_spread_pct": 5.2,
+    "go_op": "hash8/struct-maphash",
+    "go_raw_ns": 31.517,
+    "go_min_ns": 31.385,
+    "go_net_ns": 31.263,
+    "go_control_ns": 0.254,
+    "go_spread_pct": 1.3,
+    "rust_speedup_raw": 10.03,
+    "rust_speedup_net": 7.4,
+    "rust_speedup_min": 10.06,
+    "go_speedup_raw": 3.58,
+    "go_speedup_net": 2.64,
+    "go_speedup_min": 3.57
+   },
+   {
+    "operation": "hash 8-field record (py: plain tuple)",
+    "kind": "measured",
+    "python_op": "hash8/plain-tuple",
+    "python_raw_ns": 40.517,
+    "python_min_ns": 40.131,
+    "python_net_ns": 10.379,
+    "python_control_ns": 30.138,
+    "python_spread_pct": 1.4,
+    "rust_op": "hash8/struct-fx",
+    "rust_raw_ns": 11.242,
+    "rust_min_ns": 11.15,
+    "rust_net_ns": 11.169,
+    "rust_control_ns": 0.073,
+    "rust_spread_pct": 5.2,
+    "go_op": "hash8/struct-maphash",
+    "go_raw_ns": 31.517,
+    "go_min_ns": 31.385,
+    "go_net_ns": 31.263,
+    "go_control_ns": 0.254,
+    "go_spread_pct": 1.3,
+    "rust_speedup_raw": 3.6,
+    "rust_speedup_net": 0.93,
+    "rust_speedup_min": 3.6,
+    "go_speedup_raw": 1.29,
+    "go_speedup_net": 0.33,
+    "go_speedup_min": 1.28
+   },
+   {
+    "operation": "equality, equal records",
+    "kind": "measured",
+    "python_op": "eq8/frozen-dataclass-equal",
+    "python_raw_ns": 116.329,
+    "python_min_ns": 114.956,
+    "python_net_ns": 95.572,
+    "python_control_ns": 20.757,
+    "python_spread_pct": 1.6,
+    "rust_op": "eq8/struct-equal",
+    "rust_raw_ns": 9.797,
+    "rust_min_ns": 9.277,
+    "rust_net_ns": 8.269,
+    "rust_control_ns": 1.529,
+    "rust_spread_pct": 9.5,
+    "go_op": "eq8/struct-equal",
+    "go_raw_ns": 6.207,
+    "go_min_ns": 5.984,
+    "go_net_ns": 4.75,
+    "go_control_ns": 1.456,
+    "go_spread_pct": 5.8,
+    "rust_speedup_raw": 11.87,
+    "rust_speedup_net": 11.56,
+    "rust_speedup_min": 12.39,
+    "go_speedup_raw": 18.74,
+    "go_speedup_net": 20.12,
+    "go_speedup_min": 19.21
+   },
+   {
+    "operation": "equality, unequal records",
+    "kind": "measured",
+    "python_op": "eq8/frozen-dataclass-unequal",
+    "python_raw_ns": 105.201,
+    "python_min_ns": 103.925,
+    "python_net_ns": 84.442,
+    "python_control_ns": 20.759,
+    "python_spread_pct": 1.4,
+    "rust_op": "eq8/struct-unequal",
+    "rust_raw_ns": 2.737,
+    "rust_min_ns": 2.689,
+    "rust_net_ns": 0.842,
+    "rust_control_ns": 1.895,
+    "rust_spread_pct": 3.3,
+    "go_op": "eq8/struct-unequal",
+    "go_raw_ns": 2.427,
+    "go_min_ns": 2.416,
+    "go_net_ns": 0.835,
+    "go_control_ns": 1.592,
+    "go_spread_pct": 33.7,
+    "rust_speedup_raw": 38.44,
+    "rust_speedup_net": 100.29,
+    "rust_speedup_min": 38.65,
+    "go_speedup_raw": 43.35,
+    "go_speedup_net": 101.13,
+    "go_speedup_min": 43.02
+   },
+   {
+    "operation": "map insert, 10-slot str key",
+    "kind": "measured",
+    "python_op": "map10str/insert",
+    "python_raw_ns": 76.322,
+    "python_min_ns": 75.287,
+    "python_net_ns": 76.322,
+    "python_control_ns": 0.0,
+    "python_spread_pct": 1.4,
+    "rust_op": "map10str/insert-fx-presized",
+    "rust_raw_ns": 153.824,
+    "rust_min_ns": 149.092,
+    "rust_net_ns": 153.824,
+    "rust_control_ns": 0.0,
+    "rust_spread_pct": 3.1,
+    "go_op": "map10str/insert-presized",
+    "go_raw_ns": 170.246,
+    "go_min_ns": 159.664,
+    "go_net_ns": 170.246,
+    "go_control_ns": 0.0,
+    "go_spread_pct": 6.2,
+    "rust_speedup_raw": 0.5,
+    "rust_speedup_net": 0.5,
+    "rust_speedup_min": 0.5,
+    "go_speedup_raw": 0.45,
+    "go_speedup_net": 0.45,
+    "go_speedup_min": 0.47
+   },
+   {
+    "operation": "map lookup, 10-slot str key",
+    "kind": "measured",
+    "python_op": "map10str/lookup",
+    "python_raw_ns": 378.706,
+    "python_min_ns": 368.282,
+    "python_net_ns": 347.464,
+    "python_control_ns": 31.242,
+    "python_spread_pct": 2.8,
+    "rust_op": "map10str/lookup-fx",
+    "rust_raw_ns": 169.945,
+    "rust_min_ns": 166.455,
+    "rust_net_ns": 169.695,
+    "rust_control_ns": 0.25,
+    "rust_spread_pct": 4.0,
+    "go_op": "map10str/lookup",
+    "go_raw_ns": 228.594,
+    "go_min_ns": 228.351,
+    "go_net_ns": 224.02,
+    "go_control_ns": 4.574,
+    "go_spread_pct": 1.4,
+    "rust_speedup_raw": 2.23,
+    "rust_speedup_net": 2.05,
+    "rust_speedup_min": 2.21,
+    "go_speedup_raw": 1.66,
+    "go_speedup_net": 1.55,
+    "go_speedup_min": 1.61
+   },
+   {
+    "operation": "map insert, packed-u64 key",
+    "kind": "measured",
+    "python_op": "mapU64/insert",
+    "python_raw_ns": 106.628,
+    "python_min_ns": 105.42,
+    "python_net_ns": 106.628,
+    "python_control_ns": 0.0,
+    "python_spread_pct": 1.1,
+    "rust_op": "mapU64/insert-fx-presized",
+    "rust_raw_ns": 4.815,
+    "rust_min_ns": 4.679,
+    "rust_net_ns": 4.815,
+    "rust_control_ns": 0.0,
+    "rust_spread_pct": 2.8,
+    "go_op": "mapU64/insert-presized",
+    "go_raw_ns": 59.014,
+    "go_min_ns": 54.912,
+    "go_net_ns": 59.014,
+    "go_control_ns": 0.0,
+    "go_spread_pct": 7.0,
+    "rust_speedup_raw": 22.14,
+    "rust_speedup_net": 22.14,
+    "rust_speedup_min": 22.53,
+    "go_speedup_raw": 1.81,
+    "go_speedup_net": 1.81,
+    "go_speedup_min": 1.92
+   },
+   {
+    "operation": "map lookup, packed-u64 key",
+    "kind": "measured",
+    "python_op": "mapU64/lookup",
+    "python_raw_ns": 318.704,
+    "python_min_ns": 304.668,
+    "python_net_ns": 295.55,
+    "python_control_ns": 23.154,
+    "python_spread_pct": 4.8,
+    "rust_op": "mapU64/lookup-fx",
+    "rust_raw_ns": 7.412,
+    "rust_min_ns": 7.231,
+    "rust_net_ns": 7.165,
+    "rust_control_ns": 0.247,
+    "rust_spread_pct": 4.1,
+    "go_op": "mapU64/lookup",
+    "go_raw_ns": 21.157,
+    "go_min_ns": 21.085,
+    "go_net_ns": 20.866,
+    "go_control_ns": 0.291,
+    "go_spread_pct": 2.6,
+    "rust_speedup_raw": 43.0,
+    "rust_speedup_net": 41.25,
+    "rust_speedup_min": 42.13,
+    "go_speedup_raw": 15.06,
+    "go_speedup_net": 14.16,
+    "go_speedup_min": 14.45
+   },
+   {
+    "operation": "eq, 10 interned strings",
+    "kind": "measured",
+    "python_op": "sym/eq-10str-tuple",
+    "python_raw_ns": 36.276,
+    "python_min_ns": 36.203,
+    "python_net_ns": 13.896,
+    "python_control_ns": 22.38,
+    "python_spread_pct": 3.0,
+    "rust_op": "sym/eq-10str-tuple",
+    "rust_raw_ns": 26.37,
+    "rust_min_ns": 25.972,
+    "rust_net_ns": 9.659,
+    "rust_control_ns": 16.711,
+    "rust_spread_pct": 2.8,
+    "go_op": "sym/eq-10str-tuple",
+    "go_raw_ns": 14.954,
+    "go_min_ns": 14.923,
+    "go_net_ns": 4.448,
+    "go_control_ns": 10.506,
+    "go_spread_pct": 2.4,
+    "rust_speedup_raw": 1.38,
+    "rust_speedup_net": 1.44,
+    "rust_speedup_min": 1.39,
+    "go_speedup_raw": 2.43,
+    "go_speedup_net": 3.12,
+    "go_speedup_min": 2.43
+   },
+   {
+    "operation": "eq, 10 u8 symbol ids",
+    "kind": "measured",
+    "python_op": "sym/eq-10u8-bytes",
+    "python_raw_ns": 28.642,
+    "python_min_ns": 28.449,
+    "python_net_ns": 8.623,
+    "python_control_ns": 20.019,
+    "python_spread_pct": 1.3,
+    "rust_op": "sym/eq-10u8-bytes",
+    "rust_raw_ns": 0.981,
+    "rust_min_ns": 0.969,
+    "rust_net_ns": 0.412,
+    "rust_control_ns": 0.569,
+    "rust_spread_pct": 1.7,
+    "go_op": "sym/eq-10u8-bytes",
+    "go_raw_ns": 0.625,
+    "go_min_ns": 0.623,
+    "go_net_ns": 0.274,
+    "go_control_ns": 0.35,
+    "go_spread_pct": 1.3,
+    "rust_speedup_raw": 29.2,
+    "rust_speedup_net": 20.93,
+    "rust_speedup_min": 29.36,
+    "go_speedup_raw": 45.83,
+    "go_speedup_net": 31.47,
+    "go_speedup_min": 45.66
+   },
+   {
+    "operation": "eq, packed-u64 symbol key",
+    "kind": "measured",
+    "python_op": "sym/eq-packed-u64",
+    "python_raw_ns": 27.162,
+    "python_min_ns": 26.947,
+    "python_net_ns": 7.593,
+    "python_control_ns": 19.569,
+    "python_spread_pct": 2.0,
+    "rust_op": "sym/eq-packed-u64",
+    "rust_raw_ns": 0.568,
+    "rust_min_ns": 0.567,
+    "rust_net_ns": 0.007,
+    "rust_control_ns": 0.56,
+    "rust_spread_pct": 0.8,
+    "go_op": "sym/eq-packed-u64",
+    "go_raw_ns": 0.334,
+    "go_min_ns": 0.327,
+    "go_net_ns": -0.067,
+    "go_control_ns": 0.401,
+    "go_spread_pct": 6.8,
+    "rust_speedup_raw": 47.82,
+    "rust_speedup_net": 1084.71,
+    "rust_speedup_min": 47.53,
+    "go_speedup_raw": 81.32,
+    "go_speedup_min": 82.41
+   },
+   {
+    "operation": "hash, 10 interned strings",
+    "kind": "measured",
+    "python_op": "sym/hash-10str-tuple",
+    "python_raw_ns": 41.469,
+    "python_min_ns": 41.075,
+    "python_net_ns": 10.958,
+    "python_control_ns": 30.511,
+    "python_spread_pct": 1.7,
+    "rust_op": "sym/hash-10str-tuple-fx",
+    "rust_raw_ns": 34.342,
+    "rust_min_ns": 34.216,
+    "rust_net_ns": 34.27,
+    "rust_control_ns": 0.072,
+    "rust_spread_pct": 0.6,
+    "go_op": "sym/hash-10str-tuple",
+    "go_raw_ns": 55.522,
+    "go_min_ns": 55.427,
+    "go_net_ns": 55.27,
+    "go_control_ns": 0.252,
+    "go_spread_pct": 2.8,
+    "rust_speedup_raw": 1.21,
+    "rust_speedup_net": 0.32,
+    "rust_speedup_min": 1.2,
+    "go_speedup_raw": 0.75,
+    "go_speedup_net": 0.2,
+    "go_speedup_min": 0.74
+   },
+   {
+    "operation": "hash, 10 u8 symbol ids",
+    "kind": "measured",
+    "python_op": "sym/hash-10u8-bytes",
+    "python_raw_ns": 41.536,
+    "python_min_ns": 41.331,
+    "python_net_ns": 11.487,
+    "python_control_ns": 30.049,
+    "python_spread_pct": 1.4,
+    "rust_op": "sym/hash-10u8-bytes-fx",
+    "rust_raw_ns": 0.457,
+    "rust_min_ns": 0.454,
+    "rust_net_ns": 0.385,
+    "rust_control_ns": 0.073,
+    "rust_spread_pct": 5.6,
+    "go_op": "sym/hash-10u8-bytes",
+    "go_raw_ns": 3.347,
+    "go_min_ns": 3.311,
+    "go_net_ns": 3.084,
+    "go_control_ns": 0.263,
+    "go_spread_pct": 3.0,
+    "rust_speedup_raw": 90.89,
+    "rust_speedup_net": 29.84,
+    "rust_speedup_min": 91.04,
+    "go_speedup_raw": 12.41,
+    "go_speedup_net": 3.72,
+    "go_speedup_min": 12.48
+   },
+   {
+    "operation": "hash, packed-u64 symbol key",
+    "kind": "measured",
+    "python_op": "sym/hash-packed-u64",
+    "python_raw_ns": 28.84,
+    "python_min_ns": 28.342,
+    "python_net_ns": 12.574,
+    "python_control_ns": 16.267,
+    "python_spread_pct": 2.6,
+    "rust_op": "sym/hash-packed-u64-fx",
+    "rust_raw_ns": 0.258,
+    "rust_min_ns": 0.254,
+    "rust_net_ns": 0.184,
+    "rust_control_ns": 0.073,
+    "rust_spread_pct": 3.3,
+    "go_op": "sym/hash-packed-u64",
+    "go_raw_ns": 3.39,
+    "go_min_ns": 3.364,
+    "go_net_ns": 3.133,
+    "go_control_ns": 0.257,
+    "go_spread_pct": 1.2,
+    "rust_speedup_raw": 111.78,
+    "rust_speedup_net": 68.34,
+    "rust_speedup_min": 111.58,
+    "go_speedup_raw": 8.51,
+    "go_speedup_net": 4.01,
+    "go_speedup_min": 8.43
+   },
+   {
+    "operation": "rank a 3-8 candidate list",
+    "kind": "measured",
+    "python_op": "rank/two-stable-sorts-per-list",
+    "python_raw_ns": 879.297,
+    "python_min_ns": 877.939,
+    "python_net_ns": 825.412,
+    "python_control_ns": 53.885,
+    "python_spread_pct": 0.5,
+    "rust_op": "rank/two-stable-sorts-per-list",
+    "rust_raw_ns": 24.494,
+    "rust_min_ns": 24.444,
+    "rust_net_ns": 23.553,
+    "rust_control_ns": 0.942,
+    "rust_spread_pct": 5.1,
+    "go_op": "rank/two-stable-sorts-per-list",
+    "go_raw_ns": 66.916,
+    "go_min_ns": 65.185,
+    "go_net_ns": 65.867,
+    "go_control_ns": 1.049,
+    "go_spread_pct": 7.6,
+    "rust_speedup_raw": 35.9,
+    "rust_speedup_net": 35.04,
+    "rust_speedup_min": 35.92,
+    "go_speedup_raw": 13.14,
+    "go_speedup_net": 12.53,
+    "go_speedup_min": 13.47
+   },
+   {
+    "operation": "alloc+drop small object",
+    "kind": "measured",
+    "python_op": "alloc10M/frozen-dataclass",
+    "python_raw_ns": 417.029,
+    "python_min_ns": 407.968,
+    "python_net_ns": 393.259,
+    "python_control_ns": 23.77,
+    "python_spread_pct": 2.2,
+    "rust_op": "alloc10M/box-heap",
+    "rust_raw_ns": 12.204,
+    "rust_min_ns": 12.026,
+    "rust_net_ns": 11.289,
+    "rust_control_ns": 0.915,
+    "rust_spread_pct": 1.5,
+    "go_op": "alloc10M/pointer-gc",
+    "go_raw_ns": 17.226,
+    "go_min_ns": 16.967,
+    "go_net_ns": 16.637,
+    "go_control_ns": 0.589,
+    "go_spread_pct": 1.5,
+    "rust_speedup_raw": 34.17,
+    "rust_speedup_net": 34.84,
+    "rust_speedup_min": 33.92,
+    "go_speedup_raw": 24.21,
+    "go_speedup_net": 23.64,
+    "go_speedup_min": 24.04
+   },
+   {
+    "operation": "alloc+drop, no heap (rust/go)",
+    "kind": "measured",
+    "python_op": "alloc10M/frozen-dataclass",
+    "python_raw_ns": 417.029,
+    "python_min_ns": 407.968,
+    "python_net_ns": 393.259,
+    "python_control_ns": 23.77,
+    "python_spread_pct": 2.2,
+    "rust_op": "alloc10M/by-value-no-alloc",
+    "rust_raw_ns": 3.507,
+    "rust_min_ns": 3.497,
+    "rust_net_ns": 2.539,
+    "rust_control_ns": 0.968,
+    "rust_spread_pct": 0.3,
+    "go_op": "alloc10M/by-value-no-alloc",
+    "go_raw_ns": 3.264,
+    "go_min_ns": 3.263,
+    "go_net_ns": 2.683,
+    "go_control_ns": 0.582,
+    "go_spread_pct": 0.0,
+    "rust_speedup_raw": 118.91,
+    "rust_speedup_net": 154.89,
+    "rust_speedup_min": 116.66,
+    "go_speedup_raw": 127.77,
+    "go_speedup_net": 146.57,
+    "go_speedup_min": 125.03
+   },
+   {
+    "operation": "filter 700k-row table",
+    "kind": "measured",
+    "python_op": "filter700k/frozen-dataclass",
+    "python_raw_ns": 23.609,
+    "python_min_ns": 23.481,
+    "python_net_ns": 9.466,
+    "python_control_ns": 14.143,
+    "python_spread_pct": 0.7,
+    "rust_op": "filter700k/struct-vec",
+    "rust_raw_ns": 1.101,
+    "rust_min_ns": 1.101,
+    "rust_net_ns": 0.853,
+    "rust_control_ns": 0.247,
+    "rust_spread_pct": 0.4,
+    "go_op": "filter700k/struct-slice",
+    "go_raw_ns": 1.158,
+    "go_min_ns": 1.15,
+    "go_net_ns": 0.815,
+    "go_control_ns": 0.343,
+    "go_spread_pct": 1.9,
+    "rust_speedup_raw": 21.44,
+    "rust_speedup_net": 11.1,
+    "rust_speedup_min": 21.33,
+    "go_speedup_raw": 20.39,
+    "go_speedup_net": 11.61,
+    "go_speedup_min": 20.42
+   }
+  ],
+  "weighted_composite": {
+   "basis": "raw ns/op",
+   "kind": "estimated",
+   "per_site": {
+    "candidates": {
+     "calls": 9161481,
+     "ns_per_call": {
+      "python": 1795.05,
+      "rust": 104.17,
+      "go": 70.83
+     },
+     "recipe": {
+      "construct 8-field record": 2.5,
+      "equality, unequal records": 6.0,
+      "eq, 10 interned strings": 3.0
+     },
+     "seconds": {
+      "python": 16.445,
+      "rust": 0.954,
+      "go": 0.649
+     }
+    },
+    "_prospect": {
+     "calls": 9394188,
+     "ns_per_call": {
+      "python": 704.36,
+      "rust": 65.42,
+      "go": 41.9
+     },
+     "recipe": {
+      "equality, unequal records": 4.0,
+      "eq, 10 interned strings": 2.0,
+      "construct 8-field record": 0.5
+     },
+     "seconds": {
+      "python": 6.617,
+      "rust": 0.615,
+      "go": 0.394
+     }
+    },
+    "transition_trace": {
+     "calls": 2428420,
+     "ns_per_call": {
+      "python": 3058.72,
+      "rust": 219.5,
+      "go": 345.28
+     },
+     "recipe": {
+      "construct 8-field record": 4.0,
+      "hash 8-field record": 1.0,
+      "map lookup, 10-slot str key": 1.0,
+      "rank a 3-8 candidate list": 1.0
+     },
+     "seconds": {
+      "python": 7.428,
+      "rust": 0.533,
+      "go": 0.838
+     }
+    },
+    "_prefer_favors": {
+     "calls": 9786077,
+     "ns_per_call": {
+      "python": 355.51,
+      "rust": 110.95,
+      "go": 64.67
+     },
+     "recipe": {
+      "eq, 10 interned strings": 4.0,
+      "equality, unequal records": 2.0
+     },
+     "seconds": {
+      "python": 3.479,
+      "rust": 1.086,
+      "go": 0.633
+     }
+    }
+   },
+   "totals_ns": {
+    "python": 33.969,
+    "rust": 3.188,
+    "go": 2.514
+   },
+   "seconds_per_six_config_build": {
+    "python": 33.97,
+    "rust": 3.19,
+    "go": 2.51
+   },
+   "multiplier_vs_python": {
+    "rust": 10.66,
+    "go": 13.51
+   },
+   "seconds_min_of_reps": {
+    "python": 33.57,
+    "rust": 3.13,
+    "go": 2.5
+   },
+   "multiplier_vs_python_min_of_reps": {
+    "rust": 10.71,
+    "go": 13.44
+   },
+   "coverage_caveat": "The recipe models only primitive operations. Its Python total covers a fraction of the measured six-config build (see sanity_check.ratio_recipe_over_measured); the remainder is interpreter dispatch, Python-level function calls, attribute lookups and list building -- measured separately as the 'loop skeleton' row of the table, whose Rust and Go ratios are LARGER than most primitive ratios here. The composite is therefore a conservative estimate of the language multiplier, not an optimistic one.",
+   "sanity_check": {
+    "note": "the recipe's Python total is compared against the measured 337.87 CPU-s of a real six-config table.build_tables run (raw/perf/cost-model.md). A recipe within a factor of ~2 is credible; further off means the recipe, not the ratio, is what to distrust.",
+    "measured_python_six_config_cpu_s": 337.87,
+    "recipe_python_cpu_s": 33.97,
+    "ratio_recipe_over_measured": 0.101
+   }
+  }
+ },
+ "k3_k5": {
+  "k3": {
+   "rows": 3000,
+   "corpus": "raw/perf/attr-overhead/data/shaped-runs.jsonl (3,000 real shaped runs) + outlines-{before,after}.json",
+   "equivalence": {
+    "python_reference_checksum": "21fc76ced6d5f83ca4161449a718b475668ff97e6c34922869d6922703e05766",
+    "rust_checksum": "21fc76ced6d5f83ca4161449a718b475668ff97e6c34922869d6922703e05766",
+    "rust_parallel_checksum": "21fc76ced6d5f83ca4161449a718b475668ff97e6c34922869d6922703e05766",
+    "go_checksum": "21fc76ced6d5f83ca4161449a718b475668ff97e6c34922869d6922703e05766",
+    "go_parallel_checksum": "21fc76ced6d5f83ca4161449a718b475668ff97e6c34922869d6922703e05766",
+    "all_match": true,
+    "what_the_checksum_is": "sha256 over one line per shaped run: unit, config, signature_digest (sha256 of CPython's repr of the (before pieces, after pieces) tuple) and delta_digest ('d-' + first 12 hex of sha1 of CPython's repr of the config_diff tuple). The ports reproduce CPython repr() text byte for byte, so this is equality of the persisted digests the repo actually stores, not of some looser summary."
+   },
+   "variants": {
+    "python-baseline": {
+     "seconds": 0.8451085830165539,
+     "us_per_row": 281.70286100551795,
+     "measurement": "measured",
+     "speedup_vs_python_baseline": 1.0,
+     "speedup_kind": "derived"
+    },
+    "python-optimized-digest": {
+     "seconds": 0.6572227079886943,
+     "us_per_row": 219.07423599623144,
+     "measurement": "measured",
+     "note": "identical kernel; signature_digest hashes marshal v2 bytes instead of repr text",
+     "speedup_vs_python_baseline": 1.2858785503666614,
+     "speedup_kind": "derived"
+    },
+    "rust-single": {
+     "seconds": 0.050687,
+     "us_per_row": 16.8958,
+     "measurement": "measured",
+     "speedup_vs_python_baseline": 16.673083493135398,
+     "speedup_kind": "derived"
+    },
+    "rust-parallel": {
+     "seconds": 0.009279,
+     "us_per_row": 3.093,
+     "threads": 8,
+     "measurement": "measured",
+     "speedup_vs_python_baseline": 91.0775496299767,
+     "speedup_kind": "derived"
+    },
+    "go-single": {
+     "seconds": 0.055478,
+     "us_per_row": 18.4927,
+     "measurement": "measured",
+     "speedup_vs_python_baseline": 15.233220069515014,
+     "speedup_kind": "derived"
+    },
+    "go-parallel": {
+     "seconds": 0.019937,
+     "us_per_row": 6.6455,
+     "threads": 8,
+     "measurement": "measured",
+     "speedup_vs_python_baseline": 42.38895435705241,
+     "speedup_kind": "derived"
+    }
+   },
+   "stage_split_python": {
+    "signature_only_us_per_row": 74.8721249983646,
+    "config_diff_only_us_per_row": 97.85345833127697
+   },
+   "signature_digest_split": {
+    "repr_us_per_row": 89.92368001296805,
+    "sha256_us_per_row": 3.0947216631223755,
+    "repr_then_sha256_us_per_row": 93.08243000608249,
+    "marshal2_us_per_row": 29.79597164085135,
+    "marshal2_then_sha256_us_per_row": 33.46735999609034,
+    "marshal4_then_sha256_us_per_row": 20.69617999950424,
+    "speedup_marshal2": 2.7812898901185035,
+    "speedup_marshal4": 4.49756573475454,
+    "mean_repr_bytes": 8726.583333333334,
+    "mean_marshal2_bytes": 11674.63
+   },
+   "marshal_digest_check": {
+    "partition_identical_to_repr_digest": true,
+    "distinct_signature_values": 631,
+    "distinct_repr_digests": 631,
+    "distinct_marshal_digests": 631,
+    "value_equal_signatures_serialize_identically": true,
+    "stable_under_alias_breaking_copy": true
+   },
+   "fidelity_vs_live_fonts": {
+    "seconds": 1.00283983402187,
+    "us_per_row": 334.27994467395666,
+    "checksum": "21fc76ced6d5f83ca4161449a718b475668ff97e6c34922869d6922703e05766",
+    "checksum_matches_pre_extracted_corpus": true,
+    "shaping_and_outline_overhead_seconds": 0.15773125100531615,
+    "fraction_of_live_pass_the_ports_replace": 0.8427154111212974,
+    "before_font": "site/AbbotsMortonSpaceportSansSenior-Regular.otf",
+    "after_font": "rebuild/out/m1/M1.otf",
+    "note": "InkComparator's default plain Shaper, so four hb.shape calls per row (two per side, one for signature and one for config_diff). The surface build passes shaper_for, whose memo collapses those to two; see shaping_only for the per-row cost of those two."
+   },
+   "harfbuzz_floor": {
+    "hb_shape_calls": 6000,
+    "seconds": 0.06649749999633059,
+    "us_per_row": 22.165833332110196,
+    "glyphs": 23625,
+    "note": "uharfbuzz, not rewritable \u2014 the cost model's largest irreducible floor"
+   },
+   "translate_outline": {
+    "python_ns_per_point": 229.55847737168327,
+    "rust_ns_per_point": 11.441,
+    "go_ns_per_point": 12.89,
+    "python_over_rust": 20.064546575621296
+   },
+   "sha256_throughput_mb_per_s": {
+    "rust": 2539.4,
+    "go": 3160.0
+   },
+   "amdahl_with_the_harfbuzz_floor": {
+    "kind": "derived",
+    "basis": "the surface build's real per-row K3 cost with a memoized shaper: the measured Python arithmetic pass plus the measured cost of the two hb.shape calls per row that no rewrite may remove (an independent shaper is the gate's premise).",
+    "python_arithmetic_seconds": 0.8451085830165539,
+    "harfbuzz_floor_seconds": 0.06649749999633059,
+    "harfbuzz_share_of_whole": 0.07294543250145329,
+    "whole_kernel_python_seconds": 0.9116060830128845,
+    "whole_kernel_rust_single_seconds": 0.1171844999963306,
+    "whole_kernel_speedup_rust_single": 7.779237723772595,
+    "whole_kernel_speedup_rust_parallel": 12.030195153603403,
+    "whole_kernel_speedup_go_single": 7.473681870870039,
+    "whole_kernel_ceiling_arithmetic_free": 13.708877522661574,
+    "whole_kernel_speedup_python_marshal_digest_only": 1.2596112046545855
+   },
+   "repr_free_digest_in_the_ports": {
+    "rust_seconds": 0.036635,
+    "go_seconds": 0.040196,
+    "note": "same kernel, signature digest taken over a packed binary encoding rather than repr text; the Rust and Go packings differ from each other so their checksums are not comparable \u2014 timing only"
+   }
+  },
+  "k5": {
+   "rowmodel_from_tsv": {
+    "rows": 54240,
+    "python_repo_baseline_ns_per_row": 2744.878484572354,
+    "checksum": "00b71d4f50ab00cb1edc4dee6fd19ecdcd2e4ad5e2d239a6fe6a7321af3ec1a9",
+    "variants": {
+     "python_repo_baseline": {
+      "ns_per_row": 2744.878484572354,
+      "checksum_matches": true,
+      "speedup_vs_python_baseline": 1.0
+     },
+     "python_opt_bytes_dataclass": {
+      "ns_per_row": 2225.379480250251,
+      "checksum_matches": true,
+      "speedup_vs_python_baseline": 1.233442884205836
+     },
+     "python_opt_bytes_tuple": {
+      "ns_per_row": 1815.099557485654,
+      "checksum_matches": true,
+      "speedup_vs_python_baseline": 1.5122467928837278
+     },
+     "python_opt_str_tuple": {
+      "ns_per_row": 1585.380549543121,
+      "checksum_matches": true,
+      "speedup_vs_python_baseline": 1.7313688409785144
+     },
+     "rust_owned": {
+      "ns_per_row": 333.3,
+      "checksum_matches": true,
+      "speedup_vs_python_baseline": 8.235458999617023
+     },
+     "rust_borrowed": {
+      "ns_per_row": 278.0,
+      "checksum_matches": true,
+      "speedup_vs_python_baseline": 9.873663613569619
+     },
+     "go": {
+      "ns_per_row": 404.2,
+      "checksum_matches": true,
+      "speedup_vs_python_baseline": 6.790891847036996
+     }
+    }
+   },
+   "load_audit": {
+    "rows": 292098,
+    "python_repo_baseline_ns_per_row": 1414.3539428684626,
+    "checksum": "b4cb127c5fdf6eef6e4ad8c9893112453104c142baf4eb5d459dfeed69dab8b1",
+    "variants": {
+     "python_repo_baseline": {
+      "ns_per_row": 1414.3539428684626,
+      "checksum_matches": true,
+      "speedup_vs_python_baseline": 1.0
+     },
+     "python_opt_bytes_dataclass": {
+      "ns_per_row": 1758.5473608082796,
+      "checksum_matches": true,
+      "speedup_vs_python_baseline": 0.8042740129662385
+     },
+     "python_opt_bytes_tuple": {
+      "ns_per_row": 1034.8575957222283,
+      "checksum_matches": true,
+      "speedup_vs_python_baseline": 1.3667135929764165
+     },
+     "python_opt_str_tuple": {
+      "ns_per_row": 639.9916876656941,
+      "checksum_matches": true,
+      "speedup_vs_python_baseline": 2.209956738699494
+     },
+     "rust_owned": {
+      "ns_per_row": 318.4,
+      "checksum_matches": true,
+      "speedup_vs_python_baseline": 4.442066403481353
+     },
+     "go": {
+      "ns_per_row": 370.3,
+      "checksum_matches": true,
+      "speedup_vs_python_baseline": 3.819481347200817
+     }
+    }
+   },
+   "filter_table": {
+    "source_rows": 4985767,
+    "source_bytes": 553891899,
+    "kept_rows": 111150,
+    "checksum": "e11a016269dde4ac44ad9b01436cf88960065e82132dc2ffe10a7f0a02773258",
+    "note": "timed on the decompressed 554 MB table with a plain-text destination, so every language measures the same parse+filter+write. The repo's real gz-in/gz-out call is reported separately, with the zlib inflate cost broken out as a native floor.",
+    "variants": {
+     "python-baseline": {
+      "seconds": 2.216801500006113,
+      "speedup_vs_python_baseline": 1.0,
+      "checksum_matches": true
+     },
+     "python-optimized-bytes": {
+      "seconds": 1.152669708011672,
+      "speedup_vs_python_baseline": 1.9231888238219113,
+      "checksum_matches": true
+     },
+     "rust-single": {
+      "seconds": 0.240303,
+      "speedup_vs_python_baseline": 9.225026320961925,
+      "checksum_matches": true
+     },
+     "rust-parallel": {
+      "seconds": 0.035499,
+      "threads": 8,
+      "speedup_vs_python_baseline": 62.4468717430382,
+      "checksum_matches": true
+     },
+     "go-single": {
+      "seconds": 0.4213,
+      "speedup_vs_python_baseline": 5.261812247818925,
+      "checksum_matches": true
+     },
+     "go-parallel": {
+      "seconds": 0.059622,
+      "threads": 8,
+      "speedup_vs_python_baseline": 37.180931535441836,
+      "checksum_matches": true
+     }
+    },
+    "repo_gz_in_gz_out_seconds": 2.961748041998362,
+    "zlib_inflate_seconds": 0.18043333300738595
+   }
+  },
+  "k5_mmap_vs_reparse": {
+   "lookups": 36000,
+   "configs": [
+    "default",
+    "ss02",
+    "ss02+ss03",
+    "ss03",
+    "ss04",
+    "ss05"
+   ],
+   "pack": {
+    "seconds": 1.6864310420060065,
+    "bytes": 48350150
+   },
+   "workers_6": {
+    "per_worker_parse": {
+     "wall": 1.4437591659952886,
+     "worker_cpu": 7.7537970000000005,
+     "hits": 36000,
+     "checksum": "4e34a18275487cd27ce7e90a2ab4884a38f5d7558f079956928897b61c97799e"
+    },
+    "mmap_shared_warm": {
+     "wall": 0.11588854101137258,
+     "worker_cpu": 0.312064,
+     "hits": 36000,
+     "checksum": "4e34a18275487cd27ce7e90a2ab4884a38f5d7558f079956928897b61c97799e"
+    },
+    "mmap_shared_cold_wall": 1.802319583017379,
+    "checksums_match": true,
+    "wall_speedup_warm": 12.458170181412562,
+    "wall_speedup_cold": 0.8010561387665769,
+    "cpu_ratio": 24.846816678630027
+   },
+   "workers_12": {
+    "per_worker_parse": {
+     "wall": 2.0080207920109387,
+     "worker_cpu": 19.458440000000003,
+     "hits": 36000,
+     "checksum": "7b72303e00a36bab74aebceca8dce7d3c3e5b1118362a48b31c6ab21973e03fd"
+    },
+    "mmap_shared_warm": {
+     "wall": 0.139171584014548,
+     "worker_cpu": 0.3801999999999999,
+     "hits": 36000,
+     "checksum": "7b72303e00a36bab74aebceca8dce7d3c3e5b1118362a48b31c6ab21973e03fd"
+    },
+    "mmap_shared_cold_wall": 1.8256026260205545,
+    "checksums_match": true,
+    "wall_speedup_warm": 14.428382102779219,
+    "wall_speedup_cold": 1.0999221645446573,
+    "cpu_ratio": 51.179484481851674
+   }
+  },
+  "contention_control": {
+   "passes": 3,
+   "selector": "min k3-python full_pass_baseline seconds",
+   "selected": "pass2",
+   "python_k3_baseline_seconds_per_pass": [
+    0.8451085830165539,
+    0.8553799999936018,
+    0.8703064580040518
+   ],
+   "spread_slowest_over_fastest": 1.0298161390073166
+  }
+ },
+ "compilers": {
+  "variants": [
+   {
+    "variant": "cpython-repo-env",
+    "median_cpu_s_per_k9_build": 5.404,
+    "x_vs_cpython": 0.999,
+    "artifact_identical": true
+   },
+   {
+    "variant": "cpython-baseline",
+    "median_cpu_s_per_k9_build": 5.3984,
+    "x_vs_cpython": 1.0,
+    "artifact_identical": true
+   },
+   {
+    "variant": "cpython-baseline-nogc",
+    "median_cpu_s_per_k9_build": 4.5041,
+    "x_vs_cpython": 1.199,
+    "artifact_identical": true
+   },
+   {
+    "variant": "mypyc-settle-table",
+    "median_cpu_s_per_k9_build": 4.435,
+    "x_vs_cpython": 1.217,
+    "artifact_identical": true
+   },
+   {
+    "variant": "mypyc-all",
+    "median_cpu_s_per_k9_build": 3.9024,
+    "x_vs_cpython": 1.383,
+    "artifact_identical": true
+   },
+   {
+    "variant": "mypyc-all-nogc",
+    "median_cpu_s_per_k9_build": 2.9544,
+    "x_vs_cpython": 1.827,
+    "artifact_identical": true
+   },
+   {
+    "variant": "cython-purepy",
+    "median_cpu_s_per_k9_build": 4.6385,
+    "x_vs_cpython": 1.164,
+    "artifact_identical": true
+   },
+   {
+    "variant": "pypy",
+    "median_cpu_s_per_k9_build": 2.1132,
+    "x_vs_cpython": 2.555,
+    "artifact_identical": true
+   }
+  ],
+  "equivalence_all_match": true,
+  "full_spec_cross_check_IS_CACHED_NOT_RERUN": {
+   "note": "Same harness, all 18 runes, default configuration \u2014 the real single-configuration M1 build the cost model measured at 77.51 CPU-s. Run once out of band (60-120 CPU-s per variant, too slow for this runner) and read back here. The counts reproduce the cost model's default-config figures exactly: 682,842 windows, 2,667 rules, 197 reachable cells, 3,563 treaty rows. Timings were taken under sibling-agent contention and are indicative; the equivalence verdict is not.",
+   "runs": {
+    "cpython": {
+     "counts": {
+      "n_windows": 682842,
+      "n_rules": 2667,
+      "n_cells": 197,
+      "n_treaty_rows": 3563,
+      "n_identity_guard_rules": 0,
+      "n_cited_provenance": 98
+     },
+     "combined_sha256": "f41a34a948fcc2f3a474e217c4540f0b3c9940c47a1d362258e813baa5478fb9",
+     "wall_s": [
+      83.13
+     ],
+     "cpu_s": [
+      81.54
+     ],
+     "peak_rss_mb": 3858.2,
+     "contended": true
+    },
+    "mypyc": {
+     "counts": {
+      "n_windows": 682842,
+      "n_rules": 2667,
+      "n_cells": 197,
+      "n_treaty_rows": 3563,
+      "n_identity_guard_rules": 0,
+      "n_cited_provenance": 98
+     },
+     "combined_sha256": "f41a34a948fcc2f3a474e217c4540f0b3c9940c47a1d362258e813baa5478fb9",
+     "wall_s": [
+      55.7
+     ],
+     "cpu_s": [
+      55.22
+     ],
+     "peak_rss_mb": 3821.0,
+     "contended": true
+    },
+    "pypy": {
+     "counts": {
+      "n_windows": 682842,
+      "n_rules": 2667,
+      "n_cells": 197,
+      "n_treaty_rows": 3563,
+      "n_identity_guard_rules": 0,
+      "n_cited_provenance": 98
+     },
+     "combined_sha256": "f41a34a948fcc2f3a474e217c4540f0b3c9940c47a1d362258e813baa5478fb9",
+     "wall_s": [
+      38.94,
+      38.32
+     ],
+     "cpu_s": [
+      38.55,
+      36.91
+     ],
+     "peak_rss_mb": 5138.0,
+     "contended": true
+    },
+    "cython": {
+     "counts": {
+      "n_windows": 682842,
+      "n_rules": 2667,
+      "n_cells": 197,
+      "n_treaty_rows": 3563,
+      "n_identity_guard_rules": 0,
+      "n_cited_provenance": 98
+     },
+     "combined_sha256": "f41a34a948fcc2f3a474e217c4540f0b3c9940c47a1d362258e813baa5478fb9",
+     "wall_s": [
+      76.21
+     ],
+     "cpu_s": [
+      71.89
+     ],
+     "peak_rss_mb": 3880.7,
+     "contended": true
+    }
+   },
+   "all_match_cpython": true
+  }
+ },
+ "python_levers": {
+  "m1_full_default_config": [
+   {
+    "label": "shipped",
+    "root": "<repo>",
+    "subset": "full",
+    "gc": "on",
+    "rep": 0,
+    "wall": 81.4023,
+    "cpu": 81.254,
+    "collections": 15692,
+    "rules": 2667,
+    "windows": 682842,
+    "treaty_rows": 3563,
+    "digest": "3026eaf52b6b87d69c07f4363ce103e63e2033e318ffb9c804b329bca8108d08",
+    "cpu_all_reps": [
+     81.254
+    ],
+    "wall_all_reps": [
+     81.4023
+    ]
+   },
+   {
+    "label": "shipped + gc off",
+    "root": "<repo>",
+    "subset": "full",
+    "gc": "off",
+    "rep": 0,
+    "wall": 71.3844,
+    "cpu": 71.235,
+    "collections": 0,
+    "rules": 2667,
+    "windows": 682842,
+    "treaty_rows": 3563,
+    "digest": "3026eaf52b6b87d69c07f4363ce103e63e2033e318ffb9c804b329bca8108d08",
+    "cpu_all_reps": [
+     71.235
+    ],
+    "wall_all_reps": [
+     71.3844
+    ]
+   },
+   {
+    "label": "P1-P6,P8",
+    "root": "raw/perf2/python-levers/run-v-p168",
+    "subset": "full",
+    "gc": "on",
+    "rep": 0,
+    "wall": 42.2127,
+    "cpu": 42.184,
+    "collections": 13886,
+    "rules": 2667,
+    "windows": 682842,
+    "treaty_rows": 3563,
+    "digest": "3026eaf52b6b87d69c07f4363ce103e63e2033e318ffb9c804b329bca8108d08",
+    "cpu_all_reps": [
+     42.184
+    ],
+    "wall_all_reps": [
+     42.2127
+    ]
+   },
+   {
+    "label": "P1-P6,P8 + gc off",
+    "root": "raw/perf2/python-levers/run-v-p168",
+    "subset": "full",
+    "gc": "off",
+    "rep": 0,
+    "wall": 34.0634,
+    "cpu": 34.0227,
+    "collections": 0,
+    "rules": 2667,
+    "windows": 682842,
+    "treaty_rows": 3563,
+    "digest": "3026eaf52b6b87d69c07f4363ce103e63e2033e318ffb9c804b329bca8108d08",
+    "cpu_all_reps": [
+     34.0227
+    ],
+    "wall_all_reps": [
+     34.0634
+    ]
+   }
+  ],
+  "levers": [
+   {
+    "lever": "yaml.CSafeLoader instead of the pure-Python loader",
+    "site": "every yaml.safe_load / yaml.compose call site (34 in the tree; the hot ones are rebuild/pipeline/fingerprint.py:145, rebuild/pipeline/spec_load.py:243+285, tools/build_font.py:59+95)",
+    "workload": "one font build (`make all` minus typst)",
+    "baseline_s": 22.89,
+    "levered_s": 21.89,
+    "saved_s": 1.0,
+    "unit": "CPU-s per build",
+    "verification": "sha256 over the six OTFs plus the generated FEA, all arms",
+    "verified": true,
+    "tag": "measured",
+    "verdict": "TAKE IT"
+   },
+   {
+    "lever": "gc.disable() for the batch entry points",
+    "site": "tools/build_font.py:main and its ProcessPoolExecutor workers",
+    "workload": "one font build (`make all` minus typst)",
+    "baseline_s": 22.89,
+    "levered_s": 20.79,
+    "saved_s": 2.1,
+    "unit": "CPU-s per build",
+    "verification": "sha256 over the six OTFs plus the generated FEA, all arms",
+    "verified": true,
+    "tag": "measured",
+    "verdict": "TAKE IT"
+   },
+   {
+    "lever": "CSafeLoader + gc.disable() together",
+    "site": "as above",
+    "workload": "one font build (`make all` minus typst)",
+    "baseline_wall_s": 11.219,
+    "levered_wall_s": 9.922,
+    "baseline_s": 22.89,
+    "levered_s": 19.81,
+    "saved_s": 3.08,
+    "unit": "CPU-s per build",
+    "verification": "sha256 over the six OTFs plus the generated FEA, all arms",
+    "verified": true,
+    "tag": "measured",
+    "verdict": "TAKE IT"
+   },
+   {
+    "lever": "CSafeLoader in fingerprint.rune_file_digest (the SKIP path)",
+    "site": "rebuild/pipeline/fingerprint.py:145",
+    "workload": "one fingerprint sweep over the 18 rune files",
+    "baseline_s": 0.04572,
+    "levered_s": 0.005379,
+    "saved_s": 0.040341,
+    "unit": "s per sweep",
+    "verification": "the 18 prose-blind digests compared element-wise",
+    "verified": true,
+    "tag": "measured",
+    "verdict": "TAKE IT"
+   },
+   {
+    "lever": "CSafeLoader in spec_load (each rune file is parsed twice: compose + safe_load)",
+    "site": "rebuild/pipeline/spec_load.py:243 and :285",
+    "workload": "one load_default_spec()",
+    "baseline_s": 0.10449,
+    "levered_s": 0.01612,
+    "saved_s": 0.08837,
+    "unit": "s per spec load",
+    "verification": "every rune file's yaml line index compared exactly, plus a sha256 over the resolved spec's runes and registry",
+    "verified": true,
+    "tag": "measured",
+    "verdict": "TAKE IT"
+   },
+   {
+    "lever": "lru_cache on build.config_badge",
+    "site": "rebuild/review/build.py:189",
+    "workload": "one surface pass (62148 calls, 12 distinct argument tuples)",
+    "baseline_s": 2.4418,
+    "levered_s": 0.011115,
+    "saved_s": 2.4307,
+    "unit": "CPU-s per surface pass",
+    "verification": "every (gate, note) pair compared element-wise across all calls",
+    "verified": true,
+    "tag": "measured",
+    "verdict": "TAKE IT"
+   },
+   {
+    "lever": "persist load_human_unit_ids' id set in manifest.json",
+    "site": "rebuild/review/status.py:103",
+    "workload": "one call (re-parses the whole 265 MB surface)",
+    "baseline_s": 0.8094,
+    "levered_s": 0.00054,
+    "saved_s": 0.8088,
+    "unit": "s per call",
+    "verification": "the id frozenset compared for equality",
+    "verified": true,
+    "tag": "measured",
+    "verdict": "TAKE IT"
+   },
+   {
+    "lever": "signature_digest: repr()+sha256 -> pickle+sha256",
+    "site": "rebuild/review/ink.py:53",
+    "workload": "400 real ink signatures",
+    "baseline_s": 0.03219,
+    "levered_s": 0.01121,
+    "saved_s": 0.02098,
+    "unit": "s per batch",
+    "verification": "the induced partition of the signatures compared exactly (the digest's only contract)",
+    "verified": true,
+    "tag": "measured",
+    "verdict": "TAKE IT, but it re-stamps the persisted signature store once"
+   },
+   {
+    "lever": "gc.freeze()+gc.disable() on the M1 fixpoint, ALONE",
+    "site": "rebuild/pipeline/run_m1.py entry point",
+    "workload": "build_tables over an 8-rune slice of the real spec, default config",
+    "baseline_s": 4.4376,
+    "levered_s": 4.1227,
+    "saved_s": 0.315,
+    "unit": "CPU-s per build",
+    "verification": "sha256 over the whole emitted artifact",
+    "verified": true,
+    "tag": "measured",
+    "verdict": "see the full-scale row; at bounded scale it is inside the noise"
+   },
+   {
+    "lever": "M1 kernel: six memoizations + a NamedTuple token + gc off (P1-P6, P8)",
+    "site": "rebuild/pipeline/settle.py:525,439,475,642,754 and rebuild/pipeline/table.py:963",
+    "workload": "build_tables over an 8-rune slice of the real spec, default config",
+    "baseline_s": 4.4376,
+    "levered_s": 1.8361,
+    "saved_s": 2.601,
+    "unit": "CPU-s per build",
+    "verification": "sha256 over the whole emitted artifact (settlement rules, every window row, treaty rows, reachable cells, cited provenance)",
+    "verified": true,
+    "tag": "measured",
+    "verdict": "TAKE IT"
+   },
+   {
+    "lever": "gc.freeze()+gc.disable() on the M1 fixpoint at FULL scale, ALONE",
+    "site": "rebuild/pipeline/run_m1.py entry point",
+    "workload": "build_tables over all 18 runes, default config",
+    "baseline_s": 81.254,
+    "levered_s": 71.235,
+    "saved_s": 10.019,
+    "unit": "CPU-s per config",
+    "verification": "sha256 over the whole emitted artifact",
+    "verified": true,
+    "tag": "measured",
+    "verdict": "TAKE IT"
+   },
+   {
+    "lever": "the six memoizations at FULL scale, WITHOUT gc off",
+    "site": "as below",
+    "workload": "build_tables over all 18 runes, default config",
+    "baseline_s": 81.254,
+    "levered_s": 42.184,
+    "saved_s": 39.07,
+    "unit": "CPU-s per config",
+    "verification": "sha256 over the whole emitted artifact",
+    "verified": true,
+    "tag": "measured",
+    "verdict": "TAKE IT"
+   },
+   {
+    "lever": "the same M1 stack at FULL scale",
+    "site": "as above",
+    "workload": "build_tables over all 18 runes, default config (the real cold-build kernel)",
+    "baseline_s": 81.254,
+    "levered_s": 34.0227,
+    "saved_s": 47.231,
+    "unit": "CPU-s per config",
+    "verification": "sha256 over the whole emitted artifact; window/rule/treaty counts printed too",
+    "verified": true,
+    "tag": "measured",
+    "verdict": "TAKE IT \u2014 this is the direct competitor to a Rust port"
+   }
+  ],
+  "derived_rollup": {
+   "rows": [
+    {
+     "line": "M1 table stage",
+     "measured_input": "81.254 -> 34.0227 CPU-s for one full config (2.39x)",
+     "assumption": "the same ratio holds for the six-config cold and partial passes, whose 337.9 s / 224.7 s endpoints are the cost model's",
+     "s_per_day": 733.1,
+     "tag": "derived"
+    },
+    {
+     "line": "config_badge lru_cache",
+     "measured_input": "2.4307 CPU-s per surface pass",
+     "assumption": "5.99 surface passes/day",
+     "s_per_day": 14.6,
+     "tag": "derived"
+    },
+    {
+     "line": "load_human_unit_ids, verdict-ready only",
+     "measured_input": "0.8088 s per call",
+     "assumption": "6.0 verdict-ready calls/day",
+     "s_per_day": 4.9,
+     "tag": "derived"
+    },
+    {
+     "line": "the whole plumbing chain's re-parse of the 265 MB surface",
+     "measured_input": "0.8088 s per full-surface parse",
+     "assumption": "the cost model's claim of 7 re-parses per pass, 8 passes/day; the 7 is CITED, not measured here",
+     "s_per_day": 45.3,
+     "tag": "derived, rests on a cited count"
+    },
+    {
+     "line": "font build (CSafeLoader + gc off)",
+     "measured_input": "1.3 wall-s per build",
+     "assumption": "2.56 builds/day",
+     "s_per_day": 3.3,
+     "tag": "derived"
+    },
+    {
+     "line": "CSafeLoader on the skip-path rune digests",
+     "measured_input": "0.040341 s per sweep",
+     "assumption": "13.0 sweeps/day",
+     "s_per_day": 0.52,
+     "tag": "derived"
+    }
+   ],
+   "total_s_per_day": 801.7,
+   "against": "the cost model's 2,062 foreground wall-s/day, of which 1,876 is rewritable Python",
+   "tag": "derived"
+  }
+ },
+ "freethreaded": {
+  "equivalence": {
+   "method": "blake2b-128 over every rule row, reachable cell, enumerated window, treaty row and fired-provenance pointer of each built table; the GIL serial run is the reference",
+   "reference_checksums": [
+    "34a1fdb9b8b3e069903b71e70add8d63",
+    "89f3a21b90f8325dad1a4508b49b5995",
+    "41a73dec420d4b74d37415404f379046",
+    "1dc58eeb034f8105755716d77debac3a",
+    "0b2213cc5509b00ba2e07fae54d58482",
+    "d7a76c401d3a1ee2cc7a0e480e08394f",
+    "34a1fdb9b8b3e069903b71e70add8d63",
+    "89f3a21b90f8325dad1a4508b49b5995",
+    "41a73dec420d4b74d37415404f379046",
+    "1dc58eeb034f8105755716d77debac3a",
+    "0b2213cc5509b00ba2e07fae54d58482",
+    "d7a76c401d3a1ee2cc7a0e480e08394f"
+   ],
+   "runs_compared": 19,
+   "mismatches": [],
+   "all_match": true
+  },
+  "headline": {
+   "serial_gil_wall_s": 27.789,
+   "best_freethreaded_wall_s": 7.782,
+   "best_net_multiplier_vs_serial_gil": 3.571,
+   "best_config": "6 threads, private spec per thread",
+   "cores_available": 12
+  },
+  "real_shape_six_configs_only": {
+   "note": "six acceptance configurations is all the parallelism this stage actually offers, and they are unequal \u2014 the longest configuration is the floor no thread count can beat",
+   "rows": [
+    {
+     "config": "gil 1 thread",
+     "wall_s": 13.063,
+     "cpu_s": 13.059,
+     "cpu_utilization": 1.0,
+     "multiplier_vs_serial_gil": 1.0
+    },
+    {
+     "config": "freethreaded 1 thread",
+     "wall_s": 12.005,
+     "cpu_s": 11.974,
+     "cpu_utilization": 0.997,
+     "multiplier_vs_serial_gil": 1.088
+    },
+    {
+     "config": "freethreaded 6 threads, shared spec",
+     "wall_s": 5.856,
+     "cpu_s": 30.9,
+     "cpu_utilization": 5.276,
+     "multiplier_vs_serial_gil": 2.231
+    },
+    {
+     "config": "freethreaded 6 threads, private spec",
+     "wall_s": 4.111,
+     "cpu_s": 20.831,
+     "cpu_utilization": 5.067,
+     "multiplier_vs_serial_gil": 3.178
+    }
+   ]
+  },
+  "gc_control": {
+   "note": "same six-configuration slice, gc.freeze()+gc.disable() vs stock",
+   "rows": [
+    {
+     "build": "gil build",
+     "gc_on_wall_s": 13.063,
+     "gc_off_wall_s": 10.872,
+     "gc_on_collections": 2753,
+     "gc_off_collections": 18,
+     "gc_saving_pct": 16.8
+    },
+    {
+     "build": "freethreaded build",
+     "gc_on_wall_s": 12.005,
+     "gc_off_wall_s": 11.375,
+     "gc_on_collections": 32,
+     "gc_off_collections": 11,
+     "gc_saving_pct": 5.2
+    }
+   ],
+   "freethreaded_advantage_gc_on": 1.088,
+   "freethreaded_advantage_gc_off": 0.956,
+   "reading": "the single-thread gap survives with the collector off, so it is not the collector"
+  },
+  "projection": {
+   "status": "DERIVED \u2014 cost-model measured endpoints x ratios measured on this slice; not measured at production scale",
+   "measured_inputs": {
+    "production_six_config_cold_wall_s": 337.9,
+    "production_donor_config_alone_s": 77.51,
+    "slice_freethreaded_single_thread_wall_ratio": 0.8528,
+    "slice_donor_then_fanout_multiplier": 1.597
+   },
+   "derived_recipient_mean_s": 52.1,
+   "scenarios": [
+    {
+     "scenario": "run the existing serial code on 3.14t, no threading at all",
+     "projected_wall_s": 288.2,
+     "multiplier": 1.17
+    },
+    {
+     "scenario": "donor first, then five recipients as threads over the same TraceShare, at the fanout efficiency measured on this slice",
+     "projected_wall_s": 211.6,
+     "multiplier": 1.597
+    },
+    {
+     "scenario": "drop the share, run the six configurations as six threads with a private spec each, at the speedup measured on the six-configuration slice",
+     "projected_wall_s": 146.4,
+     "multiplier": 2.31,
+     "caveat": "6 x 77.51 s is the DERIVED no-share serial cost, assuming every configuration costs what the measured default configuration costs; the share is worth more at production scale (27%) than on this slice (15%), so this scenario is optimistic on the share side and pessimistic on the config-cost side"
+    },
+    {
+     "scenario": "CEILING: donor plus one recipient, perfect 5-way fanout, zero threading overhead, recipients assumed equal",
+     "projected_wall_s": 110.5,
+     "multiplier": 3.06
+    }
+   ],
+   "why_the_ceiling_is_low": "the cross-configuration TraceShare has no content until the donor configuration finishes, so the donor is strictly serial ahead of the other five \u2014 Amdahl on a 23% serial fraction caps the whole idea near 2.6x however many cores are free",
+   "unmeasured": "per-recipient configuration times at production scale (the slowest recipient, not the mean, sets the fanout's floor) and whether six concurrent production fixpoints fit in RAM (per-config peak RSS is a measured 3.85 GB)"
+  }
+ },
+ "cut_the_work": {
+  "harness": "cut-the-work",
+  "conform_horizon": {
+   "h3-cold": {
+    "horizon": 3,
+    "boundary_horizon_supplied": true,
+    "pool_wall_s": 208.61490637497627,
+    "sum_config_wall_s": 1185.5033510009816,
+    "sum_setup_s": 5.0486212499963585,
+    "sum_sweep_only_s": 370.5960791679681,
+    "sum_sweep_s": 375.6447004179645,
+    "sum_topup_s": 809.8586505830172,
+    "sum_shape_s": 75.06439145110198,
+    "total_shape_calls": 5231950,
+    "sequences_per_config": 6174,
+    "total_shaping_runs": 3948883,
+    "total_topped_up_sequences": 3911839,
+    "total_topped_up_rules": 11709,
+    "total_divergences": 0,
+    "total_uncovered_rules": 0,
+    "total_uncovered_transitions": 0,
+    "configs": [
+     {
+      "config": "default",
+      "wall_s": 194.4759511250013,
+      "setup_s": 0.8173129170027096,
+      "sweep_only_s": 60.48615474998951,
+      "sweep_s": 61.30346766699222,
+      "topup_s": 133.17248345800908,
+      "shape_calls": 858998,
+      "shape_s": 13.653488095704233,
+      "sequences": 6174,
+      "topped_up_sequences": 640622,
+      "topped_up_rules": 1876,
+      "shaping_runs": 646796,
+      "divergences": 0,
+      "uncovered_rules": 0,
+      "uncovered_transitions": 0,
+      "cpu_s": null
+     },
+     {
+      "config": "ss03",
+      "wall_s": 204.99303529199096,
+      "setup_s": 0.8811860420100857,
+      "sweep_only_s": 63.30320029199356,
+      "sweep_s": 64.18438633400365,
+      "topup_s": 140.80864895798732,
+      "shape_calls": 901297,
+      "shape_s": 14.038388320041122,
+      "sequences": 6174,
+      "topped_up_sequences": 675514,
+      "topped_up_rules": 2092,
+      "shaping_runs": 681688,
+      "divergences": 0,
+      "uncovered_rules": 0,
+      "uncovered_transitions": 0,
+      "cpu_s": null
+     },
+     {
+      "config": "ss04",
+      "wall_s": 191.21599758398952,
+      "setup_s": 0.8163144999998622,
+      "sweep_only_s": 61.05548887499026,
+      "sweep_s": 61.87180337499012,
+      "topup_s": 129.3441942089994,
+      "shape_calls": 837615,
+      "shape_s": 13.27771613484947,
+      "sequences": 6174,
+      "topped_up_sequences": 624621,
+      "topped_up_rules": 1881,
+      "shaping_runs": 630795,
+      "divergences": 0,
+      "uncovered_rules": 0,
+      "uncovered_transitions": 0,
+      "cpu_s": null
+     },
+     {
+      "config": "ss05",
+      "wall_s": 200.6408003329998,
+      "setup_s": 0.8334014579886571,
+      "sweep_only_s": 61.15139650000492,
+      "sweep_s": 61.98479795799358,
+      "topup_s": 138.6560023750062,
+      "shape_calls": 874103,
+      "shape_s": 14.096288662956795,
+      "sequences": 6174,
+      "topped_up_sequences": 654395,
+      "topped_up_rules": 1895,
+      "shaping_runs": 660569,
+      "divergences": 0,
+      "uncovered_rules": 0,
+      "uncovered_transitions": 0,
+      "cpu_s": null
+     },
+     {
+      "config": "ss03+ss05",
+      "wall_s": 208.02418204199057,
+      "setup_s": 0.8901909999840427,
+      "sweep_only_s": 64.17680729200947,
+      "sweep_s": 65.06699829199351,
+      "topup_s": 142.95718374999706,
+      "shape_calls": 906663,
+      "shape_s": 14.405484252551105,
+      "sequences": 6174,
+      "topped_up_sequences": 680406,
+      "topped_up_rules": 2108,
+      "shaping_runs": 686580,
+      "divergences": 0,
+      "uncovered_rules": 0,
+      "uncovered_transitions": 0,
+      "cpu_s": null
+     },
+     {
+      "config": "ss10",
+      "wall_s": 186.1533846250095,
+      "setup_s": 0.8102153330110013,
+      "sweep_only_s": 60.423031458980404,
+      "sweep_s": 61.233246791991405,
+      "topup_s": 124.92013783301809,
+      "shape_calls": 853274,
+      "shape_s": 5.593025984999258,
+      "sequences": 6174,
+      "topped_up_sequences": 636281,
+      "topped_up_rules": 1857,
+      "shaping_runs": 642455,
+      "divergences": 0,
+      "uncovered_rules": 0,
+      "uncovered_transitions": 0,
+      "cpu_s": null
+     }
+    ],
+    "gate_passes": true
+   },
+   "h4-cold": {
+    "horizon": 4,
+    "boundary_horizon_supplied": true,
+    "pool_wall_s": 194.25372445801622,
+    "sum_config_wall_s": 1097.2994577070058,
+    "sum_setup_s": 4.990393749001669,
+    "sum_sweep_only_s": 497.5436063760135,
+    "sum_sweep_s": 502.53400012501515,
+    "sum_topup_s": 594.7654575819906,
+    "sum_shape_s": 75.62249930447433,
+    "total_shape_calls": 5331854,
+    "sequences_per_config": 111150,
+    "total_shaping_runs": 4140575,
+    "total_topped_up_sequences": 3473675,
+    "total_topped_up_rules": 6636,
+    "total_divergences": 0,
+    "total_uncovered_rules": 0,
+    "total_uncovered_transitions": 0,
+    "configs": [
+     {
+      "config": "default",
+      "wall_s": 181.3191533330246,
+      "setup_s": 0.8104902080085594,
+      "sweep_only_s": 81.91266566701233,
+      "sweep_s": 82.7231558750209,
+      "topup_s": 98.5959974580037,
+      "shape_calls": 875652,
+      "shape_s": 13.776622828358086,
+      "sequences": 111150,
+      "topped_up_sequences": 567598,
+      "topped_up_rules": 1051,
+      "shaping_runs": 678748,
+      "divergences": 0,
+      "uncovered_rules": 0,
+      "uncovered_transitions": 0,
+      "cpu_s": null
+     },
+     {
+      "config": "ss03",
+      "wall_s": 190.9370567080041,
+      "setup_s": 0.8832062500005122,
+      "sweep_only_s": 85.00344283299637,
+      "sweep_s": 85.88664908299688,
+      "topup_s": 105.05040762500721,
+      "shape_calls": 917959,
+      "shape_s": 14.181824610277545,
+      "sequences": 111150,
+      "topped_up_sequences": 602498,
+      "topped_up_rules": 1205,
+      "shaping_runs": 713648,
+      "divergences": 0,
+      "uncovered_rules": 0,
+      "uncovered_transitions": 0,
+      "cpu_s": null
+     },
+     {
+      "config": "ss04",
+      "wall_s": 176.7773630419979,
+      "setup_s": 0.7923838749993593,
+      "sweep_only_s": 81.3615470000077,
+      "sweep_s": 82.15393087500706,
+      "topup_s": 94.62343216699082,
+      "shape_calls": 854233,
+      "shape_s": 13.33935227803886,
+      "sequences": 111150,
+      "topped_up_sequences": 551561,
+      "topped_up_rules": 1066,
+      "shaping_runs": 662711,
+      "divergences": 0,
+      "uncovered_rules": 0,
+      "uncovered_transitions": 0,
+      "cpu_s": null
+     },
+     {
+      "config": "ss05",
+      "wall_s": 182.87327241600724,
+      "setup_s": 0.8207584579940885,
+      "sweep_only_s": 82.16871837500366,
+      "sweep_s": 82.98947683299775,
+      "topup_s": 99.88379558300949,
+      "shape_calls": 890758,
+      "shape_s": 13.995345428702421,
+      "sequences": 111150,
+      "topped_up_sequences": 581372,
+      "topped_up_rules": 1059,
+      "shaping_runs": 692522,
+      "divergences": 0,
+      "uncovered_rules": 0,
+      "uncovered_transitions": 0,
+      "cpu_s": null
+     },
+     {
+      "config": "ss03+ss05",
+      "wall_s": 193.70122862499557,
+      "setup_s": 0.8836237080104183,
+      "sweep_only_s": 85.97399145900272,
+      "sweep_s": 86.85761516701314,
+      "topup_s": 106.84361345798243,
+      "shape_calls": 923326,
+      "shape_s": 14.774662719020853,
+      "sequences": 111150,
+      "topped_up_sequences": 607391,
+      "topped_up_rules": 1213,
+      "shaping_runs": 718541,
+      "divergences": 0,
+      "uncovered_rules": 0,
+      "uncovered_transitions": 0,
+      "cpu_s": null
+     },
+     {
+      "config": "ss10",
+      "wall_s": 171.6913835829764,
+      "setup_s": 0.799931249988731,
+      "sweep_only_s": 81.1232410419907,
+      "sweep_s": 81.92317229197943,
+      "topup_s": 89.76821129099699,
+      "shape_calls": 869926,
+      "shape_s": 5.554691440076567,
+      "sequences": 111150,
+      "topped_up_sequences": 563255,
+      "topped_up_rules": 1042,
+      "shaping_runs": 674405,
+      "divergences": 0,
+      "uncovered_rules": 0,
+      "uncovered_transitions": 0,
+      "cpu_s": null
+     }
+    ],
+    "gate_passes": true
+   },
+   "h5-cold": {
+    "horizon": 5,
+    "boundary_horizon_supplied": true,
+    "pool_wall_s": 230.1465392090031,
+    "sum_config_wall_s": 1306.61411558502,
+    "sum_setup_s": 4.998262707988033,
+    "sum_sweep_only_s": 951.6618306669698,
+    "sum_sweep_s": 956.6600933749578,
+    "sum_topup_s": 349.95402221006225,
+    "sum_shape_s": 189.0427115248167,
+    "total_shape_calls": 14724986,
+    "sequences_per_config": 2000718,
+    "total_shaping_runs": 14031442,
+    "total_topped_up_sequences": 2027134,
+    "total_topped_up_rules": 2497,
+    "total_divergences": 0,
+    "total_uncovered_rules": 0,
+    "total_uncovered_transitions": 0,
+    "configs": [
+     {
+      "config": "default",
+      "wall_s": 217.62283633399056,
+      "setup_s": 0.8040559999935795,
+      "sweep_only_s": 159.29718566700467,
+      "sweep_s": 160.10124166699825,
+      "topup_s": 57.521594666992314,
+      "shape_calls": 2442840,
+      "shape_s": 34.9070294117264,
+      "sequences": 2000718,
+      "topped_up_sequences": 328005,
+      "topped_up_rules": 384,
+      "shaping_runs": 2328723,
+      "divergences": 0,
+      "uncovered_rules": 0,
+      "uncovered_transitions": 0,
+      "cpu_s": null
+     },
+     {
+      "config": "ss03",
+      "wall_s": 229.61261025001295,
+      "setup_s": 0.881982999999309,
+      "sweep_only_s": 165.72563274999266,
+      "sweep_s": 166.60761574999196,
+      "topup_s": 63.004994500020985,
+      "shape_calls": 2480460,
+      "shape_s": 35.44916191970697,
+      "sequences": 2000718,
+      "topped_up_sequences": 358736,
+      "topped_up_rules": 469,
+      "shaping_runs": 2359454,
+      "divergences": 0,
+      "uncovered_rules": 0,
+      "uncovered_transitions": 0,
+      "cpu_s": null
+     },
+     {
+      "config": "ss04",
+      "wall_s": 215.507024792023,
+      "setup_s": 0.7955474580230657,
+      "sweep_only_s": 160.0922051249945,
+      "sweep_s": 160.88775258301757,
+      "topup_s": 54.61927220900543,
+      "shape_calls": 2422704,
+      "shape_s": 34.54378910033847,
+      "sequences": 2000718,
+      "topped_up_sequences": 313063,
+      "topped_up_rules": 401,
+      "shaping_runs": 2313781,
+      "divergences": 0,
+      "uncovered_rules": 0,
+      "uncovered_transitions": 0,
+      "cpu_s": null
+     },
+     {
+      "config": "ss05",
+      "wall_s": 221.44374141699518,
+      "setup_s": 0.826109291985631,
+      "sweep_only_s": 161.2472246249963,
+      "sweep_s": 162.07333391698194,
+      "topup_s": 59.37040750001324,
+      "shape_calls": 2456666,
+      "shape_s": 35.29038321363623,
+      "sequences": 2000718,
+      "topped_up_sequences": 340629,
+      "topped_up_rules": 388,
+      "shaping_runs": 2341347,
+      "divergences": 0,
+      "uncovered_rules": 0,
+      "uncovered_transitions": 0,
+      "cpu_s": null
+     },
+     {
+      "config": "ss03+ss05",
+      "wall_s": 228.764035375003,
+      "setup_s": 0.8892275829857681,
+      "sweep_only_s": 164.22467179200612,
+      "sweep_s": 165.1138993749919,
+      "topup_s": 63.650136000011116,
+      "shape_calls": 2484527,
+      "shape_s": 36.0053463516233,
+      "sequences": 2000718,
+      "topped_up_sequences": 362461,
+      "topped_up_rules": 473,
+      "shaping_runs": 2363179,
+      "divergences": 0,
+      "uncovered_rules": 0,
+      "uncovered_transitions": 0,
+      "cpu_s": null
+     },
+     {
+      "config": "ss10",
+      "wall_s": 193.66386741699534,
+      "setup_s": 0.8013393750006799,
+      "sweep_only_s": 141.0749107079755,
+      "sweep_s": 141.87625008297618,
+      "topup_s": 51.78761733401916,
+      "shape_calls": 2437789,
+      "shape_s": 12.847001527785324,
+      "sequences": 2000718,
+      "topped_up_sequences": 324240,
+      "topped_up_rules": 382,
+      "shaping_runs": 2324958,
+      "divergences": 0,
+      "uncovered_rules": 0,
+      "uncovered_transitions": 0,
+      "cpu_s": null
+     }
+    ],
+    "gate_passes": true
+   },
+   "h5-warm": {
+    "horizon": 5,
+    "boundary_horizon_supplied": true,
+    "pool_wall_s": 202.38476912499755,
+    "sum_config_wall_s": 1150.3318597910402,
+    "sum_setup_s": 5.007187292008894,
+    "sum_sweep_only_s": 928.1968919580104,
+    "sum_sweep_s": 933.2040792500193,
+    "sum_topup_s": 217.1277805410209,
+    "sum_shape_s": 188.18408791269758,
+    "total_shape_calls": 14724782,
+    "sequences_per_config": 2000718,
+    "total_shaping_runs": 14031256,
+    "total_topped_up_sequences": 2026948,
+    "total_topped_up_rules": 2497,
+    "total_divergences": 0,
+    "total_uncovered_rules": 0,
+    "total_uncovered_transitions": 0,
+    "configs": [
+     {
+      "config": "default",
+      "wall_s": 193.0870364169823,
+      "setup_s": 0.8137382919958327,
+      "sweep_only_s": 156.41739470799803,
+      "sweep_s": 157.23113299999386,
+      "topup_s": 35.85590341698844,
+      "shape_calls": 2442840,
+      "shape_s": 34.73950929057901,
+      "sequences": 2000718,
+      "topped_up_sequences": 328005,
+      "topped_up_rules": 384,
+      "shaping_runs": 2328723,
+      "divergences": 0,
+      "uncovered_rules": 0,
+      "uncovered_transitions": 0,
+      "cpu_s": null
+     },
+     {
+      "config": "ss03",
+      "wall_s": 201.84647733301972,
+      "setup_s": 0.8870319170237053,
+      "sweep_only_s": 161.60395308298757,
+      "sweep_s": 162.49098500001128,
+      "topup_s": 39.35549233300844,
+      "shape_calls": 2480460,
+      "shape_s": 35.15212042874191,
+      "sequences": 2000718,
+      "topped_up_sequences": 358736,
+      "topped_up_rules": 469,
+      "shaping_runs": 2359454,
+      "divergences": 0,
+      "uncovered_rules": 0,
+      "uncovered_transitions": 0,
+      "cpu_s": null
+     },
+     {
+      "config": "ss04",
+      "wall_s": 190.32988304100581,
+      "setup_s": 0.7848565829917789,
+      "sweep_only_s": 155.53556320801727,
+      "sweep_s": 156.32041979100904,
+      "topup_s": 34.00946324999677,
+      "shape_calls": 2422704,
+      "shape_s": 34.31886461583781,
+      "sequences": 2000718,
+      "topped_up_sequences": 313063,
+      "topped_up_rules": 401,
+      "shaping_runs": 2313781,
+      "divergences": 0,
+      "uncovered_rules": 0,
+      "uncovered_transitions": 0,
+      "cpu_s": null
+     },
+     {
+      "config": "ss05",
+      "wall_s": 194.63054345801356,
+      "setup_s": 0.8194837080081925,
+      "sweep_only_s": 156.05689033400267,
+      "sweep_s": 156.87637404201087,
+      "topup_s": 37.754169416002696,
+      "shape_calls": 2456462,
+      "shape_s": 35.0705290978658,
+      "sequences": 2000718,
+      "topped_up_sequences": 340443,
+      "topped_up_rules": 388,
+      "shaping_runs": 2341161,
+      "divergences": 0,
+      "uncovered_rules": 0,
+      "uncovered_transitions": 0,
+      "cpu_s": null
+     },
+     {
+      "config": "ss03+ss05",
+      "wall_s": 201.46669733300223,
+      "setup_s": 0.8971246249857359,
+      "sweep_only_s": 160.7843460830045,
+      "sweep_s": 161.68147070799023,
+      "topup_s": 39.785226625012,
+      "shape_calls": 2484527,
+      "shape_s": 36.219836044852855,
+      "sequences": 2000718,
+      "topped_up_sequences": 362461,
+      "topped_up_rules": 473,
+      "shaping_runs": 2363179,
+      "divergences": 0,
+      "uncovered_rules": 0,
+      "uncovered_transitions": 0,
+      "cpu_s": null
+     },
+     {
+      "config": "ss10",
+      "wall_s": 168.97122220901656,
+      "setup_s": 0.8049521670036484,
+      "sweep_only_s": 137.79874454200035,
+      "sweep_s": 138.603696709004,
+      "topup_s": 30.36752550001256,
+      "shape_calls": 2437789,
+      "shape_s": 12.683228434820194,
+      "sequences": 2000718,
+      "topped_up_sequences": 324240,
+      "topped_up_rules": 382,
+      "shaping_runs": 2324958,
+      "divergences": 0,
+      "uncovered_rules": 0,
+      "uncovered_transitions": 0,
+      "cpu_s": null
+     }
+    ],
+    "gate_passes": true
+   },
+   "h5-noboundary": {
+    "horizon": 5,
+    "boundary_horizon_supplied": false,
+    "pool_wall_s": 251.41490875001182,
+    "sum_config_wall_s": 1416.626489333983,
+    "sum_setup_s": 5.034156873967731,
+    "sum_sweep_only_s": 1043.1379463750345,
+    "sum_sweep_s": 1048.1721032490022,
+    "sum_topup_s": 368.4543860849808,
+    "sum_shape_s": 248.91623132731183,
+    "total_shape_calls": 23357306,
+    "sequences_per_config": 2000718,
+    "total_shaping_runs": 14031442,
+    "total_topped_up_sequences": 2027134,
+    "total_topped_up_rules": 2497,
+    "total_divergences": 0,
+    "total_uncovered_rules": 0,
+    "total_uncovered_transitions": 0,
+    "configs": [
+     {
+      "config": "default",
+      "wall_s": 236.80542158399476,
+      "setup_s": 0.8087336249882355,
+      "sweep_only_s": 176.401847000001,
+      "sweep_s": 177.21058062498923,
+      "topup_s": 59.59484095900552,
+      "shape_calls": 3881560,
+      "shape_s": 45.728124575456604,
+      "sequences": 2000718,
+      "topped_up_sequences": 328005,
+      "topped_up_rules": 384,
+      "shaping_runs": 2328723,
+      "divergences": 0,
+      "uncovered_rules": 0,
+      "uncovered_transitions": 0,
+      "cpu_s": null
+     },
+     {
+      "config": "ss03",
+      "wall_s": 249.60691995898378,
+      "setup_s": 0.8985748749983031,
+      "sweep_only_s": 181.1386196249805,
+      "sweep_s": 182.0371944999788,
+      "topup_s": 67.56972545900499,
+      "shape_calls": 3919180,
+      "shape_s": 46.941365604667226,
+      "sequences": 2000718,
+      "topped_up_sequences": 358736,
+      "topped_up_rules": 469,
+      "shaping_runs": 2359454,
+      "divergences": 0,
+      "uncovered_rules": 0,
+      "uncovered_transitions": 0,
+      "cpu_s": null
+     },
+     {
+      "config": "ss04",
+      "wall_s": 233.47118037499604,
+      "setup_s": 0.8047462919785175,
+      "sweep_only_s": 175.68379391601775,
+      "sweep_s": 176.48854020799627,
+      "topup_s": 56.98264016699977,
+      "shape_calls": 3861424,
+      "shape_s": 45.35643891777727,
+      "sequences": 2000718,
+      "topped_up_sequences": 313063,
+      "topped_up_rules": 401,
+      "shaping_runs": 2313781,
+      "divergences": 0,
+      "uncovered_rules": 0,
+      "uncovered_transitions": 0,
+      "cpu_s": null
+     },
+     {
+      "config": "ss05",
+      "wall_s": 240.7738070829946,
+      "setup_s": 0.8326527079916559,
+      "sweep_only_s": 176.96622191701317,
+      "sweep_s": 177.79887462500483,
+      "topup_s": 62.97493245798978,
+      "shape_calls": 3895386,
+      "shape_s": 46.42896961403312,
+      "sequences": 2000718,
+      "topped_up_sequences": 340629,
+      "topped_up_rules": 388,
+      "shaping_runs": 2341347,
+      "divergences": 0,
+      "uncovered_rules": 0,
+      "uncovered_transitions": 0,
+      "cpu_s": null
+     },
+     {
+      "config": "ss03+ss05",
+      "wall_s": 250.83333975001005,
+      "setup_s": 0.8848752909980249,
+      "sweep_only_s": 181.72611737501575,
+      "sweep_s": 182.61099266601377,
+      "topup_s": 68.22234708399628,
+      "shape_calls": 3923247,
+      "shape_s": 47.45467868624837,
+      "sequences": 2000718,
+      "topped_up_sequences": 362461,
+      "topped_up_rules": 473,
+      "shaping_runs": 2363179,
+      "divergences": 0,
+      "uncovered_rules": 0,
+      "uncovered_transitions": 0,
+      "cpu_s": null
+     },
+     {
+      "config": "ss10",
+      "wall_s": 205.1358205830038,
+      "setup_s": 0.8045740830129944,
+      "sweep_only_s": 151.22134654200636,
+      "sweep_s": 152.02592062501935,
+      "topup_s": 53.10989995798445,
+      "shape_calls": 3876509,
+      "shape_s": 17.006653929129243,
+      "sequences": 2000718,
+      "topped_up_sequences": 324240,
+      "topped_up_rules": 382,
+      "shaping_runs": 2324958,
+      "divergences": 0,
+      "uncovered_rules": 0,
+      "uncovered_transitions": 0,
+      "cpu_s": null
+     }
+    ],
+    "gate_passes": true
+   }
+  },
+  "calt_sweep": {
+   "baseline_overhead": {
+    "real_s": 1.24,
+    "user_s": 0.99,
+    "sys_s": 0.1,
+    "hb_shape_calls": 3,
+    "hb_seconds": 0.002,
+    "shape_lookups": 0,
+    "passed": 1,
+    "pytest_wall_s": 0.66
+   },
+   "one_shard_after2": {
+    "real_s": 3.52,
+    "user_s": 3.36,
+    "sys_s": 0.11,
+    "hb_shape_calls": 103777,
+    "hb_seconds": 1.946,
+    "shape_lookups": 103824,
+    "passed": 1,
+    "pytest_wall_s": 3.02
+   },
+   "all_17_sweeps": {
+    "real_s": 192.99,
+    "user_s": 1995.69,
+    "sys_s": 14.49,
+    "passed": 782,
+    "pytest_wall_s": 180.96
+   }
+  },
+  "depth2_states": {
+   "elapsed_s": 44.5131714589952,
+   "totals": {
+    "suffix_only_at_depth_2": 22,
+    "prefix_only_at_depth_2": 4,
+    "reachable_depth_le_1": 215
+   },
+   "by_pair": {
+    "qsIt+qsDay": {
+     "suffix": {
+      "reachable_depth_le_1": 8,
+      "reachable_depth_2": 12,
+      "only_at_depth_2": 4,
+      "examples": [
+       [
+        "qsIt.en-y5.ex-y0.ex-ext-1",
+        "qsDay_qsUtter.half.en-y0.ex-y5.ex-con-2"
+       ],
+       [
+        "qsIt.en-y5.ex-y0.ex-ext-1",
+        "qsDay_qsUtter.half.en-y0.ex-y5.ex-ext-1"
+       ]
+      ]
+     },
+     "prefix": {
+      "reachable_depth_le_1": 8,
+      "reachable_depth_2": 9,
+      "only_at_depth_2": 1,
+      "examples": [
+       [
+        "qsIt.en-y5.ex-y0",
+        "qsDay_qsUtter"
+       ]
+      ]
+     }
+    },
+    "qsUtter+qsGay": {
+     "suffix": {
+      "reachable_depth_le_1": 5,
+      "reachable_depth_2": 8,
+      "only_at_depth_2": 3,
+      "examples": [
+       [
+        "qsGay.en-y5.ex-noentry"
+       ],
+       [
+        "qsUtter.ex-ext-1",
+        "qsGay.en-y5.ex-noentry"
+       ]
+      ]
+     },
+     "prefix": {
+      "reachable_depth_le_1": 5,
+      "reachable_depth_2": 5,
+      "only_at_depth_2": 0,
+      "examples": []
+     }
+    },
+    "qsSee+qsOut": {
+     "suffix": {
+      "reachable_depth_le_1": 8,
+      "reachable_depth_2": 9,
+      "only_at_depth_2": 1,
+      "examples": [
+       [
+        "qsSee.ex-y0.ex-con-1",
+        "qsOut"
+       ]
+      ]
+     },
+     "prefix": {
+      "reachable_depth_le_1": 8,
+      "reachable_depth_2": 8,
+      "only_at_depth_2": 0,
+      "examples": []
+     }
+    },
+    "qsYe+qsIt": {
+     "suffix": {
+      "reachable_depth_le_1": 29,
+      "reachable_depth_2": 30,
+      "only_at_depth_2": 1,
+      "examples": [
+       [
+        "qsYe.noentry",
+        "qsIt"
+       ]
+      ]
+     },
+     "prefix": {
+      "reachable_depth_le_1": 29,
+      "reachable_depth_2": 29,
+      "only_at_depth_2": 0,
+      "examples": []
+     }
+    },
+    "qsIt+qsIt": {
+     "suffix": {
+      "reachable_depth_le_1": 29,
+      "reachable_depth_2": 30,
+      "only_at_depth_2": 1,
+      "examples": [
+       [
+        "qsIt.noentry",
+        "qsIt"
+       ]
+      ]
+     },
+     "prefix": {
+      "reachable_depth_le_1": 29,
+      "reachable_depth_2": 32,
+      "only_at_depth_2": 3,
+      "examples": [
+       [
+        "qsIt",
+        "qsIt"
+       ],
+       [
+        "qsIt",
+        "qsIt.ex-y0"
+       ]
+      ]
+     }
+    },
+    "qsEat+qsYe": {
+     "suffix": {
+      "reachable_depth_le_1": 9,
+      "reachable_depth_2": 9,
+      "only_at_depth_2": 0,
+      "examples": []
+     },
+     "prefix": {
+      "reachable_depth_le_1": 9,
+      "reachable_depth_2": 9,
+      "only_at_depth_2": 0,
+      "examples": []
+     }
+    },
+    "qsJay+qsHe": {
+     "suffix": {
+      "reachable_depth_le_1": 25,
+      "reachable_depth_2": 25,
+      "only_at_depth_2": 0,
+      "examples": []
+     },
+     "prefix": {
+      "reachable_depth_le_1": 25,
+      "reachable_depth_2": 25,
+      "only_at_depth_2": 0,
+      "examples": []
+     }
+    },
+    "qsHe+qsOwe": {
+     "suffix": {
+      "reachable_depth_le_1": 12,
+      "reachable_depth_2": 12,
+      "only_at_depth_2": 0,
+      "examples": []
+     },
+     "prefix": {
+      "reachable_depth_le_1": 12,
+      "reachable_depth_2": 12,
+      "only_at_depth_2": 0,
+      "examples": []
+     }
+    },
+    "qsYe+qsOwe": {
+     "suffix": {
+      "reachable_depth_le_1": 16,
+      "reachable_depth_2": 16,
+      "only_at_depth_2": 0,
+      "examples": []
+     },
+     "prefix": {
+      "reachable_depth_le_1": 16,
+      "reachable_depth_2": 16,
+      "only_at_depth_2": 0,
+      "examples": []
+     }
+    },
+    "qsJay+qsYe": {
+     "suffix": {
+      "reachable_depth_le_1": 12,
+      "reachable_depth_2": 12,
+      "only_at_depth_2": 0,
+      "examples": []
+     },
+     "prefix": {
+      "reachable_depth_le_1": 12,
+      "reachable_depth_2": 12,
+      "only_at_depth_2": 0,
+      "examples": []
+     }
+    },
+    "qsJai+qsYe": {
+     "suffix": {
+      "reachable_depth_le_1": 14,
+      "reachable_depth_2": 15,
+      "only_at_depth_2": 1,
+      "examples": [
+       [
+        "qsJai.noentry",
+        "qsYe"
+       ]
+      ]
+     },
+     "prefix": {
+      "reachable_depth_le_1": 14,
+      "reachable_depth_2": 14,
+      "only_at_depth_2": 0,
+      "examples": []
+     }
+    },
+    "qsIt+qsOwe": {
+     "suffix": {
+      "reachable_depth_le_1": 16,
+      "reachable_depth_2": 16,
+      "only_at_depth_2": 0,
+      "examples": []
+     },
+     "prefix": {
+      "reachable_depth_le_1": 16,
+      "reachable_depth_2": 16,
+      "only_at_depth_2": 0,
+      "examples": []
+     }
+    },
+    "qsIt+qsCheer": {
+     "suffix": {
+      "reachable_depth_le_1": 4,
+      "reachable_depth_2": 4,
+      "only_at_depth_2": 0,
+      "examples": []
+     },
+     "prefix": {
+      "reachable_depth_le_1": 4,
+      "reachable_depth_2": 4,
+      "only_at_depth_2": 0,
+      "examples": []
+     }
+    },
+    "qsIt+qsJai": {
+     "suffix": {
+      "reachable_depth_le_1": 13,
+      "reachable_depth_2": 24,
+      "only_at_depth_2": 11,
+      "examples": [
+       [
+        "qsIt.en-y0.ex-y5",
+        "qsJai"
+       ],
+       [
+        "qsIt.en-y0.ex-y5.ex-ext-1",
+        "qsJai_qsUtter.ex-con-2"
+       ]
+      ]
+     },
+     "prefix": {
+      "reachable_depth_le_1": 13,
+      "reachable_depth_2": 13,
+      "only_at_depth_2": 0,
+      "examples": []
+     }
+    },
+    "qsYe+qsI": {
+     "suffix": {
+      "reachable_depth_le_1": 6,
+      "reachable_depth_2": 6,
+      "only_at_depth_2": 0,
+      "examples": []
+     },
+     "prefix": {
+      "reachable_depth_le_1": 6,
+      "reachable_depth_2": 6,
+      "only_at_depth_2": 0,
+      "examples": []
+     }
+    },
+    "qsIt+qsI": {
+     "suffix": {
+      "reachable_depth_le_1": 9,
+      "reachable_depth_2": 9,
+      "only_at_depth_2": 0,
+      "examples": []
+     },
+     "prefix": {
+      "reachable_depth_le_1": 9,
+      "reachable_depth_2": 9,
+      "only_at_depth_2": 0,
+      "examples": []
+     }
+    }
+   }
+  },
+  "derived": {
+   "calt_context_set": 46,
+   "after_combos": {
+    "1": 47,
+    "2": 2163
+   },
+   "after_2_to_1_factor": 46.02127659574468,
+   "shaped_strings_per_shard_after2": 103824,
+   "shaped_strings_per_shard_after1": 2256,
+   "shards_per_test": 46,
+   "sharded_2x2_tests": 17,
+   "conform_alphabet_today": 18,
+   "conform_alphabet_full_migration": 47,
+   "sweep_sequences": {
+    "today": {
+     "3": 6174,
+     "4": 111150,
+     "5": 2000718
+    },
+    "full_migration": {
+     "3": 106079,
+     "4": 4985760,
+     "5": 234330767
+    }
+   }
+  }
+ }
+}

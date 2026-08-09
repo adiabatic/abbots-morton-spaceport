@@ -1,0 +1,30 @@
+{
+ "pid": 65795,
+ "argv": [
+  "tools/build_font.py",
+  "glyph_data/",
+  "site/"
+ ],
+ "cpu_self": 2.704593,
+ "user": 2.654373,
+ "sys": 0.05022,
+ "maxrss_mb": 180.140625,
+ "wall": 11.14547579101054,
+ "timers": {
+  "yaml.safe_load_all": {
+   "cpu": 1.7999999999976368e-05,
+   "wall": 9.918934665620327e-06,
+   "calls": 10
+  },
+  "repo compile_glyph_set (IR)": {
+   "cpu": 0.33057500000000006,
+   "wall": 0.3307338749873452,
+   "calls": 1
+  },
+  "repo emit_quikscript_senior_features (FEA text)": {
+   "cpu": 2.0912219999999997,
+   "wall": 2.0919457499985583,
+   "calls": 1
+  }
+ }
+}

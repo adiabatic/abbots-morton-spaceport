@@ -1,0 +1,9 @@
+shards: 27 files, 264.5 MB
+read all shard bytes                       0.015s
+json.loads all shards                      1.080s
+status.load_human_unit_ids                 0.886s
+fingerprint.compute_all                    0.052s
+fingerprint.data_lines                     0.050s
+yaml.safe_load 18 runes (pure py)          0.046s
+yaml.load CSafeLoader 18 runes             0.006s
+rune bytes: 0.051331 MB

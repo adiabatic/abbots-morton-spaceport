@@ -1,0 +1,12 @@
+manifest totals: {
+ "units": 62148,
+ "rows": 292098,
+ "batches": 36,
+ "echo_groups": 1104
+}
+
+shards: 27 files, 264455496 bytes = 264.5 MB = 252.2 MiB
+whole rebuild/out/review (excl .uv-cache): 265342066 bytes = 265.3 MB
+unit-cache.ndjson.gz MISSING
+ink-signatures.tsv.gz MISSING
+manifest.json bytes: 38035

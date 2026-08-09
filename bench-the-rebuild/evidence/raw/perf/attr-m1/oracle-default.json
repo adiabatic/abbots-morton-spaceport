@@ -1,0 +1,16 @@
+{
+  "config": "default",
+  "wall_s": 24.271,
+  "cpu_s": 23.442,
+  "rows_compared": 111150,
+  "divergent_rows": 84008,
+  "positions_compared": 75166,
+  "positions_excluded": 35984,
+  "audit_lines": 84008,
+  "unmatched": 9365,
+  "shape_calls": 75166,
+  "shape_cpu_s": 1.222,
+  "shape_pct_of_oracle_cpu": 5.21,
+  "us_per_row": 210.9,
+  "peak_rss_gb": 0.12
+}

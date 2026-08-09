@@ -1,0 +1,33 @@
+{
+ "runes": 18,
+ "rune_names": [
+  "qsAh",
+  "qsDay",
+  "qsDay_qsUtter",
+  "qsEt",
+  "qsFee",
+  "qsI",
+  "qsIt",
+  "qsLow",
+  "qsMay",
+  "qsNo",
+  "qsOy",
+  "qsPea",
+  "qsRoe",
+  "qsSee",
+  "qsSee_qsUtter",
+  "qsTea",
+  "qsTea_qsOy",
+  "qsUtter"
+ ],
+ "import_wall": 0.0243,
+ "build_tables_wall": 81.82314112500171,
+ "build_tables_cpu": 81.364863,
+ "n_windows": 682842,
+ "n_rules": 2667,
+ "n_treaty": 3563,
+ "n_cells": 197,
+ "windows_digest": "f0abcf1715afc349f2acd4661fb2b2c62078c19c9d0737d7b4da86d9cd0c8b94",
+ "maxrss_bytes": 4045160448,
+ "python": "3.14.6"
+}

@@ -1,0 +1,956 @@
+{
+ "n_runes": 18,
+ "heights": {
+  "baseline": 0,
+  "x-height": 5,
+  "y6": 6,
+  "top": 8
+ },
+ "features": {
+  "ss03": "capability",
+  "ss04": "capability",
+  "ss05": "capability",
+  "ss10": "taste"
+ },
+ "predicate_classes": {
+  "halves-that-exit-at-x-height": 3,
+  "can-enter-at-baseline": 13,
+  "can-enter-at-x-height": 12,
+  "can-exit-at-baseline": 12,
+  "can-exit-at-x-height": 13,
+  "talls": 4,
+  "shorts": 9,
+  "deeps": 2
+ },
+ "runes": [
+  {
+   "name": "qsAh",
+   "seq": null,
+   "n_stances": 1,
+   "order": [
+    "hapax"
+   ],
+   "n_refuse": 0,
+   "n_prefer": 0,
+   "n_extend": 2,
+   "n_contract": 1,
+   "n_resolve": 0,
+   "groups": {},
+   "stances": [
+    {
+     "name": "hapax",
+     "traits": [],
+     "entries": {
+      "baseline": {
+       "selectable": true,
+       "n_scope": 1
+      }
+     },
+     "exits": {
+      "x-height": {
+       "n_scope": 0
+      }
+     },
+     "n_never": 0,
+     "only": null,
+     "n_unlocks": 0,
+     "require": []
+    }
+   ]
+  },
+  {
+   "name": "qsDay",
+   "seq": null,
+   "n_stances": 2,
+   "order": [
+    "full",
+    "half"
+   ],
+   "n_refuse": 1,
+   "n_prefer": 6,
+   "n_extend": 1,
+   "n_contract": 0,
+   "n_resolve": 0,
+   "groups": {},
+   "stances": [
+    {
+     "name": "full",
+     "traits": [],
+     "entries": {
+      "x-height": {
+       "selectable": true,
+       "n_scope": 0
+      }
+     },
+     "exits": {
+      "baseline": {
+       "n_scope": 0
+      }
+     },
+     "n_never": 0,
+     "only": null,
+     "n_unlocks": 0,
+     "require": []
+    },
+    {
+     "name": "half",
+     "traits": [
+      "half"
+     ],
+     "entries": {
+      "baseline": {
+       "selectable": true,
+       "n_scope": 0
+      }
+     },
+     "exits": {
+      "baseline": {
+       "n_scope": 0
+      }
+     },
+     "n_never": 0,
+     "only": null,
+     "n_unlocks": 0,
+     "require": []
+    }
+   ]
+  },
+  {
+   "name": "qsDay_qsUtter",
+   "seq": [
+    "qsDay",
+    "qsUtter"
+   ],
+   "n_stances": 2,
+   "order": [
+    "full",
+    "half"
+   ],
+   "n_refuse": 0,
+   "n_prefer": 0,
+   "n_extend": 5,
+   "n_contract": 0,
+   "n_resolve": 0,
+   "groups": {},
+   "stances": [
+    {
+     "name": "full",
+     "traits": [],
+     "entries": {
+      "x-height": {
+       "selectable": true,
+       "n_scope": 0
+      }
+     },
+     "exits": {
+      "x-height": {
+       "n_scope": 0
+      }
+     },
+     "n_never": 0,
+     "only": null,
+     "n_unlocks": 0,
+     "require": []
+    },
+    {
+     "name": "half",
+     "traits": [
+      "half"
+     ],
+     "entries": {
+      "baseline": {
+       "selectable": true,
+       "n_scope": 0
+      }
+     },
+     "exits": {
+      "x-height": {
+       "n_scope": 0
+      }
+     },
+     "n_never": 0,
+     "only": null,
+     "n_unlocks": 0,
+     "require": []
+    }
+   ]
+  },
+  {
+   "name": "qsEt",
+   "seq": null,
+   "n_stances": 1,
+   "order": [
+    "hapax"
+   ],
+   "n_refuse": 0,
+   "n_prefer": 0,
+   "n_extend": 1,
+   "n_contract": 1,
+   "n_resolve": 0,
+   "groups": {},
+   "stances": [
+    {
+     "name": "hapax",
+     "traits": [],
+     "entries": {
+      "x-height": {
+       "selectable": true,
+       "n_scope": 0
+      }
+     },
+     "exits": {
+      "baseline": {
+       "n_scope": 0
+      }
+     },
+     "n_never": 0,
+     "only": null,
+     "n_unlocks": 0,
+     "require": []
+    }
+   ]
+  },
+  {
+   "name": "qsFee",
+   "seq": null,
+   "n_stances": 2,
+   "order": [
+    "loop",
+    "reversed-loop"
+   ],
+   "n_refuse": 0,
+   "n_prefer": 1,
+   "n_extend": 3,
+   "n_contract": 0,
+   "n_resolve": 0,
+   "groups": {},
+   "stances": [
+    {
+     "name": "loop",
+     "traits": [],
+     "entries": {
+      "top": {
+       "selectable": true,
+       "n_scope": 0
+      }
+     },
+     "exits": {
+      "x-height": {
+       "n_scope": 1
+      }
+     },
+     "n_never": 0,
+     "only": null,
+     "n_unlocks": 0,
+     "require": []
+    },
+    {
+     "name": "reversed-loop",
+     "traits": [],
+     "entries": {
+      "x-height": {
+       "selectable": true,
+       "n_scope": 1
+      }
+     },
+     "exits": {},
+     "n_never": 0,
+     "only": null,
+     "n_unlocks": 0,
+     "require": [
+      "entry"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "qsI",
+   "seq": null,
+   "n_stances": 2,
+   "order": [
+    "loop",
+    "smaller-loop"
+   ],
+   "n_refuse": 0,
+   "n_prefer": 2,
+   "n_extend": 4,
+   "n_contract": 2,
+   "n_resolve": 0,
+   "groups": {},
+   "stances": [
+    {
+     "name": "loop",
+     "traits": [],
+     "entries": {
+      "baseline": {
+       "selectable": true,
+       "n_scope": 0
+      }
+     },
+     "exits": {
+      "x-height": {
+       "n_scope": 0
+      }
+     },
+     "n_never": 0,
+     "only": null,
+     "n_unlocks": 0,
+     "require": []
+    },
+    {
+     "name": "smaller-loop",
+     "traits": [],
+     "entries": {
+      "baseline": {
+       "selectable": true,
+       "n_scope": 4
+      }
+     },
+     "exits": {
+      "x-height": {
+       "n_scope": 0
+      }
+     },
+     "n_never": 0,
+     "only": null,
+     "n_unlocks": 0,
+     "require": []
+    }
+   ]
+  },
+  {
+   "name": "qsIt",
+   "seq": null,
+   "n_stances": 1,
+   "order": [],
+   "n_refuse": 11,
+   "n_prefer": 1,
+   "n_extend": 4,
+   "n_contract": 0,
+   "n_resolve": 0,
+   "groups": {},
+   "stances": [
+    {
+     "name": "hapax",
+     "traits": [],
+     "entries": {
+      "baseline": {
+       "selectable": true,
+       "n_scope": 0
+      },
+      "x-height": {
+       "selectable": true,
+       "n_scope": 0
+      }
+     },
+     "exits": {
+      "baseline": {
+       "n_scope": 0
+      },
+      "x-height": {
+       "n_scope": 0
+      }
+     },
+     "n_never": 0,
+     "only": 7,
+     "n_unlocks": 1,
+     "require": []
+    }
+   ]
+  },
+  {
+   "name": "qsLow",
+   "seq": null,
+   "n_stances": 1,
+   "order": [
+    "hapax"
+   ],
+   "n_refuse": 0,
+   "n_prefer": 0,
+   "n_extend": 3,
+   "n_contract": 1,
+   "n_resolve": 0,
+   "groups": {},
+   "stances": [
+    {
+     "name": "hapax",
+     "traits": [],
+     "entries": {
+      "baseline": {
+       "selectable": true,
+       "n_scope": 0
+      }
+     },
+     "exits": {
+      "x-height": {
+       "n_scope": 0
+      }
+     },
+     "n_never": 0,
+     "only": null,
+     "n_unlocks": 0,
+     "require": []
+    }
+   ]
+  },
+  {
+   "name": "qsMay",
+   "seq": null,
+   "n_stances": 2,
+   "order": [
+    "loop",
+    "grounded-loop"
+   ],
+   "n_refuse": 5,
+   "n_prefer": 3,
+   "n_extend": 3,
+   "n_contract": 0,
+   "n_resolve": 0,
+   "groups": {
+    "x-height-arrivers": 11
+   },
+   "stances": [
+    {
+     "name": "loop",
+     "traits": [],
+     "entries": {
+      "baseline": {
+       "selectable": true,
+       "n_scope": 0
+      },
+      "x-height": {
+       "selectable": true,
+       "n_scope": 2
+      }
+     },
+     "exits": {
+      "x-height": {
+       "n_scope": 0
+      }
+     },
+     "n_never": 1,
+     "only": null,
+     "n_unlocks": 0,
+     "require": []
+    },
+    {
+     "name": "grounded-loop",
+     "traits": [],
+     "entries": {
+      "x-height": {
+       "selectable": true,
+       "n_scope": 1
+      }
+     },
+     "exits": {
+      "baseline": {
+       "n_scope": 0
+      }
+     },
+     "n_never": 0,
+     "only": null,
+     "n_unlocks": 0,
+     "require": []
+    }
+   ]
+  },
+  {
+   "name": "qsNo",
+   "seq": null,
+   "n_stances": 2,
+   "order": [
+    "loop",
+    "flipped"
+   ],
+   "n_refuse": 0,
+   "n_prefer": 6,
+   "n_extend": 1,
+   "n_contract": 1,
+   "n_resolve": 0,
+   "groups": {},
+   "stances": [
+    {
+     "name": "loop",
+     "traits": [],
+     "entries": {
+      "x-height": {
+       "selectable": true,
+       "n_scope": 0
+      }
+     },
+     "exits": {
+      "x-height": {
+       "n_scope": 0
+      }
+     },
+     "n_never": 0,
+     "only": null,
+     "n_unlocks": 0,
+     "require": []
+    },
+    {
+     "name": "flipped",
+     "traits": [
+      "alt"
+     ],
+     "entries": {
+      "baseline": {
+       "selectable": true,
+       "n_scope": 1
+      }
+     },
+     "exits": {
+      "baseline": {
+       "n_scope": 0
+      }
+     },
+     "n_never": 0,
+     "only": null,
+     "n_unlocks": 0,
+     "require": []
+    }
+   ]
+  },
+  {
+   "name": "qsOy",
+   "seq": null,
+   "n_stances": 1,
+   "order": [
+    "hapax"
+   ],
+   "n_refuse": 0,
+   "n_prefer": 1,
+   "n_extend": 0,
+   "n_contract": 0,
+   "n_resolve": 0,
+   "groups": {},
+   "stances": [
+    {
+     "name": "hapax",
+     "traits": [],
+     "entries": {
+      "x-height": {
+       "selectable": true,
+       "n_scope": 1
+      }
+     },
+     "exits": {
+      "baseline": {
+       "n_scope": 0
+      }
+     },
+     "n_never": 0,
+     "only": null,
+     "n_unlocks": 0,
+     "require": []
+    }
+   ]
+  },
+  {
+   "name": "qsPea",
+   "seq": null,
+   "n_stances": 2,
+   "order": [
+    "full",
+    "half"
+   ],
+   "n_refuse": 2,
+   "n_prefer": 2,
+   "n_extend": 0,
+   "n_contract": 0,
+   "n_resolve": 0,
+   "groups": {},
+   "stances": [
+    {
+     "name": "full",
+     "traits": [],
+     "entries": {
+      "y6": {
+       "selectable": true,
+       "n_scope": 0
+      },
+      "x-height": {
+       "selectable": true,
+       "n_scope": 4
+      },
+      "baseline": {
+       "selectable": true,
+       "n_scope": 2
+      }
+     },
+     "exits": {
+      "baseline": {
+       "n_scope": 0
+      }
+     },
+     "n_never": 1,
+     "only": null,
+     "n_unlocks": 0,
+     "require": []
+    },
+    {
+     "name": "half",
+     "traits": [
+      "half"
+     ],
+     "entries": {
+      "y6": {
+       "selectable": true,
+       "n_scope": 0
+      },
+      "x-height": {
+       "selectable": true,
+       "n_scope": 3
+      }
+     },
+     "exits": {
+      "y6": {
+       "n_scope": 1
+      },
+      "x-height": {
+       "n_scope": 1
+      }
+     },
+     "n_never": 0,
+     "only": null,
+     "n_unlocks": 0,
+     "require": []
+    }
+   ]
+  },
+  {
+   "name": "qsRoe",
+   "seq": null,
+   "n_stances": 1,
+   "order": [
+    "hapax"
+   ],
+   "n_refuse": 0,
+   "n_prefer": 2,
+   "n_extend": 4,
+   "n_contract": 2,
+   "n_resolve": 0,
+   "groups": {},
+   "stances": [
+    {
+     "name": "hapax",
+     "traits": [],
+     "entries": {
+      "baseline": {
+       "selectable": true,
+       "n_scope": 0
+      },
+      "x-height": {
+       "selectable": true,
+       "n_scope": 0
+      }
+     },
+     "exits": {
+      "baseline": {
+       "n_scope": 1
+      },
+      "x-height": {
+       "n_scope": 1
+      }
+     },
+     "n_never": 2,
+     "only": null,
+     "n_unlocks": 0,
+     "require": []
+    }
+   ]
+  },
+  {
+   "name": "qsSee",
+   "seq": null,
+   "n_stances": 4,
+   "order": [
+    "normal",
+    "curled-over",
+    "straighter",
+    "straightest"
+   ],
+   "n_refuse": 1,
+   "n_prefer": 1,
+   "n_extend": 1,
+   "n_contract": 1,
+   "n_resolve": 0,
+   "groups": {},
+   "stances": [
+    {
+     "name": "normal",
+     "traits": [],
+     "entries": {
+      "baseline": {
+       "selectable": true,
+       "n_scope": 0
+      }
+     },
+     "exits": {
+      "top": {
+       "n_scope": 0
+      }
+     },
+     "n_never": 0,
+     "only": null,
+     "n_unlocks": 0,
+     "require": []
+    },
+    {
+     "name": "curled-over",
+     "traits": [],
+     "entries": {
+      "baseline": {
+       "selectable": true,
+       "n_scope": 0
+      }
+     },
+     "exits": {
+      "y6": {
+       "n_scope": 0
+      }
+     },
+     "n_never": 0,
+     "only": null,
+     "n_unlocks": 0,
+     "require": []
+    },
+    {
+     "name": "straighter",
+     "traits": [],
+     "entries": {},
+     "exits": {
+      "baseline": {
+       "n_scope": 1
+      }
+     },
+     "n_never": 0,
+     "only": null,
+     "n_unlocks": 0,
+     "require": []
+    },
+    {
+     "name": "straightest",
+     "traits": [],
+     "entries": {},
+     "exits": {
+      "baseline": {
+       "n_scope": 1
+      }
+     },
+     "n_never": 0,
+     "only": null,
+     "n_unlocks": 0,
+     "require": []
+    }
+   ]
+  },
+  {
+   "name": "qsSee_qsUtter",
+   "seq": [
+    "qsSee",
+    "qsUtter"
+   ],
+   "n_stances": 1,
+   "order": [
+    "hapax"
+   ],
+   "n_refuse": 0,
+   "n_prefer": 0,
+   "n_extend": 3,
+   "n_contract": 0,
+   "n_resolve": 0,
+   "groups": {},
+   "stances": [
+    {
+     "name": "hapax",
+     "traits": [],
+     "entries": {},
+     "exits": {
+      "x-height": {
+       "n_scope": 0
+      }
+     },
+     "n_never": 0,
+     "only": null,
+     "n_unlocks": 0,
+     "require": []
+    }
+   ]
+  },
+  {
+   "name": "qsTea",
+   "seq": null,
+   "n_stances": 2,
+   "order": [
+    "full",
+    "half"
+   ],
+   "n_refuse": 6,
+   "n_prefer": 1,
+   "n_extend": 1,
+   "n_contract": 2,
+   "n_resolve": 0,
+   "groups": {},
+   "stances": [
+    {
+     "name": "full",
+     "traits": [],
+     "entries": {
+      "baseline": {
+       "selectable": true,
+       "n_scope": 0
+      },
+      "top": {
+       "selectable": true,
+       "n_scope": 0
+      }
+     },
+     "exits": {
+      "baseline": {
+       "n_scope": 0
+      }
+     },
+     "n_never": 1,
+     "only": null,
+     "n_unlocks": 2,
+     "require": []
+    },
+    {
+     "name": "half",
+     "traits": [
+      "half"
+     ],
+     "entries": {
+      "x-height": {
+       "selectable": true,
+       "n_scope": 1
+      },
+      "top": {
+       "selectable": true,
+       "n_scope": 0
+      }
+     },
+     "exits": {
+      "x-height": {
+       "n_scope": 0
+      }
+     },
+     "n_never": 1,
+     "only": null,
+     "n_unlocks": 1,
+     "require": []
+    }
+   ]
+  },
+  {
+   "name": "qsTea_qsOy",
+   "seq": [
+    "qsTea",
+    "qsOy"
+   ],
+   "n_stances": 1,
+   "order": [
+    "hapax"
+   ],
+   "n_refuse": 0,
+   "n_prefer": 1,
+   "n_extend": 0,
+   "n_contract": 0,
+   "n_resolve": 1,
+   "groups": {},
+   "stances": [
+    {
+     "name": "hapax",
+     "traits": [],
+     "entries": {},
+     "exits": {
+      "baseline": {
+       "n_scope": 0
+      }
+     },
+     "n_never": 0,
+     "only": null,
+     "n_unlocks": 0,
+     "require": []
+    }
+   ]
+  },
+  {
+   "name": "qsUtter",
+   "seq": null,
+   "n_stances": 2,
+   "order": [
+    "mono",
+    "alternate"
+   ],
+   "n_refuse": 2,
+   "n_prefer": 7,
+   "n_extend": 2,
+   "n_contract": 1,
+   "n_resolve": 0,
+   "groups": {},
+   "stances": [
+    {
+     "name": "mono",
+     "traits": [],
+     "entries": {
+      "baseline": {
+       "selectable": true,
+       "n_scope": 0
+      }
+     },
+     "exits": {
+      "x-height": {
+       "n_scope": 0
+      }
+     },
+     "n_never": 0,
+     "only": null,
+     "n_unlocks": 0,
+     "require": []
+    },
+    {
+     "name": "alternate",
+     "traits": [
+      "alt"
+     ],
+     "entries": {
+      "x-height": {
+       "selectable": true,
+       "n_scope": 1
+      }
+     },
+     "exits": {
+      "baseline": {
+       "n_scope": 0
+      }
+     },
+     "n_never": 0,
+     "only": null,
+     "n_unlocks": 0,
+     "require": [
+      "exit"
+     ]
+    }
+   ]
+  }
+ ],
+ "depth3_inputs": [
+  "qsDay",
+  "qsOy",
+  "qsTea_qsOy",
+  "qsUtter"
+ ],
+ "depth4_inputs": [
+  "qsDay",
+  "qsOy",
+  "qsTea_qsOy"
+ ],
+ "prefer_right_reach_hist": {
+  "1": 11,
+  "2": 4,
+  "3": 3,
+  "0": 11
+ }
+}

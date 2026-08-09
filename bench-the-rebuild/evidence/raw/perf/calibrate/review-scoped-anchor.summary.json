@@ -1,0 +1,35 @@
+{
+  "summary": {
+    "label": "review-scoped-anchor",
+    "runs": 2,
+    "wall_median_s": 21.3958,
+    "wall_min_s": 21.3575,
+    "wall_max_s": 21.3958,
+    "user_median_s": 42.6735,
+    "sys_median_s": 0.2825,
+    "rcs": [
+      0,
+      0
+    ]
+  },
+  "records": [
+    {
+      "label": "review-scoped-anchor",
+      "run": 0,
+      "wall_s": 21.3958,
+      "user_s": 42.6565,
+      "sys_s": 0.2761,
+      "maxrss_mb": 406.9,
+      "rc": 0
+    },
+    {
+      "label": "review-scoped-anchor",
+      "run": 1,
+      "wall_s": 21.3575,
+      "user_s": 42.6735,
+      "sys_s": 0.2825,
+      "maxrss_mb": 406.9,
+      "rc": 0
+    }
+  ]
+}

@@ -1,0 +1,45 @@
+{
+ "pid": 64884,
+ "argv": [
+  "tools/build_font.py",
+  "glyph_data/",
+  "site/"
+ ],
+ "cpu_self": 8.780856,
+ "user": 8.682697,
+ "sys": 0.098159,
+ "maxrss_mb": 371.6875,
+ "wall": 9.319210582994856,
+ "timers": {
+  "yaml.safe_load_all": {
+   "cpu": 5.000000000002225e-05,
+   "wall": 2.6667985366657376e-05,
+   "calls": 10
+  },
+  "repo compile_glyph_set (IR)": {
+   "cpu": 0.512197,
+   "wall": 0.6739142080186866,
+   "calls": 1
+  },
+  "yaml.safe_load": {
+   "cpu": 0.005167000000000033,
+   "wall": 0.005167708994122222,
+   "calls": 1
+  },
+  "fontTools T2CharStringPen.getCharString": {
+   "cpu": 0.07082399999999933,
+   "wall": 0.08813394280150533,
+   "calls": 1148
+  },
+  "fontTools.feaLib addOpenTypeFeaturesFromString": {
+   "cpu": 6.058231,
+   "wall": 6.13411862499197,
+   "calls": 1
+  },
+  "fontTools FontBuilder.save (table pack)": {
+   "cpu": 0.9599580000000003,
+   "wall": 0.9606820000044536,
+   "calls": 1
+  }
+ }
+}

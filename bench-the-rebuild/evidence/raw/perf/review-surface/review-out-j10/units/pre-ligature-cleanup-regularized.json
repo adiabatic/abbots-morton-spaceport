@@ -1,0 +1,6062 @@
+[
+ {
+  "id": "u-18543",
+  "batch": 0,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "default": "d-060043f951a8",
+   "ss03": "d-060043f951a8",
+   "ss04": "d-060043f951a8",
+   "ss05": "d-060043f951a8",
+   "ss02": "d-060043f951a8",
+   "ss02+ss03": "d-060043f951a8",
+   "ss02+ss03+ss05": "d-060043f951a8"
+  },
+  "no_verdict": false,
+  "echo": "e-0021",
+  "cluster": "c-086b60cc",
+  "class": "pre-ligature-cleanup-regularized",
+  "group": "qsPea:qsIt",
+  "codepoints": "E650:E670:E652:E679",
+  "text_entities": "&#xE650;&#xE670;&#xE652;&#xE679;",
+  "notation": "\u00b7Pea\u00b7It\u00b7Tea\u00b7Oy",
+  "notation_tokens": [
+   "\u00b7Pea",
+   "\u00b7It",
+   "\u00b7Tea",
+   "\u00b7Oy"
+  ],
+  "configs": [
+   "default",
+   "ss03",
+   "ss04",
+   "ss05",
+   "ss02",
+   "ss02+ss03",
+   "ss02+ss03+ss05"
+  ],
+  "config_note": "only under: default, ss03, ss04, ss05, ss02, ss02+ss03, ss02+ss03+ss05",
+  "config_gate": null,
+  "config_classes": {
+   "default": "pre-ligature-cleanup-regularized",
+   "ss02": "pre-ligature-cleanup-regularized",
+   "ss03": "pre-ligature-cleanup-regularized",
+   "ss04": "pre-ligature-cleanup-regularized",
+   "ss05": "pre-ligature-cleanup-regularized",
+   "ss02+ss03": "pre-ligature-cleanup-regularized",
+   "ss02+ss03+ss05": "pre-ligature-cleanup-regularized"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss03",
+     "ss04",
+     "ss05",
+     "ss02",
+     "ss02+ss03",
+     "ss02+ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell",
+   "seam"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsPea",
+    "qsIt",
+    "qsTea_qsOy"
+   ],
+   "seams": [
+    "break",
+    "break"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsPea/half/None/x-height/",
+    "qsIt/hapax/x-height/None/",
+    "qsTea_qsOy/hapax/None/None/"
+   ],
+   "seams": [
+    "y5",
+    "break"
+   ],
+   "extensions": [
+    0,
+    0
+   ]
+  },
+  "diff_positions": [
+   0,
+   1
+  ],
+  "pair": {
+   "left": 0,
+   "right": 1
+  },
+  "pair_codepoints": [
+   0,
+   1
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 0,
+    "x_max": 350,
+    "advance_total": 800
+   },
+   "after": {
+    "x_min": 0,
+    "x_max": 300,
+    "advance_total": 750
+   }
+  },
+  "boundary_marks": [],
+  "secondary_seams": null,
+  "summary": "New: \u00b7Pea joins \u00b7It at the x-height (the old pipeline broke there) \u2014 decided by qsPea.yaml policy.refuse[0] (join-count rank).",
+  "explain": "sequence E650:E670:E652:E679   config default\nsettled: qsPea.half.ex-y5 qsIt.hapax.en-y5 qsTea_qsOy.hapax\n\nposition 0: qsPea\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> half             entry=none       seam=x-height   join-count=1 prospect=0\n     full             entry=none       seam=none       join-count=0 prospect=0\n     half             entry=none       seam=none       join-count=0 prospect=0\n  eliminated before ranking:\n    - (refuse) qsPea.full: exit baseline refused \u2014 These join \u00b7Pea through the half motion's x-height dip instead; without this refusal the structural floor would pick the lower baseline seam over the half chain.  [glyph_data/runes/qsPea.yaml:policy.refuse[0]]\n    - (row-scope) qsPea.half: exit y6 toward-scope does not admit qsIt  [glyph_data/runes/qsPea.yaml:stances.half.surface.exits.y6]\n  decided by: join-count (over full entry=none seam=none)\n  note: glyph_data/runes/qsPea.yaml:policy.refuse[0]\n  note: glyph_data/runes/qsPea.yaml:stances.half.surface.exits.y6\n  settled: qsPea.half.ex-y5   seam=x-height   extension=0\n\nposition 1: qsIt\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> hapax            entry=x-height   seam=none       join-count=1 prospect=0\n  eliminated before ranking:\n    - (lookahead-closure) qsIt.hapax: exit baseline has no refusal-aware acceptor cell on qsTea_qsOy\n    - (pairings) qsIt.hapax: pairing (x-height, x-height) not allowed\n  decided by: only-candidate\n  settled: qsIt.hapax.en-y5   seam=none   extension=0",
+  "provenance": [
+   "glyph_data/runes/qsPea.yaml:policy.refuse[0]",
+   "glyph_data/runes/qsPea.yaml:stances.half.surface.exits.y6"
+  ],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7Pea ~x~ \u00b7It | \u00b7Tea+Oy",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": null,
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsPea.yaml",
+    "keypath": "policy.refuse[+]",
+    "suggested_record": "{exit: x-height, when: {right: {family: [qsIt]}}, why: 'Reviewer rejected the M1 outcome for E650:E670:E652:E679 (\u00b7Pea\u00b7It\u00b7Tea\u00b7Oy)'}",
+    "names_provenance": [
+     "glyph_data/runes/qsPea.yaml:policy.refuse[0]",
+     "glyph_data/runes/qsPea.yaml:stances.half.surface.exits.y6"
+    ],
+    "decided_stage": "join-count",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E650:E670:E652:E679 (\u00b7Pea\u00b7It\u00b7Tea\u00b7Oy)"
+   },
+   "any_of": {
+    "text": "qsPea qsIt qsTea qsOy",
+    "features": {},
+    "candidates": [
+     "\u00b7Pea ~x~ \u00b7It | \u00b7Tea+Oy",
+     "\u00b7Pea | \u00b7It | \u00b7Tea+Oy"
+    ]
+   }
+  },
+  "content_key": "1516590ebfb7bc091da8a0b4bdc0bc8e27079140d5a868cf1ed3ba438676d74c"
+ },
+ {
+  "id": "u-18544",
+  "batch": 0,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "default": "d-b9610bf23e29",
+   "ss03": "d-b9610bf23e29",
+   "ss04": "d-b9610bf23e29",
+   "ss05": "d-b9610bf23e29",
+   "ss02": "d-b9610bf23e29",
+   "ss02+ss03": "d-b9610bf23e29",
+   "ss02+ss03+ss05": "d-b9610bf23e29"
+  },
+  "no_verdict": false,
+  "echo": "e-0022",
+  "cluster": "c-c8960fe1",
+  "class": "pre-ligature-cleanup-regularized",
+  "group": "qsTea:qsIt",
+  "codepoints": "E652:E670:E652:E679",
+  "text_entities": "&#xE652;&#xE670;&#xE652;&#xE679;",
+  "notation": "\u00b7Tea\u00b7It\u00b7Tea\u00b7Oy",
+  "notation_tokens": [
+   "\u00b7Tea",
+   "\u00b7It",
+   "\u00b7Tea",
+   "\u00b7Oy"
+  ],
+  "configs": [
+   "default",
+   "ss03",
+   "ss04",
+   "ss05",
+   "ss02",
+   "ss02+ss03",
+   "ss02+ss03+ss05"
+  ],
+  "config_note": "only under: default, ss03, ss04, ss05, ss02, ss02+ss03, ss02+ss03+ss05",
+  "config_gate": null,
+  "config_classes": {
+   "default": "pre-ligature-cleanup-regularized",
+   "ss02": "pre-ligature-cleanup-regularized",
+   "ss03": "pre-ligature-cleanup-regularized",
+   "ss04": "pre-ligature-cleanup-regularized",
+   "ss05": "pre-ligature-cleanup-regularized",
+   "ss02+ss03": "pre-ligature-cleanup-regularized",
+   "ss02+ss03+ss05": "pre-ligature-cleanup-regularized"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss03",
+     "ss04",
+     "ss05",
+     "ss02",
+     "ss02+ss03",
+     "ss02+ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell",
+   "seam"
+  ],
+  "exemplar": true,
+  "before": {
+   "glyphs": [
+    "qsTea",
+    "qsIt",
+    "qsTea_qsOy"
+   ],
+   "seams": [
+    "break",
+    "break"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsTea/half/None/x-height/",
+    "qsIt/hapax/x-height/None/",
+    "qsTea_qsOy/hapax/None/None/"
+   ],
+   "seams": [
+    "y5",
+    "break"
+   ],
+   "extensions": [
+    0,
+    0
+   ]
+  },
+  "diff_positions": [
+   0,
+   1
+  ],
+  "pair": {
+   "left": 0,
+   "right": 1
+  },
+  "pair_codepoints": [
+   0,
+   1
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 0,
+    "x_max": 200,
+    "advance_total": 650
+   },
+   "after": {
+    "x_min": 0,
+    "x_max": 150,
+    "advance_total": 600
+   }
+  },
+  "boundary_marks": [],
+  "secondary_seams": null,
+  "summary": "New: \u00b7Tea joins \u00b7It at the x-height (the old pipeline broke there) \u2014 decided by qsTea.yaml policy.refuse[2] (join-count rank).",
+  "explain": "sequence E652:E670:E652:E679   config default\nsettled: qsTea.half.ex-y5 qsIt.hapax.en-y5 qsTea_qsOy.hapax\n\nposition 0: qsTea\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> half             entry=none       seam=x-height   join-count=1 prospect=0\n     full             entry=none       seam=none       join-count=0 prospect=0\n     half             entry=none       seam=none       join-count=0 prospect=0\n  eliminated before ranking:\n    - (refuse) qsTea.full: exit baseline refused \u2014 \u00b7Tea and \u00b7It are both vertical, and two adjacent verticals joined at the baseline render as one extra-thick stroke.  [glyph_data/runes/qsTea.yaml:policy.refuse[2]]\n  decided by: join-count (over full entry=none seam=none)\n  note: glyph_data/runes/qsTea.yaml:policy.refuse[2]\n  settled: qsTea.half.ex-y5   seam=x-height   extension=0\n\nposition 1: qsIt\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> hapax            entry=x-height   seam=none       join-count=1 prospect=0\n  eliminated before ranking:\n    - (lookahead-closure) qsIt.hapax: exit baseline has no refusal-aware acceptor cell on qsTea_qsOy\n    - (pairings) qsIt.hapax: pairing (x-height, x-height) not allowed\n  decided by: only-candidate\n  settled: qsIt.hapax.en-y5   seam=none   extension=0",
+  "provenance": [
+   "glyph_data/runes/qsTea.yaml:policy.refuse[2]"
+  ],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7Tea ~x~ \u00b7It | \u00b7Tea+Oy",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": null,
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsTea.yaml",
+    "keypath": "policy.refuse[+]",
+    "suggested_record": "{exit: x-height, when: {right: {family: [qsIt]}}, why: 'Reviewer rejected the M1 outcome for E652:E670:E652:E679 (\u00b7Tea\u00b7It\u00b7Tea\u00b7Oy)'}",
+    "names_provenance": [
+     "glyph_data/runes/qsTea.yaml:policy.refuse[2]"
+    ],
+    "decided_stage": "join-count",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E652:E670:E652:E679 (\u00b7Tea\u00b7It\u00b7Tea\u00b7Oy)"
+   },
+   "any_of": {
+    "text": "qsTea qsIt qsTea qsOy",
+    "features": {},
+    "candidates": [
+     "\u00b7Tea ~x~ \u00b7It | \u00b7Tea+Oy",
+     "\u00b7Tea | \u00b7It | \u00b7Tea+Oy"
+    ]
+   }
+  },
+  "content_key": "8b09e8903f1df0b8901475386839ae7297be2474d827c46838b5c15f05d86542"
+ },
+ {
+  "id": "u-18545",
+  "batch": 0,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "default": "d-42ab54afb4f7",
+   "ss03": "d-42ab54afb4f7",
+   "ss04": "d-42ab54afb4f7",
+   "ss05": "d-42ab54afb4f7",
+   "ss02": "d-42ab54afb4f7",
+   "ss02+ss03": "d-42ab54afb4f7",
+   "ss02+ss03+ss05": "d-42ab54afb4f7"
+  },
+  "no_verdict": false,
+  "echo": "e-0023",
+  "cluster": "c-60d8046a",
+  "class": "pre-ligature-cleanup-regularized",
+  "group": "qsTea:qsOy",
+  "codepoints": "E652:E679:E665:E658",
+  "text_entities": "&#xE652;&#xE679;&#xE665;&#xE658;",
+  "notation": "\u00b7Tea\u00b7Oy\u00b7May\u00b7Fee",
+  "notation_tokens": [
+   "\u00b7Tea",
+   "\u00b7Oy",
+   "\u00b7May",
+   "\u00b7Fee"
+  ],
+  "configs": [
+   "default",
+   "ss03",
+   "ss04",
+   "ss05",
+   "ss02",
+   "ss02+ss03",
+   "ss02+ss03+ss05"
+  ],
+  "config_note": "only under: default, ss03, ss04, ss05, ss02, ss02+ss03, ss02+ss03+ss05",
+  "config_gate": null,
+  "config_classes": {
+   "default": "pre-ligature-cleanup-regularized",
+   "ss02": "pre-ligature-cleanup-regularized",
+   "ss03": "pre-ligature-cleanup-regularized",
+   "ss04": "pre-ligature-cleanup-regularized",
+   "ss05": "pre-ligature-cleanup-regularized",
+   "ss02+ss03": "pre-ligature-cleanup-regularized",
+   "ss02+ss03+ss05": "pre-ligature-cleanup-regularized"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss03",
+     "ss04",
+     "ss05",
+     "ss02",
+     "ss02+ss03",
+     "ss02+ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell",
+   "seam"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsTea_qsOy",
+    "qsMay.en-y0.ex-y5.en-ext-1",
+    "qsFee"
+   ],
+   "seams": [
+    "y0",
+    "break"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsTea_qsOy/hapax/None/baseline/",
+    "qsMay/loop/baseline/x-height/ex-ext-1",
+    "qsFee/reversed-loop/x-height/None/"
+   ],
+   "seams": [
+    "y0",
+    "y5"
+   ],
+   "extensions": [
+    0,
+    1
+   ]
+  },
+  "diff_positions": [
+   0,
+   1,
+   2
+  ],
+  "pair": {
+   "left": 1,
+   "right": 2
+  },
+  "pair_codepoints": [
+   2,
+   3
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 400,
+    "x_max": 1050,
+    "advance_total": 1050
+   },
+   "after": {
+    "x_min": 450,
+    "x_max": 950,
+    "advance_total": 950
+   }
+  },
+  "boundary_marks": [],
+  "secondary_seams": null,
+  "summary": "New: \u00b7May joins \u00b7Fee at the x-height (the old pipeline broke there) \u2014 decided by qsMay.yaml policy.extend[0] (join-count rank).",
+  "explain": "sequence E652:E679:E665:E658   config default\nsettled: qsTea_qsOy.hapax.ex-y0 qsMay.loop.en-y0.ex-y5.ex-ext-1 qsFee.reversed-loop.en-y5\n\nposition 0: qsTea_qsOy\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> hapax            entry=none       seam=baseline   join-count=2 prospect=1\n     hapax            entry=none       seam=none       join-count=1 prospect=1\n  decided by: join-count (over hapax entry=none seam=none)\n  settled: qsTea_qsOy.hapax.ex-y0   seam=baseline   extension=0\n\nposition 1: qsMay\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> loop             entry=baseline   seam=x-height   join-count=2 prospect=0\n     loop             entry=baseline   seam=none       join-count=1 prospect=0\n  eliminated before ranking:\n    - (entry-binding) qsMay.grounded-loop: no available entry row at baseline against the committed seam\n  decided by: join-count (over loop entry=baseline seam=none)\n  note: glyph_data/runes/qsMay.yaml:policy.extend[0]\n  settled: qsMay.loop.en-y0.ex-y5.ex-ext-1   seam=x-height   extension=1\n\nposition 2: qsFee\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> reversed-loop    entry=x-height   seam=none       join-count=1 prospect=0\n  eliminated before ranking:\n    - (entry-binding) qsFee.loop: no available entry row at x-height against the committed seam\n  decided by: only-candidate\n  settled: qsFee.reversed-loop.en-y5   seam=none   extension=0",
+  "provenance": [
+   "glyph_data/runes/qsMay.yaml:policy.extend[0]"
+  ],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7Tea+Oy ~b~ \u00b7May ~x~ \u00b7Fee",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": null,
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsTea_qsOy.yaml",
+    "keypath": "policy.refuse[+]",
+    "suggested_record": "{exit: baseline, when: {right: {family: [qsMay]}}, why: 'Reviewer rejected the M1 outcome for E652:E679:E665:E658 (\u00b7Tea\u00b7Oy\u00b7May\u00b7Fee)'}",
+    "names_provenance": [
+     "glyph_data/runes/qsMay.yaml:policy.extend[0]"
+    ],
+    "decided_stage": "join-count",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E652:E679:E665:E658 (\u00b7Tea\u00b7Oy\u00b7May\u00b7Fee)"
+   },
+   "any_of": {
+    "text": "qsTea qsOy qsMay qsFee",
+    "features": {},
+    "candidates": [
+     "\u00b7Tea+Oy ~b~ \u00b7May ~x~ \u00b7Fee",
+     "\u00b7Tea+Oy ~b~ \u00b7May | \u00b7Fee"
+    ]
+   }
+  },
+  "content_key": "0ec85798c8a7ec5fe7c3fcfae372ff64b2df76d1b94f7ea8d9e6cab805d97665"
+ },
+ {
+  "id": "u-18546",
+  "batch": 0,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "ss04": "d-5054092002a5"
+  },
+  "no_verdict": false,
+  "echo": "e-0024",
+  "cluster": "c-11c4bf4b",
+  "class": "pre-ligature-cleanup-regularized",
+  "group": "qsTea:qsOy",
+  "codepoints": "E652:E679:E670:E665",
+  "text_entities": "&#xE652;&#xE679;&#xE670;&#xE665;",
+  "notation": "\u00b7Tea\u00b7Oy\u00b7It\u00b7May",
+  "notation_tokens": [
+   "\u00b7Tea",
+   "\u00b7Oy",
+   "\u00b7It",
+   "\u00b7May"
+  ],
+  "configs": [
+   "ss04"
+  ],
+  "config_note": "only when ss04 is on",
+  "config_gate": [
+   {
+    "feature": "ss04",
+    "state": "on",
+    "text": "only when ss04 is on"
+   }
+  ],
+  "config_classes": {
+   "ss04": "pre-ligature-cleanup-regularized"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "ss04"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell",
+   "seam"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsTea_qsOy",
+    "qsIt.ex-y0",
+    "qsMay.en-y0.ex-y5"
+   ],
+   "seams": [
+    "break",
+    "y0"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsTea_qsOy/hapax/None/baseline/",
+    "qsIt/hapax/baseline/baseline/",
+    "qsMay/loop/baseline/None/"
+   ],
+   "seams": [
+    "y0",
+    "y0"
+   ],
+   "extensions": [
+    0,
+    0
+   ]
+  },
+  "diff_positions": [
+   0,
+   1,
+   2
+  ],
+  "pair": {
+   "left": 0,
+   "right": 1
+  },
+  "pair_codepoints": [
+   0,
+   2
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 0,
+    "x_max": 500,
+    "advance_total": 800
+   },
+   "after": {
+    "x_min": 0,
+    "x_max": 500,
+    "advance_total": 750
+   }
+  },
+  "boundary_marks": [],
+  "secondary_seams": null,
+  "summary": "New: \u00b7Tea+Oy joins \u00b7It at the baseline (the old pipeline broke there) \u2014 decided by join-count rank (no policy record involved).",
+  "explain": "sequence E652:E679:E670:E665   config ss04\nsettled: qsTea_qsOy.hapax.ex-y0 qsIt.hapax.en-y0.ex-y0 qsMay.loop.en-y0\n\nposition 0: qsTea_qsOy\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> hapax            entry=none       seam=baseline   join-count=2 prospect=1\n     hapax            entry=none       seam=none       join-count=1 prospect=1\n  decided by: join-count (over hapax entry=none seam=none)\n  settled: qsTea_qsOy.hapax.ex-y0   seam=baseline   extension=0\n\nposition 1: qsIt\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> hapax            entry=baseline   seam=baseline   join-count=2 prospect=0\n     hapax            entry=baseline   seam=none       join-count=1 prospect=0\n  eliminated before ranking:\n    - (lookahead-closure) qsIt.hapax: exit x-height has no refusal-aware acceptor cell on qsMay\n  decided by: join-count (over hapax entry=baseline seam=none)\n  settled: qsIt.hapax.en-y0.ex-y0   seam=baseline   extension=0\n\nposition 2: qsMay\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> loop             entry=baseline   seam=none       join-count=1 prospect=0\n  eliminated before ranking:\n    - (entry-binding) qsMay.grounded-loop: no available entry row at baseline against the committed seam\n  decided by: only-candidate\n  settled: qsMay.loop.en-y0   seam=none   extension=0",
+  "provenance": [],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7Tea+Oy ~b~ \u00b7It ~b~ \u00b7May",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": "04",
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsTea_qsOy.yaml",
+    "keypath": "policy.prefer[+]",
+    "suggested_record": "{cell: {exit: none}, when: {right: {family: [qsIt]}}, why: 'Reviewer rejected the M1 outcome for E652:E679:E670:E665 (\u00b7Tea\u00b7Oy\u00b7It\u00b7May)'}",
+    "names_provenance": [],
+    "decided_stage": "join-count",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E652:E679:E670:E665 (\u00b7Tea\u00b7Oy\u00b7It\u00b7May)"
+   },
+   "any_of": {
+    "text": "qsTea qsOy qsIt qsMay",
+    "features": {
+     "ss04": true
+    },
+    "candidates": [
+     "\u00b7Tea+Oy ~b~ \u00b7It ~b~ \u00b7May",
+     "\u00b7Tea+Oy | \u00b7It ~b~ \u00b7May"
+    ]
+   }
+  },
+  "content_key": "da398d5ab84924f913f0e65660db93f67db7bac4a6d99ba6834fa4bad38243f7"
+ },
+ {
+  "id": "u-18547",
+  "batch": 0,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "ss04": "d-5054092002a5"
+  },
+  "no_verdict": false,
+  "echo": "e-0024",
+  "cluster": "c-11c4bf4b",
+  "class": "pre-ligature-cleanup-regularized",
+  "group": "qsTea:qsOy",
+  "codepoints": "E652:E679:E670:E666",
+  "text_entities": "&#xE652;&#xE679;&#xE670;&#xE666;",
+  "notation": "\u00b7Tea\u00b7Oy\u00b7It\u00b7No",
+  "notation_tokens": [
+   "\u00b7Tea",
+   "\u00b7Oy",
+   "\u00b7It",
+   "\u00b7No"
+  ],
+  "configs": [
+   "ss04"
+  ],
+  "config_note": "only when ss04 is on",
+  "config_gate": [
+   {
+    "feature": "ss04",
+    "state": "on",
+    "text": "only when ss04 is on"
+   }
+  ],
+  "config_classes": {
+   "ss04": "pre-ligature-cleanup-regularized"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "ss04"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell",
+   "seam"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsTea_qsOy",
+    "qsIt.ex-y0",
+    "qsNo.alt.en-y0.ex-y0"
+   ],
+   "seams": [
+    "break",
+    "y0"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsTea_qsOy/hapax/None/baseline/",
+    "qsIt/hapax/baseline/baseline/",
+    "qsNo/flipped/baseline/None/"
+   ],
+   "seams": [
+    "y0",
+    "y0"
+   ],
+   "extensions": [
+    0,
+    0
+   ]
+  },
+  "diff_positions": [
+   0,
+   1,
+   2
+  ],
+  "pair": {
+   "left": 0,
+   "right": 1
+  },
+  "pair_codepoints": [
+   0,
+   2
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 0,
+    "x_max": 500,
+    "advance_total": 800
+   },
+   "after": {
+    "x_min": 0,
+    "x_max": 500,
+    "advance_total": 750
+   }
+  },
+  "boundary_marks": [],
+  "secondary_seams": null,
+  "summary": "New: \u00b7Tea+Oy joins \u00b7It at the baseline (the old pipeline broke there) \u2014 decided by qsNo.yaml policy.prefer[0] (join-count rank).",
+  "explain": "sequence E652:E679:E670:E666   config ss04\nsettled: qsTea_qsOy.hapax.ex-y0 qsIt.hapax.en-y0.ex-y0 qsNo.flipped.en-y0\n\nposition 0: qsTea_qsOy\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> hapax            entry=none       seam=baseline   join-count=2 prospect=1\n     hapax            entry=none       seam=none       join-count=1 prospect=1\n  decided by: join-count (over hapax entry=none seam=none)\n  settled: qsTea_qsOy.hapax.ex-y0   seam=baseline   extension=0\n\nposition 1: qsIt\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> hapax            entry=baseline   seam=baseline   join-count=2 prospect=0\n     hapax            entry=baseline   seam=x-height   join-count=2 prospect=0\n     hapax            entry=baseline   seam=none       join-count=1 prospect=0\n  decided by: yielding-prefer (over hapax entry=baseline seam=x-height)\n  note: prefer applied: glyph_data/runes/qsNo.yaml:policy.prefer[0]\n  settled: qsIt.hapax.en-y0.ex-y0   seam=baseline   extension=0\n\nposition 2: qsNo\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> flipped          entry=baseline   seam=none       join-count=1 prospect=0\n  eliminated before ranking:\n    - (entry-binding) qsNo.loop: no available entry row at baseline against the committed seam\n  decided by: only-candidate\n  settled: qsNo.flipped.en-y0   seam=none   extension=0",
+  "provenance": [
+   "glyph_data/runes/qsNo.yaml:policy.prefer[0]"
+  ],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7Tea+Oy ~b~ \u00b7It ~b~ \u00b7No",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": "04",
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsTea_qsOy.yaml",
+    "keypath": "policy.refuse[+]",
+    "suggested_record": "{exit: baseline, when: {right: {family: [qsIt]}}, why: 'Reviewer rejected the M1 outcome for E652:E679:E670:E666 (\u00b7Tea\u00b7Oy\u00b7It\u00b7No)'}",
+    "names_provenance": [
+     "glyph_data/runes/qsNo.yaml:policy.prefer[0]"
+    ],
+    "decided_stage": "join-count",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E652:E679:E670:E666 (\u00b7Tea\u00b7Oy\u00b7It\u00b7No)"
+   },
+   "any_of": {
+    "text": "qsTea qsOy qsIt qsNo",
+    "features": {
+     "ss04": true
+    },
+    "candidates": [
+     "\u00b7Tea+Oy ~b~ \u00b7It ~b~ \u00b7No",
+     "\u00b7Tea+Oy | \u00b7It ~b~ \u00b7No"
+    ]
+   }
+  },
+  "content_key": "646ca2e6308c0d00407696b37a93cb2e261f3e6bfbefba220fc0a5699e48bbff"
+ },
+ {
+  "id": "u-18548",
+  "batch": 0,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "ss04": "d-5054092002a5"
+  },
+  "no_verdict": false,
+  "echo": "e-0024",
+  "cluster": "c-11c4bf4b",
+  "class": "pre-ligature-cleanup-regularized",
+  "group": "qsTea:qsOy",
+  "codepoints": "E652:E679:E670:E675",
+  "text_entities": "&#xE652;&#xE679;&#xE670;&#xE675;",
+  "notation": "\u00b7Tea\u00b7Oy\u00b7It\u00b7I",
+  "notation_tokens": [
+   "\u00b7Tea",
+   "\u00b7Oy",
+   "\u00b7It",
+   "\u00b7I"
+  ],
+  "configs": [
+   "ss04"
+  ],
+  "config_note": "only when ss04 is on",
+  "config_gate": [
+   {
+    "feature": "ss04",
+    "state": "on",
+    "text": "only when ss04 is on"
+   }
+  ],
+  "config_classes": {
+   "ss04": "pre-ligature-cleanup-regularized"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "ss04"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell",
+   "seam"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsTea_qsOy",
+    "qsIt.ex-y0.ex-ext-1",
+    "qsI"
+   ],
+   "seams": [
+    "break",
+    "y0"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsTea_qsOy/hapax/None/baseline/",
+    "qsIt/hapax/baseline/baseline/",
+    "qsI/smaller-loop/baseline/None/"
+   ],
+   "seams": [
+    "y0",
+    "y0"
+   ],
+   "extensions": [
+    0,
+    0
+   ]
+  },
+  "diff_positions": [
+   0,
+   1,
+   2
+  ],
+  "pair": {
+   "left": 0,
+   "right": 1
+  },
+  "pair_codepoints": [
+   0,
+   2
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 0,
+    "x_max": 550,
+    "advance_total": 850
+   },
+   "after": {
+    "x_min": 0,
+    "x_max": 550,
+    "advance_total": 800
+   }
+  },
+  "boundary_marks": [],
+  "secondary_seams": null,
+  "summary": "New: \u00b7Tea+Oy joins \u00b7It at the baseline (the old pipeline broke there) \u2014 decided by qsI.yaml policy.prefer[1] (join-count rank).",
+  "explain": "sequence E652:E679:E670:E675   config ss04\nsettled: qsTea_qsOy.hapax.ex-y0 qsIt.hapax.en-y0.ex-y0 qsI.smaller-loop.en-y0\n\nposition 0: qsTea_qsOy\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> hapax            entry=none       seam=baseline   join-count=2 prospect=1\n     hapax            entry=none       seam=none       join-count=1 prospect=1\n  decided by: join-count (over hapax entry=none seam=none)\n  settled: qsTea_qsOy.hapax.ex-y0   seam=baseline   extension=0\n\nposition 1: qsIt\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> hapax            entry=baseline   seam=baseline   join-count=2 prospect=0\n     hapax            entry=baseline   seam=none       join-count=1 prospect=0\n  eliminated before ranking:\n    - (lookahead-closure) qsIt.hapax: exit x-height has no refusal-aware acceptor cell on qsI\n  decided by: join-count (over hapax entry=baseline seam=none)\n  settled: qsIt.hapax.en-y0.ex-y0   seam=baseline   extension=0\n\nposition 2: qsI\n  candidates (join-count = left seam + own seam + optimistic prospect):\n     loop             entry=baseline   seam=none       join-count=1 prospect=0\n  -> smaller-loop     entry=baseline   seam=none       join-count=1 prospect=0\n  decided by: yielding-prefer (over loop entry=baseline seam=none)\n  note: prefer applied: glyph_data/runes/qsI.yaml:policy.prefer[1]\n  settled: qsI.smaller-loop.en-y0   seam=none   extension=0",
+  "provenance": [
+   "glyph_data/runes/qsI.yaml:policy.prefer[1]"
+  ],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7Tea+Oy ~b~ \u00b7It ~b~ \u00b7I",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": "04",
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsTea_qsOy.yaml",
+    "keypath": "policy.refuse[+]",
+    "suggested_record": "{exit: baseline, when: {right: {family: [qsIt]}}, why: 'Reviewer rejected the M1 outcome for E652:E679:E670:E675 (\u00b7Tea\u00b7Oy\u00b7It\u00b7I)'}",
+    "names_provenance": [
+     "glyph_data/runes/qsI.yaml:policy.prefer[1]"
+    ],
+    "decided_stage": "join-count",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E652:E679:E670:E675 (\u00b7Tea\u00b7Oy\u00b7It\u00b7I)"
+   },
+   "any_of": {
+    "text": "qsTea qsOy qsIt qsI",
+    "features": {
+     "ss04": true
+    },
+    "candidates": [
+     "\u00b7Tea+Oy ~b~ \u00b7It ~b~ \u00b7I",
+     "\u00b7Tea+Oy | \u00b7It ~b~ \u00b7I"
+    ]
+   }
+  },
+  "content_key": "b3c680956a5c71d76913cfbff317b37ebfb0af5ee90227659411074147d354d6"
+ },
+ {
+  "id": "u-18549",
+  "batch": 0,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "ss04": "d-5054092002a5"
+  },
+  "no_verdict": false,
+  "echo": "e-0024",
+  "cluster": "c-11c4bf4b",
+  "class": "pre-ligature-cleanup-regularized",
+  "group": "qsTea:qsOy",
+  "codepoints": "E652:E679:E670:E676",
+  "text_entities": "&#xE652;&#xE679;&#xE670;&#xE676;",
+  "notation": "\u00b7Tea\u00b7Oy\u00b7It\u00b7Ah",
+  "notation_tokens": [
+   "\u00b7Tea",
+   "\u00b7Oy",
+   "\u00b7It",
+   "\u00b7Ah"
+  ],
+  "configs": [
+   "ss04"
+  ],
+  "config_note": "only when ss04 is on",
+  "config_gate": [
+   {
+    "feature": "ss04",
+    "state": "on",
+    "text": "only when ss04 is on"
+   }
+  ],
+  "config_classes": {
+   "ss04": "pre-ligature-cleanup-regularized"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "ss04"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell",
+   "seam"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsTea_qsOy",
+    "qsIt.ex-y0",
+    "qsAh"
+   ],
+   "seams": [
+    "break",
+    "y0"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsTea_qsOy/hapax/None/baseline/",
+    "qsIt/hapax/baseline/baseline/",
+    "qsAh/hapax/baseline/None/"
+   ],
+   "seams": [
+    "y0",
+    "y0"
+   ],
+   "extensions": [
+    0,
+    0
+   ]
+  },
+  "diff_positions": [
+   0,
+   1,
+   2
+  ],
+  "pair": {
+   "left": 0,
+   "right": 1
+  },
+  "pair_codepoints": [
+   0,
+   2
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 0,
+    "x_max": 500,
+    "advance_total": 900
+   },
+   "after": {
+    "x_min": 0,
+    "x_max": 500,
+    "advance_total": 850
+   }
+  },
+  "boundary_marks": [],
+  "secondary_seams": null,
+  "summary": "New: \u00b7Tea+Oy joins \u00b7It at the baseline (the old pipeline broke there) \u2014 decided by join-count rank (no policy record involved).",
+  "explain": "sequence E652:E679:E670:E676   config ss04\nsettled: qsTea_qsOy.hapax.ex-y0 qsIt.hapax.en-y0.ex-y0 qsAh.hapax.en-y0\n\nposition 0: qsTea_qsOy\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> hapax            entry=none       seam=baseline   join-count=2 prospect=1\n     hapax            entry=none       seam=none       join-count=1 prospect=1\n  decided by: join-count (over hapax entry=none seam=none)\n  settled: qsTea_qsOy.hapax.ex-y0   seam=baseline   extension=0\n\nposition 1: qsIt\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> hapax            entry=baseline   seam=baseline   join-count=2 prospect=0\n     hapax            entry=baseline   seam=none       join-count=1 prospect=0\n  eliminated before ranking:\n    - (lookahead-closure) qsIt.hapax: exit x-height has no refusal-aware acceptor cell on qsAh\n  decided by: join-count (over hapax entry=baseline seam=none)\n  settled: qsIt.hapax.en-y0.ex-y0   seam=baseline   extension=0\n\nposition 2: qsAh\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> hapax            entry=baseline   seam=none       join-count=1 prospect=0\n  decided by: only-candidate\n  settled: qsAh.hapax.en-y0   seam=none   extension=0",
+  "provenance": [],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7Tea+Oy ~b~ \u00b7It ~b~ \u00b7Ah",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": "04",
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsTea_qsOy.yaml",
+    "keypath": "policy.prefer[+]",
+    "suggested_record": "{cell: {exit: none}, when: {right: {family: [qsIt]}}, why: 'Reviewer rejected the M1 outcome for E652:E679:E670:E676 (\u00b7Tea\u00b7Oy\u00b7It\u00b7Ah)'}",
+    "names_provenance": [],
+    "decided_stage": "join-count",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E652:E679:E670:E676 (\u00b7Tea\u00b7Oy\u00b7It\u00b7Ah)"
+   },
+   "any_of": {
+    "text": "qsTea qsOy qsIt qsAh",
+    "features": {
+     "ss04": true
+    },
+    "candidates": [
+     "\u00b7Tea+Oy ~b~ \u00b7It ~b~ \u00b7Ah",
+     "\u00b7Tea+Oy | \u00b7It ~b~ \u00b7Ah"
+    ]
+   }
+  },
+  "content_key": "37d8287e5a16eeb398efd8fe7979b14f589e1328a169bb654fe2c1e516f1ab63"
+ },
+ {
+  "id": "u-18550",
+  "batch": 0,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "default": "d-bea123ce0449",
+   "ss03": "d-bea123ce0449",
+   "ss04": "d-bea123ce0449",
+   "ss05": "d-bea123ce0449",
+   "ss02": "d-bea123ce0449",
+   "ss02+ss03": "d-bea123ce0449",
+   "ss02+ss03+ss05": "d-bea123ce0449"
+  },
+  "no_verdict": false,
+  "echo": "e-0025",
+  "cluster": "c-e301e271",
+  "class": "pre-ligature-cleanup-regularized",
+  "group": "qsDay:qsNo",
+  "codepoints": "E653:E666:E652:E679",
+  "text_entities": "&#xE653;&#xE666;&#xE652;&#xE679;",
+  "notation": "\u00b7Day\u00b7No\u00b7Tea\u00b7Oy",
+  "notation_tokens": [
+   "\u00b7Day",
+   "\u00b7No",
+   "\u00b7Tea",
+   "\u00b7Oy"
+  ],
+  "configs": [
+   "default",
+   "ss03",
+   "ss04",
+   "ss05",
+   "ss02",
+   "ss02+ss03",
+   "ss02+ss03+ss05"
+  ],
+  "config_note": "only under: default, ss03, ss04, ss05, ss02, ss02+ss03, ss02+ss03+ss05",
+  "config_gate": null,
+  "config_classes": {
+   "default": "pre-ligature-cleanup-regularized",
+   "ss02": "pre-ligature-cleanup-regularized",
+   "ss03": "pre-ligature-cleanup-regularized",
+   "ss04": "pre-ligature-cleanup-regularized",
+   "ss05": "pre-ligature-cleanup-regularized",
+   "ss02+ss03": "pre-ligature-cleanup-regularized",
+   "ss02+ss03+ss05": "pre-ligature-cleanup-regularized"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss03",
+     "ss04",
+     "ss05",
+     "ss02",
+     "ss02+ss03",
+     "ss02+ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell",
+   "seam"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsDay",
+    "qsNo",
+    "qsTea_qsOy"
+   ],
+   "seams": [
+    "break",
+    "break"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsDay/full/None/baseline/",
+    "qsNo/flipped/baseline/None/",
+    "qsTea_qsOy/hapax/None/None/"
+   ],
+   "seams": [
+    "y0",
+    "break"
+   ],
+   "extensions": [
+    0,
+    0
+   ]
+  },
+  "diff_positions": [
+   0,
+   1
+  ],
+  "pair": {
+   "left": 0,
+   "right": 1
+  },
+  "pair_codepoints": [
+   0,
+   1
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 0,
+    "x_max": 550,
+    "advance_total": 1000
+   },
+   "after": {
+    "x_min": 0,
+    "x_max": 500,
+    "advance_total": 950
+   }
+  },
+  "boundary_marks": [],
+  "secondary_seams": null,
+  "summary": "New: \u00b7Day joins \u00b7No at the baseline (the old pipeline broke there) \u2014 decided by the only surviving candidate (no policy record involved).",
+  "explain": "sequence E653:E666:E652:E679   config default\nsettled: qsDay.full.ex-y0 qsNo.flipped.en-y0 qsTea_qsOy.hapax\n\nposition 0: qsDay\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> full             entry=none       seam=baseline   join-count=1 prospect=0\n     half             entry=none       seam=baseline   join-count=1 prospect=0\n     full             entry=none       seam=none       join-count=0 prospect=0\n     half             entry=none       seam=none       join-count=0 prospect=0\n  decided by: order (over half entry=none seam=baseline)\n  settled: qsDay.full.ex-y0   seam=baseline   extension=0\n\nposition 1: qsNo\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> flipped          entry=baseline   seam=none       join-count=1 prospect=0\n  eliminated before ranking:\n    - (entry-binding) qsNo.loop: no available entry row at baseline against the committed seam\n    - (lookahead-closure) qsNo.flipped: exit baseline has no refusal-aware acceptor cell on qsTea_qsOy\n  decided by: only-candidate\n  settled: qsNo.flipped.en-y0   seam=none   extension=0",
+  "provenance": [],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7Day ~b~ \u00b7No | \u00b7Tea+Oy",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": null,
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsDay.yaml",
+    "keypath": "policy.prefer[+]",
+    "suggested_record": "{cell: {exit: none}, when: {right: {family: [qsNo]}}, why: 'Reviewer rejected the M1 outcome for E653:E666:E652:E679 (\u00b7Day\u00b7No\u00b7Tea\u00b7Oy)'}",
+    "names_provenance": [],
+    "decided_stage": "order",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E653:E666:E652:E679 (\u00b7Day\u00b7No\u00b7Tea\u00b7Oy)"
+   },
+   "any_of": {
+    "text": "qsDay qsNo qsTea qsOy",
+    "features": {},
+    "candidates": [
+     "\u00b7Day ~b~ \u00b7No | \u00b7Tea+Oy",
+     "\u00b7Day | \u00b7No | \u00b7Tea+Oy"
+    ]
+   }
+  },
+  "content_key": "0bca304ee036630084003e6aec75d52da03ced6c6da2388e7c02c7f4a4e93f6e"
+ },
+ {
+  "id": "u-18551",
+  "batch": 0,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "ss03": "d-3d795d4ce2b9",
+   "ss02+ss03": "d-3d795d4ce2b9",
+   "ss02+ss03+ss05": "d-3d795d4ce2b9"
+  },
+  "no_verdict": false,
+  "echo": "e-0026",
+  "cluster": "c-d1941d3c",
+  "class": "pre-ligature-cleanup-regularized",
+  "group": "qsFee:qsMay",
+  "codepoints": "E658:E665:E652:E679",
+  "text_entities": "&#xE658;&#xE665;&#xE652;&#xE679;",
+  "notation": "\u00b7Fee\u00b7May\u00b7Tea\u00b7Oy",
+  "notation_tokens": [
+   "\u00b7Fee",
+   "\u00b7May",
+   "\u00b7Tea",
+   "\u00b7Oy"
+  ],
+  "configs": [
+   "ss03",
+   "ss02+ss03",
+   "ss02+ss03+ss05"
+  ],
+  "config_note": "only under: ss03, ss02+ss03, ss02+ss03+ss05",
+  "config_gate": null,
+  "config_classes": {
+   "ss03": "pre-ligature-cleanup-regularized",
+   "ss02+ss03": "pre-ligature-cleanup-regularized",
+   "ss02+ss03+ss05": "pre-ligature-cleanup-regularized"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "ss03",
+     "ss02+ss03",
+     "ss02+ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell",
+   "seam"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsFee.ex-y5.before-may",
+    "qsMay.ex-ext-1",
+    "qsTea_qsOy"
+   ],
+   "seams": [
+    "break",
+    "break"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsFee/loop/None/x-height/ex-ext-3",
+    "qsMay/loop/x-height/None/",
+    "qsTea_qsOy/hapax/None/None/"
+   ],
+   "seams": [
+    "y5",
+    "break"
+   ],
+   "extensions": [
+    3,
+    0
+   ]
+  },
+  "diff_positions": [
+   0,
+   1
+  ],
+  "pair": {
+   "left": 0,
+   "right": 1
+  },
+  "pair_codepoints": [
+   0,
+   1
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 0,
+    "x_max": 650,
+    "advance_total": 1100
+   },
+   "after": {
+    "x_min": 0,
+    "x_max": 550,
+    "advance_total": 1000
+   }
+  },
+  "boundary_marks": [],
+  "secondary_seams": null,
+  "summary": "New: \u00b7Fee joins \u00b7May at the x-height (the old pipeline broke there) \u2014 decided by qsFee.yaml policy.extend[1] (join-count rank).",
+  "explain": "sequence E658:E665:E652:E679   config ss03\nsettled: qsFee.loop.ex-y5.ex-ext-3 qsMay.loop.en-y5 qsTea_qsOy.hapax\n\nposition 0: qsFee\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> loop             entry=none       seam=x-height   join-count=1 prospect=0\n     loop             entry=none       seam=none       join-count=0 prospect=0\n  eliminated before ranking:\n    - (require) qsFee.reversed-loop: requires a live entry\n  decided by: join-count (over loop entry=none seam=none)\n  note: glyph_data/runes/qsFee.yaml:policy.extend[1]\n  settled: qsFee.loop.ex-y5.ex-ext-3   seam=x-height   extension=3\n\nposition 1: qsMay\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> loop             entry=x-height   seam=none       join-count=1 prospect=0\n  eliminated before ranking:\n    - (pairings) qsMay.loop: pairing (x-height, x-height) not allowed\n    - (entry-binding) qsMay.grounded-loop: no available entry row at x-height against the committed seam\n  decided by: only-candidate\n  settled: qsMay.loop.en-y5   seam=none   extension=0",
+  "provenance": [
+   "glyph_data/runes/qsFee.yaml:policy.extend[1]"
+  ],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7Fee ~x~ \u00b7May | \u00b7Tea+Oy",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": "03",
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsFee.yaml",
+    "keypath": "policy.refuse[+]",
+    "suggested_record": "{exit: x-height, when: {right: {family: [qsMay]}}, why: 'Reviewer rejected the M1 outcome for E658:E665:E652:E679 (\u00b7Fee\u00b7May\u00b7Tea\u00b7Oy)'}",
+    "names_provenance": [
+     "glyph_data/runes/qsFee.yaml:policy.extend[1]"
+    ],
+    "decided_stage": "join-count",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E658:E665:E652:E679 (\u00b7Fee\u00b7May\u00b7Tea\u00b7Oy)"
+   },
+   "any_of": {
+    "text": "qsFee qsMay qsTea qsOy",
+    "features": {
+     "ss03": true
+    },
+    "candidates": [
+     "\u00b7Fee ~x~ \u00b7May | \u00b7Tea+Oy",
+     "\u00b7Fee | \u00b7May | \u00b7Tea+Oy"
+    ]
+   }
+  },
+  "content_key": "84af097b2b4d58e03b4e1e775d338ab9061849ec41d4dc3e8eaa73b5ae0cd21d"
+ },
+ {
+  "id": "u-18552",
+  "batch": 0,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "default": "d-487d24c75bde",
+   "ss03": "d-487d24c75bde",
+   "ss04": "d-487d24c75bde",
+   "ss05": "d-487d24c75bde",
+   "ss02": "d-487d24c75bde",
+   "ss02+ss03": "d-487d24c75bde",
+   "ss02+ss03+ss05": "d-487d24c75bde"
+  },
+  "no_verdict": false,
+  "echo": "e-0027",
+  "cluster": "c-0ebc7152",
+  "class": "pre-ligature-cleanup-regularized",
+  "group": "qsFee:qsIt",
+  "codepoints": "E658:E670:E652:E679",
+  "text_entities": "&#xE658;&#xE670;&#xE652;&#xE679;",
+  "notation": "\u00b7Fee\u00b7It\u00b7Tea\u00b7Oy",
+  "notation_tokens": [
+   "\u00b7Fee",
+   "\u00b7It",
+   "\u00b7Tea",
+   "\u00b7Oy"
+  ],
+  "configs": [
+   "default",
+   "ss03",
+   "ss04",
+   "ss05",
+   "ss02",
+   "ss02+ss03",
+   "ss02+ss03+ss05"
+  ],
+  "config_note": "only under: default, ss03, ss04, ss05, ss02, ss02+ss03, ss02+ss03+ss05",
+  "config_gate": null,
+  "config_classes": {
+   "default": "pre-ligature-cleanup-regularized",
+   "ss02": "pre-ligature-cleanup-regularized",
+   "ss03": "pre-ligature-cleanup-regularized",
+   "ss04": "pre-ligature-cleanup-regularized",
+   "ss05": "pre-ligature-cleanup-regularized",
+   "ss02+ss03": "pre-ligature-cleanup-regularized",
+   "ss02+ss03+ss05": "pre-ligature-cleanup-regularized"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss03",
+     "ss04",
+     "ss05",
+     "ss02",
+     "ss02+ss03",
+     "ss02+ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell",
+   "seam"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsFee.ex-y5.before-utter",
+    "qsIt",
+    "qsTea_qsOy"
+   ],
+   "seams": [
+    "break",
+    "break"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsFee/loop/None/x-height/ex-ext-1",
+    "qsIt/hapax/x-height/None/",
+    "qsTea_qsOy/hapax/None/None/"
+   ],
+   "seams": [
+    "y5",
+    "break"
+   ],
+   "extensions": [
+    1,
+    0
+   ]
+  },
+  "diff_positions": [
+   0,
+   1
+  ],
+  "pair": {
+   "left": 0,
+   "right": 1
+  },
+  "pair_codepoints": [
+   0,
+   1
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 0,
+    "x_max": 400,
+    "advance_total": 850
+   },
+   "after": {
+    "x_min": 0,
+    "x_max": 400,
+    "advance_total": 850
+   }
+  },
+  "boundary_marks": [],
+  "secondary_seams": null,
+  "summary": "New: \u00b7Fee joins \u00b7It at the x-height (the old pipeline broke there) \u2014 decided by qsFee.yaml policy.extend[0] (join-count rank).",
+  "explain": "sequence E658:E670:E652:E679   config default\nsettled: qsFee.loop.ex-y5.ex-ext-1 qsIt.hapax.en-y5 qsTea_qsOy.hapax\n\nposition 0: qsFee\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> loop             entry=none       seam=x-height   join-count=1 prospect=0\n     loop             entry=none       seam=none       join-count=0 prospect=0\n  eliminated before ranking:\n    - (require) qsFee.reversed-loop: requires a live entry\n  decided by: join-count (over loop entry=none seam=none)\n  note: glyph_data/runes/qsFee.yaml:policy.extend[0]\n  settled: qsFee.loop.ex-y5.ex-ext-1   seam=x-height   extension=1\n\nposition 1: qsIt\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> hapax            entry=x-height   seam=none       join-count=1 prospect=0\n  eliminated before ranking:\n    - (lookahead-closure) qsIt.hapax: exit baseline has no refusal-aware acceptor cell on qsTea_qsOy\n    - (pairings) qsIt.hapax: pairing (x-height, x-height) not allowed\n  decided by: only-candidate\n  settled: qsIt.hapax.en-y5   seam=none   extension=0",
+  "provenance": [
+   "glyph_data/runes/qsFee.yaml:policy.extend[0]"
+  ],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7Fee ~x~ \u00b7It | \u00b7Tea+Oy",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": null,
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsFee.yaml",
+    "keypath": "policy.refuse[+]",
+    "suggested_record": "{exit: x-height, when: {right: {family: [qsIt]}}, why: 'Reviewer rejected the M1 outcome for E658:E670:E652:E679 (\u00b7Fee\u00b7It\u00b7Tea\u00b7Oy)'}",
+    "names_provenance": [
+     "glyph_data/runes/qsFee.yaml:policy.extend[0]"
+    ],
+    "decided_stage": "join-count",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E658:E670:E652:E679 (\u00b7Fee\u00b7It\u00b7Tea\u00b7Oy)"
+   },
+   "any_of": {
+    "text": "qsFee qsIt qsTea qsOy",
+    "features": {},
+    "candidates": [
+     "\u00b7Fee ~x~ \u00b7It | \u00b7Tea+Oy",
+     "\u00b7Fee | \u00b7It | \u00b7Tea+Oy"
+    ]
+   }
+  },
+  "content_key": "c38ad95fb7b36e8ee6c4d60e5e7d2c9c282cfbcc7fb9d4849a2aeefd63cc9b3e"
+ },
+ {
+  "id": "u-18553",
+  "batch": 0,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "default": "d-2485edf81e12",
+   "ss03": "d-2485edf81e12",
+   "ss04": "d-2485edf81e12",
+   "ss05": "d-2485edf81e12",
+   "ss02": "d-2485edf81e12",
+   "ss02+ss03": "d-2485edf81e12",
+   "ss02+ss03+ss05": "d-2485edf81e12"
+  },
+  "no_verdict": false,
+  "echo": "e-0028",
+  "cluster": "c-865efb04",
+  "class": "pre-ligature-cleanup-regularized",
+  "group": "qsFee:qsOy",
+  "codepoints": "E658:E679:E652:E679",
+  "text_entities": "&#xE658;&#xE679;&#xE652;&#xE679;",
+  "notation": "\u00b7Fee\u00b7Oy\u00b7Tea\u00b7Oy",
+  "notation_tokens": [
+   "\u00b7Fee",
+   "\u00b7Oy",
+   "\u00b7Tea",
+   "\u00b7Oy"
+  ],
+  "configs": [
+   "default",
+   "ss03",
+   "ss04",
+   "ss05",
+   "ss02",
+   "ss02+ss03",
+   "ss02+ss03+ss05"
+  ],
+  "config_note": "only under: default, ss03, ss04, ss05, ss02, ss02+ss03, ss02+ss03+ss05",
+  "config_gate": null,
+  "config_classes": {
+   "default": "pre-ligature-cleanup-regularized",
+   "ss02": "pre-ligature-cleanup-regularized",
+   "ss03": "pre-ligature-cleanup-regularized",
+   "ss04": "pre-ligature-cleanup-regularized",
+   "ss05": "pre-ligature-cleanup-regularized",
+   "ss02+ss03": "pre-ligature-cleanup-regularized",
+   "ss02+ss03+ss05": "pre-ligature-cleanup-regularized"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss03",
+     "ss04",
+     "ss05",
+     "ss02",
+     "ss02+ss03",
+     "ss02+ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell",
+   "seam"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsFee.ex-y5",
+    "qsOy",
+    "qsTea_qsOy"
+   ],
+   "seams": [
+    "break",
+    "break"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsFee/loop/None/x-height/",
+    "qsOy/hapax/x-height/None/",
+    "qsTea_qsOy/hapax/None/None/"
+   ],
+   "seams": [
+    "y5",
+    "break"
+   ],
+   "extensions": [
+    0,
+    0
+   ]
+  },
+  "diff_positions": [
+   1
+  ],
+  "pair": {
+   "left": 0,
+   "right": 1
+  },
+  "pair_codepoints": [
+   0,
+   1
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 0,
+    "x_max": 750,
+    "advance_total": 1200
+   },
+   "after": {
+    "x_min": 0,
+    "x_max": 550,
+    "advance_total": 1000
+   }
+  },
+  "boundary_marks": [],
+  "secondary_seams": null,
+  "summary": "New: \u00b7Fee joins \u00b7Oy at the x-height (the old pipeline broke there) \u2014 decided by the only surviving candidate (no policy record involved).",
+  "explain": "sequence E658:E679:E652:E679   config default\nsettled: qsFee.loop.ex-y5 qsOy.hapax.en-y5 qsTea_qsOy.hapax\n\nposition 1: qsOy\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> hapax            entry=x-height   seam=none       join-count=1 prospect=0\n  eliminated before ranking:\n    - (lookahead-closure) qsOy.hapax: exit baseline has no refusal-aware acceptor cell on qsTea_qsOy\n  decided by: only-candidate\n  settled: qsOy.hapax.en-y5   seam=none   extension=0",
+  "provenance": [],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7Fee ~x~ \u00b7Oy | \u00b7Tea+Oy",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": null,
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsOy.yaml",
+    "keypath": "policy.prefer[+]",
+    "suggested_record": "{cell: {exit: none}, when: {right: {family: [qsTea_qsOy]}}, why: 'Reviewer rejected the M1 outcome for E658:E679:E652:E679 (\u00b7Fee\u00b7Oy\u00b7Tea\u00b7Oy)'}",
+    "names_provenance": [],
+    "decided_stage": "only-candidate",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E658:E679:E652:E679 (\u00b7Fee\u00b7Oy\u00b7Tea\u00b7Oy)"
+   },
+   "any_of": {
+    "text": "qsFee qsOy qsTea qsOy",
+    "features": {},
+    "candidates": [
+     "\u00b7Fee ~x~ \u00b7Oy | \u00b7Tea+Oy",
+     "\u00b7Fee | \u00b7Oy | \u00b7Tea+Oy"
+    ]
+   }
+  },
+  "content_key": "f5c1c8e4b258a4e03d5061b61722cc00274e31e03f369b201868a428ba7133a8"
+ },
+ {
+  "id": "u-18554",
+  "batch": 0,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "default": "d-9ed7c089f2fe",
+   "ss03": "d-9ed7c089f2fe",
+   "ss04": "d-9ed7c089f2fe",
+   "ss05": "d-9ed7c089f2fe",
+   "ss02": "d-9ed7c089f2fe",
+   "ss02+ss03": "d-9ed7c089f2fe",
+   "ss02+ss03+ss05": "d-9ed7c089f2fe"
+  },
+  "no_verdict": false,
+  "echo": "e-0029",
+  "cluster": "c-bd0c3bab",
+  "class": "pre-ligature-cleanup-regularized",
+  "group": "qsMay:qsPea",
+  "codepoints": "E665:E650:E652:E679",
+  "text_entities": "&#xE665;&#xE650;&#xE652;&#xE679;",
+  "notation": "\u00b7May\u00b7Pea\u00b7Tea\u00b7Oy",
+  "notation_tokens": [
+   "\u00b7May",
+   "\u00b7Pea",
+   "\u00b7Tea",
+   "\u00b7Oy"
+  ],
+  "configs": [
+   "default",
+   "ss03",
+   "ss04",
+   "ss05",
+   "ss02",
+   "ss02+ss03",
+   "ss02+ss03+ss05"
+  ],
+  "config_note": "only under: default, ss03, ss04, ss05, ss02, ss02+ss03, ss02+ss03+ss05",
+  "config_gate": null,
+  "config_classes": {
+   "default": "pre-ligature-cleanup-regularized",
+   "ss02": "pre-ligature-cleanup-regularized",
+   "ss03": "pre-ligature-cleanup-regularized",
+   "ss04": "pre-ligature-cleanup-regularized",
+   "ss05": "pre-ligature-cleanup-regularized",
+   "ss02+ss03": "pre-ligature-cleanup-regularized",
+   "ss02+ss03+ss05": "pre-ligature-cleanup-regularized"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss03",
+     "ss04",
+     "ss05",
+     "ss02",
+     "ss02+ss03",
+     "ss02+ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell",
+   "seam"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsMay",
+    "qsPea",
+    "qsTea_qsOy"
+   ],
+   "seams": [
+    "break",
+    "break"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsMay/loop/None/x-height/",
+    "qsPea/full/x-height/None/",
+    "qsTea_qsOy/hapax/None/None/"
+   ],
+   "seams": [
+    "y5",
+    "break"
+   ],
+   "extensions": [
+    0,
+    0
+   ]
+  },
+  "diff_positions": [
+   0,
+   1
+  ],
+  "pair": {
+   "left": 0,
+   "right": 1
+  },
+  "pair_codepoints": [
+   0,
+   1
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 0,
+    "x_max": 550,
+    "advance_total": 1000
+   },
+   "after": {
+    "x_min": 0,
+    "x_max": 500,
+    "advance_total": 950
+   }
+  },
+  "boundary_marks": [],
+  "secondary_seams": null,
+  "summary": "New: \u00b7May joins \u00b7Pea at the x-height (the old pipeline broke there) \u2014 decided by qsPea.yaml stances.half.surface.exits.y6 (declaration order).",
+  "explain": "sequence E665:E650:E652:E679   config default\nsettled: qsMay.loop.ex-y5 qsPea.full.en-y5 qsTea_qsOy.hapax\n\nposition 0: qsMay\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> loop             entry=none       seam=x-height   join-count=1 prospect=0\n     loop             entry=none       seam=none       join-count=0 prospect=0\n     grounded-loop    entry=none       seam=none       join-count=0 prospect=0\n  eliminated before ranking:\n    - (lookahead-closure) qsMay.grounded-loop: exit baseline has no refusal-aware acceptor cell on qsPea\n  decided by: join-count (over loop entry=none seam=none)\n  settled: qsMay.loop.ex-y5   seam=x-height   extension=0\n\nposition 1: qsPea\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> full             entry=x-height   seam=none       join-count=1 prospect=0\n     half             entry=x-height   seam=none       join-count=1 prospect=0\n  eliminated before ranking:\n    - (lookahead-closure) qsPea.full: exit baseline has no refusal-aware acceptor cell on qsTea_qsOy\n    - (row-scope) qsPea.half: exit y6 toward-scope does not admit qsTea_qsOy  [glyph_data/runes/qsPea.yaml:stances.half.surface.exits.y6]\n    - (row-scope) qsPea.half: exit x-height toward-scope does not admit qsTea_qsOy  [glyph_data/runes/qsPea.yaml:stances.half.surface.exits.x-height]\n  decided by: order (over half entry=x-height seam=none)\n  note: glyph_data/runes/qsPea.yaml:stances.half.surface.exits.y6\n  note: glyph_data/runes/qsPea.yaml:stances.half.surface.exits.x-height\n  settled: qsPea.full.en-y5   seam=none   extension=0",
+  "provenance": [
+   "glyph_data/runes/qsPea.yaml:stances.half.surface.exits.y6",
+   "glyph_data/runes/qsPea.yaml:stances.half.surface.exits.x-height"
+  ],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7May ~x~ \u00b7Pea | \u00b7Tea+Oy",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": null,
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsMay.yaml",
+    "keypath": "policy.refuse[+]",
+    "suggested_record": "{exit: x-height, when: {right: {family: [qsPea]}}, why: 'Reviewer rejected the M1 outcome for E665:E650:E652:E679 (\u00b7May\u00b7Pea\u00b7Tea\u00b7Oy)'}",
+    "names_provenance": [
+     "glyph_data/runes/qsPea.yaml:stances.half.surface.exits.y6",
+     "glyph_data/runes/qsPea.yaml:stances.half.surface.exits.x-height"
+    ],
+    "decided_stage": "join-count",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E665:E650:E652:E679 (\u00b7May\u00b7Pea\u00b7Tea\u00b7Oy)"
+   },
+   "any_of": {
+    "text": "qsMay qsPea qsTea qsOy",
+    "features": {},
+    "candidates": [
+     "\u00b7May ~x~ \u00b7Pea | \u00b7Tea+Oy",
+     "\u00b7May | \u00b7Pea | \u00b7Tea+Oy"
+    ]
+   }
+  },
+  "content_key": "13e6ea555e8cfa6721a71118866d505bf469ebcbcfb2a74e97021325c565cc62"
+ },
+ {
+  "id": "u-18555",
+  "batch": 0,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "ss03": "d-5054092002a5",
+   "ss02+ss03": "d-5054092002a5",
+   "ss02+ss03+ss05": "d-5054092002a5"
+  },
+  "no_verdict": false,
+  "echo": "e-0030",
+  "cluster": "c-7505c723",
+  "class": "pre-ligature-cleanup-regularized",
+  "group": "qsMay:qsTea",
+  "codepoints": "E665:E652:E652:E679",
+  "text_entities": "&#xE665;&#xE652;&#xE652;&#xE679;",
+  "notation": "\u00b7May\u00b7Tea\u00b7Tea\u00b7Oy",
+  "notation_tokens": [
+   "\u00b7May",
+   "\u00b7Tea",
+   "\u00b7Tea",
+   "\u00b7Oy"
+  ],
+  "configs": [
+   "ss03",
+   "ss02+ss03",
+   "ss02+ss03+ss05"
+  ],
+  "config_note": "only under: ss03, ss02+ss03, ss02+ss03+ss05",
+  "config_gate": null,
+  "config_classes": {
+   "ss03": "pre-ligature-cleanup-regularized",
+   "ss02+ss03": "pre-ligature-cleanup-regularized",
+   "ss02+ss03+ss05": "pre-ligature-cleanup-regularized"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "ss03",
+     "ss02+ss03",
+     "ss02+ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell",
+   "seam"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsMay.ex-ext-1",
+    "qsTea",
+    "qsTea_qsOy"
+   ],
+   "seams": [
+    "break",
+    "break"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsMay/loop/None/x-height/ex-ext-1",
+    "qsTea/full/x-height/None/",
+    "qsTea_qsOy/hapax/None/None/"
+   ],
+   "seams": [
+    "y5",
+    "break"
+   ],
+   "extensions": [
+    1,
+    0
+   ]
+  },
+  "diff_positions": [
+   1
+  ],
+  "pair": {
+   "left": 0,
+   "right": 1
+  },
+  "pair_codepoints": [
+   0,
+   1
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 0,
+    "x_max": 450,
+    "advance_total": 900
+   },
+   "after": {
+    "x_min": 0,
+    "x_max": 400,
+    "advance_total": 850
+   }
+  },
+  "boundary_marks": [],
+  "secondary_seams": null,
+  "summary": "New: \u00b7May joins \u00b7Tea at the x-height (the old pipeline broke there) \u2014 decided by declaration order (no policy record involved).",
+  "explain": "sequence E665:E652:E652:E679   config ss03\nsettled: qsMay.loop.ex-y5.ex-ext-1 qsTea.full.en-y5 qsTea_qsOy.hapax\n\nposition 1: qsTea\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> full             entry=x-height   seam=none       join-count=1 prospect=0\n     half             entry=x-height   seam=none       join-count=1 prospect=0\n  eliminated before ranking:\n    - (lookahead-closure) qsTea.full: exit baseline has no refusal-aware acceptor cell on qsTea_qsOy\n    - (pairings) qsTea.half: pairing (x-height, x-height) not allowed\n  decided by: order (over half entry=x-height seam=none)\n  note: unlocked by ss03\n  settled: qsTea.full.en-y5   seam=none   extension=0",
+  "provenance": [],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7May ~x~ \u00b7Tea | \u00b7Tea+Oy",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": "03",
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsTea.yaml",
+    "keypath": "policy.prefer[+]",
+    "suggested_record": "{cell: {exit: none}, when: {right: {family: [qsTea_qsOy]}}, why: 'Reviewer rejected the M1 outcome for E665:E652:E652:E679 (\u00b7May\u00b7Tea\u00b7Tea\u00b7Oy)'}",
+    "names_provenance": [],
+    "decided_stage": "order",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E665:E652:E652:E679 (\u00b7May\u00b7Tea\u00b7Tea\u00b7Oy)"
+   },
+   "any_of": {
+    "text": "qsMay qsTea qsTea qsOy",
+    "features": {
+     "ss03": true
+    },
+    "candidates": [
+     "\u00b7May ~x~ \u00b7Tea | \u00b7Tea+Oy",
+     "\u00b7May | \u00b7Tea | \u00b7Tea+Oy"
+    ]
+   }
+  },
+  "content_key": "0e6a929351417cf4238624aea5d25e2d6ab9bfdff4859f798e5c46f3a66e3de8"
+ },
+ {
+  "id": "u-18556",
+  "batch": 0,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "ss03": "d-46b76c9019ee",
+   "ss02+ss03": "d-46b76c9019ee",
+   "ss02+ss03+ss05": "d-46b76c9019ee"
+  },
+  "no_verdict": false,
+  "echo": "e-0031",
+  "cluster": "c-fad54008",
+  "class": "pre-ligature-cleanup-regularized",
+  "group": "qsMay:qsFee",
+  "codepoints": "E665:E658:E652:E679",
+  "text_entities": "&#xE665;&#xE658;&#xE652;&#xE679;",
+  "notation": "\u00b7May\u00b7Fee\u00b7Tea\u00b7Oy",
+  "notation_tokens": [
+   "\u00b7May",
+   "\u00b7Fee",
+   "\u00b7Tea",
+   "\u00b7Oy"
+  ],
+  "configs": [
+   "ss03",
+   "ss02+ss03",
+   "ss02+ss03+ss05"
+  ],
+  "config_note": "only under: ss03, ss02+ss03, ss02+ss03+ss05",
+  "config_gate": null,
+  "config_classes": {
+   "ss03": "pre-ligature-cleanup-regularized",
+   "ss02+ss03": "pre-ligature-cleanup-regularized",
+   "ss02+ss03+ss05": "pre-ligature-cleanup-regularized"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "ss03",
+     "ss02+ss03",
+     "ss02+ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell",
+   "seam"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsMay",
+    "qsFee.ex-y5.before-may.ex-ext-3",
+    "qsTea_qsOy"
+   ],
+   "seams": [
+    "break",
+    "break"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsMay/loop/None/x-height/ex-ext-1",
+    "qsFee/reversed-loop/x-height/None/",
+    "qsTea_qsOy/hapax/None/None/"
+   ],
+   "seams": [
+    "y5",
+    "break"
+   ],
+   "extensions": [
+    1,
+    0
+   ]
+  },
+  "diff_positions": [
+   0,
+   1
+  ],
+  "pair": {
+   "left": 0,
+   "right": 1
+  },
+  "pair_codepoints": [
+   0,
+   1
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 0,
+    "x_max": 750,
+    "advance_total": 1200
+   },
+   "after": {
+    "x_min": 0,
+    "x_max": 550,
+    "advance_total": 1000
+   }
+  },
+  "boundary_marks": [],
+  "secondary_seams": null,
+  "summary": "New: \u00b7May joins \u00b7Fee at the x-height (the old pipeline broke there) \u2014 decided by qsMay.yaml policy.extend[0] (join-count rank).",
+  "explain": "sequence E665:E658:E652:E679   config ss03\nsettled: qsMay.loop.ex-y5.ex-ext-1 qsFee.reversed-loop.en-y5 qsTea_qsOy.hapax\n\nposition 0: qsMay\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> loop             entry=none       seam=x-height   join-count=1 prospect=0\n     loop             entry=none       seam=none       join-count=0 prospect=0\n     grounded-loop    entry=none       seam=none       join-count=0 prospect=0\n  eliminated before ranking:\n    - (lookahead-closure) qsMay.grounded-loop: exit baseline has no refusal-aware acceptor cell on qsFee\n  decided by: join-count (over loop entry=none seam=none)\n  note: glyph_data/runes/qsMay.yaml:policy.extend[0]\n  settled: qsMay.loop.ex-y5.ex-ext-1   seam=x-height   extension=1\n\nposition 1: qsFee\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> reversed-loop    entry=x-height   seam=none       join-count=1 prospect=0\n  eliminated before ranking:\n    - (entry-binding) qsFee.loop: no available entry row at x-height against the committed seam\n  decided by: only-candidate\n  settled: qsFee.reversed-loop.en-y5   seam=none   extension=0",
+  "provenance": [
+   "glyph_data/runes/qsMay.yaml:policy.extend[0]"
+  ],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7May ~x~ \u00b7Fee | \u00b7Tea+Oy",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": "03",
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsMay.yaml",
+    "keypath": "policy.refuse[+]",
+    "suggested_record": "{exit: x-height, when: {right: {family: [qsFee]}}, why: 'Reviewer rejected the M1 outcome for E665:E658:E652:E679 (\u00b7May\u00b7Fee\u00b7Tea\u00b7Oy)'}",
+    "names_provenance": [
+     "glyph_data/runes/qsMay.yaml:policy.extend[0]"
+    ],
+    "decided_stage": "join-count",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E665:E658:E652:E679 (\u00b7May\u00b7Fee\u00b7Tea\u00b7Oy)"
+   },
+   "any_of": {
+    "text": "qsMay qsFee qsTea qsOy",
+    "features": {
+     "ss03": true
+    },
+    "candidates": [
+     "\u00b7May ~x~ \u00b7Fee | \u00b7Tea+Oy",
+     "\u00b7May | \u00b7Fee | \u00b7Tea+Oy"
+    ]
+   }
+  },
+  "content_key": "a4829f675b968b5847fdde66523857dd0455b06fa7fdc1da7c8da6d1724f464d"
+ },
+ {
+  "id": "u-18557",
+  "batch": 0,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "default": "d-5db62f1ad405",
+   "ss03": "d-5db62f1ad405",
+   "ss04": "d-5db62f1ad405",
+   "ss05": "d-5db62f1ad405",
+   "ss02": "d-5db62f1ad405",
+   "ss02+ss03": "d-5db62f1ad405",
+   "ss02+ss03+ss05": "d-5db62f1ad405"
+  },
+  "no_verdict": false,
+  "echo": "e-0032",
+  "cluster": "c-5a09a378",
+  "class": "pre-ligature-cleanup-regularized",
+  "group": "qsMay:qsIt",
+  "codepoints": "E665:E670:E652:E679",
+  "text_entities": "&#xE665;&#xE670;&#xE652;&#xE679;",
+  "notation": "\u00b7May\u00b7It\u00b7Tea\u00b7Oy",
+  "notation_tokens": [
+   "\u00b7May",
+   "\u00b7It",
+   "\u00b7Tea",
+   "\u00b7Oy"
+  ],
+  "configs": [
+   "default",
+   "ss03",
+   "ss04",
+   "ss05",
+   "ss02",
+   "ss02+ss03",
+   "ss02+ss03+ss05"
+  ],
+  "config_note": "only under: default, ss03, ss04, ss05, ss02, ss02+ss03, ss02+ss03+ss05",
+  "config_gate": null,
+  "config_classes": {
+   "default": "pre-ligature-cleanup-regularized",
+   "ss02": "pre-ligature-cleanup-regularized",
+   "ss03": "pre-ligature-cleanup-regularized",
+   "ss04": "pre-ligature-cleanup-regularized",
+   "ss05": "pre-ligature-cleanup-regularized",
+   "ss02+ss03": "pre-ligature-cleanup-regularized",
+   "ss02+ss03+ss05": "pre-ligature-cleanup-regularized"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss03",
+     "ss04",
+     "ss05",
+     "ss02",
+     "ss02+ss03",
+     "ss02+ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell",
+   "seam"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsMay",
+    "qsIt",
+    "qsTea_qsOy"
+   ],
+   "seams": [
+    "break",
+    "break"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsMay/loop/None/x-height/ex-ext-1",
+    "qsIt/hapax/x-height/None/",
+    "qsTea_qsOy/hapax/None/None/"
+   ],
+   "seams": [
+    "y5",
+    "break"
+   ],
+   "extensions": [
+    1,
+    0
+   ]
+  },
+  "diff_positions": [
+   0,
+   1
+  ],
+  "pair": {
+   "left": 0,
+   "right": 1
+  },
+  "pair_codepoints": [
+   0,
+   1
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 0,
+    "x_max": 400,
+    "advance_total": 850
+   },
+   "after": {
+    "x_min": 0,
+    "x_max": 400,
+    "advance_total": 850
+   }
+  },
+  "boundary_marks": [],
+  "secondary_seams": null,
+  "summary": "New: \u00b7May joins \u00b7It at the x-height (the old pipeline broke there) \u2014 decided by qsMay.yaml policy.refuse[0] (join-count rank).",
+  "explain": "sequence E665:E670:E652:E679   config default\nsettled: qsMay.loop.ex-y5.ex-ext-1 qsIt.hapax.en-y5 qsTea_qsOy.hapax\n\nposition 0: qsMay\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> loop             entry=none       seam=x-height   join-count=1 prospect=0\n     loop             entry=none       seam=none       join-count=0 prospect=0\n     grounded-loop    entry=none       seam=none       join-count=0 prospect=0\n  eliminated before ranking:\n    - (refuse) qsMay.grounded-loop: exit baseline refused  [glyph_data/runes/qsMay.yaml:policy.refuse[0]]\n  decided by: join-count (over loop entry=none seam=none)\n  note: glyph_data/runes/qsMay.yaml:policy.refuse[0]\n  note: glyph_data/runes/qsMay.yaml:policy.extend[0]\n  settled: qsMay.loop.ex-y5.ex-ext-1   seam=x-height   extension=1\n\nposition 1: qsIt\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> hapax            entry=x-height   seam=none       join-count=1 prospect=0\n  eliminated before ranking:\n    - (lookahead-closure) qsIt.hapax: exit baseline has no refusal-aware acceptor cell on qsTea_qsOy\n    - (pairings) qsIt.hapax: pairing (x-height, x-height) not allowed\n  decided by: only-candidate\n  settled: qsIt.hapax.en-y5   seam=none   extension=0",
+  "provenance": [
+   "glyph_data/runes/qsMay.yaml:policy.refuse[0]",
+   "glyph_data/runes/qsMay.yaml:policy.extend[0]"
+  ],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7May ~x~ \u00b7It | \u00b7Tea+Oy",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": null,
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsMay.yaml",
+    "keypath": "policy.refuse[+]",
+    "suggested_record": "{exit: x-height, when: {right: {family: [qsIt]}}, why: 'Reviewer rejected the M1 outcome for E665:E670:E652:E679 (\u00b7May\u00b7It\u00b7Tea\u00b7Oy)'}",
+    "names_provenance": [
+     "glyph_data/runes/qsMay.yaml:policy.refuse[0]",
+     "glyph_data/runes/qsMay.yaml:policy.extend[0]"
+    ],
+    "decided_stage": "join-count",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E665:E670:E652:E679 (\u00b7May\u00b7It\u00b7Tea\u00b7Oy)"
+   },
+   "any_of": {
+    "text": "qsMay qsIt qsTea qsOy",
+    "features": {},
+    "candidates": [
+     "\u00b7May ~x~ \u00b7It | \u00b7Tea+Oy",
+     "\u00b7May | \u00b7It | \u00b7Tea+Oy"
+    ]
+   }
+  },
+  "content_key": "84c076cae52af0a4147c6c3f33230e68278ba474cb5ed63a532e8faa5e0143f0"
+ },
+ {
+  "id": "u-18558",
+  "batch": 0,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "default": "d-2485edf81e12",
+   "ss03": "d-2485edf81e12",
+   "ss04": "d-2485edf81e12",
+   "ss05": "d-2485edf81e12",
+   "ss02": "d-2485edf81e12",
+   "ss02+ss03": "d-2485edf81e12",
+   "ss02+ss03+ss05": "d-2485edf81e12"
+  },
+  "no_verdict": false,
+  "echo": "e-0033",
+  "cluster": "c-865efb04",
+  "class": "pre-ligature-cleanup-regularized",
+  "group": "qsMay:qsOy",
+  "codepoints": "E665:E679:E652:E679",
+  "text_entities": "&#xE665;&#xE679;&#xE652;&#xE679;",
+  "notation": "\u00b7May\u00b7Oy\u00b7Tea\u00b7Oy",
+  "notation_tokens": [
+   "\u00b7May",
+   "\u00b7Oy",
+   "\u00b7Tea",
+   "\u00b7Oy"
+  ],
+  "configs": [
+   "default",
+   "ss03",
+   "ss04",
+   "ss05",
+   "ss02",
+   "ss02+ss03",
+   "ss02+ss03+ss05"
+  ],
+  "config_note": "only under: default, ss03, ss04, ss05, ss02, ss02+ss03, ss02+ss03+ss05",
+  "config_gate": null,
+  "config_classes": {
+   "default": "pre-ligature-cleanup-regularized",
+   "ss02": "pre-ligature-cleanup-regularized",
+   "ss03": "pre-ligature-cleanup-regularized",
+   "ss04": "pre-ligature-cleanup-regularized",
+   "ss05": "pre-ligature-cleanup-regularized",
+   "ss02+ss03": "pre-ligature-cleanup-regularized",
+   "ss02+ss03+ss05": "pre-ligature-cleanup-regularized"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss03",
+     "ss04",
+     "ss05",
+     "ss02",
+     "ss02+ss03",
+     "ss02+ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell",
+   "seam"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsMay",
+    "qsOy",
+    "qsTea_qsOy"
+   ],
+   "seams": [
+    "break",
+    "break"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsMay/loop/None/x-height/",
+    "qsOy/hapax/x-height/None/",
+    "qsTea_qsOy/hapax/None/None/"
+   ],
+   "seams": [
+    "y5",
+    "break"
+   ],
+   "extensions": [
+    0,
+    0
+   ]
+  },
+  "diff_positions": [
+   0,
+   1
+  ],
+  "pair": {
+   "left": 0,
+   "right": 1
+  },
+  "pair_codepoints": [
+   0,
+   1
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 0,
+    "x_max": 750,
+    "advance_total": 1200
+   },
+   "after": {
+    "x_min": 0,
+    "x_max": 550,
+    "advance_total": 1000
+   }
+  },
+  "boundary_marks": [],
+  "secondary_seams": null,
+  "summary": "New: \u00b7May joins \u00b7Oy at the x-height (the old pipeline broke there) \u2014 decided by the only surviving candidate (no policy record involved).",
+  "explain": "sequence E665:E679:E652:E679   config default\nsettled: qsMay.loop.ex-y5 qsOy.hapax.en-y5 qsTea_qsOy.hapax\n\nposition 0: qsMay\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> loop             entry=none       seam=x-height   join-count=1 prospect=0\n     loop             entry=none       seam=none       join-count=0 prospect=0\n     grounded-loop    entry=none       seam=none       join-count=0 prospect=0\n  eliminated before ranking:\n    - (lookahead-closure) qsMay.grounded-loop: exit baseline has no refusal-aware acceptor cell on qsOy\n  decided by: join-count (over loop entry=none seam=none)\n  settled: qsMay.loop.ex-y5   seam=x-height   extension=0\n\nposition 1: qsOy\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> hapax            entry=x-height   seam=none       join-count=1 prospect=0\n  eliminated before ranking:\n    - (lookahead-closure) qsOy.hapax: exit baseline has no refusal-aware acceptor cell on qsTea_qsOy\n  decided by: only-candidate\n  settled: qsOy.hapax.en-y5   seam=none   extension=0",
+  "provenance": [],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7May ~x~ \u00b7Oy | \u00b7Tea+Oy",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": null,
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsMay.yaml",
+    "keypath": "policy.prefer[+]",
+    "suggested_record": "{cell: {exit: none}, when: {right: {family: [qsOy]}}, why: 'Reviewer rejected the M1 outcome for E665:E679:E652:E679 (\u00b7May\u00b7Oy\u00b7Tea\u00b7Oy)'}",
+    "names_provenance": [],
+    "decided_stage": "join-count",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E665:E679:E652:E679 (\u00b7May\u00b7Oy\u00b7Tea\u00b7Oy)"
+   },
+   "any_of": {
+    "text": "qsMay qsOy qsTea qsOy",
+    "features": {},
+    "candidates": [
+     "\u00b7May ~x~ \u00b7Oy | \u00b7Tea+Oy",
+     "\u00b7May | \u00b7Oy | \u00b7Tea+Oy"
+    ]
+   }
+  },
+  "content_key": "7c45b6cd46a675157c47e348af604ecb15a0273e5c632165a48a07460004435c"
+ },
+ {
+  "id": "u-18559",
+  "batch": 0,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "default": "d-159b863b7dfe",
+   "ss03": "d-159b863b7dfe",
+   "ss04": "d-159b863b7dfe",
+   "ss05": "d-159b863b7dfe",
+   "ss02": "d-159b863b7dfe",
+   "ss02+ss03": "d-159b863b7dfe",
+   "ss02+ss03+ss05": "d-159b863b7dfe"
+  },
+  "no_verdict": false,
+  "echo": "e-0034",
+  "cluster": "c-3b8e8ff1",
+  "class": "pre-ligature-cleanup-regularized",
+  "group": "qsNo:qsTea",
+  "codepoints": "E666:E652:E652:E679",
+  "text_entities": "&#xE666;&#xE652;&#xE652;&#xE679;",
+  "notation": "\u00b7No\u00b7Tea\u00b7Tea\u00b7Oy",
+  "notation_tokens": [
+   "\u00b7No",
+   "\u00b7Tea",
+   "\u00b7Tea",
+   "\u00b7Oy"
+  ],
+  "configs": [
+   "default",
+   "ss03",
+   "ss04",
+   "ss05",
+   "ss02",
+   "ss02+ss03",
+   "ss02+ss03+ss05"
+  ],
+  "config_note": "only under: default, ss03, ss04, ss05, ss02, ss02+ss03, ss02+ss03+ss05",
+  "config_gate": null,
+  "config_classes": {
+   "default": "pre-ligature-cleanup-regularized",
+   "ss02": "pre-ligature-cleanup-regularized",
+   "ss03": "pre-ligature-cleanup-regularized",
+   "ss04": "pre-ligature-cleanup-regularized",
+   "ss05": "pre-ligature-cleanup-regularized",
+   "ss02+ss03": "pre-ligature-cleanup-regularized",
+   "ss02+ss03+ss05": "pre-ligature-cleanup-regularized"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss03",
+     "ss04",
+     "ss05",
+     "ss02",
+     "ss02+ss03",
+     "ss02+ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell",
+   "seam"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsNo",
+    "qsTea",
+    "qsTea_qsOy"
+   ],
+   "seams": [
+    "break",
+    "break"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsNo/flipped/None/baseline/",
+    "qsTea/full/baseline/None/",
+    "qsTea_qsOy/hapax/None/None/"
+   ],
+   "seams": [
+    "y0",
+    "break"
+   ],
+   "extensions": [
+    0,
+    0
+   ]
+  },
+  "diff_positions": [
+   0,
+   1
+  ],
+  "pair": {
+   "left": 0,
+   "right": 1
+  },
+  "pair_codepoints": [
+   0,
+   1
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 0,
+    "x_max": 400,
+    "advance_total": 850
+   },
+   "after": {
+    "x_min": 0,
+    "x_max": 350,
+    "advance_total": 800
+   }
+  },
+  "boundary_marks": [],
+  "secondary_seams": null,
+  "summary": "New: \u00b7No joins \u00b7Tea at the baseline (the old pipeline broke there) \u2014 decided by join-count rank (no policy record involved).",
+  "explain": "sequence E666:E652:E652:E679   config default\nsettled: qsNo.flipped.ex-y0 qsTea.full.en-y0 qsTea_qsOy.hapax\n\nposition 0: qsNo\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> flipped          entry=none       seam=baseline   join-count=1 prospect=0\n     loop             entry=none       seam=none       join-count=0 prospect=0\n     flipped          entry=none       seam=none       join-count=0 prospect=0\n  eliminated before ranking:\n    - (lookahead-closure) qsNo.loop: exit x-height has no refusal-aware acceptor cell on qsTea\n  decided by: join-count (over loop entry=none seam=none)\n  settled: qsNo.flipped.ex-y0   seam=baseline   extension=0\n\nposition 1: qsTea\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> full             entry=baseline   seam=none       join-count=1 prospect=0\n  eliminated before ranking:\n    - (pairings) qsTea.full: pairing (baseline, baseline) not allowed\n    - (entry-binding) qsTea.half: no available entry row at baseline against the committed seam\n  decided by: only-candidate\n  settled: qsTea.full.en-y0   seam=none   extension=0",
+  "provenance": [],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7No ~b~ \u00b7Tea | \u00b7Tea+Oy",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": null,
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsNo.yaml",
+    "keypath": "policy.prefer[+]",
+    "suggested_record": "{cell: {exit: none}, when: {right: {family: [qsTea]}}, why: 'Reviewer rejected the M1 outcome for E666:E652:E652:E679 (\u00b7No\u00b7Tea\u00b7Tea\u00b7Oy)'}",
+    "names_provenance": [],
+    "decided_stage": "join-count",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E666:E652:E652:E679 (\u00b7No\u00b7Tea\u00b7Tea\u00b7Oy)"
+   },
+   "any_of": {
+    "text": "qsNo qsTea qsTea qsOy",
+    "features": {},
+    "candidates": [
+     "\u00b7No ~b~ \u00b7Tea | \u00b7Tea+Oy",
+     "\u00b7No | \u00b7Tea | \u00b7Tea+Oy"
+    ]
+   }
+  },
+  "content_key": "9e6e58fa232a4a2c3e0ce0a36764d34e3eec495caba00b1aa5faf5f81ac0f48a"
+ },
+ {
+  "id": "u-18560",
+  "batch": 0,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "ss03": "d-0401864c5828",
+   "ss02+ss03": "d-0401864c5828",
+   "ss02+ss03+ss05": "d-0401864c5828"
+  },
+  "no_verdict": false,
+  "echo": "e-0035",
+  "cluster": "c-b91adf3a",
+  "class": "pre-ligature-cleanup-regularized",
+  "group": "qsNo:qsFee",
+  "codepoints": "E666:E658:E652:E679",
+  "text_entities": "&#xE666;&#xE658;&#xE652;&#xE679;",
+  "notation": "\u00b7No\u00b7Fee\u00b7Tea\u00b7Oy",
+  "notation_tokens": [
+   "\u00b7No",
+   "\u00b7Fee",
+   "\u00b7Tea",
+   "\u00b7Oy"
+  ],
+  "configs": [
+   "ss03",
+   "ss02+ss03",
+   "ss02+ss03+ss05"
+  ],
+  "config_note": "only under: ss03, ss02+ss03, ss02+ss03+ss05",
+  "config_gate": null,
+  "config_classes": {
+   "ss03": "pre-ligature-cleanup-regularized",
+   "ss02+ss03": "pre-ligature-cleanup-regularized",
+   "ss02+ss03+ss05": "pre-ligature-cleanup-regularized"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "ss03",
+     "ss02+ss03",
+     "ss02+ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell",
+   "seam"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsNo",
+    "qsFee.ex-y5.before-may.ex-ext-3",
+    "qsTea_qsOy"
+   ],
+   "seams": [
+    "break",
+    "break"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsNo/loop/None/x-height/ex-ext-1",
+    "qsFee/reversed-loop/x-height/None/",
+    "qsTea_qsOy/hapax/None/None/"
+   ],
+   "seams": [
+    "y5",
+    "break"
+   ],
+   "extensions": [
+    1,
+    0
+   ]
+  },
+  "diff_positions": [
+   0,
+   1
+  ],
+  "pair": {
+   "left": 0,
+   "right": 1
+  },
+  "pair_codepoints": [
+   0,
+   1
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 0,
+    "x_max": 750,
+    "advance_total": 1200
+   },
+   "after": {
+    "x_min": 0,
+    "x_max": 550,
+    "advance_total": 1000
+   }
+  },
+  "boundary_marks": [],
+  "secondary_seams": null,
+  "summary": "New: \u00b7No joins \u00b7Fee at the x-height (the old pipeline broke there) \u2014 decided by qsNo.yaml policy.extend[0] (join-count rank).",
+  "explain": "sequence E666:E658:E652:E679   config ss03\nsettled: qsNo.loop.ex-y5.ex-ext-1 qsFee.reversed-loop.en-y5 qsTea_qsOy.hapax\n\nposition 0: qsNo\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> loop             entry=none       seam=x-height   join-count=1 prospect=0\n     loop             entry=none       seam=none       join-count=0 prospect=0\n     flipped          entry=none       seam=none       join-count=0 prospect=0\n  eliminated before ranking:\n    - (lookahead-closure) qsNo.flipped: exit baseline has no refusal-aware acceptor cell on qsFee\n  decided by: join-count (over loop entry=none seam=none)\n  note: glyph_data/runes/qsNo.yaml:policy.extend[0]\n  settled: qsNo.loop.ex-y5.ex-ext-1   seam=x-height   extension=1\n\nposition 1: qsFee\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> reversed-loop    entry=x-height   seam=none       join-count=1 prospect=0\n  eliminated before ranking:\n    - (entry-binding) qsFee.loop: no available entry row at x-height against the committed seam\n  decided by: only-candidate\n  settled: qsFee.reversed-loop.en-y5   seam=none   extension=0",
+  "provenance": [
+   "glyph_data/runes/qsNo.yaml:policy.extend[0]"
+  ],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7No ~x~ \u00b7Fee | \u00b7Tea+Oy",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": "03",
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsNo.yaml",
+    "keypath": "policy.refuse[+]",
+    "suggested_record": "{exit: x-height, when: {right: {family: [qsFee]}}, why: 'Reviewer rejected the M1 outcome for E666:E658:E652:E679 (\u00b7No\u00b7Fee\u00b7Tea\u00b7Oy)'}",
+    "names_provenance": [
+     "glyph_data/runes/qsNo.yaml:policy.extend[0]"
+    ],
+    "decided_stage": "join-count",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E666:E658:E652:E679 (\u00b7No\u00b7Fee\u00b7Tea\u00b7Oy)"
+   },
+   "any_of": {
+    "text": "qsNo qsFee qsTea qsOy",
+    "features": {
+     "ss03": true
+    },
+    "candidates": [
+     "\u00b7No ~x~ \u00b7Fee | \u00b7Tea+Oy",
+     "\u00b7No | \u00b7Fee | \u00b7Tea+Oy"
+    ]
+   }
+  },
+  "content_key": "1bb9d34834e571a8f6c0e48cd898e3fd426f106e167a03694183a52e923f70b2"
+ },
+ {
+  "id": "u-18561",
+  "batch": 0,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "default": "d-5054092002a5",
+   "ss03": "d-5054092002a5",
+   "ss04": "d-5054092002a5",
+   "ss05": "d-5054092002a5",
+   "ss02": "d-5054092002a5",
+   "ss02+ss03": "d-5054092002a5",
+   "ss02+ss03+ss05": "d-5054092002a5"
+  },
+  "no_verdict": false,
+  "echo": "e-0036",
+  "cluster": "c-aa3ab6e1",
+  "class": "pre-ligature-cleanup-regularized",
+  "group": "qsNo:qsIt",
+  "codepoints": "E666:E670:E652:E679",
+  "text_entities": "&#xE666;&#xE670;&#xE652;&#xE679;",
+  "notation": "\u00b7No\u00b7It\u00b7Tea\u00b7Oy",
+  "notation_tokens": [
+   "\u00b7No",
+   "\u00b7It",
+   "\u00b7Tea",
+   "\u00b7Oy"
+  ],
+  "configs": [
+   "default",
+   "ss03",
+   "ss04",
+   "ss05",
+   "ss02",
+   "ss02+ss03",
+   "ss02+ss03+ss05"
+  ],
+  "config_note": "only under: default, ss03, ss04, ss05, ss02, ss02+ss03, ss02+ss03+ss05",
+  "config_gate": null,
+  "config_classes": {
+   "default": "pre-ligature-cleanup-regularized",
+   "ss02": "pre-ligature-cleanup-regularized",
+   "ss03": "pre-ligature-cleanup-regularized",
+   "ss04": "pre-ligature-cleanup-regularized",
+   "ss05": "pre-ligature-cleanup-regularized",
+   "ss02+ss03": "pre-ligature-cleanup-regularized",
+   "ss02+ss03+ss05": "pre-ligature-cleanup-regularized"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss03",
+     "ss04",
+     "ss05",
+     "ss02",
+     "ss02+ss03",
+     "ss02+ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell",
+   "seam"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsNo",
+    "qsIt",
+    "qsTea_qsOy"
+   ],
+   "seams": [
+    "break",
+    "break"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsNo/loop/None/x-height/",
+    "qsIt/hapax/x-height/None/",
+    "qsTea_qsOy/hapax/None/None/"
+   ],
+   "seams": [
+    "y5",
+    "break"
+   ],
+   "extensions": [
+    0,
+    0
+   ]
+  },
+  "diff_positions": [
+   0,
+   1
+  ],
+  "pair": {
+   "left": 0,
+   "right": 1
+  },
+  "pair_codepoints": [
+   0,
+   1
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 0,
+    "x_max": 400,
+    "advance_total": 850
+   },
+   "after": {
+    "x_min": 0,
+    "x_max": 350,
+    "advance_total": 800
+   }
+  },
+  "boundary_marks": [],
+  "secondary_seams": null,
+  "summary": "New: \u00b7No joins \u00b7It at the x-height (the old pipeline broke there) \u2014 decided by qsNo.yaml policy.prefer[1] (a yielding prefer).",
+  "explain": "sequence E666:E670:E652:E679   config default\nsettled: qsNo.loop.ex-y5 qsIt.hapax.en-y5 qsTea_qsOy.hapax\n\nposition 0: qsNo\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> loop             entry=none       seam=x-height   join-count=1 prospect=0\n     flipped          entry=none       seam=baseline   join-count=1 prospect=0\n     loop             entry=none       seam=none       join-count=0 prospect=0\n     flipped          entry=none       seam=none       join-count=0 prospect=0\n  decided by: yielding-prefer (over flipped entry=none seam=baseline)\n  note: prefer applied: glyph_data/runes/qsNo.yaml:policy.prefer[1]\n  settled: qsNo.loop.ex-y5   seam=x-height   extension=0\n\nposition 1: qsIt\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> hapax            entry=x-height   seam=none       join-count=1 prospect=0\n  eliminated before ranking:\n    - (lookahead-closure) qsIt.hapax: exit baseline has no refusal-aware acceptor cell on qsTea_qsOy\n    - (pairings) qsIt.hapax: pairing (x-height, x-height) not allowed\n  decided by: only-candidate\n  settled: qsIt.hapax.en-y5   seam=none   extension=0",
+  "provenance": [
+   "glyph_data/runes/qsNo.yaml:policy.prefer[1]"
+  ],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7No ~x~ \u00b7It | \u00b7Tea+Oy",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": null,
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsNo.yaml",
+    "keypath": "policy.refuse[+]",
+    "suggested_record": "{exit: x-height, when: {right: {family: [qsIt]}}, why: 'Reviewer rejected the M1 outcome for E666:E670:E652:E679 (\u00b7No\u00b7It\u00b7Tea\u00b7Oy)'}",
+    "names_provenance": [
+     "glyph_data/runes/qsNo.yaml:policy.prefer[1]"
+    ],
+    "decided_stage": "yielding-prefer",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E666:E670:E652:E679 (\u00b7No\u00b7It\u00b7Tea\u00b7Oy)"
+   },
+   "any_of": {
+    "text": "qsNo qsIt qsTea qsOy",
+    "features": {},
+    "candidates": [
+     "\u00b7No ~x~ \u00b7It | \u00b7Tea+Oy",
+     "\u00b7No | \u00b7It | \u00b7Tea+Oy"
+    ]
+   }
+  },
+  "content_key": "2f185b46fbdfd00c12872c95c87854d7fc06a0a8a0999fb7473c0034c33f023d"
+ },
+ {
+  "id": "u-18562",
+  "batch": 0,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "default": "d-2485edf81e12",
+   "ss03": "d-2485edf81e12",
+   "ss04": "d-2485edf81e12",
+   "ss05": "d-2485edf81e12",
+   "ss02": "d-2485edf81e12",
+   "ss02+ss03": "d-2485edf81e12",
+   "ss02+ss03+ss05": "d-2485edf81e12"
+  },
+  "no_verdict": false,
+  "echo": "e-0037",
+  "cluster": "c-865efb04",
+  "class": "pre-ligature-cleanup-regularized",
+  "group": "qsNo:qsOy",
+  "codepoints": "E666:E679:E652:E679",
+  "text_entities": "&#xE666;&#xE679;&#xE652;&#xE679;",
+  "notation": "\u00b7No\u00b7Oy\u00b7Tea\u00b7Oy",
+  "notation_tokens": [
+   "\u00b7No",
+   "\u00b7Oy",
+   "\u00b7Tea",
+   "\u00b7Oy"
+  ],
+  "configs": [
+   "default",
+   "ss03",
+   "ss04",
+   "ss05",
+   "ss02",
+   "ss02+ss03",
+   "ss02+ss03+ss05"
+  ],
+  "config_note": "only under: default, ss03, ss04, ss05, ss02, ss02+ss03, ss02+ss03+ss05",
+  "config_gate": null,
+  "config_classes": {
+   "default": "pre-ligature-cleanup-regularized",
+   "ss02": "pre-ligature-cleanup-regularized",
+   "ss03": "pre-ligature-cleanup-regularized",
+   "ss04": "pre-ligature-cleanup-regularized",
+   "ss05": "pre-ligature-cleanup-regularized",
+   "ss02+ss03": "pre-ligature-cleanup-regularized",
+   "ss02+ss03+ss05": "pre-ligature-cleanup-regularized"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss03",
+     "ss04",
+     "ss05",
+     "ss02",
+     "ss02+ss03",
+     "ss02+ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell",
+   "seam"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsNo",
+    "qsOy",
+    "qsTea_qsOy"
+   ],
+   "seams": [
+    "break",
+    "break"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsNo/loop/None/x-height/",
+    "qsOy/hapax/x-height/None/",
+    "qsTea_qsOy/hapax/None/None/"
+   ],
+   "seams": [
+    "y5",
+    "break"
+   ],
+   "extensions": [
+    0,
+    0
+   ]
+  },
+  "diff_positions": [
+   0,
+   1
+  ],
+  "pair": {
+   "left": 0,
+   "right": 1
+  },
+  "pair_codepoints": [
+   0,
+   1
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 0,
+    "x_max": 750,
+    "advance_total": 1200
+   },
+   "after": {
+    "x_min": 0,
+    "x_max": 550,
+    "advance_total": 1000
+   }
+  },
+  "boundary_marks": [],
+  "secondary_seams": null,
+  "summary": "New: \u00b7No joins \u00b7Oy at the x-height (the old pipeline broke there) \u2014 decided by the only surviving candidate (no policy record involved).",
+  "explain": "sequence E666:E679:E652:E679   config default\nsettled: qsNo.loop.ex-y5 qsOy.hapax.en-y5 qsTea_qsOy.hapax\n\nposition 0: qsNo\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> loop             entry=none       seam=x-height   join-count=1 prospect=0\n     loop             entry=none       seam=none       join-count=0 prospect=0\n     flipped          entry=none       seam=none       join-count=0 prospect=0\n  eliminated before ranking:\n    - (lookahead-closure) qsNo.flipped: exit baseline has no refusal-aware acceptor cell on qsOy\n  decided by: join-count (over loop entry=none seam=none)\n  settled: qsNo.loop.ex-y5   seam=x-height   extension=0\n\nposition 1: qsOy\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> hapax            entry=x-height   seam=none       join-count=1 prospect=0\n  eliminated before ranking:\n    - (lookahead-closure) qsOy.hapax: exit baseline has no refusal-aware acceptor cell on qsTea_qsOy\n  decided by: only-candidate\n  settled: qsOy.hapax.en-y5   seam=none   extension=0",
+  "provenance": [],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7No ~x~ \u00b7Oy | \u00b7Tea+Oy",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": null,
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsNo.yaml",
+    "keypath": "policy.prefer[+]",
+    "suggested_record": "{cell: {exit: none}, when: {right: {family: [qsOy]}}, why: 'Reviewer rejected the M1 outcome for E666:E679:E652:E679 (\u00b7No\u00b7Oy\u00b7Tea\u00b7Oy)'}",
+    "names_provenance": [],
+    "decided_stage": "join-count",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E666:E679:E652:E679 (\u00b7No\u00b7Oy\u00b7Tea\u00b7Oy)"
+   },
+   "any_of": {
+    "text": "qsNo qsOy qsTea qsOy",
+    "features": {},
+    "candidates": [
+     "\u00b7No ~x~ \u00b7Oy | \u00b7Tea+Oy",
+     "\u00b7No | \u00b7Oy | \u00b7Tea+Oy"
+    ]
+   }
+  },
+  "content_key": "00234031fb9968e60d3f8c93867a6ade70ec79e6aba7e227594ce67c951bb9df"
+ },
+ {
+  "id": "u-18563",
+  "batch": 0,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "ss03": "d-1bda70ff672f",
+   "ss02+ss03": "d-1bda70ff672f",
+   "ss02+ss03+ss05": "d-1bda70ff672f"
+  },
+  "no_verdict": false,
+  "echo": "e-0038",
+  "cluster": "c-c6e2e31f",
+  "class": "pre-ligature-cleanup-regularized",
+  "group": "qsLow:qsTea",
+  "codepoints": "E667:E652:E652:E679",
+  "text_entities": "&#xE667;&#xE652;&#xE652;&#xE679;",
+  "notation": "\u00b7Low\u00b7Tea\u00b7Tea\u00b7Oy",
+  "notation_tokens": [
+   "\u00b7Low",
+   "\u00b7Tea",
+   "\u00b7Tea",
+   "\u00b7Oy"
+  ],
+  "configs": [
+   "ss03",
+   "ss02+ss03",
+   "ss02+ss03+ss05"
+  ],
+  "config_note": "only under: ss03, ss02+ss03, ss02+ss03+ss05",
+  "config_gate": null,
+  "config_classes": {
+   "ss03": "pre-ligature-cleanup-regularized",
+   "ss02+ss03": "pre-ligature-cleanup-regularized",
+   "ss02+ss03+ss05": "pre-ligature-cleanup-regularized"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "ss03",
+     "ss02+ss03",
+     "ss02+ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell",
+   "seam"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsLow",
+    "qsTea",
+    "qsTea_qsOy"
+   ],
+   "seams": [
+    "break",
+    "break"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsLow/hapax/None/x-height/ex-ext-1",
+    "qsTea/full/x-height/None/",
+    "qsTea_qsOy/hapax/None/None/"
+   ],
+   "seams": [
+    "y5",
+    "break"
+   ],
+   "extensions": [
+    1,
+    0
+   ]
+  },
+  "diff_positions": [
+   0,
+   1
+  ],
+  "pair": {
+   "left": 0,
+   "right": 1
+  },
+  "pair_codepoints": [
+   0,
+   1
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 0,
+    "x_max": 400,
+    "advance_total": 850
+   },
+   "after": {
+    "x_min": 0,
+    "x_max": 400,
+    "advance_total": 850
+   }
+  },
+  "boundary_marks": [],
+  "secondary_seams": null,
+  "summary": "New: \u00b7Low joins \u00b7Tea at the x-height (the old pipeline broke there) \u2014 decided by qsLow.yaml policy.extend[2] (join-count rank).",
+  "explain": "sequence E667:E652:E652:E679   config ss03\nsettled: qsLow.hapax.ex-y5.ex-ext-1 qsTea.full.en-y5 qsTea_qsOy.hapax\n\nposition 0: qsLow\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> hapax            entry=none       seam=x-height   join-count=1 prospect=0\n     hapax            entry=none       seam=none       join-count=0 prospect=0\n  decided by: join-count (over hapax entry=none seam=none)\n  note: glyph_data/runes/qsLow.yaml:policy.extend[2]\n  settled: qsLow.hapax.ex-y5.ex-ext-1   seam=x-height   extension=1\n\nposition 1: qsTea\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> full             entry=x-height   seam=none       join-count=1 prospect=0\n     half             entry=x-height   seam=none       join-count=1 prospect=0\n  eliminated before ranking:\n    - (lookahead-closure) qsTea.full: exit baseline has no refusal-aware acceptor cell on qsTea_qsOy\n    - (pairings) qsTea.half: pairing (x-height, x-height) not allowed\n  decided by: order (over half entry=x-height seam=none)\n  note: unlocked by ss03\n  settled: qsTea.full.en-y5   seam=none   extension=0",
+  "provenance": [
+   "glyph_data/runes/qsLow.yaml:policy.extend[2]"
+  ],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7Low ~x~ \u00b7Tea | \u00b7Tea+Oy",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": "03",
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsLow.yaml",
+    "keypath": "policy.refuse[+]",
+    "suggested_record": "{exit: x-height, when: {right: {family: [qsTea]}}, why: 'Reviewer rejected the M1 outcome for E667:E652:E652:E679 (\u00b7Low\u00b7Tea\u00b7Tea\u00b7Oy)'}",
+    "names_provenance": [
+     "glyph_data/runes/qsLow.yaml:policy.extend[2]"
+    ],
+    "decided_stage": "join-count",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E667:E652:E652:E679 (\u00b7Low\u00b7Tea\u00b7Tea\u00b7Oy)"
+   },
+   "any_of": {
+    "text": "qsLow qsTea qsTea qsOy",
+    "features": {
+     "ss03": true
+    },
+    "candidates": [
+     "\u00b7Low ~x~ \u00b7Tea | \u00b7Tea+Oy",
+     "\u00b7Low | \u00b7Tea | \u00b7Tea+Oy"
+    ]
+   }
+  },
+  "content_key": "8f44a53a3c8da546cf8018aec6c497d36dea6f8b80ebea87101e53c1d519bbe1"
+ },
+ {
+  "id": "u-18564",
+  "batch": 0,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "ss03": "d-8876b65e33dc",
+   "ss02+ss03": "d-8876b65e33dc",
+   "ss02+ss03+ss05": "d-8876b65e33dc"
+  },
+  "no_verdict": false,
+  "echo": "e-0039",
+  "cluster": "c-db45c2c9",
+  "class": "pre-ligature-cleanup-regularized",
+  "group": "qsLow:qsFee",
+  "codepoints": "E667:E658:E652:E679",
+  "text_entities": "&#xE667;&#xE658;&#xE652;&#xE679;",
+  "notation": "\u00b7Low\u00b7Fee\u00b7Tea\u00b7Oy",
+  "notation_tokens": [
+   "\u00b7Low",
+   "\u00b7Fee",
+   "\u00b7Tea",
+   "\u00b7Oy"
+  ],
+  "configs": [
+   "ss03",
+   "ss02+ss03",
+   "ss02+ss03+ss05"
+  ],
+  "config_note": "only under: ss03, ss02+ss03, ss02+ss03+ss05",
+  "config_gate": null,
+  "config_classes": {
+   "ss03": "pre-ligature-cleanup-regularized",
+   "ss02+ss03": "pre-ligature-cleanup-regularized",
+   "ss02+ss03+ss05": "pre-ligature-cleanup-regularized"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "ss03",
+     "ss02+ss03",
+     "ss02+ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell",
+   "seam"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsLow",
+    "qsFee.ex-y5.before-may.ex-ext-3",
+    "qsTea_qsOy"
+   ],
+   "seams": [
+    "break",
+    "break"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsLow/hapax/None/x-height/ex-ext-1",
+    "qsFee/reversed-loop/x-height/None/",
+    "qsTea_qsOy/hapax/None/None/"
+   ],
+   "seams": [
+    "y5",
+    "break"
+   ],
+   "extensions": [
+    1,
+    0
+   ]
+  },
+  "diff_positions": [
+   0,
+   1
+  ],
+  "pair": {
+   "left": 0,
+   "right": 1
+  },
+  "pair_codepoints": [
+   0,
+   1
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 0,
+    "x_max": 750,
+    "advance_total": 1200
+   },
+   "after": {
+    "x_min": 0,
+    "x_max": 550,
+    "advance_total": 1000
+   }
+  },
+  "boundary_marks": [],
+  "secondary_seams": null,
+  "summary": "New: \u00b7Low joins \u00b7Fee at the x-height (the old pipeline broke there) \u2014 decided by qsLow.yaml policy.extend[1] (join-count rank).",
+  "explain": "sequence E667:E658:E652:E679   config ss03\nsettled: qsLow.hapax.ex-y5.ex-ext-1 qsFee.reversed-loop.en-y5 qsTea_qsOy.hapax\n\nposition 0: qsLow\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> hapax            entry=none       seam=x-height   join-count=1 prospect=0\n     hapax            entry=none       seam=none       join-count=0 prospect=0\n  decided by: join-count (over hapax entry=none seam=none)\n  note: glyph_data/runes/qsLow.yaml:policy.extend[1]\n  settled: qsLow.hapax.ex-y5.ex-ext-1   seam=x-height   extension=1\n\nposition 1: qsFee\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> reversed-loop    entry=x-height   seam=none       join-count=1 prospect=0\n  eliminated before ranking:\n    - (entry-binding) qsFee.loop: no available entry row at x-height against the committed seam\n  decided by: only-candidate\n  settled: qsFee.reversed-loop.en-y5   seam=none   extension=0",
+  "provenance": [
+   "glyph_data/runes/qsLow.yaml:policy.extend[1]"
+  ],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7Low ~x~ \u00b7Fee | \u00b7Tea+Oy",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": "03",
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsLow.yaml",
+    "keypath": "policy.refuse[+]",
+    "suggested_record": "{exit: x-height, when: {right: {family: [qsFee]}}, why: 'Reviewer rejected the M1 outcome for E667:E658:E652:E679 (\u00b7Low\u00b7Fee\u00b7Tea\u00b7Oy)'}",
+    "names_provenance": [
+     "glyph_data/runes/qsLow.yaml:policy.extend[1]"
+    ],
+    "decided_stage": "join-count",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E667:E658:E652:E679 (\u00b7Low\u00b7Fee\u00b7Tea\u00b7Oy)"
+   },
+   "any_of": {
+    "text": "qsLow qsFee qsTea qsOy",
+    "features": {
+     "ss03": true
+    },
+    "candidates": [
+     "\u00b7Low ~x~ \u00b7Fee | \u00b7Tea+Oy",
+     "\u00b7Low | \u00b7Fee | \u00b7Tea+Oy"
+    ]
+   }
+  },
+  "content_key": "660815547b100a6c20519865a4dcc3d96eba2ff2ec5cf434d98c4d1a8aba2483"
+ },
+ {
+  "id": "u-18565",
+  "batch": 0,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "default": "d-5054092002a5",
+   "ss03": "d-5054092002a5",
+   "ss04": "d-5054092002a5",
+   "ss05": "d-5054092002a5",
+   "ss02": "d-5054092002a5",
+   "ss02+ss03": "d-5054092002a5",
+   "ss02+ss03+ss05": "d-5054092002a5"
+  },
+  "no_verdict": false,
+  "echo": "e-0040",
+  "cluster": "c-aa3ab6e1",
+  "class": "pre-ligature-cleanup-regularized",
+  "group": "qsLow:qsIt",
+  "codepoints": "E667:E670:E652:E679",
+  "text_entities": "&#xE667;&#xE670;&#xE652;&#xE679;",
+  "notation": "\u00b7Low\u00b7It\u00b7Tea\u00b7Oy",
+  "notation_tokens": [
+   "\u00b7Low",
+   "\u00b7It",
+   "\u00b7Tea",
+   "\u00b7Oy"
+  ],
+  "configs": [
+   "default",
+   "ss03",
+   "ss04",
+   "ss05",
+   "ss02",
+   "ss02+ss03",
+   "ss02+ss03+ss05"
+  ],
+  "config_note": "only under: default, ss03, ss04, ss05, ss02, ss02+ss03, ss02+ss03+ss05",
+  "config_gate": null,
+  "config_classes": {
+   "default": "pre-ligature-cleanup-regularized",
+   "ss02": "pre-ligature-cleanup-regularized",
+   "ss03": "pre-ligature-cleanup-regularized",
+   "ss04": "pre-ligature-cleanup-regularized",
+   "ss05": "pre-ligature-cleanup-regularized",
+   "ss02+ss03": "pre-ligature-cleanup-regularized",
+   "ss02+ss03+ss05": "pre-ligature-cleanup-regularized"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss03",
+     "ss04",
+     "ss05",
+     "ss02",
+     "ss02+ss03",
+     "ss02+ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell",
+   "seam"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsLow",
+    "qsIt",
+    "qsTea_qsOy"
+   ],
+   "seams": [
+    "break",
+    "break"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsLow/hapax/None/x-height/",
+    "qsIt/hapax/x-height/None/",
+    "qsTea_qsOy/hapax/None/None/"
+   ],
+   "seams": [
+    "y5",
+    "break"
+   ],
+   "extensions": [
+    0,
+    0
+   ]
+  },
+  "diff_positions": [
+   0,
+   1
+  ],
+  "pair": {
+   "left": 0,
+   "right": 1
+  },
+  "pair_codepoints": [
+   0,
+   1
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 0,
+    "x_max": 400,
+    "advance_total": 850
+   },
+   "after": {
+    "x_min": 0,
+    "x_max": 350,
+    "advance_total": 800
+   }
+  },
+  "boundary_marks": [],
+  "secondary_seams": null,
+  "summary": "New: \u00b7Low joins \u00b7It at the x-height (the old pipeline broke there) \u2014 decided by join-count rank (no policy record involved).",
+  "explain": "sequence E667:E670:E652:E679   config default\nsettled: qsLow.hapax.ex-y5 qsIt.hapax.en-y5 qsTea_qsOy.hapax\n\nposition 0: qsLow\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> hapax            entry=none       seam=x-height   join-count=1 prospect=0\n     hapax            entry=none       seam=none       join-count=0 prospect=0\n  decided by: join-count (over hapax entry=none seam=none)\n  settled: qsLow.hapax.ex-y5   seam=x-height   extension=0\n\nposition 1: qsIt\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> hapax            entry=x-height   seam=none       join-count=1 prospect=0\n  eliminated before ranking:\n    - (lookahead-closure) qsIt.hapax: exit baseline has no refusal-aware acceptor cell on qsTea_qsOy\n    - (pairings) qsIt.hapax: pairing (x-height, x-height) not allowed\n  decided by: only-candidate\n  settled: qsIt.hapax.en-y5   seam=none   extension=0",
+  "provenance": [],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7Low ~x~ \u00b7It | \u00b7Tea+Oy",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": null,
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsLow.yaml",
+    "keypath": "policy.prefer[+]",
+    "suggested_record": "{cell: {exit: none}, when: {right: {family: [qsIt]}}, why: 'Reviewer rejected the M1 outcome for E667:E670:E652:E679 (\u00b7Low\u00b7It\u00b7Tea\u00b7Oy)'}",
+    "names_provenance": [],
+    "decided_stage": "join-count",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E667:E670:E652:E679 (\u00b7Low\u00b7It\u00b7Tea\u00b7Oy)"
+   },
+   "any_of": {
+    "text": "qsLow qsIt qsTea qsOy",
+    "features": {},
+    "candidates": [
+     "\u00b7Low ~x~ \u00b7It | \u00b7Tea+Oy",
+     "\u00b7Low | \u00b7It | \u00b7Tea+Oy"
+    ]
+   }
+  },
+  "content_key": "17ce4afac122fbc82687a58b53b48b1a85b7feee162af2fd0dab7af4e6ec7864"
+ },
+ {
+  "id": "u-18566",
+  "batch": 0,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "default": "d-2485edf81e12",
+   "ss03": "d-2485edf81e12",
+   "ss04": "d-2485edf81e12",
+   "ss05": "d-2485edf81e12",
+   "ss02": "d-2485edf81e12",
+   "ss02+ss03": "d-2485edf81e12",
+   "ss02+ss03+ss05": "d-2485edf81e12"
+  },
+  "no_verdict": false,
+  "echo": "e-0041",
+  "cluster": "c-865efb04",
+  "class": "pre-ligature-cleanup-regularized",
+  "group": "qsLow:qsOy",
+  "codepoints": "E667:E679:E652:E679",
+  "text_entities": "&#xE667;&#xE679;&#xE652;&#xE679;",
+  "notation": "\u00b7Low\u00b7Oy\u00b7Tea\u00b7Oy",
+  "notation_tokens": [
+   "\u00b7Low",
+   "\u00b7Oy",
+   "\u00b7Tea",
+   "\u00b7Oy"
+  ],
+  "configs": [
+   "default",
+   "ss03",
+   "ss04",
+   "ss05",
+   "ss02",
+   "ss02+ss03",
+   "ss02+ss03+ss05"
+  ],
+  "config_note": "only under: default, ss03, ss04, ss05, ss02, ss02+ss03, ss02+ss03+ss05",
+  "config_gate": null,
+  "config_classes": {
+   "default": "pre-ligature-cleanup-regularized",
+   "ss02": "pre-ligature-cleanup-regularized",
+   "ss03": "pre-ligature-cleanup-regularized",
+   "ss04": "pre-ligature-cleanup-regularized",
+   "ss05": "pre-ligature-cleanup-regularized",
+   "ss02+ss03": "pre-ligature-cleanup-regularized",
+   "ss02+ss03+ss05": "pre-ligature-cleanup-regularized"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss03",
+     "ss04",
+     "ss05",
+     "ss02",
+     "ss02+ss03",
+     "ss02+ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell",
+   "seam"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsLow",
+    "qsOy",
+    "qsTea_qsOy"
+   ],
+   "seams": [
+    "break",
+    "break"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsLow/hapax/None/x-height/",
+    "qsOy/hapax/x-height/None/",
+    "qsTea_qsOy/hapax/None/None/"
+   ],
+   "seams": [
+    "y5",
+    "break"
+   ],
+   "extensions": [
+    0,
+    0
+   ]
+  },
+  "diff_positions": [
+   0,
+   1
+  ],
+  "pair": {
+   "left": 0,
+   "right": 1
+  },
+  "pair_codepoints": [
+   0,
+   1
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 0,
+    "x_max": 750,
+    "advance_total": 1200
+   },
+   "after": {
+    "x_min": 0,
+    "x_max": 550,
+    "advance_total": 1000
+   }
+  },
+  "boundary_marks": [],
+  "secondary_seams": null,
+  "summary": "New: \u00b7Low joins \u00b7Oy at the x-height (the old pipeline broke there) \u2014 decided by the only surviving candidate (no policy record involved).",
+  "explain": "sequence E667:E679:E652:E679   config default\nsettled: qsLow.hapax.ex-y5 qsOy.hapax.en-y5 qsTea_qsOy.hapax\n\nposition 0: qsLow\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> hapax            entry=none       seam=x-height   join-count=1 prospect=0\n     hapax            entry=none       seam=none       join-count=0 prospect=0\n  decided by: join-count (over hapax entry=none seam=none)\n  settled: qsLow.hapax.ex-y5   seam=x-height   extension=0\n\nposition 1: qsOy\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> hapax            entry=x-height   seam=none       join-count=1 prospect=0\n  eliminated before ranking:\n    - (lookahead-closure) qsOy.hapax: exit baseline has no refusal-aware acceptor cell on qsTea_qsOy\n  decided by: only-candidate\n  settled: qsOy.hapax.en-y5   seam=none   extension=0",
+  "provenance": [],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7Low ~x~ \u00b7Oy | \u00b7Tea+Oy",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": null,
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsLow.yaml",
+    "keypath": "policy.prefer[+]",
+    "suggested_record": "{cell: {exit: none}, when: {right: {family: [qsOy]}}, why: 'Reviewer rejected the M1 outcome for E667:E679:E652:E679 (\u00b7Low\u00b7Oy\u00b7Tea\u00b7Oy)'}",
+    "names_provenance": [],
+    "decided_stage": "join-count",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E667:E679:E652:E679 (\u00b7Low\u00b7Oy\u00b7Tea\u00b7Oy)"
+   },
+   "any_of": {
+    "text": "qsLow qsOy qsTea qsOy",
+    "features": {},
+    "candidates": [
+     "\u00b7Low ~x~ \u00b7Oy | \u00b7Tea+Oy",
+     "\u00b7Low | \u00b7Oy | \u00b7Tea+Oy"
+    ]
+   }
+  },
+  "content_key": "7259d7efa920e95258ab324b906a64f0de2b3452c3c6cab0f1974a639680d387"
+ },
+ {
+  "id": "u-18567",
+  "batch": 0,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "ss03": "d-5054092002a5"
+  },
+  "no_verdict": false,
+  "echo": "e-0042",
+  "cluster": "c-ceca5623",
+  "class": "pre-ligature-cleanup-regularized",
+  "group": "qsI:qsTea",
+  "codepoints": "E675:E652:E652:E679",
+  "text_entities": "&#xE675;&#xE652;&#xE652;&#xE679;",
+  "notation": "\u00b7I\u00b7Tea\u00b7Tea\u00b7Oy",
+  "notation_tokens": [
+   "\u00b7I",
+   "\u00b7Tea",
+   "\u00b7Tea",
+   "\u00b7Oy"
+  ],
+  "configs": [
+   "ss03"
+  ],
+  "config_note": "only when ss03 is on and ss05 is off",
+  "config_gate": [
+   {
+    "feature": "ss03",
+    "state": "on",
+    "text": "only when ss03 is on"
+   },
+   {
+    "feature": "ss05",
+    "state": "off",
+    "text": "and ss05 is off"
+   }
+  ],
+  "config_classes": {
+   "ss03": "pre-ligature-cleanup-regularized"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "ss03"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell",
+   "seam"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsI.ex-ext-1",
+    "qsTea",
+    "qsTea_qsOy"
+   ],
+   "seams": [
+    "break",
+    "break"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsI/loop/None/x-height/ex-ext-1",
+    "qsTea/full/x-height/None/",
+    "qsTea_qsOy/hapax/None/None/"
+   ],
+   "seams": [
+    "y5",
+    "break"
+   ],
+   "extensions": [
+    1,
+    0
+   ]
+  },
+  "diff_positions": [
+   1
+  ],
+  "pair": {
+   "left": 0,
+   "right": 1
+  },
+  "pair_codepoints": [
+   0,
+   1
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 0,
+    "x_max": 450,
+    "advance_total": 900
+   },
+   "after": {
+    "x_min": 0,
+    "x_max": 400,
+    "advance_total": 850
+   }
+  },
+  "boundary_marks": [],
+  "secondary_seams": null,
+  "summary": "New: \u00b7I joins \u00b7Tea at the x-height (the old pipeline broke there) \u2014 decided by declaration order (no policy record involved).",
+  "explain": "sequence E675:E652:E652:E679   config ss03\nsettled: qsI.loop.ex-y5.ex-ext-1 qsTea.full.en-y5 qsTea_qsOy.hapax\n\nposition 1: qsTea\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> full             entry=x-height   seam=none       join-count=1 prospect=0\n     half             entry=x-height   seam=none       join-count=1 prospect=0\n  eliminated before ranking:\n    - (lookahead-closure) qsTea.full: exit baseline has no refusal-aware acceptor cell on qsTea_qsOy\n    - (pairings) qsTea.half: pairing (x-height, x-height) not allowed\n  decided by: order (over half entry=x-height seam=none)\n  note: unlocked by ss03\n  settled: qsTea.full.en-y5   seam=none   extension=0",
+  "provenance": [],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7I ~x~ \u00b7Tea | \u00b7Tea+Oy",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": "03",
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsTea.yaml",
+    "keypath": "policy.prefer[+]",
+    "suggested_record": "{cell: {exit: none}, when: {right: {family: [qsTea_qsOy]}}, why: 'Reviewer rejected the M1 outcome for E675:E652:E652:E679 (\u00b7I\u00b7Tea\u00b7Tea\u00b7Oy)'}",
+    "names_provenance": [],
+    "decided_stage": "order",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E675:E652:E652:E679 (\u00b7I\u00b7Tea\u00b7Tea\u00b7Oy)"
+   },
+   "any_of": {
+    "text": "qsI qsTea qsTea qsOy",
+    "features": {
+     "ss03": true
+    },
+    "candidates": [
+     "\u00b7I ~x~ \u00b7Tea | \u00b7Tea+Oy",
+     "\u00b7I | \u00b7Tea | \u00b7Tea+Oy"
+    ]
+   }
+  },
+  "content_key": "f622107c52892ca1f5b915f264e29afa0e5659ec4bb79e2ee050871bfb558bd3"
+ },
+ {
+  "id": "u-18568",
+  "batch": 0,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "ss03": "d-e03b5fb77e70",
+   "ss02+ss03": "d-e03b5fb77e70",
+   "ss02+ss03+ss05": "d-e03b5fb77e70"
+  },
+  "no_verdict": false,
+  "echo": "e-0043",
+  "cluster": "c-ff593989",
+  "class": "pre-ligature-cleanup-regularized",
+  "group": "qsI:qsFee",
+  "codepoints": "E675:E658:E652:E679",
+  "text_entities": "&#xE675;&#xE658;&#xE652;&#xE679;",
+  "notation": "\u00b7I\u00b7Fee\u00b7Tea\u00b7Oy",
+  "notation_tokens": [
+   "\u00b7I",
+   "\u00b7Fee",
+   "\u00b7Tea",
+   "\u00b7Oy"
+  ],
+  "configs": [
+   "ss03",
+   "ss02+ss03",
+   "ss02+ss03+ss05"
+  ],
+  "config_note": "only under: ss03, ss02+ss03, ss02+ss03+ss05",
+  "config_gate": null,
+  "config_classes": {
+   "ss03": "pre-ligature-cleanup-regularized",
+   "ss02+ss03": "pre-ligature-cleanup-regularized",
+   "ss02+ss03+ss05": "pre-ligature-cleanup-regularized"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "ss03",
+     "ss02+ss03",
+     "ss02+ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell",
+   "seam"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsI",
+    "qsFee.ex-y5.before-may.ex-ext-3",
+    "qsTea_qsOy"
+   ],
+   "seams": [
+    "break",
+    "break"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsI/loop/None/x-height/ex-ext-1",
+    "qsFee/reversed-loop/x-height/None/",
+    "qsTea_qsOy/hapax/None/None/"
+   ],
+   "seams": [
+    "y5",
+    "break"
+   ],
+   "extensions": [
+    1,
+    0
+   ]
+  },
+  "diff_positions": [
+   0,
+   1
+  ],
+  "pair": {
+   "left": 0,
+   "right": 1
+  },
+  "pair_codepoints": [
+   0,
+   1
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 0,
+    "x_max": 750,
+    "advance_total": 1200
+   },
+   "after": {
+    "x_min": 0,
+    "x_max": 550,
+    "advance_total": 1000
+   }
+  },
+  "boundary_marks": [],
+  "secondary_seams": null,
+  "summary": "New: \u00b7I joins \u00b7Fee at the x-height (the old pipeline broke there) \u2014 decided by qsI.yaml policy.extend[0] (declaration order).",
+  "explain": "sequence E675:E658:E652:E679   config ss03\nsettled: qsI.loop.ex-y5.ex-ext-1 qsFee.reversed-loop.en-y5 qsTea_qsOy.hapax\n\nposition 0: qsI\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> loop             entry=none       seam=x-height   join-count=1 prospect=0\n     smaller-loop     entry=none       seam=x-height   join-count=1 prospect=0\n     loop             entry=none       seam=none       join-count=0 prospect=0\n     smaller-loop     entry=none       seam=none       join-count=0 prospect=0\n  decided by: order (over smaller-loop entry=none seam=x-height)\n  note: glyph_data/runes/qsI.yaml:policy.extend[0]\n  settled: qsI.loop.ex-y5.ex-ext-1   seam=x-height   extension=1\n\nposition 1: qsFee\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> reversed-loop    entry=x-height   seam=none       join-count=1 prospect=0\n  eliminated before ranking:\n    - (entry-binding) qsFee.loop: no available entry row at x-height against the committed seam\n  decided by: only-candidate\n  settled: qsFee.reversed-loop.en-y5   seam=none   extension=0",
+  "provenance": [
+   "glyph_data/runes/qsI.yaml:policy.extend[0]"
+  ],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7I ~x~ \u00b7Fee | \u00b7Tea+Oy",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": "03",
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsI.yaml",
+    "keypath": "policy.refuse[+]",
+    "suggested_record": "{exit: x-height, when: {right: {family: [qsFee]}}, why: 'Reviewer rejected the M1 outcome for E675:E658:E652:E679 (\u00b7I\u00b7Fee\u00b7Tea\u00b7Oy)'}",
+    "names_provenance": [
+     "glyph_data/runes/qsI.yaml:policy.extend[0]"
+    ],
+    "decided_stage": "order",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E675:E658:E652:E679 (\u00b7I\u00b7Fee\u00b7Tea\u00b7Oy)"
+   },
+   "any_of": {
+    "text": "qsI qsFee qsTea qsOy",
+    "features": {
+     "ss03": true
+    },
+    "candidates": [
+     "\u00b7I ~x~ \u00b7Fee | \u00b7Tea+Oy",
+     "\u00b7I | \u00b7Fee | \u00b7Tea+Oy"
+    ]
+   }
+  },
+  "content_key": "b34dd18267816ae992735011a9d03ad10da67e6c2640b3ea34dc037436fac83e"
+ },
+ {
+  "id": "u-18569",
+  "batch": 0,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "ss03": "d-56b4129ad5f0",
+   "ss02+ss03": "d-56b4129ad5f0",
+   "ss02+ss03+ss05": "d-56b4129ad5f0"
+  },
+  "no_verdict": false,
+  "echo": "e-0044",
+  "cluster": "c-f1e77ace",
+  "class": "pre-ligature-cleanup-regularized",
+  "group": "qsI:qsMay",
+  "codepoints": "E675:E665:E652:E679",
+  "text_entities": "&#xE675;&#xE665;&#xE652;&#xE679;",
+  "notation": "\u00b7I\u00b7May\u00b7Tea\u00b7Oy",
+  "notation_tokens": [
+   "\u00b7I",
+   "\u00b7May",
+   "\u00b7Tea",
+   "\u00b7Oy"
+  ],
+  "configs": [
+   "ss03",
+   "ss02+ss03",
+   "ss02+ss03+ss05"
+  ],
+  "config_note": "only under: ss03, ss02+ss03, ss02+ss03+ss05",
+  "config_gate": null,
+  "config_classes": {
+   "ss03": "pre-ligature-cleanup-regularized",
+   "ss02+ss03": "pre-ligature-cleanup-regularized",
+   "ss02+ss03+ss05": "pre-ligature-cleanup-regularized"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "ss03",
+     "ss02+ss03",
+     "ss02+ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell",
+   "seam"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsI",
+    "qsMay.ex-ext-1",
+    "qsTea_qsOy"
+   ],
+   "seams": [
+    "break",
+    "break"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsI/loop/None/x-height/ex-ext-1",
+    "qsMay/loop/x-height/None/",
+    "qsTea_qsOy/hapax/None/None/"
+   ],
+   "seams": [
+    "y5",
+    "break"
+   ],
+   "extensions": [
+    1,
+    0
+   ]
+  },
+  "diff_positions": [
+   0,
+   1
+  ],
+  "pair": {
+   "left": 0,
+   "right": 1
+  },
+  "pair_codepoints": [
+   0,
+   1
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 0,
+    "x_max": 650,
+    "advance_total": 1100
+   },
+   "after": {
+    "x_min": 0,
+    "x_max": 450,
+    "advance_total": 900
+   }
+  },
+  "boundary_marks": [],
+  "secondary_seams": null,
+  "summary": "New: \u00b7I joins \u00b7May at the x-height (the old pipeline broke there) \u2014 decided by qsI.yaml policy.extend[0] (declaration order).",
+  "explain": "sequence E675:E665:E652:E679   config ss03\nsettled: qsI.loop.ex-y5.ex-ext-1 qsMay.loop.en-y5 qsTea_qsOy.hapax\n\nposition 0: qsI\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> loop             entry=none       seam=x-height   join-count=1 prospect=0\n     smaller-loop     entry=none       seam=x-height   join-count=1 prospect=0\n     loop             entry=none       seam=none       join-count=0 prospect=0\n     smaller-loop     entry=none       seam=none       join-count=0 prospect=0\n  decided by: order (over smaller-loop entry=none seam=x-height)\n  note: glyph_data/runes/qsI.yaml:policy.extend[0]\n  settled: qsI.loop.ex-y5.ex-ext-1   seam=x-height   extension=1\n\nposition 1: qsMay\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> loop             entry=x-height   seam=none       join-count=1 prospect=0\n     grounded-loop    entry=x-height   seam=none       join-count=1 prospect=0\n  eliminated before ranking:\n    - (pairings) qsMay.loop: pairing (x-height, x-height) not allowed\n    - (lookahead-closure) qsMay.grounded-loop: exit baseline has no refusal-aware acceptor cell on qsTea_qsOy\n  decided by: order (over grounded-loop entry=x-height seam=none)\n  settled: qsMay.loop.en-y5   seam=none   extension=0",
+  "provenance": [
+   "glyph_data/runes/qsI.yaml:policy.extend[0]"
+  ],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7I ~x~ \u00b7May | \u00b7Tea+Oy",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": "03",
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsI.yaml",
+    "keypath": "policy.refuse[+]",
+    "suggested_record": "{exit: x-height, when: {right: {family: [qsMay]}}, why: 'Reviewer rejected the M1 outcome for E675:E665:E652:E679 (\u00b7I\u00b7May\u00b7Tea\u00b7Oy)'}",
+    "names_provenance": [
+     "glyph_data/runes/qsI.yaml:policy.extend[0]"
+    ],
+    "decided_stage": "order",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E675:E665:E652:E679 (\u00b7I\u00b7May\u00b7Tea\u00b7Oy)"
+   },
+   "any_of": {
+    "text": "qsI qsMay qsTea qsOy",
+    "features": {
+     "ss03": true
+    },
+    "candidates": [
+     "\u00b7I ~x~ \u00b7May | \u00b7Tea+Oy",
+     "\u00b7I | \u00b7May | \u00b7Tea+Oy"
+    ]
+   }
+  },
+  "content_key": "cff5c7835fddf39faf09d55e2c4c98202f58808c0dea50486b562e79c9a46b6c"
+ },
+ {
+  "id": "u-18570",
+  "batch": 0,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "default": "d-e2d17dac8837",
+   "ss03": "d-e2d17dac8837",
+   "ss04": "d-e2d17dac8837",
+   "ss05": "d-e2d17dac8837",
+   "ss02": "d-e2d17dac8837",
+   "ss02+ss03": "d-e2d17dac8837",
+   "ss02+ss03+ss05": "d-e2d17dac8837"
+  },
+  "no_verdict": false,
+  "echo": "e-0045",
+  "cluster": "c-9ed67528",
+  "class": "pre-ligature-cleanup-regularized",
+  "group": "qsI:qsIt",
+  "codepoints": "E675:E670:E652:E679",
+  "text_entities": "&#xE675;&#xE670;&#xE652;&#xE679;",
+  "notation": "\u00b7I\u00b7It\u00b7Tea\u00b7Oy",
+  "notation_tokens": [
+   "\u00b7I",
+   "\u00b7It",
+   "\u00b7Tea",
+   "\u00b7Oy"
+  ],
+  "configs": [
+   "default",
+   "ss03",
+   "ss04",
+   "ss05",
+   "ss02",
+   "ss02+ss03",
+   "ss02+ss03+ss05"
+  ],
+  "config_note": "only under: default, ss03, ss04, ss05, ss02, ss02+ss03, ss02+ss03+ss05",
+  "config_gate": null,
+  "config_classes": {
+   "default": "pre-ligature-cleanup-regularized",
+   "ss02": "pre-ligature-cleanup-regularized",
+   "ss03": "pre-ligature-cleanup-regularized",
+   "ss04": "pre-ligature-cleanup-regularized",
+   "ss05": "pre-ligature-cleanup-regularized",
+   "ss02+ss03": "pre-ligature-cleanup-regularized",
+   "ss02+ss03+ss05": "pre-ligature-cleanup-regularized"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss03",
+     "ss04",
+     "ss05",
+     "ss02",
+     "ss02+ss03",
+     "ss02+ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell",
+   "seam"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsI",
+    "qsIt",
+    "qsTea_qsOy"
+   ],
+   "seams": [
+    "break",
+    "break"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsI/loop/None/x-height/ex-ext-1",
+    "qsIt/hapax/x-height/None/",
+    "qsTea_qsOy/hapax/None/None/"
+   ],
+   "seams": [
+    "y5",
+    "break"
+   ],
+   "extensions": [
+    1,
+    0
+   ]
+  },
+  "diff_positions": [
+   0,
+   1
+  ],
+  "pair": {
+   "left": 0,
+   "right": 1
+  },
+  "pair_codepoints": [
+   0,
+   1
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 0,
+    "x_max": 400,
+    "advance_total": 850
+   },
+   "after": {
+    "x_min": 0,
+    "x_max": 400,
+    "advance_total": 850
+   }
+  },
+  "boundary_marks": [],
+  "secondary_seams": null,
+  "summary": "New: \u00b7I joins \u00b7It at the x-height (the old pipeline broke there) \u2014 decided by qsI.yaml policy.extend[0] (declaration order).",
+  "explain": "sequence E675:E670:E652:E679   config default\nsettled: qsI.loop.ex-y5.ex-ext-1 qsIt.hapax.en-y5 qsTea_qsOy.hapax\n\nposition 0: qsI\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> loop             entry=none       seam=x-height   join-count=1 prospect=0\n     smaller-loop     entry=none       seam=x-height   join-count=1 prospect=0\n     loop             entry=none       seam=none       join-count=0 prospect=0\n     smaller-loop     entry=none       seam=none       join-count=0 prospect=0\n  decided by: order (over smaller-loop entry=none seam=x-height)\n  note: glyph_data/runes/qsI.yaml:policy.extend[0]\n  settled: qsI.loop.ex-y5.ex-ext-1   seam=x-height   extension=1\n\nposition 1: qsIt\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> hapax            entry=x-height   seam=none       join-count=1 prospect=0\n  eliminated before ranking:\n    - (lookahead-closure) qsIt.hapax: exit baseline has no refusal-aware acceptor cell on qsTea_qsOy\n    - (pairings) qsIt.hapax: pairing (x-height, x-height) not allowed\n  decided by: only-candidate\n  settled: qsIt.hapax.en-y5   seam=none   extension=0",
+  "provenance": [
+   "glyph_data/runes/qsI.yaml:policy.extend[0]"
+  ],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7I ~x~ \u00b7It | \u00b7Tea+Oy",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": null,
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsI.yaml",
+    "keypath": "policy.refuse[+]",
+    "suggested_record": "{exit: x-height, when: {right: {family: [qsIt]}}, why: 'Reviewer rejected the M1 outcome for E675:E670:E652:E679 (\u00b7I\u00b7It\u00b7Tea\u00b7Oy)'}",
+    "names_provenance": [
+     "glyph_data/runes/qsI.yaml:policy.extend[0]"
+    ],
+    "decided_stage": "order",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E675:E670:E652:E679 (\u00b7I\u00b7It\u00b7Tea\u00b7Oy)"
+   },
+   "any_of": {
+    "text": "qsI qsIt qsTea qsOy",
+    "features": {},
+    "candidates": [
+     "\u00b7I ~x~ \u00b7It | \u00b7Tea+Oy",
+     "\u00b7I | \u00b7It | \u00b7Tea+Oy"
+    ]
+   }
+  },
+  "content_key": "8682e2063338c051e44b1e6dafeeb718cfa7e63a3e749fdec4115dcd0eab3c2a"
+ },
+ {
+  "id": "u-18571",
+  "batch": 0,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "default": "d-2485edf81e12",
+   "ss03": "d-2485edf81e12",
+   "ss04": "d-2485edf81e12",
+   "ss05": "d-2485edf81e12",
+   "ss02": "d-2485edf81e12",
+   "ss02+ss03": "d-2485edf81e12",
+   "ss02+ss03+ss05": "d-2485edf81e12"
+  },
+  "no_verdict": false,
+  "echo": "e-0046",
+  "cluster": "c-865efb04",
+  "class": "pre-ligature-cleanup-regularized",
+  "group": "qsI:qsOy",
+  "codepoints": "E675:E679:E652:E679",
+  "text_entities": "&#xE675;&#xE679;&#xE652;&#xE679;",
+  "notation": "\u00b7I\u00b7Oy\u00b7Tea\u00b7Oy",
+  "notation_tokens": [
+   "\u00b7I",
+   "\u00b7Oy",
+   "\u00b7Tea",
+   "\u00b7Oy"
+  ],
+  "configs": [
+   "default",
+   "ss03",
+   "ss04",
+   "ss05",
+   "ss02",
+   "ss02+ss03",
+   "ss02+ss03+ss05"
+  ],
+  "config_note": "only under: default, ss03, ss04, ss05, ss02, ss02+ss03, ss02+ss03+ss05",
+  "config_gate": null,
+  "config_classes": {
+   "default": "pre-ligature-cleanup-regularized",
+   "ss02": "pre-ligature-cleanup-regularized",
+   "ss03": "pre-ligature-cleanup-regularized",
+   "ss04": "pre-ligature-cleanup-regularized",
+   "ss05": "pre-ligature-cleanup-regularized",
+   "ss02+ss03": "pre-ligature-cleanup-regularized",
+   "ss02+ss03+ss05": "pre-ligature-cleanup-regularized"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss03",
+     "ss04",
+     "ss05",
+     "ss02",
+     "ss02+ss03",
+     "ss02+ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell",
+   "seam"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsI",
+    "qsOy",
+    "qsTea_qsOy"
+   ],
+   "seams": [
+    "break",
+    "break"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsI/loop/None/x-height/",
+    "qsOy/hapax/x-height/None/",
+    "qsTea_qsOy/hapax/None/None/"
+   ],
+   "seams": [
+    "y5",
+    "break"
+   ],
+   "extensions": [
+    0,
+    0
+   ]
+  },
+  "diff_positions": [
+   0,
+   1
+  ],
+  "pair": {
+   "left": 0,
+   "right": 1
+  },
+  "pair_codepoints": [
+   0,
+   1
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 0,
+    "x_max": 750,
+    "advance_total": 1200
+   },
+   "after": {
+    "x_min": 0,
+    "x_max": 550,
+    "advance_total": 1000
+   }
+  },
+  "boundary_marks": [],
+  "secondary_seams": null,
+  "summary": "New: \u00b7I joins \u00b7Oy at the x-height (the old pipeline broke there) \u2014 decided by the only surviving candidate (no policy record involved).",
+  "explain": "sequence E675:E679:E652:E679   config default\nsettled: qsI.loop.ex-y5 qsOy.hapax.en-y5 qsTea_qsOy.hapax\n\nposition 0: qsI\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> loop             entry=none       seam=x-height   join-count=1 prospect=0\n     smaller-loop     entry=none       seam=x-height   join-count=1 prospect=0\n     loop             entry=none       seam=none       join-count=0 prospect=0\n     smaller-loop     entry=none       seam=none       join-count=0 prospect=0\n  decided by: order (over smaller-loop entry=none seam=x-height)\n  settled: qsI.loop.ex-y5   seam=x-height   extension=0\n\nposition 1: qsOy\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> hapax            entry=x-height   seam=none       join-count=1 prospect=0\n  eliminated before ranking:\n    - (lookahead-closure) qsOy.hapax: exit baseline has no refusal-aware acceptor cell on qsTea_qsOy\n  decided by: only-candidate\n  settled: qsOy.hapax.en-y5   seam=none   extension=0",
+  "provenance": [],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7I ~x~ \u00b7Oy | \u00b7Tea+Oy",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": null,
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsI.yaml",
+    "keypath": "policy.prefer[+]",
+    "suggested_record": "{cell: {exit: none}, when: {right: {family: [qsOy]}}, why: 'Reviewer rejected the M1 outcome for E675:E679:E652:E679 (\u00b7I\u00b7Oy\u00b7Tea\u00b7Oy)'}",
+    "names_provenance": [],
+    "decided_stage": "order",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E675:E679:E652:E679 (\u00b7I\u00b7Oy\u00b7Tea\u00b7Oy)"
+   },
+   "any_of": {
+    "text": "qsI qsOy qsTea qsOy",
+    "features": {},
+    "candidates": [
+     "\u00b7I ~x~ \u00b7Oy | \u00b7Tea+Oy",
+     "\u00b7I | \u00b7Oy | \u00b7Tea+Oy"
+    ]
+   }
+  },
+  "content_key": "3e6bedf140b847091656137e7fb16610dab64bea54319d1a6d0004bce8366f25"
+ },
+ {
+  "id": "u-18572",
+  "batch": 0,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "ss03": "d-5054092002a5",
+   "ss02+ss03": "d-5054092002a5",
+   "ss02+ss03+ss05": "d-5054092002a5"
+  },
+  "no_verdict": false,
+  "echo": "e-0047",
+  "cluster": "c-7505c723",
+  "class": "pre-ligature-cleanup-regularized",
+  "group": "qsAh:qsTea",
+  "codepoints": "E676:E652:E652:E679",
+  "text_entities": "&#xE676;&#xE652;&#xE652;&#xE679;",
+  "notation": "\u00b7Ah\u00b7Tea\u00b7Tea\u00b7Oy",
+  "notation_tokens": [
+   "\u00b7Ah",
+   "\u00b7Tea",
+   "\u00b7Tea",
+   "\u00b7Oy"
+  ],
+  "configs": [
+   "ss03",
+   "ss02+ss03",
+   "ss02+ss03+ss05"
+  ],
+  "config_note": "only under: ss03, ss02+ss03, ss02+ss03+ss05",
+  "config_gate": null,
+  "config_classes": {
+   "ss03": "pre-ligature-cleanup-regularized",
+   "ss02+ss03": "pre-ligature-cleanup-regularized",
+   "ss02+ss03+ss05": "pre-ligature-cleanup-regularized"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "ss03",
+     "ss02+ss03",
+     "ss02+ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell",
+   "seam"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsAh.ex-ext-1",
+    "qsTea",
+    "qsTea_qsOy"
+   ],
+   "seams": [
+    "break",
+    "break"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsAh/hapax/None/x-height/ex-ext-1",
+    "qsTea/full/x-height/None/",
+    "qsTea_qsOy/hapax/None/None/"
+   ],
+   "seams": [
+    "y5",
+    "break"
+   ],
+   "extensions": [
+    1,
+    0
+   ]
+  },
+  "diff_positions": [
+   1
+  ],
+  "pair": {
+   "left": 0,
+   "right": 1
+  },
+  "pair_codepoints": [
+   0,
+   1
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 0,
+    "x_max": 550,
+    "advance_total": 1000
+   },
+   "after": {
+    "x_min": 0,
+    "x_max": 500,
+    "advance_total": 950
+   }
+  },
+  "boundary_marks": [],
+  "secondary_seams": null,
+  "summary": "New: \u00b7Ah joins \u00b7Tea at the x-height (the old pipeline broke there) \u2014 decided by declaration order (no policy record involved).",
+  "explain": "sequence E676:E652:E652:E679   config ss03\nsettled: qsAh.hapax.ex-y5.ex-ext-1 qsTea.full.en-y5 qsTea_qsOy.hapax\n\nposition 1: qsTea\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> full             entry=x-height   seam=none       join-count=1 prospect=0\n     half             entry=x-height   seam=none       join-count=1 prospect=0\n  eliminated before ranking:\n    - (lookahead-closure) qsTea.full: exit baseline has no refusal-aware acceptor cell on qsTea_qsOy\n    - (pairings) qsTea.half: pairing (x-height, x-height) not allowed\n  decided by: order (over half entry=x-height seam=none)\n  note: unlocked by ss03\n  settled: qsTea.full.en-y5   seam=none   extension=0",
+  "provenance": [],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7Ah ~x~ \u00b7Tea | \u00b7Tea+Oy",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": "03",
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsTea.yaml",
+    "keypath": "policy.prefer[+]",
+    "suggested_record": "{cell: {exit: none}, when: {right: {family: [qsTea_qsOy]}}, why: 'Reviewer rejected the M1 outcome for E676:E652:E652:E679 (\u00b7Ah\u00b7Tea\u00b7Tea\u00b7Oy)'}",
+    "names_provenance": [],
+    "decided_stage": "order",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E676:E652:E652:E679 (\u00b7Ah\u00b7Tea\u00b7Tea\u00b7Oy)"
+   },
+   "any_of": {
+    "text": "qsAh qsTea qsTea qsOy",
+    "features": {
+     "ss03": true
+    },
+    "candidates": [
+     "\u00b7Ah ~x~ \u00b7Tea | \u00b7Tea+Oy",
+     "\u00b7Ah | \u00b7Tea | \u00b7Tea+Oy"
+    ]
+   }
+  },
+  "content_key": "c80decb11d0eacb5877dc6d312a60c759f826a7e626c008cb966dc54f64fdcc8"
+ },
+ {
+  "id": "u-18573",
+  "batch": 0,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "ss03": "d-cd758926c27e",
+   "ss02+ss03": "d-cd758926c27e",
+   "ss02+ss03+ss05": "d-cd758926c27e"
+  },
+  "no_verdict": false,
+  "echo": "e-0048",
+  "cluster": "c-090fce92",
+  "class": "pre-ligature-cleanup-regularized",
+  "group": "qsAh:qsFee",
+  "codepoints": "E676:E658:E652:E679",
+  "text_entities": "&#xE676;&#xE658;&#xE652;&#xE679;",
+  "notation": "\u00b7Ah\u00b7Fee\u00b7Tea\u00b7Oy",
+  "notation_tokens": [
+   "\u00b7Ah",
+   "\u00b7Fee",
+   "\u00b7Tea",
+   "\u00b7Oy"
+  ],
+  "configs": [
+   "ss03",
+   "ss02+ss03",
+   "ss02+ss03+ss05"
+  ],
+  "config_note": "only under: ss03, ss02+ss03, ss02+ss03+ss05",
+  "config_gate": null,
+  "config_classes": {
+   "ss03": "pre-ligature-cleanup-regularized",
+   "ss02+ss03": "pre-ligature-cleanup-regularized",
+   "ss02+ss03+ss05": "pre-ligature-cleanup-regularized"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "ss03",
+     "ss02+ss03",
+     "ss02+ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell",
+   "seam"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsAh",
+    "qsFee.ex-y5.before-may.ex-ext-3",
+    "qsTea_qsOy"
+   ],
+   "seams": [
+    "break",
+    "break"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsAh/hapax/None/x-height/ex-ext-1",
+    "qsFee/reversed-loop/x-height/None/",
+    "qsTea_qsOy/hapax/None/None/"
+   ],
+   "seams": [
+    "y5",
+    "break"
+   ],
+   "extensions": [
+    1,
+    0
+   ]
+  },
+  "diff_positions": [
+   0,
+   1
+  ],
+  "pair": {
+   "left": 0,
+   "right": 1
+  },
+  "pair_codepoints": [
+   0,
+   1
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 0,
+    "x_max": 850,
+    "advance_total": 1300
+   },
+   "after": {
+    "x_min": 0,
+    "x_max": 650,
+    "advance_total": 1100
+   }
+  },
+  "boundary_marks": [],
+  "secondary_seams": null,
+  "summary": "New: \u00b7Ah joins \u00b7Fee at the x-height (the old pipeline broke there) \u2014 decided by qsAh.yaml policy.extend[0] (join-count rank).",
+  "explain": "sequence E676:E658:E652:E679   config ss03\nsettled: qsAh.hapax.ex-y5.ex-ext-1 qsFee.reversed-loop.en-y5 qsTea_qsOy.hapax\n\nposition 0: qsAh\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> hapax            entry=none       seam=x-height   join-count=1 prospect=0\n     hapax            entry=none       seam=none       join-count=0 prospect=0\n  decided by: join-count (over hapax entry=none seam=none)\n  note: glyph_data/runes/qsAh.yaml:policy.extend[0]\n  settled: qsAh.hapax.ex-y5.ex-ext-1   seam=x-height   extension=1\n\nposition 1: qsFee\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> reversed-loop    entry=x-height   seam=none       join-count=1 prospect=0\n  eliminated before ranking:\n    - (entry-binding) qsFee.loop: no available entry row at x-height against the committed seam\n  decided by: only-candidate\n  settled: qsFee.reversed-loop.en-y5   seam=none   extension=0",
+  "provenance": [
+   "glyph_data/runes/qsAh.yaml:policy.extend[0]"
+  ],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7Ah ~x~ \u00b7Fee | \u00b7Tea+Oy",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": "03",
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsAh.yaml",
+    "keypath": "policy.refuse[+]",
+    "suggested_record": "{exit: x-height, when: {right: {family: [qsFee]}}, why: 'Reviewer rejected the M1 outcome for E676:E658:E652:E679 (\u00b7Ah\u00b7Fee\u00b7Tea\u00b7Oy)'}",
+    "names_provenance": [
+     "glyph_data/runes/qsAh.yaml:policy.extend[0]"
+    ],
+    "decided_stage": "join-count",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E676:E658:E652:E679 (\u00b7Ah\u00b7Fee\u00b7Tea\u00b7Oy)"
+   },
+   "any_of": {
+    "text": "qsAh qsFee qsTea qsOy",
+    "features": {
+     "ss03": true
+    },
+    "candidates": [
+     "\u00b7Ah ~x~ \u00b7Fee | \u00b7Tea+Oy",
+     "\u00b7Ah | \u00b7Fee | \u00b7Tea+Oy"
+    ]
+   }
+  },
+  "content_key": "da51dbfd4b9553da5ebd8104f0b1a06080dcf7c88227244d59472494c5eae092"
+ },
+ {
+  "id": "u-18574",
+  "batch": 0,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "ss03": "d-03f8f4531f73",
+   "ss02+ss03": "d-03f8f4531f73",
+   "ss02+ss03+ss05": "d-03f8f4531f73"
+  },
+  "no_verdict": false,
+  "echo": "e-0049",
+  "cluster": "c-a2d9a4fa",
+  "class": "pre-ligature-cleanup-regularized",
+  "group": "qsAh:qsMay",
+  "codepoints": "E676:E665:E652:E679",
+  "text_entities": "&#xE676;&#xE665;&#xE652;&#xE679;",
+  "notation": "\u00b7Ah\u00b7May\u00b7Tea\u00b7Oy",
+  "notation_tokens": [
+   "\u00b7Ah",
+   "\u00b7May",
+   "\u00b7Tea",
+   "\u00b7Oy"
+  ],
+  "configs": [
+   "ss03",
+   "ss02+ss03",
+   "ss02+ss03+ss05"
+  ],
+  "config_note": "only under: ss03, ss02+ss03, ss02+ss03+ss05",
+  "config_gate": null,
+  "config_classes": {
+   "ss03": "pre-ligature-cleanup-regularized",
+   "ss02+ss03": "pre-ligature-cleanup-regularized",
+   "ss02+ss03+ss05": "pre-ligature-cleanup-regularized"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "ss03",
+     "ss02+ss03",
+     "ss02+ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell",
+   "seam"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsAh",
+    "qsMay.ex-ext-1",
+    "qsTea_qsOy"
+   ],
+   "seams": [
+    "break",
+    "break"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsAh/hapax/None/x-height/ex-ext-1",
+    "qsMay/loop/x-height/None/",
+    "qsTea_qsOy/hapax/None/None/"
+   ],
+   "seams": [
+    "y5",
+    "break"
+   ],
+   "extensions": [
+    1,
+    0
+   ]
+  },
+  "diff_positions": [
+   0,
+   1
+  ],
+  "pair": {
+   "left": 0,
+   "right": 1
+  },
+  "pair_codepoints": [
+   0,
+   1
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 0,
+    "x_max": 750,
+    "advance_total": 1200
+   },
+   "after": {
+    "x_min": 0,
+    "x_max": 550,
+    "advance_total": 1000
+   }
+  },
+  "boundary_marks": [],
+  "secondary_seams": null,
+  "summary": "New: \u00b7Ah joins \u00b7May at the x-height (the old pipeline broke there) \u2014 decided by qsAh.yaml policy.extend[0] (join-count rank).",
+  "explain": "sequence E676:E665:E652:E679   config ss03\nsettled: qsAh.hapax.ex-y5.ex-ext-1 qsMay.loop.en-y5 qsTea_qsOy.hapax\n\nposition 0: qsAh\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> hapax            entry=none       seam=x-height   join-count=1 prospect=0\n     hapax            entry=none       seam=none       join-count=0 prospect=0\n  decided by: join-count (over hapax entry=none seam=none)\n  note: glyph_data/runes/qsAh.yaml:policy.extend[0]\n  settled: qsAh.hapax.ex-y5.ex-ext-1   seam=x-height   extension=1\n\nposition 1: qsMay\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> loop             entry=x-height   seam=none       join-count=1 prospect=0\n     grounded-loop    entry=x-height   seam=none       join-count=1 prospect=0\n  eliminated before ranking:\n    - (pairings) qsMay.loop: pairing (x-height, x-height) not allowed\n    - (lookahead-closure) qsMay.grounded-loop: exit baseline has no refusal-aware acceptor cell on qsTea_qsOy\n  decided by: order (over grounded-loop entry=x-height seam=none)\n  settled: qsMay.loop.en-y5   seam=none   extension=0",
+  "provenance": [
+   "glyph_data/runes/qsAh.yaml:policy.extend[0]"
+  ],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7Ah ~x~ \u00b7May | \u00b7Tea+Oy",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": "03",
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsAh.yaml",
+    "keypath": "policy.refuse[+]",
+    "suggested_record": "{exit: x-height, when: {right: {family: [qsMay]}}, why: 'Reviewer rejected the M1 outcome for E676:E665:E652:E679 (\u00b7Ah\u00b7May\u00b7Tea\u00b7Oy)'}",
+    "names_provenance": [
+     "glyph_data/runes/qsAh.yaml:policy.extend[0]"
+    ],
+    "decided_stage": "join-count",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E676:E665:E652:E679 (\u00b7Ah\u00b7May\u00b7Tea\u00b7Oy)"
+   },
+   "any_of": {
+    "text": "qsAh qsMay qsTea qsOy",
+    "features": {
+     "ss03": true
+    },
+    "candidates": [
+     "\u00b7Ah ~x~ \u00b7May | \u00b7Tea+Oy",
+     "\u00b7Ah | \u00b7May | \u00b7Tea+Oy"
+    ]
+   }
+  },
+  "content_key": "6db5d9a062e8266fb64a692dbecdb0ddfe797aa760185580d50e421e085ac1c8"
+ },
+ {
+  "id": "u-18575",
+  "batch": 0,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "default": "d-5054092002a5",
+   "ss03": "d-5054092002a5",
+   "ss04": "d-5054092002a5",
+   "ss05": "d-5054092002a5",
+   "ss02": "d-5054092002a5",
+   "ss02+ss03": "d-5054092002a5",
+   "ss02+ss03+ss05": "d-5054092002a5"
+  },
+  "no_verdict": false,
+  "echo": "e-0050",
+  "cluster": "c-aa3ab6e1",
+  "class": "pre-ligature-cleanup-regularized",
+  "group": "qsAh:qsIt",
+  "codepoints": "E676:E670:E652:E679",
+  "text_entities": "&#xE676;&#xE670;&#xE652;&#xE679;",
+  "notation": "\u00b7Ah\u00b7It\u00b7Tea\u00b7Oy",
+  "notation_tokens": [
+   "\u00b7Ah",
+   "\u00b7It",
+   "\u00b7Tea",
+   "\u00b7Oy"
+  ],
+  "configs": [
+   "default",
+   "ss03",
+   "ss04",
+   "ss05",
+   "ss02",
+   "ss02+ss03",
+   "ss02+ss03+ss05"
+  ],
+  "config_note": "only under: default, ss03, ss04, ss05, ss02, ss02+ss03, ss02+ss03+ss05",
+  "config_gate": null,
+  "config_classes": {
+   "default": "pre-ligature-cleanup-regularized",
+   "ss02": "pre-ligature-cleanup-regularized",
+   "ss03": "pre-ligature-cleanup-regularized",
+   "ss04": "pre-ligature-cleanup-regularized",
+   "ss05": "pre-ligature-cleanup-regularized",
+   "ss02+ss03": "pre-ligature-cleanup-regularized",
+   "ss02+ss03+ss05": "pre-ligature-cleanup-regularized"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss03",
+     "ss04",
+     "ss05",
+     "ss02",
+     "ss02+ss03",
+     "ss02+ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell",
+   "seam"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsAh",
+    "qsIt",
+    "qsTea_qsOy"
+   ],
+   "seams": [
+    "break",
+    "break"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsAh/hapax/None/x-height/",
+    "qsIt/hapax/x-height/None/",
+    "qsTea_qsOy/hapax/None/None/"
+   ],
+   "seams": [
+    "y5",
+    "break"
+   ],
+   "extensions": [
+    0,
+    0
+   ]
+  },
+  "diff_positions": [
+   0,
+   1
+  ],
+  "pair": {
+   "left": 0,
+   "right": 1
+  },
+  "pair_codepoints": [
+   0,
+   1
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 0,
+    "x_max": 500,
+    "advance_total": 950
+   },
+   "after": {
+    "x_min": 0,
+    "x_max": 450,
+    "advance_total": 900
+   }
+  },
+  "boundary_marks": [],
+  "secondary_seams": null,
+  "summary": "New: \u00b7Ah joins \u00b7It at the x-height (the old pipeline broke there) \u2014 decided by join-count rank (no policy record involved).",
+  "explain": "sequence E676:E670:E652:E679   config default\nsettled: qsAh.hapax.ex-y5 qsIt.hapax.en-y5 qsTea_qsOy.hapax\n\nposition 0: qsAh\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> hapax            entry=none       seam=x-height   join-count=1 prospect=0\n     hapax            entry=none       seam=none       join-count=0 prospect=0\n  decided by: join-count (over hapax entry=none seam=none)\n  settled: qsAh.hapax.ex-y5   seam=x-height   extension=0\n\nposition 1: qsIt\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> hapax            entry=x-height   seam=none       join-count=1 prospect=0\n  eliminated before ranking:\n    - (lookahead-closure) qsIt.hapax: exit baseline has no refusal-aware acceptor cell on qsTea_qsOy\n    - (pairings) qsIt.hapax: pairing (x-height, x-height) not allowed\n  decided by: only-candidate\n  settled: qsIt.hapax.en-y5   seam=none   extension=0",
+  "provenance": [],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7Ah ~x~ \u00b7It | \u00b7Tea+Oy",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": null,
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsAh.yaml",
+    "keypath": "policy.prefer[+]",
+    "suggested_record": "{cell: {exit: none}, when: {right: {family: [qsIt]}}, why: 'Reviewer rejected the M1 outcome for E676:E670:E652:E679 (\u00b7Ah\u00b7It\u00b7Tea\u00b7Oy)'}",
+    "names_provenance": [],
+    "decided_stage": "join-count",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E676:E670:E652:E679 (\u00b7Ah\u00b7It\u00b7Tea\u00b7Oy)"
+   },
+   "any_of": {
+    "text": "qsAh qsIt qsTea qsOy",
+    "features": {},
+    "candidates": [
+     "\u00b7Ah ~x~ \u00b7It | \u00b7Tea+Oy",
+     "\u00b7Ah | \u00b7It | \u00b7Tea+Oy"
+    ]
+   }
+  },
+  "content_key": "f08e8e0fc2e32c73f6d364564bb4bb917bbe57dc47387fdf3beb53a884d87a22"
+ },
+ {
+  "id": "u-18576",
+  "batch": 0,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "default": "d-2485edf81e12",
+   "ss03": "d-2485edf81e12",
+   "ss04": "d-2485edf81e12",
+   "ss05": "d-2485edf81e12",
+   "ss02": "d-2485edf81e12",
+   "ss02+ss03": "d-2485edf81e12",
+   "ss02+ss03+ss05": "d-2485edf81e12"
+  },
+  "no_verdict": false,
+  "echo": "e-0051",
+  "cluster": "c-865efb04",
+  "class": "pre-ligature-cleanup-regularized",
+  "group": "qsAh:qsOy",
+  "codepoints": "E676:E679:E652:E679",
+  "text_entities": "&#xE676;&#xE679;&#xE652;&#xE679;",
+  "notation": "\u00b7Ah\u00b7Oy\u00b7Tea\u00b7Oy",
+  "notation_tokens": [
+   "\u00b7Ah",
+   "\u00b7Oy",
+   "\u00b7Tea",
+   "\u00b7Oy"
+  ],
+  "configs": [
+   "default",
+   "ss03",
+   "ss04",
+   "ss05",
+   "ss02",
+   "ss02+ss03",
+   "ss02+ss03+ss05"
+  ],
+  "config_note": "only under: default, ss03, ss04, ss05, ss02, ss02+ss03, ss02+ss03+ss05",
+  "config_gate": null,
+  "config_classes": {
+   "default": "pre-ligature-cleanup-regularized",
+   "ss02": "pre-ligature-cleanup-regularized",
+   "ss03": "pre-ligature-cleanup-regularized",
+   "ss04": "pre-ligature-cleanup-regularized",
+   "ss05": "pre-ligature-cleanup-regularized",
+   "ss02+ss03": "pre-ligature-cleanup-regularized",
+   "ss02+ss03+ss05": "pre-ligature-cleanup-regularized"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss03",
+     "ss04",
+     "ss05",
+     "ss02",
+     "ss02+ss03",
+     "ss02+ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell",
+   "seam"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsAh",
+    "qsOy",
+    "qsTea_qsOy"
+   ],
+   "seams": [
+    "break",
+    "break"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsAh/hapax/None/x-height/",
+    "qsOy/hapax/x-height/None/",
+    "qsTea_qsOy/hapax/None/None/"
+   ],
+   "seams": [
+    "y5",
+    "break"
+   ],
+   "extensions": [
+    0,
+    0
+   ]
+  },
+  "diff_positions": [
+   0,
+   1
+  ],
+  "pair": {
+   "left": 0,
+   "right": 1
+  },
+  "pair_codepoints": [
+   0,
+   1
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 0,
+    "x_max": 850,
+    "advance_total": 1300
+   },
+   "after": {
+    "x_min": 0,
+    "x_max": 650,
+    "advance_total": 1100
+   }
+  },
+  "boundary_marks": [],
+  "secondary_seams": null,
+  "summary": "New: \u00b7Ah joins \u00b7Oy at the x-height (the old pipeline broke there) \u2014 decided by the only surviving candidate (no policy record involved).",
+  "explain": "sequence E676:E679:E652:E679   config default\nsettled: qsAh.hapax.ex-y5 qsOy.hapax.en-y5 qsTea_qsOy.hapax\n\nposition 0: qsAh\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> hapax            entry=none       seam=x-height   join-count=1 prospect=0\n     hapax            entry=none       seam=none       join-count=0 prospect=0\n  decided by: join-count (over hapax entry=none seam=none)\n  settled: qsAh.hapax.ex-y5   seam=x-height   extension=0\n\nposition 1: qsOy\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> hapax            entry=x-height   seam=none       join-count=1 prospect=0\n  eliminated before ranking:\n    - (lookahead-closure) qsOy.hapax: exit baseline has no refusal-aware acceptor cell on qsTea_qsOy\n  decided by: only-candidate\n  settled: qsOy.hapax.en-y5   seam=none   extension=0",
+  "provenance": [],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7Ah ~x~ \u00b7Oy | \u00b7Tea+Oy",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": null,
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsAh.yaml",
+    "keypath": "policy.prefer[+]",
+    "suggested_record": "{cell: {exit: none}, when: {right: {family: [qsOy]}}, why: 'Reviewer rejected the M1 outcome for E676:E679:E652:E679 (\u00b7Ah\u00b7Oy\u00b7Tea\u00b7Oy)'}",
+    "names_provenance": [],
+    "decided_stage": "join-count",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E676:E679:E652:E679 (\u00b7Ah\u00b7Oy\u00b7Tea\u00b7Oy)"
+   },
+   "any_of": {
+    "text": "qsAh qsOy qsTea qsOy",
+    "features": {},
+    "candidates": [
+     "\u00b7Ah ~x~ \u00b7Oy | \u00b7Tea+Oy",
+     "\u00b7Ah | \u00b7Oy | \u00b7Tea+Oy"
+    ]
+   }
+  },
+  "content_key": "20ac21a813e02c1003062584ada0be930b3738810c256ca81885cbf93bfc9108"
+ },
+ {
+  "id": "u-18577",
+  "batch": 0,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "default": "d-bea123ce0449",
+   "ss03": "d-bea123ce0449",
+   "ss04": "d-bea123ce0449",
+   "ss05": "d-bea123ce0449",
+   "ss02": "d-bea123ce0449",
+   "ss02+ss03": "d-bea123ce0449",
+   "ss02+ss03+ss05": "d-bea123ce0449"
+  },
+  "no_verdict": false,
+  "echo": "e-0052",
+  "cluster": "c-e301e271",
+  "class": "pre-ligature-cleanup-regularized",
+  "group": "qsOy:qsNo",
+  "codepoints": "E679:E666:E652:E679",
+  "text_entities": "&#xE679;&#xE666;&#xE652;&#xE679;",
+  "notation": "\u00b7Oy\u00b7No\u00b7Tea\u00b7Oy",
+  "notation_tokens": [
+   "\u00b7Oy",
+   "\u00b7No",
+   "\u00b7Tea",
+   "\u00b7Oy"
+  ],
+  "configs": [
+   "default",
+   "ss03",
+   "ss04",
+   "ss05",
+   "ss02",
+   "ss02+ss03",
+   "ss02+ss03+ss05"
+  ],
+  "config_note": "only under: default, ss03, ss04, ss05, ss02, ss02+ss03, ss02+ss03+ss05",
+  "config_gate": null,
+  "config_classes": {
+   "default": "pre-ligature-cleanup-regularized",
+   "ss02": "pre-ligature-cleanup-regularized",
+   "ss03": "pre-ligature-cleanup-regularized",
+   "ss04": "pre-ligature-cleanup-regularized",
+   "ss05": "pre-ligature-cleanup-regularized",
+   "ss02+ss03": "pre-ligature-cleanup-regularized",
+   "ss02+ss03+ss05": "pre-ligature-cleanup-regularized"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss03",
+     "ss04",
+     "ss05",
+     "ss02",
+     "ss02+ss03",
+     "ss02+ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell",
+   "seam"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsOy",
+    "qsNo",
+    "qsTea_qsOy"
+   ],
+   "seams": [
+    "break",
+    "break"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsOy/hapax/None/baseline/",
+    "qsNo/flipped/baseline/None/",
+    "qsTea_qsOy/hapax/None/None/"
+   ],
+   "seams": [
+    "y0",
+    "break"
+   ],
+   "extensions": [
+    0,
+    0
+   ]
+  },
+  "diff_positions": [
+   0,
+   1
+  ],
+  "pair": {
+   "left": 0,
+   "right": 1
+  },
+  "pair_codepoints": [
+   0,
+   1
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 0,
+    "x_max": 750,
+    "advance_total": 1200
+   },
+   "after": {
+    "x_min": 0,
+    "x_max": 700,
+    "advance_total": 1150
+   }
+  },
+  "boundary_marks": [],
+  "secondary_seams": null,
+  "summary": "New: \u00b7Oy joins \u00b7No at the baseline (the old pipeline broke there) \u2014 decided by the only surviving candidate (no policy record involved).",
+  "explain": "sequence E679:E666:E652:E679   config default\nsettled: qsOy.hapax.ex-y0 qsNo.flipped.en-y0 qsTea_qsOy.hapax\n\nposition 0: qsOy\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> hapax            entry=none       seam=baseline   join-count=1 prospect=0\n     hapax            entry=none       seam=none       join-count=0 prospect=0\n  decided by: join-count (over hapax entry=none seam=none)\n  settled: qsOy.hapax.ex-y0   seam=baseline   extension=0\n\nposition 1: qsNo\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> flipped          entry=baseline   seam=none       join-count=1 prospect=0\n  eliminated before ranking:\n    - (entry-binding) qsNo.loop: no available entry row at baseline against the committed seam\n    - (lookahead-closure) qsNo.flipped: exit baseline has no refusal-aware acceptor cell on qsTea_qsOy\n  decided by: only-candidate\n  settled: qsNo.flipped.en-y0   seam=none   extension=0",
+  "provenance": [],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7Oy ~b~ \u00b7No | \u00b7Tea+Oy",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": null,
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsOy.yaml",
+    "keypath": "policy.prefer[+]",
+    "suggested_record": "{cell: {exit: none}, when: {right: {family: [qsNo]}}, why: 'Reviewer rejected the M1 outcome for E679:E666:E652:E679 (\u00b7Oy\u00b7No\u00b7Tea\u00b7Oy)'}",
+    "names_provenance": [],
+    "decided_stage": "join-count",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E679:E666:E652:E679 (\u00b7Oy\u00b7No\u00b7Tea\u00b7Oy)"
+   },
+   "any_of": {
+    "text": "qsOy qsNo qsTea qsOy",
+    "features": {},
+    "candidates": [
+     "\u00b7Oy ~b~ \u00b7No | \u00b7Tea+Oy",
+     "\u00b7Oy | \u00b7No | \u00b7Tea+Oy"
+    ]
+   }
+  },
+  "content_key": "e907d06ae48227c1b9e6a839af0e70893f9ddd32ab69ad2491732f0aa1eeb989"
+ },
+ {
+  "id": "u-18578",
+  "batch": 0,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "default": "d-9ed7c089f2fe",
+   "ss03": "d-9ed7c089f2fe",
+   "ss04": "d-9ed7c089f2fe",
+   "ss05": "d-9ed7c089f2fe",
+   "ss02": "d-9ed7c089f2fe",
+   "ss02+ss03": "d-9ed7c089f2fe",
+   "ss02+ss03+ss05": "d-9ed7c089f2fe"
+  },
+  "no_verdict": false,
+  "echo": "e-0053",
+  "cluster": "c-bd0c3bab",
+  "class": "pre-ligature-cleanup-regularized",
+  "group": "qsUtter:qsPea",
+  "codepoints": "E67A:E650:E652:E679",
+  "text_entities": "&#xE67A;&#xE650;&#xE652;&#xE679;",
+  "notation": "\u00b7Utter\u00b7Pea\u00b7Tea\u00b7Oy",
+  "notation_tokens": [
+   "\u00b7Utter",
+   "\u00b7Pea",
+   "\u00b7Tea",
+   "\u00b7Oy"
+  ],
+  "configs": [
+   "default",
+   "ss03",
+   "ss04",
+   "ss05",
+   "ss02",
+   "ss02+ss03",
+   "ss02+ss03+ss05"
+  ],
+  "config_note": "only under: default, ss03, ss04, ss05, ss02, ss02+ss03, ss02+ss03+ss05",
+  "config_gate": null,
+  "config_classes": {
+   "default": "pre-ligature-cleanup-regularized",
+   "ss02": "pre-ligature-cleanup-regularized",
+   "ss03": "pre-ligature-cleanup-regularized",
+   "ss04": "pre-ligature-cleanup-regularized",
+   "ss05": "pre-ligature-cleanup-regularized",
+   "ss02+ss03": "pre-ligature-cleanup-regularized",
+   "ss02+ss03+ss05": "pre-ligature-cleanup-regularized"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss03",
+     "ss04",
+     "ss05",
+     "ss02",
+     "ss02+ss03",
+     "ss02+ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell",
+   "seam"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsUtter",
+    "qsPea",
+    "qsTea_qsOy"
+   ],
+   "seams": [
+    "break",
+    "break"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsUtter/mono/None/x-height/",
+    "qsPea/full/x-height/None/",
+    "qsTea_qsOy/hapax/None/None/"
+   ],
+   "seams": [
+    "y5",
+    "break"
+   ],
+   "extensions": [
+    0,
+    0
+   ]
+  },
+  "diff_positions": [
+   0,
+   1
+  ],
+  "pair": {
+   "left": 0,
+   "right": 1
+  },
+  "pair_codepoints": [
+   0,
+   1
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 0,
+    "x_max": 550,
+    "advance_total": 1000
+   },
+   "after": {
+    "x_min": 0,
+    "x_max": 500,
+    "advance_total": 950
+   }
+  },
+  "boundary_marks": [],
+  "secondary_seams": null,
+  "summary": "New: \u00b7Utter joins \u00b7Pea at the x-height (the old pipeline broke there) \u2014 decided by qsPea.yaml stances.half.surface.exits.y6 (declaration order).",
+  "explain": "sequence E67A:E650:E652:E679   config default\nsettled: qsUtter.mono.ex-y5 qsPea.full.en-y5 qsTea_qsOy.hapax\n\nposition 0: qsUtter\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> mono             entry=none       seam=x-height   join-count=1 prospect=0\n     mono             entry=none       seam=none       join-count=0 prospect=0\n  eliminated before ranking:\n    - (lookahead-closure) qsUtter.alternate: exit baseline has no refusal-aware acceptor cell on qsPea\n  decided by: join-count (over mono entry=none seam=none)\n  settled: qsUtter.mono.ex-y5   seam=x-height   extension=0\n\nposition 1: qsPea\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> full             entry=x-height   seam=none       join-count=1 prospect=0\n     half             entry=x-height   seam=none       join-count=1 prospect=0\n  eliminated before ranking:\n    - (lookahead-closure) qsPea.full: exit baseline has no refusal-aware acceptor cell on qsTea_qsOy\n    - (row-scope) qsPea.half: exit y6 toward-scope does not admit qsTea_qsOy  [glyph_data/runes/qsPea.yaml:stances.half.surface.exits.y6]\n    - (row-scope) qsPea.half: exit x-height toward-scope does not admit qsTea_qsOy  [glyph_data/runes/qsPea.yaml:stances.half.surface.exits.x-height]\n  decided by: order (over half entry=x-height seam=none)\n  note: glyph_data/runes/qsPea.yaml:stances.half.surface.exits.y6\n  note: glyph_data/runes/qsPea.yaml:stances.half.surface.exits.x-height\n  settled: qsPea.full.en-y5   seam=none   extension=0",
+  "provenance": [
+   "glyph_data/runes/qsPea.yaml:stances.half.surface.exits.y6",
+   "glyph_data/runes/qsPea.yaml:stances.half.surface.exits.x-height"
+  ],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7Utter ~x~ \u00b7Pea | \u00b7Tea+Oy",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": null,
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsUtter.yaml",
+    "keypath": "policy.refuse[+]",
+    "suggested_record": "{exit: x-height, when: {right: {family: [qsPea]}}, why: 'Reviewer rejected the M1 outcome for E67A:E650:E652:E679 (\u00b7Utter\u00b7Pea\u00b7Tea\u00b7Oy)'}",
+    "names_provenance": [
+     "glyph_data/runes/qsPea.yaml:stances.half.surface.exits.y6",
+     "glyph_data/runes/qsPea.yaml:stances.half.surface.exits.x-height"
+    ],
+    "decided_stage": "join-count",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E67A:E650:E652:E679 (\u00b7Utter\u00b7Pea\u00b7Tea\u00b7Oy)"
+   },
+   "any_of": {
+    "text": "qsUtter qsPea qsTea qsOy",
+    "features": {},
+    "candidates": [
+     "\u00b7Utter ~x~ \u00b7Pea | \u00b7Tea+Oy",
+     "\u00b7Utter | \u00b7Pea | \u00b7Tea+Oy"
+    ]
+   }
+  },
+  "content_key": "f388ef62847ee687b447ccd598d245c33781aae29ac39981c4ebf081616e9b2f"
+ },
+ {
+  "id": "u-18579",
+  "batch": 0,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "default": "d-de4c2743a40f",
+   "ss04": "d-de4c2743a40f",
+   "ss05": "d-de4c2743a40f",
+   "ss02": "d-de4c2743a40f"
+  },
+  "no_verdict": false,
+  "echo": "e-0054",
+  "cluster": "c-3f2ac78e",
+  "class": "pre-ligature-cleanup-regularized",
+  "group": "qsUtter:qsTea",
+  "codepoints": "E67A:E652:E652:E679",
+  "text_entities": "&#xE67A;&#xE652;&#xE652;&#xE679;",
+  "notation": "\u00b7Utter\u00b7Tea\u00b7Tea\u00b7Oy",
+  "notation_tokens": [
+   "\u00b7Utter",
+   "\u00b7Tea",
+   "\u00b7Tea",
+   "\u00b7Oy"
+  ],
+  "configs": [
+   "default",
+   "ss04",
+   "ss05",
+   "ss02"
+  ],
+  "config_note": "only under: default, ss04, ss05, ss02",
+  "config_gate": null,
+  "config_classes": {
+   "default": "pre-ligature-cleanup-regularized",
+   "ss02": "pre-ligature-cleanup-regularized",
+   "ss04": "pre-ligature-cleanup-regularized",
+   "ss05": "pre-ligature-cleanup-regularized"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss04",
+     "ss05",
+     "ss02"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell",
+   "seam"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsUtter",
+    "qsTea",
+    "qsTea_qsOy"
+   ],
+   "seams": [
+    "break",
+    "break"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsUtter/alternate/None/baseline/",
+    "qsTea/full/baseline/None/",
+    "qsTea_qsOy/hapax/None/None/"
+   ],
+   "seams": [
+    "y0",
+    "break"
+   ],
+   "extensions": [
+    0,
+    0
+   ]
+  },
+  "diff_positions": [
+   0,
+   1
+  ],
+  "pair": {
+   "left": 0,
+   "right": 1
+  },
+  "pair_codepoints": [
+   0,
+   1
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 0,
+    "x_max": 400,
+    "advance_total": 850
+   },
+   "after": {
+    "x_min": 0,
+    "x_max": 350,
+    "advance_total": 800
+   }
+  },
+  "boundary_marks": [],
+  "secondary_seams": null,
+  "summary": "New: \u00b7Utter joins \u00b7Tea at the baseline (the old pipeline broke there) \u2014 decided by join-count rank (no policy record involved).",
+  "explain": "sequence E67A:E652:E652:E679   config default\nsettled: qsUtter.alternate.ex-y0 qsTea.full.en-y0 qsTea_qsOy.hapax\n\nposition 0: qsUtter\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> alternate        entry=none       seam=baseline   join-count=1 prospect=0\n     mono             entry=none       seam=none       join-count=0 prospect=0\n  eliminated before ranking:\n    - (lookahead-closure) qsUtter.mono: exit x-height has no refusal-aware acceptor cell on qsTea\n  decided by: join-count (over mono entry=none seam=none)\n  settled: qsUtter.alternate.ex-y0   seam=baseline   extension=0\n\nposition 1: qsTea\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> full             entry=baseline   seam=none       join-count=1 prospect=0\n  eliminated before ranking:\n    - (pairings) qsTea.full: pairing (baseline, baseline) not allowed\n    - (entry-binding) qsTea.half: no available entry row at baseline against the committed seam\n  decided by: only-candidate\n  settled: qsTea.full.en-y0   seam=none   extension=0",
+  "provenance": [],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7Utter ~b~ \u00b7Tea | \u00b7Tea+Oy",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": null,
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsUtter.yaml",
+    "keypath": "policy.prefer[+]",
+    "suggested_record": "{cell: {exit: none}, when: {right: {family: [qsTea]}}, why: 'Reviewer rejected the M1 outcome for E67A:E652:E652:E679 (\u00b7Utter\u00b7Tea\u00b7Tea\u00b7Oy)'}",
+    "names_provenance": [],
+    "decided_stage": "join-count",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E67A:E652:E652:E679 (\u00b7Utter\u00b7Tea\u00b7Tea\u00b7Oy)"
+   },
+   "any_of": {
+    "text": "qsUtter qsTea qsTea qsOy",
+    "features": {},
+    "candidates": [
+     "\u00b7Utter ~b~ \u00b7Tea | \u00b7Tea+Oy",
+     "\u00b7Utter | \u00b7Tea | \u00b7Tea+Oy"
+    ]
+   }
+  },
+  "content_key": "0f05514028b3d2d1d6eb71542d81b56374235a3c9afa2791159d963b53b7f855"
+ },
+ {
+  "id": "u-18580",
+  "batch": 0,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "ss03": "d-5f7723a7984f",
+   "ss02+ss03": "d-5f7723a7984f",
+   "ss02+ss03+ss05": "d-5f7723a7984f"
+  },
+  "no_verdict": false,
+  "echo": "e-0055",
+  "cluster": "c-df4128e4",
+  "class": "pre-ligature-cleanup-regularized",
+  "group": "qsUtter:qsTea",
+  "codepoints": "E67A:E652:E652:E679",
+  "text_entities": "&#xE67A;&#xE652;&#xE652;&#xE679;",
+  "notation": "\u00b7Utter\u00b7Tea\u00b7Tea\u00b7Oy",
+  "notation_tokens": [
+   "\u00b7Utter",
+   "\u00b7Tea",
+   "\u00b7Tea",
+   "\u00b7Oy"
+  ],
+  "configs": [
+   "ss03",
+   "ss02+ss03",
+   "ss02+ss03+ss05"
+  ],
+  "config_note": "only under: ss03, ss02+ss03, ss02+ss03+ss05",
+  "config_gate": null,
+  "config_classes": {
+   "ss03": "pre-ligature-cleanup-regularized",
+   "ss02+ss03": "pre-ligature-cleanup-regularized",
+   "ss02+ss03+ss05": "pre-ligature-cleanup-regularized"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "ss03",
+     "ss02+ss03",
+     "ss02+ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell",
+   "seam"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsUtter",
+    "qsTea",
+    "qsTea_qsOy"
+   ],
+   "seams": [
+    "break",
+    "break"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsUtter/mono/None/x-height/ex-ext-1",
+    "qsTea/full/x-height/None/",
+    "qsTea_qsOy/hapax/None/None/"
+   ],
+   "seams": [
+    "y5",
+    "break"
+   ],
+   "extensions": [
+    1,
+    0
+   ]
+  },
+  "diff_positions": [
+   0,
+   1
+  ],
+  "pair": {
+   "left": 0,
+   "right": 1
+  },
+  "pair_codepoints": [
+   0,
+   1
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 0,
+    "x_max": 400,
+    "advance_total": 850
+   },
+   "after": {
+    "x_min": 0,
+    "x_max": 400,
+    "advance_total": 850
+   }
+  },
+  "boundary_marks": [],
+  "secondary_seams": null,
+  "summary": "New: \u00b7Utter joins \u00b7Tea at the x-height (the old pipeline broke there) \u2014 decided by qsUtter.yaml policy.extend[1] (declaration order).",
+  "explain": "sequence E67A:E652:E652:E679   config ss03\nsettled: qsUtter.mono.ex-y5.ex-ext-1 qsTea.full.en-y5 qsTea_qsOy.hapax\n\nposition 0: qsUtter\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> mono             entry=none       seam=x-height   join-count=1 prospect=0\n     alternate        entry=none       seam=baseline   join-count=1 prospect=0\n     mono             entry=none       seam=none       join-count=0 prospect=0\n  decided by: order (over alternate entry=none seam=baseline)\n  note: glyph_data/runes/qsUtter.yaml:policy.extend[1]\n  settled: qsUtter.mono.ex-y5.ex-ext-1   seam=x-height   extension=1\n\nposition 1: qsTea\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> full             entry=x-height   seam=none       join-count=1 prospect=0\n     half             entry=x-height   seam=none       join-count=1 prospect=0\n  eliminated before ranking:\n    - (lookahead-closure) qsTea.full: exit baseline has no refusal-aware acceptor cell on qsTea_qsOy\n    - (pairings) qsTea.half: pairing (x-height, x-height) not allowed\n  decided by: order (over half entry=x-height seam=none)\n  note: unlocked by ss03\n  settled: qsTea.full.en-y5   seam=none   extension=0",
+  "provenance": [
+   "glyph_data/runes/qsUtter.yaml:policy.extend[1]"
+  ],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7Utter ~x~ \u00b7Tea | \u00b7Tea+Oy",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": "03",
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsUtter.yaml",
+    "keypath": "policy.refuse[+]",
+    "suggested_record": "{exit: x-height, when: {right: {family: [qsTea]}}, why: 'Reviewer rejected the M1 outcome for E67A:E652:E652:E679 (\u00b7Utter\u00b7Tea\u00b7Tea\u00b7Oy)'}",
+    "names_provenance": [
+     "glyph_data/runes/qsUtter.yaml:policy.extend[1]"
+    ],
+    "decided_stage": "order",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E67A:E652:E652:E679 (\u00b7Utter\u00b7Tea\u00b7Tea\u00b7Oy)"
+   },
+   "any_of": {
+    "text": "qsUtter qsTea qsTea qsOy",
+    "features": {
+     "ss03": true
+    },
+    "candidates": [
+     "\u00b7Utter ~x~ \u00b7Tea | \u00b7Tea+Oy",
+     "\u00b7Utter | \u00b7Tea | \u00b7Tea+Oy"
+    ]
+   }
+  },
+  "content_key": "f66494f3b9a445832297c236f7aa704db71a55e9743a42b2f641c3d71f1aac36"
+ },
+ {
+  "id": "u-18581",
+  "batch": 0,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "ss03": "d-ed41daab59d5",
+   "ss02+ss03": "d-ed41daab59d5",
+   "ss02+ss03+ss05": "d-ed41daab59d5"
+  },
+  "no_verdict": false,
+  "echo": "e-0056",
+  "cluster": "c-ce059409",
+  "class": "pre-ligature-cleanup-regularized",
+  "group": "qsUtter:qsFee",
+  "codepoints": "E67A:E658:E652:E679",
+  "text_entities": "&#xE67A;&#xE658;&#xE652;&#xE679;",
+  "notation": "\u00b7Utter\u00b7Fee\u00b7Tea\u00b7Oy",
+  "notation_tokens": [
+   "\u00b7Utter",
+   "\u00b7Fee",
+   "\u00b7Tea",
+   "\u00b7Oy"
+  ],
+  "configs": [
+   "ss03",
+   "ss02+ss03",
+   "ss02+ss03+ss05"
+  ],
+  "config_note": "only under: ss03, ss02+ss03, ss02+ss03+ss05",
+  "config_gate": null,
+  "config_classes": {
+   "ss03": "pre-ligature-cleanup-regularized",
+   "ss02+ss03": "pre-ligature-cleanup-regularized",
+   "ss02+ss03+ss05": "pre-ligature-cleanup-regularized"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "ss03",
+     "ss02+ss03",
+     "ss02+ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell",
+   "seam"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsUtter",
+    "qsFee.ex-y5.before-may.ex-ext-3",
+    "qsTea_qsOy"
+   ],
+   "seams": [
+    "break",
+    "break"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsUtter/mono/None/x-height/ex-ext-1",
+    "qsFee/reversed-loop/x-height/None/",
+    "qsTea_qsOy/hapax/None/None/"
+   ],
+   "seams": [
+    "y5",
+    "break"
+   ],
+   "extensions": [
+    1,
+    0
+   ]
+  },
+  "diff_positions": [
+   0,
+   1
+  ],
+  "pair": {
+   "left": 0,
+   "right": 1
+  },
+  "pair_codepoints": [
+   0,
+   1
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 0,
+    "x_max": 750,
+    "advance_total": 1200
+   },
+   "after": {
+    "x_min": 0,
+    "x_max": 550,
+    "advance_total": 1000
+   }
+  },
+  "boundary_marks": [],
+  "secondary_seams": null,
+  "summary": "New: \u00b7Utter joins \u00b7Fee at the x-height (the old pipeline broke there) \u2014 decided by qsUtter.yaml policy.extend[0] (join-count rank).",
+  "explain": "sequence E67A:E658:E652:E679   config ss03\nsettled: qsUtter.mono.ex-y5.ex-ext-1 qsFee.reversed-loop.en-y5 qsTea_qsOy.hapax\n\nposition 0: qsUtter\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> mono             entry=none       seam=x-height   join-count=1 prospect=0\n     mono             entry=none       seam=none       join-count=0 prospect=0\n  eliminated before ranking:\n    - (lookahead-closure) qsUtter.alternate: exit baseline has no refusal-aware acceptor cell on qsFee\n  decided by: join-count (over mono entry=none seam=none)\n  note: glyph_data/runes/qsUtter.yaml:policy.extend[0]\n  settled: qsUtter.mono.ex-y5.ex-ext-1   seam=x-height   extension=1\n\nposition 1: qsFee\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> reversed-loop    entry=x-height   seam=none       join-count=1 prospect=0\n  eliminated before ranking:\n    - (entry-binding) qsFee.loop: no available entry row at x-height against the committed seam\n  decided by: only-candidate\n  settled: qsFee.reversed-loop.en-y5   seam=none   extension=0",
+  "provenance": [
+   "glyph_data/runes/qsUtter.yaml:policy.extend[0]"
+  ],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7Utter ~x~ \u00b7Fee | \u00b7Tea+Oy",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": "03",
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsUtter.yaml",
+    "keypath": "policy.refuse[+]",
+    "suggested_record": "{exit: x-height, when: {right: {family: [qsFee]}}, why: 'Reviewer rejected the M1 outcome for E67A:E658:E652:E679 (\u00b7Utter\u00b7Fee\u00b7Tea\u00b7Oy)'}",
+    "names_provenance": [
+     "glyph_data/runes/qsUtter.yaml:policy.extend[0]"
+    ],
+    "decided_stage": "join-count",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E67A:E658:E652:E679 (\u00b7Utter\u00b7Fee\u00b7Tea\u00b7Oy)"
+   },
+   "any_of": {
+    "text": "qsUtter qsFee qsTea qsOy",
+    "features": {
+     "ss03": true
+    },
+    "candidates": [
+     "\u00b7Utter ~x~ \u00b7Fee | \u00b7Tea+Oy",
+     "\u00b7Utter | \u00b7Fee | \u00b7Tea+Oy"
+    ]
+   }
+  },
+  "content_key": "ca342c8ccf42653abf190db76b2b5947df6a9686b7d03d95366e76efe6b28b85"
+ },
+ {
+  "id": "u-18582",
+  "batch": 0,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "default": "d-5054092002a5",
+   "ss03": "d-5054092002a5",
+   "ss04": "d-5054092002a5",
+   "ss05": "d-5054092002a5",
+   "ss02": "d-5054092002a5",
+   "ss02+ss03": "d-5054092002a5",
+   "ss02+ss03+ss05": "d-5054092002a5"
+  },
+  "no_verdict": false,
+  "echo": "e-0057",
+  "cluster": "c-aa3ab6e1",
+  "class": "pre-ligature-cleanup-regularized",
+  "group": "qsUtter:qsIt",
+  "codepoints": "E67A:E670:E652:E679",
+  "text_entities": "&#xE67A;&#xE670;&#xE652;&#xE679;",
+  "notation": "\u00b7Utter\u00b7It\u00b7Tea\u00b7Oy",
+  "notation_tokens": [
+   "\u00b7Utter",
+   "\u00b7It",
+   "\u00b7Tea",
+   "\u00b7Oy"
+  ],
+  "configs": [
+   "default",
+   "ss03",
+   "ss04",
+   "ss05",
+   "ss02",
+   "ss02+ss03",
+   "ss02+ss03+ss05"
+  ],
+  "config_note": "only under: default, ss03, ss04, ss05, ss02, ss02+ss03, ss02+ss03+ss05",
+  "config_gate": null,
+  "config_classes": {
+   "default": "pre-ligature-cleanup-regularized",
+   "ss02": "pre-ligature-cleanup-regularized",
+   "ss03": "pre-ligature-cleanup-regularized",
+   "ss04": "pre-ligature-cleanup-regularized",
+   "ss05": "pre-ligature-cleanup-regularized",
+   "ss02+ss03": "pre-ligature-cleanup-regularized",
+   "ss02+ss03+ss05": "pre-ligature-cleanup-regularized"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss03",
+     "ss04",
+     "ss05",
+     "ss02",
+     "ss02+ss03",
+     "ss02+ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell",
+   "seam"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsUtter",
+    "qsIt",
+    "qsTea_qsOy"
+   ],
+   "seams": [
+    "break",
+    "break"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsUtter/mono/None/x-height/",
+    "qsIt/hapax/x-height/None/",
+    "qsTea_qsOy/hapax/None/None/"
+   ],
+   "seams": [
+    "y5",
+    "break"
+   ],
+   "extensions": [
+    0,
+    0
+   ]
+  },
+  "diff_positions": [
+   0,
+   1
+  ],
+  "pair": {
+   "left": 0,
+   "right": 1
+  },
+  "pair_codepoints": [
+   0,
+   1
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 0,
+    "x_max": 400,
+    "advance_total": 850
+   },
+   "after": {
+    "x_min": 0,
+    "x_max": 350,
+    "advance_total": 800
+   }
+  },
+  "boundary_marks": [],
+  "secondary_seams": null,
+  "summary": "New: \u00b7Utter joins \u00b7It at the x-height (the old pipeline broke there) \u2014 decided by declaration order (no policy record involved).",
+  "explain": "sequence E67A:E670:E652:E679   config default\nsettled: qsUtter.mono.ex-y5 qsIt.hapax.en-y5 qsTea_qsOy.hapax\n\nposition 0: qsUtter\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> mono             entry=none       seam=x-height   join-count=1 prospect=0\n     alternate        entry=none       seam=baseline   join-count=1 prospect=0\n     mono             entry=none       seam=none       join-count=0 prospect=0\n  decided by: order (over alternate entry=none seam=baseline)\n  settled: qsUtter.mono.ex-y5   seam=x-height   extension=0\n\nposition 1: qsIt\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> hapax            entry=x-height   seam=none       join-count=1 prospect=0\n  eliminated before ranking:\n    - (lookahead-closure) qsIt.hapax: exit baseline has no refusal-aware acceptor cell on qsTea_qsOy\n    - (pairings) qsIt.hapax: pairing (x-height, x-height) not allowed\n  decided by: only-candidate\n  settled: qsIt.hapax.en-y5   seam=none   extension=0",
+  "provenance": [],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7Utter ~x~ \u00b7It | \u00b7Tea+Oy",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": null,
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsUtter.yaml",
+    "keypath": "policy.prefer[+]",
+    "suggested_record": "{cell: {exit: none}, when: {right: {family: [qsIt]}}, why: 'Reviewer rejected the M1 outcome for E67A:E670:E652:E679 (\u00b7Utter\u00b7It\u00b7Tea\u00b7Oy)'}",
+    "names_provenance": [],
+    "decided_stage": "order",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E67A:E670:E652:E679 (\u00b7Utter\u00b7It\u00b7Tea\u00b7Oy)"
+   },
+   "any_of": {
+    "text": "qsUtter qsIt qsTea qsOy",
+    "features": {},
+    "candidates": [
+     "\u00b7Utter ~x~ \u00b7It | \u00b7Tea+Oy",
+     "\u00b7Utter | \u00b7It | \u00b7Tea+Oy"
+    ]
+   }
+  },
+  "content_key": "c81fff5a521dfcaba8042d1c2fe7db2a899ed39a061b9968c4c832ca42cf9bc8"
+ },
+ {
+  "id": "u-18583",
+  "batch": 0,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "default": "d-2485edf81e12",
+   "ss03": "d-2485edf81e12",
+   "ss04": "d-2485edf81e12",
+   "ss05": "d-2485edf81e12",
+   "ss02": "d-2485edf81e12",
+   "ss02+ss03": "d-2485edf81e12",
+   "ss02+ss03+ss05": "d-2485edf81e12"
+  },
+  "no_verdict": false,
+  "echo": "e-0058",
+  "cluster": "c-865efb04",
+  "class": "pre-ligature-cleanup-regularized",
+  "group": "qsUtter:qsOy",
+  "codepoints": "E67A:E679:E652:E679",
+  "text_entities": "&#xE67A;&#xE679;&#xE652;&#xE679;",
+  "notation": "\u00b7Utter\u00b7Oy\u00b7Tea\u00b7Oy",
+  "notation_tokens": [
+   "\u00b7Utter",
+   "\u00b7Oy",
+   "\u00b7Tea",
+   "\u00b7Oy"
+  ],
+  "configs": [
+   "default",
+   "ss03",
+   "ss04",
+   "ss05",
+   "ss02",
+   "ss02+ss03",
+   "ss02+ss03+ss05"
+  ],
+  "config_note": "only under: default, ss03, ss04, ss05, ss02, ss02+ss03, ss02+ss03+ss05",
+  "config_gate": null,
+  "config_classes": {
+   "default": "pre-ligature-cleanup-regularized",
+   "ss02": "pre-ligature-cleanup-regularized",
+   "ss03": "pre-ligature-cleanup-regularized",
+   "ss04": "pre-ligature-cleanup-regularized",
+   "ss05": "pre-ligature-cleanup-regularized",
+   "ss02+ss03": "pre-ligature-cleanup-regularized",
+   "ss02+ss03+ss05": "pre-ligature-cleanup-regularized"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss03",
+     "ss04",
+     "ss05",
+     "ss02",
+     "ss02+ss03",
+     "ss02+ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell",
+   "seam"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsUtter",
+    "qsOy",
+    "qsTea_qsOy"
+   ],
+   "seams": [
+    "break",
+    "break"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsUtter/mono/None/x-height/",
+    "qsOy/hapax/x-height/None/",
+    "qsTea_qsOy/hapax/None/None/"
+   ],
+   "seams": [
+    "y5",
+    "break"
+   ],
+   "extensions": [
+    0,
+    0
+   ]
+  },
+  "diff_positions": [
+   0,
+   1
+  ],
+  "pair": {
+   "left": 0,
+   "right": 1
+  },
+  "pair_codepoints": [
+   0,
+   1
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 0,
+    "x_max": 750,
+    "advance_total": 1200
+   },
+   "after": {
+    "x_min": 0,
+    "x_max": 550,
+    "advance_total": 1000
+   }
+  },
+  "boundary_marks": [],
+  "secondary_seams": null,
+  "summary": "New: \u00b7Utter joins \u00b7Oy at the x-height (the old pipeline broke there) \u2014 decided by the only surviving candidate (no policy record involved).",
+  "explain": "sequence E67A:E679:E652:E679   config default\nsettled: qsUtter.mono.ex-y5 qsOy.hapax.en-y5 qsTea_qsOy.hapax\n\nposition 0: qsUtter\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> mono             entry=none       seam=x-height   join-count=1 prospect=0\n     mono             entry=none       seam=none       join-count=0 prospect=0\n  eliminated before ranking:\n    - (lookahead-closure) qsUtter.alternate: exit baseline has no refusal-aware acceptor cell on qsOy\n  decided by: join-count (over mono entry=none seam=none)\n  settled: qsUtter.mono.ex-y5   seam=x-height   extension=0\n\nposition 1: qsOy\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> hapax            entry=x-height   seam=none       join-count=1 prospect=0\n  eliminated before ranking:\n    - (lookahead-closure) qsOy.hapax: exit baseline has no refusal-aware acceptor cell on qsTea_qsOy\n  decided by: only-candidate\n  settled: qsOy.hapax.en-y5   seam=none   extension=0",
+  "provenance": [],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7Utter ~x~ \u00b7Oy | \u00b7Tea+Oy",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": null,
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsUtter.yaml",
+    "keypath": "policy.prefer[+]",
+    "suggested_record": "{cell: {exit: none}, when: {right: {family: [qsOy]}}, why: 'Reviewer rejected the M1 outcome for E67A:E679:E652:E679 (\u00b7Utter\u00b7Oy\u00b7Tea\u00b7Oy)'}",
+    "names_provenance": [],
+    "decided_stage": "join-count",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E67A:E679:E652:E679 (\u00b7Utter\u00b7Oy\u00b7Tea\u00b7Oy)"
+   },
+   "any_of": {
+    "text": "qsUtter qsOy qsTea qsOy",
+    "features": {},
+    "candidates": [
+     "\u00b7Utter ~x~ \u00b7Oy | \u00b7Tea+Oy",
+     "\u00b7Utter | \u00b7Oy | \u00b7Tea+Oy"
+    ]
+   }
+  },
+  "content_key": "39b23b2b1865e0dc85fd825bb087c2385ade45c9b6edcb447709882fa3c4ae33"
+ }
+]

@@ -1,0 +1,15 @@
+{"runes": 6, "letters": 4, "ligs": 2, "windows": 9165, "rules": 182, "cells": 44, "cpu": 1.048, "wall": 1.048}
+{"runes": 8, "letters": 5, "ligs": 3, "windows": 22523, "rules": 229, "cells": 52, "cpu": 2.273, "wall": 2.273}
+{"runes": 10, "letters": 7, "ligs": 3, "windows": 48834, "rules": 293, "cells": 69, "cpu": 4.628, "wall": 4.628}
+{"runes": 12, "letters": 9, "ligs": 3, "windows": 101751, "rules": 508, "cells": 103, "cpu": 10.342, "wall": 10.349}
+{"runes": 14, "letters": 11, "ligs": 3, "windows": 183347, "rules": 735, "cells": 122, "cpu": 22.931, "wall": 22.934}
+{"runes": 16, "letters": 13, "ligs": 3, "windows": 382846, "rules": 1848, "cells": 157, "cpu": 51.619, "wall": 51.625}
+{"runes": 18, "letters": 15, "ligs": 3, "windows": 682842, "rules": 2667, "cells": 197, "cpu": 92.176, "wall": 92.296}
+
+runes_a->runes_b   window exponent   cpu exponent
+ 6-> 8   windows  3.13   cpu  2.69
+ 8->10   windows  3.47   cpu  3.19
+10->12   windows  4.03   cpu  4.41
+12->14   windows  3.82   cpu  5.17
+14->16   windows  5.51   cpu  6.08
+16->18   windows  4.91   cpu  4.92

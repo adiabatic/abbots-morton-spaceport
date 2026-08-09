@@ -1,0 +1,780 @@
+[
+ {
+  "file": "raw/perf/m1-pipeline/build_tables-default.prof",
+  "total_tottime_s": 266.387,
+  "pct": {
+   "python_thirdparty": 0.05,
+   "python_repo": 82.03,
+   "C_interpreter_builtin": 17.92
+  },
+  "seconds": {
+   "python_thirdparty": 0.124,
+   "python_repo": 218.528,
+   "C_interpreter_builtin": 47.735
+  },
+  "top": [
+   [
+    45.846,
+    "python_repo rebuild/pipeline/settle.py:candidates"
+   ],
+   [
+    20.906,
+    "C_interpreter_builtin ~:<method 'get' of 'dict' objects>"
+   ],
+   [
+    15.947,
+    "python_repo rebuild/pipeline/settle.py:_transition_trace_uncached"
+   ],
+   [
+    12.766,
+    "python_repo rebuild/pipeline/settle.py:_pairing_allowed"
+   ],
+   [
+    11.355,
+    "python_repo rebuild/pipeline/settle.py:_virtual_left"
+   ],
+   [
+    9.301,
+    "python_repo rebuild/pipeline/settle.py:_prospect"
+   ],
+   [
+    8.912,
+    "python_repo rebuild/pipeline/settle.py:_exit_sources"
+   ],
+   [
+    8.525,
+    "python_repo <string>:__hash__"
+   ],
+   [
+    8.488,
+    "python_repo rebuild/pipeline/settle.py:cond_matches_right"
+   ],
+   [
+    7.768,
+    "python_repo rebuild/pipeline/settle.py:_prefer_favors"
+   ],
+   [
+    6.821,
+    "python_repo rebuild/pipeline/settle.py:_acceptor_exists"
+   ],
+   [
+    6.301,
+    "python_repo rebuild/pipeline/settle.py:transition_trace"
+   ],
+   [
+    6.172,
+    "python_repo rebuild/pipeline/settle.py:_commit"
+   ],
+   [
+    6.093,
+    "python_repo rebuild/pipeline/settle.py:when_matches"
+   ],
+   [
+    5.584,
+    "C_interpreter_builtin ~:<built-in method builtins.hash>"
+   ],
+   [
+    5.016,
+    "python_repo rebuild/pipeline/settle.py:_apply_prefers"
+   ],
+   [
+    4.723,
+    "python_repo rebuild/pipeline/settle.py:_entry_available"
+   ],
+   [
+    4.561,
+    "C_interpreter_builtin ~:<method 'append' of 'list' objects>"
+   ],
+   [
+    4.46,
+    "python_repo rebuild/pipeline/settle.py:_refusal_hit"
+   ],
+   [
+    4.024,
+    "python_repo rebuild/pipeline/settle.py:cond_matches_left"
+   ]
+  ]
+ },
+ {
+  "file": "raw/perf/review-surface/prof1500-phase1.prof",
+  "total_tottime_s": 2.955,
+  "pct": {
+   "C_interpreter_builtin": 10.98,
+   "C_native_library": 0.22,
+   "python_thirdparty": 2.81,
+   "python_repo": 85.99
+  },
+  "seconds": {
+   "C_interpreter_builtin": 0.324,
+   "C_native_library": 0.007,
+   "python_thirdparty": 0.083,
+   "python_repo": 2.541
+  },
+  "top": [
+   [
+    0.767,
+    "python_repo rebuild/review/ink.py:<genexpr>"
+   ],
+   [
+    0.261,
+    "python_repo rebuild/review/ink.py:<genexpr>"
+   ],
+   [
+    0.193,
+    "python_repo rebuild/validation/shaping.py:shape"
+   ],
+   [
+    0.181,
+    "python_repo rebuild/review/ink.py:translate_outline"
+   ],
+   [
+    0.147,
+    "C_interpreter_builtin ~:<built-in method builtins.repr>"
+   ],
+   [
+    0.114,
+    "python_repo rebuild/pipeline/settle.py:candidates"
+   ],
+   [
+    0.082,
+    "python_repo rebuild/review/ink.py:<genexpr>"
+   ],
+   [
+    0.072,
+    "python_repo rebuild/pipeline/settle.py:_transition_trace_uncached"
+   ],
+   [
+    0.068,
+    "python_repo rebuild/review/ink.py:config_diff"
+   ],
+   [
+    0.062,
+    "python_repo rebuild/review/build.py:<genexpr>"
+   ],
+   [
+    0.033,
+    "python_repo rebuild/review/enrich.py:enrich"
+   ],
+   [
+    0.03,
+    "C_interpreter_builtin ~:<method 'append' of 'list' objects>"
+   ],
+   [
+    0.029,
+    "python_repo rebuild/pipeline/settle.py:_commit"
+   ],
+   [
+    0.028,
+    "C_interpreter_builtin ~:<method 'get' of 'dict' objects>"
+   ],
+   [
+    0.027,
+    "python_repo rebuild/pipeline/settle.py:_pairing_allowed"
+   ],
+   [
+    0.027,
+    "python_repo rebuild/pipeline/settle.py:_virtual_left"
+   ],
+   [
+    0.023,
+    "python_repo rebuild/review/ink.py:run_ink"
+   ],
+   [
+    0.023,
+    "C_interpreter_builtin ~:<built-in method builtins.len>"
+   ],
+   [
+    0.022,
+    "python_repo rebuild/review/ink.py:<genexpr>"
+   ],
+   [
+    0.021,
+    "python_repo rebuild/pipeline/settle.py:_apply_prefers"
+   ]
+  ]
+ },
+ {
+  "file": "raw/perf/review-surface/prof1500-phase2.prof",
+  "total_tottime_s": 1.188,
+  "pct": {
+   "C_interpreter_builtin": 16.74,
+   "C_native_library": 0.13,
+   "python_repo": 48.23,
+   "python_thirdparty": 34.9
+  },
+  "seconds": {
+   "C_interpreter_builtin": 0.199,
+   "C_native_library": 0.002,
+   "python_repo": 0.573,
+   "python_thirdparty": 0.415
+  },
+  "top": [
+   [
+    0.25,
+    "python_repo rebuild/pipeline/spec_load.py:_check"
+   ],
+   [
+    0.07,
+    "python_repo rebuild/review/build.py:config_badge"
+   ],
+   [
+    0.052,
+    "python_thirdparty .venv/lib/python3.14/site-packages/yaml/emitter.py:analyze_scalar"
+   ],
+   [
+    0.04,
+    "C_interpreter_builtin ~:<built-in method builtins.len>"
+   ],
+   [
+    0.038,
+    "python_repo rebuild/review/build.py:<genexpr>"
+   ],
+   [
+    0.037,
+    "C_interpreter_builtin ~:<built-in method builtins.isinstance>"
+   ],
+   [
+    0.036,
+    "python_thirdparty .venv/lib/python3.14/site-packages/yaml/serializer.py:serialize_node"
+   ],
+   [
+    0.035,
+    "python_repo rebuild/review/build.py:_config_features"
+   ],
+   [
+    0.028,
+    "python_repo test/test_shaping.py:parse_expect"
+   ],
+   [
+    0.024,
+    "python_thirdparty .venv/lib/python3.14/site-packages/yaml/emitter.py:emit"
+   ],
+   [
+    0.021,
+    "python_thirdparty .venv/lib/python3.14/site-packages/yaml/emitter.py:write_single_quoted"
+   ],
+   [
+    0.018,
+    "python_thirdparty .venv/lib/python3.14/site-packages/yaml/emitter.py:need_more_events"
+   ],
+   [
+    0.018,
+    "python_thirdparty .venv/lib/python3.14/site-packages/yaml/emitter.py:expect_node"
+   ],
+   [
+    0.017,
+    "python_thirdparty .venv/lib/python3.14/site-packages/yaml/emitter.py:write_plain"
+   ],
+   [
+    0.017,
+    "python_thirdparty .venv/lib/python3.14/site-packages/yaml/emitter.py:prepare_tag"
+   ],
+   [
+    0.017,
+    "python_thirdparty /opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/json/encoder.py:iterencode"
+   ],
+   [
+    0.015,
+    "C_interpreter_builtin ~:<method 'split' of 'str' objects>"
+   ],
+   [
+    0.014,
+    "python_repo rebuild/pipeline/spec_load.py:_check_object"
+   ],
+   [
+    0.013,
+    "python_repo rebuild/review/build.py:_candidate_constraint_sets"
+   ],
+   [
+    0.013,
+    "python_thirdparty .venv/lib/python3.14/site-packages/yaml/emitter.py:need_events"
+   ]
+  ]
+ },
+ {
+  "file": "raw/perf/review-surface/warm-rebuild.prof",
+  "total_tottime_s": 49.339,
+  "pct": {
+   "python_repo": 62.42,
+   "python_thirdparty": 18.04,
+   "C_interpreter_builtin": 14.27,
+   "C_native_library": 5.28
+  },
+  "seconds": {
+   "python_repo": 30.795,
+   "python_thirdparty": 8.902,
+   "C_interpreter_builtin": 7.039,
+   "C_native_library": 2.603
+  },
+  "top": [
+   [
+    5.548,
+    "python_repo rebuild/review/build.py:config_badge"
+   ],
+   [
+    4.83,
+    "python_thirdparty /opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/json/decoder.py:raw_decode"
+   ],
+   [
+    4.429,
+    "python_repo rebuild/review/build.py:check_unit"
+   ],
+   [
+    3.345,
+    "python_repo rebuild/review/build.py:<genexpr>"
+   ],
+   [
+    2.718,
+    "python_repo rebuild/review/build.py:_config_features"
+   ],
+   [
+    2.286,
+    "python_thirdparty /opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/json/encoder.py:iterencode"
+   ],
+   [
+    2.193,
+    "C_native_library ~:<method 'compress' of 'zlib.Compress' objects>"
+   ],
+   [
+    1.978,
+    "python_repo rebuild/review/build.py:_seam_home_record"
+   ],
+   [
+    1.826,
+    "C_interpreter_builtin ~:<method 'get' of 'dict' objects>"
+   ],
+   [
+    1.423,
+    "C_interpreter_builtin ~:<method 'split' of 'str' objects>"
+   ],
+   [
+    1.408,
+    "python_repo rebuild/review/build.py:_cached_seam_home"
+   ],
+   [
+    1.134,
+    "python_repo rebuild/review/build.py:_candidate_constraint_sets"
+   ],
+   [
+    0.946,
+    "python_repo rebuild/review/audit.py:load_audit"
+   ],
+   [
+    0.724,
+    "C_interpreter_builtin ~:<method 'items' of 'dict' objects>"
+   ],
+   [
+    0.655,
+    "python_repo rebuild/review/audit.py:build_units"
+   ],
+   [
+    0.612,
+    "python_repo rebuild/review/build.py:build_m1"
+   ],
+   [
+    0.606,
+    "C_interpreter_builtin ~:<built-in method builtins.isinstance>"
+   ],
+   [
+    0.521,
+    "C_interpreter_builtin ~:<method 'join' of 'str' objects>"
+   ],
+   [
+    0.493,
+    "python_repo rebuild/review/unit_cache.py:signature_key"
+   ],
+   [
+    0.49,
+    "python_repo rebuild/review/audit.py:parse_codepoints"
+   ]
+  ]
+ },
+ {
+  "file": "raw/perf/font-build/senior_fea.prof",
+  "total_tottime_s": 7.412,
+  "pct": {
+   "python_thirdparty": 0.01,
+   "python_repo": 64.02,
+   "C_interpreter_builtin": 35.97,
+   "C_native_library": 0.0
+  },
+  "seconds": {
+   "python_thirdparty": 0.001,
+   "python_repo": 4.745,
+   "C_interpreter_builtin": 2.666,
+   "C_native_library": 0.0
+  },
+  "top": [
+   [
+    1.2,
+    "python_repo tools/quikscript_fea.py:_expand_join_variants"
+   ],
+   [
+    1.11,
+    "C_interpreter_builtin ~:<method 'update' of 'set' objects>"
+   ],
+   [
+    0.803,
+    "python_repo tools/quikscript_fea.py:_split_fea_context_tokens"
+   ],
+   [
+    0.523,
+    "python_repo tools/quikscript_fea.py:<genexpr>"
+   ],
+   [
+    0.344,
+    "C_interpreter_builtin ~:<method 'startswith' of 'str' objects>"
+   ],
+   [
+    0.284,
+    "C_interpreter_builtin ~:<built-in method builtins.len>"
+   ],
+   [
+    0.266,
+    "C_interpreter_builtin ~:<method 'isspace' of 'str' objects>"
+   ],
+   [
+    0.207,
+    "python_repo tools/quikscript_fea.py:_emit_narrow_mid_entry_strip_guards"
+   ],
+   [
+    0.203,
+    "python_repo tools/quikscript_fea.py:<genexpr>"
+   ],
+   [
+    0.161,
+    "python_repo tools/quikscript_fea.py:<genexpr>"
+   ],
+   [
+    0.153,
+    "C_interpreter_builtin ~:<method 'get' of 'dict' objects>"
+   ],
+   [
+    0.114,
+    "python_repo tools/quikscript_fea.py:_source_strips_own_exit_before_mid"
+   ],
+   [
+    0.094,
+    "python_repo tools/quikscript_fea.py:_meta"
+   ],
+   [
+    0.092,
+    "C_interpreter_builtin ~:<method 'values' of 'dict' objects>"
+   ],
+   [
+    0.09,
+    "python_repo tools/quikscript_fea.py:_parse_ignore_sub_line"
+   ],
+   [
+    0.084,
+    "C_interpreter_builtin ~:<method 'add' of 'set' objects>"
+   ],
+   [
+    0.083,
+    "python_repo tools/quikscript_ir.py:all_entry_ys"
+   ],
+   [
+    0.082,
+    "python_repo tools/quikscript_fea.py:_coalesce_parsed_ignore_rules"
+   ],
+   [
+    0.08,
+    "C_interpreter_builtin ~:<built-in method builtins.sorted>"
+   ],
+   [
+    0.078,
+    "python_repo tools/quikscript_ir.py:entry_ys"
+   ]
+  ]
+ },
+ {
+  "file": "raw/perf/font-build/buildfont_senior.prof",
+  "total_tottime_s": 19.147,
+  "pct": {
+   "python_repo": 4.2,
+   "python_thirdparty": 74.47,
+   "C_interpreter_builtin": 20.6,
+   "C_native_library": 0.73
+  },
+  "seconds": {
+   "python_repo": 0.803,
+   "python_thirdparty": 14.259,
+   "C_interpreter_builtin": 3.945,
+   "C_native_library": 0.139
+  },
+  "top": [
+   [
+    2.77,
+    "python_thirdparty .venv/lib/python3.14/site-packages/fontTools/otlLib/builder.py:find_chainable_subst"
+   ],
+   [
+    1.72,
+    "python_thirdparty .venv/lib/python3.14/site-packages/fontTools/ttLib/tables/otBase.py:compile"
+   ],
+   [
+    1.57,
+    "python_thirdparty .venv/lib/python3.14/site-packages/fontTools/otlLib/builder.py:<genexpr>"
+   ],
+   [
+    1.043,
+    "C_interpreter_builtin ~:<built-in method builtins.next>"
+   ],
+   [
+    0.678,
+    "C_interpreter_builtin ~:<built-in method builtins.hasattr>"
+   ],
+   [
+    0.676,
+    "python_thirdparty /opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/copy.py:deepcopy"
+   ],
+   [
+    0.459,
+    "python_thirdparty .venv/lib/python3.14/site-packages/fontTools/ttLib/tables/otBase.py:__getattr__"
+   ],
+   [
+    0.39,
+    "C_interpreter_builtin ~:<built-in method builtins.isinstance>"
+   ],
+   [
+    0.368,
+    "C_interpreter_builtin ~:<method 'get' of 'dict' objects>"
+   ],
+   [
+    0.331,
+    "python_thirdparty .venv/lib/python3.14/site-packages/fontTools/ttLib/tables/otBase.py:decompile"
+   ],
+   [
+    0.322,
+    "C_interpreter_builtin ~:<method 'append' of 'list' objects>"
+   ],
+   [
+    0.31,
+    "python_thirdparty .venv/lib/python3.14/site-packages/fontTools/ttLib/tables/otBase.py:_doneWriting"
+   ],
+   [
+    0.296,
+    "python_thirdparty .venv/lib/python3.14/site-packages/fontTools/otlLib/builder.py:is_subtable_break"
+   ],
+   [
+    0.241,
+    "python_thirdparty .venv/lib/python3.14/site-packages/fontTools/ttLib/tables/otTables.py:preWrite"
+   ],
+   [
+    0.236,
+    "python_thirdparty .venv/lib/python3.14/site-packages/fontTools/feaLib/parser.py:parse_glyphclass_"
+   ],
+   [
+    0.212,
+    "python_thirdparty /opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/copy.py:_deepcopy_dict"
+   ],
+   [
+    0.202,
+    "python_thirdparty /opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/copy.py:_reconstruct"
+   ],
+   [
+    0.191,
+    "python_repo tools/quikscript_join_analysis.py:_pair_specific_generated_variants"
+   ],
+   [
+    0.179,
+    "python_thirdparty /opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/copy.py:_deepcopy_list"
+   ],
+   [
+    0.157,
+    "python_thirdparty .venv/lib/python3.14/site-packages/fontTools/ttLib/tables/otBase.py:writeCountReference"
+   ]
+  ]
+ },
+ {
+  "file": "raw/perf/test-suite/rule-witnesses.prof",
+  "total_tottime_s": 213.17,
+  "pct": {
+   "python_repo": 77.96,
+   "C_interpreter_builtin": 22.04
+  },
+  "seconds": {
+   "python_repo": 166.188,
+   "C_interpreter_builtin": 46.981
+  },
+  "top": [
+   [
+    47.011,
+    "python_repo rebuild/pipeline/settle.py:form_ligatures"
+   ],
+   [
+    18.124,
+    "python_repo rebuild/pipeline/conform.py:_assemble_window_witness"
+   ],
+   [
+    15.95,
+    "python_repo rebuild/pipeline/conform.py:_refolds_intact"
+   ],
+   [
+    12.268,
+    "python_repo rebuild/pipeline/settle.py:<genexpr>"
+   ],
+   [
+    11.348,
+    "C_interpreter_builtin ~:<built-in method builtins.len>"
+   ],
+   [
+    11.285,
+    "python_repo rebuild/pipeline/conform.py:_formed_liga_guard_repair"
+   ],
+   [
+    9.371,
+    "C_interpreter_builtin ~:<method 'get' of 'dict' objects>"
+   ],
+   [
+    7.872,
+    "C_interpreter_builtin ~:<built-in method builtins.sorted>"
+   ],
+   [
+    6.628,
+    "C_interpreter_builtin ~:<method 'append' of 'list' objects>"
+   ],
+   [
+    6.374,
+    "python_repo rebuild/pipeline/settle.py:candidates"
+   ],
+   [
+    4.616,
+    "python_repo rebuild/pipeline/conform.py:_window_witness_candidates"
+   ],
+   [
+    4.573,
+    "python_repo rebuild/pipeline/conform.py:_label_family"
+   ],
+   [
+    3.325,
+    "python_repo rebuild/pipeline/conform.py:_first_match_rows"
+   ],
+   [
+    2.721,
+    "C_interpreter_builtin ~:<method 'split' of 'str' objects>"
+   ],
+   [
+    2.683,
+    "python_repo rebuild/pipeline/settle.py:_transition_trace_uncached"
+   ],
+   [
+    2.608,
+    "python_repo <string>:__hash__"
+   ],
+   [
+    2.574,
+    "python_repo rebuild/pipeline/settle.py:<genexpr>"
+   ],
+   [
+    2.498,
+    "python_repo rebuild/pipeline/settle.py:_guard_state"
+   ],
+   [
+    2.467,
+    "python_repo <frozen importlib._bootstrap>:_handle_fromlist"
+   ],
+   [
+    2.146,
+    "C_interpreter_builtin ~:<method 'items' of 'dict' objects>"
+   ]
+  ]
+ },
+ {
+  "file": "raw/perf/test-suite/sweep-shard.prof",
+  "total_tottime_s": 2.993,
+  "pct": {
+   "python_repo": 89.92,
+   "C_interpreter_builtin": 6.74,
+   "python_thirdparty": 3.33,
+   "C_native_library": 0.0
+  },
+  "seconds": {
+   "python_repo": 2.691,
+   "C_interpreter_builtin": 0.202,
+   "python_thirdparty": 0.1,
+   "C_native_library": 0.0
+  },
+  "top": [
+   [
+    2.066,
+    "python_repo test/quikscript_shaping_helpers.py:_shape"
+   ],
+   [
+    0.307,
+    "python_repo test/test_calt_regressions.py:_collect_pair_must_not_join_regardless_of_what_comes_before_or_after"
+   ],
+   [
+    0.104,
+    "C_interpreter_builtin ~:<method 'get' of 'dict' objects>"
+   ],
+   [
+    0.093,
+    "python_repo test/quikscript_shaping_helpers.py:_gid_to_full_name"
+   ],
+   [
+    0.078,
+    "C_interpreter_builtin ~:<method 'join' of 'str' objects>"
+   ],
+   [
+    0.075,
+    "python_thirdparty .venv/lib/python3.14/site-packages/fontTools/ttLib/ttFont.py:getGlyphName"
+   ],
+   [
+    0.046,
+    "python_repo test/quikscript_shaping_helpers.py:_qs_text"
+   ],
+   [
+    0.042,
+    "python_repo test/quikscript_shaping_helpers.py:_pair_join_ys"
+   ],
+   [
+    0.038,
+    "python_repo test/quikscript_shaping_helpers.py:_compiled_meta"
+   ],
+   [
+    0.033,
+    "python_repo test/quikscript_shaping_helpers.py:_entry_ys"
+   ],
+   [
+    0.032,
+    "python_repo test/quikscript_shaping_helpers.py:_exit_ys"
+   ],
+   [
+    0.023,
+    "python_thirdparty .venv/lib/python3.14/site-packages/fontTools/ttLib/ttFont.py:getGlyphOrder"
+   ],
+   [
+    0.018,
+    "python_repo test/test_calt_regressions.py:<genexpr>"
+   ],
+   [
+    0.015,
+    "python_repo test/test_calt_regressions.py:<genexpr>"
+   ],
+   [
+    0.013,
+    "C_interpreter_builtin ~:<method 'append' of 'list' objects>"
+   ],
+   [
+    0.005,
+    "C_interpreter_builtin ~:<built-in method builtins.len>"
+   ],
+   [
+    0.001,
+    "python_repo test/quikscript_shaping_helpers.py:_font"
+   ],
+   [
+    0.0,
+    "python_thirdparty .venv/lib/python3.14/site-packages/fontTools/cffLib/__init__.py:__getitem__"
+   ],
+   [
+    0.0,
+    "C_interpreter_builtin ~:<method 'read' of '_io.BufferedReader' objects>"
+   ],
+   [
+    0.0,
+    "python_thirdparty .venv/lib/python3.14/site-packages/fontTools/cffLib/__init__.py:__init__"
+   ]
+  ]
+ }
+]

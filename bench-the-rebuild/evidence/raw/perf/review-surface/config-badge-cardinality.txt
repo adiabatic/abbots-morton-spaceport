@@ -1,0 +1,15 @@
+units: 63442
+DISTINCT unit config tuples: 12
+    33069  ('default', 'ss03', 'ss04', 'ss05', 'ss02', 'ss02+ss03', 'ss02+ss03+ss05')
+    15822  ('ss10',)
+     3622  ('ss03', 'ss02+ss03', 'ss02+ss03+ss05')
+     2926  ('ss04',)
+     2749  ('default', 'ss03', 'ss05', 'ss02', 'ss02+ss03', 'ss02+ss03+ss05')
+     2438  ('default', 'ss04', 'ss05', 'ss02')
+      737  ('ss02',)
+      737  ('ss03',)
+      736  ('ss02+ss03', 'ss02+ss03+ss05')
+      493  ('default', 'ss04', 'ss05')
+      104  ('default', 'ss05', 'ss02')
+        9  ('default', 'ss05')
+config_badge over 63442 units: uncached 3.16s CPU, memoized 0.020s CPU  (159x)
