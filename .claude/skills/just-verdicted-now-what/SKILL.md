@@ -4,7 +4,7 @@ description: Turn a just-finished review sitting's reject/neither verdicts into 
 argument-hint: "[verdicts-file]"
 ---
 
-The user has just adjudicated units in the review app and wants the fresh complaints landed as rune changes under `glyph_data/runes/`. The design decisions are theirs (recorded in verdicts and notes); your job is to get from "18 fresh complaints" to "the one or two record changes they imply" without re-deriving the repo's invariants. Batch precedent: 94 rejects → 2 rune changes; 17 rejects → 1. If you are proposing more than ~2 changes per flaw cluster, you have probably mistaken fix sites for fixes.
+The user has just adjudicated units in the review app and wants the fresh complaints landed as rune changes under `glyph_data/runes/`. The design decisions are theirs (recorded in verdicts and notes); your job is to get from "18 fresh complaints" to "the one or two record changes they imply" without re-deriving the repo's invariants. Batch precedent: 94 rejects → 2 rune changes; 17 rejects → 1. If you are proposing more than ≈2 changes per flaw cluster, you have probably mistaken fix sites for fixes.
 
 ## Hard rules
 

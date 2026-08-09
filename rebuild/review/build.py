@@ -455,7 +455,7 @@ def _cluster_id(configs, class_id, diffs) -> str:
 
 @dataclass(frozen=True)
 class _UnitProjection:
-    """The slim, picklable phase-1 result a surface worker returns per unit: everything the parent's serial reduces read plus everything the unit cache persists, and never the EnrichedUnit (its ~61 KB ExplainReport stays alive worker-side for phase 2). The ink diffs travel as their repr string and its digest — the repr feeds the cluster id byte-contract, the digest is the echo key's diff component — so the parent never round-trips the tuple form."""
+    """The slim, picklable phase-1 result a surface worker returns per unit: everything the parent's serial reduces read plus everything the unit cache persists, and never the EnrichedUnit (its ≈61 KB ExplainReport stays alive worker-side for phase 2). The ink diffs travel as their repr string and its digest — the repr feeds the cluster id byte-contract, the digest is the echo key's diff component — so the parent never round-trips the tuple form."""
 
     unit_id: str
     ink_identical: bool
