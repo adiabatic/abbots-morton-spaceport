@@ -116,11 +116,18 @@ REBUILD_PYTEST_ARGV = [
     "-rfE",
 ]
 
-MAKE_TEST_EXEMPT_PREFIXES = ("rebuild/", "glyph_data/runes/", "doc/", "tmp/", ".claude/")
+MAKE_TEST_EXEMPT_PREFIXES = (
+    "rebuild/",
+    "glyph_data/runes/",
+    "doc/",
+    "tmp/",
+    ".claude/",
+    "bench-the-rebuild/",
+)
 
 
 def make_test_exempt(path: str) -> bool:
-    """Whether a repo-relative path is provably outside gate:make-test's input closure. The exempt trees are safe because nothing the gate executes reads them: build_font globs glyph_data/*.yaml non-recursively (never glyph_data/runes/), and test/, site/, tools/, conftest.py contain no reference to rebuild/ or the rune files; Markdown is never an input to any gate."""
+    """Whether a repo-relative path is provably outside gate:make-test's input closure. The exempt trees are safe because nothing the gate executes reads them: build_font globs glyph_data/*.yaml non-recursively (never glyph_data/runes/), and test/, site/, tools/, conftest.py contain no reference to rebuild/ or the rune files; Markdown is never an input to any gate. bench-the-rebuild/ is measurement scaffolding that only ever reads the tree — nothing under test/, site/, tools/ or conftest.py imports it, and pytest never collects it (testpaths is test/ and site/)."""
     return path.endswith(".md") or any(path.startswith(prefix) for prefix in MAKE_TEST_EXEMPT_PREFIXES)
 
 
