@@ -1,0 +1,66 @@
+{
+  "total_cpu_s": 354.849298,
+  "maxrss_bytes": 6842908672,
+  "configs": [
+    {
+      "config": "default",
+      "cpu_s": 109.270975,
+      "wall_s": 164.44764104200294,
+      "windows": 682842,
+      "rules": 2667,
+      "cells": 197,
+      "share_served": 0,
+      "maxrss_bytes": 3350970368
+    },
+    {
+      "config": "ss03",
+      "cpu_s": 74.76456399999998,
+      "wall_s": 118.07740387500962,
+      "windows": 719636,
+      "rules": 2929,
+      "cells": 201,
+      "share_served": 1419581,
+      "maxrss_bytes": 5416665088
+    },
+    {
+      "config": "ss04",
+      "cpu_s": 47.38819700000002,
+      "wall_s": 47.37886679198709,
+      "windows": 665875,
+      "rules": 2662,
+      "cells": 199,
+      "share_served": 1340331,
+      "maxrss_bytes": 5697486848
+    },
+    {
+      "config": "ss05",
+      "cpu_s": 34.915584000000024,
+      "wall_s": 34.983795582986204,
+      "windows": 697306,
+      "rules": 2692,
+      "cells": 199,
+      "share_served": 2000235,
+      "maxrss_bytes": 5888950272
+    },
+    {
+      "config": "ss03+ss05",
+      "cpu_s": 54.95143499999995,
+      "wall_s": 54.9115627919964,
+      "windows": 724875,
+      "rules": 2950,
+      "cells": 202,
+      "share_served": 1405321,
+      "maxrss_bytes": 6833799168
+    },
+    {
+      "config": "ss10",
+      "cpu_s": 33.09656000000001,
+      "wall_s": 33.04925395801547,
+      "windows": 678229,
+      "rules": 2642,
+      "cells": 197,
+      "share_served": 1884502,
+      "maxrss_bytes": 6842859520
+    }
+  ]
+}

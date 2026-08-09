@@ -1,0 +1,24 @@
+{
+  "config": "default",
+  "disk_stamp_matches_sources": false,
+  "rules": 2667,
+  "witnessed": 2667,
+  "unwitnessed": 0,
+  "phases": [
+    {
+      "phase": "load_default_spec",
+      "wall_s": 0.1,
+      "cpu_s": 0.1
+    },
+    {
+      "phase": "table.build_tables (fixpoint)",
+      "wall_s": 78.61,
+      "cpu_s": 78.6
+    },
+    {
+      "phase": "conform.find_rule_witnesses",
+      "wall_s": 51.73,
+      "cpu_s": 51.73
+    }
+  ]
+}

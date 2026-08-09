@@ -1,0 +1,64 @@
+REVIEW-SURFACE PERFORMANCE EVIDENCE  (slug: review-surface)
+Machine: Apple M4 Pro, 12 logical (8P+4E), macOS 26.6.1, CPython 3.14.6 GIL build.
+Box was CONTENDED throughout (load average 3.7-5.0, other agents running).
+=> Wall-clock figures are contention-suspect. CPU figures (getrusage / /usr/bin/time -l
+   user+sys, cProfile fractions, /usr/bin/sample leaf fractions) are the robust ones.
+
+NOTHING under rebuild/out/review/ was written. All builds went to
+raw/perf/review-surface/review-out-j1 and .../review-out-j10 via --out.
+
+--------------------------------------------------------------------------------
+FILES
+--------------------------------------------------------------------------------
+bench_json.py / json-bench.txt / json-bench.json
+    json.loads / json.dumps rates over the LIVE rebuild/out/review/ shards (read-only).
+unit-field-sizes.txt
+    Per-field byte budget of one shard (boundary-echo, 18368 units) + a sample unit.
+bench_units.py / bench_units-{400,800,1500}.txt / prof1500-phase{1,2}.{prof,txt}
+    cProfile of _phase1_unit / _phase2_unit over a stride sample of the real workload,
+    with the per-config subset tables pre-warmed out of the profile.
+phase-breakdown.txt
+    Module roll-up + top-tottime functions of prof1500-phase1 / prof1500-phase2.
+build-j1.stderr   -- full COLD build, --jobs 1, /usr/bin/time -l
+build-j10.stderr  -- full COLD build, --jobs 10, /usr/bin/time -l
+build-j10-warm.stderr -- WARM rebuild (100% unit-cache hit), /usr/bin/time -l
+warm-rebuild.prof / warm-rebuild-profile.txt / warm-rebuild-run.txt
+    cProfile of the whole warm rebuild in one process.
+sample-j1-load.txt / sample-j1-load-summary.txt
+    /usr/bin/sample, 25s @1ms, of the SERIAL build during the ink-signature load phase.
+sample-j1-units.txt / sample-j1-units-summary.txt
+    /usr/bin/sample, 30s @1ms, of the SERIAL build during the per-unit phase.
+sample-parent-load.txt / sample-worker-41487.txt
+    /usr/bin/sample of the --jobs 10 parent and one surface worker.
+config-badge-cardinality.txt   -- 12 distinct config tuples; memo win 159x.
+signature-microbench.txt / signature-profile.txt -- per-signature cost split.
+reduce-side-microbench.txt     -- carry_content_hash, check_unit, fragment sizes.
+warm-path-microbench.txt       -- shard parse/write, unit-cache store read/write.
+ipc-microbench.txt             -- phase-2 pickle volume/cost across the worker pipes.
+partition-imbalance.txt        -- per-slice CPU rate of the 10-way contiguous partition.
+outline-sizes.txt              -- points per glyph in both fonts.
+
+--------------------------------------------------------------------------------
+HEADLINE MEASUREMENTS
+--------------------------------------------------------------------------------
+COLD build, --jobs 1 : 190.1 s wall, 136.7 s CPU, peak RSS 3.25 GB
+  load 86.2 s | plan 0.6 s | units 97.8 s | manifest+check 1.9 s | cache 2.6 s (wall)
+COLD build, --jobs 10: 67.8 s wall, 202.2 s CPU tree-wide, peak RSS 2.26 GB/proc
+  load 12.2 s | plan 0.4 s | units 45.4 s | manifest+check 3.3 s | cache 5.8 s (wall)
+  -> output byte-identical to the serial build (manifest + 2 shards sha256-checked)
+WARM rebuild (62148/62148 served from cache): 25.3 s wall, 17.8 s CPU
+  load 4.2 s | plan 5.6 s | units 6.7 s | manifest+check 3.4 s | cache 4.7 s (wall)
+
+NATIVE vs PYTHON (leaf-frame attribution, /usr/bin/sample, serial build):
+  signature/load phase : Python 77.3% | HarfBuzz 9.2% | libdyld 5.5% | memmove 4.4%
+                         | libmalloc 1.8% | libcrypto 1.4%
+  per-unit phase       : Python 89.8% | libdyld 4.4% | memmove 2.3% | HarfBuzz 2.0%
+                         | libcrypto 0.8% | _json 0.1%
+
+JSON IS NOT THE BOTTLENECK:
+  266.7 MiB of shards: json.dumps 0.79 s CPU, json.loads 1.05 s CPU (whole surface).
+  Rate 0.0026 s CPU/MiB dumps, 0.0030 s/MiB loads (C encoder, mostly long strings).
+  unit-cache store: 62148 json.dumps + gzip = 0.87 s; read back = 0.66 s.
+  Total JSON+gzip across a warm rebuild ~= 3.4 s of 17.8 s CPU (19%);
+  across a cold serial build ~= 2.4 s of 136.7 s CPU (1.8%).
+  indent=1 costs +33% BYTES (55.6 MB of field data -> 74.0 MB file) for ~2% CPU.

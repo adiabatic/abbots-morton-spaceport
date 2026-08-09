@@ -1,0 +1,45 @@
+{
+  "summary": {
+    "label": "make-all-buildfont",
+    "runs": 3,
+    "wall_median_s": 11.1391,
+    "wall_min_s": 11.1238,
+    "wall_max_s": 11.1703,
+    "user_median_s": 22.3231,
+    "sys_median_s": 0.4064,
+    "rcs": [
+      0,
+      0,
+      0
+    ]
+  },
+  "records": [
+    {
+      "label": "make-all-buildfont",
+      "run": 0,
+      "wall_s": 11.1391,
+      "user_s": 22.362,
+      "sys_s": 0.4064,
+      "maxrss_mb": 371.4,
+      "rc": 0
+    },
+    {
+      "label": "make-all-buildfont",
+      "run": 1,
+      "wall_s": 11.1703,
+      "user_s": 22.3231,
+      "sys_s": 0.4338,
+      "maxrss_mb": 372.9,
+      "rc": 0
+    },
+    {
+      "label": "make-all-buildfont",
+      "run": 2,
+      "wall_s": 11.1238,
+      "user_s": 22.3217,
+      "sys_s": 0.3437,
+      "maxrss_mb": 372.9,
+      "rc": 0
+    }
+  ]
+}

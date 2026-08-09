@@ -1,0 +1,65 @@
+{
+  "summary": {
+    "label": "wallimport-tools.quikscript_fea",
+    "runs": 5,
+    "wall_median_s": 0.0271,
+    "wall_min_s": 0.0269,
+    "wall_max_s": 0.0273,
+    "user_median_s": 0.0212,
+    "sys_median_s": 0.0045,
+    "rcs": [
+      0,
+      0,
+      0,
+      0,
+      0
+    ]
+  },
+  "records": [
+    {
+      "label": "wallimport-tools.quikscript_fea",
+      "run": 0,
+      "wall_s": 0.0269,
+      "user_s": 0.021,
+      "sys_s": 0.0044,
+      "maxrss_mb": 20.8,
+      "rc": 0
+    },
+    {
+      "label": "wallimport-tools.quikscript_fea",
+      "run": 1,
+      "wall_s": 0.027,
+      "user_s": 0.0211,
+      "sys_s": 0.0044,
+      "maxrss_mb": 20.9,
+      "rc": 0
+    },
+    {
+      "label": "wallimport-tools.quikscript_fea",
+      "run": 2,
+      "wall_s": 0.0273,
+      "user_s": 0.0213,
+      "sys_s": 0.0046,
+      "maxrss_mb": 20.9,
+      "rc": 0
+    },
+    {
+      "label": "wallimport-tools.quikscript_fea",
+      "run": 3,
+      "wall_s": 0.0271,
+      "user_s": 0.0212,
+      "sys_s": 0.0045,
+      "maxrss_mb": 20.9,
+      "rc": 0
+    },
+    {
+      "label": "wallimport-tools.quikscript_fea",
+      "run": 4,
+      "wall_s": 0.0272,
+      "user_s": 0.0212,
+      "sys_s": 0.0045,
+      "maxrss_mb": 20.9,
+      "rc": 0
+    }
+  ]
+}

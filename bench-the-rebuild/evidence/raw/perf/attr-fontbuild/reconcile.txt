@@ -1,0 +1,54 @@
+serial whole-build CPU basis: 29.443 s
+
+phase                                          cpu_s   share      owner   bytecode interp  native  io
+feaLib parse+build                            15.867  53.89%  fontTools    25.09%  69.11%   5.78%  0.02%
+ttLib table compile+pack                       3.074  10.44%  fontTools    25.38%  70.54%   4.06%  0.02%
+repo FEA text emit                             2.928   9.94%       repo    37.96%  57.77%   4.26%  0.01%
+PyYAML pure-python parse                       1.914   6.50%     PyYAML    46.79%  51.09%   1.75%  0.37%
+repo Departure Mono cell sampling              1.626   5.52%       repo    62.77%  37.10%   0.12%  0.01%
+repo IR compile + join analysis                1.388   4.71%       repo    32.16%  66.48%   1.32%  0.04%
+fontTools charstring pen + FontBuilder setup   0.736   2.50%  fontTools    30.42%  65.12%   4.42%  0.04%
+repo build_font body + stdlib (residual)       1.910   6.49%       repo    30.42%  65.12%   4.42%  0.04%
+
+-- whole serial build, weighted execution-kind split --
+  bytecode             9.040 s   30.70%
+  interp_overhead     19.053 s   64.71%
+  native_ext           1.337 s    4.54%
+  io_wait              0.012 s    0.04%
+
+-- whole serial build, ownership split --
+  fontTools     19.677 s   66.83%
+  repo           7.852 s   26.67%
+  PyYAML         1.914 s    6.50%
+
+-- scaled to a real `make all` (adds 7x0.11s startup+imports, +0.09s typst) --
+   modeled total: 30.303 s CPU (measured make all: 23.64 s CPU at low load; the serial
+   basis above was taken under contention, so use the SHARES, not the seconds)
+   fontTools python (not rewritable by rewriting this repo)    64.94%
+   this repo's own python (rewritable)                         25.91%
+   PyYAML pure-python loader (one-line CSafeLoader swap)        6.31%
+   process startup + module imports                             2.54%
+   typst subprocess (already Rust, native)                      0.30%
+
+===== AMDAHL =====
+
+  rewrite this repo's own Python only
+    rewritable fraction f = 25.9%
+    ceiling (f -> infinitely fast): 1.35x
+    at 10x on that fraction:        1.30x
+    at 25x on that fraction:        1.33x
+    at 50x on that fraction:        1.34x
+
+  repo Python + swap PyYAML for libyaml
+    rewritable fraction f = 32.2%
+    ceiling (f -> infinitely fast): 1.48x
+    at 10x on that fraction:        1.41x
+    at 25x on that fraction:        1.45x
+    at 50x on that fraction:        1.46x
+
+  repo Python + PyYAML + ALL of fontTools (i.e. write a font compiler)
+    rewritable fraction f = 97.2%
+    ceiling (f -> infinitely fast): 35.24x
+    at 10x on that fraction:        7.97x
+    at 25x on that fraction:        14.87x
+    at 50x on that fraction:        20.91x

@@ -1,0 +1,10 @@
+senior fea bytes: 15394562 lines: 29774
+step                                            wall_s     cpu_s
+imports                                          0.063     0.063
+load_glyph_data (pure-python yaml)               0.167     0.167
+compile_glyph_set(senior) [IR]                   0.312     0.312
+build_senior_fea [repo FEA emit]                 2.107     2.103
+build_font(senior) [charstrings+feaLib+save]     7.692     7.680
+start_fealib_only                                0.000     0.000
+recompile for fealib isolation                   0.321     0.320
+TOTAL                                           10.662    10.644

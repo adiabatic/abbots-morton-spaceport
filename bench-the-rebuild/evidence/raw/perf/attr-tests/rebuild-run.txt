@@ -1,0 +1,622 @@
+bringing up nodes...
+bringing up nodes...
+
+........................................................................ [  6%]
+........................................................................ [ 12%]
+........................................................................ [ 18%]
+......................................................................F. [ 24%]
+........................................................................ [ 30%]
+........................................................................ [ 37%]
+........................................................................ [ 43%]
+........................................................................ [ 49%]
+.......s............................F................................... [ 55%]
+........................................................................ [ 61%]
+........................................................................ [ 68%]
+....F................................................................... [ 74%]
+.....................................................F.....F............ [ 80%]
+.................F..FF...................F.......F...................... [ 86%]
+...F..F..............................................................F.F [ 92%]
+.....F...F.........s......................s.............F......F...F.... [ 99%]
+F.........                                                               [100%]
+=================================== FAILURES ===================================
+______________________ test_real_cell_bindings_all_match _______________________
+[gw10] darwin -- Python 3.14.6 .venv/bin/python
+
+spec = ResolvedSpec(runes={'qsAh': Rune(name='qsAh', codepoint=58998, sequence=None, ductus={'hapax': 'Begun at the left alon...ce=None), 'qsFoot': FamilyInfo(codepoint=59005, sequence=None), 'qsOoze': FamilyInfo(codepoint=59006, sequence=None)}))
+
+    def test_real_cell_bindings_all_match(spec):
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", SpecWarning)
+>           surface.check_cell_bindings(spec)
+
+rebuild/test_surface.py:295: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+spec = ResolvedSpec(runes={'qsAh': Rune(name='qsAh', codepoint=58998, sequence=None, ductus={'hapax': 'Begun at the left alon...ce=None), 'qsFoot': FamilyInfo(codepoint=59005, sequence=None), 'qsOoze': FamilyInfo(codepoint=59006, sequence=None)}))
+
+    def check_cell_bindings(spec: ResolvedSpec) -> None:
+        """Warns about explicit cells: rows matching no enumerable cell under any feature configuration."""
+        for rune_name, rune_obj in spec.runes.items():
+            cells = set()
+            for cell in enumerate_cells(spec, rune_name, _all_features(spec)):
+                cells.add((cell.stance, cell.entry, cell.exit))
+            for stance_name, stance in rune_obj.stances.items():
+                entries, exits, _granted = effective_rows(spec, rune_name, stance_name, None)
+                for binding in stance.surface.cells:
+                    matched = any(
+                        stance_key == stance_name
+                        and _matches_state(binding.entry, entry, entries)
+                        and _matches_state(binding.exit, exit_, exits)
+                        for stance_key, entry, exit_ in cells
+                    )
+                    if not matched:
+                        where = binding.provenance or rune_name
+>                       warnings.warn(
+                            f"{where}: explicit cells: row ({binding.entry}, {binding.exit}) matches no enumerable cell",
+                            SpecWarning,
+                            stacklevel=2,
+                        )
+E                       rebuild.pipeline.spec_load.SpecWarning: glyph_data/runes/qsUtter.yaml:stances.alternate.surface.cells[1]: explicit cells: row (x-height, baseline-withdrawn) matches no enumerable cell
+
+rebuild/pipeline/surface.py:337: SpecWarning
+________________________ TestGate.test_no_disagreements ________________________
+[gw4] darwin -- Python 3.14.6 .venv/bin/python
+
+self = <test_manual_pins.TestGate object at 0x10a69e850>
+gate_report = ManualPinReport(pins_eligible=483, pins_in_scope=89, skipped_config=4, replayed=89, seam_assertions=64, identity_asser...969: 7, 58978: 6, 58980: 6, 58974: 4, 58966: 4, 59006: 3, 58972: 3, 58975: 2, 58979: 2, 58987: 2, 58976: 1, 58973: 1}))
+
+    def test_no_disagreements(self, gate_report):
+        details = "\n".join(
+            f"{d.source} [{d.config}] {d.expect!r}: {d.detail}" for d in gate_report.disagreements
+        )
+>       assert gate_report.passed, f"{len(gate_report.disagreements)} Manual-pin disagreements:\n{details}"
+E       AssertionError: 54 Manual-pin disagreements:
+E         site/the-manual.html:1119 [default] '\\· | ·May ~x~ ·Roe': shaped periodcentered|qsMay.loop|.notdef seams break,break; token 2: expected base qsRoe, got '.notdef'
+E         site/the-manual.html:1123 [default] '\\· | ·Day+Utter ~x~ ·Roe': shaped periodcentered|qsDay_qsUtter.full|.notdef seams break,lig,break; token 2: expected base qsRoe, got '.notdef'
+E         site/the-manual.html:1248 [default] '     ·May ~x~ ·Et    ~b~ ·Roe': shaped qsMay.loop|.notdef|.notdef seams break,break; token 1: expected base qsEt, got '.notdef'
+E         site/the-manual.html:1251 [default] '     ·May ~b~ ·I     ~x~ ·Roe': shaped qsMay.grounded-loop.ex-y0|qsI.loop.en-y0|.notdef seams y0,break; token 2: expected base qsRoe, got '.notdef'
+E         site/the-manual.html:1252 [default] '     ·May ~b~ ·Ah    ~x~ ·Roe': shaped qsMay.grounded-loop.ex-y0|qsAh.hapax.en-y0|.notdef seams y0,break; token 2: expected base qsRoe, got '.notdef'
+E         site/the-manual.html:1256 [default] '     ·May  | ·Utter  ~x~ ·Roe | ·Day+Utter ~x~ ·Roe': shaped qsMay.loop|qsUtter.mono|.notdef|qsDay_qsUtter.full|.notdef seams break,break,break,lig,break; token 2: expected base qsRoe, got '.notdef'
+E         site/the-manual.html:1315 [default] '·Day ~b~ ·Roe': shaped qsDay.full|.notdef seams break; token 1: expected base qsRoe, got '.notdef'
+E         site/the-manual.html:1322 [default] '·Fee.exit.extended ~x~ ·Roe': shaped qsFee.loop|.notdef seams break; token 1: expected base qsRoe, got '.notdef'
+E         site/the-manual.html:1323 [default] '·Tea ~b~ ·See': shaped qsTea.full|.notdef seams break; token 1: expected base qsSee, got '.notdef'
+E         site/the-manual.html:1324 [default] '·See ~t~ ·Tea': shaped .notdef|qsTea.full seams break; token 0: expected base qsSee, got '.notdef'
+E         site/the-manual.html:1325 [default] '·See ~6~ ·Pea': shaped .notdef|qsPea.full seams break; token 0: expected base qsSee, got '.notdef'
+E         site/the-manual.html:1367 [default] '·Pea ~x~ ·Roe ~b~ ·I': shaped qsPea.full|.notdef|qsI.loop seams break,break; token 1: expected base qsRoe, got '.notdef'
+E         site/the-manual.html:1373 [default] '·Tea ~x~ ·Roe ~b~ ·I': shaped qsTea.full|.notdef|qsI.loop seams break,break; token 1: expected base qsRoe, got '.notdef'
+E         site/the-manual.html:1452 [default] '·Day | ·Et ~b~ ·Day.half': shaped qsDay.full|.notdef|qsDay.full seams break,break; token 1: expected base qsEt, got '.notdef'
+E         site/the-manual.html:1454 [default] '·See | ·Et ~b~ ·Day.half': shaped .notdef|.notdef|qsDay.full seams break,break; token 0: expected base qsSee, got '.notdef'
+E         site/the-manual.html:1494 [default] '·Tea.half ~x~ ·Et ~b~ ·Low': shaped qsTea.full|.notdef|qsLow.hapax seams break,break; token 0: expected trait 'half' on 'qsTea.full' (stance traits: [])
+E         site/the-manual.html:1496 [default] '·Pea.half ~x~ ·Et ~b~ ·Tea': shaped qsPea.full|.notdef|qsTea.full seams break,break; token 0: expected trait 'half' on 'qsPea.full' (stance traits: [])
+E         site/the-manual.html:1627 [default] '·Et ~b~ ·No.alt ~b~ ·Day.half': shaped .notdef|qsNo.loop.ex-y5|qsDay.full.en-y5 seams break,y5; token 0: expected base qsEt, got '.notdef'
+E         site/the-manual.html:1631 [default] '·Utter ~x~ ·No ~x~ ·Day+Utter ~x~ ·Roe': shaped qsUtter.mono.ex-y5|qsNo.loop.en-y5.ex-y5|qsDay_qsUtter.full.en-y5|.notdef seams y5,y5,lig,break; token 3: expected base qsRoe, got '.notdef'
+E         site/the-manual.html:1633 [default] '·Et ~b~ ·No ~b~ ·It': shaped .notdef|qsNo.loop.ex-y5|qsIt.hapax.en-y5 seams break,y5; token 0: expected base qsEt, got '.notdef'
+E         site/the-manual.html:1688 [default] '·Fee.exit ~x~ ·Utter.alt.reaches-way-back ~b~ ·See': shaped qsFee.loop|qsUtter.mono|.notdef seams break,break; token 1: expected trait 'alt' on 'qsUtter.mono' (stance traits: [])
+E         site/the-manual.html:1690 [default] '·May ~x~ ·Utter.alt.reaches-way-back ~b~ ·See ~t~ ·Tea': shaped qsMay.loop|qsUtter.mono|.notdef|qsTea.full seams break,break,break; token 1: expected trait 'alt' on 'qsUtter.mono' (stance traits: [])
+E         site/the-manual.html:1881 [default] '·Fee | ·Utter ~x~ ·Roe ~b~ ·See ·Tea': shaped qsFee.loop|qsUtter.mono|.notdef|.notdef|qsTea.full seams break,break,break,break; token 2: expected base qsRoe, got '.notdef'
+E         site/the-manual.html:2029 [default] '·See+Utter.ex-ext-1 ~x~ ·May': shaped .notdef|qsUtter.alternate.ex-y0|qsMay.loop.en-y0 seams break,y0; token 0: expected base qsSee_qsUtter, got '.notdef'
+E         site/the-manual.html:2283 [default] '·It ~b~ ·See': shaped qsIt.hapax|.notdef seams break; token 1: expected base qsSee, got '.notdef'
+E         site/the-manual.html:2328 [default] '·Pea.half ~6~ ·Pea.!half ~b~ ·See': shaped qsPea.half.ex-y6|qsPea.full.en-y6|.notdef seams y6,break; token 2: expected base qsSee, got '.notdef'
+E         site/the-manual.html:2954 [default] '·Utter ~x~ ·Roe': shaped qsUtter.mono|.notdef seams break; token 1: expected base qsRoe, got '.notdef'
+E         site/the-manual.html:3310 [default] '·Roe | ·It': shaped .notdef|qsIt.hapax seams break; token 0: expected base qsRoe, got '.notdef'
+E         site/the-manual.html:3332 [default] '·Pea.half ~x~ ·Roe | ·It': shaped qsPea.full|.notdef|qsIt.hapax seams break,break; token 0: expected trait 'half' on 'qsPea.full' (stance traits: [])
+E         site/the-manual.html:3341 [default] '·Pea.half ~x~ ·Roe | ·Utter': shaped qsPea.full|.notdef|qsUtter.mono seams break,break; token 0: expected trait 'half' on 'qsPea.full' (stance traits: [])
+E         site/the-manual.html:3356 [default] '·Pea ~b~ ·Utter ~x~ ·Roe': shaped qsPea.full.ex-y0|qsUtter.mono.en-y0|.notdef seams y0,break; token 2: expected base qsRoe, got '.notdef'
+E         site/the-manual.html:3458 [default] '·Et | ·Fee | ·Utter ~x~ ·Roe | ·Tea': shaped .notdef|qsFee.loop|qsUtter.mono|.notdef|qsTea.full seams break,break,break,break; token 0: expected base qsEt, got '.notdef'
+E         site/the-manual.html:3460 [default] '·It ~b~ ·No.alt ~b~ ·See ~t~ ·Tea.half ~x~ ·Et ~b~ ·Day.half': shaped qsIt.hapax.ex-y0|qsNo.flipped.en-y0|.notdef|qsTea.full|.notdef|qsDay.full seams y0,break,break,break,break; token 2: expected base qsSee, got '.notdef'
+E         site/the-manual.html:3466 [default] '·May ~x~ ·It ~b~ ·See ~t~ ·Tea ~b~ ·Utter ~x~ ·Roe | ·It': shaped qsMay.loop.ex-y5.ex-ext-1|qsIt.hapax.en-y5|.notdef|qsTea.full.ex-y0|qsUtter.mono.en-y0|.notdef|qsIt.hapax seams y5,break,break,y0,break,break; token 2: expected base qsSee, got '.notdef'
+E         site/the-manual.html:3597 [default] '·See+Utter ~x~ ·No': shaped .notdef|qsUtter.mono.ex-y5|qsNo.loop.en-y5 seams break,y5; token 0: expected base qsSee_qsUtter, got '.notdef'
+E         site/the-manual.html:3648 [default] '·Utter.alt ~b~ ·See': shaped qsUtter.mono|.notdef seams break; token 0: expected trait 'alt' on 'qsUtter.mono' (stance traits: [])
+E         site/the-manual.html:3654 [default] '·May ~x~ ·Et ~b~ ·No.alt ~b~ ·It': shaped qsMay.loop|.notdef|qsNo.loop.ex-y5|qsIt.hapax.en-y5 seams break,break,y5; token 1: expected base qsEt, got '.notdef'
+E         site/the-manual.html:3665 [default] '·Fee ~x~ ·Roe | ·Et ~b~ ·No.alt ~b~ ·Day.half': shaped qsFee.loop|.notdef|.notdef|qsNo.loop.ex-y5|qsDay.full.en-y5 seams break,break,break,y5; token 1: expected base qsRoe, got '.notdef'
+E         site/the-manual.html:3808 [default] '·Utter | ◊ZWNJ | ·See | ·It ~b~ ·See ~t~ ·Tea': shaped qsUtter.mono|space|.notdef|qsIt.hapax|.notdef|qsTea.full seams break,break,break,break,break; token 2: expected base qsSee, got '.notdef'
+E         site/the-manual.html:3814 [default] '·Roe | ·Utter | ◊ZWNJ | ·Fee ~x~ ·Et ~b~ ·See ~t~ ·Tea': shaped .notdef|qsUtter.mono|space|qsFee.loop.locked|.notdef|.notdef|qsTea.full seams break,break,break,break,break,break; token 0: expected base qsRoe, got '.notdef'
+E         site/the-manual.html:3842 [default] '·Et ~b~ ·May ~x~ ·Pea ~b~ ·Low ~x~ ·Oy': shaped .notdef|qsMay.loop.ex-y5|qsPea.full.en-y5.ex-y0|qsLow.hapax.en-y0.ex-y5|qsOy.hapax.en-y5 seams break,y5,y0,y5; token 0: expected base qsEt, got '.notdef'
+E         site/the-manual.html:3845 [default] '·Roe | ·Utter ~x~ ·No': shaped .notdef|qsUtter.mono.ex-y5|qsNo.loop.en-y5 seams break,y5; token 0: expected base qsRoe, got '.notdef'
+E         site/the-manual.html:3856 [default] '·Low ~x~ ·Et ~b~ ·See': shaped qsLow.hapax|.notdef|.notdef seams break,break; token 1: expected base qsEt, got '.notdef'
+E         site/the-manual.html:3867 [default] '\\· | ·Roe | ·It | ·Pea': shaped periodcentered|.notdef|qsIt.hapax|qsPea.full seams break,break,break; token 1: expected base qsRoe, got '.notdef'
+E         site/the-manual.html:3869 [default] '·Roe | ·Et ~b~ ·Day ~b~ ·It': shaped .notdef|.notdef|qsDay.full.ex-y0|qsIt.hapax.en-y0 seams break,break,y0; token 0: expected base qsRoe, got '.notdef'
+E         site/the-manual.html:3871 [default] '·Utter | ·Tea | ·Et ~b~ ·No ~b~ ·Day': shaped .notdef|qsNo.loop.ex-y5|qsDay.full.en-y5 seams break,y5; token 0: expected base qsEt, got '.notdef'
+E         site/the-manual.html:3887 [default] '·Fee | ·Ah ~x~ ·Roe | ◊ZWNJ | ·May': shaped qsFee.loop|qsAh.hapax|.notdef|space|qsMay.loop.locked seams break,break,break,break; token 2: expected base qsRoe, got '.notdef'
+E         site/the-manual.html:3935 [default] '\\· | ·Tea ~x~ ·It | ·Et ~b~ ·Roe | ·Utter': shaped periodcentered|qsTea.half.ex-y5|qsIt.hapax.en-y5|.notdef|.notdef|qsUtter.mono seams break,y5,break,break,break; token 3: expected base qsEt, got '.notdef'
+E         site/the-manual.html:3936 [default] '·Day | ·Et ~b~ ·Low': shaped qsDay.full|.notdef|qsLow.hapax seams break,break; token 1: expected base qsEt, got '.notdef'
+E         site/the-manual.html:4004 [default] '·See | ·Utter.alt ~b~ ·Low ~x~ ·Et ~b~ ·May ~x~ ·No ~x~ ·It | ·Tea ~x~ ·It': shaped .notdef|qsUtter.alternate.ex-y0|qsLow.hapax.en-y0|.notdef|qsMay.loop.ex-y5|qsNo.loop.en-y5.ex-y5|qsIt.hapax.en-y5|qsTea.half.ex-y5|qsIt.hapax.en-y5 seams break,y0,break,break,y5,y5,break,y5; token 0: expected base qsSee, got '.notdef'
+E         site/the-manual.html:4085 [default] '·Day ~b~ ·It | ·Tea ~b~ ·Utter ~x~ ·Roe ~b~ ·May ~x~ ·It ~b~ ·No.alt ~b~ ·Day.half': shaped qsDay.full.ex-y0|qsIt.hapax.en-y0|qsTea.full.ex-y0|qsUtter.mono.en-y0|.notdef|qsMay.loop.ex-y5.ex-ext-1|qsIt.hapax.en-y5.ex-y0.ex-ext-1|qsNo.flipped.en-y0.ex-y0|qsDay.half.en-y0 seams y0,break,y0,break,break,y5,y0,y0; token 4: expected base qsRoe, got '.notdef'
+E         site/the-manual.html:4115 [default] '·Tea.half ~x~ ·Et ~b~ ·May ~x~ ·Pea ~b~ ·Utter ~x~ ·Roe': shaped qsTea.full|.notdef|qsMay.loop.ex-y5|qsPea.full.en-y5.ex-y0|qsUtter.mono.en-y0|.notdef seams break,break,y5,y0,break; token 0: expected trait 'half' on 'qsTea.full' (stance traits: [])
+E         site/the-manual.html:4121 [default] '·See | ·Et | ◊ZWNJ | ·Tea': shaped .notdef|.notdef|space|qsTea.full.locked seams break,break,break; token 0: expected base qsSee, got '.notdef'
+E         site/the-manual.html:4126 [default] '·Roe ~b~ ·I ~x~ ·Day': shaped .notdef|qsI.loop.ex-y5.ex-ext-1|qsDay.full.en-y5 seams break,y5; token 0: expected base qsRoe, got '.notdef'
+E       assert False
+E        +  where False = ManualPinReport(pins_eligible=483, pins_in_scope=89, skipped_config=4, replayed=89, seam_assertions=64, identity_asser...969: 7, 58978: 6, 58980: 6, 58974: 4, 58966: 4, 59006: 3, 58972: 3, 58975: 2, 58979: 2, 58987: 2, 58976: 1, 58973: 1})).passed
+
+rebuild/test_manual_pins.py:38: AssertionError
+_________________ test_witness_resettles_to_the_settlement_row _________________
+[gw7] darwin -- Python 3.14.6 .venv/bin/python
+
+witness_index = (ResolvedSpec(runes={'qsAh': Rune(name='qsAh', codepoint=58998, sequence=None, ductus={'hapax': 'Begun at the left alo...'qsOoze': FamilyInfo(codepoint=59006, sequence=None)})), <rebuild.review.tablediff.WitnessIndex object at 0x1088d1e80>)
+
+    def test_witness_resettles_to_the_settlement_row(witness_index):
+        from rebuild.pipeline.settle import settle, cell_label
+    
+        spec, index = witness_index
+        rows = tablediff.load_settlement(M1_DIR / "settlement-default.tsv")
+        checked = 0
+        for key, value in list(rows.items())[::10]:
+            witness = index.witness_settlement(key)
+            if witness is None:
+                continue
+            settled = settle(spec, list(witness), features_for_config("default"))
+            labels = [cell_label(spec, item.cell) for item in settled]
+>           assert value.outcome in labels, (key.label(), value.outcome, labels)
+E           AssertionError: ('qsTea / - / qsI / -', 'qsTea.full.ex-y0.ex-ext-1', ['qsTea.full.ex-y0', 'qsI.smaller-loop.en-y0'])
+E           assert 'qsTea.full.ex-y0.ex-ext-1' in ['qsTea.full.ex-y0', 'qsI.smaller-loop.en-y0']
+E            +  where 'qsTea.full.ex-y0.ex-ext-1' = SettlementValue(outcome='qsTea.full.ex-y0.ex-ext-1', joint=True, provenance='glyph_data/runes/qsTea.yaml:policy.extend[1]').outcome
+
+rebuild/test_review_tablediff.py:190: AssertionError
+_____________ test_config_note_distribution_over_the_built_output ______________
+[gw6] darwin -- Python 3.14.6 .venv/bin/python
+
+built = (PosixPath('tmp/review-surface-test-cache/47fa15dfa...se, 'machine_approved_count': 0, ...}, ...], 'configs': ['default', 'ss03', 'ss04', 'ss05', 'ss03+ss05', 'ss10'], ...})
+
+    def test_config_note_distribution_over_the_built_output(built):
+        """The facts the badge design rests on: the config-set space collapses to a handful of notes — null for the units covering every non-ss10 config, plus the ss04- and ss03-gated and -excluded minorities, the ss10-only overlay, and a small literal-fallback set."""
+        out_dir, manifest = built
+        histogram = {}
+        for meta in manifest["classes"]:
+            for unit in json.loads((out_dir / meta["shard"]).read_text(encoding="utf-8")):
+                histogram[unit["config_note"]] = histogram.get(unit["config_note"], 0) + 1
+>       assert histogram == PINS["built"]["config_note_distribution"]
+E       AssertionError: assert {'only under ...2': 2462, ...} == {None: 76379,...off': 77, ...}
+E         
+E         Differing items:
+E         {'only when ss04 is on': 1655} != {'only when ss04 is on': 2662}
+E         {'only when ss03 is off and ss04 is off': 5} != {'only when ss03 is off and ss04 is off': 77}
+E         {'only under ss10': 15822} != {'only under ss10': 43433}
+E         {'only when ss03 is on and ss05 is off': 737} != {'only when ss03 is on and ss05 is off': 10}
+E         {'only when ss03 is off': 497} != {'only when ss03 is off': 4252}...
+E         
+E         ...Full output truncated (19 lines hidden), use '-vv' to show
+
+rebuild/test_review_build.py:500: AssertionError
+__________________ test_real_audit_dedupes_to_measured_counts __________________
+[gw5] darwin -- Python 3.14.6 .venv/bin/python
+
+workload = Workload(units=[Unit(codepoints='0020:E650:E650', baseline=('space', 'qsPea.half.en-y6.ex-y6', 'qsPea.en-y6'), new=('s...tire at review if still zero at cutover.', ink_identical=False, no_verdict=False, count=0, exemplar_keys=frozenset())])
+
+    def test_real_audit_dedupes_to_measured_counts(workload):
+>       assert workload.row_count == PINS["audit"]["row_count"]
+E       AssertionError: assert 292098 == 467070
+E        +  where 292098 = Workload(units=[Unit(codepoints='0020:E650:E650', baseline=('space', 'qsPea.half.en-y6.ex-y6', 'qsPea.en-y6'), new=('s...tire at review if still zero at cutover.', ink_identical=False, no_verdict=False, count=0, exemplar_keys=frozenset())]).row_count
+
+rebuild/test_review_audit.py:95: AssertionError
+_________________ test_full_build_passes_the_contract_checker __________________
+[gw0] darwin -- Python 3.14.6 .venv/bin/python
+
+built = (PosixPath('tmp/review-surface-test-cache/47fa15dfa...se, 'machine_approved_count': 0, ...}, ...], 'configs': ['default', 'ss03', 'ss04', 'ss05', 'ss03+ss05', 'ss10'], ...})
+
+    def test_full_build_passes_the_contract_checker(built):
+        out_dir, manifest = built
+        assert check_output_dir(out_dir) == []
+>       assert manifest["totals"] == PINS["manifest"]["totals"]
+E       AssertionError: assert {'batches': 3...units': 62148} == {'batches': 7...nits': 137033}
+E         
+E         Differing items:
+E         {'batches': 36} != {'batches': 77}
+E         {'echo_groups': 1137} != {'echo_groups': 2298}
+E         {'units': 62148} != {'units': 137033}
+E         {'rows': 292098} != {'rows': 467070}
+E         Use -v to get more diff
+
+rebuild/test_review_build.py:158: AssertionError
+_______________ test_machine_approved_histogram_pins_the_census ________________
+[gw0] darwin -- Python 3.14.6 .venv/bin/python
+
+built = (PosixPath('tmp/review-surface-test-cache/47fa15dfa...se, 'machine_approved_count': 0, ...}, ...], 'configs': ['default', 'ss03', 'ss04', 'ss05', 'ss03+ss05', 'ss10'], ...})
+
+    def test_machine_approved_histogram_pins_the_census(built):
+        """The kern-neutral ink census the rebatching rests on over the live workload, after the ink-duplicate merge folds name-grain sibling units: the machine-approved units concentrated in the name-grain classes whose visible stragglers differ only in the old font's kerning (boundary-echo, dangling-anchor-dropped, bare-name-live-join), the non-identical remainder, and — after the no-verdict exemptions (the boundary-echo blanket plus the two x-height-halves deletion forks) — the human workload. Every count is pinned in rebuild/review-census-pins.json (the "manifest" group)."""
+        out_dir, manifest = built
+        machine = manifest["machine_approved"]
+        manifest_pins = PINS["manifest"]
+>       assert machine["units"] == manifest_pins["machine_approved"]["units"]
+E       assert 48164 == 108065
+
+rebuild/test_review_build.py:187: AssertionError
+________________ test_secondary_seam_census_pins_the_real_data _________________
+[gw0] darwin -- Python 3.14.6 .venv/bin/python
+
+built = (PosixPath('tmp/review-surface-test-cache/47fa15dfa...se, 'machine_approved_count': 0, ...}, ...], 'configs': ['default', 'ss03', 'ss04', 'ss05', 'ss03+ss05', 'ss10'], ...})
+
+    def test_secondary_seam_census_pins_the_real_data(built):
+        """The secondary-seam resolution census over the live workload, after the ink-duplicate merge: the units carrying visible markers; the seams that link to the shorter unit where the same behavior is the primary judgment; those genuinely context-dependent at the depth-2 horizon (no substring unit reproduces both outcomes with the seam as its primary) that carry home null and are judged in place; and those resolving to an ink-identical home that are suppressed as invisible. The four counts are pinned in rebuild/review-census-pins.json (manifest.secondary_seams)."""
+        out_dir, manifest = built
+        seam_pins = PINS["manifest"]["secondary_seams"]
+>       assert manifest["secondary_seams"] == seam_pins
+E       AssertionError: assert {'seams_homed...arkers': 5377} == {'seams_homed...rkers': 13830}
+E         
+E         Differing items:
+E         {'seams_suppressed_invisible': 20} != {'seams_suppressed_invisible': 0}
+E         {'units_with_markers': 5377} != {'units_with_markers': 13830}
+E         {'seams_homeless': 3296} != {'seams_homeless': 6688}
+E         {'seams_homed': 2561} != {'seams_homed': 8339}
+E         Use -v to get more diff
+
+rebuild/test_review_build.py:214: AssertionError
+__________________________ test_subset_tables_iterate __________________________
+[gw2] darwin -- Python 3.14.6 .venv/bin/python
+
+enricher = <rebuild.review.enrich.Enricher object at 0x108acb230>
+
+    def test_subset_tables_iterate(enricher):
+        rows = list(iter_rows(M1_DIR / "baseline-default.subset.tsv.gz"))
+>       assert len(rows) == 111150
+E       AssertionError: assert 54240 == 111150
+E        +  where 54240 = len([Row(codepoints=(32,), glyphs=('space',), clusters=(0,), seams=(), positions=((0, 0, 350),)), Row(codepoints=(183,), g...s=((0, 0, 100),)), Row(codepoints=(58963,), glyphs=('qsDay',), clusters=(0,), seams=(), positions=((0, 0, 250),)), ...])
+
+rebuild/test_review_enrich.py:451: AssertionError
+______________ test_configs_within_a_unit_are_in_acceptance_order ______________
+[gw5] darwin -- Python 3.14.6 .venv/bin/python
+
+workload = Workload(units=[Unit(codepoints='0020:E650:E650', baseline=('space', 'qsPea.half.en-y6.ex-y6', 'qsPea.en-y6'), new=('s...tire at review if still zero at cutover.', ink_identical=False, no_verdict=False, count=0, exemplar_keys=frozenset())])
+
+    def test_configs_within_a_unit_are_in_acceptance_order(workload):
+        order = {
+            token: index for index, token in enumerate(("default", "ss03", "ss04", "ss05", "ss03+ss05", "ss10"))
+        }
+        for unit in workload.units:
+>           ranks = [order[config] for config in unit.configs]
+                     ^^^^^^^^^^^^^
+E           KeyError: 'ss02'
+
+rebuild/test_review_audit.py:186: KeyError
+___________ test_partition_is_total_and_matches_the_measured_census ____________
+[gw9] darwin -- Python 3.14.6 .venv/bin/python
+
+assigned = ['seam-loss-withdrawal', 'seam-loss-withdrawal', 'no-chain-gains', 'extension-non-summing', 'extension-non-summing', 'unmatched-misc', ...]
+
+    def test_partition_is_total_and_matches_the_measured_census(assigned):
+        census = family_census(assigned)
+>       assert (
+            sum(census.values()) == PINS["families"]["total"]
+        ), "every UNMATCHED window must land in exactly one family"
+E       AssertionError: every UNMATCHED window must land in exactly one family
+E       assert 6709 == 22291
+E        +  where 6709 = sum(dict_values([300, 72, 20, 204, 1007, 1501, 713, 905, 1029, 958]))
+E        +    where dict_values([300, 72, 20, 204, 1007, 1501, 713, 905, 1029, 958]) = <built-in method values of dict object at 0x109315bc0>()
+E        +      where <built-in method values of dict object at 0x109315bc0> = {'deferred-ss03': 958, 'deferred-ss04': 905, 'deferred-ss10': 1029, 'extension-non-summing': 1501, ...}.values
+
+rebuild/test_review_families.py:138: AssertionError
+__________________ test_batches_cover_the_human_workload_only __________________
+[gw0] darwin -- Python 3.14.6 .venv/bin/python
+
+built = (PosixPath('tmp/review-surface-test-cache/47fa15dfa...se, 'machine_approved_count': 0, ...}, ...], 'configs': ['default', 'ss03', 'ss04', 'ss05', 'ss03+ss05', 'ss10'], ...})
+
+    def test_batches_cover_the_human_workload_only(built):
+        out_dir, manifest = built
+        human_batches = []
+        for meta in manifest["classes"]:
+            shard = json.loads((out_dir / meta["shard"]).read_text(encoding="utf-8"))
+            for unit in shard:
+                if unit["ink_identical"] or unit["junior_equivalent"] or unit["no_verdict"]:
+                    assert unit["batch"] is None, unit["id"]
+                else:
+                    human_batches.append((unit["id"], unit["batch"]))
+        # Sort by numeric id: with >9,999 units the ids are mixed-width (u-9999, u-10000), so a lexical sort would interleave them and break the contiguous-batch check.
+        human_batches.sort(key=lambda pair: int(pair[0][2:]))
+>       assert len(human_batches) == PINS["built"]["human_units"]
+E       AssertionError: assert 10622 == 22968
+E        +  where 10622 = len([('u-18368', 0), ('u-18369', 0), ('u-18370', 0), ('u-18371', 0), ('u-18372', 0), ('u-18373', 0), ...])
+
+rebuild/test_review_build.py:287: AssertionError
+________________ test_no_change_rebuild_serves_every_signature _________________
+[gw1] darwin -- Python 3.14.6 .venv/bin/python
+
+base_surface = PosixPath('/private/var/folders/08/1l0jtfr54bsbx8f5vdh0w7qm0000gn/T/pytest-of-comatoast/pytest-21/popen-gw1/unit-cache-base0/surface')
+mini_audit = PosixPath('/private/var/folders/08/1l0jtfr54bsbx8f5vdh0w7qm0000gn/T/pytest-of-comatoast/pytest-21/popen-gw1/unit-cache-audit0/audit.tsv')
+tmp_path = PosixPath('/private/var/folders/08/1l0jtfr54bsbx8f5vdh0w7qm0000gn/T/pytest-of-comatoast/pytest-21/popen-gw1/test_no_change_rebuild_serves_0')
+capfd = <_pytest.capture.CaptureFixture object at 0x10a5d2b50>
+
+    def test_no_change_rebuild_serves_every_signature(base_surface, mini_audit, tmp_path, capfd):
+        surface = _copy(base_surface, tmp_path)
+        build_m1(surface, audit_path=mini_audit, ledger_path=LEDGER, jobs=1)
+        cached, shaped = _signatures(capfd)
+>       assert cached > 0
+E       assert 0 > 0
+
+rebuild/test_unit_cache.py:144: AssertionError
+_____ test_corrupt_signature_store_reshapes_and_degrades_to_the_same_bytes _____
+[gw1] darwin -- Python 3.14.6 .venv/bin/python
+
+base_surface = PosixPath('/private/var/folders/08/1l0jtfr54bsbx8f5vdh0w7qm0000gn/T/pytest-of-comatoast/pytest-21/popen-gw1/unit-cache-base0/surface')
+mini_audit = PosixPath('/private/var/folders/08/1l0jtfr54bsbx8f5vdh0w7qm0000gn/T/pytest-of-comatoast/pytest-21/popen-gw1/unit-cache-audit0/audit.tsv')
+tmp_path = PosixPath('/private/var/folders/08/1l0jtfr54bsbx8f5vdh0w7qm0000gn/T/pytest-of-comatoast/pytest-21/popen-gw1/test_corrupt_signature_store_r0')
+capfd = <_pytest.capture.CaptureFixture object at 0x109dcccd0>
+
+    def test_corrupt_signature_store_reshapes_and_degrades_to_the_same_bytes(
+        base_surface, mini_audit, tmp_path, capfd
+    ):
+        surface = _copy(base_surface, tmp_path)
+        unit_cache.signature_store_path(surface).write_bytes(b"not a gzip stream")
+        build_m1(surface, audit_path=mini_audit, ledger_path=LEDGER, jobs=1)
+        cached, shaped = _signatures(capfd)
+        assert cached == 0
+>       assert shaped > 0
+E       assert 0 > 0
+
+rebuild/test_unit_cache.py:156: AssertionError
+_____________ test_ink_duplicate_siblings_fold_in_the_built_output _____________
+[gw0] darwin -- Python 3.14.6 .venv/bin/python
+
+built = (PosixPath('tmp/review-surface-test-cache/47fa15dfa...se, 'machine_approved_count': 0, ...}, ...], 'configs': ['default', 'ss03', 'ss04', 'ss05', 'ss03+ss05', 'ss10'], ...})
+
+    def test_ink_duplicate_siblings_fold_in_the_built_output(built):
+        """The worked example of the ink-duplicate merge: the old font's ss04 lookups rename word-initial ·It in ·It·Day·Tea·No (E670:E653:E652:E666) without moving any ink, which used to split the window into a default-configs unit and an ss04-only sibling asking the identical visual question twice. The build folds them: one unit, every non-ss10 config, one render group, no config badge."""
+        out_dir, manifest = built
+        matches = []
+        for meta in manifest["classes"]:
+            for unit in json.loads((out_dir / meta["shard"]).read_text(encoding="utf-8")):
+                if unit["codepoints"] == "E670:E653:E652:E666":
+                    matches.append(unit)
+        assert len(matches) == 1
+        (unit,) = matches
+>       assert unit["configs"] == ["default", "ss03", "ss04", "ss05", "ss03+ss05"]
+E       AssertionError: assert ['default', '...02+ss03', ...] == ['default', '..., 'ss03+ss05']
+E         
+E         At index 4 diff: 'ss02' != 'ss03+ss05'
+E         Left contains 2 more items, first extra item: 'ss02+ss03'
+E         Use -v to get more diff
+
+rebuild/test_review_build.py:365: AssertionError
+________________ test_echo_groups_partition_the_human_workload _________________
+[gw0] darwin -- Python 3.14.6 .venv/bin/python
+
+built = (PosixPath('tmp/review-surface-test-cache/47fa15dfa...se, 'machine_approved_count': 0, ...}, ...], 'configs': ['default', 'ss03', 'ss04', 'ss05', 'ss03+ss05', 'ss10'], ...})
+
+    def test_echo_groups_partition_the_human_workload(built):
+        """Echo groups are the one-question-per-change grain: every human unit carries an e-NNNN id, every exempt unit carries null, and a group never mixes classes, config sets, or judged pairs — its members are the same before→after change in different surroundings. The worked example ·It·Day·Tea·No lands in the merged ·Tea~·No.alt baseline-join group: the plain ·X·Tea·No windows plus the third-form ·X·Day·Tea·No windows where the ·Day yields — an annotation-grain rename that draws identical ink, so it rides along without anchoring the judged pair — so one verdict answers every member because the visible change is byte-identical."""
+        out_dir, manifest = built
+        by_echo = {}
+        example = None
+        for meta in manifest["classes"]:
+            for unit in json.loads((out_dir / meta["shard"]).read_text(encoding="utf-8")):
+                if unit["batch"] is None:
+                    assert unit["echo"] is None, unit["id"]
+                    continue
+                assert isinstance(unit["echo"], str) and unit["echo"].startswith("e-"), unit["id"]
+                by_echo.setdefault(unit["echo"], []).append(unit)
+                if unit["codepoints"] == "E670:E653:E652:E666":
+                    example = unit
+>       assert len(by_echo) == manifest["totals"]["echo_groups"] == PINS["manifest"]["totals"]["echo_groups"]
+E       assert 1137 == 2298
+
+rebuild/test_review_build.py:385: AssertionError
+____________________________ test_export_round_trip ____________________________
+[gw9] darwin -- Python 3.14.6 .venv/bin/python
+
+built = (PosixPath('tmp/review-surface-test-cache/47fa15dfa...se, 'machine_approved_count': 0, ...}, ...], 'configs': ['default', 'ss03', 'ss04', 'ss05', 'ss03+ss05', 'ss10'], ...})
+tmp_path = PosixPath('/private/var/folders/08/1l0jtfr54bsbx8f5vdh0w7qm0000gn/T/pytest-of-comatoast/pytest-21/popen-gw9/test_export_round_trip0')
+
+    def test_export_round_trip(built, tmp_path):
+        out_dir, manifest = built
+        _manifest, units = load_units(out_dir)
+        ids = sorted(uid for uid, unit in units.items() if not unit["no_verdict"])
+        exempt_unit = next(uid for uid in sorted(units) if units[uid]["no_verdict"])
+        drafted_reject = next(uid for uid in ids[4:] if units[uid]["drafts"]["policy"])
+        manual_reject = next(uid for uid in ids[4:] if units[uid]["drafts"]["policy"] is None)
+        identical_unit = next(uid for uid in ids[4:] if uid not in (drafted_reject, manual_reject))
+        verdicts_path = tmp_path / "verdicts.json"
+        payload = {
+            "format": "ams-review-verdicts/1",
+            "manifest_generated_at": manifest["generated_at"],
+            "exported_at": "2026-06-10T18:40:02Z",
+            "verdicts": [
+                {"unit": ids[0], "verdict": "approve", "note": "", "at": "2026-06-10T18:21:09Z"},
+                # A verdict recorded against a no-verdict unit (a stale master, or a misclick on a revealed exempt row) is inert history: skipped, counted, and never drafted.
+                {"unit": exempt_unit, "verdict": "reject", "note": "", "at": "2026-06-10T18:21:10Z"},
+                {
+                    "unit": drafted_reject,
+                    "verdict": "reject",
+                    # A leftover configs field from a pre-rework export is ignored: verdicts always cover the whole unit.
+                    "configs": [units[drafted_reject]["configs"][0]],
+                    "note": "seam looks reached-for",
+                    "at": "2026-06-10T18:21:40Z",
+                },
+                {
+                    "unit": manual_reject,
+                    "verdict": "reject",
+                    "note": "",
+                    "at": "2026-06-10T18:21:50Z",
+                },
+                {"unit": ids[2], "verdict": "either", "note": "", "at": "2026-06-10T18:22:00Z"},
+                {"unit": ids[3], "verdict": "skip", "note": "", "at": "2026-06-10T18:22:10Z"},
+                {
+                    "unit": ids[1],
+                    "verdict": "neither",
+                    "note": "both joins look wrong",
+                    "at": "2026-06-10T18:22:20Z",
+                },
+                {
+                    "unit": identical_unit,
+                    "verdict": "identical",
+                    "note": "cannot see the flagged difference",
+                    "at": "2026-06-10T18:22:30Z",
+                },
+            ],
+        }
+        verdicts_path.write_text(json.dumps(payload))
+        triage = build_triage(manifest, units, load_verdicts(verdicts_path))
+    
+        counts = triage["review"]["counts"]
+        assert counts["approve"] == 1
+        assert counts["reject"] == 2
+        assert counts["either"] == 1
+        assert counts["identical"] == 1
+        assert counts["neither"] == 1
+        assert counts["skip"] == 1
+        assert counts["skipped_no_verdict"] == 1
+>       assert counts["units_total"] == PINS["manifest"]["totals"]["units"]
+E       assert 62148 == 137033
+
+rebuild/test_review_build.py:763: AssertionError
+----------------------------- Captured stderr call -----------------------------
+warning: 1 verdicts land on no-verdict units and are inert history: ['u-0000']
+___________ test_every_drafted_pin_validates_against_the_after_font ____________
+[gw0] darwin -- Python 3.14.6 .venv/bin/python
+
+drafter = <rebuild.review.drafts.Drafter object at 0x1091dee40>
+enriched_units = [EnrichedUnit(unit=Unit(codepoints='0020:E650:E650', baseline=('space', 'qsPea.half.en-y6.ex-y6', 'qsPea.en-y6'), new=... (1, 2), (2, 3), (3, 4)), secondary_seams=(), pair_codepoints=(1, 2), notation_tokens=('␣', '·Pea', '·Pea', '␣')), ...]
+
+    def test_every_drafted_pin_validates_against_the_after_font(drafter, enriched_units):
+        failures = [
+            (enriched.unit.codepoints, pin.expect, pin.semantics_after_font)
+            for enriched in enriched_units
+            for pin in (drafter.draft_pin(enriched),)
+            if pin.semantics_after_font != "pass"
+        ]
+>       assert failures == []
+E       assert [('0020:E650:...t 'y5'"), ...] == []
+E         
+E         Left contains 798 more items, first extra item: ('0020:E650:E675:E652', '◊space | ·Pea ~b~ ·I | ·Tea', "fail: connection 2: expected break at seam 2, got 'y5'")
+E         Use -v to get more diff
+
+rebuild/test_review_drafts.py:53: AssertionError
+______________ test_derived_cells_match_the_audit_for_every_unit _______________
+[gw2] darwin -- Python 3.14.6 .venv/bin/python
+
+enricher = <rebuild.review.enrich.Enricher object at 0x108abbd90>
+workload = Workload(units=[Unit(codepoints='0020:E650:E650', baseline=('space', 'qsPea.half.en-y6.ex-y6', 'qsPea.en-y6'), new=('s...tire at review if still zero at cutover.', ink_identical=False, no_verdict=False, count=0, exemplar_keys=frozenset())])
+
+    def test_derived_cells_match_the_audit_for_every_unit(enricher, workload):
+        for unit in workload.units:
+            enricher.enrich(unit)
+>       assert enricher.mismatches == []
+E       assert ["default E67...None/')", ...] == []
+E         
+E         Left contains 3129 more items, first extra item: "default E670:E675:0020:E667: derived cells ('qsIt/hapax/None/baseline/', 'qsI/smaller-loop/baseline/None/', 'space/bo...'qsIt/hapax/None/baseline/ex-ext-1', 'qsI/loop/baseline/None/', 'space/boundary/None/None/', 'qsLow/hapax/None/None/')"
+E         Use -v to get more diff
+
+rebuild/test_review_enrich.py:141: AssertionError
+__________________ test_full_histogram_reproduces_the_census ___________________
+[gw5] darwin -- Python 3.14.6 .venv/bin/python
+
+comparator = <rebuild.review.ink.InkComparator object at 0x10aa73620>
+
+    def test_full_histogram_reproduces_the_census(comparator):
+        """The kern-neutral census facts the rebatching rests on over the live workload at the name-grain (pre-merge) dedupe: the machine-approved units are ink-identical under every config in their sets, concentrated in the name-grain classes (boundary-echo, dangling-anchor-dropped, bare-name-live-join) whose visible difference is only the old font's kerning; the no-verdict share of the non-identical units — the boundary-echo blanket plus the two x-height-halves deletion forks — is exempt, leaving the human workload in its batches. Every count is pinned in rebuild/review-census-pins.json. No verdict family (the UNMATCHED windows) is ink-identical: each is a real new join under review. The built surface additionally folds ink-duplicate siblings; its smaller counts are pinned in test_review_build.
+    
+        This test loads its own workload rather than taking the shared session fixture: `ink_histogram` writes its verdicts (`ink_identical`, `batch`) into the units it censuses, and those writes are the very state asserted below — on the shared graph they would leak into every later test in the worker.
+        """
+        workload = load_workload(AUDIT_PATH, LEDGER_PATH, dict(LETTERS))
+        pins = PINS["ink"]
+        stats = ink_histogram(workload, comparator)
+>       assert stats["machine_total"] == pins["machine_total"]
+E       assert 33433 == 66312
+
+rebuild/test_review_ink.py:150: AssertionError
+=============================== warnings summary ===============================
+rebuild/test_rule_witnesses.py::test_every_rule_has_a_witness[default]
+  rebuild/test_rule_witnesses.py:36: UserWarning: default: no enumeration under rebuild/out/m1 is stamped with the current sources; rebuilding the fixpoint in-process — slower, identical coverage
+    warnings.warn(
+
+rebuild/test_rule_witnesses.py::test_every_rule_has_a_witness[ss04]
+  rebuild/test_rule_witnesses.py:36: UserWarning: ss04: no enumeration under rebuild/out/m1 is stamped with the current sources; rebuilding the fixpoint in-process — slower, identical coverage
+    warnings.warn(
+
+rebuild/test_rule_witnesses.py::test_every_rule_has_a_witness[ss05]
+  rebuild/test_rule_witnesses.py:36: UserWarning: ss05: no enumeration under rebuild/out/m1 is stamped with the current sources; rebuilding the fixpoint in-process — slower, identical coverage
+    warnings.warn(
+
+rebuild/test_rule_witnesses.py::test_every_rule_has_a_witness[ss03]
+  rebuild/test_rule_witnesses.py:36: UserWarning: ss03: no enumeration under rebuild/out/m1 is stamped with the current sources; rebuilding the fixpoint in-process — slower, identical coverage
+    warnings.warn(
+
+rebuild/test_rule_witnesses.py::test_every_rule_has_a_witness[ss10]
+  rebuild/test_rule_witnesses.py:36: UserWarning: ss10: no enumeration under rebuild/out/m1 is stamped with the current sources; rebuilding the fixpoint in-process — slower, identical coverage
+    warnings.warn(
+
+rebuild/test_rule_witnesses.py::test_every_rule_has_a_witness[ss03+ss05]
+  rebuild/test_rule_witnesses.py:36: UserWarning: ss03+ss05: no enumeration under rebuild/out/m1 is stamped with the current sources; rebuilding the fixpoint in-process — slower, identical coverage
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+============================= slowest 40 durations =============================
+162.03s call     rebuild/test_rule_witnesses.py::test_every_rule_has_a_witness[ss05]
+160.48s call     rebuild/test_rule_witnesses.py::test_every_rule_has_a_witness[ss03+ss05]
+155.89s call     rebuild/test_rule_witnesses.py::test_every_rule_has_a_witness[default]
+153.75s call     rebuild/test_rule_witnesses.py::test_every_rule_has_a_witness[ss03]
+148.48s call     rebuild/test_rule_witnesses.py::test_every_rule_has_a_witness[ss10]
+143.46s call     rebuild/test_rule_witnesses.py::test_every_rule_has_a_witness[ss04]
+52.15s call     rebuild/test_review_build.py::test_builds_are_byte_identical
+44.90s call     rebuild/test_review_ink.py::test_full_histogram_reproduces_the_census
+33.59s call     rebuild/test_review_enrich.py::test_derived_cells_match_the_audit_for_every_unit
+26.24s setup    rebuild/test_review_drafts.py::test_real_units_do_not_collide_with_corpus_pins
+26.07s call     rebuild/test_conform.py::TestSettledWindowWalk::test_deep_slot_keys_replay_the_real_chains
+19.85s setup    rebuild/test_review_drafts.py::test_policy_drafts_name_only_trace_provenance_and_real_files
+18.88s setup    rebuild/test_table.py::TestDepthThreeTables::test_tsv_carries_the_lookahead3_column
+17.70s setup    rebuild/test_review_drafts.py::test_every_drafted_pin_passes_the_real_parser
+17.30s setup    rebuild/test_table.py::TestDepthThreeTables::test_look3_enumerated_lazily
+15.72s setup    rebuild/test_review_drafts.py::test_any_of_candidates_parse_and_are_distinct
+13.72s setup    rebuild/test_review_drafts.py::test_pins_are_whole_word_with_no_variant_assertions
+13.16s call     rebuild/test_review_drafts.py::test_contract_drafts_never_ride_a_new_join
+11.42s call     rebuild/test_review_drafts.py::test_refuse_drafts_never_target_seam_identical_units
+11.00s setup    rebuild/test_review_drafts.py::test_contract_drafts_never_ride_a_new_join
+7.80s setup    rebuild/test_review_families.py::test_partition_is_total_and_matches_the_measured_census
+4.24s setup    rebuild/test_review_drafts.py::test_any_of_orders_after_behavior_first
+4.18s setup    rebuild/test_review_drafts.py::test_policy_draft_declines_unexpressible_name_grain_divergence
+3.57s call     rebuild/test_rule_witnesses.py::test_the_stamped_table_is_what_a_fresh_fixpoint_builds
+3.51s call     rebuild/test_windows.py::TestBuildStageHandoff::test_a_stamped_build_serializes_every_configuration_and_keeps_none
+3.41s call     rebuild/test_windows.py::TestBuildStageHandoff::test_an_unstamped_build_writes_no_enumeration_and_keeps_the_windows
+3.28s setup    rebuild/test_review_drafts.py::test_policy_draft_prefers_contract_for_gained_extension
+3.16s call     rebuild/test_review_drafts.py::test_every_drafted_pin_passes_the_real_parser
+3.09s call     rebuild/test_review_build.py::test_export_round_trip
+2.89s setup    rebuild/test_unit_cache.py::test_no_change_rebuild_serves_every_unit_and_is_byte_stable
+2.83s call     rebuild/test_unit_cache.py::test_incremental_rebuild_matches_a_from_scratch_build_after_an_edit
+2.81s call     rebuild/test_conform.py::TestTopUpEconomics::test_a_stale_recording_falls_back_to_the_hunt
+2.79s setup    rebuild/test_review_drafts.py::test_policy_draft_refuses_when_the_divergence_includes_a_new_join
+2.76s call     rebuild/test_review_build.py::test_full_build_passes_the_contract_checker
+2.60s call     rebuild/test_review_drafts.py::test_every_drafted_pin_validates_against_the_after_font
+2.40s call     rebuild/test_review_build.py::test_known_secondary_seam_homes_at_the_shorter_primary
+2.40s call     rebuild/test_unit_cache.py::test_corrupt_store_degrades_to_a_full_build
+2.35s call     rebuild/test_table.py::TestDepthThreeTables::test_hard_invariants_hold_with_the_third_slot
+2.30s call     rebuild/test_review_enrich.py::test_before_seams_agree_with_subset_rows
+2.26s call     rebuild/test_review_families.py::test_assignment_is_deterministic
+=========================== short test summary info ============================
+FAILED rebuild/test_surface.py::test_real_cell_bindings_all_match - rebuild.p...
+FAILED rebuild/test_manual_pins.py::TestGate::test_no_disagreements - Asserti...
+FAILED rebuild/test_review_tablediff.py::test_witness_resettles_to_the_settlement_row
+FAILED rebuild/test_review_build.py::test_config_note_distribution_over_the_built_output
+FAILED rebuild/test_review_audit.py::test_real_audit_dedupes_to_measured_counts
+FAILED rebuild/test_review_build.py::test_full_build_passes_the_contract_checker
+FAILED rebuild/test_review_build.py::test_machine_approved_histogram_pins_the_census
+FAILED rebuild/test_review_build.py::test_secondary_seam_census_pins_the_real_data
+FAILED rebuild/test_review_enrich.py::test_subset_tables_iterate - AssertionE...
+FAILED rebuild/test_review_audit.py::test_configs_within_a_unit_are_in_acceptance_order
+FAILED rebuild/test_review_families.py::test_partition_is_total_and_matches_the_measured_census
+FAILED rebuild/test_review_build.py::test_batches_cover_the_human_workload_only
+FAILED rebuild/test_unit_cache.py::test_no_change_rebuild_serves_every_signature
+FAILED rebuild/test_unit_cache.py::test_corrupt_signature_store_reshapes_and_degrades_to_the_same_bytes
+FAILED rebuild/test_review_build.py::test_ink_duplicate_siblings_fold_in_the_built_output
+FAILED rebuild/test_review_build.py::test_echo_groups_partition_the_human_workload
+FAILED rebuild/test_review_build.py::test_export_round_trip - assert 62148 ==...
+FAILED rebuild/test_review_drafts.py::test_every_drafted_pin_validates_against_the_after_font
+FAILED rebuild/test_review_enrich.py::test_derived_cells_match_the_audit_for_every_unit
+FAILED rebuild/test_review_ink.py::test_full_histogram_reproduces_the_census
+20 failed, 1139 passed, 3 skipped, 6 warnings in 361.89s (0:06:01)
+      362.09 real      1421.87 user        18.49 sys
+          6606929920  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+             4490276  page reclaims
+                4546  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                  80  messages sent
+               70552  messages received
+                   2  signals received
+              137096  voluntary context switches
+              400363  involuntary context switches
+           113062128  instructions retired
+            42463205  cycles elapsed
+             9732528  peak memory footprint
+EXIT=1

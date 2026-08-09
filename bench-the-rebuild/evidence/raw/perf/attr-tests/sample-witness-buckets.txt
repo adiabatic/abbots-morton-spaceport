@@ -1,0 +1,26 @@
+file: sample-witness.txt
+root sample total: 21240   self-attributed total: 21240
+
+=== self time by binary ===
+   20339   95.76%  Python
+     647    3.05%  libdyld.dylib
+     250    1.18%  libsystem_platform.dylib
+       3    0.01%  libsystem_malloc.dylib
+       1    0.00%  libsystem_kernel.dylib
+
+=== buckets (self time) ===
+   13660   64.31%  interpreter_overhead
+    6679   31.45%  python_bytecode
+     901    4.24%  runtime_support
+
+=== top interpreter-overhead / runtime / other-native frames ===
+    1350    6.36%  gc_collect_main
+     864    4.07%  _PyFrame_ClearExceptCode
+     805    3.79%  _PyTuple_FromArray
+     767    3.61%  tuple_dealloc
+     716    3.37%  _Py_dict_lookup
+     647    3.05%  [libdyld.dylib] _tlv_get_addr
+     586    2.76%  _PyEvalFramePushAndInit
+     457    2.15%  subtype_traverse
+     408    1.92%  visit_reachable
+     407    1.92%  visit_decref

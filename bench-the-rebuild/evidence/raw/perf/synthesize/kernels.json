@@ -1,0 +1,58 @@
+[
+ {
+  "name": "settlement kernel + deep-slot liveness (table.build_tables driving settle.Engine)",
+  "fg": 1262.996,
+  "bg": 1496.6919999999998,
+  "note": "84% of build_tables cumulative sits under table.third_slot_filter's `matters` closure (cProfile); 79.3% of Python-level leaf stacks (200Hz sampler). 83-95% of a conform sweep step is the same settlement code. 75.6% of the rebuild suite's in-test CPU is test_rule_witnesses, which IS build_tables + find_rule_witnesses six times over.",
+  "total": 2759.688,
+  "save_at_10x": 2483.7192
+ },
+ {
+  "name": "status.load_human_unit_ids + the plumbing chain's 7x re-parse of the 265 MB surface  [FIX IN PYTHON]",
+  "fg": 65.796,
+  "bg": 0.0,
+  "note": "0.886 s of make verdict-ready's 0.968 CPU-s; json.loads of all 27 shards is 1.080 s for 265 MB (C decoder at 245 MB/s), reading their bytes is 0.015 s. Persist the id set in the manifest.",
+  "total": 65.796,
+  "save_at_10x": 59.21640000000001
+ },
+ {
+  "name": "ink.translate_outline / run_ink / config_diff (placed-outline arithmetic)",
+  "fg": 64.78699999999999,
+  "bg": 0.0,
+  "note": "37% of the cold surface build by weighted leaf sampling; 14.46 us/translate_outline call, 334.1 ns/point, 173.9 us/config_diff call.",
+  "total": 64.78699999999999,
+  "save_at_10x": 58.308299999999996
+ },
+ {
+  "name": "rebuild.pipeline.explain / settle_traces reached once per unit by Enricher.enrich",
+  "fg": 26.475119999999997,
+  "bg": 0.0,
+  "note": "24% of the surface's per-unit phase; same engine as kernel 1, so a kernel-1 port covers it for free.",
+  "total": 26.475119999999997,
+  "save_at_10x": 23.827607999999998
+ },
+ {
+  "name": "rowmodel.Row.from_tsv / audit.load_audit / baseline_subset.filter_table (TSV parsing)",
+  "fg": 8.755,
+  "bg": 15.0,
+  "note": "1,809 ns/row measured over 54,240 real rows; audit.load_audit parses 292,098 rows of a 59 MB TSV in 1.51 s per build, and each of the 6-12 workers re-parses six 54,240-row subset tables independently.",
+  "total": 23.755000000000003,
+  "save_at_10x": 21.379500000000004
+ },
+ {
+  "name": "build.config_badge via unit_scaffold  [FIX IN PYTHON, NOT RUST]",
+  "fg": 22.06716,
+  "bg": 0.0,
+  "note": "3.684 CPU-s per build for only 12 distinct config tuples; 0.019 s memoized = 198x. Runs on the warm path too, where it is 27% of a 13.7 s rebuild. One lru_cache line.",
+  "total": 22.06716,
+  "save_at_10x": 19.860444
+ },
+ {
+  "name": "ink.signature + signature_digest (repr of 9.3 KB nested tuples -> sha256)",
+  "fg": 15.4088,
+  "bg": 0.0,
+  "note": "103.2 us/row of which repr() is 98.8 and sha256 is 3.4; 152,730 rows = 46.6 CPU-s per cold build, hashing 1.42 GB of repr text.",
+  "total": 15.4088,
+  "save_at_10x": 13.86792
+ }
+]

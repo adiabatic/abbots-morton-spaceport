@@ -1,0 +1,65 @@
+{
+  "summary": {
+    "label": "wallimport-tools.build_font",
+    "runs": 5,
+    "wall_median_s": 0.0839,
+    "wall_min_s": 0.0828,
+    "wall_max_s": 0.0864,
+    "user_median_s": 0.0702,
+    "sys_median_s": 0.0118,
+    "rcs": [
+      0,
+      0,
+      0,
+      0,
+      0
+    ]
+  },
+  "records": [
+    {
+      "label": "wallimport-tools.build_font",
+      "run": 0,
+      "wall_s": 0.0864,
+      "user_s": 0.0723,
+      "sys_s": 0.0121,
+      "maxrss_mb": 38.7,
+      "rc": 0
+    },
+    {
+      "label": "wallimport-tools.build_font",
+      "run": 1,
+      "wall_s": 0.084,
+      "user_s": 0.0702,
+      "sys_s": 0.0118,
+      "maxrss_mb": 38.7,
+      "rc": 0
+    },
+    {
+      "label": "wallimport-tools.build_font",
+      "run": 2,
+      "wall_s": 0.0833,
+      "user_s": 0.0694,
+      "sys_s": 0.0118,
+      "maxrss_mb": 38.9,
+      "rc": 0
+    },
+    {
+      "label": "wallimport-tools.build_font",
+      "run": 3,
+      "wall_s": 0.0828,
+      "user_s": 0.0695,
+      "sys_s": 0.0114,
+      "maxrss_mb": 38.9,
+      "rc": 0
+    },
+    {
+      "label": "wallimport-tools.build_font",
+      "run": 4,
+      "wall_s": 0.0839,
+      "user_s": 0.0704,
+      "sys_s": 0.0116,
+      "maxrss_mb": 38.9,
+      "rc": 0
+    }
+  ]
+}

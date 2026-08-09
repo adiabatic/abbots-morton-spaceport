@@ -1,0 +1,417 @@
+{
+  "samples": 6087,
+  "hz_target": 200.0,
+  "leaf_by_module_pct": {
+    "rebuild/pipeline/settle.py": 57.24,
+    "<string>": 36.95,
+    "rebuild/pipeline/table.py": 5.08,
+    "rebuild/pipeline/model.py": 0.38,
+    "rebuild/pipeline/specificity.py": 0.23,
+    "/opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/dataclasses.py": 0.11,
+    "/opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/threading.py": 0.02
+  },
+  "leaf_top": [
+    {
+      "frame": "<string>:2(__create_fn__.<locals>.__init__)",
+      "samples": 1530,
+      "pct": 25.14
+    },
+    {
+      "frame": "rebuild/pipeline/settle.py:525(Engine.candidates)",
+      "samples": 413,
+      "pct": 6.78
+    },
+    {
+      "frame": "<string>:22(__create_fn__.<locals>.__hash__)",
+      "samples": 331,
+      "pct": 5.44
+    },
+    {
+      "frame": "rebuild/pipeline/settle.py:439(Engine._exit_sources)",
+      "samples": 217,
+      "pct": 3.56
+    },
+    {
+      "frame": "rebuild/pipeline/settle.py:491(Engine._refusal_hit)",
+      "samples": 209,
+      "pct": 3.43
+    },
+    {
+      "frame": "rebuild/pipeline/settle.py:682(Engine._prospect)",
+      "samples": 196,
+      "pct": 3.22
+    },
+    {
+      "frame": "rebuild/pipeline/settle.py:370(Engine.when_matches)",
+      "samples": 183,
+      "pct": 3.01
+    },
+    {
+      "frame": "rebuild/pipeline/settle.py:483(Engine._pairing_allowed.<locals>.<genexpr>)",
+      "samples": 178,
+      "pct": 2.92
+    },
+    {
+      "frame": "rebuild/pipeline/settle.py:652(Engine._acceptor_exists)",
+      "samples": 177,
+      "pct": 2.91
+    },
+    {
+      "frame": "<string>:8(__create_fn__.<locals>.__eq__)",
+      "samples": 176,
+      "pct": 2.89
+    },
+    {
+      "frame": "rebuild/pipeline/settle.py:323(Engine.cond_matches_right)",
+      "samples": 170,
+      "pct": 2.79
+    },
+    {
+      "frame": "rebuild/pipeline/settle.py:1178(Engine._transition_trace_uncached)",
+      "samples": 159,
+      "pct": 2.61
+    },
+    {
+      "frame": "rebuild/pipeline/settle.py:834(Engine._apply_prefers)",
+      "samples": 159,
+      "pct": 2.61
+    },
+    {
+      "frame": "rebuild/pipeline/settle.py:408(Engine._entry_available)",
+      "samples": 143,
+      "pct": 2.35
+    },
+    {
+      "frame": "rebuild/pipeline/settle.py:475(Engine._pairing_allowed)",
+      "samples": 141,
+      "pct": 2.32
+    },
+    {
+      "frame": "<string>:25(__create_fn__.<locals>.__hash__)",
+      "samples": 138,
+      "pct": 2.27
+    },
+    {
+      "frame": "rebuild/pipeline/settle.py:244(Engine._end_capture)",
+      "samples": 137,
+      "pct": 2.25
+    },
+    {
+      "frame": "rebuild/pipeline/settle.py:754(Engine._prefer_favors)",
+      "samples": 112,
+      "pct": 1.84
+    },
+    {
+      "frame": "rebuild/pipeline/settle.py:66(RightToken.letter)",
+      "samples": 111,
+      "pct": 1.82
+    },
+    {
+      "frame": "rebuild/pipeline/settle.py:1120(Engine.transition_trace)",
+      "samples": 84,
+      "pct": 1.38
+    },
+    {
+      "frame": "rebuild/pipeline/settle.py:231(Engine._replay_fired)",
+      "samples": 70,
+      "pct": 1.15
+    },
+    {
+      "frame": "rebuild/pipeline/settle.py:642(Engine._virtual_left)",
+      "samples": 69,
+      "pct": 1.13
+    },
+    {
+      "frame": "rebuild/pipeline/settle.py:275(Engine.cond_matches_left)",
+      "samples": 68,
+      "pct": 1.12
+    },
+    {
+      "frame": "rebuild/pipeline/settle.py:221(Engine._record_fired)",
+      "samples": 66,
+      "pct": 1.08
+    },
+    {
+      "frame": "rebuild/pipeline/table.py:901(build_tables)",
+      "samples": 59,
+      "pct": 0.97
+    },
+    {
+      "frame": "rebuild/pipeline/settle.py:1303(Engine._commit)",
+      "samples": 53,
+      "pct": 0.87
+    },
+    {
+      "frame": "rebuild/pipeline/settle.py:1048(Engine._pick_adjustment)",
+      "samples": 47,
+      "pct": 0.77
+    },
+    {
+      "frame": "<string>:11(__create_fn__.<locals>.__eq__)",
+      "samples": 39,
+      "pct": 0.64
+    },
+    {
+      "frame": "rebuild/pipeline/table.py:576(_ProspectLiveness._fourth_class_live)",
+      "samples": 38,
+      "pct": 0.62
+    },
+    {
+      "frame": "rebuild/pipeline/settle.py:1230(Engine._transition_trace_uncached.<locals>.<genexpr>)",
+      "samples": 38,
+      "pct": 0.62
+    },
+    {
+      "frame": "rebuild/pipeline/settle.py:452(Engine._active_pairing_unlocks)",
+      "samples": 38,
+      "pct": 0.62
+    },
+    {
+      "frame": "rebuild/pipeline/settle.py:140(cell_label)",
+      "samples": 33,
+      "pct": 0.54
+    },
+    {
+      "frame": "rebuild/pipeline/table.py:1223(_flag_prospect_joints)",
+      "samples": 32,
+      "pct": 0.53
+    },
+    {
+      "frame": "rebuild/pipeline/table.py:637(_ProspectLiveness._vote_class_live)",
+      "samples": 31,
+      "pct": 0.51
+    },
+    {
+      "frame": "rebuild/pipeline/table.py:1211(prospect_successors)",
+      "samples": 30,
+      "pct": 0.49
+    },
+    {
+      "frame": "rebuild/pipeline/settle.py:1316(Engine._commit.<locals>.note_applied)",
+      "samples": 25,
+      "pct": 0.41
+    },
+    {
+      "frame": "<string>:9(__create_fn__.<locals>.__eq__)",
+      "samples": 25,
+      "pct": 0.41
+    },
+    {
+      "frame": "rebuild/pipeline/settle.py:1104(Engine._withdrawal_tokens)",
+      "samples": 24,
+      "pct": 0.39
+    },
+    {
+      "frame": "rebuild/pipeline/table.py:1269(_rules_for_input.<locals>.emit_group)",
+      "samples": 23,
+      "pct": 0.38
+    },
+    {
+      "frame": "rebuild/pipeline/settle.py:1280(Engine._transition_trace_uncached.<locals>.<lambda>)",
+      "samples": 19,
+      "pct": 0.31
+    }
+  ],
+  "stack_top": [
+    {
+      "frame": "raw/perf/attr-m1/slice_tables_sampled.py:32(main)",
+      "samples": 6087,
+      "pct": 100.0
+    },
+    {
+      "frame": "raw/perf/attr-m1/slice_tables_sampled.py:1(<module>)",
+      "samples": 6087,
+      "pct": 100.0
+    },
+    {
+      "frame": "rebuild/pipeline/table.py:901(build_tables)",
+      "samples": 6086,
+      "pct": 99.98
+    },
+    {
+      "frame": "rebuild/pipeline/table.py:782(third_slot_filter.<locals>.matters)",
+      "samples": 4825,
+      "pct": 79.27
+    },
+    {
+      "frame": "rebuild/pipeline/table.py:485(_ProspectLiveness.third_live)",
+      "samples": 4817,
+      "pct": 79.14
+    },
+    {
+      "frame": "rebuild/pipeline/settle.py:1120(Engine.transition_trace)",
+      "samples": 4342,
+      "pct": 71.33
+    },
+    {
+      "frame": "rebuild/pipeline/settle.py:1178(Engine._transition_trace_uncached)",
+      "samples": 4115,
+      "pct": 67.6
+    },
+    {
+      "frame": "rebuild/pipeline/table.py:537(_ProspectLiveness.fourth_live)",
+      "samples": 3852,
+      "pct": 63.28
+    },
+    {
+      "frame": "rebuild/pipeline/table.py:503(_ProspectLiveness.third_live.<locals>.<genexpr>)",
+      "samples": 3691,
+      "pct": 60.64
+    },
+    {
+      "frame": "rebuild/pipeline/settle.py:682(Engine._prospect)",
+      "samples": 2964,
+      "pct": 48.69
+    },
+    {
+      "frame": "rebuild/pipeline/settle.py:525(Engine.candidates)",
+      "samples": 2623,
+      "pct": 43.09
+    },
+    {
+      "frame": "rebuild/pipeline/settle.py:754(Engine._prefer_favors)",
+      "samples": 2480,
+      "pct": 40.74
+    },
+    {
+      "frame": "rebuild/pipeline/table.py:556(_ProspectLiveness._prospect_varies_fourth)",
+      "samples": 2349,
+      "pct": 38.59
+    },
+    {
+      "frame": "rebuild/pipeline/table.py:576(_ProspectLiveness._fourth_class_live)",
+      "samples": 2335,
+      "pct": 38.36
+    },
+    {
+      "frame": "rebuild/pipeline/table.py:587(_ProspectLiveness._fourth_class_live.<locals>.<genexpr>)",
+      "samples": 2287,
+      "pct": 37.57
+    },
+    {
+      "frame": "rebuild/pipeline/settle.py:834(Engine._apply_prefers)",
+      "samples": 1709,
+      "pct": 28.08
+    },
+    {
+      "frame": "<string>:2(__create_fn__.<locals>.__init__)",
+      "samples": 1530,
+      "pct": 25.14
+    },
+    {
+      "frame": "rebuild/pipeline/table.py:703(_ProspectLiveness._seat_varies)",
+      "samples": 1480,
+      "pct": 24.31
+    },
+    {
+      "frame": "rebuild/pipeline/table.py:730(_ProspectLiveness._seat_outcome)",
+      "samples": 1457,
+      "pct": 23.94
+    },
+    {
+      "frame": "rebuild/pipeline/settle.py:1289(Engine._score)",
+      "samples": 1212,
+      "pct": 19.91
+    },
+    {
+      "frame": "rebuild/pipeline/table.py:637(_ProspectLiveness._vote_class_live)",
+      "samples": 995,
+      "pct": 16.35
+    },
+    {
+      "frame": "rebuild/pipeline/table.py:615(_ProspectLiveness._vote_varies_fourth)",
+      "samples": 934,
+      "pct": 15.34
+    },
+    {
+      "frame": "rebuild/pipeline/settle.py:642(Engine._virtual_left)",
+      "samples": 599,
+      "pct": 9.84
+    },
+    {
+      "frame": "rebuild/pipeline/settle.py:652(Engine._acceptor_exists)",
+      "samples": 397,
+      "pct": 6.52
+    },
+    {
+      "frame": "rebuild/pipeline/settle.py:370(Engine.when_matches)",
+      "samples": 368,
+      "pct": 6.05
+    },
+    {
+      "frame": "rebuild/pipeline/settle.py:1303(Engine._commit)",
+      "samples": 346,
+      "pct": 5.68
+    },
+    {
+      "frame": "<string>:22(__create_fn__.<locals>.__hash__)",
+      "samples": 331,
+      "pct": 5.44
+    },
+    {
+      "frame": "rebuild/pipeline/settle.py:475(Engine._pairing_allowed)",
+      "samples": 328,
+      "pct": 5.39
+    },
+    {
+      "frame": "rebuild/pipeline/settle.py:491(Engine._refusal_hit)",
+      "samples": 301,
+      "pct": 4.94
+    },
+    {
+      "frame": "rebuild/pipeline/settle.py:408(Engine._entry_available)",
+      "samples": 235,
+      "pct": 3.86
+    },
+    {
+      "frame": "rebuild/pipeline/settle.py:439(Engine._exit_sources)",
+      "samples": 217,
+      "pct": 3.56
+    },
+    {
+      "frame": "rebuild/pipeline/settle.py:323(Engine.cond_matches_right)",
+      "samples": 204,
+      "pct": 3.35
+    },
+    {
+      "frame": "rebuild/pipeline/settle.py:483(Engine._pairing_allowed.<locals>.<genexpr>)",
+      "samples": 178,
+      "pct": 2.92
+    },
+    {
+      "frame": "<string>:8(__create_fn__.<locals>.__eq__)",
+      "samples": 176,
+      "pct": 2.89
+    },
+    {
+      "frame": "rebuild/pipeline/table.py:820(fourth_slot_filter.<locals>.matters)",
+      "samples": 162,
+      "pct": 2.66
+    },
+    {
+      "frame": "<string>:25(__create_fn__.<locals>.__hash__)",
+      "samples": 138,
+      "pct": 2.27
+    },
+    {
+      "frame": "rebuild/pipeline/settle.py:244(Engine._end_capture)",
+      "samples": 137,
+      "pct": 2.25
+    },
+    {
+      "frame": "rebuild/pipeline/table.py:511(_ProspectLiveness._prospect_varies_third)",
+      "samples": 136,
+      "pct": 2.23
+    },
+    {
+      "frame": "rebuild/pipeline/table.py:524(_ProspectLiveness._third_class_live)",
+      "samples": 134,
+      "pct": 2.2
+    },
+    {
+      "frame": "rebuild/pipeline/settle.py:66(RightToken.letter)",
+      "samples": 111,
+      "pct": 1.82
+    }
+  ]
+}

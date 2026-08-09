@@ -1,0 +1,155 @@
+[
+ {
+  "argv": "uv run python -c pass",
+  "n": 7,
+  "wall_median": 0.031574874999932945,
+  "wall_min": 0.030347790976520628,
+  "cpu_median": 0.027741000000000002,
+  "cpu_min": 0.026668999999999998,
+  "case": "uv-floor"
+ },
+ {
+  "argv": ".venv/bin/python -c pass",
+  "n": 7,
+  "wall_median": 0.017867500020656735,
+  "wall_min": 0.017200458998559043,
+  "cpu_median": 0.01606200000000002,
+  "cpu_min": 0.015609000000000012,
+  "case": "bare-floor"
+ },
+ {
+  "argv": ".venv/bin/python -c import rebuild.pipeline.run_m1",
+  "n": 7,
+  "wall_median": 0.08444666600553319,
+  "wall_min": 0.08298870798898861,
+  "cpu_median": 0.08267799999999997,
+  "cpu_min": 0.08039000000000007,
+  "case": "bare+rebuild.pipeline.run_m1"
+ },
+ {
+  "argv": ".venv/bin/python -c import rebuild.review.build",
+  "n": 7,
+  "wall_median": 0.0898986250103917,
+  "wall_min": 0.08815891700214706,
+  "cpu_median": 0.08737600000000012,
+  "cpu_min": 0.08526499999999992,
+  "case": "bare+rebuild.review.build"
+ },
+ {
+  "argv": ".venv/bin/python -c import rebuild.review.census",
+  "n": 7,
+  "wall_median": 0.07873070900677703,
+  "wall_min": 0.07589550002012402,
+  "cpu_median": 0.07638800000000012,
+  "cpu_min": 0.0736699999999999,
+  "case": "bare+rebuild.review.census"
+ },
+ {
+  "argv": ".venv/bin/python -c import rebuild.tools.artifact_cycle",
+  "n": 7,
+  "wall_median": 0.05067208400578238,
+  "wall_min": 0.04988283300190233,
+  "cpu_median": 0.04843999999999982,
+  "cpu_min": 0.047801000000000204,
+  "case": "bare+rebuild.tools.artifact_cycle"
+ },
+ {
+  "argv": ".venv/bin/python -c import rebuild.tools.make_test_gate",
+  "n": 7,
+  "wall_median": 0.04964954202296212,
+  "wall_min": 0.04936412500683218,
+  "cpu_median": 0.047514000000000056,
+  "cpu_min": 0.04720599999999964,
+  "case": "bare+rebuild.tools.make_test_gate"
+ },
+ {
+  "argv": ".venv/bin/python -c import rebuild.tools.carry_verdicts",
+  "n": 7,
+  "wall_median": 0.07980358300847001,
+  "wall_min": 0.07564791600452736,
+  "cpu_median": 0.0774480000000004,
+  "cpu_min": 0.07347599999999987,
+  "case": "bare+rebuild.tools.carry_verdicts"
+ },
+ {
+  "argv": ".venv/bin/python -c import rebuild.tools.merge_verdicts",
+  "n": 7,
+  "wall_median": 0.03449762499076314,
+  "wall_min": 0.03227579200756736,
+  "cpu_median": 0.03237800000000002,
+  "cpu_min": 0.03030699999999964,
+  "case": "bare+rebuild.tools.merge_verdicts"
+ },
+ {
+  "argv": ".venv/bin/python -c import rebuild.tools.echo_verdicts",
+  "n": 7,
+  "wall_median": 0.023164084006566554,
+  "wall_min": 0.022811749979155138,
+  "cpu_median": 0.021256999999999415,
+  "cpu_min": 0.02089799999999986,
+  "case": "bare+rebuild.tools.echo_verdicts"
+ },
+ {
+  "argv": ".venv/bin/python -c import rebuild.tools.standing_verdicts",
+  "n": 7,
+  "wall_median": 0.05896620897692628,
+  "wall_min": 0.057697457988979295,
+  "cpu_median": 0.05668099999999976,
+  "cpu_min": 0.055457000000000534,
+  "case": "bare+rebuild.tools.standing_verdicts"
+ },
+ {
+  "argv": ".venv/bin/python -c import rebuild.tools.complaint_docket",
+  "n": 7,
+  "wall_median": 0.03214262501569465,
+  "wall_min": 0.03095258300891146,
+  "cpu_median": 0.030090999999999646,
+  "cpu_min": 0.028900000000000148,
+  "case": "bare+rebuild.tools.complaint_docket"
+ },
+ {
+  "argv": ".venv/bin/python -c import rebuild.tools.verdict_ready",
+  "n": 7,
+  "wall_median": 0.032992041000397876,
+  "wall_min": 0.03152566700009629,
+  "cpu_median": 0.03076699999999999,
+  "cpu_min": 0.029498000000000246,
+  "case": "bare+rebuild.tools.verdict_ready"
+ },
+ {
+  "argv": ".venv/bin/python -c import sys; sys.path.insert(0, 'tools'); import build_font",
+  "n": 7,
+  "wall_median": 0.1001623339834623,
+  "wall_min": 0.09779254099703394,
+  "cpu_median": 0.09771000000000019,
+  "cpu_min": 0.09544599999999992,
+  "case": "bare+tools.build_font"
+ },
+ {
+  "argv": ".venv/bin/python -c import pytest",
+  "n": 7,
+  "wall_median": 0.08281104202615097,
+  "wall_min": 0.08079620799981058,
+  "cpu_median": 0.08044099999999954,
+  "cpu_min": 0.07894500000000004,
+  "case": "bare+pytest-import"
+ },
+ {
+  "argv": ".venv/bin/python -c import fontTools.feaLib.builder",
+  "n": 7,
+  "wall_median": 0.07565400001476519,
+  "wall_min": 0.07207049999851733,
+  "cpu_median": 0.07297800000000088,
+  "cpu_min": 0.06957099999999983,
+  "case": "bare+fontTools.feaLib.builder"
+ },
+ {
+  "argv": ".venv/bin/python -c import uharfbuzz",
+  "n": 7,
+  "wall_median": 0.03641083399998024,
+  "wall_min": 0.03399666599580087,
+  "cpu_median": 0.034433000000000824,
+  "cpu_min": 0.03220500000000115,
+  "case": "bare+uharfbuzz"
+ }
+]

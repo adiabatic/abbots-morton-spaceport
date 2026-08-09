@@ -1,0 +1,68 @@
+=== per-worker ===
+  worker  proc_cpu    ru_u+s  prelude  collect  shape_cpu  shape_calls  tests  rss_mb
+     gw0     190.2     190.2     0.48     0.45      133.8    7,543,084    160    1588
+     gw1     191.7     191.7     0.48     0.45      140.5    7,326,028     72    1763
+    gw10     190.5     190.5     0.47     0.43      124.1    8,356,485    315     991
+    gw11     189.1     189.1     0.46     0.42      143.5    6,613,522    664    1691
+     gw2     189.6     189.6     0.49     0.47      142.3    6,830,160    629    1682
+     gw3     187.7     187.7     0.51     0.48      124.8    8,393,386    651    1752
+     gw4     189.2     189.2     0.50     0.47      134.2    7,968,863    671    1839
+     gw5     190.6     190.6     0.51     0.48      138.3    7,453,268    671    1786
+     gw6     192.8     192.8     0.50     0.46      136.8    6,831,353    953    1706
+     gw7     189.5     189.5     0.51     0.47      146.7    6,104,442    658    1580
+     gw8     190.8     190.8     0.48     0.44      133.5    7,497,438    637    1758
+     gw9     188.3     188.3     0.49     0.44      136.8    7,530,243    672    1779
+  master       2.3       2.3     0.00     0.00        0.0            0      0     112
+   TOTAL    2282.0    2282.0     5.87     5.45     1635.2   88,448,272   6753
+
+in-test CPU (sum of runtest_protocol windows): 2272.3 s
+  of which inside hb.shape():                  1635.2 s  (72.0%)
+  shape calls:                                 88,448,272
+  us per shape call:                           18.49
+worker process CPU total:                      2282.0 s
+  framework residue (worker CPU - in-test):    9.8 s
+
+=== per-module (top 25 by CPU) ===
+module                                               cpu_s  %suite   shape_s  shape%         calls  tests
+test/test_calt_regressions.py                       2173.0   95.6%    1582.8   72.8%    84,247,551   5820
+test/test_join_ink.py                                 88.7    3.9%      51.5   58.0%     4,096,576     46
+test/test_quikscript_ir.py                             5.3    0.2%       0.0    0.0%             8    100
+test/test_isolation_leaks.py                           1.8    0.1%       1.0   51.9%       100,222      1
+site/extra-senior-words.html                           1.2    0.1%       0.0    0.3%           150     50
+test/test_quikscript_join_analysis.py                  1.2    0.1%       0.0    0.0%             0     42
+test/test_quikscript_context.py                        0.7    0.0%       0.0    0.0%             0     15
+site/the-manual.html                                   0.2    0.0%       0.0    8.3%         1,161    550
+test/test_static_bold.py                               0.0    0.0%       0.0    0.0%             0     60
+test/test_mono_matches_departure_mono.py               0.0    0.0%       0.0    8.2%         2,198     21
+test/test_namer_dot.py                                 0.0    0.0%       0.0    9.8%            25     25
+test/test_kerning_hardcases.py                         0.0    0.0%       0.0   42.6%           365      6
+test/test_shared.py                                    0.0    0.0%       0.0    0.0%             0      1
+test/test_combining_marks.py                           0.0    0.0%       0.0   35.0%            10     10
+test/test_sans_unchanged_by_mono_bundle.py             0.0    0.0%       0.0    0.0%             0      4
+site/index.html                                        0.0    0.0%       0.0   10.0%             6      2
+
+=== site/ data-expect corpora (the HTML shaping items) ===
+items=602  cpu=1.41s  shape_cpu=0.02s  shape_calls=1,317
+share of in-test CPU: 0.062%
+
+=== top 20 single tests by CPU ===
+   4.14s  shape=  2.60s ( 63.0%)  calls=  101,520  test/test_calt_regressions.py::test_it_it_never_joins[qsDay]
+   3.91s  shape=  3.11s ( 79.5%)  calls=  101,614  test/test_calt_regressions.py::test_it_it_never_joins[qsJai]
+   3.83s  shape=  3.16s ( 82.5%)  calls=  101,567  test/test_calt_regressions.py::test_it_it_never_joins[qsIt]
+   3.78s  shape=  3.09s ( 81.9%)  calls=  101,614  test/test_calt_regressions.py::test_it_it_never_joins[qsNo]
+   3.71s  shape=  3.04s ( 81.9%)  calls=  101,614  test/test_calt_regressions.py::test_it_it_never_joins[qsOwe]
+   3.65s  shape=  2.92s ( 79.9%)  calls=  101,614  test/test_calt_regressions.py::test_it_it_never_joins[qsJay]
+   3.64s  shape=  2.77s ( 76.1%)  calls=  101,613  test/test_calt_regressions.py::test_ye_it_never_joins_at_baseline[qsJai]
+   3.63s  shape=  2.79s ( 76.8%)  calls=  101,614  test/test_calt_regressions.py::test_it_it_never_joins[qsRoe]
+   3.62s  shape=  2.92s ( 80.7%)  calls=  101,613  test/test_calt_regressions.py::test_ye_it_never_joins_at_baseline[qsNo]
+   3.60s  shape=  2.96s ( 82.1%)  calls=  101,612  test/test_calt_regressions.py::test_ye_it_never_joins_at_baseline[qsIt]
+   3.56s  shape=  2.91s ( 81.7%)  calls=  101,614  test/test_calt_regressions.py::test_it_it_never_joins[qsGay]
+   3.54s  shape=  2.69s ( 75.9%)  calls=  101,660  test/test_calt_regressions.py::test_it_owe_extends_by_one_pixel_when_joined[qsIt]
+   3.51s  shape=  2.84s ( 80.9%)  calls=  101,614  test/test_calt_regressions.py::test_it_it_never_joins[qsMay]
+   3.50s  shape=  2.83s ( 80.7%)  calls=  101,614  test/test_calt_regressions.py::test_it_it_never_joins[qsTea]
+   3.48s  shape=  2.33s ( 67.1%)  calls=  101,614  test/test_calt_regressions.py::test_ye_it_never_joins_at_baseline[space]
+   3.47s  shape=  2.82s ( 81.2%)  calls=  101,613  test/test_calt_regressions.py::test_ye_it_never_joins_at_baseline[qsOwe]
+   3.45s  shape=  2.64s ( 76.5%)  calls=  103,775  test/test_calt_regressions.py::test_ye_it_never_joins_at_baseline[qsYe]
+   3.45s  shape=  2.78s ( 80.6%)  calls=  101,614  test/test_calt_regressions.py::test_it_it_never_joins[qsOut]
+   3.45s  shape=  2.77s ( 80.3%)  calls=  101,614  test/test_calt_regressions.py::test_it_it_never_joins[qsIng]
+   3.44s  shape=  2.79s ( 81.2%)  calls=  101,614  test/test_calt_regressions.py::test_it_it_never_joins[qsYe]

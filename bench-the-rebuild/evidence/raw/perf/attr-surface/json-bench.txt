@@ -1,0 +1,7 @@
+
+JSON over the freshly built surface: 27 shards, 279.7 MB (266.7 MiB)
+  read bytes  0.026s CPU  -> 10602 MB/s
+  json.loads  1.347s CPU -> 208 MB/s  (C decoder)
+  json.dumps(indent=1) 0.936s CPU -> 299 MB/s (279.7 MB out)
+  json.dumps(compact)  0.924s CPU -> 256 MB/s (236.9 MB out, indent=1 inflates by 18%)
+  build._write_json (dumps + write) 1.008s CPU -> 277 MB/s

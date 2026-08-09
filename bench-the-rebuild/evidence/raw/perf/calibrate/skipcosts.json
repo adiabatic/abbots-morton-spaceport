@@ -1,0 +1,62 @@
+{
+  "rows": [
+    {
+      "key": "make_test_closure_fingerprint",
+      "seconds": 0.013,
+      "value_head": "65197a349efb3c4cc856a0c5",
+      "record": "make-test-green.json",
+      "record_exists": true,
+      "matches_record": true
+    },
+    {
+      "key": "rebuild_gate_skip_fingerprint",
+      "seconds": 0.0786,
+      "value_head": "8d6c918b6787a953d7ac3443",
+      "record": "rebuild-gate-green.json",
+      "record_exists": true,
+      "matches_record": false
+    },
+    {
+      "key": "run_m1_skip_fingerprint",
+      "seconds": 0.0499,
+      "value_head": "a16fbaffc06e4902177cae2d",
+      "record": "run-m1-green.json",
+      "record_exists": true,
+      "matches_record": false
+    },
+    {
+      "key": "conform_skip_fingerprint(5)",
+      "seconds": 0.0506,
+      "value_head": "2fa0740a5293474958ab5e05",
+      "record": "conform-green.json",
+      "record_exists": true,
+      "matches_record": false
+    },
+    {
+      "key": "surface_build_skippable",
+      "seconds": 0.0015,
+      "value_head": "False"
+    },
+    {
+      "key": "census_skip_fingerprint",
+      "seconds": 0.0221,
+      "value_head": "1bce96ec1c57bf34040adc81"
+    },
+    {
+      "key": "plumbing_skip_fingerprint",
+      "seconds": 0.0,
+      "value_head": null
+    },
+    {
+      "key": "fingerprint.data_lines",
+      "seconds": 0.0462,
+      "value_head": "['glyph_data/punctuation"
+    },
+    {
+      "key": "fingerprint.rune_digests",
+      "seconds": 0.0454,
+      "value_head": "{'qsAh': '6546415a65a8ee"
+    }
+  ],
+  "sum_seconds": 0.3073
+}

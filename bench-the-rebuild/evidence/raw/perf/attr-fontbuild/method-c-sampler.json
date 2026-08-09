@@ -1,0 +1,14 @@
+{
+ "samples": 3247,
+ "self": {
+  "stdlib": 184,
+  "repo": 887,
+  "PyYAML": 88,
+  "fontTools": 2088
+ },
+ "root": {
+  "not-repo-initiated": 3,
+  "repo-initiated": 3244
+ },
+ "cpu": 22.817393000000003
+}

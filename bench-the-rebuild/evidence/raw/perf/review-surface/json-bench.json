@@ -1,0 +1,57 @@
+[
+ {
+  "shard": "boundary-echo.json",
+  "bytes": 74028465,
+  "units": 18368,
+  "out_len": 74028464,
+  "read_cpu": 0.008237999999999995,
+  "load_cpu": 0.223999,
+  "dump_cpu": 0.18729600000000002,
+  "dump_compact_cpu": 0.1825009999999999,
+  "dump_no_ascii_cpu": 0.221159
+ },
+ {
+  "shard": "dangling-anchor-dropped.json",
+  "bytes": 48775336,
+  "units": 11485,
+  "out_len": 48775335,
+  "read_cpu": 0.005292000000000074,
+  "load_cpu": 0.1353129999999999,
+  "dump_cpu": 0.1187330000000002,
+  "dump_compact_cpu": 0.11413000000000006,
+  "dump_no_ascii_cpu": 0.13794499999999998
+ },
+ {
+  "shard": "bare-name-live-join.json",
+  "bytes": 44430639,
+  "units": 11028,
+  "out_len": 44430638,
+  "read_cpu": 0.0039359999999999395,
+  "load_cpu": 0.12586699999999995,
+  "dump_cpu": 0.11064299999999982,
+  "dump_compact_cpu": 0.10656000000000021,
+  "dump_no_ascii_cpu": 0.12607199999999996
+ },
+ {
+  "shard": "may-baseline-entry-extension-dropped.json",
+  "bytes": 5553413,
+  "units": 1255,
+  "out_len": 5553412,
+  "read_cpu": 0.0008189999999999031,
+  "load_cpu": 0.012915999999999705,
+  "dump_cpu": 0.013514999999999722,
+  "dump_compact_cpu": 0.012852000000000086,
+  "dump_no_ascii_cpu": 0.015552999999999928
+ },
+ {
+  "shard": "seam-loss-withdrawal.json",
+  "bytes": 5140328,
+  "units": 1012,
+  "out_len": 5140327,
+  "read_cpu": 0.000508000000000175,
+  "load_cpu": 0.011359000000000119,
+  "dump_cpu": 0.012402999999999942,
+  "dump_compact_cpu": 0.011811000000000016,
+  "dump_no_ascii_cpu": 0.014513999999999916
+ }
+]

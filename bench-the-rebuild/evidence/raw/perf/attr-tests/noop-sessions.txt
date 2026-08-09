@@ -1,0 +1,27 @@
+=== noop FEW (1 test), -n auto ===
+1 passed in 0.67s
+        0.83 real         2.15 user         0.48 sys
+            46792704  maximum resident set size
+1 passed in 0.62s
+        0.78 real         2.12 user         0.44 sys
+            46792704  maximum resident set size
+1 passed in 0.63s
+        0.79 real         2.21 user         0.46 sys
+            46989312  maximum resident set size
+=== noop FEW (1 test), -p no:xdist ===
+1 passed in 0.00s
+        0.14 real         0.11 user         0.02 sys
+1 passed in 0.00s
+        0.14 real         0.11 user         0.02 sys
+1 passed in 0.00s
+        0.14 real         0.11 user         0.02 sys
+=== noop MANY (6753 tests), -n auto ===
+6753 passed in 1.59s
+        1.89 real         7.42 user         0.82 sys
+           102875136  maximum resident set size
+6753 passed in 1.63s
+        1.91 real         7.47 user         0.84 sys
+           100286464  maximum resident set size
+=== noop MANY (6753 tests), collect only ===
+            44857541  cycles elapsed
+            47796527  cycles elapsed

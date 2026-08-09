@@ -1,0 +1,14 @@
+shapes in one sweep param: 101,614   recorded texts: 103,824
+
+T_cold   sweep, everything cold           :    2.217 s
+T_warm   same param, all shapes cached    :    0.195 s   (8.8% of cold)
+T_body   _shape body only, cache bypassed :    1.936 s
+T_hb     hb.shape + buffer only           :    1.828 s  (repeat 1.834 s)
+
+derived, as a share of one cold sweep param:
+  shaping subsystem  (T_cold - T_warm)    :    2.021 s   91.2%
+  repo Python outside _shape (T_warm)     :    0.195 s    8.8%
+  C shaper alone (T_hb)                   :    1.828 s   82.5%
+  Python glue inside _shape (T_body-T_hb) :    0.108 s    4.9%
+
+  us/shape: cold 21.81   hb-only 17.61   full body 18.65

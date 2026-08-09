@@ -1,0 +1,26 @@
+`make all` wall critical path (measured 11.43 s median of 3 at low load)
+step                                                            wall_s       %  owner
+parent: interpreter startup + imports                            0.120   1.05%  startup
+parent: load_glyph_data (PyYAML pure-python)                     0.190   1.66%  PyYAML
+parent: compile_glyph_set (repo IR + join analysis)              0.322   2.82%  repo
+parent: build_senior_fea (repo FEA text emit)                    2.062  18.04%  repo
+spawn latency + pool handoff                                     0.228   2.00%  startup
+senior worker: interpreter startup + imports                     0.120   1.05%  startup
+senior worker: load_glyph_data (PyYAML pure-python)              0.190   1.66%  PyYAML
+senior worker: compile_glyph_set (repo IR)                       0.345   3.02%  repo
+senior worker: build_font body (repo pixel rects, cmap, names)   0.583   5.10%  repo
+senior worker: T2CharStringPen.getCharString (fontTools)         0.052   0.46%  fontTools
+senior worker: addOpenTypeFeaturesFromString (fontTools feaLib)   5.826  50.97%  fontTools
+senior worker: FontBuilder.save (fontTools ttLib pack)           0.955   8.36%  fontTools
+make + cp + typst                                                0.390   3.41%  other
+TOTAL                                                           11.384  99.60%
+
+-- critical path by owner --
+  fontTools      6.833 s   59.78%
+  repo           3.312 s   28.98%
+  startup        0.468 s    4.10%
+  other          0.390 s    3.41%
+  PyYAML         0.380 s    3.32%
+
+Amdahl on WALL, rewriting only this repo's Python: f=29.0%  ceiling 1.41x
+  + PyYAML->libyaml: f=32.3%  ceiling 1.48x

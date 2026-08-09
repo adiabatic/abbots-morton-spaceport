@@ -1,0 +1,149 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "script.schema.json",
+  "title": "Quikscript script registry",
+  "description": "Registries only, never policy: the closed height table, boundary tokens, the stylistic-set registry, derived predicate classes, and the full family-name registry. Predicate classes are computable expressions only — a hand-maintained cross-rune membership list is unwritable by this schema.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["heights", "boundary_tokens", "features", "predicate_classes", "families"],
+  "properties": {
+    "heights": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["baseline", "x-height", "y6", "top"],
+      "properties": {
+        "baseline": {"type": "integer"},
+        "x-height": {"type": "integer"},
+        "y6": {"type": "integer"},
+        "top": {"type": "integer"}
+      }
+    },
+    "boundary_tokens": {
+      "type": "object",
+      "propertyNames": {"pattern": "^[a-z][a-z0-9-]*$"},
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["codepoint", "splits_runs"],
+        "properties": {
+          "codepoint": {"type": "integer", "minimum": 0},
+          "splits_runs": {"type": "boolean"}
+        }
+      }
+    },
+    "features": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "interactions": {
+          "type": "array",
+          "items": {"type": "array", "items": {"$ref": "#/$defs/featureTag"}, "minItems": 2}
+        }
+      },
+      "patternProperties": {
+        "^ss[0-9]{2}$": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "description"],
+          "properties": {
+            "kind": {"enum": ["capability", "taste"]},
+            "description": {"type": "string"},
+            "overlay": {"type": "string"}
+          }
+        }
+      }
+    },
+    "predicate_classes": {
+      "type": "object",
+      "propertyNames": {"pattern": "^[a-z][a-z0-9-]*$"},
+      "additionalProperties": {"$ref": "#/$defs/classExpression"}
+    },
+    "families": {
+      "type": "object",
+      "propertyNames": {"$ref": "#/$defs/familyName"},
+      "additionalProperties": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["codepoint"],
+            "properties": {"codepoint": {"type": "integer", "minimum": 0}}
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["sequence"],
+            "properties": {
+              "sequence": {"type": "array", "items": {"$ref": "#/$defs/familyName"}, "minItems": 2}
+            }
+          }
+        ]
+      }
+    }
+  },
+  "$defs": {
+    "familyName": {"type": "string", "pattern": "^qs[A-Z][A-Za-z]*(_qs[A-Z][A-Za-z]*)*$"},
+    "featureTag": {"type": "string", "pattern": "^ss[0-9]{2}$"},
+    "height": {"enum": ["baseline", "x-height", "y6", "top"]},
+    "classExpression": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["can_enter_at"],
+          "properties": {"can_enter_at": {"$ref": "#/$defs/height"}}
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["can_exit_at"],
+          "properties": {"can_exit_at": {"$ref": "#/$defs/height"}}
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["trait"],
+          "properties": {"trait": {"enum": ["half", "alt"]}}
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["height_class"],
+          "properties": {"height_class": {"enum": ["tall", "short", "deep"]}}
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["stroke_at"],
+          "properties": {
+            "stroke_at": {
+              "type": "object",
+              "additionalProperties": false,
+              "minProperties": 1,
+              "properties": {
+                "entry": {"enum": ["horizontal", "vertical", "diagonal"]},
+                "exit": {"enum": ["horizontal", "vertical", "diagonal"]}
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["all"],
+          "properties": {
+            "all": {"type": "array", "items": {"$ref": "#/$defs/classExpression"}, "minItems": 2}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["union"],
+          "properties": {
+            "union": {"type": "array", "items": {"$ref": "#/$defs/classExpression"}, "minItems": 2}
+          }
+        }
+      ]
+    }
+  }
+}

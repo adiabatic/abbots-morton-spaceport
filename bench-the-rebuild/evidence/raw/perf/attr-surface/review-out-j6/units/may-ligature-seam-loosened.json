@@ -1,0 +1,2843 @@
+[
+ {
+  "id": "u-22108",
+  "batch": null,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "default": "d-14c0f8d9cc8c",
+   "ss03": "d-14c0f8d9cc8c",
+   "ss04": "d-14c0f8d9cc8c",
+   "ss05": "d-14c0f8d9cc8c",
+   "ss02": "d-14c0f8d9cc8c",
+   "ss02+ss03": "d-14c0f8d9cc8c",
+   "ss02+ss03+ss05": "d-14c0f8d9cc8c"
+  },
+  "no_verdict": true,
+  "echo": null,
+  "cluster": null,
+  "class": "may-ligature-seam-loosened",
+  "group": "qsPea:qsDay",
+  "codepoints": "E650:E653:E67A:E665",
+  "text_entities": "&#xE650;&#xE653;&#xE67A;&#xE665;",
+  "notation": "\u00b7Pea\u00b7Day\u00b7Utter\u00b7May",
+  "notation_tokens": [
+   "\u00b7Pea",
+   "\u00b7Day",
+   "\u00b7Utter",
+   "\u00b7May"
+  ],
+  "configs": [
+   "default",
+   "ss03",
+   "ss04",
+   "ss05",
+   "ss02",
+   "ss02+ss03",
+   "ss02+ss03+ss05"
+  ],
+  "config_note": "only under: default, ss03, ss04, ss05, ss02, ss02+ss03, ss02+ss03+ss05",
+  "config_gate": null,
+  "config_classes": {
+   "default": "may-ligature-seam-loosened",
+   "ss02": "may-ligature-seam-loosened",
+   "ss03": "may-ligature-seam-loosened",
+   "ss04": "may-ligature-seam-loosened",
+   "ss05": "may-ligature-seam-loosened",
+   "ss02+ss03": "may-ligature-seam-loosened",
+   "ss02+ss03+ss05": "may-ligature-seam-loosened"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss03",
+     "ss04",
+     "ss05",
+     "ss02",
+     "ss02+ss03",
+     "ss02+ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell",
+   "position"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsPea",
+    "qsDay_qsUtter.half.en-y0.ex-y5",
+    "qsMay.en-y5"
+   ],
+   "seams": [
+    "y0",
+    "y5"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsPea/full/None/baseline/",
+    "qsDay_qsUtter/half/baseline/x-height/",
+    "qsMay/loop/x-height/None/"
+   ],
+   "seams": [
+    "y0",
+    "y5"
+   ],
+   "extensions": [
+    0,
+    0
+   ]
+  },
+  "diff_positions": [
+   0
+  ],
+  "pair": {
+   "left": 0,
+   "right": 1
+  },
+  "pair_codepoints": [
+   0,
+   2
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 0,
+    "x_max": 600,
+    "advance_total": 750
+   },
+   "after": {
+    "x_min": 0,
+    "x_max": 650,
+    "advance_total": 750
+   }
+  },
+  "boundary_marks": [],
+  "secondary_seams": null,
+  "summary": "New: \u00b7Pea keeps the same seams but settles as a different cell (full, entry none, exit baseline) \u2014 decided by qsPea.yaml stances.half.surface.exits.y6 (declaration order).",
+  "explain": "sequence E650:E653:E67A:E665   config default\nsettled: qsPea.full.ex-y0 qsDay_qsUtter.half.en-y0.ex-y5 qsMay.loop.en-y5\n\nposition 0: qsPea\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> full             entry=none       seam=baseline   join-count=2 prospect=1\n     half             entry=none       seam=x-height   join-count=2 prospect=1\n     full             entry=none       seam=none       join-count=1 prospect=1\n     half             entry=none       seam=none       join-count=1 prospect=1\n  eliminated before ranking:\n    - (row-scope) qsPea.half: exit y6 toward-scope does not admit qsDay_qsUtter  [glyph_data/runes/qsPea.yaml:stances.half.surface.exits.y6]\n  decided by: order (over half entry=none seam=x-height)\n  note: glyph_data/runes/qsPea.yaml:stances.half.surface.exits.y6\n  settled: qsPea.full.ex-y0   seam=baseline   extension=0",
+  "provenance": [
+   "glyph_data/runes/qsPea.yaml:stances.half.surface.exits.y6"
+  ],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7Pea ~b~ \u00b7Day+Utter ~x~ \u00b7May",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": null,
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsPea.yaml",
+    "keypath": "policy.prefer[+]",
+    "suggested_record": "{cell: {exit: none}, over: {exit: baseline}, mode: absolute, when: {right: {family: [qsDay_qsUtter]}}, why: 'Reviewer rejected the M1 outcome for E650:E653:E67A:E665 (\u00b7Pea\u00b7Day\u00b7Utter\u00b7May)'}",
+    "names_provenance": [
+     "glyph_data/runes/qsPea.yaml:stances.half.surface.exits.y6"
+    ],
+    "decided_stage": "order",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E650:E653:E67A:E665 (\u00b7Pea\u00b7Day\u00b7Utter\u00b7May)"
+   },
+   "any_of": {
+    "text": "qsPea qsDay qsUtter qsMay",
+    "features": {},
+    "candidates": [
+     "\u00b7Pea ~b~ \u00b7Day+Utter ~x~ \u00b7May"
+    ]
+   }
+  },
+  "content_key": "ad9abc3b97a3ff9f8c2c3d244da21a2ead3e9a26944961c70f66642296504f76"
+ },
+ {
+  "id": "u-22109",
+  "batch": null,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "default": "d-14c0f8d9cc8c",
+   "ss03": "d-14c0f8d9cc8c",
+   "ss04": "d-14c0f8d9cc8c",
+   "ss05": "d-14c0f8d9cc8c",
+   "ss02": "d-14c0f8d9cc8c",
+   "ss02+ss03": "d-14c0f8d9cc8c",
+   "ss02+ss03+ss05": "d-14c0f8d9cc8c"
+  },
+  "no_verdict": true,
+  "echo": null,
+  "cluster": null,
+  "class": "may-ligature-seam-loosened",
+  "group": "qsTea:qsDay",
+  "codepoints": "E652:E653:E67A:E665",
+  "text_entities": "&#xE652;&#xE653;&#xE67A;&#xE665;",
+  "notation": "\u00b7Tea\u00b7Day\u00b7Utter\u00b7May",
+  "notation_tokens": [
+   "\u00b7Tea",
+   "\u00b7Day",
+   "\u00b7Utter",
+   "\u00b7May"
+  ],
+  "configs": [
+   "default",
+   "ss03",
+   "ss04",
+   "ss05",
+   "ss02",
+   "ss02+ss03",
+   "ss02+ss03+ss05"
+  ],
+  "config_note": "only under: default, ss03, ss04, ss05, ss02, ss02+ss03, ss02+ss03+ss05",
+  "config_gate": null,
+  "config_classes": {
+   "default": "may-ligature-seam-loosened",
+   "ss02": "may-ligature-seam-loosened",
+   "ss03": "may-ligature-seam-loosened",
+   "ss04": "may-ligature-seam-loosened",
+   "ss05": "may-ligature-seam-loosened",
+   "ss02+ss03": "may-ligature-seam-loosened",
+   "ss02+ss03+ss05": "may-ligature-seam-loosened"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss03",
+     "ss04",
+     "ss05",
+     "ss02",
+     "ss02+ss03",
+     "ss02+ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "position"
+  ],
+  "exemplar": true,
+  "before": {
+   "glyphs": [
+    "qsTea.ex-y0",
+    "qsDay_qsUtter.half.en-y0.ex-y5.en-ext-1",
+    "qsMay.en-y5"
+   ],
+   "seams": [
+    "y0",
+    "y5"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsTea/full/None/baseline/",
+    "qsDay_qsUtter/half/baseline/x-height/en-ext-1",
+    "qsMay/loop/x-height/None/"
+   ],
+   "seams": [
+    "y0",
+    "y5"
+   ],
+   "extensions": [
+    1,
+    0
+   ]
+  },
+  "diff_positions": [],
+  "pair": null,
+  "pair_codepoints": [
+   0,
+   0
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 0,
+    "x_max": 650,
+    "advance_total": 650
+   },
+   "after": {
+    "x_min": 0,
+    "x_max": 650,
+    "advance_total": 650
+   }
+  },
+  "boundary_marks": [],
+  "secondary_seams": null,
+  "summary": "New: only the boundary marker's glyph changed; every letter cell and seam is unchanged \u2014 no policy record involved.",
+  "explain": "sequence E652:E653:E67A:E665   config default\nsettled: qsTea.full.ex-y0 qsDay_qsUtter.half.en-y0.ex-y5.en-ext-1 qsMay.loop.en-y5\n\nposition 0: qsTea\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> full             entry=none       seam=baseline   join-count=2 prospect=1\n     half             entry=none       seam=x-height   join-count=2 prospect=1\n     full             entry=none       seam=none       join-count=1 prospect=1\n     half             entry=none       seam=none       join-count=1 prospect=1\n  decided by: order (over half entry=none seam=x-height)\n  settled: qsTea.full.ex-y0   seam=baseline   extension=0\n\nposition 1: qsDay_qsUtter\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> half             entry=baseline   seam=x-height   join-count=2 prospect=0\n     half             entry=baseline   seam=none       join-count=1 prospect=0\n  eliminated before ranking:\n    - (entry-binding) qsDay_qsUtter.full: no available entry row at baseline against the committed seam\n  decided by: join-count (over half entry=baseline seam=none)\n  note: glyph_data/runes/qsDay_qsUtter.yaml:policy.extend[2]\n  settled: qsDay_qsUtter.half.en-y0.ex-y5.en-ext-1   seam=x-height   extension=0\n\nposition 2: qsMay\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> loop             entry=x-height   seam=none       join-count=1 prospect=0\n     grounded-loop    entry=x-height   seam=none       join-count=1 prospect=0\n  decided by: order (over grounded-loop entry=x-height seam=none)\n  settled: qsMay.loop.en-y5   seam=none   extension=0",
+  "provenance": [],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7Tea ~b~ \u00b7Day+Utter ~x~ \u00b7May",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": null,
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsTea.yaml",
+    "keypath": "policy.prefer[+]",
+    "suggested_record": "{cell: {exit: baseline}, when: {right: {family: [qsDay_qsUtter]}}, why: 'Reviewer rejected the M1 outcome for E652:E653:E67A:E665 (\u00b7Tea\u00b7Day\u00b7Utter\u00b7May)'}",
+    "names_provenance": [],
+    "decided_stage": "order",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E652:E653:E67A:E665 (\u00b7Tea\u00b7Day\u00b7Utter\u00b7May)"
+   },
+   "any_of": {
+    "text": "qsTea qsDay qsUtter qsMay",
+    "features": {},
+    "candidates": [
+     "\u00b7Tea ~b~ \u00b7Day+Utter ~x~ \u00b7May"
+    ]
+   }
+  },
+  "content_key": "ed9bde46b4f80dc635a9318d15373c1d88fe75ba7eeb637c13d74c526e289980"
+ },
+ {
+  "id": "u-22110",
+  "batch": null,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "default": "d-14c0f8d9cc8c",
+   "ss03": "d-14c0f8d9cc8c",
+   "ss04": "d-14c0f8d9cc8c",
+   "ss05": "d-14c0f8d9cc8c",
+   "ss02": "d-14c0f8d9cc8c",
+   "ss02+ss03": "d-14c0f8d9cc8c",
+   "ss02+ss03+ss05": "d-14c0f8d9cc8c"
+  },
+  "no_verdict": true,
+  "echo": null,
+  "cluster": null,
+  "class": "may-ligature-seam-loosened",
+  "group": "qsDay:qsDay",
+  "codepoints": "E653:E653:E67A:E665",
+  "text_entities": "&#xE653;&#xE653;&#xE67A;&#xE665;",
+  "notation": "\u00b7Day\u00b7Day\u00b7Utter\u00b7May",
+  "notation_tokens": [
+   "\u00b7Day",
+   "\u00b7Day",
+   "\u00b7Utter",
+   "\u00b7May"
+  ],
+  "configs": [
+   "default",
+   "ss03",
+   "ss04",
+   "ss05",
+   "ss02",
+   "ss02+ss03",
+   "ss02+ss03+ss05"
+  ],
+  "config_note": "only under: default, ss03, ss04, ss05, ss02, ss02+ss03, ss02+ss03+ss05",
+  "config_gate": null,
+  "config_classes": {
+   "default": "may-ligature-seam-loosened",
+   "ss02": "may-ligature-seam-loosened",
+   "ss03": "may-ligature-seam-loosened",
+   "ss04": "may-ligature-seam-loosened",
+   "ss05": "may-ligature-seam-loosened",
+   "ss02+ss03": "may-ligature-seam-loosened",
+   "ss02+ss03+ss05": "may-ligature-seam-loosened"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss03",
+     "ss04",
+     "ss05",
+     "ss02",
+     "ss02+ss03",
+     "ss02+ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell",
+   "position"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsDay",
+    "qsDay_qsUtter.half.en-y0.ex-y5",
+    "qsMay.en-y5"
+   ],
+   "seams": [
+    "y0",
+    "y5"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsDay/full/None/baseline/",
+    "qsDay_qsUtter/half/baseline/x-height/",
+    "qsMay/loop/x-height/None/"
+   ],
+   "seams": [
+    "y0",
+    "y5"
+   ],
+   "extensions": [
+    0,
+    0
+   ]
+  },
+  "diff_positions": [
+   0
+  ],
+  "pair": {
+   "left": 0,
+   "right": 1
+  },
+  "pair_codepoints": [
+   0,
+   2
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 0,
+    "x_max": 600,
+    "advance_total": 750
+   },
+   "after": {
+    "x_min": 0,
+    "x_max": 650,
+    "advance_total": 750
+   }
+  },
+  "boundary_marks": [],
+  "secondary_seams": null,
+  "summary": "New: \u00b7Day keeps the same seams but settles as a different cell (full, entry none, exit baseline) \u2014 decided by declaration order (no policy record involved).",
+  "explain": "sequence E653:E653:E67A:E665   config default\nsettled: qsDay.full.ex-y0 qsDay_qsUtter.half.en-y0.ex-y5 qsMay.loop.en-y5\n\nposition 0: qsDay\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> full             entry=none       seam=baseline   join-count=2 prospect=1\n     half             entry=none       seam=baseline   join-count=2 prospect=1\n     full             entry=none       seam=none       join-count=1 prospect=1\n     half             entry=none       seam=none       join-count=1 prospect=1\n  decided by: order (over half entry=none seam=baseline)\n  settled: qsDay.full.ex-y0   seam=baseline   extension=0",
+  "provenance": [],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7Day ~b~ \u00b7Day+Utter ~x~ \u00b7May",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": null,
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsDay.yaml",
+    "keypath": "policy.prefer[+]",
+    "suggested_record": "{cell: {exit: baseline}, when: {right: {family: [qsDay_qsUtter]}}, why: 'Reviewer rejected the M1 outcome for E653:E653:E67A:E665 (\u00b7Day\u00b7Day\u00b7Utter\u00b7May)'}",
+    "names_provenance": [],
+    "decided_stage": "order",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E653:E653:E67A:E665 (\u00b7Day\u00b7Day\u00b7Utter\u00b7May)"
+   },
+   "any_of": {
+    "text": "qsDay qsDay qsUtter qsMay",
+    "features": {},
+    "candidates": [
+     "\u00b7Day ~b~ \u00b7Day+Utter ~x~ \u00b7May"
+    ]
+   }
+  },
+  "content_key": "53c559c8f7869b0abd03ec70b10dbc69ce8bff834be8d4977d4197751b5fd6ad"
+ },
+ {
+  "id": "u-22111",
+  "batch": null,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "default": "d-14c0f8d9cc8c",
+   "ss03": "d-14c0f8d9cc8c",
+   "ss04": "d-14c0f8d9cc8c",
+   "ss05": "d-14c0f8d9cc8c",
+   "ss02": "d-14c0f8d9cc8c",
+   "ss02+ss03": "d-14c0f8d9cc8c",
+   "ss02+ss03+ss05": "d-14c0f8d9cc8c"
+  },
+  "no_verdict": true,
+  "echo": null,
+  "cluster": null,
+  "class": "may-ligature-seam-loosened",
+  "group": "qsDay:qsUtter",
+  "codepoints": "E653:E67A:E665",
+  "text_entities": "&#xE653;&#xE67A;&#xE665;",
+  "notation": "\u00b7Day\u00b7Utter\u00b7May",
+  "notation_tokens": [
+   "\u00b7Day",
+   "\u00b7Utter",
+   "\u00b7May"
+  ],
+  "configs": [
+   "default",
+   "ss03",
+   "ss04",
+   "ss05",
+   "ss02",
+   "ss02+ss03",
+   "ss02+ss03+ss05"
+  ],
+  "config_note": "only under: default, ss03, ss04, ss05, ss02, ss02+ss03, ss02+ss03+ss05",
+  "config_gate": null,
+  "config_classes": {
+   "default": "may-ligature-seam-loosened",
+   "ss02": "may-ligature-seam-loosened",
+   "ss03": "may-ligature-seam-loosened",
+   "ss04": "may-ligature-seam-loosened",
+   "ss05": "may-ligature-seam-loosened",
+   "ss02+ss03": "may-ligature-seam-loosened",
+   "ss02+ss03+ss05": "may-ligature-seam-loosened"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss03",
+     "ss04",
+     "ss05",
+     "ss02",
+     "ss02+ss03",
+     "ss02+ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell",
+   "position"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsDay_qsUtter",
+    "qsMay.en-y5"
+   ],
+   "seams": [
+    "y5"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsDay_qsUtter/full/None/x-height/",
+    "qsMay/loop/x-height/None/"
+   ],
+   "seams": [
+    "y5"
+   ],
+   "extensions": [
+    0
+   ]
+  },
+  "diff_positions": [
+   0
+  ],
+  "pair": {
+   "left": 0,
+   "right": 1
+  },
+  "pair_codepoints": [
+   0,
+   2
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 0,
+    "x_max": 500,
+    "advance_total": 500
+   },
+   "after": {
+    "x_min": 0,
+    "x_max": 500,
+    "advance_total": 500
+   }
+  },
+  "boundary_marks": [],
+  "secondary_seams": null,
+  "summary": "New: \u00b7Day+Utter keeps the same seams but settles as a different cell (full, entry none, exit x-height) \u2014 decided by declaration order (no policy record involved).",
+  "explain": "sequence E653:E67A:E665   config default\nsettled: qsDay_qsUtter.full.ex-y5 qsMay.loop.en-y5\n\nposition 0: qsDay_qsUtter\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> full             entry=none       seam=x-height   join-count=1 prospect=0\n     half             entry=none       seam=x-height   join-count=1 prospect=0\n     full             entry=none       seam=none       join-count=0 prospect=0\n     half             entry=none       seam=none       join-count=0 prospect=0\n  decided by: order (over half entry=none seam=x-height)\n  settled: qsDay_qsUtter.full.ex-y5   seam=x-height   extension=0",
+  "provenance": [],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7Day+Utter ~x~ \u00b7May",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": null,
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsDay_qsUtter.yaml",
+    "keypath": "policy.prefer[+]",
+    "suggested_record": "{cell: {exit: x-height}, when: {right: {family: [qsMay]}}, why: 'Reviewer rejected the M1 outcome for E653:E67A:E665 (\u00b7Day\u00b7Utter\u00b7May)'}",
+    "names_provenance": [],
+    "decided_stage": "order",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E653:E67A:E665 (\u00b7Day\u00b7Utter\u00b7May)"
+   },
+   "any_of": {
+    "text": "qsDay qsUtter qsMay",
+    "features": {},
+    "candidates": [
+     "\u00b7Day+Utter ~x~ \u00b7May"
+    ]
+   }
+  },
+  "content_key": "72dcb7824bfdfb6e6993f947ebc1939c4a221ede84c7563174143475b4726762"
+ },
+ {
+  "id": "u-22112",
+  "batch": null,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "default": "d-14c0f8d9cc8c",
+   "ss03": "d-14c0f8d9cc8c",
+   "ss04": "d-14c0f8d9cc8c",
+   "ss05": "d-14c0f8d9cc8c",
+   "ss02": "d-14c0f8d9cc8c",
+   "ss02+ss03": "d-14c0f8d9cc8c",
+   "ss02+ss03+ss05": "d-14c0f8d9cc8c"
+  },
+  "no_verdict": true,
+  "echo": null,
+  "cluster": null,
+  "class": "may-ligature-seam-loosened",
+  "group": "qsDay:qsUtter",
+  "codepoints": "00B7:E653:E67A:E665",
+  "text_entities": "&#x00B7;&#xE653;&#xE67A;&#xE665;",
+  "notation": "\u00b7 \u00b7Day\u00b7Utter\u00b7May",
+  "notation_tokens": [
+   "\u00b7",
+   "\u00b7Day",
+   "\u00b7Utter",
+   "\u00b7May"
+  ],
+  "configs": [
+   "default",
+   "ss03",
+   "ss04",
+   "ss05",
+   "ss02",
+   "ss02+ss03",
+   "ss02+ss03+ss05"
+  ],
+  "config_note": "only under: default, ss03, ss04, ss05, ss02, ss02+ss03, ss02+ss03+ss05",
+  "config_gate": null,
+  "config_classes": {
+   "default": "may-ligature-seam-loosened",
+   "ss02": "may-ligature-seam-loosened",
+   "ss03": "may-ligature-seam-loosened",
+   "ss04": "may-ligature-seam-loosened",
+   "ss05": "may-ligature-seam-loosened",
+   "ss02+ss03": "may-ligature-seam-loosened",
+   "ss02+ss03+ss05": "may-ligature-seam-loosened"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss03",
+     "ss04",
+     "ss05",
+     "ss02",
+     "ss02+ss03",
+     "ss02+ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell",
+   "position"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "periodcentered",
+    "qsDay_qsUtter",
+    "qsMay.en-y5"
+   ],
+   "seams": [
+    "break",
+    "y5"
+   ]
+  },
+  "after": {
+   "cells": [
+    "namer-dot/boundary/None/None/",
+    "qsDay_qsUtter/full/None/x-height/",
+    "qsMay/loop/x-height/None/"
+   ],
+   "seams": [
+    "break",
+    "y5"
+   ],
+   "extensions": [
+    0,
+    0
+   ]
+  },
+  "diff_positions": [
+   1
+  ],
+  "pair": {
+   "left": 1,
+   "right": 2
+  },
+  "pair_codepoints": [
+   1,
+   3
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 150,
+    "x_max": 650,
+    "advance_total": 650
+   },
+   "after": {
+    "x_min": 150,
+    "x_max": 650,
+    "advance_total": 650
+   }
+  },
+  "boundary_marks": [
+   {
+    "index": 0,
+    "kind": "namer-dot",
+    "x": 0
+   }
+  ],
+  "secondary_seams": null,
+  "summary": "New: \u00b7Day+Utter keeps the same seams but settles as a different cell (full, entry none, exit x-height) \u2014 decided by declaration order (no policy record involved).",
+  "explain": "sequence 00B7:E653:E67A:E665   config default\nsettled: periodcentered qsDay_qsUtter.full.ex-y5 qsMay.loop.en-y5\n\nposition 1: qsDay_qsUtter\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> full             entry=none       seam=x-height   join-count=1 prospect=0\n     half             entry=none       seam=x-height   join-count=1 prospect=0\n     full             entry=none       seam=none       join-count=0 prospect=0\n     half             entry=none       seam=none       join-count=0 prospect=0\n  decided by: order (over half entry=none seam=x-height)\n  settled: qsDay_qsUtter.full.ex-y5   seam=x-height   extension=0",
+  "provenance": [],
+  "drafts": {
+   "pin": {
+    "expect": "\\\u00b7 | \u00b7Day+Utter ~x~ \u00b7May",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": null,
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsDay_qsUtter.yaml",
+    "keypath": "policy.prefer[+]",
+    "suggested_record": "{cell: {exit: x-height}, when: {right: {family: [qsMay]}}, why: 'Reviewer rejected the M1 outcome for 00B7:E653:E67A:E665 (\u00b7 \u00b7Day\u00b7Utter\u00b7May)'}",
+    "names_provenance": [],
+    "decided_stage": "order",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for 00B7:E653:E67A:E665 (\u00b7 \u00b7Day\u00b7Utter\u00b7May)"
+   },
+   "any_of": {
+    "text": "\u00b7 qsDay qsUtter qsMay",
+    "features": {},
+    "candidates": [
+     "\\\u00b7 | \u00b7Day+Utter ~x~ \u00b7May"
+    ]
+   }
+  },
+  "content_key": "36fa5e087ffe33f51c11376c7390c9318f871255994cbb1030f8fc0d8781a858"
+ },
+ {
+  "id": "u-22113",
+  "batch": null,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "default": "d-14c0f8d9cc8c",
+   "ss03": "d-14c0f8d9cc8c",
+   "ss04": "d-14c0f8d9cc8c",
+   "ss05": "d-14c0f8d9cc8c",
+   "ss02": "d-14c0f8d9cc8c",
+   "ss02+ss03": "d-14c0f8d9cc8c",
+   "ss02+ss03+ss05": "d-14c0f8d9cc8c"
+  },
+  "no_verdict": true,
+  "echo": null,
+  "cluster": null,
+  "class": "may-ligature-seam-loosened",
+  "group": "qsDay:qsUtter",
+  "codepoints": "E653:E67A:E665:00B7",
+  "text_entities": "&#xE653;&#xE67A;&#xE665;&#x00B7;",
+  "notation": "\u00b7Day\u00b7Utter\u00b7May \u00b7",
+  "notation_tokens": [
+   "\u00b7Day",
+   "\u00b7Utter",
+   "\u00b7May",
+   "\u00b7"
+  ],
+  "configs": [
+   "default",
+   "ss03",
+   "ss04",
+   "ss05",
+   "ss02",
+   "ss02+ss03",
+   "ss02+ss03+ss05"
+  ],
+  "config_note": "only under: default, ss03, ss04, ss05, ss02, ss02+ss03, ss02+ss03+ss05",
+  "config_gate": null,
+  "config_classes": {
+   "default": "may-ligature-seam-loosened",
+   "ss02": "may-ligature-seam-loosened",
+   "ss03": "may-ligature-seam-loosened",
+   "ss04": "may-ligature-seam-loosened",
+   "ss05": "may-ligature-seam-loosened",
+   "ss02+ss03": "may-ligature-seam-loosened",
+   "ss02+ss03+ss05": "may-ligature-seam-loosened"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss03",
+     "ss04",
+     "ss05",
+     "ss02",
+     "ss02+ss03",
+     "ss02+ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell",
+   "position"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsDay_qsUtter",
+    "qsMay.en-y5",
+    "periodcentered"
+   ],
+   "seams": [
+    "y5",
+    "break"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsDay_qsUtter/full/None/x-height/",
+    "qsMay/loop/x-height/None/",
+    "namer-dot/boundary/None/None/"
+   ],
+   "seams": [
+    "y5",
+    "break"
+   ],
+   "extensions": [
+    0,
+    0
+   ]
+  },
+  "diff_positions": [
+   0
+  ],
+  "pair": {
+   "left": 0,
+   "right": 1
+  },
+  "pair_codepoints": [
+   0,
+   2
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 0,
+    "x_max": 500,
+    "advance_total": 650
+   },
+   "after": {
+    "x_min": 0,
+    "x_max": 500,
+    "advance_total": 650
+   }
+  },
+  "boundary_marks": [
+   {
+    "index": 2,
+    "kind": "namer-dot",
+    "x": 500
+   }
+  ],
+  "secondary_seams": null,
+  "summary": "New: \u00b7Day+Utter keeps the same seams but settles as a different cell (full, entry none, exit x-height) \u2014 decided by declaration order (no policy record involved).",
+  "explain": "sequence E653:E67A:E665:00B7   config default\nsettled: qsDay_qsUtter.full.ex-y5 qsMay.loop.en-y5 periodcentered\n\nposition 0: qsDay_qsUtter\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> full             entry=none       seam=x-height   join-count=1 prospect=0\n     half             entry=none       seam=x-height   join-count=1 prospect=0\n     full             entry=none       seam=none       join-count=0 prospect=0\n     half             entry=none       seam=none       join-count=0 prospect=0\n  decided by: order (over half entry=none seam=x-height)\n  settled: qsDay_qsUtter.full.ex-y5   seam=x-height   extension=0",
+  "provenance": [],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7Day+Utter ~x~ \u00b7May | \\\u00b7",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": null,
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsDay_qsUtter.yaml",
+    "keypath": "policy.prefer[+]",
+    "suggested_record": "{cell: {exit: x-height}, when: {right: {family: [qsMay]}}, why: 'Reviewer rejected the M1 outcome for E653:E67A:E665:00B7 (\u00b7Day\u00b7Utter\u00b7May \u00b7)'}",
+    "names_provenance": [],
+    "decided_stage": "order",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E653:E67A:E665:00B7 (\u00b7Day\u00b7Utter\u00b7May \u00b7)"
+   },
+   "any_of": {
+    "text": "qsDay qsUtter qsMay \u00b7",
+    "features": {},
+    "candidates": [
+     "\u00b7Day+Utter ~x~ \u00b7May | \\\u00b7"
+    ]
+   }
+  },
+  "content_key": "7aad224757c23a01eca21fd1bba7a08af4f4595be1e2dafbac25fd1a0bf89369"
+ },
+ {
+  "id": "u-22114",
+  "batch": null,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "default": "d-14c0f8d9cc8c",
+   "ss03": "d-14c0f8d9cc8c",
+   "ss04": "d-14c0f8d9cc8c",
+   "ss05": "d-14c0f8d9cc8c",
+   "ss02": "d-14c0f8d9cc8c",
+   "ss02+ss03": "d-14c0f8d9cc8c",
+   "ss02+ss03+ss05": "d-14c0f8d9cc8c"
+  },
+  "no_verdict": true,
+  "echo": null,
+  "cluster": null,
+  "class": "may-ligature-seam-loosened",
+  "group": "qsDay:qsUtter",
+  "codepoints": "E653:E67A:E665:E650",
+  "text_entities": "&#xE653;&#xE67A;&#xE665;&#xE650;",
+  "notation": "\u00b7Day\u00b7Utter\u00b7May\u00b7Pea",
+  "notation_tokens": [
+   "\u00b7Day",
+   "\u00b7Utter",
+   "\u00b7May",
+   "\u00b7Pea"
+  ],
+  "configs": [
+   "default",
+   "ss03",
+   "ss04",
+   "ss05",
+   "ss02",
+   "ss02+ss03",
+   "ss02+ss03+ss05"
+  ],
+  "config_note": "only under: default, ss03, ss04, ss05, ss02, ss02+ss03, ss02+ss03+ss05",
+  "config_gate": null,
+  "config_classes": {
+   "default": "may-ligature-seam-loosened",
+   "ss02": "may-ligature-seam-loosened",
+   "ss03": "may-ligature-seam-loosened",
+   "ss04": "may-ligature-seam-loosened",
+   "ss05": "may-ligature-seam-loosened",
+   "ss02+ss03": "may-ligature-seam-loosened",
+   "ss02+ss03+ss05": "may-ligature-seam-loosened"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss03",
+     "ss04",
+     "ss05",
+     "ss02",
+     "ss02+ss03",
+     "ss02+ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell",
+   "position"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsDay_qsUtter",
+    "qsMay.en-y5",
+    "qsPea"
+   ],
+   "seams": [
+    "y5",
+    "break"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsDay_qsUtter/full/None/x-height/",
+    "qsMay/loop/x-height/None/",
+    "qsPea/full/None/None/"
+   ],
+   "seams": [
+    "y5",
+    "break"
+   ],
+   "extensions": [
+    0,
+    0
+   ]
+  },
+  "diff_positions": [
+   0
+  ],
+  "pair": {
+   "left": 0,
+   "right": 1
+  },
+  "pair_codepoints": [
+   0,
+   2
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 0,
+    "x_max": 500,
+    "advance_total": 750
+   },
+   "after": {
+    "x_min": 0,
+    "x_max": 500,
+    "advance_total": 750
+   }
+  },
+  "boundary_marks": [],
+  "secondary_seams": null,
+  "summary": "New: \u00b7Day+Utter keeps the same seams but settles as a different cell (full, entry none, exit x-height) \u2014 decided by the structural floor (no policy record involved).",
+  "explain": "sequence E653:E67A:E665:E650   config default\nsettled: qsDay_qsUtter.full.ex-y5 qsMay.loop.en-y5 qsPea.full\n\nposition 0: qsDay_qsUtter\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> full             entry=none       seam=x-height   join-count=1 prospect=0\n     full             entry=none       seam=none       join-count=1 prospect=1\n     half             entry=none       seam=x-height   join-count=1 prospect=0\n     half             entry=none       seam=none       join-count=1 prospect=1\n  decided by: floor (over full entry=none seam=none)\n  joint: the structural floor broke a realization tie \u2014 routed to the expensive test tier\n  settled: qsDay_qsUtter.full.ex-y5   seam=x-height   extension=0",
+  "provenance": [],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7Day+Utter ~x~ \u00b7May | \u00b7Pea",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": null,
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsDay_qsUtter.yaml",
+    "keypath": "policy.prefer[+]",
+    "suggested_record": "{cell: {exit: x-height}, when: {right: {family: [qsMay]}}, why: 'Reviewer rejected the M1 outcome for E653:E67A:E665:E650 (\u00b7Day\u00b7Utter\u00b7May\u00b7Pea)'}",
+    "names_provenance": [],
+    "decided_stage": "floor",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E653:E67A:E665:E650 (\u00b7Day\u00b7Utter\u00b7May\u00b7Pea)"
+   },
+   "any_of": {
+    "text": "qsDay qsUtter qsMay qsPea",
+    "features": {},
+    "candidates": [
+     "\u00b7Day+Utter ~x~ \u00b7May | \u00b7Pea"
+    ]
+   }
+  },
+  "content_key": "5fefc238f0306c92140f1f304f37db8cd14ef17de3632a79cfd30b244bed6556"
+ },
+ {
+  "id": "u-22115",
+  "batch": null,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "default": "d-14c0f8d9cc8c",
+   "ss04": "d-14c0f8d9cc8c",
+   "ss05": "d-14c0f8d9cc8c",
+   "ss02": "d-14c0f8d9cc8c"
+  },
+  "no_verdict": true,
+  "echo": null,
+  "cluster": null,
+  "class": "may-ligature-seam-loosened",
+  "group": "qsDay:qsUtter",
+  "codepoints": "E653:E67A:E665:E652",
+  "text_entities": "&#xE653;&#xE67A;&#xE665;&#xE652;",
+  "notation": "\u00b7Day\u00b7Utter\u00b7May\u00b7Tea",
+  "notation_tokens": [
+   "\u00b7Day",
+   "\u00b7Utter",
+   "\u00b7May",
+   "\u00b7Tea"
+  ],
+  "configs": [
+   "default",
+   "ss04",
+   "ss05",
+   "ss02"
+  ],
+  "config_note": "only under: default, ss04, ss05, ss02",
+  "config_gate": null,
+  "config_classes": {
+   "default": "may-ligature-seam-loosened",
+   "ss02": "may-ligature-seam-loosened",
+   "ss04": "may-ligature-seam-loosened",
+   "ss05": "may-ligature-seam-loosened"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss04",
+     "ss05",
+     "ss02"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell",
+   "position"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsDay_qsUtter",
+    "qsMay.en-y5",
+    "qsTea"
+   ],
+   "seams": [
+    "y5",
+    "break"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsDay_qsUtter/full/None/x-height/",
+    "qsMay/loop/x-height/None/",
+    "qsTea/full/None/None/"
+   ],
+   "seams": [
+    "y5",
+    "break"
+   ],
+   "extensions": [
+    0,
+    0
+   ]
+  },
+  "diff_positions": [
+   0
+  ],
+  "pair": {
+   "left": 0,
+   "right": 1
+  },
+  "pair_codepoints": [
+   0,
+   2
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 0,
+    "x_max": 500,
+    "advance_total": 600
+   },
+   "after": {
+    "x_min": 0,
+    "x_max": 500,
+    "advance_total": 600
+   }
+  },
+  "boundary_marks": [],
+  "secondary_seams": null,
+  "summary": "New: \u00b7Day+Utter keeps the same seams but settles as a different cell (full, entry none, exit x-height) \u2014 decided by declaration order (no policy record involved).",
+  "explain": "sequence E653:E67A:E665:E652   config default\nsettled: qsDay_qsUtter.full.ex-y5 qsMay.loop.en-y5 qsTea.full\n\nposition 0: qsDay_qsUtter\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> full             entry=none       seam=x-height   join-count=1 prospect=0\n     half             entry=none       seam=x-height   join-count=1 prospect=0\n     full             entry=none       seam=none       join-count=0 prospect=0\n     half             entry=none       seam=none       join-count=0 prospect=0\n  decided by: order (over half entry=none seam=x-height)\n  settled: qsDay_qsUtter.full.ex-y5   seam=x-height   extension=0",
+  "provenance": [],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7Day+Utter ~x~ \u00b7May | \u00b7Tea",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": null,
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsDay_qsUtter.yaml",
+    "keypath": "policy.prefer[+]",
+    "suggested_record": "{cell: {exit: x-height}, when: {right: {family: [qsMay]}}, why: 'Reviewer rejected the M1 outcome for E653:E67A:E665:E652 (\u00b7Day\u00b7Utter\u00b7May\u00b7Tea)'}",
+    "names_provenance": [],
+    "decided_stage": "order",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E653:E67A:E665:E652 (\u00b7Day\u00b7Utter\u00b7May\u00b7Tea)"
+   },
+   "any_of": {
+    "text": "qsDay qsUtter qsMay qsTea",
+    "features": {},
+    "candidates": [
+     "\u00b7Day+Utter ~x~ \u00b7May | \u00b7Tea"
+    ]
+   }
+  },
+  "content_key": "6af480fd8f7f8d0063b6bf5a141530f0ef6dec8b2919458ccc8060d2759a0ee9"
+ },
+ {
+  "id": "u-22116",
+  "batch": null,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "default": "d-14c0f8d9cc8c",
+   "ss03": "d-14c0f8d9cc8c",
+   "ss04": "d-14c0f8d9cc8c",
+   "ss05": "d-14c0f8d9cc8c",
+   "ss02": "d-14c0f8d9cc8c",
+   "ss02+ss03": "d-14c0f8d9cc8c",
+   "ss02+ss03+ss05": "d-14c0f8d9cc8c"
+  },
+  "no_verdict": true,
+  "echo": null,
+  "cluster": null,
+  "class": "may-ligature-seam-loosened",
+  "group": "qsDay:qsUtter",
+  "codepoints": "E653:E67A:E665:E666",
+  "text_entities": "&#xE653;&#xE67A;&#xE665;&#xE666;",
+  "notation": "\u00b7Day\u00b7Utter\u00b7May\u00b7No",
+  "notation_tokens": [
+   "\u00b7Day",
+   "\u00b7Utter",
+   "\u00b7May",
+   "\u00b7No"
+  ],
+  "configs": [
+   "default",
+   "ss03",
+   "ss04",
+   "ss05",
+   "ss02",
+   "ss02+ss03",
+   "ss02+ss03+ss05"
+  ],
+  "config_note": "only under: default, ss03, ss04, ss05, ss02, ss02+ss03, ss02+ss03+ss05",
+  "config_gate": null,
+  "config_classes": {
+   "default": "may-ligature-seam-loosened",
+   "ss02": "may-ligature-seam-loosened",
+   "ss03": "may-ligature-seam-loosened",
+   "ss04": "may-ligature-seam-loosened",
+   "ss05": "may-ligature-seam-loosened",
+   "ss02+ss03": "may-ligature-seam-loosened",
+   "ss02+ss03+ss05": "may-ligature-seam-loosened"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss03",
+     "ss04",
+     "ss05",
+     "ss02",
+     "ss02+ss03",
+     "ss02+ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell",
+   "position"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsDay_qsUtter",
+    "qsMay.en-y5",
+    "qsNo"
+   ],
+   "seams": [
+    "y5",
+    "break"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsDay_qsUtter/full/None/x-height/",
+    "qsMay/loop/x-height/None/",
+    "qsNo/loop/None/None/"
+   ],
+   "seams": [
+    "y5",
+    "break"
+   ],
+   "extensions": [
+    0,
+    0
+   ]
+  },
+  "diff_positions": [
+   0
+  ],
+  "pair": {
+   "left": 0,
+   "right": 1
+  },
+  "pair_codepoints": [
+   0,
+   2
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 0,
+    "x_max": 500,
+    "advance_total": 800
+   },
+   "after": {
+    "x_min": 0,
+    "x_max": 500,
+    "advance_total": 800
+   }
+  },
+  "boundary_marks": [],
+  "secondary_seams": null,
+  "summary": "New: \u00b7Day+Utter keeps the same seams but settles as a different cell (full, entry none, exit x-height) \u2014 decided by the structural floor (no policy record involved).",
+  "explain": "sequence E653:E67A:E665:E666   config default\nsettled: qsDay_qsUtter.full.ex-y5 qsMay.loop.en-y5 qsNo.loop\n\nposition 0: qsDay_qsUtter\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> full             entry=none       seam=x-height   join-count=1 prospect=0\n     full             entry=none       seam=none       join-count=1 prospect=1\n     half             entry=none       seam=x-height   join-count=1 prospect=0\n     half             entry=none       seam=none       join-count=1 prospect=1\n  decided by: floor (over full entry=none seam=none)\n  joint: the structural floor broke a realization tie \u2014 routed to the expensive test tier\n  settled: qsDay_qsUtter.full.ex-y5   seam=x-height   extension=0",
+  "provenance": [],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7Day+Utter ~x~ \u00b7May | \u00b7No",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": null,
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsDay_qsUtter.yaml",
+    "keypath": "policy.prefer[+]",
+    "suggested_record": "{cell: {exit: x-height}, when: {right: {family: [qsMay]}}, why: 'Reviewer rejected the M1 outcome for E653:E67A:E665:E666 (\u00b7Day\u00b7Utter\u00b7May\u00b7No)'}",
+    "names_provenance": [],
+    "decided_stage": "floor",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E653:E67A:E665:E666 (\u00b7Day\u00b7Utter\u00b7May\u00b7No)"
+   },
+   "any_of": {
+    "text": "qsDay qsUtter qsMay qsNo",
+    "features": {},
+    "candidates": [
+     "\u00b7Day+Utter ~x~ \u00b7May | \u00b7No"
+    ]
+   }
+  },
+  "content_key": "42480b5433727a0da3c8abbe589d18165ba848b73ba80c4257c3250344fd9e3c"
+ },
+ {
+  "id": "u-22117",
+  "batch": null,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "default": "d-14c0f8d9cc8c",
+   "ss03": "d-14c0f8d9cc8c",
+   "ss04": "d-14c0f8d9cc8c",
+   "ss05": "d-14c0f8d9cc8c",
+   "ss02": "d-14c0f8d9cc8c",
+   "ss02+ss03": "d-14c0f8d9cc8c",
+   "ss02+ss03+ss05": "d-14c0f8d9cc8c"
+  },
+  "no_verdict": true,
+  "echo": null,
+  "cluster": null,
+  "class": "may-ligature-seam-loosened",
+  "group": "qsDay:qsUtter",
+  "codepoints": "E653:E67A:E665:E679",
+  "text_entities": "&#xE653;&#xE67A;&#xE665;&#xE679;",
+  "notation": "\u00b7Day\u00b7Utter\u00b7May\u00b7Oy",
+  "notation_tokens": [
+   "\u00b7Day",
+   "\u00b7Utter",
+   "\u00b7May",
+   "\u00b7Oy"
+  ],
+  "configs": [
+   "default",
+   "ss03",
+   "ss04",
+   "ss05",
+   "ss02",
+   "ss02+ss03",
+   "ss02+ss03+ss05"
+  ],
+  "config_note": "only under: default, ss03, ss04, ss05, ss02, ss02+ss03, ss02+ss03+ss05",
+  "config_gate": null,
+  "config_classes": {
+   "default": "may-ligature-seam-loosened",
+   "ss02": "may-ligature-seam-loosened",
+   "ss03": "may-ligature-seam-loosened",
+   "ss04": "may-ligature-seam-loosened",
+   "ss05": "may-ligature-seam-loosened",
+   "ss02+ss03": "may-ligature-seam-loosened",
+   "ss02+ss03+ss05": "may-ligature-seam-loosened"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss03",
+     "ss04",
+     "ss05",
+     "ss02",
+     "ss02+ss03",
+     "ss02+ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell",
+   "position"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsDay_qsUtter",
+    "qsMay.en-y5",
+    "qsOy"
+   ],
+   "seams": [
+    "y5",
+    "break"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsDay_qsUtter/full/None/x-height/",
+    "qsMay/loop/x-height/None/",
+    "qsOy/hapax/None/None/"
+   ],
+   "seams": [
+    "y5",
+    "break"
+   ],
+   "extensions": [
+    0,
+    0
+   ]
+  },
+  "diff_positions": [
+   0
+  ],
+  "pair": {
+   "left": 0,
+   "right": 1
+  },
+  "pair_codepoints": [
+   0,
+   2
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 0,
+    "x_max": 500,
+    "advance_total": 950
+   },
+   "after": {
+    "x_min": 0,
+    "x_max": 500,
+    "advance_total": 950
+   }
+  },
+  "boundary_marks": [],
+  "secondary_seams": null,
+  "summary": "New: \u00b7Day+Utter keeps the same seams but settles as a different cell (full, entry none, exit x-height) \u2014 decided by the structural floor (no policy record involved).",
+  "explain": "sequence E653:E67A:E665:E679   config default\nsettled: qsDay_qsUtter.full.ex-y5 qsMay.loop.en-y5 qsOy.hapax\n\nposition 0: qsDay_qsUtter\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> full             entry=none       seam=x-height   join-count=1 prospect=0\n     full             entry=none       seam=none       join-count=1 prospect=1\n     half             entry=none       seam=x-height   join-count=1 prospect=0\n     half             entry=none       seam=none       join-count=1 prospect=1\n  decided by: floor (over full entry=none seam=none)\n  joint: the structural floor broke a realization tie \u2014 routed to the expensive test tier\n  settled: qsDay_qsUtter.full.ex-y5   seam=x-height   extension=0",
+  "provenance": [],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7Day+Utter ~x~ \u00b7May | \u00b7Oy",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": null,
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsDay_qsUtter.yaml",
+    "keypath": "policy.prefer[+]",
+    "suggested_record": "{cell: {exit: x-height}, when: {right: {family: [qsMay]}}, why: 'Reviewer rejected the M1 outcome for E653:E67A:E665:E679 (\u00b7Day\u00b7Utter\u00b7May\u00b7Oy)'}",
+    "names_provenance": [],
+    "decided_stage": "floor",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E653:E67A:E665:E679 (\u00b7Day\u00b7Utter\u00b7May\u00b7Oy)"
+   },
+   "any_of": {
+    "text": "qsDay qsUtter qsMay qsOy",
+    "features": {},
+    "candidates": [
+     "\u00b7Day+Utter ~x~ \u00b7May | \u00b7Oy"
+    ]
+   }
+  },
+  "content_key": "a2c7f6a1297351d6953eae47046bcecb3852a3a8eac840b45f526c260de609ef"
+ },
+ {
+  "id": "u-22118",
+  "batch": null,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "default": "d-14c0f8d9cc8c",
+   "ss03": "d-14c0f8d9cc8c",
+   "ss04": "d-14c0f8d9cc8c",
+   "ss05": "d-14c0f8d9cc8c",
+   "ss02": "d-14c0f8d9cc8c",
+   "ss02+ss03": "d-14c0f8d9cc8c",
+   "ss02+ss03+ss05": "d-14c0f8d9cc8c"
+  },
+  "no_verdict": true,
+  "echo": null,
+  "cluster": null,
+  "class": "may-ligature-seam-loosened",
+  "group": "qsDay:qsUtter",
+  "codepoints": "E653:E67A:E665:E67A",
+  "text_entities": "&#xE653;&#xE67A;&#xE665;&#xE67A;",
+  "notation": "\u00b7Day\u00b7Utter\u00b7May\u00b7Utter",
+  "notation_tokens": [
+   "\u00b7Day",
+   "\u00b7Utter",
+   "\u00b7May",
+   "\u00b7Utter"
+  ],
+  "configs": [
+   "default",
+   "ss03",
+   "ss04",
+   "ss05",
+   "ss02",
+   "ss02+ss03",
+   "ss02+ss03+ss05"
+  ],
+  "config_note": "only under: default, ss03, ss04, ss05, ss02, ss02+ss03, ss02+ss03+ss05",
+  "config_gate": null,
+  "config_classes": {
+   "default": "may-ligature-seam-loosened",
+   "ss02": "may-ligature-seam-loosened",
+   "ss03": "may-ligature-seam-loosened",
+   "ss04": "may-ligature-seam-loosened",
+   "ss05": "may-ligature-seam-loosened",
+   "ss02+ss03": "may-ligature-seam-loosened",
+   "ss02+ss03+ss05": "may-ligature-seam-loosened"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss03",
+     "ss04",
+     "ss05",
+     "ss02",
+     "ss02+ss03",
+     "ss02+ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell",
+   "position"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsDay_qsUtter",
+    "qsMay.en-y5",
+    "qsUtter"
+   ],
+   "seams": [
+    "y5",
+    "break"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsDay_qsUtter/full/None/x-height/",
+    "qsMay/loop/x-height/None/",
+    "qsUtter/mono/None/None/"
+   ],
+   "seams": [
+    "y5",
+    "break"
+   ],
+   "extensions": [
+    0,
+    0
+   ]
+  },
+  "diff_positions": [
+   0
+  ],
+  "pair": {
+   "left": 0,
+   "right": 1
+  },
+  "pair_codepoints": [
+   0,
+   2
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 0,
+    "x_max": 500,
+    "advance_total": 800
+   },
+   "after": {
+    "x_min": 0,
+    "x_max": 500,
+    "advance_total": 800
+   }
+  },
+  "boundary_marks": [],
+  "secondary_seams": null,
+  "summary": "New: \u00b7Day+Utter keeps the same seams but settles as a different cell (full, entry none, exit x-height) \u2014 decided by declaration order (no policy record involved).",
+  "explain": "sequence E653:E67A:E665:E67A   config default\nsettled: qsDay_qsUtter.full.ex-y5 qsMay.loop.en-y5 qsUtter.mono\n\nposition 0: qsDay_qsUtter\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> full             entry=none       seam=x-height   join-count=1 prospect=0\n     half             entry=none       seam=x-height   join-count=1 prospect=0\n     full             entry=none       seam=none       join-count=0 prospect=0\n     half             entry=none       seam=none       join-count=0 prospect=0\n  decided by: order (over half entry=none seam=x-height)\n  settled: qsDay_qsUtter.full.ex-y5   seam=x-height   extension=0",
+  "provenance": [],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7Day+Utter ~x~ \u00b7May | \u00b7Utter",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": null,
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsDay_qsUtter.yaml",
+    "keypath": "policy.prefer[+]",
+    "suggested_record": "{cell: {exit: x-height}, when: {right: {family: [qsMay]}}, why: 'Reviewer rejected the M1 outcome for E653:E67A:E665:E67A (\u00b7Day\u00b7Utter\u00b7May\u00b7Utter)'}",
+    "names_provenance": [],
+    "decided_stage": "order",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E653:E67A:E665:E67A (\u00b7Day\u00b7Utter\u00b7May\u00b7Utter)"
+   },
+   "any_of": {
+    "text": "qsDay qsUtter qsMay qsUtter",
+    "features": {},
+    "candidates": [
+     "\u00b7Day+Utter ~x~ \u00b7May | \u00b7Utter"
+    ]
+   }
+  },
+  "content_key": "5cd011ba55318b7b2942d79f699ae9e27c057396842aae9face51fe5ef3a7d6a"
+ },
+ {
+  "id": "u-22119",
+  "batch": null,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "default": "d-14c0f8d9cc8c",
+   "ss03": "d-14c0f8d9cc8c",
+   "ss04": "d-14c0f8d9cc8c",
+   "ss05": "d-14c0f8d9cc8c",
+   "ss02": "d-14c0f8d9cc8c",
+   "ss02+ss03": "d-14c0f8d9cc8c",
+   "ss02+ss03+ss05": "d-14c0f8d9cc8c"
+  },
+  "no_verdict": true,
+  "echo": null,
+  "cluster": null,
+  "class": "may-ligature-seam-loosened",
+  "group": "qsFee:qsDay",
+  "codepoints": "E658:E653:E67A:E665",
+  "text_entities": "&#xE658;&#xE653;&#xE67A;&#xE665;",
+  "notation": "\u00b7Fee\u00b7Day\u00b7Utter\u00b7May",
+  "notation_tokens": [
+   "\u00b7Fee",
+   "\u00b7Day",
+   "\u00b7Utter",
+   "\u00b7May"
+  ],
+  "configs": [
+   "default",
+   "ss03",
+   "ss04",
+   "ss05",
+   "ss02",
+   "ss02+ss03",
+   "ss02+ss03+ss05"
+  ],
+  "config_note": "only under: default, ss03, ss04, ss05, ss02, ss02+ss03, ss02+ss03+ss05",
+  "config_gate": null,
+  "config_classes": {
+   "default": "may-ligature-seam-loosened",
+   "ss02": "may-ligature-seam-loosened",
+   "ss03": "may-ligature-seam-loosened",
+   "ss04": "may-ligature-seam-loosened",
+   "ss05": "may-ligature-seam-loosened",
+   "ss02+ss03": "may-ligature-seam-loosened",
+   "ss02+ss03+ss05": "may-ligature-seam-loosened"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss03",
+     "ss04",
+     "ss05",
+     "ss02",
+     "ss02+ss03",
+     "ss02+ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell",
+   "position"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsFee.ex-y5.before-utter.ex-ext-1",
+    "qsDay_qsUtter",
+    "qsMay.en-y5"
+   ],
+   "seams": [
+    "y5",
+    "y5"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsFee/loop/None/x-height/ex-ext-1",
+    "qsDay_qsUtter/full/x-height/x-height/",
+    "qsMay/loop/x-height/None/"
+   ],
+   "seams": [
+    "y5",
+    "y5"
+   ],
+   "extensions": [
+    1,
+    0
+   ]
+  },
+  "diff_positions": [
+   1
+  ],
+  "pair": {
+   "left": 1,
+   "right": 2
+  },
+  "pair_codepoints": [
+   1,
+   3
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 300,
+    "x_max": 800,
+    "advance_total": 800
+   },
+   "after": {
+    "x_min": 350,
+    "x_max": 800,
+    "advance_total": 800
+   }
+  },
+  "boundary_marks": [],
+  "secondary_seams": null,
+  "summary": "New: \u00b7Day+Utter keeps the same seams but settles as a different cell (full, entry x-height, exit x-height) \u2014 decided by join-count rank (no policy record involved).",
+  "explain": "sequence E658:E653:E67A:E665   config default\nsettled: qsFee.loop.ex-y5.ex-ext-1 qsDay_qsUtter.full.en-y5.ex-y5 qsMay.loop.en-y5\n\nposition 1: qsDay_qsUtter\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> full             entry=x-height   seam=x-height   join-count=2 prospect=0\n     full             entry=x-height   seam=none       join-count=1 prospect=0\n  eliminated before ranking:\n    - (entry-binding) qsDay_qsUtter.half: no available entry row at x-height against the committed seam\n  decided by: join-count (over full entry=x-height seam=none)\n  settled: qsDay_qsUtter.full.en-y5.ex-y5   seam=x-height   extension=0",
+  "provenance": [],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7Fee ~x~ \u00b7Day+Utter ~x~ \u00b7May",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": null,
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsDay_qsUtter.yaml",
+    "keypath": "policy.prefer[+]",
+    "suggested_record": "{cell: {exit: x-height}, when: {right: {family: [qsMay]}}, why: 'Reviewer rejected the M1 outcome for E658:E653:E67A:E665 (\u00b7Fee\u00b7Day\u00b7Utter\u00b7May)'}",
+    "names_provenance": [],
+    "decided_stage": "join-count",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E658:E653:E67A:E665 (\u00b7Fee\u00b7Day\u00b7Utter\u00b7May)"
+   },
+   "any_of": {
+    "text": "qsFee qsDay qsUtter qsMay",
+    "features": {},
+    "candidates": [
+     "\u00b7Fee ~x~ \u00b7Day+Utter ~x~ \u00b7May"
+    ]
+   }
+  },
+  "content_key": "8959a093683b8456be9721d8fbda647914146f9bce94d1e377ce002e09899ca3"
+ },
+ {
+  "id": "u-22120",
+  "batch": null,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "default": "d-14c0f8d9cc8c",
+   "ss03": "d-14c0f8d9cc8c",
+   "ss04": "d-14c0f8d9cc8c",
+   "ss05": "d-14c0f8d9cc8c",
+   "ss02": "d-14c0f8d9cc8c",
+   "ss02+ss03": "d-14c0f8d9cc8c",
+   "ss02+ss03+ss05": "d-14c0f8d9cc8c"
+  },
+  "no_verdict": true,
+  "echo": null,
+  "cluster": null,
+  "class": "may-ligature-seam-loosened",
+  "group": "qsMay:qsDay",
+  "codepoints": "E665:E653:E67A:E665",
+  "text_entities": "&#xE665;&#xE653;&#xE67A;&#xE665;",
+  "notation": "\u00b7May\u00b7Day\u00b7Utter\u00b7May",
+  "notation_tokens": [
+   "\u00b7May",
+   "\u00b7Day",
+   "\u00b7Utter",
+   "\u00b7May"
+  ],
+  "configs": [
+   "default",
+   "ss03",
+   "ss04",
+   "ss05",
+   "ss02",
+   "ss02+ss03",
+   "ss02+ss03+ss05"
+  ],
+  "config_note": "only under: default, ss03, ss04, ss05, ss02, ss02+ss03, ss02+ss03+ss05",
+  "config_gate": null,
+  "config_classes": {
+   "default": "may-ligature-seam-loosened",
+   "ss02": "may-ligature-seam-loosened",
+   "ss03": "may-ligature-seam-loosened",
+   "ss04": "may-ligature-seam-loosened",
+   "ss05": "may-ligature-seam-loosened",
+   "ss02+ss03": "may-ligature-seam-loosened",
+   "ss02+ss03+ss05": "may-ligature-seam-loosened"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss03",
+     "ss04",
+     "ss05",
+     "ss02",
+     "ss02+ss03",
+     "ss02+ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell",
+   "position"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsMay.ex-ext-1",
+    "qsDay_qsUtter",
+    "qsMay.en-y5"
+   ],
+   "seams": [
+    "y5",
+    "y5"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsMay/loop/None/x-height/ex-ext-1",
+    "qsDay_qsUtter/full/x-height/x-height/",
+    "qsMay/loop/x-height/None/"
+   ],
+   "seams": [
+    "y5",
+    "y5"
+   ],
+   "extensions": [
+    1,
+    0
+   ]
+  },
+  "diff_positions": [
+   1
+  ],
+  "pair": {
+   "left": 1,
+   "right": 2
+  },
+  "pair_codepoints": [
+   1,
+   3
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 300,
+    "x_max": 800,
+    "advance_total": 800
+   },
+   "after": {
+    "x_min": 350,
+    "x_max": 800,
+    "advance_total": 800
+   }
+  },
+  "boundary_marks": [],
+  "secondary_seams": null,
+  "summary": "New: \u00b7Day+Utter keeps the same seams but settles as a different cell (full, entry x-height, exit x-height) \u2014 decided by join-count rank (no policy record involved).",
+  "explain": "sequence E665:E653:E67A:E665   config default\nsettled: qsMay.loop.ex-y5.ex-ext-1 qsDay_qsUtter.full.en-y5.ex-y5 qsMay.loop.en-y5\n\nposition 1: qsDay_qsUtter\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> full             entry=x-height   seam=x-height   join-count=2 prospect=0\n     full             entry=x-height   seam=none       join-count=1 prospect=0\n  eliminated before ranking:\n    - (entry-binding) qsDay_qsUtter.half: no available entry row at x-height against the committed seam\n  decided by: join-count (over full entry=x-height seam=none)\n  settled: qsDay_qsUtter.full.en-y5.ex-y5   seam=x-height   extension=0",
+  "provenance": [],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7May ~x~ \u00b7Day+Utter ~x~ \u00b7May",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": null,
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsDay_qsUtter.yaml",
+    "keypath": "policy.prefer[+]",
+    "suggested_record": "{cell: {exit: x-height}, when: {right: {family: [qsMay]}}, why: 'Reviewer rejected the M1 outcome for E665:E653:E67A:E665 (\u00b7May\u00b7Day\u00b7Utter\u00b7May)'}",
+    "names_provenance": [],
+    "decided_stage": "join-count",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E665:E653:E67A:E665 (\u00b7May\u00b7Day\u00b7Utter\u00b7May)"
+   },
+   "any_of": {
+    "text": "qsMay qsDay qsUtter qsMay",
+    "features": {},
+    "candidates": [
+     "\u00b7May ~x~ \u00b7Day+Utter ~x~ \u00b7May"
+    ]
+   }
+  },
+  "content_key": "ea1cedce7c5020abe74835d6a70c401e691f628540599258bfb892799e4d72c5"
+ },
+ {
+  "id": "u-22121",
+  "batch": null,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "default": "d-14c0f8d9cc8c",
+   "ss03": "d-14c0f8d9cc8c",
+   "ss04": "d-14c0f8d9cc8c",
+   "ss05": "d-14c0f8d9cc8c",
+   "ss02": "d-14c0f8d9cc8c",
+   "ss02+ss03": "d-14c0f8d9cc8c",
+   "ss02+ss03+ss05": "d-14c0f8d9cc8c"
+  },
+  "no_verdict": true,
+  "echo": null,
+  "cluster": null,
+  "class": "may-ligature-seam-loosened",
+  "group": "qsNo:qsDay",
+  "codepoints": "E666:E653:E67A:E665",
+  "text_entities": "&#xE666;&#xE653;&#xE67A;&#xE665;",
+  "notation": "\u00b7No\u00b7Day\u00b7Utter\u00b7May",
+  "notation_tokens": [
+   "\u00b7No",
+   "\u00b7Day",
+   "\u00b7Utter",
+   "\u00b7May"
+  ],
+  "configs": [
+   "default",
+   "ss03",
+   "ss04",
+   "ss05",
+   "ss02",
+   "ss02+ss03",
+   "ss02+ss03+ss05"
+  ],
+  "config_note": "only under: default, ss03, ss04, ss05, ss02, ss02+ss03, ss02+ss03+ss05",
+  "config_gate": null,
+  "config_classes": {
+   "default": "may-ligature-seam-loosened",
+   "ss02": "may-ligature-seam-loosened",
+   "ss03": "may-ligature-seam-loosened",
+   "ss04": "may-ligature-seam-loosened",
+   "ss05": "may-ligature-seam-loosened",
+   "ss02+ss03": "may-ligature-seam-loosened",
+   "ss02+ss03+ss05": "may-ligature-seam-loosened"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss03",
+     "ss04",
+     "ss05",
+     "ss02",
+     "ss02+ss03",
+     "ss02+ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell",
+   "position"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsNo",
+    "qsDay_qsUtter",
+    "qsMay.en-y5"
+   ],
+   "seams": [
+    "y5",
+    "y5"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsNo/loop/None/x-height/",
+    "qsDay_qsUtter/full/x-height/x-height/",
+    "qsMay/loop/x-height/None/"
+   ],
+   "seams": [
+    "y5",
+    "y5"
+   ],
+   "extensions": [
+    0,
+    0
+   ]
+  },
+  "diff_positions": [
+   0,
+   1
+  ],
+  "pair": {
+   "left": 0,
+   "right": 1
+  },
+  "pair_codepoints": [
+   0,
+   2
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 0,
+    "x_max": 600,
+    "advance_total": 750
+   },
+   "after": {
+    "x_min": 0,
+    "x_max": 650,
+    "advance_total": 750
+   }
+  },
+  "boundary_marks": [],
+  "secondary_seams": null,
+  "summary": "New: \u00b7No keeps the same seams but settles as a different cell (loop, entry none, exit x-height) \u2014 decided by declaration order (no policy record involved).",
+  "explain": "sequence E666:E653:E67A:E665   config default\nsettled: qsNo.loop.ex-y5 qsDay_qsUtter.full.en-y5.ex-y5 qsMay.loop.en-y5\n\nposition 0: qsNo\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> loop             entry=none       seam=x-height   join-count=2 prospect=1\n     flipped          entry=none       seam=baseline   join-count=2 prospect=1\n     loop             entry=none       seam=none       join-count=1 prospect=1\n     flipped          entry=none       seam=none       join-count=1 prospect=1\n  decided by: order (over flipped entry=none seam=baseline)\n  settled: qsNo.loop.ex-y5   seam=x-height   extension=0\n\nposition 1: qsDay_qsUtter\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> full             entry=x-height   seam=x-height   join-count=2 prospect=0\n     full             entry=x-height   seam=none       join-count=1 prospect=0\n  eliminated before ranking:\n    - (entry-binding) qsDay_qsUtter.half: no available entry row at x-height against the committed seam\n  decided by: join-count (over full entry=x-height seam=none)\n  settled: qsDay_qsUtter.full.en-y5.ex-y5   seam=x-height   extension=0",
+  "provenance": [],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7No ~x~ \u00b7Day+Utter ~x~ \u00b7May",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": null,
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsNo.yaml",
+    "keypath": "policy.prefer[+]",
+    "suggested_record": "{cell: {exit: x-height}, when: {right: {family: [qsDay_qsUtter]}}, why: 'Reviewer rejected the M1 outcome for E666:E653:E67A:E665 (\u00b7No\u00b7Day\u00b7Utter\u00b7May)'}",
+    "names_provenance": [],
+    "decided_stage": "order",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E666:E653:E67A:E665 (\u00b7No\u00b7Day\u00b7Utter\u00b7May)"
+   },
+   "any_of": {
+    "text": "qsNo qsDay qsUtter qsMay",
+    "features": {},
+    "candidates": [
+     "\u00b7No ~x~ \u00b7Day+Utter ~x~ \u00b7May"
+    ]
+   }
+  },
+  "content_key": "9cd12b92674c0721dc4c68d8c705cea0b5a6495598895a9a3bd34e6bcf689c96"
+ },
+ {
+  "id": "u-22122",
+  "batch": null,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "default": "d-14c0f8d9cc8c",
+   "ss03": "d-14c0f8d9cc8c",
+   "ss04": "d-14c0f8d9cc8c",
+   "ss05": "d-14c0f8d9cc8c",
+   "ss02": "d-14c0f8d9cc8c",
+   "ss02+ss03": "d-14c0f8d9cc8c",
+   "ss02+ss03+ss05": "d-14c0f8d9cc8c"
+  },
+  "no_verdict": true,
+  "echo": null,
+  "cluster": null,
+  "class": "may-ligature-seam-loosened",
+  "group": "qsLow:qsDay",
+  "codepoints": "E667:E653:E67A:E665",
+  "text_entities": "&#xE667;&#xE653;&#xE67A;&#xE665;",
+  "notation": "\u00b7Low\u00b7Day\u00b7Utter\u00b7May",
+  "notation_tokens": [
+   "\u00b7Low",
+   "\u00b7Day",
+   "\u00b7Utter",
+   "\u00b7May"
+  ],
+  "configs": [
+   "default",
+   "ss03",
+   "ss04",
+   "ss05",
+   "ss02",
+   "ss02+ss03",
+   "ss02+ss03+ss05"
+  ],
+  "config_note": "only under: default, ss03, ss04, ss05, ss02, ss02+ss03, ss02+ss03+ss05",
+  "config_gate": null,
+  "config_classes": {
+   "default": "may-ligature-seam-loosened",
+   "ss02": "may-ligature-seam-loosened",
+   "ss03": "may-ligature-seam-loosened",
+   "ss04": "may-ligature-seam-loosened",
+   "ss05": "may-ligature-seam-loosened",
+   "ss02+ss03": "may-ligature-seam-loosened",
+   "ss02+ss03+ss05": "may-ligature-seam-loosened"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss03",
+     "ss04",
+     "ss05",
+     "ss02",
+     "ss02+ss03",
+     "ss02+ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell",
+   "position"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsLow",
+    "qsDay_qsUtter",
+    "qsMay.en-y5"
+   ],
+   "seams": [
+    "y5",
+    "y5"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsLow/hapax/None/x-height/",
+    "qsDay_qsUtter/full/x-height/x-height/",
+    "qsMay/loop/x-height/None/"
+   ],
+   "seams": [
+    "y5",
+    "y5"
+   ],
+   "extensions": [
+    0,
+    0
+   ]
+  },
+  "diff_positions": [
+   0,
+   1
+  ],
+  "pair": {
+   "left": 0,
+   "right": 1
+  },
+  "pair_codepoints": [
+   0,
+   2
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 0,
+    "x_max": 600,
+    "advance_total": 750
+   },
+   "after": {
+    "x_min": 0,
+    "x_max": 650,
+    "advance_total": 750
+   }
+  },
+  "boundary_marks": [],
+  "secondary_seams": null,
+  "summary": "New: \u00b7Low keeps the same seams but settles as a different cell (hapax, entry none, exit x-height) \u2014 decided by join-count rank (no policy record involved).",
+  "explain": "sequence E667:E653:E67A:E665   config default\nsettled: qsLow.hapax.ex-y5 qsDay_qsUtter.full.en-y5.ex-y5 qsMay.loop.en-y5\n\nposition 0: qsLow\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> hapax            entry=none       seam=x-height   join-count=2 prospect=1\n     hapax            entry=none       seam=none       join-count=1 prospect=1\n  decided by: join-count (over hapax entry=none seam=none)\n  settled: qsLow.hapax.ex-y5   seam=x-height   extension=0\n\nposition 1: qsDay_qsUtter\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> full             entry=x-height   seam=x-height   join-count=2 prospect=0\n     full             entry=x-height   seam=none       join-count=1 prospect=0\n  eliminated before ranking:\n    - (entry-binding) qsDay_qsUtter.half: no available entry row at x-height against the committed seam\n  decided by: join-count (over full entry=x-height seam=none)\n  settled: qsDay_qsUtter.full.en-y5.ex-y5   seam=x-height   extension=0",
+  "provenance": [],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7Low ~x~ \u00b7Day+Utter ~x~ \u00b7May",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": null,
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsLow.yaml",
+    "keypath": "policy.prefer[+]",
+    "suggested_record": "{cell: {exit: x-height}, when: {right: {family: [qsDay_qsUtter]}}, why: 'Reviewer rejected the M1 outcome for E667:E653:E67A:E665 (\u00b7Low\u00b7Day\u00b7Utter\u00b7May)'}",
+    "names_provenance": [],
+    "decided_stage": "join-count",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E667:E653:E67A:E665 (\u00b7Low\u00b7Day\u00b7Utter\u00b7May)"
+   },
+   "any_of": {
+    "text": "qsLow qsDay qsUtter qsMay",
+    "features": {},
+    "candidates": [
+     "\u00b7Low ~x~ \u00b7Day+Utter ~x~ \u00b7May"
+    ]
+   }
+  },
+  "content_key": "ae4a48ea19b0852516cf1647f5734bbad7187ccb83048d9db4966fe5db77a5c6"
+ },
+ {
+  "id": "u-22123",
+  "batch": null,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "default": "d-14c0f8d9cc8c",
+   "ss03": "d-14c0f8d9cc8c",
+   "ss04": "d-14c0f8d9cc8c",
+   "ss05": "d-14c0f8d9cc8c",
+   "ss02": "d-14c0f8d9cc8c",
+   "ss02+ss03": "d-14c0f8d9cc8c",
+   "ss02+ss03+ss05": "d-14c0f8d9cc8c"
+  },
+  "no_verdict": true,
+  "echo": null,
+  "cluster": null,
+  "class": "may-ligature-seam-loosened",
+  "group": "qsIt:qsDay",
+  "codepoints": "E670:E653:E67A:E665",
+  "text_entities": "&#xE670;&#xE653;&#xE67A;&#xE665;",
+  "notation": "\u00b7It\u00b7Day\u00b7Utter\u00b7May",
+  "notation_tokens": [
+   "\u00b7It",
+   "\u00b7Day",
+   "\u00b7Utter",
+   "\u00b7May"
+  ],
+  "configs": [
+   "default",
+   "ss03",
+   "ss04",
+   "ss05",
+   "ss02",
+   "ss02+ss03",
+   "ss02+ss03+ss05"
+  ],
+  "config_note": "only under: default, ss03, ss04, ss05, ss02, ss02+ss03, ss02+ss03+ss05",
+  "config_gate": null,
+  "config_classes": {
+   "default": "may-ligature-seam-loosened",
+   "ss02": "may-ligature-seam-loosened",
+   "ss03": "may-ligature-seam-loosened",
+   "ss05": "may-ligature-seam-loosened",
+   "ss02+ss03": "may-ligature-seam-loosened",
+   "ss02+ss03+ss05": "may-ligature-seam-loosened",
+   "ss04": "may-ligature-seam-loosened"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss03",
+     "ss04",
+     "ss05",
+     "ss02",
+     "ss02+ss03",
+     "ss02+ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell",
+   "position"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsIt.ex-y0.before-day.after-no-baseline-join",
+    "qsDay_qsUtter.half.en-y0.ex-y5",
+    "qsMay.en-y5"
+   ],
+   "seams": [
+    "y0",
+    "y5"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsIt/hapax/None/baseline/",
+    "qsDay_qsUtter/half/baseline/x-height/",
+    "qsMay/loop/x-height/None/"
+   ],
+   "seams": [
+    "y0",
+    "y5"
+   ],
+   "extensions": [
+    0,
+    0
+   ]
+  },
+  "diff_positions": [],
+  "pair": null,
+  "pair_codepoints": [
+   0,
+   0
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 0,
+    "x_max": 600,
+    "advance_total": 600
+   },
+   "after": {
+    "x_min": 0,
+    "x_max": 600,
+    "advance_total": 600
+   }
+  },
+  "boundary_marks": [],
+  "secondary_seams": null,
+  "summary": "New: only the boundary marker's glyph changed; every letter cell and seam is unchanged \u2014 no policy record involved.",
+  "explain": "sequence E670:E653:E67A:E665   config default\nsettled: qsIt.hapax.ex-y0 qsDay_qsUtter.half.en-y0.ex-y5 qsMay.loop.en-y5\n\nposition 0: qsIt\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> hapax            entry=none       seam=baseline   join-count=2 prospect=1\n     hapax            entry=none       seam=none       join-count=1 prospect=1\n  eliminated before ranking:\n    - (refuse) qsIt.hapax: exit x-height refused  [glyph_data/runes/qsIt.yaml:policy.refuse[2]]\n  decided by: join-count (over hapax entry=none seam=none)\n  note: glyph_data/runes/qsIt.yaml:policy.refuse[2]\n  settled: qsIt.hapax.ex-y0   seam=baseline   extension=0\n\nposition 1: qsDay_qsUtter\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> half             entry=baseline   seam=x-height   join-count=2 prospect=0\n     half             entry=baseline   seam=none       join-count=1 prospect=0\n  eliminated before ranking:\n    - (entry-binding) qsDay_qsUtter.full: no available entry row at baseline against the committed seam\n  decided by: join-count (over half entry=baseline seam=none)\n  settled: qsDay_qsUtter.half.en-y0.ex-y5   seam=x-height   extension=0\n\nposition 2: qsMay\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> loop             entry=x-height   seam=none       join-count=1 prospect=0\n     grounded-loop    entry=x-height   seam=none       join-count=1 prospect=0\n  decided by: order (over grounded-loop entry=x-height seam=none)\n  settled: qsMay.loop.en-y5   seam=none   extension=0",
+  "provenance": [],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7It ~b~ \u00b7Day+Utter ~x~ \u00b7May",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": null,
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsIt.yaml",
+    "keypath": "policy.prefer[+]",
+    "suggested_record": "{cell: {exit: baseline}, when: {right: {family: [qsDay_qsUtter]}}, why: 'Reviewer rejected the M1 outcome for E670:E653:E67A:E665 (\u00b7It\u00b7Day\u00b7Utter\u00b7May)'}",
+    "names_provenance": [],
+    "decided_stage": "join-count",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E670:E653:E67A:E665 (\u00b7It\u00b7Day\u00b7Utter\u00b7May)"
+   },
+   "any_of": {
+    "text": "qsIt qsDay qsUtter qsMay",
+    "features": {},
+    "candidates": [
+     "\u00b7It ~b~ \u00b7Day+Utter ~x~ \u00b7May"
+    ]
+   }
+  },
+  "content_key": "178aed55e1dcc5925e2716fb6a4521b335174cc6d12eef319379bffe9e5fde32"
+ },
+ {
+  "id": "u-22124",
+  "batch": null,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "default": "d-14c0f8d9cc8c",
+   "ss03": "d-14c0f8d9cc8c",
+   "ss04": "d-14c0f8d9cc8c",
+   "ss05": "d-14c0f8d9cc8c",
+   "ss02": "d-14c0f8d9cc8c",
+   "ss02+ss03": "d-14c0f8d9cc8c",
+   "ss02+ss03+ss05": "d-14c0f8d9cc8c"
+  },
+  "no_verdict": true,
+  "echo": null,
+  "cluster": null,
+  "class": "may-ligature-seam-loosened",
+  "group": "qsAh:qsDay",
+  "codepoints": "E676:E653:E67A:E665",
+  "text_entities": "&#xE676;&#xE653;&#xE67A;&#xE665;",
+  "notation": "\u00b7Ah\u00b7Day\u00b7Utter\u00b7May",
+  "notation_tokens": [
+   "\u00b7Ah",
+   "\u00b7Day",
+   "\u00b7Utter",
+   "\u00b7May"
+  ],
+  "configs": [
+   "default",
+   "ss03",
+   "ss04",
+   "ss05",
+   "ss02",
+   "ss02+ss03",
+   "ss02+ss03+ss05"
+  ],
+  "config_note": "only under: default, ss03, ss04, ss05, ss02, ss02+ss03, ss02+ss03+ss05",
+  "config_gate": null,
+  "config_classes": {
+   "default": "may-ligature-seam-loosened",
+   "ss02": "may-ligature-seam-loosened",
+   "ss03": "may-ligature-seam-loosened",
+   "ss04": "may-ligature-seam-loosened",
+   "ss05": "may-ligature-seam-loosened",
+   "ss02+ss03": "may-ligature-seam-loosened",
+   "ss02+ss03+ss05": "may-ligature-seam-loosened"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss03",
+     "ss04",
+     "ss05",
+     "ss02",
+     "ss02+ss03",
+     "ss02+ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell",
+   "position"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsAh",
+    "qsDay_qsUtter",
+    "qsMay.en-y5"
+   ],
+   "seams": [
+    "y5",
+    "y5"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsAh/hapax/None/x-height/",
+    "qsDay_qsUtter/full/x-height/x-height/",
+    "qsMay/loop/x-height/None/"
+   ],
+   "seams": [
+    "y5",
+    "y5"
+   ],
+   "extensions": [
+    0,
+    0
+   ]
+  },
+  "diff_positions": [
+   0,
+   1
+  ],
+  "pair": {
+   "left": 0,
+   "right": 1
+  },
+  "pair_codepoints": [
+   0,
+   2
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 0,
+    "x_max": 700,
+    "advance_total": 850
+   },
+   "after": {
+    "x_min": 0,
+    "x_max": 750,
+    "advance_total": 850
+   }
+  },
+  "boundary_marks": [],
+  "secondary_seams": null,
+  "summary": "New: \u00b7Ah keeps the same seams but settles as a different cell (hapax, entry none, exit x-height) \u2014 decided by join-count rank (no policy record involved).",
+  "explain": "sequence E676:E653:E67A:E665   config default\nsettled: qsAh.hapax.ex-y5 qsDay_qsUtter.full.en-y5.ex-y5 qsMay.loop.en-y5\n\nposition 0: qsAh\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> hapax            entry=none       seam=x-height   join-count=2 prospect=1\n     hapax            entry=none       seam=none       join-count=1 prospect=1\n  decided by: join-count (over hapax entry=none seam=none)\n  settled: qsAh.hapax.ex-y5   seam=x-height   extension=0\n\nposition 1: qsDay_qsUtter\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> full             entry=x-height   seam=x-height   join-count=2 prospect=0\n     full             entry=x-height   seam=none       join-count=1 prospect=0\n  eliminated before ranking:\n    - (entry-binding) qsDay_qsUtter.half: no available entry row at x-height against the committed seam\n  decided by: join-count (over full entry=x-height seam=none)\n  settled: qsDay_qsUtter.full.en-y5.ex-y5   seam=x-height   extension=0",
+  "provenance": [],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7Ah ~x~ \u00b7Day+Utter ~x~ \u00b7May",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": null,
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsAh.yaml",
+    "keypath": "policy.prefer[+]",
+    "suggested_record": "{cell: {exit: x-height}, when: {right: {family: [qsDay_qsUtter]}}, why: 'Reviewer rejected the M1 outcome for E676:E653:E67A:E665 (\u00b7Ah\u00b7Day\u00b7Utter\u00b7May)'}",
+    "names_provenance": [],
+    "decided_stage": "join-count",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E676:E653:E67A:E665 (\u00b7Ah\u00b7Day\u00b7Utter\u00b7May)"
+   },
+   "any_of": {
+    "text": "qsAh qsDay qsUtter qsMay",
+    "features": {},
+    "candidates": [
+     "\u00b7Ah ~x~ \u00b7Day+Utter ~x~ \u00b7May"
+    ]
+   }
+  },
+  "content_key": "39e76790d198c60167c6152300c73fc12f37c9abc087978f10fdf66a760476ae"
+ },
+ {
+  "id": "u-22125",
+  "batch": null,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "default": "d-14c0f8d9cc8c",
+   "ss03": "d-14c0f8d9cc8c",
+   "ss04": "d-14c0f8d9cc8c",
+   "ss05": "d-14c0f8d9cc8c",
+   "ss02": "d-14c0f8d9cc8c",
+   "ss02+ss03": "d-14c0f8d9cc8c",
+   "ss02+ss03+ss05": "d-14c0f8d9cc8c"
+  },
+  "no_verdict": true,
+  "echo": null,
+  "cluster": null,
+  "class": "may-ligature-seam-loosened",
+  "group": "qsOy:qsDay",
+  "codepoints": "E679:E653:E67A:E665",
+  "text_entities": "&#xE679;&#xE653;&#xE67A;&#xE665;",
+  "notation": "\u00b7Oy\u00b7Day\u00b7Utter\u00b7May",
+  "notation_tokens": [
+   "\u00b7Oy",
+   "\u00b7Day",
+   "\u00b7Utter",
+   "\u00b7May"
+  ],
+  "configs": [
+   "default",
+   "ss03",
+   "ss04",
+   "ss05",
+   "ss02",
+   "ss02+ss03",
+   "ss02+ss03+ss05"
+  ],
+  "config_note": "only under: default, ss03, ss04, ss05, ss02, ss02+ss03, ss02+ss03+ss05",
+  "config_gate": null,
+  "config_classes": {
+   "default": "may-ligature-seam-loosened",
+   "ss02": "may-ligature-seam-loosened",
+   "ss03": "may-ligature-seam-loosened",
+   "ss04": "may-ligature-seam-loosened",
+   "ss05": "may-ligature-seam-loosened",
+   "ss02+ss03": "may-ligature-seam-loosened",
+   "ss02+ss03+ss05": "may-ligature-seam-loosened"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss03",
+     "ss04",
+     "ss05",
+     "ss02",
+     "ss02+ss03",
+     "ss02+ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell",
+   "position"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsOy",
+    "qsDay_qsUtter.half.en-y0.ex-y5",
+    "qsMay.en-y5"
+   ],
+   "seams": [
+    "y0",
+    "y5"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsOy/hapax/None/baseline/",
+    "qsDay_qsUtter/half/baseline/x-height/",
+    "qsMay/loop/x-height/None/"
+   ],
+   "seams": [
+    "y0",
+    "y5"
+   ],
+   "extensions": [
+    0,
+    0
+   ]
+  },
+  "diff_positions": [
+   0
+  ],
+  "pair": {
+   "left": 0,
+   "right": 1
+  },
+  "pair_codepoints": [
+   0,
+   2
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 0,
+    "x_max": 800,
+    "advance_total": 950
+   },
+   "after": {
+    "x_min": 0,
+    "x_max": 850,
+    "advance_total": 950
+   }
+  },
+  "boundary_marks": [],
+  "secondary_seams": null,
+  "summary": "New: \u00b7Oy keeps the same seams but settles as a different cell (hapax, entry none, exit baseline) \u2014 decided by join-count rank (no policy record involved).",
+  "explain": "sequence E679:E653:E67A:E665   config default\nsettled: qsOy.hapax.ex-y0 qsDay_qsUtter.half.en-y0.ex-y5 qsMay.loop.en-y5\n\nposition 0: qsOy\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> hapax            entry=none       seam=baseline   join-count=2 prospect=1\n     hapax            entry=none       seam=none       join-count=1 prospect=1\n  decided by: join-count (over hapax entry=none seam=none)\n  settled: qsOy.hapax.ex-y0   seam=baseline   extension=0",
+  "provenance": [],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7Oy ~b~ \u00b7Day+Utter ~x~ \u00b7May",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": null,
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsOy.yaml",
+    "keypath": "policy.prefer[+]",
+    "suggested_record": "{cell: {exit: baseline}, when: {right: {family: [qsDay_qsUtter]}}, why: 'Reviewer rejected the M1 outcome for E679:E653:E67A:E665 (\u00b7Oy\u00b7Day\u00b7Utter\u00b7May)'}",
+    "names_provenance": [],
+    "decided_stage": "join-count",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E679:E653:E67A:E665 (\u00b7Oy\u00b7Day\u00b7Utter\u00b7May)"
+   },
+   "any_of": {
+    "text": "qsOy qsDay qsUtter qsMay",
+    "features": {},
+    "candidates": [
+     "\u00b7Oy ~b~ \u00b7Day+Utter ~x~ \u00b7May"
+    ]
+   }
+  },
+  "content_key": "ad941a5bf8d84102df98787a9d9adde62e90a23009e0a78d5b3d1572d5ffb307"
+ },
+ {
+  "id": "u-22126",
+  "batch": null,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "default": "d-14c0f8d9cc8c",
+   "ss03": "d-14c0f8d9cc8c",
+   "ss04": "d-14c0f8d9cc8c",
+   "ss05": "d-14c0f8d9cc8c",
+   "ss02": "d-14c0f8d9cc8c",
+   "ss02+ss03": "d-14c0f8d9cc8c",
+   "ss02+ss03+ss05": "d-14c0f8d9cc8c"
+  },
+  "no_verdict": true,
+  "echo": null,
+  "cluster": null,
+  "class": "may-ligature-seam-loosened",
+  "group": "qsUtter:qsDay",
+  "codepoints": "E67A:E653:E67A:E665",
+  "text_entities": "&#xE67A;&#xE653;&#xE67A;&#xE665;",
+  "notation": "\u00b7Utter\u00b7Day\u00b7Utter\u00b7May",
+  "notation_tokens": [
+   "\u00b7Utter",
+   "\u00b7Day",
+   "\u00b7Utter",
+   "\u00b7May"
+  ],
+  "configs": [
+   "default",
+   "ss03",
+   "ss04",
+   "ss05",
+   "ss02",
+   "ss02+ss03",
+   "ss02+ss03+ss05"
+  ],
+  "config_note": "only under: default, ss03, ss04, ss05, ss02, ss02+ss03, ss02+ss03+ss05",
+  "config_gate": null,
+  "config_classes": {
+   "default": "may-ligature-seam-loosened",
+   "ss02": "may-ligature-seam-loosened",
+   "ss03": "may-ligature-seam-loosened",
+   "ss04": "may-ligature-seam-loosened",
+   "ss05": "may-ligature-seam-loosened",
+   "ss02+ss03": "may-ligature-seam-loosened",
+   "ss02+ss03+ss05": "may-ligature-seam-loosened"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss03",
+     "ss04",
+     "ss05",
+     "ss02",
+     "ss02+ss03",
+     "ss02+ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell",
+   "position"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsUtter",
+    "qsDay_qsUtter",
+    "qsMay.en-y5"
+   ],
+   "seams": [
+    "y5",
+    "y5"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsUtter/mono/None/x-height/",
+    "qsDay_qsUtter/full/x-height/x-height/",
+    "qsMay/loop/x-height/None/"
+   ],
+   "seams": [
+    "y5",
+    "y5"
+   ],
+   "extensions": [
+    0,
+    0
+   ]
+  },
+  "diff_positions": [
+   0,
+   1
+  ],
+  "pair": {
+   "left": 0,
+   "right": 1
+  },
+  "pair_codepoints": [
+   0,
+   2
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 0,
+    "x_max": 600,
+    "advance_total": 750
+   },
+   "after": {
+    "x_min": 0,
+    "x_max": 650,
+    "advance_total": 750
+   }
+  },
+  "boundary_marks": [],
+  "secondary_seams": null,
+  "summary": "New: \u00b7Utter keeps the same seams but settles as a different cell (mono, entry none, exit x-height) \u2014 decided by declaration order (no policy record involved).",
+  "explain": "sequence E67A:E653:E67A:E665   config default\nsettled: qsUtter.mono.ex-y5 qsDay_qsUtter.full.en-y5.ex-y5 qsMay.loop.en-y5\n\nposition 0: qsUtter\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> mono             entry=none       seam=x-height   join-count=2 prospect=1\n     alternate        entry=none       seam=baseline   join-count=2 prospect=1\n     mono             entry=none       seam=none       join-count=1 prospect=1\n  decided by: order (over alternate entry=none seam=baseline)\n  settled: qsUtter.mono.ex-y5   seam=x-height   extension=0\n\nposition 1: qsDay_qsUtter\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> full             entry=x-height   seam=x-height   join-count=2 prospect=0\n     full             entry=x-height   seam=none       join-count=1 prospect=0\n  eliminated before ranking:\n    - (entry-binding) qsDay_qsUtter.half: no available entry row at x-height against the committed seam\n  decided by: join-count (over full entry=x-height seam=none)\n  settled: qsDay_qsUtter.full.en-y5.ex-y5   seam=x-height   extension=0",
+  "provenance": [],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7Utter ~x~ \u00b7Day+Utter ~x~ \u00b7May",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": null,
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsUtter.yaml",
+    "keypath": "policy.prefer[+]",
+    "suggested_record": "{cell: {exit: x-height}, when: {right: {family: [qsDay_qsUtter]}}, why: 'Reviewer rejected the M1 outcome for E67A:E653:E67A:E665 (\u00b7Utter\u00b7Day\u00b7Utter\u00b7May)'}",
+    "names_provenance": [],
+    "decided_stage": "order",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E67A:E653:E67A:E665 (\u00b7Utter\u00b7Day\u00b7Utter\u00b7May)"
+   },
+   "any_of": {
+    "text": "qsUtter qsDay qsUtter qsMay",
+    "features": {},
+    "candidates": [
+     "\u00b7Utter ~x~ \u00b7Day+Utter ~x~ \u00b7May"
+    ]
+   }
+  },
+  "content_key": "e98f47e0417f3c97bbb14211c30e2bd072d5902fb2918e05d6b3b76a0f87534d"
+ }
+]

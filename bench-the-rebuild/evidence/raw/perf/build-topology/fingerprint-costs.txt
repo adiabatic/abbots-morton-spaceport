@@ -1,0 +1,35 @@
+# imports already done at 191456.271
+make_test_closure_fingerprint          wall=  0.016s cpu=  0.010s
+  git ls-files (make-test closure)     wall=  0.007s cpu=  0.001s
+run_m1_skip_fingerprint                wall=  0.052s cpu=  0.052s
+  fingerprint.data_lines               wall=  0.047s cpu=  0.047s
+  fingerprint.baselines_value          wall=  0.000s cpu=  0.000s
+  fingerprint.pipeline code lines      wall=  0.002s cpu=  0.002s
+conform_skip_fingerprint               wall=  0.052s cpu=  0.052s
+rebuild_gate_skip_fingerprint          wall=  0.086s cpu=  0.080s
+  git ls-files (rebuild closure)       wall=  0.007s cpu=  0.001s
+census_skip_fingerprint                wall=  0.024s cpu=  0.024s
+surface_build_skippable                wall=  0.002s cpu=  0.002s
+plumbing_skip_fingerprint              wall=  0.003s cpu=  0.003s
+fingerprint.compute_all (stage A+B)    wall=  0.051s cpu=  0.051s
+fingerprint.tables_value               wall=  0.049s cpu=  0.049s
+fingerprint.rune_digests               wall=  0.046s cpu=  0.046s
+
+# green-record comparison (does the skip fire today?)
+  make-test      record=2026-07-26T05:52:20Z match=False has_files=False
+  run_m1         record=2026-07-27T00:13:14Z match=False has_files=False
+  conform        record=2026-07-27T00:26:26Z match=False has_files=False
+  rebuild-gate   record=2026-07-27T00:26:26Z match=False has_files=False
+  census-result  NO RECORD at census-result.json (exists=False)
+  plumbing       NO RECORD at plumbing-green.json (exists=False)
+
+# closure sizes
+  make-test closure: 100 files, 15.6 MB
+  rebuild closure:   171 files, 2.6 MB (plus m1 artifacts/fonts hashed separately)
+  runes:             18 files
+  m1/M1.otf: 0.1 MB
+  m1/divergence-audit.tsv: 59.0 MB
+  m1/inputs_fingerprint.json: 0.0 MB
+  subset tables: 11 files, 5.3 MB
+  autosave: 2.1 MB
+  manifest totals: {'units': 62148, 'rows': 292098, 'batches': 36, 'echo_groups': 1104}

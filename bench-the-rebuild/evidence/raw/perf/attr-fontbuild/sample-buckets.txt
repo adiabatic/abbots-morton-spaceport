@@ -1,0 +1,96 @@
+
+=== sample-save.txt  (self-samples counted: 38445) ===
+  bytecode              9757   25.38%
+  interp_overhead      27121   70.54%
+  native_ext            1561    4.06%
+  io_wait                  6    0.02%
+  -- top 25 self frames --
+       9757  25.38%  _PyEval_EvalFrameDefault  [Python]
+       7438  19.35%  gc_collect_main  [Python]
+       1101   2.86%  _PyFrame_ClearExceptCode  [Python]
+       1003   2.61%  _PyObject_GenericGetAttrWithDict  [Python]
+        970   2.52%  subtype_traverse  [Python]
+        915   2.38%  _tlv_get_addr  [libdyld.dylib]
+        890   2.31%  visit_decref  [Python]
+        880   2.29%  visit_reachable  [Python]
+        858   2.23%  _PyEvalFramePushAndInit  [Python]
+        810   2.11%  _PyType_LookupStackRefAndVersion  [Python]
+        808   2.10%  unicodekeys_lookup_unicode  [Python]
+        474   1.23%  dict_traverse  [Python]
+        465   1.21%  _Py_dict_lookup  [Python]
+        449   1.17%  _PyObject_Free  [Python]
+        403   1.05%  pymalloc_alloc  [Python]
+        369   0.96%  list_traverse  [Python]
+        323   0.84%  tuple_dealloc  [Python]
+        287   0.75%  _PyObjectArray_FromStackRefArray  [Python]
+        246   0.64%  _PyEval_FrameClearAndPop  [Python]
+        240   0.62%  PyObject_GetOptionalAttr  [Python]
+        222   0.58%  _PyFrame_PushUnchecked  [Python]
+        205   0.53%  list_dealloc  [Python]
+        197   0.51%  _PyTuple_FromArray  [Python]
+        196   0.51%  _platform_memmove  [libsystem_platform.dylib]
+        193   0.50%  _Py_slot_tp_getattr_hook  [Python]
+
+=== sample-wholebuild.txt  (self-samples counted: 38535) ===
+  bytecode             11722   30.42%
+  interp_overhead      25093   65.12%
+  native_ext            1705    4.42%
+  io_wait                 15    0.04%
+  -- top 25 self frames --
+      11722  30.42%  _PyEval_EvalFrameDefault  [Python]
+       3166   8.22%  gc_collect_main  [Python]
+       1454   3.77%  unicodekeys_lookup_unicode  [Python]
+       1260   3.27%  _tlv_get_addr  [libdyld.dylib]
+       1182   3.07%  _PyObject_GenericGetAttrWithDict  [Python]
+       1128   2.93%  _Py_dict_lookup  [Python]
+        998   2.59%  _PyFrame_ClearExceptCode  [Python]
+        898   2.33%  _PyType_LookupStackRefAndVersion  [Python]
+        503   1.31%  _PyEvalFramePushAndInit  [Python]
+        478   1.24%  _PyObject_Free  [Python]
+        421   1.09%  _platform_memchr  [libsystem_platform.dylib]
+        406   1.05%  visit_decref  [Python]
+        394   1.02%  visit_reachable  [Python]
+        371   0.96%  tuple_dealloc  [Python]
+        367   0.95%  pymalloc_alloc  [Python]
+        331   0.86%  _Py_Dealloc  [Python]
+        308   0.80%  gen_dealloc  [Python]
+        302   0.78%  subtype_traverse  [Python]
+        299   0.78%  _platform_memcmp  [libsystem_platform.dylib]
+        288   0.75%  _PyDict_LoadBuiltinsFromGlobals  [Python]
+        273   0.71%  do_richcompare  [Python]
+        272   0.71%  _PyFrame_PushUnchecked  [Python]
+        256   0.66%  long_richcompare  [Python]
+        250   0.65%  list_traverse  [Python]
+        245   0.64%  _platform_memmove  [libsystem_platform.dylib]
+
+=== sample-feaemit.txt  (self-samples counted: 21514) ===
+  bytecode              8166   37.96%
+  interp_overhead      12428   57.77%
+  native_ext             917    4.26%
+  io_wait                  3    0.01%
+  -- top 25 self frames --
+       8166  37.96%  _PyEval_EvalFrameDefault  [Python]
+        990   4.60%  unicodekeys_lookup_unicode  [Python]
+        921   4.28%  _Py_dict_lookup  [Python]
+        641   2.98%  _tlv_get_addr  [libdyld.dylib]
+        580   2.70%  set_add_entry_takeref  [Python]
+        445   2.07%  _platform_memmove  [libsystem_platform.dylib]
+        413   1.92%  set_dealloc  [Python]
+        394   1.83%  _PyFrame_ClearExceptCode  [Python]
+        384   1.78%  setiter_iternext  [Python]
+        360   1.67%  _PyObject_GenericGetAttrWithDict  [Python]
+        334   1.55%  _platform_memcmp  [libsystem_platform.dylib]
+        310   1.44%  _PyObject_Free  [Python]
+        268   1.25%  pymalloc_alloc  [Python]
+        257   1.19%  list_sort_impl  [Python]
+        222   1.03%  gen_dealloc  [Python]
+        210   0.98%  tailmatch  [Python]
+        208   0.97%  _PyFrame_PushUnchecked  [Python]
+        204   0.95%  set_update_iterable_lock_held  [Python]
+        188   0.87%  gen_send_ex2  [Python]
+        183   0.85%  _PyDict_LoadBuiltinsFromGlobals  [Python]
+        176   0.82%  set_table_resize  [Python]
+        172   0.80%  set_merge_lock_held  [Python]
+        157   0.73%  dictiter_iternextitem  [Python]
+        156   0.73%  _PyObjectArray_FromStackRefArray  [Python]
+        155   0.72%  _PyObject_GC_New  [Python]

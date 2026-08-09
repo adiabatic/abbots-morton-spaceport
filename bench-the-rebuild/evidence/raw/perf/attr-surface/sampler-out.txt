@@ -1,0 +1,75 @@
+[setup] load_workload 1.09s CPU, load_spec 0.11s CPU, 63442 raw units
+[setup] warmup 60 units, 2.05s CPU (subset tables + font glyph outlines)
+
+METHOD C: 1500 units (phase1 + phase2), 1.79s CPU, 237 samples @500Hz
+
+--- leaf Python frame (file:function), top 30 ---
+     130  54.9%  build.py:_phase1_unit
+      21   8.9%  ink.py:<genexpr>
+      10   4.2%  ink.py:translate_outline
+       9   3.8%  <frozen importlib._bootstrap_external>:_path_stat
+       7   3.0%  emitter.py:analyze_scalar
+       6   2.5%  build.py:config_badge
+       4   1.7%  shaping.py:shape
+       4   1.7%  ink.py:delta_digest
+       3   1.3%  shaping.py:last_glyph_covering
+       2   0.8%  enrich.py:_ink_visible_positions
+       2   0.8%  <string>:__init__
+       2   0.8%  build.py:_config_features
+       2   0.8%  emitter.py:write_plain
+       2   0.8%  emitter.py:need_more_events
+       1   0.4%  threading.py:wait
+       1   0.4%  settle.py:candidates
+       1   0.4%  shaping.py:<genexpr>
+       1   0.4%  explain.py:render
+       1   0.4%  ink.py:shape
+       1   0.4%  explain.py:<genexpr>
+       1   0.4%  ink.py:run_ink
+       1   0.4%  settle.py:_active_pairing_unlocks
+       1   0.4%  recordingPen.py:closePath
+       1   0.4%  settle.py:form_ligatures
+       1   0.4%  model.py:__str__
+       1   0.4%  settle.py:_pick_adjustment
+       1   0.4%  __init__.py:__init__
+       1   0.4%  settle.py:_commit
+       1   0.4%  <frozen importlib._bootstrap_external>:get_data
+       1   0.4%  <frozen posixpath>:realpath
+
+--- any-frame-on-stack, by file, top 20 (cumulative-style) ---
+     237 100.0%  sampler.py
+     236  99.6%  build.py
+      44  18.6%  ink.py
+      39  16.5%  drafts.py
+      31  13.1%  __init__.py
+      20   8.4%  representer.py
+      18   7.6%  serializer.py
+      15   6.3%  enrich.py
+      14   5.9%  emitter.py
+      11   4.6%  <frozen importlib._bootstrap_external>
+      11   4.6%  <frozen importlib._bootstrap>
+      10   4.2%  build_font.py
+      10   4.2%  test_shaping.py
+       9   3.8%  shaping.py
+       8   3.4%  explain.py
+       6   2.5%  settle.py
+       5   2.1%  variableScalar.py
+       5   2.1%  parser.py
+       5   2.1%  builder.py
+       2   0.8%  <string>
+
+--- leaf rolled up by file ---
+     140  59.1%  build.py
+      37  15.6%  ink.py
+      14   5.9%  emitter.py
+      10   4.2%  <frozen importlib._bootstrap_external>
+       8   3.4%  shaping.py
+       5   2.1%  settle.py
+       2   0.8%  enrich.py
+       2   0.8%  explain.py
+       2   0.8%  <string>
+       2   0.8%  resolver.py
+       2   0.8%  drafts.py
+       2   0.8%  representer.py
+       1   0.4%  threading.py
+       1   0.4%  recordingPen.py
+       1   0.4%  model.py

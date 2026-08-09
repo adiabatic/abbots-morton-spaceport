@@ -1,0 +1,13 @@
+{
+ "buckets": {
+  "repo tools/*.py": 11.209160880999999,
+  "stdlib (python)": 3.9353984870000005,
+  "builtin/C": 14.86685437000001,
+  "PyYAML (pure-python loader)": 5.431874965000002,
+  "fontTools (python)": 36.042903227000004,
+  "repo other": 0.005241665
+ },
+ "grand": 71.49143359500002,
+ "plain_cpu": 21.789536,
+ "profiled_cpu": 68.64178
+}

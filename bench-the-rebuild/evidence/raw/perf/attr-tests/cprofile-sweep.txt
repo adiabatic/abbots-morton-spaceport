@@ -1,0 +1,70 @@
+test: test_it_it_never_joins  params: 2
+_shape cache: CacheInfo(hits=8887, misses=510233, maxsize=None, currsize=510233)
+unprofiled: 4.430 s CPU / 4.432 s wall
+profiled:   5.646 s CPU   -> cProfile slowdown factor 1.27x
+
+pstats tottime total: 5.648 s
+  native / builtin ('~'):  0.383 s  6.8%
+  Python frames:           5.265 s  93.2%
+     this repo:            5.086 s  90.0%
+     site-packages:        0.179 s  3.2%
+     stdlib:               0.000 s  0.0%
+
+=== top 30 by tottime ===
+   3.906   69.15%  [python] quikscript_shaping_helpers.py:43(_shape)
+   0.582   10.31%  [python] test_calt_regressions.py:278(_collect_pair_must_not_join_regardless_of_what_comes_before_or_after)
+   0.198    3.50%  [native] <method 'get' of 'dict' objects>
+   0.174    3.08%  [python] quikscript_shaping_helpers.py:34(_gid_to_full_name)
+   0.150    2.65%  [native] <method 'join' of 'str' objects>
+   0.135    2.38%  [python] ttFont.py:1181(getGlyphName)
+   0.089    1.58%  [python] quikscript_shaping_helpers.py:125(_qs_text)
+   0.077    1.37%  [python] quikscript_shaping_helpers.py:204(_pair_join_ys)
+   0.074    1.32%  [python] quikscript_shaping_helpers.py:83(_compiled_meta)
+   0.062    1.10%  [python] quikscript_shaping_helpers.py:154(_entry_ys)
+   0.059    1.05%  [python] quikscript_shaping_helpers.py:161(_exit_ys)
+   0.044    0.79%  [python] ttFont.py:1057(getGlyphOrder)
+   0.032    0.57%  [python] test_calt_regressions.py:310(<genexpr>)
+   0.029    0.51%  [python] test_calt_regressions.py:311(<genexpr>)
+   0.025    0.45%  [native] <method 'append' of 'list' objects>
+   0.010    0.18%  [native] <built-in method builtins.len>
+   0.000    0.01%  [python] test_calt_regressions.py:70(_surround_combos)
+   0.000    0.01%  [python] test_calt_regressions.py:72(<genexpr>)
+   0.000    0.00%  [python] test_calt_regressions.py:1794(test_it_it_never_joins)
+   0.000    0.00%  [python] test_calt_regressions.py:74(<genexpr>)
+   0.000    0.00%  [python] test_calt_regressions.py:307(<genexpr>)
+   0.000    0.00%  [python] test_calt_regressions.py:308(<genexpr>)
+   0.000    0.00%  [native] <method 'disable' of '_lsprof.Profiler' objects>
+   0.000    0.00%  [python] quikscript_shaping_helpers.py:149(_assert_no_failures)
+
+         10094795 function calls in 5.648 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        2    0.000    0.000    5.648    2.824 test/test_calt_regressions.py:1794(test_it_it_never_joins)
+        2    0.582    0.291    5.648    2.824 test/test_calt_regressions.py:278(_collect_pair_must_not_join_regardless_of_what_comes_before_or_after)
+   203228    3.906    0.000    4.259    0.000 test/quikscript_shaping_helpers.py:43(_shape)
+  1209404    0.174    0.000    0.353    0.000 test/quikscript_shaping_helpers.py:34(_gid_to_full_name)
+   216582    0.077    0.000    0.312    0.000 test/quikscript_shaping_helpers.py:204(_pair_join_ys)
+   623038    0.150    0.000    0.210    0.000 {method 'join' of 'str' objects}
+  2471976    0.198    0.000    0.198    0.000 {method 'get' of 'dict' objects}
+  1209404    0.135    0.000    0.179    0.000 .venv/lib/python3.14/site-packages/fontTools/ttLib/ttFont.py:1181(getGlyphName)
+   207648    0.089    0.000    0.132    0.000 test/quikscript_shaping_helpers.py:125(_qs_text)
+   216582    0.059    0.000    0.118    0.000 test/quikscript_shaping_helpers.py:161(_exit_ys)
+   216582    0.062    0.000    0.106    0.000 test/quikscript_shaping_helpers.py:154(_entry_ys)
+   433166    0.074    0.000    0.074    0.000 test/quikscript_shaping_helpers.py:83(_compiled_meta)
+  1209404    0.044    0.000    0.044    0.000 .venv/lib/python3.14/site-packages/fontTools/ttLib/ttFont.py:1057(getGlyphOrder)
+   618240    0.032    0.000    0.032    0.000 test/test_calt_regressions.py:310(<genexpr>)
+   618336    0.029    0.000    0.029    0.000 test/test_calt_regressions.py:311(<genexpr>)
+   415296    0.025    0.000    0.025    0.000 {method 'append' of 'list' objects}
+   216582    0.010    0.000    0.010    0.000 {built-in method builtins.len}
+        4    0.000    0.000    0.001    0.000 test/test_calt_regressions.py:70(_surround_combos)
+     8656    0.000    0.000    0.000    0.000 test/test_calt_regressions.py:72(<genexpr>)
+       98    0.000    0.000    0.000    0.000 test/test_calt_regressions.py:74(<genexpr>)
+      280    0.000    0.000    0.000    0.000 test/test_calt_regressions.py:307(<genexpr>)
+      282    0.000    0.000    0.000    0.000 test/test_calt_regressions.py:308(<genexpr>)
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+        2    0.000    0.000    0.000    0.000 test/quikscript_shaping_helpers.py:149(_assert_no_failures)
+
+
+

@@ -1,0 +1,13 @@
+build_font(senior) under cProfile wall: 19.24
+
+tottime buckets (total 19.147s):
+  fontTools.ttLib             5.827s   30.4%
+  fontTools.otlLib            5.103s   26.7%
+  builtin                     4.084s   21.3%
+  stdlib/other                1.487s    7.8%
+  fontTools.feaLib            1.033s    5.4%
+  repo:tools                  0.798s    4.2%
+  fontTools.misc              0.605s    3.2%
+  fontTools.cffLib            0.108s    0.6%
+  fontTools.pens              0.102s    0.5%
+  fontTools                   0.001s    0.0%

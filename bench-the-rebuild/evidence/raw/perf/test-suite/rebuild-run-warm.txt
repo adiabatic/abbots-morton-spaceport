@@ -1,0 +1,95 @@
+0 errors, 0 warnings, 0 informations
+bringing up nodes...
+bringing up nodes...
+
+........................................................................ [  6%]
+........................................................................ [ 12%]
+........................................................................ [ 18%]
+.............................................F.......................... [ 24%]
+........................................................................ [ 30%]
+........................................................................ [ 37%]
+........................................................................ [ 43%]
+........................................................................ [ 49%]
+....F................s.................................................. [ 55%]
+........................................................................ [ 61%]
+........................................................................ [ 68%]
+..F..................................................................... [ 74%]
+................................................F..........F............ [ 80%]
+................F..FF..F.....................................F.......... [ 86%]
+.......F..F..........................................................FF. [ 92%]
+...F......F...............s..................s............F.......F..FF. [ 99%]
+..........                                                               [100%]
+=============================== warnings summary ===============================
+rebuild/test_rule_witnesses.py::test_every_rule_has_a_witness[default]
+  rebuild/test_rule_witnesses.py:36: UserWarning: default: no enumeration under rebuild/out/m1 is stamped with the current sources; rebuilding the fixpoint in-process — slower, identical coverage
+    warnings.warn(
+
+rebuild/test_rule_witnesses.py::test_every_rule_has_a_witness[ss05]
+  rebuild/test_rule_witnesses.py:36: UserWarning: ss05: no enumeration under rebuild/out/m1 is stamped with the current sources; rebuilding the fixpoint in-process — slower, identical coverage
+    warnings.warn(
+
+rebuild/test_rule_witnesses.py::test_every_rule_has_a_witness[ss10]
+  rebuild/test_rule_witnesses.py:36: UserWarning: ss10: no enumeration under rebuild/out/m1 is stamped with the current sources; rebuilding the fixpoint in-process — slower, identical coverage
+    warnings.warn(
+
+rebuild/test_rule_witnesses.py::test_every_rule_has_a_witness[ss04]
+  rebuild/test_rule_witnesses.py:36: UserWarning: ss04: no enumeration under rebuild/out/m1 is stamped with the current sources; rebuilding the fixpoint in-process — slower, identical coverage
+    warnings.warn(
+
+rebuild/test_rule_witnesses.py::test_every_rule_has_a_witness[ss03]
+  rebuild/test_rule_witnesses.py:36: UserWarning: ss03: no enumeration under rebuild/out/m1 is stamped with the current sources; rebuilding the fixpoint in-process — slower, identical coverage
+    warnings.warn(
+
+rebuild/test_rule_witnesses.py::test_every_rule_has_a_witness[ss03+ss05]
+  rebuild/test_rule_witnesses.py:36: UserWarning: ss03+ss05: no enumeration under rebuild/out/m1 is stamped with the current sources; rebuilding the fixpoint in-process — slower, identical coverage
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED rebuild/test_surface.py::test_real_cell_bindings_all_match - rebuild.p...
+FAILED rebuild/test_manual_pins.py::TestGate::test_no_disagreements - Asserti...
+FAILED rebuild/test_review_tablediff.py::test_witness_resettles_to_the_settlement_row
+FAILED rebuild/test_review_audit.py::test_real_audit_dedupes_to_measured_counts
+FAILED rebuild/test_review_build.py::test_config_note_distribution_over_the_built_output
+FAILED rebuild/test_review_build.py::test_full_build_passes_the_contract_checker
+FAILED rebuild/test_review_build.py::test_machine_approved_histogram_pins_the_census
+FAILED rebuild/test_review_build.py::test_secondary_seam_census_pins_the_real_data
+FAILED rebuild/test_review_audit.py::test_configs_within_a_unit_are_in_acceptance_order
+FAILED rebuild/test_review_enrich.py::test_subset_tables_iterate - AssertionE...
+FAILED rebuild/test_review_families.py::test_partition_is_total_and_matches_the_measured_census
+FAILED rebuild/test_review_build.py::test_batches_cover_the_human_workload_only
+FAILED rebuild/test_unit_cache.py::test_no_change_rebuild_serves_every_signature
+FAILED rebuild/test_unit_cache.py::test_corrupt_signature_store_reshapes_and_degrades_to_the_same_bytes
+FAILED rebuild/test_review_build.py::test_ink_duplicate_siblings_fold_in_the_built_output
+FAILED rebuild/test_review_build.py::test_echo_groups_partition_the_human_workload
+FAILED rebuild/test_review_build.py::test_export_round_trip - assert 62148 ==...
+FAILED rebuild/test_review_enrich.py::test_derived_cells_match_the_audit_for_every_unit
+FAILED rebuild/test_review_drafts.py::test_every_drafted_pin_validates_against_the_after_font
+FAILED rebuild/test_review_ink.py::test_full_histogram_reproduces_the_census
+20 failed, 1139 passed, 3 skipped, 6 warnings in 333.72s (0:05:33)
+{
+  "label": "rebuild_suite_warm",
+  "cmd": [
+    "uv",
+    "run",
+    "pytest",
+    "rebuild/",
+    "-n",
+    "auto",
+    "--dist",
+    "worksteal",
+    "-q",
+    "--tb=no",
+    "-rfE",
+    "-p",
+    "shapecount_plugin",
+    "--junitxml=raw/perf/test-suite/rebuild-junit-warm.xml"
+  ],
+  "returncode": 1,
+  "wall_s": 340.112,
+  "child_user_s": 1426.865,
+  "child_sys_s": 17.244,
+  "child_cpu_s": 1444.109,
+  "child_maxrss_mb": 5558.4,
+  "cpu_per_wall": 4.25
+}

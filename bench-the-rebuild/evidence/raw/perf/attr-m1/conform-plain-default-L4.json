@@ -1,0 +1,21 @@
+{
+  "out_dir": "raw/perf/attr-m1/m1-artifacts",
+  "config": "default",
+  "max_length": 4,
+  "profiled": false,
+  "alphabet_size": 18,
+  "table_windows": 682842,
+  "setup_cpu_s": 1.197,
+  "sweep_wall_s": 126.564,
+  "sweep_cpu_s": 94.883,
+  "sequences": 111150,
+  "shaping_runs": 111150,
+  "shape_calls_measured": 172334,
+  "shape_cpu_s": 2.425,
+  "shape_pct_of_sweep_cpu": 2.56,
+  "shape_us_per_call": 14.07,
+  "divergences": 0,
+  "uncovered_rules": 1051,
+  "uncovered_transitions": 584547,
+  "peak_rss_gb": 0.49
+}

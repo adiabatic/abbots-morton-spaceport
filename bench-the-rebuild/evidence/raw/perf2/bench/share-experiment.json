@@ -1,0 +1,25 @@
+{
+ "letters": 12,
+ "question": "the Build phase concluded 'in a packed rewrite the share stops paying'. This measures the share's value in ALL THREE languages on the same model, to see whether that is a language finding or a property of the model's share.",
+ "rows": {
+  "python": {
+   "six_with_share_wall_s": 62.0099,
+   "six_without_share_wall_s": 63.0803,
+   "share_saves_x": 1.0173,
+   "checksums_identical": true
+  },
+  "rust": {
+   "six_with_share_wall_s": 2.8413,
+   "six_without_share_wall_s": 2.959,
+   "share_saves_x": 1.0415,
+   "checksums_identical": true
+  },
+  "go": {
+   "six_with_share_wall_s": 3.3438,
+   "six_without_share_wall_s": 3.577,
+   "share_saves_x": 1.0697,
+   "checksums_identical": true
+  }
+ },
+ "reading": "the model's cross-configuration share is worth 1.7% in Python, 4.1% in Rust and 7.0% in Go -- it never paid much in ANY language, so the model cannot support the claim that a rewrite is what made it stop paying. The real kernel's share value inside a cold six-config build is not measured anywhere (the cost model's 337.9 s cold figure already includes it, and its 194.9 s warm figure is the persisted trace STORE, a different mechanism)."
+}

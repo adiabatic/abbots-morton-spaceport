@@ -1,0 +1,22 @@
+{
+ "memo_keys": {
+  "n": 1875829,
+  "rss_mb_raw_string_rows": 1070.8,
+  "rss_mb_key_tuples": 245.1,
+  "rss_mb_dict_index": 215.1,
+  "bytes_per_key_tuple_only": 137.0,
+  "bytes_per_key_tuple_plus_dict": 257.3,
+  "rust_packed_bytes_per_key": 40,
+  "rust_packed_note": "six interned-string ids as u32 (left_kind, cell_rune, cell_stance, seam, input_rune, plus the u32 extension) and four u16 token ids padded to u32 = 40 B; a hashbrown index adds ~1.15x, so ~46 B/key"
+ },
+ "windows": {
+  "n": 1321116,
+  "rss_mb": 123.2,
+  "bytes_per_window": 97.8,
+  "dataclass_fields": 7,
+  "has_slots": true,
+  "rust_packed_note": "7 fields, all short interned labels or small ints: 7 x u32 = 28 B per row in a struct-of-arrays or packed struct layout",
+  "rust_packed_bytes_per_window": 28
+ },
+ "peak_rss_gb": 1.514
+}

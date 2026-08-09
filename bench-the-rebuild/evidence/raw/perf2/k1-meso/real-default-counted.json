@@ -1,0 +1,17 @@
+{
+ "spec_load_wall": 0.148047583992593,
+ "build_tables_wall": 86.24740554200253,
+ "build_tables_cpu": 86.023922,
+ "n_windows": 682842,
+ "n_rules": 2667,
+ "n_treaty": 3563,
+ "n_cells": 197,
+ "windows_digest": "f0abcf1715afc349f2acd4661fb2b2c62078c19c9d0737d7b4da86d9cd0c8b94",
+ "maxrss_bytes": 4045635584,
+ "counters": {
+  "candidates": 9161481,
+  "_prospect": 9394188,
+  "transition_trace": 3332285,
+  "_prefer_favors": 9786077
+ }
+}

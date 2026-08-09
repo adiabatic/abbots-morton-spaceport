@@ -1,0 +1,24 @@
+# Everything a harness regenerates. The checked-in tree is source, fixtures, and evidence.
+out/
+work/
+target/
+.cargo/
+.gopath/
+venv*/
+tree-cython/
+tree-mypyc/
+*.time
+*.log
+*.prof
+
+# generated inputs and binaries
+kernel-model/spec.txt
+primitives/data/
+*/go/k1meso
+*/go/k1micro
+*/go/k3k5
+*/rust/Cargo.lock.orig
+
+# the levers harness builds a throwaway copy of rebuild/ to patch
+levers/variant-*/
+levers/run-v-*/

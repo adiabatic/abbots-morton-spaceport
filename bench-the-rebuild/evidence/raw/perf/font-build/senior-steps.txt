@@ -1,0 +1,7 @@
+senior fea bytes: 15394562
+step                                  wall_s     cpu_s
+imports                                0.069     0.058
+load_glyph_data                        0.162     0.162
+compile_glyph_set(senior)              0.326     0.326
+build_senior_fea                       7.413     7.411
+TOTAL                                  7.969     7.957

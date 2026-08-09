@@ -1,0 +1,14 @@
+{
+  "mode": "prof",
+  "config": "default",
+  "spec_load_wall_s": 0.126,
+  "spec_load_cpu_s": 0.124,
+  "build_tables_wall_s": 286.41,
+  "build_tables_cpu_s": 242.277,
+  "build_tables_user_s": 240.393,
+  "build_tables_sys_s": 1.885,
+  "peak_rss_gb": 3.67,
+  "windows": 682842,
+  "rules": 2667,
+  "treaty_rows": 3563
+}

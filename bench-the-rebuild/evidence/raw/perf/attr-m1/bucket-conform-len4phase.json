@@ -1,0 +1,231 @@
+{
+  "label": "conform sweep, length-4 phase [default]",
+  "file": "raw/perf/attr-m1/sample-conform-L4-len4phase.txt",
+  "thread_total_samples": 17192,
+  "leaf_samples_listed": 16943,
+  "truncated_below_5_samples": 249,
+  "buckets_abs": {
+    "python_bytecode": 6140,
+    "interpreter_overhead": 10241,
+    "native_extension": 509,
+    "io_or_wait": 53
+  },
+  "buckets_pct_of_listed": {
+    "interpreter_overhead": 60.44,
+    "python_bytecode": 36.24,
+    "native_extension": 3.0,
+    "io_or_wait": 0.31
+  },
+  "top_leaves": [
+    {
+      "bucket": "python_bytecode",
+      "func": "_PyEval_EvalFrameDefault",
+      "binary": "Python",
+      "samples": 6140,
+      "pct": 36.24
+    },
+    {
+      "bucket": "interpreter_overhead",
+      "func": "tuple_dealloc",
+      "binary": "Python",
+      "samples": 766,
+      "pct": 4.52
+    },
+    {
+      "bucket": "interpreter_overhead",
+      "func": "_PyFrame_ClearExceptCode",
+      "binary": "Python",
+      "samples": 733,
+      "pct": 4.33
+    },
+    {
+      "bucket": "interpreter_overhead",
+      "func": "_PyTuple_FromArray",
+      "binary": "Python",
+      "samples": 680,
+      "pct": 4.01
+    },
+    {
+      "bucket": "interpreter_overhead",
+      "func": "_tlv_get_addr",
+      "binary": "libdyld.dylib",
+      "samples": 636,
+      "pct": 3.75
+    },
+    {
+      "bucket": "interpreter_overhead",
+      "func": "_PyEvalFramePushAndInit",
+      "binary": "Python",
+      "samples": 483,
+      "pct": 2.85
+    },
+    {
+      "bucket": "interpreter_overhead",
+      "func": "_Py_dict_lookup",
+      "binary": "Python",
+      "samples": 361,
+      "pct": 2.13
+    },
+    {
+      "bucket": "interpreter_overhead",
+      "func": "_PyType_LookupStackRefAndVersion",
+      "binary": "Python",
+      "samples": 335,
+      "pct": 1.98
+    },
+    {
+      "bucket": "interpreter_overhead",
+      "func": "unicodekeys_lookup_unicode",
+      "binary": "Python",
+      "samples": 254,
+      "pct": 1.5
+    },
+    {
+      "bucket": "interpreter_overhead",
+      "func": "_PyTuple_FromStackRefStealOnSuccess",
+      "binary": "Python",
+      "samples": 253,
+      "pct": 1.49
+    },
+    {
+      "bucket": "interpreter_overhead",
+      "func": "pymalloc_alloc",
+      "binary": "Python",
+      "samples": 229,
+      "pct": 1.35
+    },
+    {
+      "bucket": "interpreter_overhead",
+      "func": "_PyObject_MakeTpCall",
+      "binary": "Python",
+      "samples": 225,
+      "pct": 1.33
+    },
+    {
+      "bucket": "interpreter_overhead",
+      "func": "_PyObject_Free",
+      "binary": "Python",
+      "samples": 220,
+      "pct": 1.3
+    },
+    {
+      "bucket": "interpreter_overhead",
+      "func": "PyObject_RichCompareBool",
+      "binary": "Python",
+      "samples": 186,
+      "pct": 1.1
+    },
+    {
+      "bucket": "interpreter_overhead",
+      "func": "_PyFrame_PushUnchecked",
+      "binary": "Python",
+      "samples": 161,
+      "pct": 0.95
+    },
+    {
+      "bucket": "interpreter_overhead",
+      "func": "wrapperdescr_call",
+      "binary": "Python",
+      "samples": 160,
+      "pct": 0.94
+    },
+    {
+      "bucket": "interpreter_overhead",
+      "func": "PyUnicode_RichCompare",
+      "binary": "Python",
+      "samples": 148,
+      "pct": 0.87
+    },
+    {
+      "bucket": "interpreter_overhead",
+      "func": "_PyObject_GenericSetAttrWithDict",
+      "binary": "Python",
+      "samples": 147,
+      "pct": 0.87
+    },
+    {
+      "bucket": "interpreter_overhead",
+      "func": "do_richcompare",
+      "binary": "Python",
+      "samples": 146,
+      "pct": 0.86
+    },
+    {
+      "bucket": "interpreter_overhead",
+      "func": "_PyObjectArray_FromStackRefArray",
+      "binary": "Python",
+      "samples": 137,
+      "pct": 0.81
+    },
+    {
+      "bucket": "interpreter_overhead",
+      "func": "_PyObject_GC_New",
+      "binary": "Python",
+      "samples": 137,
+      "pct": 0.81
+    },
+    {
+      "bucket": "native_extension",
+      "func": "OT::ClassDef::get_class(unsigned int) const",
+      "binary": "_harfbuzz.abi3.so",
+      "samples": 131,
+      "pct": 0.77
+    },
+    {
+      "bucket": "interpreter_overhead",
+      "func": "PyObject_ClearManagedDict",
+      "binary": "Python",
+      "samples": 117,
+      "pct": 0.69
+    },
+    {
+      "bucket": "interpreter_overhead",
+      "func": "_PyEval_FrameClearAndPop",
+      "binary": "Python",
+      "samples": 114,
+      "pct": 0.67
+    },
+    {
+      "bucket": "interpreter_overhead",
+      "func": "_PyType_AllocNoTrack",
+      "binary": "Python",
+      "samples": 114,
+      "pct": 0.67
+    },
+    {
+      "bucket": "native_extension",
+      "func": "apply_forward(OT::hb_ot_apply_context_t*, OT::hb_ot_layout_lookup_accelerator_t const&)",
+      "binary": "_harfbuzz.abi3.so",
+      "samples": 104,
+      "pct": 0.61
+    },
+    {
+      "bucket": "interpreter_overhead",
+      "func": "_Py_Dealloc",
+      "binary": "Python",
+      "samples": 103,
+      "pct": 0.61
+    },
+    {
+      "bucket": "interpreter_overhead",
+      "func": "_platform_memset",
+      "binary": "libsystem_platform.dylib",
+      "samples": 99,
+      "pct": 0.58
+    },
+    {
+      "bucket": "interpreter_overhead",
+      "func": "store_instance_attr_lock_held",
+      "binary": "Python",
+      "samples": 97,
+      "pct": 0.57
+    },
+    {
+      "bucket": "interpreter_overhead",
+      "func": "_platform_memcmp",
+      "binary": "libsystem_platform.dylib",
+      "samples": 96,
+      "pct": 0.57
+    }
+  ]
+}

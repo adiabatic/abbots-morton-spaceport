@@ -1,0 +1,31 @@
+rep 0: total serial CPU 28.485 s
+rep 1: total serial CPU 29.063 s
+
+BEST-OF-2 serial CPU total: 28.485 s
+senior FEA bytes: 15394562
+
+-- coarse phases (process CPU seconds) --
+  worker senior-Regular: build_font              10.314  ( 36.2%)
+  worker senior-Bold: build_font                 10.293  ( 36.1%)
+  parent: build_senior_fea                        2.874  ( 10.1%)
+  worker mono-Regular: build_font                 1.252  (  4.4%)
+  worker mono-Bold: build_font                    1.238  (  4.3%)
+  worker senior-Bold: load_glyph_data             0.530  (  1.9%)
+  parent: compile_glyph_set(senior)               0.419  (  1.5%)
+  worker mono-Regular: load_glyph_data            0.230  (  0.8%)
+  worker senior-Regular: load_glyph_data          0.229  (  0.8%)
+  worker junior-Regular: load_glyph_data          0.219  (  0.8%)
+  worker junior-Bold: load_glyph_data             0.215  (  0.8%)
+  worker mono-Bold: load_glyph_data               0.212  (  0.7%)
+  parent: load_glyph_data                         0.186  (  0.7%)
+  worker junior-Bold: build_font                  0.144  (  0.5%)
+  worker junior-Regular: build_font               0.131  (  0.5%)
+
+-- library/repo boundaries crossed (process CPU seconds, inclusive) --
+  fontTools feaLib addOpenTypeFeaturesFromString         15.495  ( 54.4%)  calls=4
+  fontTools FontBuilder.save (table pack)                 3.018  ( 10.6%)  calls=6
+  repo emit_quikscript_senior_features (FEA text)         2.872  ( 10.1%)  calls=1
+  yaml parse (pure-python SafeLoader)                     1.844  (  6.5%)  calls=76
+  fontTools DepartureMono CFF decompile                   1.674  (  5.9%)  calls=2
+  repo compile_glyph_set (IR)                             1.398  (  4.9%)  calls=7
+  UNATTRIBUTED (repo python + stdlib in build_font)       2.184  (  7.7%)

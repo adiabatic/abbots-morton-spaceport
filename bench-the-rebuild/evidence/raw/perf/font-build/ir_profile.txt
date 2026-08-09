@@ -1,0 +1,91 @@
+         6692557 function calls (6648274 primitive calls) in 3.619 seconds
+
+   Ordered by: cumulative time
+   List reduced from 358 to 45 due to restriction <45>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        3    0.001    0.000    3.704    1.235 tools/glyph_compiler.py:288(compile_glyph_set)
+        3    0.024    0.008    1.912    0.637 tools/quikscript_join_analysis.py:294(warn_join_contract_issues)
+        3    0.001    0.000    1.889    0.630 tools/quikscript_join_analysis.py:268(collect_join_warnings)
+        3    0.049    0.016    1.790    0.597 tools/quikscript_join_analysis.py:521(_collect_bitmap_gap_warnings)
+    15102    0.010    0.000    1.319    0.000 tools/quikscript_join_analysis.py:771(_replace_with_pair_specific_generated_variants)
+    15102    1.152    0.000    1.308    0.000 tools/quikscript_join_analysis.py:797(_pair_specific_generated_variants)
+        3    0.001    0.000    0.879    0.293 tools/quikscript_join_analysis.py:235(validate_join_consistency)
+        3    0.002    0.001    0.783    0.261 tools/quikscript_ir.py:3432(compile_quikscript_ir)
+        3    0.001    0.000    0.464    0.155 tools/quikscript_join_analysis.py:1080(_check_concrete_selector_consistency)
+       18    0.004    0.000    0.397    0.022 tools/quikscript_join_analysis.py:1461(_check_join_consistency)
+     9990    0.065    0.000    0.392    0.000 tools/quikscript_join_analysis.py:1499(_check_one_source)
+        3    0.000    0.000    0.374    0.125 tools/quikscript_ir.py:3413(expand_join_transforms)
+        6    0.002    0.000    0.193    0.032 tools/quikscript_ir.py:2635(_generate_extended_variants)
+      342    0.038    0.000    0.173    0.001 tools/quikscript_join_analysis.py:1134(_check_concrete_after_selectors)
+     4569    0.070    0.000    0.163    0.000 tools/quikscript_join_analysis.py:1618(_reachable_left_variants)
+     5232    0.056    0.000    0.162    0.000 tools/quikscript_join_analysis.py:681(_candidate_names_with_entry)
+        6    0.003    0.000    0.162    0.027 tools/quikscript_ir.py:1792(_expand_anchor_sentinels)
+        6    0.001    0.000    0.161    0.027 tools/quikscript_ir.py:2931(_generate_contracted_variants)
+     1905    0.015    0.000    0.159    0.000 tools/quikscript_ir.py:2087(derive_join_glyph)
+      423    0.053    0.000    0.155    0.000 tools/quikscript_ir.py:2319(_iter_related_extension_targets)
+        3    0.013    0.004    0.148    0.049 tools/quikscript_fea.py:161(_analyze_quikscript_joins)
+      279    0.008    0.000    0.143    0.001 tools/quikscript_join_analysis.py:1178(_check_concrete_before_selectors)
+    14070    0.041    0.000    0.139    0.000 tools/quikscript_ir.py:1758(expand)
+     3603    0.041    0.000    0.115    0.000 tools/quikscript_join_analysis.py:1581(_reachable_right_variants)
+        3    0.001    0.000    0.114    0.038 tools/quikscript_fea.py:811(_populate_exit_reachability)
+     7563    0.017    0.000    0.110    0.000 tools/quikscript_join_analysis.py:999(_bitmap_join_gap)
+     5409    0.048    0.000    0.110    0.000 tools/quikscript_join_analysis.py:656(_candidate_names_with_exit)
+     1689    0.046    0.000    0.109    0.000 tools/quikscript_ir.py:1551(_glyph_def_to_join_glyph)
+     4284    0.002    0.000    0.107    0.000 tools/quikscript_join_analysis.py:1234(_expand_concrete_after_selector)
+     4284    0.031    0.000    0.105    0.000 tools/quikscript_fea.py:1566(_expand_backward_after_variants)
+     3594    0.061    0.000    0.103    0.000 tools/quikscript_ir.py:1463(_compat_assertions_from_modifiers)
+       12    0.002    0.000    0.096    0.008 tools/quikscript_fea.py:1136(_record_fwd_pair_reachability)
+    83454    0.095    0.000    0.095    0.000 {built-in method builtins.sorted}
+     1299    0.003    0.000    0.095    0.000 tools/quikscript_ir.py:2543(_add_exit_extension_variant)
+   216828    0.036    0.000    0.095    0.000 tools/quikscript_fea.py:1499(_resolve_noentry_replacement)
+    15165    0.011    0.000    0.091    0.000 tools/quikscript_join_analysis.py:1024(_ink_bounds_at_y)
+    11481    0.021    0.000    0.087    0.000 tools/quikscript_join_analysis.py:1359(_candidate_reachable_after_base)
+   442029    0.087    0.000    0.087    0.000 {built-in method builtins.getattr}
+      522    0.004    0.000    0.086    0.000 tools/quikscript_ir.py:1141(_family_stance_to_glyph_def)
+        3    0.001    0.000    0.080    0.027 tools/quikscript_ir.py:1667(build_join_glyphs)
+   242808    0.052    0.000    0.078    0.000 tools/quikscript_join_analysis.py:1680(_resolve_family)
+     2421    0.004    0.000    0.074    0.000 /opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/dataclasses.py:1762(replace)
+   132435    0.059    0.000    0.074    0.000 tools/quikscript_ir.py:124(exit_ys)
+      840    0.001    0.000    0.073    0.000 tools/quikscript_ir.py:979(_normalize_family_refs)
+2970/2178    0.014    0.000    0.071    0.000 tools/quikscript_ir.py:992(_expand_value)
+
+
+         6692557 function calls (6648274 primitive calls) in 3.619 seconds
+
+   Ordered by: internal time
+   List reduced from 358 to 30 due to restriction <30>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+    15102    1.152    0.000    1.308    0.000 tools/quikscript_join_analysis.py:797(_pair_specific_generated_variants)
+    83454    0.095    0.000    0.095    0.000 {built-in method builtins.sorted}
+   442029    0.087    0.000    0.087    0.000 {built-in method builtins.getattr}
+   659700    0.071    0.000    0.071    0.000 {method 'get' of 'mappingproxy' objects}
+     4569    0.070    0.000    0.163    0.000 tools/quikscript_join_analysis.py:1618(_reachable_left_variants)
+     9990    0.065    0.000    0.392    0.000 tools/quikscript_join_analysis.py:1499(_check_one_source)
+   405687    0.064    0.000    0.064    0.000 {method 'startswith' of 'str' objects}
+     3594    0.061    0.000    0.103    0.000 tools/quikscript_ir.py:1463(_compat_assertions_from_modifiers)
+   147234    0.059    0.000    0.070    0.000 tools/quikscript_ir.py:1700(_member_matches_scope)
+   132435    0.059    0.000    0.074    0.000 tools/quikscript_ir.py:124(exit_ys)
+   475086    0.056    0.000    0.056    0.000 {method 'add' of 'set' objects}
+     5232    0.056    0.000    0.162    0.000 tools/quikscript_join_analysis.py:681(_candidate_names_with_entry)
+   549921    0.055    0.000    0.055    0.000 {method 'get' of 'dict' objects}
+      423    0.053    0.000    0.155    0.000 tools/quikscript_ir.py:2319(_iter_related_extension_targets)
+     7125    0.052    0.000    0.064    0.000 tools/quikscript_join_analysis.py:1423(_selector_bases)
+   242808    0.052    0.000    0.078    0.000 tools/quikscript_join_analysis.py:1680(_resolve_family)
+        3    0.049    0.016    1.790    0.597 tools/quikscript_join_analysis.py:521(_collect_bitmap_gap_warnings)
+     5409    0.048    0.000    0.110    0.000 tools/quikscript_join_analysis.py:656(_candidate_names_with_exit)
+     1689    0.046    0.000    0.109    0.000 tools/quikscript_ir.py:1551(_glyph_def_to_join_glyph)
+     2853    0.043    0.000    0.049    0.000 tools/quikscript_join_analysis.py:385(_right_family_displaces_via_noentry)
+     3603    0.041    0.000    0.115    0.000 tools/quikscript_join_analysis.py:1581(_reachable_right_variants)
+    14070    0.041    0.000    0.139    0.000 tools/quikscript_ir.py:1758(expand)
+    15165    0.041    0.000    0.068    0.000 tools/quikscript_join_analysis.py:1034(_bitmap_row_at_y)
+    48507    0.041    0.000    0.047    0.000 tools/quikscript_ir.py:120(all_entry_ys)
+      342    0.038    0.000    0.173    0.001 tools/quikscript_join_analysis.py:1134(_check_concrete_after_selectors)
+   216828    0.036    0.000    0.095    0.000 tools/quikscript_fea.py:1499(_resolve_noentry_replacement)
+   187359    0.032    0.000    0.032    0.000 tools/quikscript_join_analysis.py:745(_is_source_authored_join_candidate)
+     4284    0.031    0.000    0.105    0.000 tools/quikscript_fea.py:1566(_expand_backward_after_variants)
+    24978    0.028    0.000    0.040    0.000 tools/quikscript_join_analysis.py:894(_ligature_component_propagates_context)
+   118665    0.028    0.000    0.028    0.000 tools/quikscript_fea.py:1467(_has_left_entry)
+
+

@@ -1,0 +1,74 @@
+{
+  "mode": "warm",
+  "total_wall_s": 194.86,
+  "total_cpu_s": 194.7,
+  "peak_rss_gb": 6.64,
+  "rows": [
+    {
+      "config": "default",
+      "wall_s": 28.04,
+      "cpu_s": 28.03,
+      "windows": 682842,
+      "rules": 2667,
+      "share_served": 0,
+      "memo_served": 1498922,
+      "memo_saved": 1875829,
+      "rss_gb": 2.85
+    },
+    {
+      "config": "ss03",
+      "wall_s": 35.91,
+      "cpu_s": 35.87,
+      "windows": 719636,
+      "rules": 2929,
+      "share_served": 1300780,
+      "memo_served": 624178,
+      "memo_saved": 792680,
+      "rss_gb": 4.68
+    },
+    {
+      "config": "ss04",
+      "wall_s": 28.3,
+      "cpu_s": 28.27,
+      "windows": 665875,
+      "rules": 2662,
+      "share_served": 1195336,
+      "memo_served": 574808,
+      "memo_saved": 692187,
+      "rss_gb": 4.68
+    },
+    {
+      "config": "ss05",
+      "wall_s": 27.46,
+      "cpu_s": 27.45,
+      "windows": 697306,
+      "rules": 2692,
+      "share_served": 1835668,
+      "memo_served": 104917,
+      "memo_saved": 130377,
+      "rss_gb": 4.7
+    },
+    {
+      "config": "ss03+ss05",
+      "wall_s": 37.58,
+      "cpu_s": 37.58,
+      "windows": 724875,
+      "rules": 2950,
+      "share_served": 1275651,
+      "memo_served": 645081,
+      "memo_saved": 815942,
+      "rss_gb": 6.64
+    },
+    {
+      "config": "ss10",
+      "wall_s": 25.93,
+      "cpu_s": 25.9,
+      "windows": 678229,
+      "rules": 2642,
+      "share_served": 1879405,
+      "memo_served": 66506,
+      "memo_saved": 84594,
+      "rss_gb": 6.64
+    }
+  ]
+}

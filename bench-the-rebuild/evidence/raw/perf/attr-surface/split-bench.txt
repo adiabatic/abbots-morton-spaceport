@@ -1,0 +1,17 @@
+[setup] load_workload 1.03s CPU, load_spec 0.10s CPU, 63442 raw units
+[setup] warmup 60 units, 1.96s CPU (subset tables + font glyph outlines)
+
+PER-UNIT SPLIT over 1500 units (4.91 configs/unit):
+  config_diff, cold shaper memo    0.834s   0.556 ms/unit
+  config_diff, warm shaper memo    0.656s   0.437 ms/unit
+    => shaping inside config_diff      0.118 ms/unit
+  JuniorOracle.approves            0.023s   0.015 ms/unit
+  Enricher.enrich                  0.324s   0.216 ms/unit
+  _phase1_unit whole (warm memo)   1.174s   0.783 ms/unit
+  drafter.draft_pin                0.033s   0.022 ms/unit
+  drafter.draft_policy             0.172s   0.115 ms/unit
+  drafter.draft_any_of             0.005s   0.003 ms/unit
+  build.unit_scaffold              0.068s   0.045 ms/unit
+  _phase2_unit whole               0.340s   0.226 ms/unit
+
+  62148-unit extrapolation: phase1 48.6s + phase2 14.1s CPU

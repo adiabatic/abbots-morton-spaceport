@@ -1,0 +1,140 @@
+[stage] load_workload (audit tsv + ledger)           cpu=    1.04s wall=    1.04s
+units=63442 rows=292098
+[stage] load_spec                                    cpu=    0.10s wall=    0.10s
+[stage] unit_cache.family_content_keys (after-font digests) cpu=    0.26s wall=    0.26s
+[stage] UnitKeyer.key over all units                 cpu=    0.23s wall=    0.23s
+content keys: 63442
+[stage] signature_rows() enumeration                 cpu=    0.02s wall=    0.02s
+signature rows (relabel-split windows needing a shaped signature): 152730
+[stage] UnitKeyer.signature_key over signature rows  cpu=    0.32s wall=    0.32s
+[stage] construct InkComparator/JuniorOracle/Enricher/Drafter cpu=    0.04s wall=    0.04s
+[stage] Enricher subset table load (default config)  cpu=    0.19s wall=    0.19s
+sampling 400 of 63442 units, stride 158
+
+PHASE1 over 400 units: cpu=2.98s wall=2.98s (7.45 ms CPU/unit), 0 failures
+PHASE2 over 400 units: cpu=0.31s wall=0.31s (0.76 ms CPU/unit)
+json.dumps of those 400 fragments: cpu=0.005s, 1804430 bytes (4511 bytes/unit)
+
+===== phase1 cumulative top =====
+         12963026 function calls (12939822 primitive calls) in 2.867 seconds
+
+   Ordered by: cumulative time
+   List reduced from 359 to 45 due to restriction <45>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+      400    0.004    0.000    2.980    0.007 rebuild/review/build.py:473(_phase1_unit)
+      400    0.009    0.000    2.446    0.006 rebuild/review/enrich.py:337(enrich)
+      400    0.081    0.000    2.138    0.005 rebuild/review/enrich.py:305(subset_row)
+   216964    0.124    0.000    1.855    0.000 rebuild/validation/rowmodel.py:120(iter_rows)
+   216960    0.802    0.000    1.654    0.000 rebuild/validation/rowmodel.py:63(from_tsv)
+     2242    0.016    0.000    0.464    0.000 rebuild/review/build.py:475(<genexpr>)
+     1842    0.018    0.000    0.448    0.000 rebuild/review/ink.py:176(config_diff)
+  1064658    0.238    0.000    0.406    0.000 rebuild/validation/rowmodel.py:71(<genexpr>)
+     3684    0.006    0.000    0.353    0.000 rebuild/review/ink.py:163(run_ink)
+    16179    0.048    0.000    0.319    0.000 rebuild/review/ink.py:87(translate_outline)
+    15132    0.005    0.000    0.300    0.000 rebuild/review/ink.py:108(placed)
+   851174    0.202    0.000    0.271    0.000 rebuild/review/ink.py:88(<genexpr>)
+  2156940    0.225    0.000    0.225    0.000 {method 'split' of 'str' objects}
+225287/223924    0.094    0.000    0.208    0.000 {method 'join' of 'str' objects}
+      400    0.001    0.000    0.199    0.000 rebuild/pipeline/explain.py:91(explain)
+      400    0.002    0.000    0.195    0.000 rebuild/pipeline/settle.py:1538(settle_traces)
+3211/1388    0.002    0.000    0.181    0.000 rebuild/pipeline/settle.py:1120(transition_trace)
+3211/1388    0.019    0.000    0.181    0.000 rebuild/pipeline/settle.py:1178(_transition_trace_uncached)
+  1064658    0.101    0.000    0.168    0.000 rebuild/validation/rowmodel.py:73(<genexpr>)
+13304/5240    0.003    0.000    0.112    0.000 rebuild/pipeline/settle.py:682(_prospect)
+  1069320    0.111    0.000    0.111    0.000 rebuild/review/enrich.py:311(<genexpr>)
+6652/2620    0.002    0.000    0.111    0.000 rebuild/pipeline/settle.py:1289(_score)
+  1069320    0.099    0.000    0.099    0.000 rebuild/validation/rowmodel.py:67(<genexpr>)
+9721/7314    0.030    0.000    0.090    0.000 rebuild/pipeline/settle.py:525(candidates)
+  1064658    0.087    0.000    0.087    0.000 rebuild/validation/rowmodel.py:69(<genexpr>)
+  1502991    0.070    0.000    0.070    0.000 rebuild/review/ink.py:89(<genexpr>)
+    11884    0.004    0.000    0.065    0.000 {built-in method builtins.sorted}
+     4680    0.004    0.000    0.064    0.000 rebuild/review/ink.py:65(shape)
+     3554    0.049    0.000    0.058    0.000 rebuild/validation/shaping.py:36(shape)
+      400    0.002    0.000    0.055    0.000 rebuild/review/enrich.py:555(_ink_visible_positions)
+     1270    0.005    0.000    0.053    0.000 rebuild/review/enrich.py:534(_segment_pieces)
+     3933    0.005    0.000    0.053    0.000 rebuild/pipeline/settle.py:834(_apply_prefers)
+    16403    0.003    0.000    0.050    0.000 rebuild/review/ink.py:101(outline)
+     9718    0.004    0.000    0.046    0.000 rebuild/pipeline/settle.py:754(_prefer_favors)
+      293    0.000    0.000    0.045    0.000 .venv/lib/python3.14/site-packages/fontTools/ttLib/ttGlyphSet.py:278(draw)
+      293    0.000    0.000    0.044    0.000 .venv/lib/python3.14/site-packages/fontTools/misc/psCharStrings.py:1172(draw)
+      293    0.000    0.000    0.042    0.000 .venv/lib/python3.14/site-packages/fontTools/misc/psCharStrings.py:649(execute)
+      293    0.007    0.000    0.042    0.000 .venv/lib/python3.14/site-packages/fontTools/misc/psCharStrings.py:341(execute)
+      910    0.039    0.000    0.039    0.000 {built-in method builtins.repr}
+     7368    0.003    0.000    0.036    0.000 /opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/collections/__init__.py:602(__init__)
+      850    0.000    0.000    0.033    0.000 rebuild/review/ink.py:218(normalize)
+     7368    0.001    0.000    0.033    0.000 /opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/collections/__init__.py:679(update)
+     2052    0.004    0.000    0.033    0.000 rebuild/review/ink.py:220(<genexpr>)
+     3684    0.002    0.000    0.029    0.000 {built-in method _collections._count_elements}
+    72152    0.022    0.000    0.028    0.000 rebuild/review/ink.py:221(<genexpr>)
+
+
+         12963026 function calls (12939822 primitive calls) in 2.867 seconds
+
+   Ordered by: internal time
+   List reduced from 359 to 45 due to restriction <45>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+   216960    0.802    0.000    1.654    0.000 rebuild/validation/rowmodel.py:63(from_tsv)
+
+===== phase2 cumulative top =====
+         1314353 function calls (1288588 primitive calls) in 0.305 seconds
+
+   Ordered by: cumulative time
+   List reduced from 1110 to 45 due to restriction <45>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+      400    0.000    0.000    0.306    0.001 rebuild/review/build.py:503(_phase2_unit)
+      400    0.002    0.000    0.306    0.001 rebuild/review/build.py:343(unit_to_json)
+      400    0.001    0.000    0.152    0.000 rebuild/review/drafts.py:288(draft_policy)
+      390    0.000    0.000    0.130    0.000 .venv/lib/python3.14/site-packages/yaml/__init__.py:263(safe_dump)
+      390    0.001    0.000    0.130    0.000 .venv/lib/python3.14/site-packages/yaml/__init__.py:215(dump_all)
+      390    0.000    0.000    0.125    0.000 .venv/lib/python3.14/site-packages/yaml/representer.py:26(represent)
+      390    0.001    0.000    0.112    0.000 .venv/lib/python3.14/site-packages/yaml/serializer.py:46(serialize)
+ 5764/390    0.010    0.000    0.107    0.000 .venv/lib/python3.14/site-packages/yaml/serializer.py:78(serialize_node)
+     9293    0.007    0.000    0.095    0.000 .venv/lib/python3.14/site-packages/yaml/emitter.py:111(emit)
+      400    0.002    0.000    0.088    0.000 rebuild/review/drafts.py:238(draft_pin)
+      800    0.000    0.000    0.053    0.000 rebuild/review/drafts.py:43(_import_test_shaping)
+     89/1    0.000    0.000    0.052    0.052 <frozen importlib._bootstrap>:1360(_find_and_load)
+     89/1    0.000    0.000    0.052    0.052 <frozen importlib._bootstrap>:1308(_find_and_load_unlocked)
+     84/1    0.000    0.000    0.052    0.052 <frozen importlib._bootstrap>:914(_load_unlocked)
+     75/1    0.000    0.000    0.052    0.052 <frozen importlib._bootstrap_external>:753(exec_module)
+    210/2    0.000    0.000    0.051    0.026 <frozen importlib._bootstrap>:483(_call_with_frames_removed)
+     89/1    0.004    0.000    0.051    0.051 {built-in method builtins.exec}
+        1    0.000    0.000    0.051    0.051 test/test_shaping.py:1(<module>)
+      400    0.001    0.000    0.050    0.000 rebuild/review/build.py:297(unit_scaffold)
+      400    0.019    0.000    0.049    0.000 rebuild/review/build.py:189(config_badge)
+     5764    0.005    0.000    0.045    0.000 .venv/lib/python3.14/site-packages/yaml/emitter.py:232(expect_node)
+        1    0.000    0.000    0.034    0.034 tools/build_font.py:1(<module>)
+     2495    0.001    0.000    0.031    0.000 .venv/lib/python3.14/site-packages/yaml/emitter.py:354(expect_flow_mapping_simple_value)
+      400    0.001    0.000    0.023    0.000 rebuild/review/drafts.py:262(validate_semantics)
+     1585    0.001    0.000    0.022    0.000 .venv/lib/python3.14/site-packages/yaml/emitter.py:316(expect_first_flow_mapping_key)
+    92836    0.010    0.000    0.021    0.000 rebuild/review/build.py:209(<genexpr>)
+     3795    0.002    0.000    0.021    0.000 .venv/lib/python3.14/site-packages/yaml/emitter.py:266(expect_scalar)
+     3795    0.014    0.000    0.019    0.000 .venv/lib/python3.14/site-packages/yaml/emitter.py:626(analyze_scalar)
+     2495    0.003    0.000    0.018    0.000 .venv/lib/python3.14/site-packages/yaml/emitter.py:437(check_simple_key)
+        1    0.000    0.000    0.018    0.018 .venv/lib/python3.14/site-packages/fontTools/feaLib/builder.py:1(<module>)
+     3795    0.001    0.000    0.017    0.000 .venv/lib/python3.14/site-packages/yaml/emitter.py:515(process_scalar)
+        1    0.000    0.000    0.017    0.017 .venv/lib/python3.14/site-packages/fontTools/feaLib/parser.py:1(<module>)
+      390    0.000    0.000    0.017    0.000 rebuild/pipeline/spec_load.py:129(check)
+ 4579/390    0.006    0.000    0.017    0.000 rebuild/pipeline/spec_load.py:160(_check)
+     33/4    0.000    0.000    0.016    0.004 {built-in method builtins.__import__}
+        1    0.000    0.000    0.016    0.016 test/test_shaping.py:65(_build_char_to_glyph_name)
+        1    0.000    0.000    0.016    0.016 .venv/lib/python3.14/site-packages/fontTools/feaLib/variableScalar.py:1(<module>)
+        1    0.000    0.000    0.016    0.016 .venv/lib/python3.14/site-packages/yaml/__init__.py:117(safe_load)
+        1    0.000    0.000    0.016    0.016 .venv/lib/python3.14/site-packages/yaml/__init__.py:74(load)
+        1    0.000    0.000    0.016    0.016 .venv/lib/python3.14/site-packages/yaml/constructor.py:47(get_single_data)
+        1    0.000    0.000    0.016    0.016 .venv/lib/python3.14/site-packages/fontTools/varLib/__init__.py:1(<module>)
+     5764    0.002    0.000    0.015    0.000 .venv/lib/python3.14/site-packages/yaml/emitter.py:469(process_tag)
+        1    0.000    0.000    0.015    0.015 .venv/lib/python3.14/site-packages/yaml/composer.py:29(get_single_node)
+        1    0.000    0.000    0.015    0.015 .venv/lib/python3.14/site-packages/yaml/composer.py:50(compose_document)
+    517/1    0.000    0.000    0.015    0.015 .venv/lib/python3.14/site-packages/yaml/composer.py:63(compose_node)
+
+
+         1314353 function calls (1288588 primitive calls) in 0.305 seconds
+
+   Ordered by: internal time
+   List reduced from 1110 to 45 due to restriction <45>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+      400    0.019    0.000    0.049    0.000 rebuild/review/build.py:189(config_badge)

@@ -1,0 +1,6 @@
+{
+  "texts": 4000,
+  "warm_pass_cpu_s": 0.06753399999999488,
+  "warm_us_per_text": 16.88349999999872,
+  "distinct_windows": 11521
+}

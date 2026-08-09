@@ -1,0 +1,80 @@
+file: sample-sweep-serial.txt
+root sample total: 25285   self-attributed total: 25285
+
+=== self time by binary ===
+   20717   81.93%  _harfbuzz.abi3.so
+    4255   16.83%  Python
+     202    0.80%  libsystem_platform.dylib
+     108    0.43%  libdyld.dylib
+       2    0.01%  libsystem_malloc.dylib
+       1    0.00%  libsystem_kernel.dylib
+
+=== buckets (self time) ===
+   20717   81.93%  native_harfbuzz
+    2570   10.16%  interpreter_overhead
+    1685    6.66%  python_bytecode
+     313    1.24%  runtime_support
+
+=== top interpreter-overhead / runtime / other-native frames ===
+     323    1.28%  unicodekeys_lookup_unicode
+     121    0.48%  _PyFrame_ClearExceptCode
+     108    0.43%  [libdyld.dylib] _tlv_get_addr
+     108    0.43%  _Py_dict_lookup
+     105    0.42%  [libsystem_platform.dylib] _platform_memcmp
+     104    0.41%  _PyFrame_PushUnchecked
+     100    0.40%  gc_collect_main
+      95    0.38%  _PyDict_LoadBuiltinsFromGlobals
+      80    0.32%  _PyUnicode_JoinArray
+      67    0.26%  pymalloc_alloc
+      65    0.26%  _PyObject_GenericGetAttrWithDict
+      62    0.25%  [libsystem_platform.dylib] _platform_memmove
+      61    0.24%  _PyObject_Free
+      59    0.23%  list_dealloc
+      45    0.18%  _PyObject_MakeTpCall
+      42    0.17%  PyDict_GetItemRef
+      41    0.16%  _PyEval_FrameClearAndPop
+      39    0.15%  PyImport_ImportModuleLevelObject
+      37    0.15%  _PyTuple_FromArray
+      37    0.15%  tuple_dealloc
+      36    0.14%  PyUnicode_New
+      34    0.13%  list_traverse
+      33    0.13%  gen_dealloc
+      33    0.13%  PyObject_IsTrue
+      32    0.13%  _PyObjectArray_FromStackRefArray
+      29    0.11%  _copy_characters
+      28    0.11%  _PyType_AllocNoTrack
+      27    0.11%  [libsystem_platform.dylib] _platform_memset
+      27    0.11%  infinite_lru_cache_wrapper
+      26    0.10%  _PyType_LookupStackRefAndVersion
+
+=== top 30 self frames overall ===
+    5283   20.89%  [_harfbuzz.abi3.so] apply_forward(OT::hb_ot_apply_context_t*, OT::hb_ot_layout_lookup_accelerator_t const&)
+    4843   19.15%  [_harfbuzz.abi3.so] OT::Layout::Common::Coverage::get_coverage(unsigned int) const
+    3661   14.48%  [_harfbuzz.abi3.so] OT::chain_context_apply_lookup<OT::NumType<true, unsigned short, 2u>>(OT::hb_ot_apply_context_t*, unsigned int
+    1685    6.66%  [Python] _PyEval_EvalFrameDefault
+    1624    6.42%  [_harfbuzz.abi3.so] hb_ot_map_t::apply<GSUBProxy>(GSUBProxy const&, hb_ot_shape_plan_t const*, hb_font_t*, hb_buffer_t*) const
+    1330    5.26%  [_harfbuzz.abi3.so] OT::ChainContextFormat3::apply(OT::hb_ot_apply_context_t*) const
+     663    2.62%  [_harfbuzz.abi3.so] hb_ot_map_t::apply<GPOSProxy>(GPOSProxy const&, hb_ot_shape_plan_t const*, hb_font_t*, hb_buffer_t*) const
+     476    1.88%  [_harfbuzz.abi3.so] OUTLINED_FUNCTION_732
+     386    1.53%  [_harfbuzz.abi3.so] OUTLINED_FUNCTION_760
+     323    1.28%  [Python] unicodekeys_lookup_unicode
+     295    1.17%  [_harfbuzz.abi3.so] apply_string<GSUBProxy>(OT::hb_ot_apply_context_t*, GSUBProxy::Lookup const&, OT::hb_ot_layout_lookup_accelera
+     231    0.91%  [_harfbuzz.abi3.so] OT::ChainRuleSet<OT::Layout::SmallTypes>::apply(OT::hb_ot_apply_context_t*, OT::ChainContextApplyLookupContext
+     227    0.90%  [_harfbuzz.abi3.so] OT::match_coverage(hb_glyph_info_t&, unsigned int, void const*)
+     212    0.84%  [_harfbuzz.abi3.so] OT::Layout::GPOS_impl::PairPosFormat2_4<OT::Layout::SmallTypes>::apply(OT::hb_ot_apply_context_t*, void*) cons
+     176    0.70%  [_harfbuzz.abi3.so] OUTLINED_FUNCTION_372
+     121    0.48%  [Python] _PyFrame_ClearExceptCode
+     108    0.43%  [libdyld.dylib] _tlv_get_addr
+     108    0.43%  [Python] _Py_dict_lookup
+     105    0.42%  [libsystem_platform.dylib] _platform_memcmp
+     104    0.41%  [Python] _PyFrame_PushUnchecked
+     100    0.40%  [Python] gc_collect_main
+      95    0.38%  [Python] _PyDict_LoadBuiltinsFromGlobals
+      82    0.32%  [_harfbuzz.abi3.so] <deduplicated_symbol>
+      80    0.32%  [Python] _PyUnicode_JoinArray
+      67    0.26%  [Python] pymalloc_alloc
+      66    0.26%  [_harfbuzz.abi3.so] OT::ClassDef::get_class(unsigned int) const
+      65    0.26%  [_harfbuzz.abi3.so] OUTLINED_FUNCTION_721
+      65    0.26%  [Python] _PyObject_GenericGetAttrWithDict
+      62    0.25%  [libsystem_platform.dylib] _platform_memmove
+      61    0.24%  [Python] _PyObject_Free

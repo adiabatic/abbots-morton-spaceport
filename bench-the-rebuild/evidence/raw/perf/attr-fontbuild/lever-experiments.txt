@@ -1,0 +1,8 @@
+lever experiments, serial whole-build CPU (best of 2 each)
+
+  baseline        21.167 s   delta  +0.000 s ( +0.00%)   otf sha256 3ba71f81d605b2b1
+  csafeloader     20.047 s   delta  -1.120 s ( -5.29%)   otf sha256 3ba71f81d605b2b1
+  gcfrozen        18.597 s   delta  -2.570 s (-12.14%)   otf sha256 3ba71f81d605b2b1
+  both            17.610 s   delta  -3.556 s (-16.80%)   otf sha256 3ba71f81d605b2b1
+
+identical otf digests across rows prove the output is unchanged.

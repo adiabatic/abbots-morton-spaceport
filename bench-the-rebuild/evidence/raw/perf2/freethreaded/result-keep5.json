@@ -1,0 +1,603 @@
+{
+  "slug": "freethreaded",
+  "environment": {
+    "machine": {
+      "cpu": "Apple M4 Pro",
+      "logical_cores": 12,
+      "performance_cores": 8,
+      "efficiency_cores": 4,
+      "ram_gb": 51.5
+    },
+    "freethreaded_interpreter": {
+      "version": "3.14.6",
+      "version_full": "3.14.6 free-threading build (main, Aug  4 2026, 22:35:20) [Clang 22.1.3 ]",
+      "free_threading_build": true,
+      "gil_enabled": false,
+      "abiflags": "t",
+      "build_config": {
+        "--enable-optimizations": true,
+        "--with-lto": true,
+        "--enable-shared": true,
+        "--disable-gil": true,
+        "--with-pydebug": false
+      },
+      "opt_flags": "-DNDEBUG -g -O3 -Wall",
+      "prefix": "raw/perf2/freethreaded/venv-ft",
+      "kernel_c_extensions": [
+        "yaml._yaml"
+      ],
+      "kernel_third_party_packages": [
+        "yaml"
+      ],
+      "kernel_modules_total": 73
+    },
+    "gil_interpreter": {
+      "version": "3.14.6",
+      "version_full": "3.14.6 (main, Aug  4 2026, 19:23:56) [Clang 22.1.3 ]",
+      "free_threading_build": false,
+      "gil_enabled": true,
+      "abiflags": "",
+      "build_config": {
+        "--enable-optimizations": true,
+        "--with-lto": true,
+        "--enable-shared": true,
+        "--disable-gil": false,
+        "--with-pydebug": false
+      },
+      "opt_flags": "-DNDEBUG -g -O3 -Wall",
+      "prefix": "raw/perf2/freethreaded/venv-gil",
+      "kernel_c_extensions": [
+        "yaml._yaml"
+      ],
+      "kernel_third_party_packages": [
+        "yaml"
+      ],
+      "kernel_modules_total": 73
+    },
+    "both_from": "uv-managed python-build-standalone, same 3.14.6 source, same Clang 22.1.3, both PGO+LTO at -O3; the only differing configure flag is --disable-gil",
+    "repo_pinned_python_untouched": true,
+    "repo_dependency_readiness_on_3_14t": {
+      "probed": true,
+      "default": {
+        "gil_before_any_import": false,
+        "modules": {
+          "yaml._yaml": {
+            "importable": true,
+            "re_enables_gil": false
+          },
+          "fontTools.feaLib.lexer": {
+            "importable": true,
+            "re_enables_gil": true
+          },
+          "fontTools.misc.bezierTools": {
+            "importable": true,
+            "re_enables_gil": false
+          },
+          "fontTools.cu2qu.cu2qu": {
+            "importable": true,
+            "re_enables_gil": false
+          },
+          "fontTools.pens.momentsPen": {
+            "importable": true,
+            "re_enables_gil": false
+          },
+          "fontTools.varLib.iup": {
+            "importable": true,
+            "re_enables_gil": false
+          }
+        },
+        "gil_after_imports": true
+      },
+      "with_PYTHON_GIL_0": {
+        "gil_before_any_import": false,
+        "modules": {
+          "yaml._yaml": {
+            "importable": true,
+            "re_enables_gil": false
+          },
+          "fontTools.feaLib.lexer": {
+            "importable": true,
+            "re_enables_gil": false
+          },
+          "fontTools.misc.bezierTools": {
+            "importable": true,
+            "re_enables_gil": false
+          },
+          "fontTools.cu2qu.cu2qu": {
+            "importable": true,
+            "re_enables_gil": false
+          },
+          "fontTools.pens.momentsPen": {
+            "importable": true,
+            "re_enables_gil": false
+          },
+          "fontTools.varLib.iup": {
+            "importable": true,
+            "re_enables_gil": false
+          }
+        },
+        "gil_after_imports": false
+      },
+      "uharfbuzz": {
+        "installs": false,
+        "blocker": "Py_LIMITED_API (py_limited_api='cp310') is incompatible with Py_GIL_DISABLED \u2014 no cp314t wheel exists and the sdist cannot build; see python/cpython#111506"
+      }
+    }
+  },
+  "slice": {
+    "kernel": "rebuild.pipeline.table.build_tables (the M1 settlement fixpoint)",
+    "spec": "8 of the 18 production runes: keep=5 single letters plus every ligature whose components survive",
+    "work_units": "12 = the six acceptance configurations, repeated",
+    "writes_to_repo": "none (out_dir=None, trace_store=None)"
+  },
+  "equivalence": {
+    "method": "blake2b-128 over every rule row, reachable cell, enumerated window, treaty row and fired-provenance pointer of each built table; the GIL serial run is the reference",
+    "reference_checksums": [
+      "34a1fdb9b8b3e069903b71e70add8d63",
+      "89f3a21b90f8325dad1a4508b49b5995",
+      "41a73dec420d4b74d37415404f379046",
+      "1dc58eeb034f8105755716d77debac3a",
+      "0b2213cc5509b00ba2e07fae54d58482",
+      "d7a76c401d3a1ee2cc7a0e480e08394f",
+      "34a1fdb9b8b3e069903b71e70add8d63",
+      "89f3a21b90f8325dad1a4508b49b5995",
+      "41a73dec420d4b74d37415404f379046",
+      "1dc58eeb034f8105755716d77debac3a",
+      "0b2213cc5509b00ba2e07fae54d58482",
+      "d7a76c401d3a1ee2cc7a0e480e08394f"
+    ],
+    "runs_compared": 19,
+    "mismatches": [],
+    "all_match": true
+  },
+  "single_thread_cost_of_free_threading": {
+    "gil_build": {
+      "reps": 2,
+      "wall_s_min": 29.852,
+      "wall_s_median": 30.059,
+      "wall_s_all": [
+        30.266,
+        29.852
+      ],
+      "cpu_s_min": 29.808
+    },
+    "freethreaded_build": {
+      "reps": 2,
+      "wall_s_min": 24.639,
+      "wall_s_median": 25.245,
+      "wall_s_all": [
+        25.85,
+        24.639
+      ],
+      "cpu_s_min": 24.614
+    },
+    "freethreaded_single_thread_ratio_wall": 0.8254,
+    "reading": "free-threaded 1T is 1.212x FASTER than the GIL build at the same work"
+  },
+  "scaling_freethreaded_shared_spec": [
+    {
+      "threads": 1,
+      "wall_s": 24.639,
+      "cpu_s": 24.614,
+      "cpu_utilization": 1.0,
+      "speedup_vs_own_1T": 1.0,
+      "net_multiplier_vs_serial_gil": 1.212,
+      "cpu_inflation_vs_1T": 1.0,
+      "parallel_efficiency": 1.0,
+      "peak_rss_gb": 0.305,
+      "liveness_probe_rebuilds": 12,
+      "guard_state_rebuilds": 1
+    },
+    {
+      "threads": 2,
+      "wall_s": 15.882,
+      "cpu_s": 30.681,
+      "cpu_utilization": 1.932,
+      "speedup_vs_own_1T": 1.551,
+      "net_multiplier_vs_serial_gil": 1.88,
+      "cpu_inflation_vs_1T": 1.246,
+      "parallel_efficiency": 0.776,
+      "peak_rss_gb": 0.416,
+      "liveness_probe_rebuilds": 12,
+      "guard_state_rebuilds": 1
+    },
+    {
+      "threads": 4,
+      "wall_s": 14.719,
+      "cpu_s": 54.513,
+      "cpu_utilization": 3.704,
+      "speedup_vs_own_1T": 1.674,
+      "net_multiplier_vs_serial_gil": 2.028,
+      "cpu_inflation_vs_1T": 2.215,
+      "parallel_efficiency": 0.418,
+      "peak_rss_gb": 0.626,
+      "liveness_probe_rebuilds": 12,
+      "guard_state_rebuilds": 1
+    },
+    {
+      "threads": 6,
+      "wall_s": 13.791,
+      "cpu_s": 73.584,
+      "cpu_utilization": 5.336,
+      "speedup_vs_own_1T": 1.787,
+      "net_multiplier_vs_serial_gil": 2.165,
+      "cpu_inflation_vs_1T": 2.99,
+      "parallel_efficiency": 0.298,
+      "peak_rss_gb": 0.848,
+      "liveness_probe_rebuilds": 12,
+      "guard_state_rebuilds": 1
+    },
+    {
+      "threads": 8,
+      "wall_s": 13.312,
+      "cpu_s": 74.302,
+      "cpu_utilization": 5.582,
+      "speedup_vs_own_1T": 1.851,
+      "net_multiplier_vs_serial_gil": 2.242,
+      "cpu_inflation_vs_1T": 3.019,
+      "parallel_efficiency": 0.231,
+      "peak_rss_gb": 1.09,
+      "liveness_probe_rebuilds": 12,
+      "guard_state_rebuilds": 1
+    }
+  ],
+  "scaling_freethreaded_private_spec_per_thread": [
+    {
+      "threads": 1,
+      "wall_s": 24.639,
+      "cpu_s": 24.614,
+      "cpu_utilization": 1.0,
+      "speedup_vs_own_1T": 1.0,
+      "net_multiplier_vs_serial_gil": 1.212,
+      "cpu_inflation_vs_1T": 1.0,
+      "parallel_efficiency": 1.0,
+      "peak_rss_gb": 0.305,
+      "liveness_probe_rebuilds": 12,
+      "guard_state_rebuilds": 1
+    },
+    {
+      "threads": 2,
+      "wall_s": 17.913,
+      "cpu_s": 34.645,
+      "cpu_utilization": 1.934,
+      "speedup_vs_own_1T": 1.375,
+      "net_multiplier_vs_serial_gil": 1.666,
+      "cpu_inflation_vs_1T": 1.408,
+      "parallel_efficiency": 0.688,
+      "peak_rss_gb": 0.419,
+      "liveness_probe_rebuilds": 12,
+      "guard_state_rebuilds": 2
+    },
+    {
+      "threads": 4,
+      "wall_s": 11.169,
+      "cpu_s": 36.669,
+      "cpu_utilization": 3.283,
+      "speedup_vs_own_1T": 2.206,
+      "net_multiplier_vs_serial_gil": 2.673,
+      "cpu_inflation_vs_1T": 1.49,
+      "parallel_efficiency": 0.552,
+      "peak_rss_gb": 0.632,
+      "liveness_probe_rebuilds": 12,
+      "guard_state_rebuilds": 4
+    },
+    {
+      "threads": 6,
+      "wall_s": 9.881,
+      "cpu_s": 44.943,
+      "cpu_utilization": 4.548,
+      "speedup_vs_own_1T": 2.494,
+      "net_multiplier_vs_serial_gil": 3.021,
+      "cpu_inflation_vs_1T": 1.826,
+      "parallel_efficiency": 0.416,
+      "peak_rss_gb": 0.848,
+      "liveness_probe_rebuilds": 12,
+      "guard_state_rebuilds": 6
+    },
+    {
+      "threads": 8,
+      "wall_s": 9.538,
+      "cpu_s": 54.715,
+      "cpu_utilization": 5.737,
+      "speedup_vs_own_1T": 2.583,
+      "net_multiplier_vs_serial_gil": 3.13,
+      "cpu_inflation_vs_1T": 2.223,
+      "parallel_efficiency": 0.323,
+      "peak_rss_gb": 1.094,
+      "liveness_probe_rebuilds": 12,
+      "guard_state_rebuilds": 8
+    }
+  ],
+  "scaling_gil_control": [
+    {
+      "threads": 6,
+      "wall_s": 27.795,
+      "cpu_s": 27.965,
+      "cpu_utilization": 1.006,
+      "speedup_vs_own_1T": 1.074,
+      "net_multiplier_vs_serial_gil": 1.074,
+      "cpu_inflation_vs_1T": 0.938,
+      "parallel_efficiency": 0.179,
+      "peak_rss_gb": 0.753,
+      "liveness_probe_rebuilds": 12,
+      "guard_state_rebuilds": 1
+    }
+  ],
+  "real_shape_six_configs_only": {
+    "note": "six acceptance configurations is all the parallelism this stage actually offers, and they are unequal \u2014 the longest configuration is the floor no thread count can beat",
+    "rows": [
+      {
+        "config": "gil 1 thread",
+        "wall_s": 14.292,
+        "cpu_s": 14.064,
+        "cpu_utilization": 0.984,
+        "multiplier_vs_serial_gil": 1.0
+      },
+      {
+        "config": "freethreaded 1 thread",
+        "wall_s": 12.71,
+        "cpu_s": 12.667,
+        "cpu_utilization": 0.997,
+        "multiplier_vs_serial_gil": 1.124
+      },
+      {
+        "config": "freethreaded 6 threads, shared spec",
+        "wall_s": 6.196,
+        "cpu_s": 32.188,
+        "cpu_utilization": 5.195,
+        "multiplier_vs_serial_gil": 2.307
+      },
+      {
+        "config": "freethreaded 6 threads, private spec",
+        "wall_s": 4.303,
+        "cpu_s": 21.555,
+        "cpu_utilization": 5.009,
+        "multiplier_vs_serial_gil": 3.321
+      }
+    ]
+  },
+  "gc_control": {
+    "note": "same six-configuration slice, gc.freeze()+gc.disable() vs stock",
+    "rows": [
+      {
+        "build": "gil build",
+        "gc_on_wall_s": 14.292,
+        "gc_off_wall_s": 11.591,
+        "gc_on_collections": 2753,
+        "gc_off_collections": 18,
+        "gc_saving_pct": 18.9
+      },
+      {
+        "build": "freethreaded build",
+        "gc_on_wall_s": 12.71,
+        "gc_off_wall_s": 12.273,
+        "gc_on_collections": 32,
+        "gc_off_collections": 11,
+        "gc_saving_pct": 3.4
+      }
+    ],
+    "freethreaded_advantage_gc_on": 1.124,
+    "freethreaded_advantage_gc_off": 0.944,
+    "reading": "the single-thread gap is mostly the collector"
+  },
+  "shared_lru_cache_control": {
+    "note": "settle._GUARD_STATES and table._LIVENESS_PROBES are the only mutable state the repo shares between concurrent fixpoints; both are cap-8 OrderedDicts read with a structural move_to_end on every hit (309,494 _guard_state calls per six-configuration build at this slice size). hot_shared_entry is that access pattern; insert_evict_at_cap is what happens when concurrent threads exceed the cap",
+    "measurements": {
+      "freethreaded": {
+        "python": "3.14.6",
+        "gil_enabled": false,
+        "ops_per_thread": 300000,
+        "hot_shared_entry": [
+          {
+            "threads": 1,
+            "wall_s": 0.036,
+            "ns_per_op": 121.6,
+            "checksum_hits": 300000,
+            "dict_intact": true
+          },
+          {
+            "threads": 2,
+            "wall_s": 0.09,
+            "ns_per_op": 150.3,
+            "checksum_hits": 600000,
+            "dict_intact": true
+          },
+          {
+            "threads": 4,
+            "wall_s": 0.282,
+            "ns_per_op": 235.3,
+            "checksum_hits": 1200000,
+            "dict_intact": true
+          },
+          {
+            "threads": 6,
+            "wall_s": 0.727,
+            "ns_per_op": 403.7,
+            "checksum_hits": 1800000,
+            "dict_intact": true
+          },
+          {
+            "threads": 8,
+            "wall_s": 0.788,
+            "ns_per_op": 328.5,
+            "checksum_hits": 2400000,
+            "dict_intact": true
+          }
+        ],
+        "insert_evict_at_cap": [
+          {
+            "threads": 1,
+            "wall_s": 0.002,
+            "checksum_hits": 15000,
+            "popitem_races": 0
+          },
+          {
+            "threads": 2,
+            "wall_s": 0.008,
+            "checksum_hits": 29879,
+            "popitem_races": 0
+          },
+          {
+            "threads": 4,
+            "wall_s": 0.021,
+            "checksum_hits": 59498,
+            "popitem_races": 0
+          },
+          {
+            "threads": 6,
+            "wall_s": 0.058,
+            "checksum_hits": 86867,
+            "popitem_races": 0
+          },
+          {
+            "threads": 8,
+            "wall_s": 0.063,
+            "checksum_hits": 116914,
+            "popitem_races": 0
+          }
+        ]
+      },
+      "gil": {
+        "python": "3.14.6",
+        "gil_enabled": true,
+        "ops_per_thread": 300000,
+        "hot_shared_entry": [
+          {
+            "threads": 1,
+            "wall_s": 0.024,
+            "ns_per_op": 79.7,
+            "checksum_hits": 300000,
+            "dict_intact": true
+          },
+          {
+            "threads": 2,
+            "wall_s": 0.048,
+            "ns_per_op": 79.9,
+            "checksum_hits": 600000,
+            "dict_intact": true
+          },
+          {
+            "threads": 4,
+            "wall_s": 0.095,
+            "ns_per_op": 79.3,
+            "checksum_hits": 1200000,
+            "dict_intact": true
+          },
+          {
+            "threads": 6,
+            "wall_s": 0.144,
+            "ns_per_op": 79.8,
+            "checksum_hits": 1800000,
+            "dict_intact": true
+          },
+          {
+            "threads": 8,
+            "wall_s": 0.19,
+            "ns_per_op": 79.3,
+            "checksum_hits": 2400000,
+            "dict_intact": true
+          }
+        ],
+        "insert_evict_at_cap": [
+          {
+            "threads": 1,
+            "wall_s": 0.002,
+            "checksum_hits": 15000,
+            "popitem_races": 0
+          },
+          {
+            "threads": 2,
+            "wall_s": 0.004,
+            "checksum_hits": 30000,
+            "popitem_races": 0
+          },
+          {
+            "threads": 4,
+            "wall_s": 0.007,
+            "checksum_hits": 60000,
+            "popitem_races": 0
+          },
+          {
+            "threads": 6,
+            "wall_s": 0.011,
+            "checksum_hits": 90000,
+            "popitem_races": 0
+          },
+          {
+            "threads": 8,
+            "wall_s": 0.014,
+            "checksum_hits": 120000,
+            "popitem_races": 0
+          }
+        ]
+      }
+    }
+  },
+  "production_shape_with_traceshare": {
+    "note": "the shape run_m1.build_tables actually uses: six configs over one live cross-config TraceShare",
+    "gil_serial_with_share": {
+      "wall_s": 12.12,
+      "cpu_s": 10.143,
+      "units": 6
+    },
+    "freethreaded_donor_then_fanout": {
+      "wall_s": 8.89,
+      "cpu_s": 12.294,
+      "cpu_utilization": 1.383,
+      "threads": 5,
+      "units": 6
+    },
+    "multiplier": 1.363
+  },
+  "projection_onto_the_real_stage": {
+    "status": "DERIVED \u2014 cost-model measured endpoints x ratios measured on this slice; not measured at production scale",
+    "measured_inputs": {
+      "production_six_config_cold_wall_s": 337.9,
+      "production_donor_config_alone_s": 77.51,
+      "slice_freethreaded_single_thread_wall_ratio": 0.8254,
+      "slice_donor_then_fanout_multiplier": 1.363
+    },
+    "derived_recipient_mean_s": 52.1,
+    "scenarios": [
+      {
+        "scenario": "run the existing serial code on 3.14t, no threading at all",
+        "projected_wall_s": 278.9,
+        "multiplier": 1.21
+      },
+      {
+        "scenario": "donor first, then five recipients as threads over the same TraceShare, at the fanout efficiency measured on this slice",
+        "projected_wall_s": 247.9,
+        "multiplier": 1.363
+      },
+      {
+        "scenario": "drop the share, run the six configurations as six threads with a private spec each, at the speedup measured on the six-configuration slice",
+        "projected_wall_s": 140.0,
+        "multiplier": 2.41,
+        "caveat": "6 x 77.51 s is the DERIVED no-share serial cost, assuming every configuration costs what the measured default configuration costs; the share is worth more at production scale (27%) than on this slice (15%), so this scenario is optimistic on the share side and pessimistic on the config-cost side"
+      },
+      {
+        "scenario": "CEILING: donor plus one recipient, perfect 5-way fanout, zero threading overhead, recipients assumed equal",
+        "projected_wall_s": 107.0,
+        "multiplier": 3.16
+      }
+    ],
+    "why_the_ceiling_is_low": "the cross-configuration TraceShare has no content until the donor configuration finishes, so the donor is strictly serial ahead of the other five \u2014 Amdahl on a 23% serial fraction caps the whole idea near 2.6x however many cores are free",
+    "unmeasured": "per-recipient configuration times at production scale (the slowest recipient, not the mean, sets the fanout's floor) and whether six concurrent production fixpoints fit in RAM (per-config peak RSS is a measured 3.85 GB)"
+  },
+  "share_versus_threads_trade": {
+    "note": "the cross-configuration share and free-threaded scaling are mutually exclusive as the code stands: the share needs one shared spec, and one shared spec is what caps threading",
+    "today_gil_serial_with_share_wall_s": 12.12,
+    "freethreaded_threads_with_share_donor_first_wall_s": 8.89,
+    "freethreaded_threads_private_spec_no_share_wall_s": 4.303,
+    "freethreaded_threads_shared_spec_no_share_wall_s": 6.196,
+    "best_against_today": 2.817,
+    "reading": "dropping the share and giving each thread its own spec beats keeping the share and threading behind the donor"
+  },
+  "headline": {
+    "serial_gil_wall_s": 29.852,
+    "best_freethreaded_wall_s": 9.538,
+    "best_net_multiplier_vs_serial_gil": 3.13,
+    "best_config": "8 threads, private spec per thread",
+    "cores_available": 12
+  }
+}

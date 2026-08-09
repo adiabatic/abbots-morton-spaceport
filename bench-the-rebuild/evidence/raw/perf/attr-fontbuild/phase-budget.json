@@ -1,0 +1,98 @@
+[
+ {
+  "rep": 0,
+  "total_cpu": 28.484696,
+  "phases": {
+   "parent: load_glyph_data": 0.18595,
+   "parent: compile_glyph_set(senior)": 0.41866699999999996,
+   "parent: build_senior_fea": 2.87395,
+   "worker mono-Regular: load_glyph_data": 0.22963500000000003,
+   "worker mono-Regular: build_font": 1.2519599999999995,
+   "worker mono-Bold: load_glyph_data": 0.21193499999999954,
+   "worker mono-Bold: build_font": 1.2384000000000004,
+   "worker junior-Regular: load_glyph_data": 0.2190599999999998,
+   "worker junior-Regular: build_font": 0.1311049999999998,
+   "worker junior-Bold: load_glyph_data": 0.2148829999999995,
+   "worker junior-Bold: build_font": 0.14360399999999984,
+   "worker senior-Regular: load_glyph_data": 0.22893199999999947,
+   "worker senior-Regular: build_font": 10.313856000000001,
+   "worker senior-Bold: load_glyph_data": 0.5298279999999984,
+   "worker senior-Bold: build_font": 10.292891999999998
+  },
+  "boundaries": {
+   "yaml parse (pure-python SafeLoader)": {
+    "cpu": 1.8436639999999995,
+    "calls": 76
+   },
+   "repo compile_glyph_set (IR)": {
+    "cpu": 1.3978029999999986,
+    "calls": 7
+   },
+   "repo emit_quikscript_senior_features (FEA text)": {
+    "cpu": 2.871951,
+    "calls": 1
+   },
+   "fontTools DepartureMono CFF decompile": {
+    "cpu": 1.6744689999999998,
+    "calls": 2
+   },
+   "fontTools FontBuilder.save (table pack)": {
+    "cpu": 3.0175800000000015,
+    "calls": 6
+   },
+   "fontTools feaLib addOpenTypeFeaturesFromString": {
+    "cpu": 15.494866000000002,
+    "calls": 4
+   }
+  },
+  "senior_fea_bytes": 15394562
+ },
+ {
+  "rep": 1,
+  "total_cpu": 29.063412000000003,
+  "phases": {
+   "parent: load_glyph_data": 0.5341930000000019,
+   "parent: compile_glyph_set(senior)": 0.4535330000000002,
+   "parent: build_senior_fea": 2.8329049999999967,
+   "worker mono-Regular: load_glyph_data": 0.2204539999999966,
+   "worker mono-Regular: build_font": 1.1868920000000003,
+   "worker mono-Bold: load_glyph_data": 0.23619499999999505,
+   "worker mono-Bold: build_font": 1.2455819999999989,
+   "worker junior-Regular: load_glyph_data": 0.24015500000000145,
+   "worker junior-Regular: build_font": 0.13078500000000304,
+   "worker junior-Bold: load_glyph_data": 0.21548800000000057,
+   "worker junior-Bold: build_font": 0.13513299999999617,
+   "worker senior-Regular: load_glyph_data": 0.2410549999999958,
+   "worker senior-Regular: build_font": 10.377699,
+   "worker senior-Bold: load_glyph_data": 0.21319900000000302,
+   "worker senior-Bold: build_font": 10.800105000000002
+  },
+  "boundaries": {
+   "yaml parse (pure-python SafeLoader)": {
+    "cpu": 1.9293329999999642,
+    "calls": 76
+   },
+   "repo compile_glyph_set (IR)": {
+    "cpu": 1.4195760000000028,
+    "calls": 7
+   },
+   "repo emit_quikscript_senior_features (FEA text)": {
+    "cpu": 2.8308929999999997,
+    "calls": 1
+   },
+   "fontTools DepartureMono CFF decompile": {
+    "cpu": 1.6484800000000064,
+    "calls": 2
+   },
+   "fontTools FontBuilder.save (table pack)": {
+    "cpu": 3.1537560000000013,
+    "calls": 6
+   },
+   "fontTools feaLib addOpenTypeFeaturesFromString": {
+    "cpu": 15.839177,
+    "calls": 4
+   }
+  },
+  "senior_fea_bytes": 15394562
+ }
+]

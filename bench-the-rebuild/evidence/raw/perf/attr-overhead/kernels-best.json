@@ -1,0 +1,111 @@
+{
+ "K1 place_run (ink_pieces, both sides)": {
+  "kernel": "K1 place_run (ink_pieces, both sides)",
+  "cpu_s": 0.2114,
+  "items": 3000,
+  "ns_per_item": 70482.7,
+  "glyphs": 23625,
+  "ns_per_glyph": 8950.2
+ },
+ "K2 config_diff (run_ink x2 + delta)": {
+  "kernel": "K2 config_diff (run_ink x2 + delta)",
+  "cpu_s": 0.2912,
+  "items": 3000,
+  "ns_per_item": 97065.3,
+  "nonempty_deltas": 849
+ },
+ "K3 signature_digest (repr + sha256)": {
+  "kernel": "K3 signature_digest (repr + sha256)",
+  "cpu_s": 0.2935,
+  "items": 3000,
+  "ns_per_item": 97831.0,
+  "total_repr_bytes": 26822274,
+  "mean_repr_bytes": 8940.8
+ },
+ "K3a repr() alone": {
+  "kernel": "K3a repr() alone",
+  "cpu_s": 0.2815,
+  "items": 3000,
+  "ns_per_item": 93825.0
+ },
+ "K3b sha256 alone (native)": {
+  "kernel": "K3b sha256 alone (native)",
+  "cpu_s": 0.0099,
+  "items": 3000,
+  "ns_per_item": 3286.3
+ },
+ "K4 row_from_tsv (baseline TSV parse)": {
+  "kernel": "K4 row_from_tsv (baseline TSV parse)",
+  "cpu_s": 0.0981,
+  "items": 54240,
+  "ns_per_item": 1809.2,
+  "bytes": 6192300
+ },
+ "K5 memo_key build + dict probe": {
+  "kernel": "K5 memo_key build + dict probe",
+  "cpu_s": 0.169,
+  "items": 267976,
+  "ns_per_item": 630.7,
+  "store_entries": 1875829,
+  "hits": 267976,
+  "distinct_tokens": 23
+ },
+ "K5a tuple build + hash only": {
+  "kernel": "K5a tuple build + hash only",
+  "cpu_s": 0.1081,
+  "items": 267976,
+  "ns_per_item": 403.2
+ },
+ "K5b store construction (1.9M-entry dict)": {
+  "kernel": "K5b store construction (1.9M-entry dict)",
+  "cpu_s": 0.0,
+  "items": 1,
+  "ns_per_item": 0.0,
+  "note": "not timed separately; see peak_rss below"
+ },
+ "K6 shard json.loads (native C decoder) [CONTROL]": {
+  "kernel": "K6 shard json.loads (native C decoder) [CONTROL]",
+  "cpu_s": 0.2625,
+  "items": 18368,
+  "ns_per_item": 14288.4,
+  "bytes": 74028465,
+  "mb_per_s": 282.1
+ },
+ "K6a id-set comprehension over parsed units": {
+  "kernel": "K6a id-set comprehension over parsed units",
+  "cpu_s": 0.0013,
+  "items": 18368,
+  "ns_per_item": 73.4,
+  "ids": 0
+ },
+ "K7a frozen dataclass, no slots: construct": {
+  "kernel": "K7a frozen dataclass, no slots: construct",
+  "cpu_s": 0.7507,
+  "items": 1999971,
+  "ns_per_item": 375.4
+ },
+ "K7b frozen dataclass, slots=True: construct": {
+  "kernel": "K7b frozen dataclass, slots=True: construct",
+  "cpu_s": 0.7234,
+  "items": 1999971,
+  "ns_per_item": 361.7
+ },
+ "K7c plain tuple: construct": {
+  "kernel": "K7c plain tuple: construct",
+  "cpu_s": 0.064,
+  "items": 1999971,
+  "ns_per_item": 32.0
+ },
+ "K7d frozen dataclass, no slots: hash": {
+  "kernel": "K7d frozen dataclass, no slots: hash",
+  "cpu_s": 0.214,
+  "items": 1999971,
+  "ns_per_item": 107.0
+ },
+ "K7e plain tuple: hash": {
+  "kernel": "K7e plain tuple: hash",
+  "cpu_s": 0.0423,
+  "items": 1999971,
+  "ns_per_item": 21.2
+ }
+}

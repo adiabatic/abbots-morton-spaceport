@@ -1,0 +1,3 @@
+cmd: uv run python -m rebuild.review.census --check --surface rebuild/out/review
+  run 0: wall=74.65s child_user=45.52s child_sys=0.55s cpu=46.07s rc=1 stdout_bytes=0
+  best wall=74.65s cpu=46.07s

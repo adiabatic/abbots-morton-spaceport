@@ -1,0 +1,193 @@
+units in shard: 18368
+field                           MB    pct  avg bytes/unit
+explain                      18.51   33.3            1008
+drafts                       15.64   28.1             851
+after                         3.41    6.1             186
+summary                       2.98    5.4             162
+config_classes                2.57    4.6             140
+highlight                     2.25    4.0             122
+before                        1.78    3.2              97
+render_groups                 1.26    2.3              68
+configs                       0.98    1.8              53
+notation_tokens               0.91    1.6              49
+boundary_marks                0.86    1.5              47
+notation                      0.68    1.2              37
+text_entities                 0.62    1.1              34
+pair                          0.42    0.8              23
+codepoints                    0.38    0.7              21
+provenance                    0.30    0.5              16
+class                         0.28    0.5              15
+group                         0.23    0.4              12
+secondary_seams               0.21    0.4              11
+config_note                   0.18    0.3              10
+kinds                         0.16    0.3               9
+id                            0.16    0.3               8
+pair_codepoints               0.11    0.2               6
+exemplar                      0.09    0.2               5
+junior_equivalent             0.09    0.2               5
+diff_positions                0.09    0.2               5
+ink_identical                 0.08    0.1               4
+batch                         0.07    0.1               4
+no_verdict                    0.07    0.1               4
+echo                          0.07    0.1               4
+cluster                       0.07    0.1               4
+config_class_note             0.07    0.1               4
+total field bytes 55.579535 MB; file 74.028465 MB
+
+SAMPLE UNIT keys: ['id', 'batch', 'ink_identical', 'junior_equivalent', 'no_verdict', 'echo', 'cluster', 'class', 'group', 'codepoints', 'text_entities', 'notation', 'notation_tokens', 'configs', 'config_note', 'config_classes', 'config_class_note', 'render_groups', 'kinds', 'exemplar', 'before', 'after', 'diff_positions', 'pair', 'pair_codepoints', 'highlight', 'boundary_marks', 'secondary_seams', 'summary', 'explain', 'provenance', 'drafts']
+explain len 759
+summary len 148
+{
+ "id": "u-0003",
+ "batch": null,
+ "ink_identical": true,
+ "junior_equivalent": false,
+ "no_verdict": true,
+ "echo": null,
+ "cluster": null,
+ "class": "boundary-echo",
+ "group": "qsPea:qsPea",
+ "codepoints": "0020:0020:E650:E650",
+ "text_entities": "&#x0020;&#x0020;&#xE650;&#xE650;",
+ "notation": "\u2423 \u2423 \u00b7Pea\u00b7Pea",
+ "notation_tokens": [
+  "\u2423",
+  "\u2423",
+  "\u00b7Pea",
+  "\u00b7Pea"
+ ],
+ "configs": [
+  "default",
+  "ss02",
+  "ss03",
+  "ss04",
+  "ss05",
+  "ss02+ss03",
+  "ss02+ss03+ss05"
+ ],
+ "config_note": null,
+ "config_classes": {
+  "default": "boundary-echo",
+  "ss02": "boundary-echo",
+  "ss03": "boundary-echo",
+  "ss04": "boundary-echo",
+  "ss05": "boundary-echo",
+  "ss02+ss03": "boundary-echo",
+  "ss02+ss03+ss05": "boundary-echo"
+ },
+ "config_class_note": null,
+ "render_groups": [
+  {
+   "configs": [
+    "default",
+    "ss02",
+    "ss03",
+    "ss04",
+    "ss05",
+    "ss02+ss03",
+    "ss02+ss03+ss05"
+   ]
+  }
+ ],
+ "kinds": [
+  "cell"
+ ],
+ "exemplar": false,
+ "before": {
+  "glyphs": [
+   "space",
+   "space",
+   "qsPea.half.en-y6.ex-y6",
+   "qsPea.en-y6"
+  ],
+  "seams": [
+   "break",
+   "break",
+   "y6"
+  ]
+ },
+ "after": {
+  "cells": [
+   "space/boundary/None/None/",
+   "space/boundary/None/None/",
+   "qsPea/half/None/y6/",
+   "qsPea/full/y6/None/"
+  ],
+  "seams": [
+   "break",
+   "break",
+   "y6"
+  ],
+  "extensions": [
+   0,
+   0,
+   0
+  ]
+ },
+ "diff_positions": [
+  2
+ ],
+ "pair": {
+  "left": 2,
+  "right": 3
+ },
+ "pair_codepoints": [
+  2,
+  3
+ ],
+ "highlight": {
+  "before": {
+   "x_min": 700,
+   "x_max": 1150,
+   "advance_total": 1150
+  },
+  "after": {
+   "x_min": 700,
+   "x_max": 1150,
+   "advance_total": 1150
+  }
+ },
+ "boundary_marks": [
+  {
+   "index": 0,
+   "kind": "space",
+   "x": 0
+  },
+  {
+   "index": 1,
+   "kind": "space",
+   "x": 350
+  }
+ ],
+ "secondary_seams": null,
+ "summary": "New: \u00b7Pea keeps the same seams but settles as a different cell (half, entry none, exit y6) \u2014 decided by join-count rank (no policy record involved).",
+ "explain": "sequence 0020:0020:E650:E650   config default\nsettled: space space qsPea.half.ex-y6 qsPea.full.en-y6\n\nposition 2: qsPea\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> half             entry=none       seam=y6         join-count=1 prospect=0\n     full             entry=none       seam=none       join-count=0 prospect=0\n     half             entry=none       seam=none   ...TRUNC",
+ "provenance": [],
+ "drafts": {
+  "pin": {
+   "expect": "\u25caspace | \u25caspace | \u00b7Pea ~6~ \u00b7Pea",
+   "attribute": "data-expect-noncanonically",
+   "stylistic_set": null,
+   "syntax": "pass",
+   "semantics_after_font": "pass",
+   "duplicate_of": null,
+   "suggested_home": "site/the-manual.html"
+  },
+  "policy": {
+   "file": "glyph_data/runes/qsPea.yaml",
+   "keypath": "policy.prefer[+]",
+   "suggested_record": "{cell: {exit: y6}, when: {right: {family: [qsPea]}}, why: 'Reviewer rejected the M1 outcome for 0020:0020:E650:E650 (\u2423 \u2423 \u00b7Pea\u00b7Pea)'}",
+   "names_provenance": [],
+   "decided_stage": "join-count",
+   "schema_valid": true,
+   "why_stub": "Reviewer rejected the M1 outcome for 0020:0020:E650:E650 (\u2423 \u2423 \u00b7Pea\u00b7Pea)"
+  },
+  "any_of": {
+   "text": "space space qsPea qsPea",
+   "features": {},
+   "candidates": [
+    "\u25caspace | \u25caspace | \u00b7Pea ~6~ \u00b7Pea"
+   ]
+  }
+ }
+}

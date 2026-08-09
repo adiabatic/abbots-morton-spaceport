@@ -1,0 +1,93 @@
+{
+ "measured_by": "verify-alternatives (adversarial re-check of the non-rewrite options)",
+ "box": "Apple M4 Pro, 12 logical cores, load average 1.9-4.9 throughout; nothing else of mine running",
+ "slice": "rebuild.pipeline.table.build_tables, the REAL kernel, 8 of 18 runes (keep=5), all six acceptance configurations, out_dir=None trace_store=None",
+ "equivalence": {
+  "method": "blake2b-128 over every rule row, reachable cell, window key, treaty row and fired-provenance pointer of each built table (raw/perf2/freethreaded/kernel.py:checksum)",
+  "rows": 28,
+  "runtimes": [
+   "CPython 3.14.6 GIL",
+   "CPython 3.14.6t free-threaded",
+   "PyPy 7.3.23 / 3.11.15",
+   "mypyc-compiled CPython 3.14.6"
+  ],
+  "per_config_reference_checksums": [
+   "34a1fdb9b8b3e069903b71e70add8d63",
+   "89f3a21b90f8325dad1a4508b49b5995",
+   "41a73dec420d4b74d37415404f379046",
+   "1dc58eeb034f8105755716d77debac3a",
+   "0b2213cc5509b00ba2e07fae54d58482",
+   "d7a76c401d3a1ee2cc7a0e480e08394f"
+  ],
+  "all_rows_agree_on_all_six": true,
+  "note": "these six also equal the freethreaded slice s own reference_checksums in env.json, so the two slices cross-confirm"
+ },
+ "slice_wall_s_per_config": {
+  "cpython 3.14.6 shipped: six configs over one TraceShare (TODAY)": 1.1995,
+  "cpython, six configs, share DROPPED": 2.274,
+  "mypyc (model+specificity+settle+table)": 0.9321,
+  "mypyc + gc.freeze/disable": 0.768,
+  "PyPy 7.3.23 (3.11.15)": 0.7833,
+  "PyPy + the six memoizations": 0.6887,
+  "free-threaded 3.14t, 6 threads, private spec, share dropped": 0.727,
+  "free-threaded 3.14t, donor then 5-way fanout over the share": 0.7298,
+  "levers (6 memos + NamedTuple + P8) + gc off, serial, share kept": 0.5633,
+  "levers + gc off + 3.14t 6 threads, share dropped": 0.4686,
+  "levers + gc off + 3.14t donor then 5-way fanout over the share": 0.3938,
+  "mypyc + levers + gc off, serial, share kept": 0.3896
+ },
+ "slice_multiplier_vs_today": {
+  "cpython 3.14.6 shipped: six configs over one TraceShare (TODAY)": 1.0,
+  "cpython, six configs, share DROPPED": 0.527,
+  "mypyc (model+specificity+settle+table)": 1.287,
+  "mypyc + gc.freeze/disable": 1.562,
+  "PyPy 7.3.23 (3.11.15)": 1.531,
+  "PyPy + the six memoizations": 1.742,
+  "free-threaded 3.14t, 6 threads, private spec, share dropped": 1.65,
+  "free-threaded 3.14t, donor then 5-way fanout over the share": 1.644,
+  "levers (6 memos + NamedTuple + P8) + gc off, serial, share kept": 2.13,
+  "levers + gc off + 3.14t 6 threads, share dropped": 2.56,
+  "levers + gc off + 3.14t donor then 5-way fanout over the share": 3.046,
+  "mypyc + levers + gc off, serial, share kept": 3.079
+ },
+ "real_kernel_TraceShare_value_x": 1.896,
+ "full_scale_18_runes_default_config": {
+  "cpu_s": {
+   "cpython shipped": 78.931,
+   "cpython + levers, gc ON": 43.397,
+   "cpython + levers + gc off": 34.656,
+   "mypyc only + gc off": 42.347,
+   "mypyc + levers + gc off": 20.412
+  },
+  "multiplier_vs_shipped": {
+   "cpython shipped": 1.0,
+   "cpython + levers, gc ON": 1.819,
+   "cpython + levers + gc off": 2.278,
+   "mypyc only + gc off": 1.864,
+   "mypyc + levers + gc off": 3.867
+  },
+  "artifact_digest_every_arm": [
+   "3026eaf52b6b87d69c07f4363ce103e63e2033e318ffb9c804b329bca8108d08"
+  ],
+  "window_rule_treaty_counts_every_arm": [
+   [
+    682842,
+    2667,
+    3563
+   ]
+  ]
+ },
+ "repo_kernel_tests": {
+  "command": "pytest rebuild/test_settle.py rebuild/test_table.py rebuild/test_trace_memo.py rebuild/test_specificity.py -n auto --dist worksteal",
+  "unpatched_collection": 182,
+  "levers_tree": "182 passed",
+  "mypyc+levers_tree": "182 passed",
+  "why_it_matters": "test_trace_memo exercises build_tables with a real persisted TraceStore AND a TraceShare, which is the one place the candidates memo s fired-pointer replay could have diverged"
+ },
+ "compiler_flags": {
+  "mypyc": "mypyc --explicit-package-bases, setuptools default + -O3 -g1 (no PGO/LTO/-march=native); one extra annotation widening beyond the shipped five (fired: list[Provenance] -> list) was needed to compile the levered source",
+  "pypy": "no compilation; PEP 758 except-clauses parenthesized by raw/perf2/compilers/patch_pep758.py (exact rewrite)",
+  "freethreaded": "uv-managed python-build-standalone 3.14.6t, PGO+LTO -O3, --disable-gil"
+ },
+ "dead_code_defence": "every arm materializes the full DecisionTable and TreatyTable and folds every rule, cell, window, treaty row and provenance pointer into a printed digest; an elided computation prints a different digest"
+}

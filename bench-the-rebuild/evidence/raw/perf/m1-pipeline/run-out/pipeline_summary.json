@@ -1,0 +1,51 @@
+{
+  "configs": [
+    "default",
+    "ss03",
+    "ss04",
+    "ss05",
+    "ss03+ss05",
+    "ss10"
+  ],
+  "rules_per_config": {
+    "default": 2667,
+    "ss03": 2929,
+    "ss04": 2662,
+    "ss05": 2692,
+    "ss03+ss05": 2950,
+    "ss10": 2642
+  },
+  "settled_cell_glyphs": 204,
+  "total_glyphs": 263,
+  "gsub_rule_count": 7024,
+  "defect_errors": [],
+  "defect_flags": [],
+  "dead_in_alphabet": [
+    "glyph_data/runes/qsIt.yaml:policy.refuse[6]"
+  ],
+  "deferred_partner": [
+    "glyph_data/runes/qsAh.yaml:policy.contract[0] (partners: qsJai)",
+    "glyph_data/runes/qsDay.yaml:policy.refuse[0] (partners: qsWay)",
+    "glyph_data/runes/qsI.yaml:policy.contract[0] (partners: qsJai)",
+    "glyph_data/runes/qsI.yaml:policy.contract[1] (partners: qsJai)",
+    "glyph_data/runes/qsIt.yaml:policy.extend[0] (partners: qsKey)",
+    "glyph_data/runes/qsIt.yaml:policy.extend[2] (partners: qsCheer, qsJai, qsOwe)",
+    "glyph_data/runes/qsIt.yaml:policy.extend[3] (partners: qsCheer, qsJai, qsOwe, qsZoo)",
+    "glyph_data/runes/qsIt.yaml:policy.refuse[4] (partners: qsYe, qsZoo)",
+    "glyph_data/runes/qsIt.yaml:policy.refuse[5] (partners: qsOwe)",
+    "glyph_data/runes/qsIt.yaml:policy.refuse[9] (partners: qsEat, qsOwe, qsShe, qsZoo)",
+    "glyph_data/runes/qsLow.yaml:policy.contract[0] (partners: qsJai)",
+    "glyph_data/runes/qsMay.yaml:policy.refuse[4] (partners: qsThaw, qsYe)",
+    "glyph_data/runes/qsNo.yaml:policy.contract[0] (partners: qsJai)",
+    "glyph_data/runes/qsSee.yaml:policy.contract[0] (partners: qsOut)",
+    "glyph_data/runes/qsSee.yaml:policy.refuse[0] (partners: qsYe)",
+    "glyph_data/runes/qsTea.yaml:policy.contract[0] (partners: qsZoo)",
+    "glyph_data/runes/qsTea.yaml:policy.contract[1] (partners: qsJay)",
+    "glyph_data/runes/qsTea.yaml:policy.extend[0] (partners: qsEight, qsJay, qsKey)",
+    "glyph_data/runes/qsUtter.yaml:policy.contract[0] (partners: qsJai)"
+  ],
+  "notes": [
+    "gates ran over 204 glyphs and 6 configurations; 0 errors, 0 flags, 196 blessed"
+  ],
+  "font": "raw/perf/m1-pipeline/run-out/M1.otf"
+}

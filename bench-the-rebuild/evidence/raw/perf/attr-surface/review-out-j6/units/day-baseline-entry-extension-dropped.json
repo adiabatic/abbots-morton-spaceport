@@ -1,0 +1,3990 @@
+[
+ {
+  "id": "u-21974",
+  "batch": 12,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "default": "d-6281430920d1",
+   "ss03": "d-6281430920d1",
+   "ss04": "d-6281430920d1",
+   "ss05": "d-6281430920d1",
+   "ss02": "d-6281430920d1",
+   "ss02+ss03": "d-6281430920d1",
+   "ss02+ss03+ss05": "d-6281430920d1"
+  },
+  "no_verdict": false,
+  "echo": "e-0425",
+  "cluster": "c-69f7ef38",
+  "class": "day-baseline-entry-extension-dropped",
+  "group": "qsPea:qsTea",
+  "codepoints": "E650:E652:E679:E653",
+  "text_entities": "&#xE650;&#xE652;&#xE679;&#xE653;",
+  "notation": "\u00b7Pea\u00b7Tea\u00b7Oy\u00b7Day",
+  "notation_tokens": [
+   "\u00b7Pea",
+   "\u00b7Tea",
+   "\u00b7Oy",
+   "\u00b7Day"
+  ],
+  "configs": [
+   "default",
+   "ss03",
+   "ss04",
+   "ss05",
+   "ss02",
+   "ss02+ss03",
+   "ss02+ss03+ss05"
+  ],
+  "config_note": "only under: default, ss03, ss04, ss05, ss02, ss02+ss03, ss02+ss03+ss05",
+  "config_gate": null,
+  "config_classes": {
+   "default": "day-baseline-entry-extension-dropped",
+   "ss02": "day-baseline-entry-extension-dropped",
+   "ss03": "day-baseline-entry-extension-dropped",
+   "ss04": "day-baseline-entry-extension-dropped",
+   "ss05": "day-baseline-entry-extension-dropped",
+   "ss02+ss03": "day-baseline-entry-extension-dropped",
+   "ss02+ss03+ss05": "day-baseline-entry-extension-dropped"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss03",
+     "ss04",
+     "ss05",
+     "ss02",
+     "ss02+ss03",
+     "ss02+ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsPea",
+    "qsTea_qsOy",
+    "qsDay.half.en-y0.ex-y0.en-ext-1"
+   ],
+   "seams": [
+    "break",
+    "y0"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsPea/full/None/None/",
+    "qsTea_qsOy/hapax/None/baseline/",
+    "qsDay/half/baseline/None/"
+   ],
+   "seams": [
+    "break",
+    "y0"
+   ],
+   "extensions": [
+    0,
+    0
+   ]
+  },
+  "diff_positions": [
+   1,
+   2
+  ],
+  "pair": {
+   "left": 1,
+   "right": 2
+  },
+  "pair_codepoints": [
+   1,
+   3
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 250,
+    "x_max": 950,
+    "advance_total": 950
+   },
+   "after": {
+    "x_min": 250,
+    "x_max": 900,
+    "advance_total": 900
+   }
+  },
+  "boundary_marks": [],
+  "secondary_seams": null,
+  "summary": "New: \u00b7Day keeps the same seams but settles as a different cell (half, entry baseline, exit none) \u2014 decided by the only surviving candidate (no policy record involved).",
+  "explain": "sequence E650:E652:E679:E653   config default\nsettled: qsPea.full qsTea_qsOy.hapax.ex-y0 qsDay.half.en-y0\n\nposition 1: qsTea_qsOy\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> hapax            entry=none       seam=baseline   join-count=1 prospect=0\n     hapax            entry=none       seam=none       join-count=0 prospect=0\n  decided by: join-count (over hapax entry=none seam=none)\n  settled: qsTea_qsOy.hapax.ex-y0   seam=baseline   extension=0\n\nposition 2: qsDay\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> half             entry=baseline   seam=none       join-count=1 prospect=0\n  eliminated before ranking:\n    - (entry-binding) qsDay.full: no available entry row at baseline against the committed seam\n  decided by: only-candidate\n  settled: qsDay.half.en-y0   seam=none   extension=0",
+  "provenance": [],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7Pea | \u00b7Tea+Oy ~b~ \u00b7Day",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": null,
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsTea_qsOy.yaml",
+    "keypath": "policy.prefer[+]",
+    "suggested_record": "{cell: {exit: baseline}, when: {right: {family: [qsDay]}}, why: 'Reviewer rejected the M1 outcome for E650:E652:E679:E653 (\u00b7Pea\u00b7Tea\u00b7Oy\u00b7Day)'}",
+    "names_provenance": [],
+    "decided_stage": "join-count",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E650:E652:E679:E653 (\u00b7Pea\u00b7Tea\u00b7Oy\u00b7Day)"
+   },
+   "any_of": {
+    "text": "qsPea qsTea qsOy qsDay",
+    "features": {},
+    "candidates": [
+     "\u00b7Pea | \u00b7Tea+Oy ~b~ \u00b7Day"
+    ]
+   }
+  },
+  "content_key": "e05268079b3ef8fdbe053b80c8dfebaaa770410ac1a31f16c19ff2992052a6ba"
+ },
+ {
+  "id": "u-21975",
+  "batch": 12,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "default": "d-6281430920d1",
+   "ss03": "d-6281430920d1",
+   "ss04": "d-6281430920d1",
+   "ss05": "d-6281430920d1",
+   "ss02": "d-6281430920d1",
+   "ss02+ss03": "d-6281430920d1",
+   "ss02+ss03+ss05": "d-6281430920d1"
+  },
+  "no_verdict": false,
+  "echo": "e-0425",
+  "cluster": "c-69f7ef38",
+  "class": "day-baseline-entry-extension-dropped",
+  "group": "qsTea:qsTea",
+  "codepoints": "E652:E652:E679:E653",
+  "text_entities": "&#xE652;&#xE652;&#xE679;&#xE653;",
+  "notation": "\u00b7Tea\u00b7Tea\u00b7Oy\u00b7Day",
+  "notation_tokens": [
+   "\u00b7Tea",
+   "\u00b7Tea",
+   "\u00b7Oy",
+   "\u00b7Day"
+  ],
+  "configs": [
+   "default",
+   "ss03",
+   "ss04",
+   "ss05",
+   "ss02",
+   "ss02+ss03",
+   "ss02+ss03+ss05"
+  ],
+  "config_note": "only under: default, ss03, ss04, ss05, ss02, ss02+ss03, ss02+ss03+ss05",
+  "config_gate": null,
+  "config_classes": {
+   "default": "day-baseline-entry-extension-dropped",
+   "ss02": "day-baseline-entry-extension-dropped",
+   "ss03": "day-baseline-entry-extension-dropped",
+   "ss04": "day-baseline-entry-extension-dropped",
+   "ss05": "day-baseline-entry-extension-dropped",
+   "ss02+ss03": "day-baseline-entry-extension-dropped",
+   "ss02+ss03+ss05": "day-baseline-entry-extension-dropped"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss03",
+     "ss04",
+     "ss05",
+     "ss02",
+     "ss02+ss03",
+     "ss02+ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsTea",
+    "qsTea_qsOy",
+    "qsDay.half.en-y0.ex-y0.en-ext-1"
+   ],
+   "seams": [
+    "break",
+    "y0"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsTea/full/None/None/",
+    "qsTea_qsOy/hapax/None/baseline/",
+    "qsDay/half/baseline/None/"
+   ],
+   "seams": [
+    "break",
+    "y0"
+   ],
+   "extensions": [
+    0,
+    0
+   ]
+  },
+  "diff_positions": [
+   1,
+   2
+  ],
+  "pair": {
+   "left": 1,
+   "right": 2
+  },
+  "pair_codepoints": [
+   1,
+   3
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 100,
+    "x_max": 800,
+    "advance_total": 800
+   },
+   "after": {
+    "x_min": 100,
+    "x_max": 750,
+    "advance_total": 750
+   }
+  },
+  "boundary_marks": [],
+  "secondary_seams": null,
+  "summary": "New: \u00b7Day keeps the same seams but settles as a different cell (half, entry baseline, exit none) \u2014 decided by the only surviving candidate (no policy record involved).",
+  "explain": "sequence E652:E652:E679:E653   config default\nsettled: qsTea.full qsTea_qsOy.hapax.ex-y0 qsDay.half.en-y0\n\nposition 1: qsTea_qsOy\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> hapax            entry=none       seam=baseline   join-count=1 prospect=0\n     hapax            entry=none       seam=none       join-count=0 prospect=0\n  decided by: join-count (over hapax entry=none seam=none)\n  settled: qsTea_qsOy.hapax.ex-y0   seam=baseline   extension=0\n\nposition 2: qsDay\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> half             entry=baseline   seam=none       join-count=1 prospect=0\n  eliminated before ranking:\n    - (entry-binding) qsDay.full: no available entry row at baseline against the committed seam\n  decided by: only-candidate\n  settled: qsDay.half.en-y0   seam=none   extension=0",
+  "provenance": [],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7Tea | \u00b7Tea+Oy ~b~ \u00b7Day",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": null,
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsTea_qsOy.yaml",
+    "keypath": "policy.prefer[+]",
+    "suggested_record": "{cell: {exit: baseline}, when: {right: {family: [qsDay]}}, why: 'Reviewer rejected the M1 outcome for E652:E652:E679:E653 (\u00b7Tea\u00b7Tea\u00b7Oy\u00b7Day)'}",
+    "names_provenance": [],
+    "decided_stage": "join-count",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E652:E652:E679:E653 (\u00b7Tea\u00b7Tea\u00b7Oy\u00b7Day)"
+   },
+   "any_of": {
+    "text": "qsTea qsTea qsOy qsDay",
+    "features": {},
+    "candidates": [
+     "\u00b7Tea | \u00b7Tea+Oy ~b~ \u00b7Day"
+    ]
+   }
+  },
+  "content_key": "496fd19fc18a0cecc16c04932c94eba1ba835d9f4a4a048791ed801e5e2a2cfd"
+ },
+ {
+  "id": "u-21976",
+  "batch": 12,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "default": "d-6281430920d1",
+   "ss03": "d-6281430920d1",
+   "ss04": "d-6281430920d1",
+   "ss05": "d-6281430920d1",
+   "ss02": "d-6281430920d1",
+   "ss02+ss03": "d-6281430920d1",
+   "ss02+ss03+ss05": "d-6281430920d1"
+  },
+  "no_verdict": false,
+  "echo": "e-0425",
+  "cluster": "c-69f7ef38",
+  "class": "day-baseline-entry-extension-dropped",
+  "group": "qsTea:qsOy",
+  "codepoints": "E652:E679:E653",
+  "text_entities": "&#xE652;&#xE679;&#xE653;",
+  "notation": "\u00b7Tea\u00b7Oy\u00b7Day",
+  "notation_tokens": [
+   "\u00b7Tea",
+   "\u00b7Oy",
+   "\u00b7Day"
+  ],
+  "configs": [
+   "default",
+   "ss03",
+   "ss04",
+   "ss05",
+   "ss02",
+   "ss02+ss03",
+   "ss02+ss03+ss05"
+  ],
+  "config_note": "only under: default, ss03, ss04, ss05, ss02, ss02+ss03, ss02+ss03+ss05",
+  "config_gate": null,
+  "config_classes": {
+   "default": "day-baseline-entry-extension-dropped",
+   "ss02": "day-baseline-entry-extension-dropped",
+   "ss03": "day-baseline-entry-extension-dropped",
+   "ss04": "day-baseline-entry-extension-dropped",
+   "ss05": "day-baseline-entry-extension-dropped",
+   "ss02+ss03": "day-baseline-entry-extension-dropped",
+   "ss02+ss03+ss05": "day-baseline-entry-extension-dropped"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss03",
+     "ss04",
+     "ss05",
+     "ss02",
+     "ss02+ss03",
+     "ss02+ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell"
+  ],
+  "exemplar": true,
+  "before": {
+   "glyphs": [
+    "qsTea_qsOy",
+    "qsDay.half.en-y0.ex-y0.en-ext-1"
+   ],
+   "seams": [
+    "y0"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsTea_qsOy/hapax/None/baseline/",
+    "qsDay/half/baseline/None/"
+   ],
+   "seams": [
+    "y0"
+   ],
+   "extensions": [
+    0
+   ]
+  },
+  "diff_positions": [
+   0,
+   1
+  ],
+  "pair": {
+   "left": 0,
+   "right": 1
+  },
+  "pair_codepoints": [
+   0,
+   2
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 0,
+    "x_max": 700,
+    "advance_total": 700
+   },
+   "after": {
+    "x_min": 0,
+    "x_max": 650,
+    "advance_total": 650
+   }
+  },
+  "boundary_marks": [],
+  "secondary_seams": null,
+  "summary": "New: \u00b7Day keeps the same seams but settles as a different cell (half, entry baseline, exit none) \u2014 decided by the only surviving candidate (no policy record involved).",
+  "explain": "sequence E652:E679:E653   config default\nsettled: qsTea_qsOy.hapax.ex-y0 qsDay.half.en-y0\n\nposition 0: qsTea_qsOy\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> hapax            entry=none       seam=baseline   join-count=1 prospect=0\n     hapax            entry=none       seam=none       join-count=0 prospect=0\n  decided by: join-count (over hapax entry=none seam=none)\n  settled: qsTea_qsOy.hapax.ex-y0   seam=baseline   extension=0\n\nposition 1: qsDay\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> half             entry=baseline   seam=none       join-count=1 prospect=0\n  eliminated before ranking:\n    - (entry-binding) qsDay.full: no available entry row at baseline against the committed seam\n  decided by: only-candidate\n  settled: qsDay.half.en-y0   seam=none   extension=0",
+  "provenance": [],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7Tea+Oy ~b~ \u00b7Day",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": null,
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsTea_qsOy.yaml",
+    "keypath": "policy.prefer[+]",
+    "suggested_record": "{cell: {exit: baseline}, when: {right: {family: [qsDay]}}, why: 'Reviewer rejected the M1 outcome for E652:E679:E653 (\u00b7Tea\u00b7Oy\u00b7Day)'}",
+    "names_provenance": [],
+    "decided_stage": "join-count",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E652:E679:E653 (\u00b7Tea\u00b7Oy\u00b7Day)"
+   },
+   "any_of": {
+    "text": "qsTea qsOy qsDay",
+    "features": {},
+    "candidates": [
+     "\u00b7Tea+Oy ~b~ \u00b7Day"
+    ]
+   }
+  },
+  "content_key": "68cc6f81b6b5ebb98514cb79c238ac4b51ed83ca34a4a4c99eb083dbd4820327"
+ },
+ {
+  "id": "u-21977",
+  "batch": 12,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "default": "d-6281430920d1",
+   "ss03": "d-6281430920d1",
+   "ss04": "d-6281430920d1",
+   "ss05": "d-6281430920d1",
+   "ss02": "d-6281430920d1",
+   "ss02+ss03": "d-6281430920d1",
+   "ss02+ss03+ss05": "d-6281430920d1"
+  },
+  "no_verdict": false,
+  "echo": "e-0425",
+  "cluster": "c-69f7ef38",
+  "class": "day-baseline-entry-extension-dropped",
+  "group": "qsTea:qsOy",
+  "codepoints": "00B7:E652:E679:E653",
+  "text_entities": "&#x00B7;&#xE652;&#xE679;&#xE653;",
+  "notation": "\u00b7 \u00b7Tea\u00b7Oy\u00b7Day",
+  "notation_tokens": [
+   "\u00b7",
+   "\u00b7Tea",
+   "\u00b7Oy",
+   "\u00b7Day"
+  ],
+  "configs": [
+   "default",
+   "ss03",
+   "ss04",
+   "ss05",
+   "ss02",
+   "ss02+ss03",
+   "ss02+ss03+ss05"
+  ],
+  "config_note": "only under: default, ss03, ss04, ss05, ss02, ss02+ss03, ss02+ss03+ss05",
+  "config_gate": null,
+  "config_classes": {
+   "default": "day-baseline-entry-extension-dropped",
+   "ss02": "day-baseline-entry-extension-dropped",
+   "ss03": "day-baseline-entry-extension-dropped",
+   "ss04": "day-baseline-entry-extension-dropped",
+   "ss05": "day-baseline-entry-extension-dropped",
+   "ss02+ss03": "day-baseline-entry-extension-dropped",
+   "ss02+ss03+ss05": "day-baseline-entry-extension-dropped"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss03",
+     "ss04",
+     "ss05",
+     "ss02",
+     "ss02+ss03",
+     "ss02+ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "periodcentered",
+    "qsTea_qsOy",
+    "qsDay.half.en-y0.ex-y0.en-ext-1"
+   ],
+   "seams": [
+    "break",
+    "y0"
+   ]
+  },
+  "after": {
+   "cells": [
+    "namer-dot/boundary/None/None/",
+    "qsTea_qsOy/hapax/None/baseline/",
+    "qsDay/half/baseline/None/"
+   ],
+   "seams": [
+    "break",
+    "y0"
+   ],
+   "extensions": [
+    0,
+    0
+   ]
+  },
+  "diff_positions": [
+   1,
+   2
+  ],
+  "pair": {
+   "left": 1,
+   "right": 2
+  },
+  "pair_codepoints": [
+   1,
+   3
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 150,
+    "x_max": 850,
+    "advance_total": 850
+   },
+   "after": {
+    "x_min": 150,
+    "x_max": 800,
+    "advance_total": 800
+   }
+  },
+  "boundary_marks": [
+   {
+    "index": 0,
+    "kind": "namer-dot",
+    "x": 0
+   }
+  ],
+  "secondary_seams": null,
+  "summary": "New: \u00b7Day keeps the same seams but settles as a different cell (half, entry baseline, exit none) \u2014 decided by the only surviving candidate (no policy record involved).",
+  "explain": "sequence 00B7:E652:E679:E653   config default\nsettled: periodcentered qsTea_qsOy.hapax.ex-y0 qsDay.half.en-y0\n\nposition 1: qsTea_qsOy\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> hapax            entry=none       seam=baseline   join-count=1 prospect=0\n     hapax            entry=none       seam=none       join-count=0 prospect=0\n  decided by: join-count (over hapax entry=none seam=none)\n  settled: qsTea_qsOy.hapax.ex-y0   seam=baseline   extension=0\n\nposition 2: qsDay\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> half             entry=baseline   seam=none       join-count=1 prospect=0\n  eliminated before ranking:\n    - (entry-binding) qsDay.full: no available entry row at baseline against the committed seam\n  decided by: only-candidate\n  settled: qsDay.half.en-y0   seam=none   extension=0",
+  "provenance": [],
+  "drafts": {
+   "pin": {
+    "expect": "\\\u00b7 | \u00b7Tea+Oy ~b~ \u00b7Day",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": null,
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsTea_qsOy.yaml",
+    "keypath": "policy.prefer[+]",
+    "suggested_record": "{cell: {exit: baseline}, when: {right: {family: [qsDay]}}, why: 'Reviewer rejected the M1 outcome for 00B7:E652:E679:E653 (\u00b7 \u00b7Tea\u00b7Oy\u00b7Day)'}",
+    "names_provenance": [],
+    "decided_stage": "join-count",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for 00B7:E652:E679:E653 (\u00b7 \u00b7Tea\u00b7Oy\u00b7Day)"
+   },
+   "any_of": {
+    "text": "\u00b7 qsTea qsOy qsDay",
+    "features": {},
+    "candidates": [
+     "\\\u00b7 | \u00b7Tea+Oy ~b~ \u00b7Day"
+    ]
+   }
+  },
+  "content_key": "472b85a7ce78ad544ede3e21667755544feb44884594d199b444df31a32d84ae"
+ },
+ {
+  "id": "u-21978",
+  "batch": 12,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "default": "d-e8f8abb42c51",
+   "ss03": "d-e8f8abb42c51",
+   "ss04": "d-e8f8abb42c51",
+   "ss05": "d-e8f8abb42c51",
+   "ss02": "d-e8f8abb42c51",
+   "ss02+ss03": "d-e8f8abb42c51",
+   "ss02+ss03+ss05": "d-e8f8abb42c51"
+  },
+  "no_verdict": false,
+  "echo": "e-0426",
+  "cluster": "c-a9b9a279",
+  "class": "day-baseline-entry-extension-dropped",
+  "group": "qsTea:qsOy",
+  "codepoints": "E652:E679:E653:00B7",
+  "text_entities": "&#xE652;&#xE679;&#xE653;&#x00B7;",
+  "notation": "\u00b7Tea\u00b7Oy\u00b7Day \u00b7",
+  "notation_tokens": [
+   "\u00b7Tea",
+   "\u00b7Oy",
+   "\u00b7Day",
+   "\u00b7"
+  ],
+  "configs": [
+   "default",
+   "ss03",
+   "ss04",
+   "ss05",
+   "ss02",
+   "ss02+ss03",
+   "ss02+ss03+ss05"
+  ],
+  "config_note": "only under: default, ss03, ss04, ss05, ss02, ss02+ss03, ss02+ss03+ss05",
+  "config_gate": null,
+  "config_classes": {
+   "default": "day-baseline-entry-extension-dropped",
+   "ss02": "day-baseline-entry-extension-dropped",
+   "ss03": "day-baseline-entry-extension-dropped",
+   "ss04": "day-baseline-entry-extension-dropped",
+   "ss05": "day-baseline-entry-extension-dropped",
+   "ss02+ss03": "day-baseline-entry-extension-dropped",
+   "ss02+ss03+ss05": "day-baseline-entry-extension-dropped"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss03",
+     "ss04",
+     "ss05",
+     "ss02",
+     "ss02+ss03",
+     "ss02+ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsTea_qsOy",
+    "qsDay.half.en-y0.ex-y0.en-ext-1",
+    "periodcentered"
+   ],
+   "seams": [
+    "y0",
+    "break"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsTea_qsOy/hapax/None/baseline/",
+    "qsDay/half/baseline/None/",
+    "namer-dot/boundary/None/None/"
+   ],
+   "seams": [
+    "y0",
+    "break"
+   ],
+   "extensions": [
+    0,
+    0
+   ]
+  },
+  "diff_positions": [
+   0,
+   1
+  ],
+  "pair": {
+   "left": 0,
+   "right": 1
+  },
+  "pair_codepoints": [
+   0,
+   2
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 0,
+    "x_max": 700,
+    "advance_total": 850
+   },
+   "after": {
+    "x_min": 0,
+    "x_max": 650,
+    "advance_total": 800
+   }
+  },
+  "boundary_marks": [
+   {
+    "index": 2,
+    "kind": "namer-dot",
+    "x": 650
+   }
+  ],
+  "secondary_seams": null,
+  "summary": "New: \u00b7Day keeps the same seams but settles as a different cell (half, entry baseline, exit none) \u2014 decided by the only surviving candidate (no policy record involved).",
+  "explain": "sequence E652:E679:E653:00B7   config default\nsettled: qsTea_qsOy.hapax.ex-y0 qsDay.half.en-y0 periodcentered\n\nposition 0: qsTea_qsOy\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> hapax            entry=none       seam=baseline   join-count=1 prospect=0\n     hapax            entry=none       seam=none       join-count=0 prospect=0\n  decided by: join-count (over hapax entry=none seam=none)\n  settled: qsTea_qsOy.hapax.ex-y0   seam=baseline   extension=0\n\nposition 1: qsDay\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> half             entry=baseline   seam=none       join-count=1 prospect=0\n  eliminated before ranking:\n    - (entry-binding) qsDay.full: no available entry row at baseline against the committed seam\n  decided by: only-candidate\n  settled: qsDay.half.en-y0   seam=none   extension=0",
+  "provenance": [],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7Tea+Oy ~b~ \u00b7Day | \\\u00b7",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": null,
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsTea_qsOy.yaml",
+    "keypath": "policy.prefer[+]",
+    "suggested_record": "{cell: {exit: baseline}, when: {right: {family: [qsDay]}}, why: 'Reviewer rejected the M1 outcome for E652:E679:E653:00B7 (\u00b7Tea\u00b7Oy\u00b7Day \u00b7)'}",
+    "names_provenance": [],
+    "decided_stage": "join-count",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E652:E679:E653:00B7 (\u00b7Tea\u00b7Oy\u00b7Day \u00b7)"
+   },
+   "any_of": {
+    "text": "qsTea qsOy qsDay \u00b7",
+    "features": {},
+    "candidates": [
+     "\u00b7Tea+Oy ~b~ \u00b7Day | \\\u00b7"
+    ]
+   }
+  },
+  "content_key": "51177ceb5824dfc3e96e14ff3aec86761255f4dc38cab9379f6ac9716449aa30"
+ },
+ {
+  "id": "u-21979",
+  "batch": 12,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "default": "d-e8f8abb42c51",
+   "ss03": "d-e8f8abb42c51",
+   "ss04": "d-e8f8abb42c51",
+   "ss05": "d-e8f8abb42c51",
+   "ss02": "d-e8f8abb42c51",
+   "ss02+ss03": "d-e8f8abb42c51",
+   "ss02+ss03+ss05": "d-e8f8abb42c51"
+  },
+  "no_verdict": false,
+  "echo": "e-0426",
+  "cluster": "c-a9b9a279",
+  "class": "day-baseline-entry-extension-dropped",
+  "group": "qsTea:qsOy",
+  "codepoints": "E652:E679:E653:E650",
+  "text_entities": "&#xE652;&#xE679;&#xE653;&#xE650;",
+  "notation": "\u00b7Tea\u00b7Oy\u00b7Day\u00b7Pea",
+  "notation_tokens": [
+   "\u00b7Tea",
+   "\u00b7Oy",
+   "\u00b7Day",
+   "\u00b7Pea"
+  ],
+  "configs": [
+   "default",
+   "ss03",
+   "ss04",
+   "ss05",
+   "ss02",
+   "ss02+ss03",
+   "ss02+ss03+ss05"
+  ],
+  "config_note": "only under: default, ss03, ss04, ss05, ss02, ss02+ss03, ss02+ss03+ss05",
+  "config_gate": null,
+  "config_classes": {
+   "default": "day-baseline-entry-extension-dropped",
+   "ss02": "day-baseline-entry-extension-dropped",
+   "ss03": "day-baseline-entry-extension-dropped",
+   "ss04": "day-baseline-entry-extension-dropped",
+   "ss05": "day-baseline-entry-extension-dropped",
+   "ss02+ss03": "day-baseline-entry-extension-dropped",
+   "ss02+ss03+ss05": "day-baseline-entry-extension-dropped"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss03",
+     "ss04",
+     "ss05",
+     "ss02",
+     "ss02+ss03",
+     "ss02+ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsTea_qsOy",
+    "qsDay.half.en-y0.ex-y0.en-ext-1",
+    "qsPea"
+   ],
+   "seams": [
+    "y0",
+    "break"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsTea_qsOy/hapax/None/baseline/",
+    "qsDay/half/baseline/None/",
+    "qsPea/full/None/None/"
+   ],
+   "seams": [
+    "y0",
+    "break"
+   ],
+   "extensions": [
+    0,
+    0
+   ]
+  },
+  "diff_positions": [
+   0,
+   1
+  ],
+  "pair": {
+   "left": 0,
+   "right": 1
+  },
+  "pair_codepoints": [
+   0,
+   2
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 0,
+    "x_max": 700,
+    "advance_total": 950
+   },
+   "after": {
+    "x_min": 0,
+    "x_max": 650,
+    "advance_total": 900
+   }
+  },
+  "boundary_marks": [],
+  "secondary_seams": null,
+  "summary": "New: \u00b7Day keeps the same seams but settles as a different cell (half, entry baseline, exit none) \u2014 decided by the only surviving candidate (no policy record involved).",
+  "explain": "sequence E652:E679:E653:E650   config default\nsettled: qsTea_qsOy.hapax.ex-y0 qsDay.half.en-y0 qsPea.full\n\nposition 0: qsTea_qsOy\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> hapax            entry=none       seam=baseline   join-count=1 prospect=0\n     hapax            entry=none       seam=none       join-count=0 prospect=0\n  decided by: join-count (over hapax entry=none seam=none)\n  settled: qsTea_qsOy.hapax.ex-y0   seam=baseline   extension=0\n\nposition 1: qsDay\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> half             entry=baseline   seam=none       join-count=1 prospect=0\n  eliminated before ranking:\n    - (entry-binding) qsDay.full: no available entry row at baseline against the committed seam\n    - (lookahead-closure) qsDay.half: exit baseline has no refusal-aware acceptor cell on qsPea\n  decided by: only-candidate\n  settled: qsDay.half.en-y0   seam=none   extension=0",
+  "provenance": [],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7Tea+Oy ~b~ \u00b7Day | \u00b7Pea",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": null,
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsTea_qsOy.yaml",
+    "keypath": "policy.prefer[+]",
+    "suggested_record": "{cell: {exit: baseline}, when: {right: {family: [qsDay]}}, why: 'Reviewer rejected the M1 outcome for E652:E679:E653:E650 (\u00b7Tea\u00b7Oy\u00b7Day\u00b7Pea)'}",
+    "names_provenance": [],
+    "decided_stage": "join-count",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E652:E679:E653:E650 (\u00b7Tea\u00b7Oy\u00b7Day\u00b7Pea)"
+   },
+   "any_of": {
+    "text": "qsTea qsOy qsDay qsPea",
+    "features": {},
+    "candidates": [
+     "\u00b7Tea+Oy ~b~ \u00b7Day | \u00b7Pea"
+    ]
+   }
+  },
+  "content_key": "63ec9d429444cf0c50682559d8f9ef2c7d6d092b9430f31314ac79b685cb7805"
+ },
+ {
+  "id": "u-21980",
+  "batch": 12,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "default": "d-e8f8abb42c51",
+   "ss03": "d-e8f8abb42c51",
+   "ss04": "d-e8f8abb42c51",
+   "ss05": "d-e8f8abb42c51",
+   "ss02": "d-e8f8abb42c51",
+   "ss02+ss03": "d-e8f8abb42c51",
+   "ss02+ss03+ss05": "d-e8f8abb42c51"
+  },
+  "no_verdict": false,
+  "echo": "e-0427",
+  "cluster": "c-a9b9a279",
+  "class": "day-baseline-entry-extension-dropped",
+  "group": "qsTea:qsOy",
+  "codepoints": "E652:E679:E653:E652",
+  "text_entities": "&#xE652;&#xE679;&#xE653;&#xE652;",
+  "notation": "\u00b7Tea\u00b7Oy\u00b7Day\u00b7Tea",
+  "notation_tokens": [
+   "\u00b7Tea",
+   "\u00b7Oy",
+   "\u00b7Day",
+   "\u00b7Tea"
+  ],
+  "configs": [
+   "default",
+   "ss03",
+   "ss04",
+   "ss05",
+   "ss02",
+   "ss02+ss03",
+   "ss02+ss03+ss05"
+  ],
+  "config_note": "only under: default, ss03, ss04, ss05, ss02, ss02+ss03, ss02+ss03+ss05",
+  "config_gate": null,
+  "config_classes": {
+   "default": "day-baseline-entry-extension-dropped",
+   "ss02": "day-baseline-entry-extension-dropped",
+   "ss03": "day-baseline-entry-extension-dropped",
+   "ss04": "day-baseline-entry-extension-dropped",
+   "ss05": "day-baseline-entry-extension-dropped",
+   "ss02+ss03": "day-baseline-entry-extension-dropped",
+   "ss02+ss03+ss05": "day-baseline-entry-extension-dropped"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss03",
+     "ss04",
+     "ss05",
+     "ss02",
+     "ss02+ss03",
+     "ss02+ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsTea_qsOy",
+    "qsDay.half.en-y0.ex-y0.en-ext-1",
+    "qsTea.en-y0"
+   ],
+   "seams": [
+    "y0",
+    "y0"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsTea_qsOy/hapax/None/baseline/",
+    "qsDay/half/baseline/baseline/",
+    "qsTea/full/baseline/None/"
+   ],
+   "seams": [
+    "y0",
+    "y0"
+   ],
+   "extensions": [
+    0,
+    0
+   ]
+  },
+  "diff_positions": [
+   0,
+   1
+  ],
+  "pair": {
+   "left": 1,
+   "right": 2
+  },
+  "pair_codepoints": [
+   2,
+   3
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 400,
+    "x_max": 750,
+    "advance_total": 750
+   },
+   "after": {
+    "x_min": 450,
+    "x_max": 700,
+    "advance_total": 700
+   }
+  },
+  "boundary_marks": [],
+  "secondary_seams": null,
+  "summary": "New: \u00b7Day keeps the same seams but settles as a different cell (half, entry baseline, exit baseline) \u2014 decided by join-count rank (no policy record involved).",
+  "explain": "sequence E652:E679:E653:E652   config default\nsettled: qsTea_qsOy.hapax.ex-y0 qsDay.half.en-y0.ex-y0 qsTea.full.en-y0\n\nposition 0: qsTea_qsOy\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> hapax            entry=none       seam=baseline   join-count=2 prospect=1\n     hapax            entry=none       seam=none       join-count=1 prospect=1\n  decided by: join-count (over hapax entry=none seam=none)\n  settled: qsTea_qsOy.hapax.ex-y0   seam=baseline   extension=0\n\nposition 1: qsDay\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> half             entry=baseline   seam=baseline   join-count=2 prospect=0\n     half             entry=baseline   seam=none       join-count=1 prospect=0\n  eliminated before ranking:\n    - (entry-binding) qsDay.full: no available entry row at baseline against the committed seam\n  decided by: join-count (over half entry=baseline seam=none)\n  settled: qsDay.half.en-y0.ex-y0   seam=baseline   extension=0",
+  "provenance": [],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7Tea+Oy ~b~ \u00b7Day ~b~ \u00b7Tea",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": null,
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsTea_qsOy.yaml",
+    "keypath": "policy.prefer[+]",
+    "suggested_record": "{cell: {exit: baseline}, when: {right: {family: [qsDay]}}, why: 'Reviewer rejected the M1 outcome for E652:E679:E653:E652 (\u00b7Tea\u00b7Oy\u00b7Day\u00b7Tea)'}",
+    "names_provenance": [],
+    "decided_stage": "join-count",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E652:E679:E653:E652 (\u00b7Tea\u00b7Oy\u00b7Day\u00b7Tea)"
+   },
+   "any_of": {
+    "text": "qsTea qsOy qsDay qsTea",
+    "features": {},
+    "candidates": [
+     "\u00b7Tea+Oy ~b~ \u00b7Day ~b~ \u00b7Tea"
+    ]
+   }
+  },
+  "content_key": "c91a285c3a2e27b27cc248ec99a6d77560f2cf57cb0a331ccee184e4d0d46d22"
+ },
+ {
+  "id": "u-21981",
+  "batch": 12,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "default": "d-e8f8abb42c51",
+   "ss03": "d-e8f8abb42c51",
+   "ss04": "d-e8f8abb42c51",
+   "ss05": "d-e8f8abb42c51",
+   "ss02": "d-e8f8abb42c51",
+   "ss02+ss03": "d-e8f8abb42c51",
+   "ss02+ss03+ss05": "d-e8f8abb42c51"
+  },
+  "no_verdict": false,
+  "echo": "e-0428",
+  "cluster": "c-a9b9a279",
+  "class": "day-baseline-entry-extension-dropped",
+  "group": "qsTea:qsOy",
+  "codepoints": "E652:E679:E653:E653",
+  "text_entities": "&#xE652;&#xE679;&#xE653;&#xE653;",
+  "notation": "\u00b7Tea\u00b7Oy\u00b7Day\u00b7Day",
+  "notation_tokens": [
+   "\u00b7Tea",
+   "\u00b7Oy",
+   "\u00b7Day",
+   "\u00b7Day"
+  ],
+  "configs": [
+   "default",
+   "ss03",
+   "ss04",
+   "ss05",
+   "ss02",
+   "ss02+ss03",
+   "ss02+ss03+ss05"
+  ],
+  "config_note": "only under: default, ss03, ss04, ss05, ss02, ss02+ss03, ss02+ss03+ss05",
+  "config_gate": null,
+  "config_classes": {
+   "default": "day-baseline-entry-extension-dropped",
+   "ss02": "day-baseline-entry-extension-dropped",
+   "ss03": "day-baseline-entry-extension-dropped",
+   "ss04": "day-baseline-entry-extension-dropped",
+   "ss05": "day-baseline-entry-extension-dropped",
+   "ss02+ss03": "day-baseline-entry-extension-dropped",
+   "ss02+ss03+ss05": "day-baseline-entry-extension-dropped"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss03",
+     "ss04",
+     "ss05",
+     "ss02",
+     "ss02+ss03",
+     "ss02+ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsTea_qsOy",
+    "qsDay.half.en-y0.ex-y0.en-ext-1",
+    "qsDay.half.en-y0.ex-y0"
+   ],
+   "seams": [
+    "y0",
+    "y0"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsTea_qsOy/hapax/None/baseline/",
+    "qsDay/half/baseline/baseline/",
+    "qsDay/half/baseline/None/"
+   ],
+   "seams": [
+    "y0",
+    "y0"
+   ],
+   "extensions": [
+    0,
+    0
+   ]
+  },
+  "diff_positions": [
+   0,
+   1,
+   2
+  ],
+  "pair": {
+   "left": 1,
+   "right": 2
+  },
+  "pair_codepoints": [
+   2,
+   3
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 400,
+    "x_max": 900,
+    "advance_total": 900
+   },
+   "after": {
+    "x_min": 450,
+    "x_max": 850,
+    "advance_total": 850
+   }
+  },
+  "boundary_marks": [],
+  "secondary_seams": null,
+  "summary": "New: \u00b7Day keeps the same seams but settles as a different cell (half, entry baseline, exit baseline) \u2014 decided by join-count rank (no policy record involved).",
+  "explain": "sequence E652:E679:E653:E653   config default\nsettled: qsTea_qsOy.hapax.ex-y0 qsDay.half.en-y0.ex-y0 qsDay.half.en-y0\n\nposition 0: qsTea_qsOy\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> hapax            entry=none       seam=baseline   join-count=2 prospect=1\n     hapax            entry=none       seam=none       join-count=1 prospect=1\n  decided by: join-count (over hapax entry=none seam=none)\n  settled: qsTea_qsOy.hapax.ex-y0   seam=baseline   extension=0\n\nposition 1: qsDay\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> half             entry=baseline   seam=baseline   join-count=2 prospect=0\n     half             entry=baseline   seam=none       join-count=1 prospect=0\n  eliminated before ranking:\n    - (entry-binding) qsDay.full: no available entry row at baseline against the committed seam\n  decided by: join-count (over half entry=baseline seam=none)\n  settled: qsDay.half.en-y0.ex-y0   seam=baseline   extension=0\n\nposition 2: qsDay\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> half             entry=baseline   seam=none       join-count=1 prospect=0\n  eliminated before ranking:\n    - (entry-binding) qsDay.full: no available entry row at baseline against the committed seam\n  decided by: only-candidate\n  settled: qsDay.half.en-y0   seam=none   extension=0",
+  "provenance": [],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7Tea+Oy ~b~ \u00b7Day ~b~ \u00b7Day",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": null,
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsTea_qsOy.yaml",
+    "keypath": "policy.prefer[+]",
+    "suggested_record": "{cell: {exit: baseline}, when: {right: {family: [qsDay]}}, why: 'Reviewer rejected the M1 outcome for E652:E679:E653:E653 (\u00b7Tea\u00b7Oy\u00b7Day\u00b7Day)'}",
+    "names_provenance": [],
+    "decided_stage": "join-count",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E652:E679:E653:E653 (\u00b7Tea\u00b7Oy\u00b7Day\u00b7Day)"
+   },
+   "any_of": {
+    "text": "qsTea qsOy qsDay qsDay",
+    "features": {},
+    "candidates": [
+     "\u00b7Tea+Oy ~b~ \u00b7Day ~b~ \u00b7Day"
+    ]
+   }
+  },
+  "content_key": "cf3c4cbdd83fe4e65e4789243cda1309031ed3f0dabd5184d6e303e759006543"
+ },
+ {
+  "id": "u-21982",
+  "batch": 12,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "default": "d-e8f8abb42c51",
+   "ss03": "d-e8f8abb42c51",
+   "ss04": "d-e8f8abb42c51",
+   "ss05": "d-e8f8abb42c51",
+   "ss02": "d-e8f8abb42c51",
+   "ss02+ss03": "d-e8f8abb42c51",
+   "ss02+ss03+ss05": "d-e8f8abb42c51"
+  },
+  "no_verdict": false,
+  "echo": "e-0426",
+  "cluster": "c-a9b9a279",
+  "class": "day-baseline-entry-extension-dropped",
+  "group": "qsTea:qsOy",
+  "codepoints": "E652:E679:E653:E658",
+  "text_entities": "&#xE652;&#xE679;&#xE653;&#xE658;",
+  "notation": "\u00b7Tea\u00b7Oy\u00b7Day\u00b7Fee",
+  "notation_tokens": [
+   "\u00b7Tea",
+   "\u00b7Oy",
+   "\u00b7Day",
+   "\u00b7Fee"
+  ],
+  "configs": [
+   "default",
+   "ss03",
+   "ss04",
+   "ss05",
+   "ss02",
+   "ss02+ss03",
+   "ss02+ss03+ss05"
+  ],
+  "config_note": "only under: default, ss03, ss04, ss05, ss02, ss02+ss03, ss02+ss03+ss05",
+  "config_gate": null,
+  "config_classes": {
+   "default": "day-baseline-entry-extension-dropped",
+   "ss02": "day-baseline-entry-extension-dropped",
+   "ss03": "day-baseline-entry-extension-dropped",
+   "ss04": "day-baseline-entry-extension-dropped",
+   "ss05": "day-baseline-entry-extension-dropped",
+   "ss02+ss03": "day-baseline-entry-extension-dropped",
+   "ss02+ss03+ss05": "day-baseline-entry-extension-dropped"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss03",
+     "ss04",
+     "ss05",
+     "ss02",
+     "ss02+ss03",
+     "ss02+ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsTea_qsOy",
+    "qsDay.half.en-y0.ex-y0.en-ext-1",
+    "qsFee"
+   ],
+   "seams": [
+    "y0",
+    "break"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsTea_qsOy/hapax/None/baseline/",
+    "qsDay/half/baseline/None/",
+    "qsFee/loop/None/None/"
+   ],
+   "seams": [
+    "y0",
+    "break"
+   ],
+   "extensions": [
+    0,
+    0
+   ]
+  },
+  "diff_positions": [
+   0,
+   1
+  ],
+  "pair": {
+   "left": 0,
+   "right": 1
+  },
+  "pair_codepoints": [
+   0,
+   2
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 0,
+    "x_max": 700,
+    "advance_total": 1000
+   },
+   "after": {
+    "x_min": 0,
+    "x_max": 650,
+    "advance_total": 950
+   }
+  },
+  "boundary_marks": [],
+  "secondary_seams": null,
+  "summary": "New: \u00b7Day keeps the same seams but settles as a different cell (half, entry baseline, exit none) \u2014 decided by the only surviving candidate (no policy record involved).",
+  "explain": "sequence E652:E679:E653:E658   config default\nsettled: qsTea_qsOy.hapax.ex-y0 qsDay.half.en-y0 qsFee.loop\n\nposition 0: qsTea_qsOy\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> hapax            entry=none       seam=baseline   join-count=1 prospect=0\n     hapax            entry=none       seam=none       join-count=0 prospect=0\n  decided by: join-count (over hapax entry=none seam=none)\n  settled: qsTea_qsOy.hapax.ex-y0   seam=baseline   extension=0\n\nposition 1: qsDay\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> half             entry=baseline   seam=none       join-count=1 prospect=0\n  eliminated before ranking:\n    - (entry-binding) qsDay.full: no available entry row at baseline against the committed seam\n    - (lookahead-closure) qsDay.half: exit baseline has no refusal-aware acceptor cell on qsFee\n  decided by: only-candidate\n  settled: qsDay.half.en-y0   seam=none   extension=0",
+  "provenance": [],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7Tea+Oy ~b~ \u00b7Day | \u00b7Fee",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": null,
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsTea_qsOy.yaml",
+    "keypath": "policy.prefer[+]",
+    "suggested_record": "{cell: {exit: baseline}, when: {right: {family: [qsDay]}}, why: 'Reviewer rejected the M1 outcome for E652:E679:E653:E658 (\u00b7Tea\u00b7Oy\u00b7Day\u00b7Fee)'}",
+    "names_provenance": [],
+    "decided_stage": "join-count",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E652:E679:E653:E658 (\u00b7Tea\u00b7Oy\u00b7Day\u00b7Fee)"
+   },
+   "any_of": {
+    "text": "qsTea qsOy qsDay qsFee",
+    "features": {},
+    "candidates": [
+     "\u00b7Tea+Oy ~b~ \u00b7Day | \u00b7Fee"
+    ]
+   }
+  },
+  "content_key": "69a12805624708f8f00cda3898e4ce63bfd0b180c740b6ef8136599654788b51"
+ },
+ {
+  "id": "u-21983",
+  "batch": 12,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "default": "d-e8f8abb42c51",
+   "ss03": "d-e8f8abb42c51",
+   "ss04": "d-e8f8abb42c51",
+   "ss05": "d-e8f8abb42c51",
+   "ss02": "d-e8f8abb42c51",
+   "ss02+ss03": "d-e8f8abb42c51",
+   "ss02+ss03+ss05": "d-e8f8abb42c51"
+  },
+  "no_verdict": false,
+  "echo": "e-0429",
+  "cluster": "c-a9b9a279",
+  "class": "day-baseline-entry-extension-dropped",
+  "group": "qsTea:qsOy",
+  "codepoints": "E652:E679:E653:E665",
+  "text_entities": "&#xE652;&#xE679;&#xE653;&#xE665;",
+  "notation": "\u00b7Tea\u00b7Oy\u00b7Day\u00b7May",
+  "notation_tokens": [
+   "\u00b7Tea",
+   "\u00b7Oy",
+   "\u00b7Day",
+   "\u00b7May"
+  ],
+  "configs": [
+   "default",
+   "ss03",
+   "ss04",
+   "ss05",
+   "ss02",
+   "ss02+ss03",
+   "ss02+ss03+ss05"
+  ],
+  "config_note": "only under: default, ss03, ss04, ss05, ss02, ss02+ss03, ss02+ss03+ss05",
+  "config_gate": null,
+  "config_classes": {
+   "default": "day-baseline-entry-extension-dropped",
+   "ss02": "day-baseline-entry-extension-dropped",
+   "ss03": "day-baseline-entry-extension-dropped",
+   "ss04": "day-baseline-entry-extension-dropped",
+   "ss05": "day-baseline-entry-extension-dropped",
+   "ss02+ss03": "day-baseline-entry-extension-dropped",
+   "ss02+ss03+ss05": "day-baseline-entry-extension-dropped"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss03",
+     "ss04",
+     "ss05",
+     "ss02",
+     "ss02+ss03",
+     "ss02+ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsTea_qsOy",
+    "qsDay.half.en-y0.ex-y0.en-ext-1",
+    "qsMay.en-y0.ex-y5"
+   ],
+   "seams": [
+    "y0",
+    "y0"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsTea_qsOy/hapax/None/baseline/",
+    "qsDay/half/baseline/baseline/",
+    "qsMay/loop/baseline/None/"
+   ],
+   "seams": [
+    "y0",
+    "y0"
+   ],
+   "extensions": [
+    0,
+    0
+   ]
+  },
+  "diff_positions": [
+   0,
+   1,
+   2
+  ],
+  "pair": {
+   "left": 1,
+   "right": 2
+  },
+  "pair_codepoints": [
+   2,
+   3
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 400,
+    "x_max": 950,
+    "advance_total": 950
+   },
+   "after": {
+    "x_min": 450,
+    "x_max": 900,
+    "advance_total": 900
+   }
+  },
+  "boundary_marks": [],
+  "secondary_seams": null,
+  "summary": "New: \u00b7Day keeps the same seams but settles as a different cell (half, entry baseline, exit baseline) \u2014 decided by join-count rank (no policy record involved).",
+  "explain": "sequence E652:E679:E653:E665   config default\nsettled: qsTea_qsOy.hapax.ex-y0 qsDay.half.en-y0.ex-y0 qsMay.loop.en-y0\n\nposition 0: qsTea_qsOy\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> hapax            entry=none       seam=baseline   join-count=2 prospect=1\n     hapax            entry=none       seam=none       join-count=1 prospect=1\n  decided by: join-count (over hapax entry=none seam=none)\n  settled: qsTea_qsOy.hapax.ex-y0   seam=baseline   extension=0\n\nposition 1: qsDay\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> half             entry=baseline   seam=baseline   join-count=2 prospect=0\n     half             entry=baseline   seam=none       join-count=1 prospect=0\n  eliminated before ranking:\n    - (entry-binding) qsDay.full: no available entry row at baseline against the committed seam\n  decided by: join-count (over half entry=baseline seam=none)\n  settled: qsDay.half.en-y0.ex-y0   seam=baseline   extension=0\n\nposition 2: qsMay\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> loop             entry=baseline   seam=none       join-count=1 prospect=0\n  eliminated before ranking:\n    - (entry-binding) qsMay.grounded-loop: no available entry row at baseline against the committed seam\n  decided by: only-candidate\n  settled: qsMay.loop.en-y0   seam=none   extension=0",
+  "provenance": [],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7Tea+Oy ~b~ \u00b7Day ~b~ \u00b7May",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": null,
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsTea_qsOy.yaml",
+    "keypath": "policy.prefer[+]",
+    "suggested_record": "{cell: {exit: baseline}, when: {right: {family: [qsDay]}}, why: 'Reviewer rejected the M1 outcome for E652:E679:E653:E665 (\u00b7Tea\u00b7Oy\u00b7Day\u00b7May)'}",
+    "names_provenance": [],
+    "decided_stage": "join-count",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E652:E679:E653:E665 (\u00b7Tea\u00b7Oy\u00b7Day\u00b7May)"
+   },
+   "any_of": {
+    "text": "qsTea qsOy qsDay qsMay",
+    "features": {},
+    "candidates": [
+     "\u00b7Tea+Oy ~b~ \u00b7Day ~b~ \u00b7May"
+    ]
+   }
+  },
+  "content_key": "e2a5bfe4274e01e8a975842c666ae9967368cae942db8f4b829b479cfca6d0ba"
+ },
+ {
+  "id": "u-21984",
+  "batch": 12,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "default": "d-e8f8abb42c51",
+   "ss03": "d-e8f8abb42c51",
+   "ss04": "d-e8f8abb42c51",
+   "ss05": "d-e8f8abb42c51",
+   "ss02": "d-e8f8abb42c51",
+   "ss02+ss03": "d-e8f8abb42c51",
+   "ss02+ss03+ss05": "d-e8f8abb42c51"
+  },
+  "no_verdict": false,
+  "echo": "e-0430",
+  "cluster": "c-a9b9a279",
+  "class": "day-baseline-entry-extension-dropped",
+  "group": "qsTea:qsOy",
+  "codepoints": "E652:E679:E653:E666",
+  "text_entities": "&#xE652;&#xE679;&#xE653;&#xE666;",
+  "notation": "\u00b7Tea\u00b7Oy\u00b7Day\u00b7No",
+  "notation_tokens": [
+   "\u00b7Tea",
+   "\u00b7Oy",
+   "\u00b7Day",
+   "\u00b7No"
+  ],
+  "configs": [
+   "default",
+   "ss03",
+   "ss04",
+   "ss05",
+   "ss02",
+   "ss02+ss03",
+   "ss02+ss03+ss05"
+  ],
+  "config_note": "only under: default, ss03, ss04, ss05, ss02, ss02+ss03, ss02+ss03+ss05",
+  "config_gate": null,
+  "config_classes": {
+   "default": "day-baseline-entry-extension-dropped",
+   "ss02": "day-baseline-entry-extension-dropped",
+   "ss03": "day-baseline-entry-extension-dropped",
+   "ss04": "day-baseline-entry-extension-dropped",
+   "ss05": "day-baseline-entry-extension-dropped",
+   "ss02+ss03": "day-baseline-entry-extension-dropped",
+   "ss02+ss03+ss05": "day-baseline-entry-extension-dropped"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss03",
+     "ss04",
+     "ss05",
+     "ss02",
+     "ss02+ss03",
+     "ss02+ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsTea_qsOy",
+    "qsDay.half.en-y0.ex-y0.en-ext-1",
+    "qsNo.alt.en-y0.ex-y0"
+   ],
+   "seams": [
+    "y0",
+    "y0"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsTea_qsOy/hapax/None/baseline/",
+    "qsDay/half/baseline/baseline/",
+    "qsNo/flipped/baseline/None/"
+   ],
+   "seams": [
+    "y0",
+    "y0"
+   ],
+   "extensions": [
+    0,
+    0
+   ]
+  },
+  "diff_positions": [
+   0,
+   1,
+   2
+  ],
+  "pair": {
+   "left": 1,
+   "right": 2
+  },
+  "pair_codepoints": [
+   2,
+   3
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 400,
+    "x_max": 950,
+    "advance_total": 950
+   },
+   "after": {
+    "x_min": 450,
+    "x_max": 900,
+    "advance_total": 900
+   }
+  },
+  "boundary_marks": [],
+  "secondary_seams": null,
+  "summary": "New: \u00b7Day keeps the same seams but settles as a different cell (half, entry baseline, exit baseline) \u2014 decided by join-count rank (no policy record involved).",
+  "explain": "sequence E652:E679:E653:E666   config default\nsettled: qsTea_qsOy.hapax.ex-y0 qsDay.half.en-y0.ex-y0 qsNo.flipped.en-y0\n\nposition 0: qsTea_qsOy\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> hapax            entry=none       seam=baseline   join-count=2 prospect=1\n     hapax            entry=none       seam=none       join-count=1 prospect=1\n  decided by: join-count (over hapax entry=none seam=none)\n  settled: qsTea_qsOy.hapax.ex-y0   seam=baseline   extension=0\n\nposition 1: qsDay\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> half             entry=baseline   seam=baseline   join-count=2 prospect=0\n     half             entry=baseline   seam=none       join-count=1 prospect=0\n  eliminated before ranking:\n    - (entry-binding) qsDay.full: no available entry row at baseline against the committed seam\n  decided by: join-count (over half entry=baseline seam=none)\n  settled: qsDay.half.en-y0.ex-y0   seam=baseline   extension=0\n\nposition 2: qsNo\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> flipped          entry=baseline   seam=none       join-count=1 prospect=0\n  eliminated before ranking:\n    - (entry-binding) qsNo.loop: no available entry row at baseline against the committed seam\n  decided by: only-candidate\n  settled: qsNo.flipped.en-y0   seam=none   extension=0",
+  "provenance": [],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7Tea+Oy ~b~ \u00b7Day ~b~ \u00b7No",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": null,
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsTea_qsOy.yaml",
+    "keypath": "policy.prefer[+]",
+    "suggested_record": "{cell: {exit: baseline}, when: {right: {family: [qsDay]}}, why: 'Reviewer rejected the M1 outcome for E652:E679:E653:E666 (\u00b7Tea\u00b7Oy\u00b7Day\u00b7No)'}",
+    "names_provenance": [],
+    "decided_stage": "join-count",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E652:E679:E653:E666 (\u00b7Tea\u00b7Oy\u00b7Day\u00b7No)"
+   },
+   "any_of": {
+    "text": "qsTea qsOy qsDay qsNo",
+    "features": {},
+    "candidates": [
+     "\u00b7Tea+Oy ~b~ \u00b7Day ~b~ \u00b7No"
+    ]
+   }
+  },
+  "content_key": "f27d441b2aafcce1ffe686ae9a966dd31dbdc35d410724feb141967a649a0b7a"
+ },
+ {
+  "id": "u-21985",
+  "batch": 12,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "default": "d-e8f8abb42c51",
+   "ss03": "d-e8f8abb42c51",
+   "ss04": "d-e8f8abb42c51",
+   "ss05": "d-e8f8abb42c51",
+   "ss02": "d-e8f8abb42c51",
+   "ss02+ss03": "d-e8f8abb42c51",
+   "ss02+ss03+ss05": "d-e8f8abb42c51"
+  },
+  "no_verdict": false,
+  "echo": "e-0431",
+  "cluster": "c-a9b9a279",
+  "class": "day-baseline-entry-extension-dropped",
+  "group": "qsTea:qsOy",
+  "codepoints": "E652:E679:E653:E667",
+  "text_entities": "&#xE652;&#xE679;&#xE653;&#xE667;",
+  "notation": "\u00b7Tea\u00b7Oy\u00b7Day\u00b7Low",
+  "notation_tokens": [
+   "\u00b7Tea",
+   "\u00b7Oy",
+   "\u00b7Day",
+   "\u00b7Low"
+  ],
+  "configs": [
+   "default",
+   "ss03",
+   "ss04",
+   "ss05",
+   "ss02",
+   "ss02+ss03",
+   "ss02+ss03+ss05"
+  ],
+  "config_note": "only under: default, ss03, ss04, ss05, ss02, ss02+ss03, ss02+ss03+ss05",
+  "config_gate": null,
+  "config_classes": {
+   "default": "day-baseline-entry-extension-dropped",
+   "ss02": "day-baseline-entry-extension-dropped",
+   "ss03": "day-baseline-entry-extension-dropped",
+   "ss04": "day-baseline-entry-extension-dropped",
+   "ss05": "day-baseline-entry-extension-dropped",
+   "ss02+ss03": "day-baseline-entry-extension-dropped",
+   "ss02+ss03+ss05": "day-baseline-entry-extension-dropped"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss03",
+     "ss04",
+     "ss05",
+     "ss02",
+     "ss02+ss03",
+     "ss02+ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsTea_qsOy",
+    "qsDay.half.en-y0.ex-y0.en-ext-1",
+    "qsLow"
+   ],
+   "seams": [
+    "y0",
+    "y0"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsTea_qsOy/hapax/None/baseline/",
+    "qsDay/half/baseline/baseline/",
+    "qsLow/hapax/baseline/None/"
+   ],
+   "seams": [
+    "y0",
+    "y0"
+   ],
+   "extensions": [
+    0,
+    0
+   ]
+  },
+  "diff_positions": [
+   0,
+   1,
+   2
+  ],
+  "pair": {
+   "left": 1,
+   "right": 2
+  },
+  "pair_codepoints": [
+   2,
+   3
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 400,
+    "x_max": 950,
+    "advance_total": 950
+   },
+   "after": {
+    "x_min": 450,
+    "x_max": 900,
+    "advance_total": 900
+   }
+  },
+  "boundary_marks": [],
+  "secondary_seams": null,
+  "summary": "New: \u00b7Day keeps the same seams but settles as a different cell (half, entry baseline, exit baseline) \u2014 decided by join-count rank (no policy record involved).",
+  "explain": "sequence E652:E679:E653:E667   config default\nsettled: qsTea_qsOy.hapax.ex-y0 qsDay.half.en-y0.ex-y0 qsLow.hapax.en-y0\n\nposition 0: qsTea_qsOy\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> hapax            entry=none       seam=baseline   join-count=2 prospect=1\n     hapax            entry=none       seam=none       join-count=1 prospect=1\n  decided by: join-count (over hapax entry=none seam=none)\n  settled: qsTea_qsOy.hapax.ex-y0   seam=baseline   extension=0\n\nposition 1: qsDay\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> half             entry=baseline   seam=baseline   join-count=2 prospect=0\n     half             entry=baseline   seam=none       join-count=1 prospect=0\n  eliminated before ranking:\n    - (entry-binding) qsDay.full: no available entry row at baseline against the committed seam\n  decided by: join-count (over half entry=baseline seam=none)\n  settled: qsDay.half.en-y0.ex-y0   seam=baseline   extension=0\n\nposition 2: qsLow\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> hapax            entry=baseline   seam=none       join-count=1 prospect=0\n  decided by: only-candidate\n  settled: qsLow.hapax.en-y0   seam=none   extension=0",
+  "provenance": [],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7Tea+Oy ~b~ \u00b7Day ~b~ \u00b7Low",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": null,
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsTea_qsOy.yaml",
+    "keypath": "policy.prefer[+]",
+    "suggested_record": "{cell: {exit: baseline}, when: {right: {family: [qsDay]}}, why: 'Reviewer rejected the M1 outcome for E652:E679:E653:E667 (\u00b7Tea\u00b7Oy\u00b7Day\u00b7Low)'}",
+    "names_provenance": [],
+    "decided_stage": "join-count",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E652:E679:E653:E667 (\u00b7Tea\u00b7Oy\u00b7Day\u00b7Low)"
+   },
+   "any_of": {
+    "text": "qsTea qsOy qsDay qsLow",
+    "features": {},
+    "candidates": [
+     "\u00b7Tea+Oy ~b~ \u00b7Day ~b~ \u00b7Low"
+    ]
+   }
+  },
+  "content_key": "c79f3f3550c7e9189b71e6f976b91009c90d6fc475517f673e910f78a813851d"
+ },
+ {
+  "id": "u-21986",
+  "batch": 12,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "default": "d-e8f8abb42c51",
+   "ss03": "d-e8f8abb42c51",
+   "ss04": "d-e8f8abb42c51",
+   "ss05": "d-e8f8abb42c51",
+   "ss02": "d-e8f8abb42c51",
+   "ss02+ss03": "d-e8f8abb42c51",
+   "ss02+ss03+ss05": "d-e8f8abb42c51"
+  },
+  "no_verdict": false,
+  "echo": "e-0432",
+  "cluster": "c-a9b9a279",
+  "class": "day-baseline-entry-extension-dropped",
+  "group": "qsTea:qsOy",
+  "codepoints": "E652:E679:E653:E670",
+  "text_entities": "&#xE652;&#xE679;&#xE653;&#xE670;",
+  "notation": "\u00b7Tea\u00b7Oy\u00b7Day\u00b7It",
+  "notation_tokens": [
+   "\u00b7Tea",
+   "\u00b7Oy",
+   "\u00b7Day",
+   "\u00b7It"
+  ],
+  "configs": [
+   "default",
+   "ss03",
+   "ss04",
+   "ss05",
+   "ss02",
+   "ss02+ss03",
+   "ss02+ss03+ss05"
+  ],
+  "config_note": "only under: default, ss03, ss04, ss05, ss02, ss02+ss03, ss02+ss03+ss05",
+  "config_gate": null,
+  "config_classes": {
+   "default": "day-baseline-entry-extension-dropped",
+   "ss02": "day-baseline-entry-extension-dropped",
+   "ss03": "day-baseline-entry-extension-dropped",
+   "ss05": "day-baseline-entry-extension-dropped",
+   "ss02+ss03": "day-baseline-entry-extension-dropped",
+   "ss02+ss03+ss05": "day-baseline-entry-extension-dropped",
+   "ss04": "day-baseline-entry-extension-dropped"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss03",
+     "ss04",
+     "ss05",
+     "ss02",
+     "ss02+ss03",
+     "ss02+ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsTea_qsOy",
+    "qsDay.half.en-y0.ex-y0.en-ext-1",
+    "qsIt.en-y0.ex-y5"
+   ],
+   "seams": [
+    "y0",
+    "y0"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsTea_qsOy/hapax/None/baseline/",
+    "qsDay/half/baseline/baseline/",
+    "qsIt/hapax/baseline/None/"
+   ],
+   "seams": [
+    "y0",
+    "y0"
+   ],
+   "extensions": [
+    0,
+    0
+   ]
+  },
+  "diff_positions": [
+   0,
+   1,
+   2
+  ],
+  "pair": {
+   "left": 1,
+   "right": 2
+  },
+  "pair_codepoints": [
+   2,
+   3
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 400,
+    "x_max": 750,
+    "advance_total": 750
+   },
+   "after": {
+    "x_min": 450,
+    "x_max": 700,
+    "advance_total": 700
+   }
+  },
+  "boundary_marks": [],
+  "secondary_seams": null,
+  "summary": "New: \u00b7Day keeps the same seams but settles as a different cell (half, entry baseline, exit baseline) \u2014 decided by join-count rank (no policy record involved).",
+  "explain": "sequence E652:E679:E653:E670   config default\nsettled: qsTea_qsOy.hapax.ex-y0 qsDay.half.en-y0.ex-y0 qsIt.hapax.en-y0\n\nposition 0: qsTea_qsOy\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> hapax            entry=none       seam=baseline   join-count=2 prospect=1\n     hapax            entry=none       seam=none       join-count=1 prospect=1\n  decided by: join-count (over hapax entry=none seam=none)\n  settled: qsTea_qsOy.hapax.ex-y0   seam=baseline   extension=0\n\nposition 1: qsDay\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> half             entry=baseline   seam=baseline   join-count=2 prospect=0\n     half             entry=baseline   seam=none       join-count=1 prospect=0\n  eliminated before ranking:\n    - (entry-binding) qsDay.full: no available entry row at baseline against the committed seam\n  decided by: join-count (over half entry=baseline seam=none)\n  settled: qsDay.half.en-y0.ex-y0   seam=baseline   extension=0\n\nposition 2: qsIt\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> hapax            entry=baseline   seam=none       join-count=1 prospect=0\n  decided by: only-candidate\n  settled: qsIt.hapax.en-y0   seam=none   extension=0",
+  "provenance": [],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7Tea+Oy ~b~ \u00b7Day ~b~ \u00b7It",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": null,
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsTea_qsOy.yaml",
+    "keypath": "policy.prefer[+]",
+    "suggested_record": "{cell: {exit: baseline}, when: {right: {family: [qsDay]}}, why: 'Reviewer rejected the M1 outcome for E652:E679:E653:E670 (\u00b7Tea\u00b7Oy\u00b7Day\u00b7It)'}",
+    "names_provenance": [],
+    "decided_stage": "join-count",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E652:E679:E653:E670 (\u00b7Tea\u00b7Oy\u00b7Day\u00b7It)"
+   },
+   "any_of": {
+    "text": "qsTea qsOy qsDay qsIt",
+    "features": {},
+    "candidates": [
+     "\u00b7Tea+Oy ~b~ \u00b7Day ~b~ \u00b7It"
+    ]
+   }
+  },
+  "content_key": "80a9182856a373383a788f37bd731fb0e7f0b3b11a27110dafa145a60156a60e"
+ },
+ {
+  "id": "u-21987",
+  "batch": 12,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "default": "d-e8f8abb42c51",
+   "ss03": "d-e8f8abb42c51",
+   "ss04": "d-e8f8abb42c51",
+   "ss05": "d-e8f8abb42c51",
+   "ss02": "d-e8f8abb42c51",
+   "ss02+ss03": "d-e8f8abb42c51",
+   "ss02+ss03+ss05": "d-e8f8abb42c51"
+  },
+  "no_verdict": false,
+  "echo": "e-0433",
+  "cluster": "c-a9b9a279",
+  "class": "day-baseline-entry-extension-dropped",
+  "group": "qsTea:qsOy",
+  "codepoints": "E652:E679:E653:E675",
+  "text_entities": "&#xE652;&#xE679;&#xE653;&#xE675;",
+  "notation": "\u00b7Tea\u00b7Oy\u00b7Day\u00b7I",
+  "notation_tokens": [
+   "\u00b7Tea",
+   "\u00b7Oy",
+   "\u00b7Day",
+   "\u00b7I"
+  ],
+  "configs": [
+   "default",
+   "ss03",
+   "ss04",
+   "ss05",
+   "ss02",
+   "ss02+ss03",
+   "ss02+ss03+ss05"
+  ],
+  "config_note": "only under: default, ss03, ss04, ss05, ss02, ss02+ss03, ss02+ss03+ss05",
+  "config_gate": null,
+  "config_classes": {
+   "default": "day-baseline-entry-extension-dropped",
+   "ss02": "day-baseline-entry-extension-dropped",
+   "ss03": "day-baseline-entry-extension-dropped",
+   "ss04": "day-baseline-entry-extension-dropped",
+   "ss05": "day-baseline-entry-extension-dropped",
+   "ss02+ss03": "day-baseline-entry-extension-dropped",
+   "ss02+ss03+ss05": "day-baseline-entry-extension-dropped"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss03",
+     "ss04",
+     "ss05",
+     "ss02",
+     "ss02+ss03",
+     "ss02+ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsTea_qsOy",
+    "qsDay.half.en-y0.ex-y0.en-ext-1",
+    "qsI"
+   ],
+   "seams": [
+    "y0",
+    "y0"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsTea_qsOy/hapax/None/baseline/",
+    "qsDay/half/baseline/baseline/",
+    "qsI/loop/baseline/None/"
+   ],
+   "seams": [
+    "y0",
+    "y0"
+   ],
+   "extensions": [
+    0,
+    0
+   ]
+  },
+  "diff_positions": [
+   0,
+   1,
+   2
+  ],
+  "pair": {
+   "left": 1,
+   "right": 2
+  },
+  "pair_codepoints": [
+   2,
+   3
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 400,
+    "x_max": 950,
+    "advance_total": 950
+   },
+   "after": {
+    "x_min": 450,
+    "x_max": 900,
+    "advance_total": 900
+   }
+  },
+  "boundary_marks": [],
+  "secondary_seams": null,
+  "summary": "New: \u00b7Day keeps the same seams but settles as a different cell (half, entry baseline, exit baseline) \u2014 decided by join-count rank (no policy record involved).",
+  "explain": "sequence E652:E679:E653:E675   config default\nsettled: qsTea_qsOy.hapax.ex-y0 qsDay.half.en-y0.ex-y0 qsI.loop.en-y0\n\nposition 0: qsTea_qsOy\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> hapax            entry=none       seam=baseline   join-count=2 prospect=1\n     hapax            entry=none       seam=none       join-count=1 prospect=1\n  decided by: join-count (over hapax entry=none seam=none)\n  settled: qsTea_qsOy.hapax.ex-y0   seam=baseline   extension=0\n\nposition 1: qsDay\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> half             entry=baseline   seam=baseline   join-count=2 prospect=0\n     half             entry=baseline   seam=none       join-count=1 prospect=0\n  eliminated before ranking:\n    - (entry-binding) qsDay.full: no available entry row at baseline against the committed seam\n  decided by: join-count (over half entry=baseline seam=none)\n  settled: qsDay.half.en-y0.ex-y0   seam=baseline   extension=0\n\nposition 2: qsI\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> loop             entry=baseline   seam=none       join-count=1 prospect=0\n  eliminated before ranking:\n    - (entry-binding) qsI.smaller-loop: no available entry row at baseline against the committed seam\n  decided by: only-candidate\n  settled: qsI.loop.en-y0   seam=none   extension=0",
+  "provenance": [],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7Tea+Oy ~b~ \u00b7Day ~b~ \u00b7I",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": null,
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsTea_qsOy.yaml",
+    "keypath": "policy.prefer[+]",
+    "suggested_record": "{cell: {exit: baseline}, when: {right: {family: [qsDay]}}, why: 'Reviewer rejected the M1 outcome for E652:E679:E653:E675 (\u00b7Tea\u00b7Oy\u00b7Day\u00b7I)'}",
+    "names_provenance": [],
+    "decided_stage": "join-count",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E652:E679:E653:E675 (\u00b7Tea\u00b7Oy\u00b7Day\u00b7I)"
+   },
+   "any_of": {
+    "text": "qsTea qsOy qsDay qsI",
+    "features": {},
+    "candidates": [
+     "\u00b7Tea+Oy ~b~ \u00b7Day ~b~ \u00b7I"
+    ]
+   }
+  },
+  "content_key": "3658bca2adca6193c930e56f0275d2b7795b0d440fd0b75adeff17cf91cd3ca3"
+ },
+ {
+  "id": "u-21988",
+  "batch": 12,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "default": "d-e8f8abb42c51",
+   "ss03": "d-e8f8abb42c51",
+   "ss04": "d-e8f8abb42c51",
+   "ss05": "d-e8f8abb42c51",
+   "ss02": "d-e8f8abb42c51",
+   "ss02+ss03": "d-e8f8abb42c51",
+   "ss02+ss03+ss05": "d-e8f8abb42c51"
+  },
+  "no_verdict": false,
+  "echo": "e-0434",
+  "cluster": "c-a9b9a279",
+  "class": "day-baseline-entry-extension-dropped",
+  "group": "qsTea:qsOy",
+  "codepoints": "E652:E679:E653:E676",
+  "text_entities": "&#xE652;&#xE679;&#xE653;&#xE676;",
+  "notation": "\u00b7Tea\u00b7Oy\u00b7Day\u00b7Ah",
+  "notation_tokens": [
+   "\u00b7Tea",
+   "\u00b7Oy",
+   "\u00b7Day",
+   "\u00b7Ah"
+  ],
+  "configs": [
+   "default",
+   "ss03",
+   "ss04",
+   "ss05",
+   "ss02",
+   "ss02+ss03",
+   "ss02+ss03+ss05"
+  ],
+  "config_note": "only under: default, ss03, ss04, ss05, ss02, ss02+ss03, ss02+ss03+ss05",
+  "config_gate": null,
+  "config_classes": {
+   "default": "day-baseline-entry-extension-dropped",
+   "ss02": "day-baseline-entry-extension-dropped",
+   "ss03": "day-baseline-entry-extension-dropped",
+   "ss04": "day-baseline-entry-extension-dropped",
+   "ss05": "day-baseline-entry-extension-dropped",
+   "ss02+ss03": "day-baseline-entry-extension-dropped",
+   "ss02+ss03+ss05": "day-baseline-entry-extension-dropped"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss03",
+     "ss04",
+     "ss05",
+     "ss02",
+     "ss02+ss03",
+     "ss02+ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsTea_qsOy",
+    "qsDay.half.en-y0.ex-y0.en-ext-1",
+    "qsAh"
+   ],
+   "seams": [
+    "y0",
+    "y0"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsTea_qsOy/hapax/None/baseline/",
+    "qsDay/half/baseline/baseline/",
+    "qsAh/hapax/baseline/None/"
+   ],
+   "seams": [
+    "y0",
+    "y0"
+   ],
+   "extensions": [
+    0,
+    0
+   ]
+  },
+  "diff_positions": [
+   0,
+   1,
+   2
+  ],
+  "pair": {
+   "left": 1,
+   "right": 2
+  },
+  "pair_codepoints": [
+   2,
+   3
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 400,
+    "x_max": 1050,
+    "advance_total": 1050
+   },
+   "after": {
+    "x_min": 450,
+    "x_max": 1000,
+    "advance_total": 1000
+   }
+  },
+  "boundary_marks": [],
+  "secondary_seams": null,
+  "summary": "New: \u00b7Day keeps the same seams but settles as a different cell (half, entry baseline, exit baseline) \u2014 decided by join-count rank (no policy record involved).",
+  "explain": "sequence E652:E679:E653:E676   config default\nsettled: qsTea_qsOy.hapax.ex-y0 qsDay.half.en-y0.ex-y0 qsAh.hapax.en-y0\n\nposition 0: qsTea_qsOy\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> hapax            entry=none       seam=baseline   join-count=2 prospect=1\n     hapax            entry=none       seam=none       join-count=1 prospect=1\n  decided by: join-count (over hapax entry=none seam=none)\n  settled: qsTea_qsOy.hapax.ex-y0   seam=baseline   extension=0\n\nposition 1: qsDay\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> half             entry=baseline   seam=baseline   join-count=2 prospect=0\n     half             entry=baseline   seam=none       join-count=1 prospect=0\n  eliminated before ranking:\n    - (entry-binding) qsDay.full: no available entry row at baseline against the committed seam\n  decided by: join-count (over half entry=baseline seam=none)\n  settled: qsDay.half.en-y0.ex-y0   seam=baseline   extension=0\n\nposition 2: qsAh\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> hapax            entry=baseline   seam=none       join-count=1 prospect=0\n  decided by: only-candidate\n  settled: qsAh.hapax.en-y0   seam=none   extension=0",
+  "provenance": [],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7Tea+Oy ~b~ \u00b7Day ~b~ \u00b7Ah",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": null,
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsTea_qsOy.yaml",
+    "keypath": "policy.prefer[+]",
+    "suggested_record": "{cell: {exit: baseline}, when: {right: {family: [qsDay]}}, why: 'Reviewer rejected the M1 outcome for E652:E679:E653:E676 (\u00b7Tea\u00b7Oy\u00b7Day\u00b7Ah)'}",
+    "names_provenance": [],
+    "decided_stage": "join-count",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E652:E679:E653:E676 (\u00b7Tea\u00b7Oy\u00b7Day\u00b7Ah)"
+   },
+   "any_of": {
+    "text": "qsTea qsOy qsDay qsAh",
+    "features": {},
+    "candidates": [
+     "\u00b7Tea+Oy ~b~ \u00b7Day ~b~ \u00b7Ah"
+    ]
+   }
+  },
+  "content_key": "0a7d24fa36abb917e1afdc4f6d908fb33209e8f198824df249adb5bce58cd69d"
+ },
+ {
+  "id": "u-21989",
+  "batch": 12,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "default": "d-e8f8abb42c51",
+   "ss03": "d-e8f8abb42c51",
+   "ss04": "d-e8f8abb42c51",
+   "ss05": "d-e8f8abb42c51",
+   "ss02": "d-e8f8abb42c51",
+   "ss02+ss03": "d-e8f8abb42c51",
+   "ss02+ss03+ss05": "d-e8f8abb42c51"
+  },
+  "no_verdict": false,
+  "echo": "e-0426",
+  "cluster": "c-a9b9a279",
+  "class": "day-baseline-entry-extension-dropped",
+  "group": "qsTea:qsOy",
+  "codepoints": "E652:E679:E653:E679",
+  "text_entities": "&#xE652;&#xE679;&#xE653;&#xE679;",
+  "notation": "\u00b7Tea\u00b7Oy\u00b7Day\u00b7Oy",
+  "notation_tokens": [
+   "\u00b7Tea",
+   "\u00b7Oy",
+   "\u00b7Day",
+   "\u00b7Oy"
+  ],
+  "configs": [
+   "default",
+   "ss03",
+   "ss04",
+   "ss05",
+   "ss02",
+   "ss02+ss03",
+   "ss02+ss03+ss05"
+  ],
+  "config_note": "only under: default, ss03, ss04, ss05, ss02, ss02+ss03, ss02+ss03+ss05",
+  "config_gate": null,
+  "config_classes": {
+   "default": "day-baseline-entry-extension-dropped",
+   "ss02": "day-baseline-entry-extension-dropped",
+   "ss03": "day-baseline-entry-extension-dropped",
+   "ss04": "day-baseline-entry-extension-dropped",
+   "ss05": "day-baseline-entry-extension-dropped",
+   "ss02+ss03": "day-baseline-entry-extension-dropped",
+   "ss02+ss03+ss05": "day-baseline-entry-extension-dropped"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss03",
+     "ss04",
+     "ss05",
+     "ss02",
+     "ss02+ss03",
+     "ss02+ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsTea_qsOy",
+    "qsDay.half.en-y0.ex-y0.en-ext-1",
+    "qsOy"
+   ],
+   "seams": [
+    "y0",
+    "break"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsTea_qsOy/hapax/None/baseline/",
+    "qsDay/half/baseline/None/",
+    "qsOy/hapax/None/None/"
+   ],
+   "seams": [
+    "y0",
+    "break"
+   ],
+   "extensions": [
+    0,
+    0
+   ]
+  },
+  "diff_positions": [
+   0,
+   1
+  ],
+  "pair": {
+   "left": 0,
+   "right": 1
+  },
+  "pair_codepoints": [
+   0,
+   2
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 0,
+    "x_max": 700,
+    "advance_total": 1150
+   },
+   "after": {
+    "x_min": 0,
+    "x_max": 650,
+    "advance_total": 1100
+   }
+  },
+  "boundary_marks": [],
+  "secondary_seams": null,
+  "summary": "New: \u00b7Day keeps the same seams but settles as a different cell (half, entry baseline, exit none) \u2014 decided by the only surviving candidate (no policy record involved).",
+  "explain": "sequence E652:E679:E653:E679   config default\nsettled: qsTea_qsOy.hapax.ex-y0 qsDay.half.en-y0 qsOy.hapax\n\nposition 0: qsTea_qsOy\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> hapax            entry=none       seam=baseline   join-count=1 prospect=0\n     hapax            entry=none       seam=none       join-count=0 prospect=0\n  decided by: join-count (over hapax entry=none seam=none)\n  settled: qsTea_qsOy.hapax.ex-y0   seam=baseline   extension=0\n\nposition 1: qsDay\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> half             entry=baseline   seam=none       join-count=1 prospect=0\n  eliminated before ranking:\n    - (entry-binding) qsDay.full: no available entry row at baseline against the committed seam\n    - (lookahead-closure) qsDay.half: exit baseline has no refusal-aware acceptor cell on qsOy\n  decided by: only-candidate\n  settled: qsDay.half.en-y0   seam=none   extension=0",
+  "provenance": [],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7Tea+Oy ~b~ \u00b7Day | \u00b7Oy",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": null,
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsTea_qsOy.yaml",
+    "keypath": "policy.prefer[+]",
+    "suggested_record": "{cell: {exit: baseline}, when: {right: {family: [qsDay]}}, why: 'Reviewer rejected the M1 outcome for E652:E679:E653:E679 (\u00b7Tea\u00b7Oy\u00b7Day\u00b7Oy)'}",
+    "names_provenance": [],
+    "decided_stage": "join-count",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E652:E679:E653:E679 (\u00b7Tea\u00b7Oy\u00b7Day\u00b7Oy)"
+   },
+   "any_of": {
+    "text": "qsTea qsOy qsDay qsOy",
+    "features": {},
+    "candidates": [
+     "\u00b7Tea+Oy ~b~ \u00b7Day | \u00b7Oy"
+    ]
+   }
+  },
+  "content_key": "d4be1ad6d5987fbffff89fb9e93e7d9dce06433598968ae4ffd249ae3ced5e46"
+ },
+ {
+  "id": "u-21990",
+  "batch": 12,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "default": "d-171712604e8b",
+   "ss03": "d-171712604e8b",
+   "ss04": "d-171712604e8b",
+   "ss05": "d-171712604e8b",
+   "ss02": "d-171712604e8b",
+   "ss02+ss03": "d-171712604e8b",
+   "ss02+ss03+ss05": "d-171712604e8b"
+  },
+  "no_verdict": false,
+  "echo": "e-0435",
+  "cluster": "c-f0a800cc",
+  "class": "day-baseline-entry-extension-dropped",
+  "group": "qsTea:qsOy",
+  "codepoints": "E652:E679:E653:E67A",
+  "text_entities": "&#xE652;&#xE679;&#xE653;&#xE67A;",
+  "notation": "\u00b7Tea\u00b7Oy\u00b7Day\u00b7Utter",
+  "notation_tokens": [
+   "\u00b7Tea",
+   "\u00b7Oy",
+   "\u00b7Day",
+   "\u00b7Utter"
+  ],
+  "configs": [
+   "default",
+   "ss03",
+   "ss04",
+   "ss05",
+   "ss02",
+   "ss02+ss03",
+   "ss02+ss03+ss05"
+  ],
+  "config_note": "only under: default, ss03, ss04, ss05, ss02, ss02+ss03, ss02+ss03+ss05",
+  "config_gate": null,
+  "config_classes": {
+   "default": "day-baseline-entry-extension-dropped",
+   "ss02": "day-baseline-entry-extension-dropped",
+   "ss03": "day-baseline-entry-extension-dropped",
+   "ss04": "day-baseline-entry-extension-dropped",
+   "ss05": "day-baseline-entry-extension-dropped",
+   "ss02+ss03": "day-baseline-entry-extension-dropped",
+   "ss02+ss03+ss05": "day-baseline-entry-extension-dropped"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss03",
+     "ss04",
+     "ss05",
+     "ss02",
+     "ss02+ss03",
+     "ss02+ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell"
+  ],
+  "exemplar": true,
+  "before": {
+   "glyphs": [
+    "qsTea_qsOy",
+    "qsDay_qsUtter.half.en-y0.ex-y5.en-ext-1"
+   ],
+   "seams": [
+    "y0"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsTea_qsOy/hapax/None/baseline/",
+    "qsDay_qsUtter/half/baseline/None/"
+   ],
+   "seams": [
+    "y0"
+   ],
+   "extensions": [
+    0
+   ]
+  },
+  "diff_positions": [
+   0,
+   1
+  ],
+  "pair": {
+   "left": 0,
+   "right": 1
+  },
+  "pair_codepoints": [
+   0,
+   3
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 0,
+    "x_max": 900,
+    "advance_total": 900
+   },
+   "after": {
+    "x_min": 0,
+    "x_max": 850,
+    "advance_total": 850
+   }
+  },
+  "boundary_marks": [],
+  "secondary_seams": null,
+  "summary": "New: \u00b7Day+Utter keeps the same seams but settles as a different cell (half, entry baseline, exit none) \u2014 decided by the only surviving candidate (no policy record involved).",
+  "explain": "sequence E652:E679:E653:E67A   config default\nsettled: qsTea_qsOy.hapax.ex-y0 qsDay_qsUtter.half.en-y0\n\nposition 0: qsTea_qsOy\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> hapax            entry=none       seam=baseline   join-count=1 prospect=0\n     hapax            entry=none       seam=none       join-count=0 prospect=0\n  decided by: join-count (over hapax entry=none seam=none)\n  settled: qsTea_qsOy.hapax.ex-y0   seam=baseline   extension=0\n\nposition 1: qsDay_qsUtter\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> half             entry=baseline   seam=none       join-count=1 prospect=0\n  eliminated before ranking:\n    - (entry-binding) qsDay_qsUtter.full: no available entry row at baseline against the committed seam\n  decided by: only-candidate\n  settled: qsDay_qsUtter.half.en-y0   seam=none   extension=0",
+  "provenance": [],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7Tea+Oy ~b~ \u00b7Day+Utter",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": null,
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsTea_qsOy.yaml",
+    "keypath": "policy.prefer[+]",
+    "suggested_record": "{cell: {exit: baseline}, when: {right: {family: [qsDay_qsUtter]}}, why: 'Reviewer rejected the M1 outcome for E652:E679:E653:E67A (\u00b7Tea\u00b7Oy\u00b7Day\u00b7Utter)'}",
+    "names_provenance": [],
+    "decided_stage": "join-count",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E652:E679:E653:E67A (\u00b7Tea\u00b7Oy\u00b7Day\u00b7Utter)"
+   },
+   "any_of": {
+    "text": "qsTea qsOy qsDay qsUtter",
+    "features": {},
+    "candidates": [
+     "\u00b7Tea+Oy ~b~ \u00b7Day+Utter"
+    ]
+   }
+  },
+  "content_key": "471f53ffca1af67e7d193c885010934839e941fb36ac4fae1f05954f2ddbbadb"
+ },
+ {
+  "id": "u-21991",
+  "batch": 12,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "default": "d-6281430920d1",
+   "ss03": "d-6281430920d1",
+   "ss04": "d-6281430920d1",
+   "ss05": "d-6281430920d1",
+   "ss02": "d-6281430920d1",
+   "ss02+ss03": "d-6281430920d1",
+   "ss02+ss03+ss05": "d-6281430920d1"
+  },
+  "no_verdict": false,
+  "echo": "e-0425",
+  "cluster": "c-69f7ef38",
+  "class": "day-baseline-entry-extension-dropped",
+  "group": "qsDay:qsTea",
+  "codepoints": "E653:E652:E679:E653",
+  "text_entities": "&#xE653;&#xE652;&#xE679;&#xE653;",
+  "notation": "\u00b7Day\u00b7Tea\u00b7Oy\u00b7Day",
+  "notation_tokens": [
+   "\u00b7Day",
+   "\u00b7Tea",
+   "\u00b7Oy",
+   "\u00b7Day"
+  ],
+  "configs": [
+   "default",
+   "ss03",
+   "ss04",
+   "ss05",
+   "ss02",
+   "ss02+ss03",
+   "ss02+ss03+ss05"
+  ],
+  "config_note": "only under: default, ss03, ss04, ss05, ss02, ss02+ss03, ss02+ss03+ss05",
+  "config_gate": null,
+  "config_classes": {
+   "default": "day-baseline-entry-extension-dropped",
+   "ss02": "day-baseline-entry-extension-dropped",
+   "ss03": "day-baseline-entry-extension-dropped",
+   "ss04": "day-baseline-entry-extension-dropped",
+   "ss05": "day-baseline-entry-extension-dropped",
+   "ss02+ss03": "day-baseline-entry-extension-dropped",
+   "ss02+ss03+ss05": "day-baseline-entry-extension-dropped"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss03",
+     "ss04",
+     "ss05",
+     "ss02",
+     "ss02+ss03",
+     "ss02+ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsDay",
+    "qsTea_qsOy",
+    "qsDay.half.en-y0.ex-y0.en-ext-1"
+   ],
+   "seams": [
+    "break",
+    "y0"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsDay/full/None/None/",
+    "qsTea_qsOy/hapax/None/baseline/",
+    "qsDay/half/baseline/None/"
+   ],
+   "seams": [
+    "break",
+    "y0"
+   ],
+   "extensions": [
+    0,
+    0
+   ]
+  },
+  "diff_positions": [
+   1,
+   2
+  ],
+  "pair": {
+   "left": 1,
+   "right": 2
+  },
+  "pair_codepoints": [
+   1,
+   3
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 250,
+    "x_max": 950,
+    "advance_total": 950
+   },
+   "after": {
+    "x_min": 250,
+    "x_max": 900,
+    "advance_total": 900
+   }
+  },
+  "boundary_marks": [],
+  "secondary_seams": null,
+  "summary": "New: \u00b7Day keeps the same seams but settles as a different cell (half, entry baseline, exit none) \u2014 decided by the only surviving candidate (no policy record involved).",
+  "explain": "sequence E653:E652:E679:E653   config default\nsettled: qsDay.full qsTea_qsOy.hapax.ex-y0 qsDay.half.en-y0\n\nposition 1: qsTea_qsOy\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> hapax            entry=none       seam=baseline   join-count=1 prospect=0\n     hapax            entry=none       seam=none       join-count=0 prospect=0\n  decided by: join-count (over hapax entry=none seam=none)\n  settled: qsTea_qsOy.hapax.ex-y0   seam=baseline   extension=0\n\nposition 2: qsDay\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> half             entry=baseline   seam=none       join-count=1 prospect=0\n  eliminated before ranking:\n    - (entry-binding) qsDay.full: no available entry row at baseline against the committed seam\n  decided by: only-candidate\n  settled: qsDay.half.en-y0   seam=none   extension=0",
+  "provenance": [],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7Day | \u00b7Tea+Oy ~b~ \u00b7Day",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": null,
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsTea_qsOy.yaml",
+    "keypath": "policy.prefer[+]",
+    "suggested_record": "{cell: {exit: baseline}, when: {right: {family: [qsDay]}}, why: 'Reviewer rejected the M1 outcome for E653:E652:E679:E653 (\u00b7Day\u00b7Tea\u00b7Oy\u00b7Day)'}",
+    "names_provenance": [],
+    "decided_stage": "join-count",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E653:E652:E679:E653 (\u00b7Day\u00b7Tea\u00b7Oy\u00b7Day)"
+   },
+   "any_of": {
+    "text": "qsDay qsTea qsOy qsDay",
+    "features": {},
+    "candidates": [
+     "\u00b7Day | \u00b7Tea+Oy ~b~ \u00b7Day"
+    ]
+   }
+  },
+  "content_key": "a89b48a957aeda0d18d16f473785c1496bc246177db8cbf93765cc00b0d4f3ad"
+ },
+ {
+  "id": "u-21992",
+  "batch": 12,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "default": "d-6281430920d1",
+   "ss04": "d-6281430920d1",
+   "ss05": "d-6281430920d1",
+   "ss02": "d-6281430920d1"
+  },
+  "no_verdict": false,
+  "echo": "e-0436",
+  "cluster": "c-bd33b03b",
+  "class": "day-baseline-entry-extension-dropped",
+  "group": "qsFee:qsTea",
+  "codepoints": "E658:E652:E679:E653",
+  "text_entities": "&#xE658;&#xE652;&#xE679;&#xE653;",
+  "notation": "\u00b7Fee\u00b7Tea\u00b7Oy\u00b7Day",
+  "notation_tokens": [
+   "\u00b7Fee",
+   "\u00b7Tea",
+   "\u00b7Oy",
+   "\u00b7Day"
+  ],
+  "configs": [
+   "default",
+   "ss04",
+   "ss05",
+   "ss02"
+  ],
+  "config_note": "only under: default, ss04, ss05, ss02",
+  "config_gate": null,
+  "config_classes": {
+   "default": "day-baseline-entry-extension-dropped",
+   "ss02": "day-baseline-entry-extension-dropped",
+   "ss04": "day-baseline-entry-extension-dropped",
+   "ss05": "day-baseline-entry-extension-dropped"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss04",
+     "ss05",
+     "ss02"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsFee",
+    "qsTea_qsOy",
+    "qsDay.half.en-y0.ex-y0.en-ext-1"
+   ],
+   "seams": [
+    "break",
+    "y0"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsFee/loop/None/None/",
+    "qsTea_qsOy/hapax/None/baseline/",
+    "qsDay/half/baseline/None/"
+   ],
+   "seams": [
+    "break",
+    "y0"
+   ],
+   "extensions": [
+    0,
+    0
+   ]
+  },
+  "diff_positions": [
+   1,
+   2
+  ],
+  "pair": {
+   "left": 1,
+   "right": 2
+  },
+  "pair_codepoints": [
+   1,
+   3
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 300,
+    "x_max": 1000,
+    "advance_total": 1000
+   },
+   "after": {
+    "x_min": 300,
+    "x_max": 950,
+    "advance_total": 950
+   }
+  },
+  "boundary_marks": [],
+  "secondary_seams": null,
+  "summary": "New: \u00b7Day keeps the same seams but settles as a different cell (half, entry baseline, exit none) \u2014 decided by the only surviving candidate (no policy record involved).",
+  "explain": "sequence E658:E652:E679:E653   config default\nsettled: qsFee.loop qsTea_qsOy.hapax.ex-y0 qsDay.half.en-y0\n\nposition 1: qsTea_qsOy\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> hapax            entry=none       seam=baseline   join-count=1 prospect=0\n     hapax            entry=none       seam=none       join-count=0 prospect=0\n  decided by: join-count (over hapax entry=none seam=none)\n  settled: qsTea_qsOy.hapax.ex-y0   seam=baseline   extension=0\n\nposition 2: qsDay\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> half             entry=baseline   seam=none       join-count=1 prospect=0\n  eliminated before ranking:\n    - (entry-binding) qsDay.full: no available entry row at baseline against the committed seam\n  decided by: only-candidate\n  settled: qsDay.half.en-y0   seam=none   extension=0",
+  "provenance": [],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7Fee | \u00b7Tea+Oy ~b~ \u00b7Day",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": null,
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsTea_qsOy.yaml",
+    "keypath": "policy.prefer[+]",
+    "suggested_record": "{cell: {exit: baseline}, when: {right: {family: [qsDay]}}, why: 'Reviewer rejected the M1 outcome for E658:E652:E679:E653 (\u00b7Fee\u00b7Tea\u00b7Oy\u00b7Day)'}",
+    "names_provenance": [],
+    "decided_stage": "join-count",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E658:E652:E679:E653 (\u00b7Fee\u00b7Tea\u00b7Oy\u00b7Day)"
+   },
+   "any_of": {
+    "text": "qsFee qsTea qsOy qsDay",
+    "features": {},
+    "candidates": [
+     "\u00b7Fee | \u00b7Tea+Oy ~b~ \u00b7Day"
+    ]
+   }
+  },
+  "content_key": "2a11ec2615dbd25885ff3b475701435b149e6209adb4b392a87a7dd1661dd57a"
+ },
+ {
+  "id": "u-21993",
+  "batch": 12,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "default": "d-6281430920d1",
+   "ss04": "d-6281430920d1",
+   "ss05": "d-6281430920d1",
+   "ss02": "d-6281430920d1"
+  },
+  "no_verdict": false,
+  "echo": "e-0436",
+  "cluster": "c-bd33b03b",
+  "class": "day-baseline-entry-extension-dropped",
+  "group": "qsMay:qsTea",
+  "codepoints": "E665:E652:E679:E653",
+  "text_entities": "&#xE665;&#xE652;&#xE679;&#xE653;",
+  "notation": "\u00b7May\u00b7Tea\u00b7Oy\u00b7Day",
+  "notation_tokens": [
+   "\u00b7May",
+   "\u00b7Tea",
+   "\u00b7Oy",
+   "\u00b7Day"
+  ],
+  "configs": [
+   "default",
+   "ss04",
+   "ss05",
+   "ss02"
+  ],
+  "config_note": "only under: default, ss04, ss05, ss02",
+  "config_gate": null,
+  "config_classes": {
+   "default": "day-baseline-entry-extension-dropped",
+   "ss02": "day-baseline-entry-extension-dropped",
+   "ss04": "day-baseline-entry-extension-dropped",
+   "ss05": "day-baseline-entry-extension-dropped"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss04",
+     "ss05",
+     "ss02"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsMay",
+    "qsTea_qsOy",
+    "qsDay.half.en-y0.ex-y0.en-ext-1"
+   ],
+   "seams": [
+    "break",
+    "y0"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsMay/loop/None/None/",
+    "qsTea_qsOy/hapax/None/baseline/",
+    "qsDay/half/baseline/None/"
+   ],
+   "seams": [
+    "break",
+    "y0"
+   ],
+   "extensions": [
+    0,
+    0
+   ]
+  },
+  "diff_positions": [
+   1,
+   2
+  ],
+  "pair": {
+   "left": 1,
+   "right": 2
+  },
+  "pair_codepoints": [
+   1,
+   3
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 300,
+    "x_max": 1000,
+    "advance_total": 1000
+   },
+   "after": {
+    "x_min": 300,
+    "x_max": 950,
+    "advance_total": 950
+   }
+  },
+  "boundary_marks": [],
+  "secondary_seams": null,
+  "summary": "New: \u00b7Day keeps the same seams but settles as a different cell (half, entry baseline, exit none) \u2014 decided by the only surviving candidate (no policy record involved).",
+  "explain": "sequence E665:E652:E679:E653   config default\nsettled: qsMay.loop qsTea_qsOy.hapax.ex-y0 qsDay.half.en-y0\n\nposition 1: qsTea_qsOy\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> hapax            entry=none       seam=baseline   join-count=1 prospect=0\n     hapax            entry=none       seam=none       join-count=0 prospect=0\n  decided by: join-count (over hapax entry=none seam=none)\n  settled: qsTea_qsOy.hapax.ex-y0   seam=baseline   extension=0\n\nposition 2: qsDay\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> half             entry=baseline   seam=none       join-count=1 prospect=0\n  eliminated before ranking:\n    - (entry-binding) qsDay.full: no available entry row at baseline against the committed seam\n  decided by: only-candidate\n  settled: qsDay.half.en-y0   seam=none   extension=0",
+  "provenance": [],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7May | \u00b7Tea+Oy ~b~ \u00b7Day",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": null,
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsTea_qsOy.yaml",
+    "keypath": "policy.prefer[+]",
+    "suggested_record": "{cell: {exit: baseline}, when: {right: {family: [qsDay]}}, why: 'Reviewer rejected the M1 outcome for E665:E652:E679:E653 (\u00b7May\u00b7Tea\u00b7Oy\u00b7Day)'}",
+    "names_provenance": [],
+    "decided_stage": "join-count",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E665:E652:E679:E653 (\u00b7May\u00b7Tea\u00b7Oy\u00b7Day)"
+   },
+   "any_of": {
+    "text": "qsMay qsTea qsOy qsDay",
+    "features": {},
+    "candidates": [
+     "\u00b7May | \u00b7Tea+Oy ~b~ \u00b7Day"
+    ]
+   }
+  },
+  "content_key": "d89525f8f1b8e3f0d82fc8a635d9e4b54c929a8d5a341f5056c96f2ff14e5b93"
+ },
+ {
+  "id": "u-21994",
+  "batch": 12,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "default": "d-6281430920d1",
+   "ss03": "d-6281430920d1",
+   "ss04": "d-6281430920d1",
+   "ss05": "d-6281430920d1",
+   "ss02": "d-6281430920d1",
+   "ss02+ss03": "d-6281430920d1",
+   "ss02+ss03+ss05": "d-6281430920d1"
+  },
+  "no_verdict": false,
+  "echo": "e-0425",
+  "cluster": "c-69f7ef38",
+  "class": "day-baseline-entry-extension-dropped",
+  "group": "qsNo:qsTea",
+  "codepoints": "E666:E652:E679:E653",
+  "text_entities": "&#xE666;&#xE652;&#xE679;&#xE653;",
+  "notation": "\u00b7No\u00b7Tea\u00b7Oy\u00b7Day",
+  "notation_tokens": [
+   "\u00b7No",
+   "\u00b7Tea",
+   "\u00b7Oy",
+   "\u00b7Day"
+  ],
+  "configs": [
+   "default",
+   "ss03",
+   "ss04",
+   "ss05",
+   "ss02",
+   "ss02+ss03",
+   "ss02+ss03+ss05"
+  ],
+  "config_note": "only under: default, ss03, ss04, ss05, ss02, ss02+ss03, ss02+ss03+ss05",
+  "config_gate": null,
+  "config_classes": {
+   "default": "day-baseline-entry-extension-dropped",
+   "ss02": "day-baseline-entry-extension-dropped",
+   "ss03": "day-baseline-entry-extension-dropped",
+   "ss04": "day-baseline-entry-extension-dropped",
+   "ss05": "day-baseline-entry-extension-dropped",
+   "ss02+ss03": "day-baseline-entry-extension-dropped",
+   "ss02+ss03+ss05": "day-baseline-entry-extension-dropped"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss03",
+     "ss04",
+     "ss05",
+     "ss02",
+     "ss02+ss03",
+     "ss02+ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsNo",
+    "qsTea_qsOy",
+    "qsDay.half.en-y0.ex-y0.en-ext-1"
+   ],
+   "seams": [
+    "break",
+    "y0"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsNo/loop/None/None/",
+    "qsTea_qsOy/hapax/None/baseline/",
+    "qsDay/half/baseline/None/"
+   ],
+   "seams": [
+    "break",
+    "y0"
+   ],
+   "extensions": [
+    0,
+    0
+   ]
+  },
+  "diff_positions": [
+   1,
+   2
+  ],
+  "pair": {
+   "left": 1,
+   "right": 2
+  },
+  "pair_codepoints": [
+   1,
+   3
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 300,
+    "x_max": 1000,
+    "advance_total": 1000
+   },
+   "after": {
+    "x_min": 300,
+    "x_max": 950,
+    "advance_total": 950
+   }
+  },
+  "boundary_marks": [],
+  "secondary_seams": null,
+  "summary": "New: \u00b7Day keeps the same seams but settles as a different cell (half, entry baseline, exit none) \u2014 decided by the only surviving candidate (no policy record involved).",
+  "explain": "sequence E666:E652:E679:E653   config default\nsettled: qsNo.loop qsTea_qsOy.hapax.ex-y0 qsDay.half.en-y0\n\nposition 1: qsTea_qsOy\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> hapax            entry=none       seam=baseline   join-count=1 prospect=0\n     hapax            entry=none       seam=none       join-count=0 prospect=0\n  decided by: join-count (over hapax entry=none seam=none)\n  settled: qsTea_qsOy.hapax.ex-y0   seam=baseline   extension=0\n\nposition 2: qsDay\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> half             entry=baseline   seam=none       join-count=1 prospect=0\n  eliminated before ranking:\n    - (entry-binding) qsDay.full: no available entry row at baseline against the committed seam\n  decided by: only-candidate\n  settled: qsDay.half.en-y0   seam=none   extension=0",
+  "provenance": [],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7No | \u00b7Tea+Oy ~b~ \u00b7Day",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": null,
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsTea_qsOy.yaml",
+    "keypath": "policy.prefer[+]",
+    "suggested_record": "{cell: {exit: baseline}, when: {right: {family: [qsDay]}}, why: 'Reviewer rejected the M1 outcome for E666:E652:E679:E653 (\u00b7No\u00b7Tea\u00b7Oy\u00b7Day)'}",
+    "names_provenance": [],
+    "decided_stage": "join-count",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E666:E652:E679:E653 (\u00b7No\u00b7Tea\u00b7Oy\u00b7Day)"
+   },
+   "any_of": {
+    "text": "qsNo qsTea qsOy qsDay",
+    "features": {},
+    "candidates": [
+     "\u00b7No | \u00b7Tea+Oy ~b~ \u00b7Day"
+    ]
+   }
+  },
+  "content_key": "755ec0996578b64619ae7eda9070aa5d5fc08860ba1c6ecb8003d6dd9885ab5e"
+ },
+ {
+  "id": "u-21995",
+  "batch": 12,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "default": "d-6281430920d1",
+   "ss04": "d-6281430920d1",
+   "ss05": "d-6281430920d1",
+   "ss02": "d-6281430920d1"
+  },
+  "no_verdict": false,
+  "echo": "e-0436",
+  "cluster": "c-bd33b03b",
+  "class": "day-baseline-entry-extension-dropped",
+  "group": "qsLow:qsTea",
+  "codepoints": "E667:E652:E679:E653",
+  "text_entities": "&#xE667;&#xE652;&#xE679;&#xE653;",
+  "notation": "\u00b7Low\u00b7Tea\u00b7Oy\u00b7Day",
+  "notation_tokens": [
+   "\u00b7Low",
+   "\u00b7Tea",
+   "\u00b7Oy",
+   "\u00b7Day"
+  ],
+  "configs": [
+   "default",
+   "ss04",
+   "ss05",
+   "ss02"
+  ],
+  "config_note": "only under: default, ss04, ss05, ss02",
+  "config_gate": null,
+  "config_classes": {
+   "default": "day-baseline-entry-extension-dropped",
+   "ss02": "day-baseline-entry-extension-dropped",
+   "ss04": "day-baseline-entry-extension-dropped",
+   "ss05": "day-baseline-entry-extension-dropped"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss04",
+     "ss05",
+     "ss02"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsLow",
+    "qsTea_qsOy",
+    "qsDay.half.en-y0.ex-y0.en-ext-1"
+   ],
+   "seams": [
+    "break",
+    "y0"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsLow/hapax/None/None/",
+    "qsTea_qsOy/hapax/None/baseline/",
+    "qsDay/half/baseline/None/"
+   ],
+   "seams": [
+    "break",
+    "y0"
+   ],
+   "extensions": [
+    0,
+    0
+   ]
+  },
+  "diff_positions": [
+   1,
+   2
+  ],
+  "pair": {
+   "left": 1,
+   "right": 2
+  },
+  "pair_codepoints": [
+   1,
+   3
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 300,
+    "x_max": 1000,
+    "advance_total": 1000
+   },
+   "after": {
+    "x_min": 300,
+    "x_max": 950,
+    "advance_total": 950
+   }
+  },
+  "boundary_marks": [],
+  "secondary_seams": null,
+  "summary": "New: \u00b7Day keeps the same seams but settles as a different cell (half, entry baseline, exit none) \u2014 decided by the only surviving candidate (no policy record involved).",
+  "explain": "sequence E667:E652:E679:E653   config default\nsettled: qsLow.hapax qsTea_qsOy.hapax.ex-y0 qsDay.half.en-y0\n\nposition 1: qsTea_qsOy\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> hapax            entry=none       seam=baseline   join-count=1 prospect=0\n     hapax            entry=none       seam=none       join-count=0 prospect=0\n  decided by: join-count (over hapax entry=none seam=none)\n  settled: qsTea_qsOy.hapax.ex-y0   seam=baseline   extension=0\n\nposition 2: qsDay\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> half             entry=baseline   seam=none       join-count=1 prospect=0\n  eliminated before ranking:\n    - (entry-binding) qsDay.full: no available entry row at baseline against the committed seam\n  decided by: only-candidate\n  settled: qsDay.half.en-y0   seam=none   extension=0",
+  "provenance": [],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7Low | \u00b7Tea+Oy ~b~ \u00b7Day",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": null,
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsTea_qsOy.yaml",
+    "keypath": "policy.prefer[+]",
+    "suggested_record": "{cell: {exit: baseline}, when: {right: {family: [qsDay]}}, why: 'Reviewer rejected the M1 outcome for E667:E652:E679:E653 (\u00b7Low\u00b7Tea\u00b7Oy\u00b7Day)'}",
+    "names_provenance": [],
+    "decided_stage": "join-count",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E667:E652:E679:E653 (\u00b7Low\u00b7Tea\u00b7Oy\u00b7Day)"
+   },
+   "any_of": {
+    "text": "qsLow qsTea qsOy qsDay",
+    "features": {},
+    "candidates": [
+     "\u00b7Low | \u00b7Tea+Oy ~b~ \u00b7Day"
+    ]
+   }
+  },
+  "content_key": "018c337dad7e124235cc26bcce151129db326c7874ed243a7e8171d81857ad5a"
+ },
+ {
+  "id": "u-21996",
+  "batch": 12,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "default": "d-6281430920d1",
+   "ss03": "d-6281430920d1",
+   "ss04": "d-6281430920d1",
+   "ss05": "d-6281430920d1",
+   "ss02": "d-6281430920d1",
+   "ss02+ss03": "d-6281430920d1",
+   "ss02+ss03+ss05": "d-6281430920d1"
+  },
+  "no_verdict": false,
+  "echo": "e-0425",
+  "cluster": "c-69f7ef38",
+  "class": "day-baseline-entry-extension-dropped",
+  "group": "qsIt:qsTea",
+  "codepoints": "E670:E652:E679:E653",
+  "text_entities": "&#xE670;&#xE652;&#xE679;&#xE653;",
+  "notation": "\u00b7It\u00b7Tea\u00b7Oy\u00b7Day",
+  "notation_tokens": [
+   "\u00b7It",
+   "\u00b7Tea",
+   "\u00b7Oy",
+   "\u00b7Day"
+  ],
+  "configs": [
+   "default",
+   "ss03",
+   "ss04",
+   "ss05",
+   "ss02",
+   "ss02+ss03",
+   "ss02+ss03+ss05"
+  ],
+  "config_note": "only under: default, ss03, ss04, ss05, ss02, ss02+ss03, ss02+ss03+ss05",
+  "config_gate": null,
+  "config_classes": {
+   "default": "day-baseline-entry-extension-dropped",
+   "ss02": "day-baseline-entry-extension-dropped",
+   "ss03": "day-baseline-entry-extension-dropped",
+   "ss04": "day-baseline-entry-extension-dropped",
+   "ss05": "day-baseline-entry-extension-dropped",
+   "ss02+ss03": "day-baseline-entry-extension-dropped",
+   "ss02+ss03+ss05": "day-baseline-entry-extension-dropped"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss03",
+     "ss04",
+     "ss05",
+     "ss02",
+     "ss02+ss03",
+     "ss02+ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsIt",
+    "qsTea_qsOy",
+    "qsDay.half.en-y0.ex-y0.en-ext-1"
+   ],
+   "seams": [
+    "break",
+    "y0"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsIt/hapax/None/None/",
+    "qsTea_qsOy/hapax/None/baseline/",
+    "qsDay/half/baseline/None/"
+   ],
+   "seams": [
+    "break",
+    "y0"
+   ],
+   "extensions": [
+    0,
+    0
+   ]
+  },
+  "diff_positions": [
+   1,
+   2
+  ],
+  "pair": {
+   "left": 1,
+   "right": 2
+  },
+  "pair_codepoints": [
+   1,
+   3
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 100,
+    "x_max": 800,
+    "advance_total": 800
+   },
+   "after": {
+    "x_min": 100,
+    "x_max": 750,
+    "advance_total": 750
+   }
+  },
+  "boundary_marks": [],
+  "secondary_seams": null,
+  "summary": "New: \u00b7Day keeps the same seams but settles as a different cell (half, entry baseline, exit none) \u2014 decided by the only surviving candidate (no policy record involved).",
+  "explain": "sequence E670:E652:E679:E653   config default\nsettled: qsIt.hapax qsTea_qsOy.hapax.ex-y0 qsDay.half.en-y0\n\nposition 1: qsTea_qsOy\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> hapax            entry=none       seam=baseline   join-count=1 prospect=0\n     hapax            entry=none       seam=none       join-count=0 prospect=0\n  decided by: join-count (over hapax entry=none seam=none)\n  settled: qsTea_qsOy.hapax.ex-y0   seam=baseline   extension=0\n\nposition 2: qsDay\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> half             entry=baseline   seam=none       join-count=1 prospect=0\n  eliminated before ranking:\n    - (entry-binding) qsDay.full: no available entry row at baseline against the committed seam\n  decided by: only-candidate\n  settled: qsDay.half.en-y0   seam=none   extension=0",
+  "provenance": [],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7It | \u00b7Tea+Oy ~b~ \u00b7Day",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": null,
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsTea_qsOy.yaml",
+    "keypath": "policy.prefer[+]",
+    "suggested_record": "{cell: {exit: baseline}, when: {right: {family: [qsDay]}}, why: 'Reviewer rejected the M1 outcome for E670:E652:E679:E653 (\u00b7It\u00b7Tea\u00b7Oy\u00b7Day)'}",
+    "names_provenance": [],
+    "decided_stage": "join-count",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E670:E652:E679:E653 (\u00b7It\u00b7Tea\u00b7Oy\u00b7Day)"
+   },
+   "any_of": {
+    "text": "qsIt qsTea qsOy qsDay",
+    "features": {},
+    "candidates": [
+     "\u00b7It | \u00b7Tea+Oy ~b~ \u00b7Day"
+    ]
+   }
+  },
+  "content_key": "89ec56cffa528c7ba8ca2dfc37b353b8c129cfb75fdce37895f4133cad76ebc2"
+ },
+ {
+  "id": "u-21997",
+  "batch": 12,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "default": "d-6281430920d1",
+   "ss04": "d-6281430920d1",
+   "ss05": "d-6281430920d1"
+  },
+  "no_verdict": false,
+  "echo": "e-0437",
+  "cluster": "c-4aebbb2f",
+  "class": "day-baseline-entry-extension-dropped",
+  "group": "qsI:qsTea",
+  "codepoints": "E675:E652:E679:E653",
+  "text_entities": "&#xE675;&#xE652;&#xE679;&#xE653;",
+  "notation": "\u00b7I\u00b7Tea\u00b7Oy\u00b7Day",
+  "notation_tokens": [
+   "\u00b7I",
+   "\u00b7Tea",
+   "\u00b7Oy",
+   "\u00b7Day"
+  ],
+  "configs": [
+   "default",
+   "ss04",
+   "ss05"
+  ],
+  "config_note": "only when ss03 is off",
+  "config_gate": [
+   {
+    "feature": "ss03",
+    "state": "off",
+    "text": "only when ss03 is off"
+   }
+  ],
+  "config_classes": {
+   "default": "day-baseline-entry-extension-dropped",
+   "ss04": "day-baseline-entry-extension-dropped",
+   "ss05": "day-baseline-entry-extension-dropped"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss04",
+     "ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsI",
+    "qsTea_qsOy",
+    "qsDay.half.en-y0.ex-y0.en-ext-1"
+   ],
+   "seams": [
+    "break",
+    "y0"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsI/loop/None/None/",
+    "qsTea_qsOy/hapax/None/baseline/",
+    "qsDay/half/baseline/None/"
+   ],
+   "seams": [
+    "break",
+    "y0"
+   ],
+   "extensions": [
+    0,
+    0
+   ]
+  },
+  "diff_positions": [
+   1,
+   2
+  ],
+  "pair": {
+   "left": 1,
+   "right": 2
+  },
+  "pair_codepoints": [
+   1,
+   3
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 300,
+    "x_max": 1000,
+    "advance_total": 1000
+   },
+   "after": {
+    "x_min": 300,
+    "x_max": 950,
+    "advance_total": 950
+   }
+  },
+  "boundary_marks": [],
+  "secondary_seams": null,
+  "summary": "New: \u00b7Day keeps the same seams but settles as a different cell (half, entry baseline, exit none) \u2014 decided by the only surviving candidate (no policy record involved).",
+  "explain": "sequence E675:E652:E679:E653   config default\nsettled: qsI.loop qsTea_qsOy.hapax.ex-y0 qsDay.half.en-y0\n\nposition 1: qsTea_qsOy\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> hapax            entry=none       seam=baseline   join-count=1 prospect=0\n     hapax            entry=none       seam=none       join-count=0 prospect=0\n  decided by: join-count (over hapax entry=none seam=none)\n  settled: qsTea_qsOy.hapax.ex-y0   seam=baseline   extension=0\n\nposition 2: qsDay\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> half             entry=baseline   seam=none       join-count=1 prospect=0\n  eliminated before ranking:\n    - (entry-binding) qsDay.full: no available entry row at baseline against the committed seam\n  decided by: only-candidate\n  settled: qsDay.half.en-y0   seam=none   extension=0",
+  "provenance": [],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7I | \u00b7Tea+Oy ~b~ \u00b7Day",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": null,
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsTea_qsOy.yaml",
+    "keypath": "policy.prefer[+]",
+    "suggested_record": "{cell: {exit: baseline}, when: {right: {family: [qsDay]}}, why: 'Reviewer rejected the M1 outcome for E675:E652:E679:E653 (\u00b7I\u00b7Tea\u00b7Oy\u00b7Day)'}",
+    "names_provenance": [],
+    "decided_stage": "join-count",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E675:E652:E679:E653 (\u00b7I\u00b7Tea\u00b7Oy\u00b7Day)"
+   },
+   "any_of": {
+    "text": "qsI qsTea qsOy qsDay",
+    "features": {},
+    "candidates": [
+     "\u00b7I | \u00b7Tea+Oy ~b~ \u00b7Day"
+    ]
+   }
+  },
+  "content_key": "dbcefbbff27c4616e861d28c50cd475e73f321a7209a3645ab6298a6c1badbb9"
+ },
+ {
+  "id": "u-21998",
+  "batch": 12,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "default": "d-6281430920d1",
+   "ss04": "d-6281430920d1",
+   "ss05": "d-6281430920d1",
+   "ss02": "d-6281430920d1"
+  },
+  "no_verdict": false,
+  "echo": "e-0436",
+  "cluster": "c-bd33b03b",
+  "class": "day-baseline-entry-extension-dropped",
+  "group": "qsAh:qsTea",
+  "codepoints": "E676:E652:E679:E653",
+  "text_entities": "&#xE676;&#xE652;&#xE679;&#xE653;",
+  "notation": "\u00b7Ah\u00b7Tea\u00b7Oy\u00b7Day",
+  "notation_tokens": [
+   "\u00b7Ah",
+   "\u00b7Tea",
+   "\u00b7Oy",
+   "\u00b7Day"
+  ],
+  "configs": [
+   "default",
+   "ss04",
+   "ss05",
+   "ss02"
+  ],
+  "config_note": "only under: default, ss04, ss05, ss02",
+  "config_gate": null,
+  "config_classes": {
+   "default": "day-baseline-entry-extension-dropped",
+   "ss02": "day-baseline-entry-extension-dropped",
+   "ss04": "day-baseline-entry-extension-dropped",
+   "ss05": "day-baseline-entry-extension-dropped"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss04",
+     "ss05",
+     "ss02"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsAh",
+    "qsTea_qsOy",
+    "qsDay.half.en-y0.ex-y0.en-ext-1"
+   ],
+   "seams": [
+    "break",
+    "y0"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsAh/hapax/None/None/",
+    "qsTea_qsOy/hapax/None/baseline/",
+    "qsDay/half/baseline/None/"
+   ],
+   "seams": [
+    "break",
+    "y0"
+   ],
+   "extensions": [
+    0,
+    0
+   ]
+  },
+  "diff_positions": [
+   1,
+   2
+  ],
+  "pair": {
+   "left": 1,
+   "right": 2
+  },
+  "pair_codepoints": [
+   1,
+   3
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 400,
+    "x_max": 1100,
+    "advance_total": 1100
+   },
+   "after": {
+    "x_min": 400,
+    "x_max": 1050,
+    "advance_total": 1050
+   }
+  },
+  "boundary_marks": [],
+  "secondary_seams": null,
+  "summary": "New: \u00b7Day keeps the same seams but settles as a different cell (half, entry baseline, exit none) \u2014 decided by the only surviving candidate (no policy record involved).",
+  "explain": "sequence E676:E652:E679:E653   config default\nsettled: qsAh.hapax qsTea_qsOy.hapax.ex-y0 qsDay.half.en-y0\n\nposition 1: qsTea_qsOy\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> hapax            entry=none       seam=baseline   join-count=1 prospect=0\n     hapax            entry=none       seam=none       join-count=0 prospect=0\n  decided by: join-count (over hapax entry=none seam=none)\n  settled: qsTea_qsOy.hapax.ex-y0   seam=baseline   extension=0\n\nposition 2: qsDay\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> half             entry=baseline   seam=none       join-count=1 prospect=0\n  eliminated before ranking:\n    - (entry-binding) qsDay.full: no available entry row at baseline against the committed seam\n  decided by: only-candidate\n  settled: qsDay.half.en-y0   seam=none   extension=0",
+  "provenance": [],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7Ah | \u00b7Tea+Oy ~b~ \u00b7Day",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": null,
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsTea_qsOy.yaml",
+    "keypath": "policy.prefer[+]",
+    "suggested_record": "{cell: {exit: baseline}, when: {right: {family: [qsDay]}}, why: 'Reviewer rejected the M1 outcome for E676:E652:E679:E653 (\u00b7Ah\u00b7Tea\u00b7Oy\u00b7Day)'}",
+    "names_provenance": [],
+    "decided_stage": "join-count",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E676:E652:E679:E653 (\u00b7Ah\u00b7Tea\u00b7Oy\u00b7Day)"
+   },
+   "any_of": {
+    "text": "qsAh qsTea qsOy qsDay",
+    "features": {},
+    "candidates": [
+     "\u00b7Ah | \u00b7Tea+Oy ~b~ \u00b7Day"
+    ]
+   }
+  },
+  "content_key": "aada867e081dc75ffe0c695c53f87af76a95806bf57bec5a3c5f614a4639f8fb"
+ },
+ {
+  "id": "u-21999",
+  "batch": 12,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "default": "d-6281430920d1",
+   "ss03": "d-6281430920d1",
+   "ss04": "d-6281430920d1",
+   "ss05": "d-6281430920d1",
+   "ss02": "d-6281430920d1",
+   "ss02+ss03": "d-6281430920d1",
+   "ss02+ss03+ss05": "d-6281430920d1"
+  },
+  "no_verdict": false,
+  "echo": "e-0425",
+  "cluster": "c-69f7ef38",
+  "class": "day-baseline-entry-extension-dropped",
+  "group": "qsOy:qsTea",
+  "codepoints": "E679:E652:E679:E653",
+  "text_entities": "&#xE679;&#xE652;&#xE679;&#xE653;",
+  "notation": "\u00b7Oy\u00b7Tea\u00b7Oy\u00b7Day",
+  "notation_tokens": [
+   "\u00b7Oy",
+   "\u00b7Tea",
+   "\u00b7Oy",
+   "\u00b7Day"
+  ],
+  "configs": [
+   "default",
+   "ss03",
+   "ss04",
+   "ss05",
+   "ss02",
+   "ss02+ss03",
+   "ss02+ss03+ss05"
+  ],
+  "config_note": "only under: default, ss03, ss04, ss05, ss02, ss02+ss03, ss02+ss03+ss05",
+  "config_gate": null,
+  "config_classes": {
+   "default": "day-baseline-entry-extension-dropped",
+   "ss02": "day-baseline-entry-extension-dropped",
+   "ss03": "day-baseline-entry-extension-dropped",
+   "ss04": "day-baseline-entry-extension-dropped",
+   "ss05": "day-baseline-entry-extension-dropped",
+   "ss02+ss03": "day-baseline-entry-extension-dropped",
+   "ss02+ss03+ss05": "day-baseline-entry-extension-dropped"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss03",
+     "ss04",
+     "ss05",
+     "ss02",
+     "ss02+ss03",
+     "ss02+ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsOy",
+    "qsTea_qsOy",
+    "qsDay.half.en-y0.ex-y0.en-ext-1"
+   ],
+   "seams": [
+    "break",
+    "y0"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsOy/hapax/None/None/",
+    "qsTea_qsOy/hapax/None/baseline/",
+    "qsDay/half/baseline/None/"
+   ],
+   "seams": [
+    "break",
+    "y0"
+   ],
+   "extensions": [
+    0,
+    0
+   ]
+  },
+  "diff_positions": [
+   1,
+   2
+  ],
+  "pair": {
+   "left": 1,
+   "right": 2
+  },
+  "pair_codepoints": [
+   1,
+   3
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 450,
+    "x_max": 1150,
+    "advance_total": 1150
+   },
+   "after": {
+    "x_min": 450,
+    "x_max": 1100,
+    "advance_total": 1100
+   }
+  },
+  "boundary_marks": [],
+  "secondary_seams": null,
+  "summary": "New: \u00b7Day keeps the same seams but settles as a different cell (half, entry baseline, exit none) \u2014 decided by the only surviving candidate (no policy record involved).",
+  "explain": "sequence E679:E652:E679:E653   config default\nsettled: qsOy.hapax qsTea_qsOy.hapax.ex-y0 qsDay.half.en-y0\n\nposition 1: qsTea_qsOy\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> hapax            entry=none       seam=baseline   join-count=1 prospect=0\n     hapax            entry=none       seam=none       join-count=0 prospect=0\n  decided by: join-count (over hapax entry=none seam=none)\n  settled: qsTea_qsOy.hapax.ex-y0   seam=baseline   extension=0\n\nposition 2: qsDay\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> half             entry=baseline   seam=none       join-count=1 prospect=0\n  eliminated before ranking:\n    - (entry-binding) qsDay.full: no available entry row at baseline against the committed seam\n  decided by: only-candidate\n  settled: qsDay.half.en-y0   seam=none   extension=0",
+  "provenance": [],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7Oy | \u00b7Tea+Oy ~b~ \u00b7Day",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": null,
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsTea_qsOy.yaml",
+    "keypath": "policy.prefer[+]",
+    "suggested_record": "{cell: {exit: baseline}, when: {right: {family: [qsDay]}}, why: 'Reviewer rejected the M1 outcome for E679:E652:E679:E653 (\u00b7Oy\u00b7Tea\u00b7Oy\u00b7Day)'}",
+    "names_provenance": [],
+    "decided_stage": "join-count",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E679:E652:E679:E653 (\u00b7Oy\u00b7Tea\u00b7Oy\u00b7Day)"
+   },
+   "any_of": {
+    "text": "qsOy qsTea qsOy qsDay",
+    "features": {},
+    "candidates": [
+     "\u00b7Oy | \u00b7Tea+Oy ~b~ \u00b7Day"
+    ]
+   }
+  },
+  "content_key": "eae0cad1f9c7ece12aa274b8d66468bd7e27b254bb1da3bd2231ab6bbb341efa"
+ },
+ {
+  "id": "u-22000",
+  "batch": 12,
+  "ink_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "default": "d-6281430920d1",
+   "ss04": "d-6281430920d1",
+   "ss05": "d-6281430920d1",
+   "ss02": "d-6281430920d1"
+  },
+  "no_verdict": false,
+  "echo": "e-0436",
+  "cluster": "c-bd33b03b",
+  "class": "day-baseline-entry-extension-dropped",
+  "group": "qsUtter:qsTea",
+  "codepoints": "E67A:E652:E679:E653",
+  "text_entities": "&#xE67A;&#xE652;&#xE679;&#xE653;",
+  "notation": "\u00b7Utter\u00b7Tea\u00b7Oy\u00b7Day",
+  "notation_tokens": [
+   "\u00b7Utter",
+   "\u00b7Tea",
+   "\u00b7Oy",
+   "\u00b7Day"
+  ],
+  "configs": [
+   "default",
+   "ss04",
+   "ss05",
+   "ss02"
+  ],
+  "config_note": "only under: default, ss04, ss05, ss02",
+  "config_gate": null,
+  "config_classes": {
+   "default": "day-baseline-entry-extension-dropped",
+   "ss02": "day-baseline-entry-extension-dropped",
+   "ss04": "day-baseline-entry-extension-dropped",
+   "ss05": "day-baseline-entry-extension-dropped"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss04",
+     "ss05",
+     "ss02"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsUtter",
+    "qsTea_qsOy",
+    "qsDay.half.en-y0.ex-y0.en-ext-1"
+   ],
+   "seams": [
+    "break",
+    "y0"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsUtter/mono/None/None/",
+    "qsTea_qsOy/hapax/None/baseline/",
+    "qsDay/half/baseline/None/"
+   ],
+   "seams": [
+    "break",
+    "y0"
+   ],
+   "extensions": [
+    0,
+    0
+   ]
+  },
+  "diff_positions": [
+   1,
+   2
+  ],
+  "pair": {
+   "left": 1,
+   "right": 2
+  },
+  "pair_codepoints": [
+   1,
+   3
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 300,
+    "x_max": 1000,
+    "advance_total": 1000
+   },
+   "after": {
+    "x_min": 300,
+    "x_max": 950,
+    "advance_total": 950
+   }
+  },
+  "boundary_marks": [],
+  "secondary_seams": null,
+  "summary": "New: \u00b7Day keeps the same seams but settles as a different cell (half, entry baseline, exit none) \u2014 decided by the only surviving candidate (no policy record involved).",
+  "explain": "sequence E67A:E652:E679:E653   config default\nsettled: qsUtter.mono qsTea_qsOy.hapax.ex-y0 qsDay.half.en-y0\n\nposition 1: qsTea_qsOy\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> hapax            entry=none       seam=baseline   join-count=1 prospect=0\n     hapax            entry=none       seam=none       join-count=0 prospect=0\n  decided by: join-count (over hapax entry=none seam=none)\n  settled: qsTea_qsOy.hapax.ex-y0   seam=baseline   extension=0\n\nposition 2: qsDay\n  candidates (join-count = left seam + own seam + optimistic prospect):\n  -> half             entry=baseline   seam=none       join-count=1 prospect=0\n  eliminated before ranking:\n    - (entry-binding) qsDay.full: no available entry row at baseline against the committed seam\n  decided by: only-candidate\n  settled: qsDay.half.en-y0   seam=none   extension=0",
+  "provenance": [],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7Utter | \u00b7Tea+Oy ~b~ \u00b7Day",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": null,
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsTea_qsOy.yaml",
+    "keypath": "policy.prefer[+]",
+    "suggested_record": "{cell: {exit: baseline}, when: {right: {family: [qsDay]}}, why: 'Reviewer rejected the M1 outcome for E67A:E652:E679:E653 (\u00b7Utter\u00b7Tea\u00b7Oy\u00b7Day)'}",
+    "names_provenance": [],
+    "decided_stage": "join-count",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E67A:E652:E679:E653 (\u00b7Utter\u00b7Tea\u00b7Oy\u00b7Day)"
+   },
+   "any_of": {
+    "text": "qsUtter qsTea qsOy qsDay",
+    "features": {},
+    "candidates": [
+     "\u00b7Utter | \u00b7Tea+Oy ~b~ \u00b7Day"
+    ]
+   }
+  },
+  "content_key": "1930c8fea7322b1e3955b88e91b2fcfbe007408f36679c04617bf1fc1f0858da"
+ }
+]

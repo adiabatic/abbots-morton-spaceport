@@ -1,0 +1,4 @@
+=== make all, uncontended, 3 runs ===
+       11.31 real        22.52 user         0.32 sys
+       11.20 real        22.42 user         0.29 sys
+       11.20 real        22.45 user         0.30 sys

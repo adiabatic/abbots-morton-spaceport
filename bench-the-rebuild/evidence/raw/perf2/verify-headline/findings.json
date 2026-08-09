@@ -1,0 +1,92 @@
+{
+  "slug": "verify-headline",
+  "posture": "adversarial; each claim treated as wrong until raw evidence forced acceptance",
+  "box": "Apple M4 Pro, 12 logical cores, CPython 3.14.6, load average 3.6-3.7 during my runs (not exclusive)",
+  "claims": [
+    {
+      "id": 1,
+      "claim": "M1 table stage is 337.9 s cold / 194.9 s warm, strictly single-threaded, wall == CPU",
+      "verdict": "CONFIRMED, with two scope caveats",
+      "evidence": {
+        "cold": "raw/perf/calibrate/m1-all-fresh.txt TOTAL total_wall_s=337.87 total_cpu_s=337.66; m1-all-fresh.time.txt 360.01 real / 356.62 user / 2.34 sys => 358.96 CPU on 360.01 wall = 99.71%",
+        "warm": "m1-all-warm.txt TOTAL 194.86 wall / 194.70 CPU; m1-all-warm.time.txt 202.24 real / 200.31+1.74 CPU",
+        "single_threaded_by_code": "run_m1.build_tables signature is (spec, out_dir, inputs, fresh_memo) -- no jobs param; body is a plain for-loop over conform.ACCEPTANCE_CONFIGS calling table.build_tables. _spawn_pool is reached only from run_font_conformance (277), run_boundary_gate (355), run_oracle (401). grep for multiprocessing/concurrent.futures/threading/Executor over table.py, settle.py, trace_memo.py, specificity.py returns NOTHING.",
+        "single_threaded_by_measurement": "resource.getrusage(RUSAGE_SELF) sums CPU over all threads; it never exceeds wall. /usr/bin/sample of a live build lists exactly ONE thread (Thread_3583200, 25,565 samples).",
+        "caveat_a": "the 337.9 s harness (calibrate/m1_all_configs.py) calls table.build_tables directly and skips run_m1's _persist_tables (settlement/treaty TSVs, write_windows) and the two assert_* invariants. The real stage is >= 337.9 s.",
+        "caveat_b": "it USED to be a six-way pool (run_m1.build_tables docstring: 'Serial on purpose, where this stage once spawned a six-way pool'), removed in c569e198 to make the cross-config TraceShare possible. 'Eleven cores idle' is a design choice, not an inherent property."
+      },
+      "corrected": "337.9 s cold / 194.9 s warm stand; single-threadedness is confirmed from code and from measurement, not merely asserted in a docstring"
+    },
+    {
+      "id": 2,
+      "claim": "zero native frames in the fixpoint -- 100% CPython",
+      "verdict": "CONFIRMED for what was sampled; the headline attaches it to a larger number than was sampled",
+      "evidence": {
+        "call_graph_binary_census": "raw/perf/attr-m1/sample-build-tables-default.txt: every '(in X)' frame in the call graph is Python 2766, libdyld 235, libsystem_platform 59, libsystem_malloc 8, libsystem_pthread 1, dyld 1. ZERO harfbuzz/zlib/hashlib/json/pickle/re frames.",
+        "would_hb_be_visible": "uharfbuzz is not loaded at all -- 'harfbuzz' appears 0 times anywhere in the file, Binary Images included. That /usr/bin/sample DOES attribute harfbuzz when present is proved by raw/perf/attr-tests/sample-worker-A/B.txt, where _harfbuzz.abi3.so is 68.15% and 76.83% of self time.",
+        "zlib_hashlib_mentions": "the 3 hits my grep found are Binary Images lines only (loaded dylibs), not call-graph frames",
+        "capture_adequacy": "25,565 thread samples at 1 ms = 25.6 s of a ~78-95 s build (one config, mid-build). 155 leaf samples (0.61%) fall below sample's 5-sample print threshold and are unattributed -- so the honest bound is 'native < 0.61%', not literally zero. The independent 200 Hz Python sampler (6,087 samples over the whole 84.4 s build, pysample-build-tables-default.json) attributes 100% of leaves to settle.py 57.24 + <string> 36.95 + table.py 5.08 + model.py 0.38 + specificity.py 0.23 + dataclasses.py 0.11 + threading.py 0.02, zero site-packages.",
+        "scope_gap": "BOTH samplers ran slice_tables.py / slice_tables_sampled.py with trace_store=None, share=None -- the 77.5 s no-store kernel. The 337.9 s cold stage additionally pays trace-store persistence, which is measured at 17.04 s on the default config alone (94.551 with a fresh store vs 77.509 with none) = 18.0% of that config. Scaled by entries saved that is a DERIVED ~39.9 s = ~11.8% of the cold stage, and it is gzip + interning, never sampled."
+      },
+      "corrected": "'the fixpoint proper is >99.4% CPython, native < 0.61%' -- but ~12% (derived) of the 337.9 s cold figure is trace-store serialization that no sampler covered"
+    },
+    {
+      "id": 3,
+      "claim": "armed by ~68% of commits; 61% of foreground wait",
+      "verdict": "REFUTED on the 68%; the 61% survives",
+      "evidence": {
+        "method": "raw/perf2/verify-headline/classify_commits.py replays the repo's OWN skip closure (artifact_cycle.run_m1_skip_lines = fingerprint.data_lines + pipeline_code_paths + validation + uv.lock) over the same last-80-commit window, judging rune files prose-blind with fingerprint.rune_file_digest on both blob versions",
+        "reproduces_the_model": "arms_make_test 5/80 (model: 5/80), md_only 7 (model: 7), rune-touching 22 (model: 22), pipeline/validation-touching 19 (model: 19), review-touching 13 not arming M1 (model: 13). My classifier reproduces every raw count the model used.",
+        "the_error": "68% = (19+22+13)/80 = 67.5%, i.e. the union of three categories INCLUDING review_code -- which model.py line 82 itself annotates '# M1 skips'. Measured M1-arming union = 33/80 = 41.2%: 19 pipeline commits + 22 rune commits overlap on 6, and 2 of the rune commits are prose-only (ductus/why/comment) so the prose-blind digest never moves.",
+        "sensitivity": "rerunning raw/perf/synthesize/model.py with rune-partial passes cut 22->14 (so M1 does work on 33 not 41 commits): foreground 2062->1770 s/day, M1 fixpoint 1263->1063 s/day, M1 share of foreground 61.2%->60.0%, rewritable 90.96%->90.06%, ceiling 11.06x->10.06x, 10x-speedup 5.51x->5.28x.",
+        "deeper_sensitivity": "scaling the assumed cycles-per-arming-commit to 0.5 and 0.25: M1 stays 57.1% and 52.1% of foreground; ceiling 8.98x and 7.57x.",
+        "the_bigger_hole": "the arming->wall-seconds conversion assumes ONE refreshing cycle per arming commit, which is labelled 'A' in the model. This box's own green records contradict it: rebuild/out/run-m1-green.json finished_at 2026-07-27T00:13:14Z, conform 2026-07-27T00:26:26Z, census 2026-07-27T00:14:54Z, and rebuild/out/m1/ has a Jul 26 mtime -- while 76 of the 80 classified commits landed 2026-07-27..2026-08-08. Zero M1 builds ran here during the window. The s/day figures are a model of intended workflow, not observed behaviour."
+      },
+      "corrected": "M1 is armed by 41.2% of commits (33/80, measured). It remains ~60% of modelled foreground wait, and the recommendation is unchanged at every cadence I tested."
+    },
+    {
+      "id": 4,
+      "claim": "make test Amdahl ceiling 1.40x because 70.6% is HarfBuzz; pyright contributes zero wall",
+      "verdict": "CONFIRMED; the adjudication is sound and the decision is insensitive to it",
+      "evidence": {
+        "attr_tests_method": "raw/perf/attr-tests/budget.txt: two LIVE xdist workers sampled at 68.15% and 76.83% harfbuzz self-time over 42,255 samples (mean 72.48%), applied to the 2,177.66 CPU-s that is worker time (95.8% of the 2,273.5 s tree) => 1,578 s; plus pyright 10.6 + fontTools 14.8 + typst 0.1 = 1,604.0 s = 70.55%. Buckets sum to 2,273.5 s = 99.99%.",
+        "independent_cross_check": "the plugin instrumented every one of the 88,448,272 hb.shape calls with process_time and got 71.96% of in-test CPU -- two independent methods agreeing at 72.0/72.5%.",
+        "why_81.6_loses": "attr-overhead's weighted-split.json make_test/native_extension = 81.61 is the bucket of ONE test -- sample-sweep-serial-buckets.txt, 81.93% harfbuzz -- a single-process shape-heavy sweep containing none of the make all + pyright prelude and none of the worker teardown. Applying one test's mix to 2,197 CPU-s is the error.",
+        "instrumentation_bias": "the instrumented run cost +104.3 CPU-s (+4.6%), which sits in the denominator, so 71.96% is if anything LOW -- i.e. the adjudication errs toward MORE rewritable Python, the direction that flatters a rewrite.",
+        "decision_insensitivity": "ceiling at 70.55% native = 1.401x; at attr-overhead's 81.61% = 1.225x. Both say do not rewrite. The 11-point dispute changes nothing.",
+        "pyright": "conftest.py:54-61 Popen's ['uv','run','pyright'], then subprocess.run(['make','all']) SYNCHRONOUSLY, then pyright.wait(). pyright standalone: 5.78 s wall median / 9.62 CPU (calibrate/pyright.summary.json, 3 runs) and 6.10-6.53 s wall / 10.4-10.6 CPU (attr-tests/pyright-standalone.txt, 2 runs). make all: 11.20-11.31 s wall (attr-tests/make-all-time.txt, 3 runs). pyright finishes with >4.5 s of margin, and combined the two use ~3.7 of 12 cores, so there is no contention to speak of.",
+        "pyright_caveat": "zero MARGINAL wall, not zero cost: 9.6-10.6 CPU-s are real, and pyright becomes the critical path the moment make all drops below ~5.8 s."
+      },
+      "corrected": "70.55% native / 1.40x ceiling stands; honest band 1.23-1.40x. pyright: zero marginal wall confirmed from conftest.py plus both timing sets."
+    },
+    {
+      "id": 5,
+      "claim": "Rust is 20.1x single-threaded and 96.5x with six-way parallelism on the settlement fixpoint",
+      "verdict": "PARTLY -- 20.1x survives and I reproduced it; 96.5x is a model artifact and should be roughly halved",
+      "evidence": {
+        "equivalence_is_real": "not merely 'same answer'. Python, Rust and Go agree on windows (428,971), cells (135), the window checksum (2964411847154100471) AND all four kernel call counters to the digit: candidates 4,903,617 / prospect 4,006,506 / trace 1,690,599 / favors 5,049,965, plus memo_entries 903,904, nocand 914, fired 28. Same control flow, same number of times.",
+        "my_independent_reproduction": "I re-ran the prebuilt binaries and model.py myself, 2 reps each, one config: Python 29.216/30.387 s, Rust 1.498/1.501 s, Go 1.958/1.908 s => Rust 19.9x, Go 15.4x (reported 18.2x / 15.1x). All checksums and all four counters identical in all six runs. Files: raw/perf2/verify-headline/rep-{py,rust,go}-one-{1,2}.json",
+        "medians_check_out": "raw/perf2/bench/reps/k1-meso.rep{1,2,3}.json give python-six 186.24/177.64/181.60 and rust-six 9.479/8.648/9.047 -- medians 181.598 and 9.047 exactly as reported, ratio 20.07x. rust-six-par-noshare medians 1.8826 => 96.46x.",
+        "model_is_faithful_where_it_matters": "model.py's transition_trace is a near-verbatim copy of settle.py:1120's, including the identical 10-tuple memo key. Both use @dataclass(frozen=True) with no slots, matching the shipped kernel. genspec.py builds 15 letters + 3 ligature runes = 18, matching the real spec, with predicate-class sizes, depth-3/4 inputs and the prefer-chain reach histogram introspected from the real spec (specstats.json). The model's Engine has __slots__ where the real one does not, which makes the model's Python slightly FASTER -- bias against Rust.",
+        "python_is_not_a_strawman_but_is_unlevered": "the baseline is faithful-to-shipped, not tuned. The tuned comparison exists and is measured elsewhere: python-levers took the REAL kernel 81.254 -> 34.023 CPU-s (2.39x) with a byte-identical artifact, so against levered Python the port is 8.4x, not 20x. That number belongs next to the 20x every time it is quoted.",
+        "unstated_asymmetry_favouring_rust": "Python's TransitionTrace retains ranked: tuple[RankedCandidate,...] and eliminations: tuple[Elimination,...] in every one of the 903,904 memo entries; Rust's Trace struct is {settled, joint_floor, prospect, n_notes} and retains neither. RSS shows it: python-one 1.936 GB vs rust-one 0.352 GB. Rust DOES build and consume the note strings (15 format! sites folded into text_sink via fnv_str, plus ranked.len() and decided_stage at engine.rs:1240), so dead-code elimination is defeated and the string work is paid -- but the retained provenance payload is not. Magnitude unmeasured.",
+        "the_parallel_headline_is_a_model_artifact": "the model's six acceptance configs are nearly degenerate: 6 configs produce only 4 distinct checksums and 3 distinct window counts, and dropping the cross-config share costs just 5.7% more candidates (29,554,027 vs 27,968,554 = 1.057x). The REAL share is worth 2.83x on that axis: calibrate's counters show 4,388,710 entries traced with the share against 8,049,970 served from it, so a shareless real build must trace 12,438,680. The model's six-config total is 6.19x its one-config; the real one is 3.54x its donor.",
+        "corrected_parallel_band": "DERIVED from calibrate's per-config walls (95.34 donor / 242.53 s of recipients / 63.18 s worst recipient): keep the share and parallelize the 5 recipients behind the serial donor = 2.13-2.35x; drop the share and run 6 independent fixpoints on 6 threads at ~95-110 s each = 3.07-3.54x. Against the model's measured 4.81x. So 20.1x x 2.1-3.5x = roughly 43-71x, not 96.5x."
+      },
+      "corrected": "Rust 20.1x serial (CONFIRMED, independently reproduced at 19.9x) against shipped Python, 8.4x against levered Python. Parallel: ~43-71x (DERIVED), not 96.5x -- the model cannot price the cross-config share and the real one is 2.8x more valuable than the model's."
+    },
+    {
+      "id": 6,
+      "claim": "gc is 13% of the fixpoint",
+      "verdict": "CONFIRMED at 12.3-12.7%",
+      "evidence": {
+        "my_ab": "raw/perf2/verify-headline/gc_ab.py, real kernel, all 18 runes, default config, no store/share, interleaved, artifact digest printed every arm. Rep 0 (first build in a fresh process): gc on 80.651 CPU-s, gc off (freeze+disable) 70.448 CPU-s = 12.65% saved, 1.145x. Digest 9fdcd6cbc81ca5f9 identical in all four arms; 682,842 windows / 2,667 rules / 3,563 treaty rows / 197 cells every time.",
+        "independent_agreement": "python-levers measured the same lever at full scale at 81.254 -> 71.235 CPU-s = 12.33%, 1.141x, sha256-verified. Two independent runs agree to within 0.3 points.",
+        "sample_agreement": "two /usr/bin/sample runs put the GC group at 12.92% and 14.79% of leaf samples; my run recorded 14,367 gen-0 + 1,306 gen-1 + 18 gen-2 collections that collected 12 objects in total.",
+        "the_backwards_rep_explained": "raw/perf/attr-overhead/gc-ab.txt rep3 has gc-off SLOWER (95.641 vs 85.627) -- that set was taken under contention with a +-35% spread and is not evidence either way. My own rep 1 also inflates the ON arm (92.605 s) but for a knowable reason: it is the second build in the same process, so the heap it must traverse is bigger (RSS 4.65 GB vs 3.77). Only the fresh-process first build is a clean A/B, and the OFF arm barely moves across reps (70.448 / 69.366).",
+        "cost": "gc off raises peak RSS 3.771 -> 4.336 GB (+15%) on the default config."
+      },
+      "corrected": "12.3-12.7% of the fixpoint's CPU, 1.14x, artifact byte-identical. The share is real; the attr-overhead A/B never supported it and is superseded."
+    }
+  ]
+}

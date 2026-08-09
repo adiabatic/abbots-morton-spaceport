@@ -1,0 +1,68 @@
+         735304533 function calls (723299415 primitive calls) in 266.387 seconds
+
+   Ordered by: internal time
+   List reduced from 191 to 60 due to restriction <60>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+9161481/9133276   45.846    0.000  136.432    0.000 rebuild/pipeline/settle.py:525(candidates)
+ 57993154   20.906    0.000   35.321    0.000 {method 'get' of 'dict' objects}
+2428420/2028199   15.947    0.000  203.600    0.000 rebuild/pipeline/settle.py:1178(_transition_trace_uncached)
+ 21068515   12.766    0.000   15.681    0.000 rebuild/pipeline/settle.py:475(_pairing_allowed)
+  8290357   11.355    0.000   23.383    0.000 rebuild/pipeline/settle.py:642(_virtual_left)
+9394188/4748422    9.301    0.000  151.315    0.000 rebuild/pipeline/settle.py:682(_prospect)
+ 10521695    8.912    0.000   12.027    0.000 rebuild/pipeline/settle.py:439(_exit_sources)
+ 51490067    8.525    0.000   12.659    0.000 <string>:22(__hash__)
+15428832/12306610    8.488    0.000   11.103    0.000 rebuild/pipeline/settle.py:323(cond_matches_right)
+  9786077    7.768    0.000  123.756    0.000 rebuild/pipeline/settle.py:754(_prefer_favors)
+9629547/9619245    6.821    0.000   20.297    0.000 rebuild/pipeline/settle.py:652(_acceptor_exists)
+3332285/2488210    6.301    0.000  216.716    0.000 rebuild/pipeline/settle.py:1120(transition_trace)
+  1877632    6.172    0.000   13.838    0.000 rebuild/pipeline/settle.py:1303(_commit)
+ 21075358    6.093    0.000   17.666    0.000 rebuild/pipeline/settle.py:370(when_matches)
+67635818/66957613    5.584    0.000    5.672    0.000 {built-in method builtins.hash}
+  2475476    5.016    0.000   79.822    0.000 rebuild/pipeline/settle.py:834(_apply_prefers)
+ 10906332    4.723    0.000   10.864    0.000 rebuild/pipeline/settle.py:408(_entry_available)
+ 44463945    4.561    0.000    4.561    0.000 {method 'append' of 'list' objects}
+ 15373322    4.460    0.000    8.914    0.000 rebuild/pipeline/settle.py:491(_refusal_hit)
+14014259/12627654    4.024    0.000    4.871    0.000 rebuild/pipeline/settle.py:275(cond_matches_left)
+ 48921909    3.723    0.000    3.723    0.000 {built-in method builtins.len}
+        1    3.367    3.367  298.815  298.815 rebuild/pipeline/table.py:901(build_tables)
+ 17235730    3.277    0.000    5.034    0.000 rebuild/pipeline/settle.py:231(_replay_fired)
+ 42182450    3.238    0.000    3.238    0.000 rebuild/pipeline/settle.py:66(letter)
+  4002554    2.768    0.000    4.087    0.000 rebuild/pipeline/settle.py:244(_end_capture)
+ 13463613    2.749    0.000    4.008    0.000 <string>:25(__hash__)
+ 26251319    2.355    0.000    2.355    0.000 rebuild/pipeline/settle.py:483(<genexpr>)
+ 20552497    2.333    0.000    2.333    0.000 {method 'items' of 'dict' objects}
+  3145391    2.242    0.000    3.787    0.000 rebuild/pipeline/settle.py:221(_record_fired)
+ 17022164    2.209    0.000    2.209    0.000 {method 'index' of 'list' objects}
+ 17231349    1.993    0.000    1.993    0.000 <string>:8(__eq__)
+     5515    1.806    0.000    9.917    0.002 rebuild/pipeline/table.py:511(_prospect_varies_third)
+  4553342    1.530    0.000    2.323    0.000 rebuild/pipeline/settle.py:239(_begin_capture)
+  3568064    1.413    0.000    3.014    0.000 rebuild/pipeline/settle.py:1048(_pick_adjustment)
+2098432/2094463    1.376    0.000    2.421    0.000 {built-in method builtins.sorted}
+4001853/3141618    1.357    0.000   57.594    0.000 rebuild/pipeline/settle.py:1289(_score)
+ 10741208    1.244    0.000    1.244    0.000 rebuild/pipeline/settle.py:452(_active_pairing_unlocks)
+ 10011125    1.233    0.000    1.233    0.000 {method 'extend' of 'list' objects}
+    46781    1.222    0.000   51.864    0.001 rebuild/pipeline/table.py:637(_vote_class_live)
+  5781450    1.132    0.000    2.869    0.000 rebuild/pipeline/settle.py:422(<genexpr>)
+  1270695    0.991    0.000    1.570    0.000 rebuild/pipeline/settle.py:140(cell_label)
+  7100794    0.976    0.000    0.976    0.000 {method 'update' of 'set' objects}
+  4831065    0.969    0.000    1.991    0.000 rebuild/pipeline/settle.py:1230(<genexpr>)
+  4002584    0.821    0.000    0.821    0.000 {built-in method fromkeys}
+  1354011    0.786    0.000    2.777    0.000 {built-in method builtins.max}
+   739047    0.754    0.000    0.754    0.000 <string>:2(__init__)
+  9208786    0.694    0.000    0.757    0.000 rebuild/pipeline/table.py:1211(prospect_successors)
+  5351453    0.673    0.000    0.673    0.000 {method 'setdefault' of 'dict' objects}
+        1    0.672    0.672    1.861    1.861 rebuild/pipeline/table.py:1223(_flag_prospect_joints)
+  4045254    0.631    0.000    0.631    0.000 rebuild/pipeline/model.py:45(__str__)
+  5231619    0.597    0.000    0.597    0.000 {method 'pop' of 'list' objects}
+  5408507    0.559    0.000    0.559    0.000 rebuild/pipeline/settle.py:486(<genexpr>)
+  4001853    0.540    0.000    0.540    0.000 rebuild/pipeline/settle.py:1280(<lambda>)
+  1670873    0.484    0.000    0.723    0.000 rebuild/pipeline/specificity.py:40(class_members)
+  1268592    0.483    0.000  118.945    0.000 rebuild/pipeline/table.py:587(<genexpr>)
+  4288673    0.482    0.000    0.588    0.000 {method 'add' of 'set' objects}
+        2    0.429    0.215    0.429    0.215 {method 'clear' of 'dict' objects}
+  2387936    0.410    0.000    0.410    0.000 <string>:11(__eq__)
+  1670477    0.404    0.000    1.127    0.000 rebuild/pipeline/settle.py:262(_members)
+  3568064    0.381    0.000    0.423    0.000 rebuild/pipeline/settle.py:1316(note_applied)
+
+

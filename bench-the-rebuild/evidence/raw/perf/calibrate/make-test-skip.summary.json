@@ -1,0 +1,65 @@
+{
+  "summary": {
+    "label": "make-test-skip",
+    "runs": 5,
+    "wall_median_s": 0.0784,
+    "wall_min_s": 0.0771,
+    "wall_max_s": 0.0861,
+    "user_median_s": 0.0513,
+    "sys_median_s": 0.0211,
+    "rcs": [
+      0,
+      0,
+      0,
+      0,
+      0
+    ]
+  },
+  "records": [
+    {
+      "label": "make-test-skip",
+      "run": 0,
+      "wall_s": 0.0861,
+      "user_s": 0.0506,
+      "sys_s": 0.0233,
+      "maxrss_mb": 35.4,
+      "rc": 0
+    },
+    {
+      "label": "make-test-skip",
+      "run": 1,
+      "wall_s": 0.0784,
+      "user_s": 0.0516,
+      "sys_s": 0.0211,
+      "maxrss_mb": 35.4,
+      "rc": 0
+    },
+    {
+      "label": "make-test-skip",
+      "run": 2,
+      "wall_s": 0.0782,
+      "user_s": 0.0516,
+      "sys_s": 0.0208,
+      "maxrss_mb": 35.4,
+      "rc": 0
+    },
+    {
+      "label": "make-test-skip",
+      "run": 3,
+      "wall_s": 0.0787,
+      "user_s": 0.0513,
+      "sys_s": 0.0211,
+      "maxrss_mb": 35.4,
+      "rc": 0
+    },
+    {
+      "label": "make-test-skip",
+      "run": 4,
+      "wall_s": 0.0771,
+      "user_s": 0.0505,
+      "sys_s": 0.0209,
+      "maxrss_mb": 35.4,
+      "rc": 0
+    }
+  ]
+}

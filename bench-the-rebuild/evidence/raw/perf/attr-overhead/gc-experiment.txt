@@ -1,0 +1,8 @@
+== on ==
+{"regime": "on", "config": "default", "build_tables_wall_s": 121.923, "build_tables_cpu_s": 100.737, "user_cpu_s": 99.866, "sys_cpu_s": 0.871, "peak_rss_gb": 3.819, "frozen_objects_at_start": 0, "tracked_at_start": null, "gc_collections_by_gen": [14374, 1306, 18], "gc_collected_by_gen": [0, 12, 0], "windows": 682842, "rules": 2667, "treaty_rows": 3563}
+== freeze ==
+{"regime": "freeze", "config": "default", "build_tables_wall_s": 138.46, "build_tables_cpu_s": 106.827, "user_cpu_s": 104.577, "sys_cpu_s": 2.25, "peak_rss_gb": 3.516, "frozen_objects_at_start": 18384, "tracked_at_start": null, "gc_collections_by_gen": [14375, 1306, 18], "gc_collected_by_gen": [0, 0, 0], "windows": 682842, "rules": 2667, "treaty_rows": 3563}
+== off ==
+{"regime": "off", "config": "default", "build_tables_wall_s": 71.726, "build_tables_cpu_s": 70.733, "user_cpu_s": 70.24, "sys_cpu_s": 0.493, "peak_rss_gb": 3.844, "frozen_objects_at_start": 0, "tracked_at_start": null, "gc_collections_by_gen": [0, 0, 0], "gc_collected_by_gen": [0, 0, 0], "windows": 682842, "rules": 2667, "treaty_rows": 3563}
+== freezeoff ==
+{"regime": "freezeoff", "config": "default", "build_tables_wall_s": 118.779, "build_tables_cpu_s": 92.05, "user_cpu_s": 91.179, "sys_cpu_s": 0.871, "peak_rss_gb": 3.847, "frozen_objects_at_start": 18384, "tracked_at_start": null, "gc_collections_by_gen": [0, 0, 0], "gc_collected_by_gen": [0, 0, 0], "windows": 682842, "rules": 2667, "treaty_rows": 3563}

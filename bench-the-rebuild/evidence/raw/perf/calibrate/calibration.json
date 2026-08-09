@@ -1,0 +1,448 @@
+{
+  "meta": {
+    "purpose": "Calibration denominator: the real wall-clock and CPU cost of every step a human waits on, cold and warm.",
+    "host": "Apple M4 Pro, 12 logical cores (8 performance + 4 efficiency), macOS 26.6.1 (Darwin 25.6)",
+    "python": "CPython 3.14, GIL build, .venv managed by uv",
+    "repo_head": "704bd210",
+    "git_worktree": "clean at session start; no tracked file modified by this investigation",
+    "contention": "MACHINE WAS EXCLUSIVE for this session. No other agent ran. Background OS activity was checked before each block and was under ~15% of one core (iTerm2 rendering, Backblaze bzfilelist). Every wall number below is therefore trustworthy, NOT contention-suspect. Prior mapping agents' wall numbers WERE contended and several are materially higher than the numbers here.",
+    "measured_at": "2026-08-08",
+    "timing_method": "raw/perf/calibrate/t.py wraps each command and reports wall (time.perf_counter) plus child CPU as the delta of resource.getrusage(RUSAGE_CHILDREN) user/sys, which folds in all reaped descendants. Long single-process runs additionally use /usr/bin/time -l.",
+    "state_written_by_this_investigation": [
+      "rebuild/out/make-test-green.json REWRITTEN (gitignored) - `make test FORCE=1` passed 6753/6753 and the gate recorded the green. This is a repair, not damage: the record was stale (Jul 25) and the gate was owed a run. gate:make-test now auto-skips.",
+      "site/*.otf, site/*.fea, site/print.pdf rebuilt by `make all` x5 - byte-identical, _write_if_changed reported 'Font unchanged' every time, so no mtime moved and no downstream fixture cache was disturbed.",
+      "Everything else confined to raw/perf/calibrate/."
+    ],
+    "state_deliberately_not_touched": [
+      "verdicts-autosave.json, verdicts-journal.ndjson, verdicts-carried-*.json - never read for writing, never merged.",
+      "rebuild/out/review/ - never rebuilt in place. The two surface builds went to raw/perf/calibrate/review-out via --out.",
+      "rebuild/out/m1/ - never rebuilt. The M1 table measurements ran table.build_tables directly with the trace store redirected to raw/perf/calibrate/m1-store*/.",
+      "No green record other than make-test-green.json was settled."
+    ]
+  },
+
+  "startup_and_spawn": {
+    "uv_run_python_pass": {
+      "command": "uv run python -c pass",
+      "runs": 7,
+      "wall_median_s": 0.0259,
+      "wall_min_s": 0.025,
+      "wall_max_s": 0.0262,
+      "user_cpu_s": 0.0147,
+      "sys_cpu_s": 0.0079,
+      "state": "warm",
+      "notes": "Run from the repo root. uv found the project and the up-to-date venv; no resolution work."
+    },
+    "venv_python_pass": {
+      "command": ".venv/bin/python -c pass",
+      "runs": 7,
+      "wall_median_s": 0.0151,
+      "wall_min_s": 0.0148,
+      "wall_max_s": 0.0182,
+      "user_cpu_s": 0.0104,
+      "sys_cpu_s": 0.0033,
+      "state": "warm",
+      "notes": "Bare interpreter floor."
+    },
+    "uv_wrapper_tax_per_spawn_s": 0.0108,
+    "uv_wrapper_tax_note": "MEASURED as the difference of the two medians (25.9 ms - 15.1 ms). 4.3 ms of it is user CPU, 4.6 ms sys."
+  },
+
+  "import_cost": {
+    "method_wall": "wall of `.venv/bin/python -c \"import X\"`, median of 5, minus the 0.0151 s bare-interpreter floor. This is the honest number.",
+    "method_importtime": "`python -X importtime -c \"import X\"`, best of 3, summing the cumulative column. The instrumentation itself inflates: it reports 25.95 ms for a bare `pass` whose true wall cost is 15.1 ms. Use it for RANKING contributors, not for absolute cost.",
+    "entries": [
+      {"entry_point": "tools/build_font.py", "import_stmt": "sys.path.insert(0,'tools'); import build_font", "wall_total_s": 0.0839, "wall_self_s": 0.0688, "importtime_cumulative_ms": 379.99, "top_contributors": "build_font 59.1ms, fontTools.feaLib.builder 28.4ms, fontTools.feaLib.parser 26.1ms, fontTools.feaLib.variableScalar 24.8ms, fontTools.varLib.models 24.7ms, fontTools.varLib 24.7ms, fontTools.ttLib.tables.otTables 9.6ms"},
+      {"entry_point": "tools/quikscript_fea.py", "import_stmt": "sys.path.insert(0,'tools'); import quikscript_fea", "wall_total_s": 0.0271, "wall_self_s": 0.012, "importtime_cumulative_ms": 46.26, "top_contributors": "quikscript_ir 36.6ms of it; no fontTools"},
+      {"entry_point": "rebuild.pipeline.run_m1", "import_stmt": "import rebuild.pipeline.run_m1", "wall_total_s": 0.0727, "wall_self_s": 0.0576, "importtime_cumulative_ms": 240.73, "top_contributors": null},
+      {"entry_point": "rebuild.review.build", "import_stmt": "import rebuild.review.build", "wall_total_s": 0.0772, "wall_self_s": 0.0621, "importtime_cumulative_ms": 282.29, "top_contributors": null},
+      {"entry_point": "rebuild.tools.artifact_cycle", "import_stmt": "import rebuild.tools.artifact_cycle", "wall_total_s": 0.0418, "wall_self_s": 0.0267, "importtime_cumulative_ms": 110.65, "top_contributors": null},
+      {"entry_point": "rebuild.tools.verdict_ready", "import_stmt": "import rebuild.tools.verdict_ready", "wall_total_s": 0.0264, "wall_self_s": 0.0113, "importtime_cumulative_ms": 67.03, "top_contributors": null},
+      {"entry_point": "rebuild.review.census", "import_stmt": "import rebuild.review.census", "wall_total_s": 0.0663, "wall_self_s": 0.0512, "importtime_cumulative_ms": 221.08, "top_contributors": null},
+      {"entry_point": "rebuild.tools.make_test_gate", "import_stmt": "import rebuild.tools.make_test_gate", "wall_total_s": null, "wall_self_s": null, "importtime_cumulative_ms": 132.86, "top_contributors": "not wall-measured separately; artifact_cycle dominates it"},
+      {"entry_point": "(bare interpreter baseline)", "import_stmt": "pass", "wall_total_s": 0.0151, "wall_self_s": 0.0, "importtime_cumulative_ms": 25.95, "top_contributors": "site imports only"}
+    ]
+  },
+
+  "table": [
+    {
+      "step": "bare interpreter startup (uv)",
+      "command": "uv run python -c pass",
+      "state": "warm",
+      "wall_seconds": 0.0259,
+      "user_cpu_seconds": 0.0147,
+      "sys_cpu_seconds": 0.0079,
+      "runs": 7,
+      "notes": "Median of 7, spread 25.0-26.2 ms. The uv wrapper costs 10.8 ms over the bare venv interpreter (15.1 ms)."
+    },
+    {
+      "step": "bare interpreter startup (no uv)",
+      "command": ".venv/bin/python -c pass",
+      "state": "warm",
+      "wall_seconds": 0.0151,
+      "user_cpu_seconds": 0.0104,
+      "sys_cpu_seconds": 0.0033,
+      "runs": 7,
+      "notes": "The floor any Python process pays before importing anything."
+    },
+    {
+      "step": "gate:make-test SKIP path",
+      "command": "make test  (green record matches)",
+      "state": "skip-path",
+      "wall_seconds": 0.0784,
+      "user_cpu_seconds": 0.0513,
+      "sys_cpu_seconds": 0.0211,
+      "runs": 5,
+      "notes": "MEASURED after this session's FORCE run recorded the green. End to end: make + uv (26 ms) + artifact_cycle import (27 ms) + the 100-file/15.6 MB closure fingerprint (13 ms). Skips a 2212 CPU-second suite for 78 milliseconds - a 28,000x avoidance ratio. Half the 0.15 s the contended mapping agent saw."
+    },
+    {
+      "step": "make verdict-ready",
+      "command": "make verdict-ready",
+      "state": "warm",
+      "wall_seconds": 0.9755,
+      "user_cpu_seconds": 0.8963,
+      "sys_cpu_seconds": 0.0717,
+      "runs": 5,
+      "notes": "rc=2 (NOT READY, expected - deferred/unrun gates). Effectively single-threaded (0.99x). ~90% of it is status.load_human_unit_ids full-parsing the 264 MB of surface shards. Has no skip machinery: every invocation pays it."
+    },
+    {
+      "step": "artifact cycle skip-decision surface (whole driver)",
+      "command": "uv run python rebuild/tools/artifact_cycle.py --dry-run",
+      "state": "skip-path",
+      "wall_seconds": 0.1757,
+      "user_cpu_seconds": 0.1433,
+      "sys_cpu_seconds": 0.0274,
+      "runs": 5,
+      "notes": "Resolves the whole 16-step plan and prints it; executes nothing, writes nothing (verified at artifact_cycle.py:2638). This is the entire 'build system' layer's cost."
+    },
+    {
+      "step": "skip fingerprints, in-process, summed",
+      "command": "raw/perf/calibrate/skipcosts.py",
+      "state": "skip-path",
+      "wall_seconds": 0.3073,
+      "user_cpu_seconds": null,
+      "sys_cpu_seconds": null,
+      "runs": 3,
+      "notes": "Best of 3 each, summed: make_test 0.0130, rebuild_gate 0.0786, run_m1 0.0499, conform 0.0506, surface_build_skippable 0.0015, census 0.0221, plumbing 0.0000, and separately data_lines 0.0462 / rune_digests 0.0454. A real cycle computes a subset, which is why the whole --dry-run is only 0.176 s."
+    },
+    {
+      "step": "gate:rebuild SKIP path",
+      "command": "make test-rebuild  (green record matches)",
+      "state": "n/a",
+      "wall_seconds": null,
+      "user_cpu_seconds": null,
+      "sys_cpu_seconds": null,
+      "runs": null,
+      "notes": "NOT MEASURED. rebuild_gate_skip_fingerprint does NOT match rebuild-gate-green.json on this tree (verified), so running `make test-rebuild` would have run the full 1,162-test suite (~6-8 min) rather than exercising a skip path. Establishing the green first was outside the time budget. The fingerprint computation alone - which is all a skip costs beyond uv+import - MEASURED at 0.0786 s, so the skip path is ~0.079 + 0.026 (uv) + 0.027 (import) ~= 0.13 s. That last figure is DERIVED, not measured end to end."
+    },
+    {
+      "step": "make all (font build + typst)",
+      "command": "make all",
+      "state": "cold",
+      "wall_seconds": 11.2394,
+      "user_cpu_seconds": 22.4305,
+      "sys_cpu_seconds": 0.3338,
+      "runs": 3,
+      "notes": "Median of 3; spread 11.09-11.42 s (+-1.5%), so variance is negligible. 'Cold' is the only state: there is no input-fingerprint skip anywhere in tools/build_font.py, so every invocation pays this in full even when the output is byte-identical (all six variants printed 'Font unchanged'). Parallel efficiency 2.03x on a 6-worker pool."
+    },
+    {
+      "step": "make all -> build_font.py only",
+      "command": "uv run python tools/build_font.py glyph_data/ site/",
+      "state": "cold",
+      "wall_seconds": 11.1391,
+      "user_cpu_seconds": 22.3231,
+      "sys_cpu_seconds": 0.4064,
+      "runs": 3,
+      "notes": "99.1% of `make all`'s wall time."
+    },
+    {
+      "step": "make all -> typst subprocess only",
+      "command": "typst compile --font-path . print.typ  (cwd=site/)",
+      "state": "cold",
+      "wall_seconds": 0.0917,
+      "user_cpu_seconds": 0.054,
+      "sys_cpu_seconds": 0.0384,
+      "runs": 3,
+      "notes": "0.8% of `make all`. Already Rust. Not a lever."
+    },
+    {
+      "step": "pyright (standalone)",
+      "command": "uv run pyright",
+      "state": "cold",
+      "wall_seconds": 6.074,
+      "user_cpu_seconds": 9.6175,
+      "sys_cpu_seconds": 0.327,
+      "runs": 1,
+      "notes": "First run of the session. 0 errors, 0 warnings over the [tool.pyright] include set."
+    },
+    {
+      "step": "pyright (standalone)",
+      "command": "uv run pyright",
+      "state": "warm",
+      "wall_seconds": 5.7844,
+      "user_cpu_seconds": 9.6175,
+      "sys_cpu_seconds": 0.2796,
+      "runs": 3,
+      "notes": "Median of 3 (6.074 / 5.716 / 5.784). Cold-vs-warm is a 5% page-cache effect; pyright has no persistent result cache. 1.71x parallel. It is a node binary and it runs concurrently with the 11.2 s font build inside pytest_configure, so it is fully hidden and caps nothing."
+    },
+    {
+      "step": "make test (full suite)",
+      "command": "make test FORCE=1  (PYTEST_ADDOPTS='--durations=40 -q')",
+      "state": "cold",
+      "wall_seconds": 205.5728,
+      "user_cpu_seconds": 2197.0213,
+      "sys_cpu_seconds": 15.3598,
+      "runs": 1,
+      "notes": "6753 passed, rc=0, peak RSS 2.07 GB. pytest's own session clock reported 193.89 s, so the fixed prelude (make all + pyright inside pytest_configure, overlapped) is 11.68 s. PARALLEL EFFICIENCY 2212.4 CPU-s / (205.6 s x 12 cores) = 89.7%; speedup 10.76x on 12 logical cores. Single run only - it costs 3.4 minutes and the box was verified quiet. Slowest single test 4.27 s; the top 40 durations are all test_calt_regressions.py sweeps between 3.29 and 4.27 s, i.e. no long pole at all."
+    },
+    {
+      "step": "make test (skip)",
+      "command": "make test",
+      "state": "skip-path",
+      "wall_seconds": 0.0784,
+      "user_cpu_seconds": 0.0513,
+      "sys_cpu_seconds": 0.0211,
+      "runs": 5,
+      "notes": "Same row as gate:make-test SKIP above; repeated here because it is the state a human actually meets most of the time."
+    },
+    {
+      "step": "M1 table stage, default config, no trace memo",
+      "command": "raw/perf/calibrate/m1_default_table.py nostore default",
+      "state": "cold",
+      "wall_seconds": 77.509,
+      "user_cpu_seconds": 77.145,
+      "sys_cpu_seconds": 0.457,
+      "runs": 1,
+      "notes": "table.build_tables only, out_dir=None. 682,842 windows / 2,667 rules / 3,563 treaty rows, peak RSS 3.85 GB. Wall == CPU: perfectly serial, one core. Whole process /usr/bin/time -l: 91.03 real / 90.46 user, i.e. 13.4 s of interpreter TEARDOWN after the last print - the cost of freeing a 3.85 GB object graph, which no profiler attributes to anything."
+    },
+    {
+      "step": "M1 table stage, default config, writing a fresh trace memo",
+      "command": "raw/perf/calibrate/m1_default_table.py fresh default",
+      "state": "cold",
+      "wall_seconds": 94.551,
+      "user_cpu_seconds": 94.019,
+      "sys_cpu_seconds": 0.663,
+      "runs": 1,
+      "notes": "Same fixpoint plus persisting 1,875,829 memo entries (12.8 MB gz). The memo write costs 94.55 - 77.51 = 17.0 s and buys 66 s on the next build. Peak RSS 5.68 GB; process real 108.15 s."
+    },
+    {
+      "step": "M1 table stage, default config, warm trace memo",
+      "command": "raw/perf/calibrate/m1_default_table.py warm default",
+      "state": "warm",
+      "wall_seconds": 28.543,
+      "user_cpu_seconds": 33.442,
+      "sys_cpu_seconds": 0.348,
+      "runs": 1,
+      "notes": "1,498,922 of 1,875,829 entries served. build_tables 28.54 s; opening/parsing the memo adds 5.2 s on top (total inner 33.84 s, process real 37.01 s). Peak RSS 2.85 GB. Work avoidance on the fixpoint alone: 77.51 -> 28.54 = 2.72x, which independently reproduces commit a649d630's cited 149 s -> 55 s ratio on different hardware. user_cpu_seconds here is for the whole inner run, not just build_tables."
+    },
+    {
+      "step": "M1 table stage, ALL SIX configs, cold",
+      "command": "raw/perf/calibrate/m1_all_configs.py fresh",
+      "state": "cold",
+      "wall_seconds": 337.87,
+      "user_cpu_seconds": 337.66,
+      "sys_cpu_seconds": null,
+      "runs": 1,
+      "notes": "THE SINGLE BIGGEST STEP IN THE REPO. Serial by design (the TraceShare lives in one process): wall == CPU, 1.00x, one core of twelve. Per config: default 95.34, ss03 59.68, ss04 54.85, ss05 31.42, ss03+ss05 63.18, ss10 32.93. Peak RSS 7.46 GB (process 8.01 GB); process real 360.01 s, i.e. 22 s of teardown. sys was 2.34 s at the process level."
+    },
+    {
+      "step": "M1 table stage, ALL SIX configs, warm",
+      "command": "raw/perf/calibrate/m1_all_configs.py warm",
+      "state": "warm",
+      "wall_seconds": 194.86,
+      "user_cpu_seconds": 194.7,
+      "sys_cpu_seconds": null,
+      "runs": 1,
+      "notes": "Nothing changed at all - every memo fully valid. Per config: 28.04 / 35.91 / 28.30 / 27.46 / 37.58 / 25.93. Whole-stage avoidance is only 1.73x (not the 2.72x the default config alone shows) because the cross-config TraceShare already carried most of the recipient configs' work in the cold run, so the persisted memo has less left to add. Process real 202.24 s, peak RSS 6.64 GB."
+    },
+    {
+      "step": "review surface build, cold",
+      "command": "uv run python -m rebuild.review.build --jobs 6 --out raw/perf/calibrate/review-out",
+      "state": "cold",
+      "wall_seconds": 35.56,
+      "user_cpu_seconds": 141.15,
+      "sys_cpu_seconds": 1.98,
+      "runs": 1,
+      "notes": "Genuinely cold: 0 cached signatures / 152,730 shaped, 0 of 62,148 units served. 62,148 units / 292,098 rows / 36 batches. Phases: load 7.9, plan 0.3, units 22.4, manifest+check 1.7, cache 2.8. Peak RSS 2.41 GB. Parallel efficiency 4.03x on 6 workers (67%). NOTE this is 1.9x FASTER in wall than the mapping agent's contended --jobs 10 figure of 67.8 s, while the CPU totals agree - their extra workers bought nothing and cost per-worker setup."
+    },
+    {
+      "step": "review surface build, warm",
+      "command": "uv run python -m rebuild.review.build --jobs 6 --out raw/perf/calibrate/review-out  (second run)",
+      "state": "warm",
+      "wall_seconds": 13.61,
+      "user_cpu_seconds": 13.13,
+      "sys_cpu_seconds": 0.4,
+      "runs": 1,
+      "notes": "All 62,148 units served from the unit cache, all 152,730 signatures cached. Phases: load 2.2, plan 3.0, units 3.6, manifest+check 1.9, cache 2.6. Effectively single-threaded (0.99x) because the reduce side never parallelizes. Cold->warm avoidance 2.6x wall, 10.8x CPU."
+    },
+    {
+      "step": "make review (scoped-anchor-selector report)",
+      "command": "uv run python tools/review_scoped_anchor_selectors.py --output raw/perf/calibrate/scoped-anchor-review/index.html",
+      "state": "cold",
+      "wall_seconds": 21.3958,
+      "user_cpu_seconds": 42.6735,
+      "sys_cpu_seconds": 0.2825,
+      "runs": 2,
+      "notes": "Redirected away from site/ with --output. 'Cold' is the only state: this target has NO green record and no skip proof, so it re-derives everything every invocation. 2.01x parallel. Contended, the mapping agent saw 47.0 s - this is 2.2x faster uncontended."
+    },
+    {
+      "step": "gate:js",
+      "command": "node --test rebuild/review/jstests/*.test.js  (7 files)",
+      "state": "cold",
+      "wall_seconds": 0.1043,
+      "user_cpu_seconds": 0.3567,
+      "sys_cpu_seconds": 0.0756,
+      "runs": 3,
+      "notes": "Not Python. Noise against everything else."
+    },
+    {
+      "step": "pytest collection only, main suite",
+      "command": "uv run pytest test/ site/ --collect-only -q -n 0",
+      "state": "warm",
+      "wall_seconds": 0.6708,
+      "user_cpu_seconds": 0.5527,
+      "sys_cpu_seconds": 0.0493,
+      "runs": 2,
+      "notes": "6,753 items. Collection is NOT what per-worker startup costs - the per-worker tax is the module-level anchor-map/glyph-compile caches, not import or collection."
+    },
+    {
+      "step": "pytest collection only, rebuild suite",
+      "command": "uv run pytest rebuild/ --collect-only -q -n 0",
+      "state": "warm",
+      "wall_seconds": 0.4111,
+      "user_cpu_seconds": 0.3409,
+      "sys_cpu_seconds": 0.0403,
+      "runs": 2,
+      "notes": "1,162 items."
+    },
+    {
+      "step": "rebuild test suite (full)",
+      "command": "make test-rebuild FORCE=1 / uv run pytest rebuild/ -n auto --dist worksteal",
+      "state": "n/a",
+      "wall_seconds": null,
+      "user_cpu_seconds": null,
+      "sys_cpu_seconds": null,
+      "runs": null,
+      "notes": "NOT MEASURED - deliberately deprioritized. It was outside the minimum brief, would have cost 6-8 minutes, and heavily overlaps the M1 table numbers above (its dominant test, test_rule_witnesses, IS build_tables + find_rule_witnesses six times over). Safety was verified though: rebuild/conftest.py builds the surface into tmp/review-surface-test-cache/ or a tmp_path, never into rebuild/out/review/, so it would have been safe to run. The contended prior measurement is 451.8 s cold / 340.1 s warm wall and 1629 / 1444 CPU-s; expect roughly 25-35% less wall uncontended, by analogy with every other step re-measured here."
+    },
+    {
+      "step": "full run_m1 (beyond the table stage)",
+      "command": "uv run python -m rebuild.pipeline.run_m1 --jobs 6",
+      "state": "n/a",
+      "wall_seconds": null,
+      "user_cpu_seconds": null,
+      "sys_cpu_seconds": null,
+      "runs": null,
+      "notes": "NOT MEASURED. Running it writes rebuild/out/m1/ in place, restamps stage-A, and would have invalidated the user's surface and every downstream green record - exactly the destruction the brief forbids. Only its dominant stage (build_tables, measured above at 337.9 s cold / 194.9 s warm) was isolated. Its remaining stages - minting, defect gates, emission, feaLib compile - were measured by the m1-pipeline agent at ~1 s combined; the conformance sweep and oracle comparison are the unmeasured remainder and are known to be large."
+    },
+    {
+      "step": "gate:conform",
+      "command": "uv run python -m rebuild.pipeline.run_m1 --conform-only --jobs 8",
+      "state": "n/a",
+      "wall_seconds": null,
+      "user_cpu_seconds": null,
+      "sys_cpu_seconds": null,
+      "runs": null,
+      "notes": "NOT MEASURED, and not measurable boundedly on this tree. --conform-only replays the serialized window enumeration only when its fingerprint matches; rebuild/out/m1 carries a July stamp that the current tree does not reproduce (verified: conform_skip_fingerprint does not match conform-green.json), so serialized_tables() returns None and the command would rebuild all six fixpoints in-process first - i.e. 338 s of table build before the sweep even starts, and it would write conform_summary.json and settle conform-green.json in rebuild/out. Declined."
+    },
+    {
+      "step": "verdict plumbing chain (carry -> merge -> echo -> standing -> complaints)",
+      "command": "seven `uv run python` children in artifact_cycle's build lane",
+      "state": "n/a",
+      "wall_seconds": null,
+      "user_cpu_seconds": null,
+      "sys_cpu_seconds": null,
+      "runs": null,
+      "notes": "NOT MEASURED. Every one of these writes the verdict store; the brief forbids it and it would destroy real human adjudication work. artifact_cycle's own docstring cites ~23 s for the chain and ~3 s for the docket - CITED-FROM-DOCSTRING, not measured, and not measured on this hardware by anyone."
+    }
+  ],
+
+  "parallel_efficiency": [
+    {"step": "make test (12 xdist workers)", "cpu_s": 2212.38, "wall_s": 205.57, "speedup": 10.76, "cores_available": 12, "efficiency_pct": 89.7, "measured": true},
+    {"step": "M1 table stage, 6 configs", "cpu_s": 337.66, "wall_s": 337.87, "speedup": 1.0, "cores_available": 12, "efficiency_pct": 8.3, "measured": true, "note": "Serial by design - the cross-config TraceShare must live in one process. 11 of 12 cores idle for 5.6 minutes."},
+    {"step": "review surface build cold (6 spawn workers)", "cpu_s": 143.13, "wall_s": 35.56, "speedup": 4.03, "cores_available": 6, "efficiency_pct": 67.1, "measured": true},
+    {"step": "review surface build warm", "cpu_s": 13.53, "wall_s": 13.61, "speedup": 0.99, "cores_available": 6, "efficiency_pct": 16.6, "measured": true, "note": "The warm path is all reduce side, which never parallelizes."},
+    {"step": "make all (6-worker pool)", "cpu_s": 22.76, "wall_s": 11.24, "speedup": 2.03, "cores_available": 6, "efficiency_pct": 33.8, "measured": true, "note": "Bounded by the two senior variants; mono/junior finish early."},
+    {"step": "pyright", "cpu_s": 9.9, "wall_s": 5.78, "speedup": 1.71, "cores_available": 12, "efficiency_pct": 14.3, "measured": true},
+    {"step": "make review", "cpu_s": 42.96, "wall_s": 21.4, "speedup": 2.01, "cores_available": 12, "efficiency_pct": 16.7, "measured": true},
+    {"step": "make verdict-ready", "cpu_s": 0.968, "wall_s": 0.976, "speedup": 0.99, "cores_available": 12, "efficiency_pct": 8.3, "measured": true}
+  ],
+
+  "process_spawn_tax": {
+    "counting_method": "Enumerated from the resolved 16-step plan (raw/perf/calibrate/dryrun-plan.txt, which currently resolves with NOTHING skipped) plus the pool constructions in the code.",
+    "uv_run_spawns_per_cold_cycle": 15,
+    "uv_run_breakdown": [
+      "artifact_cycle.py (the driver itself)",
+      "run_m1 --jobs 6",
+      "rebuild.review.build --jobs 6",
+      "carry_verdicts.py",
+      "merge_verdicts (carried)",
+      "echo_verdicts.py",
+      "merge_verdicts (echo)",
+      "standing_verdicts.py",
+      "merge_verdicts (standing)",
+      "rebuild.review.census --check",
+      "complaint_docket",
+      "gate:conform -> run_m1 --conform-only --jobs 8",
+      "gate:rebuild -> uv run pytest rebuild/",
+      "gate:make-test -> make test -> uv run python -m make_test_gate",
+      "  ...which itself spawns uv run pytest test/ site/"
+    ],
+    "raw_interpreter_spawns_per_cold_cycle": 60,
+    "raw_breakdown": [
+      "run_m1: three separate _spawn_pool(6) constructions (conformance, boundary, oracle) = 18 spawn-context workers",
+      "gate:conform: one _spawn_pool(min(8,6)=6) = 6",
+      "rebuild.review.build: two spawn pools (signature pool at build.py:562, unit pool at build.py:666) x 6 = 12",
+      "gate:rebuild: pytest -n auto = 12 xdist workers",
+      "gate:make-test: pytest -n auto = 12 xdist workers"
+    ],
+    "total_python_process_spawns": 75,
+    "arithmetic": {
+      "uv_wrapper_increment_s": 0.162,
+      "uv_wrapper_increment_note": "15 spawns x 10.8 ms MEASURED uv overhead",
+      "interpreter_startup_floor_s": 1.133,
+      "interpreter_startup_floor_note": "75 spawns x 15.1 ms MEASURED bare-interpreter startup",
+      "combined_process_birth_s": 1.295,
+      "import_cost_uv_entry_points_s": 0.62,
+      "import_cost_uv_entry_points_note": "DERIVED: sum of the MEASURED per-entry-point self-import costs across the 15 uv children (12-69 ms each)",
+      "import_cost_pool_workers_s": 2.4,
+      "import_cost_pool_workers_note": "DERIVED: 36 pipeline/review pool workers x ~65 ms MEASURED module import. These are CPU-seconds spread across cores, not wall.",
+      "pytest_worker_setup_cpu_s": 30.7,
+      "pytest_worker_setup_note": "CITED from the test-suite mapping agent (1.28 CPU-s per worker x 24 workers) - NOT re-measured here. This is NOT import cost: MEASURED collection is only 0.67 s for the whole main suite. It is the per-process module-level caches (glyph_data YAML parse + compile_glyph_set + build_anchor_map). Spread over 12 cores it is ~2.6 s of wall."
+    },
+    "verdict": "MEASURED total process-birth cost of a fully-cold artifact cycle: ~1.3 wall-seconds of spawn plus ~3 CPU-seconds of imports, against a cold cycle whose critical path is 15+ minutes. Adding the CITED pytest per-worker setup brings the whole process/startup layer to roughly 35 CPU-seconds, ~4 seconds of wall. Under 0.5% of the cycle. Eliminating `uv` entirely would save 0.16 s. This layer is NOT worth optimizing and NOT worth rewriting."
+  },
+
+  "not_measured": [
+    "The rebuild test suite (`make test-rebuild`) - deprioritized for time; outside the minimum brief; heavily overlapping the M1 numbers that WERE measured. Safety was verified (its surface builds go to tmp/), so a later agent can run it.",
+    "gate:rebuild's SKIP path end to end - its fingerprint does not match on this tree, so `make test-rebuild` would have run the suite. Only the fingerprint component (0.0786 s) is measured.",
+    "A full `run_m1` - it writes rebuild/out/m1/ in place and would restamp stage-A, invalidating the user's surface and every downstream green record. Only build_tables was isolated.",
+    "gate:conform - not boundedly measurable: the on-disk window enumeration carries a July stamp the current tree does not reproduce, so --conform-only would rebuild all six fixpoints first (338 s) and then write into rebuild/out.",
+    "The verdict plumbing chain and the complaint docket - every step writes the verdict store. Forbidden, and destructive of real human adjudication work.",
+    "`make artifact-cycle` / `make review-cycle` end to end, and therefore rebuild/out/cycle-timings.ndjson - the journal still does not exist on this machine, so `make cycle-timings --by-step` still has no medians. Nothing here fills that gap.",
+    "The APFS snapshot step (cp -Rc of the 264 MB surface) - it is part of the forbidden cycle.",
+    "make check-html-before/after, build-kerning-hardcases, test-leaks, leak-snapshot, print-job, woff2 - each depends on `make all` and so pays the measured 11.24 s first; their own bodies were not timed.",
+    "make complaint-docket and make novelty-order - they read the live verdict store and complaint_docket writes tmp/complaints-data.json; skipped to avoid writing outside my slug directory."
+  ],
+
+  "evidence_files": [
+    "raw/perf/calibrate/calibration.json",
+    "raw/perf/calibrate/calibration.md",
+    "raw/perf/calibrate/t.py",
+    "raw/perf/calibrate/importtime.sh",
+    "raw/perf/calibrate/importtime-summary.tsv",
+    "raw/perf/calibrate/skipcosts.py",
+    "raw/perf/calibrate/skipcosts.json",
+    "raw/perf/calibrate/m1_default_table.py",
+    "raw/perf/calibrate/m1_all_configs.py",
+    "raw/perf/calibrate/dryrun-plan.txt",
+    "raw/perf/calibrate/make-test-force.run0.out",
+    "raw/perf/calibrate/m1-nostore.json",
+    "raw/perf/calibrate/m1-fresh.json",
+    "raw/perf/calibrate/m1-warm.json",
+    "raw/perf/calibrate/m1-all-fresh.txt",
+    "raw/perf/calibrate/m1-all-warm.txt",
+    "raw/perf/calibrate/review-cold.err",
+    "raw/perf/calibrate/review-warm.err"
+  ]
+}

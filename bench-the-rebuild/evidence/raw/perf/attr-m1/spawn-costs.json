@@ -1,0 +1,9 @@
+{
+  "bare_interp_pass_wall_s": 0.0183,
+  "import_conform_wall_s": 0.0475,
+  "import_table_wall_s": 0.0428,
+  "import_conform_plus_spec_load_wall_s": 0.1553,
+  "spawn_worker_startup_wall_s": 0.1553,
+  "m1_pools": "run_m1._spawn_pool is built 3x (conformance, boundary, oracle), max_workers=min(jobs,6)",
+  "spawn_startup_total_18_workers_wall_s": 0.85
+}

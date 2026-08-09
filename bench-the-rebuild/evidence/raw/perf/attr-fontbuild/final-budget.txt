@@ -1,0 +1,62 @@
+`make all` measured CPU: 23.19 s (median of 3, /usr/bin/time -l, low load)
+instrumented build_font.py, CPU summed over its 8 processes: 22.049 s
+
+component                                                            cpu_s  % make all  owner
+fontTools feaLib: parse + otlLib build (addOpenTypeFeaturesFromString)  11.651      50.24%  fontTools
+fontTools ttLib: table compile + pack (FontBuilder.save)             2.362      10.19%  fontTools
+repo quikscript_fea: senior FEA text emit                            2.062       8.89%  repo
+repo departure_mono_import: pixel-cell ray casting                   1.198       5.17%  repo
+fontTools CFF charstring execution (Departure Mono glyph.draw)       0.046       0.20%  fontTools
+repo quikscript_ir + join_analysis: compile_glyph_set                1.041       4.49%  repo
+fontTools T2CharStringPen.getCharString                              0.300       1.29%  fontTools
+fontTools T2CharStringPen point ops (inside residual)                0.150       0.65%  fontTools
+PyYAML pure-python SafeLoader (7 parses of glyph_data/)              1.360       5.86%  PyYAML
+interpreter startup + module imports (7 processes)                   0.770       3.32%  startup
+repo build_font body: pixel rects, cmap, names, write-if-changed     1.022       4.41%  repo
+multiprocessing resource_tracker                                     0.088       0.38%  other
+typst subprocess (Rust, native)                                      0.090       0.39%  native-subprocess
+make + cp + uv launcher + interpreter teardown (unattributed)        1.051       4.53%  other
+TOTAL                                                               23.190     100.00%
+
+-- by owner (share of `make all` CPU) --
+  fontTools             14.509 s   62.56%
+  repo                   5.322 s   22.95%
+  PyYAML                 1.360 s    5.86%
+  other                  1.139 s    4.91%
+  startup                0.770 s    3.32%
+  native-subprocess      0.090 s    0.39%
+
+-- execution-kind split of `make all` CPU (Method A weights, non-compute folded in) --
+  bytecode            29.21%
+  interp              64.73%
+  native               4.54%
+  io                   1.52%
+  SUM                 99.99%
+
+===== AMDAHL (CPU) =====
+
+  rewrite only this repo's own Python in Rust/Go
+    rewritable fraction f = 23.0%
+    ceiling (f -> 0 time):  1.30x
+    at 10x on f:            1.26x
+    at 25x on f:            1.28x
+    at 50x on f:            1.29x
+
+  repo Python in Rust/Go + PyYAML -> libyaml (no rewrite needed for the latter)
+    rewritable fraction f = 28.8%
+    ceiling (f -> 0 time):  1.40x
+    at 10x on f:            1.35x
+    at 25x on f:            1.38x
+    at 50x on f:            1.39x
+
+  everything CPython-side, i.e. also replace fontTools (write a font compiler)
+    rewritable fraction f = 93.9%
+    ceiling (f -> 0 time):  16.49x
+    at 10x on f:            6.47x
+    at 25x on f:            10.18x
+    at 50x on f:            12.59x
+
+-- for comparison, MEASURED with two Python-only changes (lever-experiments.txt) --
+   yaml.CSafeLoader + gc.freeze()/gc.disable(): -16.80% serial build CPU = 1.20x,
+   byte-identical OTFs. That is 65% of the 1.30x ceiling of an infinitely fast
+   Rust rewrite of every line of this repo's own font-build Python.

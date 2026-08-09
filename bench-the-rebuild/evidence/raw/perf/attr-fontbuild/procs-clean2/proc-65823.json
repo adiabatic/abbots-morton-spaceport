@@ -1,0 +1,45 @@
+{
+ "pid": 65823,
+ "argv": [
+  "tools/build_font.py",
+  "glyph_data/",
+  "site/"
+ ],
+ "cpu_self": 1.1847029999999998,
+ "user": 1.165914,
+ "sys": 0.018789,
+ "maxrss_mb": 54.828125,
+ "wall": 8.168242709012702,
+ "timers": {
+  "yaml.safe_load_all": {
+   "cpu": 2.2000000000008124e-05,
+   "wall": 8.70603253133595e-06,
+   "calls": 10
+  },
+  "repo compile_glyph_set (IR)": {
+   "cpu": 0.007466000000000028,
+   "wall": 0.007465749979019165,
+   "calls": 1
+  },
+  "fontTools DepartureMono CFF decompile": {
+   "cpu": 0.608895,
+   "wall": 0.6091015830170363,
+   "calls": 1
+  },
+  "yaml.safe_load": {
+   "cpu": 0.005066999999999933,
+   "wall": 0.0050667500181589276,
+   "calls": 1
+  },
+  "fontTools T2CharStringPen.getCharString": {
+   "cpu": 0.07647900000000063,
+   "wall": 0.07649453397607431,
+   "calls": 1238
+  },
+  "fontTools FontBuilder.save (table pack)": {
+   "cpu": 0.17670799999999987,
+   "wall": 0.17673408400150947,
+   "calls": 1
+  }
+ }
+}

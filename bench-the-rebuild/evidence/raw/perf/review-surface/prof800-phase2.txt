@@ -1,0 +1,106 @@
+         2499867 function calls (2450407 primitive calls) in 0.798 seconds
+
+   Ordered by: cumulative time
+   List reduced from 1110 to 45 due to restriction <45>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+      800    0.001    0.000    0.801    0.001 rebuild/review/build.py:503(_phase2_unit)
+      800    0.004    0.000    0.800    0.001 rebuild/review/build.py:343(unit_to_json)
+      800    0.003    0.000    0.548    0.001 rebuild/review/drafts.py:288(draft_policy)
+      782    0.001    0.000    0.504    0.001 .venv/lib/python3.14/site-packages/yaml/__init__.py:263(safe_dump)
+      782    0.002    0.000    0.504    0.001 .venv/lib/python3.14/site-packages/yaml/__init__.py:215(dump_all)
+      782    0.000    0.000    0.494    0.001 .venv/lib/python3.14/site-packages/yaml/representer.py:26(represent)
+11490/782    0.006    0.000    0.271    0.000 .venv/lib/python3.14/site-packages/yaml/representer.py:33(represent_data)
+ 3167/782    0.001    0.000    0.269    0.000 .venv/lib/python3.14/site-packages/yaml/representer.py:206(represent_dict)
+ 3167/782    0.006    0.000    0.269    0.000 .venv/lib/python3.14/site-packages/yaml/representer.py:103(represent_mapping)
+     7552    0.001    0.000    0.250    0.000 .venv/lib/python3.14/site-packages/yaml/representer.py:147(represent_str)
+     7559    0.248    0.000    0.248    0.000 .venv/lib/python3.14/site-packages/yaml/representer.py:77(represent_scalar)
+      782    0.002    0.000    0.223    0.000 .venv/lib/python3.14/site-packages/yaml/serializer.py:46(serialize)
+11490/782    0.020    0.000    0.212    0.000 .venv/lib/python3.14/site-packages/yaml/serializer.py:78(serialize_node)
+    18549    0.013    0.000    0.188    0.000 .venv/lib/python3.14/site-packages/yaml/emitter.py:111(emit)
+      800    0.003    0.000    0.122    0.000 rebuild/review/drafts.py:238(draft_pin)
+      800    0.002    0.000    0.101    0.000 rebuild/review/build.py:297(unit_scaffold)
+      800    0.038    0.000    0.099    0.000 rebuild/review/build.py:189(config_badge)
+    11490    0.010    0.000    0.090    0.000 .venv/lib/python3.14/site-packages/yaml/emitter.py:232(expect_node)
+     4972    0.002    0.000    0.062    0.000 .venv/lib/python3.14/site-packages/yaml/emitter.py:354(expect_flow_mapping_simple_value)
+     1600    0.000    0.000    0.052    0.000 rebuild/review/drafts.py:43(_import_test_shaping)
+     89/1    0.000    0.000    0.051    0.051 <frozen importlib._bootstrap>:1360(_find_and_load)
+     89/1    0.000    0.000    0.051    0.051 <frozen importlib._bootstrap>:1308(_find_and_load_unlocked)
+     84/1    0.000    0.000    0.051    0.051 <frozen importlib._bootstrap>:914(_load_unlocked)
+     75/1    0.000    0.000    0.051    0.051 <frozen importlib._bootstrap_external>:753(exec_module)
+    210/2    0.000    0.000    0.051    0.025 <frozen importlib._bootstrap>:483(_call_with_frames_removed)
+     89/1    0.004    0.000    0.051    0.051 {built-in method builtins.exec}
+        1    0.000    0.000    0.051    0.051 test/test_shaping.py:1(<module>)
+      800    0.003    0.000    0.044    0.000 rebuild/review/drafts.py:262(validate_semantics)
+     3167    0.002    0.000    0.043    0.000 .venv/lib/python3.14/site-packages/yaml/emitter.py:316(expect_first_flow_mapping_key)
+   187272    0.020    0.000    0.043    0.000 rebuild/review/build.py:209(<genexpr>)
+     7559    0.004    0.000    0.042    0.000 .venv/lib/python3.14/site-packages/yaml/emitter.py:266(expect_scalar)
+     7559    0.029    0.000    0.038    0.000 .venv/lib/python3.14/site-packages/yaml/emitter.py:626(analyze_scalar)
+     4972    0.006    0.000    0.036    0.000 .venv/lib/python3.14/site-packages/yaml/emitter.py:437(check_simple_key)
+     7559    0.003    0.000    0.035    0.000 .venv/lib/python3.14/site-packages/yaml/emitter.py:515(process_scalar)
+      782    0.000    0.000    0.034    0.000 rebuild/pipeline/spec_load.py:129(check)
+ 9089/782    0.013    0.000    0.034    0.000 rebuild/pipeline/spec_load.py:160(_check)
+        1    0.000    0.000    0.034    0.034 tools/build_font.py:1(<module>)
+4059/1674    0.008    0.000    0.030    0.000 rebuild/pipeline/spec_load.py:206(_check_object)
+    11490    0.004    0.000    0.030    0.000 .venv/lib/python3.14/site-packages/yaml/emitter.py:469(process_tag)
+     1600    0.015    0.000    0.029    0.000 test/test_shaping.py:113(parse_expect)
+     4972    0.003    0.000    0.027    0.000 .venv/lib/python3.14/site-packages/yaml/emitter.py:333(expect_flow_mapping_key)
+   122842    0.019    0.000    0.026    0.000 rebuild/review/build.py:154(_config_features)
+     7559    0.002    0.000    0.026    0.000 .venv/lib/python3.14/site-packages/yaml/emitter.py:494(choose_scalar_style)
+    37098    0.010    0.000    0.026    0.000 .venv/lib/python3.14/site-packages/yaml/emitter.py:120(need_more_events)
+545258/545086    0.022    0.000    0.022    0.000 {built-in method builtins.len}
+
+
+         2499867 function calls (2450407 primitive calls) in 0.798 seconds
+
+   Ordered by: internal time
+   List reduced from 1110 to 45 due to restriction <45>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+     7559    0.248    0.000    0.248    0.000 .venv/lib/python3.14/site-packages/yaml/representer.py:77(represent_scalar)
+      800    0.038    0.000    0.099    0.000 rebuild/review/build.py:189(config_badge)
+     7559    0.029    0.000    0.038    0.000 .venv/lib/python3.14/site-packages/yaml/emitter.py:626(analyze_scalar)
+545258/545086    0.022    0.000    0.022    0.000 {built-in method builtins.len}
+   351652    0.021    0.000    0.021    0.000 {built-in method builtins.isinstance}
+   187272    0.020    0.000    0.043    0.000 rebuild/review/build.py:209(<genexpr>)
+11490/782    0.020    0.000    0.212    0.000 .venv/lib/python3.14/site-packages/yaml/serializer.py:78(serialize_node)
+   122842    0.019    0.000    0.026    0.000 rebuild/review/build.py:154(_config_features)
+     1600    0.015    0.000    0.029    0.000 test/test_shaping.py:113(parse_expect)
+    18549    0.013    0.000    0.188    0.000 .venv/lib/python3.14/site-packages/yaml/emitter.py:111(emit)
+ 9089/782    0.013    0.000    0.034    0.000 rebuild/pipeline/spec_load.py:160(_check)
+      782    0.012    0.000    0.018    0.000 .venv/lib/python3.14/site-packages/yaml/emitter.py:854(write_single_quoted)
+    37098    0.010    0.000    0.026    0.000 .venv/lib/python3.14/site-packages/yaml/emitter.py:120(need_more_events)
+    11490    0.010    0.000    0.090    0.000 .venv/lib/python3.14/site-packages/yaml/emitter.py:232(expect_node)
+     6777    0.010    0.000    0.014    0.000 .venv/lib/python3.14/site-packages/yaml/emitter.py:1080(write_plain)
+     4972    0.009    0.000    0.014    0.000 .venv/lib/python3.14/site-packages/yaml/emitter.py:580(prepare_tag)
+      800    0.009    0.000    0.009    0.000 /opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/json/encoder.py:207(iterencode)
+   109091    0.008    0.000    0.008    0.000 {method 'split' of 'str' objects}
+4059/1674    0.008    0.000    0.030    0.000 rebuild/pipeline/spec_load.py:206(_check_object)
+    14273    0.007    0.000    0.011    0.000 .venv/lib/python3.14/site-packages/yaml/emitter.py:133(need_events)
+    17177    0.007    0.000    0.007    0.000 rebuild/review/build.py:161(_candidate_constraint_sets)
+    94661    0.007    0.000    0.007    0.000 {method 'append' of 'list' objects}
+    75400    0.007    0.000    0.007    0.000 {method 'get' of 'dict' objects}
+11490/782    0.006    0.000    0.271    0.000 .venv/lib/python3.14/site-packages/yaml/representer.py:33(represent_data)
+    96285    0.006    0.000    0.006    0.000 {method 'items' of 'dict' objects}
+     4972    0.006    0.000    0.036    0.000 .venv/lib/python3.14/site-packages/yaml/emitter.py:437(check_simple_key)
+ 3167/782    0.006    0.000    0.269    0.000 .venv/lib/python3.14/site-packages/yaml/representer.py:103(represent_mapping)
+    19566    0.005    0.000    0.007    0.000 .venv/lib/python3.14/site-packages/yaml/resolver.py:143(resolve)
+       75    0.005    0.000    0.005    0.000 {built-in method marshal.loads}
+        9    0.005    0.001    0.005    0.001 {built-in method _imp.create_dynamic}
+    16203    0.005    0.000    0.007    0.000 .venv/lib/python3.14/site-packages/yaml/emitter.py:800(write_indicator)
+    24990    0.005    0.000    0.005    0.000 {method 'match' of 're.Pattern' objects}
+11490/782    0.004    0.000    0.006    0.000 .venv/lib/python3.14/site-packages/yaml/serializer.py:60(anchor_node)
+      800    0.004    0.000    0.800    0.001 rebuild/review/build.py:343(unit_to_json)
+     7559    0.004    0.000    0.042    0.000 .venv/lib/python3.14/site-packages/yaml/emitter.py:266(expect_scalar)
+      800    0.004    0.000    0.013    0.000 rebuild/validation/pins.py:139(_check_interpretation)
+     89/1    0.004    0.000    0.051    0.051 {built-in method builtins.exec}
+     2400    0.004    0.000    0.010    0.000 rebuild/review/drafts.py:133(expect_string)
+    11490    0.004    0.000    0.030    0.000 .venv/lib/python3.14/site-packages/yaml/emitter.py:469(process_tag)
+    39342    0.004    0.000    0.004    0.000 {method 'write' of '_io.StringIO' objects}
+      800    0.003    0.000    0.007    0.000 test/test_shaping.py:664(_token_char_spans)
+    43278    0.003    0.000    0.003    0.000 {method 'pop' of 'list' objects}
+     4972    0.003    0.000    0.027    0.000 .venv/lib/python3.14/site-packages/yaml/emitter.py:333(expect_flow_mapping_key)
+      800    0.003    0.000    0.122    0.000 rebuild/review/drafts.py:238(draft_pin)
+    35033    0.003    0.000    0.003    0.000 {method 'group' of 're.Match' objects}
+
+

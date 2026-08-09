@@ -1,0 +1,25 @@
+clean run 1 tree CPU      :  2273.65 s   (wall 258.20 s, contention-suspect)
+clean run 2 tree CPU      :  2261.71 s   (wall 247.11 s)
+instrumented tree CPU     :  2377.99 s   -> instrumentation cost 104.3 s (+4.6%)
+
+make all (3-run mean)     :    22.77 s CPU  / 11.24 s wall
+pyright                   :    10.63 s CPU  / 6.10-6.53 s wall (overlapped)
+12 workers, instrumented  :  2282.00 s
+12 workers, de-instrumented:  2177.66 s  (= 95.8% of tree)
+residual (teardown+uv+sh) :    62.59 s  (2.8%)
+
+sampler (2 live workers, 42255 samples): harfbuzz 72.48%  interp 15.24%  bytecode 9.39%  runtime 2.88%
+plugin cross-check: hb.shape window = 71.96% of in-test CPU
+
+=== whole-`make test` CPU split ===
+    1604.0 s   70.55%  native_extension (harfbuzz 1578, pyright 10.6, fontTools 14.8, typst 0.1)
+     210.2 s    9.25%  python_bytecode  (repo test glue 205, build_font 5.7)
+     440.4 s   19.37%  interpreter_overhead (workers 332, teardown 63, dyld/memcpy 44, imports 2.0)
+      18.9 s    0.83%  io_or_wait (xdist IPC read on worker main threads)
+    2273.5 s   99.99%  SUM
+
+rewritable fraction (bytecode+interpreter) = 28.6%
+  Amdahl ceiling (rewritable -> 0)  : 1.401x
+  speedup at 10x on that fraction   : 1.347x
+  speedup at 25x on that fraction   : 1.379x
+  speedup at 50x on that fraction   : 1.390x

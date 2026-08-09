@@ -1,0 +1,72 @@
+uv run python tools/build_font.py glyph_data/ site/
+  Feature code unchanged: site/AbbotsMortonSpaceportSansJunior-Regular.fea
+Font unchanged: site/AbbotsMortonSpaceportSansJunior-Regular.otf
+  Variant: junior
+  Glyphs: 456
+  Units per em: 550
+  Pixel: 50×50 units
+  Feature code unchanged: site/AbbotsMortonSpaceportSansJunior-Bold.fea
+Font unchanged: site/AbbotsMortonSpaceportSansJunior-Bold.otf
+  Variant: junior
+  Glyphs: 456
+  Units per em: 550
+  Pixel: 50×50 units
+Font unchanged: site/AbbotsMortonSpaceportMono-Regular.otf
+  Variant: mono
+  Glyphs: 1238
+  Units per em: 550
+  Pixel: 50×50 units
+Font unchanged: site/AbbotsMortonSpaceportMono-Bold.otf
+  Variant: mono
+  Glyphs: 1238
+  Units per em: 550
+  Pixel: 50×50 units
+  Feature code unchanged: site/AbbotsMortonSpaceportSansSenior-Bold.fea
+Font unchanged: site/AbbotsMortonSpaceportSansSenior-Bold.otf
+  GSUB budget: 384,260 bytes, 1,345 lookups, 9,555 subtables
+  GSUB offset headroom: LookupList 37,553 bytes, subtable 8,835 bytes in lookup 957
+  Largest calt lookups by subtable count: calt_cycle=631, calt_pair_guard_reflip_qsIt=521, calt_post_liga_cleanup=224, calt_fwd_qsIt=193, calt_fwd_pair_qsJai_en-y5_ex-y0_ex-ext-1=163
+  Variant: senior
+  Glyphs: 1148
+  Units per em: 550
+  Pixel: 50×50 units
+  Feature code unchanged: site/AbbotsMortonSpaceportSansSenior-Regular.fea
+Font unchanged: site/AbbotsMortonSpaceportSansSenior-Regular.otf
+  GSUB budget: 384,260 bytes, 1,345 lookups, 9,555 subtables
+  GSUB offset headroom: LookupList 37,553 bytes, subtable 8,835 bytes in lookup 957
+  Largest calt lookups by subtable count: calt_cycle=631, calt_pair_guard_reflip_qsIt=521, calt_post_liga_cleanup=224, calt_fwd_qsIt=193, calt_fwd_pair_qsJai_en-y5_ex-y0_ex-ext-1=163
+  Variant: senior
+  Glyphs: 1148
+  Units per em: 550
+  Pixel: 50×50 units
+cp reference/DepartureMono-Regular.otf site/
+cd site && typst compile --font-path . print.typ
+bringing up nodes...
+bringing up nodes...
+
+........................................................................ [ 78%]
+....................                                                     [100%]
+92 passed in 100.26s (0:01:40)
+{
+  "label": "slice_n2",
+  "cmd": [
+    "uv",
+    "run",
+    "pytest",
+    "test/test_calt_regressions.py",
+    "-k",
+    "test_it_it_never_joins or test_he_owe_never_joins",
+    "-n",
+    "2",
+    "--dist",
+    "worksteal",
+    "-q"
+  ],
+  "returncode": 0,
+  "wall_s": 111.784,
+  "child_user_s": 221.769,
+  "child_sys_s": 1.064,
+  "child_cpu_s": 222.833,
+  "child_maxrss_mb": 1332.6,
+  "cpu_per_wall": 1.99
+}
