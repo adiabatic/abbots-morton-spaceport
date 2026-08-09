@@ -116,6 +116,7 @@ stances:
           left:
             family:
             - qsDay_qsUtter
+            - qsVie_qsUtter
             - qsSee_qsUtter
             - qsMay
             - qsLow

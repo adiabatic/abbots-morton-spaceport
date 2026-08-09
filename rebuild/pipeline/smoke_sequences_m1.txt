@@ -1,6 +1,6 @@
 # Curated sequence set for the M1 CoreText-vs-HarfBuzz smoke harness (M1-PLAN section 5, coretext_smoke).
 # One sequence per line as whitespace-separated hex codepoints; text after "#" is the label.
-# Codepoints: qsPea E650, qsTea E652, qsDay E653, qsFee E658, qsMay E665, qsNo E666, qsLow E667, qsRoe E668, qsIt E670, qsEt E672, qsI E675, qsAh E676, qsOy E679, qsUtter E67A, space 0020, namer dot 00B7, ZWNJ 200C.
+# Codepoints: qsPea E650, qsTea E652, qsDay E653, qsFee E658, qsVie E659, qsSee E65A, qsMay E665, qsNo E666, qsLow E667, qsRoe E668, qsIt E670, qsEt E672, qsI E675, qsAh E676, qsOy E679, qsUtter E67A, space 0020, namer dot 00B7, ZWNJ 200C.
 # The driver runs every line under all eight acceptance configurations.
 #
 # The prototype probe rows, carried forward.
@@ -220,3 +220,44 @@ E65A E67A E65A            # See+Utter See (the guard un-forms so alt-Utter serve
 E65A E65A                 # See See (no join)
 200C E65A                 # ZWNJ See (locked twin)
 E65A 200C E652            # See ZWNJ Tea (exit severed)
+#
+# qsVie windows: the Deep bowl-and-descender — entered on the baseline bar, exiting (swept out of the descender) at the baseline toward a few receivers.
+E659                      # Vie in isolation
+E650 E659                 # Pea Vie (baseline join, extended entry)
+E652 E659                 # Tea Vie (baseline join, extended entry)
+E653 E659                 # Day Vie (baseline join)
+E665 E659                 # May Vie (the grounded loop's exit onto the bar)
+E666 E659                 # No Vie (the flipped No's baseline exit onto the bar)
+E668 E659                 # Roe Vie (baseline join, run out under the bowl)
+E670 E659                 # It Vie (baseline join, extended entry)
+E672 E659                 # Et Vie (baseline join)
+E679 E659                 # Oy Vie (baseline join)
+E67A E659                 # Utter Vie (alt-Utter's baseline exit onto the bar)
+E658 E659                 # Fee Vie (break: Fee never reaches the baseline)
+E65A E659                 # See Vie (break: Vie is not in the grounded exit's scope)
+E667 E659                 # Low Vie (break)
+E675 E659                 # I Vie (break)
+E676 E659                 # Ah Vie (break)
+E659 E659                 # Vie Vie (break)
+E659 E666                 # Vie No (the swept exit into the flipped No)
+E659 E667                 # Vie Low (the swept exit)
+E659 E668                 # Vie Roe (the swept exit into the lower tip)
+E659 E652                 # Vie Tea (break: Tea is not in the exit's scope)
+E659 E665                 # Vie May (break)
+E670 E659 E666            # It Vie No (entered and exiting, the extended entry live)
+E653 E670 E659            # Day It Vie (ss04: the entered It's baseline pass-through into Vie)
+E653 E652 E659            # Day Tea Vie (the Day-Tea-X family window)
+E672 E652 E659            # Et Tea Vie (Tea spends its slot backward and strands Vie; ss05 chains on)
+E665 E652 E659            # May Tea Vie (ss03: half-Tea takes the left join and Vie breaks)
+E659 E67A                 # Vie+Utter (the ligature)
+E650 E659 E67A            # Pea Vie+Utter (the extended entry carries into the ligature)
+E659 E67A E665            # Vie+Utter May (the x-height exit into the pulled-back May)
+E659 E67A E658            # Vie+Utter Fee (the extended x-height exit into the reversed loop)
+E659 E67A E653            # Vie+Utter Day (the x-height exit)
+E659 E67A E652            # Vie+Utter Tea (break; ss03 extends into half-Tea)
+E659 E67A E667            # Vie+Utter Low (the guard un-forms so alt-Utter serves Low)
+E659 E67A E659            # Vie+Utter Vie (the guard un-forms so alt-Utter serves Vie)
+E659 200C E67A            # Vie ZWNJ Utter (formation severed)
+200C E659                 # ZWNJ Vie (locked twin)
+E659 200C E666            # Vie ZWNJ No (exit severed)
+00B7 E659                 # namer dot before Deep Vie (stays)

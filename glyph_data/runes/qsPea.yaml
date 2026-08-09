@@ -46,6 +46,7 @@ stances:
           - {family: qsMay}
           - {family: qsUtter}
           - {family: qsDay_qsUtter}
+          - {family: qsVie_qsUtter}
           - {family: qsSee_qsUtter}
         baseline:
           x: 3
