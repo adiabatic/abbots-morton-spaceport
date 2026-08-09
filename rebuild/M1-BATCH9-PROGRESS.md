@@ -39,7 +39,7 @@ Most of the wiring predated this batch: qsTea.full carries the bare top entry (�
 
 ## Open questions for the sitting
 
-- **`·Day·Tea·See` and `·No·Tea·See` join the ·Day·Tea·X yield family.** The shipped font yields the left letter and joins ·Tea~·See at the baseline; M1 keeps the ·Day/·No~·Tea join, same as the family's other members. A family question per the standing WHATNEXT fork, not a qsSee one.
+- **`·Day·Tea·See` and `·No·Tea·See` join the ·Day·Tea·X yield family.** The shipped font yields the left letter and takes the `·Tea ~b~ ·See` join; M1 keeps the `·Day ~b~ ·Tea` and `·No ~b~ ·Tea` joins, same as the family's other members. A family question per the standing WHATNEXT fork, not a qsSee one.
 - **`·See·Utter·Tea·Tea` under ss03: M1 should gain a join the old font declines.** The old font extends the ligature toward ·Tea but leaves it unentered before a second ·Tea (`lig,break,break`, with the extension dangling); M1's half-·Tea, in the ligature's unlock scope, has no reason to refuse the first seam, and M1 drops the dangling extension when no join lands. Expect a strict-gain divergence plus dangling-anchor-dropped churn.
 - **ss05's ·Et·Tea·See chain** rides qsTea's existing both-baseline unlock — expect conformance, but the sweep verifies it against the grown alphabet for the first time.
 

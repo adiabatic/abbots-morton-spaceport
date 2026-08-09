@@ -369,7 +369,7 @@ def test_ink_duplicate_siblings_fold_in_the_built_output(built):
 
 
 def test_echo_groups_partition_the_human_workload(built):
-    """Echo groups are the one-question-per-change grain: every human unit carries an e-NNNN id, every exempt unit carries null, and a group never mixes classes, config sets, or judged pairs — its members are the same before→after change in different surroundings. The worked example ·It·Day·Tea·No lands in the merged ·Tea~·No.alt baseline-join group: the plain ·X·Tea·No windows plus the third-form ·X·Day·Tea·No windows where the ·Day yields — an annotation-grain rename that draws identical ink, so it rides along without anchoring the judged pair — so one verdict answers every member because the visible change is byte-identical."""
+    """Echo groups are the one-question-per-change grain: every human unit carries an e-NNNN id, every exempt unit carries null, and a group never mixes classes, config sets, or judged pairs — its members are the same before→after change in different surroundings. The worked example ·It·Day·Tea·No lands in the merged ·Tea ~b~ ·No.alt group: the plain ·X·Tea·No windows plus the third-form ·X·Day·Tea·No windows where the ·Day yields — an annotation-grain rename that draws identical ink, so it rides along without anchoring the judged pair — so one verdict answers every member because the visible change is byte-identical."""
     out_dir, manifest = built
     by_echo = {}
     example = None
