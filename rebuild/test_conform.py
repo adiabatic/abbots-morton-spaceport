@@ -701,22 +701,83 @@ class TestRawLabelsLateFormation:
         assert conform.raw_labels(real_spec, day + utter, frozenset()) == ["qsDay_qsUtter"]
 
 
+class _LazyContextIndex:
+    """A stand-in for the table's `_DeepTokenIndex` on specs whose full fixpoint is too heavy for a unit test: fibres are derived lazily by the real `_DeepFibreDeriver` for exactly the contexts the sweep reaches, tokens minted content-addressed from the full pin-free fibres, and resolution is context-keyed rather than base-keyed — sound here because with no worklist pins every base of a context shares the full member sets."""
+
+    def __init__(self, spec, features, engine):
+        from rebuild.pipeline import table as table_module
+
+        self._table = table_module
+        options = table_module._WindowOptions(spec)
+        self._deriver = table_module._DeepFibreDeriver(
+            spec,
+            engine,
+            options,
+            table_module._liveness_probe(spec, engine),
+            table_module.fourth_slot_filter(spec, features, engine),
+        )
+        self.representatives: dict[str, str] = {}
+        self.minted = 0
+
+    def _token(self, members) -> str:
+        letters = tuple(sorted(member.letter for member in members))
+        if len(letters) == 1:
+            return letters[0]
+        token = self._table.deep_class_id(letters)
+        if token not in self.representatives:
+            self.representatives[token] = letters[0]
+            self.minted += 1
+        return token
+
+    def resolve(self, label, left, right1, right2, right3, right4):
+        boundaryish = self._table.BOUNDARYISH
+        if right3 in boundaryish:
+            return right3, right4
+        ctxf = self._deriver.context(label.split(".")[0], right1.split(".")[0], right2.split(".")[0])
+        member3 = right3.split(".")[0]
+        fibre3 = next(
+            (fibre for fibre in ctxf.fibres if any(m.letter == member3 for m in fibre.members)), None
+        )
+        if fibre3 is None:
+            return right3, right4
+        token3 = self._token(fibre3.members)
+        if right4 in boundaryish:
+            return token3, right4
+        member4 = right4.split(".")[0]
+        group = next(
+            (
+                candidate
+                for candidate in fibre3.r4_groups
+                if any(m.kind == "letter" and m.letter == member4 for m in candidate)
+            ),
+            None,
+        )
+        if group is None:
+            return token3, right4
+        return token3, self._token(group)
+
+
 class TestSettledWindowWalk:
     """The memoized walk must be observationally identical to the pair it replaced — settle_with_engine for the stream, _matched_windows for the windows and first-matching rules. Over-normalizing the memo key is the one real bug class (a key that blanks a slot the kernel can still read replays a wrong hit somewhere), so both sweeps run exhaustively, the walk reusing its memo from the second text on while the reference path recomputes every text fresh."""
 
-    def _assert_walk_matches(self, spec, features, rules_by_input, alphabet, max_length):
+    def _assert_walk_matches(
+        self, spec, features, rules_by_input, alphabet, max_length, decision=None, deep_index=None
+    ):
         import itertools
 
         from rebuild.pipeline import settle as settle_module
         from rebuild.pipeline import table as table_module
+        from rebuild.pipeline.emit_gsub import _raw_rename_map
 
         engine = settle_module.Engine(spec, features)
         deep = table_module.third_slot_inputs(spec, engine)
         deep3_live = table_module.third_slot_filter(spec, features, engine)
         deep4 = table_module.fourth_slot_inputs(spec, engine)
         deep4_live = table_module.fourth_slot_filter(spec, features, engine)
+        if deep_index is None and decision is not None and getattr(decision, "deep_classes", None):
+            deep_index = conform._DeepTokenIndex(decision, _raw_rename_map(spec, frozenset(features)))
         walker = conform._SettledWindowWalk(
-            spec, engine, features, rules_by_input, deep, deep3_live, deep4, deep4_live, {}
+            spec, engine, features, rules_by_input, deep, deep3_live, deep4, deep4_live, {}, deep_index
         )
         reference = settle_module.Engine(spec, features)
         for length in range(1, max_length + 1):
@@ -729,7 +790,16 @@ class TestSettledWindowWalk:
                 replayed = {
                     index: (window, matched)
                     for index, window, matched in conform._matched_windows(
-                        spec, text, features, names, rules_by_input, deep, deep3_live, deep4, deep4_live
+                        spec,
+                        text,
+                        features,
+                        names,
+                        rules_by_input,
+                        deep,
+                        deep3_live,
+                        deep4,
+                        deep4_live,
+                        deep_index,
                     )
                 }
                 for index in range(len(settled)):
@@ -739,6 +809,7 @@ class TestSettledWindowWalk:
                         assert window in walker.windows, (text, index)
                     else:
                         assert matched_rules[index] is None, (text, index)
+        return walker
 
     @pytest.mark.parametrize(
         "features",
@@ -750,22 +821,29 @@ class TestSettledWindowWalk:
 
         decision = build_tables(spec, features)[0]
         rules_by_input = conform._renamed_rules_by_input(spec, features, decision)
-        self._assert_walk_matches(spec, features, rules_by_input, conform.spec_alphabet(spec), 4)
+        self._assert_walk_matches(
+            spec, features, rules_by_input, conform.spec_alphabet(spec), 4, decision=decision
+        )
 
     def test_deep_slot_keys_replay_the_real_chains(self):
-        """The mini spec carries no depth-3 or depth-4 prefers, so the deep-slot arm of the key normalization runs against the real spec: the deep inputs' chain letters plus a boundary, swept to length 5 so right3 and right4 both open. Rules are omitted — the real fixpoint is far too heavy for a unit test — so `matched` is vacuously None on both paths and the assertion weight rides the settled stream and the window keys."""
+        """The mini spec carries no depth-3 or depth-4 prefers, so the deep-slot arm of the key normalization runs against the real spec: the deep inputs' chain letters plus a boundary, swept to length 5 so right3 and right4 both open. Rules are omitted — the real fixpoint is far too heavy for a unit test — so `matched` is vacuously None on both paths; a lazily derived context index (the real fibre machinery, minted per context the sweep reaches) stands in for the table's transported map, so the assertion weight rides the settled stream and the fibre-token window keys — without it both paths would keep raw labels and prove nothing about the class collapse."""
         import warnings
 
+        from rebuild.pipeline import settle as settle_module
         from rebuild.pipeline.spec_load import load_default_spec
 
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             real_spec = load_default_spec()
         alphabet = tuple(chr(cp) for cp in (0x0020, 0xE652, 0xE653, 0xE665, 0xE666, 0xE679, 0xE67A))
-        self._assert_walk_matches(real_spec, frozenset(), {}, alphabet, 5)
+        engine = settle_module.Engine(real_spec, frozenset())
+        deep_index = _LazyContextIndex(real_spec, frozenset(), engine)
+        walker = self._assert_walk_matches(real_spec, frozenset(), {}, alphabet, 5, deep_index=deep_index)
+        assert deep_index.minted, "the sweep reached no fibre-collapsed window"
+        assert any(key[4].startswith("#C") for key in walker.windows), "no class token reached the memo"
 
     def test_prospect_live_slots_agree_between_walk_and_replay(self, monkeypatch):
-        """The issue-28 arm of the deep-slot filters, exercised end to end: under the simulated-prospect default, the `_prospect_spec` fixture's A-before-B-C windows carry a live third slot the table enumerates, and the memoized walk, the unmemoized replay, and the built rules must agree on the split — the same observational-identity bar as the chain-arm sweeps above."""
+        """The issue-28 arm of the deep-slot filters, exercised end to end: under the simulated-prospect default, the `_prospect_spec` fixture's A-before-B-C windows carry a live third slot the table enumerates, and the memoized walk, the unmemoized replay, and the built rules must agree on the split — the same observational-identity bar as the chain-arm sweeps above, now with the table's own deep-token index carrying the class map into both paths."""
         from rebuild.pipeline import settle as settle_module
         from rebuild.pipeline.table import build_tables
         from rebuild.test_settle import _prospect_spec
@@ -775,5 +853,120 @@ class TestSettledWindowWalk:
         decision = build_tables(spec, frozenset())[0]
         assert any(row.right3 != "#NA" for row in decision.transitions)
         assert any(rule.look3 for rule in decision.rules)
+        assert decision.deep_classes
         rules_by_input = conform._renamed_rules_by_input(spec, frozenset(), decision)
-        self._assert_walk_matches(spec, frozenset(), rules_by_input, conform.spec_alphabet(spec), 5)
+        self._assert_walk_matches(
+            spec, frozenset(), rules_by_input, conform.spec_alphabet(spec), 5, decision=decision
+        )
+
+    def test_synthetic_depth4_walk_carries_rules_and_a_genuine_index(self):
+        """The class-grain depth-4 arm with real rules and a real transported index: the mini fixture plus a reach-3 chain on ·Tea, built in the shipping deep world, mints an r4 class at the ·Tea·May·May·May windows; the walk and the replay must agree on the fibre-token keys and the first-matching rules over an alphabet that realizes those windows at length 5."""
+        import dataclasses
+
+        from rebuild.pipeline import fixtures, model
+        from rebuild.pipeline.table import build_tables
+
+        spec = fixtures.mini_spec()
+        tea = spec.runes["qsTea"]
+        chain = model.Condition(
+            family=("qsMay",),
+            then=model.Condition(
+                family=("qsMay",),
+                then=model.Condition(
+                    family=("qsMay",),
+                    then=model.Condition(family=("qsIt",)),
+                ),
+            ),
+        )
+        record = model.PolicyRecord(
+            kind="prefer", stance="half", mode="absolute", when=model.When(right=chain)
+        )
+        runes = dict(spec.runes)
+        runes["qsTea"] = dataclasses.replace(tea, policy=dataclasses.replace(tea.policy, prefer=(record,)))
+        spec = dataclasses.replace(spec, runes=runes)
+        decision = build_tables(spec, frozenset())[0]
+        assert any(row.right4 in decision.deep_classes for row in decision.transitions)
+        rules_by_input = conform._renamed_rules_by_input(spec, frozenset(), decision)
+        alphabet = tuple(
+            chr(codepoint)
+            for codepoint in (
+                spec.runes["qsTea"].codepoint,
+                spec.runes["qsMay"].codepoint,
+                spec.runes["qsIt"].codepoint,
+            )
+            if codepoint is not None
+        ) + (" ",)
+        walker = self._assert_walk_matches(spec, frozenset(), rules_by_input, alphabet, 5, decision=decision)
+        assert any(key[5].startswith("#C") for key in walker.windows), "no r4 class token reached the memo"
+
+
+class TestDeepTokenIndex:
+    """The transport's raw-vs-renamed contract: `_DeepTokenIndex` is built from the table's raw label space but queried with the walk's marker-folded labels, so every member combination of every class-bearing row must resolve to exactly the deep components of the row's renamed key. The walk-equivalence sweeps cannot see a one-sided rename slip — both paths share the index — so this arm checks resolution against the rows directly, on a config whose rename map touches the row shape that broke first: a bare (singleton-fibre) r3 the config renames, under a class-token r4."""
+
+    def test_every_class_row_resolves_under_a_renaming_config(self):
+        import dataclasses
+
+        from rebuild.pipeline import model
+        from rebuild.pipeline.emit_gsub import _raw_rename_map
+        from rebuild.pipeline.table import build_tables
+
+        spec = mini_spec()
+        tea = spec.runes["qsTea"]
+        chain = model.Condition(
+            family=("qsMay",),
+            then=model.Condition(
+                family=("qsMay",),
+                then=model.Condition(
+                    family=("qsMay",),
+                    then=model.Condition(family=("qsIt",)),
+                ),
+            ),
+        )
+        record = model.PolicyRecord(
+            kind="prefer", stance="half", mode="absolute", when=model.When(right=chain)
+        )
+        runes = dict(spec.runes)
+        runes["qsTea"] = dataclasses.replace(tea, policy=dataclasses.replace(tea.policy, prefer=(record,)))
+        may = runes["qsMay"]
+        stance_name, stance = next(iter(may.stances.items()))
+        surface = dataclasses.replace(
+            stance.surface, unlocks=stance.surface.unlocks + (model.Unlock(feature="ss03"),)
+        )
+        stances = dict(may.stances)
+        stances[stance_name] = dataclasses.replace(stance, surface=surface)
+        runes["qsMay"] = dataclasses.replace(may, stances=stances)
+        spec = dataclasses.replace(spec, runes=runes)
+        features = frozenset({"ss03"})
+        decision = build_tables(spec, features)[0]
+        renames = _raw_rename_map(spec, features)
+        assert renames.get("qsMay") == "qsMay.ss03"
+        index = conform._DeepTokenIndex(decision, renames)
+        deep = decision.deep_classes
+        assert deep
+        checked = 0
+        bare_renamed_r3_under_class_r4 = 0
+        for row in decision.transitions:
+            if row.right3 not in deep and row.right4 not in deep:
+                continue
+            if row.right4 in deep and row.right3 not in deep and row.right3 in renames:
+                bare_renamed_r3_under_class_r4 += 1
+            want = (
+                row.right3 if row.right3 in deep else renames.get(row.right3, row.right3),
+                row.right4 if row.right4 in deep else renames.get(row.right4, row.right4),
+            )
+            for member3 in decision.token_members(row.right3):
+                for member4 in decision.token_members(row.right4):
+                    resolved = index.resolve(
+                        renames.get(row.input_glyph, row.input_glyph),
+                        row.left,
+                        renames.get(row.right1, row.right1),
+                        renames.get(row.right2, row.right2),
+                        renames.get(member3, member3),
+                        renames.get(member4, member4),
+                    )
+                    assert resolved == want, (row.key, member3, member4, resolved, want)
+                    checked += 1
+        assert checked
+        assert (
+            bare_renamed_r3_under_class_r4
+        ), "no row exercises the renamed-bare-r3 + class-r4 shape this arm exists for"

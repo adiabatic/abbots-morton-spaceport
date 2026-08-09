@@ -10,6 +10,7 @@ import multiprocessing
 import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
+from typing import cast
 
 from rebuild.pipeline import conform, fingerprint, trace_memo
 from rebuild.pipeline import table as table_module
@@ -32,10 +33,10 @@ COLUMNS = (
 
 
 def divergence_lines(decision: table_module.DecisionTable) -> list[str]:
-    """One line per distinct (window, realized seam, successor outcome) where the window's optimistic prospect differs from what the matched successor actually settled — sorted, so the artifact is diff-stable and duplicate projections of several deep-slot successors collapse."""
-    rows = [row for row in decision.transitions if isinstance(row, table_module.Transition)]
-    if len(rows) != len(decision.transitions):
+    """One line per distinct (window, realized seam, successor outcome) where the window's optimistic prospect differs from what the matched successor actually settled — sorted, so the artifact is diff-stable and duplicate projections of several deep-slot successors collapse. The walk runs over `expanded_transitions()`, the label-grain stream a class-grain table expands back to, so the inventory's rows and its byte layout are identical across grains — it is the before-any-semantics-change record the simulated-prospect stages check their deltas against and must not move."""
+    if any(not isinstance(row, table_module.Transition) for row in decision.transitions):
         raise SystemExit("the divergence inventory needs enumerated rows, not a serialized window")
+    rows = cast(list[table_module.Transition], list(decision.expanded_transitions()))
     index = table_module.prospect_successor_index(rows)
     lines: set[str] = set()
     for row in rows:

@@ -111,11 +111,13 @@ def test_boundary_rows_lead_their_groups(default_tables):
 
 
 def test_ss04_table_is_row_identical_to_default(default_tables):
+    # Stated over expanded_transitions: semantic row identity, immune to fibre-boundary differences between configs whose outcomes agree — though content-addressed ids make the class rows comparable too, which the second assertion pins.
     decision, treaty = default_tables
     ss04_decision, ss04_treaty = build_tables(SPEC, frozenset({"ss04"}))
-    assert [(r.key, r.outcome) for r in ss04_decision.transitions] == [
-        (r.key, r.outcome) for r in decision.transitions
+    assert [(r.key, r.outcome) for r in ss04_decision.expanded_transitions()] == [
+        (r.key, r.outcome) for r in decision.expanded_transitions()
     ]
+    assert ss04_decision.deep_classes == decision.deep_classes
     assert ss04_treaty.rows == treaty.rows
 
 
@@ -168,9 +170,11 @@ def test_joint_rows_accessor(default_tables):
 
 
 def test_unflagged_rows_have_no_prospect_divergence(default_tables):
+    # Over the expanded label-grain stream: a class row's joint is the OR over its members, so an unflagged row means no member diverges.
     decision, _treaty = default_tables
-    index = table.prospect_successor_index(list(decision.transitions))
-    for row in decision.transitions:
+    rows = [row for row in decision.expanded_transitions() if isinstance(row, table.Transition)]
+    index = table.prospect_successor_index(rows)
+    for row in rows:
         if row.joint:
             continue
         for successor in table.prospect_successors(index, row):
@@ -191,7 +195,7 @@ def test_prospect_divergence_inventory_rows_are_flagged_joint(default_tables, tm
     assert lines[0] == f"# prospect divergence, config {decision.config}"
     assert lines[1] == "\t".join(prospect_divergence.COLUMNS)
     assert lines[2:] == sorted(lines[2:])
-    joint_by_key = {row.key: row.joint for row in decision.transitions}
+    joint_by_key = {row.key: row.joint for row in decision.expanded_transitions()}
     for line in lines[2:]:
         parts = line.split("\t")
         assert joint_by_key[tuple(parts[:6])], f"inventory window {parts[:6]} is not flagged joint"
@@ -564,6 +568,66 @@ class TestProspectLiveSlots:
         assert all(outcome == "A.stroke.ex-y0" for right3, outcome in split.items() if right3 != "D")
         assert any(rule.look3 == ("D",) for rule in decision.rules if rule.input_glyph == "A")
 
+    def test_fibre_partition_matches_the_uncollapsed_derivation_on_the_real_spec(self):
+        """The issue-26 analogue of the two-stage-probe proof below: on a fixed sample of live contexts, the shipped fibre derivation — probe records per collapsed left class over the bounded coordinate set — must equal the partition a brute derivation computes per uncollapsed (family, stance, seam) virtual left, over the full probe-record key (settled, prospect, joint_floor, notes, raise identity), plus the fourth-slot verdict and the computed r4 option list."""
+        import warnings
+
+        from rebuild.pipeline.settle import EDGE, UNKNOWN, Engine, LeftContext, RightToken
+        from rebuild.pipeline.spec_load import load_default_spec
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            spec = load_default_spec()
+        engine = Engine(spec, frozenset(), simulated_prospect=True)
+        probe = table._liveness_probe(spec, engine)
+        options = table._WindowOptions(spec)
+        fourth = table.fourth_slot_filter(spec, frozenset(), engine)
+        deriver = table._DeepFibreDeriver(spec, engine, options, probe, fourth)
+
+        def uncollapsed_lefts():
+            lefts = [
+                LeftContext("edge"),
+                LeftContext("space"),
+                LeftContext("zwnj"),
+                LeftContext("namer-dot"),
+            ]
+            for left_family in spec.runes:
+                for stance, seam in probe._input_shapes(left_family):
+                    lefts.append(probe._virtual(left_family, stance, seam))
+            return lefts
+
+        for family, right1, right2 in [("qsNo", "qsNo", "qsUtter"), ("qsMay", "qsUtter", "qsTea")]:
+            assert probe.third_live(family, right1, right2), (family, right1, right2)
+            token = RightToken("letter", family)
+            r1tok, r2tok = RightToken("letter", right1), RightToken("letter", right2)
+            follower_map = options.context_follower_map(family, right1)
+            static = options.right3_options(r1tok, r2tok, follower_map)
+            brute: dict[tuple, list[str]] = {}
+            for t3 in static:
+                if t3.kind != "letter":
+                    continue
+                matters = bool(fourth(family, right1, right2, t3.letter))
+                coords = tuple(probe._probe_tokens()) + (UNKNOWN,) if matters else (EDGE, UNKNOWN)
+                opts4 = (
+                    tuple(
+                        o.letter if o.kind == "letter" else o.kind
+                        for o in options.right4_options(r1tok, r2tok, t3)
+                    )
+                    if matters
+                    else ()
+                )
+                records = tuple(
+                    tuple(deriver._record(left, token, r1tok, r2tok, t3, coord) for coord in coords)
+                    for left in uncollapsed_lefts()
+                )
+                brute.setdefault((matters, opts4, records), []).append(t3.letter)
+            brute_partition = {frozenset(members) for members in brute.values()}
+            derived = deriver.context(family, right1, right2)
+            derived_partition = {
+                frozenset(member.letter for member in fibre.members) for fibre in derived.fibres
+            }
+            assert derived_partition == brute_partition, (family, right1, right2)
+
     def test_two_stage_probe_matches_the_uncollapsed_probes_on_the_real_spec(self):
         """Both collapse layers verified against brute references on a fixed sample: stage one (follower-prospect variance, signature-collapsed) against the uncollapsed per-shape sweep, and — where stage one fires — the final verdict against the uncollapsed seat-outcome sweep over every (family, stance, seam) virtual left plus the boundary kinds."""
         import warnings
@@ -628,3 +692,268 @@ class TestProspectLiveSlots:
                 right1,
                 right2,
             )
+
+
+class TestDeepClasses:
+    """The issue-26 class-grain enumeration: deep window slots keyed by outcome fibres, expanded back to labels for every fold-side consumer. The two-arm equality tests build the same spec under AMS_DEEP_CLASSES on and off — the off arm is genuinely today's label-grain enumeration path, bypassing all fibre code — and assert the expansion boundary holds: identical expanded row multiset, identical rules, identical cited provenance, identical treaty. The fibre-verification tests are the section 2.2 obligation (virtual-left brute equality on the real spec lives beside the two-stage-probe proof in TestProspectLiveSlots); the real-left arm here re-traces every member of every multi-member row at the row's actual settled left, which is what promotes the left-class collapse the fibres import from licensed heuristic toward verified at both grains."""
+
+    @pytest.fixture()
+    def deep_world(self, monkeypatch):
+        from rebuild.pipeline import settle as settle_module
+
+        monkeypatch.setattr(settle_module, "SIMULATED_PROSPECT_DEFAULT", True)
+        return None
+
+    @pytest.fixture()
+    def prospect_spec(self):
+        from rebuild.test_settle import _prospect_spec
+
+        return _prospect_spec()
+
+    @pytest.fixture()
+    def synthetic_depth4_spec(self):
+        spec = fixtures.mini_spec()
+        tea = spec.runes["qsTea"]
+        chain = model.Condition(
+            family=("qsMay",),
+            then=model.Condition(
+                family=("qsMay",),
+                then=model.Condition(
+                    family=("qsMay",),
+                    then=model.Condition(family=("qsIt",)),
+                ),
+            ),
+        )
+        record = model.PolicyRecord(
+            kind="prefer", stance="half", mode="absolute", when=model.When(right=chain)
+        )
+        runes = dict(spec.runes)
+        runes["qsTea"] = dataclasses.replace(tea, policy=dataclasses.replace(tea.policy, prefer=(record,)))
+        return dataclasses.replace(spec, runes=runes)
+
+    def _both_arms(self, spec, monkeypatch):
+        monkeypatch.setattr(table, "DEEP_CLASSES_DEFAULT", True)
+        class_decision, class_treaty = build_tables(spec, frozenset())
+        monkeypatch.setattr(table, "DEEP_CLASSES_DEFAULT", False)
+        label_decision, label_treaty = build_tables(spec, frozenset())
+        return class_decision, class_treaty, label_decision, label_treaty
+
+    def _assert_arms_equal(self, class_decision, class_treaty, label_decision, label_treaty):
+        assert not label_decision.deep_classes
+        expanded = list(class_decision.expanded_transitions())
+        assert [(r.key, r.outcome) for r in expanded] == [
+            (r.key, r.outcome) for r in label_decision.transitions
+        ]
+        assert class_decision.rules == label_decision.rules
+        assert class_decision.identity_guard_rules == label_decision.identity_guard_rules
+        assert class_decision.reachable_cells() == label_decision.reachable_cells()
+        assert class_decision.cited_provenance == label_decision.cited_provenance
+        assert class_treaty.rows == label_treaty.rows
+
+    def test_two_arm_expansion_equality_on_the_mini_spec(self, monkeypatch):
+        class_decision, class_treaty, label_decision, label_treaty = self._both_arms(SPEC, monkeypatch)
+        assert class_decision.deep_classes
+        assert len(class_decision.transitions) < len(label_decision.transitions)
+        self._assert_arms_equal(class_decision, class_treaty, label_decision, label_treaty)
+
+    def test_two_arm_expansion_equality_on_the_synthetic_depth4_spec(
+        self, synthetic_depth4_spec, monkeypatch
+    ):
+        class_decision, class_treaty, label_decision, label_treaty = self._both_arms(
+            synthetic_depth4_spec, monkeypatch
+        )
+        assert any(
+            row.right4 in class_decision.deep_classes for row in class_decision.transitions
+        ), "the synthetic reach-3 chain should mint an r4 class"
+        self._assert_arms_equal(class_decision, class_treaty, label_decision, label_treaty)
+
+    def test_two_arm_expansion_equality_on_the_prospect_spec(self, deep_world, prospect_spec, monkeypatch):
+        class_decision, class_treaty, label_decision, label_treaty = self._both_arms(
+            prospect_spec, monkeypatch
+        )
+        assert class_decision.deep_classes
+        self._assert_arms_equal(class_decision, class_treaty, label_decision, label_treaty)
+
+    def test_the_pinned_world_stays_label_grain(self):
+        decision, _treaty = candidacy_tables(SPEC, frozenset())
+        assert not decision.deep_classes
+
+    def test_class_ids_are_content_addressed(self, default_tables):
+        decision, _treaty = default_tables
+        for token, members in decision.deep_classes.items():
+            assert token == table.deep_class_id(members)
+            assert members == tuple(sorted(members))
+            assert len(members) > 1
+            assert token not in BOUNDARYISH
+
+    @pytest.mark.parametrize(
+        ("spec_fixture", "expect_r4"),
+        [("prospect_spec", False), ("synthetic_depth4_spec", True)],
+        ids=["prospect", "synthetic-depth4"],
+    )
+    def test_real_lefts_agree_with_the_fibre_collapse(self, request, deep_world, spec_fixture, expect_r4):
+        """The section 2.2 real-left arm: for every multi-member token in the built table, every member traces identically at the row's actual settled left — full probe record, not just the settled cell. Two fixtures, because the prospect spec mints no r4 classes: the synthetic depth-4 arm is what exercises the per-(context, r3 class) r4 partition at real lefts, and its `checked4` assertion is what keeps that branch from going quietly dead again."""
+        from rebuild.pipeline.settle import EDGE, Engine, LeftContext, RightToken
+
+        spec = request.getfixturevalue(spec_fixture)
+        decision, _treaty = build_tables(spec, frozenset())
+        assert decision.deep_classes
+        engine = Engine(spec, frozenset(), simulated_prospect=True)
+        kinds = {"#EDGE": "edge", "space": "space", "uni200C": "zwnj", "periodcentered": "namer-dot"}
+        checked3 = 0
+        checked4 = 0
+        for row in decision.transitions:
+            members3 = decision.deep_classes.get(row.right3)
+            members4 = decision.deep_classes.get(row.right4)
+            if members3 is None and members4 is None:
+                continue
+            assert isinstance(row, table.Transition)
+            left = (
+                LeftContext("letter", row.left_settled)
+                if row.left_settled is not None
+                else LeftContext(kinds[row.left])
+            )
+            token = RightToken("letter", row.input_glyph.split(".")[0])
+            r1tok = RightToken("letter", row.right1)
+            r2tok = RightToken("letter", row.right2)
+            rep4_label = decision.token_representative(row.right4)
+            if rep4_label == NA_LABEL:
+                rep4 = EDGE
+            elif rep4_label in BOUNDARYISH:
+                rep4 = {"#EDGE": EDGE}.get(rep4_label) or RightToken(kinds[rep4_label])
+            else:
+                rep4 = RightToken("letter", rep4_label)
+
+            def record(r3tok, r4tok):
+                trace = engine.transition_trace(left, token, r1tok, r2tok, r3tok, r4tok)
+                return (trace.settled, trace.prospect, trace.joint_floor, trace.notes)
+
+            if members3 is not None:
+                records = {record(RightToken("letter", member), rep4): member for member in members3}
+                assert len(records) == 1, (row.key, sorted(records.values()))
+                checked3 += 1
+            if members4 is not None:
+                rep3 = RightToken("letter", decision.token_representative(row.right3))
+                records4 = {record(rep3, RightToken("letter", member)): member for member in members4}
+                assert len(records4) == 1, (row.key, sorted(records4.values()))
+                checked4 += 1
+        assert checked3
+        if expect_r4:
+            assert checked4, "the fixture stopped minting r4 classes, so the r4 arm never ran"
+
+    def test_fibre_partition_matches_the_uncollapsed_derivation_exhaustively(self, deep_world, prospect_spec):
+        """The exhaustive mini-spec-scale arm of the fibre verification: over every letter context of the prospect spec, the shipped derivation equals the brute partition computed per uncollapsed (family, stance, seam) virtual left."""
+        from rebuild.pipeline.settle import EDGE, UNKNOWN, Engine, LeftContext, RightToken
+
+        spec = prospect_spec
+        engine = Engine(spec, frozenset(), simulated_prospect=True)
+        probe = table._liveness_probe(spec, engine)
+        options = table._WindowOptions(spec)
+        fourth = table.fourth_slot_filter(spec, frozenset(), engine)
+        third = table.third_slot_filter(spec, frozenset(), engine)
+        deriver = table._DeepFibreDeriver(spec, engine, options, probe, fourth)
+        lefts = [LeftContext("edge"), LeftContext("space"), LeftContext("zwnj"), LeftContext("namer-dot")]
+        for left_family in spec.runes:
+            for stance, seam in probe._input_shapes(left_family):
+                lefts.append(probe._virtual(left_family, stance, seam))
+        live_contexts = 0
+        for family in spec.runes:
+            for right1 in spec.runes:
+                for right2 in spec.runes:
+                    if not third(family, right1, right2):
+                        continue
+                    live_contexts += 1
+                    token = RightToken("letter", family)
+                    r1tok, r2tok = RightToken("letter", right1), RightToken("letter", right2)
+                    static = options.right3_options(
+                        r1tok, r2tok, options.context_follower_map(family, right1)
+                    )
+                    brute: dict[tuple, list[str]] = {}
+                    for t3 in static:
+                        if t3.kind != "letter":
+                            continue
+                        matters = bool(fourth(family, right1, right2, t3.letter))
+                        coords = tuple(probe._probe_tokens()) + (UNKNOWN,) if matters else (EDGE, UNKNOWN)
+                        opts4 = (
+                            tuple(
+                                o.letter if o.kind == "letter" else o.kind
+                                for o in options.right4_options(r1tok, r2tok, t3)
+                            )
+                            if matters
+                            else ()
+                        )
+                        records = tuple(
+                            tuple(deriver._record(left, token, r1tok, r2tok, t3, coord) for coord in coords)
+                            for left in lefts
+                        )
+                        brute.setdefault((matters, opts4, records), []).append(t3.letter)
+                    derived = deriver.context(family, right1, right2)
+                    assert {frozenset(fibre.members) for fibre in derived.fibres} == {
+                        frozenset(RightToken("letter", member) for member in members)
+                        for members in brute.values()
+                    }, (family, right1, right2)
+        assert live_contexts
+
+    def test_deep_slot_partition_negative_controls(self, deep_world, prospect_spec):
+        """`_assert_deep_slot_partition` unit coverage: the shipped table passes, and each tampering — an unresolvable token, a member outside its fibre, a stale map entry — raises PartitionError."""
+        from rebuild.pipeline.settle import Engine
+
+        decision, _treaty = build_tables(prospect_spec, frozenset())
+        assert decision.deep_classes
+        engine = Engine(prospect_spec, frozenset(), simulated_prospect=True)
+        options = table._WindowOptions(prospect_spec)
+        probe = table._liveness_probe(prospect_spec, engine)
+        fourth = table.fourth_slot_filter(prospect_spec, frozenset(), engine)
+        third = table.third_slot_filter(prospect_spec, frozenset(), engine)
+        deriver = table._DeepFibreDeriver(prospect_spec, engine, options, probe, fourth)
+        deep = table.third_slot_inputs(prospect_spec, engine)
+        deep4 = table.fourth_slot_inputs(prospect_spec, engine)
+
+        def check(candidate):
+            table._assert_deep_slot_partition(candidate, options, deriver, deep, deep4, third, fourth)
+
+        check(decision)
+        token, members = next(iter(decision.deep_classes.items()))
+        stripped = dataclasses.replace(decision, deep_classes={})
+        with pytest.raises(table.PartitionError):
+            check(stripped)
+        outsider = next(
+            row.right3
+            for row in decision.transitions
+            if row.right3 not in decision.deep_classes
+            and row.right3 not in BOUNDARYISH
+            and row.right3 not in members
+        )
+        merged = dataclasses.replace(
+            decision, deep_classes={**decision.deep_classes, token: tuple(sorted(members + (outsider,)))}
+        )
+        with pytest.raises(table.PartitionError):
+            check(merged)
+        stale = dataclasses.replace(
+            decision,
+            deep_classes={
+                **decision.deep_classes,
+                table.deep_class_id(("qsNever", "qsSeen")): ("qsNever", "qsSeen"),
+            },
+        )
+        with pytest.raises(table.PartitionError):
+            check(stale)
+
+    def test_union_of_fibres_negative_control(self, deep_world, prospect_spec):
+        decision, _treaty = build_tables(prospect_spec, frozenset())
+        decision._assert_deep_class_unions()
+        token, members = next(iter(decision.deep_classes.items()))
+        split_rule = table.Rule(
+            input_glyph=next(row.input_glyph for row in decision.transitions if row.right3 == token),
+            backtrack=None,
+            look1=None,
+            look2=None,
+            look3=(members[0],),
+            look4=None,
+            outcome="whatever",
+            provenance=(),
+            joint=False,
+        )
+        tampered = dataclasses.replace(decision, rules=decision.rules + (split_rule,))
+        with pytest.raises(table.PartitionError):
+            tampered._assert_deep_class_unions()
