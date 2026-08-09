@@ -32,8 +32,12 @@ class TestRoundTrip:
         assert loaded.reachable_cells() == built.reachable_cells()
         assert loaded.identity_guard_rules == built.identity_guard_rules
         assert loaded.cited_provenance == built.cited_provenance
+        assert loaded.deep_classes == built.deep_classes
         assert [(row.key, row.outcome) for row in loaded.transitions] == [
             (row.key, row.outcome) for row in built.transitions
+        ]
+        assert [(row.key, row.outcome) for row in loaded.expanded_transitions()] == [
+            (row.key, row.outcome) for row in built.expanded_transitions()
         ]
 
     def test_the_head_alone_answers_which_cells_are_reachable(self, built, written):
@@ -80,6 +84,22 @@ class TestWindowsDigest:
         fewer_rules = replace(built, rules=built.rules[:-1])
         digests = {table_module.windows_digest(table) for table in (built, fewer_windows, fewer_rules)}
         assert len(digests) == 3
+
+    def test_a_moved_class_map_moves_the_digest(self, built):
+        from dataclasses import replace
+
+        assert built.deep_classes
+        token, members = next(iter(built.deep_classes.items()))
+        moved = replace(built, deep_classes={**built.deep_classes, token: members[:-1]})
+        assert table_module.windows_digest(moved) != table_module.windows_digest(built)
+
+
+def test_the_deep_classes_stamp_rides_tables_inputs(monkeypatch):
+    monkeypatch.setattr(table_module, "DEEP_CLASSES_DEFAULT", True)
+    with_classes = run_m1.tables_inputs()
+    assert with_classes.endswith("+deep-classes")
+    monkeypatch.setattr(table_module, "DEEP_CLASSES_DEFAULT", False)
+    assert run_m1.tables_inputs() == with_classes.removesuffix("+deep-classes")
 
 
 def _write_every_config(out_dir, inputs):

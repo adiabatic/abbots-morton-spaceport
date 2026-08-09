@@ -2,9 +2,9 @@
 
 `build_tables(spec, features)` tabulates the settlement kernel over every (settled-left state, rune, raw-right-1, raw-right-2) window reachable under settlement for one feature configuration, by fixpoint over reachable left states rather than string enumeration, so the table is exact. Windows that formation makes impossible are excluded — but a ligature pair survives unformed exactly where the section 5.7 late-formation guard fires, so pair windows are enumerated under precisely the guard-firing follower contexts (`_survivable_formation_windows`): the lead's window is admitted per guard-firing right2, and the trail's window inherits the matching allowed-right2 set through the worklist, keeping the fixpoint exact. The mirror facet holds for formed-ligature tokens at any slot: a ligature input's window, and any window with a ligature at right1, is admitted only where that ligature's own guard does NOT fire over the raw tokens its post-formation neighbors stand for (`liga_formed_before`), existentially over the beyond-window slot. ZWNJ-locked entry-bearing inputs enumerate under the chokepoint twin's glyph name (`model.locked_glyph_name`, the `<raw>.noentry` shape the emitter's chokepoint actually produces), locked before settlement — which keeps each plain input's boundary-left outcomes in a single block, exactly as the prototype encoded it.
 
-Outcome-partition compression is DFA-style per input and per slot: two fillers land in one class iff their full outcome signatures over the other slots are identical. `assert_outcome_partition` re-derives the partitions and replays every reachable transition against the ordered rules under first-match-wins semantics — the hard build invariant of prototype follow-up 1. Rule ordering per input follows the proven discipline: boundary-outcome rows with `uni200C` explicit in the class first, three-lookahead-slot rows before two-slot rows before one-slot rows, identity rows omitted, the slot-dropped fallback last, plus ZWNJ backtrack-slot coverage guards for never-locked inputs.
+Outcome-partition compression is DFA-style per input and per slot: two fillers land in one class iff their full outcome signatures over the other slots are identical. `assert_outcome_partition` re-derives the partitions and replays every reachable transition against the ordered rules under first-match-wins semantics — the hard build invariant of prototype follow-up 1. The fold, the joint-flag pass, the treaty fold, the replay, and every serialized-rules consumer read the expanded label-grain row stream (`DecisionTable.expanded_transitions`): a class-grain enumeration expands each row to its full member product before anything downstream runs, so those consumers are byte-identical to a label-grain build by construction, and `Rule` objects carry label vocabulary only — no class id ever reaches `_rules_for_input`, `write_tsv`, or a serialized rules head. Rule ordering per input follows the proven discipline: boundary-outcome rows with `uni200C` explicit in the class first, three-lookahead-slot rows before two-slot rows before one-slot rows, identity rows omitted, the slot-dropped fallback last, plus ZWNJ backtrack-slot coverage guards for never-locked inputs.
 
-Rows carry a fourth window slot, `right3`, enumerated lazily and only where live: an input admitted by `third_slot_inputs` (the depth-3 chain census `depth3_inputs` under the candidacy-grain prospect; every rune under the simulated prospect, where any input's third join-count term can read the slot through its follower's replayed cascade) gets its windows split by the raw third lookahead, only where both nearer slots are letters, and only where `third_slot_filter` judges the window live — some own-rune depth-3 prefer chain still unknown over (right1, right2), or, flag-on, some candidate shape's simulated follower choice moved by the third token (`_ProspectLiveness`) — a window judged definite settles identically under every third token, so everywhere else the slot stays `#NA`, mirroring the established convention that no record peeks past a boundary. An enumerated window's settled left state is reachable only alongside right2 equal to that window's right3, so the worklist pins the successor's allowed-right2 set to that singleton — the same exactness plumbing the late-formation guard already rides — and the right3 options replay the right2 filters shifted one slot (formation-impossible adjacent pairs, guard-firing follower sets, `liga_formed_before` with the second slot now pinned). The fifth slot, `right4`, repeats the pattern one deeper: only a `fourth_slot_inputs` input with letters at all three nearer slots, and only where `fourth_slot_filter` finds the window live over those three slots, enumerates it. Where it does enumerate, its options replay the same filters shifted once more, and the worklist pins the successor's right3 to the producing window's right4. `_assert_window_arity` ties the Transition/Rule slot count to `model.RIGHT_WINDOW_SLOTS` at import, so the chain cap and the table can only widen together.
+Rows carry a fourth window slot, `right3`, enumerated lazily and only where live: an input admitted by `third_slot_inputs` (the depth-3 chain census `depth3_inputs` under the candidacy-grain prospect; every rune under the simulated prospect, where any input's third join-count term can read the slot through its follower's replayed cascade) gets its windows split by the raw third lookahead, only where both nearer slots are letters, and only where `third_slot_filter` judges the window live — some own-rune depth-3 prefer chain still unknown over (right1, right2), or, flag-on, some candidate shape's simulated follower choice moved by the third token (`_ProspectLiveness`) — a window judged definite settles identically under every third token, so everywhere else the slot stays `#NA`, mirroring the established convention that no record peeks past a boundary. An enumerated window's settled left state is reachable only alongside right2 equal to that window's right3, so the worklist pins the successor's allowed-right2 set to that singleton — the same exactness plumbing the late-formation guard already rides — and the right3 options replay the right2 filters shifted one slot (formation-impossible adjacent pairs, guard-firing follower sets, `liga_formed_before` with the second slot now pinned). The fifth slot, `right4`, repeats the pattern one deeper: only a `fourth_slot_inputs` input with letters at all three nearer slots, and only where `fourth_slot_filter` finds the window live over those three slots, enumerates it. Where it does enumerate, its options replay the same filters shifted once more, and the worklist pins the successor's right3 to the producing window's right4. Under `_deep_world` with `DEEP_CLASSES_DEFAULT` on, both deep slots enumerate at class grain (issue 26): the same option lists, their letters split by `_DeepFibreDeriver`'s outcome fibres — the filters themselves are untouched and the #NA biconditional keeps its exact statement over tokens — one row per (base, fibre pair) holding a content-addressed member set (`deep_classes`, `deep_class_id`), the successor pins carrying the admitted member sets instead of singletons, and `expanded_transitions` restoring the label-grain stream for everything downstream; `_assert_deep_slot_partition` and the per-build echo check are the standing guards. `_assert_window_arity` ties the Transition/Rule slot count to `model.RIGHT_WINDOW_SLOTS` at import, so the chain cap and the table can only widen together.
 
 Joint rows combine both section 6.1 flags: ranking ties broken by the structural floor between candidates differing in seam realization, and windows whose deliberately optimistic prospect diverges from the follower's actual settled choice. Both TSV artifacts are diff-stable (section 8): sorted rows, provenance pointers, deterministic labels.
 
@@ -16,10 +16,11 @@ from __future__ import annotations
 import gzip
 import hashlib
 import json
+import os
 from collections import OrderedDict
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING, Callable, Iterator, Mapping
 
 if TYPE_CHECKING:
     from rebuild.pipeline.trace_memo import TraceShare, TraceStore
@@ -61,6 +62,16 @@ BOUNDARY_LEFT_LABELS = {
 }
 BOUNDARYISH = {EDGE_LABEL, NA_LABEL, "space", "uni200C", "periodcentered"}
 BOUNDARY_LOOKAHEAD_CLASS = ("uni200C", "space", "periodcentered")
+
+# The issue-26 flag, default on wherever `_deep_world` is true: deep window slots enumerate at class grain (one row per outcome fibre, expanded back to labels for every fold-side consumer). Same plumbing contract as settle's semantics flags: module-level, consulted at build time, AMS_DEEP_CLASSES=0 is the label-grain comparison state; in the pinned candidacy world there is no `_ProspectLiveness` instance and hence no fibre source, so enumeration there stays label-grain regardless.
+DEEP_CLASSES_DEFAULT = os.environ.get("AMS_DEEP_CLASSES", "1") != "0"
+DEEP_CLASS_PREFIX = "#C"
+
+
+def deep_class_id(members: tuple[str, ...]) -> str:
+    """Content-addressed id for a deep-slot member set: `#C` plus the first 12 hex digits of sha256 over the sorted member tuple. Identical member sets therefore share one id across contexts, across configurations, and across builds — which is what keeps cross-config artifact comparison and the ss04 row-identity pin meaningful — and the `#` prefix keeps ids outside the glyph namespace; ids are never members of BOUNDARYISH."""
+    digest = hashlib.sha256("\t".join(members).encode()).hexdigest()
+    return f"{DEEP_CLASS_PREFIX}{digest[:12]}"
 
 
 class PartitionError(RuntimeError):
@@ -146,6 +157,7 @@ class DecisionTable:
     cited_provenance: frozenset[str] = (
         frozenset()
     )  # YAML pointers of every authored record the engine fired while tabulating this configuration (Engine.fired); the dead-policy gate's exercised-ness channel
+    deep_classes: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
     _cells: frozenset[CellId] = field(default_factory=frozenset)
 
     def reachable_cells(self) -> frozenset[CellId]:
@@ -154,8 +166,39 @@ class DecisionTable:
     def joint_rows(self) -> frozenset[int]:
         return frozenset(index for index, rule in enumerate(self.rules) if rule.joint)
 
+    def token_members(self, token: str) -> tuple[str, ...]:
+        """The member labels a deep-slot field stands for: the class map's entry for a class id, else the label itself — bare labels, boundary labels, and #NA included, so a caller can expand any right3/right4 field uniformly."""
+        members = self.deep_classes.get(token)
+        return members if members is not None else (token,)
+
+    def token_representative(self, token: str) -> str:
+        """The first member of a class id, else the label itself: the one concrete label a consumer pins a deep slot with. Exact rather than heuristic for rule-membership tests, because `_assert_deep_class_unions` proves every emitted look class holds a token's members all-in or all-out."""
+        members = self.deep_classes.get(token)
+        return members[0] if members else token
+
+    def expanded_transitions(self) -> Iterator[Window]:
+        """The label-grain row stream every fold-side consumer reads (the issue-26 expansion boundary): each class row expanded to the full member product at right3 x right4 — boundary labels and #NA pass through — with every expanded row carrying the class row's settled fields verbatim, legitimate because the fibre key makes them member-uniform (the row's `joint` is the OR over its members, so per-member flags live only inside the build's own fold input). Yields in `Window.key` order with no duplicate keys — member sets at one base are disjoint (`_assert_deep_slot_partition`) — so a consumer that sorts label-grain rows by key today reads the identical stream; on a label-grain table this is exactly `transitions`."""
+        if not self.deep_classes:
+            yield from self.transitions
+            return
+        expanded: list[Window] = []
+        for row in self.transitions:
+            members3 = self.deep_classes.get(row.right3)
+            members4 = self.deep_classes.get(row.right4)
+            if members3 is None and members4 is None:
+                expanded.append(row)
+                continue
+            for member3 in members3 if members3 is not None else (row.right3,):
+                if members4 is None:
+                    expanded.append(replace(row, right3=member3))
+                else:
+                    for member4 in members4:
+                        expanded.append(replace(row, right3=member3, right4=member4))
+        expanded.sort(key=lambda r: r.key)
+        yield from expanded
+
     def assert_outcome_partition(self) -> None:
-        """The hard build invariant (prototype follow-up 1): recompute the per-slot signature partitions and verify disjoint cover, then replay every reachable transition against the ordered rules under first-match-wins semantics."""
+        """The hard build invariant (prototype follow-up 1): recompute the per-slot signature partitions and verify disjoint cover, then replay every reachable transition against the ordered rules under first-match-wins semantics. The left partition runs over the table's own rows — class tokens are ordinary signature coordinates, and the sparse-signature premise of `_signature_blocks` holds for them because ids are content-addressed, so identical token signatures imply identical member sets — while the replay runs over `expanded_transitions()`, the identical label-grain multiset a label-grain build enumerates, so first-match-wins is checked verbatim, not by analogue."""
         by_input: dict[str, dict[tuple[str, str, str, str, str], Window]] = {}
         for row in self.transitions:
             by_input.setdefault(row.input_glyph, {})[
@@ -183,7 +226,7 @@ class DecisionTable:
         for rule in self.rules:
             rules_by_input.setdefault(rule.input_glyph, []).append(rule)
         failures = []
-        for row in self.transitions:
+        for row in self.expanded_transitions():
             predicted = row.input_glyph
             for rule in rules_by_input.get(row.input_glyph, ()):
                 if rule.backtrack is not None and row.left not in rule.backtrack:
@@ -206,6 +249,47 @@ class DecisionTable:
                 for key, expected, predicted in failures[:5]
             )
             raise PartitionError(f"{len(failures)} first-match-wins replay mismatches: {sample}")
+
+    def _assert_deep_class_unions(self) -> None:
+        """Every emitted look3/look4 letter class holds each class row's member set all-in or all-out within the row's own context — the fold-output assertion that licenses conform's representative-membership tests as exact rather than heuristic. It holds by more than hope: within one left x r1 x r2 signature block, `_signature_blocks` equality fixes the coordinate domain as well as the outcome map (the signature is a set of ((coords), outcome) tuples), so the r3 signature is determined by the (r4-domain, outcome) map at any single (r1, r2) in the block — two fibre co-members agree on both by the fibre key, hence never straddle two blocks; the r4 direction is the same one slot over."""
+        if not self.deep_classes:
+            return
+        rules_by_input: dict[str, list[tuple[frozenset[str] | None, ...]]] = {}
+        for rule in self.rules:
+            rules_by_input.setdefault(rule.input_glyph, []).append(
+                tuple(
+                    frozenset(slot) if slot is not None else None
+                    for slot in (rule.backtrack, rule.look1, rule.look2, rule.look3, rule.look4)
+                )
+            )
+        for row in self.transitions:
+            members3 = self.deep_classes.get(row.right3)
+            members4 = self.deep_classes.get(row.right4)
+            if members3 is None and members4 is None:
+                continue
+            set3 = frozenset(members3) if members3 is not None else None
+            set4 = frozenset(members4) if members4 is not None else None
+            for slots in rules_by_input.get(row.input_glyph, ()):
+                backtrack, look1, look2, look3, look4 = slots
+                if backtrack is not None and row.left not in backtrack:
+                    continue
+                if look1 is not None and row.right1 not in look1:
+                    continue
+                if look2 is not None and row.right2 not in look2:
+                    continue
+                if set3 is not None and look3 is not None:
+                    inside = set3 & look3
+                    if inside and inside != set3:
+                        raise PartitionError(
+                            f"{row.input_glyph}: an emitted look3 class splits deep class {row.right3} at {row.key}: {sorted(inside)} of {sorted(set3)}"
+                        )
+                if set4 is not None and look4 is not None:
+                    if look3 is None or frozenset(set3 if set3 is not None else {row.right3}) & look3:
+                        inside4 = set4 & look4
+                        if inside4 and inside4 != set4:
+                            raise PartitionError(
+                                f"{row.input_glyph}: an emitted look4 class splits deep class {row.right4} at {row.key}: {sorted(inside4)} of {sorted(set4)}"
+                            )
 
     def assert_e_stranded(self) -> None:
         """Every committed exit in the table has at least one transition settling the follower — the fixpoint enqueues every successor and the kernel raises E-STRANDED on a violation, so this re-walk is a belt-and-suspenders assertion. It reads the seam each row committed, so it belongs to the build: a table read back through `read_windows` carries the label view, and was proved before it was written."""
@@ -261,7 +345,7 @@ class TreatyTable:
         path.write_text("\n".join(lines) + "\n")
 
 
-WINDOWS_FORMAT = "ams-m1-windows/1"
+WINDOWS_FORMAT = "ams-m1-windows/2"
 WINDOWS_COLUMNS = ("input", "left", "lookahead1", "lookahead2", "lookahead3", "lookahead4", "outcome")
 
 
@@ -301,6 +385,7 @@ def write_windows(decision: DecisionTable, path: Path, inputs: str) -> None:
             [cell.rune, cell.stance, cell.entry, cell.exit, list(cell.adjustments)]
             for cell in sorted(decision.reachable_cells(), key=_cell_key)
         ],
+        "deep_classes": [[token, list(members)] for token, members in sorted(decision.deep_classes.items())],
         "rules": [_rule_row(rule) for rule in decision.rules],
     }
     body = "".join(
@@ -336,6 +421,7 @@ def read_windows(path: Path, windows: bool = True) -> tuple[str, DecisionTable]:
         rules=tuple(_rule_of(row) for row in head["rules"]),
         identity_guard_rules=head["identity_guard_rules"],
         cited_provenance=frozenset(head["cited_provenance"]),
+        deep_classes={token: tuple(members) for token, members in head["deep_classes"]},
         _cells=frozenset(
             CellId(rune, stance, entry, exit_, tuple(adjustments))
             for rune, stance, entry, exit_, adjustments in head["cells"]
@@ -345,10 +431,16 @@ def read_windows(path: Path, windows: bool = True) -> tuple[str, DecisionTable]:
 
 
 def windows_digest(decision: DecisionTable) -> str:
-    """Content hash of everything a witness hunt reads from one configuration's table: the ordered rules and the enumerated windows, in exactly the forms `write_windows` serializes, but without the inputs stamp. The stamp moves on any hashed source edit; the table moves only when settlement itself does — so a cache keyed on this digest survives the ink-only rune edits that dominate glyph work, and staleness the digest cannot see (a rename map or deep-slot filter moving while the raw windows stay put) is safe by construction, because a recorded witness is only ever tried first and re-verified, never trusted."""
+    """Content hash of everything a witness hunt reads from one configuration's table: the ordered rules, the deep-class map, and the enumerated windows, in exactly the forms `write_windows` serializes, but without the inputs stamp. The stamp moves on any hashed source edit; the table moves only when settlement itself does — so a cache keyed on this digest survives the ink-only rune edits that dominate glyph work, and staleness the digest cannot see (a rename map or deep-slot filter moving while the raw windows stay put) is safe by construction, because a recorded witness is only ever tried first and re-verified, never trusted. The class map is hashed between the rules and the rows: a moved map moves the digest and cold-starts the witness caches, which is correct — a token's member set is part of what a recorded window witness realized."""
     digest = hashlib.sha256()
     digest.update(decision.config.encode())
     digest.update(json.dumps([_rule_row(rule) for rule in decision.rules], separators=(",", ":")).encode())
+    digest.update(
+        json.dumps(
+            [[token, list(members)] for token, members in sorted(decision.deep_classes.items())],
+            separators=(",", ":"),
+        ).encode()
+    )
     for row in decision.transitions:
         digest.update(
             "\t".join(
@@ -370,19 +462,19 @@ def right_chain_reach(cond) -> int:
 
 
 def depth3_inputs(spec: ResolvedSpec) -> frozenset[str]:
-    """The rune names whose windows the raw third lookahead can decide: only an own-rune prefer record ever receives the real right3 (settle's `_prefer_favors` discipline), so exactly the runes carrying a prefer whose right condition chains two hops."""
+    """The rune names whose windows the raw third lookahead can decide: only an own-rune prefer or resolve record ever receives the real right3 (settle's `_prefer_favors` / `_apply_resolution` discipline), so exactly the runes carrying such a record whose right condition chains two hops."""
     return _deep_inputs(spec, 2)
 
 
 def depth4_inputs(spec: ResolvedSpec) -> frozenset[str]:
-    """The rune names whose windows the raw fourth lookahead can decide — a prefer whose right condition chains three hops. Always a subset of `depth3_inputs`; both gates apply, each opening its own slot."""
+    """The rune names whose windows the raw fourth lookahead can decide — a prefer or resolve whose right condition chains three hops. Always a subset of `depth3_inputs`; both gates apply, each opening its own slot."""
     return _deep_inputs(spec, 3)
 
 
 def _deep_inputs(spec: ResolvedSpec, reach: int) -> frozenset[str]:
     out = set()
     for name, rune in spec.runes.items():
-        for record in rune.policy.prefer:
+        for record in tuple(rune.policy.prefer) + tuple(rune.policy.resolve):
             right = record.when.right
             if right is not None and right_chain_reach(right) >= reach:
                 out.add(name)
@@ -407,7 +499,7 @@ def fourth_slot_inputs(spec: ResolvedSpec, engine: Engine | None = None) -> froz
 
 
 class _ProspectLiveness:
-    """The simulated-prospect arm of the deep-slot filters (issue 28 stage 2): whether a raw deep token can move the settled outcome of some reachable window at (input, right1, right2). Two value-level stages, because every cheaper grain fails in a measured way — consultation-level tracking over-opens catastrophically (the recursion consults beyond-window slots almost everywhere), and stopping at follower-prospect variance still over-opens 15-fold (measured on the real spec: 1,543 of the consulted triples carry a token-movable prospect but only 103 ever move a seat outcome), enough to push the emitted settlement lookup through the budget gate's headroom floor. Stage one is the cheap prefilter: for each (stance, seam) shape the input can commit — the virtual left's entry is never read, so entry states collapse — the follower's simulated prospect is evaluated per concrete token and compared against the EDGE the table bakes for a dead slot; no variance anywhere means no channel into the seat's ranking (deep tokens reach the flag-on kernel only through prospect values and own-rune chains, and the chain arm runs before this probe), so the slot is definitely dead. Stage two, only where stage one fires, probes at outcome grain: the seat's own transition is replayed per token over the collapsed left-classes — every (family, stance, seam) virtual left plus the four boundary kinds, collapsed by the input-frame signature (committed seam, left kind, and the verdict vector of the input's own left-reading conditions: entry-row from-scopes and refuse/prefer/unlock left conditions — extend and contract records shape adjustments only, and neither the extension nor the left cell's entry interacts with a deep token, so reachable settled lefts are covered by the enumerated shapes) — and the slot is live only if some class's settled cell varies. Left-classes the fixpoint can never reach raise E-STRANDED in the replay and are skipped; a prefer conflict raising E-INCOMPARABLE/E-AMBIGUOUS marks the slot live so the enumeration surfaces it properly. The third-slot probes also compare each token's unknown-fourth evaluation against its EDGE-fourth one, and `third_live` additionally ORs in `fourth_live` over every concrete letter third — a live fourth slot hanging off an unenumerated third would otherwise never be consulted, and the EDGE/UNKNOWN-fourth comparisons alone cannot see a seat that moves only under a specific (third, fourth) letter pair, because unknown-optimism bottoms the recursion identically for both. With shifted vote slots on (stage 4b) stage one grows a vote arm beside the prospect arm: `_vote_class_live` probes `_prefer_favors`' vote branch itself per deep token, because a vote reads the deep slots both through its record's shifted when: chain and through the follower-cell enumeration the vote runs over the shifted window; a same-family seam is skipped (the own branch shadows the vote there and the chain arm models it), and stage two prunes vote-verdict variance that never moves the seat. Verdict caches key on the probed window and instances cache per engine (`_liveness_probe`), so both filters and every consultation share one memo, and the conform gate remains the standing alarm for any residual under-opening."""
+    """The simulated-prospect arm of the deep-slot filters (issue 28 stage 2): whether a raw deep token can move the settled outcome of some reachable window at (input, right1, right2). Two value-level stages, because every cheaper grain fails in a measured way — consultation-level tracking over-opens catastrophically (the recursion consults beyond-window slots almost everywhere), and stopping at follower-prospect variance still over-opens 15-fold (measured on the real spec: 1,543 of the consulted triples carry a token-movable prospect but only 103 ever move a seat outcome), enough to push the emitted settlement lookup through the budget gate's headroom floor. Stage one is the cheap prefilter: for each (stance, seam) shape the input can commit — the virtual left's entry is never read, so entry states collapse — the follower's simulated prospect is evaluated per concrete token and compared against the EDGE the table bakes for a dead slot; no variance anywhere means no channel into the seat's ranking (deep tokens reach the flag-on kernel only through prospect values and own-rune chains, and the chain arm runs before this probe), so the slot is definitely dead. Stage two, only where stage one fires, probes at outcome grain: the seat's own transition is replayed per token over the collapsed left-classes — every (family, stance, seam) virtual left plus the four boundary kinds, collapsed by the input-frame signature (committed seam, left kind, and the verdict vector of the input's own left-reading conditions: entry-row from-scopes and refuse/prefer/resolve/unlock left conditions — extend and contract records shape adjustments only, and neither the extension nor the left cell's entry interacts with a deep token, so reachable settled lefts are covered by the enumerated shapes) — and the slot is live only if some class's settled cell varies. Left-classes the fixpoint can never reach raise E-STRANDED in the replay and are skipped; a prefer conflict raising E-INCOMPARABLE/E-AMBIGUOUS marks the slot live so the enumeration surfaces it properly. The third-slot probes also compare each token's unknown-fourth evaluation against its EDGE-fourth one, and `third_live` additionally ORs in `fourth_live` over every concrete letter third — a live fourth slot hanging off an unenumerated third would otherwise never be consulted, and the EDGE/UNKNOWN-fourth comparisons alone cannot see a seat that moves only under a specific (third, fourth) letter pair, because unknown-optimism bottoms the recursion identically for both. With shifted vote slots on (stage 4b) stage one grows a vote arm beside the prospect arm: `_vote_class_live` probes `_prefer_favors`' vote branch itself per deep token, because a vote reads the deep slots both through its record's shifted when: chain and through the follower-cell enumeration the vote runs over the shifted window; a same-family seam is skipped (the own branch shadows the vote there and the chain arm models it), and stage two prunes vote-verdict variance that never moves the seat. Verdict caches key on the probed window and instances cache per engine (`_liveness_probe`), so both filters and every consultation share one memo, and the conform gate remains the standing alarm for any residual under-opening. Under class grain (issue 26) this probe machinery is also the fibre source: `_DeepFibreDeriver` reads `_seat_left_classes` and `_probe_tokens` to compute the outcome-probed fibre key over every left class and a bounded coordinate set — the {EDGE, UNKNOWN} pair where the fourth slot is dead, the full probe alphabet plus UNKNOWN exactly where `fourth_slot_matters` is true, which is what absorbs the joint34 counterexample below at fibre grain — while the liveness verdicts themselves keep their exact code and are never redefined as fibre projections (a chain-arm-live context derives fibres too, whether or not the probe's own verdict was consulted)."""
 
     def __init__(self, spec: ResolvedSpec, engine: Engine):
         self.spec = spec
@@ -456,7 +548,7 @@ class _ProspectLiveness:
                 for unlock in stance.surface.unlocks:
                     if unlock.when is not None and unlock.when.left is not None:
                         gathered.append(unlock.when.left)
-            for record in tuple(rune.policy.refuse) + tuple(rune.policy.prefer):
+            for record in tuple(rune.policy.refuse) + tuple(rune.policy.prefer) + tuple(rune.policy.resolve):
                 if record.when is not None and record.when.left is not None:
                     gathered.append(record.when.left)
             conds = tuple(gathered)
@@ -766,12 +858,12 @@ def _liveness_probe(spec: ResolvedSpec, engine: Engine) -> _ProspectLiveness:
 def third_slot_filter(
     spec: ResolvedSpec, features: frozenset[str], engine: Engine | None = None
 ) -> Callable[[str, str, str], bool]:
-    """Whether the raw third slot can decide an input's window, keyed by rune-family names: (input family, right1 family, right2 family) -> bool. The chain arm is true exactly when some depth-3-reach prefer chain on the input's own rune evaluates to unknown over (right1, right2, UNKNOWN, UNKNOWN) — `cond_matches_right` returns None whenever a consulted constraint touched a beyond-window token, and a definite True/False verdict never consulted one, so a window judged definite here settles identically under every third token and its right3 stays #NA. When the probing engine scores the simulated prospect (issue 28) or hands votes their shifted slots (stage 4b), the `_ProspectLiveness` arm is ORed in: the slot also opens where some candidate shape's simulated follower choice, or some follower vote's verdict, moves with the third token — together with the chain arm those are the only ways any kernel mode reads it (seat-side refusals and unlocks are never handed the deep slots). `fourth_slot_filter` is the same gate one slot deeper; a window this filter judges definite is definite for it too — reach-3 chains are reach-2 chains, and the liveness arm's `third_live` ORs in `fourth_live` over every concrete letter third, so a dead third slot never hides a live fourth by construction. Shared by `build_tables` (enumeration gate) and conform's window replay, which must agree on which windows carry a live third slot."""
+    """Whether the raw third slot can decide an input's window, keyed by rune-family names: (input family, right1 family, right2 family) -> bool. The chain arm is true exactly when some depth-3-reach prefer or resolve chain on the input's own rune evaluates to unknown over (right1, right2, UNKNOWN, UNKNOWN) — resolve records receive all four raw slots in `_apply_resolution`, so their chains are censused alongside the prefers — `cond_matches_right` returns None whenever a consulted constraint touched a beyond-window token, and a definite True/False verdict never consulted one, so a window judged definite here settles identically under every third token and its right3 stays #NA. When the probing engine scores the simulated prospect (issue 28) or hands votes their shifted slots (stage 4b), the `_ProspectLiveness` arm is ORed in: the slot also opens where some candidate shape's simulated follower choice, or some follower vote's verdict, moves with the third token — together with the chain arm those are the only ways any kernel mode reads it (seat-side refusals and unlocks are never handed the deep slots). `fourth_slot_filter` is the same gate one slot deeper; a window this filter judges definite is definite for it too — reach-3 chains are reach-2 chains, and the liveness arm's `third_live` ORs in `fourth_live` over every concrete letter third, so a dead third slot never hides a live fourth by construction. Shared by `build_tables` (enumeration gate) and conform's window replay, which must agree on which windows carry a live third slot."""
     probe = engine if engine is not None else Engine(spec, features)
     chains = {
         name: tuple(
             record.when.right
-            for record in spec.runes[name].policy.prefer
+            for record in tuple(spec.runes[name].policy.prefer) + tuple(spec.runes[name].policy.resolve)
             if record.when.right is not None and right_chain_reach(record.when.right) >= 2
         )
         for name in depth3_inputs(spec)
@@ -804,12 +896,12 @@ def third_slot_filter(
 def fourth_slot_filter(
     spec: ResolvedSpec, features: frozenset[str], engine: Engine | None = None
 ) -> Callable[[str, str, str, str], bool]:
-    """Whether the raw fourth slot can decide an input's window, keyed by rune-family names: (input family, right1 family, right2 family, right3 family) -> bool. The chain arm is true exactly when some depth-4-reach prefer chain on the input's own rune evaluates to unknown over (right1, right2, right3, UNKNOWN) — `cond_matches_right` returns None whenever a consulted constraint touched the fourth token, and a definite True/False verdict never consulted it, so a window judged definite here settles identically under every fourth token and its right4 stays #NA. When the probing engine scores the simulated prospect (issue 28) or hands votes their shifted slots (stage 4b), the `_ProspectLiveness` arm is ORed in: the slot also opens where some candidate shape's simulated follower choice, or some follower vote's verdict, moves with the fourth token at this concrete third. Shared by `build_tables` (enumeration gate) and conform's window replay, which must agree on which windows carry a live fourth slot."""
+    """Whether the raw fourth slot can decide an input's window, keyed by rune-family names: (input family, right1 family, right2 family, right3 family) -> bool. The chain arm is true exactly when some depth-4-reach prefer or resolve chain on the input's own rune evaluates to unknown over (right1, right2, right3, UNKNOWN) — `cond_matches_right` returns None whenever a consulted constraint touched the fourth token, and a definite True/False verdict never consulted it, so a window judged definite here settles identically under every fourth token and its right4 stays #NA. When the probing engine scores the simulated prospect (issue 28) or hands votes their shifted slots (stage 4b), the `_ProspectLiveness` arm is ORed in: the slot also opens where some candidate shape's simulated follower choice, or some follower vote's verdict, moves with the fourth token at this concrete third. Shared by `build_tables` (enumeration gate) and conform's window replay, which must agree on which windows carry a live fourth slot."""
     probe = engine if engine is not None else Engine(spec, features)
     chains = {
         name: tuple(
             record.when.right
-            for record in spec.runes[name].policy.prefer
+            for record in tuple(spec.runes[name].policy.prefer) + tuple(spec.runes[name].policy.resolve)
             if record.when.right is not None and right_chain_reach(record.when.right) >= 3
         )
         for name in depth4_inputs(spec)
@@ -886,6 +978,217 @@ def _survivable_formation_windows(
     return out
 
 
+class _WindowOptions:
+    """The per-build static structures behind the right-slot option pipelines: formation pairs, the section 5.7 survivable-window maps, the ligature sequences, and the r3/r4 option pipelines themselves. One implementation, shared by the enumeration loop, `_DeepFibreDeriver` (whose fibre key records the computed r4 option list, so a filter added to the pipeline without a key update fails `_assert_deep_slot_partition` loudly instead of silently splitting a fibre), and the partition assertion — the option list a fibre key records is computed by exactly the code the enumeration runs."""
+
+    def __init__(self, spec: ResolvedSpec):
+        self.spec = spec
+        self.letters = sorted(spec.runes)
+        self.right_letters = [RightToken("letter", name) for name in self.letters]
+        self.right_boundaries = [EDGE, SPACE, ZWNJ, NAMER_DOT]
+        self.formation_pairs = _formation_pairs(spec)
+        self.survivable = _survivable_formation_windows(spec, self.right_letters, self.right_boundaries)
+        self.liga_sequences = {name: rune.sequence for name, rune in spec.runes.items() if rune.sequence}
+        self.raw_second_options = self.right_boundaries + [
+            t for t in self.right_letters if t.letter not in self.liga_sequences
+        ]
+
+    def liga_formed_before(self, name: str, next1: RightToken, next2: RightToken | None) -> bool:
+        """Whether a formed `name` ligature can immediately precede (next1, next2) in a post-formation stream: its own guard, read over the raw tokens those post-formation neighbors stand for, must not fire. `next2 = None` means the second guard slot lies beyond the window, so the verdict is existential over the raw options."""
+        if next1.kind != "letter":
+            return True
+        sequence = self.liga_sequences.get(next1.letter)
+        if sequence:
+            first: RightToken = RightToken("letter", sequence[0])
+            second: RightToken | None = RightToken("letter", sequence[1])
+        else:
+            first = next1
+            if next2 is None:
+                second = None
+            elif next2.kind == "letter" and (next2_sequence := self.liga_sequences.get(next2.letter)):
+                second = RightToken("letter", next2_sequence[0])
+            else:
+                second = next2
+        if second is not None:
+            return not settle_module.formation_blocked(self.spec, name, first, second)
+        return any(
+            not settle_module.formation_blocked(self.spec, name, first, option)
+            for option in self.raw_second_options
+        )
+
+    def context_follower_map(
+        self, rune_name: str, right1: str
+    ) -> dict[str, frozenset[RightToken] | None] | None:
+        """The late-formation follower map an (input, right1) window inherits — None when the pair is not a formation pair (unrestricted), and the survivable map's entry otherwise; the enumeration never reaches a pair whose entry is absent, because such windows are inadmissible outright."""
+        if (rune_name, right1) not in self.formation_pairs:
+            return None
+        return self.survivable.get((rune_name, right1))
+
+    def right3_options(
+        self,
+        right1: RightToken,
+        right2: RightToken,
+        follower_map: dict[str, frozenset[RightToken] | None] | None,
+    ) -> list[RightToken]:
+        options = [
+            r
+            for r in self.right_boundaries + self.right_letters
+            if not (
+                r.kind == "letter"
+                and (right2.letter, r.letter) in self.formation_pairs
+                and (right2.letter, r.letter) not in self.survivable
+            )
+        ]
+        if follower_map is not None:
+            trail_allowed = follower_map.get(right2.letter)
+            if trail_allowed is not None:
+                options = [r for r in options if r in trail_allowed]
+        if (right1.letter, right2.letter) in self.formation_pairs:
+            pair_map = self.survivable.get((right1.letter, right2.letter)) or {}
+            options = [r for r in options if r.kind == "letter" and r.letter in pair_map]
+        if right1.letter in self.liga_sequences:
+            options = [r for r in options if self.liga_formed_before(right1.letter, right2, r)]
+        if right2.letter in self.liga_sequences:
+            options = [r for r in options if self.liga_formed_before(right2.letter, r, None)]
+        return options
+
+    def right4_options(self, right1: RightToken, right2: RightToken, right3: RightToken) -> list[RightToken]:
+        options = [
+            r
+            for r in self.right_boundaries + self.right_letters
+            if not (
+                r.kind == "letter"
+                and (right3.letter, r.letter) in self.formation_pairs
+                and (right3.letter, r.letter) not in self.survivable
+            )
+        ]
+        if (right1.letter, right2.letter) in self.formation_pairs:
+            pair_map = self.survivable.get((right1.letter, right2.letter)) or {}
+            trail_allowed4 = pair_map.get(right3.letter)
+            if trail_allowed4 is not None:
+                options = [r for r in options if r in trail_allowed4]
+        if (right2.letter, right3.letter) in self.formation_pairs:
+            pair_map2 = self.survivable.get((right2.letter, right3.letter)) or {}
+            options = [r for r in options if r.kind == "letter" and r.letter in pair_map2]
+        if right2.letter in self.liga_sequences:
+            options = [r for r in options if self.liga_formed_before(right2.letter, right3, r)]
+        if right3.letter in self.liga_sequences:
+            options = [r for r in options if self.liga_formed_before(right3.letter, r, None)]
+        return options
+
+
+_FIBRE_RAISE_INCOMPARABLE = "raise:E-INCOMPARABLE"
+_FIBRE_RAISE_AMBIGUOUS = "raise:E-AMBIGUOUS"
+_FIBRE_RAISE_UNREACHABLE = "raise:E-UNREACHABLE"
+
+
+@dataclass(frozen=True)
+class _Fibre:
+    """One r3 letter fibre of a live context: the member tokens (sorted-letter order, so the first member is the deterministic representative), the member-uniform `fourth_slot_matters` verdict, and — only where that verdict is true — the shared r4 sub-enumeration: `r4_groups` is the computed r4 option list partitioned into boundary singletons and r4 letter fibres, in option-pipeline order."""
+
+    members: tuple[RightToken, ...]
+    fourth_matters: bool
+    r4_groups: tuple[tuple[RightToken, ...], ...]
+
+
+@dataclass(frozen=True)
+class _ContextFibres:
+    boundary_options: tuple[RightToken, ...]
+    fibres: tuple[_Fibre, ...]
+
+
+class _DeepFibreDeriver:
+    """The issue-26 fibre source: per live context (input family, right1, right2), partition the static r3 option list's letters into fibres of the outcome-probe function, lazily on first reach and memoized per build. The fibre key per candidate letter t3 is (i) the probe function f(t3) — for every left class in `_ProspectLiveness._seat_left_classes` and every bounded coordinate, the full row-visible probe record: the Settled (cell, seam, extension), prospect, joint_floor, and notes, plus the raise identity as three distinct values — (ii) the `fourth_slot_matters` verdict itself, and (iii) for members whose verdict is true, the computed r4 option list, run through `_WindowOptions.right4_options` per member so every present and future filter in the pipeline is keyed on structurally. The coordinate set is bounded, not the full grid: {EDGE, UNKNOWN} where the fourth slot is dead — an r4-dead member is traced only at EDGE and enqueues no r4 pin, so deeper coordinates are unread for it — widening to the full probe alphabet plus UNKNOWN exactly where `fourth_slot_matters` is true, which is where a seat can move under a specific (third, fourth) pair. Components (ii) and (iii) make an r3 class induce one shared r4 sub-enumeration, whose t4 groups under f(t3)(., t4) restricted to the option list are the r4 fibres — f is indexed by t3, so the r4 partition is per (context, r3 class), never per context alone. The probes run on the build's own tracing engine, so their traces land in the shared memo and their fired pointers in `engine.fired`, exactly as the liveness probes' traces already do. The one imported (not probed) assumption is the left-class collapse `_seat_left_classes` already trusts; it is guarded at real-left grain by the echo check in `build_tables` and the fibre verification test."""
+
+    def __init__(
+        self,
+        spec: ResolvedSpec,
+        engine: Engine,
+        options: _WindowOptions,
+        liveness: _ProspectLiveness,
+        fourth_slot_matters: Callable[[str, str, str, str], bool],
+    ):
+        self.spec = spec
+        self.engine = engine
+        self.options = options
+        self.liveness = liveness
+        self.fourth_slot_matters = fourth_slot_matters
+        self._contexts: dict[tuple[str, str, str], _ContextFibres] = {}
+
+    def _record(
+        self,
+        left: LeftContext,
+        token: RightToken,
+        r1tok: RightToken,
+        r2tok: RightToken,
+        r3tok: RightToken,
+        r4tok: RightToken,
+    ):
+        try:
+            trace = self.engine.transition_trace(left, token, r1tok, r2tok, r3tok, r4tok)
+        except EIncomparableError:
+            return _FIBRE_RAISE_INCOMPARABLE
+        except EAmbiguousError:
+            return _FIBRE_RAISE_AMBIGUOUS
+        except SettleError:
+            return _FIBRE_RAISE_UNREACHABLE
+        return (trace.settled, trace.prospect, trace.joint_floor, trace.notes)
+
+    def context(self, family: str, right1: str, right2: str) -> _ContextFibres:
+        key = (family, right1, right2)
+        cached = self._contexts.get(key)
+        if cached is not None:
+            return cached
+        token = RightToken("letter", family)
+        r1tok = RightToken("letter", right1)
+        r2tok = RightToken("letter", right2)
+        follower_map = self.options.context_follower_map(family, right1)
+        static = self.options.right3_options(r1tok, r2tok, follower_map)
+        boundaries = tuple(t for t in static if t.kind != "letter")
+        lefts = self.liveness._seat_left_classes(family)
+        full_coords = tuple(self.liveness._probe_tokens()) + (UNKNOWN,)
+        groups: dict[tuple, list[RightToken]] = {}
+        for t3 in static:
+            if t3.kind != "letter":
+                continue
+            fourth = bool(self.fourth_slot_matters(family, right1, right2, t3.letter))
+            if fourth:
+                coords = full_coords
+                opts4 = tuple(self.options.right4_options(r1tok, r2tok, t3))
+            else:
+                coords = (EDGE, UNKNOWN)
+                opts4 = ()
+            probe = tuple(
+                tuple(self._record(left, token, r1tok, r2tok, t3, coord) for coord in coords)
+                for left in lefts
+            )
+            groups.setdefault((fourth, opts4, probe), []).append(t3)
+        fibres: list[_Fibre] = []
+        for (fourth, opts4, probe), members in groups.items():
+            if fourth:
+                coord_index = {coord: index for index, coord in enumerate(full_coords)}
+                ordered: list[list[RightToken]] = []
+                by_column: dict[tuple, list[RightToken]] = {}
+                for t4 in opts4:
+                    if t4.kind != "letter":
+                        ordered.append([t4])
+                        continue
+                    column = tuple(row[coord_index[t4]] for row in probe)
+                    bucket = by_column.get(column)
+                    if bucket is None:
+                        bucket = []
+                        by_column[column] = bucket
+                        ordered.append(bucket)
+                    bucket.append(t4)
+                r4_groups = tuple(tuple(bucket) for bucket in ordered)
+            else:
+                r4_groups = ()
+            fibres.append(_Fibre(members=tuple(members), fourth_matters=fourth, r4_groups=r4_groups))
+        result = _ContextFibres(boundary_options=boundaries, fibres=tuple(fibres))
+        self._contexts[key] = result
+        return result
+
+
 def _entry_extension(settled: Settled) -> int:
     total = 0
     for token in settled.cell.adjustments:
@@ -898,61 +1201,184 @@ def _entry_extension(settled: Settled) -> int:
     return total
 
 
+@dataclass
+class _PendingDeepRow:
+    """One in-flight class-grain row, keyed on (base, fibre identity pair) while the worklist runs: the representative trace's row-visible record, the admitted r3 members accumulating across items (r4 members carry no pins and are full from the first item), and the frame tokens the echo traces replay after the drain."""
+
+    left_context: LeftContext
+    left_label: str
+    input_label: str
+    token: RightToken
+    right1: RightToken
+    right2: RightToken
+    boundary3: RightToken | None
+    admitted3: set[RightToken]
+    members4: tuple[RightToken, ...] | None
+    rep3: RightToken
+    rep4: RightToken | None
+    settled: Settled
+    left_settled: Settled | None
+    joint: bool
+    prospect: int
+    provenance: tuple[str, ...]
+
+
+def _right_token_label(token: RightToken) -> str:
+    return token.letter if token.kind == "letter" else BOUNDARY_LEFT_LABELS[token.kind]
+
+
+def _assert_deep_slot_partition(
+    decision: DecisionTable,
+    options: _WindowOptions,
+    deriver: _DeepFibreDeriver,
+    deep_inputs: frozenset[str],
+    deep4_inputs: frozenset[str],
+    third_slot_matters: Callable[[str, str, str], bool],
+    fourth_slot_matters: Callable[[str, str, str, str], bool],
+) -> None:
+    """The class-grain hard invariant (issue 26), asserted beside `assert_outcome_partition` on every class-grain build: per base, the observed r3 letter tokens' member sets are pairwise disjoint, each inside the recomputed static option list and inside one fibre of its context's partition (disjointness is per base, not per context, because worklist pins are per left state, so two bases in one context can legitimately admit nested subsets of one fibre); right3 is non-#NA exactly where the pre-gate and `third_slot_matters` say live — the pinned-world biconditional restated over tokens; one slot deeper, r4 member sets are disjoint per (base, r3 token), every member of an r3 token agrees on the `fourth_slot_matters` verdict and induces the identical computed r4 option list (the fibre key's option-list component re-verified against `_WindowOptions.right4_options`, so a filter added to that pipeline without a key update fails loudly instead of silently splitting a fibre); and every class id resolves through the table's map with every map entry used. Cover against the static option list is deliberately not asserted — pins legitimately exclude unreachable members, exactly as label grain excludes their rows."""
+    deep = decision.deep_classes
+    used: set[str] = set()
+    context_cache: dict[tuple[str, str, str], tuple[set[str], dict[str, int]]] = {}
+    r4_lists: dict[tuple[str, str, str, str], tuple[str, ...]] = {}
+    boundary_slot = BOUNDARYISH - {NA_LABEL}
+    seen3: dict[tuple, dict[str, str]] = {}
+    seen4: dict[tuple, dict[str, str]] = {}
+    for row in decision.transitions:
+        family = row.input_glyph.split(".")[0]
+        letters_window = row.right1 not in BOUNDARYISH and row.right2 not in BOUNDARYISH
+        live = family in deep_inputs and letters_window and third_slot_matters(family, row.right1, row.right2)
+        if not live:
+            if row.right3 != NA_LABEL:
+                raise PartitionError(f"{row.key}: right3 enumerated where the filters say dead")
+            continue
+        if row.right3 == NA_LABEL:
+            raise PartitionError(f"{row.key}: right3 #NA where the filters say live")
+        if row.right3.startswith(DEEP_CLASS_PREFIX):
+            if row.right3 not in deep:
+                raise PartitionError(f"{row.key}: right3 token {row.right3} is not in the class map")
+            used.add(row.right3)
+        if row.right3 in boundary_slot:
+            if row.right4 != NA_LABEL:
+                raise PartitionError(f"{row.key}: right4 enumerated past a boundary third slot")
+            continue
+        context_key = (family, row.right1, row.right2)
+        cached = context_cache.get(context_key)
+        if cached is None:
+            ctxf = deriver.context(family, row.right1, row.right2)
+            static_letters: set[str] = set()
+            fibre_of: dict[str, int] = {}
+            for index, fibre in enumerate(ctxf.fibres):
+                for member in fibre.members:
+                    static_letters.add(member.letter)
+                    fibre_of[member.letter] = index
+            cached = (static_letters, fibre_of)
+            context_cache[context_key] = cached
+        static_letters, fibre_of = cached
+        members3 = decision.token_members(row.right3)
+        base = (row.input_glyph, row.left, row.right1, row.right2)
+        taken3 = seen3.setdefault(base, {})
+        for member in members3:
+            claimed = taken3.get(member)
+            if claimed is not None and claimed != row.right3:
+                raise PartitionError(
+                    f"{row.key}: r3 member {member} belongs to two tokens at one base: {claimed} and {row.right3}"
+                )
+            taken3[member] = row.right3
+        outside = sorted(set(members3) - static_letters)
+        if outside:
+            raise PartitionError(f"{row.key}: r3 members outside the static option list: {outside}")
+        if len({fibre_of[member] for member in members3}) > 1:
+            raise PartitionError(f"{row.key}: r3 members straddle two fibres: {sorted(members3)}")
+        verdicts = {bool(fourth_slot_matters(family, row.right1, row.right2, member)) for member in members3}
+        if len(verdicts) > 1:
+            raise PartitionError(
+                f"{row.key}: members disagree on the fourth_slot_matters verdict: {sorted(members3)}"
+            )
+        fourth = verdicts.pop() and family in deep4_inputs
+        if row.right4 == NA_LABEL:
+            if fourth:
+                raise PartitionError(f"{row.key}: right4 #NA where the filters say live")
+            continue
+        if not fourth:
+            raise PartitionError(f"{row.key}: right4 enumerated where the filters say dead")
+        r1tok = RightToken("letter", row.right1)
+        r2tok = RightToken("letter", row.right2)
+        shared: tuple[str, ...] | None = None
+        for member in members3:
+            list_key = (family, row.right1, row.right2, member)
+            option_list = r4_lists.get(list_key)
+            if option_list is None:
+                option_list = tuple(
+                    _right_token_label(option)
+                    for option in options.right4_options(r1tok, r2tok, RightToken("letter", member))
+                )
+                r4_lists[list_key] = option_list
+            if shared is None:
+                shared = option_list
+            elif option_list != shared:
+                raise PartitionError(
+                    f"{row.key}: members induce different computed r4 option lists: {members3[0]} vs {member}"
+                )
+        if row.right4.startswith(DEEP_CLASS_PREFIX):
+            if row.right4 not in deep:
+                raise PartitionError(f"{row.key}: right4 token {row.right4} is not in the class map")
+            used.add(row.right4)
+        if row.right4 in boundary_slot:
+            continue
+        members4 = decision.token_members(row.right4)
+        taken4 = seen4.setdefault((base, row.right3), {})
+        for member in members4:
+            claimed = taken4.get(member)
+            if claimed is not None and claimed != row.right4:
+                raise PartitionError(
+                    f"{row.key}: r4 member {member} belongs to two tokens at one base: {claimed} and {row.right4}"
+                )
+            taken4[member] = row.right4
+        if shared is not None:
+            missing = [member for member in members4 if member not in shared]
+            if missing:
+                raise PartitionError(f"{row.key}: r4 members outside the computed option list: {missing}")
+    unused = set(deep) - used
+    if unused:
+        raise PartitionError(f"unused deep-class map entries: {sorted(unused)}")
+
+
 def build_tables(
     spec: ResolvedSpec,
     features: frozenset[str],
     trace_store: "TraceStore | None" = None,
     share: "TraceShare | None" = None,
 ) -> tuple[DecisionTable, TreatyTable]:
+    """One configuration's decision and treaty tables, by fixpoint over reachable left states (the worklist comment below is the exactness contract). Wherever `_deep_world` holds and `DEEP_CLASSES_DEFAULT` is on, deep window slots enumerate at class grain (issue 26): the static option lists are computed exactly as at label grain, their letters split by `_DeepFibreDeriver`'s outcome fibres, worklist pins intersect each fibre, and the row for a (base, fibre pair) accumulates the union of admitted members across items — so the expanded member product equals the label-grain row multiset exactly, and everything from the joint-flag pass on consumes that expanded stream (`expanded_transitions`), keeping the fold, the rules, the treaty, and the serialized rules byte-identical by construction. The declared narrowing (issue 7's rule): per-member `transition_trace` at enumeration time becomes representative-plus-echo per (base, fibre pair) — the trace runs once with the first admitted member, and for every multi-member row the last member is additionally traced at the row's real left (the last r4 member at the representative r3 likewise) and its full probe record asserted equal, so the left-class collapse the fibres import is re-checked at real-left, real-entry, real-adjustment grain on every build; members between first and last are covered by the fibre probes at virtual-left grain, alarmed by the fibre verification test, the conform walk's first-divergent-member behavior, and the horizon-limited label-grain sweep. Standing residual: a middle member's real-left trace no longer runs, so a record whose only firing evidence was such a trace reads dead — the dead-policy gate errors on it loudly, and the fix at that point is targeted member tracing for the specific contexts, never a waiver."""
     reader = share.reader_for(features) if share is not None else None
     engine = Engine(spec, features, trace_memo=True, trace_store=trace_store, trace_share=reader)
     config = feature_config_token(features)
-    letters = sorted(spec.runes)
-    formation_pairs = _formation_pairs(spec)
-    right_letters = [RightToken("letter", name) for name in letters]
-    right_boundaries = [EDGE, SPACE, ZWNJ, NAMER_DOT]
+    options = _WindowOptions(spec)
+    letters = options.letters
+    formation_pairs = options.formation_pairs
+    right_letters = options.right_letters
+    right_boundaries = options.right_boundaries
+    survivable = options.survivable
+    liga_sequences = options.liga_sequences
+    liga_formed_before = options.liga_formed_before
+    right_label = _right_token_label
 
-    def right_label(token: RightToken) -> str:
-        if token.kind == "letter":
-            return token.letter
-        return BOUNDARY_LEFT_LABELS[token.kind]
-
-    survivable = _survivable_formation_windows(spec, right_letters, right_boundaries)
     deep_inputs = third_slot_inputs(spec, engine)
     deep4_inputs = fourth_slot_inputs(spec, engine)
     third_slot_matters = third_slot_filter(spec, features, engine)
     fourth_slot_matters = fourth_slot_filter(spec, features, engine)
-
-    from rebuild.pipeline import settle as settle_module
-
-    liga_sequences = {name: rune.sequence for name, rune in spec.runes.items() if rune.sequence}
-    raw_second_options = right_boundaries + [t for t in right_letters if t.letter not in liga_sequences]
-
-    def liga_formed_before(name: str, next1: RightToken, next2: RightToken | None) -> bool:
-        """Whether a formed `name` ligature can immediately precede (next1, next2) in a post-formation stream: its own guard, read over the raw tokens those post-formation neighbors stand for, must not fire. `next2 = None` means the second guard slot lies beyond the window, so the verdict is existential over the raw options."""
-        if next1.kind != "letter":
-            return True
-        sequence = liga_sequences.get(next1.letter)
-        if sequence:
-            first: RightToken = RightToken("letter", sequence[0])
-            second: RightToken | None = RightToken("letter", sequence[1])
-        else:
-            first = next1
-            if next2 is None:
-                second = None
-            elif next2.kind == "letter" and (next2_sequence := liga_sequences.get(next2.letter)):
-                second = RightToken("letter", next2_sequence[0])
-            else:
-                second = next2
-        if second is not None:
-            return not settle_module.formation_blocked(spec, name, first, second)
-        return any(
-            not settle_module.formation_blocked(spec, name, first, option) for option in raw_second_options
-        )
+    class_grain = DEEP_CLASSES_DEFAULT and _deep_world(engine)
+    deriver = (
+        _DeepFibreDeriver(spec, engine, options, _liveness_probe(spec, engine), fourth_slot_matters)
+        if class_grain
+        else None
+    )
 
     transitions: dict[tuple[str, str, str, str, str, str], Transition] = {}
+    deep_pending: dict[tuple, _PendingDeepRow] = {}
     seen: set[tuple] = set()
-    # A worklist item is (left state, input rune, right1 constraint, right2 allowed-set, right3 allowed-set): a settled left state is reachable only alongside the right1 that was the producing window's right2 (an entry refusal or unlock conditioned on the follower makes other combinations contradictory — the left would never have committed there), so the fixpoint is exact, not merely sound. None = all right1 options (the boundary-left seeds). The right2 allowed-set carries the late-formation guard's second slot onto a surviving pair's trail window; None = unrestricted. The right3 allowed-set carries a producing window's enumerated right4 the same way, pinning a depth-4-decided left's successor windows to the third lookahead that was actually behind them.
+    # A worklist item is (left state, input rune, right1 constraint, right2 allowed-set, right3 allowed-set): a settled left state is reachable only alongside the right1 that was the producing window's right2 (an entry refusal or unlock conditioned on the follower makes other combinations contradictory — the left would never have committed there), so the fixpoint is exact, not merely sound. None = all right1 options (the boundary-left seeds). The right2 allowed-set carries the late-formation guard's second slot onto a surviving pair's trail window; None = unrestricted. The right3 allowed-set carries a producing window's enumerated right4 the same way, pinning a depth-4-decided left's successor windows to the third lookahead that was actually behind them. At class grain both allowed-sets carry the producing row's admitted member sets rather than singletons; the successor's right2 loop fans back to concrete labels through the same intersection, and a pin's intersection with a fibre is still member-uniform, so the successor row set is identical to label grain's.
     worklist: list[
         tuple[LeftContext, str, RightToken | None, frozenset[RightToken] | None, frozenset[RightToken] | None]
     ] = []
@@ -1006,39 +1432,100 @@ def build_tables(
             else:
                 right2_options = [EDGE]
             for right2 in right2_options:
-                right3_slots: list[RightToken | None]
-                if (
+                deep3_live = (
                     rune_name in deep_inputs
                     and right1.kind == "letter"
                     and right2.kind == "letter"
                     and third_slot_matters(rune_name, right1.letter, right2.letter)
-                ):
-                    right3_options = [
-                        r
-                        for r in right_boundaries + right_letters
-                        if not (
-                            r.kind == "letter"
-                            and (right2.letter, r.letter) in formation_pairs
-                            and (right2.letter, r.letter) not in survivable
+                )
+                if deriver is not None and deep3_live:
+                    ctxf = deriver.context(rune_name, right1.letter, right2.letter)
+                    slot3_entries: list[tuple[RightToken | None, _Fibre | None, tuple[RightToken, ...]]] = []
+                    for option in ctxf.boundary_options:
+                        if right3_allowed is None or option in right3_allowed:
+                            slot3_entries.append((option, None, (option,)))
+                    for fibre in ctxf.fibres:
+                        admitted = tuple(
+                            member
+                            for member in fibre.members
+                            if right3_allowed is None or member in right3_allowed
                         )
-                    ]
-                    if follower_map is not None:
-                        trail_allowed = follower_map.get(right2.letter)
-                        if trail_allowed is not None:
-                            right3_options = [r for r in right3_options if r in trail_allowed]
-                    if (right1.letter, right2.letter) in formation_pairs:
-                        pair_map = survivable.get((right1.letter, right2.letter)) or {}
-                        right3_options = [
-                            r for r in right3_options if r.kind == "letter" and r.letter in pair_map
-                        ]
-                    if right1.letter in liga_sequences:
-                        right3_options = [
-                            r for r in right3_options if liga_formed_before(right1.letter, right2, r)
-                        ]
-                    if right2.letter in liga_sequences:
-                        right3_options = [
-                            r for r in right3_options if liga_formed_before(right2.letter, r, None)
-                        ]
+                        if admitted:
+                            slot3_entries.append((None, fibre, admitted))
+                    for boundary3, fibre3, admitted3 in slot3_entries:
+                        slot4_entries: tuple[tuple[RightToken, ...] | None, ...]
+                        if fibre3 is not None and rune_name in deep4_inputs and fibre3.fourth_matters:
+                            slot4_entries = fibre3.r4_groups
+                        else:
+                            slot4_entries = (None,)
+                        identity3 = (
+                            boundary3
+                            if boundary3 is not None
+                            else fibre3.members if fibre3 is not None else ()
+                        )
+                        for members4 in slot4_entries:
+                            rep3 = admitted3[0]
+                            rep4 = members4[0] if members4 is not None else None
+                            pending_key = (
+                                input_label,
+                                left_label,
+                                right_label(right1),
+                                right_label(right2),
+                                identity3,
+                                members4,
+                            )
+                            record = deep_pending.get(pending_key)
+                            if record is not None:
+                                if record.left_settled != left.settled:
+                                    display = (
+                                        input_label,
+                                        left_label,
+                                        right_label(right1),
+                                        right_label(right2),
+                                        right_label(rep3),
+                                        right_label(rep4) if rep4 is not None else NA_LABEL,
+                                    )
+                                    raise PartitionError(
+                                        f"window {display} reached from two left states sharing one label: {record.left_settled} vs {left.settled}"
+                                    )
+                                record.admitted3.update(admitted3)
+                                settled = record.settled
+                            else:
+                                trace = engine.transition_trace(
+                                    left, token, right1, right2, rep3, rep4 if rep4 is not None else EDGE
+                                )
+                                settled = trace.settled
+                                deep_pending[pending_key] = _PendingDeepRow(
+                                    left_context=left,
+                                    left_label=left_label,
+                                    input_label=input_label,
+                                    token=token,
+                                    right1=right1,
+                                    right2=right2,
+                                    boundary3=boundary3,
+                                    admitted3=set(admitted3),
+                                    members4=members4,
+                                    rep3=rep3,
+                                    rep4=rep4,
+                                    settled=trace.settled,
+                                    left_settled=left.settled,
+                                    joint=trace.joint_floor,
+                                    prospect=trace.prospect,
+                                    provenance=tuple(trace.notes),
+                                )
+                            worklist.append(
+                                (
+                                    LeftContext("letter", settled),
+                                    right1.letter,
+                                    right2,
+                                    frozenset(admitted3),
+                                    frozenset(members4) if members4 is not None else None,
+                                )
+                            )
+                    continue
+                right3_slots: list[RightToken | None]
+                if deep3_live:
+                    right3_options = options.right3_options(right1, right2, follower_map)
                     if right3_allowed is not None:
                         right3_options = [r for r in right3_options if r in right3_allowed]
                     right3_slots = list(right3_options)
@@ -1052,34 +1539,7 @@ def build_tables(
                         and right3.kind == "letter"
                         and fourth_slot_matters(rune_name, right1.letter, right2.letter, right3.letter)
                     ):
-                        right4_options = [
-                            r
-                            for r in right_boundaries + right_letters
-                            if not (
-                                r.kind == "letter"
-                                and (right3.letter, r.letter) in formation_pairs
-                                and (right3.letter, r.letter) not in survivable
-                            )
-                        ]
-                        if (right1.letter, right2.letter) in formation_pairs:
-                            pair_map = survivable.get((right1.letter, right2.letter)) or {}
-                            trail_allowed4 = pair_map.get(right3.letter)
-                            if trail_allowed4 is not None:
-                                right4_options = [r for r in right4_options if r in trail_allowed4]
-                        if (right2.letter, right3.letter) in formation_pairs:
-                            pair_map2 = survivable.get((right2.letter, right3.letter)) or {}
-                            right4_options = [
-                                r for r in right4_options if r.kind == "letter" and r.letter in pair_map2
-                            ]
-                        if right2.letter in liga_sequences:
-                            right4_options = [
-                                r for r in right4_options if liga_formed_before(right2.letter, right3, r)
-                            ]
-                        if right3.letter in liga_sequences:
-                            right4_options = [
-                                r for r in right4_options if liga_formed_before(right3.letter, r, None)
-                            ]
-                        right4_slots = list(right4_options)
+                        right4_slots = list(options.right4_options(right1, right2, right3))
                     else:
                         right4_slots = [None]
                     for right4 in right4_slots:
@@ -1148,6 +1608,81 @@ def build_tables(
                                 )
                             )
 
+    deep_classes_map: dict[str, tuple[str, ...]] = {}
+
+    def deep_label(member_letters: tuple[str, ...]) -> str:
+        if len(member_letters) == 1:
+            return member_letters[0]
+        token_id = deep_class_id(member_letters)
+        deep_classes_map[token_id] = member_letters
+        return token_id
+
+    def echo_mismatch(display: tuple, member: RightToken, expected: tuple, got: tuple) -> PartitionError:
+        return PartitionError(
+            f"deep-class echo mismatch at {display}: member {member.letter} traces {got} where the representative traced {expected}"
+        )
+
+    # The section 2.6 echo check: for every multi-member fibre row, the last member is re-traced at the row's real left (and the last r4 member at the representative r3) and its full row-visible probe record must equal the representative's — the standing real-left, real-entry, real-adjustment guard on the virtual-left fibre collapse, two members deep on every build.
+    for pending in deep_pending.values():
+        if pending.boundary3 is not None:
+            label3 = right_label(pending.boundary3)
+            admitted3 = (pending.boundary3,)
+        else:
+            admitted3 = tuple(sorted(pending.admitted3, key=lambda member: member.letter))
+            label3 = deep_label(tuple(member.letter for member in admitted3))
+        if pending.members4 is None:
+            label4 = NA_LABEL
+        elif pending.members4[0].kind != "letter":
+            label4 = right_label(pending.members4[0])
+        else:
+            label4 = deep_label(tuple(member.letter for member in pending.members4))
+        window_key = (
+            pending.input_label,
+            pending.left_label,
+            right_label(pending.right1),
+            right_label(pending.right2),
+            label3,
+            label4,
+        )
+        expected = (pending.settled, pending.prospect, pending.joint, pending.provenance)
+        rep4tok = pending.rep4 if pending.rep4 is not None else EDGE
+        if pending.boundary3 is None and len(admitted3) > 1:
+            last3 = admitted3[-1] if admitted3[-1] != pending.rep3 else admitted3[0]
+            echo = engine.transition_trace(
+                pending.left_context, pending.token, pending.right1, pending.right2, last3, rep4tok
+            )
+            got = (echo.settled, echo.prospect, echo.joint_floor, tuple(echo.notes))
+            if got != expected:
+                raise echo_mismatch(window_key, last3, expected, got)
+        if (
+            pending.members4 is not None
+            and pending.members4[0].kind == "letter"
+            and len(pending.members4) > 1
+        ):
+            last4 = pending.members4[-1]
+            echo = engine.transition_trace(
+                pending.left_context, pending.token, pending.right1, pending.right2, pending.rep3, last4
+            )
+            got = (echo.settled, echo.prospect, echo.joint_floor, tuple(echo.notes))
+            if got != expected:
+                raise echo_mismatch(window_key, last4, expected, got)
+        if window_key in transitions:
+            raise PartitionError(f"deep-class window {window_key} collides with an existing row")
+        transitions[window_key] = Transition(
+            input_glyph=pending.input_label,
+            left=pending.left_label,
+            right1=window_key[2],
+            right2=window_key[3],
+            right3=label3,
+            right4=label4,
+            outcome=cell_label(spec, pending.settled.cell),
+            settled=pending.settled,
+            left_settled=pending.left_settled,
+            joint=pending.joint,
+            prospect=pending.prospect,
+            provenance=pending.provenance,
+        )
+
     # The fixpoint and the liveness probes are done tracing; persist the memo for the next cycle (issue 25), then drop it — the engine outlives this build in _LIVENESS_PROBES, so retaining a full trace per window would hold the pile for nothing. When a share adopts this build's memo (issue 15: the donor configuration of a serial multi-config run), the pile stays alive instead, and TraceShare.release drops it once the last recipient is built.
     if trace_store is not None:
         trace_store.save(engine)
@@ -1155,12 +1690,40 @@ def build_tables(
         engine._trace_cache.clear()
         engine._trace_fired.clear()
 
-    rows = _flag_prospect_joints(sorted(transitions.values(), key=lambda t: t.key))
+    enumerated = sorted(transitions.values(), key=lambda t: t.key)
+    if deep_classes_map:
+        expanded_pairs: list[tuple[int, Transition]] = []
+        for index, row in enumerate(enumerated):
+            for member3 in deep_classes_map.get(row.right3, (row.right3,)):
+                for member4 in deep_classes_map.get(row.right4, (row.right4,)):
+                    expanded_pairs.append(
+                        (
+                            index,
+                            (
+                                row
+                                if member3 == row.right3 and member4 == row.right4
+                                else replace(row, right3=member3, right4=member4)
+                            ),
+                        )
+                    )
+        expanded_pairs.sort(key=lambda pair: pair[1].key)
+        fold_rows = _flag_prospect_joints([pair[1] for pair in expanded_pairs])
+        class_joint = [row.joint for row in enumerated]
+        for (index, _row), flagged in zip(expanded_pairs, fold_rows):
+            if flagged.joint:
+                class_joint[index] = True
+        rows = [
+            row if row.joint == class_joint[index] else replace(row, joint=True)
+            for index, row in enumerate(enumerated)
+        ]
+    else:
+        rows = _flag_prospect_joints(enumerated)
+        fold_rows = rows
 
     rules: list[Rule] = []
     identity_guards = 0
     by_input: dict[str, dict[tuple[str, str, str, str, str], Transition]] = {}
-    for row in rows:
+    for row in fold_rows:
         by_input.setdefault(row.input_glyph, {})[
             (row.left, row.right1, row.right2, row.right3, row.right4)
         ] = row
@@ -1170,15 +1733,21 @@ def build_tables(
         rules.extend(input_rules)
         identity_guards += guards
 
-    cells = {row.settled.cell for row in rows}
+    cells = {row.settled.cell for row in fold_rows}
     decision = DecisionTable(
         config=config,
         transitions=tuple(rows),
         rules=tuple(rules),
         identity_guard_rules=identity_guards,
         cited_provenance=frozenset(engine.fired),
+        deep_classes=deep_classes_map,
         _cells=frozenset(cells),
     )
+    if deriver is not None:
+        _assert_deep_slot_partition(
+            decision, options, deriver, deep_inputs, deep4_inputs, third_slot_matters, fourth_slot_matters
+        )
+        decision._assert_deep_class_unions()
 
     treaty_rows = sorted(
         {
@@ -1192,7 +1761,7 @@ def build_tables(
                     else 0
                 ),
             )
-            for row in rows
+            for row in fold_rows
             if row.left_settled is not None
         },
         key=lambda r: (r.left, r.right, r.junction),
@@ -1237,7 +1806,7 @@ def _flag_prospect_joints(rows: list[Transition]) -> list[Transition]:
 
 
 def _signature_blocks(values, signature_of) -> list[tuple[str, ...]]:
-    """Callers pass signatures built from present rows only, never the full other-slot label product: every value's product is the same per grouping, so identical present-maps imply identical missing-key sets, and grouping by the sparse signature yields exactly the partition the (missing -> None) product signature would — at O(rows) instead of O(label product), which is what keeps folding from regrowing quartically as depth-3/4 windows are authored."""
+    """Callers pass signatures built from present rows only, never the full other-slot label product: every value's product is the same per grouping, so identical present-maps imply identical missing-key sets, and grouping by the sparse signature yields exactly the partition the (missing -> None) product signature would — at O(rows) instead of O(label product), which is what keeps folding from regrowing quartically as depth-3/4 windows are authored. Class tokens are sound signature coordinates for the same reason the premise needs: ids are content-addressed by member set, so identical token signatures imply identical member sets — never two spellings of one set."""
     groups: dict[frozenset, list[str]] = {}
     for value in values:
         groups.setdefault(signature_of(value), []).append(value)

@@ -1,6 +1,6 @@
 """Conformance gates (M1-PLAN sections 5 and 6, Group 3): HarfBuzz vs the settlement function, and the settlement function vs the section 13.1 baseline oracle.
 
-`run_conformance` promotes prototype/conform.py: the Shaper (MONOTONE_CHARACTERS cluster level; names via TTFont, never HarfBuzz's truncating API), the exhaustive length-1..5 enumeration per acceptance configuration, the ZWNJ structural checks (zero advance, no ink), split-buffer equivalence, gap-0 pen positions, and rule coverage (every emitted settlement rule fired). Coverage past the enumeration horizon is completed by generated witnesses: a settlement rule or decision-table transition the exhaustive sweep never exercises gets a shortest realizing string BFS-derived from the decision table's own windows (`_shortest_window_prefixes`), and that string is shaped and diffed as a top-up like any swept sequence — a rule only counts covered once it actually fires against the settled stream, so the table is a guide, never evidence. `uncovered_rules` / `uncovered_transitions` therefore count only rules and transitions with no verifiable witness at any length, which is dead code in the emitted FEA (a generator defect), not a horizon artifact. The worked example that forced this design: `sub qsNo.loop qsMay' qsMay qsMay` needs six tokens (·Day·Tea·No·May·May·May — ·Day takes ·Tea's baseline entry, the baseline-entered ·Tea is exitless, so ·No stays bare before ·May), one past the five-token sweep. The font-vs-settle diff takes no ledger: any divergence is a compiler defect by definition. The top-ups spend nothing twice: candidate texts are deduplicated against everything already swept, each config's winning witnesses persist beside the enumeration (`read_witnesses` / `write_witnesses`, keyed by `table.windows_digest` so an ink-only rune edit keeps them warm) and are re-verified rather than trusted on the next run, and the sweep inherits the ZWNJ/split-buffer checks within the horizon the boundary gate already proved for the same font bytes (`proven_boundary_horizon`).
+`run_conformance` promotes prototype/conform.py: the Shaper (MONOTONE_CHARACTERS cluster level; names via TTFont, never HarfBuzz's truncating API), the exhaustive length-1..5 enumeration per acceptance configuration, the ZWNJ structural checks (zero advance, no ink), split-buffer equivalence, gap-0 pen positions, and rule coverage (every emitted settlement rule fired). Coverage past the enumeration horizon is completed by generated witnesses: a settlement rule or decision-table transition the exhaustive sweep never exercises gets a shortest realizing string BFS-derived from the decision table's own windows (`_shortest_window_prefixes`), and that string is shaped and diffed as a top-up like any swept sequence — a rule only counts covered once it actually fires against the settled stream, so the table is a guide, never evidence. `uncovered_rules` / `uncovered_transitions` therefore count only rules and transitions with no verifiable witness at any length, which is dead code in the emitted FEA (a generator defect), not a horizon artifact. Where the table enumerates deep slots at class grain (issue 26), the coverage floor is per class row — realized labels resolve to the table's tokens through `_DeepTokenIndex`, one realized member realizes its row, and the summary carries a per-config note stating how many class rows stand for how many label windows — a declared narrowing, sound because the build proves members indiscernible (partition, echo, and fibre verification) and every emitted look class holds a token's members all-in or all-out; the exhaustive horizon sweep stays label-grain over real texts. The worked example that forced this design: `sub qsNo.loop qsMay' qsMay qsMay` needs six tokens (·Day·Tea·No·May·May·May — ·Day takes ·Tea's baseline entry, the baseline-entered ·Tea is exitless, so ·No stays bare before ·May), one past the five-token sweep. The font-vs-settle diff takes no ledger: any divergence is a compiler defect by definition. The top-ups spend nothing twice: candidate texts are deduplicated against everything already swept, each config's winning witnesses persist beside the enumeration (`read_witnesses` / `write_witnesses`, keyed by `table.windows_digest` so an ink-only rune edit keeps them warm) and are re-verified rather than trusted on the next run, and the sweep inherits the ZWNJ/split-buffer checks within the horizon the boundary gate already proved for the same font bytes (`proven_boundary_horizon`).
 
 `compare_against_baseline` is the section 6 oracle gate: stream the filtered sub-tables, run `settle` per row, compare ligation (clusters), per-seam classification, and cell identity through the hand-written alias map; every divergent row must match exactly one ledger entry (zero matches fails conformance, two-plus fails the ledger). When a font path is supplied, the gate also compares positions old-vs-new (M1-PLAN section 6 step 3d): each row is shaped against the new font and its per-slot (x_offset, y_offset, x_advance) triples are compared against the baseline's, with sidecar kerns normalized out of the old advances via `KernEvaluator` (the new font emits no kerning). Position equality is enforced on every row whose seam topology and ligation match the baseline and whose cell-grain divergence class (if any) claims ink identity (`ink_identical: true` in the ledger); rows whose matched class legitimately redraws ink (extensions restored or suppressed, withdrawal bindings) are excluded and counted, because their advances move with the ink by design.
 
@@ -622,8 +622,12 @@ def _first_matching_rule(
     right2: str,
     right3: str,
     right4: str,
+    representatives: Mapping[str, str] | None = None,
 ) -> int | None:
-    """First-match-wins over the config's renamed rules for one window — the exact semantics the emitted FEA compiles to."""
+    """First-match-wins over the config's renamed rules for one window — the exact semantics the emitted FEA compiles to. A deep slot holding a class token is tested through its renamed representative member (`representatives`, from the table's `_DeepTokenIndex`): exact, not heuristic, because the build asserts every emitted look class holds a token's members all-in or all-out."""
+    if representatives:
+        right3 = representatives.get(right3, right3)
+        right4 = representatives.get(right4, right4)
     for rule_index, rule in rules_by_input.get(label, ()):
         if rule.backtrack is not None and left not in rule.backtrack:
             continue
@@ -642,9 +646,18 @@ def _first_matching_rule(
 
 
 def _matched_windows(
-    spec, text, features, expected, rules_by_input, deep=None, deep3_live=None, deep4=None, deep4_live=None
+    spec,
+    text,
+    features,
+    expected,
+    rules_by_input,
+    deep=None,
+    deep3_live=None,
+    deep4=None,
+    deep4_live=None,
+    deep_index=None,
 ):
-    """Replay the settlement lookup's view of one string: yield (position, window key, first-matching rule index or None) per letter slot, with labels and rules in the config's renamed (marker-folded) space and the left slot read from the settled stream — the exact first-match-wins semantics the emitted FEA compiles to. `deep` is the table's `third_slot_inputs` set and `deep4` its `fourth_slot_inputs` set (computed here when not supplied); the third window slot is #NA except where the table enumerates it — an admitted input with letters at both nearer slots, gated by `deep3_live` (the table's `third_slot_filter`, built here when not supplied) — and the fourth repeats that one deeper, gated the same way by `deep4_live` (the table's `fourth_slot_filter`), so the replay and the table agree on which windows carry live deep slots."""
+    """Replay the settlement lookup's view of one string: yield (position, window key, first-matching rule index or None) per letter slot, with labels and rules in the config's renamed (marker-folded) space and the left slot read from the settled stream — the exact first-match-wins semantics the emitted FEA compiles to. `deep` is the table's `third_slot_inputs` set and `deep4` its `fourth_slot_inputs` set (computed here when not supplied); the third window slot is #NA except where the table enumerates it — an admitted input with letters at both nearer slots, gated by `deep3_live` (the table's `third_slot_filter`, built here when not supplied) — and the fourth repeats that one deeper, gated the same way by `deep4_live` (the table's `fourth_slot_filter`), so the replay and the table agree on which windows carry live deep slots. `deep_index` is the table's `_DeepTokenIndex`; token resolution is a separate step strictly after `_window_rights`' gates, which must see raw labels, and needs the settled left this loop holds — with no index the deep slots stay raw labels, which on a class-grain table realize no row."""
     from rebuild.pipeline import table as table_module
 
     if deep is None:
@@ -672,7 +685,18 @@ def _matched_windows(
         else:
             left = settled[index - 1]
         right1, right2, right3, right4 = _window_rights(labels, index, deep, deep3_live, deep4, deep4_live)
-        matched = _first_matching_rule(rules_by_input, label, left, right1, right2, right3, right4)
+        if deep_index is not None:
+            right3, right4 = deep_index.resolve(label, left, right1, right2, right3, right4)
+        matched = _first_matching_rule(
+            rules_by_input,
+            label,
+            left,
+            right1,
+            right2,
+            right3,
+            right4,
+            representatives=deep_index.representatives if deep_index is not None else None,
+        )
         yield index, (label, left, right1, right2, right3, right4), matched
 
 
@@ -691,8 +715,64 @@ def _label_family(label: str) -> str:
     return label.split(".")[0]
 
 
+def _token_members(decision, label: str) -> tuple[str, ...]:
+    """The member labels a table's deep-slot field stands for — the class map's entry for a class id, else the label itself (raw label space; renaming is the index's job)."""
+    deep = getattr(decision, "deep_classes", None)
+    if deep:
+        members = deep.get(label)
+        if members:
+            return members
+    return (label,)
+
+
+def _token_representative(decision, label: str) -> str:
+    return _token_members(decision, label)[0]
+
+
+class _DeepTokenIndex:
+    """The per-config transport of a table's deep-slot class tokens into the walk and the replay (issue 26). Two levels, because r4 fibres are per (base, r3 token), never per base alone: `{(renamed input, settled left, renamed r1, renamed r2) -> {renamed member label -> r3 token}}` and the same keyed one deeper on the resolved r3 token — the class id verbatim when the row's r3 is a class, otherwise the bare r3 in renamed space, because that is exactly what `resolve`'s r3 step hands back for each shape (a class token never renames; a bare label reaches `resolve` already marker-folded). Built once per config from `decision.transitions` + `decision.deep_classes` + the rename map; `resolve` runs in the callers that hold the settled left, strictly after `_window_rights`' gates — those gates index `spec.runes` by `_label_family`, so a class id must never reach them. A boundary label passes through, and a live-but-unindexed member falls back to the raw label, which then matches no row — today's exact behavior for a window the table lacks, which the enumeration's exactness precludes. `representatives` maps each class token to its renamed first member for the rule-membership tests, exact rather than heuristic because the build asserts every emitted look class holds a token's members all-in or all-out."""
+
+    def __init__(self, decision, renames: Mapping[str, str]):
+        self.representatives: dict[str, str] = {}
+        self._by_base: dict[tuple[str, str, str, str], dict[str, str]] = {}
+        self._by_base_r3: dict[tuple[tuple[str, str, str, str], str], dict[str, str]] = {}
+        deep = getattr(decision, "deep_classes", None) or {}
+        for token, members in deep.items():
+            self.representatives[token] = renames.get(members[0], members[0])
+        for row in decision.transitions:
+            members3 = deep.get(row.right3)
+            members4 = deep.get(row.right4)
+            if members3 is None and members4 is None:
+                continue
+            base = (
+                renames.get(row.input_glyph, row.input_glyph),
+                row.left,
+                renames.get(row.right1, row.right1),
+                renames.get(row.right2, row.right2),
+            )
+            if members3 is not None:
+                bucket = self._by_base.setdefault(base, {})
+                for member in members3:
+                    bucket[renames.get(member, member)] = row.right3
+            if members4 is not None:
+                token3 = row.right3 if members3 is not None else renames.get(row.right3, row.right3)
+                bucket4 = self._by_base_r3.setdefault((base, token3), {})
+                for member in members4:
+                    bucket4[renames.get(member, member)] = row.right4
+
+    def resolve(
+        self, label: str, left: str, right1: str, right2: str, right3: str, right4: str
+    ) -> tuple[str, str]:
+        base = (label, left, right1, right2)
+        bucket = self._by_base.get(base)
+        token3 = bucket.get(right3, right3) if bucket is not None else right3
+        bucket4 = self._by_base_r3.get((base, token3))
+        token4 = bucket4.get(right4, right4) if bucket4 is not None else right4
+        return token3, token4
+
+
 class _SettledWindowWalk:
-    """The memoized settle-and-replay walk one conformance config runs over every swept text: a single left-to-right pass computes each letter slot's normalized window key — exactly `_matched_windows`' slots, with the left read from the just-settled stream — and resolves it through `windows`, a window -> (Settled, glyph name, first-matching rule index) memo, calling `engine.transition_trace` only on a miss; the memoized Settled feeds the next slot's left exactly as `settle_traces` does. Sound because every memoized outcome is a pure function of the normalized window: the left label is the settled cell's glyph name (injective over every CellId field, whether minted by `cell_label` or `geometry.display_name`), and the deep slots blank only where the table's own relevance filters prove nothing can read them — no own-rune chain, and no simulated follower choice when the engines carry the issue-28 prospect — the same rules the build's partition gates assert. The memo thereby inherits the table's enumeration assumption: a record shape that read a token through a normalized-away slot (none exists today — no `then` hop follows an `is:` boundary condition) would settle wrongly only via each window's first-reached representative rather than diverging on every text, so the walk-equivalence sweeps in rebuild/test_conform.py are the alarm that must move first. A hit skips `transition_trace` and so stops re-recording into `engine.fired`, which the conform run never reads. `windows` doubles as the sweep's realized-window record — its keys are precisely the distinct windows the walk has settled — so it is deliberately unbounded: coverage bookkeeping needs every key anyway, and the interned labels plus deduplicated outcome tuples keep the residual cost to the key tuples themselves."""
+    """The memoized settle-and-replay walk one conformance config runs over every swept text: a single left-to-right pass computes each letter slot's normalized window key — exactly `_matched_windows`' slots, with the left read from the just-settled stream — and resolves it through `windows`, a window -> (Settled, glyph name, first-matching rule index) memo, calling `engine.transition_trace` only on a miss; the memoized Settled feeds the next slot's left exactly as `settle_traces` does. Sound because every memoized outcome is a pure function of the normalized window: the left label is the settled cell's glyph name (injective over every CellId field, whether minted by `cell_label` or `geometry.display_name`); the deep slots blank only where the table's own relevance filters prove nothing can read them — no own-rune chain, and no simulated follower choice when the engines carry the issue-28 prospect — the same rules the build's partition gates assert; and where the table enumerated at class grain, the realized deep labels collapse only within the table's own fibres (`_DeepTokenIndex`), probed per member on the same engine at build time. On a miss the kernel still receives the raw tokens of the actual text, so a mis-drawn class surfaces as a settled-stream divergence on the first text that reaches the window with a member whose behavior diverges — the same first-reached-representative alarm shape as the filter-based blanking, with the build's partition, echo, and fibre-verification checks standing in front of it; a live member the index cannot resolve falls back to its raw label and matches no row, today's exact behavior for a window the table lacks. A record shape that read a token through a normalized-away slot (none exists today — no `then` hop follows an `is:` boundary condition) would settle wrongly only via each window's first-reached representative rather than diverging on every text, so the walk-equivalence sweeps in rebuild/test_conform.py are the alarm that must move first. A hit skips `transition_trace` and so stops re-recording into `engine.fired`, which the conform run never reads. `windows` doubles as the sweep's realized-window record — its keys are precisely the distinct windows the walk has settled — so it is deliberately unbounded: coverage bookkeeping needs every key anyway, and the interned labels plus deduplicated outcome tuples keep the residual cost to the key tuples themselves."""
 
     def __init__(
         self,
@@ -705,6 +785,7 @@ class _SettledWindowWalk:
         deep4: frozenset[str],
         deep4_live: Callable[[str, str, str, str], bool],
         glyph_names: Mapping[CellId, str],
+        deep_index: _DeepTokenIndex | None = None,
     ):
         self.spec = spec
         self.engine = engine
@@ -715,6 +796,7 @@ class _SettledWindowWalk:
         self.deep4 = deep4
         self.deep4_live = deep4_live
         self.glyph_names = glyph_names
+        self.deep_index = deep_index
         self.windows: dict[tuple[str, str, str, str, str, str], tuple[Settled, str, int | None]] = {}
         self._outcomes: dict[tuple[Settled, str, int | None], tuple[Settled, str, int | None]] = {}
 
@@ -748,6 +830,8 @@ class _SettledWindowWalk:
             right1, right2, right3, right4 = _window_rights(
                 labels, index, self.deep, self.deep3_live, self.deep4, self.deep4_live
             )
+            if self.deep_index is not None:
+                right3, right4 = self.deep_index.resolve(label, left, right1, right2, right3, right4)
             window = (label, left, right1, right2, right3, right4)
             outcome = self.windows.get(window)
             if outcome is None:
@@ -761,7 +845,14 @@ class _SettledWindowWalk:
                 ).settled
                 name = self.glyph_names.get(item.cell) or geometry.display_name(spec, item.cell)
                 matched = _first_matching_rule(
-                    self.rules_by_input, label, left, right1, right2, right3, right4
+                    self.rules_by_input,
+                    label,
+                    left,
+                    right1,
+                    right2,
+                    right3,
+                    right4,
+                    representatives=self.deep_index.representatives if self.deep_index is not None else None,
                 )
                 fresh = (item, name, matched)
                 outcome = self._outcomes.setdefault(fresh, fresh)
@@ -799,7 +890,7 @@ def _token_text(spec: ResolvedSpec, tokens: Iterable[str]) -> str:
 def _shortest_window_prefixes(decision):
     """BFS the decision table's own windows, mirroring the table builder's worklist at label grain: for each (left label, input label, constrained-right1 label or None-for-boundary-seeds) item, the shortest token prefix that realizes it. The prefix holds the tokens BEFORE the input slot — empty for edge-left items, the boundary token for boundary-left items.
 
-    Returns `(prefixes, by_right3)`. `prefixes` is the shortest prefix per window, used to grow longer chains. `by_right3` maps each window to `{(producing-row-right3, producing-row-right4): shortest-prefix}` — the deep lookaheads the realizing row was pinned to (mirroring the table builder's right3/right4 exactness in `table._flag_prospect_joints`). A backtrack whose withdrawal is decided by a raw deep slot (a depth-3- or depth-4-conditional cell) is realized only under specific (right3, right4) values, so a witness for it must pick the prefix whose deep slots match the target window's own look2/look3; the flat `prefixes` map can only offer the shortest, which may carry deep slots the target rule never takes.
+    Returns `(prefixes, by_right3)`. `prefixes` is the shortest prefix per window, used to grow longer chains. `by_right3` maps each window to `{(producing-row-right3, producing-row-right4): shortest-prefix}` — the deep lookaheads the realizing row was pinned to (mirroring the table builder's right3/right4 exactness in `table._flag_prospect_joints`). A backtrack whose withdrawal is decided by a raw deep slot (a depth-3- or depth-4-conditional cell) is realized only under specific (right3, right4) values, so a witness for it must pick the prefix whose deep slots match the target window's own look2/look3; the flat `prefixes` map can only offer the shortest, which may carry deep slots the target rule never takes. Deep pins return to label grain at this bucket boundary: a class-grain producer row registers its prefix under every expanded (member3, member4) pair — the producer identity the buckets ride is that a row's right3 raw label is its successor window's right2 one slot over, and class tokens minted in different contexts must never meet across it — so `by_right3` buckets stay label-grain exactly as at label grain, bounded by the old label-grain row count.
     """
     from collections import deque
 
@@ -830,13 +921,15 @@ def _shortest_window_prefixes(decision):
                 continue
             successor = (row.outcome, row.right1, row.right2)
             options = by_right3.setdefault(successor, {})
-            deep_key = (row.right3, row.right4)
-            bucket = options.setdefault(deep_key, [])
-            if extended not in bucket:
-                # Keep a few shortest alternates, not just the winner: distinct producer paths collapse onto one deep-key (both #NA when the producer is not deep), and a deep record further upstream can invalidate the shortest path for specific target windows — the ·Day·Tea·No·Tea route to a ·Tea.en-y0 left is the worked case.
-                bucket.append(extended)
-                bucket.sort(key=lambda p: (len(p), p))
-                del bucket[6:]
+            for member3 in _token_members(decision, row.right3):
+                for member4 in _token_members(decision, row.right4):
+                    deep_key = (member3, member4)
+                    bucket = options.setdefault(deep_key, [])
+                    if extended not in bucket:
+                        # Keep a few shortest alternates, not just the winner: distinct producer paths collapse onto one deep-key (both #NA when the producer is not deep), and a deep record further upstream can invalidate the shortest path for specific target windows — the ·Day·Tea·No·Tea route to a ·Tea.en-y0 left is the worked case.
+                        bucket.append(extended)
+                        bucket.sort(key=lambda p: (len(p), p))
+                        del bucket[6:]
             if successor in prefixes:
                 continue
             prefixes[successor] = extended
@@ -866,28 +959,34 @@ def _refolds_intact(spec, tokens) -> bool:
     return labels == list(tokens)
 
 
-def _window_witness_candidates(spec, prefixes, by_right3, row) -> list[tuple[str, ...]]:
-    """Assemble candidate token streams that could realize one transition row's window, most-plausible prefix first: the BFS prefixes pinned to the row's own deep slots, then the unpinned buckets, then the flat shortest prefixes. Several candidates exist because a deep record upstream of the prefix can invalidate one path for this row's specific right context while another path stays realizable; the caller sweeps or settles each until the window is actually realized."""
+def _window_witness_candidates(spec, prefixes, by_right3, row, decision=None) -> list[tuple[str, ...]]:
+    """Assemble candidate token streams that could realize one transition row's window, most-plausible prefix first: the BFS prefixes pinned to the row's own deep slots — a class token trying each member's label-grain bucket in member order — then the unpinned buckets, then the flat shortest prefixes. Several candidates exist because a deep record upstream of the prefix can invalidate one path for this row's specific right context while another path stays realizable; the caller sweeps or settles each until the window is actually realized."""
     from rebuild.pipeline.table import NA_LABEL
 
-    # The backtrack cell's own third and fourth lookaheads are this window's look2 and look3 (row.right2, row.right3), so a backtrack whose withdrawal turns on a raw deep slot must be realized by a prefix pinned to those same values — a flat shortest prefix can carry deep slots this rule never takes (the depth-3-/depth-4-conditional withdrawal cases).
+    # The backtrack cell's own third and fourth lookaheads are this window's look2 and look3 (row.right2, row.right3), so a backtrack whose withdrawal turns on a raw deep slot must be realized by a prefix pinned to those same values — a flat shortest prefix can carry deep slots this rule never takes (the depth-3-/depth-4-conditional withdrawal cases). Each pinned bucket's premise is that its member label sits at the target's own r3 slot, so the assembly pins that member, not the class representative — an unpinned prefix (the #NA buckets and the flat fallbacks) carries no such premise and assembles with the representative.
     options = by_right3.get((row.left, row.input_glyph, row.right1), {})
-    ordered_prefixes: list[tuple[str, ...]] = []
-    for bucket_key in (
-        (row.right2, getattr(row, "right3", NA_LABEL)),
-        (row.right2, NA_LABEL),
-        (NA_LABEL, NA_LABEL),
-    ):
+    rep3 = _token_representative(decision, getattr(row, "right3", NA_LABEL))
+    bucket_keys: list[tuple[tuple[str, str], str]] = []
+    for member in _token_members(decision, getattr(row, "right3", NA_LABEL)):
+        bucket_keys.append(((row.right2, member), member))
+    bucket_keys.append(((row.right2, NA_LABEL), rep3))
+    bucket_keys.append(((NA_LABEL, NA_LABEL), rep3))
+    ordered_prefixes: list[tuple[tuple[str, ...], str]] = []
+    seen_keys: set[tuple[str, str]] = set()
+    for bucket_key, member in bucket_keys:
+        if bucket_key in seen_keys:
+            continue
+        seen_keys.add(bucket_key)
         for prefix in options.get(bucket_key, ()):
-            if prefix not in ordered_prefixes:
-                ordered_prefixes.append(prefix)
+            if (prefix, member) not in ordered_prefixes:
+                ordered_prefixes.append((prefix, member))
     for flat_key in ((row.left, row.input_glyph, row.right1), (row.left, row.input_glyph, None)):
         prefix = prefixes.get(flat_key)
-        if prefix is not None and prefix not in ordered_prefixes:
-            ordered_prefixes.append(prefix)
+        if prefix is not None and (prefix, rep3) not in ordered_prefixes:
+            ordered_prefixes.append((prefix, rep3))
     candidates: list[tuple[str, ...]] = []
-    for prefix in ordered_prefixes[:6]:
-        tokens = _assemble_window_witness(spec, prefix, row)
+    for prefix, member in ordered_prefixes[:6]:
+        tokens = _assemble_window_witness(spec, prefix, row, decision, right3_label=member)
         if tokens is not None and tokens not in candidates:
             candidates.append(tokens)
     return candidates
@@ -959,8 +1058,8 @@ def _formed_liga_guard_repair(spec, settle_module, tokens: list) -> bool:
     return True
 
 
-def _assemble_window_witness(spec, prefix, row) -> tuple[str, ...] | None:
-    """One candidate stream from one prefix: the prefix, the input, then just enough right context to pin right1/right2 (a boundary token, a letter, or nothing for the text edge) plus the pinned deep slots. A window whose input and right1 are a formation pair exists only where the section 5.7 guard fires, and the guard's second slot is the token after right2 — beyond what the window pins — so such a witness is extended with a second-slot letter under which the guard fires. The assembled stream must survive the raw replay unchanged (`_refolds_intact`); a stream the guard would refold differently — a prefix ligature un-formed, an adjacent pair re-formed — is discarded so the caller falls through to the next candidate."""
+def _assemble_window_witness(spec, prefix, row, decision=None, right3_label=None) -> tuple[str, ...] | None:
+    """One candidate stream from one prefix: the prefix, the input, then just enough right context to pin right1/right2 (a boundary token, a letter, or nothing for the text edge) plus the pinned deep slots — a class token pinned by `right3_label` when the caller's prefix bucket carries a member premise, by its representative member otherwise, and every read below sees the choice because the two locals are resolved at assignment. A window whose input and right1 are a formation pair exists only where the section 5.7 guard fires, and the guard's second slot is the token after right2 — beyond what the window pins — so such a witness is extended with a second-slot letter under which the guard fires. The assembled stream must survive the raw replay unchanged (`_refolds_intact`); a stream the guard would refold differently — a prefix ligature un-formed, an adjacent pair re-formed — is discarded so the caller falls through to the next candidate."""
     from rebuild.pipeline import settle as settle_module
     from rebuild.pipeline.table import BOUNDARY_LEFT_LABELS, EDGE_LABEL, NA_LABEL
 
@@ -983,8 +1082,12 @@ def _assemble_window_witness(spec, prefix, row) -> tuple[str, ...] | None:
                 for name, rune in spec.runes.items()
                 if rune.sequence
             }
-            right3 = getattr(row, "right3", NA_LABEL)
-            right4 = getattr(row, "right4", NA_LABEL)
+            right3 = (
+                right3_label
+                if right3_label is not None
+                else _token_representative(decision, getattr(row, "right3", NA_LABEL))
+            )
+            right4 = _token_representative(decision, getattr(row, "right4", NA_LABEL))
             if right3 not in (EDGE_LABEL, NA_LABEL):
                 # A pinned third slot doubles as the guard-firing follower the two search branches in the else-arm would otherwise hunt for a formation pair at (input, right1) — the table's right3 options already replay that guard's filters. A pair at (right1, right2) instead pushes its guard one slot over, onto (right3, right4): with right4 pinned the table's right4 options already replayed that guard too, otherwise its guard-firing token is searched at the fourth slot. A surviving pair at (right2, right3) needs a guard-firing token at whichever of the fourth or fifth slot is first unpinned, and a surviving pair at (right3, right4) pushes its own guard onto the fifth slot.
                 if right3 in boundary_labels:
@@ -1156,12 +1259,14 @@ def _assemble_window_witness(spec, prefix, row) -> tuple[str, ...] | None:
 
 
 def _first_match_rows(decision) -> dict[int, list]:
-    """Group the table's transitions by the rule index that first-matches each window, replaying the same first-match-wins semantics assert_outcome_partition proves — the static answer to 'which windows would make rule N fire?'."""
+    """Group the table's transitions by the rule index that first-matches each window, replaying the same first-match-wins semantics assert_outcome_partition proves — the static answer to 'which windows would make rule N fire?'. A deep slot holding a class token is tested through its representative member, exact by the build's union-of-fibres assertion."""
     rules_by_input: dict[str, list[tuple[int, Rule]]] = {}
     for index, rule in enumerate(decision.rules):
         rules_by_input.setdefault(rule.input_glyph, []).append((index, rule))
     rows_by_rule: dict[int, list] = {}
     for row in decision.transitions:
+        right3 = _token_representative(decision, getattr(row, "right3", "#NA"))
+        right4 = _token_representative(decision, getattr(row, "right4", "#NA"))
         for index, rule in rules_by_input.get(row.input_glyph, ()):
             if rule.backtrack is not None and row.left not in rule.backtrack:
                 continue
@@ -1170,19 +1275,23 @@ def _first_match_rows(decision) -> dict[int, list]:
             if rule.look2 is not None and row.right2 not in rule.look2:
                 continue
             look3 = getattr(rule, "look3", None)
-            if look3 is not None and getattr(row, "right3", "#NA") not in look3:
+            if look3 is not None and right3 not in look3:
                 continue
             look4 = getattr(rule, "look4", None)
-            if look4 is not None and getattr(row, "right4", "#NA") not in look4:
+            if look4 is not None and right4 not in look4:
                 continue
             rows_by_rule.setdefault(index, []).append(row)
             break
     return rows_by_rule
 
 
-def _candidate_witness_tokens(spec, prefixes, by_right3, rows, limit: int = 10) -> list[tuple[str, ...]]:
+def _candidate_witness_tokens(
+    spec, prefixes, by_right3, rows, decision=None, limit: int = 10
+) -> list[tuple[str, ...]]:
     candidates = {
-        tokens for row in rows for tokens in _window_witness_candidates(spec, prefixes, by_right3, row)
+        tokens
+        for row in rows
+        for tokens in _window_witness_candidates(spec, prefixes, by_right3, row, decision)
     }
     return sorted(candidates, key=lambda tokens: (len(tokens), tokens))[:limit]
 
@@ -1217,6 +1326,7 @@ def find_rule_witnesses(spec, features, decision, glyph_names=None) -> WitnessRe
     if glyph_names is None:
         glyph_names = {cell: cell_label(spec, cell) for cell in decision.reachable_cells()}
     from rebuild.pipeline import table as table_module
+    from rebuild.pipeline.emit_gsub import _raw_rename_map
 
     rules_by_input = _renamed_rules_by_input(spec, features, decision)
     prefixes, by_right3 = _shortest_window_prefixes(decision)
@@ -1226,17 +1336,33 @@ def find_rule_witnesses(spec, features, decision, glyph_names=None) -> WitnessRe
     deep4 = table_module.fourth_slot_inputs(spec, engine)
     deep3_live = table_module.third_slot_filter(spec, frozenset(features), engine)
     deep4_live = table_module.fourth_slot_filter(spec, frozenset(features), engine)
+    deep_index = (
+        _DeepTokenIndex(decision, _raw_rename_map(spec, frozenset(features)))
+        if getattr(decision, "deep_classes", None)
+        else None
+    )
     report = WitnessReport(config=decision.config, rules=len(decision.rules))
     for index in range(len(decision.rules)):
         witness = None
-        for tokens in _candidate_witness_tokens(spec, prefixes, by_right3, rows_by_rule.get(index, ())):
+        for tokens in _candidate_witness_tokens(
+            spec, prefixes, by_right3, rows_by_rule.get(index, ()), decision
+        ):
             text = _token_text(spec, tokens)
             settled = settle_module.settle_with_engine(engine, [ord(ch) for ch in text])
             expected = settled_names(spec, settled, glyph_names)
             if any(
                 matched == index
                 for _pos, _window, matched in _matched_windows(
-                    spec, text, features, expected, rules_by_input, deep, deep3_live, deep4, deep4_live
+                    spec,
+                    text,
+                    features,
+                    expected,
+                    rules_by_input,
+                    deep,
+                    deep3_live,
+                    deep4,
+                    deep4_live,
+                    deep_index,
                 )
             ):
                 witness = text
@@ -1404,11 +1530,21 @@ def _conformance_config(
     deep3_live = table_module.third_slot_filter(spec, features, engine)
     deep4 = table_module.fourth_slot_inputs(spec, engine)
     deep4_live = table_module.fourth_slot_filter(spec, features, engine)
+    deep_index = _DeepTokenIndex(decision, renames) if getattr(decision, "deep_classes", None) else None
     modes: set[str] = set()
     rules_hit: set[int] = set()
     overlay = isolated_overlay_active(spec, features)
     walker = _SettledWindowWalk(
-        spec, engine, features, rules_by_input, deep, deep3_live, deep4, deep4_live, glyph_names
+        spec,
+        engine,
+        features,
+        rules_by_input,
+        deep,
+        deep3_live,
+        deep4,
+        deep4_live,
+        glyph_names,
+        deep_index,
     )
     realized = walker.windows
 
@@ -1478,7 +1614,7 @@ def _conformance_config(
                 witnessed[index] = recorded
                 continue
         prefixes, by_right3 = hunt_prefixes()
-        for tokens in _candidate_witness_tokens(spec, prefixes, by_right3, rule_rows(index)):
+        for tokens in _candidate_witness_tokens(spec, prefixes, by_right3, rule_rows(index), decision):
             text = _token_text(spec, tokens)
             sweep_top_up(text)
             if index in rules_hit:
@@ -1520,7 +1656,7 @@ def _conformance_config(
                 window_witnesses[raw_key] = recorded
                 continue
         prefixes, by_right3 = hunt_prefixes()
-        for tokens in _window_witness_candidates(spec, prefixes, by_right3, row):
+        for tokens in _window_witness_candidates(spec, prefixes, by_right3, row, decision):
             text = _token_text(spec, tokens)
             sweep_top_up(text)
             if key in realized:
@@ -1532,6 +1668,22 @@ def _conformance_config(
         result.notes.append(
             f"{config}: {len(unrealized)} decision-table transitions never realized; first: {unrealized[0].key}"
         )
+    if deep_index is not None:
+        deep_map = decision.deep_classes
+        class_rows = 0
+        label_windows = 0
+        for row in decision.transitions:
+            members3 = deep_map.get(row.right3)
+            members4 = deep_map.get(row.right4)
+            if members3 is None and members4 is None:
+                continue
+            class_rows += 1
+            label_windows += len(members3 or (row.right3,)) * len(members4 or (row.right4,))
+        if class_rows:
+            # The declared coverage narrowing (issue 26, under issue 7's never-silently rule): a class row is realized if any member is, so a dead label combination inside a live class is no longer independently detected; offsetting it, the exhaustive horizon sweep stays label-grain over real texts and pins keep member sets exact.
+            result.notes.append(
+                f"{config}: deep slots at class grain: {class_rows} class rows stand for {label_windows} label windows; per-member indiscernibility is build-proven (assert_deep_slot_partition + fibre verification + echo)"
+            )
     if witness_cache is not None and digest is not None:
         write_witnesses(
             witness_cache,

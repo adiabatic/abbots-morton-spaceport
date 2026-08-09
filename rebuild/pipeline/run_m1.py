@@ -265,12 +265,14 @@ def serialized_tables(out_dir: Path, inputs: str) -> dict[str, DecisionTable] | 
 
 
 def tables_inputs() -> str:
-    """The stamp serialized windows carry: `fingerprint.tables_value` plus a token per semantics-mode default that is on (the simulated prospect, the stage-4b shifted vote slots). The environment flags change settlement semantics without moving any hashed source, so without the tokens a flag-on enumeration would read as fresh to a flag-off process (and the reverse) and the sweep would replay tables the in-process kernel no longer produces."""
+    """The stamp serialized windows carry: `fingerprint.tables_value` plus a token per semantics-mode default that is on (the simulated prospect, the stage-4b shifted vote slots, the issue-26 class-grain deep slots). The environment flags change settlement semantics or enumeration grain without moving any hashed source, so without the tokens a flag-on enumeration would read as fresh to a flag-off process (and the reverse) and the sweep would replay tables the in-process kernel no longer produces."""
     inputs = fingerprint.tables_value(REPO_ROOT)
     if settle_module.SIMULATED_PROSPECT_DEFAULT:
         inputs = f"{inputs}+simulated-prospect"
     if settle_module.VOTE_SLOTS_DEFAULT:
         inputs = f"{inputs}+vote-slots"
+    if table_module.DEEP_CLASSES_DEFAULT and table_module._deep_world(None):
+        inputs = f"{inputs}+deep-classes"
     return inputs
 
 

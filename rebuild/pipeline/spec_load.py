@@ -612,7 +612,7 @@ class _Linter:
 
     def _lint_right_chain_depth(self) -> None:
         policy = self.raw.get("policy")
-        for kind in ("prefer", "extend", "contract"):
+        for kind in ("prefer", "resolve", "extend", "contract"):
             records = policy.get(kind) if isinstance(policy, dict) else None
             for index, record in enumerate(records if isinstance(records, list) else ()):
                 if not isinstance(record, dict):
