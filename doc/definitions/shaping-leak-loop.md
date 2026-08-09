@@ -26,7 +26,7 @@ A few bad leaks are force-bad cross-lookup-compose cases (the changed side strip
 
 ## Why fixes can’t be parallelized
 
-The verify gate is global to the whole FEA — a fix anywhere can introduce a dangle anywhere — and every fix edits the one `glyph_data/quikscript.yaml`. So _diagnosis_ of distinct bad leaks can fan out, but _apply + verify_ must be sequential (each fix rebuilds and re-sweeps against the whole corpus). Budget the loop accordingly: the depth-4 re-sweep is ~1 min, so the verify step dominates wall-clock.
+The verify gate is global to the whole FEA — a fix anywhere can introduce a dangle anywhere — and every fix edits the one `glyph_data/quikscript.yaml`. So _diagnosis_ of distinct bad leaks can fan out, but _apply + verify_ must be sequential (each fix rebuilds and re-sweeps against the whole corpus). Budget the loop accordingly: the depth-4 re-sweep is ≈1 min, so the verify step dominates wall-clock.
 
 ## Done
 
