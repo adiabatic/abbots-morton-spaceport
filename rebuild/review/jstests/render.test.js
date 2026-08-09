@@ -27,6 +27,7 @@ import {
   formatCount,
   machineChannels,
   surfaceChipLabel,
+  surfaceAlphabetLabel,
   surfaceStampLine,
   surfaceDetailRows,
   machineTitle,
@@ -595,7 +596,7 @@ test('the collapsed chip carries the surface total and the popover breaks it dow
   assert.deepEqual(
     surfaceDetailRows(manifest).map((row) => [row.label, row.value]),
     [
-      ['Surface', '6 units'],
+      ['Surface', '6'],
       ['ink-identical machine-approved', '1'],
       ['for human review', '5'],
     ],
@@ -616,7 +617,7 @@ test('the collapsed chip carries the surface total and the popover breaks it dow
   assert.deepEqual(
     surfaceDetailRows(channelled).map((row) => [row.label, row.value, row.sub ?? false]),
     [
-      ['Surface', '15,960 units', false],
+      ['Surface', '15,960', false],
       ['machine-approved', '11,926', false],
       ['ink-identical', '8,350', true],
       ['junior-equivalent', '3,576', true],
@@ -629,6 +630,11 @@ test('the collapsed chip carries the surface total and the popover breaks it dow
     rows.map((row) => row.label),
     ['Surface', 'for human review'],
   );
+});
+
+test('the popover corner says how much of the alphabet has migrated', () => {
+  assert.equal(surfaceAlphabetLabel({ alphabet: { migrated: 16, total: 44 } }), '16 of 44 letters');
+  assert.equal(surfaceAlphabetLabel({}), null);
 });
 
 test('the popover stamp names the generation and the head it was generated at', () => {

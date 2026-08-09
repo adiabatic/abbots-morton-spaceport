@@ -25,6 +25,7 @@ from itertools import combinations
 from pathlib import Path
 
 from rebuild.pipeline import fingerprint
+from rebuild.pipeline.baseline_subset import M1_ALPHABET
 from rebuild.review import families, tablediff, unit_cache
 from rebuild.review.audit import (
     ACCEPTANCE_CONFIGS,
@@ -98,6 +99,11 @@ _FALLBACK_INDEX = """<!DOCTYPE html>
 
 def _sha256(path: Path) -> str:
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def _alphabet_meta() -> dict:
+    """How far the migration has come, for the surface chip. `migrated` is the letters this surface is built over — the subset filter's alphabet minus its boundary tokens, which is also the roster of runes under glyph_data/runes/ — against the whole Quikscript alphabet."""
+    return {"migrated": len(M1_ALPHABET & set(LETTERS)), "total": len(LETTERS)}
 
 
 def _inputs_fingerprint(repo_root: Path, m1_dir: Path, before_font: Path, junior_font: Path) -> dict:
@@ -800,6 +806,7 @@ def _write_surface(
             "ledger": _relative(ledger_path, repo_root),
         },
         "fonts": fonts,
+        "alphabet": _alphabet_meta(),
         "configs": list(ACCEPTANCE_CONFIGS),
         "feature_descriptions": dict(FEATURE_DESCRIPTIONS),
         "batch_size": batch_size,
@@ -1333,6 +1340,7 @@ def build_table_diff(
         "inputs_fingerprint": {key: None for key in fingerprint.COMPONENTS},
         "source": {"baseline": str(baseline_dir), "new": str(new_dir)},
         "fonts": fonts,
+        "alphabet": _alphabet_meta(),
         "configs": all_configs,
         "feature_descriptions": dict(FEATURE_DESCRIPTIONS),
         "batch_size": batch_size,
@@ -1389,6 +1397,13 @@ def check_manifest(manifest: dict) -> list[str]:
         "configs must be a nonempty list",
     )
     need(isinstance(manifest.get("batch_size"), int), "batch_size must be an integer")
+    alphabet = manifest.get("alphabet")
+    need(
+        isinstance(alphabet, dict)
+        and set(alphabet or ()) == {"migrated", "total"}
+        and all(isinstance(count, int) for count in (alphabet or {}).values()),
+        "alphabet must carry integer migrated/total letter counts",
+    )
     totals = manifest.get("totals")
     need(isinstance(totals, dict), "totals must be a mapping")
     if isinstance(totals, dict):

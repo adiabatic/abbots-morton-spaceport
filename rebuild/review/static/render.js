@@ -259,6 +259,12 @@ export function surfaceChipLabel(manifest) {
   return `${formatCount(manifest.totals.units)} units`;
 }
 
+export function surfaceAlphabetLabel(manifest) {
+  const alphabet = manifest.alphabet;
+  if (!alphabet) return null;
+  return `${formatCount(alphabet.migrated)} of ${formatCount(alphabet.total)} letters`;
+}
+
 export function surfaceStampLine(manifest) {
   if (!manifest.generated_at) return null;
   return manifest.repo_head
@@ -270,7 +276,7 @@ const NO_VERDICT_DETAIL_TITLE =
   'Units in a no-verdict ledger class are adjudicated wholesale by a ratified rule and never need individual verdicts; hover the class in the sidebar for its rationale.';
 
 export function surfaceDetailRows(manifest) {
-  const rows = [{ label: 'Surface', value: surfaceChipLabel(manifest) }];
+  const rows = [{ label: 'Surface', value: formatCount(manifest.totals.units) }];
   const { units, inkIdentical, juniorEquivalent } = machineChannels(manifest);
   if (units > 0) {
     const channels = manifest.machine_approved?.channels ?? {};
