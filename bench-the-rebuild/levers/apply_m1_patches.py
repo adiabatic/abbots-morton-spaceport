@@ -269,8 +269,6 @@ INIT_NEW = (
 )
 
 
-
-
 # --- P8: memoize the fixpoint's right2/right3/right4 option lists (rebuilt per worklist item today) ---
 
 T8_OLD_R2 = """            if right1.kind == "letter":

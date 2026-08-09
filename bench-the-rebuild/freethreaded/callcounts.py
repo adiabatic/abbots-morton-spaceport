@@ -15,7 +15,11 @@ from rebuild.pipeline import table as table_module  # noqa: E402
 KEEP = int(sys.argv[1]) if len(sys.argv) > 1 else 9
 counts = {"guard_state": 0, "formation_blocked": 0, "liveness_probe": 0}
 
-for name, mod in (("guard_state", settle_module), ("formation_blocked", settle_module), ("liveness_probe", table_module)):
+for name, mod in (
+    ("guard_state", settle_module),
+    ("formation_blocked", settle_module),
+    ("liveness_probe", table_module),
+):
     orig = getattr(mod, "_" + name if name != "formation_blocked" else name)
 
     def wrap(orig=orig, name=name):

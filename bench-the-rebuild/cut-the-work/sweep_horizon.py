@@ -57,7 +57,9 @@ def timed_worker(spec, font_path, config, horizon, glyphs, windows_path, boundar
         "config": config,
         "wall_s": wall,
         "setup_s": setup,
-        "sweep_only_s": (stats["first_topup_at"] - setup) if stats["first_topup_at"] is not None else (wall - setup),
+        "sweep_only_s": (
+            (stats["first_topup_at"] - setup) if stats["first_topup_at"] is not None else (wall - setup)
+        ),
         "sweep_s": stats["first_topup_at"] if stats["first_topup_at"] is not None else wall,
         "topup_s": (wall - stats["first_topup_at"]) if stats["first_topup_at"] is not None else 0.0,
         "shape_calls": stats["calls"],

@@ -74,9 +74,7 @@ def checksum(decision, treaty) -> dict:
 
     t = hashlib.sha256()
     for row in treaty.rows:
-        t.update(
-            "\t".join((row.left, row.right, row.junction, str(row.extension), str(row.kern))).encode()
-        )
+        t.update("\t".join((row.left, row.right, row.junction, str(row.extension), str(row.kern))).encode())
         t.update(b"\n")
     treaty_sha = t.hexdigest()
 

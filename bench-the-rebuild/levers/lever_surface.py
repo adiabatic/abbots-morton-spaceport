@@ -73,9 +73,7 @@ def config_badge_lever(units) -> dict:
 def human_unit_ids_lever() -> dict:
     t_one, ids = timed(lambda: status_mod.load_human_unit_ids(REVIEW), 2)
     manifest = json.loads((REVIEW / "manifest.json").read_text())
-    shard_bytes = sum(
-        (REVIEW / e["shard"]).stat().st_size for e in manifest["classes"] if e.get("shard")
-    )
+    shard_bytes = sum((REVIEW / e["shard"]).stat().st_size for e in manifest["classes"] if e.get("shard"))
     # What persisting the id set in the manifest would cost to read back instead.
     payload = json.dumps(sorted(ids))
     scratch = ROOT / "tmp" / "perf2" / "python-levers" / "human-ids.json"
@@ -107,6 +105,7 @@ def signature_digest_lever(units) -> dict:
                     signatures.append(pieces)
         if len(signatures) >= 400:
             break
+
     # Coerce to the nested-tuple shape signature() returns.
     def tupleize(value):
         if isinstance(value, list):
@@ -133,9 +132,7 @@ def signature_digest_lever(units) -> dict:
     # Equivalence is the induced partition, not the digest bytes.
     part_ship = collections.Counter(collections.Counter(d_ship).values())
     part_bin = collections.Counter(collections.Counter(d_bin).values())
-    groups_ship = sorted(
-        sorted(i for i, d in enumerate(d_ship) if d == key) for key in set(d_ship)
-    )
+    groups_ship = sorted(sorted(i for i, d in enumerate(d_ship) if d == key) for key in set(d_ship))
     groups_bin = sorted(sorted(i for i, d in enumerate(d_bin) if d == key) for key in set(d_bin))
     return {
         "lever": "signature_digest: repr()+sha256 -> pickle+sha256",

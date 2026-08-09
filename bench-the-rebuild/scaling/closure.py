@@ -3,9 +3,11 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 
+
 def mod_path(name):
     p = ROOT / (name.replace(".", "/") + ".py")
     return p if p.exists() else None
+
 
 def imports_of(path):
     tree = ast.parse(path.read_text())
@@ -22,13 +24,15 @@ def imports_of(path):
                     out.add(node.module + "." + a.name)
     return out
 
+
 def closure(seeds):
     seen = set()
     third = set()
     frontier = list(seeds)
     while frontier:
         m = frontier.pop()
-        if m in seen: continue
+        if m in seen:
+            continue
         p = mod_path(m)
         if p is None:
             continue
@@ -36,11 +40,12 @@ def closure(seeds):
         for imp in imports_of(p):
             if mod_path(imp):
                 frontier.append(imp)
-            elif imp.split(".")[0] in ("rebuild","tools","site"):
+            elif imp.split(".")[0] in ("rebuild", "tools", "site"):
                 pass
             else:
                 third.add(imp.split(".")[0])
     return seen, third
+
 
 seeds = ["rebuild.pipeline.table", "rebuild.pipeline.settle"]
 seen, third = closure(seeds)

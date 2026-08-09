@@ -82,9 +82,7 @@ def main() -> int:
     for name in sorted(os.listdir(out_dir)):
         if name.endswith(".otf") or name.endswith(".fea"):
             digests[name] = hashlib.sha256((out_dir / name).read_bytes()).hexdigest()
-    combined = hashlib.sha256(
-        "".join(f"{k}:{v}" for k, v in sorted(digests.items())).encode()
-    ).hexdigest()
+    combined = hashlib.sha256("".join(f"{k}:{v}" for k, v in sorted(digests.items())).encode()).hexdigest()
 
     print(
         json.dumps(

@@ -43,9 +43,24 @@ DIRMAP = {
 }
 
 SKIP_DIRS = {
-    ".venv", ".uv-cache", "__pycache__", "target", ".cargo", ".gopath",
-    "site-packages", "run-v-control", "out", "work", "data", "mirror",
-    "tree-cython", "tree-mypyc", "dist", "build", ".pytest_cache", ".mypy_cache",
+    ".venv",
+    ".uv-cache",
+    "__pycache__",
+    "target",
+    ".cargo",
+    ".gopath",
+    "site-packages",
+    "run-v-control",
+    "out",
+    "work",
+    "data",
+    "mirror",
+    "tree-cython",
+    "tree-mypyc",
+    "dist",
+    "build",
+    ".pytest_cache",
+    ".mypy_cache",
 }
 # venvs the harnesses created for alternative interpreters; regenerable by their setup.sh
 SKIP_DIR_PREFIXES = ("venv", ".venv")
@@ -66,19 +81,36 @@ WHITELIST = {
     "python-levers": (
         "levers",
         [
-            "apply_m1_patches.py", "lever_fontbuild.py", "lever_signature.py",
-            "lever_spec_load.py", "lever_surface.py", "lever_yaml.py",
-            "m1_slice.py", "prof_slice.py", "prof_variant.py", "probe_subset.py",
-            "mkvariant.sh", "ab_fontbuild.sh", "levers_site/sitecustomize.py",
+            "apply_m1_patches.py",
+            "lever_fontbuild.py",
+            "lever_signature.py",
+            "lever_spec_load.py",
+            "lever_surface.py",
+            "lever_yaml.py",
+            "m1_slice.py",
+            "prof_slice.py",
+            "prof_variant.py",
+            "probe_subset.py",
+            "mkvariant.sh",
+            "ab_fontbuild.sh",
+            "levers_site/sitecustomize.py",
         ],
     ),
     "compilers": (
         "compilers",
         [
-            "bench_kernel.py", "build.sh", "mktree.sh", "patch_for_mypyc.py",
-            "patch_pep758.py", "preload_compiled.py", "probe_subset.py",
-            "run_all.py", "run.sh", "setup_cython.py",
-            "dcbench/dckernel.py", "dcbench/run_dc.py",
+            "bench_kernel.py",
+            "build.sh",
+            "mktree.sh",
+            "patch_for_mypyc.py",
+            "patch_pep758.py",
+            "preload_compiled.py",
+            "probe_subset.py",
+            "run_all.py",
+            "run.sh",
+            "setup_cython.py",
+            "dcbench/dckernel.py",
+            "dcbench/run_dc.py",
         ],
     ),
 }
@@ -94,8 +126,12 @@ EVIDENCE = [
 ]
 
 FIXTURES = [
-    "baseline-rows.tsv", "candidate-fields.tsv", "coord-types.json",
-    "memo-keys.tsv.gz", "outlines-after.json", "outlines-before.json",
+    "baseline-rows.tsv",
+    "candidate-fields.tsv",
+    "coord-types.json",
+    "memo-keys.tsv.gz",
+    "outlines-after.json",
+    "outlines-before.json",
     "shaped-runs.jsonl",
 ]
 

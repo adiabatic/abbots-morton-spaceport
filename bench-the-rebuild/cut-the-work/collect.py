@@ -23,9 +23,7 @@ def timed(name: str) -> dict:
     got: dict = {}
     for key in ("real", "user", "sys"):
         # `/usr/bin/time -p` writes "real 1.06"; `/usr/bin/time -l` writes "  1.06 real".
-        match = re.search(rf"^{key}\s+([0-9.]+)$", text, re.M) or re.search(
-            rf"([0-9.]+)\s+{key}\b", text
-        )
+        match = re.search(rf"^{key}\s+([0-9.]+)$", text, re.M) or re.search(rf"([0-9.]+)\s+{key}\b", text)
         if match:
             got[f"{key}_s"] = float(match.group(1))
     match = re.search(r"hb\.shape calls=(\d+) hb_seconds=([0-9.]+) _shape lookups=(\d+)", text)

@@ -59,7 +59,9 @@ def stats(rs):
 single = {
     "gil_build": stats(gil1),
     "freethreaded_build": stats(ft1),
-    "freethreaded_single_thread_ratio_wall": round(ft1[0]["wall_s"] and min(r["wall_s"] for r in ft1) / min(r["wall_s"] for r in gil1), 4),
+    "freethreaded_single_thread_ratio_wall": round(
+        ft1[0]["wall_s"] and min(r["wall_s"] for r in ft1) / min(r["wall_s"] for r in gil1), 4
+    ),
     "reading": None,
 }
 rr = single["freethreaded_single_thread_ratio_wall"]
@@ -68,7 +70,9 @@ single["reading"] = (
     if rr < 1
     else f"free-threading costs {(rr - 1) * 100:.1f}% single-threaded"
 )
-single["read_with"] = "gc_control — this comparison is stock-vs-stock, and the two builds do not collect alike; the gc_control rows say how much of the gap survives gc.freeze()+gc.disable()"
+single["read_with"] = (
+    "gc_control — this comparison is stock-vs-stock, and the two builds do not collect alike; the gc_control rows say how much of the gap survives gc.freeze()+gc.disable()"
+)
 
 # --- scaling -----------------------------------------------------------------------------------
 gil_serial_wall = min(r["wall_s"] for r in gil1)
@@ -86,9 +90,13 @@ def table(mode, gil):
                 "wall_s": r["wall_s"],
                 "cpu_s": r["cpu_s"],
                 "cpu_utilization": r["cpu_utilization"],
-                "speedup_vs_own_1T": round(min(x["wall_s"] for x in (ft1 if not gil else gil1)) / r["wall_s"], 3),
+                "speedup_vs_own_1T": round(
+                    min(x["wall_s"] for x in (ft1 if not gil else gil1)) / r["wall_s"], 3
+                ),
                 "net_multiplier_vs_serial_gil": round(gil_serial_wall / r["wall_s"], 3),
-                "cpu_inflation_vs_1T": round(r["cpu_s"] / min(x["cpu_s"] for x in (ft1 if not gil else gil1)), 3),
+                "cpu_inflation_vs_1T": round(
+                    r["cpu_s"] / min(x["cpu_s"] for x in (ft1 if not gil else gil1)), 3
+                ),
                 "parallel_efficiency": round(
                     (min(x["wall_s"] for x in (ft1 if not gil else gil1)) / r["wall_s"]) / r["threads"], 3
                 ),
@@ -126,10 +134,16 @@ ft_own = [ft1_row] + ft_own
 # --- production shape --------------------------------------------------------------------------
 share_serial = best(pick(mode="share-serial"))
 share_fanout = best(pick(mode="share-fanout"))
-no_share_serial = best([r for r in pick(mode="serial", gil_enabled=True) if r["units"] == len(share_serial["checksums"])]) if share_serial else None
+no_share_serial = (
+    best([r for r in pick(mode="serial", gil_enabled=True) if r["units"] == len(share_serial["checksums"])])
+    if share_serial
+    else None
+)
 production = {
     "note": "the shape run_m1.build_tables actually uses: six configs over one live cross-config TraceShare",
-    "gil_serial_with_share": {k: share_serial[k] for k in ("wall_s", "cpu_s", "units")} if share_serial else None,
+    "gil_serial_with_share": (
+        {k: share_serial[k] for k in ("wall_s", "cpu_s", "units")} if share_serial else None
+    ),
     "freethreaded_donor_then_fanout": (
         {k: share_fanout[k] for k in ("wall_s", "cpu_s", "cpu_utilization", "threads", "units")}
         if share_fanout
@@ -174,12 +188,16 @@ for label, r in (
         }
     )
 
+
 # --- gc control: is a single-thread difference between the interpreters really a GC difference? ---
 def gc_row(gil, gcmode):
     rs = [
         r
         for r in all_runs
-        if r["mode"] == "serial" and r["gil_enabled"] == gil and r.get("gc", "on") == gcmode and r["units"] == 6
+        if r["mode"] == "serial"
+        and r["gil_enabled"] == gil
+        and r.get("gc", "on") == gcmode
+        and r["units"] == 6
     ]
     return min(rs, key=lambda r: r["wall_s"]) if rs else None
 
@@ -204,7 +222,8 @@ if len(gc_control["rows"]) == 2:
     gc_control["freethreaded_advantage_gc_off"] = round(a["gc_off_wall_s"] / b["gc_off_wall_s"], 3)
     gc_control["reading"] = (
         "the single-thread gap is mostly the collector"
-        if abs(gc_control["freethreaded_advantage_gc_off"] - 1) < abs(gc_control["freethreaded_advantage_gc_on"] - 1) / 2
+        if abs(gc_control["freethreaded_advantage_gc_off"] - 1)
+        < abs(gc_control["freethreaded_advantage_gc_on"] - 1) / 2
         else "the single-thread gap survives with the collector off, so it is not the collector"
     )
 
@@ -236,9 +255,7 @@ projection = {
         },
         {
             "scenario": "donor first, then five recipients as threads over the same TraceShare, at the fanout efficiency measured on this slice",
-            "projected_wall_s": (
-                round(PROD_SIX_CONFIG_COLD_WALL / fanout_mult, 1) if fanout_mult else None
-            ),
+            "projected_wall_s": (round(PROD_SIX_CONFIG_COLD_WALL / fanout_mult, 1) if fanout_mult else None),
             "multiplier": fanout_mult,
         },
         {

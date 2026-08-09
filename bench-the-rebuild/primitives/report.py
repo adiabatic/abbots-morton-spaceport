@@ -20,14 +20,34 @@ OUT = HERE / "out"
 # the row names the one a competent port would ship; the alternatives stay in
 # the per-language `all_results` block.
 PAIRS = [
-    ("construct 8-field record", "construct8/frozen-dataclass", "construct8/struct-copy", "construct8/struct-copy"),
-    ("construct 8-field record (py: plain tuple)", "construct8/plain-tuple", "construct8/struct-copy", "construct8/struct-copy"),
-    ("construct 5-field settle.Candidate", "legacy5/frozen-dataclass-construct", "legacy5/struct-construct", "legacy5/struct-construct"),
+    (
+        "construct 8-field record",
+        "construct8/frozen-dataclass",
+        "construct8/struct-copy",
+        "construct8/struct-copy",
+    ),
+    (
+        "construct 8-field record (py: plain tuple)",
+        "construct8/plain-tuple",
+        "construct8/struct-copy",
+        "construct8/struct-copy",
+    ),
+    (
+        "construct 5-field settle.Candidate",
+        "legacy5/frozen-dataclass-construct",
+        "legacy5/struct-construct",
+        "legacy5/struct-construct",
+    ),
     ("hash 8-field record", "hash8/frozen-dataclass", "hash8/struct-fx", "hash8/struct-maphash"),
     ("hash 8-field record (py: plain tuple)", "hash8/plain-tuple", "hash8/struct-fx", "hash8/struct-maphash"),
     ("equality, equal records", "eq8/frozen-dataclass-equal", "eq8/struct-equal", "eq8/struct-equal"),
     ("equality, unequal records", "eq8/frozen-dataclass-unequal", "eq8/struct-unequal", "eq8/struct-unequal"),
-    ("map insert, 10-slot str key", "map10str/insert", "map10str/insert-fx-presized", "map10str/insert-presized"),
+    (
+        "map insert, 10-slot str key",
+        "map10str/insert",
+        "map10str/insert-fx-presized",
+        "map10str/insert-presized",
+    ),
     ("map lookup, 10-slot str key", "map10str/lookup", "map10str/lookup-fx", "map10str/lookup"),
     ("map insert, packed-u64 key", "mapU64/insert", "mapU64/insert-fx-presized", "mapU64/insert-presized"),
     ("map lookup, packed-u64 key", "mapU64/lookup", "mapU64/lookup-fx", "mapU64/lookup"),
@@ -37,10 +57,25 @@ PAIRS = [
     ("hash, 10 interned strings", "sym/hash-10str-tuple", "sym/hash-10str-tuple-fx", "sym/hash-10str-tuple"),
     ("hash, 10 u8 symbol ids", "sym/hash-10u8-bytes", "sym/hash-10u8-bytes-fx", "sym/hash-10u8-bytes"),
     ("hash, packed-u64 symbol key", "sym/hash-packed-u64", "sym/hash-packed-u64-fx", "sym/hash-packed-u64"),
-    ("rank a 3-8 candidate list", "rank/two-stable-sorts-per-list", "rank/two-stable-sorts-per-list", "rank/two-stable-sorts-per-list"),
+    (
+        "rank a 3-8 candidate list",
+        "rank/two-stable-sorts-per-list",
+        "rank/two-stable-sorts-per-list",
+        "rank/two-stable-sorts-per-list",
+    ),
     ("alloc+drop small object", "alloc10M/frozen-dataclass", "alloc10M/box-heap", "alloc10M/pointer-gc"),
-    ("alloc+drop, no heap (rust/go)", "alloc10M/frozen-dataclass", "alloc10M/by-value-no-alloc", "alloc10M/by-value-no-alloc"),
-    ("filter 700k-row table", "filter700k/frozen-dataclass", "filter700k/struct-vec", "filter700k/struct-slice"),
+    (
+        "alloc+drop, no heap (rust/go)",
+        "alloc10M/frozen-dataclass",
+        "alloc10M/by-value-no-alloc",
+        "alloc10M/by-value-no-alloc",
+    ),
+    (
+        "filter 700k-row table",
+        "filter700k/frozen-dataclass",
+        "filter700k/struct-vec",
+        "filter700k/struct-slice",
+    ),
 ]
 
 # The loop skeleton itself -- iterate a prebuilt slice, store one field, fold one
@@ -104,8 +139,11 @@ def main() -> None:
     meta = {l: json.loads((OUT / f"{l}.json").read_text()) for l in ("python", "rust", "go")}
 
     table = []
-    skel = {"operation": "loop skeleton (iterate + store + accumulate)", "kind": "measured",
-            "note": "each kernel's control loop; the interpreter-dispatch floor"}
+    skel = {
+        "operation": "loop skeleton (iterate + store + accumulate)",
+        "kind": "measured",
+        "note": "each kernel's control loop; the interpreter-dispatch floor",
+    }
     for lang, op in zip(("python", "rust", "go"), SKELETON):
         r = langs[lang][op]
         skel[f"{lang}_op"] = op + " [control]"
@@ -218,21 +256,67 @@ def main() -> None:
         ok = len({v for v in vals.values() if v is not None}) == 1 and all(vals.values())
         checks.append({"check": f"{key} of {'/'.join(ops.values())}", "values": vals, "match": ok})
 
-    gather("checksum", {"python": "construct8/frozen-dataclass", "rust": "construct8/struct-copy", "go": "construct8/struct-copy"})
-    gather("checksum", {"python": "rank/two-stable-sorts-per-list", "rust": "rank/two-stable-sorts-per-list", "go": "rank/two-stable-sorts-per-list"})
-    gather("checksum", {"python": "filter700k/frozen-dataclass", "rust": "filter700k/struct-vec", "go": "filter700k/struct-slice"})
-    gather("matched", {"python": "filter700k/frozen-dataclass", "rust": "filter700k/struct-vec", "go": "filter700k/struct-slice"})
+    gather(
+        "checksum",
+        {
+            "python": "construct8/frozen-dataclass",
+            "rust": "construct8/struct-copy",
+            "go": "construct8/struct-copy",
+        },
+    )
+    gather(
+        "checksum",
+        {
+            "python": "rank/two-stable-sorts-per-list",
+            "rust": "rank/two-stable-sorts-per-list",
+            "go": "rank/two-stable-sorts-per-list",
+        },
+    )
+    gather(
+        "checksum",
+        {
+            "python": "filter700k/frozen-dataclass",
+            "rust": "filter700k/struct-vec",
+            "go": "filter700k/struct-slice",
+        },
+    )
+    gather(
+        "matched",
+        {
+            "python": "filter700k/frozen-dataclass",
+            "rust": "filter700k/struct-vec",
+            "go": "filter700k/struct-slice",
+        },
+    )
     gather("hits", {"python": "map10str/lookup", "rust": "map10str/lookup-fx", "go": "map10str/lookup"})
     gather("checksum", {"python": "map10str/lookup", "rust": "map10str/lookup-fx", "go": "map10str/lookup"})
     gather("hits", {"python": "mapU64/lookup", "rust": "mapU64/lookup-fx", "go": "mapU64/lookup"})
     gather("checksum", {"python": "mapU64/lookup", "rust": "mapU64/lookup-fx", "go": "mapU64/lookup"})
-    gather("acc", {"python": "map10str/insert", "rust": "map10str/insert-fx-presized", "go": "map10str/insert-presized"})
-    gather("acc", {"python": "eq8/frozen-dataclass-equal", "rust": "eq8/struct-equal", "go": "eq8/struct-equal"})
-    gather("acc", {"python": "eq8/frozen-dataclass-unequal", "rust": "eq8/struct-unequal", "go": "eq8/struct-unequal"})
+    gather(
+        "acc",
+        {
+            "python": "map10str/insert",
+            "rust": "map10str/insert-fx-presized",
+            "go": "map10str/insert-presized",
+        },
+    )
+    gather(
+        "acc", {"python": "eq8/frozen-dataclass-equal", "rust": "eq8/struct-equal", "go": "eq8/struct-equal"}
+    )
+    gather(
+        "acc",
+        {"python": "eq8/frozen-dataclass-unequal", "rust": "eq8/struct-unequal", "go": "eq8/struct-unequal"},
+    )
     gather("acc", {"python": "sym/eq-10str-tuple", "rust": "sym/eq-10str-tuple", "go": "sym/eq-10str-tuple"})
     gather("acc", {"python": "sym/eq-packed-u64", "rust": "sym/eq-packed-u64", "go": "sym/eq-packed-u64"})
-    gather("distinct_hash_values", {"python": "hash8/frozen-dataclass", "rust": "hash8/struct-fx", "go": "hash8/struct-maphash"})
-    gather("acc", {"python": "alloc10M/frozen-dataclass", "rust": "alloc10M/box-heap", "go": "alloc10M/pointer-gc"})
+    gather(
+        "distinct_hash_values",
+        {"python": "hash8/frozen-dataclass", "rust": "hash8/struct-fx", "go": "hash8/struct-maphash"},
+    )
+    gather(
+        "acc",
+        {"python": "alloc10M/frozen-dataclass", "rust": "alloc10M/box-heap", "go": "alloc10M/pointer-gc"},
+    )
 
     out = {
         "slug": "k1-micro",

@@ -138,9 +138,7 @@ KEYS: list[tuple] = [tuple(map(SYMN.__getitem__, GBUF[i * 10 : i * 10 + 10])) fo
 # 8-field record, drawn slot-wise from the real key:
 #   a=left_kind, b=input_rune (never null), c=cell_rune, d=cell_stance,
 #   e=seam (nullable), n1=extension, n2=i%97, n3=i%13
-FIELDS = [
-    (s[0], s[5], s[1], s[2], s[3], int(s[4]), i % 97, i % 13) for i, s in enumerate(KEYS[:M1])
-]
+FIELDS = [(s[0], s[5], s[1], s[2], s[3], int(s[4]), i % 97, i % 13) for i, s in enumerate(KEYS[:M1])]
 settle_heap()
 
 
@@ -259,9 +257,7 @@ def bench_legacy_candidate():
     """attr-overhead K7's exact 5-field settle.Candidate shape, to anchor this
     harness against its previously measured 375.4 / 361.7 / 32.0 / 107.0 / 21.2 ns."""
     print("B1x legacy 5-field Candidate (anchor on prior measurement)", file=sys.stderr)
-    rows = [
-        line.split("\t") for line in (DATA / "candidates.tsv").read_text().splitlines()[1:] if line
-    ]
+    rows = [line.split("\t") for line in (DATA / "candidates.tsv").read_text().splitlines()[1:] if line]
     fields = [
         (r[1], None if r[2] == "-" else r[2], None if r[3] == "-" else r[3], i, i + 1)
         for i, r in enumerate(rows)
@@ -470,9 +466,7 @@ def bench_symbols():
 
 def bench_rank():
     print("B6 rank a 3-8 candidate list by a multi-key predicate", file=sys.stderr)
-    rows = [
-        line.split("\t") for line in (DATA / "candidates.tsv").read_text().splitlines()[1:] if line
-    ]
+    rows = [line.split("\t") for line in (DATA / "candidates.tsv").read_text().splitlines()[1:] if line]
     stances = sorted({r[1] for r in rows})
     sid = {s: i for i, s in enumerate(stances)}
     seam_y = {"-": -1, "ex-y0": 0, "ex-y5": 5, "ex-y6": 6}
@@ -529,9 +523,7 @@ def bench_rank():
 
 def bench_filter():
     print("B8 filter a %d-row table of 8-field records" % M8, file=sys.stderr)
-    flds = [
-        (s[0], s[5], s[1], s[2], s[3], int(s[4]), i % 97, i % 13) for i, s in enumerate(KEYS[:M8])
-    ]
+    flds = [(s[0], s[5], s[1], s[2], s[3], int(s[4]), i % 97, i % 13) for i, s in enumerate(KEYS[:M8])]
     dc = [R8(*f) for f in flds]
     nt = [R8N(*f) for f in flds]
     tp = [tuple(f) for f in flds]
@@ -677,7 +669,9 @@ def bench_map():
 
     hitsp = sum(1 for k in probesp if k in storep)
     accp = sum(storep[k] for k in probesp if k in storep) & MASK
-    timeit("mapU64/lookup", lookup_p, lookup_p_ctl, NPROBE, {"hits": hitsp, "checksum": str(accp)}, reps=MED_REPS)
+    timeit(
+        "mapU64/lookup", lookup_p, lookup_p_ctl, NPROBE, {"hits": hitsp, "checksum": str(accp)}, reps=MED_REPS
+    )
     del storep, probesp
 
 
