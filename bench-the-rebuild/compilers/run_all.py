@@ -275,17 +275,14 @@ def main() -> int:
                 "gc_disabled": r.get("gc_disabled", False),
                 "combined_sha256": r["result"]["combined_sha256"],
                 "equivalent_to_cpython": (r["result"]["combined_sha256"] == base_sha),
-                "counts": {
-                    k: r["result"][k] for k in r["result"] if k.startswith("n_") or k == "config"
-                },
+                "counts": {k: r["result"][k] for k in r["result"] if k.startswith("n_") or k == "config"},
             }
         )
 
     micro = memo_key_microbench()
 
     full_runs = {
-        name: load_json(HERE / f"out/full-{name}.json")
-        for name in ("cpython", "mypyc", "pypy", "cython")
+        name: load_json(HERE / f"out/full-{name}.json") for name in ("cpython", "mypyc", "pypy", "cython")
     }
     full_cpy = full_runs["cpython"]
     full_mypyc = full_runs["mypyc"]
@@ -378,9 +375,7 @@ def main() -> int:
                 "PYTHONPATH=bench-the-rebuild/compilers uv run pytest -p preload_compiled "
                 "rebuild/test_settle.py rebuild/test_table.py -n auto --dist worksteal"
             ),
-            "result": (
-                pytest_log.read_text().strip().splitlines()[-1] if pytest_log.exists() else "not run"
-            ),
+            "result": (pytest_log.read_text().strip().splitlines()[-1] if pytest_log.exists() else "not run"),
         },
         "toolchain": {
             "cc": shutil.which("cc"),

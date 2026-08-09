@@ -26,11 +26,28 @@ SUBSETS = {
     "s6": ["qsAh", "qsDay", "qsIt", "qsMay", "qsPea", "qsUtter"],
     "s8": ["qsAh", "qsDay", "qsIt", "qsMay", "qsPea", "qsUtter", "qsSee", "qsTea"],
     "s10": [
-        "qsAh", "qsDay", "qsIt", "qsMay", "qsPea", "qsUtter", "qsSee", "qsTea", "qsOy", "qsRoe",
+        "qsAh",
+        "qsDay",
+        "qsIt",
+        "qsMay",
+        "qsPea",
+        "qsUtter",
+        "qsSee",
+        "qsTea",
+        "qsOy",
+        "qsRoe",
     ],
     "s10L": [
-        "qsAh", "qsDay", "qsIt", "qsMay", "qsPea", "qsUtter", "qsSee", "qsTea",
-        "qsDay_qsUtter", "qsSee_qsUtter",
+        "qsAh",
+        "qsDay",
+        "qsIt",
+        "qsMay",
+        "qsPea",
+        "qsUtter",
+        "qsSee",
+        "qsTea",
+        "qsDay_qsUtter",
+        "qsSee_qsUtter",
     ],
     "full": None,
 }
@@ -80,8 +97,7 @@ def table_digest(decision, treaty) -> str:
     h.update(b"--treaty--\n")
     for row in treaty.rows:
         h.update(
-            "\t".join((row.left, row.right, row.junction, str(row.extension), str(row.kern))).encode()
-            + b"\n"
+            "\t".join((row.left, row.right, row.junction, str(row.extension), str(row.kern))).encode() + b"\n"
         )
     h.update(b"--cells--\n")
     for cell in sorted(

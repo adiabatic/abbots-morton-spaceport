@@ -85,9 +85,7 @@ class Emitter:
 
     def when(self, left=-1, right=-1, self_entry=-1, self_exit=-1, word=-1, feature=-1) -> int:
         idx = len(self.whens)
-        self.whens.append(
-            f"when {idx} {left} {right} {self_entry} {self_exit} {word} {feature}"
-        )
+        self.whens.append(f"when {idx} {left} {right} {self_entry} {self_exit} {word} {feature}")
         return idx
 
 
@@ -155,7 +153,7 @@ def main(seed: int, out_path: str) -> None:
             # at all — a state the real fixpoint never reaches.
             never = []
             if rng.chance(1, 5):
-                pair = (rng.below(N_HEIGHTS + 1) - 1, rng.below(N_HEIGHTS) )
+                pair = (rng.below(N_HEIGHTS + 1) - 1, rng.below(N_HEIGHTS))
                 never.append(pair)
             only = []
             has_only = 1 if rng.chance(1, 15) else 0
@@ -353,4 +351,7 @@ def main(seed: int, out_path: str) -> None:
 
 
 if __name__ == "__main__":
-    main(int(sys.argv[1]) if len(sys.argv) > 1 else 0x5EED1234, sys.argv[2] if len(sys.argv) > 2 else "spec.txt")
+    main(
+        int(sys.argv[1]) if len(sys.argv) > 1 else 0x5EED1234,
+        sys.argv[2] if len(sys.argv) > 2 else "spec.txt",
+    )

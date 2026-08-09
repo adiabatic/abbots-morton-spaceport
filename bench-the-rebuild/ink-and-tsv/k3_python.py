@@ -129,9 +129,7 @@ def main() -> None:
         export_binary(before_outlines, after_outlines, rows, HERE / "k3-input.bin")
         checksum, nonempty = full_pass(comparator, work, signature_digest)
         (HERE / "k3-reference.json").write_text(
-            json.dumps(
-                {"rows": len(work), "checksum": checksum, "nonempty_deltas": nonempty}, indent=2
-            )
+            json.dumps({"rows": len(work), "checksum": checksum, "nonempty_deltas": nonempty}, indent=2)
             + "\n"
         )
         print(json.dumps({"exported": len(rows), "checksum": checksum}))
@@ -247,9 +245,7 @@ def main() -> None:
 
         live = InkComparator(before_font, after_font)
         full_pass(live, work[:50], signature_digest)  # warm the outline caches
-        elapsed_live, (checksum_live, _) = _timeit(
-            lambda: full_pass(live, work, signature_digest), reps=3
-        )
+        elapsed_live, (checksum_live, _) = _timeit(lambda: full_pass(live, work, signature_digest), reps=3)
         result["live_font_pass"] = {
             "seconds": elapsed_live,
             "us_per_row": elapsed_live / len(work) * 1e6,

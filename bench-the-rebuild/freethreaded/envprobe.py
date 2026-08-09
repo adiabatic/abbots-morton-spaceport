@@ -88,9 +88,15 @@ def deps_readiness():
     )
     return {
         "probed": True,
-        "default": json.loads(plain.stdout.strip().splitlines()[-1]) if plain.returncode == 0 else plain.stderr[-400:],
+        "default": (
+            json.loads(plain.stdout.strip().splitlines()[-1])
+            if plain.returncode == 0
+            else plain.stderr[-400:]
+        ),
         "with_PYTHON_GIL_0": (
-            json.loads(forced.stdout.strip().splitlines()[-1]) if forced.returncode == 0 else forced.stderr[-400:]
+            json.loads(forced.stdout.strip().splitlines()[-1])
+            if forced.returncode == 0
+            else forced.stderr[-400:]
         ),
         "uharfbuzz": {
             "installs": uhb.returncode == 0,

@@ -408,7 +408,8 @@ def load_spec(path: str, n_letters: int = 15) -> Spec:
         buckets = records.get(name, {"refuse": [], "prefer": [], "extend": [], "contract": []})
         st = tuple(stances[name])
         bearing = any(
-            any(row.selectable for row in s.entries) or any(u.entry is not None for u in s.unlocks) for s in st
+            any(row.selectable for row in s.entries) or any(u.entry is not None for u in s.unlocks)
+            for s in st
         )
         fmask = 0
         for stance_rec in st:
@@ -822,7 +823,8 @@ class Engine:
                         if eliminations is not None:
                             eliminations.append(
                                 Elimination(
-                                    "refuse", f"{rune_name}.{stance.name}: exit {height} refused by #{hit.ident}"
+                                    "refuse",
+                                    f"{rune_name}.{stance.name}: exit {height} refused by #{hit.ident}",
                                 )
                             )
                         continue
@@ -834,7 +836,8 @@ class Engine:
                 if eliminations is not None:
                     eliminations.append(
                         Elimination(
-                            "pairings", f"{rune_name}.{stance.name}: pairing ({entry_state}, none) not allowed"
+                            "pairings",
+                            f"{rune_name}.{stance.name}: pairing ({entry_state}, none) not allowed",
                         )
                     )
                 continue
@@ -908,7 +911,7 @@ class Engine:
             try:
                 trace = self.transition_trace(virtual, right1, right2, right3, right4, UNKNOWN)
                 result = 1 if trace.settled.seam is not None else 0
-            except (SettleError, ERaisedError):
+            except SettleError, ERaisedError:
                 follower_cells = self.candidates(virtual, right1.letter, right2, UNKNOWN)
                 result = 1 if any(cell.seam is not None for cell in follower_cells) else 0
         except BaseException:
@@ -1026,7 +1029,8 @@ class Engine:
             key=lambda i: sum(
                 1
                 for j in range(len(applicable))
-                if i != j and _outranks(applicable[j][1], applicable[i][1], applicable[j][0], applicable[i][0])
+                if i != j
+                and _outranks(applicable[j][1], applicable[i][1], applicable[j][0], applicable[i][0])
             ),
         )
         current = list(survivors)
@@ -1268,7 +1272,9 @@ class Engine:
                         if note not in notes:
                             notes.append(note)
                     break
-            extend = self._pick_adjustment("extend", rune, winner, "entry", winner.entry, left, right1, right2)
+            extend = self._pick_adjustment(
+                "extend", rune, winner, "entry", winner.entry, left, right1, right2
+            )
             contract = self._pick_adjustment(
                 "contract", rune, winner, "entry", winner.entry, left, right1, right2
             )
@@ -1346,7 +1352,17 @@ SEAT_UNREACHABLE = "@unreachable"
 
 
 class ProspectLiveness:
-    __slots__ = ("spec", "engine", "third", "fourth", "sigs", "shapes", "left_classes", "left_conds", "probes")
+    __slots__ = (
+        "spec",
+        "engine",
+        "third",
+        "fourth",
+        "sigs",
+        "shapes",
+        "left_classes",
+        "left_conds",
+        "probes",
+    )
 
     def __init__(self, spec: Spec, engine: Engine) -> None:
         self.spec = spec
@@ -1643,17 +1659,13 @@ def build_tables(spec: Spec, features: frozenset[str], share: dict | None = None
     fourth_verdicts: dict[tuple, bool] = {}
     chains3 = {
         name: tuple(
-            r.when.right
-            for r in rune.prefer
-            if r.when.right is not None and _chain_reach(r.when.right) >= 2
+            r.when.right for r in rune.prefer if r.when.right is not None and _chain_reach(r.when.right) >= 2
         )
         for name, rune in spec.runes.items()
     }
     chains4 = {
         name: tuple(
-            r.when.right
-            for r in rune.prefer
-            if r.when.right is not None and _chain_reach(r.when.right) >= 3
+            r.when.right for r in rune.prefer if r.when.right is not None and _chain_reach(r.when.right) >= 3
         )
         for name, rune in spec.runes.items()
     }
@@ -1811,7 +1823,9 @@ def build_tables(spec: Spec, features: frozenset[str], share: dict | None = None
                                 )
                             )
 
-    rows = sorted(transitions.values(), key=lambda t: (t.input_glyph, t.left, t.right1, t.right2, t.right3, t.right4))
+    rows = sorted(
+        transitions.values(), key=lambda t: (t.input_glyph, t.left, t.right1, t.right2, t.right3, t.right4)
+    )
     checksum = 0xCBF29CE484222325
     for row in rows:
         line = "\t".join(

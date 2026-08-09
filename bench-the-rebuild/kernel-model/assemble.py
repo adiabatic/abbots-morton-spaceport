@@ -139,9 +139,9 @@ def main() -> None:
             "model_peak_rss_bytes": variants["python-one"]["process"].get("peak_rss_bytes"),
             "volume_ratio_windows": ratio(model["windows"], rk["n_windows"]),
             "volume_ratio_candidates": ratio(model["candidates"], rk["counters"].get("candidates")),
-            "us_per_candidates_call_real": round(real_cpu * 1e6 / rk["counters"]["candidates"], 4)
-            if rk["counters"]
-            else None,
+            "us_per_candidates_call_real": (
+                round(real_cpu * 1e6 / rk["counters"]["candidates"], 4) if rk["counters"] else None
+            ),
             "us_per_candidates_call_model": round(model_cpu * 1e6 / model["candidates"], 4),
             "us_per_kernel_op_real": round(real_cpu * 1e6 / real_ops, 4) if real_ops else None,
             "us_per_kernel_op_model": round(model_cpu * 1e6 / model_ops, 4),
@@ -167,9 +167,7 @@ def main() -> None:
         },
         "six_config_parallel_combined": {
             "rust_par_shared_vs_python_serial_wall": ratio(wall("python-six"), wall("rust-six-par")),
-            "rust_par_noshare_vs_python_serial_wall": ratio(
-                wall("python-six"), wall("rust-six-par-noshare")
-            ),
+            "rust_par_noshare_vs_python_serial_wall": ratio(wall("python-six"), wall("rust-six-par-noshare")),
             "go_par_shared_vs_python_serial_wall": ratio(wall("python-six"), wall("go-six-par")),
             "go_par_noshare_vs_python_serial_wall": ratio(wall("python-six"), wall("go-six-par-noshare")),
         },
@@ -201,14 +199,14 @@ def main() -> None:
             "packed_key_struct_bytes": memo["rust"]["key_struct_bytes"] if memo["rust"] else None,
         },
         "memory": {
-            "python_one_peak_rss_bytes": variants.get("python-one", {}).get("process", {}).get(
-                "peak_rss_bytes"
-            ),
+            "python_one_peak_rss_bytes": variants.get("python-one", {})
+            .get("process", {})
+            .get("peak_rss_bytes"),
             "rust_one_peak_rss_bytes": variants.get("rust-one", {}).get("process", {}).get("peak_rss_bytes"),
             "go_one_peak_rss_bytes": variants.get("go-one", {}).get("process", {}).get("peak_rss_bytes"),
-            "python_six_peak_rss_bytes": variants.get("python-six", {}).get("process", {}).get(
-                "peak_rss_bytes"
-            ),
+            "python_six_peak_rss_bytes": variants.get("python-six", {})
+            .get("process", {})
+            .get("peak_rss_bytes"),
             "rust_six_peak_rss_bytes": variants.get("rust-six", {}).get("process", {}).get("peak_rss_bytes"),
         },
     }

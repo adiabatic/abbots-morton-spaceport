@@ -90,10 +90,7 @@ def rows_opt_str_tuple(path: Path) -> list:
                 tuple([int(c) for c in clusters.split(",")]),
                 tuple(seams.split(",")) if seams else (),
                 tuple(
-                    [
-                        (int(t[0]), int(t[1]), int(t[2]))
-                        for t in [p.split(",") for p in positions.split("|")]
-                    ]
+                    [(int(t[0]), int(t[1]), int(t[2])) for t in [p.split(",") for p in positions.split("|")]]
                 ),
             )
         )

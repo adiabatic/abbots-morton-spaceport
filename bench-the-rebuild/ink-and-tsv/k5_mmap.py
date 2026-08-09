@@ -103,10 +103,15 @@ def build_pack(path: Path) -> dict:
         names += raw
     base = len(header) + 16
     offsets = struct.pack(
-        "<IIII", base, base + len(names), base + len(names) + len(index_blob),
+        "<IIII",
+        base,
+        base + len(names),
+        base + len(names) + len(index_blob),
         base + len(names) + len(index_blob) + len(key_blob),
     )
-    path.write_bytes(bytes(header) + offsets + bytes(names) + bytes(index_blob) + bytes(key_blob) + bytes(blob))
+    path.write_bytes(
+        bytes(header) + offsets + bytes(names) + bytes(index_blob) + bytes(key_blob) + bytes(blob)
+    )
     return {"bytes": path.stat().st_size}
 
 
@@ -145,8 +150,12 @@ class Pack:
                 hi = mid
         if lo >= count or self._key_at(index_start + lo) != target:
             return None
-        _o, _l, offset, length = struct.unpack_from("<IIII", self._view, self._index_at + 16 * (index_start + lo))
-        return Row.from_tsv(bytes(self._view[self._blob_at + offset : self._blob_at + offset + length]).decode())
+        _o, _l, offset, length = struct.unpack_from(
+            "<IIII", self._view, self._index_at + 16 * (index_start + lo)
+        )
+        return Row.from_tsv(
+            bytes(self._view[self._blob_at + offset : self._blob_at + offset + length]).decode()
+        )
 
 
 def worker_mmap(args):
