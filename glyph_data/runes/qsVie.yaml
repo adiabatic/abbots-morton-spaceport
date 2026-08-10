@@ -101,7 +101,6 @@ policy:
         - qsTea
         - qsYe
         - qsHe
-        - qsIt
   contract: []
   resolve: []
   groups: {}
