@@ -715,6 +715,11 @@ test('classesInBatch names the classes with units in a batch, batchless classes 
     ['boundary-echo', 'dangling-anchor-dropped', 'marker-staging-ligature-formation'],
   );
   assert.deepEqual([...classesInBatch(withExempt, 1)], ['dangling-anchor-dropped']);
+  assert.deepEqual(
+    [...classesInBatch(withExempt, 0, false)].sort(),
+    ['dangling-anchor-dropped', 'marker-staging-ligature-formation'],
+    'with machine rows hidden a batchless class contributes nothing to batch 0',
+  );
 });
 
 test('copyPreamble names only the unit, codepoints, and notation — the rest is looked up from the shards', () => {

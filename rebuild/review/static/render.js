@@ -241,8 +241,10 @@ export function noVerdictTotal(manifest) {
 
 export const NO_VERDICT_BADGE = 'no verdict needed';
 
+const COUNT_FORMAT = new Intl.NumberFormat('en-US');
+
 export function formatCount(value) {
-  return value.toLocaleString('en-US');
+  return COUNT_FORMAT.format(value);
 }
 
 export function machineChannels(manifest) {
@@ -345,11 +347,12 @@ export function availableBatches(manifest, classId) {
   return batches;
 }
 
-export function classesInBatch(manifest, batch) {
-  // Mirrors unitsForView's class selection: batchless classes (all machine-approved or no-verdict) ride along with batch 0.
+export function classesInBatch(manifest, batch, showMachine = true) {
+  // Mirrors unitsForView's class selection: batchless classes hold nothing but machine-approved and no-verdict units, so they ride along with batch 0 only when those are on screen to be seen.
   const ids = new Set();
   for (const cls of manifest.classes) {
-    if (cls.batches.includes(batch) || (cls.batches.length === 0 && batch === 0)) ids.add(cls.id);
+    if (cls.batches.includes(batch)) ids.add(cls.id);
+    else if (cls.batches.length === 0 && batch === 0 && showMachine) ids.add(cls.id);
   }
   return ids;
 }
