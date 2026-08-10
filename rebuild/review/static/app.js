@@ -408,7 +408,6 @@ function buildRow(unit) {
   note.placeholder = 'note (n)';
   note.disabled = exempt;
   note.setAttribute('aria-label', `Note for ${unit.id}`);
-  note.setAttribute('list', 'note-suggestions');
 
   const groups = renderGroupsOf(unit);
   row.append(label, buildSample(unit, 'before', groups[0].featureSettings), buildSample(unit, 'after', groups[0].featureSettings));
@@ -2224,19 +2223,6 @@ function wireEvents() {
     if (updateNote(store, row.dataset.unit, note.value)) {
       updateProgress();
       scheduleAutosave();
-    }
-  });
-
-  // The suggestion list refreshes only when a note field gains focus — rebuilding it on every keystroke would reshuffle the dropdown mid-typing and capture half-typed notes as suggestions.
-  document.getElementById('batch').addEventListener('focusin', (event) => {
-    const note = event.target.closest('.note');
-    if (!note) return;
-    const suggestions = document.getElementById('note-suggestions');
-    suggestions.replaceChildren();
-    for (const text of recentNotes(store, null, { limit: 100 })) {
-      const option = document.createElement('option');
-      option.value = text;
-      suggestions.append(option);
     }
   });
 
