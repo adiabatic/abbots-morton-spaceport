@@ -10,6 +10,7 @@ Run as: uv run python -m rebuild.pipeline.run_m1
 from __future__ import annotations
 
 import argparse
+import gc
 import json
 import multiprocessing
 import time
@@ -592,4 +593,7 @@ def main(argv: list[str] | None = None) -> None:
 
 
 if __name__ == "__main__":
+    # This batch is short-lived, and its large live heap contains almost no cyclic garbage worth scanning.
+    gc.freeze()
+    gc.disable()
     main()
