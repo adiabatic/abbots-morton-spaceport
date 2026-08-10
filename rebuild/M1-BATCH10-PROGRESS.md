@@ -4,7 +4,7 @@ Scratch for the ·Vie migration. Delete when the batch closes, lifting any survi
 
 ## Parked
 
-Nothing yet.
+The ss04 entered-·It extension wart, parked at the reviewer’s word after the sitting rejected it and no record turned out to reach it. The fork is in `WHATNEXT.md`; the `·Et·It·Vie·X` and `·Oy·It·Vie·X` neithers stand until it resolves.
 
 ## State
 
@@ -34,7 +34,7 @@ Most wiring predated the batch: qsNo.flipped's baseline entry and qsRoe's hapax 
 - **A small ss04 formation-tie family** (exemplars `E659:E67A:E670:{E653,E667,E67A}`): the old font un-forms ·Vie·Utter so alt-·Utter can feed the ss04-entered ·It; formed and unformed tie on join-count, and M1's §5.7 guard un-forms only on strict gain, so M1 keeps the ligature — the batch-9 ·See·Utter·Tea·Tea shape, a principled gain-adjacent divergence.
 - **`·Day·Tea·Vie` and `·No·Tea·Vie` join the ·Day·Tea·X yield family** (they land in regrouping-floor-drift) — the standing WHATNEXT fork, not a qsVie question.
 - **The ss10 rows sit unmatched** until the per-rune `SS10_UNCOVERED_BY_OLD_FONT` adjudication is made at review, exactly as batch 9's qsSee rows did.
-- The ss04 entered-·It and ss05 entered-·Tea extension warts landed in the existing halves-entry-extension-restored ledger class; nothing new to author.
+- The ss05 entered-·Tea extension wart landed in the existing halves-entry-extension-restored ledger class; nothing new to author. Its ss04 entered-·It sibling did not survive the sitting — see Parked.
 
 ## The WHATNEXT items this batch was supposed to answer
 
