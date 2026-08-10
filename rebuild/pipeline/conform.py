@@ -1864,6 +1864,9 @@ def classify_divergence(row: DivergentRow) -> str | None:
         return "no-xheight-entry-extension-dropped"
     if phenomena & {"-en-ext-1:qsDay", "-en-ext-1:qsDay_qsUtter"}:
         return "day-baseline-entry-extension-dropped"
+    if phenomena == {"+ex-ext-1", "-en-ext-1:qsVie"}:
+        # The seam's one connector pixel changed which glyph draws it, and nothing else about the row moved: qsIt's own exit extension carries it wherever nothing joins into ·It, where ·Vie's entry extension used to. Matched only on the bare pair, so a row that also moved a stance or an anchor keeps its own class rather than hiding a real change behind the swap.
+        return "it-vie-extension-relocated"
     # The may-exit-withdrawal-generalized class retired with qsMay's pulled-back exit; a row resurrecting these phenomena carries an ink delta, so it must surface UNMATCHED rather than fall through to the name-grain classes below.
     if any(item.startswith("+ex-bind-") for item in phenomena) or "-ex-ext-1" in phenomena:
         return None
@@ -1910,6 +1913,7 @@ for _class_id in (
     "may-baseline-entry-extension-dropped",
     "no-xheight-entry-extension-dropped",
     "day-baseline-entry-extension-dropped",
+    "it-vie-extension-relocated",
     "zwnj-word-initial-unification",
     "dangling-anchor-dropped",
     "bare-name-live-join",
