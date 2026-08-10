@@ -51,12 +51,13 @@ from quikscript_ir import (
 )
 
 _DEPARTURE_MONO_OTF = Path(__file__).resolve().parent.parent / "reference" / "DepartureMono-Regular.otf"
+_SAFE_LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
 
 
 def load_postscript_glyph_names() -> dict[str, int]:
     path = Path(__file__).parent.parent / "postscript_glyph_names.yaml"
     with open(path) as f:
-        return yaml.safe_load(f)
+        return yaml.load(f, Loader=_SAFE_LOADER)
 
 
 # Top-level keys that mark a YAML document as one of the structured glyph-data records. A document carrying none of these is read as a bare Senior-only kerning rule (see senior_quikscript_kerning.yaml).
@@ -92,7 +93,7 @@ def load_glyph_data(path: Path) -> GlyphData:
     files = sorted(path.glob("*.yaml")) if path.is_dir() else [path]
     for yaml_file in files:
         with open(yaml_file) as f:
-            documents = list(yaml.safe_load_all(f))
+            documents = list(yaml.load_all(f, Loader=_SAFE_LOADER))
         for data in documents:
             if not isinstance(data, dict) or not data:
                 continue

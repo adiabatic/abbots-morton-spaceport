@@ -16,6 +16,73 @@ def _keys(values):
     return lambda: next(calls)
 
 
+class HardExit(Exception):
+    pass
+
+
+class FlushRecorder:
+    def __init__(self, name, events):
+        self.name = name
+        self.events = events
+
+    def flush(self):
+        self.events.append(f"flush {self.name}")
+
+    def write(self, value):
+        self.events.append(f"write {self.name} {value}")
+        return len(value)
+
+
+def test_hard_exit_flushes_both_streams_before_os_exit(monkeypatch):
+    events = []
+    monkeypatch.setattr(run_m1.sys, "stdout", FlushRecorder("stdout", events))
+    monkeypatch.setattr(run_m1.sys, "stderr", FlushRecorder("stderr", events))
+
+    def exit_(status):
+        events.append(f"exit {status}")
+        raise HardExit
+
+    monkeypatch.setattr(run_m1.os, "_exit", exit_)
+    with pytest.raises(HardExit):
+        run_m1._hard_exit(7)
+    assert events == ["flush stdout", "flush stderr", "exit 7"]
+
+
+def test_cli_flushes_output_before_preserving_string_system_exit(monkeypatch):
+    events = []
+    monkeypatch.setattr(run_m1.sys, "stdout", FlushRecorder("stdout", events))
+    monkeypatch.setattr(run_m1.sys, "stderr", FlushRecorder("stderr", events))
+
+    def main():
+        print("summary")
+        raise SystemExit("expected failure")
+
+    def exit_(status):
+        events.append(f"exit {status}")
+        raise HardExit(status)
+
+    monkeypatch.setattr(run_m1, "main", main)
+    monkeypatch.setattr(run_m1.os, "_exit", exit_)
+    with pytest.raises(HardExit, match="1"):
+        run_m1._run_cli()
+    assert events.index("flush stdout") < events.index("write stderr expected failure")
+    assert events[-3:] == ["flush stdout", "flush stderr", "exit 1"]
+
+
+def test_cli_hard_exits_zero_after_a_normal_return(monkeypatch):
+    monkeypatch.setattr(run_m1, "main", lambda: None)
+    monkeypatch.setattr(run_m1, "_hard_exit", lambda status: (_ for _ in ()).throw(HardExit(status)))
+    with pytest.raises(HardExit, match="0"):
+        run_m1._run_cli()
+
+
+def test_cli_leaves_unexpected_exceptions_to_the_interpreter(monkeypatch):
+    monkeypatch.setattr(run_m1, "main", lambda: (_ for _ in ()).throw(RuntimeError("boom")))
+    monkeypatch.setattr(run_m1, "_hard_exit", lambda _status: pytest.fail("must not hard-exit"))
+    with pytest.raises(RuntimeError, match="boom"):
+        run_m1._run_cli()
+
+
 def test_records_when_the_key_holds_across_the_run(green_store):
     run_m1._settle_green(green_store, "fp-1", True, _keys(["fp-1"]), "run_m1")
     record = ac.read_green_record(green_store)

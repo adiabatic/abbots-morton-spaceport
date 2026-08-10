@@ -22,7 +22,8 @@ DEFAULT_CLASSES = [
 ]
 CLASS_A_UNITS = [{"id": "u-1", "batch": 1}, {"id": "u-2", "batch": 2}, {"id": "m-1", "batch": None}]
 CLASS_B_UNITS = [{"id": "u-3", "batch": 1}]
-HUMAN_IDS = frozenset({"u-1", "u-2", "u-3"})
+HUMAN_ID_LIST = ["u-1", "u-2", "u-3"]
+HUMAN_IDS = frozenset(HUMAN_ID_LIST)
 
 
 def recompute(_repo):
@@ -54,6 +55,7 @@ def write_surface(
     repo_head: str = "abc1234",
     inputs_fp: str | Mapping[str, str | None] = "fresh",
     shards: bool = True,
+    human_ids: list[str] | None = HUMAN_ID_LIST,
 ) -> None:
     manifest: dict[str, object] = {
         "format": "ams-review-manifest/1",
@@ -61,6 +63,8 @@ def write_surface(
         "repo_head": repo_head,
         "classes": DEFAULT_CLASSES,
     }
+    if human_ids is not None:
+        manifest["human_unit_ids"] = human_ids
     if inputs_fp == "fresh":
         manifest["inputs_fingerprint"] = dict(FP)
     elif inputs_fp != "omit":
@@ -459,8 +463,16 @@ def test_blanks_skip_counts_as_blank(tmp_path):
     assert "1 blanks remaining" in blanks["detail"]
 
 
-def test_blanks_aligned_happy_count_scans_shards(tmp_path):
-    write_surface(tmp_path / "rebuild" / "out" / "review")
+def test_blanks_aligned_happy_count_reads_manifest_without_shards(tmp_path):
+    write_surface(tmp_path / "rebuild" / "out" / "review", shards=False)
+    write_summary(tmp_path)
+    write_autosave(tmp_path, records=[verdict("u-1")])
+    blanks = call(tmp_path)["checks"]["blanks"]
+    assert blanks["count"] == 2
+
+
+def test_blanks_falls_back_to_shards_for_a_legacy_manifest(tmp_path):
+    write_surface(tmp_path / "rebuild" / "out" / "review", human_ids=None)
     write_summary(tmp_path)
     write_autosave(tmp_path, records=[verdict("u-1")])
     blanks = call(tmp_path)["checks"]["blanks"]

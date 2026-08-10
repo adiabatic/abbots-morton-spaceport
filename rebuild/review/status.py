@@ -103,6 +103,15 @@ def resolve_carry_source(repo_root, manifest_stamp, autosave_path) -> dict | Non
 def load_human_unit_ids(review_dir) -> frozenset[str]:
     review_dir = Path(review_dir)
     manifest = json.loads((review_dir / "manifest.json").read_text())
+    if "human_unit_ids" in manifest:
+        persisted = manifest["human_unit_ids"]
+        if not isinstance(persisted, list) or not all(
+            isinstance(unit, str) and unit.startswith("u-") for unit in persisted
+        ):
+            raise TypeError("manifest human_unit_ids must be a list of u- ids")
+        if len(persisted) != len(set(persisted)):
+            raise ValueError("manifest human_unit_ids must be unique")
+        return frozenset(persisted)
     ids: set[str] = set()
     for entry in manifest["classes"]:
         shard = entry.get("shard")

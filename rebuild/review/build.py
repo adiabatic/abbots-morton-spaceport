@@ -21,6 +21,7 @@ import traceback
 import warnings
 from collections import Counter
 from dataclasses import dataclass
+from functools import lru_cache
 from itertools import combinations
 from pathlib import Path
 
@@ -192,13 +193,10 @@ def _gate_clauses(constraints) -> list[dict]:
     ]
 
 
-def config_badge(unit_configs, full_configs) -> tuple[list[dict] | None, str | None]:
-    """The per-unit config badge, as (gate, note). The gate is the minimal conjunction of feature on/off constraints selecting exactly the configs a divergence applies under — one clause per constraint, which the app draws as its own chip in that feature's color, so a set-gated unit is legible at a glance rather than as a config list to decode. The note is the clauses joined, kept as a string for the census histogram and for hover text.
-
-    Both are null when the unit covers every non-ss10 config, the overwhelmingly common case where the set carries no information. When no conjunction of GATE_CONSTRAINT_CAP or fewer constraints pins the set — either because the set is a genuine disjunction, or because it needs more features named than the config list itself has entries — the gate stays null and the note falls back to the literal "only under: <set>".
-
-    ss10 is a constraint like any other, except that a set touching no ss10 config resolves against the non-ss10 configs alone; that is what lets an exclusion gate like ss03-off stand without also spelling out the implied ss10-off.
-    """
+@lru_cache(maxsize=None)
+def _config_badge(
+    unit_configs: tuple[str, ...], full_configs: tuple[str, ...]
+) -> tuple[list[dict] | None, str | None]:
     covered = set(unit_configs)
     non_isolated = [config for config in full_configs if "ss10" not in _config_features(config)]
     if covered >= set(non_isolated):
@@ -218,6 +216,16 @@ def config_badge(unit_configs, full_configs) -> tuple[list[dict] | None, str | N
                 clauses = _gate_clauses(constraints)
                 return clauses, " ".join(clause["text"] for clause in clauses)
     return None, "only under: " + ", ".join(unit_configs)
+
+
+def config_badge(unit_configs, full_configs) -> tuple[list[dict] | None, str | None]:
+    """The per-unit config badge, as (gate, note). The gate is the minimal conjunction of feature on/off constraints selecting exactly the configs a divergence applies under — one clause per constraint, which the app draws as its own chip in that feature's color, so a set-gated unit is legible at a glance rather than as a config list to decode. The note is the clauses joined, kept as a string for the census histogram and for hover text.
+
+    Both are null when the unit covers every non-ss10 config, the overwhelmingly common case where the set carries no information. When no conjunction of GATE_CONSTRAINT_CAP or fewer constraints pins the set — either because the set is a genuine disjunction, or because it needs more features named than the config list itself has entries — the gate stays null and the note falls back to the literal "only under: <set>".
+
+    ss10 is a constraint like any other, except that a set touching no ss10 config resolves against the non-ss10 configs alone; that is what lets an exclusion gate like ss03-off stand without also spelling out the implied ss10-off.
+    """
+    return _config_badge(tuple(unit_configs), tuple(full_configs))
 
 
 def config_gate(unit_configs, full_configs) -> list[dict] | None:
@@ -810,6 +818,7 @@ def _write_surface(
         "configs": list(ACCEPTANCE_CONFIGS),
         "feature_descriptions": dict(FEATURE_DESCRIPTIONS),
         "batch_size": batch_size,
+        "human_unit_ids": [unit.unit_id for unit in workload.units if unit.batch is not None],
         "totals": {
             "units": len(workload.units),
             "rows": workload.row_count,
@@ -1284,6 +1293,7 @@ def build_table_diff(
     classes_meta: list[dict] = []
     index = 0
     human_index = 0
+    human_unit_ids: list[str] = []
     machine_units = 0
     machine_rows = 0
     machine_by_class: dict[str, int] = {}
@@ -1307,7 +1317,10 @@ def build_table_diff(
                 batch = human_index // batch_size
                 batches.add(batch)
                 human_index += 1
-            shard.append(_table_diff_unit_json(entry, f"u-{index:04d}", batch, all_configs, ink_identical))
+            unit_id = f"u-{index:04d}"
+            if batch is not None:
+                human_unit_ids.append(unit_id)
+            shard.append(_table_diff_unit_json(entry, unit_id, batch, all_configs, ink_identical))
             index += 1
         _write_json(out_dir / "units" / f"{bucket}.json", shard)
         machine_units += machine_count
@@ -1344,6 +1357,7 @@ def build_table_diff(
         "configs": all_configs,
         "feature_descriptions": dict(FEATURE_DESCRIPTIONS),
         "batch_size": batch_size,
+        "human_unit_ids": human_unit_ids,
         "totals": {
             "units": index,
             "rows": sum(meta["row_count"] for meta in classes_meta),
@@ -1385,6 +1399,13 @@ def check_manifest(manifest: dict) -> list[str]:
     for key in ("generated_at", "repo_head", "build_command", "serve_command"):
         need(isinstance(manifest.get(key), str) and manifest.get(key), f"{key} must be a nonempty string")
     need(isinstance(manifest.get("source"), dict), "source must be a mapping")
+    human_unit_ids = manifest.get("human_unit_ids")
+    valid_human_unit_ids = isinstance(human_unit_ids, list) and all(
+        isinstance(unit, str) and unit.startswith("u-") for unit in human_unit_ids
+    )
+    need(valid_human_unit_ids, "human_unit_ids must be a list of u- ids")
+    if isinstance(human_unit_ids, list) and all(isinstance(unit, str) for unit in human_unit_ids):
+        need(len(human_unit_ids) == len(set(human_unit_ids)), "human_unit_ids must be unique")
     inputs = manifest.get("inputs_fingerprint")
     need(
         isinstance(inputs, dict)
@@ -1826,6 +1847,7 @@ def check_shards(manifest: dict, shards_by_class: dict[str, list[dict]]) -> list
     seen_units = 0
     seen_rows = 0
     seen_ids: set[str | None] = set()
+    seen_human_ids: set[str] = set()
     seen_machine_by_class: dict[str, int] = {}
     seam_homes: list[tuple[str | None, str]] = []
     seam_units = 0
@@ -1845,6 +1867,8 @@ def check_shards(manifest: dict, shards_by_class: dict[str, list[dict]]) -> list
             if unit.get("id") in seen_ids:
                 errors.append(f"duplicate unit id {unit.get('id')}")
             seen_ids.add(unit.get("id"))
+            if unit.get("batch") is not None and isinstance(unit.get("id"), str):
+                seen_human_ids.add(unit["id"])
             if unit.get("no_verdict") != bool(meta.get("no_verdict")):
                 errors.append(
                     f"unit {unit.get('id')}: no_verdict {unit.get('no_verdict')} in a class "
@@ -1882,6 +1906,10 @@ def check_shards(manifest: dict, shards_by_class: dict[str, list[dict]]) -> list
         errors.append(f"totals.units {totals.get('units')} != {seen_units} shard units")
     if seen_rows != totals.get("rows"):
         errors.append(f"totals.rows {totals.get('rows')} != {seen_rows} summed class rows")
+    human_unit_ids = manifest.get("human_unit_ids")
+    if isinstance(human_unit_ids, list) and all(isinstance(unit, str) for unit in human_unit_ids):
+        if set(human_unit_ids) != seen_human_ids:
+            errors.append("human_unit_ids does not match the shards' non-null batches")
     machine = manifest.get("machine_approved") or {}
     if sum(seen_machine_by_class.values()) != machine.get("units"):
         errors.append(
