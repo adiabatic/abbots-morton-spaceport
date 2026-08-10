@@ -22,7 +22,9 @@ from rebuild.review.build import (
     build_table_diff,
     check_manifest,
     check_output_dir,
+    check_shards,
     check_unit,
+    config_badge,
     config_gate,
     config_note,
 )
@@ -179,6 +181,26 @@ def test_check_manifest_flags_a_malformed_inputs_fingerprint():
     assert any("inputs_fingerprint" in error for error in check_manifest(manifest))
 
 
+@pytest.mark.parametrize(
+    "human_unit_ids",
+    ("u-0000", ["u-0000", ["u-0001"]], ["not-a-unit"], ["u-0000", "u-0000"]),
+)
+def test_check_manifest_flags_malformed_human_unit_ids(human_unit_ids):
+    manifest = json.loads((FIXTURES / "manifest.json").read_text(encoding="utf-8"))
+    manifest["human_unit_ids"] = human_unit_ids
+    assert any("human_unit_ids" in error for error in check_manifest(manifest))
+
+
+def test_check_shards_flags_human_unit_ids_that_do_not_match_batches():
+    manifest = json.loads((FIXTURES / "manifest.json").read_text(encoding="utf-8"))
+    shards = {
+        meta["id"]: json.loads((FIXTURES / meta["shard"]).read_text(encoding="utf-8"))
+        for meta in manifest["classes"]
+    }
+    manifest["human_unit_ids"].pop()
+    assert any("human_unit_ids" in error for error in check_shards(manifest, shards))
+
+
 def test_machine_approved_histogram_pins_the_census(built):
     """The kern-neutral ink census the rebatching rests on over the live workload, after the ink-duplicate merge folds name-grain sibling units: the machine-approved units concentrated in the name-grain classes whose visible stragglers differ only in the old font's kerning (boundary-echo, dangling-anchor-dropped, bare-name-live-join), the non-identical remainder, and — after the no-verdict exemptions (the boundary-echo blanket plus the two x-height-halves deletion forks) — the human workload. Every count is pinned in rebuild/review-census-pins.json (the "manifest" group)."""
     out_dir, manifest = built
@@ -288,6 +310,7 @@ def test_batches_cover_the_human_workload_only(built):
     assert [batch for _unit_id, batch in human_batches] == [
         index // 300 for index in range(len(human_batches))
     ]
+    assert manifest["human_unit_ids"] == [unit_id for unit_id, _batch in human_batches]
     assert manifest["totals"]["batches"] == PINS["manifest"]["totals"]["batches"]
 
 
@@ -390,7 +413,7 @@ def test_echo_groups_partition_the_human_workload(built):
     siblings = {member["codepoints"] for member in by_echo[example["echo"]]}
     assert "E653:E652:E666" in siblings
     assert "E679:E653:E652:E666" in siblings
-    assert len(siblings) == 160
+    assert len(siblings) == 159
 
 
 def test_cluster_signatures_coarsen_the_echo_grain(built):
@@ -442,6 +465,13 @@ def test_config_note_covers_the_general_gated_excluded_overlay_and_fallback_case
     assert config_note(("default", "ss04", "ss05"), full) == "only when ss03 is off"
     assert config_note(("ss10",), full) == "only under ss10"
     assert config_note(("ss04", "ss10"), full) == "only under: ss04, ss10"
+
+
+def test_config_badge_caches_list_and_tuple_equivalents_together():
+    full = ACCEPTANCE_CONFIGS
+    from_lists = config_badge(["ss03"], list(full))
+    from_tuples = config_badge(("ss03",), full)
+    assert from_lists is from_tuples
 
 
 def test_config_gate_pins_a_narrower_set_than_one_feature_can_describe():
@@ -892,6 +922,7 @@ def test_table_diff_build(tmp_path):
     assert shard[0]["class"] == "changed"
     assert "ink_deltas" not in shard[0]
     assert check_unit(shard[0], "table-diff") == []
+    assert manifest["human_unit_ids"] == [unit["id"] for unit in shard if unit["batch"] is not None]
     assert "synthetic-pointer" in shard[0]["explain"] or "synthetic-pointer" in " ".join(
         shard[0]["provenance"]
     )

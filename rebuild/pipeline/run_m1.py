@@ -13,11 +13,13 @@ import argparse
 import gc
 import json
 import multiprocessing
+import os
+import sys
 import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import replace
 from pathlib import Path
-from typing import Callable, Mapping
+from typing import Callable, Mapping, NoReturn
 
 import yaml
 
@@ -592,8 +594,30 @@ def main(argv: list[str] | None = None) -> None:
         raise SystemExit("oracle conformance failed; see oracle_summary.json and divergence-audit.tsv")
 
 
+def _hard_exit(status: int) -> NoReturn:
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(status)
+
+
+def _run_cli() -> None:
+    try:
+        main()
+    except SystemExit as error:
+        if error.code is None:
+            status = 0
+        elif isinstance(error.code, int):
+            status = error.code
+        else:
+            sys.stdout.flush()
+            print(error.code, file=sys.stderr)
+            status = 1
+        _hard_exit(status)
+    _hard_exit(0)
+
+
 if __name__ == "__main__":
     # This batch is short-lived, and its large live heap contains almost no cyclic garbage worth scanning.
     gc.freeze()
     gc.disable()
-    main()
+    _run_cli()

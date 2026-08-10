@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import marshal
 from collections import Counter
 from pathlib import Path
 from typing import Callable
@@ -51,8 +52,8 @@ def delta_digest(diff: tuple) -> str:
 
 
 def signature_digest(signature: tuple) -> str:
-    """The persisted identity of one `InkComparator.signature` result: the sha256 of the tuple's repr. Digest equality is signature equality for the ink-duplicate merge's purposes — the merge only ever groups by the value, never reads inside it — which is what lets the surface build serve signatures from the persisted store (rebuild/review/unit_cache.py) instead of re-shaping every relabel-split window on every pass."""
-    return hashlib.sha256(repr(signature).encode()).hexdigest()
+    """The persisted identity of one `InkComparator.signature` result: the sha256 of its marshal-v2 bytes. Version 2 deliberately predates marshal's identity-based back references, so equal nested tuples digest equally even when one reuses an object the other reconstructs. Digest equality is signature equality for the ink-duplicate merge's purposes — the merge only ever groups by the value, never reads inside it — which is what lets the surface build serve signatures from the persisted store (rebuild/review/unit_cache.py) instead of re-shaping every relabel-split window on every pass."""
+    return hashlib.sha256(marshal.dumps(signature, 2)).hexdigest()
 
 
 class _MemoizedShaper(Shaper):

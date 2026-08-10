@@ -55,6 +55,13 @@
   "ss10": "suppress all joins for the wrapped letter(s)"
  },
  "batch_size": 300,
+ "human_unit_ids": [
+  "u-0000",
+  "u-0001",
+  "u-0002",
+  "u-0004",
+  "u-0005"
+ ],
  "totals": {
   "units": 6,
   "rows": 25,

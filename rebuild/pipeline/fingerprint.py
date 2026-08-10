@@ -18,6 +18,7 @@ from pathlib import Path
 import yaml
 
 FORMAT = "ams-inputs-fingerprint/2"
+_SAFE_LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
 STAGE_A_COMPONENTS = ("data", "baselines", "pipeline_code")
 STAGE_B_COMPONENTS = ("review_code", "static", "fonts")
 COMPONENTS = STAGE_A_COMPONENTS + STAGE_B_COMPONENTS
@@ -142,7 +143,9 @@ def rune_file_digest(path: Path) -> str:
     """Content digest of one rune file over its prose-blind projection, so documentation edits, comments, and reformatting leave it unmoved. Falls back to the raw byte hash when the file does not parse or serialize — a malformed rune is a build-stopping change, and the fallback keeps it visible."""
     raw = path.read_bytes()
     try:
-        payload = json.dumps(_projected_rune(yaml.safe_load(raw.decode())), ensure_ascii=False)
+        payload = json.dumps(
+            _projected_rune(yaml.load(raw.decode(), Loader=_SAFE_LOADER)), ensure_ascii=False
+        )
     except yaml.YAMLError, UnicodeDecodeError, TypeError, ValueError:
         return hashlib.sha256(raw).hexdigest()
     return hashlib.sha256(payload.encode()).hexdigest()

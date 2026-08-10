@@ -1,5 +1,7 @@
 """Tests for the review surface's ink-identity comparison: the proven census method (uharfbuzz shaping with kerning disabled, DecomposingRecordingPen outlines translated by cumulative advance plus offsets, pieces sorted and compared) reproduces the census facts — u-0000 is ink-identical, the verdict is deterministic, and the full kern-neutral histogram reproduces the machine-approved census over the live workload at the name-grain (pre-merge) dedupe, concentrated in the name-grain classes whose visible stragglers differ only in the old font's kerning, with the no-verdict exemptions (the boundary-echo blanket plus the two x-height-halves deletion forks) leaving the rest as human workload. Every count is pinned in rebuild/review-census-pins.json (the "ink" group). The built surface then folds ink-duplicate sibling units (merge_ink_duplicate_units), so the shipped manifest's counts are smaller — those are pinned in test_review_build. Also here: `delta_digest`, the persisted identity of one config's localized delta, whose shape check_unit enforces and whose recipe is a byte-identity contract with the digests recorded in rebuild/standing-approvals.yaml."""
 
+import hashlib
+import marshal
 import shutil
 from pathlib import Path
 
@@ -167,6 +169,19 @@ def test_signature_digest_is_determined_by_the_tuple_alone(comparator):
     again = InkComparator(BEFORE_FONT, AFTER_FONT)
     assert signature_digest(again.signature(pair, "default")) == digest
     assert signature_digest(comparator.signature(pair[:1], "default")) != digest
+
+
+def test_signature_digest_uses_alias_insensitive_marshal_v2():
+    outline = (("lineTo", ((1, 2), (3, 4))),)
+    shared = (outline, outline)
+    reconstructed = (
+        outline,
+        tuple((operator, tuple((x, y) for x, y in points)) for operator, points in outline),
+    )
+    assert shared == reconstructed
+    expected = hashlib.sha256(marshal.dumps(shared, 2)).hexdigest()
+    assert signature_digest(shared) == expected
+    assert signature_digest(reconstructed) == expected
 
 
 def test_shaper_for_shares_one_memoized_shaper_per_font():

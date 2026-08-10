@@ -39,6 +39,7 @@ from rebuild.pipeline.model import (
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+_SAFE_LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
 DEFAULT_RUNES_DIR = REPO_ROOT / "glyph_data" / "runes"
 DEFAULT_REGISTRY_PATH = REPO_ROOT / "rebuild" / "script.yaml"
 DEFAULT_SCHEMA_DIR = REPO_ROOT / "rebuild" / "schema"
@@ -240,7 +241,7 @@ class _SchemaChecker:
 
 def _line_index(text: str) -> dict[str, int]:
     try:
-        root = yaml.compose(text, Loader=yaml.SafeLoader)
+        root = yaml.compose(text, Loader=_SAFE_LOADER)
     except yaml.YAMLError:
         return {}
     index: dict[str, int] = {}
@@ -282,7 +283,7 @@ class _FileContext:
         self.issues = issues
         text = path.read_text()
         self.lines = _line_index(text)
-        self.data = yaml.safe_load(text)
+        self.data = yaml.load(text, Loader=_SAFE_LOADER)
 
     def error(self, path: str, message: str) -> None:
         self.issues.append(SpecIssue(self.file, path, message, _line_for(self.lines, path)))
