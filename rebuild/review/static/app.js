@@ -205,7 +205,7 @@ async function unitsForView(batch, classFilter) {
       continue;
     }
     if (cls.batches.includes(batch)) classes.push(cls);
-    else if (cls.batches.length === 0 && batch === 0) classes.push(cls);
+    else if (cls.batches.length === 0 && batch === 0 && state.machine === '1') classes.push(cls);
   }
   const lists = await Promise.all(classes.map((cls) => shardUnits(cls.id)));
   const units = [];
@@ -714,23 +714,48 @@ function updateCursorDom(scroll = true) {
   if (scroll) row.scrollIntoView({ block: 'start', behavior: reducedMotion.matches ? 'auto' : 'smooth' });
 }
 
+// Every write here is guarded by a read: the counts are unchanged for most of the calls that reach this function, and an unconditional textContent assignment would dirty layout across the whole batch grid anyway.
+function setText(node, text) {
+  if (node.textContent !== text) node.textContent = text;
+}
+
 function updateGroupCounts() {
   for (const fold of document.querySelectorAll('details.group:not(.machine-group)')) {
     const rows = fold.querySelectorAll('.row');
     let verdicted = 0;
     for (const row of rows) if (row.dataset.verdict) verdicted += 1;
-    fold.querySelector('.group-counts').textContent = `${verdicted}/${rows.length} verdicted`;
-    fold.querySelector('.group-approve').hidden = verdicted === rows.length;
+    setText(fold.querySelector('.group-counts'), `${verdicted}/${rows.length} verdicted`);
+    const approve = fold.querySelector('.group-approve');
+    const done = verdicted === rows.length;
+    if (approve.hidden !== done) approve.hidden = done;
   }
+}
+
+function updateUnexportedNudge() {
+  const nudge = document.getElementById('unexported-nudge');
+  nudge.hidden = store.unexported.size === 0;
+  setText(nudge, `${store.unexported.size} unexported${autosaveHealthy() ? ' (autosaved)' : ''}`);
+}
+
+// One walk of the loaded units, not one per class button: the sidebar tally and the selected-class line ask the same question of the same map, and answering it separately for each of the two dozen classes made every store mutation quadratic in the loaded surface.
+function verdictedByClass() {
+  const counts = new Map();
+  for (const [unitId, unit] of unitsById) {
+    if (store.records.has(unitId)) counts.set(unit.class, (counts.get(unit.class) ?? 0) + 1);
+  }
+  return counts;
 }
 
 function updateProgress() {
   const counts = verdictCounts(store);
-  document.getElementById('overall-progress').textContent =
+  setText(
+    document.getElementById('overall-progress'),
     `Overall: ${formatCount(store.records.size)}/${formatCount(humanTotal(manifest))} ` +
-    `(→${formatCount(counts.skip)} ✗${formatCount(counts.reject)} ≡${formatCount(counts.identical)} ` +
-    `≈${formatCount(counts.either)} ∅${formatCount(counts.neither)} ✓${formatCount(counts.approve)})`;
-  updateClassProgress();
+      `(→${formatCount(counts.skip)} ✗${formatCount(counts.reject)} ≡${formatCount(counts.identical)} ` +
+      `≈${formatCount(counts.either)} ∅${formatCount(counts.neither)} ✓${formatCount(counts.approve)})`,
+  );
+  const byClass = verdictedByClass();
+  updateClassProgress(byClass);
   if (state.view === 'docket') {
     // renderDocket owns the batch-progress line in the docket view; a store mutation here (undo, import, autosave restore) just re-derives the queue.
     scheduleDocketRefresh();
@@ -748,16 +773,14 @@ function updateProgress() {
     } else {
       line = `Batch ${state.batch}: ${batchVerdicted}/${visibleUnits.length}`;
     }
-    document.getElementById('batch-progress').textContent = line;
+    setText(document.getElementById('batch-progress'), line);
   }
-  const nudge = document.getElementById('unexported-nudge');
-  nudge.hidden = store.unexported.size === 0;
-  nudge.textContent = `${store.unexported.size} unexported${autosaveHealthy() ? ' (autosaved)' : ''}`;
+  updateUnexportedNudge();
   updateGroupCounts();
-  updateClassCounts();
+  updateClassCounts(byClass);
 }
 
-function updateClassProgress() {
+function updateClassProgress(byClass = verdictedByClass()) {
   const line = document.getElementById('class-progress');
   const cls = state.class ? manifest.classes.find((entry) => entry.id === state.class) : null;
   const human = cls ? humanClassCount(cls) : 0;
@@ -765,11 +788,7 @@ function updateClassProgress() {
     line.hidden = true;
     return;
   }
-  let verdicted = 0;
-  for (const [unitId, unit] of unitsById) {
-    if (unit.class === cls.id && store.records.has(unitId)) verdicted += 1;
-  }
-  line.textContent = `Class ${cls.id}: ${formatCount(verdicted)}/${formatCount(human)}`;
+  setText(line, `Class ${cls.id}: ${formatCount(byClass.get(cls.id) ?? 0)}/${formatCount(human)}`);
   line.title = cls.why ?? '';
   line.hidden = false;
 }
@@ -809,17 +828,11 @@ function renderSidebar() {
   updateClassCounts();
 }
 
-function updateClassCounts() {
+function updateClassCounts(byClass = verdictedByClass()) {
   for (const button of document.querySelectorAll('.class-button')) {
     const cls = manifest.classes.find((entry) => entry.id === button.dataset.class);
-    let verdicted = null;
-    if (!cls.no_verdict && shardCache.has(cls.id)) {
-      verdicted = 0;
-      for (const [unitId, unit] of unitsById) {
-        if (unit.class === cls.id && store.records.has(unitId)) verdicted += 1;
-      }
-    }
-    button.querySelector('.class-counts').textContent = classCountsLine(cls, verdicted);
+    const verdicted = cls.no_verdict || !shardCache.has(cls.id) ? null : (byClass.get(cls.id) ?? 0);
+    setText(button.querySelector('.class-counts'), classCountsLine(cls, verdicted));
     button.setAttribute('aria-pressed', String(state.class === cls.id));
   }
 }
@@ -833,7 +846,7 @@ function updateSidebarHighlights() {
     for (const unit of visibleUnits) batchClasses.add(unit.class);
     for (const unit of machineUnits) batchClasses.add(unit.class);
   } else {
-    batchClasses = classesInBatch(manifest, state.batch);
+    batchClasses = classesInBatch(manifest, state.batch, state.machine === '1');
   }
   for (const button of document.querySelectorAll('.class-button')) {
     button.classList.toggle('has-cursor', button.dataset.class === currentClass);
@@ -1227,7 +1240,6 @@ async function applyHashState() {
   updateProgress();
   updateTitle();
   updateBatchNav();
-  updateClassCounts();
   updateSidebarHighlights();
 }
 
@@ -2221,7 +2233,8 @@ function wireEvents() {
     if (!note) return;
     const row = note.closest('.row');
     if (updateNote(store, row.dataset.unit, note.value)) {
-      updateProgress();
+      // Note text moves no verdict and no count, so the only progress readout it can change is the unexported tally — the full sweep would be per-keystroke work for an unchanged display.
+      updateUnexportedNudge();
       scheduleAutosave();
     }
   });
