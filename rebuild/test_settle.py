@@ -3,6 +3,8 @@
 Expectations marked AUTHORED-DATA FINDING assert the authored rune files' actual semantics where they knowingly diverge from today's font (the qsMay grounded exit is unscoped and its refusal list lacks qsTea; the qsMay baseline entry extension's trigger list lacks qsTea_qsOy; qsMay withdraws its exit stub mid-word). Those rows are divergence-ledger material for Phase 5, not kernel bugs — see the Deviations section appended to rebuild/M1-PLAN.md.
 """
 
+from collections import OrderedDict
+
 import pytest
 
 from rebuild.pipeline import fixtures
@@ -301,6 +303,32 @@ def test_entry_bearing_census():
     assert is_entry_bearing(SPEC, "qsIt")
     assert is_entry_bearing(SPEC, "qsOy")
     assert not is_entry_bearing(SPEC, "qsTea_qsOy")
+
+
+def test_cached_candidates_are_shared_without_being_mutated_by_settlement():
+    engine = Engine(SPEC, frozenset(), trace_memo=True)
+    left = LeftContext("edge")
+    token = RightToken("letter", "qsMay")
+    right1 = RightToken("letter", "qsTea")
+    cached = engine.candidates(left, token.letter, right1, EDGE)
+    snapshot = tuple(cached)
+
+    assert engine.candidates(left, token.letter, right1, EDGE) is cached
+    engine.transition_trace(left, token, right1, EDGE)
+    assert engine.candidates(left, token.letter, right1, EDGE) is cached
+    assert tuple(cached) == snapshot
+
+
+def test_pairing_set_cache_stays_bounded(monkeypatch):
+    monkeypatch.setattr(settle_module, "_PAIRING_SETS", OrderedDict())
+    for index in range(settle_module._PAIRING_SETS_CAP + 1):
+        stance = Stance(
+            f"stance-{index}",
+            motion="synthetic",
+            surface=Surface(pairings=Pairings(never=(Pairing("none", "none"),))),
+        )
+        Engine._pairing_allowed(stance, "none", "none", [])
+    assert len(settle_module._PAIRING_SETS) == settle_module._PAIRING_SETS_CAP
 
 
 def test_word_position_derivation():

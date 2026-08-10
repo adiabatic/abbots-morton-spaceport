@@ -16,7 +16,7 @@ from collections import OrderedDict
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from itertools import combinations
-from typing import Protocol
+from typing import NamedTuple, Protocol
 
 from rebuild.pipeline import specificity
 from rebuild.pipeline.model import (
@@ -49,6 +49,11 @@ VOTE_SLOTS_DEFAULT = os.environ.get("AMS_VOTE_SLOTS", "1") != "0"
 
 _NO_EXIT_INDEX = 9999
 
+_PAIRING_SETS: OrderedDict[
+    int, tuple[Stance, frozenset[tuple[str, str]], frozenset[tuple[str, str]] | None]
+] = OrderedDict()
+_PAIRING_SETS_CAP = 8
+
 
 class SettleError(Exception):
     pass
@@ -58,8 +63,7 @@ class EStrandedError(SettleError):
     """A committed exit found no acceptor row at the next position — the lookahead closure should make this unreachable in real settlement; reaching it means a spec or kernel bug."""
 
 
-@dataclass(frozen=True)
-class RightToken:
+class RightToken(NamedTuple):
     kind: str  # "edge" | "space" | "zwnj" | "namer-dot" | "letter" | "unknown"
     rune: str | None = None
 
@@ -202,11 +206,24 @@ class Engine:
         # How often a simulated prospect's counterfactual cascade raised and fell back to the candidacy-grain estimate; diagnostic only.
         self.simulated_prospect_fallbacks = 0
         self._closure_cache: dict[tuple, bool] = {}
+        self._order_index_cache: dict[str, dict[str, int]] = {}
+        self._exit_sources_cache: dict[
+            int,
+            tuple[
+                Stance,
+                list[tuple[Height, SurfaceRow | None, Unlock | None, int]],
+                tuple[Provenance | None, ...],
+            ],
+        ] = {}
+        self._virtual_left_cache: dict[tuple[str, Candidate], LeftContext] = {}
+        self._candidates_cache: dict[
+            tuple, tuple[list[Candidate], tuple[Elimination, ...], tuple[str, ...]]
+        ] = {}
         self._prospect_cache: dict[tuple, int] = {}
         self._trace_cache: dict[tuple, TransitionTrace] | None = {} if trace_memo else None
         # YAML provenance of every authored record that demonstrably fired during settlement under this configuration: refusals that killed a candidate, unlocks that granted capability, row scopes that admitted a side, and extends/contracts/prefers that shaped a committed cell. Closure and prospect evaluations count — a refusal firing inside the lookahead closure is load-bearing for the window that consulted it. The dead-policy gate reads this through DecisionTable.cited_provenance.
         self.fired: set[str] = set()
-        # Under `trace_memo`, every fired pointer is also journaled so each memoized evaluation can record its own fired-closure delta (`_begin_capture` / `_end_capture`). The three caches would otherwise confound attribution — the first evaluation to consult a sub-result fires its records, later consumers hit the cache silently — so every cache hit replays its stored delta into the journal, making each entry's delta order-independent. Persisting a trace without its delta would starve `fired` of exactly the pointers only served windows exercise, and the dead-policy gate would read live records as dead.
+        # Under `trace_memo`, every fired pointer is also journaled so each memoized evaluation can record its own fired-closure delta (`_begin_capture` / `_end_capture`). The fire-dependent caches would otherwise confound attribution — the first evaluation to consult a sub-result fires its records, later consumers hit the cache silently — so every cache hit replays its stored delta into the journal, making each entry's delta order-independent. Persisting a trace without its delta would starve `fired` of exactly the pointers only served windows exercise, and the dead-policy gate would read live records as dead.
         self._fired_log: list[str] | None = [] if trace_memo else None
         self._capture_starts: list[int] = []
         self._closure_fired: dict[tuple, tuple[str, ...]] = {}
@@ -437,6 +454,21 @@ class Engine:
         return False, None
 
     def _exit_sources(self, stance: Stance) -> list[tuple[Height, SurfaceRow | None, Unlock | None, int]]:
+        cached = self._exit_sources_cache.get(id(stance))
+        if cached is not None and cached[0] is stance:
+            for provenance in cached[2]:
+                self._record_fired(provenance)
+            return cached[1]
+        sources, fired = self._exit_sources_uncached(stance)
+        self._exit_sources_cache[id(stance)] = (stance, sources, fired)
+        for provenance in fired:
+            self._record_fired(provenance)
+        return sources
+
+    def _exit_sources_uncached(
+        self, stance: Stance
+    ) -> tuple[list[tuple[Height, SurfaceRow | None, Unlock | None, int]], tuple[Provenance | None, ...]]:
+        fired: list[Provenance | None] = []
         sources: list[tuple[Height, SurfaceRow | None, Unlock | None, int]] = []
         for index, (height, row) in enumerate(stance.surface.exits.items()):
             sources.append((height, row, None, index))
@@ -444,10 +476,10 @@ class Engine:
         offset = len(sources)
         for unlock in stance.surface.unlocks:
             if unlock.exit is not None and unlock.exit not in declared and unlock.feature in self.features:
-                self._record_fired(unlock.provenance)
+                fired.append(unlock.provenance)
                 sources.append((unlock.exit, None, unlock, offset))
                 offset += 1
-        return sources
+        return sources, tuple(fired)
 
     def _active_pairing_unlocks(
         self,
@@ -479,11 +511,24 @@ class Engine:
         pair = (entry_state, exit_state)
         if pair in unlocked:
             return True
-        pairings = stance.surface.pairings
-        if any((p.entry, p.exit) == pair for p in pairings.never):
+        sets = _PAIRING_SETS.get(id(stance))
+        if sets is None or sets[0] is not stance:
+            pairings = stance.surface.pairings
+            sets = (
+                stance,
+                frozenset((p.entry, p.exit) for p in pairings.never),
+                None if pairings.only is None else frozenset((p.entry, p.exit) for p in pairings.only),
+            )
+            _PAIRING_SETS[id(stance)] = sets
+            while len(_PAIRING_SETS) > _PAIRING_SETS_CAP:
+                _PAIRING_SETS.popitem(last=False)
+        else:
+            _PAIRING_SETS.move_to_end(id(stance))
+        _keep, never, only = sets
+        if pair in never:
             return False
-        if pairings.only is not None:
-            return any((p.entry, p.exit) == pair for p in pairings.only)
+        if only is not None:
+            return pair in only
         return True
 
     # --- refusals -------------------------------------------------------------
@@ -530,15 +575,56 @@ class Engine:
         right2: RightToken,
         eliminations: list[Elimination] | None = None,
     ) -> list[Candidate]:
+        if self._fired_log is None:
+            return self._candidates_uncached(left, rune_name, right1, right2, eliminations)
+        settled = left.settled
+        key = (
+            left.kind,
+            settled.cell.rune if settled is not None else None,
+            settled.cell.stance if settled is not None else None,
+            settled.seam if settled is not None else None,
+            rune_name,
+            right1,
+            right2,
+        )
+        cached = self._candidates_cache.get(key)
+        if cached is None:
+            local_eliminations: list[Elimination] = []
+            self._begin_capture()
+            try:
+                out = self._candidates_uncached(left, rune_name, right1, right2, local_eliminations)
+            except BaseException:
+                self._abort_capture()
+                raise
+            cached = (out, tuple(local_eliminations), self._end_capture())
+            self._candidates_cache[key] = cached
+        else:
+            self._replay_fired(cached[2])
+        if eliminations is not None:
+            eliminations.extend(cached[1])
+        return cached[0]
+
+    def _candidates_uncached(
+        self,
+        left: LeftContext,
+        rune_name: str,
+        right1: RightToken,
+        right2: RightToken,
+        eliminations: list[Elimination] | None = None,
+    ) -> list[Candidate]:
         rune = self.spec.runes[rune_name]
         committed = left.settled.seam if (left.kind == "letter" and left.settled is not None) else None
         out: list[Candidate] = []
-        order = list(rune.policy.order) or list(rune.stances)
-        for stance_name in rune.stances:
-            if stance_name not in order:
-                order.append(stance_name)
+        order_index_by_stance = self._order_index_cache.get(rune_name)
+        if order_index_by_stance is None:
+            order = list(rune.policy.order) or list(rune.stances)
+            for stance_name in rune.stances:
+                if stance_name not in order:
+                    order.append(stance_name)
+            order_index_by_stance = {stance_name: order.index(stance_name) for stance_name in rune.stances}
+            self._order_index_cache[rune_name] = order_index_by_stance
         for stance_name, stance in rune.stances.items():
-            order_index = order.index(stance_name)
+            order_index = order_index_by_stance[stance_name]
             entry: Height | None = None
             if committed is not None:
                 available, note = self._entry_available(rune, stance, committed, left, right1, right2)
@@ -640,6 +726,16 @@ class Engine:
         return out
 
     def _virtual_left(self, rune_name: str, candidate: Candidate) -> LeftContext:
+        key = (rune_name, candidate)
+        cached = self._virtual_left_cache.get(key)
+        if cached is not None:
+            return cached
+        cached = self._virtual_left_uncached(rune_name, candidate)
+        self._virtual_left_cache[key] = cached
+        return cached
+
+    @staticmethod
+    def _virtual_left_uncached(rune_name: str, candidate: Candidate) -> LeftContext:
         cell = CellId(
             rune=rune_name,
             stance=candidate.stance,
