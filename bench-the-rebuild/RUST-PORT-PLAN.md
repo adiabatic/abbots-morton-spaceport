@@ -12,7 +12,7 @@ Whether to reimplement `rebuild/pipeline/table.build_tables` and its settlement 
 
 ## Sequence
 
-1. **The Python levers first**, and not mainly for their own sake. They move the denominator every port measurement is a ratio against; benchmarking a port against today's shipped kernel overstates its value by roughly 4×. They are also what keeps the next few migration batches bearable. `levers/apply_m1_patches.py` holds them.
+1. **The Python levers first**, and not mainly for their own sake. They move the denominator every port measurement is a ratio against; benchmarking a port against today's shipped kernel overstates its value by roughly 4×. They are also what keeps the next few migration batches bearable. The live `run_m1` batch already freezes its inherited heap and disables cyclic GC; `levers/apply_m1_patches.py` holds the remaining patches.
 2. **Re-baseline.** One `make artifact-cycle` so `rebuild/out/cycle-timings.ndjson` exists on this machine, then re-run `kernel-model/run.sh` and `scaling/scaling.py`. Until that happens every daily figure rests on an assumed build cadence that this machine's own green records contradict.
 3. **Then decide**, against the thresholds below.
 
