@@ -1,15 +1,17 @@
-{"runes": 6, "letters": 4, "ligs": 2, "windows": 9165, "rules": 182, "cells": 44, "cpu": 1.048, "wall": 1.048}
-{"runes": 8, "letters": 5, "ligs": 3, "windows": 22523, "rules": 229, "cells": 52, "cpu": 2.273, "wall": 2.273}
-{"runes": 10, "letters": 7, "ligs": 3, "windows": 48834, "rules": 293, "cells": 69, "cpu": 4.628, "wall": 4.628}
-{"runes": 12, "letters": 9, "ligs": 3, "windows": 101751, "rules": 508, "cells": 103, "cpu": 10.342, "wall": 10.349}
-{"runes": 14, "letters": 11, "ligs": 3, "windows": 183347, "rules": 735, "cells": 122, "cpu": 22.931, "wall": 22.934}
-{"runes": 16, "letters": 13, "ligs": 3, "windows": 382846, "rules": 1848, "cells": 157, "cpu": 51.619, "wall": 51.625}
-{"runes": 18, "letters": 15, "ligs": 3, "windows": 682842, "rules": 2667, "cells": 197, "cpu": 92.176, "wall": 92.296}
+{"runes": 6, "letters": 4, "ligs": 2, "windows": 8693, "rules": 182, "cells": 44, "cpu": 0.673, "wall": 0.673, "rss_gb": 0.07, "gc": "frozen", "deep_classes": true}
+{"runes": 8, "letters": 5, "ligs": 3, "windows": 21210, "rules": 229, "cells": 52, "cpu": 1.429, "wall": 1.43, "rss_gb": 0.15, "gc": "frozen", "deep_classes": true}
+{"runes": 10, "letters": 6, "ligs": 4, "windows": 41702, "rules": 307, "cells": 64, "cpu": 2.73, "wall": 2.731, "rss_gb": 0.29, "gc": "frozen", "deep_classes": true}
+{"runes": 12, "letters": 8, "ligs": 4, "windows": 82375, "rules": 345, "cells": 81, "cpu": 4.883, "wall": 4.884, "rss_gb": 0.54, "gc": "frozen", "deep_classes": true}
+{"runes": 14, "letters": 10, "ligs": 4, "windows": 153280, "rules": 596, "cells": 119, "cpu": 9.537, "wall": 9.538, "rss_gb": 1.04, "gc": "frozen", "deep_classes": true}
+{"runes": 16, "letters": 12, "ligs": 4, "windows": 256791, "rules": 834, "cells": 144, "cpu": 17.994, "wall": 17.996, "rss_gb": 1.95, "gc": "frozen", "deep_classes": true}
+{"runes": 18, "letters": 14, "ligs": 4, "windows": 448140, "rules": 2051, "cells": 179, "cpu": 38.417, "wall": 38.421, "rss_gb": 3.73, "gc": "frozen", "deep_classes": true}
+{"runes": 20, "letters": 16, "ligs": 4, "windows": 730014, "rules": 2954, "cells": 219, "cpu": 62.837, "wall": 62.843, "rss_gb": 6.15, "gc": "frozen", "deep_classes": true}
 
 runes_a->runes_b   window exponent   cpu exponent
- 6-> 8   windows  3.13   cpu  2.69
- 8->10   windows  3.47   cpu  3.19
-10->12   windows  4.03   cpu  4.41
-12->14   windows  3.82   cpu  5.17
-14->16   windows  5.51   cpu  6.08
-16->18   windows  4.91   cpu  4.92
+ 6-> 8   windows  3.10   cpu  2.62
+ 8->10   windows  3.03   cpu  2.90
+10->12   windows  3.73   cpu  3.19
+12->14   windows  4.03   cpu  4.34
+14->16   windows  3.86   cpu  4.75
+16->18   windows  4.73   cpu  6.44
+18->20   windows  4.63   cpu  4.67
