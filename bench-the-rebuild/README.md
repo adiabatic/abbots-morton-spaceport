@@ -12,12 +12,16 @@ Rust and Go are needed for the ports; everything else is `uv run`. Neither toolc
 | --------------- | --------------------------------------------------------------------------------------------- | ----------------------------------- |
 | `kernel-model/` | What a port of the settlement fixpoint would actually buy — same model in Python, Rust and Go | `zsh run.sh`                        |
 | `scaling/`      | How the fixpoint grows with the alphabet, and what the port's true scope is                   | `uv run python scaling.py`          |
-| `levers/`       | The keep-the-Python stack: gc, six memoizations, a NamedTuple                                 | `uv run python apply_m1_patches.py` |
+| `levers/`       | The six-configuration endpoint, and comparison trees at older revisions                       | `uv run python m1_all_configs.py`   |
 | `compilers/`    | mypyc, Cython and PyPy on the same kernel                                                     | `zsh run.sh`                        |
 | `freethreaded/` | Free-threaded 3.14t, and the thread-safety audit behind it                                    | `zsh setup.sh && zsh run.sh`        |
 | `primitives/`   | Per-operation costs across the three languages                                                | `zsh run.sh`                        |
 | `ink-and-tsv/`  | The two smaller port candidates: placed-ink and TSV parsing                                   | `zsh run.sh`                        |
 | `cut-the-work/` | Coverage levers no language change can reach                                                  | `zsh run.sh`                        |
+
+Two of those want a word of their own, because they are how a claim gets re-checked rather than re-argued. `levers/m1_all_configs.py` measures the real six-configuration `build_tables` stage — the same call `run_m1` makes, over the same in-process share — in three modes: `nostore` with no persisted memo at all, `fresh` with one present but distrusted, and `warm` with one primed. **`fresh` is the mode the endpoint is quoted in**; `nostore` is materially cheaper because it skips the memo writes, so comparing a `nostore` run against a recorded endpoint flatters it. Its warm mode refuses any output directory outside `levers/out/`, which is what stops a comparison tree's symlinked `rebuild/out` from writing over the real artifacts.
+
+`levers/mktree_at.sh <name> <ref>` builds a tree with `rebuild/pipeline` overlaid from any git ref, so "what did this lever buy" is a measurement rather than a memory. It uses `git archive` and never touches the index or working tree. Its companion `levers/apply_m1_patches.py` is now a record of the two patches that were measured and _not_ taken; it aborts against the live tree because the others landed, and that abort is the correct behavior rather than a bug to fix.
 
 `kernel-model/run.sh` takes several minutes and starts with an ~80 s calibration against the real kernel. For a plumbing check that skips it:
 
@@ -41,6 +45,8 @@ Two results worth knowing before reading any speedup number, both of which argue
 - **`fixtures/`** — real inputs extracted from the repo (memo keys, shaped runs, outlines, baseline rows) so the harnesses run without regenerating them. Live build inputs, not evidence.
 - **`evidence/`** — the two written records (`cost-model.md`, `decision.md`), the machine-readable `decision.json`, and `raw/` mirroring the per-slice numeric trail the records cite, so every citation in them resolves. This is the proof pile for a still-open fork; per the repo's note-taking rules it goes when the fork closes.
 
-`evidence/` is a snapshot of one study on one machine. Where it and a harness disagree, **the harness is right** — re-run it. Numbers in the written records were measured before the Python levers landed, so they will read high the moment step 1 of the plan is done; that is expected and is the point of re-baselining.
+`evidence/` is a snapshot of one study on one machine. Where it and a harness disagree, **the harness is right** — re-run it. Its numbers were measured before the Python levers landed and on different silicon, so they read high on the kernel side and are not comparable arm-to-arm with a re-run; that is expected, and it is why the records are left as a snapshot rather than edited in place. The levers and the class-grain deep slots have since landed and the sweep, the endpoints and the kernel model have all been re-measured against them, so treat every ratio in `evidence/` as a ratio against a kernel that no longer exists.
+
+One caveat outlives the re-run and is worth reading before quoting any port figure. The model's three implementations still agree exactly, so the Rust-against-Python ratio remains a sound measurement of the model. But the real kernel has since gained memos on `candidates` and `transition_trace` that the model lacks, so the fidelity calibration — which divides cost by call count on both sides — now compares a kernel whose calls are mostly memo hits against a model whose calls all do full work. The discounted band it produces still looks like the old one; that is a coincidence, not a confirmation. `RUST-PORT-PLAN.md` carries the decision about how to repair it.
 
 The rendered report is `evidence/rewrite-decision-report.html`, with an interactive alphabet-headroom instrument. Open it directly in a browser.
