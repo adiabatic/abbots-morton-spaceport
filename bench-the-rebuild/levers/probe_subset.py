@@ -3,7 +3,7 @@
 import sys, time, dataclasses, hashlib, json
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[3]
+ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from rebuild.pipeline import conform
 from rebuild.pipeline import table as table_module

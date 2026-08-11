@@ -1,7 +1,7 @@
 import cProfile, pstats, io, sys, dataclasses
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[3]
+ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from rebuild.pipeline import conform, table as table_module
 from rebuild.pipeline.spec_load import load_default_spec
