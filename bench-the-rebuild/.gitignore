@@ -13,12 +13,17 @@ tree-mypyc/
 
 # generated inputs and binaries
 kernel-model/spec.txt
+scaling/scaling.json
+scaling/spec.json
 primitives/data/
 */go/k1meso
 */go/k1micro
 */go/k3k5
 */rust/Cargo.lock.orig
 
-# the levers harness builds a throwaway copy of rebuild/ to patch
+# the levers harness builds a throwaway copy of rebuild/ to patch, or to overlay an older ref onto
 levers/variant-*/
 levers/run-v-*/
+levers/v-*/
+levers/tree-*/
+levers/fontout/
