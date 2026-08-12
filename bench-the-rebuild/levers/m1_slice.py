@@ -127,6 +127,8 @@ def main() -> int:
     from rebuild.pipeline import table as table_module
     from rebuild.pipeline.spec_load import load_default_spec
 
+    digest_of = getattr(table_module, "table_digest", None) or table_digest
+
     spec = load_default_spec()
     names = SUBSETS[args.subset]
     if names is not None:
@@ -160,7 +162,7 @@ def main() -> int:
                     "rules": len(decision.rules),
                     "windows": len(decision.transitions),
                     "treaty_rows": len(treaty.rows),
-                    "digest": table_digest(decision, treaty),
+                    "digest": digest_of(decision, treaty),
                 }
             ),
             flush=True,
