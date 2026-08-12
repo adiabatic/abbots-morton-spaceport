@@ -1,6 +1,8 @@
 """The golden single-window settlement corpus (issue #41): one replayed settlement window per line, the arguments the kernel was called with beside the record it produced, so a Rust settlement core can be differentially tested against the Python oracle case by case. Nothing it writes is ever checked in — `rebuild/out/` is gitignored by design, and the oracle is whatever HEAD settles today, so the corpus is regenerated whenever the thing it measures moves rather than frozen as a fixture that would drift out of agreement with the spec it was cut from.
 
-Layout follows the enumeration artifacts beside it: gzip with a zeroed stamp, a `# ams-m1-corpus/1\t{head json}` marker line naming the configuration, the spec the cases were cut from, and `trace_memo.spec_structure_digest` of it, then one JSON object per line, deduplicated and sorted, so two runs at one HEAD are byte-identical. A case carries the whole call — the left context (its kind, plus the full settled triple wherever the left is a letter), the input rune, and the four right tokens — and exactly one result: the row-visible trace record (the settled triple, the prospect, the joint floor, the provenance notes, and the fired-pointer delta the evaluation journaled) or the raise identity, `E-INCOMPARABLE`, `E-AMBIGUOUS`, or the unreachable-window bucket every other `SettleError` falls into. The fired delta rides every settled case because it is the field no downstream artifact re-derives: `DecisionTable.cited_provenance` is the union of exactly these deltas, so a port that settles every window correctly and journals the wrong records still builds a table the dead-policy gate rejects. Raising cases carry no delta — the kernel aborts its capture on the way out.
+Layout follows the enumeration artifacts beside it: gzip with a zeroed stamp, a `# ams-m1-corpus/3\t{head json}` marker line naming the configuration, the spec the cases were cut from, `trace_memo.spec_structure_digest` of it, and the engine modes the cases were cut under, then one JSON object per line, deduplicated and sorted, so two runs at one HEAD are byte-identical. A case carries the whole call — the left context (its kind, plus the full settled triple wherever the left is a letter), the input rune, and the four right tokens — and exactly one result: the whole trace the kernel built, or the raise identity, `E-INCOMPARABLE`, `E-AMBIGUOUS`, or the unreachable-window bucket every other `SettleError` falls into, carried with the raise's own message. A settled result is the row-visible record first — the settled triple, the prospect, the joint floor, the provenance notes, and the fired-pointer delta the evaluation journaled — and then the grain no row shows: the stage the decision fell out at, the runner-up it beat, the ranked ladder with each candidate's join count and prospect, and every elimination with its stage, its description, and the record that made it. The fired delta rides every settled case because it is the field no downstream artifact re-derives: `DecisionTable.cited_provenance` is the union of exactly these deltas, so a port that settles every window correctly and journals the wrong records still builds a table the dead-policy gate rejects. Raising cases carry no delta — the kernel aborts its capture on the way out.
+
+Several of those head and case fields exist for the differential rather than for the export. The message, because the unreachable bucket is where a port's error paths differ most and an identity alone cannot tell an E-STRANDED apart from a rune that is not modeled, so the messages are compared byte for byte like everything else. The modes, because `simulated_prospect` and `vote_slots` are engine-construction flags a replay has to be handed rather than infer, and a corpus read back without them would be replayed under whatever the reader's own defaults were. And everything past the fired delta, because a window's row is the answer and not the reasoning: a port that ranks by the wrong join count, eliminates a candidate at the wrong stage, or wins at the floor where Python won at the prefers can still land on the same cell at this window and diverge at the next one, and a comparison that stopped at the row would call that a pass. The seeded fuzz corpus next door (`fuzz_settlement_corpus`) writes this same layout and shares this module's replay, so the harness has one reader for both piles.
 
 Sampling is deterministic, and runs in two arms because the kernel's two answer shapes live in different places. Settled cases replay a stratified sample of the fixpoint's own rows: `enumerate_transitions`' key-sorted stream grouped per (input family, left kind, identity-vs-moved outcome, each deep slot's liveness on its own, the joint floor, whether notes fired) with the first `--per-group` rows of each group kept, so every shape of window the enumeration reaches — depth-4 rows, flagged seams and note-carrying rows included, none of which the cheap key-order prefix would reach on its own — is represented while the corpus stays a sample rather than a second copy of the table. Each replay's arguments are reconstructed from the row it came from — the left from `left_settled` where it has one and from `table.BOUNDARY_LEFT_LABELS` where it does not, a deep class id at either deep slot through its representative member, and a `#NA` slot as `EDGE`, which is exactly what the enumeration handed the kernel wherever it recorded `#NA`. A sampled row that raises on replay aborts the export: the row came from the enumeration, so a raise there is a reconstruction defect, never a case. Raising cases come from where no enumerated row can reach: the virtual lefts `table._ProspectLiveness` probes with, crossed with its probe alphabet at the two nearer slots and `EDGE` at the deep ones. Both surfaces are reused rather than copied (`_seat_left_classes`, `_probe_tokens`), so the corpus's left collapse and probe alphabet are the build's own; the walk records every window that raises and a per-family cap (`--per-family`) stops it.
 
@@ -27,6 +29,7 @@ from rebuild.pipeline.settle import (
     NAMER_DOT,
     SPACE,
     ZWNJ,
+    Candidate,
     Engine,
     LeftContext,
     RightToken,
@@ -36,9 +39,11 @@ from rebuild.pipeline.spec_load import load_default_spec
 from rebuild.pipeline.specificity import EAmbiguousError, EIncomparableError
 from rebuild.pipeline.table import BOUNDARY_LEFT_LABELS, NA_LABEL, FixpointProduct
 
-CORPUS_FORMAT = "ams-m1-corpus/1"
+CORPUS_FORMAT = "ams-m1-corpus/3"
 CORPUS_DIR = REPO_ROOT / "rebuild" / "out" / "kernel-corpus"
 DEFAULT_CONFIGS = ("default", "ss03", "ss10")
+DEFAULT_PER_GROUP = 2
+DEFAULT_PER_FAMILY = 4
 RAISE_INCOMPARABLE = "E-INCOMPARABLE"
 RAISE_AMBIGUOUS = "E-AMBIGUOUS"
 RAISE_UNREACHABLE = "E-UNREACHABLE"
@@ -57,6 +62,11 @@ def _cell_row(cell: CellId) -> list:
 
 def _settled_row(settled: Settled) -> dict:
     return {"cell": _cell_row(settled.cell), "seam": settled.seam, "extension": settled.extension}
+
+
+def _candidate_row(candidate: Candidate) -> list:
+    """A candidate as the corpus spells it: the stance, its entry and seam heights, and the two indices the ranking and the floor sort on. `exit_index` carries the non-joining sentinel's own value rather than a null, because what is compared is the sort key the kernel used."""
+    return [candidate.stance, candidate.entry, candidate.seam, candidate.order_index, candidate.exit_index]
 
 
 def _token_row(token: RightToken) -> dict:
@@ -97,16 +107,16 @@ def _memo_key(
 def _replay(
     engine: Engine, left: LeftContext, token: RightToken, rights: tuple[RightToken, ...]
 ) -> tuple[dict, bool]:
-    """One case's result and whether it raised: the row-visible trace record with its fired delta, or the raise identity alone."""
+    """One case's result and whether it raised: the whole trace — the row-visible record with its fired delta, then the deciding stage, the runner-up, the ranked ladder, and the eliminations — or the raise identity and the message that came with it. The message is what keeps the unreachable bucket comparable — every plain `SettleError` and every `EStrandedError` lands there, and only the text tells a stranded exit apart from an unmodeled rune."""
     right1, right2, right3, right4 = rights
     try:
         trace = engine.transition_trace(left, token, right1, right2, right3, right4)
-    except EIncomparableError:
-        return {"raise": RAISE_INCOMPARABLE}, True
-    except EAmbiguousError:
-        return {"raise": RAISE_AMBIGUOUS}, True
-    except SettleError:
-        return {"raise": RAISE_UNREACHABLE}, True
+    except EIncomparableError as error:
+        return {"raise": RAISE_INCOMPARABLE, "message": str(error)}, True
+    except EAmbiguousError as error:
+        return {"raise": RAISE_AMBIGUOUS, "message": str(error)}, True
+    except SettleError as error:
+        return {"raise": RAISE_UNREACHABLE, "message": str(error)}, True
     key = _memo_key(left, token, right1, right2, right3, right4)
     fired = engine._trace_fired.get(key)
     if fired is None:
@@ -119,6 +129,19 @@ def _replay(
         "joint_floor": trace.joint_floor,
         "notes": list(trace.notes),
         "fired": list(fired),
+        "decided_stage": trace.decided_stage,
+        "runner_up": _candidate_row(trace.runner_up) if trace.runner_up is not None else None,
+        "ranked": [
+            [_candidate_row(entry.candidate), entry.join_count, entry.prospect] for entry in trace.ranked
+        ],
+        "eliminations": [
+            [
+                elimination.stage,
+                elimination.description,
+                str(elimination.provenance) if elimination.provenance is not None else None,
+            ]
+            for elimination in trace.eliminations
+        ],
     }, False
 
 
@@ -208,6 +231,22 @@ def raising_cases(spec: ResolvedSpec, engine: Engine, per_family: int) -> list[d
     return rows
 
 
+def corpus_head(spec: ResolvedSpec, spec_name: str, config: str, engine: Engine) -> dict:
+    """The head every corpus in this format carries, whichever tool cut it: the configuration and the spec the cases came from, the structure digest that dates them against the rune files, and the engine modes they were settled under — read back by `head_modes`, because a replay that constructs its engine from its own defaults instead answers a different question from the one the file recorded."""
+    return {
+        "config": config,
+        "spec": spec_name,
+        "spec_structure_digest": trace_memo.spec_structure_digest(spec),
+        "modes": {"simulated_prospect": engine.simulated_prospect, "vote_slots": engine.vote_slots},
+    }
+
+
+def head_modes(head: dict) -> tuple[bool, bool]:
+    """The `(simulated_prospect, vote_slots)` pair a replay of this corpus has to build its engine with."""
+    modes = head["modes"]
+    return bool(modes["simulated_prospect"]), bool(modes["vote_slots"])
+
+
 def write_corpus(head: dict, cases: list[dict], path: Path) -> None:
     lines = sorted({json.dumps(case, separators=(",", ":")) for case in cases})
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -242,11 +281,7 @@ def export_config(
     engine = Engine(spec, features, trace_memo=True)
     settled = settled_cases(engine, product, per_group)
     raising = raising_cases(spec, engine, per_family)
-    head = {
-        "config": config,
-        "spec": spec_name,
-        "spec_structure_digest": trace_memo.spec_structure_digest(spec),
-    }
+    head = corpus_head(spec, spec_name, config, engine)
     path = corpus_path(out_dir, config)
     write_corpus(head, settled + raising, path)
     return path, len(settled), len(raising)
@@ -262,8 +297,12 @@ def main(argv: list[str] | None = None) -> None:
         help="feature configurations to export (default: the acceptance configurations among default, ss03, ss10)",
     )
     parser.add_argument("--spec", choices=("live", "mini"), default="live", help="which spec to cut from")
-    parser.add_argument("--per-group", type=int, default=2, help="settled cases kept per stratum")
-    parser.add_argument("--per-family", type=int, default=4, help="raising cases kept per input family")
+    parser.add_argument(
+        "--per-group", type=int, default=DEFAULT_PER_GROUP, help="settled cases kept per stratum"
+    )
+    parser.add_argument(
+        "--per-family", type=int, default=DEFAULT_PER_FAMILY, help="raising cases kept per input family"
+    )
     args = parser.parse_args(argv)
     spec = fixtures.mini_spec() if args.spec == "mini" else load_default_spec()
     configs = (

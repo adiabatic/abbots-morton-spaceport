@@ -722,8 +722,9 @@ mod tests {
 
     #[test]
     fn a_negative_zero_token_is_the_integer_zero_python_reads_it_as() {
-        let accepted = parse_spec(&MINIMAL.replace("\"heights\":{}", "\"heights\":{\"baseline\":-0}"))
-            .expect("kernel_io.spec_of reads -0 as the int 0, so this side must too");
+        let accepted =
+            parse_spec(&MINIMAL.replace("\"heights\":{}", "\"heights\":{\"baseline\":-0}"))
+                .expect("kernel_io.spec_of reads -0 as the int 0, so this side must too");
         assert_eq!(
             emit_spec(&accepted),
             MINIMAL.replace("\"heights\":{}", "\"heights\":{\"baseline\":0}")

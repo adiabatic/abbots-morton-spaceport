@@ -4,10 +4,16 @@
 
 #![forbid(unsafe_code)]
 
+pub mod cases;
 pub mod emit;
+pub mod engine;
 pub mod error;
+pub mod guard;
+pub mod index;
 pub mod model;
 pub mod parse;
+pub mod specificity;
+pub mod types;
 
 /// The marker every dump's `format` key carries. A dump naming anything else is refused rather than guessed at, exactly as `kernel_io.spec_of` refuses it.
 pub const SPEC_FORMAT: &str = "ams-m1-spec/1";

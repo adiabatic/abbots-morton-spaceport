@@ -47,12 +47,14 @@ impl std::error::Error for IngestError {}
 
 /// What settlement raises when a window will not settle. The four variants are four distinct outcomes downstream and must stay distinguishable: the class-grain fibre keys treat E-INCOMPARABLE, E-AMBIGUOUS, and the plain settle error as three separate values, so collapsing any two of them would silently merge fibres that the review surface and the treaty fold read apart. E-STRANDED is the skippable flavor — the liveness probes catch it on their own terms — which is why it is a variant here rather than a plain error with a different sentence in it.
 ///
-/// The Python originals are `specificity.EIncomparableError` and `specificity.EAmbiguousError`, and `settle.SettleError` and `settle.EStrandedError`. Nothing in this crate raises one yet; the type exists so that the sub-issues that port settlement inherit a fixed discriminant instead of inventing one per call site. Ingest failures are [`IngestError`] and never belong here.
+/// The Python originals are `specificity.EIncomparableError` and `specificity.EAmbiguousError`, and `settle.SettleError` and `settle.EStrandedError`. All four are raised by [`crate::engine`] and by the specificity order under it, and [`crate::cases`] is where the discriminant is read: it buckets the four into the corpus's three, which is why collapsing any two of them here would go unnoticed there. Ingest failures are [`IngestError`] and never belong here.
+///
+/// Python's hierarchy is not this crate's: `EIncomparableError` and `EAmbiguousError` derive from `SpecificityError` rather than from `SettleError`, so a Python `except SettleError:` catches neither. Call sites that must catch all four say so — `_prospect`'s fallback is the one that does — and the port's `Result` has no such split, so those catch sets live in the engine's own `match` arms instead of in this type.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SettleError {
-    /// E-INCOMPARABLE: two candidates that neither dominates.
+    /// E-INCOMPARABLE: two policy records whose conditions overlap without nesting — neither one's match set contains the other's — while demanding different outcomes, both of them matching the window at hand (`specificity.EIncomparableError`). The overlap is a fact rather than a possibility, so the raise asks for an authored `resolve:` instead of guessing.
     Incomparable(String),
-    /// E-AMBIGUOUS: more than one candidate left standing at the top.
+    /// E-AMBIGUOUS: a genuine record-vs-record tie — two policy records with equal match sets demanding different outcomes (`specificity.EAmbiguousError`, whose definition this is). The prefer stage raises it a shade wider than that: two records of one rune collide here whether their conditions are equal or merely non-nested, because the `resolve:` that would settle a non-nested crossing names another rune's record and so has nothing to say about a collision inside a single rune.
     Ambiguous(String),
     /// E-STRANDED: a window with nothing to settle into, which the liveness probes account for separately.
     Stranded(String),
