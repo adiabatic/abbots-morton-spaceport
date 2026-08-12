@@ -1,4 +1,4 @@
-.PHONY: all test test-rebuild test-slowly test-leaks leak-snapshot typecheck print-job serve explainer check-html-before check-html-after build-kerning-hardcases review test-and-review review-build review-serve review-cycle artifact-cycle verdict-ready cycle-timings complaint-docket novelty-order kernel-build kernel-check kernel-parity prettier woff2 clean
+.PHONY: all test test-rebuild test-slowly test-leaks leak-snapshot typecheck print-job serve explainer check-html-before check-html-after build-kerning-hardcases review test-and-review review-build review-serve review-cycle artifact-cycle verdict-ready cycle-timings complaint-docket novelty-order kernel-build kernel-check kernel-parity kernel-differential prettier woff2 clean
 
 all:
 	uv run python tools/build_font.py glyph_data/ site/
@@ -107,7 +107,7 @@ novelty-order:
 kernel-build:
 	cargo build --release --manifest-path rebuild/kernel-rs/Cargo.toml
 
-# The crate's own gate: formatting, clippy with every warning fatal, and the cargo tests (canonical-JSON escaping, synthetic round-trips, the strictness rejections, the interner).
+# The crate's own gate: formatting, clippy with every warning fatal, and the crate's whole unit suite — spec ingest and its canonical-JSON echo, the specificity order, the settlement engine, the late-formation guard, and corpus-case replay. Named by surface rather than by case, because the suite grows with every packet of the port and any list of tests written here is stale by the next one.
 kernel-check:
 	cargo fmt --check --manifest-path rebuild/kernel-rs/Cargo.toml
 	cargo clippy --all-targets --manifest-path rebuild/kernel-rs/Cargo.toml -- -D warnings
@@ -116,6 +116,10 @@ kernel-check:
 # Prove the Rust kernel's spec ingest lossless: dump the live alphabet and every scaling-ladder rung through kernel_io.spec_json, echo each back out of the binary's own model, and require the bytes to be identical. A change to rebuild/pipeline/model.py that the Rust side has not followed fails here.
 kernel-parity: kernel-build
 	uv run python -m rebuild.tools.kernel_parity
+
+# Prove the Rust settlement core answers every window the way Python does: the late-formation guard swept exhaustively, seeded fuzz windows in each mode combination the port has to reproduce, and the golden single-window corpus replayed per acceptance configuration — all compared as bytes, result record and fired-pointer delta included. ARGS passes the harness's own knobs; ARGS='--skip-corpus' is the fast form that skips the per-configuration fixpoints.
+kernel-differential: kernel-build
+	uv run python -m rebuild.tools.kernel_differential $(ARGS)
 
 # Compress the built OTFs in site/ into WOFF2 alongside them.
 woff2: all
