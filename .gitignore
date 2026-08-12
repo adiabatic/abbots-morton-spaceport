@@ -19,6 +19,7 @@ wheels/
 /site/check.html
 /site/before/
 /site/scoped-anchor-review/
+/rebuild/kernel-rs/target/
 
 # Scratch files
 tmp/
