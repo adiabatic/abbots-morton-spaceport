@@ -8,6 +8,8 @@ Rows carry a fourth window slot, `right3`, enumerated lazily and only where live
 
 Joint rows combine both section 6.1 flags: ranking ties broken by the structural floor between candidates differing in seam realization, and windows whose deliberately optimistic prospect diverges from the follower's actual settled choice. Both TSV artifacts are diff-stable (section 8): sorted rows, provenance pointers, deterministic labels.
 
+`build_tables` is a composition across the kernel boundary: `enumerate_transitions` runs the fixpoint and hands back a `FixpointProduct` — the key-sorted enriched transition stream, the deep-class map, the fired provenance, the reachable cells — and `assemble_tables` folds that product, plus one entry-bearing verdict from the spec and nothing else the engine saw, into the two tables. The seam sits exactly where the engine stops being consulted, so the product is the value a kernel port is measured at, and everything downstream of it stays Python. Only the class-grain assertions straddle it, and they run in `build_tables` because they replay the assembled table against enumeration scaffolding the product deliberately drops.
+
 `write_windows` / `read_windows` persist a built table so the font-vs-settle sweep never rebuilds what the same sources already produced: the rules, the reachable cells and the enumerated windows, stamped with `fingerprint.tables_value` over the sources the fixpoint read. The windows come back as `Window` rows — labels only, which is everything a replay consults — so the file is a fraction of the resident table and the head alone answers "which cells are reachable".
 """
 
@@ -451,6 +453,62 @@ def windows_digest(decision: DecisionTable) -> str:
     return digest.hexdigest()
 
 
+def table_digest(decision: DecisionTable, treaty: TreatyTable) -> str:
+    """The canonical differential digest, at full contract grain: one scalar saying whether two builds of one configuration agree on the ordered rules with their provenance and joint flags, every enumerated window row as stored, the treaty rows, the reachable cells, the cited provenance and the identity-guard count. That is the whole observable product of `build_tables`, so a port, a lever or a refactor that claims to change nothing is checked against this and nothing narrower. `windows_digest` stays the narrower row-level check the witness caches key on — it omits the treaty, the cells, the provenance and the guards on purpose, because a witness only ever replays a window. The deep-class map needs no section of its own here: class ids are content-addressed over their member sets, so a moved map moves the row fields that cite it.
+
+    `bench-the-rebuild/levers/m1_all_configs.py` carries a byte-for-byte copy for the comparison trees it measures, which predate this function; keep the two algorithms in lockstep, and `rebuild/test_table_digest.py` proves they agree.
+    """
+    h = hashlib.sha256()
+    h.update(f"config\t{decision.config}\n".encode())
+    for rule in decision.rules:
+        h.update(
+            "\t".join(
+                (
+                    rule.input_glyph,
+                    " ".join(rule.backtrack) if rule.backtrack else "-",
+                    " ".join(rule.look1) if rule.look1 else "-",
+                    " ".join(rule.look2) if rule.look2 else "-",
+                    " ".join(rule.look3) if rule.look3 else "-",
+                    " ".join(rule.look4) if rule.look4 else "-",
+                    rule.outcome,
+                    "joint" if rule.joint else "-",
+                    "; ".join(dict.fromkeys(p for p in rule.provenance if p)),
+                )
+            ).encode()
+            + b"\n"
+        )
+    h.update(b"--windows--\n")
+    for row in decision.transitions:
+        h.update(
+            "\t".join(
+                (row.input_glyph, row.left, row.right1, row.right2, row.right3, row.right4, row.outcome)
+            ).encode()
+            + b"\n"
+        )
+    h.update(b"--treaty--\n")
+    for treaty_row in treaty.rows:
+        h.update(
+            "\t".join(
+                (
+                    treaty_row.left,
+                    treaty_row.right,
+                    treaty_row.junction,
+                    str(treaty_row.extension),
+                    str(treaty_row.kern),
+                )
+            ).encode()
+            + b"\n"
+        )
+    h.update(b"--cells--\n")
+    for cell in sorted(decision.reachable_cells(), key=_cell_key):
+        h.update(f"{cell.rune}\t{cell.stance}\t{cell.entry}\t{cell.exit}\t{cell.adjustments}\n".encode())
+    h.update(b"--provenance--\n")
+    for pointer in sorted(decision.cited_provenance):
+        h.update(pointer.encode() + b"\n")
+    h.update(f"--guards--\t{decision.identity_guard_rules}\n".encode())
+    return h.hexdigest()
+
+
 def right_chain_reach(cond) -> int:
     """How many raw slots past its own a right condition's then: chains read: a then: hop advances one slot, and an except: entry tests its parent's slot, so its hops count from there. Mirrors spec_load's raw-dict lint over the resolved Condition."""
     reach = 0
@@ -489,7 +547,7 @@ def _deep_world(engine: Engine | None) -> bool:
 
 
 def third_slot_inputs(spec: ResolvedSpec, engine: Engine | None = None) -> frozenset[str]:
-    """The inputs whose windows can carry a live third slot — the pre-gate build_tables' enumeration and conform's window replay share ahead of the per-window `third_slot_filter` verdict. In the pinned candidacy world only an own-rune depth-3 prefer chain ever reads the slot, so this is exactly `depth3_inputs`; with the simulated prospect or shifted vote slots on (`_deep_world`), the raw third token can decide any input's window, so every rune is admitted and the per-window probe does all the pruning."""
+    """The inputs whose windows can carry a live third slot — the pre-gate `enumerate_transitions` and conform's window replay share ahead of the per-window `third_slot_filter` verdict. In the pinned candidacy world only an own-rune depth-3 prefer chain ever reads the slot, so this is exactly `depth3_inputs`; with the simulated prospect or shifted vote slots on (`_deep_world`), the raw third token can decide any input's window, so every rune is admitted and the per-window probe does all the pruning."""
     return frozenset(spec.runes) if _deep_world(engine) else depth3_inputs(spec)
 
 
@@ -858,7 +916,7 @@ def _liveness_probe(spec: ResolvedSpec, engine: Engine) -> _ProspectLiveness:
 def third_slot_filter(
     spec: ResolvedSpec, features: frozenset[str], engine: Engine | None = None
 ) -> Callable[[str, str, str], bool]:
-    """Whether the raw third slot can decide an input's window, keyed by rune-family names: (input family, right1 family, right2 family) -> bool. The chain arm is true exactly when some depth-3-reach prefer or resolve chain on the input's own rune evaluates to unknown over (right1, right2, UNKNOWN, UNKNOWN) — resolve records receive all four raw slots in `_apply_resolution`, so their chains are censused alongside the prefers — `cond_matches_right` returns None whenever a consulted constraint touched a beyond-window token, and a definite True/False verdict never consulted one, so a window judged definite here settles identically under every third token and its right3 stays #NA. When the probing engine scores the simulated prospect (issue 28) or hands votes their shifted slots (stage 4b), the `_ProspectLiveness` arm is ORed in: the slot also opens where some candidate shape's simulated follower choice, or some follower vote's verdict, moves with the third token — together with the chain arm those are the only ways any kernel mode reads it (seat-side refusals and unlocks are never handed the deep slots). `fourth_slot_filter` is the same gate one slot deeper; a window this filter judges definite is definite for it too — reach-3 chains are reach-2 chains, and the liveness arm's `third_live` ORs in `fourth_live` over every concrete letter third, so a dead third slot never hides a live fourth by construction. Shared by `build_tables` (enumeration gate) and conform's window replay, which must agree on which windows carry a live third slot."""
+    """Whether the raw third slot can decide an input's window, keyed by rune-family names: (input family, right1 family, right2 family) -> bool. The chain arm is true exactly when some depth-3-reach prefer or resolve chain on the input's own rune evaluates to unknown over (right1, right2, UNKNOWN, UNKNOWN) — resolve records receive all four raw slots in `_apply_resolution`, so their chains are censused alongside the prefers — `cond_matches_right` returns None whenever a consulted constraint touched a beyond-window token, and a definite True/False verdict never consulted one, so a window judged definite here settles identically under every third token and its right3 stays #NA. When the probing engine scores the simulated prospect (issue 28) or hands votes their shifted slots (stage 4b), the `_ProspectLiveness` arm is ORed in: the slot also opens where some candidate shape's simulated follower choice, or some follower vote's verdict, moves with the third token — together with the chain arm those are the only ways any kernel mode reads it (seat-side refusals and unlocks are never handed the deep slots). `fourth_slot_filter` is the same gate one slot deeper; a window this filter judges definite is definite for it too — reach-3 chains are reach-2 chains, and the liveness arm's `third_live` ORs in `fourth_live` over every concrete letter third, so a dead third slot never hides a live fourth by construction. Shared by `enumerate_transitions` (enumeration gate) and conform's window replay, which must agree on which windows carry a live third slot."""
     probe = engine if engine is not None else Engine(spec, features)
     chains = {
         name: tuple(
@@ -896,7 +954,7 @@ def third_slot_filter(
 def fourth_slot_filter(
     spec: ResolvedSpec, features: frozenset[str], engine: Engine | None = None
 ) -> Callable[[str, str, str, str], bool]:
-    """Whether the raw fourth slot can decide an input's window, keyed by rune-family names: (input family, right1 family, right2 family, right3 family) -> bool. The chain arm is true exactly when some depth-4-reach prefer or resolve chain on the input's own rune evaluates to unknown over (right1, right2, right3, UNKNOWN) — `cond_matches_right` returns None whenever a consulted constraint touched the fourth token, and a definite True/False verdict never consulted it, so a window judged definite here settles identically under every fourth token and its right4 stays #NA. When the probing engine scores the simulated prospect (issue 28) or hands votes their shifted slots (stage 4b), the `_ProspectLiveness` arm is ORed in: the slot also opens where some candidate shape's simulated follower choice, or some follower vote's verdict, moves with the fourth token at this concrete third. Shared by `build_tables` (enumeration gate) and conform's window replay, which must agree on which windows carry a live fourth slot."""
+    """Whether the raw fourth slot can decide an input's window, keyed by rune-family names: (input family, right1 family, right2 family, right3 family) -> bool. The chain arm is true exactly when some depth-4-reach prefer or resolve chain on the input's own rune evaluates to unknown over (right1, right2, right3, UNKNOWN) — `cond_matches_right` returns None whenever a consulted constraint touched the fourth token, and a definite True/False verdict never consulted it, so a window judged definite here settles identically under every fourth token and its right4 stays #NA. When the probing engine scores the simulated prospect (issue 28) or hands votes their shifted slots (stage 4b), the `_ProspectLiveness` arm is ORed in: the slot also opens where some candidate shape's simulated follower choice, or some follower vote's verdict, moves with the fourth token at this concrete third. Shared by `enumerate_transitions` (enumeration gate) and conform's window replay, which must agree on which windows carry a live fourth slot."""
     probe = engine if engine is not None else Engine(spec, features)
     chains = {
         name: tuple(
@@ -1098,7 +1156,7 @@ class _ContextFibres:
 
 
 class _DeepFibreDeriver:
-    """The issue-26 fibre source: per live context (input family, right1, right2), partition the static r3 option list's letters into fibres of the outcome-probe function, lazily on first reach and memoized per build. The fibre key per candidate letter t3 is (i) the probe function f(t3) — for every left class in `_ProspectLiveness._seat_left_classes` and every bounded coordinate, the full row-visible probe record: the Settled (cell, seam, extension), prospect, joint_floor, and notes, plus the raise identity as three distinct values — (ii) the `fourth_slot_matters` verdict itself, and (iii) for members whose verdict is true, the computed r4 option list, run through `_WindowOptions.right4_options` per member so every present and future filter in the pipeline is keyed on structurally. The coordinate set is bounded, not the full grid: {EDGE, UNKNOWN} where the fourth slot is dead — an r4-dead member is traced only at EDGE and enqueues no r4 pin, so deeper coordinates are unread for it — widening to the full probe alphabet plus UNKNOWN exactly where `fourth_slot_matters` is true, which is where a seat can move under a specific (third, fourth) pair. Components (ii) and (iii) make an r3 class induce one shared r4 sub-enumeration, whose t4 groups under f(t3)(., t4) restricted to the option list are the r4 fibres — f is indexed by t3, so the r4 partition is per (context, r3 class), never per context alone. The probes run on the build's own tracing engine, so their traces land in the shared memo and their fired pointers in `engine.fired`, exactly as the liveness probes' traces already do. The one imported (not probed) assumption is the left-class collapse `_seat_left_classes` already trusts; it is guarded at real-left grain by the echo check in `build_tables` and the fibre verification test."""
+    """The issue-26 fibre source: per live context (input family, right1, right2), partition the static r3 option list's letters into fibres of the outcome-probe function, lazily on first reach and memoized per build. The fibre key per candidate letter t3 is (i) the probe function f(t3) — for every left class in `_ProspectLiveness._seat_left_classes` and every bounded coordinate, the full row-visible probe record: the Settled (cell, seam, extension), prospect, joint_floor, and notes, plus the raise identity as three distinct values — (ii) the `fourth_slot_matters` verdict itself, and (iii) for members whose verdict is true, the computed r4 option list, run through `_WindowOptions.right4_options` per member so every present and future filter in the pipeline is keyed on structurally. The coordinate set is bounded, not the full grid: {EDGE, UNKNOWN} where the fourth slot is dead — an r4-dead member is traced only at EDGE and enqueues no r4 pin, so deeper coordinates are unread for it — widening to the full probe alphabet plus UNKNOWN exactly where `fourth_slot_matters` is true, which is where a seat can move under a specific (third, fourth) pair. Components (ii) and (iii) make an r3 class induce one shared r4 sub-enumeration, whose t4 groups under f(t3)(., t4) restricted to the option list are the r4 fibres — f is indexed by t3, so the r4 partition is per (context, r3 class), never per context alone. The probes run on the build's own tracing engine, so their traces land in the shared memo and their fired pointers in `engine.fired`, exactly as the liveness probes' traces already do. The one imported (not probed) assumption is the left-class collapse `_seat_left_classes` already trusts; it is guarded at real-left grain by the echo check in `enumerate_transitions` and the fibre verification test."""
 
     def __init__(
         self,
@@ -1344,13 +1402,47 @@ def _assert_deep_slot_partition(
         raise PartitionError(f"unused deep-class map entries: {sorted(unused)}")
 
 
-def build_tables(
+@dataclass(frozen=True)
+class FixpointProduct:
+    """Everything one configuration's fixpoint produces and nothing it consulted: the key-sorted enriched transition stream, the deep-class map its class tokens resolve through, the provenance pointers the engine fired while tabulating, and the cells the stream settles into. `joint` on these rows is the trace's own `joint_floor` alone — the prospect-divergence pass runs in `assemble_tables`, over the expanded stream — and `cells` is stated at class grain, which equals the expanded set because a class row's members share its settled fields. This value is the kernel boundary: `assemble_tables` reads it and nothing else the engine touched, so a product parsed back from a file folds into the identical tables."""
+
+    config: str
+    transitions: tuple[Transition, ...]
+    deep_classes: Mapping[str, tuple[str, ...]]
+    cited_provenance: frozenset[str]
+    cells: frozenset[CellId]
+
+
+@dataclass(frozen=True)
+class _FixpointContext:
+    """The product plus the enumeration-side objects the class-grain assertions replay against — the fibre deriver, the option pipelines, the deep-input censuses, and the two slot filters. They are proof scaffolding, not product, which is why `enumerate_transitions` hands back the product alone and only `build_tables` sees this."""
+
+    product: FixpointProduct
+    options: _WindowOptions
+    deriver: _DeepFibreDeriver | None
+    deep_inputs: frozenset[str]
+    deep4_inputs: frozenset[str]
+    third_slot_matters: Callable[[str, str, str], bool]
+    fourth_slot_matters: Callable[[str, str, str, str], bool]
+
+
+def enumerate_transitions(
     spec: ResolvedSpec,
     features: frozenset[str],
     trace_store: "TraceStore | None" = None,
     share: "TraceShare | None" = None,
-) -> tuple[DecisionTable, TreatyTable]:
-    """One configuration's decision and treaty tables, by fixpoint over reachable left states (the worklist comment below is the exactness contract). Wherever `_deep_world` holds and `DEEP_CLASSES_DEFAULT` is on, deep window slots enumerate at class grain (issue 26): the static option lists are computed exactly as at label grain, their letters split by `_DeepFibreDeriver`'s outcome fibres, worklist pins intersect each fibre, and the row for a (base, fibre pair) accumulates the union of admitted members across items — so the expanded member product equals the label-grain row multiset exactly, and everything from the joint-flag pass on consumes that expanded stream (`expanded_transitions`), keeping the fold, the rules, the treaty, and the serialized rules byte-identical by construction. The declared narrowing (issue 7's rule): per-member `transition_trace` at enumeration time becomes representative-plus-echo per (base, fibre pair) — the trace runs once with the first admitted member, and for every multi-member row the last member is additionally traced at the row's real left (the last r4 member at the representative r3 likewise) and its full probe record asserted equal, so the left-class collapse the fibres import is re-checked at real-left, real-entry, real-adjustment grain on every build; members between first and last are covered by the fibre probes at virtual-left grain, alarmed by the fibre verification test, the conform walk's first-divergent-member behavior, and the horizon-limited label-grain sweep. Standing residual: a middle member's real-left trace no longer runs, so a record whose only firing evidence was such a trace reads dead — the dead-policy gate errors on it loudly, and the fix at that point is targeted member tracing for the specific contexts, never a waiver."""
+) -> FixpointProduct:
+    """One configuration's reachable windows, by fixpoint over reachable left states (the worklist comment below is the exactness contract). This is the kernel half of the build — every line that consults the settlement engine, and the half a port replaces wholesale — reduced to the one value `assemble_tables` needs. Wherever `_deep_world` holds and `DEEP_CLASSES_DEFAULT` is on, deep window slots enumerate at class grain (issue 26): the static option lists are computed exactly as at label grain, their letters split by `_DeepFibreDeriver`'s outcome fibres, worklist pins intersect each fibre, and the row for a (base, fibre pair) accumulates the union of admitted members across items — so the expanded member product equals the label-grain row multiset exactly, and everything from the joint-flag pass on consumes that expanded stream (`expanded_transitions`), keeping the fold, the rules, the treaty, and the serialized rules byte-identical by construction. The declared narrowing (issue 7's rule): per-member `transition_trace` at enumeration time becomes representative-plus-echo per (base, fibre pair) — the trace runs once with the first admitted member, and for every multi-member row the last member is additionally traced at the row's real left (the last r4 member at the representative r3 likewise) and its full probe record asserted equal, so the left-class collapse the fibres import is re-checked at real-left, real-entry, real-adjustment grain on every build; members between first and last are covered by the fibre probes at virtual-left grain, alarmed by the fibre verification test, the conform walk's first-divergent-member behavior, and the horizon-limited label-grain sweep. Standing residual: a middle member's real-left trace no longer runs, so a record whose only firing evidence was such a trace reads dead — the dead-policy gate errors on it loudly, and the fix at that point is targeted member tracing for the specific contexts, never a waiver."""
+    return _enumerate(spec, features, trace_store=trace_store, share=share).product
+
+
+def _enumerate(
+    spec: ResolvedSpec,
+    features: frozenset[str],
+    trace_store: "TraceStore | None" = None,
+    share: "TraceShare | None" = None,
+) -> _FixpointContext:
+    """`enumerate_transitions` with the proof scaffolding still attached, for the class-grain assertions `build_tables` runs after the fold."""
     reader = share.reader_for(features) if share is not None else None
     engine = Engine(spec, features, trace_memo=True, trace_store=trace_store, trace_share=reader)
     config = feature_config_token(features)
@@ -1691,6 +1783,28 @@ def build_tables(
         engine._trace_fired.clear()
 
     enumerated = sorted(transitions.values(), key=lambda t: t.key)
+    return _FixpointContext(
+        product=FixpointProduct(
+            config=config,
+            transitions=tuple(enumerated),
+            deep_classes=deep_classes_map,
+            cited_provenance=frozenset(engine.fired),
+            cells=frozenset(row.settled.cell for row in enumerated),
+        ),
+        options=options,
+        deriver=deriver,
+        deep_inputs=deep_inputs,
+        deep4_inputs=deep4_inputs,
+        third_slot_matters=third_slot_matters,
+        fourth_slot_matters=fourth_slot_matters,
+    )
+
+
+def assemble_tables(spec: ResolvedSpec, product: FixpointProduct) -> tuple[DecisionTable, TreatyTable]:
+    """The Python half of the build, folding one fixpoint product into its two tables: the class-grain stream expanded to label grain, the prospect-divergence flag pass over that expansion with every fired flag backfilled onto the class row covering it, the per-input rule fold, and the treaty fold. It reads the product and one verdict from `spec` (`is_entry_bearing`, for the ZWNJ backtrack-slot guards) — nothing else the engine saw — so a product that arrived over the kernel boundary assembles into exactly the tables the enumeration that produced it would have. The reachable cells are the product's; re-deriving them from the fold rows is one cheap loud check that the two grains still agree."""
+    enumerated = list(product.transitions)
+    config = product.config
+    deep_classes_map = product.deep_classes
     if deep_classes_map:
         expanded_pairs: list[tuple[int, Transition]] = []
         for index, row in enumerate(enumerated):
@@ -1733,21 +1847,20 @@ def build_tables(
         rules.extend(input_rules)
         identity_guards += guards
 
-    cells = {row.settled.cell for row in fold_rows}
+    cells = frozenset(row.settled.cell for row in fold_rows)
+    if cells != product.cells:
+        raise PartitionError(
+            f"the product's reachable cells disagree with the fold rows': {sorted(_cell_key(cell) for cell in cells ^ product.cells)}"
+        )
     decision = DecisionTable(
         config=config,
         transitions=tuple(rows),
         rules=tuple(rules),
         identity_guard_rules=identity_guards,
-        cited_provenance=frozenset(engine.fired),
+        cited_provenance=product.cited_provenance,
         deep_classes=deep_classes_map,
-        _cells=frozenset(cells),
+        _cells=product.cells,
     )
-    if deriver is not None:
-        _assert_deep_slot_partition(
-            decision, options, deriver, deep_inputs, deep4_inputs, third_slot_matters, fourth_slot_matters
-        )
-        decision._assert_deep_class_unions()
 
     treaty_rows = sorted(
         {
@@ -1767,6 +1880,29 @@ def build_tables(
         key=lambda r: (r.left, r.right, r.junction),
     )
     return decision, TreatyTable(config=config, rows=tuple(treaty_rows))
+
+
+def build_tables(
+    spec: ResolvedSpec,
+    features: frozenset[str],
+    trace_store: "TraceStore | None" = None,
+    share: "TraceShare | None" = None,
+) -> tuple[DecisionTable, TreatyTable]:
+    """One configuration's decision and treaty tables: `enumerate_transitions` for the fixpoint, `assemble_tables` for the fold. The two class-grain assertions run here rather than inside either half because they are the only consumers wanting both the assembled table and the enumeration's own scaffolding — the fibre deriver, the option pipelines, the slot filters — which the product deliberately does not carry across the boundary."""
+    context = _enumerate(spec, features, trace_store=trace_store, share=share)
+    decision, treaty = assemble_tables(spec, context.product)
+    if context.deriver is not None:
+        _assert_deep_slot_partition(
+            decision,
+            context.options,
+            context.deriver,
+            context.deep_inputs,
+            context.deep4_inputs,
+            context.third_slot_matters,
+            context.fourth_slot_matters,
+        )
+        decision._assert_deep_class_unions()
+    return decision, treaty
 
 
 def prospect_successor_index(rows: list[Transition]) -> dict[tuple[str, str, str], list[Transition]]:

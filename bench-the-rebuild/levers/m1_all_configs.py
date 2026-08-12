@@ -12,7 +12,7 @@ Three modes, because the stage has three honest states:
 
 Prints one JSON object per line: a `"kind": "config"` row per acceptance configuration and a `"kind": "total"` row per rep, carrying the field names the calibrate files use so the two compare line for line. Per-config rows time the inner `table.build_tables` fixpoint, which is where `trace_store.save` lives; the total times the whole `run_m1.build_tables` call, so the total less the row sum is the loop's store-open, assert and TSV-persist cost.
 
-The digest covers the full emitted artifact per configuration — the settlement rules, every window row, the treaty rows, the reachable cells and the cited-provenance set — in the layout `m1_slice.py` hashes, so a lever that moves any of them is caught and the two harnesses agree on a table they both build. It is taken around the inner call, before `run_m1._persist_tables` drops the windows from the returned table, so one digest compares across all three modes rather than only within one.
+The digest covers the full emitted artifact per configuration — the settlement rules, every window row, the treaty rows, the reachable cells and the cited-provenance set — in the layout `m1_slice.py` hashes, so a lever that moves any of them is caught and the two harnesses agree on a table they both build. It is taken around the inner call, before `run_m1._persist_tables` drops the windows from the returned table, so one digest compares across all three modes rather than only within one. The measured tree's own `table.table_digest` is used when it has one, so a digest quoted here is the same scalar the pipeline's tests pin; the local copy below stays because the older comparison trees `mktree_at.sh` builds predate that promotion, and their object shapes are the ones it was written against. `rebuild/test_table_digest.py` holds the two in lockstep.
 
 `--gc off`, the default, collects, freezes and disables once the spec is loaded, which is what `run_m1`'s own `__main__` does to the real run; `--gc on` leaves the collector alone so both arms are reproducible.
 """
@@ -97,6 +97,7 @@ def table_digest(decision, treaty) -> str:
 
 def instrument_configs(table_module, rows: list[dict]) -> None:
     inner = table_module.build_tables
+    digest_of = getattr(table_module, "table_digest", None) or table_digest
 
     def timed(spec, features, trace_store=None, share=None):
         collections_before = sum(s["collections"] for s in gc.get_stats())
@@ -118,7 +119,7 @@ def instrument_configs(table_module, rows: list[dict]) -> None:
                 "memo_saved": trace_store.saved if trace_store is not None else 0,
                 "collections": sum(s["collections"] for s in gc.get_stats()) - collections_before,
                 "rss_gb": peak_rss_gb(),
-                "digest": table_digest(decision, treaty),
+                "digest": digest_of(decision, treaty),
             }
         )
         return decision, treaty

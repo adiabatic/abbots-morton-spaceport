@@ -3,6 +3,8 @@
 Run it from anywhere; k values are positional and default to the full ladder up to the current alphabet. The top row should reproduce the production default-config table, which is the check that this measures the real kernel rather than a subset of it.
 
 Cyclic GC is frozen and disabled by default because that is what `run_m1` does at its entry, and the sweep is meant to model that stage. `AMS_SCALING_GC=on` leaves the collector running, which is the state the pre-#35 sweeps were measured in. `AMS_SCALING_ROOT` points the kernel import at a comparison tree instead of this repo, which is how an arm at an older revision is measured; `AMS_DEEP_CLASSES=0` is the label-grain arm, and each row records which of the two it ran under.
+
+`AMS_SCALING_DUMP=<dir>` turns each rung into a kernel-boundary sample as well as a timing: the rung's sub-spec and its default-config fixpoint product are written into that directory, and the row gains the canonical differential digest of the rung's tables. Its timed region calls the two seam halves directly and so leaves out the class-grain assertions a plain `build_tables` runs, which are proof rather than product — the times a dump run reports are therefore its own arm, not rows to fit an exponent against a default run's, and the `mode` field is what says which arm a row came from.
 """
 
 import gc, os, resource, time, json, sys
@@ -14,6 +16,13 @@ sys.path.insert(0, os.environ.get("AMS_SCALING_ROOT") or str(HERE.parents[2]))
 
 from rebuild.pipeline.spec_load import load_default_spec
 from rebuild.pipeline import table as T
+
+DUMP = os.environ.get("AMS_SCALING_DUMP")
+if DUMP:
+    from rebuild.pipeline import kernel_io as K
+
+    dump_dir = Path(DUMP)
+    dump_dir.mkdir(parents=True, exist_ok=True)
 
 if os.environ.get("AMS_SCALING_GC", "off") != "on":
     gc.collect()
@@ -45,7 +54,11 @@ for k in [int(x) for x in sys.argv[1:]] or ladder:
     letters = sum(1 for n in sub.runes if not sub.runes[n].sequence)
     t = time.process_time()
     w = time.perf_counter()
-    d, tr = T.build_tables(sub, frozenset())
+    if DUMP:
+        product = T.enumerate_transitions(sub, frozenset())
+        d, tr = T.assemble_tables(sub, product)
+    else:
+        d, tr = T.build_tables(sub, frozenset())
     cpu = time.process_time() - t
     wall = time.perf_counter() - w
     row = dict(
@@ -61,6 +74,11 @@ for k in [int(x) for x in sys.argv[1:]] or ladder:
         gc="on" if gc.isenabled() else "frozen",
         deep_classes=getattr(T, "DEEP_CLASSES_DEFAULT", None),
     )
+    if DUMP:
+        K.write_spec(sub, dump_dir / f"spec-r{len(sub.runes)}.json")
+        K.write_transitions(product, dump_dir / f"transitions-r{len(sub.runes)}.gz")
+        row["digest"] = T.table_digest(d, tr)
+        row["mode"] = "dump"
     out.append(row)
     print(json.dumps(row), flush=True)
 json.dump(out, open(HERE.parent / "scaling.json", "w"), indent=1)
