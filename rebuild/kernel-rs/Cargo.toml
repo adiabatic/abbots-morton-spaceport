@@ -1,0 +1,20 @@
+[package]
+name = "ams-m1-kernel"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+name = "ams_m1_kernel"
+path = "src/lib.rs"
+
+[[bin]]
+name = "ams-m1-kernel"
+path = "src/main.rs"
+
+[dependencies]
+serde_json = { version = "1", features = ["preserve_order", "arbitrary_precision"] }
+
+[profile.release]
+lto = true
+codegen-units = 1

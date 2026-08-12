@@ -1,4 +1,4 @@
-.PHONY: all test test-rebuild test-slowly test-leaks leak-snapshot typecheck print-job serve explainer check-html-before check-html-after build-kerning-hardcases review test-and-review review-build review-serve review-cycle artifact-cycle verdict-ready cycle-timings complaint-docket novelty-order prettier woff2 clean
+.PHONY: all test test-rebuild test-slowly test-leaks leak-snapshot typecheck print-job serve explainer check-html-before check-html-after build-kerning-hardcases review test-and-review review-build review-serve review-cycle artifact-cycle verdict-ready cycle-timings complaint-docket novelty-order kernel-build kernel-check kernel-parity prettier woff2 clean
 
 all:
 	uv run python tools/build_font.py glyph_data/ site/
@@ -102,6 +102,20 @@ complaint-docket:
 # Order the blank queue for novelty — one rep per echo group, each next unit maximally unlike the last few across class, families, letters, stances, seams, configs, and provenance — and print the worklist URL to paste into the review app. Reads the live autosave unless ARGS names a verdicts file; emits a sitting-sized prefix of 40 by default, and ARGS='--limit 0' emits the whole queue.
 novelty-order:
 	uv run python rebuild/tools/novelty_order.py $(ARGS)
+
+# Build the Rust M1 kernel (rebuild/kernel-rs, issue #40) in release mode. The release profile is the one the parity harness runs and the one every later port gate reuses, so there is deliberately no debug target.
+kernel-build:
+	cargo build --release --manifest-path rebuild/kernel-rs/Cargo.toml
+
+# The crate's own gate: formatting, clippy with every warning fatal, and the cargo tests (canonical-JSON escaping, synthetic round-trips, the strictness rejections, the interner).
+kernel-check:
+	cargo fmt --check --manifest-path rebuild/kernel-rs/Cargo.toml
+	cargo clippy --all-targets --manifest-path rebuild/kernel-rs/Cargo.toml -- -D warnings
+	cargo test --manifest-path rebuild/kernel-rs/Cargo.toml
+
+# Prove the Rust kernel's spec ingest lossless: dump the live alphabet and every scaling-ladder rung through kernel_io.spec_json, echo each back out of the binary's own model, and require the bytes to be identical. A change to rebuild/pipeline/model.py that the Rust side has not followed fails here.
+kernel-parity: kernel-build
+	uv run python -m rebuild.tools.kernel_parity
 
 # Compress the built OTFs in site/ into WOFF2 alongside them.
 woff2: all
