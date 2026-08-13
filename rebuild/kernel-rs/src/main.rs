@@ -1,4 +1,4 @@
-//! `ams-m1-kernel` — the Rust reimplementation of the M1 settlement kernel (tracker issue #40). Today it does the ingest step, the settlement core and the table build's kernel half: it reads an `ams-m1-spec/1` dump into the interned model, echoes that model back out in canonical form (sub-issue #42), settles single windows against it — one case file at a time for the differential, and the whole late-formation surface for the guard (sub-issue #43) — runs the whole table-build worklist fixpoint over one configuration in either candidacy world and at either deep-slot grain, writing the transitions stream Python folds into its artifacts (sub-issues #44 and #45), and answers deep-slot liveness and fiber questions one key at a time for the liveness-grain differential (sub-issue #45).
+//! `ams-m1-kernel` — the Rust reimplementation of the M1 settlement kernel (tracker issue #40). Today it does the ingest step, the settlement core and the table build's kernel half: it reads an `ams-m1-spec/1` dump into the interned model, echoes that model back out in canonical form (sub-issue #42), settles single windows against it — one case file at a time for the differential, and the whole late-formation surface for the guard (sub-issue #43) — runs the whole table-build worklist fixpoint over one configuration in either candidacy world and at either deep-slot grain, writing the transitions stream Python folds into its artifacts (sub-issues #44 and #45), runs a whole named set of configurations that way in one process, concurrently, for the builds that want all of them at once (sub-issue #46), and answers deep-slot liveness and fiber questions one key at a time for the liveness-grain differential (sub-issue #45).
 //!
 //! **`rebuild/pipeline/kernel_io.py` is the binding contract for the dump, and `rebuild/pipeline/settle.py` with `rebuild/pipeline/specificity.py` for the settlement.** Their module and function docstrings define both halves of each boundary, and this crate is measured against them rather than the other way around: the dump is whatever `kernel_io.spec_json` writes, the strictness is whatever `kernel_io.spec_of` enforces, a settled window is whatever `settle.Engine.transition_trace` returns down to its raise messages, and where this crate and those modules disagree, those modules are right. `rebuild/pipeline/table.py` is the contract for the fixpoint and for everything the deep slots do. `bench-the-rebuild/RUST-PORT-PLAN.md` carries the design facts behind the port — chiefly that the packing, not the language, is the win, and that the standard SipHash hasher beat the finalizer-less fast hasher that a first pass reached for.
 //!
@@ -11,15 +11,22 @@
 //! - `ams-m1-kernel spec-echo <spec>` writes the canonical dump plus one newline.
 //! - `ams-m1-kernel settle-cases <spec> <cases> [--features=a,b,…] [--candidacy-prospect] [--vote-slots-off]` replays a plain-text `ams-m1-corpus/3` case file — the harness gunzips it, because this crate carries serde_json and nothing else — through one engine in file order and writes one re-emitted case line per case. A window that raises a settlement error is a normal result line and never a nonzero exit.
 //! - `ams-m1-kernel guard-sweep <spec>` writes the whole section 5.7 late-formation surface, one tab-separated verdict per line.
-//! - `ams-m1-kernel enumerate <spec> [--features=a,b,…] [--candidacy-prospect] [--vote-slots-off] [--deep-classes-off]` runs one configuration's whole table-build fixpoint and writes the uncompressed `ams-m1-transitions/1` stream — the head line and one row per window. `--deep-classes-off` is Python's `AMS_DEEP_CLASSES=0`, the label-grain arm; in the pinned candidacy world enumeration is label-grain regardless, so the flag is accepted and does nothing there. The harness gzips the stream, as it gunzips the case files, for the same reason.
+//! - `ams-m1-kernel enumerate <spec> [--features=a,b,…] [--candidacy-prospect] [--vote-slots-off] [--deep-classes-off] [--timings]` runs one configuration's whole table-build fixpoint and writes the uncompressed `ams-m1-transitions/1` stream — the head line and one row per window. `--deep-classes-off` is Python's `AMS_DEEP_CLASSES=0`, the label-grain arm; in the pinned candidacy world enumeration is label-grain regardless, so the flag is accepted and does nothing there. The harness gzips the stream, as it gunzips the case files, for the same reason.
+//! - `ams-m1-kernel enumerate-configs <spec> <outdir> --configs=a,b,… [--threads=N] [--candidacy-prospect] [--vote-slots-off] [--deep-classes-off] [--timings]` runs several configurations' fixpoints in one process and writes each one's stream to `<outdir>/transitions-<config>.ndjson`, creating the directory with its parents and overwriting what it finds. stdout stays silent, because here the answer is the files — and they mean nothing except on exit 0, since a configuration that fails exits 1 naming itself and leaves whatever the other configurations had already written behind. A run that does reach exit 0 leaves that promise glob-safe: any `transitions-*.ndjson` already in the directory naming a configuration this run was not asked about is swept before the first one is written, so the whole set a consumer finds there is the set the command line named. `--configs=` is required and spells the configurations the way Python does, `conform.ACCEPTANCE_CONFIGS`'s own tokens: `default` for no features, anything else a `+`-joined feature list whose names are checked against the spec exactly as `--features=` checks them. A token that is not the canonical spelling of the features it names — out of order, repeated, empty, or empty between two `+` — is a usage error rather than a configuration, which is what keeps the filename, the stream head's `config` and the caller's own word for it in agreement by construction. The world flags name one world for the whole invocation, as they do for one `enumerate`.
 //! - `ams-m1-kernel liveness-cases <spec> <keys> [--features=a,b,…] [--candidacy-prospect] [--vote-slots-off]` answers one deep-slot question per key line: `3<tab><input><tab><r1><tab><r2>` and `4<tab><input><tab><r1><tab><r2><tab><r3>` answer `live` or `dead` — the full filter verdict, chain arm and liveness arm together — and `fibers<tab><input><tab><r1><tab><r2>` answers with the context's fiber partition as compact JSON. Every name is a rune family name; a key naming anything else stops the run. Each output line is the key line, a tab, and the answer, in file order.
 //!
-//! A usage mistake — wrong argument count, wrong verb, an unknown flag, an argument that is not valid Unicode — exits 2; a file that cannot be read, parsed, or validated, a case file or key file this build cannot answer, and a window that will not settle, exit 1 with a one-line complaint on stderr.
+//! Concurrency reaches exactly as far as the configuration and no further: `enumerate-configs` runs at most `--threads` configurations at once, by default one per configuration and capped by the machine's parallelism. [`ams_m1_kernel::fanout`] carries both halves of why that is the whole of it — what makes the bytes a function of the plan rather than of the schedule, and why the worklist inside one configuration stays sequential. Peak memory rises roughly linearly with that width, since each configuration in flight holds its whole working set until its stream has been emitted, so `--threads` is the lever a machine with less memory than parallelism reaches for.
+//!
+//! `--timings` rides `enumerate` and `enumerate-configs` and writes `[t] <label> <secs>s` lines to stderr at one decimal, `rebuild/pipeline/run_m1.py`'s spelling, which is what `rebuild/tools/cycle_timings.py` parses back out of a captured child: `spec_parse` for the read, the parse and the index, then `enumerate[<config>]` and `emit[<config>]` per configuration, then `enumerate_total`. Every line is buffered and written once the last configuration is done, in `--configs` order, so stderr reads the same at any thread count. Without the flag nothing reaches stderr on a clean exit, which is a contract of its own: the identity harness reads any stderr there as a failure.
+//!
+//! A usage mistake — wrong argument count, wrong verb, an unknown flag, a flag the named verb does not spell, an argument that is not valid Unicode — exits 2; a file that cannot be read, parsed, or validated, a directory that cannot be written, a case file or key file this build cannot answer, and a window that will not settle, exit 1 with a one-line complaint on stderr.
 
 #![forbid(unsafe_code)]
 
 use std::io::Write;
+use std::path::Path;
 use std::process::ExitCode;
+use std::time::{Duration, Instant};
 
 use ams_m1_kernel::census::{FourthSlotFilter, ThirdSlotFilter};
 use ams_m1_kernel::emit::json_string;
@@ -30,18 +37,52 @@ use ams_m1_kernel::index::SpecIndex;
 use ams_m1_kernel::liveness::ProspectLiveness;
 use ams_m1_kernel::model::Sym;
 use ams_m1_kernel::options::WindowOptions;
-use ams_m1_kernel::{cases, emit, fixpoint, guard, parse, stream};
+use ams_m1_kernel::stream::feature_config_token;
+use ams_m1_kernel::{cases, emit, fanout, guard, parse, stream};
 
-const USAGE: &str = "usage: ams-m1-kernel spec-echo <spec>\n       ams-m1-kernel settle-cases <spec> <cases> [--features=a,b] [--candidacy-prospect] [--vote-slots-off]\n       ams-m1-kernel guard-sweep <spec>\n       ams-m1-kernel enumerate <spec> [--features=a,b] [--candidacy-prospect] [--vote-slots-off] [--deep-classes-off]\n       ams-m1-kernel liveness-cases <spec> <keys> [--features=a,b] [--candidacy-prospect] [--vote-slots-off]";
+const USAGE: &str = "usage: ams-m1-kernel spec-echo <spec>\n       ams-m1-kernel settle-cases <spec> <cases> [--features=a,b] [--candidacy-prospect] [--vote-slots-off]\n       ams-m1-kernel guard-sweep <spec>\n       ams-m1-kernel enumerate <spec> [--features=a,b] [--candidacy-prospect] [--vote-slots-off] [--deep-classes-off] [--timings]\n       ams-m1-kernel enumerate-configs <spec> <outdir> --configs=default,ss03 [--threads=N] [--candidacy-prospect] [--vote-slots-off] [--deep-classes-off] [--timings]\n       ams-m1-kernel liveness-cases <spec> <keys> [--features=a,b] [--candidacy-prospect] [--vote-slots-off]";
 
 /// What a command line named, before any verb has said how many positionals it wants. The three mode flags are spelled as negations because all three modes ship on, so a plain invocation is the shipping configuration.
 struct Flags<'a> {
     positionals: Vec<&'a str>,
     features: Vec<&'a str>,
+    configs: Option<Vec<&'a str>>,
+    threads: Option<usize>,
+    timings: bool,
     simulated_prospect: bool,
     vote_slots: bool,
     deep_classes: bool,
 }
+
+/// Which of the optional flags a verb spells at all. Anything outside its verb's vocabulary is the unknown flag it is, so `--configs=` on `enumerate` is a usage error rather than a word quietly ignored, and `--features=` on `enumerate-configs` is one too — there the configurations name the features.
+#[derive(Clone, Copy)]
+struct Vocabulary {
+    grain: bool,
+    features: bool,
+    /// The two flags of a multi-configuration run, `--configs=` and `--threads=`, which only ever arrive together.
+    configs: bool,
+    timings: bool,
+}
+
+/// The flag sets the flag-bearing verbs spell. The two file-answering verbs share one, having the same vocabulary and no reason to drift apart.
+const CASES_FLAGS: Vocabulary = Vocabulary {
+    grain: false,
+    features: true,
+    configs: false,
+    timings: false,
+};
+const ENUMERATE_FLAGS: Vocabulary = Vocabulary {
+    grain: true,
+    features: true,
+    configs: false,
+    timings: true,
+};
+const CONFIGS_FLAGS: Vocabulary = Vocabulary {
+    grain: true,
+    features: false,
+    configs: true,
+    timings: true,
+};
 
 /// What a `settle-cases` invocation asked for.
 struct CasesPlan<'a> {
@@ -59,6 +100,25 @@ struct EnumeratePlan<'a> {
     simulated_prospect: bool,
     vote_slots: bool,
     deep_classes: bool,
+    timings: bool,
+}
+
+/// What an `enumerate-configs` invocation asked for: [`EnumeratePlan`]'s world over a whole named set of configurations and a directory to write them into, with the feature list replaced by the configuration tokens that spell it.
+struct ConfigsPlan<'a> {
+    spec: &'a str,
+    outdir: &'a str,
+    configs: Vec<ConfigRequest<'a>>,
+    threads: Option<usize>,
+    simulated_prospect: bool,
+    vote_slots: bool,
+    deep_classes: bool,
+    timings: bool,
+}
+
+/// One configuration a command line named: the token it was spelled by — which is the filename, the stream head's `config` and the label of its timing lines — and the feature names that token parses into.
+struct ConfigRequest<'a> {
+    token: &'a str,
+    features: Vec<&'a str>,
 }
 
 /// What a `liveness-cases` invocation asked for. There is no grain flag: a fiber partition is derived wherever the deep world holds, whatever grain an enumeration would then be written at.
@@ -106,6 +166,12 @@ fn main() -> ExitCode {
             };
             enumerate(&plan)
         }
+        "enumerate-configs" => {
+            let Some(plan) = plan_configs(rest) else {
+                return usage();
+            };
+            enumerate_configs(&plan)
+        }
         "liveness-cases" => {
             let Some(plan) = plan_liveness(rest) else {
                 return usage();
@@ -128,12 +194,15 @@ fn usage() -> ExitCode {
     ExitCode::from(2)
 }
 
-/// The flag scan every verb shares, or `None` for anything the contract does not spell. `grain` says whether this verb spells `--deep-classes-off` at all; a verb that does not takes it as the unknown flag it is.
+/// The flag scan every verb shares, or `None` for anything the contract does not spell. [`Vocabulary`] says which optional flags this verb spells at all; one it does not takes them as the unknown flags they are.
 ///
-/// An empty `--features=` is a usage error rather than a no-feature configuration: the harness omits the flag entirely when nothing is active, so an empty value means the two sides' flag sets have drifted and saying so is more useful than guessing.
-fn scan_flags(rest: &[String], grain: bool) -> Option<Flags<'_>> {
+/// An empty `--features=` is a usage error rather than a no-feature configuration: the harness omits the flag entirely when nothing is active, so an empty value means the two sides' flag sets have drifted and saying so is more useful than guessing. An empty `--configs=` is refused for the same reason, there being no such thing as a run over no configurations, and a `--threads=` that is not a positive count is refused rather than rounded up to one — digits and nothing else, so that `+3` is the typo it is rather than the three `usize`'s own parse would read it as, and a count too large to hold is refused in the same breath.
+fn scan_flags(rest: &[String], vocabulary: Vocabulary) -> Option<Flags<'_>> {
     let mut positionals: Vec<&str> = Vec::new();
     let mut features: Option<Vec<&str>> = None;
+    let mut configs: Option<Vec<&str>> = None;
+    let mut threads: Option<usize> = None;
+    let mut timings = false;
     let mut simulated_prospect = true;
     let mut vote_slots = true;
     let mut deep_classes = true;
@@ -142,13 +211,31 @@ fn scan_flags(rest: &[String], grain: bool) -> Option<Flags<'_>> {
             simulated_prospect = false;
         } else if argument == "--vote-slots-off" {
             vote_slots = false;
-        } else if grain && argument == "--deep-classes-off" {
+        } else if vocabulary.grain && argument == "--deep-classes-off" {
             deep_classes = false;
-        } else if let Some(list) = argument.strip_prefix("--features=") {
+        } else if vocabulary.timings && argument == "--timings" {
+            timings = true;
+        } else if vocabulary.features
+            && let Some(list) = argument.strip_prefix("--features=")
+        {
             if list.is_empty() || features.is_some() {
                 return None;
             }
             features = Some(list.split(',').collect());
+        } else if vocabulary.configs
+            && let Some(list) = argument.strip_prefix("--configs=")
+        {
+            if list.is_empty() || configs.is_some() {
+                return None;
+            }
+            configs = Some(list.split(',').collect());
+        } else if vocabulary.configs
+            && let Some(count) = argument.strip_prefix("--threads=")
+        {
+            if threads.is_some() || !count.bytes().all(|byte| byte.is_ascii_digit()) {
+                return None;
+            }
+            threads = Some(count.parse::<usize>().ok().filter(|count| *count > 0)?);
         } else if argument.starts_with('-') {
             return None;
         } else {
@@ -158,6 +245,9 @@ fn scan_flags(rest: &[String], grain: bool) -> Option<Flags<'_>> {
     Some(Flags {
         positionals,
         features: features.unwrap_or_default(),
+        configs,
+        threads,
+        timings,
         simulated_prospect,
         vote_slots,
         deep_classes,
@@ -165,7 +255,7 @@ fn scan_flags(rest: &[String], grain: bool) -> Option<Flags<'_>> {
 }
 
 fn plan_cases(rest: &[String]) -> Option<CasesPlan<'_>> {
-    let flags = scan_flags(rest, false)?;
+    let flags = scan_flags(rest, CASES_FLAGS)?;
     let [spec, cases] = flags.positionals.as_slice() else {
         return None;
     };
@@ -179,7 +269,7 @@ fn plan_cases(rest: &[String]) -> Option<CasesPlan<'_>> {
 }
 
 fn plan_enumerate(rest: &[String]) -> Option<EnumeratePlan<'_>> {
-    let flags = scan_flags(rest, true)?;
+    let flags = scan_flags(rest, ENUMERATE_FLAGS)?;
     let [spec] = flags.positionals.as_slice() else {
         return None;
     };
@@ -189,11 +279,49 @@ fn plan_enumerate(rest: &[String]) -> Option<EnumeratePlan<'_>> {
         simulated_prospect: flags.simulated_prospect,
         vote_slots: flags.vote_slots,
         deep_classes: flags.deep_classes,
+        timings: flags.timings,
+    })
+}
+
+/// What a set of configuration tokens named, or `None` for a set this verb will not answer.
+///
+/// The tokens are checked against their own canonical spelling here, before any spec has been read, because the check is a fact about the token rather than about the alphabet: a token is refused unless it is exactly what [`stream::config_token`] would name the features it parses into. `ss05+ss03` and `ss03+ss03` are therefore usage errors rather than aliases of `ss03+ss05` and `ss03`, and so is a repeated token — two runs of one configuration would race for one filename. An empty stretch between two `+`, or before the first or after the last, is refused on its own account rather than left to the canonical check, which `+ss03` would otherwise pass by sorting its nameless feature to the front. Whether those feature names exist is the spec's question and is asked later, exactly where `--features=` asks it.
+fn plan_configs(rest: &[String]) -> Option<ConfigsPlan<'_>> {
+    let flags = scan_flags(rest, CONFIGS_FLAGS)?;
+    let [spec, outdir] = flags.positionals.as_slice() else {
+        return None;
+    };
+    let mut configs: Vec<ConfigRequest<'_>> = Vec::new();
+    for token in flags.configs? {
+        if token.is_empty() || configs.iter().any(|named| named.token == token) {
+            return None;
+        }
+        let features: Vec<&str> = if token == stream::DEFAULT_CONFIG {
+            Vec::new()
+        } else {
+            token.split('+').collect()
+        };
+        if features.iter().any(|name| name.is_empty())
+            || stream::config_token(features.iter().copied()) != token
+        {
+            return None;
+        }
+        configs.push(ConfigRequest { token, features });
+    }
+    Some(ConfigsPlan {
+        spec,
+        outdir,
+        configs,
+        threads: flags.threads,
+        simulated_prospect: flags.simulated_prospect,
+        vote_slots: flags.vote_slots,
+        deep_classes: flags.deep_classes,
+        timings: flags.timings,
     })
 }
 
 fn plan_liveness(rest: &[String]) -> Option<LivenessPlan<'_>> {
-    let flags = scan_flags(rest, false)?;
+    let flags = scan_flags(rest, CASES_FLAGS)?;
     let [spec, keys] = flags.positionals.as_slice() else {
         return None;
     };
@@ -267,21 +395,118 @@ fn settle_cases(plan: &CasesPlan<'_>) -> Result<(), String> {
 
 /// One configuration's whole fixpoint as the uncompressed transitions stream, in whichever of the four mode combinations the command line named and at whichever grain follows from them.
 fn enumerate(plan: &EnumeratePlan<'_>) -> Result<(), String> {
+    let mut clock = Timings::new(plan.timings);
+    let started = Instant::now();
     let index = read_index(plan.spec)?;
+    clock.record("spec_parse", started.elapsed());
     let features = feature_syms(&index, plan.spec, &plan.features)?;
-    let product = fixpoint::enumerate_transitions(
+    let modes = EnumerationModes {
+        simulated_prospect: plan.simulated_prospect,
+        vote_slots: plan.vote_slots,
+        deep_classes: plan.deep_classes,
+    };
+    let token = feature_config_token(&index, features.iter().copied());
+    let config = fanout::Configuration {
+        token: &token,
+        features,
+    };
+    let timed = fanout::run_config(
         &index,
-        &features,
-        EnumerationModes {
-            simulated_prospect: plan.simulated_prospect,
-            vote_slots: plan.vote_slots,
-            deep_classes: plan.deep_classes,
-        },
+        &config,
+        modes,
+        &mut std::io::stdout().lock(),
+        plan.timings,
     )
-    .map_err(|complaint| format!("{}: {complaint}", plan.spec))?;
-    let text = stream::emit_transitions(&index, &product)
-        .map_err(|complaint| format!("{}: {complaint}", plan.spec))?;
-    write_out(&text)
+    .map_err(|failure| match failure {
+        fanout::Failure::Refused(complaint) => format!("{}: {complaint}", plan.spec),
+        fanout::Failure::Sink(error) => format!("stdout: {error}"),
+    })?;
+    clock.extend(timed);
+    clock.finish("enumerate_total");
+    Ok(())
+}
+
+/// A whole named set of configurations' fixpoints, each one written as its own file under the directory the plan named, at most `--threads` of them at once. Nothing lands on stdout: the answer here is the files, and they are only meaningful on exit 0.
+fn enumerate_configs(plan: &ConfigsPlan<'_>) -> Result<(), String> {
+    let mut clock = Timings::new(plan.timings);
+    let started = Instant::now();
+    let index = read_index(plan.spec)?;
+    clock.record("spec_parse", started.elapsed());
+    let mut resolved: Vec<fanout::Configuration<'_>> = Vec::with_capacity(plan.configs.len());
+    for config in &plan.configs {
+        resolved.push(fanout::Configuration {
+            token: config.token,
+            features: feature_syms(&index, plan.spec, &config.features)?,
+        });
+    }
+    let modes = EnumerationModes {
+        simulated_prospect: plan.simulated_prospect,
+        vote_slots: plan.vote_slots,
+        deep_classes: plan.deep_classes,
+    };
+    // The cap binds a count the command line named as well as the default: a worker past the last configuration would have nothing to claim.
+    let workers = plan
+        .threads
+        .unwrap_or_else(fanout::available_threads)
+        .min(resolved.len());
+    for timed in fanout::run_configs(
+        &index,
+        &resolved,
+        modes,
+        Path::new(plan.outdir),
+        workers,
+        plan.timings,
+    )
+    .map_err(|complaint| format!("{}: {complaint}", plan.spec))?
+    {
+        clock.extend(timed);
+    }
+    clock.finish("enumerate_total");
+    Ok(())
+}
+
+/// The `--timings` lines a run has to say, held until the run is over rather than written as they happen.
+///
+/// Buffering is what makes a concurrent run's stderr readable and comparable: a line written when its phase ended would order stderr by the schedule, so the whole set is written once, in the order the plan named its configurations. A run without the flag records nothing and writes nothing, which is not merely tidiness — the identity harness reads any stderr on a clean exit as a failure.
+struct Timings {
+    wanted: bool,
+    started: Instant,
+    lines: Vec<String>,
+}
+
+impl Timings {
+    fn new(wanted: bool) -> Self {
+        Self {
+            wanted,
+            started: Instant::now(),
+            lines: Vec::new(),
+        }
+    }
+
+    fn record(&mut self, label: &str, elapsed: Duration) {
+        if self.wanted {
+            self.lines.push(fanout::timing_line(label, elapsed));
+        }
+    }
+
+    fn extend(&mut self, lines: Vec<String>) {
+        self.lines.extend(lines);
+    }
+
+    /// The whole buffer on stderr, the run's own total last. A write that fails is not worth failing a finished run over: the answer is already on stdout or in the files.
+    fn finish(mut self, label: &str) {
+        if !self.wanted {
+            return;
+        }
+        let elapsed = self.started.elapsed();
+        self.record(label, elapsed);
+        let mut out = String::new();
+        for line in &self.lines {
+            out.push_str(line);
+            out.push('\n');
+        }
+        let _ = std::io::stderr().write_all(out.as_bytes());
+    }
 }
 
 fn guard_sweep(path: &str) -> Result<(), String> {
@@ -481,6 +706,19 @@ mod tests {
         simulated_prospect: bool,
         vote_slots: bool,
         deep_classes: bool,
+        timings: bool,
+    }
+
+    /// The same for `enumerate-configs`, whose configurations and thread count have no counterpart on the other verbs.
+    #[derive(Debug, PartialEq, Eq)]
+    struct Fanned {
+        positionals: Vec<String>,
+        configs: Vec<(String, Vec<String>)>,
+        threads: Option<usize>,
+        simulated_prospect: bool,
+        vote_slots: bool,
+        deep_classes: bool,
+        timings: bool,
     }
 
     fn owned(words: &[&str]) -> Vec<String> {
@@ -496,6 +734,25 @@ mod tests {
             simulated_prospect: plan.simulated_prospect,
             vote_slots: plan.vote_slots,
             deep_classes: plan.deep_classes,
+            timings: plan.timings,
+        })
+    }
+
+    fn fanned(words: &[&str]) -> Option<Fanned> {
+        let arguments = owned(words);
+        let plan = plan_configs(&arguments)?;
+        Some(Fanned {
+            positionals: vec![plan.spec.to_owned(), plan.outdir.to_owned()],
+            configs: plan
+                .configs
+                .iter()
+                .map(|config| (config.token.to_owned(), owned(&config.features)))
+                .collect(),
+            threads: plan.threads,
+            simulated_prospect: plan.simulated_prospect,
+            vote_slots: plan.vote_slots,
+            deep_classes: plan.deep_classes,
+            timings: plan.timings,
         })
     }
 
@@ -508,6 +765,7 @@ mod tests {
             simulated_prospect: plan.simulated_prospect,
             vote_slots: plan.vote_slots,
             deep_classes: true,
+            timings: false,
         })
     }
 
@@ -520,6 +778,7 @@ mod tests {
             simulated_prospect: plan.simulated_prospect,
             vote_slots: plan.vote_slots,
             deep_classes: true,
+            timings: false,
         })
     }
 
@@ -557,13 +816,30 @@ mod tests {
         let liveness = livened(&["spec.json", "keys.txt", "--vote-slots-off"])
             .expect("and so does the liveness sweep");
         assert!(liveness.simulated_prospect && !liveness.vote_slots);
+        let fan_out = fanned(&[
+            "spec.json",
+            "out",
+            "--configs=default,ss03",
+            "--candidacy-prospect",
+            "--vote-slots-off",
+        ])
+        .expect("a fan-out names one world for the whole set");
+        assert!(!fan_out.simulated_prospect && !fan_out.vote_slots);
     }
 
-    /// The grain flag belongs to `enumerate` alone: nothing else writes rows, so nothing else has a grain to name, and a verb that does not spell a flag treats it as the unknown flag it is.
+    /// The grain flag belongs to the two verbs that write rows: nothing else has a grain to name, and a verb that does not spell a flag treats it as the unknown flag it is.
     #[test]
-    fn only_enumerate_spells_the_grain_flag() {
+    fn only_the_enumerating_verbs_spell_the_grain_flag() {
         assert!(cased(&["spec.json", "cases.txt", "--deep-classes-off"]).is_none());
         assert!(livened(&["spec.json", "keys.txt", "--deep-classes-off"]).is_none());
+        let label_grain = fanned(&[
+            "spec.json",
+            "out",
+            "--configs=default",
+            "--deep-classes-off",
+        ])
+        .expect("the fan-out names its grain the way one enumeration does");
+        assert!(!label_grain.deep_classes);
     }
 
     #[test]
@@ -584,5 +860,113 @@ mod tests {
         assert!(livened(&["spec.json"]).is_none());
         assert!(livened(&["spec.json", "keys.txt", "extra.txt"]).is_none());
         assert!(cased(&["spec.json"]).is_none());
+        assert!(fanned(&["spec.json", "--configs=default"]).is_none());
+        assert!(fanned(&["spec.json", "out", "extra", "--configs=default"]).is_none());
+        assert!(fanned(&["spec.json", "out", "--configs=default", "--live-only"]).is_none());
+    }
+
+    /// A fan-out names its configurations by the tokens Python names them by, and each one carries the features it spells.
+    #[test]
+    fn a_configuration_set_parses_into_the_features_its_tokens_spell() {
+        let plan = fanned(&["spec.json", "out", "--configs=default,ss03,ss03+ss05"])
+            .expect("three of the acceptance configurations");
+        assert_eq!(plan.positionals, ["spec.json", "out"]);
+        assert_eq!(
+            plan.configs,
+            [
+                ("default".to_owned(), Vec::new()),
+                ("ss03".to_owned(), vec!["ss03".to_owned()]),
+                (
+                    "ss03+ss05".to_owned(),
+                    vec!["ss03".to_owned(), "ss05".to_owned()]
+                ),
+            ]
+        );
+        assert!(plan.simulated_prospect && plan.vote_slots && plan.deep_classes);
+        assert!(plan.threads.is_none() && !plan.timings);
+    }
+
+    /// The configuration list is required, never empty, and never says one configuration twice — a repeat would be two runs racing for one filename.
+    #[test]
+    fn a_configuration_set_is_required_and_says_each_one_once() {
+        assert!(fanned(&["spec.json", "out"]).is_none());
+        assert!(fanned(&["spec.json", "out", "--configs="]).is_none());
+        assert!(fanned(&["spec.json", "out", "--configs=default,default"]).is_none());
+        assert!(fanned(&["spec.json", "out", "--configs=default", "--configs=ss03"]).is_none());
+    }
+
+    /// A token has to be the canonical spelling of the features it names, which is what keeps the filename, the stream head and the caller's own word for a configuration in agreement.
+    #[test]
+    fn a_token_that_is_not_its_own_canonical_spelling_is_refused() {
+        assert!(fanned(&["spec.json", "out", "--configs=ss05+ss03"]).is_none());
+        assert!(fanned(&["spec.json", "out", "--configs=ss03+ss03"]).is_none());
+        assert!(fanned(&["spec.json", "out", "--configs=+ss03"]).is_none());
+        assert!(fanned(&["spec.json", "out", "--configs=ss03+"]).is_none());
+        assert!(fanned(&["spec.json", "out", "--configs=ss03++ss05"]).is_none());
+        assert!(fanned(&["spec.json", "out", "--configs=default,,ss03"]).is_none());
+    }
+
+    /// The thread count caps concurrency and nothing else, so it is a positive count of ASCII digits or a usage error — never a zero that would claim no configuration at all, never a signed spelling `usize` would read straight through, and never a count too large for the machine to hold.
+    #[test]
+    fn the_thread_count_is_a_positive_count_or_a_usage_error() {
+        let plan = fanned(&["spec.json", "out", "--configs=default", "--threads=4"])
+            .expect("a count parses");
+        assert_eq!(plan.threads, Some(4));
+        assert!(fanned(&["spec.json", "out", "--configs=default", "--threads=0"]).is_none());
+        assert!(fanned(&["spec.json", "out", "--configs=default", "--threads=-1"]).is_none());
+        assert!(fanned(&["spec.json", "out", "--configs=default", "--threads=+3"]).is_none());
+        assert!(fanned(&["spec.json", "out", "--configs=default", "--threads=3 "]).is_none());
+        assert!(fanned(&["spec.json", "out", "--configs=default", "--threads=all"]).is_none());
+        assert!(fanned(&["spec.json", "out", "--configs=default", "--threads="]).is_none());
+        assert!(
+            fanned(&[
+                "spec.json",
+                "out",
+                "--configs=default",
+                "--threads=99999999999999999999999999"
+            ])
+            .is_none()
+        );
+        assert!(
+            fanned(&[
+                "spec.json",
+                "out",
+                "--configs=default",
+                "--threads=2",
+                "--threads=3"
+            ])
+            .is_none()
+        );
+        assert!(enumerated(&["spec.json", "--threads=4"]).is_none());
+    }
+
+    /// The two verbs that spell `--configs=` and `--features=` are disjoint: a fan-out's features come from its tokens, and one enumeration has no set of configurations to name.
+    #[test]
+    fn the_configuration_flags_belong_to_the_fan_out_alone() {
+        assert!(fanned(&["spec.json", "out", "--configs=default", "--features=ss03"]).is_none());
+        assert!(enumerated(&["spec.json", "--configs=default"]).is_none());
+        assert!(cased(&["spec.json", "cases.txt", "--configs=default"]).is_none());
+    }
+
+    /// Timing lines are opt-in on the two verbs that have phases worth naming, and unknown everywhere else — a clean exit that wrote to stderr is how the identity harness reads a failure.
+    #[test]
+    fn only_the_enumerating_verbs_spell_the_timings_flag() {
+        assert!(
+            enumerated(&["spec.json", "--timings"])
+                .expect("one enumeration can be timed")
+                .timings
+        );
+        assert!(
+            fanned(&["spec.json", "out", "--configs=default", "--timings"])
+                .expect("and so can a fan-out")
+                .timings
+        );
+        assert!(
+            !enumerated(&["spec.json"])
+                .expect("a bare enumeration")
+                .timings
+        );
+        assert!(cased(&["spec.json", "cases.txt", "--timings"]).is_none());
+        assert!(livened(&["spec.json", "keys.txt", "--timings"]).is_none());
     }
 }

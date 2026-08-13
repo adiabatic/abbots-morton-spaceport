@@ -2,9 +2,11 @@
 
 Three comparisons per (spec, configuration), each load-bearing for a different reason. The stream is compared as raw bytes against what `kernel_io.write_transitions` writes for Python's own product, which asserts far more than that the two sides found the same windows: rows in the product's own key order, the cell vocabulary seated the way `table._cell_key` sorts it, the provenance the engine fired while tabulating, the deep-class map, and every field's exact JSON spelling. The artifacts are compared after the kernel's own bytes have been fed back through `kernel_io.read_transitions` and `table.assemble_tables` — the seam this port is built around, where Python keeps the rule fold, the treaty fold and every writer forever — so what is proved is not that two products resemble each other but that the Rust one folds into the same three files a build persists. `table.table_digest` is the third, at the grain the rest of the rebuild states table identity in; it is deliberately redundant, and a digest that agreed while the bytes disagreed would be saying the digest had stopped covering something.
 
+A fourth comparison sits a level up, per spec rather than per configuration, and it is where the exit bar's fan-out claim gets machine-checked (sub-issue #46): `enumerate-configs` answers every acceptance configuration in one process, writing each one's stream to a file of its own, and every one of those files is compared against the same Python bytes the per-configuration arm already had. It runs three times over each spec the run visits, `--live-only` included — the configurations one at a time, then two at a time, then two at a time again — because what has to hold is that the bytes are a function of the plan rather than of a schedule, and one concurrent run that agreed would only have shown that one interleaving did. The widths are pinned rather than left to the kernel's own default; `FAN_OUT_RUNS` carries why. The extra runs cost kernel time and nothing else: each (spec, configuration) fixpoint still runs exactly once on the Python side, its stream bytes kept on disk as the per-configuration comparison produces them and read back one at a time rather than enumerated again. Which file holds which configuration is the caller's own token, which is why the crate refuses a token that is not the canonical spelling of the features it names — the file this harness reaches for and the file the kernel wrote can only be the same one. The verb is invoked bare of `--timings`, because timing lines are stderr and the strictness below reads any stderr on a clean exit as a failure.
+
 The harness answers whichever world the Python process is in, and tells the kernel which one that is. `simulated_prospect` and `vote_slots` are engine defaults `settle` reads from the environment at import, `DEEP_CLASSES_DEFAULT` is `table`'s companion, and all three change what a fixpoint enumerates rather than how fast it gets there; a comparison that let the two sides pick their worlds separately would blame the port for every row of the difference. So the flags are reflected off the Python side's own defaults rather than pinned here — the shipping defaults invoke the verb bare, `AMS_SIMULATED_PROSPECT=0 AMS_VOTE_SLOTS=0` reproduces sub-issue #44's pinned candidacy world, and `AMS_DEEP_CLASSES=0` is the label-grain arm — and each exit-bar arm is one `make` target: `kernel-fixpoint`, `kernel-fixpoint-pinned`, `kernel-fixpoint-label-grain`. The world rides the run's own header line, because a byte comparison that agrees says nothing until you know what it agreed about.
 
-The kernel's verb is probed before any Python fixpoint runs. A live fixpoint costs tens of seconds per configuration, so a binary that predates the verb would otherwise be discovered after minutes of work with nowhere to go; the probe is one mini-fixture enumeration, and a binary that answers exit 2 to it reads as the verb being absent — one clean line, exactly as `kernel_differential` reads that status.
+Both of the kernel's verbs are probed before any Python fixpoint runs. A live fixpoint costs tens of seconds per configuration, so a binary that predates either verb would otherwise be discovered after minutes of work with nowhere to go; the probe is one mini-fixture enumeration and one mini-fixture fan-out, and a binary that answers exit 2 to either reads as that verb being absent — one clean line, exactly as `kernel_differential` reads that status. `enumerate-configs` is the younger of the two and gets its own probe rather than riding the other's, since a binary that answers `enumerate` is exactly the binary that would otherwise reach the fan-out arm after six live fixpoints and fail there.
 
 Specs are every rung of `kernel_parity`'s nested scaling ladder and then the live alphabet, cheapest first: a port that is wrong is usually wrong at six runes too, and a rung answers in seconds where the live alphabet takes minutes. `--live-only` skips the ladder for the iteration loop. The ladder's last rung is the whole alphabet by construction, so the full form enumerates the live spec twice — kept rather than special-cased, because the rungs are the sub-issue's stated bar and are what the later differential beds are cut at.
 
@@ -39,6 +41,12 @@ WORLD_FLAGS = (
     ("--candidacy-prospect", settle, "SIMULATED_PROSPECT_DEFAULT"),
     ("--vote-slots-off", settle, "VOTE_SLOTS_DEFAULT"),
     ("--deep-classes-off", table, "DEEP_CLASSES_DEFAULT"),
+)
+# The fan-out runs one spec's identity arm compares, as (label, thread flags). One configuration at a time is the schedule with nothing to observe; the width the two that follow run at is pinned rather than left to the kernel's own default, which is the machine's parallelism and so degenerates to one on a single-CPU host — an arm that ran the serial schedule three times and reported it as concurrency. Two is the narrowest width that spawns two genuine workers anywhere, and narrow is what this wants, since at live scale each configuration holds gigabytes until it has emitted and the identity claim is worth making at real concurrency and bounded memory; the width repeats because a schedule is drawn afresh on every run and a single agreement is a single interleaving.
+FAN_OUT_RUNS = (
+    ("threads=1", ("--threads=1",)),
+    ("threads=2", ("--threads=2",)),
+    ("threads=2 again", ("--threads=2",)),
 )
 
 
@@ -86,10 +94,21 @@ def enumerate_flags(config: str) -> list[str]:
 
 
 def probe(scratch: Path) -> None:
-    """Ask the kernel to enumerate the mini fixture before any live fixpoint runs. The mini spec's fixpoint costs the binary milliseconds, so this buys the fail-fast for nothing: a binary built before the verb existed exits 2 here and the whole run ends on one line, rather than after the minutes of Python enumeration whose answer had nowhere to go."""
+    """Ask the kernel to enumerate the mini fixture, both one configuration at a time and as a fan-out, before any live fixpoint runs. The mini spec's fixpoint costs the binary milliseconds either way, so this buys the fail-fast for nothing: a binary built before one of the verbs existed exits 2 here and the whole run ends on one line, rather than after the minutes of Python enumeration whose answer had nowhere to go. Both verbs are asked because they arrived in that order — a binary that answers `enumerate` and not `enumerate-configs` is the one shape a single probe would wave through, and it is the shape the fan-out arm would then meet six live fixpoints later."""
     path = scratch / "spec-probe.json"
     kernel_io.write_spec(fixtures.mini_spec(), path)
     _kernel([str(BINARY), "enumerate", str(path), *enumerate_flags("default")], "enumerate")
+    _kernel(
+        [
+            str(BINARY),
+            "enumerate-configs",
+            str(path),
+            str(scratch / "probe-streams"),
+            "--configs=default",
+            *world_flags(),
+        ],
+        "enumerate-configs",
+    )
 
 
 def stream_bytes(product: table.FixpointProduct, path: Path) -> bytes:
@@ -167,11 +186,12 @@ def run_config(
     spec_path: Path,
     label: str,
     config: str,
+    held: Path,
     stream: Arm,
     artifact: Arm,
     digest: Arm,
-) -> None:
-    """One (spec, configuration) compared end to end: Python's fixpoint, the kernel's, the stream bytes, the three artifacts through the seam, and the digest. Its scratch is its own, because a live configuration's windows file is tens of megabytes and nothing after the comparison reads it."""
+) -> Path:
+    """One (spec, configuration) compared end to end: Python's fixpoint, the kernel's, the stream bytes, the three artifacts through the seam, and the digest. Its scratch is its own, because a live configuration's windows file is tens of megabytes and nothing after the comparison reads it. The stream Python serialized is left behind in `held` and the file named, since the fan-out arm compares its files against these same bytes and a second fixpoint to recover them would cost as much as the arm proves. On disk rather than in hand because the six of them are the better part of a gigabyte at live scale, and holding all six across a phase that reads one at a time would charge the fan-out that memory for the whole of it."""
     features = conform.features_for_config(config)
     product = table.enumerate_transitions(spec, features)
     with tempfile.TemporaryDirectory() as scratch:
@@ -205,11 +225,57 @@ def run_config(
                 print(f"    {label} table_digest: python {want_digest}, kernel {got_digest}", flush=True)
             digest.note(1, mismatched)
             divergences += mismatched
+    kept = held / f"expected-{config}.ndjson"
+    kept.write_bytes(expected)
     rows = len(product.transitions)
     print(
         f"  {label:>28}  {rows:8d} rows  {len(expected):10d} stream bytes  {'OK' if not divergences else 'FAIL'}",
         flush=True,
     )
+    return kept
+
+
+def run_fan_out(spec_path: Path, name: str, expected: dict[str, Path], arm: Arm) -> None:
+    """One spec's configurations answered again by the fan-out verb, three times, each run's files compared against the bytes the per-configuration comparisons already proved. The configurations compared and the configurations asked for are the one mapping, so the arm cannot quietly check a smaller set than the run enumerated. Each run gets a scratch directory of its own and gives it back before the next starts, and a configuration's proved bytes are read back off disk for the one comparison that wants them and dropped again: six live streams are most of a gigabyte on each side, and what the runs have to agree about is their bytes rather than their coexistence."""
+    total = sum(path.stat().st_size for path in expected.values())
+    for run, threads in FAN_OUT_RUNS:
+        label = f"{name} fan-out {run}"
+        with tempfile.TemporaryDirectory() as scratch:
+            outdir = Path(scratch) / "streams"
+            answer = _kernel(
+                [
+                    str(BINARY),
+                    "enumerate-configs",
+                    str(spec_path),
+                    str(outdir),
+                    f"--configs={','.join(expected)}",
+                    *threads,
+                    *world_flags(),
+                ],
+                "enumerate-configs",
+            )
+            if answer:
+                raise RuntimeError(
+                    f"the kernel wrote {len(answer)} bytes to stdout on a clean enumerate-configs exit, where the answer is the files"
+                )
+            divergences = 0
+            for config, wanted in expected.items():
+                path = outdir / f"transitions-{config}.ndjson"
+                if path.is_file():
+                    mismatched = compare_blobs(f"{label} {config}", wanted.read_bytes(), path.read_bytes())
+                else:
+                    left = sorted(found.name for found in outdir.glob("*"))
+                    print(
+                        f"    {label} {config}: the fan-out wrote no stream by this name — it left {left}",
+                        flush=True,
+                    )
+                    mismatched = 1
+                arm.note(1, mismatched)
+                divergences += mismatched
+        print(
+            f"  {label:>28}  {len(expected):8d} streams  {total:10d} stream bytes  {'OK' if not divergences else 'FAIL'}",
+            flush=True,
+        )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -235,10 +301,11 @@ def main(argv: list[str] | None = None) -> int:
     stream = Arm("stream")
     artifact = Arm("artifact")
     digest = Arm("digest")
+    fan_out = Arm("fan-out stream")
     start = time.perf_counter()
     ladder = "" if args.live_only else f" plus {len(rungs)} ladder rungs"
     print(
-        f"kernel fixpoint: {world_label()} — the live alphabet{ladder} at {len(conform.ACCEPTANCE_CONFIGS)} configurations against {BINARY.relative_to(ROOT)}",
+        f"kernel fixpoint: {world_label()} — the live alphabet{ladder} at {len(conform.ACCEPTANCE_CONFIGS)} configurations against {BINARY.relative_to(ROOT)}, each spec answered again by {len(FAN_OUT_RUNS)} whole-set fan-out runs",
         flush=True,
     )
     with tempfile.TemporaryDirectory() as scratch:
@@ -249,8 +316,15 @@ def main(argv: list[str] | None = None) -> int:
                 path = directory / f"spec-{name}.json"
                 kernel_io.write_spec(sub, path)
                 print(f"{name}: {len(sub.runes)} runes", flush=True)
-                for config in conform.ACCEPTANCE_CONFIGS:
-                    run_config(sub, path, f"{name} {config}", config, stream, artifact, digest)
+                with tempfile.TemporaryDirectory() as streams:
+                    held = Path(streams)
+                    expected = {
+                        config: run_config(
+                            sub, path, f"{name} {config}", config, held, stream, artifact, digest
+                        )
+                        for config in conform.ACCEPTANCE_CONFIGS
+                    }
+                    run_fan_out(path, name, expected, fan_out)
         except KernelVerbMissing as missing:
             print(f"kernel fixpoint: {missing}", file=sys.stderr)
             return 1
@@ -258,7 +332,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"kernel fixpoint: {failure}", file=sys.stderr)
             return 1
     elapsed = time.perf_counter() - start
-    arms = [arm for arm in (stream, artifact, digest) if arm.compared or arm.divergences]
+    arms = [arm for arm in (stream, artifact, digest, fan_out) if arm.compared or arm.divergences]
     tally = ", ".join(f"{arm.compared} {arm.label}" for arm in arms) or "nothing"
     divergences = sum(arm.divergences for arm in arms)
     if divergences:
