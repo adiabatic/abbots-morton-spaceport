@@ -1394,6 +1394,35 @@ impl<'i> Engine<'i> {
         Ok(if relevant { Some(false) } else { None })
     }
 
+    // --- the probe surface -------------------------------------------------------------
+
+    /// [`Engine::prospect`] under the name the deep-slot liveness probes call it by, `table._ProspectLiveness._third_class_live`'s and `_fourth_class_live`'s `self.engine._prospect(...)`.
+    ///
+    /// Python's probes reach straight into a private method, and this pair of wrappers is what lets the port keep that reach visible instead of widening the settlement surface for it: the probes are the only callers, the delegation is total, and nothing about the term changes by being asked for from [`crate::liveness`] rather than from the ranking. The candidate a probe hands in is the bare `Candidate(stance, None, seam, 0)` shape of the input frame, not a candidate the enumeration produced.
+    #[allow(dead_code)]
+    pub(crate) fn probe_prospect(
+        &mut self,
+        rune_name: Sym,
+        candidate: Candidate,
+        slots: Slots,
+    ) -> Result<i64, SettleError> {
+        self.prospect(rune_name, candidate, slots)
+    }
+
+    /// [`Engine::prefer_favors`] under the name the vote arm calls it by, `_ProspectLiveness._vote_class_live`'s `self.engine._prefer_favors(...)`. The same total delegation as [`Engine::probe_prospect`], for the same reason.
+    #[allow(dead_code)]
+    pub(crate) fn probe_prefer_favors(
+        &mut self,
+        owner: Sym,
+        record: &PolicyRecord,
+        rune_name: Sym,
+        candidate: Candidate,
+        left: &LeftContext,
+        slots: Slots,
+    ) -> Result<Option<bool>, SettleError> {
+        self.prefer_favors(owner, record, rune_name, candidate, left, slots)
+    }
+
     /// One prefer stage — absolute or yielding — over the records of both seam runes, most-specific first. `settle.Engine._apply_prefers`.
     ///
     /// Records are gathered in declaration order, our own rune's before the follower's, then ranked by how many other applicable records outrank them, so the narrowest applies first and a nested conflict resolves silently by membership. A record whose demand has already been narrowed away is where the stage either finds a `resolve:` naming the collision or refuses: E-AMBIGUOUS when both records belong to one rune, E-INCOMPARABLE when they belong to two.

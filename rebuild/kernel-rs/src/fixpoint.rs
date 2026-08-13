@@ -2,11 +2,11 @@
 //!
 //! The worklist is the exactness argument rather than a traversal detail, and Python's comment above it is the specification. An item is a left state together with the pins that left was reached under: a settled left is reachable only alongside the right1 that was the producing window's right2, because an entry refusal or an unlock conditioned on the follower makes any other combination contradictory — the left would never have committed there. The right2 allowed-set carries the late-formation guard's second slot onto a surviving pair's trail window, and the right3 allowed-set carries a producing window's enumerated right4 the same way, pinning a depth-4-decided left's successor windows to the third lookahead that was actually behind them. `None` is unrestricted in both, and both are frozen sets compared by content, never by identity.
 //!
-//! LIFO discipline with the `seen` check at pop time is contract rather than convenience. In the pinned candidacy world the product is order-independent — the dedup is by window key, a hit reuses the recorded settled because the left label is injective into the trace's inputs, and the fired set is the union over a window set no traversal order can change — but under class grain (sub-issue #45) the first visitor of a fibre fixes its representative, so the order rows are traced in reaches the output there. Reproducing Python's push order exactly is cheaper than re-deriving, on every later reading, whether it still matters.
+//! LIFO discipline with the `seen` check at pop time is contract rather than convenience. In the pinned candidacy world the product is order-independent — the dedup is by window key, a hit reuses the recorded settled because the left label is injective into the trace's inputs, and the fired set is the union over a window set no traversal order can change — but under class grain the first visitor of a fibre fixes its representative, so the order rows are traced in reaches the output there. Reproducing Python's push order exactly is cheaper than re-deriving, on every later reading, whether it still matters.
 //!
-//! What is deliberately absent is everything `_enumerate` guards behind `deriver is not None`: `_DeepFibreDeriver`, `_PendingDeepRow`, the class-grain rows and the section 2.6 echo check are sub-issue #45's. In this world `_deep_world` is false, so `class_grain` is false and the deriver is None, and the label-grain path ported here is the whole function. Deep window slots are not absent with them — `depth3_inputs` is mode-independent, so windows carrying a concrete third or fourth lookahead enumerate here exactly as they do in Python, with the option pipelines and the successor pins that go with them.
+//! Both grains live here now. Where `_deep_world` holds and the deep-classes flag is on, the deep slots enumerate at class grain (issue 26): the same static option lists, their letters split by [`crate::fibre::DeepFibreDeriver`]'s outcome fibres, one in-flight row per `(base, fibre identity pair)` accumulating the union of admitted members across worklist items, successor pins carrying those member sets instead of singletons, and a content-addressed id per multi-member set in the product's `deep_classes` map. Two standing guards ride with it: the section 2.6 echo check re-traces a second member of every multi-member row at the row's real left and demands the identical row-visible record, and `table._assert_deep_slot_partition` is replayed over the finished product before it is handed back. Where the flag is off, or in the pinned world where class grain cannot arise at all, the label-grain path is the whole function and the deep slots still enumerate — the censuses and the filters are what decide that, not the grain.
 //!
-//! One engine settles everything, and the two slot filters borrow it rather than building their own. That is load-bearing twice over: the trace memo makes a re-reached window free, and `Engine::fired` is the product's `cited_provenance`, so a filter probing through a second engine would silently shrink what the dead-policy gate is told fired.
+//! One engine settles everything, and the two slot filters, the liveness probe and the fibre deriver all borrow it rather than building their own. That is load-bearing twice over: the trace memo makes a re-reached window free, and `Engine::fired` is the product's `cited_provenance`, so a probe running through a second engine would silently shrink what the dead-policy gate is told fired. The same argument makes the liveness probe a single instance lent to both filters and to the deriver.
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::rc::Rc;
@@ -14,17 +14,28 @@ use std::rc::Rc;
 use crate::census::{FourthSlotFilter, ThirdSlotFilter, fourth_slot_inputs, third_slot_inputs};
 use crate::engine::{Engine, EngineModes, Slots};
 use crate::error::SettleError;
+use crate::fibre::DeepFibreDeriver;
 use crate::index::SpecIndex;
+use crate::liveness::ProspectLiveness;
 use crate::model::Sym;
 use crate::options::{FollowerMap, WindowOptions};
+use crate::sha256;
 use crate::stream::{FixpointProduct, TransitionRow, feature_config_token};
-use crate::types::{CellId, EDGE, LeftContext, RightToken, Settled, TokenKind, cell_label};
+use crate::types::{
+    CellId, EDGE, LeftContext, RightToken, Settled, TokenKind, TransitionTrace, cell_label,
+};
 
 /// The label a slot the window does not carry is spelled with, `table.NA_LABEL`. A boundary at right1 puts it in the second slot as well: nothing follows a run edge inside one window.
 const NA_LABEL: &str = "#NA";
 
 /// The label the run edge carries, `table.EDGE_LABEL`. The other three boundaries label as the glyphs they ship as, which is why only this one needs a name of its own.
 const EDGE_LABEL: &str = "#EDGE";
+
+/// The prefix every deep-class id carries, `table.DEEP_CLASS_PREFIX`. The `#` keeps ids outside the glyph namespace, which is what lets a slot label be read as "class or letter" by looking at its first character.
+const DEEP_CLASS_PREFIX: &str = "#C";
+
+/// Every label a window slot can carry that is not a letter, `table.BOUNDARYISH`. A deep-class id is never a member of it.
+const BOUNDARYISH: [&str; 5] = [EDGE_LABEL, NA_LABEL, "space", "uni200C", "periodcentered"];
 
 /// The boundary lefts the fixpoint seeds from, in `_enumerate`'s own order. Every reachable left state is a settled letter or one of these four.
 const SEED_KINDS: [TokenKind; 4] = [
@@ -33,6 +44,34 @@ const SEED_KINDS: [TokenKind; 4] = [
     TokenKind::Zwnj,
     TokenKind::NamerDot,
 ];
+
+/// The world one enumeration answers, and at which grain. Python reads all three from module-level defaults an environment variable moves — `settle.SIMULATED_PROSPECT_DEFAULT`, `settle.VOTE_SLOTS_DEFAULT` and `table.DEEP_CLASSES_DEFAULT` — and this crate has no environment, so the caller passes them and [`Default`] is the shipping configuration.
+///
+/// The two engine modes are also the deep-world verdict, `table._deep_world`: either one on widens both deep-slot censuses to every rune and hands the filters their liveness arm. `deep_classes` is the issue-26 flag and is an intersection rather than a switch — `class_grain = DEEP_CLASSES_DEFAULT and _deep_world(engine)` — so in the pinned world it is accepted and does nothing, there being no fibre source there to enumerate at class grain.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct EnumerationModes {
+    pub simulated_prospect: bool,
+    pub vote_slots: bool,
+    pub deep_classes: bool,
+}
+
+impl Default for EnumerationModes {
+    fn default() -> Self {
+        Self {
+            simulated_prospect: true,
+            vote_slots: true,
+            deep_classes: true,
+        }
+    }
+}
+
+/// The content-addressed id one deep-slot member set carries, `table.deep_class_id`: `#C` plus the first twelve hex digits of the SHA-256 of the tab-joined members.
+///
+/// Identical member sets share one id across contexts, across configurations and across builds, which is what keeps cross-config artifact comparison and the ss04 row-identity pin meaningful. The members arrive in the order they are to be hashed in — sorted by letter, as the emission sorts them — because the digest is over the joined text and not over a set.
+pub fn deep_class_id(members: &[String]) -> String {
+    let digest = sha256::digest_hex(members.join("\t").as_bytes());
+    format!("{DEEP_CLASS_PREFIX}{}", &digest[..12])
+}
 
 /// What a worklist pin allows, Python's `frozenset[RightToken]`: a set compared and hashed by content so two items pinned to the same tokens are one item, behind an [`Rc`] so an item is cheap to clone into the `seen` set. The ordering the `BTreeSet` imposes is interning order and is never read — membership, intersection and equality are the only questions asked.
 type Allowed = Rc<BTreeSet<RightToken>>;
@@ -60,40 +99,100 @@ struct Row {
     provenance: Vec<String>,
 }
 
-/// One configuration's whole fixpoint, `table.enumerate_transitions`: the rows in their key order, the cells they settle into, and the provenance the engine fired while tabulating.
+/// One third-slot entry of a class-grain window: the boundary token where the entry is a boundary, the seat of the fibre where it is a fibre, and the members this item's pins admitted.
+type Slot3Entry = (Option<RightToken>, Option<usize>, Vec<RightToken>);
+
+/// One fourth-slot entry of a class-grain window: the r4 group, or `None` where the fourth slot is dead and the row carries `#NA` there.
+type Slot4Entry = Option<Vec<RightToken>>;
+
+/// What an in-flight class-grain row is keyed by while the worklist runs, `_enumerate`'s `pending_key`: the four near labels, the third slot's identity, and the fourth's full member group.
+type PendingKey = (String, String, String, String, Identity3, Slot4Entry);
+
+/// The third slot's identity inside a [`PendingKey`]. Python keys on the boundary token itself or on the fibre's full member tuple and relies on the two being different types; naming the alternatives is that distinction made checkable.
 ///
-/// The engine is built here rather than handed in, and it is built pinned — `simulated_prospect` and `vote_slots` both off, which is `table._deep_world` false. That is the world this sub-issue answers, and it is what lets the censuses be the chain censuses alone; sub-issue #45 widens both this construction and [`crate::census`]'s pre-gates together, since neither is meaningful without the other.
+/// The members are the fibre's whole membership rather than the admitted subset, which is what lets two worklist items whose pins admit different subsets of one fibre accumulate into a single row.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+enum Identity3 {
+    Boundary(RightToken),
+    Members(Vec<RightToken>),
+}
+
+/// One in-flight class-grain row, `table._PendingDeepRow`: the representative trace's row-visible record, the r3 members accumulating across worklist items, and the frame the echo traces replay after the drain.
+///
+/// The r4 members carry no pins and so are full from the first item, which is why they are a plain group here where the third slot's are a set.
+struct PendingDeepRow {
+    left_context: LeftContext,
+    left_label: String,
+    input_label: String,
+    token: RightToken,
+    right1: RightToken,
+    right2: RightToken,
+    boundary3: Option<RightToken>,
+    admitted3: BTreeSet<RightToken>,
+    members4: Slot4Entry,
+    rep3: RightToken,
+    rep4: Option<RightToken>,
+    settled: Settled,
+    left_settled: Option<Settled>,
+    joint: bool,
+    prospect: i64,
+    provenance: Vec<String>,
+}
+
+impl PendingDeepRow {
+    /// Whether an echo trace's record is the representative's, over exactly the four fields a row carries: the settled triple, the prospect, the joint-floor flag and the notes. Nothing about the ranking that reached them is compared, because nothing about it reaches the row.
+    fn echoes(&self, echo: &TransitionTrace) -> bool {
+        echo.settled == self.settled
+            && echo.prospect == self.prospect
+            && echo.joint_floor == self.joint
+            && echo.notes == self.provenance
+    }
+}
+
+/// One configuration's whole fixpoint, `table.enumerate_transitions`: the rows in their key order, the deep-class map their class tokens resolve through, the cells they settle into, and the provenance the engine fired while tabulating.
+///
+/// The engine is built here rather than handed in, out of `modes` — which is also what decides whether the censuses widen, whether the filters carry their liveness arm, and whether the deep slots enumerate at class grain, because none of those three is meaningful without the others.
 pub fn enumerate_transitions(
     index: &SpecIndex,
     features: &[Sym],
+    modes: EnumerationModes,
 ) -> Result<FixpointProduct, String> {
-    enumerate_seeded(index, features, contract_seeds)
+    enumerate_seeded(index, features, modes, contract_seeds)
 }
 
-/// [`enumerate_transitions`] with the seeding left open, which is how the order-independence of the pinned world is testable at all. Production always passes [`contract_seeds`]; a test passes a permutation and asserts the same product, which is a statement about this world rather than about the discipline, since class grain will make the first visitor of a fibre decide its representative.
+/// [`enumerate_transitions`] with the seeding left open, which is how the order-independence of the pinned world is testable at all. Production always passes [`contract_seeds`]; a test passes a permutation and asserts the same product, which is a statement about that world rather than about the discipline, since class grain makes the first visitor of a fibre decide its representative.
 fn enumerate_seeded(
     index: &SpecIndex,
     features: &[Sym],
+    modes: EnumerationModes,
     seeds: fn(&WindowOptions<'_>) -> Vec<Item>,
 ) -> Result<FixpointProduct, String> {
     let mut engine = Engine::with_modes(
         index,
         features.iter().copied(),
         EngineModes {
-            simulated_prospect: false,
-            vote_slots: false,
+            simulated_prospect: modes.simulated_prospect,
+            vote_slots: modes.vote_slots,
             trace_memo: true,
             ..EngineModes::default()
         },
     );
     let config = feature_config_token(index, features.iter().copied());
     let mut options = WindowOptions::new(index).map_err(complaint)?;
-    let deep_inputs = third_slot_inputs(index);
-    let deep4_inputs = fourth_slot_inputs(index);
+    // `table._deep_world` over this engine's own modes, which is the one place the two flags are read as a single question.
+    let deep_world = modes.simulated_prospect || modes.vote_slots;
+    let deep_inputs = third_slot_inputs(index, deep_world);
+    let deep4_inputs = fourth_slot_inputs(index, deep_world);
     let mut third_slot_matters = ThirdSlotFilter::new(index);
     let mut fourth_slot_matters = FourthSlotFilter::new(index);
+    let mut liveness = deep_world.then(|| ProspectLiveness::new(index));
+    let class_grain = modes.deep_classes && deep_world;
+    let mut deriver = class_grain.then(DeepFibreDeriver::new);
 
     let mut transitions: HashMap<WindowKey, Row> = HashMap::new();
+    // Python's `deep_pending` dict, split into the rows and the seats their keys hold, so that the echo pass walks them in the order they were created exactly as iterating a `dict` does.
+    let mut pending_rows: Vec<PendingDeepRow> = Vec::new();
+    let mut pending_seats: HashMap<PendingKey, usize> = HashMap::new();
     let mut seen: HashSet<Item> = HashSet::new();
     let mut worklist = seeds(&options);
 
@@ -177,8 +276,155 @@ fn enumerate_seeded(
                     && right1.kind() == TokenKind::Letter
                     && right2.kind() == TokenKind::Letter
                     && third_slot_matters
-                        .matters(&mut engine, rune, right1.letter(), right2.letter())
+                        .matters(
+                            &mut engine,
+                            liveness.as_mut(),
+                            rune,
+                            right1.letter(),
+                            right2.letter(),
+                        )
                         .map_err(complaint)?;
+
+                if deep3_live && let Some(deriver) = deriver.as_mut() {
+                    let probe = liveness
+                        .as_mut()
+                        .expect("class grain is a deep world, where the liveness probe exists");
+                    let context = deriver
+                        .context(
+                            &mut engine,
+                            probe,
+                            &mut fourth_slot_matters,
+                            &mut options,
+                            rune,
+                            right1.letter(),
+                            right2.letter(),
+                        )
+                        .map_err(complaint)?;
+                    let mut slot3_entries: Vec<Slot3Entry> = Vec::new();
+                    for &option in &context.boundary_options {
+                        if right3_allowed
+                            .as_ref()
+                            .is_none_or(|pin| pin.contains(&option))
+                        {
+                            slot3_entries.push((Some(option), None, vec![option]));
+                        }
+                    }
+                    for (seat, fibre) in context.fibres.iter().enumerate() {
+                        let admitted: Vec<RightToken> = fibre
+                            .members
+                            .iter()
+                            .copied()
+                            .filter(|member| {
+                                right3_allowed
+                                    .as_ref()
+                                    .is_none_or(|pin| pin.contains(member))
+                            })
+                            .collect();
+                        if !admitted.is_empty() {
+                            slot3_entries.push((None, Some(seat), admitted));
+                        }
+                    }
+                    for (boundary3, fibre3, admitted3) in slot3_entries {
+                        // The census gate is applied here rather than inside the deriver: a fibre's own `fourth_matters` is the raw filter verdict, and only the enumeration knows whether this input is censused deep enough to spend it.
+                        let slot4_entries: Vec<Slot4Entry> = match fibre3 {
+                            Some(seat)
+                                if deep4_inputs.contains(&rune)
+                                    && context.fibres[seat].fourth_matters =>
+                            {
+                                context.fibres[seat]
+                                    .r4_groups
+                                    .iter()
+                                    .cloned()
+                                    .map(Some)
+                                    .collect()
+                            }
+                            _ => vec![None],
+                        };
+                        // The identity is the fibre's *full* member tuple rather than the admitted subset, so two items whose pins admit different subsets of one fibre accumulate into one row instead of splitting it.
+                        let identity3 = match boundary3 {
+                            Some(token) => Identity3::Boundary(token),
+                            None => Identity3::Members(fibre3.map_or_else(Vec::new, |seat| {
+                                context.fibres[seat].members.clone()
+                            })),
+                        };
+                        for members4 in slot4_entries {
+                            let rep3 = admitted3[0];
+                            let rep4 = members4.as_ref().map(|group| group[0]);
+                            let pending_key: PendingKey = (
+                                input_label.clone(),
+                                left_label.clone(),
+                                right_token_label(index, right1),
+                                right_token_label(index, right2),
+                                identity3.clone(),
+                                members4.clone(),
+                            );
+                            let settled = match pending_seats.get(&pending_key) {
+                                Some(&seat) => {
+                                    let record = &mut pending_rows[seat];
+                                    if record.left_settled != left.settled {
+                                        let display: WindowKey = [
+                                            input_label.clone(),
+                                            left_label.clone(),
+                                            right_token_label(index, right1),
+                                            right_token_label(index, right2),
+                                            right_token_label(index, rep3),
+                                            slot_label(index, rep4),
+                                        ];
+                                        return Err(partition_complaint(
+                                            index,
+                                            &display,
+                                            record.left_settled.as_ref(),
+                                            left.settled.as_ref(),
+                                        ));
+                                    }
+                                    record.admitted3.extend(admitted3.iter().copied());
+                                    record.settled.clone()
+                                }
+                                None => {
+                                    let trace = engine
+                                        .transition_trace(
+                                            &left,
+                                            token,
+                                            Slots::new(right1, right2, rep3, rep4.unwrap_or(EDGE)),
+                                        )
+                                        .map_err(complaint)?;
+                                    let settled = trace.settled.clone();
+                                    pending_seats.insert(pending_key, pending_rows.len());
+                                    pending_rows.push(PendingDeepRow {
+                                        left_context: left.clone(),
+                                        left_label: left_label.clone(),
+                                        input_label: input_label.clone(),
+                                        token,
+                                        right1,
+                                        right2,
+                                        boundary3,
+                                        admitted3: admitted3.iter().copied().collect(),
+                                        members4: members4.clone(),
+                                        rep3,
+                                        rep4,
+                                        settled: trace.settled,
+                                        left_settled: left.settled.clone(),
+                                        joint: trace.joint_floor,
+                                        prospect: trace.prospect,
+                                        provenance: trace.notes,
+                                    });
+                                    settled
+                                }
+                            };
+                            worklist.push(Item {
+                                left: LeftContext::letter(settled),
+                                rune: right1.letter(),
+                                right1: Some(right2),
+                                right2_allowed: Some(Rc::new(admitted3.iter().copied().collect())),
+                                right3_allowed: members4
+                                    .as_ref()
+                                    .map(|group| Rc::new(group.iter().copied().collect())),
+                            });
+                        }
+                    }
+                    continue;
+                }
+
                 let right3_slots: Vec<Option<RightToken>> = if deep3_live {
                     let mut candidates = options
                         .right3_options(right1, right2, follower_map.as_deref())
@@ -199,6 +445,7 @@ fn enumerate_seeded(
                                 && fourth_slot_matters
                                     .matters(
                                         &mut engine,
+                                        liveness.as_mut(),
                                         rune,
                                         right1.letter(),
                                         right2.letter(),
@@ -227,9 +474,9 @@ fn enumerate_seeded(
                         let window_key: WindowKey = [
                             input_label.clone(),
                             left_label.clone(),
-                            right_label(index, right1),
+                            right_token_label(index, right1),
                             if right1.kind() == TokenKind::Letter {
-                                right_label(index, right2)
+                                right_token_label(index, right2)
                             } else {
                                 NA_LABEL.to_owned()
                             },
@@ -305,6 +552,99 @@ fn enumerate_seeded(
         }
     }
 
+    let mut deep_classes: Vec<(String, Vec<String>)> = Vec::new();
+    let mut named_classes: HashSet<String> = HashSet::new();
+    // The section 2.6 echo check, and the class rows' emission with it: for every multi-member row the last admitted member is re-traced at the row's real left — and the last r4 member at the representative third — and its whole row-visible record must equal the representative's. That is the standing real-left, real-entry, real-adjustment guard on the virtual-left collapse the fibres import, two members deep on every build.
+    for pending in &pending_rows {
+        let (label3, admitted3) = match pending.boundary3 {
+            Some(token) => (right_token_label(index, token), vec![token]),
+            None => {
+                let mut members: Vec<RightToken> = pending.admitted3.iter().copied().collect();
+                members.sort_by(|left, right| {
+                    index
+                        .resolve(left.letter())
+                        .cmp(index.resolve(right.letter()))
+                });
+                let names: Vec<String> = members
+                    .iter()
+                    .map(|member| index.resolve(member.letter()).to_owned())
+                    .collect();
+                (
+                    deep_label(&mut deep_classes, &mut named_classes, names),
+                    members,
+                )
+            }
+        };
+        let label4 = match pending.members4.as_deref() {
+            None => NA_LABEL.to_owned(),
+            Some(group) if group[0].kind() != TokenKind::Letter => {
+                right_token_label(index, group[0])
+            }
+            Some(group) => deep_label(
+                &mut deep_classes,
+                &mut named_classes,
+                group
+                    .iter()
+                    .map(|member| index.resolve(member.letter()).to_owned())
+                    .collect(),
+            ),
+        };
+        let window_key: WindowKey = [
+            pending.input_label.clone(),
+            pending.left_label.clone(),
+            right_token_label(index, pending.right1),
+            right_token_label(index, pending.right2),
+            label3,
+            label4,
+        ];
+        let rep4 = pending.rep4.unwrap_or(EDGE);
+        if pending.boundary3.is_none() && admitted3.len() > 1 {
+            let last3 = echo_member(&admitted3, pending.rep3);
+            let echo = engine
+                .transition_trace(
+                    &pending.left_context,
+                    pending.token,
+                    Slots::new(pending.right1, pending.right2, last3, rep4),
+                )
+                .map_err(complaint)?;
+            if !pending.echoes(&echo) {
+                return Err(echo_mismatch(index, &window_key, last3, pending, &echo));
+            }
+        }
+        if let Some(group) = pending.members4.as_deref()
+            && group[0].kind() == TokenKind::Letter
+            && group.len() > 1
+        {
+            let last4 = group[group.len() - 1];
+            let echo = engine
+                .transition_trace(
+                    &pending.left_context,
+                    pending.token,
+                    Slots::new(pending.right1, pending.right2, pending.rep3, last4),
+                )
+                .map_err(complaint)?;
+            if !pending.echoes(&echo) {
+                return Err(echo_mismatch(index, &window_key, last4, pending, &echo));
+            }
+        }
+        if transitions.contains_key(&window_key) {
+            return Err(format!(
+                "deep-class window {window_key:?} collides with an existing row"
+            ));
+        }
+        transitions.insert(
+            window_key,
+            Row {
+                outcome: cell_label(index, &pending.settled.cell),
+                settled: pending.settled.clone(),
+                left_settled: pending.left_settled.clone(),
+                joint: pending.joint,
+                prospect: pending.prospect,
+                provenance: pending.provenance.clone(),
+            },
+        );
+    }
+
     let mut rows: Vec<TransitionRow> = transitions
         .into_iter()
         .map(|(key, row)| {
@@ -334,21 +674,38 @@ fn enumerate_seeded(
             cells.push(row.settled.cell.clone());
         }
     }
+    // Snapshotted before the assertion runs, exactly where Python snapshots it: `_enumerate` freezes `engine.fired` into the product and `build_tables` asserts afterwards, so anything the assertion were to fire could not reach the stream anyway.
     let cited_provenance = engine
         .fired()
         .iter()
         .map(|pointer| pointer.text(index))
         .collect();
-    Ok(FixpointProduct {
+    let product = FixpointProduct {
         config,
         transitions: rows,
-        deep_classes: Vec::new(),
+        deep_classes,
         cited_provenance,
         cells,
-    })
+    };
+    if let Some(deriver) = deriver.as_mut() {
+        let mut check = DeepPartitionCheck {
+            engine: &mut engine,
+            options: &mut options,
+            deriver,
+            liveness: liveness.as_mut(),
+            third_slot_matters: &mut third_slot_matters,
+            fourth_slot_matters: &mut fourth_slot_matters,
+            deep_inputs: &deep_inputs,
+            deep4_inputs: &deep4_inputs,
+            contexts: HashMap::new(),
+            r4_lists: HashMap::new(),
+        };
+        check.run(&product)?;
+    }
+    Ok(product)
 }
 
-/// The seeds the fixpoint starts from, `_enumerate`'s doubly nested seed loop: every letter against every boundary left, boundary-major, unpinned. Pushed in this order and popped from the back, which is the traversal the class grain of sub-issue #45 will read.
+/// The seeds the fixpoint starts from, `_enumerate`'s doubly nested seed loop: every letter against every boundary left, boundary-major, unpinned. Pushed in this order and popped from the back, which is the traversal class grain reads: the first item to reach a fibre fixes that row's representative.
 fn contract_seeds(options: &WindowOptions<'_>) -> Vec<Item> {
     let mut seeds = Vec::with_capacity(SEED_KINDS.len() * options.letters.len());
     for kind in SEED_KINDS {
@@ -405,17 +762,20 @@ fn locked_glyph_name(raw_name: &str) -> String {
     format!("{raw_name}.noentry")
 }
 
-/// One right slot's label, `table._right_token_label`: a letter is its rune's name and every boundary its own spelling.
-fn right_label(index: &SpecIndex, token: RightToken) -> String {
+/// One right slot's label, `table._right_token_label`: a letter is its rune's name and every boundary its own spelling. Public because the `liveness-cases` verb answers in the same vocabulary, exactly as `_right_token_label` is what `kernel_liveness.py`'s Python emitter is told to label through.
+pub fn right_token_label(index: &SpecIndex, token: RightToken) -> String {
     match token {
         RightToken::Letter(rune) => index.resolve(rune).to_owned(),
         other => boundary_left_label(other.kind()).to_owned(),
     }
 }
 
-/// A deep slot's label, which is [`right_label`] when the window enumerated the slot and [`NA_LABEL`] when it did not.
+/// A deep slot's label, which is [`right_token_label`] when the window enumerated the slot and [`NA_LABEL`] when it did not.
 fn slot_label(index: &SpecIndex, token: Option<RightToken>) -> String {
-    token.map_or_else(|| NA_LABEL.to_owned(), |token| right_label(index, token))
+    token.map_or_else(
+        || NA_LABEL.to_owned(),
+        |token| right_token_label(index, token),
+    )
 }
 
 /// The label a boundary carries at either end of a window, `table.BOUNDARY_LEFT_LABELS`: the run edge's own name, and for the other three the glyph the boundary ships as. A letter or an unknown panics here exactly as the Python mapping raises `KeyError` for it.
@@ -461,6 +821,431 @@ fn left_state_text(index: &SpecIndex, settled: Option<&Settled>) -> String {
             state.seam.map_or("none", |height| index.resolve(height)),
             state.extension
         ),
+    }
+}
+
+/// The label one deep-slot member set is spelled by, `_enumerate`'s `deep_label`: the bare letter for a class of one, and a content-addressed id otherwise, recorded in the map on the way past.
+///
+/// A class of one is deliberately not given an id. The expansion downstream reads a bare label as itself, so an id there would cost a map entry and buy nothing, and it would put a `#C` token in front of consumers for a slot that names exactly one letter.
+fn deep_label(
+    classes: &mut Vec<(String, Vec<String>)>,
+    named: &mut HashSet<String>,
+    members: Vec<String>,
+) -> String {
+    if members.len() == 1 {
+        return members
+            .into_iter()
+            .next()
+            .expect("one member is one member");
+    }
+    let token = deep_class_id(&members);
+    if named.insert(token.clone()) {
+        classes.push((token.clone(), members));
+    }
+    token
+}
+
+/// The member a class row's echo re-traces, `_enumerate`'s `last3`: the last of the admitted members, or the first of them where that last one is the representative the row was built from. A class whose last member is its representative would otherwise echo the very window the row already carries, which would check nothing at all.
+fn echo_member(members: &[RightToken], representative: RightToken) -> RightToken {
+    let last = members[members.len() - 1];
+    if last == representative {
+        members[0]
+    } else {
+        last
+    }
+}
+
+/// The echo check's `PartitionError` sentence: a member of a class row traced something the representative did not, which is the virtual-left fibre collapse failing at real-left grain.
+fn echo_mismatch(
+    index: &SpecIndex,
+    key: &WindowKey,
+    member: RightToken,
+    expected: &PendingDeepRow,
+    got: &TransitionTrace,
+) -> String {
+    format!(
+        "deep-class echo mismatch at {key:?}: member {} traces {} where the representative traced {}",
+        right_token_label(index, member),
+        row_record_text(
+            index,
+            &got.settled,
+            got.prospect,
+            got.joint_floor,
+            &got.notes
+        ),
+        row_record_text(
+            index,
+            &expected.settled,
+            expected.prospect,
+            expected.joint,
+            &expected.provenance
+        )
+    )
+}
+
+/// One row-visible record as the echo complaint names it — the four fields the check compares and nothing else.
+fn row_record_text(
+    index: &SpecIndex,
+    settled: &Settled,
+    prospect: i64,
+    joint: bool,
+    provenance: &[String],
+) -> String {
+    format!(
+        "{} prospect {prospect}, joint {joint}, provenance {provenance:?}",
+        left_state_text(index, Some(settled))
+    )
+}
+
+/// Whether a slot label is one of the five non-letter spellings, `table.BOUNDARYISH`.
+fn boundaryish(label: &str) -> bool {
+    BOUNDARYISH.contains(&label)
+}
+
+/// The rune one slot label names, or `None` when the label is not a modeled rune's name — a boundary spelling, a class id, or a name this spec never interned.
+fn rune_of(index: &SpecIndex, label: &str) -> Option<Sym> {
+    index.sym_of(label).filter(|name| index.is_modeled(*name))
+}
+
+/// The member labels one deep-slot field stands for, `DecisionTable.token_members`: the class map's entry for a class id, else the label itself, so a caller can expand any right3 or right4 field uniformly.
+fn token_members<'p>(classes: &HashMap<&'p str, &'p [String]>, token: &'p str) -> Vec<&'p str> {
+    match classes.get(token) {
+        Some(members) => members.iter().map(String::as_str).collect(),
+        None => vec![token],
+    }
+}
+
+/// One live context's fibre partition as the assertion reads it, `_assert_deep_slot_partition`'s `context_cache` value: which letters the static option list admits, and which fibre each one sits in.
+struct ContextPartition {
+    static_letters: HashSet<Sym>,
+    fibre_of: HashMap<Sym, usize>,
+}
+
+/// The class-grain hard invariant (issue 26), `table._assert_deep_slot_partition`, together with the enumeration-side scaffolding it replays against.
+///
+/// Python runs this in `build_tables`, over the assembled table and the `_FixpointContext` the product deliberately does not carry; the kernel runs it over its own product before the stream is written, which is the same statement one step earlier and the only place a port can make it, since the scaffolding never crosses the boundary. Everything it consults was already consulted during enumeration — the two filters' memos are warm, every live context's fibres are derived, and `right4_options` is pure — so the replay adds no probes and therefore no provenance.
+///
+/// What it asserts, per base: the observed r3 letter tokens' member sets are pairwise disjoint, each inside the recomputed static option list and inside one fibre of its context's partition; right3 is non-`#NA` exactly where the pre-gate and the third filter say live, which is the `#NA` biconditional restated over tokens; one slot deeper, r4 member sets are disjoint per `(base, r3 token)`, every member of an r3 token agrees on the `fourth_slot_matters` verdict and induces the identical computed r4 option list; and every class id resolves through the product's map with every map entry used. Disjointness is per base rather than per context because worklist pins are per left state, so two bases in one context can legitimately admit nested subsets of one fibre. Cover against the static option list is deliberately not asserted: pins legitimately exclude unreachable members, exactly as label grain excludes their rows.
+struct DeepPartitionCheck<'a, 'i> {
+    engine: &'a mut Engine<'i>,
+    options: &'a mut WindowOptions<'i>,
+    deriver: &'a mut DeepFibreDeriver,
+    liveness: Option<&'a mut ProspectLiveness<'i>>,
+    third_slot_matters: &'a mut ThirdSlotFilter<'i>,
+    fourth_slot_matters: &'a mut FourthSlotFilter<'i>,
+    deep_inputs: &'a HashSet<Sym>,
+    deep4_inputs: &'a HashSet<Sym>,
+    contexts: HashMap<(Sym, Sym, Sym), ContextPartition>,
+    r4_lists: HashMap<(Sym, Sym, Sym, Sym), Vec<String>>,
+}
+
+impl DeepPartitionCheck<'_, '_> {
+    /// The assertion over one product, or the `PartitionError` sentence of the first clause it broke.
+    fn run(&mut self, product: &FixpointProduct) -> Result<(), String> {
+        let index = self.engine.index();
+        let classes: HashMap<&str, &[String]> = product
+            .deep_classes
+            .iter()
+            .map(|(token, members)| (token.as_str(), members.as_slice()))
+            .collect();
+        let mut used: HashSet<&str> = HashSet::new();
+        let mut seen3: HashMap<[&str; 4], HashMap<&str, &str>> = HashMap::new();
+        let mut seen4: HashMap<([&str; 4], &str), HashMap<&str, &str>> = HashMap::new();
+        for row in &product.transitions {
+            let key = row.key();
+            let family = rune_of(index, row.input_glyph.split('.').next().unwrap_or_default());
+            let right1 = rune_of(index, &row.right1);
+            let right2 = rune_of(index, &row.right2);
+            let letters_window = !boundaryish(&row.right1) && !boundaryish(&row.right2);
+            let mut live = false;
+            if letters_window
+                && let (Some(family), Some(right1), Some(right2)) = (family, right1, right2)
+                && self.deep_inputs.contains(&family)
+            {
+                live = self
+                    .third_slot_matters
+                    .matters(
+                        self.engine,
+                        self.liveness.as_deref_mut(),
+                        family,
+                        right1,
+                        right2,
+                    )
+                    .map_err(complaint)?;
+            }
+            if !live {
+                if row.right3 != NA_LABEL {
+                    return Err(format!(
+                        "{key:?}: right3 enumerated where the filters say dead"
+                    ));
+                }
+                continue;
+            }
+            if row.right3 == NA_LABEL {
+                return Err(format!("{key:?}: right3 #NA where the filters say live"));
+            }
+            if row.right3.starts_with(DEEP_CLASS_PREFIX) {
+                if !classes.contains_key(row.right3.as_str()) {
+                    return Err(format!(
+                        "{key:?}: right3 token {} is not in the class map",
+                        row.right3
+                    ));
+                }
+                used.insert(row.right3.as_str());
+            }
+            if boundaryish(&row.right3) {
+                if row.right4 != NA_LABEL {
+                    return Err(format!(
+                        "{key:?}: right4 enumerated past a boundary third slot"
+                    ));
+                }
+                continue;
+            }
+            let family = family.expect("a live row's input glyph names a modeled rune");
+            let right1 = right1.expect("a live row's right1 is a letter");
+            let right2 = right2.expect("a live row's right2 is a letter");
+            self.ensure_context(family, right1, right2)?;
+            let members3 = token_members(&classes, &row.right3);
+            let base = [
+                row.input_glyph.as_str(),
+                row.left.as_str(),
+                row.right1.as_str(),
+                row.right2.as_str(),
+            ];
+            let taken3 = seen3.entry(base).or_default();
+            for member in &members3 {
+                if let Some(claimed) = taken3.get(member)
+                    && *claimed != row.right3.as_str()
+                {
+                    return Err(format!(
+                        "{key:?}: r3 member {member} belongs to two tokens at one base: {claimed} and {}",
+                        row.right3
+                    ));
+                }
+                taken3.insert(member, row.right3.as_str());
+            }
+            {
+                let partition = &self.contexts[&(family, right1, right2)];
+                let mut outside: Vec<&str> = members3
+                    .iter()
+                    .copied()
+                    .filter(|member| {
+                        rune_of(index, member)
+                            .is_none_or(|name| !partition.static_letters.contains(&name))
+                    })
+                    .collect();
+                if !outside.is_empty() {
+                    outside.sort_unstable();
+                    return Err(format!(
+                        "{key:?}: r3 members outside the static option list: {outside:?}"
+                    ));
+                }
+                let touched: HashSet<usize> = members3
+                    .iter()
+                    .filter_map(|member| rune_of(index, member))
+                    .filter_map(|name| partition.fibre_of.get(&name).copied())
+                    .collect();
+                if touched.len() > 1 {
+                    let mut names = members3.clone();
+                    names.sort_unstable();
+                    return Err(format!(
+                        "{key:?}: r3 members straddle two fibres: {names:?}"
+                    ));
+                }
+            }
+            let mut verdicts: HashSet<bool> = HashSet::new();
+            for member in &members3 {
+                let third = rune_of(index, member).expect("the member is inside the option list");
+                verdicts.insert(
+                    self.fourth_slot_matters
+                        .matters(
+                            self.engine,
+                            self.liveness.as_deref_mut(),
+                            family,
+                            right1,
+                            right2,
+                            third,
+                        )
+                        .map_err(complaint)?,
+                );
+            }
+            if verdicts.len() > 1 {
+                let mut names = members3.clone();
+                names.sort_unstable();
+                return Err(format!(
+                    "{key:?}: members disagree on the fourth_slot_matters verdict: {names:?}"
+                ));
+            }
+            // The census gate is ANDed in here rather than inside the filter, which is the same split the enumeration makes when it decides whether a fibre's r4 groups become slot-4 entries.
+            let fourth =
+                verdicts.into_iter().next().unwrap_or(false) && self.deep4_inputs.contains(&family);
+            if row.right4 == NA_LABEL {
+                if fourth {
+                    return Err(format!("{key:?}: right4 #NA where the filters say live"));
+                }
+                continue;
+            }
+            if !fourth {
+                return Err(format!(
+                    "{key:?}: right4 enumerated where the filters say dead"
+                ));
+            }
+            let mut shared: Option<Vec<String>> = None;
+            for member in &members3 {
+                let third = rune_of(index, member).expect("the member is inside the option list");
+                self.ensure_r4_list(family, right1, right2, third)?;
+                let option_list = self.r4_lists[&(family, right1, right2, third)].as_slice();
+                match &shared {
+                    None => shared = Some(option_list.to_vec()),
+                    Some(first) if first.as_slice() != option_list => {
+                        return Err(format!(
+                            "{key:?}: members induce different computed r4 option lists: {} vs {member}",
+                            members3[0]
+                        ));
+                    }
+                    Some(_) => {}
+                }
+            }
+            if row.right4.starts_with(DEEP_CLASS_PREFIX) {
+                if !classes.contains_key(row.right4.as_str()) {
+                    return Err(format!(
+                        "{key:?}: right4 token {} is not in the class map",
+                        row.right4
+                    ));
+                }
+                used.insert(row.right4.as_str());
+            }
+            if boundaryish(&row.right4) {
+                continue;
+            }
+            let members4 = token_members(&classes, &row.right4);
+            let taken4 = seen4.entry((base, row.right3.as_str())).or_default();
+            for member in &members4 {
+                if let Some(claimed) = taken4.get(member)
+                    && *claimed != row.right4.as_str()
+                {
+                    return Err(format!(
+                        "{key:?}: r4 member {member} belongs to two tokens at one base: {claimed} and {}",
+                        row.right4
+                    ));
+                }
+                taken4.insert(member, row.right4.as_str());
+            }
+            if let Some(shared) = shared {
+                let missing: Vec<&str> = members4
+                    .iter()
+                    .copied()
+                    .filter(|member| !shared.iter().any(|option| option == member))
+                    .collect();
+                if !missing.is_empty() {
+                    return Err(format!(
+                        "{key:?}: r4 members outside the computed option list: {missing:?}"
+                    ));
+                }
+            }
+        }
+        let mut unused: Vec<&str> = classes
+            .keys()
+            .copied()
+            .filter(|token| !used.contains(token))
+            .collect();
+        if !unused.is_empty() {
+            unused.sort_unstable();
+            return Err(format!("unused deep-class map entries: {unused:?}"));
+        }
+        Ok(())
+    }
+
+    /// This context's partition in the cache, derived through the fibre deriver on a miss. The cache is Python's `context_cache` and is lazy for the same reason: a row whose third slot is a boundary never reaches it.
+    fn ensure_context(&mut self, family: Sym, right1: Sym, right2: Sym) -> Result<(), String> {
+        if self.contexts.contains_key(&(family, right1, right2)) {
+            return Ok(());
+        }
+        let liveness = self.liveness.as_deref_mut().ok_or_else(|| {
+            "the class-grain partition assertion needs the liveness probe its fibres were derived through".to_owned()
+        })?;
+        let fibres = self
+            .deriver
+            .context(
+                self.engine,
+                liveness,
+                self.fourth_slot_matters,
+                self.options,
+                family,
+                right1,
+                right2,
+            )
+            .map_err(complaint)?;
+        let mut static_letters: HashSet<Sym> = HashSet::new();
+        let mut fibre_of: HashMap<Sym, usize> = HashMap::new();
+        for (seat, fibre) in fibres.fibres.iter().enumerate() {
+            for member in &fibre.members {
+                static_letters.insert(member.letter());
+                fibre_of.insert(member.letter(), seat);
+            }
+        }
+        self.contexts.insert(
+            (family, right1, right2),
+            ContextPartition {
+                static_letters,
+                fibre_of,
+            },
+        );
+        Ok(())
+    }
+
+    /// The computed r4 option list for one `(context, r3 member)`, cached because a class row asks for one per member and the members of two rows overlap.
+    fn ensure_r4_list(
+        &mut self,
+        family: Sym,
+        right1: Sym,
+        right2: Sym,
+        third: Sym,
+    ) -> Result<(), String> {
+        if self.r4_lists.contains_key(&(family, right1, right2, third)) {
+            return Ok(());
+        }
+        let index = self.engine.index();
+        let options = self
+            .options
+            .right4_options(
+                RightToken::Letter(right1),
+                RightToken::Letter(right2),
+                RightToken::Letter(third),
+            )
+            .map_err(complaint)?;
+        let labels: Vec<String> = options
+            .into_iter()
+            .map(|option| right_token_label(index, option))
+            .collect();
+        self.r4_lists
+            .insert((family, right1, right2, third), labels);
+        Ok(())
+    }
+
+    /// One context's partition stated rather than derived — the assertion tests' way of handing in exactly what a real build's enumeration would already have put in the cache, since the deriver itself is the escalated module's.
+    #[cfg(test)]
+    fn seed_context(&mut self, index: &SpecIndex, context: [&str; 3], fibres: &[&[&str]]) {
+        let named = |name: &str| {
+            index
+                .sym_of(name)
+                .unwrap_or_else(|| panic!("the fixture mentions {name}"))
+        };
+        let mut static_letters: HashSet<Sym> = HashSet::new();
+        let mut fibre_of: HashMap<Sym, usize> = HashMap::new();
+        for (seat, fibre) in fibres.iter().enumerate() {
+            for member in *fibre {
+                static_letters.insert(named(member));
+                fibre_of.insert(named(member), seat);
+            }
+        }
+        self.contexts.insert(
+            (named(context[0]), named(context[1]), named(context[2])),
+            ContextPartition {
+                static_letters,
+                fibre_of,
+            },
+        );
     }
 }
 
@@ -573,8 +1358,15 @@ mod tests {
         fixtures::policy(&[("prefer", &fixtures::seq(records))])
     }
 
+    /// The pinned candidacy world, which is the world every fixture below is read in: both issue-28 flags off, so `_deep_world` is false, the censuses are the chain censuses, and class grain cannot arise whatever the deep-classes flag says.
+    const PINNED: EnumerationModes = EnumerationModes {
+        simulated_prospect: false,
+        vote_slots: false,
+        deep_classes: true,
+    };
+
     fn product(index: &SpecIndex) -> FixpointProduct {
-        enumerate_transitions(index, &[]).expect("the fixture's fixpoint closes")
+        enumerate_transitions(index, &[], PINNED).expect("the fixture's fixpoint closes")
     }
 
     /// The rows an input reaches at one left, as the four right slots alone.
@@ -865,6 +1657,416 @@ mod tests {
         );
     }
 
+    /// A right condition testing a list of families per hop, one `then:` hop per entry — [`chain`] with the alternatives at each slot spelled out, which is how a fixture makes one deep slot live under two different tokens.
+    fn chain_families(hops: &[&[&str]]) -> String {
+        let (head, rest) = hops.split_first().expect("a chain names at least one slot");
+        let family = fixtures::names(head);
+        if rest.is_empty() {
+            return fixtures::condition(&[("family", &family)]);
+        }
+        fixtures::condition(&[("family", &family), ("then", &chain_families(rest))])
+    }
+
+    /// The registry the ligature fixture reads: the ordinary heights, plus the formed ligature among the families so the guard has a token to ask about.
+    fn liga_registry() -> String {
+        fixtures::registry(&[
+            ("heights", &fixtures::map(HEIGHTS)),
+            (
+                "boundary_tokens",
+                &fixtures::map(&[
+                    ("space", r#"{"codepoint":32,"splits_runs":true}"#),
+                    ("zwnj", r#"{"codepoint":8204,"splits_runs":false}"#),
+                ]),
+            ),
+            (
+                "families",
+                &fixtures::map(&[
+                    ("qsPea", r#"{"codepoint":58960,"sequence":null}"#),
+                    ("qsTea", r#"{"codepoint":58962,"sequence":null}"#),
+                    ("qsMay", r#"{"codepoint":58981,"sequence":null}"#),
+                    (
+                        "qsPeaMay",
+                        r#"{"codepoint":63000,"sequence":["qsPea","qsMay"]}"#,
+                    ),
+                ]),
+            ),
+        ])
+    }
+
+    /// `deep_alphabet` with two changes the r4 option lists need: `qsPea`'s chain reads its third hop as either `qsPea` or `qsTea`, so the fourth slot is live under both, and a `qsPeaMay` ligature makes `(qsPea, qsMay)` a formation pair. That pair is what makes `right4_options` differ by third token — the option `qsMay` survives behind `qsTea` and cannot survive behind `qsPea`.
+    fn liga_alphabet() -> SpecIndex {
+        let pea = rune(
+            "qsPea",
+            &[
+                ("half", stance("half", &[], &["baseline"])),
+                ("full", stance("full", &[], &["x-height"])),
+            ],
+            &[(
+                "policy",
+                &policy(&[&prefer_stance(
+                    "full",
+                    &chain_families(&[&["qsTea"], &["qsMay"], &["qsPea", "qsTea"], &["qsTea"]]),
+                )]),
+            )],
+        );
+        let tea = rune(
+            "qsTea",
+            &[(
+                "plain",
+                stance("plain", &["baseline", "x-height"], &["baseline"]),
+            )],
+            &[],
+        );
+        let may = rune(
+            "qsMay",
+            &[("plain", stance("plain", &["baseline"], &[]))],
+            &[],
+        );
+        let liga = rune(
+            "qsPeaMay",
+            &[("plain", stance("plain", &["baseline"], &["baseline"]))],
+            &[("sequence", &fixtures::names(&["qsPea", "qsMay"]))],
+        );
+        spec_of(
+            &[
+                ("qsPea", pea),
+                ("qsTea", tea),
+                ("qsMay", may),
+                ("qsPeaMay", liga),
+            ],
+            &liga_registry(),
+        )
+    }
+
+    /// One hand-built row. The partition assertion reads the six window labels and nothing else, so every row here settles into the same cell.
+    fn deep_row(index: &SpecIndex, labels: [&str; 6]) -> TransitionRow {
+        let settled = Settled {
+            cell: CellId {
+                rune: fixtures::sym(index, "qsMay"),
+                stance: fixtures::sym(index, "plain"),
+                entry: None,
+                exit: None,
+                adjustments: Vec::new(),
+            },
+            seam: None,
+            extension: 0,
+        };
+        let [input_glyph, left, right1, right2, right3, right4] = labels.map(str::to_owned);
+        TransitionRow {
+            input_glyph,
+            left,
+            right1,
+            right2,
+            right3,
+            right4,
+            outcome: "qsMay.plain".to_owned(),
+            settled,
+            left_settled: None,
+            joint: false,
+            prospect: 0,
+            provenance: Vec::new(),
+        }
+    }
+
+    /// A product assembled out of hand-built rows and a stated class map — everything the assertion reads, and nothing it does not.
+    fn hand_product(rows: Vec<TransitionRow>, classes: &[(&str, &[&str])]) -> FixpointProduct {
+        FixpointProduct {
+            config: "default".to_owned(),
+            transitions: rows,
+            deep_classes: classes
+                .iter()
+                .map(|(token, members)| {
+                    (
+                        (*token).to_owned(),
+                        members.iter().map(|member| (*member).to_owned()).collect(),
+                    )
+                })
+                .collect(),
+            cited_provenance: Vec::new(),
+            cells: Vec::new(),
+        }
+    }
+
+    /// The class token a member list is spelled by, so a test states the same id the emission would.
+    fn class_of(members: &[&str]) -> String {
+        let owned: Vec<String> = members.iter().map(|member| (*member).to_owned()).collect();
+        deep_class_id(&owned)
+    }
+
+    /// One member list as the emission hands it over, owned.
+    fn owned(members: &[&str]) -> Vec<String> {
+        members.iter().map(|member| (*member).to_owned()).collect()
+    }
+
+    /// A class of one is spelled by its own letter and records nothing; a class of two takes a content-addressed id, recorded the first time it is spelled and shared by every later row that reaches the same members.
+    #[test]
+    fn a_deep_label_is_the_bare_letter_alone_and_a_class_id_otherwise() {
+        let mut classes: Vec<(String, Vec<String>)> = Vec::new();
+        let mut named: HashSet<String> = HashSet::new();
+        assert_eq!(
+            deep_label(&mut classes, &mut named, owned(&["qsPea"])),
+            "qsPea"
+        );
+        assert!(
+            classes.is_empty(),
+            "an id for a class of one would cost a map entry and buy nothing the bare label does not already say"
+        );
+
+        let token = deep_label(&mut classes, &mut named, owned(&["qsPea", "qsTea"]));
+        assert_eq!(token, class_of(&["qsPea", "qsTea"]));
+        assert_eq!(classes, [(token.clone(), owned(&["qsPea", "qsTea"]))]);
+        assert_eq!(
+            deep_label(&mut classes, &mut named, owned(&["qsPea", "qsTea"])),
+            token
+        );
+        assert_eq!(
+            classes.len(),
+            1,
+            "the same member set spells the same id, and the map records it once however many rows carry it"
+        );
+    }
+
+    /// The echo re-traces the last admitted member, and the first one instead exactly where that last member is the representative the row was already built from — a class of two would otherwise echo the very window it is being checked against.
+    #[test]
+    fn the_echo_member_is_the_last_admitted_unless_that_is_the_representative() {
+        let index = deep_alphabet();
+        let [pea, tea, may] =
+            ["qsPea", "qsTea", "qsMay"].map(|name| RightToken::Letter(fixtures::sym(&index, name)));
+        assert_eq!(echo_member(&[pea, tea, may], pea), may);
+        assert_eq!(echo_member(&[pea, tea, may], may), pea);
+        assert_eq!(echo_member(&[pea, tea], tea), pea);
+        assert_eq!(echo_member(&[pea, tea], pea), tea);
+    }
+
+    /// The partition assertion over a hand-built product, with each live context's fibre partition stated rather than derived.
+    ///
+    /// Stating it is not a shortcut around the deriver: by the time a real build runs this assertion every live context has already been derived, so the cache is warm and the deriver is never reached. A test that states the partition is handing in exactly what the enumeration would have left there — which is also what lets these assertions be read in the pinned world, where there is no liveness probe and the filters answer on their chain arm alone.
+    fn checked(
+        index: &SpecIndex,
+        product: &FixpointProduct,
+        contexts: &[([&str; 3], &[&[&str]])],
+    ) -> Result<(), String> {
+        let mut engine = Engine::with_modes(
+            index,
+            Vec::<Sym>::new(),
+            EngineModes {
+                simulated_prospect: false,
+                vote_slots: false,
+                trace_memo: true,
+                ..EngineModes::default()
+            },
+        );
+        let mut options = WindowOptions::new(index).expect("the fixture's guard closes");
+        let mut deriver = DeepFibreDeriver::new();
+        let mut third = ThirdSlotFilter::new(index);
+        let mut fourth = FourthSlotFilter::new(index);
+        let deep_inputs = third_slot_inputs(index, false);
+        let deep4_inputs = fourth_slot_inputs(index, false);
+        let mut check = DeepPartitionCheck {
+            engine: &mut engine,
+            options: &mut options,
+            deriver: &mut deriver,
+            liveness: None,
+            third_slot_matters: &mut third,
+            fourth_slot_matters: &mut fourth,
+            deep_inputs: &deep_inputs,
+            deep4_inputs: &deep4_inputs,
+            contexts: HashMap::new(),
+            r4_lists: HashMap::new(),
+        };
+        for (context, fibres) in contexts {
+            check.seed_context(index, *context, fibres);
+        }
+        check.run(product)
+    }
+
+    /// The one live context every hand-built product below sits in: `qsPea`'s chain is unanswered two slots into `qsTea qsMay`, and nowhere else.
+    const LIVE: [&str; 3] = ["qsPea", "qsTea", "qsMay"];
+
+    /// The `#NA` biconditional, restated over tokens in both directions.
+    #[test]
+    fn the_third_slot_is_enumerated_exactly_where_the_filters_say_live() {
+        let index = deep_alphabet();
+        let dead = hand_product(
+            vec![deep_row(
+                &index,
+                ["qsPea", "#EDGE", "qsPea", "qsMay", "qsTea", "#NA"],
+            )],
+            &[],
+        );
+        assert!(
+            checked(&index, &dead, &[])
+                .expect_err("the chain answered at the first hop")
+                .ends_with(": right3 enumerated where the filters say dead"),
+        );
+        let live = hand_product(
+            vec![deep_row(
+                &index,
+                ["qsPea", "#EDGE", "qsTea", "qsMay", "#NA", "#NA"],
+            )],
+            &[],
+        );
+        assert!(
+            checked(&index, &live, &[])
+                .expect_err("the chain is still reading the third slot")
+                .ends_with(": right3 #NA where the filters say live"),
+        );
+    }
+
+    /// A class token is only a token because the map says what it stands for, and the assertion refuses to guess.
+    #[test]
+    fn a_class_token_the_map_never_names_stops_the_build() {
+        let index = deep_alphabet();
+        let product = hand_product(
+            vec![deep_row(
+                &index,
+                ["qsPea", "#EDGE", "qsTea", "qsMay", "#Cfeedfacefeed", "#NA"],
+            )],
+            &[],
+        );
+        let complaint = checked(&index, &product, &[]).expect_err("the map is empty");
+        assert!(
+            complaint.ends_with(": right3 token #Cfeedfacefeed is not in the class map"),
+            "{complaint}"
+        );
+    }
+
+    /// No record ever peeks past a boundary, so nothing follows one inside a window.
+    #[test]
+    fn a_boundary_third_slot_carries_no_fourth() {
+        let index = deep_alphabet();
+        let product = hand_product(
+            vec![deep_row(
+                &index,
+                ["qsPea", "#EDGE", "qsTea", "qsMay", "#EDGE", "qsPea"],
+            )],
+            &[],
+        );
+        assert!(
+            checked(&index, &product, &[])
+                .expect_err("the third slot is a run edge")
+                .ends_with(": right4 enumerated past a boundary third slot"),
+        );
+    }
+
+    /// An entry no row resolves through is a map that has stopped describing the stream it rides with.
+    #[test]
+    fn a_class_map_entry_no_row_uses_stops_the_build() {
+        let index = deep_alphabet();
+        let orphan = class_of(&["qsPea", "qsTea"]);
+        let product = hand_product(
+            vec![deep_row(
+                &index,
+                ["qsPea", "#EDGE", "qsPea", "qsMay", "#NA", "#NA"],
+            )],
+            &[(&orphan, &["qsPea", "qsTea"])],
+        );
+        assert_eq!(
+            checked(&index, &product, &[]),
+            Err(format!("unused deep-class map entries: [\"{orphan}\"]"))
+        );
+    }
+
+    /// A class may only hold members the static option list admits, and only members of one fibre — the two halves of "this row stands for a piece of the partition".
+    #[test]
+    fn a_class_must_sit_inside_one_fibre_of_the_static_option_list() {
+        let index = deep_alphabet();
+        let token = class_of(&["qsPea", "qsTea"]);
+        let product = hand_product(
+            vec![deep_row(
+                &index,
+                ["qsPea", "#EDGE", "qsTea", "qsMay", &token, "#NA"],
+            )],
+            &[(&token, &["qsPea", "qsTea"])],
+        );
+        let outside = checked(&index, &product, &[(LIVE, &[&["qsPea"]])])
+            .expect_err("qsTea is not in the stated option list");
+        assert!(
+            outside.ends_with(": r3 members outside the static option list: [\"qsTea\"]"),
+            "{outside}"
+        );
+        let straddle = checked(&index, &product, &[(LIVE, &[&["qsPea"], &["qsTea"]])])
+            .expect_err("the two members sit in two fibres");
+        assert!(
+            straddle.ends_with(": r3 members straddle two fibres: [\"qsPea\", \"qsTea\"]"),
+            "{straddle}"
+        );
+    }
+
+    /// The fibre key carries the `fourth_slot_matters` verdict, so two members that disagree about it could never have been one fibre.
+    #[test]
+    fn a_class_whose_members_disagree_about_the_fourth_slot_stops_the_build() {
+        let index = deep_alphabet();
+        let token = class_of(&["qsPea", "qsTea"]);
+        let product = hand_product(
+            vec![deep_row(
+                &index,
+                ["qsPea", "#EDGE", "qsTea", "qsMay", &token, "#NA"],
+            )],
+            &[(&token, &["qsPea", "qsTea"])],
+        );
+        let complaint = checked(&index, &product, &[(LIVE, &[&["qsPea", "qsTea"]])])
+            .expect_err("the chain's last hop reads qsPea alone");
+        assert!(
+            complaint.ends_with(
+                ": members disagree on the fourth_slot_matters verdict: [\"qsPea\", \"qsTea\"]"
+            ),
+            "{complaint}"
+        );
+    }
+
+    /// The biconditional again, one slot deeper and per r3 token.
+    #[test]
+    fn the_fourth_slot_is_enumerated_exactly_where_the_filters_say_live() {
+        let index = deep_alphabet();
+        let live = hand_product(
+            vec![deep_row(
+                &index,
+                ["qsPea", "#EDGE", "qsTea", "qsMay", "qsPea", "#NA"],
+            )],
+            &[],
+        );
+        assert!(
+            checked(&index, &live, &[(LIVE, &[&["qsPea"]])])
+                .expect_err("the chain's last hop reads the fourth slot behind qsPea")
+                .ends_with(": right4 #NA where the filters say live"),
+        );
+        let dead = hand_product(
+            vec![deep_row(
+                &index,
+                ["qsPea", "#EDGE", "qsTea", "qsMay", "qsTea", "qsPea"],
+            )],
+            &[],
+        );
+        assert!(
+            checked(&index, &dead, &[(LIVE, &[&["qsTea"]])])
+                .expect_err("behind qsTea the chain has already answered")
+                .ends_with(": right4 enumerated where the filters say dead"),
+        );
+    }
+
+    /// The fibre key records the computed r4 option list structurally, so two members inducing different lists is a key that has stopped matching the pipeline — which is exactly what a filter added to `right4_options` without a key update would look like.
+    #[test]
+    fn a_class_whose_members_induce_different_r4_option_lists_stops_the_build() {
+        let index = liga_alphabet();
+        let token = class_of(&["qsPea", "qsTea"]);
+        let product = hand_product(
+            vec![deep_row(
+                &index,
+                ["qsPea", "#EDGE", "qsTea", "qsMay", &token, "qsTea"],
+            )],
+            &[(&token, &["qsPea", "qsTea"])],
+        );
+        let complaint = checked(&index, &product, &[(LIVE, &[&["qsPea", "qsTea"]])]).expect_err(
+            "the qsPeaMay formation pair narrows one member's list and not the other's",
+        );
+        assert!(
+            complaint
+                .ends_with(": members induce different computed r4 option lists: qsPea vs qsTea"),
+            "{complaint}"
+        );
+    }
+
     /// The seeds in the exact reverse of the contract order — the deepest permutation available, since it pops last what the shipping order pops first.
     fn reversed_seeds(options: &WindowOptions<'_>) -> Vec<Item> {
         let mut seeds = contract_seeds(options);
@@ -875,8 +2077,10 @@ mod tests {
     #[test]
     fn a_permuted_seed_order_reaches_the_same_pinned_world_product() {
         let index = deep_alphabet();
-        let contract = enumerate_seeded(&index, &[], contract_seeds).expect("the fixpoint closes");
-        let reversed = enumerate_seeded(&index, &[], reversed_seeds).expect("the fixpoint closes");
+        let contract =
+            enumerate_seeded(&index, &[], PINNED, contract_seeds).expect("the fixpoint closes");
+        let reversed =
+            enumerate_seeded(&index, &[], PINNED, reversed_seeds).expect("the fixpoint closes");
         // Compared as the stream rather than as the product, because two of the product's fields are sets whose vector spelling is the emitter's business: `cited_provenance` comes out of a hash set and has no order of its own.
         assert_eq!(
             emit_transitions(&index, &contract),
@@ -889,7 +2093,7 @@ mod tests {
                 .any(|row| row.right4 != NA_LABEL),
             "and the product both orders reached is the one carrying the pinned deep windows, not a trivially equal pair"
         );
-        // Order-independence here is a fact about this world, not about the discipline: the dedup is by window key, a re-reached window reuses the settled a re-trace would return, and the fired set is a union over a window set no traversal can change. Under class grain (sub-issue #45) the first visitor of a fibre fixes its representative, and the push order becomes output-visible.
+        // Order-independence here is a fact about this world, not about the discipline: the dedup is by window key, a re-reached window reuses the settled a re-trace would return, and the fired set is a union over a window set no traversal can change. Under class grain the first visitor of a fibre fixes its representative, and the push order becomes output-visible.
     }
 
     #[test]
@@ -923,7 +2127,7 @@ mod tests {
             &[("qsPea", pea), ("qsTea", tea), ("qsMay", may)],
             &registry(&[("baseline", "0"), ("floor", "0"), ("x-height", "5")]),
         );
-        let complaint = enumerate_transitions(&index, &[]).expect_err("the labels collide");
+        let complaint = enumerate_transitions(&index, &[], PINNED).expect_err("the labels collide");
         assert!(
             complaint.starts_with(
                 "window [\"qsTea\", \"qsPea.half.ex-y0\", \"qsMay\", \"qsPea\", \"#NA\", \"#NA\"] reached from two left states sharing one label: "

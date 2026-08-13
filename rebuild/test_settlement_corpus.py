@@ -13,7 +13,7 @@ import pytest
 
 from rebuild.pipeline import fixtures, kernel_io, settle
 from rebuild.pipeline.settle import EDGE, NAMER_DOT, SPACE, UNKNOWN, ZWNJ, Engine, RightToken
-from rebuild.pipeline.table import DecisionTable, enumerate_transitions
+from rebuild.pipeline.table import NA_LABEL, DecisionTable, Transition, enumerate_transitions
 from rebuild.tools import export_settlement_corpus, fuzz_settlement_corpus, kernel_differential
 
 CONFIG = "default"
@@ -215,6 +215,95 @@ def test_a_replayed_window_reproduces_the_record_the_fixpoint_enumerated():
         assert result["prospect"] == row.prospect, row.key
         assert result["joint_floor"] == row.joint, row.key
         assert result["notes"] == list(row.provenance), row.key
+
+
+def _deep_row(
+    right3: str,
+    right4: str = NA_LABEL,
+    input_glyph: str = "qsNo",
+    right1: str = "qsNo",
+    right2: str = "qsRoe",
+):
+    """One enumerated row's key fields, which is all the forced-family test reads; the settled payload is a placeholder because nothing in the selection consults it."""
+    settled = settle.Settled(settle.CellId("qsNo", "base", None, None, ()), None, 0)
+    return Transition(
+        input_glyph=input_glyph,
+        left="#EDGE",
+        right1=right1,
+        right2=right2,
+        right3=right3,
+        right4=right4,
+        outcome=input_glyph,
+        settled=settled,
+        left_settled=None,
+        joint=False,
+        prospect=0,
+        provenance=(),
+    )
+
+
+def test_the_joint34_counterexample_is_recognized_through_the_class_map():
+    """The recorded window opens its third slot only through the belt that ORs `fourth_live` in over every concrete letter third, so it is the one family that separates a liveness port with the belt from one without — and at class grain its right3 is a `#C…` id rather than the letter, which is why the test is against the member expansion. Everything else about the row is free: any right4, any left, and the class-grain id whatever its members happen to be."""
+    members = ("qsMay", "qsNo", "qsRoe")
+    decision = DecisionTable(config="default", deep_classes={"#Cdeadbeef01": members})
+    assert export_settlement_corpus.FORCED_WINDOWS == (
+        {"input": "qsNo", "right1": "qsNo", "right2": "qsRoe", "right3": "qsNo"},
+    )
+    assert export_settlement_corpus.is_forced(_deep_row("qsNo"), decision)
+    assert export_settlement_corpus.is_forced(_deep_row("qsNo", right4="qsOy"), decision)
+    assert export_settlement_corpus.is_forced(_deep_row("#Cdeadbeef01", right4="qsOy"), decision)
+    assert export_settlement_corpus.is_forced(_deep_row("qsNo", input_glyph="qsNo.noentry"), decision)
+    assert not export_settlement_corpus.is_forced(_deep_row("qsMay"), decision)
+    assert not export_settlement_corpus.is_forced(_deep_row("qsNo", right1="qsMay"), decision)
+    assert not export_settlement_corpus.is_forced(_deep_row("qsNo", right2="qsMay"), decision)
+    assert not export_settlement_corpus.is_forced(_deep_row("qsNo", input_glyph="qsRoe"), decision)
+    assert not export_settlement_corpus.is_forced(_deep_row("#Cnosuchclass", right4="qsOy"), decision)
+
+
+def test_a_forced_row_rides_past_a_cap_that_would_otherwise_drop_it():
+    """Force-including has to add and never displace: a row inside its stratum's cap is sampled exactly as before, and a row past it rides anyway, so the corpus is the old sample plus the named families."""
+    spec = fixtures.mini_spec()
+    features = frozenset()
+    product = enumerate_transitions(spec, features)
+    engine = Engine(spec, features, trace_memo=True)
+    sampled = export_settlement_corpus.settled_cases(engine, product, 1)
+    forced = {"input": "qsMay", "right1": "qsPea", "right2": "qsPea", "right3": NA_LABEL}
+    decision = DecisionTable(config=product.config, deep_classes=product.deep_classes)
+    wanted = [row for row in product.transitions if export_settlement_corpus.is_forced(row, decision)]
+    assert not wanted
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(export_settlement_corpus, "FORCED_WINDOWS", (forced,))
+        wanted = [row for row in product.transitions if export_settlement_corpus.is_forced(row, decision)]
+        widened = export_settlement_corpus.settled_cases(engine, product, 1)
+    assert wanted
+    keys = {json.dumps(case, separators=(",", ":")) for case in sampled}
+    assert keys < {json.dumps(case, separators=(",", ":")) for case in widened}
+    assert len(widened) >= len(wanted)
+
+
+def test_a_named_family_that_matches_nothing_aborts_the_export():
+    """The forcing's guarantee is that this family is in the corpus, and its failure mode is silence — a rune renamed or a window gone unreachable, and the family drops out while every other case exports and every gate downstream still passes. So an entry the spec models but the enumeration never produced is an abort, not a shrug."""
+    spec = fixtures.mini_spec()
+    features = frozenset()
+    product = enumerate_transitions(spec, features)
+    engine = Engine(spec, features, trace_memo=True)
+    decision = DecisionTable(config=product.config, deep_classes=product.deep_classes)
+    absent = {"input": "qsPea", "right1": "qsPea", "right2": "qsPea", "right3": "qsPea"}
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(export_settlement_corpus, "FORCED_WINDOWS", (absent,))
+        assert not any(export_settlement_corpus.is_forced(row, decision) for row in product.transitions)
+        with pytest.raises(SystemExit) as aborted:
+            export_settlement_corpus.settled_cases(engine, product, 2)
+    assert "matched no enumerated row" in str(aborted.value)
+    assert "qsPea" in str(aborted.value)
+
+
+def test_a_family_this_spec_does_not_model_is_not_held_to_the_guarantee():
+    """The live alphabet's families are named literally, and the mini fixture models none of them — so the check has to be scoped by what the spec carries, or every mini export (the differential's own bed, and the fixtures above) would abort."""
+    spec = fixtures.mini_spec()
+    assert not export_settlement_corpus._modeled(spec, export_settlement_corpus.FORCED_WINDOWS[0])
+    product = enumerate_transitions(spec, frozenset())
+    assert export_settlement_corpus.settled_cases(Engine(spec, frozenset(), trace_memo=True), product, 2)
 
 
 # --- the seeded fuzz corpus ---------------------------------------------------

@@ -18,7 +18,7 @@ pub const TRANSITIONS_FORMAT: &str = "ams-m1-transitions/1";
 
 /// Everything one configuration's fixpoint produces, `table.FixpointProduct`. The rows arrive already sorted on [`TransitionRow::key`] — that order is the product's own and the stream keeps it, because `assemble_tables` expands and flags in it.
 ///
-/// Three of the fields are `frozenset`s and a `Mapping` on the Python side and vectors here, so their canonical order is the emitter's business rather than the fixpoint's: `cells` and `cited_provenance` are sorted (and repeats collapsed, which is what a frozenset does to them) and `deep_classes` is sorted by token. `deep_classes` stays empty until class-grain enumeration lands with sub-issue #45; the emitter spells it either way.
+/// Three of the fields are `frozenset`s and a `Mapping` on the Python side and vectors here, so their canonical order is the emitter's business rather than the fixpoint's: `cells` and `cited_provenance` are sorted (and repeats collapsed, which is what a frozenset does to them) and `deep_classes` is sorted by token. `deep_classes` is empty at label grain and at every grain of the pinned world, and the emitter spells it either way.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct FixpointProduct {
     pub config: String,
@@ -459,7 +459,7 @@ mod tests {
         );
     }
 
-    /// The class map's spelling, pinned before sub-issue #45 fills it: one pair per entry, sorted by token, members in the map's own order.
+    /// The class map's spelling: one pair per entry, sorted by token, members in the map's own order. The bytes are `kernel_io.write_transitions`'s own for the same product, captured from the Python writer rather than derived by hand.
     #[test]
     fn a_deep_class_map_rides_the_head_sorted_by_token() {
         let index = fixtures::mini();
