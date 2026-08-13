@@ -9,6 +9,7 @@ pub mod census;
 pub mod emit;
 pub mod engine;
 pub mod error;
+pub mod fanout;
 pub mod fiber;
 pub mod fixpoint;
 pub mod guard;

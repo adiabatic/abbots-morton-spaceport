@@ -454,8 +454,11 @@ fn entry_bearing_of(rune: &Rune) -> bool {
 /// Hand-authored `ams-m1-spec/1` dumps for the settlement modules' tests, and the two specs they share.
 ///
 /// Strict ingest means a test dump has to spell every field `model.py` declares, which a hand-written JSON literal does at ruinous length. The builders here start from each record's all-defaults spelling and take only the fields a test actually cares about, so a condition or a policy record reads as the two or three things that make it interesting. They live in this module rather than a test-only file because `parse::parse_spec` plus [`SpecIndex::new`] is what every settlement test needs a spec through, and the other modules' tests reach them as `crate::index::fixtures`.
-#[cfg(test)]
-pub(crate) mod fixtures {
+///
+/// The `fixtures` feature is how the integration tests reach the same dumps: an integration test links the library as any other caller would, where `cfg(test)` does not hold. It is a test scaffold and not part of the crate's surface — nothing but this crate's own `tests/` enables it, and a release build compiles none of it.
+#[cfg(any(test, feature = "fixtures"))]
+#[doc(hidden)]
+pub mod fixtures {
     use super::SpecIndex;
     use crate::model::{PolicyRecord, Sym};
     use crate::parse::parse_spec;
@@ -585,58 +588,58 @@ pub(crate) mod fixtures {
         out
     }
 
-    pub(crate) fn condition(overrides: &[(&str, &str)]) -> String {
+    pub fn condition(overrides: &[(&str, &str)]) -> String {
         object(CONDITION, overrides)
     }
 
-    pub(crate) fn when(overrides: &[(&str, &str)]) -> String {
+    pub fn when(overrides: &[(&str, &str)]) -> String {
         object(WHEN, overrides)
     }
 
-    pub(crate) fn record(overrides: &[(&str, &str)]) -> String {
+    pub fn record(overrides: &[(&str, &str)]) -> String {
         object(RECORD, overrides)
     }
 
-    pub(crate) fn policy(overrides: &[(&str, &str)]) -> String {
+    pub fn policy(overrides: &[(&str, &str)]) -> String {
         object(POLICY, overrides)
     }
 
-    pub(crate) fn row(height: &str, overrides: &[(&str, &str)]) -> String {
+    pub fn row(height: &str, overrides: &[(&str, &str)]) -> String {
         let named = quote(height);
         let mut fields = vec![("height", named.as_str())];
         fields.extend_from_slice(overrides);
         object(ROW, &fields)
     }
 
-    pub(crate) fn surface(overrides: &[(&str, &str)]) -> String {
+    pub fn surface(overrides: &[(&str, &str)]) -> String {
         object(SURFACE, overrides)
     }
 
-    pub(crate) fn stance(name: &str, overrides: &[(&str, &str)]) -> String {
+    pub fn stance(name: &str, overrides: &[(&str, &str)]) -> String {
         let named = quote(name);
         let mut fields = vec![("name", named.as_str())];
         fields.extend_from_slice(overrides);
         object(STANCE, &fields)
     }
 
-    pub(crate) fn rune(name: &str, overrides: &[(&str, &str)]) -> String {
+    pub fn rune(name: &str, overrides: &[(&str, &str)]) -> String {
         let named = quote(name);
         let mut fields = vec![("name", named.as_str())];
         fields.extend_from_slice(overrides);
         object(RUNE, &fields)
     }
 
-    pub(crate) fn registry(overrides: &[(&str, &str)]) -> String {
+    pub fn registry(overrides: &[(&str, &str)]) -> String {
         object(REGISTRY, overrides)
     }
 
     /// A whole dump around a runes mapping and a registry.
-    pub(crate) fn dump(runes: &str, registry: &str) -> String {
+    pub fn dump(runes: &str, registry: &str) -> String {
         format!(r#"{{"format":"ams-m1-spec/1","runes":{runes},"registry":{registry}}}"#)
     }
 
     /// A JSON object over raw values, for the mappings whose keys are load-bearing.
-    pub(crate) fn map(entries: &[(&str, &str)]) -> String {
+    pub fn map(entries: &[(&str, &str)]) -> String {
         let fields: Vec<String> = entries
             .iter()
             .map(|(key, value)| format!("\"{key}\":{value}"))
@@ -645,40 +648,40 @@ pub(crate) mod fixtures {
     }
 
     /// A JSON array over raw values.
-    pub(crate) fn seq(items: &[&str]) -> String {
+    pub fn seq(items: &[&str]) -> String {
         format!("[{}]", items.join(","))
     }
 
     /// A JSON array of strings.
-    pub(crate) fn names(items: &[&str]) -> String {
+    pub fn names(items: &[&str]) -> String {
         let quoted: Vec<String> = items.iter().map(|item| quote(item)).collect();
         format!("[{}]", quoted.join(","))
     }
 
     /// One JSON string. The fixtures spell only plain names, so quoting is all the escaping they need.
-    pub(crate) fn quote(value: &str) -> String {
+    pub fn quote(value: &str) -> String {
         format!("\"{value}\"")
     }
 
     /// The index one dump builds, panicking on a dump the parser refuses — a refused fixture is a broken test, not a finding.
-    pub(crate) fn index_of(text: &str) -> SpecIndex {
+    pub fn index_of(text: &str) -> SpecIndex {
         SpecIndex::new(parse_spec(text).expect("a fixture dump parses"))
     }
 
     /// One name's symbol, panicking when the fixture never mentioned it.
-    pub(crate) fn sym(index: &SpecIndex, text: &str) -> Sym {
+    pub fn sym(index: &SpecIndex, text: &str) -> Sym {
         index
             .sym_of(text)
             .unwrap_or_else(|| panic!("the fixture mentions {text}"))
     }
 
     /// The `extend` record a fixture gave this id, panicking when there is none.
-    pub(crate) fn extend<'a>(index: &'a SpecIndex, rune: &str, id: &str) -> &'a PolicyRecord {
+    pub fn extend<'a>(index: &'a SpecIndex, rune: &str, id: &str) -> &'a PolicyRecord {
         by_id(index, rune, id, |policy| &policy.extend)
     }
 
     /// The `contract` record a fixture gave this id.
-    pub(crate) fn contract<'a>(index: &'a SpecIndex, rune: &str, id: &str) -> &'a PolicyRecord {
+    pub fn contract<'a>(index: &'a SpecIndex, rune: &str, id: &str) -> &'a PolicyRecord {
         by_id(index, rune, id, |policy| &policy.contract)
     }
 
@@ -701,7 +704,12 @@ pub(crate) mod fixtures {
     /// The small four-family spec the vocabulary and lookup tests read.
     ///
     /// `qsPea` is the plain case: one stance, a selectable baseline entry, an x-height exit. `qsTea` is the awkward one on purpose — two stances declared `half` then `full` under a `policy.order` of `["ghost", "full"]`, so the order index has to reproduce the seat a name that is not a stance still occupies; its entry rows carry one selectable stroke and one unselectable one, and it declares a `pulled-back` sibling bitmap and a refusal with provenance. `qsMay` bears its entry only through an unlock, and `qsIt` bears none at all and carries the two local groups the class resolution order is tested against — one of which deliberately shadows a registry predicate class.
-    pub(crate) fn mini() -> SpecIndex {
+    pub fn mini() -> SpecIndex {
+        index_of(&mini_dump())
+    }
+
+    /// [`mini`] as the dump text it is built from, for the tests that need a spec on disk rather than an index in hand.
+    pub fn mini_dump() -> String {
         let pea_stance = stance(
             "half",
             &[(
@@ -830,11 +838,11 @@ pub(crate) mod fixtures {
                 ),
             ),
         ]);
-        index_of(&dump(&runes, &four_family_registry()))
+        dump(&runes, &four_family_registry())
     }
 
     /// The registry the fixture specs share: two heights, the four families, and the predicate class the specificity tests expand.
-    pub(crate) fn four_family_registry() -> String {
+    pub fn four_family_registry() -> String {
         registry(&[
             ("heights", &map(&[("baseline", "0"), ("x-height", "5")])),
             (

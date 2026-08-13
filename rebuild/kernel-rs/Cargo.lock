@@ -6,6 +6,7 @@ version = 4
 name = "ams-m1-kernel"
 version = "0.1.0"
 dependencies = [
+ "ams-m1-kernel",
  "serde_json",
 ]
 

@@ -78,18 +78,23 @@ pub fn cell_key(index: &SpecIndex, cell: &CellId) -> CellKey {
     )
 }
 
+/// The token the no-feature configuration is spelled by, `model.feature_config_token`'s `"default"`. It is a filename component and a stream head's `config` before it is anything else, so it is named rather than spelled twice.
+pub const DEFAULT_CONFIG: &str = "default";
+
 /// The configuration one feature set names, `model.feature_config_token`: the enabled sets sorted and joined with `+`, or `default` when nothing is enabled. This is the `config` field of the product and the `<config>` of every artifact filename, so it is a name two builds have to agree on letter for letter.
 ///
-/// Sorting is on the resolved string, as everywhere. The declared parameter is a set at every Python call site, so a symbol handed in twice counts once here rather than being spelled twice.
-pub fn feature_config_token(index: &SpecIndex, features: impl IntoIterator<Item = Sym>) -> String {
-    let enabled: BTreeSet<&str> = features
-        .into_iter()
-        .map(|feature| index.resolve(feature))
-        .collect();
+/// Sorting is on the resolved string, as everywhere, and a name handed in twice counts once — the declared parameter is a set at every Python call site. Taking names rather than symbols is what lets a command line's own spelling be checked against the canonical one before any spec has been read.
+pub fn config_token<'a>(features: impl IntoIterator<Item = &'a str>) -> String {
+    let enabled: BTreeSet<&str> = features.into_iter().collect();
     if enabled.is_empty() {
-        return "default".to_owned();
+        return DEFAULT_CONFIG.to_owned();
     }
     enabled.into_iter().collect::<Vec<&str>>().join("+")
+}
+
+/// [`config_token`] over symbols, which is how everything holding a resolved feature set names its configuration.
+pub fn feature_config_token(index: &SpecIndex, features: impl IntoIterator<Item = Sym>) -> String {
+    config_token(features.into_iter().map(|feature| index.resolve(feature)))
 }
 
 /// One product as the whole stream text, `kernel_io.write_transitions` without the gzip: the `# ams-m1-transitions/1<tab><head json>` line, then one compact JSON array per transition in the product's own order, every line newline-terminated.
