@@ -164,6 +164,8 @@ policy:
         except:
         - {family: qsDay}
         - {family: qsDay_qsUtter}
+        - {family: qsVie}
+        - {family: qsVie_qsUtter}
         - {family: qsMay}
         - {family: qsLow}
         - {family: qsI}
@@ -176,14 +178,6 @@ policy:
         - qsJai
         - qsCheer
         - qsOwe
-  - exit: baseline
-    by: 1
-    when:
-      self: {entry: none}
-      right:
-        family:
-        - qsVie
-        - qsVie_qsUtter
   - exit: x-height
     by: 1
     when:

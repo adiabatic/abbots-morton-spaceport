@@ -90,7 +90,6 @@ policy:
         - qsTea
         - qsYe
         - qsHe
-        - qsIt
   - stance: swept-out
     entry: baseline
     by: 1
