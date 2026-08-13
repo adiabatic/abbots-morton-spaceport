@@ -1,10 +1,12 @@
 """The one-command driver for the commit-time artifact cycle.
 
-It mechanizes the commit-time sequence: snapshot the current review surface (the only recovery copy, since everything under rebuild/out is gitignored), recompile M1.otf and vet it, rebuild the review surface in place, carry prior verdicts forward onto the fresh manifest, merge the carried file into the live autosave (rebuild.tools.merge_verdicts, so the app needs no manual import; --no-merge opts out), land echo-prefill verdicts onto the freshly restamped autosave (rebuild.tools.echo_verdicts writes fill records for the blanks in unanimously-judged echo groups, then a second merge_verdicts pass imports them, so cross-cycle echo blanks fill without a sitting-prep pass), land standing-approval verdicts the same way (rebuild.tools.standing_verdicts fills blanks matching the checked-in rules in rebuild/standing-approvals.yaml, so once-and-for-all decisions never queue again), re-baseline the census pins, and run the four gates — always printing a summary table at the end, even on failure.
+It mechanizes the commit-time sequence: snapshot the current review surface (the only recovery copy, since everything under rebuild/out is gitignored), recompile M1.otf and vet it, rebuild the review surface in place, carry prior verdicts forward onto the fresh manifest, merge the carried file into the live autosave (rebuild.tools.merge_verdicts, so the app needs no manual import; --no-merge opts out), land echo-prefill verdicts onto the freshly restamped autosave (rebuild.tools.echo_verdicts writes fill records for the blanks in unanimously-judged echo groups, then a second merge_verdicts pass imports them, so cross-cycle echo blanks fill without a sitting-prep pass), land standing-approval verdicts the same way (rebuild.tools.standing_verdicts fills blanks matching the checked-in rules in rebuild/standing-approvals.yaml, so once-and-for-all decisions never queue again), re-baseline the census pins, and run the five gates — always printing a summary table at the end, even on failure.
 
 The exit-code trap this driver exists to defuse: run_m1.main() SystemExits nonzero whenever any oracle rows are UNMATCHED, which is always true mid-migration. Its exit code is therefore not the gate; the four summary JSONs it writes are. The real gates are defect_errors, the boundary and Manual-pin passes, and multi_matched == 0.
 
-The two artifact-independent gates (js, make-test) run from t=0 in a small thread pool while the build chain runs inline-serial in the main thread. gate:conform (the exhaustive font-vs-settle sweep, run_m1 --conform-only) starts after the run_m1 gate passes, queued behind make-test by default. gate:rebuild is submitted later, only once the build lane's census step has landed its verdict — the pins are part of the suite's input closure, so submitting earlier means running against pins the same cycle is about to judge or rewrite. That ordering carries two rules. On a pass without --update-pins, a census outcome of STALE (live or replayed) defers the gate outright (skip: "deferred", remedy --update-pins) instead of running it: census-pinned failures under known-stale pins are foregone, so the long suite run could report nothing but hints and could never record green. On an --update-pins pass, the suite always reads the pins the census step just rewrote, so a census-module failure is a real failure, the old start-before-update race and its amnesty are gone, and the pass records rebuild-gate-green.json itself. Under the default queue policy gate:rebuild parks at the tail of the make-test -> conform chain, so only one heavy gate pool is hot at a time — the build chain (census included) rides alongside whichever one that is at half width rather than serial (see stage_job_budget), which is why the late submission costs no wall time. Co-resident, the two heavy pools oversubscribe the cores roughly 2:1, and measured that contention roughly tripled gate:rebuild's wall time — a worse critical path than running the same work in sequence. --rebuild-pool overlap restores full co-residency (gate:rebuild still waits for the census step).
+The two artifact-independent gates (js, make-test) run from t=0 in a small thread pool while the build chain runs inline-serial in the main thread. gate:conform (the exhaustive font-vs-settle sweep, run_m1 --conform-only) starts after the run_m1 gate passes, queued behind make-test by default. gate:kernel-differential starts at that same point and queues behind the sweep. gate:rebuild is submitted later, only once the build lane's census step has landed its verdict — the pins are part of the suite's input closure, so submitting earlier means running against pins the same cycle is about to judge or rewrite. That ordering carries two rules. On a pass without --update-pins, a census outcome of STALE (live or replayed) defers the gate outright (skip: "deferred", remedy --update-pins) instead of running it: census-pinned failures under known-stale pins are foregone, so the long suite run could report nothing but hints and could never record green. On an --update-pins pass, the suite always reads the pins the census step just rewrote, so a census-module failure is a real failure, the old start-before-update race and its amnesty are gone, and the pass records rebuild-gate-green.json itself. Under the default queue policy gate:rebuild parks at the tail of the make-test -> conform -> kernel-differential chain, so only one heavy gate pool is hot at a time — the build chain (census included) rides alongside whichever one that is at half width rather than serial (see stage_job_budget), which is why the late submission costs no wall time. Co-resident, the two heavy pools oversubscribe the cores roughly 2:1, and measured that contention roughly tripled gate:rebuild's wall time — a worse critical path than running the same work in sequence. --rebuild-pool overlap restores full co-residency (gate:rebuild still waits for the census step).
+
+gate:kernel-differential is the standing dual-run behind the Rust port of the M1 table build. rebuild.tools.kernel_gate builds the crate, streams every acceptance config out of the kernel in one child, folds each stream through the same table.assemble_tables the Python engine uses, and byte-compares the three artifacts — windows, settlement, treaties — plus the full table digest against what this cycle's run_m1 already wrote under rebuild/out/m1. No second Python fixpoint is ever paid, which is what makes the proof cheap enough to stand on every cycle: the Python side of the comparison is the artifacts themselves. The gate never rebuilds any of them — a windows head or a table-digests record stamped for other inputs is a stale gate, red, with the artifact cycle itself as the remedy, and so is a table set `run_m1 --engine rust` wrote, because a differential fed the kernel's own fold would read identical by construction — so it can only ever compare the two engines over one Python-built set of sources. Its key is narrow by the same reasoning as tables_value: the spec inputs, the kernel's Python half (table, settle, model, specificity, kernel_io, kernel_exec), the gate's own executable, and rebuild/kernel-rs/'s sources and lockfile. The built binary is deliberately outside it — the key says "these sources", and the gate's own cargo build is what makes the binary match them.
 
 gate:make-test is auto-skipped when its input closure is provably unchanged since the last green run. The closure is every tracked or untracked-unignored file outside rebuild/, glyph_data/runes/, doc/, tmp/, .claude/, and Markdown — nothing `make test` executes (make all -> build_font over glyph_data/*.yaml non-recursively, typst, pyright over tools/ test/ conftest.py, pytest test/ site/) reads those trees, so a diff confined to them cannot move the gate's outcome and re-running its ≈15 CPU-minutes would verify nothing. The last green fingerprint lives in rebuild/out/make-test-green.json, written by rebuild.tools.make_test_gate — the `make test` entry point — on every green run, so interactive greens and cycle greens share one record and `make test` itself self-skips on the same test. cycle_summary.json still records the fingerprint the cycle ran (or validly skipped) against, and prior_make_test_fingerprint falls back to it when the shared record is absent. The fingerprint sees file content only — a system-toolchain change (a typst upgrade, say; pyright and pytest are pinned through uv.lock, which is in the closure) is invisible to it. --force-make-test runs the gate regardless (as does `make test FORCE=1` inside the wrapper).
 
@@ -14,9 +16,9 @@ The key is captured the moment the chain closes, not at the end of the pass, so 
 
 The skip demands that the surface build be skipping too, which is what makes the stamp knowable before the pass runs, and it takes the snapshot with it: the snapshot exists to survive this cycle's surface rewrite and to feed this cycle's carry, and a pass doing neither needs no copy. Such a pass also leaves the snapshot pile alone rather than pruning it to the copy it never made, so the stamp-aligned snapshot the last refreshing pass left stays on disk as the recovery source describe_carry_source points at. A flag that names a carry output or a snapshot directory refuses the skip outright, since honoring it would mean writing neither.
 
-The same provably-unchanged principle guards every other heavy stage, each keyed by a content fingerprint over that stage's full input closure and a green record written only after that exact content passed live: run_m1 skips on rebuild/out/run-m1-green.json (the Stage A fingerprint components plus the oracle's subset tables and uv.lock) and re-evaluates its gate from the four summary JSONs already on disk; gate:conform skips on conform-green.json (the run_m1 key plus the M1.otf bytes and the sweep horizon); gate:rebuild skips on rebuild-gate-green.json (the suite's repo closure under rebuild/ and glyph_data/ plus the out/m1 artifacts, site fonts, baselines, conftest.py, pyproject.toml, and uv.lock — also written by rebuild.tools.rebuild_gate, the `make test-rebuild` entry point, so interactive suite greens and cycle greens share one record); surface-build skips when the manifest's recorded inputs fingerprint already equals the one a build would stamp now (a rebuild would be byte-identical, mtime-floored generated_at included, so the autosave stays aligned); and the census check skips on census-result.json, which — unlike the green records — is written after stale checks too: the check is informational (staleness never fails a cycle) and deterministic over its fingerprinted inputs, so a pass whose key matches a recorded stale outcome replays the recorded mismatch lines instead of re-running the check. Pins go stale on every rune edit and stay stale until --update-pins, so without the stale record the converging loop re-paid the full census — three parses of the divergence audit plus a serial ink re-shape of every pre-merge unit — on every pass. The surface, conform, rebuild, and census skips engage only on cycles where run_m1 itself skipped, so a live M1 rebuild can never invalidate a key mid-cycle; green records are written only when the key still matches after the work ran, and a red result whose key matches its record deletes the record (for the census that deletion covers only a check with no verdict to record — a crash or a missing pins file). --fresh runs everything regardless.
+The same provably-unchanged principle guards every other heavy stage, each keyed by a content fingerprint over that stage's full input closure and a green record written only after that exact content passed live: run_m1 skips on rebuild/out/run-m1-green.json (the Stage A fingerprint components plus the oracle's subset tables and uv.lock) and re-evaluates its gate from the four summary JSONs already on disk; gate:conform skips on conform-green.json (the run_m1 key plus the M1.otf bytes and the sweep horizon); gate:kernel-differential skips on kernel-differential-green.json (the spec inputs, the kernel's Python and Rust sources, and the gate's own executable); gate:rebuild skips on rebuild-gate-green.json (the suite's repo closure under rebuild/ and glyph_data/ plus the out/m1 artifacts, site fonts, baselines, conftest.py, pyproject.toml, and uv.lock — also written by rebuild.tools.rebuild_gate, the `make test-rebuild` entry point, so interactive suite greens and cycle greens share one record); surface-build skips when the manifest's recorded inputs fingerprint already equals the one a build would stamp now (a rebuild would be byte-identical, mtime-floored generated_at included, so the autosave stays aligned); and the census check skips on census-result.json, which — unlike the green records — is written after stale checks too: the check is informational (staleness never fails a cycle) and deterministic over its fingerprinted inputs, so a pass whose key matches a recorded stale outcome replays the recorded mismatch lines instead of re-running the check. Pins go stale on every rune edit and stay stale until --update-pins, so without the stale record the converging loop re-paid the full census — three parses of the divergence audit plus a serial ink re-shape of every pre-merge unit — on every pass. The surface, conform, rebuild, and census skips engage only on cycles where run_m1 itself skipped, so a live M1 rebuild can never invalidate a key mid-cycle; green records are written only when the key still matches after the work ran, and a red result whose key matches its record deletes the record (for the census that deletion covers only a check with no verdict to record — a crash or a missing pins file). --fresh runs everything regardless.
 
---defer-gates, which `make review-cycle` passes, turns the cycle from a one-pass verification into a converging loop. On a *refreshing* pass — one where run_m1 or the surface build has real work — the three heavy gates (rebuild, conform, make-test) are recorded pending instead of run, so a rune edit costs only the artifact chain and the letters are on screen in a fraction of the time. The census rides the same deferral: it is informational, no gate reads it, and the one step whose scheduling depends on it — gate:rebuild, submitted only after the census lands a verdict — is itself deferred on any refreshing pass, so leaving it for the converging pass takes a minute off the time to letters-on-screen without changing what any pass verifies. An --update-pins pass never defers it, since refreshing the pins is that pass's whole point. Only a gate that would otherwise run live is deferred: one an auto-skip already proved stays proved, so a pass that merely restamps the review UI can never turn a green gate pending. The next pass has no artifact work left, every stage auto-skips, and the pending gates run against settled artifacts; the pass after that skips those too and costs seconds. Deferral is never a waiver — a deferred gate rides `skip: "deferred"` into the cycle summary, which rebuild.review.status counts as unverified, so `make verdict-ready` and the app banner both stay NOT READY until the loop converges. --no-defer-gates runs them in the one pass, which is what `make artifact-cycle` does at commit time, and --fresh and --force-make-test likewise override deferral for the gates they force. Rehearsal mode (--review-out) never defers: it writes its surface somewhere else, so there is no live surface to see sooner, and its surface build is unskippable by construction — every rehearsal pass would look refreshing and the loop would never converge.
+--defer-gates, which `make review-cycle` passes, turns the cycle from a one-pass verification into a converging loop. On a *refreshing* pass — one where run_m1 or the surface build has real work — the four heavy gates (rebuild, conform, kernel-differential, make-test) are recorded pending instead of run, so a rune edit costs only the artifact chain and the letters are on screen in a fraction of the time. The census rides the same deferral: it is informational, no gate reads it, and the one step whose scheduling depends on it — gate:rebuild, submitted only after the census lands a verdict — is itself deferred on any refreshing pass, so leaving it for the converging pass takes a minute off the time to letters-on-screen without changing what any pass verifies. An --update-pins pass never defers it, since refreshing the pins is that pass's whole point. Only a gate that would otherwise run live is deferred: one an auto-skip already proved stays proved, so a pass that merely restamps the review UI can never turn a green gate pending. The next pass has no artifact work left, every stage auto-skips, and the pending gates run against settled artifacts; the pass after that skips those too and costs seconds. Deferral is never a waiver — a deferred gate rides `skip: "deferred"` into the cycle summary, which rebuild.review.status counts as unverified, so `make verdict-ready` and the app banner both stay NOT READY until the loop converges. --no-defer-gates runs them in the one pass, which is what `make artifact-cycle` does at commit time, and --fresh and --force-make-test likewise override deferral for the gates they force. Rehearsal mode (--review-out) never defers: it writes its surface somewhere else, so there is no live surface to see sooner, and its surface build is unskippable by construction — every rehearsal pass would look refreshing and the loop would never converge.
 
 Which passes cost the reviewer their letters is decided here rather than by the caller, because only the resolved plan knows. Two of the things a cycle writes belong to the running app — the surface it serves, where livereload watches every shard and a restamped manifest orphans the tab's store, and the verdict store, which merge_verdicts refuses to touch under a live server because an open tab would flush its own copy back over the merge. A pass whose plan skips both writes neither, so a listening server is left alone and the letters stay on screen for the whole run: that is the gate pass, whose half hour of verification the deferred gates exist to move off the look-edit-look path, and which used to black the app out for every minute of it. A pass that does write under the app still needs the port to itself, and --stop-server (which `make review-cycle` passes) is permission to take it — terminate the server and wait out the port — where a bare run still refuses and says how. Retention is the third writer: the app appends to the journal as you verdict, and a compaction rewrites the file around a read, so with a server up the journal and the stash sweep that indexes off it are both left for a later pass.
 
@@ -63,6 +65,7 @@ CYCLE_TIMINGS = ROOT / "rebuild" / "out" / "cycle-timings.ndjson"
 MAKE_TEST_GREEN = ROOT / "rebuild" / "out" / "make-test-green.json"
 RUN_M1_GREEN = ROOT / "rebuild" / "out" / "run-m1-green.json"
 CONFORM_GREEN = ROOT / "rebuild" / "out" / "conform-green.json"
+KERNEL_DIFFERENTIAL_GREEN = ROOT / "rebuild" / "out" / "kernel-differential-green.json"
 REBUILD_GATE_GREEN = ROOT / "rebuild" / "out" / "rebuild-gate-green.json"
 CENSUS_RESULT = ROOT / "rebuild" / "out" / "census-result.json"
 PLUMBING_GREEN = ROOT / "rebuild" / "out" / "plumbing-green.json"
@@ -71,16 +74,17 @@ REVIEW_PORT = 7294
 
 POOL_POLICIES = ("queue", "overlap")
 REBUILD_POOL_POLICY_DEFAULT = "queue"
-DEFERRABLE_GATES = ("rebuild", "conform", "make-test")
+DEFERRABLE_GATES = ("rebuild", "conform", "kernel-differential", "make-test")
 DEFER_NOTE = "surface refreshed this pass; run the cycle again to run it"
 PLUMBING_SKIP_NOTE = "surface, verdicts master, live store, and standing approvals unchanged since the last complete plumbing pass; --fresh overrides"
 STALE_CENSUS_DEFER_NOTE = "stale census pins; re-run with --update-pins to refresh them first"
 SERVER_STAYS_UP_NOTE = "writes neither the surface the app serves nor the verdict store it holds"
 SERVER_STOP_PATTERN = r"rebuild\.review\.serve"
 SERVER_STOP_TIMEOUT = 15.0
-_GATE_POOL_WORKERS = 5
+_GATE_POOL_WORKERS = 6
 _CONFORM_JOBS_CAP = 8
 CONFORM_HORIZON_DEFAULT = 5
+KERNEL_THREADS_DEFAULT = 3
 RETENTION_WINDOW_DAYS = 7
 
 M1_SUMMARY_FILES = {
@@ -90,6 +94,7 @@ M1_SUMMARY_FILES = {
     "oracle": M1_OUT / "oracle_summary.json",
 }
 CONFORM_SUMMARY = M1_OUT / "conform_summary.json"
+KERNEL_DIFFERENTIAL_SUMMARY = M1_OUT / "kernel_differential_summary.json"
 
 BASELINE_REBUILD_FAILURES = frozenset({"rebuild/test_surface.py::test_real_cell_bindings_all_match"})
 
@@ -325,9 +330,10 @@ def moved_inputs_note(record: dict | None, current: dict[str, str], limit: int =
 
 
 def m1_artifacts_present(root: Path = ROOT) -> bool:
-    """Whether rebuild/out/m1 still holds everything a skipped run_m1 must leave behind: the four gate summaries plus the artifacts the surface build consumes."""
+    """Whether rebuild/out/m1 still holds everything a skipped run_m1 must leave behind: the four gate summaries, the artifacts the surface build consumes, and the digest record gate:kernel-differential compares against. table-digests.json is checked here rather than through M1_ARTIFACT_NAMES because that constant also feeds gate:rebuild's key, which has no business moving when the digest record does; without the check, losing the record leaves run_m1 skipping while the kernel gate reds on its absence with a remedy — run the cycle — that reproduces the same skip."""
     m1 = root / "rebuild" / "out" / "m1"
     names = [path.name for path in M1_SUMMARY_FILES.values()] + list(M1_ARTIFACT_NAMES)
+    names.append("table-digests.json")
     return all((m1 / name).exists() for name in names)
 
 
@@ -345,6 +351,62 @@ def conform_skip_files(root: Path = ROOT, horizon: int = CONFORM_HORIZON_DEFAULT
 def conform_skip_fingerprint(root: Path = ROOT, horizon: int = CONFORM_HORIZON_DEFAULT) -> str:
     """The run_m1 lines plus the compiled font's bytes and the sweep horizon — exactly what gate:conform sweeps. The horizon is in the key so a green at a shallower horizon can never satisfy a deeper gate."""
     return _digest_lines(conform_skip_lines(root, horizon))
+
+
+KERNEL_PIPELINE_SOURCES = (
+    "table.py",
+    "settle.py",
+    "model.py",
+    "specificity.py",
+    "kernel_io.py",
+    "kernel_exec.py",
+)
+KERNEL_GATE_SOURCES = ("kernel_gate.py", "kernel_fixpoint.py", "kernel_differential.py")
+
+
+def kernel_crate_paths(root: Path = ROOT) -> list[Path]:
+    """The Rust half of the kernel, enumerated tree by tree rather than globbed over the crate directory: rebuild/kernel-rs/target/ is gitignored, runs to gigabytes, and holds the built binary itself, so a directory glob would hash the artifact the gate builds instead of the sources it builds it from. Cargo.lock is here because a dependency bump can move the kernel's answers without any *.rs byte moving."""
+    crate = root / "rebuild" / "kernel-rs"
+    return [
+        crate / "Cargo.toml",
+        crate / "Cargo.lock",
+        *sorted((crate / "src").rglob("*.rs")),
+        *sorted((crate / "tests").rglob("*.rs")),
+    ]
+
+
+def _rustc_identity() -> str:
+    """The toolchain that would compile the crate, folded into gate:kernel-differential's key because the binary under test is sources times compiler: a rustc upgrade can move codegen with no hashed byte moving, and a key blind to it would keep auto-skipping the gate as proved over a binary nobody has compared since the upgrade. `absent` when there is no rustc to ask — the gate itself then reds with the toolchain remedy rather than skipping."""
+    try:
+        finished = subprocess.run(["rustc", "--version", "--verbose"], capture_output=True, timeout=30)
+    except OSError, subprocess.TimeoutExpired:
+        return "absent"
+    if finished.returncode != 0:
+        return "absent"
+    return hashlib.sha256(finished.stdout).hexdigest()
+
+
+def kernel_differential_skip_lines(root: Path = ROOT) -> list[str]:
+    """The per-file `label\\tdigest` lines behind `kernel_differential_skip_fingerprint`: the spec inputs both engines read (rune files prose-blind), the kernel's Python half, the gate's own executable together with the two harnesses it imports its comparison pieces from, the crate's sources, and the toolchain that compiles them. Stored in the green record so a skip miss can name exactly which input moved."""
+    from rebuild.pipeline import fingerprint
+
+    lines = fingerprint.data_lines(root)
+    lines += fingerprint.path_lines(
+        root, [root / "rebuild" / "pipeline" / name for name in KERNEL_PIPELINE_SOURCES]
+    )
+    lines += fingerprint.path_lines(root, [root / "rebuild" / "tools" / name for name in KERNEL_GATE_SOURCES])
+    lines += fingerprint.path_lines(root, kernel_crate_paths(root))
+    lines.append(f"rustc\t{_rustc_identity()}")
+    return lines
+
+
+def kernel_differential_skip_files(root: Path = ROOT) -> dict[str, str]:
+    return _files_of(kernel_differential_skip_lines(root))
+
+
+def kernel_differential_skip_fingerprint(root: Path = ROOT) -> str:
+    """Content key over everything that can move the Rust-vs-Python differential's verdict: the spec the two engines both enumerate, the Python modules the kernel is a port of, the gate's own executable, and the crate. Matching the recorded green means both engines would fold the same sources again and land on the same artifacts. Deliberately absent are the baselines, the subset tables, M1.otf and the thread width — none of them feeds a table, and byte identity holds at any width — and the compared artifacts themselves, whose bytes are a function of inputs already in the key; the gate's own staleness guard is what covers the case where rebuild/out/m1 has drifted from them."""
+    return _digest_lines(kernel_differential_skip_lines(root))
 
 
 def rebuild_gate_closure_files(root: Path) -> list[str] | None:
@@ -580,6 +642,45 @@ def conform_gate_argv(jobs: int, horizon: int = CONFORM_HORIZON_DEFAULT) -> list
     return argv
 
 
+def evaluate_kernel_differential_gate(summary: dict | None) -> tuple[str, list[str]]:
+    """Judge gate:kernel-differential from kernel_differential_summary.json's contents (None = the subprocess never wrote one). Four ways to be red, and they are different failures: `error` is the run itself falling over (no cargo, a build failure, a kernel that exited nonzero), `stale` is rebuild/out/m1 not describing the inputs the gate just enumerated — nothing was compared, and the remedy is a cycle rather than a fix — `divergences` is the count the tool reports, and the per-config arms are what name the artifact that moved. An empty `configs` map is red too: a summary that compared nothing has proved nothing."""
+    if summary is None:
+        return (
+            "FAILED (no kernel_differential_summary.json)",
+            ["kernel-differential gate: rebuild.tools.kernel_gate wrote no summary"],
+        )
+    failures: list[str] = []
+    error = summary.get("error")
+    if error:
+        failures.append(f"kernel-differential gate: {error}")
+    stale = summary.get("stale") or []
+    if stale:
+        failures.append(
+            f"kernel-differential gate: {len(stale)} stale artifact(s) under rebuild/out/m1 ({stale[0]}) — run the artifact cycle"
+        )
+    if summary.get("divergences"):
+        failures.append(f"kernel-differential gate: {summary['divergences']} Rust-vs-Python divergence(s)")
+    configs = summary.get("configs")
+    if not isinstance(configs, dict) or not configs:
+        failures.append("kernel-differential gate: the summary compared no configs")
+    else:
+        for config in sorted(configs):
+            arms = configs[config]
+            if not isinstance(arms, dict):
+                failures.append(f"kernel-differential gate: {config} reported no arms")
+                continue
+            differing = sorted(name for name, verdict in arms.items() if verdict != "identical")
+            if differing:
+                failures.append(f"kernel-differential gate: {config} differs on {', '.join(differing)}")
+    if failures:
+        return "FAILED", failures
+    return "green", []
+
+
+def kernel_differential_argv(threads: int = KERNEL_THREADS_DEFAULT) -> list[str]:
+    return ["uv", "run", "python", "-m", "rebuild.tools.kernel_gate", "--threads", str(threads)]
+
+
 def classify_rebuild_failure(test_id: str, update_pins: bool) -> str:
     """Bucket a failing rebuild-suite test id: 'baseline' (the documented always-expected failures in BASELINE_REBUILD_FAILURES), 'census-hint' (a census-pinned review test, expected to go stale after a rune change until --update-pins), or 'hard' (anything unexplained — fails the cycle)."""
     if test_id in BASELINE_REBUILD_FAILURES:
@@ -623,6 +724,9 @@ class Plan:
     rebuild_gate_note: str = ""
     conform_note: str = ""
     conform_proven: bool = False
+    skip_kernel_differential: bool = False
+    kernel_differential_note: str = ""
+    kernel_differential_proven: bool = False
     skip_census: bool = False
     census_skip_note: str = ""
     census_replay: dict | None = None
@@ -638,6 +742,7 @@ class Plan:
     job_budget: int = 1
     conform_jobs: int = 1
     conform_horizon: int = CONFORM_HORIZON_DEFAULT
+    kernel_threads: int = KERNEL_THREADS_DEFAULT
     review_out: Path | None = None
     census_surface: Path = REVIEW_OUT
     complaints_note: str = ""
@@ -684,6 +789,7 @@ def build_plan(
     make_test_note: str = "",
     make_test_fingerprint: str | None = None,
     conform_horizon: int = CONFORM_HORIZON_DEFAULT,
+    kernel_threads: int = KERNEL_THREADS_DEFAULT,
     pool_policy: str = REBUILD_POOL_POLICY_DEFAULT,
     review_out: Path | None = None,
     ncores: int | None = None,
@@ -697,6 +803,9 @@ def build_plan(
     rebuild_gate_note: str = "",
     conform_note: str = "",
     conform_proven: bool = False,
+    skip_kernel_differential: bool = False,
+    kernel_differential_note: str = "",
+    kernel_differential_proven: bool = False,
     skip_census: bool = False,
     census_skip_note: str = "",
     census_replay: dict | None = None,
@@ -753,6 +862,9 @@ def build_plan(
         rebuild_gate_note=rebuild_gate_note,
         conform_note=conform_note,
         conform_proven=conform_proven,
+        skip_kernel_differential=skip_kernel_differential,
+        kernel_differential_note=kernel_differential_note,
+        kernel_differential_proven=kernel_differential_proven,
         skip_census=skip_census,
         census_skip_note=census_skip_note,
         census_replay=census_replay,
@@ -769,6 +881,7 @@ def build_plan(
         job_budget=job_budget,
         conform_jobs=conform_jobs,
         conform_horizon=conform_horizon,
+        kernel_threads=kernel_threads,
         review_out=review_out,
         census_surface=census_surface,
     )
@@ -967,6 +1080,23 @@ def build_plan(
             plan.steps.append(
                 Step("gate:conform", conform_gate_argv(conform_jobs, conform_horizon), lane="conform")
             )
+        if skip_kernel_differential:
+            plan.steps.append(
+                Step(
+                    "gate:kernel-differential",
+                    None,
+                    f"SKIPPED ({kernel_differential_note or '--skip-kernel-differential'})",
+                    lane="kernel",
+                )
+            )
+        elif "kernel-differential" in deferred:
+            plan.steps.append(
+                Step("gate:kernel-differential", None, f"DEFERRED ({DEFER_NOTE})", lane="kernel")
+            )
+        else:
+            plan.steps.append(
+                Step("gate:kernel-differential", kernel_differential_argv(kernel_threads), lane="kernel")
+            )
         if skip_rebuild_gate:
             plan.steps.append(Step("gate:rebuild", None, f"SKIPPED ({rebuild_gate_note})", lane="rebuild"))
         elif "rebuild" in deferred:
@@ -1090,9 +1220,11 @@ def _render_concurrency(plan: Plan) -> list[str]:
         ]
     defer_rebuild = "rebuild" in plan.deferred
     defer_conform = "conform" in plan.deferred
+    defer_kernel = "kernel-differential" in plan.deferred
     defer_make_test = "make-test" in plan.deferred
     no_make_test = plan.skip_make_test or defer_make_test
     no_conform = plan.skip_conform or defer_conform
+    no_kernel = plan.skip_kernel_differential or defer_kernel
     t0_lane = "gate:js" if no_make_test else "gate:js, gate:make-test"
     lines = [
         "",
@@ -1116,6 +1248,28 @@ def _render_concurrency(plan: Plan) -> list[str]:
         lines.append(
             f"    Lane conform                     : starts when run_m1's four JSONs pass; gate:make-test not running, so no queueing (--jobs {plan.conform_jobs})"
         )
+    if plan.skip_kernel_differential:
+        lines.append(
+            f"    Lane kernel                      : SKIPPED ({plan.kernel_differential_note or '--skip-kernel-differential'})"
+        )
+    elif defer_kernel:
+        lines.append(f"    Lane kernel                      : DEFERRED ({DEFER_NOTE})")
+    elif plan.pool_policy == "overlap":
+        lines.append(
+            f"    Lane kernel                      : starts when run_m1's four JSONs pass; CO-RESIDENT with the pytest pools (--threads {plan.kernel_threads})"
+        )
+    elif not no_conform:
+        lines.append(
+            f"    Lane kernel                      : starts when run_m1's four JSONs pass; QUEUED behind gate:conform (queue policy — one heavy pool at a time) (--threads {plan.kernel_threads})"
+        )
+    elif not no_make_test:
+        lines.append(
+            f"    Lane kernel                      : starts when run_m1's four JSONs pass; QUEUED behind gate:make-test (queue policy; gate:conform not running) (--threads {plan.kernel_threads})"
+        )
+    else:
+        lines.append(
+            f"    Lane kernel                      : starts when run_m1's four JSONs pass; no heavy pool ahead of it, so no queueing (--threads {plan.kernel_threads})"
+        )
     if plan.skip_rebuild_gate:
         lines.append(
             "    Lane rebuild                     : SKIPPED (inputs unchanged since its last green run)"
@@ -1132,9 +1286,13 @@ def _render_concurrency(plan: Plan) -> list[str]:
             lines.append(
                 "                                       CO-RESIDENT with the other pools (overlap policy)"
             )
+        elif not no_kernel:
+            lines.append(
+                "                                       QUEUED behind gate:kernel-differential (queue policy — one heavy pool at a time)"
+            )
         elif not no_conform:
             lines.append(
-                "                                       QUEUED behind gate:conform (queue policy — one heavy pool at a time)"
+                "                                       QUEUED behind gate:conform (queue policy; gate:kernel-differential not running)"
             )
         elif not no_make_test:
             lines.append(
@@ -1207,6 +1365,7 @@ class CycleReport:
     gate_js: str = "not run"
     gate_rebuild: str = "not run"
     gate_conform: str = "not run"
+    gate_kernel_differential: str = "not run"
     gate_make_test: str = "not run"
     rebuild_recordable: bool = False
     rebuild_stale_deferred: bool = False
@@ -1767,8 +1926,41 @@ def _gate_conform_task(
     return status, failures
 
 
+def _gate_kernel_differential_task(
+    pool_policy: str,
+    conform_fut: Future | None,
+    make_fut: Future | None,
+    spawn,
+    emit: _Emitter,
+    registry: _ChildRegistry,
+    argv: list[str],
+) -> tuple[str, list[str]]:
+    """gate:kernel-differential re-runs this cycle's own table build through the Rust kernel and byte-compares the result against the artifacts run_m1 just wrote. It is submitted where gate:conform is — the artifacts it reads are final once the run_m1 gate passes — and under the queue policy it parks behind gate:make-test and then gate:conform, so the heavy chain stays make-test -> conform -> kernel-differential -> rebuild and only one pool is ever hot. The stale kernel_differential_summary.json is unlinked here, just before the child spawns, so the verdict can only come from this cycle's run (an auto-skipped gate never runs this task and never reads the file)."""
+    KERNEL_DIFFERENTIAL_SUMMARY.unlink(missing_ok=True)
+    if pool_policy == "queue":
+        for fut in (make_fut, conform_fut):
+            if fut is not None:
+                try:
+                    fut.result()
+                except Exception:
+                    pass
+    result = spawn("gate:kernel-differential", argv, emit=emit, registry=registry, stream=False)
+    summary = None
+    if KERNEL_DIFFERENTIAL_SUMMARY.exists():
+        try:
+            summary = json.loads(KERNEL_DIFFERENTIAL_SUMMARY.read_text())
+        except ValueError:
+            summary = None
+    status, failures = evaluate_kernel_differential_gate(summary)
+    if result.returncode != 0 and not failures:
+        status = f"FAILED (exit {result.returncode})"
+        failures = [f"kernel-differential gate: exited {result.returncode} despite a passing summary"]
+    return status, failures
+
+
 def _gate_rebuild_task(
     pool_policy: str,
+    kernel_fut: Future | None,
     conform_fut: Future | None,
     make_fut: Future | None,
     spawn,
@@ -1776,9 +1968,9 @@ def _gate_rebuild_task(
     registry: _ChildRegistry,
     update_pins: bool,
 ) -> RebuildOutcome:
-    """The rebuild pytest suite, submitted by the build lane only after the census step lands its verdict: an --update-pins pass therefore always runs it against the freshly rewritten pins, and a STALE verdict on a --check pass deferred the gate before this task could exist. Under the queue policy it parks at the tail of the make-test -> conform chain so only one heavy pool is hot at a time."""
+    """The rebuild pytest suite, submitted by the build lane only after the census step lands its verdict: an --update-pins pass therefore always runs it against the freshly rewritten pins, and a STALE verdict on a --check pass deferred the gate before this task could exist. Under the queue policy it parks at the tail of the make-test -> conform -> kernel-differential chain so only one heavy pool is hot at a time."""
     if pool_policy == "queue":
-        for fut in (conform_fut, make_fut):
+        for fut in (kernel_fut, conform_fut, make_fut):
             if fut is not None:
                 try:
                     fut.result()
@@ -1802,6 +1994,7 @@ def _join_gates(
     js_fut: Future | None,
     rebuild_fut: Future | None,
     conform_fut: Future | None,
+    kernel_fut: Future | None,
     make_fut: Future | None,
     emit: _Emitter,
 ) -> None:
@@ -1831,6 +2024,14 @@ def _join_gates(
             status, conform_failures = conform
             report.gate_conform = status
             failures.extend(conform_failures)
+    if kernel_fut is not None:
+        kernel = _gate_result(kernel_fut, "gate:kernel-differential", failures)
+        if kernel is None:
+            report.gate_kernel_differential = "FAILED (exception)"
+        else:
+            status, kernel_failures = kernel
+            report.gate_kernel_differential = status
+            failures.extend(kernel_failures)
     if make_fut is not None:
         make = _gate_result(make_fut, "gate:make-test", failures)
         if make is None:
@@ -1847,7 +2048,7 @@ def _plumbing_settled(report: CycleReport) -> bool:
 
 
 def _record_gate_greens(report: CycleReport, plan: Plan, gate_keys: dict[str, str], emit: _Emitter) -> None:
-    """Persist the concurrent gates' green records after they joined. gate:conform's key was snapshotted right after run_m1 finished (the artifacts it hashes are final from then on); gate:rebuild's at its later submission, after the census step, so on an --update-pins pass it hashes the pins the suite actually read. Each is recomputed here before recording, so a source file edited while the gates ran — content the gates never tested — can never be recorded green. A red gate whose key still matches its record deletes the falsified record."""
+    """Persist the concurrent gates' green records after they joined. gate:conform's and gate:kernel-differential's keys were snapshotted right after run_m1 finished (the sources and artifacts they hash are final from then on); gate:rebuild's at its later submission, after the census step, so on an --update-pins pass it hashes the pins the suite actually read. Each is recomputed here before recording, so a source file edited while the gates ran — content the gates never tested — can never be recorded green. A red gate whose key still matches its record deletes the falsified record."""
     key = gate_keys.get("conform")
     if key:
         if report.gate_conform == "green":
@@ -1859,6 +2060,17 @@ def _record_gate_greens(report: CycleReport, plan: Plan, gate_keys: dict[str, st
                 )
         elif report.gate_conform.startswith("FAILED"):
             clear_contradicted_green(CONFORM_GREEN, key)
+    key = gate_keys.get("kernel-differential")
+    if key:
+        if report.gate_kernel_differential == "green":
+            if kernel_differential_skip_fingerprint(ROOT) == key:
+                record_green(KERNEL_DIFFERENTIAL_GREEN, key, files=kernel_differential_skip_files(ROOT))
+            else:
+                emit.emit(
+                    "gate:kernel-differential green, but its inputs changed while the cycle ran — green not recorded"
+                )
+        elif report.gate_kernel_differential.startswith("FAILED"):
+            clear_contradicted_green(KERNEL_DIFFERENTIAL_GREEN, key)
     key = gate_keys.get("rebuild")
     if key:
         if report.gate_rebuild.startswith("green") and report.rebuild_recordable:
@@ -1887,6 +2099,7 @@ def _run_cycle(
     try:
         defer_rebuild = "rebuild" in plan.deferred
         defer_conform = "conform" in plan.deferred
+        defer_kernel = "kernel-differential" in plan.deferred
         defer_make_test = "make-test" in plan.deferred
         js_fut = None if plan.skip_gates else pool.submit(_gate_js_task, spawn, emit, registry)
         make_fut = (
@@ -1896,11 +2109,18 @@ def _run_cycle(
         )
         rebuild_fut: Future | None = None
         conform_fut: Future | None = None
+        kernel_fut: Future | None = None
         gate_keys: dict[str, str] = {}
         if not plan.skip_gates and plan.skip_conform:
             report.gate_conform = f"skipped ({plan.conform_note or '--skip-conform'})"
         elif defer_conform:
             report.gate_conform = f"deferred ({DEFER_NOTE})"
+        if not plan.skip_gates and plan.skip_kernel_differential:
+            report.gate_kernel_differential = (
+                f"skipped ({plan.kernel_differential_note or '--skip-kernel-differential'})"
+            )
+        elif defer_kernel:
+            report.gate_kernel_differential = f"deferred ({DEFER_NOTE})"
         if not plan.skip_gates and plan.skip_rebuild_gate:
             report.gate_rebuild = f"skipped ({plan.rebuild_gate_note})"
         elif defer_rebuild:
@@ -1928,7 +2148,9 @@ def _run_cycle(
                 report.gate_rebuild = "not run (run_m1 gate failed)"
             if not plan.skip_gates and not plan.skip_conform and not defer_conform:
                 report.gate_conform = "not run (run_m1 gate failed)"
-            _join_gates(report, failures, js_fut, None, None, make_fut, emit)
+            if not plan.skip_gates and not plan.skip_kernel_differential and not defer_kernel:
+                report.gate_kernel_differential = "not run (run_m1 gate failed)"
+            _join_gates(report, failures, js_fut, None, None, None, make_fut, emit)
             return _finish(report, failures, plan, timings)
 
         if not plan.skip_gates and not plan.skip_conform and not defer_conform:
@@ -1942,6 +2164,20 @@ def _run_cycle(
                 emit,
                 registry,
                 conform_gate_argv(plan.conform_jobs, plan.conform_horizon),
+            )
+
+        if not plan.skip_gates and not plan.skip_kernel_differential and not defer_kernel:
+            if plan.record_greens:
+                gate_keys["kernel-differential"] = kernel_differential_skip_fingerprint(ROOT)
+            kernel_fut = pool.submit(
+                _gate_kernel_differential_task,
+                plan.pool_policy,
+                conform_fut,
+                make_fut,
+                spawn,
+                emit,
+                registry,
+                kernel_differential_argv(plan.kernel_threads),
             )
 
         if not _do_surface_build(
@@ -1958,7 +2194,7 @@ def _run_cycle(
             failures.append("surface rebuild failed")
             if not plan.skip_gates and not plan.skip_rebuild_gate and not defer_rebuild:
                 report.gate_rebuild = "not run (surface build failed)"
-            _join_gates(report, failures, js_fut, None, conform_fut, make_fut, emit)
+            _join_gates(report, failures, js_fut, None, conform_fut, kernel_fut, make_fut, emit)
             _record_gate_greens(report, plan, gate_keys, emit)
             return _finish(report, failures, plan, timings)
 
@@ -2028,6 +2264,7 @@ def _run_cycle(
                 rebuild_fut = pool.submit(
                     _gate_rebuild_task,
                     plan.pool_policy,
+                    kernel_fut,
                     conform_fut,
                     make_fut,
                     spawn,
@@ -2044,7 +2281,7 @@ def _run_cycle(
         if plumbing_key and complaints_ran and plan.record_greens and plan.review_out is None:
             record_plumbing_green(plumbing_key, plan.carry_out)
 
-        _join_gates(report, failures, js_fut, rebuild_fut, conform_fut, make_fut, emit)
+        _join_gates(report, failures, js_fut, rebuild_fut, conform_fut, kernel_fut, make_fut, emit)
         _record_gate_greens(report, plan, gate_keys, emit)
         return _finish(report, failures, plan, timings)
     except KeyboardInterrupt:
@@ -2095,11 +2332,13 @@ def _print_summary(report: CycleReport) -> None:
     print(f"  gate: JS suite     : {report.gate_js}")
     print(f"  gate: rebuild      : {report.gate_rebuild}")
     print(f"  gate: conform      : {report.gate_conform}")
+    print(f"  gate: kernel-diff  : {report.gate_kernel_differential}")
     print(f"  gate: make test    : {report.gate_make_test}")
     print("  run_m1 summaries   :")
     for path in M1_SUMMARY_FILES.values():
         print(f"      {path}")
     print(f"      {CONFORM_SUMMARY}")
+    print(f"      {KERNEL_DIFFERENTIAL_SUMMARY}")
     print("=" * 68)
 
 
@@ -2155,6 +2394,14 @@ def cycle_summary_payload(report: CycleReport, failures: list[str], plan: Plan, 
                     forced=plan.skip_conform,
                 ),
             ),
+            "kernel_differential": _gate_entry(
+                report.gate_kernel_differential,
+                _skip_kind(
+                    proved=plan.kernel_differential_proven,
+                    deferred="kernel-differential" in plan.deferred,
+                    forced=plan.skip_kernel_differential,
+                ),
+            ),
             "make_test": _gate_entry(
                 report.gate_make_test,
                 _skip_kind(proved=plan.skip_make_test, deferred="make-test" in plan.deferred),
@@ -2194,9 +2441,11 @@ def cycle_summary_payload(report: CycleReport, failures: list[str], plan: Plan, 
             "carry_out": _as_str(plan.carry_out),
             "do_merge": plan.do_merge,
             "conform_horizon": plan.conform_horizon,
+            "kernel_threads": plan.kernel_threads,
             "pool_policy": plan.pool_policy,
             "skip_gates": plan.skip_gates,
             "skip_conform": plan.skip_conform,
+            "skip_kernel_differential": plan.skip_kernel_differential,
             "skip_run_m1": plan.skip_run_m1,
             "skip_surface": plan.skip_surface,
             "skip_rebuild_gate": plan.skip_rebuild_gate,
@@ -2449,12 +2698,23 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--skip-gates",
         action="store_true",
-        help="skip the four post-build gates (JS suite, rebuild suite, conformance sweep, make test)",
+        help="skip the five post-build gates (JS suite, rebuild suite, conformance sweep, kernel differential, make test)",
     )
     parser.add_argument(
         "--skip-conform",
         action="store_true",
         help="skip gate:conform (the exhaustive font-vs-settle sweep) while keeping the other gates",
+    )
+    parser.add_argument(
+        "--skip-kernel-differential",
+        action="store_true",
+        help="skip gate:kernel-differential (the Rust-vs-Python differential over this cycle's own table artifacts) while keeping the other gates",
+    )
+    parser.add_argument(
+        "--kernel-threads",
+        type=int,
+        default=KERNEL_THREADS_DEFAULT,
+        help="how many configs the Rust kernel enumerates at once inside gate:kernel-differential; the answers are byte-identical at any width, so this trades wall time against memory",
     )
     parser.add_argument(
         "--force-make-test",
@@ -2465,7 +2725,7 @@ def main(argv: list[str] | None = None) -> int:
         "--defer-gates",
         action=argparse.BooleanOptionalAction,
         default=False,
-        help="on a pass that rebuilds M1 or the surface, record the heavy gates (rebuild, conform, make-test) pending instead of running them, so the letters are on screen sooner; the next pass has no artifact work and runs them. `make review-cycle` passes this; a deferred gate is unproven, so readiness stays NOT READY until a later pass clears it",
+        help="on a pass that rebuilds M1 or the surface, record the heavy gates (rebuild, conform, kernel-differential, make-test) pending instead of running them, so the letters are on screen sooner; the next pass has no artifact work and runs them. `make review-cycle` passes this; a deferred gate is unproven, so readiness stays NOT READY until a later pass clears it",
     )
     parser.add_argument(
         "--fresh",
@@ -2535,6 +2795,8 @@ def main(argv: list[str] | None = None) -> int:
     rebuild_gate_note = ""
     conform_note = ""
     auto_skip_conform = False
+    kernel_differential_note = ""
+    auto_skip_kernel_differential = False
     skip_census = False
     census_skip_note = ""
     census_replay: dict | None = None
@@ -2563,6 +2825,12 @@ def main(argv: list[str] | None = None) -> int:
                 auto_skip_conform = True
                 conform_note = "font and sweep inputs unchanged since its last green sweep; --fresh overrides"
                 print(f"gate:conform auto-skipped: {conform_note}")
+        if not args.skip_gates and not args.skip_kernel_differential:
+            green = read_green_record(KERNEL_DIFFERENTIAL_GREEN)
+            if green is not None and green["fingerprint"] == kernel_differential_skip_fingerprint(ROOT):
+                auto_skip_kernel_differential = True
+                kernel_differential_note = "spec inputs and both engines' sources unchanged since its last green differential; --fresh overrides"
+                print(f"gate:kernel-differential auto-skipped: {kernel_differential_note}")
         if not args.skip_gates:
             rebuild_key = rebuild_gate_skip_fingerprint(ROOT)
             green = read_green_record(REBUILD_GATE_GREEN)
@@ -2593,6 +2861,11 @@ def main(argv: list[str] | None = None) -> int:
         would_run={
             "rebuild": not args.skip_gates and not skip_rebuild_gate,
             "conform": not args.skip_gates and not args.skip_conform and not auto_skip_conform,
+            "kernel-differential": (
+                not args.skip_gates
+                and not args.skip_kernel_differential
+                and not auto_skip_kernel_differential
+            ),
             "make-test": not args.skip_gates and not skip_make_test and not args.force_make_test,
         },
     )
@@ -2658,6 +2931,7 @@ def main(argv: list[str] | None = None) -> int:
             make_test_note=make_test_note,
             make_test_fingerprint=make_test_fp,
             conform_horizon=args.conform_horizon,
+            kernel_threads=args.kernel_threads,
             pool_policy=args.rebuild_pool,
             review_out=args.review_out,
             skip_run_m1=skip_run_m1,
@@ -2670,6 +2944,9 @@ def main(argv: list[str] | None = None) -> int:
             rebuild_gate_note=rebuild_gate_note,
             conform_note=conform_note,
             conform_proven=auto_skip_conform,
+            skip_kernel_differential=args.skip_kernel_differential or auto_skip_kernel_differential,
+            kernel_differential_note=kernel_differential_note,
+            kernel_differential_proven=auto_skip_kernel_differential,
             skip_census=skip_census,
             census_skip_note=census_skip_note,
             census_replay=census_replay,
@@ -2707,6 +2984,7 @@ def main(argv: list[str] | None = None) -> int:
         make_test_note=make_test_note,
         make_test_fingerprint=make_test_fp,
         conform_horizon=args.conform_horizon,
+        kernel_threads=args.kernel_threads,
         pool_policy=args.rebuild_pool,
         review_out=args.review_out,
         skip_run_m1=skip_run_m1,
@@ -2719,6 +2997,9 @@ def main(argv: list[str] | None = None) -> int:
         rebuild_gate_note=rebuild_gate_note,
         conform_note=conform_note,
         conform_proven=auto_skip_conform,
+        skip_kernel_differential=args.skip_kernel_differential or auto_skip_kernel_differential,
+        kernel_differential_note=kernel_differential_note,
+        kernel_differential_proven=auto_skip_kernel_differential,
         skip_census=skip_census,
         census_skip_note=census_skip_note,
         census_replay=census_replay,

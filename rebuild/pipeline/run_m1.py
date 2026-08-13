@@ -11,10 +11,13 @@ from __future__ import annotations
 
 import argparse
 import gc
+import gzip
 import json
 import multiprocessing
 import os
+import shutil
 import sys
+import tempfile
 import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import replace
@@ -32,6 +35,8 @@ from rebuild.pipeline import (
     emit_gsub,
     fingerprint,
     geometry,
+    kernel_exec,
+    kernel_io,
     manual_pins,
     surface,
     trace_memo,
@@ -60,6 +65,10 @@ KERN_SIDECAR_YAML = REPO_ROOT / "glyph_data" / "senior_quikscript_kerning.yaml"
 
 RAW_STANCE = "cmap"
 
+ENGINES = ("python", "rust")
+ENGINE_DEFAULT = "python"
+TABLE_DIGESTS_FORMAT = "ams-m1-table-digests/1"
+
 
 def _spawn_pool(jobs: int) -> ProcessPoolExecutor:
     workers = min(jobs, len(conform.ACCEPTANCE_CONFIGS))
@@ -67,15 +76,16 @@ def _spawn_pool(jobs: int) -> ProcessPoolExecutor:
 
 
 def _persist_tables(decision, treaty, out_dir: Path | None, inputs: str | None):
-    """Write one configuration's artifacts, in whichever process built them, and hand back the table the parent actually reads. Given the fingerprint that names its sources, the window enumeration goes to disk for the conformance sweep to load and is dropped from the returned table: a million rows per configuration is a pickle across the pool boundary and a resident peak that nothing after the build spends."""
+    """Write one configuration's artifacts, in whichever process built them, and hand back the table the parent actually reads plus the contract digest of the pair. Given the fingerprint that names its sources, the window enumeration goes to disk for the conformance sweep to load and is dropped from the returned table: a million rows per configuration is a pickle across the pool boundary and a resident peak that nothing after the build spends. The digest is taken here, between the writers and that drop, because `table.table_digest` covers those window rows; a caller with nowhere to write gets None rather than the several seconds a digest nothing will read would cost."""
     if out_dir is None:
-        return decision
+        return decision, None
     decision.write_tsv(out_dir / f"settlement-{decision.config}.tsv")
     treaty.write_tsv(out_dir / f"treaties-{decision.config}.tsv")
+    digest = table_module.table_digest(decision, treaty)
     if inputs is None:
-        return decision
+        return decision, digest
     table_module.write_windows(decision, table_module.windows_path(out_dir, decision.config), inputs)
-    return replace(decision, transitions=())
+    return replace(decision, transitions=()), digest
 
 
 def _trace_store(
@@ -99,13 +109,33 @@ def build_tables(
     out_dir: Path | None = None,
     inputs: str | None = None,
     fresh_memo: bool = False,
+    engine: str = ENGINE_DEFAULT,
+    kernel_threads: int | None = None,
 ) -> dict[str, tuple]:
     """Every acceptance configuration's decision and treaty tables, built serially over one shared trace memo, with the section 8 TSVs written under `out_dir`. The default configuration builds first and donates its finished memo to a `trace_memo.TraceShare` (issue 15); each configuration after it re-traces only the windows some named rune of which owns a record gated on that configuration's feature delta, and serves the rest from the donor — so the config axis costs its sensitive fraction, not a full fixpoint per configuration. Serial on purpose, where this stage once spawned a six-way pool: the share lives in one process's memory, and less total CPU is the point (issue 7's ground rule).
 
     `inputs` is `fingerprint.tables_value` over the sources this spec was loaded from. Supplying it alongside `out_dir` serializes each configuration's window enumeration next to the TSVs — where `run_font_conformance` picks it up instead of rebuilding the fixpoint — and drops those windows from the tables returned here, since only the rules, the reachable cells and the fired provenance are read after the build; `table.read_windows` gets them back. Omit it and the tables come back whole, which is what a caller building a spec of its own must do: the fingerprint names the repo's rune files and cannot vouch for tables they did not produce. The same pair gates the persisted trace memo (issue 25): each configuration's fixpoint serves still-valid entries from the previous cycle's `trace-memo-<config>.ndjson.gz` and rewrites it — a recipient configuration's store now carries only its sensitive windows, since share hits never enter the engine memo the store persists; `fresh_memo` distrusts the pile once and re-traces everything the share cannot serve.
+
+    `engine` chooses which half of the port enumerates those windows (issue 40). `python` is the engine of record and everything above describes it; `rust` replaces exactly `table.enumerate_transitions` with one fan-out run of the kernel crate and folds the streams it hands back through the same `assemble_tables`, the same partition asserts and the same writers, so nothing downstream can tell which one built the tables — which is the claim `gate:kernel-differential` proves on every cycle whose kernel inputs moved, and the reason `--engine rust` is a human's fast build rather than a second source of truth. Either engine also leaves `table-digests.json` under `out_dir`: each configuration's `table.table_digest`, taken while the window rows are still in hand, which is the grain that gate states its comparison at.
     """
+    if engine == "rust":
+        tables, digests = _build_tables_rust(spec, out_dir, inputs, kernel_threads)
+    elif engine == "python":
+        tables, digests = _build_tables_python(spec, out_dir, inputs, fresh_memo)
+    else:
+        raise ValueError(f"no such table engine: {engine!r}; the engines are {', '.join(ENGINES)}")
+    if out_dir is not None:
+        _write_table_digests(out_dir, inputs, digests, engine)
+    return tables
+
+
+def _build_tables_python(
+    spec: ResolvedSpec, out_dir: Path | None, inputs: str | None, fresh_memo: bool
+) -> tuple[dict[str, tuple], dict[str, str]]:
+    """The engine of record: one process, one shared trace memo, one fixpoint per configuration in acceptance order."""
     share = trace_memo.TraceShare(spec)
     tables: dict[str, tuple] = {}
+    digests: dict[str, str] = {}
     try:
         for config in conform.ACCEPTANCE_CONFIGS:
             start = time.perf_counter()
@@ -119,11 +149,76 @@ def build_tables(
                 print(f"[t] trace_memo[{config}] served {store.served} of {store.saved}", flush=True)
             decision.assert_outcome_partition()
             decision.assert_e_stranded()
-            tables[config] = (_persist_tables(decision, treaty, out_dir, inputs), treaty)
+            persisted, digest = _persist_tables(decision, treaty, out_dir, inputs)
+            tables[config] = (persisted, treaty)
+            if digest is not None:
+                digests[config] = digest
             print(f"[t] build_tables[{config}] {time.perf_counter() - start:.1f}s", flush=True)
     finally:
         share.release()
-    return tables
+    return tables, digests
+
+
+def _build_tables_rust(
+    spec: ResolvedSpec, out_dir: Path | None, inputs: str | None, kernel_threads: int | None
+) -> tuple[dict[str, tuple], dict[str, str]]:
+    """The same tables with the kernel crate doing the enumerating: the resolved spec dumped once, every configuration answered by one `enumerate-configs` process, and each stream folded back through the Python half a configuration at a time. The trace memo has no place here — it exists to spare a re-trace the port does not pay — and neither do the two class-grain partition asserts `table.build_tables` runs, which read enumeration scaffolding a product deliberately does not carry across the boundary; the outcome-partition and E-STRANDED asserts are on the tables themselves and run exactly as they do on the other arm.
+
+    It refuses a caller with no `out_dir` and `inputs`, where the python arm would happily build tables in memory: this engine exists to produce the repo's own artifacts under the stamp that names their sources, and a spec someone assembled by hand has no such stamp to write. Threads are capped at the configuration count and the CPU count because the kernel caps them there anyway, and defaulted low because the ceiling is memory rather than CPU — every configuration in flight holds its whole working set until it has emitted.
+    """
+    if out_dir is None or inputs is None:
+        raise ValueError(
+            "the rust engine builds the repo's own artifacts under the stamp naming their sources: build_tables needs both out_dir and inputs to run it"
+        )
+    configs = conform.ACCEPTANCE_CONFIGS
+    threads = max(
+        1,
+        min(kernel_threads or kernel_exec.KERNEL_THREADS_DEFAULT, len(configs), os.process_cpu_count() or 1),
+    )
+    kernel_exec.cargo_build()
+    tables: dict[str, tuple] = {}
+    digests: dict[str, str] = {}
+    with tempfile.TemporaryDirectory() as scratch:
+        directory = Path(scratch)
+        start = time.perf_counter()
+        spec_path = directory / "spec.json"
+        kernel_io.write_spec(spec, spec_path)
+        streams = kernel_exec.enumerate_configs(
+            spec_path, directory / "streams", configs, threads=threads, timings=True
+        )
+        print(f"[t] kernel_enumerate_configs {time.perf_counter() - start:.1f}s", flush=True)
+        for config in configs:
+            start = time.perf_counter()
+            decision, treaty = _fold_stream(spec, streams[config], directory)
+            decision.assert_outcome_partition()
+            decision.assert_e_stranded()
+            persisted, digest = _persist_tables(decision, treaty, out_dir, inputs)
+            tables[config] = (persisted, treaty)
+            if digest is not None:
+                digests[config] = digest
+            print(f"[t] assemble_tables[{config}] {time.perf_counter() - start:.1f}s", flush=True)
+    return tables, digests
+
+
+def _fold_stream(spec: ResolvedSpec, stream: Path, scratch: Path):
+    """One kernel stream folded into its two tables by the Python half of the build. `enumerate-configs` writes plain ndjson where `kernel_io.read_transitions` reads the gzip shape every artifact under `rebuild/out/` wears, so the bytes are packed on the way in the way `kernel_fixpoint.packed` packs them — at the cheapest compression there is, since this copy is written, read once and unlinked, and what the reader wants from it is the shape rather than the size. Both files go as soon as the product is in hand: a live configuration's stream is hundreds of megabytes and six of them would otherwise sit in the temporary directory for the length of the build."""
+    packed = scratch / f"{stream.stem}.ndjson.gz"
+    with (
+        stream.open("rb") as plain,
+        packed.open("wb") as raw,
+        gzip.GzipFile(filename="", fileobj=raw, mode="wb", mtime=0, compresslevel=1) as handle,
+    ):
+        shutil.copyfileobj(plain, handle)
+    stream.unlink()
+    product = kernel_io.read_transitions(packed)
+    packed.unlink()
+    return table_module.assemble_tables(spec, product)
+
+
+def _write_table_digests(out_dir: Path, inputs: str | None, digests: dict[str, str], engine: str) -> None:
+    """The per-configuration contract digests a build leaves beside its tables, in acceptance order under the same stamp the windows heads carry. `table.table_digest` is the grain the rest of the rebuild states table identity at — the ordered rules with their provenance, every enumerated window row, the treaty rows, the reachable cells, the cited provenance and the identity guards — so `gate:kernel-differential` compares the two engines against these rather than against the TSVs alone, which drop most of that. It has to be written at build time: the digest covers rows `_persist_tables` drops on its way out, and recovering one afterwards would cost the fixpoint that produced it. The record also states which engine built the set, because the gate must refuse a rust-built one: comparing the kernel against tables the kernel folded is an identity by construction, and a differential that can be fed its own output proves nothing."""
+    payload = {"format": TABLE_DIGESTS_FORMAT, "inputs": inputs, "engine": engine, "digests": digests}
+    (out_dir / "table-digests.json").write_text(json.dumps(payload, indent=2) + "\n")
 
 
 def mint_cell_glyphs(
@@ -193,8 +288,10 @@ def run(
     spec: ResolvedSpec | None = None,
     inputs: str | None = None,
     fresh_memo: bool = False,
+    engine: str = ENGINE_DEFAULT,
+    kernel_threads: int | None = None,
 ) -> dict:
-    """`inputs` is `fingerprint.tables_value` over the sources `spec` was loaded from, snapshotted before the load so it can only ever name content the tables are at least as new as. Supplying it serializes the window enumeration under `out_dir` for the conformance sweep; a caller running a spec of its own leaves it out."""
+    """`inputs` is `fingerprint.tables_value` over the sources `spec` was loaded from, snapshotted before the load so it can only ever name content the tables are at least as new as. Supplying it serializes the window enumeration under `out_dir` for the conformance sweep; a caller running a spec of its own leaves it out. `engine` and `kernel_threads` reach the table build and nothing else, and the engine that built the tables rides the summary, so a `rebuild/out/m1` the kernel enumerated says so."""
     out_dir.mkdir(parents=True, exist_ok=True)
     start = time.perf_counter()
     if spec is None:
@@ -202,7 +299,9 @@ def run(
     print(f"[t] spec_load {time.perf_counter() - start:.1f}s", flush=True)
 
     start = time.perf_counter()
-    tables = build_tables(spec, out_dir, inputs=inputs, fresh_memo=fresh_memo)
+    tables = build_tables(
+        spec, out_dir, inputs=inputs, fresh_memo=fresh_memo, engine=engine, kernel_threads=kernel_threads
+    )
     print(f"[t] build_tables_total {time.perf_counter() - start:.1f}s", flush=True)
 
     start = time.perf_counter()
@@ -234,6 +333,7 @@ def run(
     (out_dir / "M1.generated.fea").write_text(fea)
 
     summary = {
+        "engine": engine,
         "configs": list(tables),
         "rules_per_config": {config: len(decision.rules) for config, (decision, _treaty) in tables.items()},
         "settled_cell_glyphs": len(cell_glyphs),
@@ -509,6 +609,18 @@ def main(argv: list[str] | None = None) -> None:
         action="store_true",
         help="ignore the persisted trace memo and re-trace every window; the finished build still rewrites it",
     )
+    parser.add_argument(
+        "--engine",
+        choices=ENGINES,
+        default=ENGINE_DEFAULT,
+        help="which half of the port enumerates the windows: python is the engine of record, rust hands the fixpoint to the kernel crate (built first) and folds its streams through the same Python back half; --conform-only ignores it",
+    )
+    parser.add_argument(
+        "--kernel-threads",
+        type=int,
+        default=None,
+        help=f"how many configurations --engine rust enumerates at once, capped at the configuration count and the CPU count (default {kernel_exec.KERNEL_THREADS_DEFAULT}); the ceiling is memory rather than CPU",
+    )
     args = parser.parse_args(argv)
     jobs = args.jobs if args.jobs and args.jobs > 1 else 1
 
@@ -562,7 +674,13 @@ def main(argv: list[str] | None = None) -> None:
     before = run_m1_key()
     try:
         start = time.perf_counter()
-        summary = run(spec=spec, inputs=inputs, fresh_memo=args.fresh_trace_memo)
+        summary = run(
+            spec=spec,
+            inputs=inputs,
+            fresh_memo=args.fresh_trace_memo,
+            engine=args.engine,
+            kernel_threads=args.kernel_threads,
+        )
         print(f"[t] run_total {time.perf_counter() - start:.1f}s", flush=True)
         print(json.dumps(summary, indent=2))
         if summary["defect_errors"]:
@@ -587,8 +705,14 @@ def main(argv: list[str] | None = None) -> None:
         _settle_green(RUN_M1_GREEN, before, False, run_m1_key, "run_m1")
         raise
     gate = evaluate_run_m1_gate(summary, boundary_gate, pin_gate, oracle)
+    recordable = gate.ok and args.engine == ENGINE_DEFAULT
+    if gate.ok and not recordable:
+        print(
+            "run_m1: green under --engine rust — green not recorded, so the next cycle rebuilds with the engine of record",
+            flush=True,
+        )
     _settle_green(
-        RUN_M1_GREEN, before, gate.ok, run_m1_key, "run_m1", files_of=lambda: run_m1_skip_files(REPO_ROOT)
+        RUN_M1_GREEN, before, recordable, run_m1_key, "run_m1", files_of=lambda: run_m1_skip_files(REPO_ROOT)
     )
     if not oracle["pass"]:
         raise SystemExit("oracle conformance failed; see oracle_summary.json and divergence-audit.tsv")
