@@ -1,4 +1,4 @@
-.PHONY: all test test-rebuild test-slowly test-leaks leak-snapshot typecheck print-job serve explainer check-html-before check-html-after build-kerning-hardcases review test-and-review review-build review-serve review-cycle artifact-cycle verdict-ready cycle-timings complaint-docket novelty-order kernel-build kernel-check kernel-parity kernel-differential prettier woff2 clean
+.PHONY: all test test-rebuild test-slowly test-leaks leak-snapshot typecheck print-job serve explainer check-html-before check-html-after build-kerning-hardcases review test-and-review review-build review-serve review-cycle artifact-cycle verdict-ready cycle-timings complaint-docket novelty-order kernel-build kernel-check kernel-parity kernel-differential kernel-fixpoint prettier woff2 clean
 
 all:
 	uv run python tools/build_font.py glyph_data/ site/
@@ -120,6 +120,10 @@ kernel-parity: kernel-build
 # Prove the Rust settlement core answers every window the way Python does: the late-formation guard swept exhaustively, seeded fuzz windows in each mode combination the port has to reproduce, and the golden single-window corpus replayed per acceptance configuration — all compared as bytes, result record and fired-pointer delta included. ARGS passes the harness's own knobs; ARGS='--skip-corpus' is the fast form that skips the per-configuration fixpoints.
 kernel-differential: kernel-build
 	uv run python -m rebuild.tools.kernel_differential $(ARGS)
+
+# Prove the Rust kernel's table-build fixpoint is Python's: for the live alphabet, every scaling-ladder rung and every acceptance configuration, compare the whole transition stream as bytes, fold the kernel's own stream back through assemble_tables and compare the three persisted artifacts, and compare table_digest. The recipe bakes in the pinned candidacy world this stage of the port answers — the harness refuses to run in any other. ARGS='--live-only' is the fast form that skips the ladder.
+kernel-fixpoint: kernel-build
+	AMS_SIMULATED_PROSPECT=0 AMS_VOTE_SLOTS=0 uv run python -m rebuild.tools.kernel_fixpoint $(ARGS)
 
 # Compress the built OTFs in site/ into WOFF2 alongside them.
 woff2: all
