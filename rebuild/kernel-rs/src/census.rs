@@ -1,16 +1,17 @@
-//! The deep-slot censuses and the chain arm of the two slot filters, `rebuild/pipeline/table.py`'s `right_chain_reach`, `_deep_inputs` / `depth3_inputs` / `depth4_inputs`, `third_slot_inputs` / `fourth_slot_inputs`, and the chain half of `third_slot_filter` / `fourth_slot_filter`. Together they answer which windows the table enumerates split by a raw third or fourth lookahead token, and therefore which windows leave those slots at `#NA`.
+//! The deep-slot censuses and the two slot filters, `rebuild/pipeline/table.py`'s `right_chain_reach`, `_deep_inputs` / `depth3_inputs` / `depth4_inputs`, `third_slot_inputs` / `fourth_slot_inputs`, and `third_slot_filter` / `fourth_slot_filter`. Together they answer which windows the table enumerates split by a raw third or fourth lookahead token, and therefore which windows leave those slots at `#NA`. The filters' chain arm is written here; their liveness arm is [`crate::liveness`]'s and is ORed in below.
 //!
 //! Two gates in series, asking different questions. The census is static and per rune: only an own-rune `prefer` or `resolve` record is ever handed the real deep slots — `settle`'s `_prefer_favors` and `_apply_resolution` discipline — so a rune none of whose records chain that far can never read them, and its windows keep `#NA` without any probing at all. The filter is per window, and it is the sharper gate: even a censused rune settles identically under every third token in a window where its chains have already answered definitely. [`Engine::cond_matches_right`] is what makes that decidable, because its `None` is exactly the verdict that consulted a slot the window does not supply — so an unknown verdict over `(right1, right2, UNKNOWN, UNKNOWN)` is the statement "this window's answer depends on the third token" and a definite `Some(_)` is the statement that it does not.
 //!
-//! This is the pinned candidacy world's half, `simulated_prospect` and `vote_slots` both off, which is `table._deep_world` false. There the chain arm is the whole verdict and the two censuses are exactly the depth-3 and depth-4 chain censuses. The `_ProspectLiveness` arm that ORs in beside the chain arm, and the widening of both censuses to every rune, are sub-issue #45's; each of the four places they land is named in the doc or marked in the code below, and none of them is written here, because an engine that could reach them cannot yet be built by this crate's verb.
+//! Both worlds land here. In the pinned candidacy world — `simulated_prospect` and `vote_slots` both off, which is `table._deep_world` false — the chain arm is the whole verdict and the two censuses are exactly the depth-3 and depth-4 chain censuses. Under the deep world the raw deep tokens reach any input's window through its follower's replayed cascade or a vote's shifted slots, so both censuses widen to every rune and [`crate::liveness::ProspectLiveness`] ORs in beside the chain arm, consulted only where the chain arm said no. Which world a caller is in is its own knowledge and arrives as arguments — the `deep_world` flag of the two censuses, and a `Some(_)` liveness probe at the filters — because this crate has no environment to read module defaults out of the way `table._deep_world` does.
 //!
-//! A filter is a struct with a memo where Python has a closure over a `verdicts` dict, and its engine arrives per call rather than being captured. That is the one deliberate shape change and it is load-bearing: Python's `third_slot_filter(spec, features, engine=None)` builds its own engine when the caller passes none, and the table build never takes that branch — it hands in the engine it settles with, because the probes share that engine's memo and, once #45's liveness arm replays whole transitions, its fired-pointer journal too, and a second engine would silently change the `cited_provenance` the build reports. Taking `&mut Engine` per call is how the port says that out loud: the fixpoint owns the one engine and lends it, and the borrow checker rejects the second one Python only discourages by convention.
+//! A filter is a struct with a memo where Python has a closure over a `verdicts` dict, and its engine arrives per call rather than being captured. That is the one deliberate shape change and it is load-bearing: Python's `third_slot_filter(spec, features, engine=None)` builds its own engine when the caller passes none, and the table build never takes that branch — it hands in the engine it settles with, because the probes share that engine's memo and its fired-pointer journal, and a second engine would silently change the `cited_provenance` the build reports. Taking `&mut Engine` per call is how the port says that out loud: the fixpoint owns the one engine and lends it, and the borrow checker rejects the second one Python only discourages by convention. The liveness probe is lent on exactly the same terms and for exactly the same reason.
 
 use std::collections::{HashMap, HashSet};
 
 use crate::engine::{Engine, Slots};
 use crate::error::SettleError;
 use crate::index::SpecIndex;
+use crate::liveness::ProspectLiveness;
 use crate::model::{Condition, Sym};
 use crate::types::{RightToken, UNKNOWN};
 
@@ -55,13 +56,19 @@ pub fn depth4_inputs(index: &SpecIndex) -> HashSet<Sym> {
 
 /// The inputs whose windows can carry a live third slot, `table.third_slot_inputs` — the pre-gate the fixpoint applies before asking [`ThirdSlotFilter`] for the per-window verdict.
 ///
-/// In the pinned candidacy world only an own-rune depth-3 chain ever reads the slot, so this is exactly [`depth3_inputs`]. Under `table._deep_world` the raw third token can decide any input's window through its follower's replayed cascade or a vote's shifted slots, and the census widens to every rune with all the pruning left to the per-window probe; that arm is sub-issue #45's and lands as the other half of this function once an engine may run unpinned.
-pub fn third_slot_inputs(index: &SpecIndex) -> HashSet<Sym> {
+/// In the pinned candidacy world only an own-rune depth-3 chain ever reads the slot, so this is exactly [`depth3_inputs`]. Under `table._deep_world` the raw third token can decide any input's window through its follower's replayed cascade or a vote's shifted slots, so every rune is admitted and all the pruning is left to the per-window probe.
+pub fn third_slot_inputs(index: &SpecIndex, deep_world: bool) -> HashSet<Sym> {
+    if deep_world {
+        return index.runes().iter().map(|(name, _)| *name).collect();
+    }
     depth3_inputs(index)
 }
 
-/// [`third_slot_inputs`] one slot deeper, `table.fourth_slot_inputs`: the depth-4 chain census in the pinned world, and every rune under `table._deep_world` once sub-issue #45 lands that arm.
-pub fn fourth_slot_inputs(index: &SpecIndex) -> HashSet<Sym> {
+/// [`third_slot_inputs`] one slot deeper, `table.fourth_slot_inputs`: the depth-4 chain census in the pinned world, every rune under `table._deep_world`.
+pub fn fourth_slot_inputs(index: &SpecIndex, deep_world: bool) -> HashSet<Sym> {
+    if deep_world {
+        return index.runes().iter().map(|(name, _)| *name).collect();
+    }
     depth4_inputs(index)
 }
 
@@ -84,7 +91,7 @@ fn chains_at<'i>(index: &'i SpecIndex, reach: usize) -> HashMap<Sym, Vec<&'i Con
 
 /// Whether the raw third slot can decide an input's window, `table.third_slot_filter` — keyed on the three rune families `(input, right1, right2)`, since a window's deeper slots are what the verdict is about and its left is not read at all.
 ///
-/// The chain arm is true exactly where some depth-3-reach `prefer` or `resolve` chain of the input's own rune is still unknown over `(right1, right2, UNKNOWN, UNKNOWN)`. `resolve` records receive all four raw slots in `_apply_resolution`, which is why they are censused beside the prefers rather than being a separate question.
+/// The chain arm is true exactly where some depth-3-reach `prefer` or `resolve` chain of the input's own rune is still unknown over `(right1, right2, UNKNOWN, UNKNOWN)`. `resolve` records receive all four raw slots in `_apply_resolution`, which is why they are censused beside the prefers rather than being a separate question. Where that arm says no and the caller lent a liveness probe, [`ProspectLiveness::third_live`] is the second arm — the slot also opens where some candidate shape's simulated follower choice, or some follower vote's verdict, moves with the third token.
 pub struct ThirdSlotFilter<'i> {
     chains: HashMap<Sym, Vec<&'i Condition>>,
     verdicts: HashMap<(Sym, Sym, Sym), bool>,
@@ -99,10 +106,13 @@ impl<'i> ThirdSlotFilter<'i> {
         }
     }
 
-    /// Whether this window carries a live third slot, memoized on the window. The engine is the fixpoint's own, lent for the probe; see the module doc for why it is never a second one.
+    /// Whether this window carries a live third slot, memoized on the window. The engine and the liveness probe are both the fixpoint's own, lent for the probe; see the module doc for why neither is ever a second one.
+    ///
+    /// `liveness` is `None` exactly where `table.third_slot_filter` computes `liveness = None` — a pinned engine, whose deep tokens no mode can read past the chains. Where it is `Some(_)`, it is consulted only after the chain arm has said no, because the chain arm is cheap and its answer is final; a probe that never runs never fires, so consulting it any earlier would journal provenance Python's build never journals.
     pub fn matters(
         &mut self,
         engine: &mut Engine<'_>,
+        liveness: Option<&mut ProspectLiveness<'_>>,
         input: Sym,
         right1: Sym,
         right2: Sym,
@@ -124,20 +134,22 @@ impl<'i> ThirdSlotFilter<'i> {
                 }
             }
         }
-        // SEAM (sub-issue #45): `_ProspectLiveness.third_live` ORs in here, consulted only when the chain arm said no and only when the engine is unpinned.
+        if !verdict && let Some(liveness) = liveness {
+            verdict = liveness.third_live(engine, input, right1, right2)?;
+        }
         self.verdicts.insert(key, verdict);
         Ok(verdict)
     }
 
-    /// How many distinct windows this filter has answered — the size of the memo Python keeps in its closure's `verdicts` dict. The memo is contract rather than an optimization, both because a raise is deliberately not a verdict and because the arm sub-issue #45 adds is expensive enough that a second evaluation would be a real cost, so its behavior is readable rather than assumed.
+    /// How many distinct windows this filter has answered — the size of the memo Python keeps in its closure's `verdicts` dict. The memo is contract rather than an optimization, both because a raise is deliberately not a verdict and because the liveness arm is expensive enough that a second evaluation would be a real cost, so its behavior is readable rather than assumed.
     pub fn answered(&self) -> usize {
         self.verdicts.len()
     }
 }
 
-/// Whether the raw fourth slot can decide an input's window, `table.fourth_slot_filter` — [`ThirdSlotFilter`] one slot deeper, keyed on `(input, right1, right2, right3)` and asking a depth-4-reach chain to be unknown over `(right1, right2, right3, UNKNOWN)`.
+/// Whether the raw fourth slot can decide an input's window, `table.fourth_slot_filter` — [`ThirdSlotFilter`] one slot deeper, keyed on `(input, right1, right2, right3)` and asking a depth-4-reach chain to be unknown over `(right1, right2, right3, UNKNOWN)`, with [`ProspectLiveness::fourth_live`] as the second arm on the same terms.
 ///
-/// A window the third filter judges definite is definite for this one too, and the fixpoint relies on that: reach-3 chains are reach-2 chains, so a dead third slot cannot hide a live fourth on this arm.
+/// A window the third filter judges definite is definite for this one too, and the fixpoint relies on that: reach-3 chains are reach-2 chains on the chain arm, and on the liveness arm `third_live` ORs in `fourth_live` over every concrete letter third, so a dead third slot cannot hide a live fourth either way.
 pub struct FourthSlotFilter<'i> {
     chains: HashMap<Sym, Vec<&'i Condition>>,
     verdicts: HashMap<(Sym, Sym, Sym, Sym), bool>,
@@ -152,10 +164,11 @@ impl<'i> FourthSlotFilter<'i> {
         }
     }
 
-    /// Whether this window carries a live fourth slot at this concrete third, memoized on the window.
+    /// Whether this window carries a live fourth slot at this concrete third, memoized on the window, with `liveness` lent and consulted exactly as [`ThirdSlotFilter::matters`] lends and consults it.
     pub fn matters(
         &mut self,
         engine: &mut Engine<'_>,
+        liveness: Option<&mut ProspectLiveness<'_>>,
         input: Sym,
         right1: Sym,
         right2: Sym,
@@ -184,7 +197,9 @@ impl<'i> FourthSlotFilter<'i> {
                 }
             }
         }
-        // SEAM (sub-issue #45): `_ProspectLiveness.fourth_live` ORs in here, on the same terms as the third filter's arm.
+        if !verdict && let Some(liveness) = liveness {
+            verdict = liveness.fourth_live(engine, input, right1, right2, right3)?;
+        }
         self.verdicts.insert(key, verdict);
         Ok(verdict)
     }
@@ -349,13 +364,27 @@ mod tests {
         );
         assert_eq!(sorted(&index, &depth4_inputs(&index)), ["qsTea"]);
         assert_eq!(
-            sorted(&index, &third_slot_inputs(&index)),
+            sorted(&index, &third_slot_inputs(&index, false)),
             sorted(&index, &depth3_inputs(&index)),
             "the pinned world's pre-gate is the chain census itself"
         );
         assert_eq!(
-            sorted(&index, &fourth_slot_inputs(&index)),
+            sorted(&index, &fourth_slot_inputs(&index, false)),
             sorted(&index, &depth4_inputs(&index))
+        );
+    }
+
+    /// The widening is the whole of the deep world's pre-gate: every rune, at both depths, whatever its own chains reach — because a deep token reaches an uncensused input's window through its follower's replayed cascade or a vote's shifted slots, and only the per-window probe can say whether it moved anything.
+    #[test]
+    fn the_deep_world_admits_every_rune_at_both_depths() {
+        let index = census_spec();
+        let every = ["qsIt", "qsMay", "qsPea", "qsTea"];
+        assert_eq!(sorted(&index, &third_slot_inputs(&index, true)), every);
+        assert_eq!(sorted(&index, &fourth_slot_inputs(&index, true)), every);
+        assert_eq!(third_slot_inputs(&index, true).len(), index.rune_count());
+        assert!(
+            fourth_slot_inputs(&index, true).is_superset(&fourth_slot_inputs(&index, false)),
+            "the pinned census is a subset of the widened one, so no window the pinned world split stops splitting"
         );
     }
 
@@ -370,27 +399,27 @@ mod tests {
         let it = fixtures::sym(&index, "qsIt");
 
         assert_eq!(
-            filter.matters(&mut engine, pea, tea, may),
+            filter.matters(&mut engine, None, pea, tea, may),
             Ok(true),
             "both nearer hops matched, so the chain's third hop reads the slot the window does not supply"
         );
         assert_eq!(
-            filter.matters(&mut engine, pea, pea, may),
+            filter.matters(&mut engine, None, pea, pea, may),
             Ok(false),
             "the first hop already answered definitely, so every third token settles the same way"
         );
         assert_eq!(
-            filter.matters(&mut engine, pea, tea, pea),
+            filter.matters(&mut engine, None, pea, tea, pea),
             Ok(false),
             "the second hop answered definitely and the chain never reached the third slot"
         );
         assert_eq!(
-            filter.matters(&mut engine, tea, may, it),
+            filter.matters(&mut engine, None, tea, may, it),
             Ok(true),
             "a reach-3 chain is a reach-2 chain, so qsTea's resolve opens the third slot too"
         );
         assert_eq!(
-            filter.matters(&mut engine, may, tea, may),
+            filter.matters(&mut engine, None, may, tea, may),
             Ok(false),
             "an uncensused input has no chains to consult and is never live on this arm"
         );
@@ -407,17 +436,17 @@ mod tests {
         let it = fixtures::sym(&index, "qsIt");
 
         assert_eq!(
-            filter.matters(&mut engine, tea, may, it, pea),
+            filter.matters(&mut engine, None, tea, may, it, pea),
             Ok(true),
             "three matched hops leave the chain's fourth reading the unsupplied slot"
         );
         assert_eq!(
-            filter.matters(&mut engine, tea, may, it, tea),
+            filter.matters(&mut engine, None, tea, may, it, tea),
             Ok(false),
             "the third hop answered definitely at this concrete right3"
         );
         assert_eq!(
-            filter.matters(&mut engine, pea, tea, may, it),
+            filter.matters(&mut engine, None, pea, tea, may, it),
             Ok(false),
             "qsPea's chain reaches two slots, which the depth-4 census does not admit"
         );
@@ -446,22 +475,22 @@ mod tests {
         let may = fixtures::sym(&index, "qsMay");
 
         assert_eq!(filter.answered(), 0);
-        assert_eq!(filter.matters(&mut engine, pea, may, tea), Ok(false));
+        assert_eq!(filter.matters(&mut engine, None, pea, may, tea), Ok(false));
         assert_eq!(filter.answered(), 1);
         assert_eq!(
-            filter.matters(&mut engine, pea, may, tea),
+            filter.matters(&mut engine, None, pea, may, tea),
             Ok(false),
             "the second ask reads the memo"
         );
         assert_eq!(filter.answered(), 1, "and records no second window");
-        assert_eq!(filter.matters(&mut engine, pea, pea, tea), Ok(false));
+        assert_eq!(filter.matters(&mut engine, None, pea, pea, tea), Ok(false));
         assert_eq!(
             filter.answered(),
             2,
             "a different window is a different key"
         );
 
-        let raised = filter.matters(&mut engine, pea, tea, may);
+        let raised = filter.matters(&mut engine, None, pea, tea, may);
         assert_eq!(
             raised,
             Err(SettleError::Plain(

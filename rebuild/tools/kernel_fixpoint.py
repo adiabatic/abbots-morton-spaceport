@@ -2,13 +2,13 @@
 
 Three comparisons per (spec, configuration), each load-bearing for a different reason. The stream is compared as raw bytes against what `kernel_io.write_transitions` writes for Python's own product, which asserts far more than that the two sides found the same windows: rows in the product's own key order, the cell vocabulary seated the way `table._cell_key` sorts it, the provenance the engine fired while tabulating, the deep-class map, and every field's exact JSON spelling. The artifacts are compared after the kernel's own bytes have been fed back through `kernel_io.read_transitions` and `table.assemble_tables` — the seam this port is built around, where Python keeps the rule fold, the treaty fold and every writer forever — so what is proved is not that two products resemble each other but that the Rust one folds into the same three files a build persists. `table.table_digest` is the third, at the grain the rest of the rebuild states table identity in; it is deliberately redundant, and a digest that agreed while the bytes disagreed would be saying the digest had stopped covering something.
 
-The world is pinned and the harness refuses to run in any other. `simulated_prospect` and `vote_slots` are engine defaults `settle` reads from the environment at import, and this sub-issue's kernel implements the world with both off; a Python process left at the shipping defaults would enumerate a different fixpoint entirely, and every row of the diff would then be blamed on the port. The refusal names the environment spelling because that is the only lever there is, and `make kernel-fixpoint` bakes it into the recipe.
+The harness answers whichever world the Python process is in, and tells the kernel which one that is. `simulated_prospect` and `vote_slots` are engine defaults `settle` reads from the environment at import, `DEEP_CLASSES_DEFAULT` is `table`'s companion, and all three change what a fixpoint enumerates rather than how fast it gets there; a comparison that let the two sides pick their worlds separately would blame the port for every row of the difference. So the flags are reflected off the Python side's own defaults rather than pinned here — the shipping defaults invoke the verb bare, `AMS_SIMULATED_PROSPECT=0 AMS_VOTE_SLOTS=0` reproduces sub-issue #44's pinned candidacy world, and `AMS_DEEP_CLASSES=0` is the label-grain arm — and each exit-bar arm is one `make` target: `kernel-fixpoint`, `kernel-fixpoint-pinned`, `kernel-fixpoint-label-grain`. The world rides the run's own header line, because a byte comparison that agrees says nothing until you know what it agreed about.
 
 The kernel's verb is probed before any Python fixpoint runs. A live fixpoint costs tens of seconds per configuration, so a binary that predates the verb would otherwise be discovered after minutes of work with nowhere to go; the probe is one mini-fixture enumeration, and a binary that answers exit 2 to it reads as the verb being absent — one clean line, exactly as `kernel_differential` reads that status.
 
 Specs are every rung of `kernel_parity`'s nested scaling ladder and then the live alphabet, cheapest first: a port that is wrong is usually wrong at six runes too, and a rung answers in seconds where the live alphabet takes minutes. `--live-only` skips the ladder for the iteration loop. The ladder's last rung is the whole alphabet by construction, so the full form enumerates the live spec twice — kept rather than special-cased, because the rungs are the sub-issue's stated bar and are what the later differential beds are cut at.
 
-Run as `uv run python -m rebuild.tools.kernel_fixpoint`, or through `make kernel-fixpoint`, which builds the binary and pins the world for you.
+Run as `uv run python -m rebuild.tools.kernel_fixpoint`, or through `make kernel-fixpoint`, which builds the binary first.
 """
 
 from __future__ import annotations
@@ -34,19 +34,24 @@ CONTEXT = 48
 LINE_LIMIT = 400
 # The sources stamp `write_windows` seals into the windows head. Both sides get this same constant on purpose: the stamp names the files a build was cut from, which is not what this harness compares, and a real fingerprint would put a value that moves on every rune edit inside a byte comparison.
 INPUTS_STAMP = "kernel-fixpoint"
-# The two pins this sub-issue's kernel answers in, in the spelling `settle` reads them under. Sub-issue #45 is where the shipping defaults land, and until then a run in any other world is refused rather than reported.
-PINS = (
-    ("AMS_SIMULATED_PROSPECT=0", "SIMULATED_PROSPECT_DEFAULT"),
-    ("AMS_VOTE_SLOTS=0", "VOTE_SLOTS_DEFAULT"),
+# The three semantics flags a fixpoint's shape depends on, each as (the kernel flag that says it is off, the module holding the default, the attribute). Off is what carries a flag, so the shipping world invokes the verb bare; the environment spellings the recipes bake in are AMS_SIMULATED_PROSPECT, AMS_VOTE_SLOTS and AMS_DEEP_CLASSES respectively.
+WORLD_FLAGS = (
+    ("--candidacy-prospect", settle, "SIMULATED_PROSPECT_DEFAULT"),
+    ("--vote-slots-off", settle, "VOTE_SLOTS_DEFAULT"),
+    ("--deep-classes-off", table, "DEEP_CLASSES_DEFAULT"),
 )
 
 
-def pin_complaint() -> str | None:
-    """The refusal that keeps the harness honest about which world it is comparing, or None when the process is already pinned. Both flags are module-level defaults consulted at engine construction, so the only way to move them is the environment — which is why the complaint names the spelling rather than a command-line knob that does not exist."""
-    unpinned = [spelling for spelling, attribute in PINS if getattr(settle, attribute)]
-    if not unpinned:
-        return None
-    return f"the Python side is not in the pinned candidacy world — rerun with {' '.join(unpinned)} in the environment, or through `make kernel-fixpoint`, which bakes both in"
+def world_flags() -> list[str]:
+    """The mode flags the kernel needs to enumerate the world this Python process is in — one per default that is off. All three are module-level defaults consulted at construction time, so the environment is the only lever on the Python side and this is what carries it across to the kernel."""
+    return [flag for flag, module, attribute in WORLD_FLAGS if not getattr(module, attribute)]
+
+
+def world_label() -> str:
+    """The world named in the run's header, in the flag spelling both sides use — `shipping defaults` when nothing is off — plus the grain the deep slots enumerate at, which no flag list states on its own: the pinned candidacy world has no fibre source and so enumerates at label grain whatever `AMS_DEEP_CLASSES` says, which is exactly the coincidence a header naming only the flags would let a reader miss. The grain is read off `table`'s own rule rather than restated, so the two can only agree. A byte comparison says nothing until you know which fixpoint it compared."""
+    flags = world_flags()
+    grain = "class grain" if table.DEEP_CLASSES_DEFAULT and table._deep_world(None) else "label grain"
+    return f"{' '.join(flags) if flags else 'shipping defaults'}, {grain}"
 
 
 def _run(arguments: list[str]) -> tuple[bytes, str, int | None]:
@@ -74,10 +79,10 @@ def _kernel(arguments: list[str], verb: str) -> bytes:
 
 
 def enumerate_flags(config: str) -> list[str]:
-    """The `enumerate` flags one configuration calls for: its active stylistic sets, and both mode pins. An empty feature set passes no flag at all rather than an empty value, matching the CLI's own refusal of `--features=`; the pins ride every invocation because this sub-issue's kernel answers no other world."""
+    """The `enumerate` flags one configuration calls for: its active stylistic sets, and the world this process is in. An empty feature set passes no flag at all rather than an empty value, matching the CLI's own refusal of `--features=`; a shipping-defaults run therefore names only its features, and the mode flags appear exactly where the Python side has a default switched off."""
     features = sorted(conform.features_for_config(config))
     flags = [f"--features={','.join(features)}"] if features else []
-    return [*flags, "--candidacy-prospect", "--vote-slots-off"]
+    return [*flags, *world_flags()]
 
 
 def probe(scratch: Path) -> None:
@@ -223,10 +228,6 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         return 1
-    complaint = pin_complaint()
-    if complaint is not None:
-        print(f"kernel fixpoint: {complaint}", file=sys.stderr)
-        return 1
     live = load_default_spec()
     order = kernel_parity.ladder_order(live)
     rungs = [] if args.live_only else kernel_parity.ladder_rungs(order)
@@ -237,7 +238,7 @@ def main(argv: list[str] | None = None) -> int:
     start = time.perf_counter()
     ladder = "" if args.live_only else f" plus {len(rungs)} ladder rungs"
     print(
-        f"kernel fixpoint: the live alphabet{ladder} at {len(conform.ACCEPTANCE_CONFIGS)} configurations against {BINARY.relative_to(ROOT)}",
+        f"kernel fixpoint: {world_label()} — the live alphabet{ladder} at {len(conform.ACCEPTANCE_CONFIGS)} configurations against {BINARY.relative_to(ROOT)}",
         flush=True,
     )
     with tempfile.TemporaryDirectory() as scratch:
