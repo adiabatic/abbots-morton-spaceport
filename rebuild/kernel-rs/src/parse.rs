@@ -4,7 +4,7 @@
 //!
 //! Key *order* inside a record is not checked, matching Python's set comparison; canonical dumps arrive in declaration order regardless, and re-emission spells declaration order back out. Key order inside a *mapping* is preserved, because that order is load-bearing.
 //!
-//! Two refusals are knowingly stricter than Python's, and neither is reachable from a canonical dump. serde_json caps JSON nesting near 128 levels where Python's own recursion limit sits several times higher — authored `then:` chains are lint-capped at `model.RIGHT_CHAIN_CAP` hops, so a real dump nests a couple dozen levels at most. And a lone surrogate escape, which Python's `str` can hold and its codec round-trips, cannot land in a Rust `String` at all, so a dump carrying one is refused outright rather than resolved lossily; `spec_load`'s sources are UTF-8 YAML, which cannot produce one. The mirror is exact everywhere a dump can actually come from.
+//! Three refusals are knowingly stricter than Python's, and none is reachable from a canonical dump. serde_json caps JSON nesting near 128 levels where Python's own recursion limit sits several times higher — authored `then:` chains are lint-capped at `model.RIGHT_CHAIN_CAP` hops, so a real dump nests a couple dozen levels at most. A lone surrogate escape, which Python's `str` can hold and its codec round-trips, cannot land in a Rust `String` at all, so a dump carrying one is refused outright rather than resolved lossily; `spec_load`'s sources are UTF-8 YAML, which cannot produce one. And a rune whose ligature `sequence` names exactly one component is refused where `kernel_io.spec_of` would take it, because every settlement read of a sequence assumes at least two and the alternative is a panic deep in the window options. The mirror is exact everywhere a dump can actually come from.
 //!
 //! [`parse_spec`] is where the `serde_json::Value` lives and dies. Its return type is the interned model, so nothing downstream can echo a dump by handing the parse tree back.
 
@@ -334,6 +334,17 @@ impl Parser {
         self.list(value, Self::symbol)
     }
 
+    /// A rune's `sequence`, knowingly stricter than `kernel_io.spec_of`, which takes any list: a one-component "ligature" is a shape `spec_load` cannot produce, and every settlement read of a sequence — the formation pairs, the survivable trailing pair's `[-2]`, `liga_formed_before`'s `[1]` — assumes at least two components, so a dump spelling one is refused here with the CLI's one-line complaint rather than surfacing as a panic deep in the window options.
+    fn ligature_sequence(&mut self, value: &Value) -> Result<Vec<Sym>, IngestError> {
+        let symbols = self.symbol_list(value)?;
+        if symbols.len() == 1 {
+            return Err(IngestError::new(
+                "a ligature sequence names at least two components",
+            ));
+        }
+        Ok(symbols)
+    }
+
     fn integer_list(&mut self, value: &Value) -> Result<Vec<i64>, IngestError> {
         self.list(value, Self::number)
     }
@@ -383,7 +394,9 @@ impl Parser {
         Ok(Rune {
             name: record.take("name", |item| self.symbol(item))?,
             codepoint: record.take("codepoint", |item| self.optional(item, Self::number))?,
-            sequence: record.take("sequence", |item| self.optional(item, Self::symbol_list))?,
+            sequence: record.take("sequence", |item| {
+                self.optional(item, Self::ligature_sequence)
+            })?,
             ductus: record.take("ductus", |item| self.table(item, Self::prose))?,
             notes: record.take("notes", |item| self.optional(item, Self::prose))?,
             mono: record.take("mono", |item| self.optional(item, Self::bitmap))?,
@@ -766,6 +779,22 @@ mod tests {
         let complaint = refusal(&SAMPLE.replace("\"ok\":[0,3]", "\"ok\":[0,3,5]"));
         assert!(
             complaint.contains("expected an array of 2 entries, got 3"),
+            "{complaint}"
+        );
+    }
+
+    #[test]
+    fn a_one_component_ligature_sequence_is_refused_where_a_bare_pair_is_taken() {
+        let complaint = refusal(&SAMPLE.replace(
+            "\"sequence\":[\"qsZoo\",\"qsAh\"]",
+            "\"sequence\":[\"qsZoo\"]",
+        ));
+        assert!(
+            complaint.contains("a ligature sequence names at least two components"),
+            "{complaint}"
+        );
+        assert!(
+            complaint.contains("runes.qsZoo_qsAh.sequence"),
             "{complaint}"
         );
     }
