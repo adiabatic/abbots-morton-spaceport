@@ -114,6 +114,74 @@ def test_conform_gate_fails_on_bare_false_pass():
     assert failures == ["conform gate: pass is false"]
 
 
+def _identical(*configs):
+    arms = {"windows": "identical", "settlement": "identical", "treaties": "identical", "digest": "identical"}
+    return {name: dict(arms) for name in configs}
+
+
+def _kernel_summary(**overrides):
+    summary = {"divergences": 0, "stale": [], "error": None, "configs": _identical("default", "ss03")}
+    summary.update(overrides)
+    return summary
+
+
+def test_kernel_differential_gate_passes_when_every_arm_is_identical():
+    status, failures = ac.evaluate_kernel_differential_gate(_kernel_summary())
+    assert status == "green"
+    assert failures == []
+
+
+def test_kernel_differential_gate_names_the_config_and_the_artifacts_that_moved():
+    configs = _identical("default", "ss03")
+    configs["ss03"]["windows"] = "differs"
+    configs["ss03"]["digest"] = "differs"
+    status, failures = ac.evaluate_kernel_differential_gate(_kernel_summary(divergences=2, configs=configs))
+    assert status == "FAILED"
+    assert failures[0] == "kernel-differential gate: 2 Rust-vs-Python divergence(s)"
+    assert failures[1] == "kernel-differential gate: ss03 differs on digest, windows"
+
+
+def test_kernel_differential_gate_reads_stale_artifacts_as_red_pointing_at_the_cycle():
+    """A stale rebuild/out/m1 is not a divergence: nothing was compared, so the gate is red with the artifact cycle as the remedy rather than a diff to chase."""
+    stale = ["windows-ss03.tsv.gz: stamped for other inputs"]
+    status, failures = ac.evaluate_kernel_differential_gate(_kernel_summary(stale=stale))
+    assert status == "FAILED"
+    assert "1 stale artifact(s)" in failures[0]
+    assert "windows-ss03.tsv.gz" in failures[0]
+    assert "run the artifact cycle" in failures[0]
+
+
+def test_kernel_differential_gate_carries_a_run_error_through():
+    status, failures = ac.evaluate_kernel_differential_gate(
+        _kernel_summary(error="cargo not found: install the Rust toolchain", configs={})
+    )
+    assert status == "FAILED"
+    assert failures[0] == "kernel-differential gate: cargo not found: install the Rust toolchain"
+
+
+def test_kernel_differential_gate_fails_on_a_summary_that_compared_nothing():
+    assert ac.evaluate_kernel_differential_gate(_kernel_summary(configs={})) == (
+        "FAILED",
+        ["kernel-differential gate: the summary compared no configs"],
+    )
+    status, failures = ac.evaluate_kernel_differential_gate(None)
+    assert status == "FAILED (no kernel_differential_summary.json)"
+    assert failures == ["kernel-differential gate: rebuild.tools.kernel_gate wrote no summary"]
+
+
+def test_kernel_differential_argv_names_the_tool_and_the_thread_width():
+    assert ac.kernel_differential_argv(6) == [
+        "uv",
+        "run",
+        "python",
+        "-m",
+        "rebuild.tools.kernel_gate",
+        "--threads",
+        "6",
+    ]
+    assert ac.kernel_differential_argv()[-1] == str(ac.KERNEL_THREADS_DEFAULT)
+
+
 def test_classify_baseline():
     for test_id in ac.BASELINE_REBUILD_FAILURES:
         assert ac.classify_rebuild_failure(test_id, update_pins=False) == "baseline"
@@ -248,6 +316,43 @@ def test_dry_run_plan_skip_conform():
     assert by_name["gate:conform"].argv is None
     assert by_name["gate:conform"].note == "SKIPPED (--skip-conform)"
     assert by_name["gate:rebuild"].argv is not None
+
+
+def test_dry_run_plan_runs_the_kernel_differential_in_its_own_lane():
+    plan = _plan()
+    step = {step.name: step for step in plan.steps}["gate:kernel-differential"]
+    assert step.argv == ac.kernel_differential_argv(ac.KERNEL_THREADS_DEFAULT)
+    assert step.lane == "kernel"
+    assert plan.kernel_threads == ac.KERNEL_THREADS_DEFAULT
+
+
+def test_dry_run_plan_kernel_threads_reach_the_argv_and_the_lane():
+    plan = _plan(kernel_threads=6)
+    by_name = {step.name: step for step in plan.steps}
+    assert _argv(by_name["gate:kernel-differential"])[-2:] == ["--threads", "6"]
+    assert "(--threads 6)" in ac.render_plan(plan)
+
+
+def test_dry_run_plan_skip_kernel_differential():
+    forced = _plan(skip_kernel_differential=True)
+    by_name = {step.name: step for step in forced.steps}
+    assert by_name["gate:kernel-differential"].argv is None
+    assert by_name["gate:kernel-differential"].note == "SKIPPED (--skip-kernel-differential)"
+    assert by_name["gate:conform"].argv is not None
+    proved = _plan(skip_kernel_differential=True, kernel_differential_note="sources unchanged")
+    proved_step = {step.name: step for step in proved.steps}["gate:kernel-differential"]
+    assert proved_step.note == "SKIPPED (sources unchanged)"
+    assert "Lane kernel                      : SKIPPED (sources unchanged)" in ac.render_plan(proved)
+
+
+def test_dry_run_plan_deferred_kernel_differential_replaces_its_step():
+    plan = _plan(deferred=frozenset({"kernel-differential"}))
+    step = {step.name: step for step in plan.steps}["gate:kernel-differential"]
+    assert step.argv is None
+    assert step.note == f"DEFERRED ({ac.DEFER_NOTE})"
+    rendered = ac.render_plan(plan)
+    assert f"Lane kernel                      : DEFERRED ({ac.DEFER_NOTE})" in rendered
+    assert "deferred to the next pass        : gate:kernel-differential" in rendered
 
 
 def test_dry_run_plan_merge_follows_carry():
@@ -591,7 +696,7 @@ def _make_ok(spawn, emit, registry):
     return _step("gate:make-test", 0)
 
 
-def _rebuild_green(pool_policy, conform_fut, make_fut, spawn, emit, registry, update_pins):
+def _rebuild_green(pool_policy, kernel_fut, conform_fut, make_fut, spawn, emit, registry, update_pins):
     return ac.RebuildOutcome("green", [], [])
 
 
@@ -599,10 +704,15 @@ def _conform_green(pool_policy, make_fut, spawn, emit, registry, argv):
     return "green", []
 
 
+def _kernel_green(pool_policy, conform_fut, make_fut, spawn, emit, registry, argv):
+    return "green", []
+
+
 def _patch_gate_fingerprints(monkeypatch):
     """The gate greens' keys, for a test that only cares that a green was or wasn't recorded. Unstubbed these are the live ones: _run_cycle snapshots them before the gates and _record_gate_greens recomputes them after, and each pass runs git ls-files over the repo and sha256s all of rebuild/, glyph_data/, the fonts, and the baseline TSVs — several seconds per test, and an answer that depends on the working tree rather than on the arrangement the test set up. Whether a moved key withholds the green is its own test."""
     monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, horizon=None: "cfp")
     monkeypatch.setattr(ac, "rebuild_gate_skip_fingerprint", lambda root=None: "rfp")
+    monkeypatch.setattr(ac, "kernel_differential_skip_fingerprint", lambda root=None: "kfp")
 
 
 def _patch_build_chain(monkeypatch):
@@ -627,6 +737,7 @@ def test_merge_failure_fails_the_cycle(monkeypatch, capsys):
     monkeypatch.setattr(ac, "_do_merge", failing_merge)
     monkeypatch.setattr(ac, "_do_census", _census_clean)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
+    monkeypatch.setattr(ac, "_gate_kernel_differential_task", _kernel_green)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
     monkeypatch.setattr(ac, "_gate_rebuild_task", _rebuild_green)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
@@ -656,6 +767,7 @@ def test_merge_not_run_when_carry_fails(monkeypatch, capsys):
     monkeypatch.setattr(ac, "_do_merge", watching_merge)
     monkeypatch.setattr(ac, "_do_census", _census_clean)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
+    monkeypatch.setattr(ac, "_gate_kernel_differential_task", _kernel_green)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
     monkeypatch.setattr(ac, "_gate_rebuild_task", _rebuild_green)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
@@ -689,6 +801,7 @@ def test_echo_fill_failure_fails_the_cycle(monkeypatch, capsys):
     monkeypatch.setattr(ac, "_do_echo_merge", watching_echo_merge)
     monkeypatch.setattr(ac, "_do_census", _census_clean)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
+    monkeypatch.setattr(ac, "_gate_kernel_differential_task", _kernel_green)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
     monkeypatch.setattr(ac, "_gate_rebuild_task", _rebuild_green)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
@@ -719,6 +832,7 @@ def test_echo_merge_failure_fails_the_cycle(monkeypatch, capsys):
     monkeypatch.setattr(ac, "_do_echo_merge", failing_echo_merge)
     monkeypatch.setattr(ac, "_do_census", _census_clean)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
+    monkeypatch.setattr(ac, "_gate_kernel_differential_task", _kernel_green)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
     monkeypatch.setattr(ac, "_gate_rebuild_task", _rebuild_green)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
@@ -756,6 +870,7 @@ def test_standing_fill_failure_fails_the_cycle(monkeypatch, capsys):
     monkeypatch.setattr(ac, "_do_standing_merge", watching_standing_merge)
     monkeypatch.setattr(ac, "_do_census", _census_clean)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
+    monkeypatch.setattr(ac, "_gate_kernel_differential_task", _kernel_green)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
     monkeypatch.setattr(ac, "_gate_rebuild_task", _rebuild_green)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
@@ -790,6 +905,7 @@ def test_echo_helpers_not_run_when_do_merge_false(monkeypatch):
     monkeypatch.setattr(ac, "_do_echo_merge", watching_echo_merge)
     monkeypatch.setattr(ac, "_do_census", _census_clean)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
+    monkeypatch.setattr(ac, "_gate_kernel_differential_task", _kernel_green)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
     monkeypatch.setattr(ac, "_gate_rebuild_task", _rebuild_green)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
@@ -986,6 +1102,7 @@ def test_gates_launch_before_run_m1_finishes(monkeypatch):
         return ac.GateOutcome(True, [], 1, 0)
 
     monkeypatch.setattr(ac, "_gate_js_task", fake_js)
+    monkeypatch.setattr(ac, "_gate_kernel_differential_task", _kernel_green)
     monkeypatch.setattr(ac, "_gate_make_test_task", fake_make)
     monkeypatch.setattr(ac, "_do_run_m1", fake_run_m1)
     monkeypatch.setattr(ac, "_gate_rebuild_task", _rebuild_green)
@@ -1020,13 +1137,14 @@ def test_gate_rebuild_waits_for_run_m1_pass(monkeypatch):
         record["run_m1_finish"] = time.monotonic()
         return ac.GateOutcome(True, [], 1, 0)
 
-    def fake_rebuild(pool_policy, conform_fut, make_fut, spawn, emit, registry, update_pins):
+    def fake_rebuild(pool_policy, kernel_fut, conform_fut, make_fut, spawn, emit, registry, update_pins):
         record["rebuild_invoked"] = time.monotonic()
         return ac.RebuildOutcome("green", [], [])
 
     monkeypatch.setattr(ac, "_do_run_m1", fake_run_m1)
     monkeypatch.setattr(ac, "_gate_rebuild_task", fake_rebuild)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
+    monkeypatch.setattr(ac, "_gate_kernel_differential_task", _kernel_green)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
     _patch_build_chain(monkeypatch)
@@ -1044,13 +1162,14 @@ def test_gate_rebuild_skipped_when_run_m1_fails(monkeypatch, capsys):
     def fake_run_m1(report, *, spawn, emit, registry, budget, **_):
         return None
 
-    def fake_rebuild(pool_policy, conform_fut, make_fut, spawn, emit, registry, update_pins):
+    def fake_rebuild(pool_policy, kernel_fut, conform_fut, make_fut, spawn, emit, registry, update_pins):
         called["rebuild"] = True
         return ac.RebuildOutcome("green", [], [])
 
     monkeypatch.setattr(ac, "_do_run_m1", fake_run_m1)
     monkeypatch.setattr(ac, "_gate_rebuild_task", fake_rebuild)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
+    monkeypatch.setattr(ac, "_gate_kernel_differential_task", _kernel_green)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
     _patch_build_chain(monkeypatch)
 
@@ -1083,6 +1202,7 @@ def test_pool_queue_serializes_rebuild_after_make_test(monkeypatch):
 
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
+    monkeypatch.setattr(ac, "_gate_kernel_differential_task", _kernel_green)
     monkeypatch.setattr(ac, "_gate_make_test_task", fake_make)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
     _patch_build_chain(monkeypatch)
@@ -1125,6 +1245,7 @@ def test_pool_overlap_starts_rebuild_before_make_test_done(monkeypatch):
 
     monkeypatch.setattr(ac, "_do_run_m1", fake_run_m1)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
+    monkeypatch.setattr(ac, "_gate_kernel_differential_task", _kernel_green)
     monkeypatch.setattr(ac, "_gate_make_test_task", fake_make)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
     _patch_build_chain(monkeypatch)
@@ -1175,6 +1296,7 @@ def test_pool_queue_rebuild_waits_for_conform_gate(monkeypatch):
 
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
+    monkeypatch.setattr(ac, "_gate_kernel_differential_task", _kernel_green)
     monkeypatch.setattr(ac, "_gate_make_test_task", fake_make)
     monkeypatch.setattr(ac, "_gate_conform_task", fake_conform)
     _patch_build_chain(monkeypatch)
@@ -1224,6 +1346,7 @@ def test_pool_queue_rebuild_falls_back_to_make_test_when_conform_skipped(monkeyp
 
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
+    monkeypatch.setattr(ac, "_gate_kernel_differential_task", _kernel_green)
     monkeypatch.setattr(ac, "_gate_make_test_task", fake_make)
     _patch_build_chain(monkeypatch)
 
@@ -1246,6 +1369,142 @@ def test_pool_queue_rebuild_falls_back_to_make_test_when_conform_skipped(monkeyp
     assert report.gate_conform == "skipped (--skip-conform)"
     assert report.gate_rebuild == "green"
     assert box["rc"] == 0
+
+
+def test_pool_queue_kernel_gate_waits_for_the_conform_sweep(monkeypatch):
+    """The heavy chain runs make-test -> conform -> kernel-differential -> rebuild, so the kernel's child cannot spawn while the sweep is still hot. This drives the real gate task: the summary its child writes is the one the verdict comes from."""
+    record = {}
+    release_conform = threading.Event()
+    conform_running = threading.Event()
+    kernel_started = threading.Event()
+
+    def fake_conform(pool_policy, make_fut, spawn, emit, registry, argv):
+        conform_running.set()
+        release_conform.wait()
+        record["conform_finish"] = time.monotonic()
+        return "green", []
+
+    def fake_spawn(name, argv, *, emit, registry, stream):
+        if name == "gate:kernel-differential":
+            record["kernel_start"] = time.monotonic()
+            record["kernel_argv"] = argv
+            ac.KERNEL_DIFFERENTIAL_SUMMARY.write_text(json.dumps(_kernel_summary()))
+            kernel_started.set()
+        return _step(name, 0)
+
+    monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
+    monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
+    monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
+    monkeypatch.setattr(ac, "_gate_conform_task", fake_conform)
+    monkeypatch.setattr(ac, "_gate_rebuild_task", _rebuild_green)
+    _patch_build_chain(monkeypatch)
+
+    plan = _plan(pool_policy="queue")
+    report = ac.CycleReport()
+    box = {}
+    t = threading.Thread(
+        target=lambda: box.__setitem__(
+            "rc", ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=fake_spawn)
+        )
+    )
+    t.start()
+    conform_running.wait()
+    assert not kernel_started.wait(0.2)
+    release_conform.set()
+    kernel_started.wait()
+    t.join()
+
+    assert record["kernel_start"] >= record["conform_finish"]
+    assert record["kernel_argv"] == ac.kernel_differential_argv(ac.KERNEL_THREADS_DEFAULT)
+    assert report.gate_kernel_differential == "green"
+    assert box["rc"] == 0
+
+
+def test_pool_queue_rebuild_waits_for_the_kernel_gate(monkeypatch):
+    record = {}
+    release_kernel = threading.Event()
+    kernel_running = threading.Event()
+    rebuild_started = threading.Event()
+
+    def fake_kernel(pool_policy, conform_fut, make_fut, spawn, emit, registry, argv):
+        kernel_running.set()
+        release_kernel.wait()
+        record["kernel_finish"] = time.monotonic()
+        return "green", []
+
+    def fake_spawn(name, argv, *, emit, registry, stream):
+        if name == "gate:rebuild":
+            record["rebuild_start"] = time.monotonic()
+            rebuild_started.set()
+        return _step(name, 0)
+
+    monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
+    monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
+    monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
+    monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
+    monkeypatch.setattr(ac, "_gate_kernel_differential_task", fake_kernel)
+    _patch_build_chain(monkeypatch)
+
+    plan = _plan(pool_policy="queue")
+    report = ac.CycleReport()
+    box = {}
+    t = threading.Thread(
+        target=lambda: box.__setitem__(
+            "rc", ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=fake_spawn)
+        )
+    )
+    t.start()
+    kernel_running.wait()
+    assert not rebuild_started.wait(0.2)
+    release_kernel.set()
+    rebuild_started.wait()
+    t.join()
+
+    assert record["rebuild_start"] >= record["kernel_finish"]
+    assert report.gate_kernel_differential == "green"
+    assert report.gate_rebuild == "green"
+    assert box["rc"] == 0
+
+
+def test_the_gate_pool_seats_every_gate_task_at_once():
+    """Under the queue policy a parked task holds its worker for the whole wait — conform on make-test, kernel-differential on conform, rebuild on all three — so the pool seats every gate task at once plus one spare, the same one-seat headroom the pool carried when it was five workers over four tasks. The chain cannot actually deadlock at a smaller width — submission order matches the parking order and the pool is FIFO, so a task only ever parks on a future already seated or done — but a seat short of the task count would serialize a wait behind an unrelated task's completion, which is the queueing this pool exists not to do."""
+    gate_tasks = (
+        ac._gate_js_task,
+        ac._gate_make_test_task,
+        ac._gate_conform_task,
+        ac._gate_kernel_differential_task,
+        ac._gate_rebuild_task,
+    )
+    assert ac._GATE_POOL_WORKERS == len(gate_tasks) + 1
+
+
+def test_gate_kernel_differential_task_judges_only_this_cycles_summary(monkeypatch):
+    """The stale summary is unlinked before the child spawns, so a run that writes none can never be judged from the last pass's verdict."""
+    ac.KERNEL_DIFFERENTIAL_SUMMARY.write_text(json.dumps(_kernel_summary()))
+    seen = {}
+
+    def fake_spawn(name, argv, *, emit, registry, stream):
+        seen["existed"] = ac.KERNEL_DIFFERENTIAL_SUMMARY.exists()
+        return _step(name, 0)
+
+    status, failures = ac._gate_kernel_differential_task(
+        "queue", None, None, fake_spawn, ac._Emitter(), ac._ChildRegistry(), ["kernel-gate"]
+    )
+    assert seen["existed"] is False
+    assert status == "FAILED (no kernel_differential_summary.json)"
+    assert failures == ["kernel-differential gate: rebuild.tools.kernel_gate wrote no summary"]
+
+
+def test_gate_kernel_differential_task_fails_a_nonzero_exit_over_a_passing_summary():
+    def fake_spawn(name, argv, *, emit, registry, stream):
+        ac.KERNEL_DIFFERENTIAL_SUMMARY.write_text(json.dumps(_kernel_summary()))
+        return _step(name, 3)
+
+    status, failures = ac._gate_kernel_differential_task(
+        "queue", None, None, fake_spawn, ac._Emitter(), ac._ChildRegistry(), ["kernel-gate"]
+    )
+    assert status == "FAILED (exit 3)"
+    assert failures == ["kernel-differential gate: exited 3 despite a passing summary"]
 
 
 def test_summary_exact_under_out_of_order_completion(monkeypatch, capsys):
@@ -1275,7 +1534,7 @@ def test_summary_exact_under_out_of_order_completion(monkeypatch, capsys):
         ev_make.wait()
         return _step("gate:make-test", 0)
 
-    def fake_rebuild(pool_policy, conform_fut, make_fut, spawn, emit, registry, update_pins):
+    def fake_rebuild(pool_policy, kernel_fut, conform_fut, make_fut, spawn, emit, registry, update_pins):
         ev_rebuild.wait()
         return ac.RebuildOutcome("green (1 documented baseline)", [], [])
 
@@ -1284,6 +1543,7 @@ def test_summary_exact_under_out_of_order_completion(monkeypatch, capsys):
     monkeypatch.setattr(ac, "_do_carry", _carry_ok)
     monkeypatch.setattr(ac, "_do_census", _census_clean)
     monkeypatch.setattr(ac, "_gate_js_task", fake_js)
+    monkeypatch.setattr(ac, "_gate_kernel_differential_task", _kernel_green)
     monkeypatch.setattr(ac, "_gate_make_test_task", fake_make)
     monkeypatch.setattr(ac, "_gate_rebuild_task", fake_rebuild)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
@@ -1370,7 +1630,7 @@ def test_gate_rebuild_stays_captured_and_parses_failures(capsys):
 
     emit = ac._Emitter()
     registry = ac._ChildRegistry()
-    outcome = ac._gate_rebuild_task("overlap", None, None, fake_spawn, emit, registry, False)
+    outcome = ac._gate_rebuild_task("overlap", None, None, None, fake_spawn, emit, registry, False)
 
     assert seen["stream"] is False
     assert len(outcome.hard_ids) == 2
@@ -1380,7 +1640,7 @@ def test_gate_rebuild_stays_captured_and_parses_failures(capsys):
     failures = []
     with ThreadPoolExecutor(max_workers=1) as pool:
         fut = pool.submit(lambda: outcome)
-        ac._join_gates(report, failures, None, fut, None, None, emit)
+        ac._join_gates(report, failures, None, fut, None, None, None, emit)
     assert report.gate_rebuild == "FAILED (2 unexplained)"
 
     out = capsys.readouterr().out
@@ -1411,6 +1671,7 @@ def test_failure_funnels_from_concurrent_branch(monkeypatch, capsys):
     monkeypatch.setattr(ac, "_do_carry", _carry_ok)
     monkeypatch.setattr(ac, "_do_census", _census_clean)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
+    monkeypatch.setattr(ac, "_gate_kernel_differential_task", _kernel_green)
     monkeypatch.setattr(ac, "_gate_make_test_task", fake_make)
     monkeypatch.setattr(ac, "_gate_rebuild_task", _rebuild_green)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
@@ -1433,6 +1694,7 @@ def test_gate_task_exception_still_prints_one_summary(monkeypatch, capsys):
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
     _patch_build_chain(monkeypatch)
     monkeypatch.setattr(ac, "_gate_js_task", raising_js)
+    monkeypatch.setattr(ac, "_gate_kernel_differential_task", _kernel_green)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
     monkeypatch.setattr(ac, "_gate_rebuild_task", _rebuild_green)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
@@ -1457,6 +1719,7 @@ def test_queue_policy_rebuild_runs_when_make_test_task_raises(monkeypatch, capsy
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
     _patch_build_chain(monkeypatch)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
+    monkeypatch.setattr(ac, "_gate_kernel_differential_task", _kernel_green)
     monkeypatch.setattr(ac, "_gate_make_test_task", raising_make)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
 
@@ -1477,6 +1740,7 @@ def test_queue_policy_rebuild_runs_when_conform_task_raises(monkeypatch, capsys)
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
     _patch_build_chain(monkeypatch)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
+    monkeypatch.setattr(ac, "_gate_kernel_differential_task", _kernel_green)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
     monkeypatch.setattr(ac, "_gate_conform_task", raising_conform)
 
@@ -1496,6 +1760,7 @@ def test_run_m1_failure_still_collects_make_test(monkeypatch, capsys):
 
     monkeypatch.setattr(ac, "_do_run_m1", fake_run_m1)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
+    monkeypatch.setattr(ac, "_gate_kernel_differential_task", _kernel_green)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
     monkeypatch.setattr(ac, "_gate_rebuild_task", _rebuild_green)
     _patch_build_chain(monkeypatch)
@@ -1587,10 +1852,12 @@ def test_dry_run_renders_concurrency():
     assert "Lane build" in text
     assert "Lane rebuild" in text
     assert "Lane conform" in text
+    assert "Lane kernel" in text
     assert "census -> submit gate:rebuild" in text
     assert "QUEUED behind gate:make-test (queue policy — one heavy pool at a time)" in text
-    assert "submitted after the census step lands its verdict;" in text
     assert "QUEUED behind gate:conform (queue policy — one heavy pool at a time)" in text
+    assert "submitted after the census step lands its verdict;" in text
+    assert "QUEUED behind gate:kernel-differential (queue policy — one heavy pool at a time)" in text
     assert "--jobs budget        : 6" in text
 
     by_name = {step.name: step for step in plan.steps}
@@ -1663,6 +1930,7 @@ def _green_report():
     report.gate_js = "green"
     report.gate_rebuild = "green"
     report.gate_conform = "green"
+    report.gate_kernel_differential = "green"
     report.gate_make_test = "green"
     return report
 
@@ -1672,7 +1940,7 @@ def test_cycle_summary_payload_all_green_exit_ok():
     assert payload["format"] == "ams-cycle-summary/1"
     assert payload["exit"] == "ok"
     assert payload["failures"] == []
-    assert set(payload["gates"]) == {"js", "rebuild", "conform", "make_test"}
+    assert set(payload["gates"]) == {"js", "rebuild", "conform", "kernel_differential", "make_test"}
     assert all(gate["green"] is True for gate in payload["gates"].values())
     assert payload["finished_at"].endswith("Z")
 
@@ -1734,9 +2002,11 @@ def test_cycle_summary_payload_plan_block_and_argv():
         "carry_out": str(plan.carry_out),
         "do_merge": True,
         "conform_horizon": ac.CONFORM_HORIZON_DEFAULT,
+        "kernel_threads": ac.KERNEL_THREADS_DEFAULT,
         "pool_policy": ac.REBUILD_POOL_POLICY_DEFAULT,
         "skip_gates": False,
         "skip_conform": False,
+        "skip_kernel_differential": False,
         "skip_run_m1": False,
         "skip_surface": False,
         "skip_rebuild_gate": False,
@@ -1769,6 +2039,7 @@ def test_cycle_writes_green_summary_with_surface(monkeypatch, tmp_path):
 
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
+    monkeypatch.setattr(ac, "_gate_kernel_differential_task", _kernel_green)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
     monkeypatch.setattr(ac, "_gate_rebuild_task", _rebuild_green)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
@@ -1794,6 +2065,7 @@ def test_cycle_writes_failed_summary_on_run_m1_failure(monkeypatch, tmp_path):
 
     monkeypatch.setattr(ac, "_do_run_m1", fake_run_m1)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
+    monkeypatch.setattr(ac, "_gate_kernel_differential_task", _kernel_green)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
     monkeypatch.setattr(ac, "_gate_rebuild_task", _rebuild_green)
     _patch_build_chain(monkeypatch)
@@ -1830,6 +2102,7 @@ def test_cycle_summary_surface_nulls_when_manifest_missing(monkeypatch, tmp_path
 
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
+    monkeypatch.setattr(ac, "_gate_kernel_differential_task", _kernel_green)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
     monkeypatch.setattr(ac, "_gate_rebuild_task", _rebuild_green)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
@@ -2087,6 +2360,7 @@ def test_run_cycle_never_spawns_make_test_when_skipped(monkeypatch):
 
     monkeypatch.setattr(ac, "_gate_make_test_task", fake_make)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
+    monkeypatch.setattr(ac, "_gate_kernel_differential_task", _kernel_green)
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
     monkeypatch.setattr(ac, "_gate_rebuild_task", _rebuild_green)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
@@ -2144,6 +2418,104 @@ def test_conform_skip_fingerprint_includes_horizon_and_font(tmp_path):
     assert ac.conform_skip_fingerprint(tmp_path, 5) != base
 
 
+def _kernel_key_tree(root: Path) -> None:
+    """A scratch repo holding one file of every kind the kernel-differential key hashes: the spec inputs, the kernel's Python half, the gate's own executable, and the crate — plus a target/ tree the key must never see. Built rather than measured against the working tree so the assertions are about the key's coverage rather than about whatever the repo happens to hold, and so they hold before the gate's own module exists."""
+    (root / "glyph_data" / "runes").mkdir(parents=True)
+    (root / "glyph_data" / "runes" / "qsX.yaml").write_text("rune: qsX\nductus:\n  hapax: |\n    A stroke.\n")
+    pipeline = root / "rebuild" / "pipeline"
+    pipeline.mkdir(parents=True)
+    for name in ac.KERNEL_PIPELINE_SOURCES:
+        (pipeline / name).write_text(f"# {name}\n")
+    tools = root / "rebuild" / "tools"
+    tools.mkdir(parents=True)
+    for name in ac.KERNEL_GATE_SOURCES:
+        (tools / name).write_text(f"# {name}\n")
+    crate = root / "rebuild" / "kernel-rs"
+    (crate / "src").mkdir(parents=True)
+    (crate / "tests").mkdir(parents=True)
+    (crate / "Cargo.toml").write_text("[package]\nname = 'ams-m1-kernel'\n")
+    (crate / "Cargo.lock").write_text("# lock 1\n")
+    (crate / "src" / "main.rs").write_text("fn main() {}\n")
+    (crate / "tests" / "cli.rs").write_text("fn cli() {}\n")
+
+
+def test_kernel_differential_key_moves_with_either_engines_sources(tmp_path):
+    _kernel_key_tree(tmp_path)
+    base = ac.kernel_differential_skip_fingerprint(tmp_path)
+    assert ac.kernel_differential_skip_fingerprint(tmp_path) == base
+    assert ac._digest_lines(ac.kernel_differential_skip_lines(tmp_path)) == base
+    (tmp_path / "rebuild" / "kernel-rs" / "src" / "main.rs").write_text("fn main() { }\n")
+    moved_rust = ac.kernel_differential_skip_fingerprint(tmp_path)
+    assert moved_rust != base
+    (tmp_path / "rebuild" / "pipeline" / "table.py").write_text("# table.py, edited\n")
+    moved_python = ac.kernel_differential_skip_fingerprint(tmp_path)
+    assert moved_python != moved_rust
+    (tmp_path / "rebuild" / "tools" / "kernel_gate.py").write_text("# kernel_gate.py, edited\n")
+    moved_gate = ac.kernel_differential_skip_fingerprint(tmp_path)
+    assert moved_gate != moved_python
+    (tmp_path / "rebuild" / "kernel-rs" / "Cargo.lock").write_text("# lock 2\n")
+    assert ac.kernel_differential_skip_fingerprint(tmp_path) != moved_gate
+
+
+def test_kernel_differential_key_moves_with_a_runes_geometry_but_not_its_prose(tmp_path):
+    _kernel_key_tree(tmp_path)
+    rune = tmp_path / "glyph_data" / "runes" / "qsX.yaml"
+    base = ac.kernel_differential_skip_fingerprint(tmp_path)
+    rune.write_text("rune: qsX\nductus:\n  hapax: |\n    Quite another stroke.\n")
+    assert ac.kernel_differential_skip_fingerprint(tmp_path) == base
+    rune.write_text('rune: qsX\nbitmap:\n  - "##"\nductus:\n  hapax: |\n    Quite another stroke.\n')
+    assert ac.kernel_differential_skip_fingerprint(tmp_path) != base
+
+
+def test_kernel_differential_key_never_hashes_the_binary_it_builds(tmp_path):
+    """The key says "these sources"; the gate's own cargo build is what makes the binary match them. Hashing target/ would also mean hashing gigabytes of gitignored build cache on every pass."""
+    _kernel_key_tree(tmp_path)
+    base = ac.kernel_differential_skip_fingerprint(tmp_path)
+    target = tmp_path / "rebuild" / "kernel-rs" / "target" / "release"
+    target.mkdir(parents=True)
+    (target / "ams-m1-kernel").write_bytes(b"\x7fELF")
+    (target / "build.rs").write_text("fn built() {}\n")
+    assert ac.kernel_differential_skip_fingerprint(tmp_path) == base
+    files = ac.kernel_differential_skip_files(tmp_path)
+    assert "rebuild/kernel-rs/src/main.rs" in files
+    assert "rebuild/kernel-rs/tests/cli.rs" in files
+    assert "rebuild/pipeline/table.py" in files
+    assert "rebuild/tools/kernel_gate.py" in files
+    assert not any(name.startswith("rebuild/kernel-rs/target/") for name in files)
+
+
+def test_kernel_differential_key_carries_the_toolchain(tmp_path, monkeypatch):
+    """The binary under test is sources times compiler: a rustc upgrade moves the key even when no hashed byte does."""
+    _kernel_key_tree(tmp_path)
+    lines = ac.kernel_differential_skip_lines(tmp_path)
+    assert sum(line.startswith("rustc\t") for line in lines) == 1
+    base = ac.kernel_differential_skip_fingerprint(tmp_path)
+    monkeypatch.setattr(ac, "_rustc_identity", lambda: "another-toolchain")
+    assert ac.kernel_differential_skip_fingerprint(tmp_path) != base
+
+
+def test_a_box_without_rustc_keys_absent_instead_of_raising(monkeypatch):
+    """No toolchain is a key value, not a crash: the gate itself is what reds there, carrying the remedy."""
+
+    def absent(*arguments, **rest):
+        raise FileNotFoundError("rustc")
+
+    monkeypatch.setattr(ac.subprocess, "run", absent)
+    assert ac._rustc_identity() == "absent"
+
+
+def test_kernel_differential_key_ignores_what_feeds_no_table(tmp_path):
+    """Deliberately narrow, by tables_value's reasoning: the compiled font, the oracle's subset tables, and the baselines move no window, so a cycle that only re-extracts them must not re-run the differential."""
+    _kernel_key_tree(tmp_path)
+    m1 = tmp_path / "rebuild" / "out" / "m1"
+    m1.mkdir(parents=True)
+    base = ac.kernel_differential_skip_fingerprint(tmp_path)
+    (m1 / "M1.otf").write_bytes(b"OTTO")
+    (m1 / "baseline-default.subset.tsv.gz").write_bytes(b"rows")
+    (tmp_path / "rebuild" / "out" / "baseline-default.tsv.gz").write_bytes(b"rows")
+    assert ac.kernel_differential_skip_fingerprint(tmp_path) == base
+
+
 def test_run_m1_skip_files_carry_the_lines_behind_the_fingerprint(tmp_path):
     (tmp_path / "glyph_data" / "runes").mkdir(parents=True)
     (tmp_path / "rebuild" / "out" / "m1").mkdir(parents=True)
@@ -2184,11 +2556,25 @@ def test_m1_artifacts_present(tmp_path):
     m1 = tmp_path / "rebuild" / "out" / "m1"
     m1.mkdir(parents=True)
     names = [path.name for path in ac.M1_SUMMARY_FILES.values()] + list(ac.M1_ARTIFACT_NAMES)
+    names.append("table-digests.json")
     assert not ac.m1_artifacts_present(tmp_path)
     for name in names:
         (m1 / name).write_text("{}")
     assert ac.m1_artifacts_present(tmp_path)
     (m1 / "M1.otf").unlink()
+    assert not ac.m1_artifacts_present(tmp_path)
+
+
+def test_a_lost_digest_record_re_arms_run_m1_rather_than_wedging_the_gate(tmp_path):
+    """gate:kernel-differential reds on a missing table-digests.json with the cycle as its remedy, so the presence check must count the record among what a skipped run_m1 leaves behind — otherwise the remedy reproduces the skip and the loop never converges."""
+    m1 = tmp_path / "rebuild" / "out" / "m1"
+    m1.mkdir(parents=True)
+    names = [path.name for path in ac.M1_SUMMARY_FILES.values()] + list(ac.M1_ARTIFACT_NAMES)
+    names.append("table-digests.json")
+    for name in names:
+        (m1 / name).write_text("{}")
+    assert ac.m1_artifacts_present(tmp_path)
+    (m1 / "table-digests.json").unlink()
     assert not ac.m1_artifacts_present(tmp_path)
 
 
@@ -2324,12 +2710,13 @@ def test_dry_run_plan_auto_skip_conform_note():
 def test_run_cycle_never_spawns_rebuild_gate_when_skipped(monkeypatch):
     record = {"rebuild_calls": 0}
 
-    def fake_rebuild(pool_policy, conform_fut, make_fut, spawn, emit, registry, update_pins):
+    def fake_rebuild(pool_policy, kernel_fut, conform_fut, make_fut, spawn, emit, registry, update_pins):
         record["rebuild_calls"] += 1
         return ac.RebuildOutcome("green", [], [])
 
     monkeypatch.setattr(ac, "_gate_rebuild_task", fake_rebuild)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
+    monkeypatch.setattr(ac, "_gate_kernel_differential_task", _kernel_green)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
@@ -2347,19 +2734,69 @@ def test_run_cycle_never_spawns_rebuild_gate_when_skipped(monkeypatch):
     assert report.gate_conform == "green"
 
 
-ALL_RUN = {"rebuild": True, "conform": True, "make-test": True}
+def test_run_cycle_never_spawns_the_kernel_gate_when_skipped_or_deferred(monkeypatch):
+    record = {"kernel_calls": 0}
+
+    def fake_kernel(pool_policy, conform_fut, make_fut, spawn, emit, registry, argv):
+        record["kernel_calls"] += 1
+        return "green", []
+
+    monkeypatch.setattr(ac, "_gate_kernel_differential_task", fake_kernel)
+    monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
+    monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
+    monkeypatch.setattr(ac, "_gate_rebuild_task", _rebuild_green)
+    monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
+    monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
+    _patch_build_chain(monkeypatch)
+
+    skipped = _plan(
+        skip_kernel_differential=True,
+        kernel_differential_note="spec inputs and both engines' sources unchanged",
+    )
+    report = ac.CycleReport()
+    rc = ac._run_cycle(skipped, report, ac._Emitter(), ac._ChildRegistry(), spawn=lambda *a, **k: _step())
+    assert rc == 0
+    assert record["kernel_calls"] == 0
+    assert report.gate_kernel_differential.startswith("skipped (spec inputs and both engines' sources")
+
+    deferred = _plan(deferred=frozenset({"kernel-differential"}))
+    report = ac.CycleReport()
+    rc = ac._run_cycle(deferred, report, ac._Emitter(), ac._ChildRegistry(), spawn=lambda *a, **k: _step())
+    assert rc == 0
+    assert record["kernel_calls"] == 0
+    assert report.gate_kernel_differential == f"deferred ({ac.DEFER_NOTE})"
+
+
+def test_a_run_m1_failure_leaves_the_kernel_gate_not_run(monkeypatch):
+    """The differential compares the artifacts run_m1 writes, so a failed build has nothing for it to read — the gate is never submitted, and the summary says so rather than reading as an unexplained skip."""
+
+    def failing_run_m1(report, *, spawn, emit, registry, budget, **_):
+        return ac.GateOutcome(False, ["boundary gate failed"], 0, 0)
+
+    monkeypatch.setattr(ac, "_do_run_m1", failing_run_m1)
+    monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
+    monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
+    _patch_build_chain(monkeypatch)
+
+    report = ac.CycleReport()
+    rc = ac._run_cycle(_plan(), report, ac._Emitter(), ac._ChildRegistry(), spawn=lambda *a, **k: _step())
+    assert rc == 1
+    assert report.gate_kernel_differential == "not run (run_m1 gate failed)"
+
+
+ALL_RUN = {"rebuild": True, "conform": True, "kernel-differential": True, "make-test": True}
 
 
 def test_deferred_gates_needs_both_the_flag_and_a_refreshing_pass():
     assert ac.deferred_gates(defer=True, refreshing=True, would_run=ALL_RUN) == frozenset(
-        {"rebuild", "conform", "make-test"}
+        {"rebuild", "conform", "kernel-differential", "make-test"}
     )
     assert ac.deferred_gates(defer=False, refreshing=True, would_run=ALL_RUN) == frozenset()
     assert ac.deferred_gates(defer=True, refreshing=False, would_run=ALL_RUN) == frozenset()
 
 
 def test_deferred_gates_never_demotes_a_gate_that_would_not_run():
-    would_run = {"rebuild": False, "conform": False, "make-test": True}
+    would_run = {"rebuild": False, "conform": False, "kernel-differential": False, "make-test": True}
     assert ac.deferred_gates(defer=True, refreshing=True, would_run=would_run) == frozenset({"make-test"})
     assert ac.deferred_gates(defer=True, refreshing=True, would_run={}) == frozenset()
 
@@ -2397,7 +2834,7 @@ def test_a_proved_skip_outranks_deferral_in_the_plan():
 def test_run_cycle_never_spawns_a_deferred_gate(monkeypatch):
     calls = {"rebuild": 0, "conform": 0, "make-test": 0}
 
-    def fake_rebuild(pool_policy, conform_fut, make_fut, spawn, emit, registry, update_pins):
+    def fake_rebuild(pool_policy, kernel_fut, conform_fut, make_fut, spawn, emit, registry, update_pins):
         calls["rebuild"] += 1
         return ac.RebuildOutcome("green", [], [])
 
@@ -2413,6 +2850,7 @@ def test_run_cycle_never_spawns_a_deferred_gate(monkeypatch):
     monkeypatch.setattr(ac, "_gate_conform_task", fake_conform)
     monkeypatch.setattr(ac, "_gate_make_test_task", fake_make)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
+    monkeypatch.setattr(ac, "_gate_kernel_differential_task", _kernel_green)
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
     _patch_build_chain(monkeypatch)
 
@@ -2432,6 +2870,7 @@ def test_a_deferred_gate_keeps_its_status_when_run_m1_fails(monkeypatch):
 
     monkeypatch.setattr(ac, "_do_run_m1", failing_run_m1)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
+    monkeypatch.setattr(ac, "_gate_kernel_differential_task", _kernel_green)
     _patch_build_chain(monkeypatch)
 
     plan = _plan(deferred=frozenset({"rebuild", "conform", "make-test"}))
@@ -2446,15 +2885,21 @@ def test_run_cycle_records_no_green_for_a_deferred_gate(monkeypatch, tmp_path):
     monkeypatch.setattr(ac, "run_retention", lambda plan: None)
     monkeypatch.setattr(ac, "CONFORM_GREEN", tmp_path / "conform-green.json")
     monkeypatch.setattr(ac, "REBUILD_GATE_GREEN", tmp_path / "rebuild-gate-green.json")
+    monkeypatch.setattr(ac, "KERNEL_DIFFERENTIAL_GREEN", tmp_path / "kernel-differential-green.json")
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
+    monkeypatch.setattr(ac, "_gate_kernel_differential_task", _kernel_green)
     _patch_build_chain(monkeypatch)
 
-    plan = _plan(deferred=frozenset({"rebuild", "conform", "make-test"}), record_greens=True)
+    plan = _plan(
+        deferred=frozenset({"rebuild", "conform", "kernel-differential", "make-test"}),
+        record_greens=True,
+    )
     report = ac.CycleReport()
     assert ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=lambda *a, **k: _step()) == 0
     assert not (tmp_path / "conform-green.json").exists()
     assert not (tmp_path / "rebuild-gate-green.json").exists()
+    assert not (tmp_path / "kernel-differential-green.json").exists()
 
 
 def test_cycle_summary_payload_marks_deferred_skips():
@@ -2484,6 +2929,29 @@ def test_cycle_summary_payload_prefers_proved_and_forced_over_deferred():
     assert payload["gates"]["rebuild"]["skip"] == "proved"
     assert payload["gates"]["make_test"]["skip"] == "proved"
     assert payload["gates"]["conform"]["skip"] == "forced"
+
+
+def test_cycle_summary_payload_tells_a_proved_kernel_skip_from_a_forced_one():
+    """The readiness checker reads only the skip kind, so an auto-skip the green record proved has to be distinguishable from --skip-kernel-differential switching the differential off."""
+    report = _green_report()
+    report.gate_kernel_differential = "skipped (sources unchanged)"
+    proved = ac.cycle_summary_payload(
+        report,
+        [],
+        _plan(skip_kernel_differential=True, kernel_differential_proven=True),
+        "ok",
+    )
+    assert proved["gates"]["kernel_differential"]["skip"] == "proved"
+    assert proved["gates"]["kernel_differential"]["green"] is False
+    assert proved["plan"]["skip_kernel_differential"] is True
+    forced = ac.cycle_summary_payload(report, [], _plan(skip_kernel_differential=True), "ok")
+    assert forced["gates"]["kernel_differential"]["skip"] == "forced"
+    report.gate_kernel_differential = f"deferred ({ac.DEFER_NOTE})"
+    deferred = ac.cycle_summary_payload(report, [], _plan(deferred=frozenset({"kernel-differential"})), "ok")
+    assert deferred["gates"]["kernel_differential"]["skip"] == "deferred"
+    assert deferred["plan"]["deferred"] == ["kernel-differential"]
+    live = ac.cycle_summary_payload(_green_report(), [], _plan(), "ok")
+    assert live["gates"]["kernel_differential"] == {"status": "green", "green": True, "skip": None}
 
 
 def test_finish_hands_a_deferred_green_cycle_to_the_next_pass(monkeypatch, capsys):
@@ -2544,8 +3012,12 @@ def test_main_defers_on_a_refreshing_pass(tmp_path, monkeypatch, capsys):
     _defer_repo(tmp_path, monkeypatch)
     assert ac.main(["--dry-run", "--defer-gates"]) == 0
     out = capsys.readouterr().out
-    assert "Heavy gates deferred to the next pass: gate:conform, gate:make-test, gate:rebuild" in out
+    assert (
+        "Heavy gates deferred to the next pass: gate:conform, gate:kernel-differential, gate:make-test, gate:rebuild"
+        in out
+    )
     assert "gate:rebuild: DEFERRED" in out
+    assert "gate:kernel-differential: DEFERRED" in out
 
 
 def test_main_does_not_defer_without_the_flag_or_under_fresh(tmp_path, monkeypatch, capsys):
@@ -2560,10 +3032,18 @@ def test_main_does_not_defer_without_the_flag_or_under_fresh(tmp_path, monkeypat
 
 def test_main_never_defers_a_gate_a_flag_already_forces(tmp_path, monkeypatch, capsys):
     _defer_repo(tmp_path, monkeypatch)
-    assert ac.main(["--dry-run", "--defer-gates", "--skip-conform", "--force-make-test"]) == 0
+    argv = [
+        "--dry-run",
+        "--defer-gates",
+        "--skip-conform",
+        "--skip-kernel-differential",
+        "--force-make-test",
+    ]
+    assert ac.main(argv) == 0
     out = capsys.readouterr().out
     assert "Heavy gates deferred to the next pass: gate:rebuild" in out
     assert "gate:conform: SKIPPED (--skip-conform)" in out
+    assert "gate:kernel-differential: SKIPPED (--skip-kernel-differential)" in out
     assert "gate:make-test: make test" in out
 
 
@@ -2581,6 +3061,34 @@ def test_main_defers_nothing_once_the_artifacts_have_settled(tmp_path, monkeypat
     assert "Heavy gates deferred" not in out
     assert "gate:rebuild: uv run pytest" in out
     assert "gate:conform: uv run python -m rebuild.pipeline.run_m1 --conform-only" in out
+    assert "gate:kernel-differential: uv run python -m rebuild.tools.kernel_gate" in out
+
+
+def test_main_auto_skips_the_kernel_gate_on_a_matching_green(tmp_path, monkeypatch, capsys):
+    """Same discipline as gate:conform's auto-skip, and nested under run_m1's for the same reason: the skip is claimed only on a pass that rebuilds nothing the differential would read."""
+    _defer_repo(tmp_path, monkeypatch)
+    ac.record_green(ac.RUN_M1_GREEN, "key")
+    monkeypatch.setattr(ac, "m1_artifacts_present", lambda root=None: True)
+    monkeypatch.setattr(ac, "surface_build_skippable", lambda root=None: True)
+    monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, horizon=None: "no-match")
+    monkeypatch.setattr(ac, "rebuild_gate_skip_fingerprint", lambda root=None: "no-match")
+    monkeypatch.setattr(ac, "census_skip_fingerprint", lambda root=None, surface=None: "no-match")
+    monkeypatch.setattr(ac, "kernel_differential_skip_fingerprint", lambda root=None: "kfp")
+
+    assert ac.main(["--dry-run"]) == 0
+    assert "gate:kernel-differential: uv run python -m rebuild.tools.kernel_gate" in capsys.readouterr().out
+
+    ac.record_green(ac.KERNEL_DIFFERENTIAL_GREEN, "moved")
+    assert ac.main(["--dry-run"]) == 0
+    assert "gate:kernel-differential auto-skipped" not in capsys.readouterr().out
+
+    ac.record_green(ac.KERNEL_DIFFERENTIAL_GREEN, "kfp")
+    assert ac.main(["--dry-run"]) == 0
+    out = capsys.readouterr().out
+    assert "gate:kernel-differential auto-skipped: spec inputs and both engines' sources unchanged" in out
+    assert "gate:kernel-differential: SKIPPED (spec inputs and both engines' sources unchanged" in out
+    assert ac.main(["--dry-run", "--fresh"]) == 0
+    assert "gate:kernel-differential auto-skipped" not in capsys.readouterr().out
 
 
 def test_main_skips_the_census_on_a_recorded_outcome_stale_included(tmp_path, monkeypatch, capsys):
@@ -2832,6 +3340,32 @@ def test_record_gate_greens_records_refuses_and_clears(monkeypatch, tmp_path):
     assert ac.read_green_record(conform_green) is None
 
 
+def test_record_gate_greens_records_refuses_and_clears_the_kernel_differential(monkeypatch, tmp_path):
+    green = tmp_path / "kernel-differential-green.json"
+    monkeypatch.setattr(ac, "KERNEL_DIFFERENTIAL_GREEN", green)
+    monkeypatch.setattr(ac, "kernel_differential_skip_fingerprint", lambda root=None: "kfp")
+    monkeypatch.setattr(
+        ac, "kernel_differential_skip_files", lambda root=None: {"rebuild/kernel-rs/src/main.rs": "d1"}
+    )
+    plan = _plan()
+    report = ac.CycleReport()
+    report.gate_kernel_differential = "green"
+    ac._record_gate_greens(report, plan, {"kernel-differential": "kfp"}, ac._Emitter())
+    record = ac.read_green_record(green)
+    assert record is not None
+    assert record["fingerprint"] == "kfp"
+    assert record["files"] == {"rebuild/kernel-rs/src/main.rs": "d1"}
+
+    green.unlink()
+    ac._record_gate_greens(report, plan, {"kernel-differential": "moved"}, ac._Emitter())
+    assert ac.read_green_record(green) is None
+
+    ac.record_green(green, "kfp")
+    report.gate_kernel_differential = "FAILED"
+    ac._record_gate_greens(report, plan, {"kernel-differential": "kfp"}, ac._Emitter())
+    assert ac.read_green_record(green) is None
+
+
 def test_classify_rebuild_recordable_only_when_unannotated():
     clean = ac.classify_rebuild_output("", 0, update_pins=False)
     assert clean.recordable
@@ -2846,7 +3380,9 @@ def test_classify_rebuild_recordable_only_when_unannotated():
     assert not hard.recordable
 
 
-def _census_failing_rebuild(pool_policy, conform_fut, make_fut, spawn, emit, registry, update_pins):
+def _census_failing_rebuild(
+    pool_policy, kernel_fut, conform_fut, make_fut, spawn, emit, registry, update_pins
+):
     return ac.classify_rebuild_output(
         "FAILED rebuild/test_review_build.py::test_totals_pinned", 1, update_pins=update_pins
     )
@@ -2860,6 +3396,7 @@ def test_update_pins_cycle_keeps_census_failures_hard(monkeypatch, capsys):
 
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
+    monkeypatch.setattr(ac, "_gate_kernel_differential_task", _kernel_green)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
     monkeypatch.setattr(ac, "_gate_rebuild_task", _census_failing_rebuild)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
@@ -2883,6 +3420,7 @@ def test_update_pins_cycle_still_submits_the_gate_when_the_update_failed(monkeyp
 
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
+    monkeypatch.setattr(ac, "_gate_kernel_differential_task", _kernel_green)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
     monkeypatch.setattr(ac, "_gate_rebuild_task", _census_failing_rebuild)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
@@ -2914,6 +3452,7 @@ def test_update_pins_census_update_completes_before_the_rebuild_gate_spawns(monk
 
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
+    monkeypatch.setattr(ac, "_gate_kernel_differential_task", _kernel_green)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
     _patch_build_chain(monkeypatch)
@@ -2938,7 +3477,9 @@ def test_update_pins_cycle_records_rebuild_green_after_the_refresh(monkeypatch, 
     monkeypatch.setattr(ac, "rebuild_gate_skip_fingerprint", lambda root=None: "rfp")
     monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, horizon=None: "cfp")
 
-    def recordable_rebuild(pool_policy, conform_fut, make_fut, spawn, emit, registry, update_pins):
+    def recordable_rebuild(
+        pool_policy, kernel_fut, conform_fut, make_fut, spawn, emit, registry, update_pins
+    ):
         return ac.RebuildOutcome("green", [], [], recordable=True)
 
     def census_update(*, spawn, emit, registry, update_pins, surface, **_):
@@ -2946,6 +3487,7 @@ def test_update_pins_cycle_records_rebuild_green_after_the_refresh(monkeypatch, 
 
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
+    monkeypatch.setattr(ac, "_gate_kernel_differential_task", _kernel_green)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
     monkeypatch.setattr(ac, "_gate_rebuild_task", recordable_rebuild)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
@@ -2966,7 +3508,7 @@ def test_update_pins_cycle_records_rebuild_green_after_the_refresh(monkeypatch, 
 def test_a_stale_census_defers_the_rebuild_gate(monkeypatch, tmp_path, capsys):
     calls = {"rebuild": 0}
 
-    def fake_rebuild(pool_policy, conform_fut, make_fut, spawn, emit, registry, update_pins):
+    def fake_rebuild(pool_policy, kernel_fut, conform_fut, make_fut, spawn, emit, registry, update_pins):
         calls["rebuild"] += 1
         return ac.RebuildOutcome("green", [], [])
 
@@ -2980,6 +3522,7 @@ def test_a_stale_census_defers_the_rebuild_gate(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, horizon=None: "cfp")
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
+    monkeypatch.setattr(ac, "_gate_kernel_differential_task", _kernel_green)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
     monkeypatch.setattr(ac, "_gate_rebuild_task", fake_rebuild)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
@@ -3006,7 +3549,7 @@ def test_a_stale_census_defers_the_rebuild_gate(monkeypatch, tmp_path, capsys):
 def test_a_stale_census_never_defers_update_pins_rehearsal_or_no_defer(monkeypatch, tmp_path):
     calls = {"rebuild": 0}
 
-    def fake_rebuild(pool_policy, conform_fut, make_fut, spawn, emit, registry, update_pins):
+    def fake_rebuild(pool_policy, kernel_fut, conform_fut, make_fut, spawn, emit, registry, update_pins):
         calls["rebuild"] += 1
         return ac.RebuildOutcome("green", [], [])
 
@@ -3015,6 +3558,7 @@ def test_a_stale_census_never_defers_update_pins_rehearsal_or_no_defer(monkeypat
 
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
+    monkeypatch.setattr(ac, "_gate_kernel_differential_task", _kernel_green)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
     monkeypatch.setattr(ac, "_gate_rebuild_task", fake_rebuild)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
@@ -3038,7 +3582,7 @@ def test_a_stale_census_never_defers_update_pins_rehearsal_or_no_defer(monkeypat
 def test_surface_build_failure_leaves_the_rebuild_gate_not_run(monkeypatch, capsys):
     calls = {"rebuild": 0}
 
-    def fake_rebuild(pool_policy, conform_fut, make_fut, spawn, emit, registry, update_pins):
+    def fake_rebuild(pool_policy, kernel_fut, conform_fut, make_fut, spawn, emit, registry, update_pins):
         calls["rebuild"] += 1
         return ac.RebuildOutcome("green", [], [])
 
@@ -3048,6 +3592,7 @@ def test_surface_build_failure_leaves_the_rebuild_gate_not_run(monkeypatch, caps
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
     monkeypatch.setattr(ac, "_do_surface_build", failing_surface)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
+    monkeypatch.setattr(ac, "_gate_kernel_differential_task", _kernel_green)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
     monkeypatch.setattr(ac, "_gate_rebuild_task", fake_rebuild)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
@@ -3209,6 +3754,7 @@ def test_run_cycle_replays_a_recorded_stale_census(monkeypatch, capsys):
 
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
+    monkeypatch.setattr(ac, "_gate_kernel_differential_task", _kernel_green)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
     monkeypatch.setattr(ac, "_gate_rebuild_task", _rebuild_green)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
@@ -3238,6 +3784,7 @@ def test_run_cycle_replays_a_recorded_stale_census(monkeypatch, capsys):
 def test_run_cycle_reads_a_replayed_clean_outcome_as_an_ordinary_skip(monkeypatch):
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
+    monkeypatch.setattr(ac, "_gate_kernel_differential_task", _kernel_green)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
     monkeypatch.setattr(ac, "_gate_rebuild_task", _rebuild_green)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
@@ -3269,6 +3816,7 @@ def test_run_cycle_never_spawns_a_deferred_census(monkeypatch):
 
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
+    monkeypatch.setattr(ac, "_gate_kernel_differential_task", _kernel_green)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
     _patch_build_chain(monkeypatch)
@@ -3401,6 +3949,7 @@ def test_run_cycle_never_spawns_the_plumbing_when_skipped(monkeypatch, tmp_path)
 
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
+    monkeypatch.setattr(ac, "_gate_kernel_differential_task", _kernel_green)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
     monkeypatch.setattr(ac, "_gate_rebuild_task", _rebuild_green)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
@@ -3433,6 +3982,7 @@ def test_run_cycle_never_spawns_the_plumbing_when_skipped(monkeypatch, tmp_path)
 def test_run_cycle_records_the_plumbing_green_only_after_a_complete_chain(monkeypatch, tmp_path):
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
+    monkeypatch.setattr(ac, "_gate_kernel_differential_task", _kernel_green)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
     monkeypatch.setattr(ac, "_gate_rebuild_task", _rebuild_green)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
@@ -3500,6 +4050,7 @@ def test_run_cycle_records_no_plumbing_green_when_standing_fills_landed(monkeypa
 
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
+    monkeypatch.setattr(ac, "_gate_kernel_differential_task", _kernel_green)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
     monkeypatch.setattr(ac, "_gate_rebuild_task", _rebuild_green)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
@@ -3925,8 +4476,8 @@ def test_retention_never_runs_for_real_during_the_suite(real_run_retention):
 
 
 def test_the_gate_summaries_a_pass_clears_are_never_the_live_ones(tmp_path, live_deletion_targets):
-    """The same tripwire for the other two stages that delete before they rebuild. run_m1 unlinks its four summaries and gate:conform unlinks its own, both before spawning, and both from constants resolved against the live rebuild/out/m1 — so a test that drives either stage without stubbing it empties the directory the surface build consumes and the cycle's auto-skip keys on, at the price of a full rebuild to get it back. Neither would fail: the missing summaries read as a failed gate, which is what most such tests are asserting anyway."""
-    redirected = [*ac.M1_SUMMARY_FILES.values(), ac.CONFORM_SUMMARY]
+    """The same tripwire for the other three stages that delete before they rebuild. run_m1 unlinks its four summaries, and gate:conform and gate:kernel-differential each unlink their own, all before spawning and all from constants resolved against the live rebuild/out/m1 — so a test that drives any of those stages without stubbing it empties the directory the surface build consumes and the cycle's auto-skip keys on, at the price of a full rebuild to get it back. None would fail: the missing summaries read as a failed gate, which is what most such tests are asserting anyway."""
+    redirected = [*ac.M1_SUMMARY_FILES.values(), ac.CONFORM_SUMMARY, ac.KERNEL_DIFFERENTIAL_SUMMARY]
     assert [path.parent for path in redirected] == [tmp_path] * len(redirected)
     assert [path.name for path in redirected] == [path.name for path in live_deletion_targets]
     assert all(path.parent == ac.M1_OUT for path in live_deletion_targets)
@@ -4067,6 +4618,7 @@ def _patch_timing_cycle(monkeypatch):
     monkeypatch.setattr(ac, "_do_census", _census_clean)
     monkeypatch.setattr(ac, "_do_complaints", _complaints_ok)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
+    monkeypatch.setattr(ac, "_gate_kernel_differential_task", _kernel_green)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
     monkeypatch.setattr(ac, "_gate_rebuild_task", _rebuild_green)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)

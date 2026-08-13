@@ -90,6 +90,7 @@ def write_summary(
             "js": {"status": "passed", "green": True},
             "rebuild": {"status": "passed", "green": True},
             "conform": {"status": "passed", "green": True},
+            "kernel_differential": {"status": "passed", "green": True},
             "make_test": {"status": "passed", "green": True},
         }
     else:
@@ -214,7 +215,7 @@ def test_gates_exit_failed(tmp_path):
     assert "rebuild" in gates["detail"]
 
 
-GATE_NAMES = ("js", "rebuild", "conform", "make_test")
+GATE_NAMES = ("js", "rebuild", "conform", "kernel_differential", "make_test")
 
 
 def _gate_map(**overrides):
@@ -294,6 +295,38 @@ def test_gates_deferred_skip_blocks_with_the_converging_remedy(tmp_path):
     assert "Run it again" in gates["detail"]
     assert gates["remedy"] == "make review-cycle"
     assert call(tmp_path)["ready"] is False
+
+
+def test_gates_an_unverified_kernel_differential_blocks_readiness(tmp_path):
+    """The readiness check knows no gate names, so the Rust-vs-Python differential rides in on the same entry fields as its siblings: deferred blocks with the converging remedy, red blocks as a failure, and only a green or a proved skip lets a sitting start."""
+    write_surface(tmp_path / "rebuild" / "out" / "review")
+    write_summary(tmp_path, gates=_gate_map(kernel_differential=_deferred("kernel_differential")))
+    gates = call(tmp_path)["checks"]["gates"]
+    assert gates["level"] == "fail"
+    assert "deferred these gates to the next pass: kernel_differential" in gates["detail"]
+    assert gates["remedy"] == "make review-cycle"
+
+    write_summary(
+        tmp_path,
+        gates=_gate_map(
+            kernel_differential={"status": "FAILED", "green": False, "skip": None},
+        ),
+    )
+    gates = call(tmp_path)["checks"]["gates"]
+    assert gates["level"] == "fail"
+    assert "failing gates: kernel_differential" in gates["detail"]
+
+    write_summary(
+        tmp_path,
+        gates=_gate_map(
+            kernel_differential={
+                "status": "skipped (sources unchanged)",
+                "green": False,
+                "skip": "proved",
+            },
+        ),
+    )
+    assert call(tmp_path)["checks"]["gates"]["level"] == "ok"
 
 
 def test_gates_stale_pins_deferral_points_at_update_pins(tmp_path):

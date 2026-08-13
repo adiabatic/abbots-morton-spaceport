@@ -8,6 +8,8 @@ make all
 
 Dependencies are managed with `uv` and defined in `pyproject.toml`.
 
+The M1 rebuild’s table-build kernel has a Rust half under `rebuild/kernel-rs/`, so a Rust toolchain — `cargo`, from [rustup](https://rustup.rs) — joins `uv` as a prerequisite for that side of the tree. `make kernel-build` builds it in release mode, and the artifact cycle’s `gate:kernel-differential` builds and runs it on every cycle whose kernel inputs moved, so a box without `cargo` fails that gate rather than skipping it. The font build itself needs none of this.
+
 ## Testing
 
 Open `site/index.html` in a browser to test the font interactively.

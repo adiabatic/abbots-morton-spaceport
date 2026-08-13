@@ -117,7 +117,10 @@ def _stub_full_run(monkeypatch, *, defect_errors=(), boundary=True, pins=True, o
     monkeypatch.setattr(
         run_m1,
         "run",
-        lambda spec, inputs, fresh_memo=False: {"defect_errors": list(defect_errors), "notes": []},
+        lambda spec, inputs, fresh_memo=False, engine=run_m1.ENGINE_DEFAULT, kernel_threads=None: {
+            "defect_errors": list(defect_errors),
+            "notes": [],
+        },
     )
     monkeypatch.setattr(run_m1, "run_boundary_gate", lambda spec, jobs: {"pass": boundary, "divergences": 0})
     monkeypatch.setattr(run_m1, "run_manual_pin_gate", lambda spec: {"pass": pins, "disagreements": []})
@@ -150,7 +153,10 @@ def test_main_refreshes_the_baseline_subset_before_anything_reads_it(monkeypatch
     monkeypatch.setattr(
         run_m1,
         "run",
-        lambda spec, inputs, fresh_memo=False: events.append("run") or {"defect_errors": [], "notes": []},
+        lambda spec, inputs, fresh_memo=False, engine=run_m1.ENGINE_DEFAULT, kernel_threads=None: events.append(
+            "run"
+        )
+        or {"defect_errors": [], "notes": []},
     )
     monkeypatch.setattr(
         run_m1,
@@ -175,6 +181,18 @@ def test_unmatched_oracle_rows_still_record_a_green(monkeypatch, tmp_path):
     record = ac.read_green_record(store)
     assert record is not None
     assert record["fingerprint"] == "fp-live"
+
+
+def test_a_rust_engine_run_clears_the_record_instead_of_recording(monkeypatch, tmp_path, capsys):
+    """The tautology guard's other half: a green `--engine rust` build must not leave a green record, because the artifacts it wrote are the kernel's own fold and a skipping cycle would hand them to gate:kernel-differential as the Python side of the comparison. Clearing rather than keeping the record is what forces the next cycle to rebuild with the engine of record."""
+    store = tmp_path / "run-m1-green.json"
+    monkeypatch.setattr(ac, "RUN_M1_GREEN", store)
+    monkeypatch.setattr(ac, "run_m1_skip_fingerprint", lambda root=None: "fp-live")
+    ac.record_green(store, "fp-live")
+    _stub_full_run(monkeypatch, oracle_pass=True)
+    run_m1.main(["--engine", "rust"])
+    assert ac.read_green_record(store) is None
+    assert "engine of record" in capsys.readouterr().out
 
 
 def test_a_defect_gate_failure_clears_the_record(monkeypatch, tmp_path):

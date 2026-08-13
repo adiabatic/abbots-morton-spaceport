@@ -1,4 +1,4 @@
-.PHONY: all test test-rebuild test-slowly test-leaks leak-snapshot typecheck print-job serve explainer check-html-before check-html-after build-kerning-hardcases review test-and-review review-build review-serve review-cycle artifact-cycle verdict-ready cycle-timings complaint-docket novelty-order kernel-build kernel-check kernel-parity kernel-differential kernel-fixpoint kernel-fixpoint-pinned kernel-fixpoint-label-grain kernel-liveness prettier woff2 clean
+.PHONY: all test test-rebuild test-slowly test-leaks leak-snapshot typecheck print-job serve explainer check-html-before check-html-after build-kerning-hardcases review test-and-review review-build review-serve review-cycle artifact-cycle verdict-ready cycle-timings complaint-docket novelty-order kernel-build kernel-check kernel-parity kernel-differential kernel-fixpoint kernel-fixpoint-pinned kernel-fixpoint-label-grain kernel-liveness kernel-gate prettier woff2 clean
 
 all:
 	uv run python tools/build_font.py glyph_data/ site/
@@ -136,6 +136,10 @@ kernel-fixpoint-label-grain: kernel-build
 # Prove the Rust kernel's deep-slot liveness is Python's, one grain below the fixpoint: every letter triple's third-slot verdict, every quad's fourth-slot verdict, and the class-grain fiber partition of every live context — in all four mode combinations, compared as bytes. Where a wrong verdict reaches kernel-fixpoint as thousands of rows that split differently, it reads here as one triple. --exhaustive rides the recipe because at this alphabet it is free: the third arm has already driven the fourth-slot probes through the joint34 belt, so the whole quad space answers off a warm memo, while a sample sized for that space misses nearly every live fourth slot there is. ARGS='--python-only' writes the keys and Python's answers without invoking a binary, which is the Python half of a cross-build comparison.
 kernel-liveness: kernel-build
 	uv run python -m rebuild.tools.kernel_liveness --exhaustive $(ARGS)
+
+# The artifact cycle's gate:kernel-differential on its own: enumerate the live spec's six acceptance configurations in one kernel process, fold each stream through Python's own back half, and require the three artifacts and the contract digest to be exactly what rebuild/out/m1 already holds. It compares rather than rebuilds, so only the fixpoint the cycle already paid is ever paid — which makes artifacts stamped from other sources a red gate whose remedy is a cycle rather than something to fix here. ARGS passes --threads/--skip-build/--out.
+kernel-gate: kernel-build
+	uv run python -m rebuild.tools.kernel_gate $(ARGS)
 
 # Compress the built OTFs in site/ into WOFF2 alongside them.
 woff2: all
