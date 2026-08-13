@@ -111,7 +111,7 @@ def test_boundary_rows_lead_their_groups(default_tables):
 
 
 def test_ss04_table_is_row_identical_to_default(default_tables):
-    # Stated over expanded_transitions: semantic row identity, immune to fibre-boundary differences between configs whose outcomes agree — though content-addressed ids make the class rows comparable too, which the second assertion pins.
+    # Stated over expanded_transitions: semantic row identity, immune to fiber-boundary differences between configs whose outcomes agree — though content-addressed ids make the class rows comparable too, which the second assertion pins.
     decision, treaty = default_tables
     ss04_decision, ss04_treaty = build_tables(SPEC, frozenset({"ss04"}))
     assert [(r.key, r.outcome) for r in ss04_decision.expanded_transitions()] == [
@@ -568,8 +568,8 @@ class TestProspectLiveSlots:
         assert all(outcome == "A.stroke.ex-y0" for right3, outcome in split.items() if right3 != "D")
         assert any(rule.look3 == ("D",) for rule in decision.rules if rule.input_glyph == "A")
 
-    def test_fibre_partition_matches_the_uncollapsed_derivation_on_the_real_spec(self):
-        """The issue-26 analogue of the two-stage-probe proof below: on a fixed sample of live contexts, the shipped fibre derivation — probe records per collapsed left class over the bounded coordinate set — must equal the partition a brute derivation computes per uncollapsed (family, stance, seam) virtual left, over the full probe-record key (settled, prospect, joint_floor, notes, raise identity), plus the fourth-slot verdict and the computed r4 option list."""
+    def test_fiber_partition_matches_the_uncollapsed_derivation_on_the_real_spec(self):
+        """The issue-26 analogue of the two-stage-probe proof below: on a fixed sample of live contexts, the shipped fiber derivation — probe records per collapsed left class over the bounded coordinate set — must equal the partition a brute derivation computes per uncollapsed (family, stance, seam) virtual left, over the full probe-record key (settled, prospect, joint_floor, notes, raise identity), plus the fourth-slot verdict and the computed r4 option list."""
         import warnings
 
         from rebuild.pipeline.settle import EDGE, UNKNOWN, Engine, LeftContext, RightToken
@@ -582,7 +582,7 @@ class TestProspectLiveSlots:
         probe = table._liveness_probe(spec, engine)
         options = table._WindowOptions(spec)
         fourth = table.fourth_slot_filter(spec, frozenset(), engine)
-        deriver = table._DeepFibreDeriver(spec, engine, options, probe, fourth)
+        deriver = table._DeepFiberDeriver(spec, engine, options, probe, fourth)
 
         def uncollapsed_lefts():
             lefts = [
@@ -624,7 +624,7 @@ class TestProspectLiveSlots:
             brute_partition = {frozenset(members) for members in brute.values()}
             derived = deriver.context(family, right1, right2)
             derived_partition = {
-                frozenset(member.letter for member in fibre.members) for fibre in derived.fibres
+                frozenset(member.letter for member in fiber.members) for fiber in derived.fibers
             }
             assert derived_partition == brute_partition, (family, right1, right2)
 
@@ -695,7 +695,7 @@ class TestProspectLiveSlots:
 
 
 class TestDeepClasses:
-    """The issue-26 class-grain enumeration: deep window slots keyed by outcome fibres, expanded back to labels for every fold-side consumer. The two-arm equality tests build the same spec under AMS_DEEP_CLASSES on and off — the off arm is genuinely today's label-grain enumeration path, bypassing all fibre code — and assert the expansion boundary holds: identical expanded row multiset, identical rules, identical cited provenance, identical treaty. The fibre-verification tests are the section 2.2 obligation (virtual-left brute equality on the real spec lives beside the two-stage-probe proof in TestProspectLiveSlots); the real-left arm here re-traces every member of every multi-member row at the row's actual settled left, which is what promotes the left-class collapse the fibres import from licensed heuristic toward verified at both grains."""
+    """The issue-26 class-grain enumeration: deep window slots keyed by outcome fibers, expanded back to labels for every fold-side consumer. The two-arm equality tests build the same spec under AMS_DEEP_CLASSES on and off — the off arm is genuinely today's label-grain enumeration path, bypassing all fiber code — and assert the expansion boundary holds: identical expanded row multiset, identical rules, identical cited provenance, identical treaty. The fiber-verification tests are the section 2.2 obligation (virtual-left brute equality on the real spec lives beside the two-stage-probe proof in TestProspectLiveSlots); the real-left arm here re-traces every member of every multi-member row at the row's actual settled left, which is what promotes the left-class collapse the fibers import from licensed heuristic toward verified at both grains."""
 
     @pytest.fixture()
     def deep_world(self, monkeypatch):
@@ -791,7 +791,7 @@ class TestDeepClasses:
         [("prospect_spec", False), ("synthetic_depth4_spec", True)],
         ids=["prospect", "synthetic-depth4"],
     )
-    def test_real_lefts_agree_with_the_fibre_collapse(self, request, deep_world, spec_fixture, expect_r4):
+    def test_real_lefts_agree_with_the_fiber_collapse(self, request, deep_world, spec_fixture, expect_r4):
         """The section 2.2 real-left arm: for every multi-member token in the built table, every member traces identically at the row's actual settled left — full probe record, not just the settled cell. Two fixtures, because the prospect spec mints no r4 classes: the synthetic depth-4 arm is what exercises the per-(context, r3 class) r4 partition at real lefts, and its `checked4` assertion is what keeps that branch from going quietly dead again."""
         from rebuild.pipeline.settle import EDGE, Engine, LeftContext, RightToken
 
@@ -841,8 +841,8 @@ class TestDeepClasses:
         if expect_r4:
             assert checked4, "the fixture stopped minting r4 classes, so the r4 arm never ran"
 
-    def test_fibre_partition_matches_the_uncollapsed_derivation_exhaustively(self, deep_world, prospect_spec):
-        """The exhaustive mini-spec-scale arm of the fibre verification: over every letter context of the prospect spec, the shipped derivation equals the brute partition computed per uncollapsed (family, stance, seam) virtual left."""
+    def test_fiber_partition_matches_the_uncollapsed_derivation_exhaustively(self, deep_world, prospect_spec):
+        """The exhaustive mini-spec-scale arm of the fiber verification: over every letter context of the prospect spec, the shipped derivation equals the brute partition computed per uncollapsed (family, stance, seam) virtual left."""
         from rebuild.pipeline.settle import EDGE, UNKNOWN, Engine, LeftContext, RightToken
 
         spec = prospect_spec
@@ -851,7 +851,7 @@ class TestDeepClasses:
         options = table._WindowOptions(spec)
         fourth = table.fourth_slot_filter(spec, frozenset(), engine)
         third = table.third_slot_filter(spec, frozenset(), engine)
-        deriver = table._DeepFibreDeriver(spec, engine, options, probe, fourth)
+        deriver = table._DeepFiberDeriver(spec, engine, options, probe, fourth)
         lefts = [LeftContext("edge"), LeftContext("space"), LeftContext("zwnj"), LeftContext("namer-dot")]
         for left_family in spec.runes:
             for stance, seam in probe._input_shapes(left_family):
@@ -888,14 +888,14 @@ class TestDeepClasses:
                         )
                         brute.setdefault((matters, opts4, records), []).append(t3.letter)
                     derived = deriver.context(family, right1, right2)
-                    assert {frozenset(fibre.members) for fibre in derived.fibres} == {
+                    assert {frozenset(fiber.members) for fiber in derived.fibers} == {
                         frozenset(RightToken("letter", member) for member in members)
                         for members in brute.values()
                     }, (family, right1, right2)
         assert live_contexts
 
     def test_deep_slot_partition_negative_controls(self, deep_world, prospect_spec):
-        """`_assert_deep_slot_partition` unit coverage: the shipped table passes, and each tampering — an unresolvable token, a member outside its fibre, a stale map entry — raises PartitionError."""
+        """`_assert_deep_slot_partition` unit coverage: the shipped table passes, and each tampering — an unresolvable token, a member outside its fiber, a stale map entry — raises PartitionError."""
         from rebuild.pipeline.settle import Engine
 
         decision, _treaty = build_tables(prospect_spec, frozenset())
@@ -905,7 +905,7 @@ class TestDeepClasses:
         probe = table._liveness_probe(prospect_spec, engine)
         fourth = table.fourth_slot_filter(prospect_spec, frozenset(), engine)
         third = table.third_slot_filter(prospect_spec, frozenset(), engine)
-        deriver = table._DeepFibreDeriver(prospect_spec, engine, options, probe, fourth)
+        deriver = table._DeepFiberDeriver(prospect_spec, engine, options, probe, fourth)
         deep = table.third_slot_inputs(prospect_spec, engine)
         deep4 = table.fourth_slot_inputs(prospect_spec, engine)
 
@@ -939,7 +939,7 @@ class TestDeepClasses:
         with pytest.raises(table.PartitionError):
             check(stale)
 
-    def test_union_of_fibres_negative_control(self, deep_world, prospect_spec):
+    def test_union_of_fibers_negative_control(self, deep_world, prospect_spec):
         decision, _treaty = build_tables(prospect_spec, frozenset())
         decision._assert_deep_class_unions()
         token, members = next(iter(decision.deep_classes.items()))

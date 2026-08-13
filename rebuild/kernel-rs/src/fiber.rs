@@ -1,12 +1,12 @@
-//! The issue-26 fibre source, `rebuild/pipeline/table.py`'s `_Fibre`, `_ContextFibres` and `_DeepFibreDeriver`: per live context `(input family, right1, right2)`, the static third-slot option list's letters partitioned into fibres of an outcome-probe function, derived lazily on first reach and memoized per build.
+//! The issue-26 fiber source, `rebuild/pipeline/table.py`'s `_Fiber`, `_ContextFibers` and `_DeepFiberDeriver`: per live context `(input family, right1, right2)`, the static third-slot option list's letters partitioned into fibers of an outcome-probe function, derived lazily on first reach and memoized per build.
 //!
-//! A fibre is an equivalence class of third tokens that the enumeration may collapse into one row. The key per candidate letter `t3` has three components. First the probe function itself: for every left class in [`ProspectLiveness::seat_left_classes`] and every bounded coordinate, the full row-visible record — the settled triple, the prospect, the joint-floor flag and the notes — with the three raise identities kept as three distinct values (E-INCOMPARABLE, E-AMBIGUOUS, and everything else; [`crate::error::SettleError`] carries that split for exactly this reason, and collapsing any two would silently merge fibres the review surface and the treaty fold read apart). Second the `fourth_slot_matters` verdict itself. Third, for members whose verdict is true, the *computed* r4 option list, run through [`WindowOptions::right4_options`] per member — structurally, so a filter added to that pipeline without a key update fails [`crate::fixpoint`]'s partition assertion loudly instead of silently splitting a fibre.
+//! A fiber is an equivalence class of third tokens that the enumeration may collapse into one row. The key per candidate letter `t3` has three components. First the probe function itself: for every left class in [`ProspectLiveness::seat_left_classes`] and every bounded coordinate, the full row-visible record — the settled triple, the prospect, the joint-floor flag and the notes — with the three raise identities kept as three distinct values (E-INCOMPARABLE, E-AMBIGUOUS, and everything else; [`crate::error::SettleError`] carries that split for exactly this reason, and collapsing any two would silently merge fibers the review surface and the treaty fold read apart). Second the `fourth_slot_matters` verdict itself. Third, for members whose verdict is true, the *computed* r4 option list, run through [`WindowOptions::right4_options`] per member — structurally, so a filter added to that pipeline without a key update fails [`crate::fixpoint`]'s partition assertion loudly instead of silently splitting a fiber.
 //!
-//! The coordinate set is bounded rather than the full grid: `(EDGE, UNKNOWN)` where the fourth slot is dead — an r4-dead member is traced only at EDGE and enqueues no r4 pin, so deeper coordinates are unread for it — widening to the whole probe alphabet with `UNKNOWN` appended after it exactly where `fourth_slot_matters` is true, which is where a seat can move under a specific `(third, fourth)` pair and is what absorbs the joint34 counterexample at fibre grain. The append order is load-bearing twice: the r4 grouping indexes the probe matrix by a token's position in that coordinate list, so `UNKNOWN` must sit past every probe token rather than among them.
+//! The coordinate set is bounded rather than the full grid: `(EDGE, UNKNOWN)` where the fourth slot is dead — an r4-dead member is traced only at EDGE and enqueues no r4 pin, so deeper coordinates are unread for it — widening to the whole probe alphabet with `UNKNOWN` appended after it exactly where `fourth_slot_matters` is true, which is where a seat can move under a specific `(third, fourth)` pair and is what absorbs the joint34 counterexample at fiber grain. The append order is load-bearing twice: the r4 grouping indexes the probe matrix by a token's position in that coordinate list, so `UNKNOWN` must sit past every probe token rather than among them.
 //!
-//! Components two and three are what make an r3 class induce one shared r4 sub-enumeration: its `t4` groups under the probe function restricted to the option list are the r4 fibres, and because the probe function is indexed by `t3` the r4 partition is per `(context, r3 class)` and never per context alone. Grouping runs in option-pipeline order — a boundary is its own singleton where it stands, and letters group by their column of the probe matrix with each bucket taking the seat of its first member.
+//! Components two and three are what make an r3 class induce one shared r4 sub-enumeration: its `t4` groups under the probe function restricted to the option list are the r4 fibers, and because the probe function is indexed by `t3` the r4 partition is per `(context, r3 class)` and never per context alone. Grouping runs in option-pipeline order — a boundary is its own singleton where it stands, and letters group by their column of the probe matrix with each bucket taking the seat of its first member.
 //!
-//! The verdict the deriver asks for is the raw filter verdict, `fourth_slot_matters(family, right1, right2, t3)`, and deliberately not that ANDed with the depth-4 census: the fixpoint applies `rune_name in deep4_inputs` separately when it decides whether a fibre's r4 groups become slot-4 entries, and the partition assertion replays the same distinction. Under the deep world the census is every rune and the AND is invisible; the pinned world's assertions still read it.
+//! The verdict the deriver asks for is the raw filter verdict, `fourth_slot_matters(family, right1, right2, t3)`, and deliberately not that ANDed with the depth-4 census: the fixpoint applies `rune_name in deep4_inputs` separately when it decides whether a fiber's r4 groups become slot-4 entries, and the partition assertion replays the same distinction. Under the deep world the census is every rune and the AND is invisible; the pinned world's assertions still read it.
 //!
 //! The probes run on the build's own tracing engine, so their traces land in the shared memo and their fired pointers in `Engine::fired`, exactly as the liveness probes' traces already do. The one imported rather than probed assumption is the left-class collapse [`ProspectLiveness::seat_left_classes`] already trusts; the fixpoint's per-build echo check is the standing guard on it at real-left, real-entry, real-adjustment grain.
 
@@ -21,12 +21,12 @@ use crate::model::Sym;
 use crate::options::WindowOptions;
 use crate::types::{EDGE, LeftContext, RightToken, Settled, TokenKind, UNKNOWN};
 
-/// The coordinates an r4-dead member is probed at, `_DeepFibreDeriver.context`'s `coords = (EDGE, UNKNOWN)`. Such a member is traced only at `EDGE` by the enumeration and enqueues no r4 pin, so no deeper coordinate is ever read for it and probing the whole alphabet there would key the fibre on windows nothing consults.
+/// The coordinates an r4-dead member is probed at, `_DeepFiberDeriver.context`'s `coords = (EDGE, UNKNOWN)`. Such a member is traced only at `EDGE` by the enumeration and enqueues no r4 pin, so no deeper coordinate is ever read for it and probing the whole alphabet there would key the fiber on windows nothing consults.
 const DEAD_FOURTH_COORDS: [RightToken; 2] = [EDGE, UNKNOWN];
 
-/// One probed window's row-visible record, `_DeepFibreDeriver._record`. A settled window carries everything a row reports — the settled triple, the prospect, the joint-floor flag and the notes — and the three raise identities stay three distinct values, because a fibre that merged an E-INCOMPARABLE window with an unreachable one would collapse two outcomes the review surface and the treaty fold read apart.
+/// One probed window's row-visible record, `_DeepFiberDeriver._record`. A settled window carries everything a row reports — the settled triple, the prospect, the joint-floor flag and the notes — and the three raise identities stay three distinct values, because a fiber that merged an E-INCOMPARABLE window with an unreachable one would collapse two outcomes the review surface and the treaty fold read apart.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-enum FibreRecord {
+enum FiberRecord {
     Settled {
         settled: Settled,
         prospect: i64,
@@ -38,48 +38,48 @@ enum FibreRecord {
     Unreachable,
 }
 
-/// One candidate third token's whole fibre key: the `fourth_slot_matters` verdict, the computed r4 option list where that verdict is true, and the probe matrix itself, one row per left class and one column per bounded coordinate.
+/// One candidate third token's whole fiber key: the `fourth_slot_matters` verdict, the computed r4 option list where that verdict is true, and the probe matrix itself, one row per left class and one column per bounded coordinate.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-struct FibreKey {
+struct FiberKey {
     fourth_matters: bool,
     options4: Vec<RightToken>,
-    probe: Vec<Vec<FibreRecord>>,
+    probe: Vec<Vec<FiberRecord>>,
 }
 
-/// One r3 letter fibre of a live context, `table._Fibre`: the member tokens, the member-uniform `fourth_slot_matters` verdict, and — only where that verdict is true — the shared r4 sub-enumeration.
+/// One r3 letter fiber of a live context, `table._Fiber`: the member tokens, the member-uniform `fourth_slot_matters` verdict, and — only where that verdict is true — the shared r4 sub-enumeration.
 ///
-/// `members` arrives in sorted-letter order, which is the order the static option list already has, so the first member is the deterministic representative. `r4_groups` is the computed r4 option list partitioned into boundary singletons and r4 letter fibres, in option-pipeline order; a dead fourth carries none at all.
+/// `members` arrives in sorted-letter order, which is the order the static option list already has, so the first member is the deterministic representative. `r4_groups` is the computed r4 option list partitioned into boundary singletons and r4 letter fibers, in option-pipeline order; a dead fourth carries none at all.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Fibre {
+pub struct Fiber {
     pub members: Vec<RightToken>,
     pub fourth_matters: bool,
     pub r4_groups: Vec<Vec<RightToken>>,
 }
 
-/// One live context's whole third-slot partition, `table._ContextFibres`: the static option list's boundaries in their own order, and its letters as fibres in first-member-encountered order.
+/// One live context's whole third-slot partition, `table._ContextFibers`: the static option list's boundaries in their own order, and its letters as fibers in first-member-encountered order.
 ///
-/// The boundaries are carried rather than re-derived because the enumeration walks them ahead of the fibres and pins them exactly as it pins a fibre's members, and because a boundary third slot is a class of one by definition — nothing about the outcome probe would ever merge two of them.
+/// The boundaries are carried rather than re-derived because the enumeration walks them ahead of the fibers and pins them exactly as it pins a fiber's members, and because a boundary third slot is a class of one by definition — nothing about the outcome probe would ever merge two of them.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ContextFibres {
+pub struct ContextFibers {
     pub boundary_options: Vec<RightToken>,
-    pub fibres: Vec<Fibre>,
+    pub fibers: Vec<Fiber>,
 }
 
-/// The per-build fibre deriver, `table._DeepFibreDeriver`. Everything it needs beyond its own memo arrives per call — the engine, the liveness probe, the fourth-slot filter and the option pipelines are all the fixpoint's, lent for the derivation, because a second copy of any of them would fork a memo the product reports through.
+/// The per-build fiber deriver, `table._DeepFiberDeriver`. Everything it needs beyond its own memo arrives per call — the engine, the liveness probe, the fourth-slot filter and the option pipelines are all the fixpoint's, lent for the derivation, because a second copy of any of them would fork a memo the product reports through.
 #[derive(Debug, Default)]
-pub struct DeepFibreDeriver {
-    contexts: HashMap<(Sym, Sym, Sym), Rc<ContextFibres>>,
+pub struct DeepFiberDeriver {
+    contexts: HashMap<(Sym, Sym, Sym), Rc<ContextFibers>>,
 }
 
-impl DeepFibreDeriver {
+impl DeepFiberDeriver {
     /// A deriver with an empty memo.
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// This context's fibre partition, derived on first reach and memoized after, `_DeepFibreDeriver.context`.
+    /// This context's fiber partition, derived on first reach and memoized after, `_DeepFiberDeriver.context`.
     ///
-    /// The static option list is [`WindowOptions::right3_options`] over the follower map [`WindowOptions::context_follower_map`] hands back for `(family, right1)` — the same computation the enumeration runs, not a restatement of it. Its non-letter entries become [`ContextFibres::boundary_options`] untouched; its letters are probed and grouped.
+    /// The static option list is [`WindowOptions::right3_options`] over the follower map [`WindowOptions::context_follower_map`] hands back for `(family, right1)` — the same computation the enumeration runs, not a restatement of it. Its non-letter entries become [`ContextFibers::boundary_options`] untouched; its letters are probed and grouped.
     ///
     /// A context is only ever asked for where the third slot is live, but the deriver does not check that and answers whatever it is asked, exactly as Python's does: the caller that knows the verdict is the caller that has already computed it.
     ///
@@ -94,7 +94,7 @@ impl DeepFibreDeriver {
         family: Sym,
         right1: Sym,
         right2: Sym,
-    ) -> Result<Rc<ContextFibres>, SettleError> {
+    ) -> Result<Rc<ContextFibers>, SettleError> {
         if let Some(cached) = self.contexts.get(&(family, right1, right2)) {
             return Ok(Rc::clone(cached));
         }
@@ -113,8 +113,8 @@ impl DeepFibreDeriver {
         full_coords.push(UNKNOWN);
         let deep_world = engine.simulated_prospect() || engine.vote_slots();
 
-        let mut seats: HashMap<Rc<FibreKey>, usize> = HashMap::new();
-        let mut grouped: Vec<(Rc<FibreKey>, Vec<RightToken>)> = Vec::new();
+        let mut seats: HashMap<Rc<FiberKey>, usize> = HashMap::new();
+        let mut grouped: Vec<(Rc<FiberKey>, Vec<RightToken>)> = Vec::new();
         for third in static_options {
             if third.kind() != TokenKind::Letter {
                 continue;
@@ -135,7 +135,7 @@ impl DeepFibreDeriver {
             } else {
                 (DEAD_FOURTH_COORDS.as_slice(), Vec::new())
             };
-            let mut probe: Vec<Vec<FibreRecord>> = Vec::with_capacity(lefts.len());
+            let mut probe: Vec<Vec<FiberRecord>> = Vec::with_capacity(lefts.len());
             for left in lefts.iter() {
                 probe.push(
                     coords
@@ -146,7 +146,7 @@ impl DeepFibreDeriver {
                         .collect(),
                 );
             }
-            let key = Rc::new(FibreKey {
+            let key = Rc::new(FiberKey {
                 fourth_matters,
                 options4,
                 probe,
@@ -160,9 +160,9 @@ impl DeepFibreDeriver {
             }
         }
 
-        let fibres: Vec<Fibre> = grouped
+        let fibers: Vec<Fiber> = grouped
             .into_iter()
-            .map(|(key, members)| Fibre {
+            .map(|(key, members)| Fiber {
                 members,
                 fourth_matters: key.fourth_matters,
                 r4_groups: if key.fourth_matters {
@@ -172,9 +172,9 @@ impl DeepFibreDeriver {
                 },
             })
             .collect();
-        let context = Rc::new(ContextFibres {
+        let context = Rc::new(ContextFibers {
             boundary_options,
-            fibres,
+            fibers,
         });
         self.contexts
             .insert((family, right1, right2), Rc::clone(&context));
@@ -182,46 +182,46 @@ impl DeepFibreDeriver {
     }
 }
 
-/// One probed window's record, `_DeepFibreDeriver._record` — the trace where the window settles, and one of the three raise identities where it does not.
+/// One probed window's record, `_DeepFiberDeriver._record` — the trace where the window settles, and one of the three raise identities where it does not.
 fn record(
     engine: &mut Engine<'_>,
     left: &LeftContext,
     token: RightToken,
     slots: Slots,
-) -> FibreRecord {
+) -> FiberRecord {
     match engine.transition_trace(left, token, slots) {
-        Ok(trace) => FibreRecord::Settled {
+        Ok(trace) => FiberRecord::Settled {
             settled: trace.settled,
             prospect: trace.prospect,
             joint_floor: trace.joint_floor,
             notes: trace.notes,
         },
         Err(error) => match error.kind() {
-            SettleErrorKind::Incomparable => FibreRecord::Incomparable,
-            SettleErrorKind::Ambiguous => FibreRecord::Ambiguous,
-            SettleErrorKind::Stranded | SettleErrorKind::Plain => FibreRecord::Unreachable,
+            SettleErrorKind::Incomparable => FiberRecord::Incomparable,
+            SettleErrorKind::Ambiguous => FiberRecord::Ambiguous,
+            SettleErrorKind::Stranded | SettleErrorKind::Plain => FiberRecord::Unreachable,
         },
     }
 }
 
-/// One r3 fibre's r4 sub-enumeration: its computed option list partitioned in pipeline order, a boundary standing as its own singleton where it sits and letters grouped by their column of the probe matrix, each bucket seated where its first member fell.
+/// One r3 fiber's r4 sub-enumeration: its computed option list partitioned in pipeline order, a boundary standing as its own singleton where it sits and letters grouped by their column of the probe matrix, each bucket seated where its first member fell.
 ///
 /// The column of a letter is its records across every left class, read at the coordinate its own position in the probe alphabet names — which is why `UNKNOWN` is appended after that alphabet rather than mixed into it. The column is borrowed out of the matrix rather than copied out of it: a bucket is only ever compared against another bucket of the same matrix, so borrowing says what the grouping means and spares a clone per option per left class.
-fn r4_groups(key: &FibreKey, full_coords: &[RightToken]) -> Vec<Vec<RightToken>> {
+fn r4_groups(key: &FiberKey, full_coords: &[RightToken]) -> Vec<Vec<RightToken>> {
     let coord_index: HashMap<RightToken, usize> = full_coords
         .iter()
         .enumerate()
         .map(|(seat, coord)| (*coord, seat))
         .collect();
     let mut ordered: Vec<Vec<RightToken>> = Vec::new();
-    let mut by_column: HashMap<Vec<&FibreRecord>, usize> = HashMap::new();
+    let mut by_column: HashMap<Vec<&FiberRecord>, usize> = HashMap::new();
     for &option in &key.options4 {
         if option.kind() != TokenKind::Letter {
             ordered.push(vec![option]);
             continue;
         }
         let seat = coord_index[&option];
-        let column: Vec<&FibreRecord> = key.probe.iter().map(|row| &row[seat]).collect();
+        let column: Vec<&FiberRecord> = key.probe.iter().map(|row| &row[seat]).collect();
         match by_column.get(&column) {
             Some(&bucket) => ordered[bucket].push(option),
             None => {
@@ -460,7 +460,7 @@ mod tests {
         )]))
     }
 
-    /// The fixture whose fourth slot is live at every third: `qsTea`'s absolute prefer yields its exit on what stands at the seat's fourth slot and reads nothing at the third, so every letter third looks alike to the probe and the whole alphabet lands in one fibre — while the r4 grouping still has to partition the option list, which is the matrix column doing the work alone.
+    /// The fixture whose fourth slot is live at every third: `qsTea`'s absolute prefer yields its exit on what stands at the seat's fourth slot and reads nothing at the third, so every letter third looks alike to the probe and the whole alphabet lands in one fiber — while the r4 grouping still has to partition the option list, which is the matrix column doing the work alone.
     fn live_fourth_spec(reach: &str) -> SpecIndex {
         let pea = letter(
             "qsPea",
@@ -521,34 +521,34 @@ mod tests {
     }
 
     /// One context's partition spelled the way the `liveness-cases` verb spells it — every token through [`right_token_label`], which is `table._right_token_label` and therefore the vocabulary the differential compares in, so a golden here reads as the answer a sweep would.
-    fn spelled(index: &SpecIndex, context: &ContextFibres) -> String {
+    fn spelled(index: &SpecIndex, context: &ContextFibers) -> String {
         let names = |tokens: &[RightToken]| -> Vec<String> {
             tokens
                 .iter()
                 .map(|token| right_token_label(index, *token))
                 .collect()
         };
-        let fibres: Vec<String> = context
-            .fibres
+        let fibers: Vec<String> = context
+            .fibers
             .iter()
-            .map(|fibre| {
-                let groups: Vec<String> = fibre
+            .map(|fiber| {
+                let groups: Vec<String> = fiber
                     .r4_groups
                     .iter()
                     .map(|group| names(group).join("+"))
                     .collect();
                 format!(
                     "{} fourth {} r4 [{}]",
-                    names(&fibre.members).join("+"),
-                    fibre.fourth_matters,
+                    names(&fiber.members).join("+"),
+                    fiber.fourth_matters,
                     groups.join(", ")
                 )
             })
             .collect();
         format!(
-            "boundaries [{}] fibres [{}]",
+            "boundaries [{}] fibers [{}]",
             names(&context.boundary_options).join(", "),
-            fibres.join("; ")
+            fibers.join("; ")
         )
     }
 
@@ -652,7 +652,7 @@ mod tests {
         liveness: ProspectLiveness<'i>,
         fourth: FourthSlotFilter<'i>,
         options: WindowOptions<'i>,
-        deriver: DeepFibreDeriver,
+        deriver: DeepFiberDeriver,
     }
 
     impl<'i> Scaffolding<'i> {
@@ -662,11 +662,11 @@ mod tests {
                 liveness: ProspectLiveness::new(index),
                 fourth: FourthSlotFilter::new(index),
                 options: WindowOptions::new(index).expect("the fixture has a guard"),
-                deriver: DeepFibreDeriver::new(),
+                deriver: DeepFiberDeriver::new(),
             }
         }
 
-        fn context(&mut self, index: &SpecIndex, names: [&str; 3]) -> Rc<ContextFibres> {
+        fn context(&mut self, index: &SpecIndex, names: [&str; 3]) -> Rc<ContextFibers> {
             let [family, right1, right2] = names.map(|name| fixtures::sym(index, name));
             self.deriver
                 .context(
@@ -682,11 +682,11 @@ mod tests {
         }
     }
 
-    /// The whole partition of the joint34 context: the static list's boundaries carried in their own order, its letters split by the outcome probe, and the one fibre whose fourth slot is live carrying the r4 sub-enumeration its members share.
+    /// The whole partition of the joint34 context: the static list's boundaries carried in their own order, its letters split by the outcome probe, and the one fiber whose fourth slot is live carrying the r4 sub-enumeration its members share.
     ///
     /// The r4 groups are the shape the option pipeline hands back — every boundary a singleton where it stands, then the letters grouped by their column of the probe matrix, `qsIt` apart from the three that read alike.
     #[test]
-    fn a_context_partitions_its_thirds_and_hands_each_fibre_its_r4_groups() {
+    fn a_context_partitions_its_thirds_and_hands_each_fiber_its_r4_groups() {
         let index = belt_spec();
         let mut scaffolding = Scaffolding::new(&index);
         let context = scaffolding.context(&index, ["qsPea", "qsTea", "qsMay"]);
@@ -694,20 +694,20 @@ mod tests {
             spelled(&index, &context),
             concat!(
                 "boundaries [#EDGE, space, uni200C, periodcentered] ",
-                "fibres [",
+                "fibers [",
                 "qsIt fourth true r4 [#EDGE, space, uni200C, periodcentered, qsIt, qsMay+qsPea+qsTea]; ",
                 "qsMay+qsPea+qsTea fourth false r4 []",
                 "]"
             )
         );
-        let fibres = &context.fibres;
+        let fibers = &context.fibers;
         assert_eq!(
-            fibres[1].r4_groups,
+            fibers[1].r4_groups,
             Vec::<Vec<RightToken>>::new(),
             "a dead fourth slot emits no groups at all rather than one group of everything"
         );
         assert!(
-            fibres[0].members.len() == 1 && fibres[1].members.len() == 3,
+            fibers[0].members.len() == 1 && fibers[1].members.len() == 3,
             "the one third whose fourth slot moves the seat is a class of its own, and the three that never do share one"
         );
     }
@@ -732,7 +732,7 @@ mod tests {
             spelled(&shared, &context),
             concat!(
                 "boundaries [#EDGE, space, uni200C, periodcentered] ",
-                "fibres [",
+                "fibers [",
                 "qsIt+qsMay+qsPea+qsTea fourth true ",
                 "r4 [#EDGE, space, uni200C, periodcentered, qsIt+qsMay+qsPea+qsTea]",
                 "]"
@@ -746,7 +746,7 @@ mod tests {
             spelled(&split, &context),
             concat!(
                 "boundaries [#EDGE, space, uni200C, periodcentered] ",
-                "fibres [",
+                "fibers [",
                 "qsIt+qsMay+qsPea+qsTea fourth true ",
                 "r4 [#EDGE, space, uni200C, periodcentered, qsIt, qsMay+qsPea+qsTea]",
                 "]"
@@ -754,7 +754,7 @@ mod tests {
         );
     }
 
-    /// An r4-dead member is traced at the two coordinates the enumeration will ever read it at and at no others, while a live one is traced across the whole alphabet. Widening the dead member's sweep is invisible at verdict grain — the fibre key would still partition the same way — but every one of those windows journals its fired pointers into the product's `cited_provenance`, so the coordinate list is output rather than an optimization.
+    /// An r4-dead member is traced at the two coordinates the enumeration will ever read it at and at no others, while a live one is traced across the whole alphabet. Widening the dead member's sweep is invisible at verdict grain — the fiber key would still partition the same way — but every one of those windows journals its fired pointers into the product's `cited_provenance`, so the coordinate list is output rather than an optimization.
     #[test]
     fn a_dead_fourth_member_is_probed_at_two_coordinates_and_a_live_one_at_the_alphabet() {
         let index = belt_spec();
@@ -762,15 +762,15 @@ mod tests {
         let context = scaffolding.context(&index, ["qsPea", "qsTea", "qsMay"]);
         let [pea, tea, may] = ["qsPea", "qsTea", "qsMay"].map(|name| fixtures::sym(&index, name));
         let dead = context
-            .fibres
+            .fibers
             .iter()
-            .find(|fibre| !fibre.fourth_matters)
+            .find(|fiber| !fiber.fourth_matters)
             .expect("three of the four thirds cannot reach a live fourth here")
             .members[0];
         let live = context
-            .fibres
+            .fibers
             .iter()
-            .find(|fibre| fibre.fourth_matters)
+            .find(|fiber| fiber.fourth_matters)
             .expect("one third can")
             .members[0];
 
@@ -801,7 +801,7 @@ mod tests {
         );
     }
 
-    /// The three raise identities are three values, not one: a third token whose seat raises E-INCOMPARABLE and one whose seat raises E-AMBIGUOUS land in two fibres, and the tokens that settle land in a third.
+    /// The three raise identities are three values, not one: a third token whose seat raises E-INCOMPARABLE and one whose seat raises E-AMBIGUOUS land in two fibers, and the tokens that settle land in a third.
     #[test]
     fn a_context_splits_the_thirds_its_two_raises_tell_apart() {
         let index = raising_spec();
@@ -840,7 +840,7 @@ mod tests {
             spelled(&index, &context),
             concat!(
                 "boundaries [#EDGE, space, uni200C, periodcentered] ",
-                "fibres [",
+                "fibers [",
                 "qsIt fourth false r4 []; ",
                 "qsMay fourth false r4 []; ",
                 "qsPea+qsTea fourth false r4 []",
@@ -850,7 +850,7 @@ mod tests {
         );
     }
 
-    /// The same split at the record itself, with the third identity a fibre key can carry: a window nothing can settle into is a value of its own, distinct from both raises and from every settled record.
+    /// The same split at the record itself, with the third identity a fiber key can carry: a window nothing can settle into is a value of its own, distinct from both raises and from every settled record.
     #[test]
     fn a_probed_window_records_four_outcomes_that_never_collapse() {
         let index = raising_spec();
@@ -895,25 +895,25 @@ mod tests {
                 assert_ne!(own, other);
             }
         }
-        assert_eq!(incomparable, FibreRecord::Incomparable);
-        assert_eq!(ambiguous, FibreRecord::Ambiguous);
-        assert_eq!(unreachable, FibreRecord::Unreachable);
-        assert!(matches!(settled, FibreRecord::Settled { .. }));
+        assert_eq!(incomparable, FiberRecord::Incomparable);
+        assert_eq!(ambiguous, FiberRecord::Ambiguous);
+        assert_eq!(unreachable, FiberRecord::Unreachable);
+        assert!(matches!(settled, FiberRecord::Settled { .. }));
 
-        let key = |raise: FibreRecord| FibreKey {
+        let key = |raise: FiberRecord| FiberKey {
             fourth_matters: false,
             options4: Vec::new(),
             probe: vec![vec![settled.clone(), raise]],
         };
         assert_ne!(
-            key(FibreRecord::Incomparable),
-            key(FibreRecord::Ambiguous),
-            "two probe matrices that differ only in which conflict raised are two fibres"
+            key(FiberRecord::Incomparable),
+            key(FiberRecord::Ambiguous),
+            "two probe matrices that differ only in which conflict raised are two fibers"
         );
-        assert_ne!(key(FibreRecord::Ambiguous), key(FibreRecord::Unreachable));
+        assert_ne!(key(FiberRecord::Ambiguous), key(FiberRecord::Unreachable));
         assert_ne!(
-            key(FibreRecord::Incomparable),
-            key(FibreRecord::Unreachable)
+            key(FiberRecord::Incomparable),
+            key(FiberRecord::Unreachable)
         );
     }
 
@@ -935,7 +935,7 @@ mod tests {
             .expect("the fixture settles");
         assert_eq!(
             record(&mut engine, &edge, seat, slots),
-            FibreRecord::Settled {
+            FiberRecord::Settled {
                 settled: trace.settled,
                 prospect: trace.prospect,
                 joint_floor: trace.joint_floor,

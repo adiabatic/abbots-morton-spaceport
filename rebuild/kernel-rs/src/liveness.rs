@@ -10,7 +10,7 @@
 //!
 //! Evaluation order is output, not style. Every probe journals the pointers it fires into `Engine::fired`, which the fixpoint reports as the product's `cited_provenance`, so a probe that never runs never fires: each short-circuit, each early return, each loop order and each memo key's grain is the Python original's exactly. The memo grain in particular is contract — the prospect and vote arms key on the collapsed *signature* rather than the input family, so two families sharing a signature share one verdict and run its side effects once, while the seat replay and the joint34 belt key on the family itself.
 //!
-//! One instance per build, lent to both filters and to [`crate::fibre::DeepFibreDeriver`], and holding no engine of its own. Python reaches the same arrangement through `_liveness_probe`, an `id(engine)`-keyed cache with an LRU cap, because its filters may each build an engine; this crate's filters take the engine per call precisely so a second one cannot exist, which leaves nothing for a cache to key on and nothing for a cap to evict.
+//! One instance per build, lent to both filters and to [`crate::fiber::DeepFiberDeriver`], and holding no engine of its own. Python reaches the same arrangement through `_liveness_probe`, an `id(engine)`-keyed cache with an LRU cap, because its filters may each build an engine; this crate's filters take the engine per call precisely so a second one cannot exist, which leaves nothing for a cache to key on and nothing for a cap to evict.
 
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
@@ -171,9 +171,9 @@ impl<'i> ProspectLiveness<'i> {
         Ok(verdict)
     }
 
-    /// The left classes the seat replay and the fibre probes read this family against, `_ProspectLiveness._seat_left_classes`: the four boundary lefts first, then one virtual `(family, stance, seam)` left per distinct input-frame signature.
+    /// The left classes the seat replay and the fiber probes read this family against, `_ProspectLiveness._seat_left_classes`: the four boundary lefts first, then one virtual `(family, stance, seam)` left per distinct input-frame signature.
     ///
-    /// The iteration is over the spec's runes in *collection* order rather than sorted order, and the representative kept per signature is the **first** one encountered — a different order keeps a different virtual left, which can move both a liveness verdict and a fibre key. [`SpecIndex::runes`] preserves the dump's order, which is the order Python's `spec.runes` dict has, so the two agree by construction.
+    /// The iteration is over the spec's runes in *collection* order rather than sorted order, and the representative kept per signature is the **first** one encountered — a different order keeps a different virtual left, which can move both a liveness verdict and a fiber key. [`SpecIndex::runes`] preserves the dump's order, which is the order Python's `spec.runes` dict has, so the two agree by construction.
     ///
     /// Memoized per family behind an [`Rc`], because the deriver reads the same list once per candidate third token of every live context.
     pub fn seat_left_classes(
@@ -781,7 +781,7 @@ mod tests {
         fixtures::policy(&[])
     }
 
-    /// One `prefer` record with the provenance pointer a real one carries, so the notes a fibre key records are the notes a build would record.
+    /// One `prefer` record with the provenance pointer a real one carries, so the notes a fiber key records are the notes a build would record.
     fn prefer(rune: &str, seat: usize, overrides: &[(&str, &str)]) -> String {
         let pointer =
             fixtures::names(&[&format!("{rune}.yaml"), &format!("policy.prefer[{seat}]")]);
@@ -1170,7 +1170,7 @@ mod tests {
         spec_of(&[twin("qsTea"), twin("qsPea")])
     }
 
-    /// The left classes are the four boundaries and then one virtual left per distinct signature — kept for the *first* rune the spec collected, not the first sorted one, because a different representative can move both a liveness verdict and a fibre key.
+    /// The left classes are the four boundaries and then one virtual left per distinct signature — kept for the *first* rune the spec collected, not the first sorted one, because a different representative can move both a liveness verdict and a fiber key.
     #[test]
     fn the_left_class_collapse_keeps_the_first_representative_in_collection_order() {
         let index = twin_spec();

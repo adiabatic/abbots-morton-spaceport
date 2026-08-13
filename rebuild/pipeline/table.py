@@ -4,7 +4,7 @@
 
 Outcome-partition compression is DFA-style per input and per slot: two fillers land in one class iff their full outcome signatures over the other slots are identical. `assert_outcome_partition` re-derives the partitions and replays every reachable transition against the ordered rules under first-match-wins semantics — the hard build invariant of prototype follow-up 1. The fold, the joint-flag pass, the treaty fold, the replay, and every serialized-rules consumer read the expanded label-grain row stream (`DecisionTable.expanded_transitions`): a class-grain enumeration expands each row to its full member product before anything downstream runs, so those consumers are byte-identical to a label-grain build by construction, and `Rule` objects carry label vocabulary only — no class id ever reaches `_rules_for_input`, `write_tsv`, or a serialized rules head. Rule ordering per input follows the proven discipline: boundary-outcome rows with `uni200C` explicit in the class first, three-lookahead-slot rows before two-slot rows before one-slot rows, identity rows omitted, the slot-dropped fallback last, plus ZWNJ backtrack-slot coverage guards for never-locked inputs.
 
-Rows carry a fourth window slot, `right3`, enumerated lazily and only where live: an input admitted by `third_slot_inputs` (the depth-3 chain census `depth3_inputs` under the candidacy-grain prospect; every rune under the simulated prospect, where any input's third join-count term can read the slot through its follower's replayed cascade) gets its windows split by the raw third lookahead, only where both nearer slots are letters, and only where `third_slot_filter` judges the window live — some own-rune depth-3 prefer chain still unknown over (right1, right2), or, flag-on, some candidate shape's simulated follower choice moved by the third token (`_ProspectLiveness`) — a window judged definite settles identically under every third token, so everywhere else the slot stays `#NA`, mirroring the established convention that no record peeks past a boundary. An enumerated window's settled left state is reachable only alongside right2 equal to that window's right3, so the worklist pins the successor's allowed-right2 set to that singleton — the same exactness plumbing the late-formation guard already rides — and the right3 options replay the right2 filters shifted one slot (formation-impossible adjacent pairs, guard-firing follower sets, `liga_formed_before` with the second slot now pinned). The fifth slot, `right4`, repeats the pattern one deeper: only a `fourth_slot_inputs` input with letters at all three nearer slots, and only where `fourth_slot_filter` finds the window live over those three slots, enumerates it. Where it does enumerate, its options replay the same filters shifted once more, and the worklist pins the successor's right3 to the producing window's right4. Under `_deep_world` with `DEEP_CLASSES_DEFAULT` on, both deep slots enumerate at class grain (issue 26): the same option lists, their letters split by `_DeepFibreDeriver`'s outcome fibres — the filters themselves are untouched and the #NA biconditional keeps its exact statement over tokens — one row per (base, fibre pair) holding a content-addressed member set (`deep_classes`, `deep_class_id`), the successor pins carrying the admitted member sets instead of singletons, and `expanded_transitions` restoring the label-grain stream for everything downstream; `_assert_deep_slot_partition` and the per-build echo check are the standing guards. `_assert_window_arity` ties the Transition/Rule slot count to `model.RIGHT_WINDOW_SLOTS` at import, so the chain cap and the table can only widen together.
+Rows carry a fourth window slot, `right3`, enumerated lazily and only where live: an input admitted by `third_slot_inputs` (the depth-3 chain census `depth3_inputs` under the candidacy-grain prospect; every rune under the simulated prospect, where any input's third join-count term can read the slot through its follower's replayed cascade) gets its windows split by the raw third lookahead, only where both nearer slots are letters, and only where `third_slot_filter` judges the window live — some own-rune depth-3 prefer chain still unknown over (right1, right2), or, flag-on, some candidate shape's simulated follower choice moved by the third token (`_ProspectLiveness`) — a window judged definite settles identically under every third token, so everywhere else the slot stays `#NA`, mirroring the established convention that no record peeks past a boundary. An enumerated window's settled left state is reachable only alongside right2 equal to that window's right3, so the worklist pins the successor's allowed-right2 set to that singleton — the same exactness plumbing the late-formation guard already rides — and the right3 options replay the right2 filters shifted one slot (formation-impossible adjacent pairs, guard-firing follower sets, `liga_formed_before` with the second slot now pinned). The fifth slot, `right4`, repeats the pattern one deeper: only a `fourth_slot_inputs` input with letters at all three nearer slots, and only where `fourth_slot_filter` finds the window live over those three slots, enumerates it. Where it does enumerate, its options replay the same filters shifted once more, and the worklist pins the successor's right3 to the producing window's right4. Under `_deep_world` with `DEEP_CLASSES_DEFAULT` on, both deep slots enumerate at class grain (issue 26): the same option lists, their letters split by `_DeepFiberDeriver`'s outcome fibers — the filters themselves are untouched and the #NA biconditional keeps its exact statement over tokens — one row per (base, fiber pair) holding a content-addressed member set (`deep_classes`, `deep_class_id`), the successor pins carrying the admitted member sets instead of singletons, and `expanded_transitions` restoring the label-grain stream for everything downstream; `_assert_deep_slot_partition` and the per-build echo check are the standing guards. `_assert_window_arity` ties the Transition/Rule slot count to `model.RIGHT_WINDOW_SLOTS` at import, so the chain cap and the table can only widen together.
 
 Joint rows combine both section 6.1 flags: ranking ties broken by the structural floor between candidates differing in seam realization, and windows whose deliberately optimistic prospect diverges from the follower's actual settled choice. Both TSV artifacts are diff-stable (section 8): sorted rows, provenance pointers, deterministic labels.
 
@@ -65,7 +65,7 @@ BOUNDARY_LEFT_LABELS = {
 BOUNDARYISH = {EDGE_LABEL, NA_LABEL, "space", "uni200C", "periodcentered"}
 BOUNDARY_LOOKAHEAD_CLASS = ("uni200C", "space", "periodcentered")
 
-# The issue-26 flag, default on wherever `_deep_world` is true: deep window slots enumerate at class grain (one row per outcome fibre, expanded back to labels for every fold-side consumer). Same plumbing contract as settle's semantics flags: module-level, consulted at build time, AMS_DEEP_CLASSES=0 is the label-grain comparison state; in the pinned candidacy world there is no `_ProspectLiveness` instance and hence no fibre source, so enumeration there stays label-grain regardless.
+# The issue-26 flag, default on wherever `_deep_world` is true: deep window slots enumerate at class grain (one row per outcome fiber, expanded back to labels for every fold-side consumer). Same plumbing contract as settle's semantics flags: module-level, consulted at build time, AMS_DEEP_CLASSES=0 is the label-grain comparison state; in the pinned candidacy world there is no `_ProspectLiveness` instance and hence no fiber source, so enumeration there stays label-grain regardless.
 DEEP_CLASSES_DEFAULT = os.environ.get("AMS_DEEP_CLASSES", "1") != "0"
 DEEP_CLASS_PREFIX = "#C"
 
@@ -179,7 +179,7 @@ class DecisionTable:
         return members[0] if members else token
 
     def expanded_transitions(self) -> Iterator[Window]:
-        """The label-grain row stream every fold-side consumer reads (the issue-26 expansion boundary): each class row expanded to the full member product at right3 x right4 — boundary labels and #NA pass through — with every expanded row carrying the class row's settled fields verbatim, legitimate because the fibre key makes them member-uniform (the row's `joint` is the OR over its members, so per-member flags live only inside the build's own fold input). Yields in `Window.key` order with no duplicate keys — member sets at one base are disjoint (`_assert_deep_slot_partition`) — so a consumer that sorts label-grain rows by key today reads the identical stream; on a label-grain table this is exactly `transitions`."""
+        """The label-grain row stream every fold-side consumer reads (the issue-26 expansion boundary): each class row expanded to the full member product at right3 x right4 — boundary labels and #NA pass through — with every expanded row carrying the class row's settled fields verbatim, legitimate because the fiber key makes them member-uniform (the row's `joint` is the OR over its members, so per-member flags live only inside the build's own fold input). Yields in `Window.key` order with no duplicate keys — member sets at one base are disjoint (`_assert_deep_slot_partition`) — so a consumer that sorts label-grain rows by key today reads the identical stream; on a label-grain table this is exactly `transitions`."""
         if not self.deep_classes:
             yield from self.transitions
             return
@@ -253,7 +253,7 @@ class DecisionTable:
             raise PartitionError(f"{len(failures)} first-match-wins replay mismatches: {sample}")
 
     def _assert_deep_class_unions(self) -> None:
-        """Every emitted look3/look4 letter class holds each class row's member set all-in or all-out within the row's own context — the fold-output assertion that licenses conform's representative-membership tests as exact rather than heuristic. It holds by more than hope: within one left x r1 x r2 signature block, `_signature_blocks` equality fixes the coordinate domain as well as the outcome map (the signature is a set of ((coords), outcome) tuples), so the r3 signature is determined by the (r4-domain, outcome) map at any single (r1, r2) in the block — two fibre co-members agree on both by the fibre key, hence never straddle two blocks; the r4 direction is the same one slot over."""
+        """Every emitted look3/look4 letter class holds each class row's member set all-in or all-out within the row's own context — the fold-output assertion that licenses conform's representative-membership tests as exact rather than heuristic. It holds by more than hope: within one left x r1 x r2 signature block, `_signature_blocks` equality fixes the coordinate domain as well as the outcome map (the signature is a set of ((coords), outcome) tuples), so the r3 signature is determined by the (r4-domain, outcome) map at any single (r1, r2) in the block — two fiber co-members agree on both by the fiber key, hence never straddle two blocks; the r4 direction is the same one slot over."""
         if not self.deep_classes:
             return
         rules_by_input: dict[str, list[tuple[frozenset[str] | None, ...]]] = {}
@@ -557,7 +557,7 @@ def fourth_slot_inputs(spec: ResolvedSpec, engine: Engine | None = None) -> froz
 
 
 class _ProspectLiveness:
-    """The simulated-prospect arm of the deep-slot filters (issue 28 stage 2): whether a raw deep token can move the settled outcome of some reachable window at (input, right1, right2). Two value-level stages, because every cheaper grain fails in a measured way — consultation-level tracking over-opens catastrophically (the recursion consults beyond-window slots almost everywhere), and stopping at follower-prospect variance still over-opens 15-fold (measured on the real spec: 1,543 of the consulted triples carry a token-movable prospect but only 103 ever move a seat outcome), enough to push the emitted settlement lookup through the budget gate's headroom floor. Stage one is the cheap prefilter: for each (stance, seam) shape the input can commit — the virtual left's entry is never read, so entry states collapse — the follower's simulated prospect is evaluated per concrete token and compared against the EDGE the table bakes for a dead slot; no variance anywhere means no channel into the seat's ranking (deep tokens reach the flag-on kernel only through prospect values and own-rune chains, and the chain arm runs before this probe), so the slot is definitely dead. Stage two, only where stage one fires, probes at outcome grain: the seat's own transition is replayed per token over the collapsed left-classes — every (family, stance, seam) virtual left plus the four boundary kinds, collapsed by the input-frame signature (committed seam, left kind, and the verdict vector of the input's own left-reading conditions: entry-row from-scopes and refuse/prefer/resolve/unlock left conditions — extend and contract records shape adjustments only, and neither the extension nor the left cell's entry interacts with a deep token, so reachable settled lefts are covered by the enumerated shapes) — and the slot is live only if some class's settled cell varies. Left-classes the fixpoint can never reach raise E-STRANDED in the replay and are skipped; a prefer conflict raising E-INCOMPARABLE/E-AMBIGUOUS marks the slot live so the enumeration surfaces it properly. The third-slot probes also compare each token's unknown-fourth evaluation against its EDGE-fourth one, and `third_live` additionally ORs in `fourth_live` over every concrete letter third — a live fourth slot hanging off an unenumerated third would otherwise never be consulted, and the EDGE/UNKNOWN-fourth comparisons alone cannot see a seat that moves only under a specific (third, fourth) letter pair, because unknown-optimism bottoms the recursion identically for both. With shifted vote slots on (stage 4b) stage one grows a vote arm beside the prospect arm: `_vote_class_live` probes `_prefer_favors`' vote branch itself per deep token, because a vote reads the deep slots both through its record's shifted when: chain and through the follower-cell enumeration the vote runs over the shifted window; a same-family seam is skipped (the own branch shadows the vote there and the chain arm models it), and stage two prunes vote-verdict variance that never moves the seat. Verdict caches key on the probed window and instances cache per engine (`_liveness_probe`), so both filters and every consultation share one memo, and the conform gate remains the standing alarm for any residual under-opening. Under class grain (issue 26) this probe machinery is also the fibre source: `_DeepFibreDeriver` reads `_seat_left_classes` and `_probe_tokens` to compute the outcome-probed fibre key over every left class and a bounded coordinate set — the {EDGE, UNKNOWN} pair where the fourth slot is dead, the full probe alphabet plus UNKNOWN exactly where `fourth_slot_matters` is true, which is what absorbs the joint34 counterexample below at fibre grain — while the liveness verdicts themselves keep their exact code and are never redefined as fibre projections (a chain-arm-live context derives fibres too, whether or not the probe's own verdict was consulted)."""
+    """The simulated-prospect arm of the deep-slot filters (issue 28 stage 2): whether a raw deep token can move the settled outcome of some reachable window at (input, right1, right2). Two value-level stages, because every cheaper grain fails in a measured way — consultation-level tracking over-opens catastrophically (the recursion consults beyond-window slots almost everywhere), and stopping at follower-prospect variance still over-opens 15-fold (measured on the real spec: 1,543 of the consulted triples carry a token-movable prospect but only 103 ever move a seat outcome), enough to push the emitted settlement lookup through the budget gate's headroom floor. Stage one is the cheap prefilter: for each (stance, seam) shape the input can commit — the virtual left's entry is never read, so entry states collapse — the follower's simulated prospect is evaluated per concrete token and compared against the EDGE the table bakes for a dead slot; no variance anywhere means no channel into the seat's ranking (deep tokens reach the flag-on kernel only through prospect values and own-rune chains, and the chain arm runs before this probe), so the slot is definitely dead. Stage two, only where stage one fires, probes at outcome grain: the seat's own transition is replayed per token over the collapsed left-classes — every (family, stance, seam) virtual left plus the four boundary kinds, collapsed by the input-frame signature (committed seam, left kind, and the verdict vector of the input's own left-reading conditions: entry-row from-scopes and refuse/prefer/resolve/unlock left conditions — extend and contract records shape adjustments only, and neither the extension nor the left cell's entry interacts with a deep token, so reachable settled lefts are covered by the enumerated shapes) — and the slot is live only if some class's settled cell varies. Left-classes the fixpoint can never reach raise E-STRANDED in the replay and are skipped; a prefer conflict raising E-INCOMPARABLE/E-AMBIGUOUS marks the slot live so the enumeration surfaces it properly. The third-slot probes also compare each token's unknown-fourth evaluation against its EDGE-fourth one, and `third_live` additionally ORs in `fourth_live` over every concrete letter third — a live fourth slot hanging off an unenumerated third would otherwise never be consulted, and the EDGE/UNKNOWN-fourth comparisons alone cannot see a seat that moves only under a specific (third, fourth) letter pair, because unknown-optimism bottoms the recursion identically for both. With shifted vote slots on (stage 4b) stage one grows a vote arm beside the prospect arm: `_vote_class_live` probes `_prefer_favors`' vote branch itself per deep token, because a vote reads the deep slots both through its record's shifted when: chain and through the follower-cell enumeration the vote runs over the shifted window; a same-family seam is skipped (the own branch shadows the vote there and the chain arm models it), and stage two prunes vote-verdict variance that never moves the seat. Verdict caches key on the probed window and instances cache per engine (`_liveness_probe`), so both filters and every consultation share one memo, and the conform gate remains the standing alarm for any residual under-opening. Under class grain (issue 26) this probe machinery is also the fiber source: `_DeepFiberDeriver` reads `_seat_left_classes` and `_probe_tokens` to compute the outcome-probed fiber key over every left class and a bounded coordinate set — the {EDGE, UNKNOWN} pair where the fourth slot is dead, the full probe alphabet plus UNKNOWN exactly where `fourth_slot_matters` is true, which is what absorbs the joint34 counterexample below at fiber grain — while the liveness verdicts themselves keep their exact code and are never redefined as fiber projections (a chain-arm-live context derives fibers too, whether or not the probe's own verdict was consulted)."""
 
     def __init__(self, spec: ResolvedSpec, engine: Engine):
         self.spec = spec
@@ -1037,7 +1037,7 @@ def _survivable_formation_windows(
 
 
 class _WindowOptions:
-    """The per-build static structures behind the right-slot option pipelines: formation pairs, the section 5.7 survivable-window maps, the ligature sequences, and the r3/r4 option pipelines themselves. One implementation, shared by the enumeration loop, `_DeepFibreDeriver` (whose fibre key records the computed r4 option list, so a filter added to the pipeline without a key update fails `_assert_deep_slot_partition` loudly instead of silently splitting a fibre), and the partition assertion — the option list a fibre key records is computed by exactly the code the enumeration runs."""
+    """The per-build static structures behind the right-slot option pipelines: formation pairs, the section 5.7 survivable-window maps, the ligature sequences, and the r3/r4 option pipelines themselves. One implementation, shared by the enumeration loop, `_DeepFiberDeriver` (whose fiber key records the computed r4 option list, so a filter added to the pipeline without a key update fails `_assert_deep_slot_partition` loudly instead of silently splitting a fiber), and the partition assertion — the option list a fiber key records is computed by exactly the code the enumeration runs."""
 
     def __init__(self, spec: ResolvedSpec):
         self.spec = spec
@@ -1135,14 +1135,14 @@ class _WindowOptions:
         return options
 
 
-_FIBRE_RAISE_INCOMPARABLE = "raise:E-INCOMPARABLE"
-_FIBRE_RAISE_AMBIGUOUS = "raise:E-AMBIGUOUS"
-_FIBRE_RAISE_UNREACHABLE = "raise:E-UNREACHABLE"
+_FIBER_RAISE_INCOMPARABLE = "raise:E-INCOMPARABLE"
+_FIBER_RAISE_AMBIGUOUS = "raise:E-AMBIGUOUS"
+_FIBER_RAISE_UNREACHABLE = "raise:E-UNREACHABLE"
 
 
 @dataclass(frozen=True)
-class _Fibre:
-    """One r3 letter fibre of a live context: the member tokens (sorted-letter order, so the first member is the deterministic representative), the member-uniform `fourth_slot_matters` verdict, and — only where that verdict is true — the shared r4 sub-enumeration: `r4_groups` is the computed r4 option list partitioned into boundary singletons and r4 letter fibres, in option-pipeline order."""
+class _Fiber:
+    """One r3 letter fiber of a live context: the member tokens (sorted-letter order, so the first member is the deterministic representative), the member-uniform `fourth_slot_matters` verdict, and — only where that verdict is true — the shared r4 sub-enumeration: `r4_groups` is the computed r4 option list partitioned into boundary singletons and r4 letter fibers, in option-pipeline order."""
 
     members: tuple[RightToken, ...]
     fourth_matters: bool
@@ -1150,13 +1150,13 @@ class _Fibre:
 
 
 @dataclass(frozen=True)
-class _ContextFibres:
+class _ContextFibers:
     boundary_options: tuple[RightToken, ...]
-    fibres: tuple[_Fibre, ...]
+    fibers: tuple[_Fiber, ...]
 
 
-class _DeepFibreDeriver:
-    """The issue-26 fibre source: per live context (input family, right1, right2), partition the static r3 option list's letters into fibres of the outcome-probe function, lazily on first reach and memoized per build. The fibre key per candidate letter t3 is (i) the probe function f(t3) — for every left class in `_ProspectLiveness._seat_left_classes` and every bounded coordinate, the full row-visible probe record: the Settled (cell, seam, extension), prospect, joint_floor, and notes, plus the raise identity as three distinct values — (ii) the `fourth_slot_matters` verdict itself, and (iii) for members whose verdict is true, the computed r4 option list, run through `_WindowOptions.right4_options` per member so every present and future filter in the pipeline is keyed on structurally. The coordinate set is bounded, not the full grid: {EDGE, UNKNOWN} where the fourth slot is dead — an r4-dead member is traced only at EDGE and enqueues no r4 pin, so deeper coordinates are unread for it — widening to the full probe alphabet plus UNKNOWN exactly where `fourth_slot_matters` is true, which is where a seat can move under a specific (third, fourth) pair. Components (ii) and (iii) make an r3 class induce one shared r4 sub-enumeration, whose t4 groups under f(t3)(., t4) restricted to the option list are the r4 fibres — f is indexed by t3, so the r4 partition is per (context, r3 class), never per context alone. The probes run on the build's own tracing engine, so their traces land in the shared memo and their fired pointers in `engine.fired`, exactly as the liveness probes' traces already do. The one imported (not probed) assumption is the left-class collapse `_seat_left_classes` already trusts; it is guarded at real-left grain by the echo check in `enumerate_transitions` and the fibre verification test."""
+class _DeepFiberDeriver:
+    """The issue-26 fiber source: per live context (input family, right1, right2), partition the static r3 option list's letters into fibers of the outcome-probe function, lazily on first reach and memoized per build. The fiber key per candidate letter t3 is (i) the probe function f(t3) — for every left class in `_ProspectLiveness._seat_left_classes` and every bounded coordinate, the full row-visible probe record: the Settled (cell, seam, extension), prospect, joint_floor, and notes, plus the raise identity as three distinct values — (ii) the `fourth_slot_matters` verdict itself, and (iii) for members whose verdict is true, the computed r4 option list, run through `_WindowOptions.right4_options` per member so every present and future filter in the pipeline is keyed on structurally. The coordinate set is bounded, not the full grid: {EDGE, UNKNOWN} where the fourth slot is dead — an r4-dead member is traced only at EDGE and enqueues no r4 pin, so deeper coordinates are unread for it — widening to the full probe alphabet plus UNKNOWN exactly where `fourth_slot_matters` is true, which is where a seat can move under a specific (third, fourth) pair. Components (ii) and (iii) make an r3 class induce one shared r4 sub-enumeration, whose t4 groups under f(t3)(., t4) restricted to the option list are the r4 fibers — f is indexed by t3, so the r4 partition is per (context, r3 class), never per context alone. The probes run on the build's own tracing engine, so their traces land in the shared memo and their fired pointers in `engine.fired`, exactly as the liveness probes' traces already do. The one imported (not probed) assumption is the left-class collapse `_seat_left_classes` already trusts; it is guarded at real-left grain by the echo check in `enumerate_transitions` and the fiber verification test."""
 
     def __init__(
         self,
@@ -1171,7 +1171,7 @@ class _DeepFibreDeriver:
         self.options = options
         self.liveness = liveness
         self.fourth_slot_matters = fourth_slot_matters
-        self._contexts: dict[tuple[str, str, str], _ContextFibres] = {}
+        self._contexts: dict[tuple[str, str, str], _ContextFibers] = {}
 
     def _record(
         self,
@@ -1185,14 +1185,14 @@ class _DeepFibreDeriver:
         try:
             trace = self.engine.transition_trace(left, token, r1tok, r2tok, r3tok, r4tok)
         except EIncomparableError:
-            return _FIBRE_RAISE_INCOMPARABLE
+            return _FIBER_RAISE_INCOMPARABLE
         except EAmbiguousError:
-            return _FIBRE_RAISE_AMBIGUOUS
+            return _FIBER_RAISE_AMBIGUOUS
         except SettleError:
-            return _FIBRE_RAISE_UNREACHABLE
+            return _FIBER_RAISE_UNREACHABLE
         return (trace.settled, trace.prospect, trace.joint_floor, trace.notes)
 
-    def context(self, family: str, right1: str, right2: str) -> _ContextFibres:
+    def context(self, family: str, right1: str, right2: str) -> _ContextFibers:
         key = (family, right1, right2)
         cached = self._contexts.get(key)
         if cached is not None:
@@ -1221,7 +1221,7 @@ class _DeepFibreDeriver:
                 for left in lefts
             )
             groups.setdefault((fourth, opts4, probe), []).append(t3)
-        fibres: list[_Fibre] = []
+        fibers: list[_Fiber] = []
         for (fourth, opts4, probe), members in groups.items():
             if fourth:
                 coord_index = {coord: index for index, coord in enumerate(full_coords)}
@@ -1241,8 +1241,8 @@ class _DeepFibreDeriver:
                 r4_groups = tuple(tuple(bucket) for bucket in ordered)
             else:
                 r4_groups = ()
-            fibres.append(_Fibre(members=tuple(members), fourth_matters=fourth, r4_groups=r4_groups))
-        result = _ContextFibres(boundary_options=boundaries, fibres=tuple(fibres))
+            fibers.append(_Fiber(members=tuple(members), fourth_matters=fourth, r4_groups=r4_groups))
+        result = _ContextFibers(boundary_options=boundaries, fibers=tuple(fibers))
         self._contexts[key] = result
         return result
 
@@ -1261,7 +1261,7 @@ def _entry_extension(settled: Settled) -> int:
 
 @dataclass
 class _PendingDeepRow:
-    """One in-flight class-grain row, keyed on (base, fibre identity pair) while the worklist runs: the representative trace's row-visible record, the admitted r3 members accumulating across items (r4 members carry no pins and are full from the first item), and the frame tokens the echo traces replay after the drain."""
+    """One in-flight class-grain row, keyed on (base, fiber identity pair) while the worklist runs: the representative trace's row-visible record, the admitted r3 members accumulating across items (r4 members carry no pins and are full from the first item), and the frame tokens the echo traces replay after the drain."""
 
     left_context: LeftContext
     left_label: str
@@ -1288,13 +1288,13 @@ def _right_token_label(token: RightToken) -> str:
 def _assert_deep_slot_partition(
     decision: DecisionTable,
     options: _WindowOptions,
-    deriver: _DeepFibreDeriver,
+    deriver: _DeepFiberDeriver,
     deep_inputs: frozenset[str],
     deep4_inputs: frozenset[str],
     third_slot_matters: Callable[[str, str, str], bool],
     fourth_slot_matters: Callable[[str, str, str, str], bool],
 ) -> None:
-    """The class-grain hard invariant (issue 26), asserted beside `assert_outcome_partition` on every class-grain build: per base, the observed r3 letter tokens' member sets are pairwise disjoint, each inside the recomputed static option list and inside one fibre of its context's partition (disjointness is per base, not per context, because worklist pins are per left state, so two bases in one context can legitimately admit nested subsets of one fibre); right3 is non-#NA exactly where the pre-gate and `third_slot_matters` say live — the pinned-world biconditional restated over tokens; one slot deeper, r4 member sets are disjoint per (base, r3 token), every member of an r3 token agrees on the `fourth_slot_matters` verdict and induces the identical computed r4 option list (the fibre key's option-list component re-verified against `_WindowOptions.right4_options`, so a filter added to that pipeline without a key update fails loudly instead of silently splitting a fibre); and every class id resolves through the table's map with every map entry used. Cover against the static option list is deliberately not asserted — pins legitimately exclude unreachable members, exactly as label grain excludes their rows."""
+    """The class-grain hard invariant (issue 26), asserted beside `assert_outcome_partition` on every class-grain build: per base, the observed r3 letter tokens' member sets are pairwise disjoint, each inside the recomputed static option list and inside one fiber of its context's partition (disjointness is per base, not per context, because worklist pins are per left state, so two bases in one context can legitimately admit nested subsets of one fiber); right3 is non-#NA exactly where the pre-gate and `third_slot_matters` say live — the pinned-world biconditional restated over tokens; one slot deeper, r4 member sets are disjoint per (base, r3 token), every member of an r3 token agrees on the `fourth_slot_matters` verdict and induces the identical computed r4 option list (the fiber key's option-list component re-verified against `_WindowOptions.right4_options`, so a filter added to that pipeline without a key update fails loudly instead of silently splitting a fiber); and every class id resolves through the table's map with every map entry used. Cover against the static option list is deliberately not asserted — pins legitimately exclude unreachable members, exactly as label grain excludes their rows."""
     deep = decision.deep_classes
     used: set[str] = set()
     context_cache: dict[tuple[str, str, str], tuple[set[str], dict[str, int]]] = {}
@@ -1325,14 +1325,14 @@ def _assert_deep_slot_partition(
         if cached is None:
             ctxf = deriver.context(family, row.right1, row.right2)
             static_letters: set[str] = set()
-            fibre_of: dict[str, int] = {}
-            for index, fibre in enumerate(ctxf.fibres):
-                for member in fibre.members:
+            fiber_of: dict[str, int] = {}
+            for index, fiber in enumerate(ctxf.fibers):
+                for member in fiber.members:
                     static_letters.add(member.letter)
-                    fibre_of[member.letter] = index
-            cached = (static_letters, fibre_of)
+                    fiber_of[member.letter] = index
+            cached = (static_letters, fiber_of)
             context_cache[context_key] = cached
-        static_letters, fibre_of = cached
+        static_letters, fiber_of = cached
         members3 = decision.token_members(row.right3)
         base = (row.input_glyph, row.left, row.right1, row.right2)
         taken3 = seen3.setdefault(base, {})
@@ -1346,8 +1346,8 @@ def _assert_deep_slot_partition(
         outside = sorted(set(members3) - static_letters)
         if outside:
             raise PartitionError(f"{row.key}: r3 members outside the static option list: {outside}")
-        if len({fibre_of[member] for member in members3}) > 1:
-            raise PartitionError(f"{row.key}: r3 members straddle two fibres: {sorted(members3)}")
+        if len({fiber_of[member] for member in members3}) > 1:
+            raise PartitionError(f"{row.key}: r3 members straddle two fibers: {sorted(members3)}")
         verdicts = {bool(fourth_slot_matters(family, row.right1, row.right2, member)) for member in members3}
         if len(verdicts) > 1:
             raise PartitionError(
@@ -1415,11 +1415,11 @@ class FixpointProduct:
 
 @dataclass(frozen=True)
 class _FixpointContext:
-    """The product plus the enumeration-side objects the class-grain assertions replay against — the fibre deriver, the option pipelines, the deep-input censuses, and the two slot filters. They are proof scaffolding, not product, which is why `enumerate_transitions` hands back the product alone and only `build_tables` sees this."""
+    """The product plus the enumeration-side objects the class-grain assertions replay against — the fiber deriver, the option pipelines, the deep-input censuses, and the two slot filters. They are proof scaffolding, not product, which is why `enumerate_transitions` hands back the product alone and only `build_tables` sees this."""
 
     product: FixpointProduct
     options: _WindowOptions
-    deriver: _DeepFibreDeriver | None
+    deriver: _DeepFiberDeriver | None
     deep_inputs: frozenset[str]
     deep4_inputs: frozenset[str]
     third_slot_matters: Callable[[str, str, str], bool]
@@ -1432,7 +1432,7 @@ def enumerate_transitions(
     trace_store: "TraceStore | None" = None,
     share: "TraceShare | None" = None,
 ) -> FixpointProduct:
-    """One configuration's reachable windows, by fixpoint over reachable left states (the worklist comment below is the exactness contract). This is the kernel half of the build — every line that consults the settlement engine, and the half a port replaces wholesale — reduced to the one value `assemble_tables` needs. Wherever `_deep_world` holds and `DEEP_CLASSES_DEFAULT` is on, deep window slots enumerate at class grain (issue 26): the static option lists are computed exactly as at label grain, their letters split by `_DeepFibreDeriver`'s outcome fibres, worklist pins intersect each fibre, and the row for a (base, fibre pair) accumulates the union of admitted members across items — so the expanded member product equals the label-grain row multiset exactly, and everything from the joint-flag pass on consumes that expanded stream (`expanded_transitions`), keeping the fold, the rules, the treaty, and the serialized rules byte-identical by construction. The declared narrowing (issue 7's rule): per-member `transition_trace` at enumeration time becomes representative-plus-echo per (base, fibre pair) — the trace runs once with the first admitted member, and for every multi-member row the last member is additionally traced at the row's real left (the last r4 member at the representative r3 likewise) and its full probe record asserted equal, so the left-class collapse the fibres import is re-checked at real-left, real-entry, real-adjustment grain on every build; members between first and last are covered by the fibre probes at virtual-left grain, alarmed by the fibre verification test, the conform walk's first-divergent-member behavior, and the horizon-limited label-grain sweep. Standing residual: a middle member's real-left trace no longer runs, so a record whose only firing evidence was such a trace reads dead — the dead-policy gate errors on it loudly, and the fix at that point is targeted member tracing for the specific contexts, never a waiver."""
+    """One configuration's reachable windows, by fixpoint over reachable left states (the worklist comment below is the exactness contract). This is the kernel half of the build — every line that consults the settlement engine, and the half a port replaces wholesale — reduced to the one value `assemble_tables` needs. Wherever `_deep_world` holds and `DEEP_CLASSES_DEFAULT` is on, deep window slots enumerate at class grain (issue 26): the static option lists are computed exactly as at label grain, their letters split by `_DeepFiberDeriver`'s outcome fibers, worklist pins intersect each fiber, and the row for a (base, fiber pair) accumulates the union of admitted members across items — so the expanded member product equals the label-grain row multiset exactly, and everything from the joint-flag pass on consumes that expanded stream (`expanded_transitions`), keeping the fold, the rules, the treaty, and the serialized rules byte-identical by construction. The declared narrowing (issue 7's rule): per-member `transition_trace` at enumeration time becomes representative-plus-echo per (base, fiber pair) — the trace runs once with the first admitted member, and for every multi-member row the last member is additionally traced at the row's real left (the last r4 member at the representative r3 likewise) and its full probe record asserted equal, so the left-class collapse the fibers import is re-checked at real-left, real-entry, real-adjustment grain on every build; members between first and last are covered by the fiber probes at virtual-left grain, alarmed by the fiber verification test, the conform walk's first-divergent-member behavior, and the horizon-limited label-grain sweep. Standing residual: a middle member's real-left trace no longer runs, so a record whose only firing evidence was such a trace reads dead — the dead-policy gate errors on it loudly, and the fix at that point is targeted member tracing for the specific contexts, never a waiver."""
     return _enumerate(spec, features, trace_store=trace_store, share=share).product
 
 
@@ -1462,7 +1462,7 @@ def _enumerate(
     fourth_slot_matters = fourth_slot_filter(spec, features, engine)
     class_grain = DEEP_CLASSES_DEFAULT and _deep_world(engine)
     deriver = (
-        _DeepFibreDeriver(spec, engine, options, _liveness_probe(spec, engine), fourth_slot_matters)
+        _DeepFiberDeriver(spec, engine, options, _liveness_probe(spec, engine), fourth_slot_matters)
         if class_grain
         else None
     )
@@ -1470,7 +1470,7 @@ def _enumerate(
     transitions: dict[tuple[str, str, str, str, str, str], Transition] = {}
     deep_pending: dict[tuple, _PendingDeepRow] = {}
     seen: set[tuple] = set()
-    # A worklist item is (left state, input rune, right1 constraint, right2 allowed-set, right3 allowed-set): a settled left state is reachable only alongside the right1 that was the producing window's right2 (an entry refusal or unlock conditioned on the follower makes other combinations contradictory — the left would never have committed there), so the fixpoint is exact, not merely sound. None = all right1 options (the boundary-left seeds). The right2 allowed-set carries the late-formation guard's second slot onto a surviving pair's trail window; None = unrestricted. The right3 allowed-set carries a producing window's enumerated right4 the same way, pinning a depth-4-decided left's successor windows to the third lookahead that was actually behind them. At class grain both allowed-sets carry the producing row's admitted member sets rather than singletons; the successor's right2 loop fans back to concrete labels through the same intersection, and a pin's intersection with a fibre is still member-uniform, so the successor row set is identical to label grain's.
+    # A worklist item is (left state, input rune, right1 constraint, right2 allowed-set, right3 allowed-set): a settled left state is reachable only alongside the right1 that was the producing window's right2 (an entry refusal or unlock conditioned on the follower makes other combinations contradictory — the left would never have committed there), so the fixpoint is exact, not merely sound. None = all right1 options (the boundary-left seeds). The right2 allowed-set carries the late-formation guard's second slot onto a surviving pair's trail window; None = unrestricted. The right3 allowed-set carries a producing window's enumerated right4 the same way, pinning a depth-4-decided left's successor windows to the third lookahead that was actually behind them. At class grain both allowed-sets carry the producing row's admitted member sets rather than singletons; the successor's right2 loop fans back to concrete labels through the same intersection, and a pin's intersection with a fiber is still member-uniform, so the successor row set is identical to label grain's.
     worklist: list[
         tuple[LeftContext, str, RightToken | None, frozenset[RightToken] | None, frozenset[RightToken] | None]
     ] = []
@@ -1532,28 +1532,28 @@ def _enumerate(
                 )
                 if deriver is not None and deep3_live:
                     ctxf = deriver.context(rune_name, right1.letter, right2.letter)
-                    slot3_entries: list[tuple[RightToken | None, _Fibre | None, tuple[RightToken, ...]]] = []
+                    slot3_entries: list[tuple[RightToken | None, _Fiber | None, tuple[RightToken, ...]]] = []
                     for option in ctxf.boundary_options:
                         if right3_allowed is None or option in right3_allowed:
                             slot3_entries.append((option, None, (option,)))
-                    for fibre in ctxf.fibres:
+                    for fiber in ctxf.fibers:
                         admitted = tuple(
                             member
-                            for member in fibre.members
+                            for member in fiber.members
                             if right3_allowed is None or member in right3_allowed
                         )
                         if admitted:
-                            slot3_entries.append((None, fibre, admitted))
-                    for boundary3, fibre3, admitted3 in slot3_entries:
+                            slot3_entries.append((None, fiber, admitted))
+                    for boundary3, fiber3, admitted3 in slot3_entries:
                         slot4_entries: tuple[tuple[RightToken, ...] | None, ...]
-                        if fibre3 is not None and rune_name in deep4_inputs and fibre3.fourth_matters:
-                            slot4_entries = fibre3.r4_groups
+                        if fiber3 is not None and rune_name in deep4_inputs and fiber3.fourth_matters:
+                            slot4_entries = fiber3.r4_groups
                         else:
                             slot4_entries = (None,)
                         identity3 = (
                             boundary3
                             if boundary3 is not None
-                            else fibre3.members if fibre3 is not None else ()
+                            else fiber3.members if fiber3 is not None else ()
                         )
                         for members4 in slot4_entries:
                             rep3 = admitted3[0]
@@ -1714,7 +1714,7 @@ def _enumerate(
             f"deep-class echo mismatch at {display}: member {member.letter} traces {got} where the representative traced {expected}"
         )
 
-    # The section 2.6 echo check: for every multi-member fibre row, the last member is re-traced at the row's real left (and the last r4 member at the representative r3) and its full row-visible probe record must equal the representative's — the standing real-left, real-entry, real-adjustment guard on the virtual-left fibre collapse, two members deep on every build.
+    # The section 2.6 echo check: for every multi-member fiber row, the last member is re-traced at the row's real left (and the last r4 member at the representative r3) and its full row-visible probe record must equal the representative's — the standing real-left, real-entry, real-adjustment guard on the virtual-left fiber collapse, two members deep on every build.
     for pending in deep_pending.values():
         if pending.boundary3 is not None:
             label3 = right_label(pending.boundary3)
@@ -1888,7 +1888,7 @@ def build_tables(
     trace_store: "TraceStore | None" = None,
     share: "TraceShare | None" = None,
 ) -> tuple[DecisionTable, TreatyTable]:
-    """One configuration's decision and treaty tables: `enumerate_transitions` for the fixpoint, `assemble_tables` for the fold. The two class-grain assertions run here rather than inside either half because they are the only consumers wanting both the assembled table and the enumeration's own scaffolding — the fibre deriver, the option pipelines, the slot filters — which the product deliberately does not carry across the boundary."""
+    """One configuration's decision and treaty tables: `enumerate_transitions` for the fixpoint, `assemble_tables` for the fold. The two class-grain assertions run here rather than inside either half because they are the only consumers wanting both the assembled table and the enumeration's own scaffolding — the fiber deriver, the option pipelines, the slot filters — which the product deliberately does not carry across the boundary."""
     context = _enumerate(spec, features, trace_store=trace_store, share=share)
     decision, treaty = assemble_tables(spec, context.product)
     if context.deriver is not None:

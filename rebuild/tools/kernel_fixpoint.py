@@ -48,7 +48,7 @@ def world_flags() -> list[str]:
 
 
 def world_label() -> str:
-    """The world named in the run's header, in the flag spelling both sides use — `shipping defaults` when nothing is off — plus the grain the deep slots enumerate at, which no flag list states on its own: the pinned candidacy world has no fibre source and so enumerates at label grain whatever `AMS_DEEP_CLASSES` says, which is exactly the coincidence a header naming only the flags would let a reader miss. The grain is read off `table`'s own rule rather than restated, so the two can only agree. A byte comparison says nothing until you know which fixpoint it compared."""
+    """The world named in the run's header, in the flag spelling both sides use — `shipping defaults` when nothing is off — plus the grain the deep slots enumerate at, which no flag list states on its own: the pinned candidacy world has no fiber source and so enumerates at label grain whatever `AMS_DEEP_CLASSES` says, which is exactly the coincidence a header naming only the flags would let a reader miss. The grain is read off `table`'s own rule rather than restated, so the two can only agree. A byte comparison says nothing until you know which fixpoint it compared."""
     flags = world_flags()
     grain = "class grain" if table.DEEP_CLASSES_DEFAULT and table._deep_world(None) else "label grain"
     return f"{' '.join(flags) if flags else 'shipping defaults'}, {grain}"

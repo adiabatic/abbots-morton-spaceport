@@ -129,11 +129,11 @@ kernel-fixpoint: kernel-build
 kernel-fixpoint-pinned: kernel-build
 	AMS_SIMULATED_PROSPECT=0 AMS_VOTE_SLOTS=0 uv run python -m rebuild.tools.kernel_fixpoint $(ARGS)
 
-# The same comparison at label grain: the deep slots enumerate one row per token instead of one per outcome fibre, which is the kernel's --deep-classes-off arm and the comparison state the issue-26 class grain is measured against.
+# The same comparison at label grain: the deep slots enumerate one row per token instead of one per outcome fiber, which is the kernel's --deep-classes-off arm and the comparison state the issue-26 class grain is measured against.
 kernel-fixpoint-label-grain: kernel-build
 	AMS_DEEP_CLASSES=0 uv run python -m rebuild.tools.kernel_fixpoint $(ARGS)
 
-# Prove the Rust kernel's deep-slot liveness is Python's, one grain below the fixpoint: every letter triple's third-slot verdict, every quad's fourth-slot verdict, and the class-grain fibre partition of every live context — in all four mode combinations, compared as bytes. Where a wrong verdict reaches kernel-fixpoint as thousands of rows that split differently, it reads here as one triple. --exhaustive rides the recipe because at this alphabet it is free: the third arm has already driven the fourth-slot probes through the joint34 belt, so the whole quad space answers off a warm memo, while a sample sized for that space misses nearly every live fourth slot there is. ARGS='--python-only' writes the keys and Python's answers without invoking a binary, which is the Python half of a cross-build comparison.
+# Prove the Rust kernel's deep-slot liveness is Python's, one grain below the fixpoint: every letter triple's third-slot verdict, every quad's fourth-slot verdict, and the class-grain fiber partition of every live context — in all four mode combinations, compared as bytes. Where a wrong verdict reaches kernel-fixpoint as thousands of rows that split differently, it reads here as one triple. --exhaustive rides the recipe because at this alphabet it is free: the third arm has already driven the fourth-slot probes through the joint34 belt, so the whole quad space answers off a warm memo, while a sample sized for that space misses nearly every live fourth slot there is. ARGS='--python-only' writes the keys and Python's answers without invoking a binary, which is the Python half of a cross-build comparison.
 kernel-liveness: kernel-build
 	uv run python -m rebuild.tools.kernel_liveness --exhaustive $(ARGS)
 

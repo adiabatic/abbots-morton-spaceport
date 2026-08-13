@@ -1,12 +1,12 @@
-"""The liveness-grain differential (issue #40, sub-issue #45): the deep-slot filters' verdicts and the class-grain fibre partitions, asked of Python and of the Rust kernel over one file of keys and compared as bytes.
+"""The liveness-grain differential (issue #40, sub-issue #45): the deep-slot filters' verdicts and the class-grain fiber partitions, asked of Python and of the Rust kernel over one file of keys and compared as bytes.
 
-This sits between the two harnesses beside it, at the grain neither of them can state. `kernel_differential` settles one window at a time and a liveness verdict is not a window's answer — it is a claim about a whole family of windows, that no deep token could ever move the seat — so no case line carries it. `kernel_fixpoint` compares whole enumerations, where a wrong verdict does surface, but as tens of thousands of rows that split where Python did not and a `#NA` where Python opened a slot, with no single window to point at and a diff whose first line is as arbitrary as its last. Asked directly, the same defect is one triple. The fibre partition is the same statement one grain finer — which r3 letters share an outcome record, and which r4 letters share one under them — and the class ids are content-addressed over exactly those member sets, so a fibre that differs by one member renames every `#C…` token in the stream.
+This sits between the two harnesses beside it, at the grain neither of them can state. `kernel_differential` settles one window at a time and a liveness verdict is not a window's answer — it is a claim about a whole family of windows, that no deep token could ever move the seat — so no case line carries it. `kernel_fixpoint` compares whole enumerations, where a wrong verdict does surface, but as tens of thousands of rows that split where Python did not and a `#NA` where Python opened a slot, with no single window to point at and a diff whose first line is as arbitrary as its last. Asked directly, the same defect is one triple. The fiber partition is the same statement one grain finer — which r3 letters share an outcome record, and which r4 letters share one under them — and the class ids are content-addressed over exactly those member sets, so a fiber that differs by one member renames every `#C…` token in the stream.
 
-Three key shapes, in the order the file carries them. The `3` sweep is exhaustive: the surface is cubic in an alphabet of a couple of dozen runes, so there is no sampling to argue about and no triple a port can be lucky about. The `4` sweep is exhaustive too at the alphabet the gate runs on, and that is a measured choice rather than a thorough-by-default one. Its surface is one alphabet larger, but the exhaustive third arm has already driven `fourth_live` across every concrete letter third through the belt, so the fourth arm is answering off a warm memo and asking all of it costs the run essentially nothing over asking a sample of it. What a sample does cost is the only keys that carry information: live fourth slots are a vanishing fraction of the quad space, so a draw sized for the space misses nearly all of them and can miss every one of them in a world where the mode flags leave few — which reads as a green arm that compared nothing but agreement about `dead`. The sampling path and `--count` stay for an alphabet where the exhaustive form stops being free, and `--seed` still fixes the draw. The `fibres` keys ride the `3` sweep's answers rather than a list of their own: a fibre is only defined for a live letter-letter context, so the third arm asks exactly where the first arm said live, which makes it a check on the first as well — a port that judged a context dead is never asked for its fibres, and the absent lines are the divergence.
+Three key shapes, in the order the file carries them. The `3` sweep is exhaustive: the surface is cubic in an alphabet of a couple of dozen runes, so there is no sampling to argue about and no triple a port can be lucky about. The `4` sweep is exhaustive too at the alphabet the gate runs on, and that is a measured choice rather than a thorough-by-default one. Its surface is one alphabet larger, but the exhaustive third arm has already driven `fourth_live` across every concrete letter third through the belt, so the fourth arm is answering off a warm memo and asking all of it costs the run essentially nothing over asking a sample of it. What a sample does cost is the only keys that carry information: live fourth slots are a vanishing fraction of the quad space, so a draw sized for the space misses nearly all of them and can miss every one of them in a world where the mode flags leave few — which reads as a green arm that compared nothing but agreement about `dead`. The sampling path and `--count` stay for an alphabet where the exhaustive form stops being free, and `--seed` still fixes the draw. The `fibers` keys ride the `3` sweep's answers rather than a list of their own: a fiber is only defined for a live letter-letter context, so the third arm asks exactly where the first arm said live, which makes it a check on the first as well — a port that judged a context dead is never asked for its fibers, and the absent lines are the divergence.
 
 An arm that compares nothing must not read as a passing gate, so two floors are checked at the end whether or not a kernel was asked: every world's third arm has to have answered something, and a spec whose deep worlds between them found no live context at all is reported and fails. Nothing is asserted about how many — the alphabet moves — only that the surface the sweep exists to compare was not empty.
 
-Four worlds, `kernel_differential`'s mode combinations, because the two flags are what decide whether there is a liveness arm at all: with both off the filters are the own-rune chain census alone and every answer here is the pinned world's, and each single flag on exercises one probe arm without the other. One engine per world, built with explicit mode arguments rather than by moving the environment, and the filter closures and the fibre deriver all lent that one engine — the liveness memo, the trace memo and the fired journal are per engine, so a second engine would answer the same questions from a colder cache and, through `cited_provenance`, a different fixpoint. The verdicts are read through `third_slot_filter` / `fourth_slot_filter` and never through `_ProspectLiveness` directly, because the filter is where the chain arm and the liveness arm are ORed together, and the chain arm alone decides a great many triples that the probe would never be asked about.
+Four worlds, `kernel_differential`'s mode combinations, because the two flags are what decide whether there is a liveness arm at all: with both off the filters are the own-rune chain census alone and every answer here is the pinned world's, and each single flag on exercises one probe arm without the other. One engine per world, built with explicit mode arguments rather than by moving the environment, and the filter closures and the fiber deriver all lent that one engine — the liveness memo, the trace memo and the fired journal are per engine, so a second engine would answer the same questions from a colder cache and, through `cited_provenance`, a different fixpoint. The verdicts are read through `third_slot_filter` / `fourth_slot_filter` and never through `_ProspectLiveness` directly, because the filter is where the chain arm and the liveness arm are ORed together, and the chain arm alone decides a great many triples that the probe would never be asked about.
 
 The harness is wired before the verb it drives exists. A kernel that does not know `liveness-cases` exits 2 on the usage check, which this reads as the verb being absent and reports as one line, exactly as its siblings do. `--python-only` goes further and never invokes a binary at all: it writes the keys and Python's own answers into the output directory and stops, which is how the target is testable today. It is also half of the cross-build comparison: run it once for Python's answers, then run each candidate under `--binary <build> --out <that build's own directory>`, and every `kernel-*.txt` is comparable line for line against Python's `python-*.txt` and against every other build's. Nothing is shared between those runs but the keys, and the keys are a function of the spec, the seed and the world — so each run regenerates the identical file rather than depending on the others having left one behind.
 
@@ -36,13 +36,13 @@ LIVENESS_DIR = ROOT / "rebuild" / "out" / "kernel-liveness"
 # The sub-issue's own number, following the fuzz corpus's convention of seeding with the issue it was cut for. Nothing depends on the value beyond its being fixed: the whole point is that two runs draw the same quads, here and in whatever build answers them next.
 DEFAULT_SEED = 45
 DEFAULT_QUADS = 20000
-# The three key shapes, in the order the keys file carries them, which is also the order the arms report in. `fibres` is last because it is the only shape whose keys are a function of an earlier shape's answers.
-ARMS = ("triple", "quad", "fibre")
+# The three key shapes, in the order the keys file carries them, which is also the order the arms report in. `fibers` is last because it is the only shape whose keys are a function of an earlier shape's answers.
+ARMS = ("triple", "quad", "fiber")
 
 
 @dataclass(frozen=True)
 class World:
-    """One mode combination: the two engine flags, the kernel flags that spell them, and whether there is a deep world here at all — with both flags off no engine grows a `_ProspectLiveness`, so there are no fibres to derive and the filters answer from the chain census alone."""
+    """One mode combination: the two engine flags, the kernel flags that spell them, and whether there is a deep world here at all — with both flags off no engine grows a `_ProspectLiveness`, so there are no fibers to derive and the filters answer from the chain census alone."""
 
     simulated_prospect: bool
     vote_slots: bool
@@ -112,19 +112,19 @@ def quad_keys(spec: ResolvedSpec, count: int, seed: int, exhaustive: bool) -> li
     ]
 
 
-def fibre_answer(context: table._ContextFibres) -> str:
-    """One context's fibre partition as the `fibres` answer spells it: compact JSON, keys in the order written here, every token through `table._right_token_label`. Everything rides the deriver's own order — boundary options in static-list order, fibres in first-member-encountered order, members as collected, `r4_groups` in option-pipeline order — because the order is what the class ids and the row stream are cut from, and a partition compared as a set would call two different tables equal."""
+def fiber_answer(context: table._ContextFibers) -> str:
+    """One context's fiber partition as the `fibers` answer spells it: compact JSON, keys in the order written here, every token through `table._right_token_label`. Everything rides the deriver's own order — boundary options in static-list order, fibers in first-member-encountered order, members as collected, `r4_groups` in option-pipeline order — because the order is what the class ids and the row stream are cut from, and a partition compared as a set would call two different tables equal."""
     label = table._right_token_label
     return json.dumps(
         {
             "boundaries": [label(token) for token in context.boundary_options],
-            "fibres": [
+            "fibers": [
                 {
-                    "members": [label(member) for member in fibre.members],
-                    "fourth_matters": fibre.fourth_matters,
-                    "r4_groups": [[label(token) for token in group] for group in fibre.r4_groups],
+                    "members": [label(member) for member in fiber.members],
+                    "fourth_matters": fiber.fourth_matters,
+                    "r4_groups": [[label(token) for token in group] for group in fiber.r4_groups],
                 }
-                for fibre in context.fibres
+                for fiber in context.fibers
             ],
         },
         separators=(",", ":"),
@@ -136,9 +136,9 @@ def sweep_python(
     features: frozenset[str],
     world: World,
     quads: list[tuple[str, str, str, str]],
-    fibre_cap: int | None,
+    fiber_cap: int | None,
 ) -> Sweep:
-    """Python's whole side of one world: the keys and the answers, from one engine and the filter closures lent it. The engine carries `trace_memo` because the build's does and the probes' traces land in it either way; the liveness instance is fetched through `table._liveness_probe`, which is the same instance the filters built, so the fibre deriver reads the memo the verdicts filled rather than a second one. `fibre_cap` clips the fibre arm for an iteration loop; None asks for every live context."""
+    """Python's whole side of one world: the keys and the answers, from one engine and the filter closures lent it. The engine carries `trace_memo` because the build's does and the probes' traces land in it either way; the liveness instance is fetched through `table._liveness_probe`, which is the same instance the filters built, so the fiber deriver reads the memo the verdicts filled rather than a second one. `fiber_cap` clips the fiber arm for an iteration loop; None asks for every live context."""
     engine = Engine(
         spec,
         features,
@@ -159,16 +159,16 @@ def sweep_python(
         verdict = fourth_slot_matters(input_family, right1, right2, right3)
         sweep.note("quad", f"4\t{input_family}\t{right1}\t{right2}\t{right3}", "live" if verdict else "dead")
     if world.deep:
-        deriver = table._DeepFibreDeriver(
+        deriver = table._DeepFiberDeriver(
             spec,
             engine,
             table._WindowOptions(spec),
             table._liveness_probe(spec, engine),
             fourth_slot_matters,
         )
-        for input_family, right1, right2 in live if fibre_cap is None else live[:fibre_cap]:
+        for input_family, right1, right2 in live if fiber_cap is None else live[:fiber_cap]:
             context = deriver.context(input_family, right1, right2)
-            sweep.note("fibre", f"fibres\t{input_family}\t{right1}\t{right2}", fibre_answer(context))
+            sweep.note("fiber", f"fibers\t{input_family}\t{right1}\t{right2}", fiber_answer(context))
     return sweep
 
 
@@ -220,7 +220,7 @@ def run_world(
     config: str,
     world: World,
     quads: list[tuple[str, str, str, str]],
-    fibre_cap: int | None,
+    fiber_cap: int | None,
     out_dir: Path,
     arms: dict[str, Arm],
     binary: Path | None,
@@ -229,7 +229,7 @@ def run_world(
     label = f"{spec_name} {config} {world.label}"
     stem = f"{spec_name}-{config}-{world.label}"
     start = time.perf_counter()
-    sweep = sweep_python(spec, conform.features_for_config(config), world, quads, fibre_cap)
+    sweep = sweep_python(spec, conform.features_for_config(config), world, quads, fiber_cap)
     keys_path = write_lines(sweep.keys, out_dir / f"keys-{stem}.txt")
     write_lines(sweep.answers, out_dir / f"python-{stem}.txt")
     tally = "  ".join(f"{sweep.counts[arm]:6d} {arm}" for arm in ARMS)
@@ -250,7 +250,7 @@ def run_world(
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Differentially test the Rust kernel's deep-slot liveness verdicts and fibre partitions against Python."
+        description="Differentially test the Rust kernel's deep-slot liveness verdicts and fiber partitions against Python."
     )
     parser.add_argument(
         "--specs",
@@ -280,10 +280,10 @@ def main(argv: list[str] | None = None) -> int:
         help="ask every quad rather than a sample of them, which is what `make kernel-liveness` does",
     )
     parser.add_argument(
-        "--fibre-cap",
+        "--fiber-cap",
         type=int,
         default=0,
-        help="stop the fibre arm after this many live contexts (default 0, meaning every one of them)",
+        help="stop the fiber arm after this many live contexts (default 0, meaning every one of them)",
     )
     parser.add_argument(
         "--out", type=Path, default=LIVENESS_DIR, help="directory the keys and both sides' answers land in"
@@ -307,7 +307,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
     specs = [(name, fixtures.mini_spec() if name == "mini" else load_default_spec()) for name in args.specs]
-    fibre_cap = args.fibre_cap if args.fibre_cap > 0 else None
+    fiber_cap = args.fiber_cap if args.fiber_cap > 0 else None
     arms = {arm: Arm(arm) for arm in ARMS}
     divergences = 0
     start = time.perf_counter()
@@ -322,7 +322,7 @@ def main(argv: list[str] | None = None) -> int:
             quads = quad_keys(spec, args.count, args.seed, args.exhaustive)
             print(f"{name}: {len(spec.runes)} runes, {len(quads)} quads drawn", flush=True)
             deep_worlds = 0
-            fibres = 0
+            fibers = 0
             for config in args.configs:
                 for world in WORLDS:
                     world_divergences, sweep = run_world(
@@ -332,7 +332,7 @@ def main(argv: list[str] | None = None) -> int:
                         config,
                         world,
                         quads,
-                        fibre_cap,
+                        fiber_cap,
                         args.out,
                         arms,
                         binary,
@@ -342,10 +342,10 @@ def main(argv: list[str] | None = None) -> int:
                         floor.append(f"{name} {config} {world.label}: the third-slot arm asked nothing")
                     if world.deep:
                         deep_worlds += 1
-                        fibres += sweep.counts["fibre"]
-            if deep_worlds and not fibres:
+                        fibers += sweep.counts["fiber"]
+            if deep_worlds and not fibers:
                 floor.append(
-                    f"{name}: no deep world found a live context, so the fibre arm asked nothing and the class-grain partition went uncompared"
+                    f"{name}: no deep world found a live context, so the fiber arm asked nothing and the class-grain partition went uncompared"
                 )
     except KernelVerbMissing as missing:
         print(f"kernel liveness: {missing}", file=sys.stderr)
