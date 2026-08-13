@@ -1,10 +1,10 @@
-//! `ams-m1-kernel` — the Rust reimplementation of the M1 settlement kernel (tracker issue #40). Today it does the ingest step, the settlement core and the table build's kernel half: it reads an `ams-m1-spec/1` dump into the interned model, echoes that model back out in canonical form (sub-issue #42), settles single windows against it — one case file at a time for the differential, and the whole late-formation surface for the guard (sub-issue #43) — runs the whole table-build worklist fixpoint over one configuration in either candidacy world and at either deep-slot grain, writing the transitions stream Python folds into its artifacts (sub-issues #44 and #45), and answers deep-slot liveness and fibre questions one key at a time for the liveness-grain differential (sub-issue #45).
+//! `ams-m1-kernel` — the Rust reimplementation of the M1 settlement kernel (tracker issue #40). Today it does the ingest step, the settlement core and the table build's kernel half: it reads an `ams-m1-spec/1` dump into the interned model, echoes that model back out in canonical form (sub-issue #42), settles single windows against it — one case file at a time for the differential, and the whole late-formation surface for the guard (sub-issue #43) — runs the whole table-build worklist fixpoint over one configuration in either candidacy world and at either deep-slot grain, writing the transitions stream Python folds into its artifacts (sub-issues #44 and #45), and answers deep-slot liveness and fiber questions one key at a time for the liveness-grain differential (sub-issue #45).
 //!
 //! **`rebuild/pipeline/kernel_io.py` is the binding contract for the dump, and `rebuild/pipeline/settle.py` with `rebuild/pipeline/specificity.py` for the settlement.** Their module and function docstrings define both halves of each boundary, and this crate is measured against them rather than the other way around: the dump is whatever `kernel_io.spec_json` writes, the strictness is whatever `kernel_io.spec_of` enforces, a settled window is whatever `settle.Engine.transition_trace` returns down to its raise messages, and where this crate and those modules disagree, those modules are right. `rebuild/pipeline/table.py` is the contract for the fixpoint and for everything the deep slots do. `bench-the-rebuild/RUST-PORT-PLAN.md` carries the design facts behind the port — chiefly that the packing, not the language, is the win, and that the standard SipHash hasher beat the finalizer-less fast hasher that a first pass reached for.
 //!
 //! **A change to `rebuild/pipeline/model.py` is a cross-group coordination event, and it lands on this crate too.** The Python codec is driven by `dataclasses.fields`, so a new field rides the dump with no edit there; this crate spells its field sets by hand and will therefore refuse the new dump rather than silently drop the field. `make kernel-parity` is what catches the lag, and it catches it as a byte diff on the very next run.
 //!
-//! Six make targets drive the crate from the repo root: `make kernel-build` compiles the release binary the harnesses run, `make kernel-check` is the crate's own gate (`cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test`), `make kernel-parity` echoes the live alphabet and every rung of the nested ladder through the binary and compares the bytes against Python, `make kernel-differential` settles every window of the golden corpus, a seeded fuzz sweep, and the exhaustive formation-guard surface on both sides and compares those bytes too, `make kernel-fixpoint` enumerates whole configurations on both sides and compares the stream byte for byte together with the three artifacts and the digest Python folds out of it, and `make kernel-liveness` sweeps the deep-slot filters and the fibre partitions key by key against Python's own.
+//! Six make targets drive the crate from the repo root: `make kernel-build` compiles the release binary the harnesses run, `make kernel-check` is the crate's own gate (`cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test`), `make kernel-parity` echoes the live alphabet and every rung of the nested ladder through the binary and compares the bytes against Python, `make kernel-differential` settles every window of the golden corpus, a seeded fuzz sweep, and the exhaustive formation-guard surface on both sides and compares those bytes too, `make kernel-fixpoint` enumerates whole configurations on both sides and compares the stream byte for byte together with the three artifacts and the digest Python folds out of it, and `make kernel-liveness` sweeps the deep-slot filters and the fiber partitions key by key against Python's own.
 //!
 //! The CLI is positional arguments and a hand-rolled flag scan, never an argument parser, and stdout carries the answer and nothing else, ever. Three flags name the world a verb answers in, and all three are spelled as negations of the shipping configuration — `--candidacy-prospect`, `--vote-slots-off`, `--deep-classes-off` — so a bare invocation is what ships and every departure from it is visible in the command line:
 //!
@@ -12,7 +12,7 @@
 //! - `ams-m1-kernel settle-cases <spec> <cases> [--features=a,b,…] [--candidacy-prospect] [--vote-slots-off]` replays a plain-text `ams-m1-corpus/3` case file — the harness gunzips it, because this crate carries serde_json and nothing else — through one engine in file order and writes one re-emitted case line per case. A window that raises a settlement error is a normal result line and never a nonzero exit.
 //! - `ams-m1-kernel guard-sweep <spec>` writes the whole section 5.7 late-formation surface, one tab-separated verdict per line.
 //! - `ams-m1-kernel enumerate <spec> [--features=a,b,…] [--candidacy-prospect] [--vote-slots-off] [--deep-classes-off]` runs one configuration's whole table-build fixpoint and writes the uncompressed `ams-m1-transitions/1` stream — the head line and one row per window. `--deep-classes-off` is Python's `AMS_DEEP_CLASSES=0`, the label-grain arm; in the pinned candidacy world enumeration is label-grain regardless, so the flag is accepted and does nothing there. The harness gzips the stream, as it gunzips the case files, for the same reason.
-//! - `ams-m1-kernel liveness-cases <spec> <keys> [--features=a,b,…] [--candidacy-prospect] [--vote-slots-off]` answers one deep-slot question per key line: `3<tab><input><tab><r1><tab><r2>` and `4<tab><input><tab><r1><tab><r2><tab><r3>` answer `live` or `dead` — the full filter verdict, chain arm and liveness arm together — and `fibres<tab><input><tab><r1><tab><r2>` answers with the context's fibre partition as compact JSON. Every name is a rune family name; a key naming anything else stops the run. Each output line is the key line, a tab, and the answer, in file order.
+//! - `ams-m1-kernel liveness-cases <spec> <keys> [--features=a,b,…] [--candidacy-prospect] [--vote-slots-off]` answers one deep-slot question per key line: `3<tab><input><tab><r1><tab><r2>` and `4<tab><input><tab><r1><tab><r2><tab><r3>` answer `live` or `dead` — the full filter verdict, chain arm and liveness arm together — and `fibers<tab><input><tab><r1><tab><r2>` answers with the context's fiber partition as compact JSON. Every name is a rune family name; a key naming anything else stops the run. Each output line is the key line, a tab, and the answer, in file order.
 //!
 //! A usage mistake — wrong argument count, wrong verb, an unknown flag, an argument that is not valid Unicode — exits 2; a file that cannot be read, parsed, or validated, a case file or key file this build cannot answer, and a window that will not settle, exit 1 with a one-line complaint on stderr.
 
@@ -24,7 +24,7 @@ use std::process::ExitCode;
 use ams_m1_kernel::census::{FourthSlotFilter, ThirdSlotFilter};
 use ams_m1_kernel::emit::json_string;
 use ams_m1_kernel::engine::{Engine, EngineModes};
-use ams_m1_kernel::fibre::{ContextFibres, DeepFibreDeriver};
+use ams_m1_kernel::fiber::{ContextFibers, DeepFiberDeriver};
 use ams_m1_kernel::fixpoint::{EnumerationModes, right_token_label};
 use ams_m1_kernel::index::SpecIndex;
 use ams_m1_kernel::liveness::ProspectLiveness;
@@ -61,7 +61,7 @@ struct EnumeratePlan<'a> {
     deep_classes: bool,
 }
 
-/// What a `liveness-cases` invocation asked for. There is no grain flag: a fibre partition is derived wherever the deep world holds, whatever grain an enumeration would then be written at.
+/// What a `liveness-cases` invocation asked for. There is no grain flag: a fiber partition is derived wherever the deep world holds, whatever grain an enumeration would then be written at.
 struct LivenessPlan<'a> {
     spec: &'a str,
     keys: &'a str,
@@ -317,7 +317,7 @@ struct LivenessScaffolding<'i> {
     liveness: ProspectLiveness<'i>,
     third: ThirdSlotFilter<'i>,
     fourth: FourthSlotFilter<'i>,
-    deriver: DeepFibreDeriver,
+    deriver: DeepFiberDeriver,
 }
 
 impl<'i> LivenessScaffolding<'i> {
@@ -327,13 +327,13 @@ impl<'i> LivenessScaffolding<'i> {
             liveness: ProspectLiveness::new(index),
             third: ThirdSlotFilter::new(index),
             fourth: FourthSlotFilter::new(index),
-            deriver: DeepFibreDeriver::new(),
+            deriver: DeepFiberDeriver::new(),
         })
     }
 
-    /// One key line's answer: `live` or `dead` for the two filter shapes, and the context's fibre partition as compact JSON for the third.
+    /// One key line's answer: `live` or `dead` for the two filter shapes, and the context's fiber partition as compact JSON for the third.
     ///
-    /// The probe is lent only where the engine's own modes make a deep world, which is exactly where `third_slot_filter` builds a `_ProspectLiveness` at all — with both flags off the filters are the own-rune chain census and nothing else, and lending a probe there would answer a question Python never asks. The deriver, by contrast, answers whatever it is asked: a `fibres` key is only ever generated for a live letter-letter context of a deep world, and which contexts those are is the caller's knowledge.
+    /// The probe is lent only where the engine's own modes make a deep world, which is exactly where `third_slot_filter` builds a `_ProspectLiveness` at all — with both flags off the filters are the own-rune chain census and nothing else, and lending a probe there would answer a question Python never asks. The deriver, by contrast, answers whatever it is asked: a `fibers` key is only ever generated for a live letter-letter context of a deep world, and which contexts those are is the caller's knowledge.
     fn answer(&mut self, engine: &mut Engine<'i>, line: &str) -> Result<String, String> {
         let index = engine.index();
         let deep_world = engine.simulated_prospect() || engine.vote_slots();
@@ -369,7 +369,7 @@ impl<'i> LivenessScaffolding<'i> {
                     .map_err(|error| error.to_string())?;
                 Ok(verdict(live))
             }
-            ["fibres", input, right1, right2] => {
+            ["fibers", input, right1, right2] => {
                 let [input, right1, right2] = families(index, [input, right1, right2])?;
                 let context = self
                     .deriver
@@ -383,10 +383,10 @@ impl<'i> LivenessScaffolding<'i> {
                         right2,
                     )
                     .map_err(|error| error.to_string())?;
-                Ok(fibres_json(index, &context))
+                Ok(fibers_json(index, &context))
             }
             _ => Err(format!(
-                "not a liveness key — expected 3, 4 or fibres and its family names, tab-separated: {line:?}"
+                "not a liveness key — expected 3, 4 or fibers and its family names, tab-separated: {line:?}"
             )),
         }
     }
@@ -417,31 +417,31 @@ fn families<const N: usize>(index: &SpecIndex, names: [&&str; N]) -> Result<[Sym
     Ok(out)
 }
 
-/// One context's fibre partition in the shape the Python emitter writes with `json.dumps(..., separators=(",", ":"))`: the boundary options, then one object per fibre carrying its members, its fourth-slot verdict and its r4 groups.
+/// One context's fiber partition in the shape the Python emitter writes with `json.dumps(..., separators=(",", ":"))`: the boundary options, then one object per fiber carrying its members, its fourth-slot verdict and its r4 groups.
 ///
-/// Every collection rides in the deriver's own order — boundary options in static-list order, fibres in first-member-encountered order, members as collected, r4 groups in option-pipeline order — because that order is what the two sides are being compared on. A dead fourth spells its groups as the empty list.
-fn fibres_json(index: &SpecIndex, context: &ContextFibres) -> String {
+/// Every collection rides in the deriver's own order — boundary options in static-list order, fibers in first-member-encountered order, members as collected, r4 groups in option-pipeline order — because that order is what the two sides are being compared on. A dead fourth spells its groups as the empty list.
+fn fibers_json(index: &SpecIndex, context: &ContextFibers) -> String {
     let boundaries = labels_json(index, &context.boundary_options);
-    let fibres: Vec<String> = context
-        .fibres
+    let fibers: Vec<String> = context
+        .fibers
         .iter()
-        .map(|fibre| {
-            let groups: Vec<String> = fibre
+        .map(|fiber| {
+            let groups: Vec<String> = fiber
                 .r4_groups
                 .iter()
                 .map(|group| labels_json(index, group))
                 .collect();
             format!(
                 "{{\"members\":{},\"fourth_matters\":{},\"r4_groups\":[{}]}}",
-                labels_json(index, &fibre.members),
-                fibre.fourth_matters,
+                labels_json(index, &fiber.members),
+                fiber.fourth_matters,
                 groups.join(",")
             )
         })
         .collect();
     format!(
-        "{{\"boundaries\":{boundaries},\"fibres\":[{}]}}",
-        fibres.join(",")
+        "{{\"boundaries\":{boundaries},\"fibers\":[{}]}}",
+        fibers.join(",")
     )
 }
 

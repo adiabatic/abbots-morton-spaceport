@@ -45,7 +45,7 @@ impl fmt::Display for IngestError {
 
 impl std::error::Error for IngestError {}
 
-/// What settlement raises when a window will not settle. The four variants are four distinct outcomes downstream and must stay distinguishable: the class-grain fibre keys treat E-INCOMPARABLE, E-AMBIGUOUS, and the plain settle error as three separate values, so collapsing any two of them would silently merge fibres that the review surface and the treaty fold read apart. E-STRANDED is the skippable flavor — the liveness probes catch it on their own terms — which is why it is a variant here rather than a plain error with a different sentence in it.
+/// What settlement raises when a window will not settle. The four variants are four distinct outcomes downstream and must stay distinguishable: the class-grain fiber keys treat E-INCOMPARABLE, E-AMBIGUOUS, and the plain settle error as three separate values, so collapsing any two of them would silently merge fibers that the review surface and the treaty fold read apart. E-STRANDED is the skippable flavor — the liveness probes catch it on their own terms — which is why it is a variant here rather than a plain error with a different sentence in it.
 ///
 /// The Python originals are `specificity.EIncomparableError` and `specificity.EAmbiguousError`, and `settle.SettleError` and `settle.EStrandedError`. All four are raised by [`crate::engine`] and by the specificity order under it, and [`crate::cases`] is where the discriminant is read: it buckets the four into the corpus's three, which is why collapsing any two of them here would go unnoticed there. Ingest failures are [`IngestError`] and never belong here.
 ///

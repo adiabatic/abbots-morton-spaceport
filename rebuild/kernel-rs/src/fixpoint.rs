@@ -2,11 +2,11 @@
 //!
 //! The worklist is the exactness argument rather than a traversal detail, and Python's comment above it is the specification. An item is a left state together with the pins that left was reached under: a settled left is reachable only alongside the right1 that was the producing window's right2, because an entry refusal or an unlock conditioned on the follower makes any other combination contradictory — the left would never have committed there. The right2 allowed-set carries the late-formation guard's second slot onto a surviving pair's trail window, and the right3 allowed-set carries a producing window's enumerated right4 the same way, pinning a depth-4-decided left's successor windows to the third lookahead that was actually behind them. `None` is unrestricted in both, and both are frozen sets compared by content, never by identity.
 //!
-//! LIFO discipline with the `seen` check at pop time is contract rather than convenience. In the pinned candidacy world the product is order-independent — the dedup is by window key, a hit reuses the recorded settled because the left label is injective into the trace's inputs, and the fired set is the union over a window set no traversal order can change — but under class grain the first visitor of a fibre fixes its representative, so the order rows are traced in reaches the output there. Reproducing Python's push order exactly is cheaper than re-deriving, on every later reading, whether it still matters.
+//! LIFO discipline with the `seen` check at pop time is contract rather than convenience. In the pinned candidacy world the product is order-independent — the dedup is by window key, a hit reuses the recorded settled because the left label is injective into the trace's inputs, and the fired set is the union over a window set no traversal order can change — but under class grain the first visitor of a fiber fixes its representative, so the order rows are traced in reaches the output there. Reproducing Python's push order exactly is cheaper than re-deriving, on every later reading, whether it still matters.
 //!
-//! Both grains live here now. Where `_deep_world` holds and the deep-classes flag is on, the deep slots enumerate at class grain (issue 26): the same static option lists, their letters split by [`crate::fibre::DeepFibreDeriver`]'s outcome fibres, one in-flight row per `(base, fibre identity pair)` accumulating the union of admitted members across worklist items, successor pins carrying those member sets instead of singletons, and a content-addressed id per multi-member set in the product's `deep_classes` map. Two standing guards ride with it: the section 2.6 echo check re-traces a second member of every multi-member row at the row's real left and demands the identical row-visible record, and `table._assert_deep_slot_partition` is replayed over the finished product before it is handed back. Where the flag is off, or in the pinned world where class grain cannot arise at all, the label-grain path is the whole function and the deep slots still enumerate — the censuses and the filters are what decide that, not the grain.
+//! Both grains live here now. Where `_deep_world` holds and the deep-classes flag is on, the deep slots enumerate at class grain (issue 26): the same static option lists, their letters split by [`crate::fiber::DeepFiberDeriver`]'s outcome fibers, one in-flight row per `(base, fiber identity pair)` accumulating the union of admitted members across worklist items, successor pins carrying those member sets instead of singletons, and a content-addressed id per multi-member set in the product's `deep_classes` map. Two standing guards ride with it: the section 2.6 echo check re-traces a second member of every multi-member row at the row's real left and demands the identical row-visible record, and `table._assert_deep_slot_partition` is replayed over the finished product before it is handed back. Where the flag is off, or in the pinned world where class grain cannot arise at all, the label-grain path is the whole function and the deep slots still enumerate — the censuses and the filters are what decide that, not the grain.
 //!
-//! One engine settles everything, and the two slot filters, the liveness probe and the fibre deriver all borrow it rather than building their own. That is load-bearing twice over: the trace memo makes a re-reached window free, and `Engine::fired` is the product's `cited_provenance`, so a probe running through a second engine would silently shrink what the dead-policy gate is told fired. The same argument makes the liveness probe a single instance lent to both filters and to the deriver.
+//! One engine settles everything, and the two slot filters, the liveness probe and the fiber deriver all borrow it rather than building their own. That is load-bearing twice over: the trace memo makes a re-reached window free, and `Engine::fired` is the product's `cited_provenance`, so a probe running through a second engine would silently shrink what the dead-policy gate is told fired. The same argument makes the liveness probe a single instance lent to both filters and to the deriver.
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::rc::Rc;
@@ -14,7 +14,7 @@ use std::rc::Rc;
 use crate::census::{FourthSlotFilter, ThirdSlotFilter, fourth_slot_inputs, third_slot_inputs};
 use crate::engine::{Engine, EngineModes, Slots};
 use crate::error::SettleError;
-use crate::fibre::DeepFibreDeriver;
+use crate::fiber::DeepFiberDeriver;
 use crate::index::SpecIndex;
 use crate::liveness::ProspectLiveness;
 use crate::model::Sym;
@@ -47,7 +47,7 @@ const SEED_KINDS: [TokenKind; 4] = [
 
 /// The world one enumeration answers, and at which grain. Python reads all three from module-level defaults an environment variable moves — `settle.SIMULATED_PROSPECT_DEFAULT`, `settle.VOTE_SLOTS_DEFAULT` and `table.DEEP_CLASSES_DEFAULT` — and this crate has no environment, so the caller passes them and [`Default`] is the shipping configuration.
 ///
-/// The two engine modes are also the deep-world verdict, `table._deep_world`: either one on widens both deep-slot censuses to every rune and hands the filters their liveness arm. `deep_classes` is the issue-26 flag and is an intersection rather than a switch — `class_grain = DEEP_CLASSES_DEFAULT and _deep_world(engine)` — so in the pinned world it is accepted and does nothing, there being no fibre source there to enumerate at class grain.
+/// The two engine modes are also the deep-world verdict, `table._deep_world`: either one on widens both deep-slot censuses to every rune and hands the filters their liveness arm. `deep_classes` is the issue-26 flag and is an intersection rather than a switch — `class_grain = DEEP_CLASSES_DEFAULT and _deep_world(engine)` — so in the pinned world it is accepted and does nothing, there being no fiber source there to enumerate at class grain.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct EnumerationModes {
     pub simulated_prospect: bool,
@@ -99,7 +99,7 @@ struct Row {
     provenance: Vec<String>,
 }
 
-/// One third-slot entry of a class-grain window: the boundary token where the entry is a boundary, the seat of the fibre where it is a fibre, and the members this item's pins admitted.
+/// One third-slot entry of a class-grain window: the boundary token where the entry is a boundary, the seat of the fiber where it is a fiber, and the members this item's pins admitted.
 type Slot3Entry = (Option<RightToken>, Option<usize>, Vec<RightToken>);
 
 /// One fourth-slot entry of a class-grain window: the r4 group, or `None` where the fourth slot is dead and the row carries `#NA` there.
@@ -108,9 +108,9 @@ type Slot4Entry = Option<Vec<RightToken>>;
 /// What an in-flight class-grain row is keyed by while the worklist runs, `_enumerate`'s `pending_key`: the four near labels, the third slot's identity, and the fourth's full member group.
 type PendingKey = (String, String, String, String, Identity3, Slot4Entry);
 
-/// The third slot's identity inside a [`PendingKey`]. Python keys on the boundary token itself or on the fibre's full member tuple and relies on the two being different types; naming the alternatives is that distinction made checkable.
+/// The third slot's identity inside a [`PendingKey`]. Python keys on the boundary token itself or on the fiber's full member tuple and relies on the two being different types; naming the alternatives is that distinction made checkable.
 ///
-/// The members are the fibre's whole membership rather than the admitted subset, which is what lets two worklist items whose pins admit different subsets of one fibre accumulate into a single row.
+/// The members are the fiber's whole membership rather than the admitted subset, which is what lets two worklist items whose pins admit different subsets of one fiber accumulate into a single row.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 enum Identity3 {
     Boundary(RightToken),
@@ -160,7 +160,7 @@ pub fn enumerate_transitions(
     enumerate_seeded(index, features, modes, contract_seeds)
 }
 
-/// [`enumerate_transitions`] with the seeding left open, which is how the order-independence of the pinned world is testable at all. Production always passes [`contract_seeds`]; a test passes a permutation and asserts the same product, which is a statement about that world rather than about the discipline, since class grain makes the first visitor of a fibre decide its representative.
+/// [`enumerate_transitions`] with the seeding left open, which is how the order-independence of the pinned world is testable at all. Production always passes [`contract_seeds`]; a test passes a permutation and asserts the same product, which is a statement about that world rather than about the discipline, since class grain makes the first visitor of a fiber decide its representative.
 fn enumerate_seeded(
     index: &SpecIndex,
     features: &[Sym],
@@ -187,7 +187,7 @@ fn enumerate_seeded(
     let mut fourth_slot_matters = FourthSlotFilter::new(index);
     let mut liveness = deep_world.then(|| ProspectLiveness::new(index));
     let class_grain = modes.deep_classes && deep_world;
-    let mut deriver = class_grain.then(DeepFibreDeriver::new);
+    let mut deriver = class_grain.then(DeepFiberDeriver::new);
 
     let mut transitions: HashMap<WindowKey, Row> = HashMap::new();
     // Python's `deep_pending` dict, split into the rows and the seats their keys hold, so that the echo pass walks them in the order they were created exactly as iterating a `dict` does.
@@ -309,8 +309,8 @@ fn enumerate_seeded(
                             slot3_entries.push((Some(option), None, vec![option]));
                         }
                     }
-                    for (seat, fibre) in context.fibres.iter().enumerate() {
-                        let admitted: Vec<RightToken> = fibre
+                    for (seat, fiber) in context.fibers.iter().enumerate() {
+                        let admitted: Vec<RightToken> = fiber
                             .members
                             .iter()
                             .copied()
@@ -324,14 +324,14 @@ fn enumerate_seeded(
                             slot3_entries.push((None, Some(seat), admitted));
                         }
                     }
-                    for (boundary3, fibre3, admitted3) in slot3_entries {
-                        // The census gate is applied here rather than inside the deriver: a fibre's own `fourth_matters` is the raw filter verdict, and only the enumeration knows whether this input is censused deep enough to spend it.
-                        let slot4_entries: Vec<Slot4Entry> = match fibre3 {
+                    for (boundary3, fiber3, admitted3) in slot3_entries {
+                        // The census gate is applied here rather than inside the deriver: a fiber's own `fourth_matters` is the raw filter verdict, and only the enumeration knows whether this input is censused deep enough to spend it.
+                        let slot4_entries: Vec<Slot4Entry> = match fiber3 {
                             Some(seat)
                                 if deep4_inputs.contains(&rune)
-                                    && context.fibres[seat].fourth_matters =>
+                                    && context.fibers[seat].fourth_matters =>
                             {
-                                context.fibres[seat]
+                                context.fibers[seat]
                                     .r4_groups
                                     .iter()
                                     .cloned()
@@ -340,11 +340,11 @@ fn enumerate_seeded(
                             }
                             _ => vec![None],
                         };
-                        // The identity is the fibre's *full* member tuple rather than the admitted subset, so two items whose pins admit different subsets of one fibre accumulate into one row instead of splitting it.
+                        // The identity is the fiber's *full* member tuple rather than the admitted subset, so two items whose pins admit different subsets of one fiber accumulate into one row instead of splitting it.
                         let identity3 = match boundary3 {
                             Some(token) => Identity3::Boundary(token),
-                            None => Identity3::Members(fibre3.map_or_else(Vec::new, |seat| {
-                                context.fibres[seat].members.clone()
+                            None => Identity3::Members(fiber3.map_or_else(Vec::new, |seat| {
+                                context.fibers[seat].members.clone()
                             })),
                         };
                         for members4 in slot4_entries {
@@ -554,7 +554,7 @@ fn enumerate_seeded(
 
     let mut deep_classes: Vec<(String, Vec<String>)> = Vec::new();
     let mut named_classes: HashSet<String> = HashSet::new();
-    // The section 2.6 echo check, and the class rows' emission with it: for every multi-member row the last admitted member is re-traced at the row's real left — and the last r4 member at the representative third — and its whole row-visible record must equal the representative's. That is the standing real-left, real-entry, real-adjustment guard on the virtual-left collapse the fibres import, two members deep on every build.
+    // The section 2.6 echo check, and the class rows' emission with it: for every multi-member row the last admitted member is re-traced at the row's real left — and the last r4 member at the representative third — and its whole row-visible record must equal the representative's. That is the standing real-left, real-entry, real-adjustment guard on the virtual-left collapse the fibers import, two members deep on every build.
     for pending in &pending_rows {
         let (label3, admitted3) = match pending.boundary3 {
             Some(token) => (right_token_label(index, token), vec![token]),
@@ -705,7 +705,7 @@ fn enumerate_seeded(
     Ok(product)
 }
 
-/// The seeds the fixpoint starts from, `_enumerate`'s doubly nested seed loop: every letter against every boundary left, boundary-major, unpinned. Pushed in this order and popped from the back, which is the traversal class grain reads: the first item to reach a fibre fixes that row's representative.
+/// The seeds the fixpoint starts from, `_enumerate`'s doubly nested seed loop: every letter against every boundary left, boundary-major, unpinned. Pushed in this order and popped from the back, which is the traversal class grain reads: the first item to reach a fiber fixes that row's representative.
 fn contract_seeds(options: &WindowOptions<'_>) -> Vec<Item> {
     let mut seeds = Vec::with_capacity(SEED_KINDS.len() * options.letters.len());
     for kind in SEED_KINDS {
@@ -855,7 +855,7 @@ fn echo_member(members: &[RightToken], representative: RightToken) -> RightToken
     }
 }
 
-/// The echo check's `PartitionError` sentence: a member of a class row traced something the representative did not, which is the virtual-left fibre collapse failing at real-left grain.
+/// The echo check's `PartitionError` sentence: a member of a class row traced something the representative did not, which is the virtual-left fiber collapse failing at real-left grain.
 fn echo_mismatch(
     index: &SpecIndex,
     key: &WindowKey,
@@ -915,21 +915,21 @@ fn token_members<'p>(classes: &HashMap<&'p str, &'p [String]>, token: &'p str) -
     }
 }
 
-/// One live context's fibre partition as the assertion reads it, `_assert_deep_slot_partition`'s `context_cache` value: which letters the static option list admits, and which fibre each one sits in.
+/// One live context's fiber partition as the assertion reads it, `_assert_deep_slot_partition`'s `context_cache` value: which letters the static option list admits, and which fiber each one sits in.
 struct ContextPartition {
     static_letters: HashSet<Sym>,
-    fibre_of: HashMap<Sym, usize>,
+    fiber_of: HashMap<Sym, usize>,
 }
 
 /// The class-grain hard invariant (issue 26), `table._assert_deep_slot_partition`, together with the enumeration-side scaffolding it replays against.
 ///
-/// Python runs this in `build_tables`, over the assembled table and the `_FixpointContext` the product deliberately does not carry; the kernel runs it over its own product before the stream is written, which is the same statement one step earlier and the only place a port can make it, since the scaffolding never crosses the boundary. Everything it consults was already consulted during enumeration — the two filters' memos are warm, every live context's fibres are derived, and `right4_options` is pure — so the replay adds no probes and therefore no provenance.
+/// Python runs this in `build_tables`, over the assembled table and the `_FixpointContext` the product deliberately does not carry; the kernel runs it over its own product before the stream is written, which is the same statement one step earlier and the only place a port can make it, since the scaffolding never crosses the boundary. Everything it consults was already consulted during enumeration — the two filters' memos are warm, every live context's fibers are derived, and `right4_options` is pure — so the replay adds no probes and therefore no provenance.
 ///
-/// What it asserts, per base: the observed r3 letter tokens' member sets are pairwise disjoint, each inside the recomputed static option list and inside one fibre of its context's partition; right3 is non-`#NA` exactly where the pre-gate and the third filter say live, which is the `#NA` biconditional restated over tokens; one slot deeper, r4 member sets are disjoint per `(base, r3 token)`, every member of an r3 token agrees on the `fourth_slot_matters` verdict and induces the identical computed r4 option list; and every class id resolves through the product's map with every map entry used. Disjointness is per base rather than per context because worklist pins are per left state, so two bases in one context can legitimately admit nested subsets of one fibre. Cover against the static option list is deliberately not asserted: pins legitimately exclude unreachable members, exactly as label grain excludes their rows.
+/// What it asserts, per base: the observed r3 letter tokens' member sets are pairwise disjoint, each inside the recomputed static option list and inside one fiber of its context's partition; right3 is non-`#NA` exactly where the pre-gate and the third filter say live, which is the `#NA` biconditional restated over tokens; one slot deeper, r4 member sets are disjoint per `(base, r3 token)`, every member of an r3 token agrees on the `fourth_slot_matters` verdict and induces the identical computed r4 option list; and every class id resolves through the product's map with every map entry used. Disjointness is per base rather than per context because worklist pins are per left state, so two bases in one context can legitimately admit nested subsets of one fiber. Cover against the static option list is deliberately not asserted: pins legitimately exclude unreachable members, exactly as label grain excludes their rows.
 struct DeepPartitionCheck<'a, 'i> {
     engine: &'a mut Engine<'i>,
     options: &'a mut WindowOptions<'i>,
-    deriver: &'a mut DeepFibreDeriver,
+    deriver: &'a mut DeepFiberDeriver,
     liveness: Option<&'a mut ProspectLiveness<'i>>,
     third_slot_matters: &'a mut ThirdSlotFilter<'i>,
     fourth_slot_matters: &'a mut FourthSlotFilter<'i>,
@@ -1043,13 +1043,13 @@ impl DeepPartitionCheck<'_, '_> {
                 let touched: HashSet<usize> = members3
                     .iter()
                     .filter_map(|member| rune_of(index, member))
-                    .filter_map(|name| partition.fibre_of.get(&name).copied())
+                    .filter_map(|name| partition.fiber_of.get(&name).copied())
                     .collect();
                 if touched.len() > 1 {
                     let mut names = members3.clone();
                     names.sort_unstable();
                     return Err(format!(
-                        "{key:?}: r3 members straddle two fibres: {names:?}"
+                        "{key:?}: r3 members straddle two fibers: {names:?}"
                     ));
                 }
             }
@@ -1076,7 +1076,7 @@ impl DeepPartitionCheck<'_, '_> {
                     "{key:?}: members disagree on the fourth_slot_matters verdict: {names:?}"
                 ));
             }
-            // The census gate is ANDed in here rather than inside the filter, which is the same split the enumeration makes when it decides whether a fibre's r4 groups become slot-4 entries.
+            // The census gate is ANDed in here rather than inside the filter, which is the same split the enumeration makes when it decides whether a fiber's r4 groups become slot-4 entries.
             let fourth =
                 verdicts.into_iter().next().unwrap_or(false) && self.deep4_inputs.contains(&family);
             if row.right4 == NA_LABEL {
@@ -1156,15 +1156,15 @@ impl DeepPartitionCheck<'_, '_> {
         Ok(())
     }
 
-    /// This context's partition in the cache, derived through the fibre deriver on a miss. The cache is Python's `context_cache` and is lazy for the same reason: a row whose third slot is a boundary never reaches it.
+    /// This context's partition in the cache, derived through the fiber deriver on a miss. The cache is Python's `context_cache` and is lazy for the same reason: a row whose third slot is a boundary never reaches it.
     fn ensure_context(&mut self, family: Sym, right1: Sym, right2: Sym) -> Result<(), String> {
         if self.contexts.contains_key(&(family, right1, right2)) {
             return Ok(());
         }
         let liveness = self.liveness.as_deref_mut().ok_or_else(|| {
-            "the class-grain partition assertion needs the liveness probe its fibres were derived through".to_owned()
+            "the class-grain partition assertion needs the liveness probe its fibers were derived through".to_owned()
         })?;
-        let fibres = self
+        let fibers = self
             .deriver
             .context(
                 self.engine,
@@ -1177,18 +1177,18 @@ impl DeepPartitionCheck<'_, '_> {
             )
             .map_err(complaint)?;
         let mut static_letters: HashSet<Sym> = HashSet::new();
-        let mut fibre_of: HashMap<Sym, usize> = HashMap::new();
-        for (seat, fibre) in fibres.fibres.iter().enumerate() {
-            for member in &fibre.members {
+        let mut fiber_of: HashMap<Sym, usize> = HashMap::new();
+        for (seat, fiber) in fibers.fibers.iter().enumerate() {
+            for member in &fiber.members {
                 static_letters.insert(member.letter());
-                fibre_of.insert(member.letter(), seat);
+                fiber_of.insert(member.letter(), seat);
             }
         }
         self.contexts.insert(
             (family, right1, right2),
             ContextPartition {
                 static_letters,
-                fibre_of,
+                fiber_of,
             },
         );
         Ok(())
@@ -1225,25 +1225,25 @@ impl DeepPartitionCheck<'_, '_> {
 
     /// One context's partition stated rather than derived — the assertion tests' way of handing in exactly what a real build's enumeration would already have put in the cache, since the deriver itself is the escalated module's.
     #[cfg(test)]
-    fn seed_context(&mut self, index: &SpecIndex, context: [&str; 3], fibres: &[&[&str]]) {
+    fn seed_context(&mut self, index: &SpecIndex, context: [&str; 3], fibers: &[&[&str]]) {
         let named = |name: &str| {
             index
                 .sym_of(name)
                 .unwrap_or_else(|| panic!("the fixture mentions {name}"))
         };
         let mut static_letters: HashSet<Sym> = HashSet::new();
-        let mut fibre_of: HashMap<Sym, usize> = HashMap::new();
-        for (seat, fibre) in fibres.iter().enumerate() {
-            for member in *fibre {
+        let mut fiber_of: HashMap<Sym, usize> = HashMap::new();
+        for (seat, fiber) in fibers.iter().enumerate() {
+            for member in *fiber {
                 static_letters.insert(named(member));
-                fibre_of.insert(named(member), seat);
+                fiber_of.insert(named(member), seat);
             }
         }
         self.contexts.insert(
             (named(context[0]), named(context[1]), named(context[2])),
             ContextPartition {
                 static_letters,
-                fibre_of,
+                fiber_of,
             },
         );
     }
@@ -1838,7 +1838,7 @@ mod tests {
         assert_eq!(echo_member(&[pea, tea], pea), tea);
     }
 
-    /// The partition assertion over a hand-built product, with each live context's fibre partition stated rather than derived.
+    /// The partition assertion over a hand-built product, with each live context's fiber partition stated rather than derived.
     ///
     /// Stating it is not a shortcut around the deriver: by the time a real build runs this assertion every live context has already been derived, so the cache is warm and the deriver is never reached. A test that states the partition is handing in exactly what the enumeration would have left there — which is also what lets these assertions be read in the pinned world, where there is no liveness probe and the filters answer on their chain arm alone.
     fn checked(
@@ -1857,7 +1857,7 @@ mod tests {
             },
         );
         let mut options = WindowOptions::new(index).expect("the fixture's guard closes");
-        let mut deriver = DeepFibreDeriver::new();
+        let mut deriver = DeepFiberDeriver::new();
         let mut third = ThirdSlotFilter::new(index);
         let mut fourth = FourthSlotFilter::new(index);
         let deep_inputs = third_slot_inputs(index, false);
@@ -1874,8 +1874,8 @@ mod tests {
             contexts: HashMap::new(),
             r4_lists: HashMap::new(),
         };
-        for (context, fibres) in contexts {
-            check.seed_context(index, *context, fibres);
+        for (context, fibers) in contexts {
+            check.seed_context(index, *context, fibers);
         }
         check.run(product)
     }
@@ -1967,9 +1967,9 @@ mod tests {
         );
     }
 
-    /// A class may only hold members the static option list admits, and only members of one fibre — the two halves of "this row stands for a piece of the partition".
+    /// A class may only hold members the static option list admits, and only members of one fiber — the two halves of "this row stands for a piece of the partition".
     #[test]
-    fn a_class_must_sit_inside_one_fibre_of_the_static_option_list() {
+    fn a_class_must_sit_inside_one_fiber_of_the_static_option_list() {
         let index = deep_alphabet();
         let token = class_of(&["qsPea", "qsTea"]);
         let product = hand_product(
@@ -1986,14 +1986,14 @@ mod tests {
             "{outside}"
         );
         let straddle = checked(&index, &product, &[(LIVE, &[&["qsPea"], &["qsTea"]])])
-            .expect_err("the two members sit in two fibres");
+            .expect_err("the two members sit in two fibers");
         assert!(
-            straddle.ends_with(": r3 members straddle two fibres: [\"qsPea\", \"qsTea\"]"),
+            straddle.ends_with(": r3 members straddle two fibers: [\"qsPea\", \"qsTea\"]"),
             "{straddle}"
         );
     }
 
-    /// The fibre key carries the `fourth_slot_matters` verdict, so two members that disagree about it could never have been one fibre.
+    /// The fiber key carries the `fourth_slot_matters` verdict, so two members that disagree about it could never have been one fiber.
     #[test]
     fn a_class_whose_members_disagree_about_the_fourth_slot_stops_the_build() {
         let index = deep_alphabet();
@@ -2045,7 +2045,7 @@ mod tests {
         );
     }
 
-    /// The fibre key records the computed r4 option list structurally, so two members inducing different lists is a key that has stopped matching the pipeline — which is exactly what a filter added to `right4_options` without a key update would look like.
+    /// The fiber key records the computed r4 option list structurally, so two members inducing different lists is a key that has stopped matching the pipeline — which is exactly what a filter added to `right4_options` without a key update would look like.
     #[test]
     fn a_class_whose_members_induce_different_r4_option_lists_stops_the_build() {
         let index = liga_alphabet();
@@ -2093,7 +2093,7 @@ mod tests {
                 .any(|row| row.right4 != NA_LABEL),
             "and the product both orders reached is the one carrying the pinned deep windows, not a trivially equal pair"
         );
-        // Order-independence here is a fact about this world, not about the discipline: the dedup is by window key, a re-reached window reuses the settled a re-trace would return, and the fired set is a union over a window set no traversal can change. Under class grain the first visitor of a fibre fixes its representative, and the push order becomes output-visible.
+        // Order-independence here is a fact about this world, not about the discipline: the dedup is by window key, a re-reached window reuses the settled a re-trace would return, and the fired set is a union over a window set no traversal can change. Under class grain the first visitor of a fiber fixes its representative, and the push order becomes output-visible.
     }
 
     #[test]

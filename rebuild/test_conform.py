@@ -702,14 +702,14 @@ class TestRawLabelsLateFormation:
 
 
 class _LazyContextIndex:
-    """A stand-in for the table's `_DeepTokenIndex` on specs whose full fixpoint is too heavy for a unit test: fibres are derived lazily by the real `_DeepFibreDeriver` for exactly the contexts the sweep reaches, tokens minted content-addressed from the full pin-free fibres, and resolution is context-keyed rather than base-keyed — sound here because with no worklist pins every base of a context shares the full member sets."""
+    """A stand-in for the table's `_DeepTokenIndex` on specs whose full fixpoint is too heavy for a unit test: fibers are derived lazily by the real `_DeepFiberDeriver` for exactly the contexts the sweep reaches, tokens minted content-addressed from the full pin-free fibers, and resolution is context-keyed rather than base-keyed — sound here because with no worklist pins every base of a context shares the full member sets."""
 
     def __init__(self, spec, features, engine):
         from rebuild.pipeline import table as table_module
 
         self._table = table_module
         options = table_module._WindowOptions(spec)
-        self._deriver = table_module._DeepFibreDeriver(
+        self._deriver = table_module._DeepFiberDeriver(
             spec,
             engine,
             options,
@@ -735,19 +735,19 @@ class _LazyContextIndex:
             return right3, right4
         ctxf = self._deriver.context(label.split(".")[0], right1.split(".")[0], right2.split(".")[0])
         member3 = right3.split(".")[0]
-        fibre3 = next(
-            (fibre for fibre in ctxf.fibres if any(m.letter == member3 for m in fibre.members)), None
+        fiber3 = next(
+            (fiber for fiber in ctxf.fibers if any(m.letter == member3 for m in fiber.members)), None
         )
-        if fibre3 is None:
+        if fiber3 is None:
             return right3, right4
-        token3 = self._token(fibre3.members)
+        token3 = self._token(fiber3.members)
         if right4 in boundaryish:
             return token3, right4
         member4 = right4.split(".")[0]
         group = next(
             (
                 candidate
-                for candidate in fibre3.r4_groups
+                for candidate in fiber3.r4_groups
                 if any(m.kind == "letter" and m.letter == member4 for m in candidate)
             ),
             None,
@@ -826,7 +826,7 @@ class TestSettledWindowWalk:
         )
 
     def test_deep_slot_keys_replay_the_real_chains(self):
-        """The mini spec carries no depth-3 or depth-4 prefers, so the deep-slot arm of the key normalization runs against the real spec: the deep inputs' chain letters plus a boundary, swept to length 5 so right3 and right4 both open. Rules are omitted — the real fixpoint is far too heavy for a unit test — so `matched` is vacuously None on both paths; a lazily derived context index (the real fibre machinery, minted per context the sweep reaches) stands in for the table's transported map, so the assertion weight rides the settled stream and the fibre-token window keys — without it both paths would keep raw labels and prove nothing about the class collapse."""
+        """The mini spec carries no depth-3 or depth-4 prefers, so the deep-slot arm of the key normalization runs against the real spec: the deep inputs' chain letters plus a boundary, swept to length 5 so right3 and right4 both open. Rules are omitted — the real fixpoint is far too heavy for a unit test — so `matched` is vacuously None on both paths; a lazily derived context index (the real fiber machinery, minted per context the sweep reaches) stands in for the table's transported map, so the assertion weight rides the settled stream and the fiber-token window keys — without it both paths would keep raw labels and prove nothing about the class collapse."""
         import warnings
 
         from rebuild.pipeline import settle as settle_module
@@ -839,7 +839,7 @@ class TestSettledWindowWalk:
         engine = settle_module.Engine(real_spec, frozenset())
         deep_index = _LazyContextIndex(real_spec, frozenset(), engine)
         walker = self._assert_walk_matches(real_spec, frozenset(), {}, alphabet, 5, deep_index=deep_index)
-        assert deep_index.minted, "the sweep reached no fibre-collapsed window"
+        assert deep_index.minted, "the sweep reached no fiber-collapsed window"
         assert any(key[4].startswith("#C") for key in walker.windows), "no class token reached the memo"
 
     def test_prospect_live_slots_agree_between_walk_and_replay(self, monkeypatch):
@@ -860,7 +860,7 @@ class TestSettledWindowWalk:
         )
 
     def test_synthetic_depth4_walk_carries_rules_and_a_genuine_index(self):
-        """The class-grain depth-4 arm with real rules and a real transported index: the mini fixture plus a reach-3 chain on ·Tea, built in the shipping deep world, mints an r4 class at the ·Tea·May·May·May windows; the walk and the replay must agree on the fibre-token keys and the first-matching rules over an alphabet that realizes those windows at length 5."""
+        """The class-grain depth-4 arm with real rules and a real transported index: the mini fixture plus a reach-3 chain on ·Tea, built in the shipping deep world, mints an r4 class at the ·Tea·May·May·May windows; the walk and the replay must agree on the fiber-token keys and the first-matching rules over an alphabet that realizes those windows at length 5."""
         import dataclasses
 
         from rebuild.pipeline import fixtures, model
@@ -901,7 +901,7 @@ class TestSettledWindowWalk:
 
 
 class TestDeepTokenIndex:
-    """The transport's raw-vs-renamed contract: `_DeepTokenIndex` is built from the table's raw label space but queried with the walk's marker-folded labels, so every member combination of every class-bearing row must resolve to exactly the deep components of the row's renamed key. The walk-equivalence sweeps cannot see a one-sided rename slip — both paths share the index — so this arm checks resolution against the rows directly, on a config whose rename map touches the row shape that broke first: a bare (singleton-fibre) r3 the config renames, under a class-token r4."""
+    """The transport's raw-vs-renamed contract: `_DeepTokenIndex` is built from the table's raw label space but queried with the walk's marker-folded labels, so every member combination of every class-bearing row must resolve to exactly the deep components of the row's renamed key. The walk-equivalence sweeps cannot see a one-sided rename slip — both paths share the index — so this arm checks resolution against the rows directly, on a config whose rename map touches the row shape that broke first: a bare (singleton-fiber) r3 the config renames, under a class-token r4."""
 
     def test_every_class_row_resolves_under_a_renaming_config(self):
         import dataclasses

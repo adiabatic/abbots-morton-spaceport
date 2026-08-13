@@ -1,6 +1,6 @@
 """The liveness-grain harness and the world reflection beside it: the two things sub-issue #45 asks of the Python side before any Rust exists.
 
-What the liveness harness has to be trusted about is narrow and load-bearing. The keys file is a contract with a binary that does not answer it yet, so its three shapes are spelled here rather than discovered when the verb lands; a fibre answer's compact JSON is compared against the deriver's own partition, because the byte spelling — key order, separators, the label each token wears — is what the Rust side has to reproduce and no later gate would catch a spelling drift as anything but a wall of divergences. The seeded quad draw is a function of its seed alone, or two builds asked different questions and the cross-diff between them means nothing. And the arms have to line up with each other: the fibre arm asks exactly where the third sweep said live, which is what makes a missing fibre line a reported divergence rather than a silently shorter file.
+What the liveness harness has to be trusted about is narrow and load-bearing. The keys file is a contract with a binary that does not answer it yet, so its three shapes are spelled here rather than discovered when the verb lands; a fiber answer's compact JSON is compared against the deriver's own partition, because the byte spelling — key order, separators, the label each token wears — is what the Rust side has to reproduce and no later gate would catch a spelling drift as anything but a wall of divergences. The seeded quad draw is a function of its seed alone, or two builds asked different questions and the cross-diff between them means nothing. And the arms have to line up with each other: the fiber arm asks exactly where the third sweep said live, which is what makes a missing fiber line a reported divergence rather than a silently shorter file.
 
 The verdicts themselves are asserted to come through `third_slot_filter` and `fourth_slot_filter` rather than through `_ProspectLiveness`, which is the one place a plausible harness silently answers a different question: the filter is where the own-rune chain arm and the probe arm are ORed together, and the chain arm alone decides plenty of triples the probe would never be asked about.
 
@@ -65,9 +65,9 @@ def _chained_spec():
 CHAINED = _chained_spec()
 
 
-def _sweep(world: World, fibre_cap: int | None = None, spec=SPEC, exhaustive: bool = False):
+def _sweep(world: World, fiber_cap: int | None = None, spec=SPEC, exhaustive: bool = False):
     quads = kernel_liveness.quad_keys(spec, QUADS, kernel_liveness.DEFAULT_SEED, exhaustive)
-    return kernel_liveness.sweep_python(spec, FEATURES, world, quads, fibre_cap)
+    return kernel_liveness.sweep_python(spec, FEATURES, world, quads, fiber_cap)
 
 
 def _engine(spec, world: World):
@@ -171,10 +171,10 @@ def test_every_key_wears_its_shape_and_its_answer(shipping):
             assert answer in {"live", "dead"}
             counts["quad"] += 1
         else:
-            assert shape == "fibres"
+            assert shape == "fibers"
             assert len(fields) == 5
-            assert set(json.loads(answer)) == {"boundaries", "fibres"}
-            counts["fibre"] += 1
+            assert set(json.loads(answer)) == {"boundaries", "fibers"}
+            counts["fiber"] += 1
         assert all(name in SPEC.runes for name in fields[1:-1])
     assert counts == shipping.counts
     assert all(count for count in counts.values())
@@ -225,57 +225,57 @@ def test_a_fourth_slot_answer_is_the_whole_filter_verdict(chained):
     assert f"4\t{"\t".join(CHAIN_QUAD)}\tlive" in chained.answers
 
 
-def test_a_fibre_line_spells_the_partition_the_deriver_built(shipping):
+def test_a_fiber_line_spells_the_partition_the_deriver_built(shipping):
     """The byte spelling is the contract, not the partition as a value: compact separators, the four keys in this order, boundary and member tokens through `table._right_token_label`, and `r4_groups` empty exactly where the fourth slot is dead."""
     engine = settle.Engine(SPEC, FEATURES, trace_memo=True, simulated_prospect=True, vote_slots=True)
     fourth_slot_matters = table.fourth_slot_filter(SPEC, FEATURES, engine)
-    deriver = table._DeepFibreDeriver(
+    deriver = table._DeepFiberDeriver(
         SPEC, engine, table._WindowOptions(SPEC), table._liveness_probe(SPEC, engine), fourth_slot_matters
     )
-    lines = shipping.answers[-shipping.counts["fibre"] :]
+    lines = shipping.answers[-shipping.counts["fiber"] :]
     assert lines
     for line in lines:
         shape, input_family, right1, right2, answer = line.split("\t")
-        assert shape == "fibres"
-        assert answer == kernel_liveness.fibre_answer(deriver.context(input_family, right1, right2))
+        assert shape == "fibers"
+        assert answer == kernel_liveness.fiber_answer(deriver.context(input_family, right1, right2))
         assert " " not in answer
         payload = json.loads(answer)
-        assert list(payload) == ["boundaries", "fibres"]
-        for fibre in payload["fibres"]:
-            assert list(fibre) == ["members", "fourth_matters", "r4_groups"]
-            assert fibre["members"]
-            assert bool(fibre["r4_groups"]) == fibre["fourth_matters"]
-            assert all(group for group in fibre["r4_groups"])
+        assert list(payload) == ["boundaries", "fibers"]
+        for fiber in payload["fibers"]:
+            assert list(fiber) == ["members", "fourth_matters", "r4_groups"]
+            assert fiber["members"]
+            assert bool(fiber["r4_groups"]) == fiber["fourth_matters"]
+            assert all(group for group in fiber["r4_groups"])
 
 
-def test_a_fibre_answer_spells_the_boundary_labels_the_decision_table_uses(shipping):
-    """The one thing comparing `fibre_answer` against the deriver cannot catch, because both sides would be wrong in lockstep: the label map itself. `table._right_token_label` spells boundaries the way the decision table's columns do, and *not* the way the neighbouring `guard-sweep` verb prints them — that verb's `zwnj` and `namer-dot` are the spellings a port reaches for by mistake, and nothing else in this file would notice."""
+def test_a_fiber_answer_spells_the_boundary_labels_the_decision_table_uses(shipping):
+    """The one thing comparing `fiber_answer` against the deriver cannot catch, because both sides would be wrong in lockstep: the label map itself. `table._right_token_label` spells boundaries the way the decision table's columns do, and *not* the way the neighbouring `guard-sweep` verb prints them — that verb's `zwnj` and `namer-dot` are the spellings a port reaches for by mistake, and nothing else in this file would notice."""
     answer = next(
-        line for line in shipping.answers if line.startswith("fibres\tqsMay\tqsMay\tqsMay\t")
+        line for line in shipping.answers if line.startswith("fibers\tqsMay\tqsMay\tqsMay\t")
     ).split("\t")[-1]
-    assert answer.startswith('{"boundaries":["#EDGE","space","uni200C","periodcentered"],"fibres":[')
+    assert answer.startswith('{"boundaries":["#EDGE","space","uni200C","periodcentered"],"fibers":[')
     assert '"r4_groups":[["#EDGE"],["space"],["uni200C"],["periodcentered"]' in answer
-    for line in shipping.answers[-shipping.counts["fibre"] :]:
+    for line in shipping.answers[-shipping.counts["fiber"] :]:
         assert "zwnj" not in line
         assert "namer-dot" not in line
 
 
-def test_the_fibre_arm_asks_exactly_where_the_third_sweep_said_live(shipping):
-    """A fibre is only defined for a live letter-letter context, so the third arm's answers are the fibre arm's key list — which makes the fibre arm a second reading of the first: a port that judged a context dead is never asked for its fibres, and the lines it did not write are the divergence."""
+def test_the_fiber_arm_asks_exactly_where_the_third_sweep_said_live(shipping):
+    """A fiber is only defined for a live letter-letter context, so the third arm's answers are the fiber arm's key list — which makes the fiber arm a second reading of the first: a port that judged a context dead is never asked for its fibers, and the lines it did not write are the divergence."""
     live = [
         tuple(line.split("\t")[1:4])
         for line in shipping.answers[: shipping.counts["triple"]]
         if line.endswith("\tlive")
     ]
-    asked = [tuple(line.split("\t")[1:4]) for line in shipping.answers[-shipping.counts["fibre"] :]]
+    asked = [tuple(line.split("\t")[1:4]) for line in shipping.answers[-shipping.counts["fiber"] :]]
     assert asked == live
 
 
-def test_the_fibre_cap_clips_its_own_arm_and_nothing_else(chained):
+def test_the_fiber_cap_clips_its_own_arm_and_nothing_else(chained):
     """The cap is an iteration-loop knob, so what it must not do is change the questions: the third and fourth arms answer the same keys with it as without. Asserted on the chained fixture, whose shipping world has more than one live context — on the plain one a cap of one is the whole arm and an implementation that ignored the flag would pass."""
-    assert chained.counts["fibre"] > 1
-    capped = _sweep(SHIPPING, fibre_cap=1, spec=CHAINED, exhaustive=True)
-    assert capped.counts["fibre"] == 1
+    assert chained.counts["fiber"] > 1
+    capped = _sweep(SHIPPING, fiber_cap=1, spec=CHAINED, exhaustive=True)
+    assert capped.counts["fiber"] == 1
     assert capped.counts["triple"] == chained.counts["triple"]
     assert capped.counts["quad"] == chained.counts["quad"]
     kept = chained.counts["triple"] + chained.counts["quad"]
@@ -283,11 +283,11 @@ def test_the_fibre_cap_clips_its_own_arm_and_nothing_else(chained):
     assert capped.answers[kept:] == chained.answers[kept : kept + 1]
 
 
-def test_a_world_with_no_probe_arm_derives_no_fibres():
-    """With both semantics flags off no engine grows a `_ProspectLiveness`, so there is no fibre source and the filters answer from the own-rune chain census alone; asking for fibres there would be asking the kernel to build a deriver its own world has no instance for."""
+def test_a_world_with_no_probe_arm_derives_no_fibers():
+    """With both semantics flags off no engine grows a `_ProspectLiveness`, so there is no fiber source and the filters answer from the own-rune chain census alone; asking for fibers there would be asking the kernel to build a deriver its own world has no instance for."""
     pinned = _sweep(PINNED)
-    assert pinned.counts["fibre"] == 0
-    assert not any(line.startswith("fibres\t") for line in pinned.answers)
+    assert pinned.counts["fiber"] == 0
+    assert not any(line.startswith("fibers\t") for line in pinned.answers)
     assert pinned.counts["triple"] == len(SPEC.runes) ** 3
 
 
@@ -396,10 +396,10 @@ def test_a_sweep_that_compared_nothing_is_not_a_pass(tmp_path, monkeypatch, caps
     assert "which is not a pass" in captured.out
 
 
-def test_a_spec_whose_deep_worlds_find_no_live_context_fails_on_the_fibre_floor(
+def test_a_spec_whose_deep_worlds_find_no_live_context_fails_on_the_fiber_floor(
     tmp_path, monkeypatch, capsys
 ):
-    """The reachable half of the floor: an alphabet with keys to ask but no live context anywhere leaves the class-grain partition uncompared, and the fibre arm has nothing to say about a port that got it wrong."""
+    """The reachable half of the floor: an alphabet with keys to ask but no live context anywhere leaves the class-grain partition uncompared, and the fiber arm has nothing to say about a port that got it wrong."""
     lone = dataclasses.replace(SPEC, runes={"qsPea": SPEC.runes["qsPea"]})
     monkeypatch.setattr(kernel_liveness.fixtures, "mini_spec", lambda: lone)
     status = kernel_liveness.main(["--specs", "mini", "--python-only", "--out", str(tmp_path)])
@@ -409,10 +409,10 @@ def test_a_spec_whose_deep_worlds_find_no_live_context_fails_on_the_fibre_floor(
     assert "no deep world found a live context" in captured.err
 
 
-def test_the_pinned_world_is_allowed_its_empty_fibre_arm(shipping):
-    """The floor is per spec and not per world, because the world with both flags off has no fibre source at all — refusing its zero would refuse the one world whose zero is the correct answer."""
-    assert _sweep(PINNED).counts["fibre"] == 0
-    assert shipping.counts["fibre"]
+def test_the_pinned_world_is_allowed_its_empty_fiber_arm(shipping):
+    """The floor is per spec and not per world, because the world with both flags off has no fiber source at all — refusing its zero would refuse the one world whose zero is the correct answer."""
+    assert _sweep(PINNED).counts["fiber"] == 0
+    assert shipping.counts["fiber"]
 
 
 # --- the fixpoint harness's world reflection ----------------------------------
@@ -444,7 +444,7 @@ def test_the_fixpoint_tells_the_kernel_which_world_python_is_in(monkeypatch, wor
 
 
 def test_the_pinned_world_is_named_label_grain_however_the_class_flag_is_set(monkeypatch):
-    """The coincidence a flag list cannot state: with both semantics flags off there is no `_ProspectLiveness` instance and hence no fibre source, so enumeration is label-grain whether or not `AMS_DEEP_CLASSES` was ever touched. `make kernel-fixpoint-pinned` is therefore a label-grain run too, and the header says so rather than leaving a reader to infer it from `table.py`."""
+    """The coincidence a flag list cannot state: with both semantics flags off there is no `_ProspectLiveness` instance and hence no fiber source, so enumeration is label-grain whether or not `AMS_DEEP_CLASSES` was ever touched. `make kernel-fixpoint-pinned` is therefore a label-grain run too, and the header says so rather than leaving a reader to infer it from `table.py`."""
     monkeypatch.setattr(settle, "SIMULATED_PROSPECT_DEFAULT", False)
     monkeypatch.setattr(settle, "VOTE_SLOTS_DEFAULT", False)
     monkeypatch.setattr(table, "DEEP_CLASSES_DEFAULT", True)
