@@ -22,7 +22,7 @@ stances:
     - "#       "
     - "#       "  #
     bitmaps:
-      diagonal-leg:
+      raked:
         bitmap:
         - "     #   "
         - "     #   "
@@ -32,7 +32,7 @@ stances:
         - "   # #  #"
         - "  #   ## "
         - " #       "
-        - "#        "  #
+        - " #       "  #
     surface:
       entries:
         baseline:
@@ -62,7 +62,8 @@ policy:
   extend: []
   contract:
   - entry: baseline
-    bind: diagonal-leg
+    bind: raked
+    trim: 1
     when:
       left: {family: qsSee}
   resolve: []

@@ -152,13 +152,13 @@ qsUtter.ex-ext-1: {rune: qsUtter, stance: mono, exit: x-height, adjustments: [ex
 qsUtter.noentry: {rune: qsUtter, stance: mono, adjustments: [locked]}
 qsUtter.noentry.ex-ext-1: {rune: qsUtter, stance: mono, exit: x-height, adjustments: [locked, ex-ext-1]}
 qsOut: {rune: qsOut, stance: normal}
-qsOut.en-y0.after-see.en-trim-1: {rune: qsOut, stance: normal, entry: baseline, adjustments: [en-bind-diagonal-leg, en-trim-1]}
+qsOut.en-y0.after-see.en-trim-1: {rune: qsOut, stance: normal, entry: baseline, adjustments: [en-bind-raked, en-trim-1]}
 qsOut.en-y0.ex-y5: {rune: qsOut, stance: swept-up, entry: baseline, exit: x-height}
-qsOut.en-y0.ex-y5.after-see.before-fee: {rune: qsOut, stance: swept-up, entry: baseline, exit: x-height, adjustments: [en-bind-diagonal-leg, ex-ext-1]}
-qsOut.en-y0.ex-y5.after-see.before-other: {rune: qsOut, stance: swept-up, entry: baseline, exit: x-height, adjustments: [en-bind-diagonal-leg]}
+qsOut.en-y0.ex-y5.after-see.before-fee: {rune: qsOut, stance: swept-up, entry: baseline, exit: x-height, adjustments: [en-bind-raked, ex-ext-1]}
+qsOut.en-y0.ex-y5.after-see.before-other: {rune: qsOut, stance: swept-up, entry: baseline, exit: x-height, adjustments: [en-bind-raked]}
 qsOut.en-y0.ex-y5.ex-ext-1: {rune: qsOut, stance: swept-up, entry: baseline, exit: x-height, adjustments: [ex-ext-1]}
 qsOut.en-y0.ex-y5.noentry: {rune: qsOut, stance: swept-up, exit: x-height, adjustments: [locked]}
 qsOut.en-y0.ex-y5.noentry.ex-ext-1: {rune: qsOut, stance: swept-up, exit: x-height, adjustments: [locked, ex-ext-1]}
 qsOut.noentry: {rune: qsOut, stance: normal, adjustments: [locked]}
 qsOut_qsTea: {rune: qsOut_qsTea, stance: hapax}
-qsOut_qsTea.after-see: {rune: qsOut_qsTea, stance: hapax, entry: baseline, adjustments: [en-bind-diagonal-leg]}
+qsOut_qsTea.after-see: {rune: qsOut_qsTea, stance: hapax, entry: baseline, adjustments: [en-bind-raked]}

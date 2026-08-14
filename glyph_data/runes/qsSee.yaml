@@ -87,6 +87,7 @@ stances:
     surface:
       entries: {}
       exits:
+        # This new ·See doesn't work with ·Out like it should — it doesn't even go all the way to the baseline like the old one did. In the rebuild, we should be using `straighter` or `straightest` stances
         baseline:
           x: 3
           stroke: diagonal
@@ -94,6 +95,8 @@ stances:
           - family:
             - qsLow
             - qsAt
+            - qsOut
+            - qsOut_qsTea
       cells: []
       unlocks: []
       require: []
@@ -113,15 +116,11 @@ stances:
     surface:
       entries: {}
       exits:
-        # This new ·See doesn't work with ·Out like it should — it doesn't even go all the way to the baseline like the old one did. In the rebuild, we should be using `straighter` or `straightest` stances
         baseline:
           x: 4
           stroke: vertical
           toward:
-          - family:
-            - qsOut
-            - qsOut_qsTea
-            - qsOoze
+          - {family: qsOoze}
       cells: []
       unlocks: []
       require: []
