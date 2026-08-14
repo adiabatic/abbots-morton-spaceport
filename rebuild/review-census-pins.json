@@ -1,16 +1,16 @@
 {
   "_surface": {
-    "generated_at": "2026-08-14T02:13:49Z",
-    "repo_head": "724504d6"
+    "generated_at": "2026-08-14T04:10:11Z",
+    "repo_head": "a43fefba"
   },
   "manifest": {
     "totals": {
-      "units": 167378,
-      "rows": 574724,
-      "batches": 94,
-      "echo_groups": 2594
+      "units": 167377,
+      "rows": 574719,
+      "batches": 90,
+      "echo_groups": 2521
     },
-    "classes_count": 27,
+    "classes_count": 28,
     "machine_approved": {
       "units": 132439,
       "by_class": {
@@ -25,8 +25,8 @@
     },
     "class_unit_count": {
       "boundary-echo": 40476,
-      "dangling-anchor-dropped": 23993,
-      "bare-name-live-join": 36730
+      "dangling-anchor-dropped": 23981,
+      "bare-name-live-join": 36707
     },
     "secondary_seams": {
       "units_with_markers": 16791,
@@ -36,11 +36,11 @@
     }
   },
   "built": {
-    "human_units": 28070,
+    "human_units": 26778,
     "config_note_distribution": [
       [
         null,
-        94925
+        94924
       ],
       [
         "only under ss10",
@@ -97,20 +97,20 @@
     ]
   },
   "audit": {
-    "row_count": 574724,
-    "units": 169597
+    "row_count": 574719,
+    "units": 169596
   },
   "ink": {
     "machine_total": 81180,
-    "non_identical": 88417,
+    "non_identical": 88416,
     "by_class": {
       "boundary-echo": 23483,
       "dangling-anchor-dropped": 23772,
       "bare-name-live-join": 33925
     },
-    "boundary_echo_exempt": 18072,
-    "human_units": 70345,
-    "batches": 235
+    "boundary_echo_exempt": 19379,
+    "human_units": 69037,
+    "batches": 231
   },
   "families": {
     "census": {
@@ -119,12 +119,12 @@
       "oy-it-baseline": 27,
       "may-utter-gains": 345,
       "seam-loss-withdrawal": 2380,
-      "extension-non-summing": 6832,
+      "extension-non-summing": 5592,
       "unmatched-misc": 1675,
-      "deferred-ss04": 1471,
+      "deferred-ss04": 1459,
       "deferred-ss10": 14716,
-      "deferred-ss03": 1496
+      "deferred-ss03": 1476
     },
-    "total": 29559
+    "total": 28287
   }
 }
