@@ -28,6 +28,7 @@ qsFee's and qsOy's x-height entry from-lists, qsSee's `straighter` toward-list, 
 - **The ss03-gated records died with that ruling**: the old `extend_exit_before_gated: {ss03: qsTea}` and a toward-list qsTea entry were drafted and then removed — under always-form no ·Out ~x~ ·Tea window exists for them to serve. qsTea's two ss03 unlock left-lists still name qsOut from the pre-batch wiring; those arms are now unreachable and stand as documentation of the old behavior — retiring them is the sitting's call, not this batch's.
 - **The `*_qsUtter` guard classes gained qsOut for free**: the old font un-forms qsDay/qsSee/qsVie+Utter before ·Out (alt-·Utter takes the baseline join), and M1's guard reaches the same verdicts from the runes alone; only the emitted class membership test moved.
 - **Oracle-verified-only lists**, as every batch: the from/toward lists transcribe what the subset baselines witness, nothing more.
+- **The ·See·Out interlock is re-adjudicated away** (the sitting's one fresh complaint): ·See before ·Out and ·Out+Tea now rides `straightest` straight down onto the baseline — qsSee's by-1 contract and the arch's `trim: 1` are gone, the raked `diagonal-leg` binds stay, and the seam's contact is convention-clean, so the whole contact-allow blessing block for the old interlock went with it. Every ·See·Out window now diverges from the old font deliberately and re-queues at the next cycle. The user's rationale is the comment on qsSee's `straightest` baseline exit row.
 - **The via-lead enumeration fix, in both engines**: qsOut_qsTea is the first ligature whose trail (qsTea) is another ligature's lead, so a post-formation stream can spell the formation-impossible adjacency "bare ·Out before qsTea_qsOy" — raw ·Out·Tea·Oy, which greedy formation always resolves to qsOut_qsTea — wearing the follower's ligature name, where the window enumeration's formation-pair filters couldn't see it. The conform gate caught it as dead decision-table transitions. `_formation_pairs` and `_survivable_formation_windows` (and their kernel-rs twins in `options.rs`) now carry via-lead keys — `(lead, L)` for every ligature L led by the pair's trail — so every existing filter, the class-grain fiber derivation included, prunes through the shared pipelines unchanged.
 
 ## Open questions for the sitting
@@ -35,14 +36,13 @@ qsFee's and qsOy's x-height entry from-lists, qsSee's `straighter` toward-list, 
 - **The X·Utter·Out strict gains** (exemplar keys `E658:E67A:E67B`, `E665:E67A:E67B`, `E67A:E67A:E67B`, `E670:E672:E67B`'s ·Utter siblings): wherever alt-·Utter serves ·Out at the baseline, M1 also takes alt-·Utter's x-height entry backward from an x-height-exiting left, where the old font left that seam broken. Two joins against one — the recorded "alt-·Utter only before ·Low or on strict gain" principle suggests approval, but the windows are fresh.
 - **The ·No regrouping before ·Out** (`E650:E666:E67B`, `E652:E666:E67B`): old renders half-·Pea/half-·Tea ~x~ ·No | ·Out; M1 regroups to ·Pea/·Tea ~b~ ·No ~b~ ·Out on join-count. The bare pair (without ·Out) is already a standing unmatched family; the ·Out arm adds the seam-gain flavor.
 - **·Out|·Tea+Oy**: `standing-approvals.yaml`'s `tea-oy-ligature-break` carries `except_left: [qsOut]` on purpose — those units queue for hand adjudication; don't blanket them.
-- **qsSee's contract and the grounded-exit ·Out arm**: the dormant qsOut-keyed contract is live and firing; WHATNEXT wants both re-adjudicated at this sitting.
 - **·Day·Tea·Out / ·No·Tea·Out**: the yield lists are closed; these windows queue in `regrouping-floor-drift` with the answer on record — a glance, not a decision.
 
 ## The WHATNEXT items this batch was supposed to answer
 
 - **qsFee's forward-preference left scope**: ·Out arrived implicating exactly the predicted nothing on qsFee's side — the seam taste landed as ·Out's own prefer except-qsFee, so qsFee's prefer scope is untouched and no paired carve-out was needed.
-- **The dormant qsOut-keyed contract on qsSee's straighter exit**: awake, firing, and on the sitting's docket above.
-- **·See's grounded-exit tie, ·Out arm**: the tie choice replays against the live oracle this cycle; the sitting confirms it.
+- **The dormant qsOut-keyed contract on qsSee's straighter exit**: woke, fired, and the sitting re-adjudicated it away — see the design override above.
+- **·See's grounded-exit tie, ·Out arm**: the grounded exit still wins the seam, but on `straightest` by the sitting's ruling; the oracle divergence is deliberate.
 
 ## Verification recipe
 
