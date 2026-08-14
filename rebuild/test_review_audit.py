@@ -99,7 +99,7 @@ def test_real_audit_dedupes_to_measured_counts(workload):
 
 def test_every_ledger_exemplar_resolves_to_a_unit(workload):
     exemplar_keys = {key for entry in workload.ledger for key in entry.exemplar_keys}
-    assert len(exemplar_keys) == 32
+    assert len(exemplar_keys) == 34
     covered = {(row.config, row.codepoints) for unit in workload.units if unit.exemplar for row in unit.rows}
     assert exemplar_keys <= covered
 
@@ -161,13 +161,14 @@ def test_assign_batches_slices_the_human_workload_and_nulls_machine_units(worklo
 
 
 def test_no_verdict_flag_mirrors_the_ledger_class(workload):
-    """The ledger's `no_verdict: true` marks every unit of a wholesale-adjudicated class exempt from individual verdicts; every other unit stays verdictable. The flagged classes are the boundary-echo blanket (the ratified boundary-equals-word-boundary rule), the two x-height-halves deletion forks the user adjudicated from live renders (no-xheight-entry-extension-dropped, may-ligature-seam-loosened), and the dropped baseline entry extension into ·Vie, whose ruling is the seam's rather than any one window's (vie-baseline-entry-extension-dropped)."""
+    """The ledger's `no_verdict: true` marks every unit of a wholesale-adjudicated class exempt from individual verdicts; every other unit stays verdictable. The flagged classes are the boundary-echo blanket (the ratified boundary-equals-word-boundary rule), the two x-height-halves deletion forks the user adjudicated from live renders (no-xheight-entry-extension-dropped, may-ligature-seam-loosened), the dropped baseline entry extension into ·Vie, whose ruling is the seam's rather than any one window's (vie-baseline-entry-extension-dropped), and the ·Out+Tea always-forms ruling, which adjudicates the whole ss03 arm wholesale (ss03-out-tea-ligature-kept)."""
     flagged = {entry.id for entry in workload.ledger if entry.no_verdict}
     assert flagged == {
         "boundary-echo",
         "no-xheight-entry-extension-dropped",
         "may-ligature-seam-loosened",
         "vie-baseline-entry-extension-dropped",
+        "ss03-out-tea-ligature-kept",
     }
     for unit in workload.units:
         assert unit.no_verdict == (unit.class_id in flagged), unit.unit_id

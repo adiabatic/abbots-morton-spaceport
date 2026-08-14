@@ -225,6 +225,7 @@ def test_machine_approved_histogram_pins_the_census(built):
         "no-xheight-entry-extension-dropped",
         "may-ligature-seam-loosened",
         "vie-baseline-entry-extension-dropped",
+        "ss03-out-tea-ligature-kept",
     }
     for class_id in no_verdict_classes:
         assert by_id[class_id]["no_verdict"] is True, class_id
@@ -418,7 +419,7 @@ def test_echo_groups_partition_the_human_workload(built):
     siblings = {member["codepoints"] for member in by_echo[example["echo"]]}
     assert "E653:E652:E666" in siblings
     assert "E679:E653:E652:E666" in siblings
-    assert len(siblings) == 158
+    assert len(siblings) == 168
 
 
 def test_cluster_signatures_coarsen_the_echo_grain(built):

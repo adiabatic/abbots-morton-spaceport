@@ -68,6 +68,7 @@ qsVie_qsUtter.ex-ext-1: {rune: qsVie_qsUtter, stance: hapax, exit: x-height, adj
 qsSee: {rune: qsSee, stance: normal}
 qsSee.en-y0.ex-y6: {rune: qsSee, stance: curled-over, entry: baseline, exit: y6}
 qsSee.en-y0.ex-y6.noentry: {rune: qsSee, stance: curled-over, exit: y6, adjustments: [locked]}
+qsSee.ex-y0.ex-con-1: {rune: qsSee, stance: straighter, exit: baseline, adjustments: [ex-con-1]}
 qsSee.ex-y0.ex-ext-2: {rune: qsSee, stance: straighter, exit: baseline, adjustments: [ex-ext-2]}
 qsSee.noentry: {rune: qsSee, stance: normal, adjustments: [locked]}
 qsSee_qsUtter: {rune: qsSee_qsUtter, stance: hapax}
@@ -150,3 +151,14 @@ qsUtter.alt.ex-y0.before-may: {rune: qsUtter, stance: alternate, exit: baseline}
 qsUtter.ex-ext-1: {rune: qsUtter, stance: mono, exit: x-height, adjustments: [ex-ext-1]}
 qsUtter.noentry: {rune: qsUtter, stance: mono, adjustments: [locked]}
 qsUtter.noentry.ex-ext-1: {rune: qsUtter, stance: mono, exit: x-height, adjustments: [locked, ex-ext-1]}
+qsOut: {rune: qsOut, stance: normal}
+qsOut.en-y0.after-see.en-trim-1: {rune: qsOut, stance: normal, entry: baseline, adjustments: [en-bind-diagonal-leg, en-trim-1]}
+qsOut.en-y0.ex-y5: {rune: qsOut, stance: swept-up, entry: baseline, exit: x-height}
+qsOut.en-y0.ex-y5.after-see.before-fee: {rune: qsOut, stance: swept-up, entry: baseline, exit: x-height, adjustments: [en-bind-diagonal-leg, ex-ext-1]}
+qsOut.en-y0.ex-y5.after-see.before-other: {rune: qsOut, stance: swept-up, entry: baseline, exit: x-height, adjustments: [en-bind-diagonal-leg]}
+qsOut.en-y0.ex-y5.ex-ext-1: {rune: qsOut, stance: swept-up, entry: baseline, exit: x-height, adjustments: [ex-ext-1]}
+qsOut.en-y0.ex-y5.noentry: {rune: qsOut, stance: swept-up, exit: x-height, adjustments: [locked]}
+qsOut.en-y0.ex-y5.noentry.ex-ext-1: {rune: qsOut, stance: swept-up, exit: x-height, adjustments: [locked, ex-ext-1]}
+qsOut.noentry: {rune: qsOut, stance: normal, adjustments: [locked]}
+qsOut_qsTea: {rune: qsOut_qsTea, stance: hapax}
+qsOut_qsTea.after-see: {rune: qsOut_qsTea, stance: hapax, entry: baseline, adjustments: [en-bind-diagonal-leg]}

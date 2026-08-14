@@ -147,6 +147,16 @@ policy:
       left: {family: qsEt}
   - exit: baseline
     when:
+      left:
+        family: qsOut
+        joined_at: none
+  - exit: x-height
+    when:
+      left:
+        family: qsOut
+        joined_at: none
+  - exit: baseline
+    when:
       right:
         family:
         - qsThaw

@@ -1,6 +1,6 @@
 # Curated sequence set for the M1 CoreText-vs-HarfBuzz smoke harness (M1-PLAN section 5, coretext_smoke).
 # One sequence per line as whitespace-separated hex codepoints; text after "#" is the label.
-# Codepoints: qsPea E650, qsTea E652, qsDay E653, qsFee E658, qsVie E659, qsSee E65A, qsMay E665, qsNo E666, qsLow E667, qsRoe E668, qsIt E670, qsEt E672, qsI E675, qsAh E676, qsOy E679, qsUtter E67A, space 0020, namer dot 00B7, ZWNJ 200C.
+# Codepoints: qsPea E650, qsTea E652, qsDay E653, qsFee E658, qsVie E659, qsSee E65A, qsMay E665, qsNo E666, qsLow E667, qsRoe E668, qsIt E670, qsEt E672, qsI E675, qsAh E676, qsOy E679, qsUtter E67A, qsOut E67B, space 0020, namer dot 00B7, ZWNJ 200C.
 # The driver runs every line under all eight acceptance configurations.
 #
 # The prototype probe rows, carried forward.
@@ -261,3 +261,48 @@ E659 200C E67A            # Vie ZWNJ Utter (formation severed)
 200C E659                 # ZWNJ Vie (locked twin)
 E659 200C E666            # Vie ZWNJ No (exit severed)
 00B7 E659                 # namer dot before Deep Vie (stays)
+#
+# qsOut windows: the Short arch — entered at the baseline, exiting (swept up past the crown) at the x-height toward a few receivers; the after-See forms swap in the raked diagonal leg.
+E67B                      # Out in isolation
+E650 E67B                 # Pea Out (baseline join)
+E652 E67B                 # Tea Out (baseline join)
+E653 E67B                 # Day Out (baseline join)
+E65A E67B                 # See Out (the contracted grounded exit; Out takes the trimmed diagonal leg)
+E665 E67B                 # May Out (baseline join)
+E666 E67B                 # No Out (the flipped No's baseline exit)
+E670 E67B                 # It Out (baseline join)
+E672 E67B                 # Et Out (baseline join)
+E679 E67B                 # Oy Out (baseline join)
+E67A E67B                 # Utter Out (alt-Utter's baseline exit)
+E652 E679 E67B            # Tea+Oy Out (the ligature's baseline exit)
+E658 E67B                 # Fee Out (break: Fee never reaches the baseline)
+E659 E67B                 # Vie Out (break: Out is not in the swept exit's scope)
+E667 E67B                 # Low Out (break)
+E668 E67B                 # Roe Out (break)
+E675 E67B                 # I Out (break)
+E676 E67B                 # Ah Out (break)
+E67B E67B                 # Out Out (break)
+E67B E653                 # Out Day (the swept exit into the descending left side)
+E67B E653 E67A            # Out Day+Utter (the swept exit into the half ligature)
+E67B E658                 # Out Fee (the extended swept exit into the reversed loop)
+E67B E666                 # Out No (the swept exit into the flipped No)
+E67B E668                 # Out Roe (the swept exit)
+E67B E672                 # Out Et (the swept exit)
+E67B E679                 # Out Oy (the swept exit into the open left side)
+E67B E650                 # Out Pea (break)
+E67B E665                 # Out May (break)
+E67B E67A                 # Out Utter (break)
+E65A E67B E653            # See Out Day (the diagonal leg with the swept exit)
+E65A E67B E658            # See Out Fee (the diagonal leg with the further-extended exit)
+E65A E67B E679            # See Out Oy (the diagonal leg with the swept exit)
+E653 E652 E67B            # Day Tea Out (the Day-Tea-X family window)
+E666 E652 E67B            # No Tea Out (the No-Tea-X family window)
+E67B E652                 # Out+Tea (the ligature; forms under every set)
+E65A E67B E652            # See Out+Tea (the ligature's diagonal leg)
+E650 E67B E652            # Pea Out+Tea (the ligature entered at the baseline)
+E67B E652 E653            # Out+Tea Day (break: the ligature never exits)
+E67B E652 E668            # Out+Tea Roe (break: the ligature never exits)
+E67B 200C E652            # Out ZWNJ Tea (formation severed)
+200C E67B                 # ZWNJ Out (locked twin)
+E67B 200C E653            # Out ZWNJ Day (exit severed)
+00B7 E67B                 # namer dot lowers before Short Out

@@ -1,0 +1,69 @@
+rune: qsOut_qsTea
+sequence:
+- qsOut
+- qsTea
+ductus:
+  hapax: | # DRAFT — pending author sign-off
+    The ·Out stroke and the ·Tea stroke drawn as one motion: the ·Out bowl rises from the baseline as in the normal motion, and at the crown the stroke continues straight up as the ·Tea stem to the top height, then retraces down through the crown and finishes the ·Out descent, curling back in toward the letter.
+notes: |
+  Exitless by declaration: the old font compiles no exit-bearing variant of this ligature anywhere in the corpus — every follower arrives unjoined, and the trailing ·Tea's own exit rules never propagate onto it.
+stances:
+  hapax:
+    motion: hapax
+    traits: []
+    bitmap:
+    - "    #   "
+    - "    #   "
+    - "    #   "
+    - "   #### "  #
+    - "  # #  #"
+    - " #  #  #"
+    - "#    ## "
+    - "#       "
+    - "#       "  #
+    bitmaps:
+      diagonal-leg:
+        bitmap:
+        - "     #   "
+        - "     #   "
+        - "     #   "
+        - "     ### "  #
+        - "    ##  #"
+        - "   # #  #"
+        - "  #   ## "
+        - " #       "
+        - "#        "  #
+    surface:
+      entries:
+        baseline:
+          x: 0
+          stroke: vertical
+          from:
+          - family:
+            - qsPea
+            - qsTea
+            - qsTea_qsOy
+            - qsDay
+            - qsSee
+            - qsMay
+            - qsNo
+            - qsIt
+            - qsEt
+            - qsOy
+            - qsUtter
+      cells: []
+      unlocks: []
+      require: []
+policy:
+  order:
+  - hapax
+  refuse: []
+  prefer: []
+  extend: []
+  contract:
+  - entry: baseline
+    bind: diagonal-leg
+    when:
+      left: {family: qsSee}
+  resolve: []
+  groups: {}

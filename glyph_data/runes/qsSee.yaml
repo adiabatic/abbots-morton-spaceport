@@ -95,6 +95,7 @@ stances:
             - qsLow
             - qsAt
             - qsOut
+            - qsOut_qsTea
       cells: []
       unlocks: []
       require: []
@@ -149,6 +150,7 @@ policy:
         - qsLow
         - qsAt
         - qsOut
+        - qsOut_qsTea
         - qsOoze
   extend:
   - stance: straighter
@@ -161,6 +163,9 @@ policy:
     exit: baseline
     by: 1
     when:
-      right: {family: qsOut}
+      right:
+        family:
+        - qsOut
+        - qsOut_qsTea
   resolve: []
   groups: {}

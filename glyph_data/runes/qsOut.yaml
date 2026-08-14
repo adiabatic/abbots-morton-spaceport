@@ -1,0 +1,140 @@
+rune: qsOut
+codepoint: 0xE67B
+ductus:
+  normal: | # DRAFT — pending author sign-off
+    Begun at the left end of the baseline, where a previous letter may connect, the stroke climbs diagonally up and to the right to the letter’s crown at the x-height, runs rightward along the crown, and descends the right side, curling back in toward the letter and stopping partway down.
+  swept-up: | # DRAFT — pending author sign-off
+    As the normal motion, but after the crown the stroke, instead of finishing its descent down the right side, keeps climbing up and to the right, ending level at the x-height, where it connects to the next letter.
+mono:
+  bitmap:
+  - "   # "  #
+  - "  # #"
+  - " # # "
+  - "#    "
+  - "#    "
+  - "#    "  #
+stances:
+  normal:
+    motion: normal
+    traits: []
+    bitmap:
+    - "    ### "  #
+    - "   ##  #"
+    - "  # #  #"
+    - " #   ## "
+    - "#       "
+    - "#       "  #
+    bitmaps:
+      diagonal-leg:
+        bitmap:
+        - "     ### "  #
+        - "    ##  #"
+        - "   # #  #"
+        - "  #   ## "
+        - " #       "
+        - "#        "  #
+    surface:
+      entries:
+        baseline:
+          x: 0
+          stroke: vertical
+          from:
+          - family:
+            - qsPea
+            - qsTea
+            - qsTea_qsOy
+            - qsDay
+            - qsSee
+            - qsMay
+            - qsNo
+            - qsIt
+            - qsEt
+            - qsOy
+            - qsUtter
+      cells: []
+      unlocks: []
+      require: []
+  swept-up:
+    motion: swept-up
+    traits: []
+    bitmap:
+    - "   ##"  #
+    - "  #  "
+    - " # # "
+    - "# #  "
+    - "#    "
+    - "#    "  #
+    bitmaps:
+      diagonal-leg:
+        bitmap:
+        - "     ##"  #
+        - "    #  "
+        - "   # # "
+        - "  # #  "
+        - " #     "
+        - "#      "  #
+    surface:
+      entries:
+        baseline:
+          x: 0
+          stroke: vertical
+          from:
+          - family:
+            - qsPea
+            - qsTea
+            - qsTea_qsOy
+            - qsDay
+            - qsSee
+            - qsMay
+            - qsNo
+            - qsIt
+            - qsEt
+            - qsOy
+            - qsUtter
+      exits:
+        x-height:
+          x: 5
+          stroke: horizontal
+          toward:
+          - family:
+            - qsDay
+            - qsDay_qsUtter
+            - qsFee
+            - qsNo
+            - qsRoe
+            - qsEt
+            - qsOy
+      cells: []
+      unlocks: []
+      require: []
+policy:
+  order:
+  - normal
+  - swept-up
+  refuse: []
+  prefer:
+  - cell: {exit: x-height}
+    over: {exit: none}
+    when:
+      right:
+        except:
+        - {family: qsFee}
+  extend:
+  - exit: x-height
+    by: 1
+    when:
+      right: {family: qsFee}
+  contract:
+  - stance: normal
+    entry: baseline
+    bind: diagonal-leg
+    trim: 1
+    when:
+      left: {family: qsSee}
+  - stance: swept-up
+    entry: baseline
+    bind: diagonal-leg
+    when:
+      left: {family: qsSee}
+  resolve: []
+  groups: {}
