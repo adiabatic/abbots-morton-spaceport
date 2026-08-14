@@ -1,5 +1,0 @@
-sample units: 1276
-carry_content_hash (json.dumps sort_keys + sha256):    11.9 us/unit  ->   0.74s over 62148 units
-  of which carry_projection (json.dumps only)     :    10.9 us/unit  ->   0.68s
-check_unit (the §7 contract checker)             :    14.4 us/unit  ->   0.90s over 62148 units
-unit fragment size: mean 3968 B, median 3834 B, max 6152 B

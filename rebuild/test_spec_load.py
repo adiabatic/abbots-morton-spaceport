@@ -2,14 +2,17 @@
 
 import textwrap
 import warnings
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 import yaml
 
-from rebuild.pipeline import model, spec_load
-from rebuild.pipeline.model import Condition
+from rebuild.pipeline import fixtures, model, spec_load
+from rebuild.pipeline.model import Condition, PolicyRecord
 from rebuild.pipeline.spec_load import SpecError, SpecWarning, load_default_spec, load_spec
+
+MINI_SPEC = fixtures.mini_spec()
 
 MINIMAL_REGISTRY = textwrap.dedent("""\
     heights: {baseline: 0, x-height: 5, y6: 6, top: 8}
@@ -791,3 +794,38 @@ def test_resolve_record_slice_validation(tmp_path):
             when: {right: {family: qsMay}}
         """)
     assert "already used" in str(load_tmp_error(tmp_path, {"qsIt": duplicate}))
+
+
+class TestStructureDigest:
+    def test_stable_over_an_unchanged_spec(self):
+        assert spec_load.spec_structure_digest(MINI_SPEC) == spec_load.spec_structure_digest(MINI_SPEC)
+
+    def test_moves_when_the_alphabet_shrinks(self):
+        smaller = replace(
+            MINI_SPEC, runes={name: MINI_SPEC.runes[name] for name in list(MINI_SPEC.runes)[:-1]}
+        )
+        assert spec_load.spec_structure_digest(smaller) != spec_load.spec_structure_digest(MINI_SPEC)
+
+    def test_moves_when_a_predicate_class_gains_a_member(self):
+        classes = dict(MINI_SPEC.registry.predicate_classes)
+        name, members = next(iter(classes.items()))
+        classes[name] = frozenset(members | {"qsHapax"})
+        widened = replace(MINI_SPEC, registry=replace(MINI_SPEC.registry, predicate_classes=classes))
+        assert spec_load.spec_structure_digest(widened) != spec_load.spec_structure_digest(MINI_SPEC)
+
+
+class TestRuneClosure:
+    def test_every_rune_closes_over_itself(self):
+        closure = spec_load.rune_closure(MINI_SPEC)
+        assert set(closure) == set(MINI_SPEC.runes)
+        assert all(name in names for name, names in closure.items())
+
+    def test_a_resolve_against_reference_joins_the_closure(self):
+        target = sorted(MINI_SPEC.runes)[0]
+        owner = sorted(MINI_SPEC.runes)[1]
+        rune = MINI_SPEC.runes[owner]
+        record = PolicyRecord(kind="resolve", against=(target, None))
+        patched = replace(rune, policy=replace(rune.policy, resolve=(record,)))
+        spec = replace(MINI_SPEC, runes={**MINI_SPEC.runes, owner: patched})
+        assert spec_load.rune_closure(spec)[owner] == {owner, target}
+        assert spec_load.rune_closure(MINI_SPEC)[owner] == {owner}

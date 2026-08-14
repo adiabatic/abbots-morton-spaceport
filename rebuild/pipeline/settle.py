@@ -16,7 +16,7 @@ from collections import OrderedDict
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from itertools import combinations
-from typing import NamedTuple, Protocol
+from typing import NamedTuple
 
 from rebuild.pipeline import specificity
 from rebuild.pipeline.model import (
@@ -123,12 +123,6 @@ class TransitionTrace:
     notes: tuple[str, ...]
 
 
-class TraceStoreReader(Protocol):
-    """What an Engine needs from a persisted trace memo (rebuild.pipeline.trace_memo.TraceStore implements it): a memo-key lookup returning the stripped trace — the fields the table build consumes — and the fired-pointer delta its computation journaled, or None when the key is absent or its stamped rune digests no longer match the files on disk."""
-
-    def get(self, key: tuple) -> "tuple[TransitionTrace, tuple[str, ...]] | None": ...
-
-
 def boundary_cell(kind: str) -> CellId:
     return CellId(rune=kind, stance=BOUNDARY_STANCE, entry=None, exit=None, adjustments=())
 
@@ -191,8 +185,6 @@ class Engine:
         simulated_prospect: bool | None = None,
         vote_slots: bool | None = None,
         trace_memo: bool = False,
-        trace_store: "TraceStoreReader | None" = None,
-        trace_share: "TraceStoreReader | None" = None,
     ):
         self.spec = spec
         self.features = frozenset(features)
@@ -230,10 +222,6 @@ class Engine:
         self._prospect_fired: dict[tuple, tuple[str, ...]] = {}
         self._trace_fired: dict[tuple, tuple[str, ...]] = {}
         self._pointer_intern: dict[str, str] = {}
-        # An optional persisted trace memo (rebuild.pipeline.trace_memo.TraceStore), consulted between the in-memory cache and the kernel; only build_tables attaches one.
-        self.trace_store: "TraceStoreReader | None" = trace_store
-        # An optional cross-configuration share (rebuild.pipeline.trace_memo.TraceShare readers), consulted between the in-memory cache and the persisted store. A share hit is deliberately NOT copied into the local cache: the local cache is what the persisted store rewrites, and keeping shared keys out of it is what keeps each recipient configuration's store down to the windows that configuration actually owns — a share probe costs the same dict lookup the local cache would.
-        self.trace_share: "TraceStoreReader | None" = trace_share
 
     def _record_fired(self, provenance: Provenance | None) -> None:
         if provenance is not None:
@@ -1222,7 +1210,7 @@ class Engine:
         right3: RightToken = UNKNOWN,
         right4: RightToken = UNKNOWN,
     ) -> TransitionTrace:
-        """Under `trace_memo` — the table fixpoint's engines, where lefts arrive as fully settled cells — results are memoized over the collapsed left key (kind, and the settled cell's rune, stance, seam, extension): every left read in the kernel goes through those fields — condition matching consults the cell's rune and stance, `_left_exit_stroke` the committed seam, scoring the seam's presence, and the same-seam non-summing suppression the extension — never the left cell's entry or adjustments, so settled lefts differing only there trace identically and share one entry. Raising windows are not cached: the E-STRANDED message reads the full left label, and the liveness probes that trip settlement errors memoize their own verdicts above this. Between the in-memory memo and the kernel sit two optional layers, both attached by build_tables: the cross-configuration share (`trace_share`, issue 15), whose hit serves the default configuration's trace for a key no rune of which can feel this configuration's feature delta, and the persisted store (`trace_store`), whose hit serves the previous cycle's trace for a key whose stamped rune digests still match the files on disk. Either replays its journaled fired-pointer delta so `fired` fills exactly as a recomputation would; only a store hit enters the local cache, since that cache is what the store's rewrite persists. Everywhere else the memo stays off — the conform walker already memoizes at window grain above this call, so a second cache underneath would hold a full trace per window in memory and never be read."""
+        """Under `trace_memo` — the table fixpoint's engines, where lefts arrive as fully settled cells — results are memoized over the collapsed left key (kind, and the settled cell's rune, stance, seam, extension): every left read in the kernel goes through those fields — condition matching consults the cell's rune and stance, `_left_exit_stroke` the committed seam, scoring the seam's presence, and the same-seam non-summing suppression the extension — never the left cell's entry or adjustments, so settled lefts differing only there trace identically and share one entry. Raising windows are not cached: the E-STRANDED message reads the full left label, and the liveness probes that trip settlement errors memoize their own verdicts above this. A cache hit replays its journaled fired-pointer delta so `fired` fills exactly as a recomputation would. Everywhere else the memo stays off — the conform walker already memoizes at window grain above this call, so a second cache underneath would hold a full trace per window in memory and never be read."""
         if token.kind != "letter":
             return TransitionTrace(boundary_settled(token.kind), False, 0, (), (), "boundary", None, ())
         cache = self._trace_cache
@@ -1245,22 +1233,6 @@ class Engine:
         if trace is not None:
             self._replay_fired(self._trace_fired.get(key, ()))
             return trace
-        share = self.trace_share
-        if share is not None:
-            entry = share.get(key)
-            if entry is not None:
-                trace, delta = entry
-                self._replay_fired(delta)
-                return trace
-        store = self.trace_store
-        if store is not None:
-            entry = store.get(key)
-            if entry is not None:
-                trace, delta = entry
-                cache[key] = trace
-                self._trace_fired[key] = delta
-                self._replay_fired(delta)
-                return trace
         self._begin_capture()
         try:
             trace = self._transition_trace_uncached(left, token, right1, right2, right3, right4)

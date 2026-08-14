@@ -15,7 +15,6 @@ import pytest
 from rebuild.review import journal
 from rebuild.tools import artifact_cycle as ac
 from rebuild.tools.cycle_timings import CycleTimings
-from rebuild.tools.kernel_harness_gate import ARM_NAMES
 
 
 def _pass_summaries():
@@ -121,7 +120,7 @@ def _identical(*configs):
 
 
 def _kernel_summary(**overrides):
-    summary = {"divergences": 0, "stale": [], "error": None, "configs": _identical("default", "ss03")}
+    summary = {"divergences": 0, "error": None, "configs": _identical("default", "ss03")}
     summary.update(overrides)
     return summary
 
@@ -140,16 +139,6 @@ def test_kernel_differential_gate_names_the_config_and_the_artifacts_that_moved(
     assert status == "FAILED"
     assert failures[0] == "kernel-differential gate: 2 Rust-vs-Python divergence(s)"
     assert failures[1] == "kernel-differential gate: ss03 differs on digest, windows"
-
-
-def test_kernel_differential_gate_reads_stale_artifacts_as_red_pointing_at_the_cycle():
-    """A stale rebuild/out/m1 is not a divergence: nothing was compared, so the gate is red with the artifact cycle as the remedy rather than a diff to chase."""
-    stale = ["windows-ss03.tsv.gz: stamped for other inputs"]
-    status, failures = ac.evaluate_kernel_differential_gate(_kernel_summary(stale=stale))
-    assert status == "FAILED"
-    assert "1 stale artifact(s)" in failures[0]
-    assert "windows-ss03.tsv.gz" in failures[0]
-    assert "run the artifact cycle" in failures[0]
 
 
 def test_kernel_differential_gate_carries_a_run_error_through():
@@ -181,88 +170,6 @@ def test_kernel_differential_argv_names_the_tool_and_the_thread_width():
         "6",
     ]
     assert ac.kernel_differential_argv()[-1] == str(ac.KERNEL_THREADS_DEFAULT)
-
-
-def _ran(*names):
-    return {
-        name: {"exit": 0, "elapsed_s": 61.4, "tail": [f"{name}: the two engines agree"]} for name in names
-    }
-
-
-def _harness_summary(**overrides):
-    summary = {
-        "format": "ams-kernel-harness-summary/1",
-        "binary": "rebuild/kernel-rs/target/release/ams-m1-kernel",
-        "structure": "0" * 64,
-        "arms": _ran(*ARM_NAMES),
-        "error": None,
-    }
-    summary.update(overrides)
-    return summary
-
-
-def test_kernel_harness_gate_passes_when_every_arm_exits_zero():
-    status, failures = ac.evaluate_kernel_harness_gate(_harness_summary())
-    assert status == "green"
-    assert failures == []
-
-
-def test_kernel_harness_gate_names_the_failing_arm_its_exit_and_its_verdict_line():
-    """The summary's tail is bounded because a diverging fixpoint's output is measured in megabytes, so the gate quotes the last line with anything on it — the harness's own verdict — and a reader never has to go back to the console for it."""
-    arms = _ran("liveness-exhaustive", "fixpoint-pinned")
-    arms["differential"] = {
-        "exit": 1,
-        "elapsed_s": 402.4,
-        "tail": [
-            "  guard fuzz: 4096 cases",
-            "kernel differential: 3 divergence(s) over 12 configs",
-            "  ",
-            "",
-        ],
-    }
-    status, failures = ac.evaluate_kernel_harness_gate(_harness_summary(arms=arms))
-    assert status == "FAILED"
-    assert (
-        failures[0]
-        == "kernel-harness gate: differential exited 1: kernel differential: 3 divergence(s) over 12 configs"
-    )
-    arms["differential"]["tail"] = []
-    _, silent = ac.evaluate_kernel_harness_gate(_harness_summary(arms=arms))
-    assert silent[0] == "kernel-harness gate: differential exited 1: no output"
-
-
-def test_kernel_harness_gate_names_the_arms_the_run_never_reached():
-    """The tool stops at the first failing arm and records the rest as absent rather than as skipped, so the driver has to read absence as unproven: five arms present and exiting zero is the only green there is."""
-    status, failures = ac.evaluate_kernel_harness_gate(_harness_summary(arms=_ran(*ARM_NAMES[:2])))
-    assert status == "FAILED"
-    assert failures == [
-        f"kernel-harness gate: {name} never ran (an earlier arm stopped the run)" for name in ARM_NAMES[2:]
-    ]
-
-
-def test_kernel_harness_gate_carries_a_run_error_through():
-    status, failures = ac.evaluate_kernel_harness_gate(
-        _harness_summary(error="no cargo on PATH — install the Rust toolchain", arms={})
-    )
-    assert status == "FAILED"
-    assert failures[0] == "kernel-harness gate: no cargo on PATH — install the Rust toolchain"
-
-
-def test_kernel_harness_gate_fails_on_a_summary_that_ran_nothing():
-    assert ac.evaluate_kernel_harness_gate(_harness_summary(arms={})) == (
-        "FAILED",
-        ["kernel-harness gate: the summary ran no arms"],
-    )
-    status, failures = ac.evaluate_kernel_harness_gate({"error": None})
-    assert status == "FAILED"
-    assert failures == ["kernel-harness gate: the summary ran no arms"]
-    status, failures = ac.evaluate_kernel_harness_gate(None)
-    assert status == "FAILED (no kernel_harness_summary.json)"
-    assert failures == ["kernel-harness gate: rebuild.tools.kernel_harness_gate wrote no summary"]
-
-
-def test_kernel_harness_argv_names_the_tool():
-    assert ac.kernel_harness_argv() == ["uv", "run", "python", "-m", "rebuild.tools.kernel_harness_gate"]
 
 
 def test_classify_baseline():
@@ -436,38 +343,6 @@ def test_dry_run_plan_deferred_kernel_differential_replaces_its_step():
     rendered = ac.render_plan(plan)
     assert f"Lane kernel                      : DEFERRED ({ac.DEFER_NOTE})" in rendered
     assert "deferred to the next pass        : gate:kernel-differential" in rendered
-
-
-def test_dry_run_plan_runs_the_kernel_harness_in_its_own_lane():
-    plan = _plan()
-    step = {step.name: step for step in plan.steps}["gate:kernel-harness"]
-    assert step.argv == ac.kernel_harness_argv()
-    assert step.lane == "harness"
-    assert step.note == "submitted with gate:rebuild, once the census step has landed; parks behind it"
-
-
-def test_dry_run_plan_skip_kernel_harness():
-    forced = _plan(skip_kernel_harness=True)
-    by_name = {step.name: step for step in forced.steps}
-    assert by_name["gate:kernel-harness"].argv is None
-    assert by_name["gate:kernel-harness"].note == "SKIPPED (--skip-kernel-harness)"
-    assert by_name["gate:kernel-differential"].argv is not None
-    proved = _plan(skip_kernel_harness=True, kernel_harness_note="alphabet structure unchanged")
-    proved_step = {step.name: step for step in proved.steps}["gate:kernel-harness"]
-    assert proved_step.note == "SKIPPED (alphabet structure unchanged)"
-    assert "Lane harness                     : SKIPPED (alphabet structure unchanged)" in ac.render_plan(
-        proved
-    )
-
-
-def test_dry_run_plan_deferred_kernel_harness_replaces_its_step():
-    plan = _plan(deferred=frozenset({"kernel-harness"}))
-    step = {step.name: step for step in plan.steps}["gate:kernel-harness"]
-    assert step.argv is None
-    assert step.note == f"DEFERRED ({ac.DEFER_NOTE})"
-    rendered = ac.render_plan(plan)
-    assert f"Lane harness                     : DEFERRED ({ac.DEFER_NOTE})" in rendered
-    assert "deferred to the next pass        : gate:kernel-harness" in rendered
 
 
 def test_dry_run_plan_merge_follows_carry():
@@ -823,16 +698,11 @@ def _kernel_green(pool_policy, conform_fut, make_fut, spawn, emit, registry, arg
     return "green", []
 
 
-def _harness_green(pool_policy, rebuild_fut, spawn, emit, registry, argv):
-    return "green", []
-
-
 def _patch_gate_fingerprints(monkeypatch):
     """The gate greens' keys, for a test that only cares that a green was or wasn't recorded. Unstubbed these are the live ones: _run_cycle snapshots them before the gates and _record_gate_greens recomputes them after, and each pass runs git ls-files over the repo and sha256s all of rebuild/, glyph_data/, the fonts, and the baseline TSVs — several seconds per test, and an answer that depends on the working tree rather than on the arrangement the test set up. Whether a moved key withholds the green is its own test."""
     monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, horizon=None: "cfp")
     monkeypatch.setattr(ac, "rebuild_gate_skip_fingerprint", lambda root=None: "rfp")
     monkeypatch.setattr(ac, "kernel_differential_skip_fingerprint", lambda root=None: "kfp")
-    monkeypatch.setattr(ac, "kernel_harness_skip_fingerprint", lambda root=None: "hfp")
 
 
 def _patch_build_chain(monkeypatch):
@@ -858,7 +728,6 @@ def test_merge_failure_fails_the_cycle(monkeypatch, capsys):
     monkeypatch.setattr(ac, "_do_census", _census_clean)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_gate_kernel_differential_task", _kernel_green)
-    monkeypatch.setattr(ac, "_gate_kernel_harness_task", _harness_green)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
     monkeypatch.setattr(ac, "_gate_rebuild_task", _rebuild_green)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
@@ -889,7 +758,6 @@ def test_merge_not_run_when_carry_fails(monkeypatch, capsys):
     monkeypatch.setattr(ac, "_do_census", _census_clean)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_gate_kernel_differential_task", _kernel_green)
-    monkeypatch.setattr(ac, "_gate_kernel_harness_task", _harness_green)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
     monkeypatch.setattr(ac, "_gate_rebuild_task", _rebuild_green)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
@@ -924,7 +792,6 @@ def test_echo_fill_failure_fails_the_cycle(monkeypatch, capsys):
     monkeypatch.setattr(ac, "_do_census", _census_clean)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_gate_kernel_differential_task", _kernel_green)
-    monkeypatch.setattr(ac, "_gate_kernel_harness_task", _harness_green)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
     monkeypatch.setattr(ac, "_gate_rebuild_task", _rebuild_green)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
@@ -956,7 +823,6 @@ def test_echo_merge_failure_fails_the_cycle(monkeypatch, capsys):
     monkeypatch.setattr(ac, "_do_census", _census_clean)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_gate_kernel_differential_task", _kernel_green)
-    monkeypatch.setattr(ac, "_gate_kernel_harness_task", _harness_green)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
     monkeypatch.setattr(ac, "_gate_rebuild_task", _rebuild_green)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
@@ -995,7 +861,6 @@ def test_standing_fill_failure_fails_the_cycle(monkeypatch, capsys):
     monkeypatch.setattr(ac, "_do_census", _census_clean)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_gate_kernel_differential_task", _kernel_green)
-    monkeypatch.setattr(ac, "_gate_kernel_harness_task", _harness_green)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
     monkeypatch.setattr(ac, "_gate_rebuild_task", _rebuild_green)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
@@ -1031,7 +896,6 @@ def test_echo_helpers_not_run_when_do_merge_false(monkeypatch):
     monkeypatch.setattr(ac, "_do_census", _census_clean)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_gate_kernel_differential_task", _kernel_green)
-    monkeypatch.setattr(ac, "_gate_kernel_harness_task", _harness_green)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
     monkeypatch.setattr(ac, "_gate_rebuild_task", _rebuild_green)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
@@ -1229,7 +1093,6 @@ def test_gates_launch_before_run_m1_finishes(monkeypatch):
 
     monkeypatch.setattr(ac, "_gate_js_task", fake_js)
     monkeypatch.setattr(ac, "_gate_kernel_differential_task", _kernel_green)
-    monkeypatch.setattr(ac, "_gate_kernel_harness_task", _harness_green)
     monkeypatch.setattr(ac, "_gate_make_test_task", fake_make)
     monkeypatch.setattr(ac, "_do_run_m1", fake_run_m1)
     monkeypatch.setattr(ac, "_gate_rebuild_task", _rebuild_green)
@@ -1272,7 +1135,6 @@ def test_gate_rebuild_waits_for_run_m1_pass(monkeypatch):
     monkeypatch.setattr(ac, "_gate_rebuild_task", fake_rebuild)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_gate_kernel_differential_task", _kernel_green)
-    monkeypatch.setattr(ac, "_gate_kernel_harness_task", _harness_green)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
     _patch_build_chain(monkeypatch)
@@ -1298,7 +1160,6 @@ def test_gate_rebuild_skipped_when_run_m1_fails(monkeypatch, capsys):
     monkeypatch.setattr(ac, "_gate_rebuild_task", fake_rebuild)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_gate_kernel_differential_task", _kernel_green)
-    monkeypatch.setattr(ac, "_gate_kernel_harness_task", _harness_green)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
     _patch_build_chain(monkeypatch)
 
@@ -1332,7 +1193,6 @@ def test_pool_queue_serializes_rebuild_after_make_test(monkeypatch):
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_gate_kernel_differential_task", _kernel_green)
-    monkeypatch.setattr(ac, "_gate_kernel_harness_task", _harness_green)
     monkeypatch.setattr(ac, "_gate_make_test_task", fake_make)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
     _patch_build_chain(monkeypatch)
@@ -1376,7 +1236,6 @@ def test_pool_overlap_starts_rebuild_before_make_test_done(monkeypatch):
     monkeypatch.setattr(ac, "_do_run_m1", fake_run_m1)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_gate_kernel_differential_task", _kernel_green)
-    monkeypatch.setattr(ac, "_gate_kernel_harness_task", _harness_green)
     monkeypatch.setattr(ac, "_gate_make_test_task", fake_make)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
     _patch_build_chain(monkeypatch)
@@ -1428,7 +1287,6 @@ def test_pool_queue_rebuild_waits_for_conform_gate(monkeypatch):
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_gate_kernel_differential_task", _kernel_green)
-    monkeypatch.setattr(ac, "_gate_kernel_harness_task", _harness_green)
     monkeypatch.setattr(ac, "_gate_make_test_task", fake_make)
     monkeypatch.setattr(ac, "_gate_conform_task", fake_conform)
     _patch_build_chain(monkeypatch)
@@ -1479,7 +1337,6 @@ def test_pool_queue_rebuild_falls_back_to_make_test_when_conform_skipped(monkeyp
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_gate_kernel_differential_task", _kernel_green)
-    monkeypatch.setattr(ac, "_gate_kernel_harness_task", _harness_green)
     monkeypatch.setattr(ac, "_gate_make_test_task", fake_make)
     _patch_build_chain(monkeypatch)
 
@@ -1530,7 +1387,6 @@ def test_pool_queue_kernel_gate_waits_for_the_conform_sweep(monkeypatch):
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
     monkeypatch.setattr(ac, "_gate_conform_task", fake_conform)
     monkeypatch.setattr(ac, "_gate_rebuild_task", _rebuild_green)
-    monkeypatch.setattr(ac, "_gate_kernel_harness_task", _harness_green)
     _patch_build_chain(monkeypatch)
 
     plan = _plan(pool_policy="queue")
@@ -1577,7 +1433,6 @@ def test_pool_queue_rebuild_waits_for_the_kernel_gate(monkeypatch):
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
     monkeypatch.setattr(ac, "_gate_kernel_differential_task", fake_kernel)
-    monkeypatch.setattr(ac, "_gate_kernel_harness_task", _harness_green)
     _patch_build_chain(monkeypatch)
 
     plan = _plan(pool_policy="queue")
@@ -1601,67 +1456,16 @@ def test_pool_queue_rebuild_waits_for_the_kernel_gate(monkeypatch):
     assert box["rc"] == 0
 
 
-def test_pool_queue_kernel_harness_waits_for_the_rebuild_suite(monkeypatch):
-    """The harness is the tail of the whole heavy chain: parking on gate:rebuild transitively waits out make-test and conform too, so its child cannot spawn while the suite is still hot. This drives the real gate task: the summary its child writes is the one the verdict comes from."""
-    record = {}
-    release_rebuild = threading.Event()
-    rebuild_running = threading.Event()
-    harness_started = threading.Event()
-
-    def fake_rebuild(pool_policy, kernel_fut, conform_fut, make_fut, spawn, emit, registry, update_pins):
-        rebuild_running.set()
-        release_rebuild.wait()
-        record["rebuild_finish"] = time.monotonic()
-        return ac.RebuildOutcome("green", [], [])
-
-    def fake_spawn(name, argv, *, emit, registry, stream):
-        if name == "gate:kernel-harness":
-            record["harness_start"] = time.monotonic()
-            record["harness_argv"] = argv
-            ac.KERNEL_HARNESS_SUMMARY.write_text(json.dumps(_harness_summary()))
-            harness_started.set()
-        return _step(name, 0)
-
-    monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
-    monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
-    monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
-    monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
-    monkeypatch.setattr(ac, "_gate_kernel_differential_task", _kernel_green)
-    monkeypatch.setattr(ac, "_gate_rebuild_task", fake_rebuild)
-    _patch_build_chain(monkeypatch)
-
-    plan = _plan(pool_policy="queue")
-    report = ac.CycleReport()
-    box = {}
-    t = threading.Thread(
-        target=lambda: box.__setitem__(
-            "rc", ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=fake_spawn)
-        )
-    )
-    t.start()
-    rebuild_running.wait()
-    assert not harness_started.wait(0.2)
-    release_rebuild.set()
-    harness_started.wait()
-    t.join()
-
-    assert record["harness_start"] >= record["rebuild_finish"]
-    assert record["harness_argv"] == ac.kernel_harness_argv()
-    assert report.gate_kernel_harness == "green"
-    assert box["rc"] == 0
-
-
 def test_the_gate_pool_seats_every_gate_task_at_once():
-    """Under the queue policy a parked task holds its worker for the whole wait — conform on make-test, kernel-differential on conform, rebuild on all three, kernel-harness on rebuild — so the pool seats every gate task at once plus one spare, the same one-seat headroom the pool carried when it was five workers over four tasks. The chain cannot actually deadlock at a smaller width — submission order matches the parking order and the pool is FIFO, so a task only ever parks on a future already seated or done — but a seat short of the task count would serialize a wait behind an unrelated task's completion, which is the queueing this pool exists not to do."""
+    """Under the queue policy a parked task holds its worker for the whole wait — conform on make-test, kernel-differential on conform, rebuild on all three — so the pool seats every gate task at once, now with two seats to spare: retiring the harness lane took a task off the chain without narrowing the pool. The chain cannot actually deadlock at a smaller width — submission order matches the parking order and the pool is FIFO, so a task only ever parks on a future already seated or done — but a seat short of the task count would serialize a wait behind an unrelated task's completion, which is the queueing this pool exists not to do."""
     gate_tasks = (
         ac._gate_js_task,
         ac._gate_make_test_task,
         ac._gate_conform_task,
         ac._gate_kernel_differential_task,
         ac._gate_rebuild_task,
-        ac._gate_kernel_harness_task,
     )
-    assert ac._GATE_POOL_WORKERS == len(gate_tasks) + 1
+    assert ac._GATE_POOL_WORKERS == len(gate_tasks) + 2
 
 
 def test_gate_kernel_differential_task_judges_only_this_cycles_summary(monkeypatch):
@@ -1691,35 +1495,6 @@ def test_gate_kernel_differential_task_fails_a_nonzero_exit_over_a_passing_summa
     )
     assert status == "FAILED (exit 3)"
     assert failures == ["kernel-differential gate: exited 3 despite a passing summary"]
-
-
-def test_gate_kernel_harness_task_judges_only_this_cycles_summary():
-    """The stale summary is unlinked before the child spawns, so a run that writes none can never be judged from the arms of the pass that last armed the gate."""
-    ac.KERNEL_HARNESS_SUMMARY.write_text(json.dumps(_harness_summary()))
-    seen = {}
-
-    def fake_spawn(name, argv, *, emit, registry, stream):
-        seen["existed"] = ac.KERNEL_HARNESS_SUMMARY.exists()
-        return _step(name, 0)
-
-    status, failures = ac._gate_kernel_harness_task(
-        "queue", None, fake_spawn, ac._Emitter(), ac._ChildRegistry(), ["kernel-harness-gate"]
-    )
-    assert seen["existed"] is False
-    assert status == "FAILED (no kernel_harness_summary.json)"
-    assert failures == ["kernel-harness gate: rebuild.tools.kernel_harness_gate wrote no summary"]
-
-
-def test_gate_kernel_harness_task_fails_a_nonzero_exit_over_a_passing_summary():
-    def fake_spawn(name, argv, *, emit, registry, stream):
-        ac.KERNEL_HARNESS_SUMMARY.write_text(json.dumps(_harness_summary()))
-        return _step(name, 4)
-
-    status, failures = ac._gate_kernel_harness_task(
-        "queue", None, fake_spawn, ac._Emitter(), ac._ChildRegistry(), ["kernel-harness-gate"]
-    )
-    assert status == "FAILED (exit 4)"
-    assert failures == ["kernel-harness gate: exited 4 despite a passing summary"]
 
 
 def test_summary_exact_under_out_of_order_completion(monkeypatch, capsys):
@@ -1759,7 +1534,6 @@ def test_summary_exact_under_out_of_order_completion(monkeypatch, capsys):
     monkeypatch.setattr(ac, "_do_census", _census_clean)
     monkeypatch.setattr(ac, "_gate_js_task", fake_js)
     monkeypatch.setattr(ac, "_gate_kernel_differential_task", _kernel_green)
-    monkeypatch.setattr(ac, "_gate_kernel_harness_task", _harness_green)
     monkeypatch.setattr(ac, "_gate_make_test_task", fake_make)
     monkeypatch.setattr(ac, "_gate_rebuild_task", fake_rebuild)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
@@ -1856,7 +1630,7 @@ def test_gate_rebuild_stays_captured_and_parses_failures(capsys):
     failures = []
     with ThreadPoolExecutor(max_workers=1) as pool:
         fut = pool.submit(lambda: outcome)
-        ac._join_gates(report, failures, None, fut, None, None, None, None, emit)
+        ac._join_gates(report, failures, None, fut, None, None, None, emit)
     assert report.gate_rebuild == "FAILED (2 unexplained)"
 
     out = capsys.readouterr().out
@@ -1888,7 +1662,6 @@ def test_failure_funnels_from_concurrent_branch(monkeypatch, capsys):
     monkeypatch.setattr(ac, "_do_census", _census_clean)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_gate_kernel_differential_task", _kernel_green)
-    monkeypatch.setattr(ac, "_gate_kernel_harness_task", _harness_green)
     monkeypatch.setattr(ac, "_gate_make_test_task", fake_make)
     monkeypatch.setattr(ac, "_gate_rebuild_task", _rebuild_green)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
@@ -1912,7 +1685,6 @@ def test_gate_task_exception_still_prints_one_summary(monkeypatch, capsys):
     _patch_build_chain(monkeypatch)
     monkeypatch.setattr(ac, "_gate_js_task", raising_js)
     monkeypatch.setattr(ac, "_gate_kernel_differential_task", _kernel_green)
-    monkeypatch.setattr(ac, "_gate_kernel_harness_task", _harness_green)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
     monkeypatch.setattr(ac, "_gate_rebuild_task", _rebuild_green)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
@@ -1938,7 +1710,6 @@ def test_queue_policy_rebuild_runs_when_make_test_task_raises(monkeypatch, capsy
     _patch_build_chain(monkeypatch)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_gate_kernel_differential_task", _kernel_green)
-    monkeypatch.setattr(ac, "_gate_kernel_harness_task", _harness_green)
     monkeypatch.setattr(ac, "_gate_make_test_task", raising_make)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
 
@@ -1960,7 +1731,6 @@ def test_queue_policy_rebuild_runs_when_conform_task_raises(monkeypatch, capsys)
     _patch_build_chain(monkeypatch)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_gate_kernel_differential_task", _kernel_green)
-    monkeypatch.setattr(ac, "_gate_kernel_harness_task", _harness_green)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
     monkeypatch.setattr(ac, "_gate_conform_task", raising_conform)
 
@@ -1981,7 +1751,6 @@ def test_run_m1_failure_still_collects_make_test(monkeypatch, capsys):
     monkeypatch.setattr(ac, "_do_run_m1", fake_run_m1)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_gate_kernel_differential_task", _kernel_green)
-    monkeypatch.setattr(ac, "_gate_kernel_harness_task", _harness_green)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
     monkeypatch.setattr(ac, "_gate_rebuild_task", _rebuild_green)
     _patch_build_chain(monkeypatch)
@@ -2074,16 +1843,11 @@ def test_dry_run_renders_concurrency():
     assert "Lane rebuild" in text
     assert "Lane conform" in text
     assert "Lane kernel" in text
-    assert "Lane harness" in text
-    assert "census -> submit gate:rebuild, gate:kernel-harness" in text
+    assert "census -> submit gate:rebuild" in text
     assert "QUEUED behind gate:make-test (queue policy — one heavy pool at a time)" in text
     assert "QUEUED behind gate:conform (queue policy — one heavy pool at a time)" in text
     assert "submitted after the census step lands its verdict;" in text
     assert "QUEUED behind gate:kernel-differential (queue policy — one heavy pool at a time)" in text
-    assert (
-        "submitted with gate:rebuild, after the census step; QUEUED behind it (queue policy — the longest pole, and nothing queues behind it)"
-        in text
-    )
     assert "--jobs budget        : 6" in text
 
     by_name = {step.name: step for step in plan.steps}
@@ -2157,7 +1921,6 @@ def _green_report():
     report.gate_rebuild = "green"
     report.gate_conform = "green"
     report.gate_kernel_differential = "green"
-    report.gate_kernel_harness = "green"
     report.gate_make_test = "green"
     return report
 
@@ -2172,7 +1935,6 @@ def test_cycle_summary_payload_all_green_exit_ok():
         "rebuild",
         "conform",
         "kernel_differential",
-        "kernel_harness",
         "make_test",
     }
     assert all(gate["green"] is True for gate in payload["gates"].values())
@@ -2241,7 +2003,6 @@ def test_cycle_summary_payload_plan_block_and_argv():
         "skip_gates": False,
         "skip_conform": False,
         "skip_kernel_differential": False,
-        "skip_kernel_harness": False,
         "skip_run_m1": False,
         "skip_surface": False,
         "skip_rebuild_gate": False,
@@ -2275,7 +2036,6 @@ def test_cycle_writes_green_summary_with_surface(monkeypatch, tmp_path):
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_gate_kernel_differential_task", _kernel_green)
-    monkeypatch.setattr(ac, "_gate_kernel_harness_task", _harness_green)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
     monkeypatch.setattr(ac, "_gate_rebuild_task", _rebuild_green)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
@@ -2302,7 +2062,6 @@ def test_cycle_writes_failed_summary_on_run_m1_failure(monkeypatch, tmp_path):
     monkeypatch.setattr(ac, "_do_run_m1", fake_run_m1)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_gate_kernel_differential_task", _kernel_green)
-    monkeypatch.setattr(ac, "_gate_kernel_harness_task", _harness_green)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
     monkeypatch.setattr(ac, "_gate_rebuild_task", _rebuild_green)
     _patch_build_chain(monkeypatch)
@@ -2340,7 +2099,6 @@ def test_cycle_summary_surface_nulls_when_manifest_missing(monkeypatch, tmp_path
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_gate_kernel_differential_task", _kernel_green)
-    monkeypatch.setattr(ac, "_gate_kernel_harness_task", _harness_green)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
     monkeypatch.setattr(ac, "_gate_rebuild_task", _rebuild_green)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
@@ -2599,7 +2357,6 @@ def test_run_cycle_never_spawns_make_test_when_skipped(monkeypatch):
     monkeypatch.setattr(ac, "_gate_make_test_task", fake_make)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_gate_kernel_differential_task", _kernel_green)
-    monkeypatch.setattr(ac, "_gate_kernel_harness_task", _harness_green)
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
     monkeypatch.setattr(ac, "_gate_rebuild_task", _rebuild_green)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
@@ -2658,7 +2415,7 @@ def test_conform_skip_fingerprint_includes_horizon_and_font(tmp_path):
 
 
 def _kernel_key_tree(root: Path) -> None:
-    """A scratch repo holding one file of every kind the kernel-differential key hashes: the spec inputs, the kernel's Python half, the gate's own executable, and the crate — plus a target/ tree the key must never see. Built rather than measured against the working tree so the assertions are about the key's coverage rather than about whatever the repo happens to hold, and so they hold before the gate's own module exists."""
+    """A scratch repo holding one file of every kind the kernel-differential key hashes — the kernel's Python half, the gate's own executable, and the crate — plus the two kinds it must never see: a rune, and a target/ tree. Built rather than measured against the working tree so the assertions are about the key's coverage rather than about whatever the repo happens to hold, and so they hold before the gate's own module exists."""
     (root / "glyph_data" / "runes").mkdir(parents=True)
     (root / "glyph_data" / "runes" / "qsX.yaml").write_text("rune: qsX\nductus:\n  hapax: |\n    A stroke.\n")
     pipeline = root / "rebuild" / "pipeline"
@@ -2696,14 +2453,14 @@ def test_kernel_differential_key_moves_with_either_engines_sources(tmp_path):
     assert ac.kernel_differential_skip_fingerprint(tmp_path) != moved_gate
 
 
-def test_kernel_differential_key_moves_with_a_runes_geometry_but_not_its_prose(tmp_path):
+def test_kernel_differential_key_never_hashes_the_runes(tmp_path):
+    """Kernel code only. A rune edit hands the twin engines identical new input rather than making them disagree, so geometry moving must leave the key where it stands — otherwise every ink edit re-pays a Python fixpoint for a comparison whose verdict cannot have moved."""
     _kernel_key_tree(tmp_path)
     rune = tmp_path / "glyph_data" / "runes" / "qsX.yaml"
     base = ac.kernel_differential_skip_fingerprint(tmp_path)
-    rune.write_text("rune: qsX\nductus:\n  hapax: |\n    Quite another stroke.\n")
-    assert ac.kernel_differential_skip_fingerprint(tmp_path) == base
     rune.write_text('rune: qsX\nbitmap:\n  - "##"\nductus:\n  hapax: |\n    Quite another stroke.\n')
-    assert ac.kernel_differential_skip_fingerprint(tmp_path) != base
+    assert ac.kernel_differential_skip_fingerprint(tmp_path) == base
+    assert not any(name.startswith("glyph_data") for name in ac.kernel_differential_skip_files(tmp_path))
 
 
 def test_kernel_differential_key_never_hashes_the_binary_it_builds(tmp_path):
@@ -2753,120 +2510,6 @@ def test_kernel_differential_key_ignores_what_feeds_no_table(tmp_path):
     (m1 / "baseline-default.subset.tsv.gz").write_bytes(b"rows")
     (tmp_path / "rebuild" / "out" / "baseline-default.tsv.gz").write_bytes(b"rows")
     assert ac.kernel_differential_skip_fingerprint(tmp_path) == base
-
-
-def _harness_key_tree(root: Path) -> None:
-    """The same scratch repo one gate deeper: the kernel's Python half, the harness gate's own executable together with the harnesses and corpus tools it drives, and the crate — plus a rune file the key must never read and, once a test makes one, a target/ tree it must never see."""
-    (root / "glyph_data" / "runes").mkdir(parents=True)
-    (root / "glyph_data" / "runes" / "qsX.yaml").write_text('rune: qsX\nbitmap:\n  - "##"\n')
-    pipeline = root / "rebuild" / "pipeline"
-    pipeline.mkdir(parents=True)
-    for name in ac.KERNEL_PIPELINE_SOURCES:
-        (pipeline / name).write_text(f"# {name}\n")
-    tools = root / "rebuild" / "tools"
-    tools.mkdir(parents=True)
-    for name in ac.KERNEL_HARNESS_SOURCES:
-        (tools / name).write_text(f"# {name}\n")
-    crate = root / "rebuild" / "kernel-rs"
-    (crate / "src").mkdir(parents=True)
-    (crate / "tests").mkdir(parents=True)
-    (crate / "Cargo.toml").write_text("[package]\nname = 'ams-m1-kernel'\n")
-    (crate / "Cargo.lock").write_text("# lock 1\n")
-    (crate / "src" / "main.rs").write_text("fn main() {}\n")
-    (crate / "tests" / "cli.rs").write_text("fn cli() {}\n")
-
-
-def _structure_digest(monkeypatch, digest: str) -> None:
-    """The alphabet's structure digest at the seam the key reads it through. `load_default_spec` resolves the live rune directory whatever root the key is handed, so an unstubbed key would answer for the working tree's alphabet rather than for the scratch repo the test built, and pay a spec load per call to do it."""
-    from rebuild.pipeline import spec_load, trace_memo
-
-    monkeypatch.setattr(spec_load, "load_default_spec", lambda: None)
-    monkeypatch.setattr(trace_memo, "spec_structure_digest", lambda spec: digest)
-
-
-def test_kernel_harness_key_moves_with_either_engines_sources(tmp_path, monkeypatch):
-    _harness_key_tree(tmp_path)
-    _structure_digest(monkeypatch, "structure-1")
-    base = ac.kernel_harness_skip_fingerprint(tmp_path)
-    assert ac.kernel_harness_skip_fingerprint(tmp_path) == base
-    assert ac._digest_lines(ac.kernel_harness_skip_lines(tmp_path)) == base
-    (tmp_path / "rebuild" / "kernel-rs" / "src" / "main.rs").write_text("fn main() { }\n")
-    moved_rust = ac.kernel_harness_skip_fingerprint(tmp_path)
-    assert moved_rust != base
-    (tmp_path / "rebuild" / "pipeline" / "settle.py").write_text("# settle.py, edited\n")
-    moved_python = ac.kernel_harness_skip_fingerprint(tmp_path)
-    assert moved_python != moved_rust
-    (tmp_path / "rebuild" / "tools" / "kernel_liveness.py").write_text("# kernel_liveness.py, edited\n")
-    moved_harness = ac.kernel_harness_skip_fingerprint(tmp_path)
-    assert moved_harness != moved_python
-    (tmp_path / "rebuild" / "kernel-rs" / "Cargo.lock").write_text("# lock 2\n")
-    assert ac.kernel_harness_skip_fingerprint(tmp_path) != moved_harness
-
-
-def test_kernel_harness_key_moves_with_the_alphabets_structure(tmp_path, monkeypatch):
-    """The migration-shaped change this gate exists to catch — a family joining the roster, a ligature sequence, a class membership — reaches the key through the structure digest and nothing else, so the digest moving has to move the key while every other line holds."""
-    _harness_key_tree(tmp_path)
-    _structure_digest(monkeypatch, "structure-1")
-    lines = ac.kernel_harness_skip_lines(tmp_path)
-    assert lines[0] == "spec_structure\tstructure-1"
-    base = ac.kernel_harness_skip_fingerprint(tmp_path)
-    _structure_digest(monkeypatch, "structure-2")
-    moved_lines = ac.kernel_harness_skip_lines(tmp_path)
-    assert ac.kernel_harness_skip_fingerprint(tmp_path) != base
-    assert moved_lines[0] == "spec_structure\tstructure-2"
-    assert moved_lines[1:] == lines[1:]
-
-
-def test_kernel_harness_key_never_hashes_the_rune_ink(tmp_path, monkeypatch):
-    """The deliberate blindness that keeps the hour off an ordinary look-edit-look pass. Geometry moves gate:kernel-differential's key on every cycle and this one not at all, so the ink edits between two migrations leave the deep sweep proved and the per-edit proof stays the standing gate's job."""
-    _harness_key_tree(tmp_path)
-    _structure_digest(monkeypatch, "structure-1")
-    base = ac.kernel_harness_skip_fingerprint(tmp_path)
-    (tmp_path / "glyph_data" / "runes" / "qsX.yaml").write_text('rune: qsX\nbitmap:\n  - "#."\n')
-    assert ac.kernel_harness_skip_fingerprint(tmp_path) == base
-    assert not any(name.startswith("glyph_data") for name in ac.kernel_harness_skip_files(tmp_path))
-
-
-def test_kernel_harness_key_never_hashes_the_binary_it_builds(tmp_path, monkeypatch):
-    """The key says "these sources"; the gate's own cargo build is what makes the binary the arms ask match them."""
-    _harness_key_tree(tmp_path)
-    _structure_digest(monkeypatch, "structure-1")
-    base = ac.kernel_harness_skip_fingerprint(tmp_path)
-    target = tmp_path / "rebuild" / "kernel-rs" / "target" / "release"
-    target.mkdir(parents=True)
-    (target / "ams-m1-kernel").write_bytes(b"\x7fELF")
-    (target / "build.rs").write_text("fn built() {}\n")
-    assert ac.kernel_harness_skip_fingerprint(tmp_path) == base
-    files = ac.kernel_harness_skip_files(tmp_path)
-    assert "rebuild/kernel-rs/src/main.rs" in files
-    assert "rebuild/kernel-rs/tests/cli.rs" in files
-    assert "rebuild/pipeline/settle.py" in files
-    assert "rebuild/tools/kernel_harness_gate.py" in files
-    assert "rebuild/tools/kernel_liveness.py" in files
-    assert not any(name.startswith("rebuild/kernel-rs/target/") for name in files)
-
-
-def test_kernel_harness_key_carries_the_toolchain(tmp_path, monkeypatch):
-    """The binary the arms ask is sources times compiler, so a rustc upgrade moves the key even when no hashed byte does."""
-    _harness_key_tree(tmp_path)
-    _structure_digest(monkeypatch, "structure-1")
-    lines = ac.kernel_harness_skip_lines(tmp_path)
-    assert sum(line.startswith("rustc\t") for line in lines) == 1
-    base = ac.kernel_harness_skip_fingerprint(tmp_path)
-    monkeypatch.setattr(ac, "_rustc_identity", lambda: "another-toolchain")
-    assert ac.kernel_harness_skip_fingerprint(tmp_path) != base
-
-
-def test_kernel_harness_key_reads_a_box_without_rustc_as_absent(tmp_path, monkeypatch):
-    """No toolchain is a key value here too, so a box that cannot compile the crate still gets a key — and a gate that reds with the remedy rather than a key that raises."""
-
-    def absent(*arguments, **rest):
-        raise FileNotFoundError("rustc")
-
-    _harness_key_tree(tmp_path)
-    _structure_digest(monkeypatch, "structure-1")
-    monkeypatch.setattr(ac.subprocess, "run", absent)
-    assert "rustc\tabsent" in ac.kernel_harness_skip_lines(tmp_path)
 
 
 def test_run_m1_skip_files_carry_the_lines_behind_the_fingerprint(tmp_path):
@@ -3070,7 +2713,6 @@ def test_run_cycle_never_spawns_rebuild_gate_when_skipped(monkeypatch):
     monkeypatch.setattr(ac, "_gate_rebuild_task", fake_rebuild)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_gate_kernel_differential_task", _kernel_green)
-    monkeypatch.setattr(ac, "_gate_kernel_harness_task", _harness_green)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
@@ -3096,7 +2738,6 @@ def test_run_cycle_never_spawns_the_kernel_gate_when_skipped_or_deferred(monkeyp
         return "green", []
 
     monkeypatch.setattr(ac, "_gate_kernel_differential_task", fake_kernel)
-    monkeypatch.setattr(ac, "_gate_kernel_harness_task", _harness_green)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
     monkeypatch.setattr(ac, "_gate_rebuild_task", _rebuild_green)
@@ -3139,69 +2780,17 @@ def test_a_run_m1_failure_leaves_the_kernel_gate_not_run(monkeypatch):
     assert report.gate_kernel_differential == "not run (run_m1 gate failed)"
 
 
-def test_run_cycle_never_spawns_the_kernel_harness_when_skipped_or_deferred(monkeypatch):
-    record = {"harness_calls": 0}
-
-    def fake_harness(pool_policy, rebuild_fut, spawn, emit, registry, argv):
-        record["harness_calls"] += 1
-        return "green", []
-
-    monkeypatch.setattr(ac, "_gate_kernel_harness_task", fake_harness)
-    monkeypatch.setattr(ac, "_gate_kernel_differential_task", _kernel_green)
-    monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
-    monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
-    monkeypatch.setattr(ac, "_gate_rebuild_task", _rebuild_green)
-    monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
-    monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
-    _patch_build_chain(monkeypatch)
-
-    skipped = _plan(
-        skip_kernel_harness=True,
-        kernel_harness_note="alphabet structure and both engines' sources unchanged",
-    )
-    report = ac.CycleReport()
-    rc = ac._run_cycle(skipped, report, ac._Emitter(), ac._ChildRegistry(), spawn=lambda *a, **k: _step())
-    assert rc == 0
-    assert record["harness_calls"] == 0
-    assert report.gate_kernel_harness.startswith("skipped (alphabet structure and both engines' sources")
-
-    deferred = _plan(deferred=frozenset({"kernel-harness"}))
-    report = ac.CycleReport()
-    rc = ac._run_cycle(deferred, report, ac._Emitter(), ac._ChildRegistry(), spawn=lambda *a, **k: _step())
-    assert rc == 0
-    assert record["harness_calls"] == 0
-    assert report.gate_kernel_harness == f"deferred ({ac.DEFER_NOTE})"
-
-
-def test_a_run_m1_failure_leaves_the_kernel_harness_not_run(monkeypatch):
-    """The harness is submitted from the build lane, after the census step, so a build that never got that far never submitted it — and the summary says so rather than leaving an hour-long gate reading as an unexplained skip."""
-
-    def failing_run_m1(report, *, spawn, emit, registry, budget, **_):
-        return ac.GateOutcome(False, ["boundary gate failed"], 0, 0)
-
-    monkeypatch.setattr(ac, "_do_run_m1", failing_run_m1)
-    monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
-    monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
-    _patch_build_chain(monkeypatch)
-
-    report = ac.CycleReport()
-    rc = ac._run_cycle(_plan(), report, ac._Emitter(), ac._ChildRegistry(), spawn=lambda *a, **k: _step())
-    assert rc == 1
-    assert report.gate_kernel_harness == "not run (run_m1 gate failed)"
-
-
 ALL_RUN = {
     "rebuild": True,
     "conform": True,
     "kernel-differential": True,
-    "kernel-harness": True,
     "make-test": True,
 }
 
 
 def test_deferred_gates_needs_both_the_flag_and_a_refreshing_pass():
     assert ac.deferred_gates(defer=True, refreshing=True, would_run=ALL_RUN) == frozenset(
-        {"rebuild", "conform", "kernel-differential", "kernel-harness", "make-test"}
+        {"rebuild", "conform", "kernel-differential", "make-test"}
     )
     assert ac.deferred_gates(defer=False, refreshing=True, would_run=ALL_RUN) == frozenset()
     assert ac.deferred_gates(defer=True, refreshing=False, would_run=ALL_RUN) == frozenset()
@@ -3212,7 +2801,6 @@ def test_deferred_gates_never_demotes_a_gate_that_would_not_run():
         "rebuild": False,
         "conform": False,
         "kernel-differential": False,
-        "kernel-harness": False,
         "make-test": True,
     }
     assert ac.deferred_gates(defer=True, refreshing=True, would_run=would_run) == frozenset({"make-test"})
@@ -3249,17 +2837,6 @@ def test_a_proved_skip_outranks_deferral_in_the_plan():
     assert by_name["gate:rebuild"].note == "SKIPPED (closure unchanged)"
 
 
-def test_a_proved_harness_skip_outranks_deferral_in_the_plan():
-    """A deferral is a promise to run the gate on the converging pass; a green record is proof there is nothing left to run, so the hour is never queued up behind a promise it has already discharged."""
-    plan = _plan(
-        skip_kernel_harness=True,
-        kernel_harness_note="alphabet structure unchanged",
-        deferred=frozenset({"kernel-harness"}),
-    )
-    by_name = {step.name: step for step in plan.steps}
-    assert by_name["gate:kernel-harness"].note == "SKIPPED (alphabet structure unchanged)"
-
-
 def test_run_cycle_never_spawns_a_deferred_gate(monkeypatch):
     calls = {"rebuild": 0, "conform": 0, "make-test": 0}
 
@@ -3280,7 +2857,6 @@ def test_run_cycle_never_spawns_a_deferred_gate(monkeypatch):
     monkeypatch.setattr(ac, "_gate_make_test_task", fake_make)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_gate_kernel_differential_task", _kernel_green)
-    monkeypatch.setattr(ac, "_gate_kernel_harness_task", _harness_green)
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
     _patch_build_chain(monkeypatch)
 
@@ -3301,7 +2877,6 @@ def test_a_deferred_gate_keeps_its_status_when_run_m1_fails(monkeypatch):
     monkeypatch.setattr(ac, "_do_run_m1", failing_run_m1)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_gate_kernel_differential_task", _kernel_green)
-    monkeypatch.setattr(ac, "_gate_kernel_harness_task", _harness_green)
     _patch_build_chain(monkeypatch)
 
     plan = _plan(deferred=frozenset({"rebuild", "conform", "make-test"}))
@@ -3317,15 +2892,13 @@ def test_run_cycle_records_no_green_for_a_deferred_gate(monkeypatch, tmp_path):
     monkeypatch.setattr(ac, "CONFORM_GREEN", tmp_path / "conform-green.json")
     monkeypatch.setattr(ac, "REBUILD_GATE_GREEN", tmp_path / "rebuild-gate-green.json")
     monkeypatch.setattr(ac, "KERNEL_DIFFERENTIAL_GREEN", tmp_path / "kernel-differential-green.json")
-    monkeypatch.setattr(ac, "KERNEL_HARNESS_GREEN", tmp_path / "kernel-harness-green.json")
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_gate_kernel_differential_task", _kernel_green)
-    monkeypatch.setattr(ac, "_gate_kernel_harness_task", _harness_green)
     _patch_build_chain(monkeypatch)
 
     plan = _plan(
-        deferred=frozenset({"rebuild", "conform", "kernel-differential", "kernel-harness", "make-test"}),
+        deferred=frozenset({"rebuild", "conform", "kernel-differential", "make-test"}),
         record_greens=True,
     )
     report = ac.CycleReport()
@@ -3333,7 +2906,6 @@ def test_run_cycle_records_no_green_for_a_deferred_gate(monkeypatch, tmp_path):
     assert not (tmp_path / "conform-green.json").exists()
     assert not (tmp_path / "rebuild-gate-green.json").exists()
     assert not (tmp_path / "kernel-differential-green.json").exists()
-    assert not (tmp_path / "kernel-harness-green.json").exists()
 
 
 def test_cycle_summary_payload_marks_deferred_skips():
@@ -3386,29 +2958,6 @@ def test_cycle_summary_payload_tells_a_proved_kernel_skip_from_a_forced_one():
     assert deferred["plan"]["deferred"] == ["kernel-differential"]
     live = ac.cycle_summary_payload(_green_report(), [], _plan(), "ok")
     assert live["gates"]["kernel_differential"] == {"status": "green", "green": True, "skip": None}
-
-
-def test_cycle_summary_payload_tells_a_proved_harness_skip_from_a_forced_one():
-    """The hour this gate costs makes its auto-skip the common case, so the readiness checker has to be able to tell the green record's proof from --skip-kernel-harness switching the deep sweep off for a pass."""
-    report = _green_report()
-    report.gate_kernel_harness = "skipped (alphabet structure unchanged)"
-    proved = ac.cycle_summary_payload(
-        report,
-        [],
-        _plan(skip_kernel_harness=True, kernel_harness_proven=True),
-        "ok",
-    )
-    assert proved["gates"]["kernel_harness"]["skip"] == "proved"
-    assert proved["gates"]["kernel_harness"]["green"] is False
-    assert proved["plan"]["skip_kernel_harness"] is True
-    forced = ac.cycle_summary_payload(report, [], _plan(skip_kernel_harness=True), "ok")
-    assert forced["gates"]["kernel_harness"]["skip"] == "forced"
-    report.gate_kernel_harness = f"deferred ({ac.DEFER_NOTE})"
-    deferred = ac.cycle_summary_payload(report, [], _plan(deferred=frozenset({"kernel-harness"})), "ok")
-    assert deferred["gates"]["kernel_harness"]["skip"] == "deferred"
-    assert deferred["plan"]["deferred"] == ["kernel-harness"]
-    live = ac.cycle_summary_payload(_green_report(), [], _plan(), "ok")
-    assert live["gates"]["kernel_harness"] == {"status": "green", "green": True, "skip": None}
 
 
 def test_finish_hands_a_deferred_green_cycle_to_the_next_pass(monkeypatch, capsys):
@@ -3470,12 +3019,11 @@ def test_main_defers_on_a_refreshing_pass(tmp_path, monkeypatch, capsys):
     assert ac.main(["--dry-run", "--defer-gates"]) == 0
     out = capsys.readouterr().out
     assert (
-        "Heavy gates deferred to the next pass: gate:conform, gate:kernel-differential, gate:kernel-harness, gate:make-test, gate:rebuild"
+        "Heavy gates deferred to the next pass: gate:conform, gate:kernel-differential, gate:make-test, gate:rebuild"
         in out
     )
     assert "gate:rebuild: DEFERRED" in out
     assert "gate:kernel-differential: DEFERRED" in out
-    assert "gate:kernel-harness: DEFERRED" in out
 
 
 def test_main_does_not_defer_without_the_flag_or_under_fresh(tmp_path, monkeypatch, capsys):
@@ -3499,7 +3047,7 @@ def test_main_never_defers_a_gate_a_flag_already_forces(tmp_path, monkeypatch, c
     ]
     assert ac.main(argv) == 0
     out = capsys.readouterr().out
-    assert "Heavy gates deferred to the next pass: gate:kernel-harness, gate:rebuild" in out
+    assert "Heavy gates deferred to the next pass: gate:rebuild" in out
     assert "gate:conform: SKIPPED (--skip-conform)" in out
     assert "gate:kernel-differential: SKIPPED (--skip-kernel-differential)" in out
     assert "gate:make-test: make test" in out
@@ -3520,7 +3068,6 @@ def test_main_defers_nothing_once_the_artifacts_have_settled(tmp_path, monkeypat
     assert "gate:rebuild: uv run pytest" in out
     assert "gate:conform: uv run python -m rebuild.pipeline.run_m1 --conform-only" in out
     assert "gate:kernel-differential: uv run python -m rebuild.tools.kernel_gate" in out
-    assert "gate:kernel-harness: uv run python -m rebuild.tools.kernel_harness_gate" in out
 
 
 def test_main_auto_skips_the_kernel_gate_on_a_matching_green(tmp_path, monkeypatch, capsys):
@@ -3544,42 +3091,10 @@ def test_main_auto_skips_the_kernel_gate_on_a_matching_green(tmp_path, monkeypat
     ac.record_green(ac.KERNEL_DIFFERENTIAL_GREEN, "kfp")
     assert ac.main(["--dry-run"]) == 0
     out = capsys.readouterr().out
-    assert "gate:kernel-differential auto-skipped: spec inputs and both engines' sources unchanged" in out
-    assert "gate:kernel-differential: SKIPPED (spec inputs and both engines' sources unchanged" in out
+    assert "gate:kernel-differential auto-skipped: both engines' kernel sources unchanged" in out
+    assert "gate:kernel-differential: SKIPPED (both engines' kernel sources unchanged" in out
     assert ac.main(["--dry-run", "--fresh"]) == 0
     assert "gate:kernel-differential auto-skipped" not in capsys.readouterr().out
-
-
-def test_main_auto_skips_the_kernel_harness_on_a_matching_green(tmp_path, monkeypatch, capsys):
-    """The auto-skip that makes an hour-long gate affordable: nested under run_m1's like its siblings, and claimed on a key one grain coarser, so the ordinary rune edit between two migrations never re-arms the sweep."""
-    _defer_repo(tmp_path, monkeypatch)
-    ac.record_green(ac.RUN_M1_GREEN, "key")
-    monkeypatch.setattr(ac, "m1_artifacts_present", lambda root=None: True)
-    monkeypatch.setattr(ac, "surface_build_skippable", lambda root=None: True)
-    monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, horizon=None: "no-match")
-    monkeypatch.setattr(ac, "rebuild_gate_skip_fingerprint", lambda root=None: "no-match")
-    monkeypatch.setattr(ac, "census_skip_fingerprint", lambda root=None, surface=None: "no-match")
-    monkeypatch.setattr(ac, "kernel_harness_skip_fingerprint", lambda root=None: "hfp")
-
-    assert ac.main(["--dry-run"]) == 0
-    assert (
-        "gate:kernel-harness: uv run python -m rebuild.tools.kernel_harness_gate" in capsys.readouterr().out
-    )
-
-    ac.record_green(ac.KERNEL_HARNESS_GREEN, "moved")
-    assert ac.main(["--dry-run"]) == 0
-    assert "gate:kernel-harness auto-skipped" not in capsys.readouterr().out
-
-    ac.record_green(ac.KERNEL_HARNESS_GREEN, "hfp")
-    assert ac.main(["--dry-run"]) == 0
-    out = capsys.readouterr().out
-    assert (
-        "gate:kernel-harness auto-skipped: alphabet structure and both engines' sources unchanged since its last green harness run; --fresh overrides"
-        in out
-    )
-    assert "gate:kernel-harness: SKIPPED (alphabet structure and both engines' sources unchanged" in out
-    assert ac.main(["--dry-run", "--fresh"]) == 0
-    assert "gate:kernel-harness auto-skipped" not in capsys.readouterr().out
 
 
 def test_main_skips_the_census_on_a_recorded_outcome_stale_included(tmp_path, monkeypatch, capsys):
@@ -3857,32 +3372,6 @@ def test_record_gate_greens_records_refuses_and_clears_the_kernel_differential(m
     assert ac.read_green_record(green) is None
 
 
-def test_record_gate_greens_records_refuses_and_clears_the_kernel_harness(monkeypatch, tmp_path):
-    green = tmp_path / "kernel-harness-green.json"
-    monkeypatch.setattr(ac, "KERNEL_HARNESS_GREEN", green)
-    monkeypatch.setattr(ac, "kernel_harness_skip_fingerprint", lambda root=None: "hfp")
-    monkeypatch.setattr(
-        ac, "kernel_harness_skip_files", lambda root=None: {"rebuild/tools/kernel_liveness.py": "d1"}
-    )
-    plan = _plan()
-    report = ac.CycleReport()
-    report.gate_kernel_harness = "green"
-    ac._record_gate_greens(report, plan, {"kernel-harness": "hfp"}, ac._Emitter())
-    record = ac.read_green_record(green)
-    assert record is not None
-    assert record["fingerprint"] == "hfp"
-    assert record["files"] == {"rebuild/tools/kernel_liveness.py": "d1"}
-
-    green.unlink()
-    ac._record_gate_greens(report, plan, {"kernel-harness": "moved"}, ac._Emitter())
-    assert ac.read_green_record(green) is None
-
-    ac.record_green(green, "hfp")
-    report.gate_kernel_harness = "FAILED"
-    ac._record_gate_greens(report, plan, {"kernel-harness": "hfp"}, ac._Emitter())
-    assert ac.read_green_record(green) is None
-
-
 def test_classify_rebuild_recordable_only_when_unannotated():
     clean = ac.classify_rebuild_output("", 0, update_pins=False)
     assert clean.recordable
@@ -3914,7 +3403,6 @@ def test_update_pins_cycle_keeps_census_failures_hard(monkeypatch, capsys):
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_gate_kernel_differential_task", _kernel_green)
-    monkeypatch.setattr(ac, "_gate_kernel_harness_task", _harness_green)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
     monkeypatch.setattr(ac, "_gate_rebuild_task", _census_failing_rebuild)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
@@ -3939,7 +3427,6 @@ def test_update_pins_cycle_still_submits_the_gate_when_the_update_failed(monkeyp
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_gate_kernel_differential_task", _kernel_green)
-    monkeypatch.setattr(ac, "_gate_kernel_harness_task", _harness_green)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
     monkeypatch.setattr(ac, "_gate_rebuild_task", _census_failing_rebuild)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
@@ -3972,7 +3459,6 @@ def test_update_pins_census_update_completes_before_the_rebuild_gate_spawns(monk
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_gate_kernel_differential_task", _kernel_green)
-    monkeypatch.setattr(ac, "_gate_kernel_harness_task", _harness_green)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
     _patch_build_chain(monkeypatch)
@@ -4008,7 +3494,6 @@ def test_update_pins_cycle_records_rebuild_green_after_the_refresh(monkeypatch, 
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_gate_kernel_differential_task", _kernel_green)
-    monkeypatch.setattr(ac, "_gate_kernel_harness_task", _harness_green)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
     monkeypatch.setattr(ac, "_gate_rebuild_task", recordable_rebuild)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
@@ -4044,7 +3529,6 @@ def test_a_stale_census_defers_the_rebuild_gate(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_gate_kernel_differential_task", _kernel_green)
-    monkeypatch.setattr(ac, "_gate_kernel_harness_task", _harness_green)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
     monkeypatch.setattr(ac, "_gate_rebuild_task", fake_rebuild)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
@@ -4081,7 +3565,6 @@ def test_a_stale_census_never_defers_update_pins_rehearsal_or_no_defer(monkeypat
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_gate_kernel_differential_task", _kernel_green)
-    monkeypatch.setattr(ac, "_gate_kernel_harness_task", _harness_green)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
     monkeypatch.setattr(ac, "_gate_rebuild_task", fake_rebuild)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
@@ -4116,7 +3599,6 @@ def test_surface_build_failure_leaves_the_rebuild_gate_not_run(monkeypatch, caps
     monkeypatch.setattr(ac, "_do_surface_build", failing_surface)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_gate_kernel_differential_task", _kernel_green)
-    monkeypatch.setattr(ac, "_gate_kernel_harness_task", _harness_green)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
     monkeypatch.setattr(ac, "_gate_rebuild_task", fake_rebuild)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
@@ -4279,7 +3761,6 @@ def test_run_cycle_replays_a_recorded_stale_census(monkeypatch, capsys):
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_gate_kernel_differential_task", _kernel_green)
-    monkeypatch.setattr(ac, "_gate_kernel_harness_task", _harness_green)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
     monkeypatch.setattr(ac, "_gate_rebuild_task", _rebuild_green)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
@@ -4310,7 +3791,6 @@ def test_run_cycle_reads_a_replayed_clean_outcome_as_an_ordinary_skip(monkeypatc
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_gate_kernel_differential_task", _kernel_green)
-    monkeypatch.setattr(ac, "_gate_kernel_harness_task", _harness_green)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
     monkeypatch.setattr(ac, "_gate_rebuild_task", _rebuild_green)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
@@ -4343,7 +3823,6 @@ def test_run_cycle_never_spawns_a_deferred_census(monkeypatch):
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_gate_kernel_differential_task", _kernel_green)
-    monkeypatch.setattr(ac, "_gate_kernel_harness_task", _harness_green)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
     _patch_build_chain(monkeypatch)
@@ -4477,7 +3956,6 @@ def test_run_cycle_never_spawns_the_plumbing_when_skipped(monkeypatch, tmp_path)
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_gate_kernel_differential_task", _kernel_green)
-    monkeypatch.setattr(ac, "_gate_kernel_harness_task", _harness_green)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
     monkeypatch.setattr(ac, "_gate_rebuild_task", _rebuild_green)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
@@ -4511,7 +3989,6 @@ def test_run_cycle_records_the_plumbing_green_only_after_a_complete_chain(monkey
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_gate_kernel_differential_task", _kernel_green)
-    monkeypatch.setattr(ac, "_gate_kernel_harness_task", _harness_green)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
     monkeypatch.setattr(ac, "_gate_rebuild_task", _rebuild_green)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
@@ -4580,7 +4057,6 @@ def test_run_cycle_records_no_plumbing_green_when_standing_fills_landed(monkeypa
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_gate_kernel_differential_task", _kernel_green)
-    monkeypatch.setattr(ac, "_gate_kernel_harness_task", _harness_green)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
     monkeypatch.setattr(ac, "_gate_rebuild_task", _rebuild_green)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
@@ -5006,12 +4482,11 @@ def test_retention_never_runs_for_real_during_the_suite(real_run_retention):
 
 
 def test_the_gate_summaries_a_pass_clears_are_never_the_live_ones(tmp_path, live_deletion_targets):
-    """The same tripwire for the other stages that delete before they rebuild. run_m1 unlinks its four summaries, and gate:conform, gate:kernel-differential and gate:kernel-harness each unlink their own, all before spawning and all from constants resolved against the live rebuild/out/m1 — so a test that drives any of those stages without stubbing it empties the directory the surface build consumes and the cycle's auto-skip keys on, at the price of a full rebuild to get it back. None would fail: the missing summaries read as a failed gate, which is what most such tests are asserting anyway."""
+    """The same tripwire for the other stages that delete before they rebuild. run_m1 unlinks its four summaries, and gate:conform and gate:kernel-differential each unlink their own, all before spawning and all from constants resolved against the live rebuild/out/m1 — so a test that drives any of those stages without stubbing it empties the directory the surface build consumes and the cycle's auto-skip keys on, at the price of a full rebuild to get it back. None would fail: the missing summaries read as a failed gate, which is what most such tests are asserting anyway."""
     redirected = [
         *ac.M1_SUMMARY_FILES.values(),
         ac.CONFORM_SUMMARY,
         ac.KERNEL_DIFFERENTIAL_SUMMARY,
-        ac.KERNEL_HARNESS_SUMMARY,
     ]
     assert [path.parent for path in redirected] == [tmp_path] * len(redirected)
     assert [path.name for path in redirected] == [path.name for path in live_deletion_targets]
@@ -5154,7 +4629,6 @@ def _patch_timing_cycle(monkeypatch):
     monkeypatch.setattr(ac, "_do_complaints", _complaints_ok)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_gate_kernel_differential_task", _kernel_green)
-    monkeypatch.setattr(ac, "_gate_kernel_harness_task", _harness_green)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
     monkeypatch.setattr(ac, "_gate_rebuild_task", _rebuild_green)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)

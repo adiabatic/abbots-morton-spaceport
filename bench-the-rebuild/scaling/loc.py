@@ -60,7 +60,6 @@ for f in [
     "rebuild/pipeline/table.py",
     "rebuild/pipeline/model.py",
     "rebuild/pipeline/specificity.py",
-    "rebuild/pipeline/trace_memo.py",
     "rebuild/pipeline/spec_load.py",
     "rebuild/pipeline/conform.py",
     "rebuild/pipeline/emit_gsub.py",
@@ -69,5 +68,5 @@ for f in [
 ]:
     tot += measure(f)
 print(
-    "kernel(settle+table+model+specificity+trace_memo) code lines:",
+    "kernel(settle+table+model+specificity) code lines:",
 )

@@ -1,5 +1,0 @@
-cmd: uv run python -c pass
-  run 0: wall=0.03s child_user=0.02s child_sys=0.01s cpu=0.03s rc=0 stdout_bytes=0
-  run 1: wall=0.03s child_user=0.02s child_sys=0.01s cpu=0.03s rc=0 stdout_bytes=0
-  run 2: wall=0.03s child_user=0.02s child_sys=0.01s cpu=0.03s rc=0 stdout_bytes=0
-  best wall=0.03s cpu=0.03s

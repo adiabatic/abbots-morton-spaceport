@@ -1,5 +1,8 @@
 """Fold the per-run JSON lines into the deliverable: equivalence verdict, single-thread cost of
-free-threading, and the thread-scaling table with the net multiplier against today's serial GIL run."""
+free-threading, and the thread-scaling table with the net multiplier against today's serial GIL run.
+
+The cross-configuration TraceShare arms this once folded — the production-shape block, the donor-then-fanout projection and the share-versus-threads trade — went with `trace_memo.py` at the Rust cutover, and `bench.py` no longer emits the runs they read.
+"""
 
 from __future__ import annotations
 
@@ -131,29 +134,6 @@ ft1_row = {
 ft_shared = [ft1_row] + ft_shared
 ft_own = [ft1_row] + ft_own
 
-# --- production shape --------------------------------------------------------------------------
-share_serial = best(pick(mode="share-serial"))
-share_fanout = best(pick(mode="share-fanout"))
-no_share_serial = (
-    best([r for r in pick(mode="serial", gil_enabled=True) if r["units"] == len(share_serial["checksums"])])
-    if share_serial
-    else None
-)
-production = {
-    "note": "the shape run_m1.build_tables actually uses: six configs over one live cross-config TraceShare",
-    "gil_serial_with_share": (
-        {k: share_serial[k] for k in ("wall_s", "cpu_s", "units")} if share_serial else None
-    ),
-    "freethreaded_donor_then_fanout": (
-        {k: share_fanout[k] for k in ("wall_s", "cpu_s", "cpu_utilization", "threads", "units")}
-        if share_fanout
-        else None
-    ),
-    "multiplier": (
-        round(share_serial["wall_s"] / share_fanout["wall_s"], 3) if share_serial and share_fanout else None
-    ),
-}
-
 # --- the real shape: exactly six configurations, nothing to load-balance -------------------------
 six = [r for r in runs if r["units"] == 6]
 
@@ -165,7 +145,6 @@ def six_row(mode, gil, threads):
 
 six_gil1 = six_row("serial", True, 1)
 six_own6 = six_row("own", False, 6)
-six_shared6 = six_row("shared", False, 6)
 real_shape = {
     "note": "six acceptance configurations is all the parallelism this stage actually offers, and they are unequal — the longest configuration is the floor no thread count can beat",
     "rows": [],
@@ -236,7 +215,6 @@ PROD_DONOR_CONFIG_ALONE = 77.51  # measured, cost-model.md K1: default config, n
 prod_recipients_total = PROD_SIX_CONFIG_COLD_WALL - PROD_DONOR_CONFIG_ALONE
 prod_recipient_mean = prod_recipients_total / 5
 ft_ratio = single["freethreaded_single_thread_ratio_wall"]
-fanout_mult = production["multiplier"]
 
 projection = {
     "status": "DERIVED — cost-model measured endpoints x ratios measured on this slice; not measured at production scale",
@@ -244,7 +222,6 @@ projection = {
         "production_six_config_cold_wall_s": PROD_SIX_CONFIG_COLD_WALL,
         "production_donor_config_alone_s": PROD_DONOR_CONFIG_ALONE,
         "slice_freethreaded_single_thread_wall_ratio": ft_ratio,
-        "slice_donor_then_fanout_multiplier": fanout_mult,
     },
     "derived_recipient_mean_s": round(prod_recipient_mean, 1),
     "scenarios": [
@@ -254,12 +231,7 @@ projection = {
             "multiplier": round(1 / ft_ratio, 2),
         },
         {
-            "scenario": "donor first, then five recipients as threads over the same TraceShare, at the fanout efficiency measured on this slice",
-            "projected_wall_s": (round(PROD_SIX_CONFIG_COLD_WALL / fanout_mult, 1) if fanout_mult else None),
-            "multiplier": fanout_mult,
-        },
-        {
-            "scenario": "drop the share, run the six configurations as six threads with a private spec each, at the speedup measured on the six-configuration slice",
+            "scenario": "run the six configurations as six threads with a private spec each, at the speedup measured on the six-configuration slice",
             "projected_wall_s": (
                 round(6 * PROD_DONOR_CONFIG_ALONE / (six_gil1["wall_s"] / six_own6["wall_s"]), 1)
                 if six_gil1 and six_own6
@@ -274,35 +246,10 @@ projection = {
                 if six_gil1 and six_own6
                 else None
             ),
-            "caveat": "6 x 77.51 s is the DERIVED no-share serial cost, assuming every configuration costs what the measured default configuration costs; the share is worth more at production scale (27%) than on this slice (15%), so this scenario is optimistic on the share side and pessimistic on the config-cost side",
-        },
-        {
-            "scenario": "CEILING: donor plus one recipient, perfect 5-way fanout, zero threading overhead, recipients assumed equal",
-            "projected_wall_s": round((PROD_DONOR_CONFIG_ALONE + prod_recipient_mean) * ft_ratio, 1),
-            "multiplier": round(
-                PROD_SIX_CONFIG_COLD_WALL / ((PROD_DONOR_CONFIG_ALONE + prod_recipient_mean) * ft_ratio), 2
-            ),
+            "caveat": "6 x 77.51 s is the DERIVED serial cost, assuming every configuration costs what the measured default configuration costs, so this scenario is pessimistic on the config-cost side",
         },
     ],
-    "why_the_ceiling_is_low": "the cross-configuration TraceShare has no content until the donor configuration finishes, so the donor is strictly serial ahead of the other five — Amdahl on a 23% serial fraction caps the whole idea near 2.6x however many cores are free",
-    "unmeasured": "per-recipient configuration times at production scale (the slowest recipient, not the mean, sets the fanout's floor) and whether six concurrent production fixpoints fit in RAM (per-config peak RSS is a measured 3.85 GB)",
-}
-
-# --- the choice the two levers force ------------------------------------------------------------
-# The TraceShare is keyed to one ResolvedSpec, so using it means every thread traverses that one
-# object graph — which is precisely the arrangement that scales worst. Threading with a private spec
-# per thread scales best but cannot use the share. These are the two ends of that trade, measured.
-six_share_serial = share_serial if share_serial and share_serial["units"] == 6 else None
-trade = {
-    "note": "the cross-configuration share and free-threaded scaling are mutually exclusive as the code stands: the share needs one shared spec, and one shared spec is what caps threading",
-    "today_gil_serial_with_share_wall_s": six_share_serial["wall_s"] if six_share_serial else None,
-    "freethreaded_threads_with_share_donor_first_wall_s": share_fanout["wall_s"] if share_fanout else None,
-    "freethreaded_threads_private_spec_no_share_wall_s": six_own6["wall_s"] if six_own6 else None,
-    "freethreaded_threads_shared_spec_no_share_wall_s": six_shared6["wall_s"] if six_shared6 else None,
-    "best_against_today": (
-        round(six_share_serial["wall_s"] / six_own6["wall_s"], 3) if six_share_serial and six_own6 else None
-    ),
-    "reading": "dropping the share and giving each thread its own spec beats keeping the share and threading behind the donor",
+    "unmeasured": "per-configuration times at production scale (the slowest configuration, not the mean, sets the floor) and whether six concurrent production fixpoints fit in RAM (per-config peak RSS is a measured 3.85 GB)",
 }
 
 best_ft = max(ft_shared + ft_own, key=lambda r: r["net_multiplier_vs_serial_gil"])
@@ -316,7 +263,7 @@ print(
                 "kernel": "rebuild.pipeline.table.build_tables (the M1 settlement fixpoint)",
                 "spec": f"{runs[0]['runes']} of the 18 production runes: keep={runs[0]['keep']} single letters plus every ligature whose components survive",
                 "work_units": f"{UNITS} = the six acceptance configurations, repeated",
-                "writes_to_repo": "none (out_dir=None, trace_store=None)",
+                "writes_to_repo": "none (built in memory)",
             },
             "equivalence": {
                 "method": "blake2b-128 over every rule row, reachable cell, enumerated window, treaty row and fired-provenance pointer of each built table; the GIL serial run is the reference",
@@ -335,9 +282,7 @@ print(
                 "note": "settle._GUARD_STATES and table._LIVENESS_PROBES are the only mutable state the repo shares between concurrent fixpoints; both are cap-8 OrderedDicts read with a structural move_to_end on every hit (104,504 _guard_state calls per six-configuration build at the runner default keep=5, measured by callcounts.py). hot_shared_entry is that access pattern; insert_evict_at_cap is what happens when concurrent threads exceed the cap",
                 "measurements": odict,
             },
-            "production_shape_with_traceshare": production,
             "projection_onto_the_real_stage": projection,
-            "share_versus_threads_trade": trade,
             "headline": {
                 "serial_gil_wall_s": gil_serial_wall,
                 "best_freethreaded_wall_s": best_ft["wall_s"],

@@ -31,7 +31,6 @@ for f in [
     "rebuild/pipeline/table.py",
     "rebuild/pipeline/model.py",
     "rebuild/pipeline/specificity.py",
-    "rebuild/pipeline/trace_memo.py",
     "rebuild/pipeline/conform.py",
 ]:
     measure(f)

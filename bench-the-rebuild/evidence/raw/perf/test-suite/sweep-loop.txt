@@ -1,8 +1,0 @@
-PID 43145 ready
-{
-  "shards": 20,
-  "wall_s": 48.054,
-  "cpu_s": 48.041,
-  "unique_shapes": 2075493,
-  "us_per_shape": 23.15
-}

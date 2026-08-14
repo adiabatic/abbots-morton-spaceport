@@ -1,6 +1,6 @@
 """The engine seam in `run_m1` (issue #40, sub-issue #47): the flag that chooses which half of the port enumerates the windows, the digest record both halves leave behind, and the claim that the choice is invisible in what a build writes.
 
-The end-to-end arm is the one that matters and it is stated the only way it can be — the mini fixture built twice, once by each engine, with every artifact compared as bytes and the contract digests compared as a whole. `rebuild/tools/kernel_fixpoint.py` makes the same comparison over the live alphabet and every rung of the scaling ladder, and `gate:kernel-differential` makes it over the cycle's own artifacts on every cycle whose kernel inputs moved; what this file adds is that the comparison holds through `build_tables` itself — the writers, the asserts, the stamp and the digest record, not just the fold. It skips rather than fails on a box with no kernel, because the gate is what fails loudly there and a suite that refused to run without a Rust toolchain would be stating the same thing twice and stopping a font author's afternoon over it.
+The end-to-end arm is the one that matters and it is stated the only way it can be — the mini fixture built twice, once by each engine, with every artifact compared as bytes and the contract digests compared as a whole. `rebuild/tools/kernel_fixpoint.py` makes the same comparison over the live alphabet and every rung of the scaling ladder, and `gate:kernel-differential` makes it on demand whenever either engine's kernel sources move; what this file adds is that the comparison holds through `build_tables` itself — the writers, the asserts, the stamp and the digest record, not just the fold. It skips rather than fails on a box with no kernel, because the gate is what fails loudly there and a suite that refused to run without a Rust toolchain would be stating the same thing twice and stopping a font author's afternoon over it.
 
 Everything else here is plumbing at the grain plumbing goes wrong: a flag that parses and then reaches nothing, an engine that would build tables in memory for a caller who cannot stamp them, a world flag list that stops reflecting the defaults it is meant to mirror.
 """
@@ -31,7 +31,7 @@ class Reached(Exception):
 @pytest.fixture(scope="module")
 def python_build(tmp_path_factory):
     out_dir = tmp_path_factory.mktemp("python-engine")
-    run_m1.build_tables(SPEC, out_dir, inputs=STAMP)
+    run_m1.build_tables(SPEC, out_dir, inputs=STAMP, engine="python")
     return out_dir
 
 
@@ -56,7 +56,7 @@ class TestTheDigestRecord:
         assert _digest_record(python_build)["digests"]["ss04"] == table_module.table_digest(decision, treaty)
 
     def test_a_build_with_no_stamp_records_its_digests_under_a_null_one(self, tmp_path):
-        run_m1.build_tables(SPEC, tmp_path)
+        run_m1.build_tables(SPEC, tmp_path, engine="python")
         record = _digest_record(tmp_path)
         assert record["inputs"] is None
         assert list(record["digests"]) == list(conform.ACCEPTANCE_CONFIGS)
@@ -120,7 +120,7 @@ class TestTheEngineChoice:
     @pytest.mark.parametrize(
         "argv, engine, threads",
         [
-            ([], "python", None),
+            ([], "rust", None),
             (["--engine", "python"], "python", None),
             (["--engine", "rust"], "rust", None),
             (["--engine", "rust", "--kernel-threads", "5"], "rust", 5),
@@ -200,6 +200,3 @@ class TestTheEnginesAgree:
         assert rust_record["digests"] == python_record["digests"]
         assert rust_record["inputs"] == python_record["inputs"]
         assert (python_record["engine"], rust_record["engine"]) == ("python", "rust")
-
-    def test_the_rust_arm_keeps_no_trace_memo(self, rust_build):
-        assert not sorted(rust_build.glob("trace-memo-*"))

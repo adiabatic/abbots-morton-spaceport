@@ -46,7 +46,7 @@ for label, names in sets.items():
     sp = subset(names)
     t0 = time.perf_counter()
     try:
-        decision, treaty = table_module.build_tables(sp, features, trace_store=None, share=None)
+        decision, treaty = table_module.build_tables(sp, features)
     except Exception as exc:
         print(label, "FAILED", type(exc).__name__, str(exc)[:200], flush=True)
         continue

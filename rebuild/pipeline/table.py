@@ -22,10 +22,7 @@ import os
 from collections import OrderedDict
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable, Iterator, Mapping
-
-if TYPE_CHECKING:
-    from rebuild.pipeline.trace_memo import TraceShare, TraceStore
+from typing import Callable, Iterator, Mapping
 
 from rebuild.pipeline import settle as settle_module
 from rebuild.pipeline.model import (
@@ -1449,22 +1446,17 @@ class _FixpointContext:
 def enumerate_transitions(
     spec: ResolvedSpec,
     features: frozenset[str],
-    trace_store: "TraceStore | None" = None,
-    share: "TraceShare | None" = None,
 ) -> FixpointProduct:
     """One configuration's reachable windows, by fixpoint over reachable left states (the worklist comment below is the exactness contract). This is the kernel half of the build — every line that consults the settlement engine, and the half a port replaces wholesale — reduced to the one value `assemble_tables` needs. Wherever `_deep_world` holds and `DEEP_CLASSES_DEFAULT` is on, deep window slots enumerate at class grain (issue 26): the static option lists are computed exactly as at label grain, their letters split by `_DeepFiberDeriver`'s outcome fibers, worklist pins intersect each fiber, and the row for a (base, fiber pair) accumulates the union of admitted members across items — so the expanded member product equals the label-grain row multiset exactly, and everything from the joint-flag pass on consumes that expanded stream (`expanded_transitions`), keeping the fold, the rules, the treaty, and the serialized rules byte-identical by construction. The declared narrowing (issue 7's rule): per-member `transition_trace` at enumeration time becomes representative-plus-echo per (base, fiber pair) — the trace runs once with the first admitted member, and for every multi-member row the last member is additionally traced at the row's real left (the last r4 member at the representative r3 likewise) and its full probe record asserted equal, so the left-class collapse the fibers import is re-checked at real-left, real-entry, real-adjustment grain on every build; members between first and last are covered by the fiber probes at virtual-left grain, alarmed by the fiber verification test, the conform walk's first-divergent-member behavior, and the horizon-limited label-grain sweep. Standing residual: a middle member's real-left trace no longer runs, so a record whose only firing evidence was such a trace reads dead — the dead-policy gate errors on it loudly, and the fix at that point is targeted member tracing for the specific contexts, never a waiver."""
-    return _enumerate(spec, features, trace_store=trace_store, share=share).product
+    return _enumerate(spec, features).product
 
 
 def _enumerate(
     spec: ResolvedSpec,
     features: frozenset[str],
-    trace_store: "TraceStore | None" = None,
-    share: "TraceShare | None" = None,
 ) -> _FixpointContext:
     """`enumerate_transitions` with the proof scaffolding still attached, for the class-grain assertions `build_tables` runs after the fold."""
-    reader = share.reader_for(features) if share is not None else None
-    engine = Engine(spec, features, trace_memo=True, trace_store=trace_store, trace_share=reader)
+    engine = Engine(spec, features, trace_memo=True)
     config = feature_config_token(features)
     options = _WindowOptions(spec)
     letters = options.letters
@@ -1795,10 +1787,8 @@ def _enumerate(
             provenance=pending.provenance,
         )
 
-    # The fixpoint and the liveness probes are done tracing; persist the memo for the next cycle (issue 25), then drop it — the engine outlives this build in _LIVENESS_PROBES, so retaining a full trace per window would hold the pile for nothing. When a share adopts this build's memo (issue 15: the donor configuration of a serial multi-config run), the pile stays alive instead, and TraceShare.release drops it once the last recipient is built.
-    if trace_store is not None:
-        trace_store.save(engine)
-    if (share is None or not share.offer(engine)) and engine._trace_cache is not None:
+    # The fixpoint and the liveness probes are done tracing; drop the pile — the engine outlives this build in _LIVENESS_PROBES, so retaining a full trace per window would hold it for nothing.
+    if engine._trace_cache is not None:
         engine._trace_cache.clear()
         engine._trace_fired.clear()
 
@@ -1905,11 +1895,9 @@ def assemble_tables(spec: ResolvedSpec, product: FixpointProduct) -> tuple[Decis
 def build_tables(
     spec: ResolvedSpec,
     features: frozenset[str],
-    trace_store: "TraceStore | None" = None,
-    share: "TraceShare | None" = None,
 ) -> tuple[DecisionTable, TreatyTable]:
     """One configuration's decision and treaty tables: `enumerate_transitions` for the fixpoint, `assemble_tables` for the fold. The two class-grain assertions run here rather than inside either half because they are the only consumers wanting both the assembled table and the enumeration's own scaffolding — the fiber deriver, the option pipelines, the slot filters — which the product deliberately does not carry across the boundary."""
-    context = _enumerate(spec, features, trace_store=trace_store, share=share)
+    context = _enumerate(spec, features)
     decision, treaty = assemble_tables(spec, context.product)
     if context.deriver is not None:
         _assert_deep_slot_partition(

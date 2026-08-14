@@ -1,4 +1,6 @@
-"""The real six-config M1 table stage: `run_m1.build_tables` over every acceptance configuration, serially, on one in-process `trace_memo.TraceShare`. The repo's single largest step, and the one the tracker's endpoint numbers name.
+"""The real six-config M1 table stage: `run_m1.build_tables` over every acceptance configuration, serially, in one process. The repo's single largest step, and the one the tracker's endpoint numbers name.
+
+Pinned to `run_m1`'s python engine throughout: the per-configuration rows below are taken by wrapping `table.build_tables`, which only the in-process arm calls, so the kernel arm — the engine of record since the Rust cutover — would time nothing and emit no config rows at all.
 
 Read-only on the repo. Writes nothing outside bench-the-rebuild/levers/out/, and refuses an `--out-dir` resolving anywhere else: a comparison tree symlinks its `rebuild/out` back to the real one, so a scratch directory that resolved into `rebuild/out/m1` would overwrite the artifact cycle's tables.
 
@@ -6,11 +8,13 @@ Read-only on the repo. Writes nothing outside bench-the-rebuild/levers/out/, and
 
 Three modes, because the stage has three honest states:
 
-  nostore  `out_dir=None, inputs=None` — no persisted trace memo at all, the share only.
-  fresh    a scratch `out_dir` plus `fingerprint.tables_value`, with `fresh_memo` set, so every window re-traces and the memo is rewritten. This is the state `evidence/raw/perf/calibrate/m1-all-fresh.txt` was measured in — its rows carry a `memo_saved`, which `nostore` cannot produce, and the memo write is ~17 s per configuration of the difference.
-  warm     the same pair without `fresh_memo`, a priming pass first and `--reps` measured passes after it, so every memo entry is valid and served. The shape of `m1-all-warm.txt`.
+  nostore  `out_dir=None, inputs=None` — nothing persisted, every configuration built and dropped in memory.
+  fresh    a scratch `out_dir` plus `fingerprint.tables_value`, so every configuration's TSVs and windows are written.
+  warm     the same pair with a priming pass first and `--reps` measured passes after it, so the writes land over files that already exist.
 
-Prints one JSON object per line: a `"kind": "config"` row per acceptance configuration and a `"kind": "total"` row per rep, carrying the field names the calibrate files use so the two compare line for line. Per-config rows time the inner `table.build_tables` fixpoint, which is where `trace_store.save` lives; the total times the whole `run_m1.build_tables` call, so the total less the row sum is the loop's store-open, assert and TSV-persist cost.
+The trace memo these three names were coined against went with the Rust cutover, and `fresh` and `warm` now differ only by that priming pass. The `memo_served` / `memo_saved` / `share_served` columns of `evidence/raw/perf/calibrate/m1-all-fresh.txt` and `m1-all-warm.txt` are therefore no longer reproducible, and the rows below no longer carry them; the timing and digest columns still compare line for line.
+
+Prints one JSON object per line: a `"kind": "config"` row per acceptance configuration and a `"kind": "total"` row per rep, carrying the field names the calibrate files use so the two compare line for line. Per-config rows time the inner `table.build_tables` fixpoint; the total times the whole `run_m1.build_tables` call, so the total less the row sum is the loop's assert and TSV-persist cost.
 
 The digest covers the full emitted artifact per configuration — the settlement rules, every window row, the treaty rows, the reachable cells and the cited-provenance set — in the layout `m1_slice.py` hashes, so a lever that moves any of them is caught and the two harnesses agree on a table they both build. It is taken around the inner call, before `run_m1._persist_tables` drops the windows from the returned table, so one digest compares across all three modes rather than only within one. The measured tree's own `table.table_digest` is used when it has one, so a digest quoted here is the same scalar the pipeline's tests pin; the local copy below stays because the older comparison trees `mktree_at.sh` builds predate that promotion, and their object shapes are the ones it was written against. `rebuild/test_table_digest.py` holds the two in lockstep.
 
@@ -99,11 +103,11 @@ def instrument_configs(table_module, rows: list[dict]) -> None:
     inner = table_module.build_tables
     digest_of = getattr(table_module, "table_digest", None) or table_digest
 
-    def timed(spec, features, trace_store=None, share=None):
+    def timed(spec, features):
         collections_before = sum(s["collections"] for s in gc.get_stats())
         t0 = time.perf_counter()
         c0 = cpu_now()
-        decision, treaty = inner(spec, features, trace_store=trace_store, share=share)
+        decision, treaty = inner(spec, features)
         wall = time.perf_counter() - t0
         cpu = cpu_now() - c0
         rows.append(
@@ -114,9 +118,6 @@ def instrument_configs(table_module, rows: list[dict]) -> None:
                 "windows": len(decision.transitions),
                 "rules": len(decision.rules),
                 "treaty_rows": len(treaty.rows),
-                "share_served": getattr(getattr(share, "last_reader", None), "served", 0),
-                "memo_served": trace_store.served if trace_store is not None else 0,
-                "memo_saved": trace_store.saved if trace_store is not None else 0,
                 "collections": sum(s["collections"] for s in gc.get_stats()) - collections_before,
                 "rss_gb": peak_rss_gb(),
                 "digest": digest_of(decision, treaty),
@@ -174,14 +175,14 @@ def main() -> int:
     instrument_configs(table_module, rows)
 
     if args.mode == "warm":
-        priming = run_m1.build_tables(spec, out_dir, inputs=inputs, fresh_memo=False)
+        priming = run_m1.build_tables(spec, out_dir, inputs=inputs, engine="python")
         del priming
 
     for rep in range(args.reps):
         rows.clear()
         t0 = time.perf_counter()
         c0 = cpu_now()
-        tables = run_m1.build_tables(spec, out_dir, inputs=inputs, fresh_memo=args.mode == "fresh")
+        tables = run_m1.build_tables(spec, out_dir, inputs=inputs, engine="python")
         wall = time.perf_counter() - t0
         cpu = cpu_now() - c0
         del tables

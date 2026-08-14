@@ -1,4 +1,0 @@
-0 errors, 0 warnings, 0 informations
-real 5.98
-user 9.68
-sys 0.34

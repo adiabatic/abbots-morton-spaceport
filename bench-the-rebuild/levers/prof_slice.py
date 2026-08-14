@@ -16,7 +16,7 @@ if names:
 features = conform.features_for_config("default")
 pr = cProfile.Profile()
 pr.enable()
-table_module.build_tables(spec, features, trace_store=None, share=None)
+table_module.build_tables(spec, features)
 pr.disable()
 s = io.StringIO()
 ps = pstats.Stats(pr, stream=s)

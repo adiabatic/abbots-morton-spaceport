@@ -1,4 +1,4 @@
-.PHONY: all test test-rebuild test-slowly test-leaks leak-snapshot typecheck print-job serve explainer check-html-before check-html-after build-kerning-hardcases review test-and-review review-build review-serve review-cycle artifact-cycle verdict-ready cycle-timings complaint-docket novelty-order kernel-build kernel-check kernel-parity kernel-differential kernel-fixpoint kernel-fixpoint-pinned kernel-fixpoint-label-grain kernel-liveness kernel-gate kernel-harness-gate prettier woff2 clean
+.PHONY: all test test-rebuild test-slowly test-leaks leak-snapshot typecheck print-job serve explainer check-html-before check-html-after build-kerning-hardcases review test-and-review review-build review-serve review-cycle artifact-cycle verdict-ready cycle-timings complaint-docket novelty-order kernel-build kernel-check kernel-parity kernel-differential kernel-fixpoint kernel-fixpoint-pinned kernel-fixpoint-label-grain kernel-liveness kernel-gate prettier woff2 clean
 
 all:
 	uv run python tools/build_font.py glyph_data/ site/
@@ -137,13 +137,9 @@ kernel-fixpoint-label-grain: kernel-build
 kernel-liveness: kernel-build
 	uv run python -m rebuild.tools.kernel_liveness --exhaustive $(ARGS)
 
-# The artifact cycle's gate:kernel-differential on its own: enumerate the live spec's six acceptance configurations in one kernel process, fold each stream through Python's own back half, and require the three artifacts and the contract digest to be exactly what rebuild/out/m1 already holds. It compares rather than rebuilds, so only the fixpoint the cycle already paid is ever paid — which makes artifacts stamped from other sources a red gate whose remedy is a cycle rather than something to fix here. ARGS passes --threads/--skip-build/--out.
+# The artifact cycle's gate:kernel-differential on its own: enumerate the live spec's six acceptance configurations in one kernel process, enumerate the Python side fresh, fold both through Python's own back half, and require the three artifacts and the contract digest to be byte-identical. It builds both sides itself — the cycle's artifacts are the kernel's own fold now, so there is nothing on disk to compare against — which is why the cycle arms it on the kernel sources alone and never on a rune edit. ARGS passes --threads/--skip-build/--out.
 kernel-gate: kernel-build
 	uv run python -m rebuild.tools.kernel_gate $(ARGS)
-
-# The artifact cycle's gate:kernel-harness on its own: the three harnesses the port landed on, re-run across their five arms — the exhaustive liveness differential, the fixpoint in the pinned, shipping and label-grain worlds, and the guard/fuzz/corpus differential — each in its own process and its own world, stopping at the first arm that exits nonzero. This is the deep counterpart to kernel-gate: where that one compares one artifact grain per cycle for the price of a fold, this re-runs the exhaustive sweeps underneath it and costs the better part of an hour, so the cycle arms it on the kernel sources rather than on every rune edit. ARGS passes --skip-build/--out.
-kernel-harness-gate: kernel-build
-	uv run python -m rebuild.tools.kernel_harness_gate $(ARGS)
 
 # Compress the built OTFs in site/ into WOFF2 alongside them.
 woff2: all
