@@ -991,10 +991,14 @@ def fourth_slot_filter(
 
 def _formation_pairs(spec: ResolvedSpec) -> frozenset[tuple[str, str]]:
     pairs = set()
-    for rune in spec.runes.values():
-        if rune.sequence:
-            for lead, trail in zip(rune.sequence, rune.sequence[1:]):
-                pairs.add((lead, trail))
+    sequences = {name: rune.sequence for name, rune in spec.runes.items() if rune.sequence}
+    for sequence in sequences.values():
+        for lead, trail in zip(sequence, sequence[1:]):
+            pairs.add((lead, trail))
+            # The via-lead twin: a formed ligature token whose first component is this pair's trail stands for that trail in a post-formation stream, so a bare lead directly before it is the same formation-impossible adjacency wearing the follower's ligature name (bare ·Out before qsTea_qsOy spells raw ·Out·Tea·Oy, where greedy formation forms qsOut_qsTea first).
+            for liga_name, liga_sequence in sequences.items():
+                if liga_sequence[0] == trail:
+                    pairs.add((lead, liga_name))
     return frozenset(pairs)
 
 
@@ -1033,6 +1037,22 @@ def _survivable_formation_windows(
                 follower_map[follower.letter] = allowed
         if follower_map:
             out[pair] = follower_map
+        # The via-lead keys: for a follower ligature whose first component is this pair's trail, a bare lead survives directly before the formed follower only where this pair's own formation is blocked reading the follower's second component as its first guard slot (raw lead·trail·second·F). The deeper slot restricts nothing — the guard's two slots are fully consumed — so entries carry None, matching the formed-ligature-follower convention above. A survivable-before-boundary verdict is inexpressible in the letters-keyed map, so it asserts instead of silently narrowing.
+        for liga_name, liga_rune in spec.runes.items():
+            liga_sequence = liga_rune.sequence
+            if not liga_sequence or liga_sequence[0] != pair[1] or liga_name == name:
+                continue
+            second_token = RightToken("letter", liga_sequence[1])
+            via_map: dict[str, frozenset[RightToken] | None] = {}
+            for follower in right_letters:
+                if settle_module.formation_blocked(spec, name, second_token, raw_of(follower)):
+                    via_map[follower.letter] = None
+            for boundary in right_boundaries:
+                assert not settle_module.formation_blocked(
+                    spec, name, second_token, boundary
+                ), f"{name} survives before ({liga_name}, {boundary.kind}); the survivable map cannot key a boundary follower"
+            if via_map:
+                out[(pair[0], liga_name)] = via_map
     return out
 
 

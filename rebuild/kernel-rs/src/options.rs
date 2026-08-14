@@ -33,6 +33,15 @@ pub fn formation_pairs(index: &SpecIndex) -> HashSet<FormationPair> {
         };
         for step in sequence.windows(2) {
             pairs.insert((step[0], step[1]));
+            // The via-lead twin: a formed ligature token whose first component is this pair's trail stands for that trail in a post-formation stream, so a bare lead directly before it is the same formation-impossible adjacency wearing the follower's ligature name (bare ·Out before qsTea_qsOy spells raw ·Out·Tea·Oy, where greedy formation forms qsOut_qsTea first).
+            for (liga_name, liga_rune) in index.runes() {
+                let Some(liga_sequence) = rune_sequence(liga_rune) else {
+                    continue;
+                };
+                if liga_sequence[0] == step[1] {
+                    pairs.insert((step[0], *liga_name));
+                }
+            }
         }
     }
     pairs
@@ -75,6 +84,31 @@ pub fn survivable_formation_windows(
         }
         if !follower_map.is_empty() {
             out.insert(pair, Rc::new(follower_map));
+        }
+        // The via-lead keys: for a follower ligature whose first component is this pair's trail, a bare lead survives directly before the formed follower only where this pair's own formation is blocked reading the follower's second component as its first guard slot (raw lead·trail·second·F). The deeper slot restricts nothing — the guard's two slots are fully consumed — so entries carry None, matching the formed-ligature-follower convention above. A survivable-before-boundary verdict is inexpressible in the letters-keyed map, so it asserts instead of silently narrowing.
+        for (liga_name, liga_rune) in index.runes() {
+            let Some(liga_sequence) = rune_sequence(liga_rune) else {
+                continue;
+            };
+            if liga_sequence[0] != pair.1 || *liga_name == *name {
+                continue;
+            }
+            let second = RightToken::Letter(liga_sequence[1]);
+            let mut via_map = FollowerMap::new();
+            for follower in right_letters {
+                if guard.formation_blocked(*name, second, raw_of(index, *follower))? {
+                    via_map.insert(follower.letter(), None);
+                }
+            }
+            for boundary in right_boundaries {
+                assert!(
+                    !guard.formation_blocked(*name, second, *boundary)?,
+                    "a via-lead formation pair survives before a boundary follower; the survivable map cannot key it"
+                );
+            }
+            if !via_map.is_empty() {
+                out.insert((pair.0, *liga_name), Rc::new(via_map));
+            }
         }
     }
     Ok(out)
