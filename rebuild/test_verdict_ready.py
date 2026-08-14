@@ -91,6 +91,7 @@ def write_summary(
             "rebuild": {"status": "passed", "green": True},
             "conform": {"status": "passed", "green": True},
             "kernel_differential": {"status": "passed", "green": True},
+            "kernel_harness": {"status": "passed", "green": True},
             "make_test": {"status": "passed", "green": True},
         }
     else:
@@ -215,7 +216,7 @@ def test_gates_exit_failed(tmp_path):
     assert "rebuild" in gates["detail"]
 
 
-GATE_NAMES = ("js", "rebuild", "conform", "kernel_differential", "make_test")
+GATE_NAMES = ("js", "rebuild", "conform", "kernel_differential", "kernel_harness", "make_test")
 
 
 def _gate_map(**overrides):
@@ -321,6 +322,37 @@ def test_gates_an_unverified_kernel_differential_blocks_readiness(tmp_path):
         gates=_gate_map(
             kernel_differential={
                 "status": "skipped (sources unchanged)",
+                "green": False,
+                "skip": "proved",
+            },
+        ),
+    )
+    assert call(tmp_path)["checks"]["gates"]["level"] == "ok"
+
+
+def test_gates_an_unverified_kernel_harness_blocks_readiness(tmp_path):
+    """A new letter owes one deep-harness pass before its sitting can start, and this is the whole of how that is enforced: the check knows no gate names, so the harness rides in on the same entry fields as its siblings — deferred blocks with the converging remedy, red blocks as a failure, and only a green or a proved skip lets a sitting start."""
+    write_surface(tmp_path / "rebuild" / "out" / "review")
+    write_summary(tmp_path, gates=_gate_map(kernel_harness=_deferred("kernel_harness")))
+    gates = call(tmp_path)["checks"]["gates"]
+    assert gates["level"] == "fail"
+    assert "deferred these gates to the next pass: kernel_harness" in gates["detail"]
+    assert gates["remedy"] == "make review-cycle"
+    assert call(tmp_path)["ready"] is False
+
+    write_summary(
+        tmp_path,
+        gates=_gate_map(kernel_harness={"status": "FAILED", "green": False, "skip": None}),
+    )
+    gates = call(tmp_path)["checks"]["gates"]
+    assert gates["level"] == "fail"
+    assert "failing gates: kernel_harness" in gates["detail"]
+
+    write_summary(
+        tmp_path,
+        gates=_gate_map(
+            kernel_harness={
+                "status": "skipped (alphabet structure unchanged)",
                 "green": False,
                 "skip": "proved",
             },
