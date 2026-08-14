@@ -1822,8 +1822,12 @@ def classify_divergence(row: DivergentRow) -> str | None:
         return "boundary-echo"
     if "ligation" in phenomena:
         # Under the isolated overlay the new font never forms the ligature at all (the ss10 pre-empt replaces every letter before formation) while the old font keeps drawing its own ligature, so the suppression class outranks the marker-staging one (whose 00B7 arm would otherwise swallow the namer-dot ss10 windows).
-        if row.config == "ss10" and ("E653:E67A" in row.codepoints or "E652:E679" in row.codepoints):
+        if row.config == "ss10" and (
+            "E653:E67A" in row.codepoints or "E652:E679" in row.codepoints or "E67B:E652" in row.codepoints
+        ):
             return "ss10-ligature-suppressed"
+        if "E67B:E652" in row.codepoints and "ss03" in row.config:
+            return "ss03-out-tea-ligature-kept"
         if "E652:E679" in row.codepoints and ("200C" in row.codepoints or "ss03" in row.config):
             return "marker-staging-ligature-formation"
         # The qsDay_qsUtter ligature forms unconditionally in the old font too (bare E653:E67A renders as the ligature in every config), so only the post-marker windows diverge: the old pipeline renames the lead to .noentry / leaks a bare name after a ZWNJ or the namer dot, and never forms the ligature there. Same staging phenomenon as ·Tea·Oy.
@@ -1899,6 +1903,7 @@ def _class_predicate(class_id: str) -> Callable[[DivergentRow], bool]:
 for _class_id in (
     "boundary-echo",
     "ss10-ligature-suppressed",
+    "ss03-out-tea-ligature-kept",
     "marker-staging-ligature-formation",
     "regrouping-floor-drift",
     "zwnj-word-initial-seam-moved",
@@ -1950,7 +1955,10 @@ def _may_ligature_seam_loosened(row: DivergentRow) -> bool:
 # The migrated runes whose joins the old shipped font never wired into the ss10 isolated overlay, so the old font keeps drawing their cursive joins under ss10 while the new model isolates every letter by design.
 # Membership is not automatic for a newly-migrated rune: qsFee was weighed and deliberately left out, because the old ss10 overlay substitutes every qsFee variant to the bare cmap glyph, which carries no cursive anchors, so the old font already isolates ·Fee correctly and its ss10 seam-loss rows ride the existing ss10_isolation_completed class instead.
 # qsAh is a member because its baseline entry and x-height exit anchors ride the base cmap glyph (the ·Pea/·Oy→·Ah and ·Ah→·Day joins are bare-glyph GPOS attachments with no calt variant), so the old ss10 overlay has nothing to substitute away and keeps drawing those joins.
-SS10_UNCOVERED_BY_OLD_FONT = frozenset({"qsAh", "qsDay", "qsNo", "qsLow", "qsUtter", "qsDay_qsUtter"})
+# qsOut is a member on the qsAh precedent, entry side only: its baseline entry anchor rides the bare cmap glyph (E650:E67B stays a y0 join under the old ss10), while its x-height exits live on calt variants the old overlay does substitute away. qsOut_qsTea inherits the same bare-glyph entry from its lead, the qsDay_qsUtter shape.
+SS10_UNCOVERED_BY_OLD_FONT = frozenset(
+    {"qsAh", "qsDay", "qsNo", "qsLow", "qsUtter", "qsDay_qsUtter", "qsOut", "qsOut_qsTea"}
+)
 
 
 @predicate("ss10_isolation_completed")

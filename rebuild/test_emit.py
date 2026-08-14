@@ -298,7 +298,7 @@ class TestLateFormationGuardLines:
         definition = next(
             line for line in registry.definitions if line.startswith("@m1_form_guard_qsDay_qsUtter ")
         )
-        assert definition == "@m1_form_guard_qsDay_qsUtter = [qsAh qsI qsLow qsVie];"
+        assert definition == "@m1_form_guard_qsDay_qsUtter = [qsAh qsI qsLow qsOut qsVie];"
         see_released = [
             "    ignore sub qsDay' qsUtter' qsSee uni200C;",
             "    sub qsDay' qsUtter' qsSee qsLow by qsDay_qsUtter;",
