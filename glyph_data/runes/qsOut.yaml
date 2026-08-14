@@ -128,7 +128,6 @@ policy:
   - stance: normal
     entry: baseline
     bind: diagonal-leg
-    trim: 1
     when:
       left: {family: qsSee}
   - stance: swept-up
