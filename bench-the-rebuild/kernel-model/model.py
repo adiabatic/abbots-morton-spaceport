@@ -1108,7 +1108,7 @@ class Engine:
         return trace
 
     def _share_blind(self, left, token, right1, right2, right3, right4) -> bool:
-        """The TraceShare rule (rebuild/pipeline/trace_memo.TraceShare.reader_for): a donor trace may be served
+        """The TraceShare rule, as `rebuild/pipeline/trace_memo.TraceShare.reader_for` held it before the Rust cutover deleted that module: a donor trace may be served
         only when no rune named in the key can feel this configuration's feature delta."""
         delta = self.share_delta
         runes = self.spec.runes

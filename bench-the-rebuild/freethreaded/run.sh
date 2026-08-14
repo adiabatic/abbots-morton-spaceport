@@ -1,8 +1,8 @@
 #!/bin/zsh
 # Free-threaded CPython 3.14t against the M1 settlement fixpoint.
 #
-# Read-only against the repo: the slice calls rebuild.pipeline.table.build_tables with out_dir=None
-# and trace_store=None, so nothing under rebuild/out or any verdict store is touched. The two
+# Read-only against the repo: the slice calls rebuild.pipeline.table.build_tables in memory, so
+# nothing under rebuild/out or any verdict store is touched. The two
 # interpreters live in this directory's own venvs, built from uv's managed store; the repo's pinned
 # Python, pyproject.toml and uv.lock are not read or written by any step here.
 #
@@ -61,10 +61,6 @@ print -u2 -- "[run] GIL   1 thread, six configs, gc off"
 AMS_BENCH_GC=off "$GIL" "$HERE/bench.py" serial 1 1 "$KEEP" >> "$OUT"
 print -u2 -- "[run] 3.14t 1 thread, six configs, gc off"
 AMS_BENCH_GC=off "$FT" "$HERE/bench.py" serial 1 1 "$KEEP" >> "$OUT"
-
-# --- production shape: six configs over one live cross-configuration TraceShare ------------------
-step "GIL   serial + TraceShare" "$GIL" share-serial 1 1
-step "3.14t donor then 5-way fanout over the same share" "$FT" share-fanout 5 1
 
 # --- container control: are the two shared module-level LRU caches safe and cheap under threads? --
 print -u2 -- "[run] OrderedDict stress (the shape _GUARD_STATES and _LIVENESS_PROBES are accessed in)"

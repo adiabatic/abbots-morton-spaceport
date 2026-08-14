@@ -1,6 +1,0 @@
-raw/perf/attr-m1/sample-build-tables-default.txt
-  thread_total=25565  native_inclusive=NONE  native_total_pct=0.0
-raw/perf/attr-m1/sample-conform-L4.txt
-  thread_total=25764  native_inclusive={'_harfbuzz': (61, 0.24)}  native_total_pct=0.24
-raw/perf/attr-m1/sample-oracle-default.txt
-  thread_total=13985  native_inclusive={'_harfbuzz': (606, 4.33), 'zlib': (6, 0.04), 'libz': (5, 0.04), 'libcrypto': (1, 0.01)}  native_total_pct=4.42

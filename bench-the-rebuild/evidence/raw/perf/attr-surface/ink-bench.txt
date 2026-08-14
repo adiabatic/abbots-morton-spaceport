@@ -1,8 +1,0 @@
-[setup] load_workload 1.37s CPU, load_spec 0.12s CPU, 63442 raw units
-
-config_diff (warm shaper memo + warm outline cache): 10557 calls over 2000 units
-  1.836s CPU total, 173.9 us/call, 0.918 ms/unit
-
-  outline cache: 154 inked glyphs, 8330 pen ops, 6664 points
-  translate_outline: 399938 calls in 5.782s CPU = 14.46 us/call, 334.1 ns/point
-  memoized shape() lookups for the same population: 0.009s CPU (0.8 us/call)

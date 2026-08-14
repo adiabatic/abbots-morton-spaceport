@@ -5,6 +5,7 @@ Schema validation is driven directly by the JSON Schema files under rebuild/sche
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import warnings
@@ -1237,3 +1238,46 @@ def load_spec(runes_dir: Path, registry_path: Path, schema_dir: Path) -> Resolve
 
 def load_default_spec() -> ResolvedSpec:
     return load_spec(DEFAULT_RUNES_DIR, DEFAULT_REGISTRY_PATH, DEFAULT_SCHEMA_DIR)
+
+
+def spec_structure_digest(spec: ResolvedSpec) -> str:
+    """The resolved-spec facts a consumer can read without consulting any rune file it names: the alphabet and its ligature sequences (formation pairs, the enumeration set, and `_expand_ligature_lefts`' rewrite of every other rune's left conditions), the registry predicate classes (whose membership every rune's surface contributes to), and the resolved rune-local groups (whose membership can move through class atoms and ligature expansion). Stamp grade: any of these moving invalidates everything stamped with it — the review unit cache's whole-store stamp, the settlement corpus head."""
+    payload = {
+        "runes": {name: list(rune.sequence) if rune.sequence else None for name, rune in spec.runes.items()},
+        "classes": {name: sorted(members) for name, members in spec.registry.predicate_classes.items()},
+        "groups": {
+            name: {group: sorted(members) for group, members in rune.policy.groups.items()}
+            for name, rune in spec.runes.items()
+            if rune.policy.groups
+        },
+    }
+    return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
+
+
+def rune_closure(spec: ResolvedSpec) -> dict[str, frozenset[str]]:
+    """For each rune, the runes whose file content its records can read directly: itself, plus the transitive `resolve.against` targets — the one cross-file reference resolved into a rune's policy at load time. Every other cross-rune route rides the resolved spec structure and is stamped whole-store."""
+    edges: dict[str, set[str]] = {}
+    for name, rune in spec.runes.items():
+        targets = set()
+        for records in (
+            rune.policy.refuse,
+            rune.policy.prefer,
+            rune.policy.extend,
+            rune.policy.contract,
+            rune.policy.resolve,
+        ):
+            for record in records:
+                if record.against is not None and record.against[0] in spec.runes:
+                    targets.add(record.against[0])
+        edges[name] = targets
+    closure: dict[str, frozenset[str]] = {}
+    for name in spec.runes:
+        seen = {name}
+        frontier = [name]
+        while frontier:
+            for target in edges.get(frontier.pop(), ()):
+                if target not in seen:
+                    seen.add(target)
+                    frontier.append(target)
+        closure[name] = frozenset(seen)
+    return closure

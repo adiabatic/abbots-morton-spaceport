@@ -1,4 +1,0 @@
-gcon: cpu=10.088s peak_rss=421 MB
-gcoff: cpu=9.137s peak_rss=542 MB
-gcon: cpu=10.100s peak_rss=415 MB
-gcoff: cpu=9.088s peak_rss=546 MB

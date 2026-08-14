@@ -1,8 +1,0 @@
-rebuild/out/m1/windows-default.tsv.gz	 1321118
-rebuild/out/m1/windows-ss02.tsv.gz	 1343260
-rebuild/out/m1/windows-ss02+ss03.tsv.gz	 1342951
-rebuild/out/m1/windows-ss02+ss03+ss05.tsv.gz	 1342951
-rebuild/out/m1/windows-ss03.tsv.gz	 1342951
-rebuild/out/m1/windows-ss04.tsv.gz	 1319624
-rebuild/out/m1/windows-ss05.tsv.gz	 1321118
-rebuild/out/m1/windows-ss10.tsv.gz	 1321043

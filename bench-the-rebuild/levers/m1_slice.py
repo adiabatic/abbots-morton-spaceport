@@ -144,7 +144,7 @@ def main() -> int:
         gc_before = sum(s["collections"] for s in gc.get_stats())
         t0 = time.perf_counter()
         c0 = cpu_now()
-        decision, treaty = table_module.build_tables(spec, features, trace_store=None, share=None)
+        decision, treaty = table_module.build_tables(spec, features)
         wall = time.perf_counter() - t0
         cpu = cpu_now() - c0
         gc_after = sum(s["collections"] for s in gc.get_stats())

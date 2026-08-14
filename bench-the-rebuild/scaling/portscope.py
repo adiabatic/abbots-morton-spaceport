@@ -16,7 +16,6 @@ WATCH = {
         "rebuild/pipeline/specificity.py",
         "rebuild/pipeline/model.py",
         "rebuild/pipeline/spec_load.py",
-        "rebuild/pipeline/trace_memo.py",
     ]
 }
 hit = {f: set() for f in WATCH.values()}
@@ -91,7 +90,6 @@ for rel in [
     "rebuild/pipeline/table.py",
     "rebuild/pipeline/specificity.py",
     "rebuild/pipeline/model.py",
-    "rebuild/pipeline/trace_memo.py",
     "rebuild/pipeline/spec_load.py",
 ]:
     ex = executable_lines(rel)

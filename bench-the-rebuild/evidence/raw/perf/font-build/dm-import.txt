@@ -1,1 +1,0 @@
-import_departure_mono (fontTools TTFont+CFF decompile): 0.62 s cpu

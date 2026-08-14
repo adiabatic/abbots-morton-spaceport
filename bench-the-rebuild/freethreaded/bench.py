@@ -6,8 +6,8 @@ modes
   serial         one thread, one shared spec, units run back to back
   shared         `threads` threads over `units`, all reading ONE ResolvedSpec object graph
   own            `threads` threads over `units`, each thread holding a PRIVATE ResolvedSpec
-  share-serial   the production shape: six configs serially over one live trace_memo.TraceShare
-  share-fanout   the donor config alone, then the five recipients in parallel over that same share
+
+The two `share-*` modes measured a live `trace_memo.TraceShare` across configurations and went with that module at the Rust cutover; the three left all build plainly, so the thread sweep is what this script still measures.
 
 `units` is the six acceptance configurations repeated `reps` times, so the thread sweep divides an
 identical pile of work every way. Every mode returns the per-unit checksums; the runner compares
@@ -31,7 +31,6 @@ sys.path.insert(0, HERE)
 import kernel  # noqa: E402
 from rebuild.pipeline import settle as settle_module  # noqa: E402
 from rebuild.pipeline import table as table_module  # noqa: E402
-from rebuild.pipeline import trace_memo  # noqa: E402
 
 MODE = sys.argv[1]
 NTHREADS = int(sys.argv[2])
@@ -92,25 +91,6 @@ def _run() -> list:
     if MODE == "own":
         with ThreadPoolExecutor(max_workers=NTHREADS) as ex:
             return list(ex.map(lambda c: kernel.build_one(_own_spec(), c), UNITS))
-    if MODE == "share-serial":
-        share = trace_memo.TraceShare(_shared_spec)
-        try:
-            return [kernel.build_one(_shared_spec, c, share=share) for c in UNITS]
-        finally:
-            share.release()
-    if MODE == "share-fanout":
-        share = trace_memo.TraceShare(_shared_spec)
-        try:
-            donor = kernel.build_one(_shared_spec, kernel.CONFIGS[0], share=share)
-            rest = list(kernel.CONFIGS[1:]) * REPS
-            with ThreadPoolExecutor(max_workers=NTHREADS) as ex:
-                tail = list(ex.map(lambda c: kernel.build_one(_shared_spec, c, share=share), rest))
-            out = [donor] + tail
-            order = [kernel.CONFIGS[0]] + rest
-            by = dict(zip(order, out))
-            return [by[c] for c in kernel.CONFIGS] * REPS
-        finally:
-            share.release()
     raise SystemExit(f"unknown mode {MODE}")
 
 

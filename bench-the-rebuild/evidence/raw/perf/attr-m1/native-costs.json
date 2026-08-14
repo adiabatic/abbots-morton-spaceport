@@ -1,6 +1,0 @@
-{
-  "_note": "printed by raw/perf/attr-m1/native_costs.py; the script raised on the trace-memo step (the store's first line is a '# <format>\\t<head json>' header, not NDJSON) before writing its own file, so these three blocks are transcribed verbatim from that run's stdout and the trace-memo block was re-measured separately into trace-memo-costs.json",
-  "harfbuzz": {"texts": 20000, "text_length": 4, "Shaper.shape_total_cpu_s": 0.198, "Shaper.shape_us_per_call": 9.89, "hb_only_cpu_s": 0.174, "hb_only_us_per_call": 8.71, "python_wrapper_cpu_s": 0.024, "python_wrapper_pct_of_shape": 12.0, "wall_s": 0.209},
-  "zlib": {"baseline_subset_decompress_cpu_s": 0.0035, "baseline_subset_gz_mb": 0.48, "baseline_subset_raw_mb": 6.19, "baseline_subset_rows": 54247, "baseline_subset_linecount_cpu_s": 0.0028, "baseline_subset_python_perline_cpu_s": 0.0182, "full_baseline_rows": 4985767, "full_baseline_gz_mb": 42.03, "full_baseline_readlines_cpu_s": 0.936},
-  "hashlib": {"fingerprint.tables_value_cpu_s": 0.0753, "tables_value": "fb6c73d9b07b3252", "fingerprint.rune_digests_cpu_s": 0.0531, "sha256_of_59MB_audit_cpu_s": 0.026, "sha256_MBps": 2265.0}
-}

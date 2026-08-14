@@ -1,1 +1,0 @@
-No timing journal at rebuild/out/cycle-timings.ndjson yet — it appears after the first artifact cycle.

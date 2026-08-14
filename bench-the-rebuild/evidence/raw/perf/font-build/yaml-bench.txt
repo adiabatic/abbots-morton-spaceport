@@ -1,6 +1,0 @@
-SafeLoader (pure python): wall 164.7 ms/iter  cpu 164.6 ms/iter  docs=277
-CSafeLoader (libyaml): wall 19.2 ms/iter  cpu 19.2 ms/iter  docs=277
-speedup: 8.59x
-quikscript.yaml only SafeLoader: cpu 95.6 ms/iter
-quikscript.yaml only CSafeLoader: cpu 12.1 ms/iter
-rune files: 18 bytes: 51331

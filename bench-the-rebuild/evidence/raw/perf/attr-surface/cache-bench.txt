@@ -1,7 +1,0 @@
-
-CACHE HIT PATH pieces, shard bare-name-live-join.json: 46.9 MB, 11028 units
-  read 0.005s, json.loads 0.135s (349 MB/s)
-  carry_content_hash: 3000 units 0.034s = 11.2 us/unit
-  check_unit        : 3000 units 0.036s = 12.1 us/unit
-  config_badge      : 3000 units 0.154s = 51.2 us/unit
-  distinct config tuples in this shard: 11

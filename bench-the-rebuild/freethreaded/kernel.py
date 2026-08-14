@@ -1,7 +1,7 @@
 """Shared slice definition for the free-threaded settlement-fixpoint experiment.
 
-Everything here is read-only against the repo: `build_tables(spec, features)` with `out_dir=None`
-and no trace store writes no files. The slice is `rebuild.pipeline.table.build_tables` over a
+Everything here is read-only against the repo: `build_tables(spec, features)` builds in memory and
+writes no files. The slice is `rebuild.pipeline.table.build_tables` over a
 *subset spec* (a rune subset of the real 18) so a full scaling sweep fits inside the runner budget;
 the kernel code exercised is byte-for-byte the production kernel.
 
@@ -79,10 +79,10 @@ def checksum(decision, treaty) -> str:
     return h.hexdigest()
 
 
-def build_one(spec: ResolvedSpec, config: str, share=None) -> tuple[str, int, int, int]:
+def build_one(spec: ResolvedSpec, config: str) -> tuple[str, int, int, int]:
     """One configuration's fixpoint. Returns (checksum, n_rules, n_windows, n_cells)."""
     features = conform.features_for_config(config)
-    decision, treaty = table_module.build_tables(spec, features, trace_store=None, share=share)
+    decision, treaty = table_module.build_tables(spec, features)
     return (
         checksum(decision, treaty),
         len(decision.rules),

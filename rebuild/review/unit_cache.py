@@ -1,6 +1,6 @@
 """The persisted per-unit surface cache (issue 20): the review build's phase-1/phase-2 products carried across builds, keyed by per-unit content keys, so a one-rune edit re-enriches the windows that could feel it and serves everything else from the previous surface's shards.
 
-A unit's expensive products — the ink diffs and machine-approval flags, the enrichment (cells, seams, highlights, explain, provenance), and the three drafts — are a pure function of a nameable closure, and the cache's soundness is exactly the claim that the content key covers that closure. The key is two-grained, mirroring the trace memo (rebuild/pipeline/trace_memo.py): per unit, the audit rows (which pin the window, its configs, both fonts' rendered names, and the matched ledger classes) plus a per-family digest for every window letter — the family's prose-blind rune digest expanded by its static `resolve.against` closure, joined with a digest of the after font's compiled glyphs for that family (outlines, advances, and cursive anchors, so a drawing or anchor change invalidates even when no name in the rows moves) — with ligature families included whenever all their components appear in the window. Whole store, everything that can move a unit's products without moving a named family: the pipeline and review code, the non-rune data files, the engine's semantics flags, the resolved spec structure and capability-feature universe (cross-rune routes: predicate-class and group memberships, ligature sequences, the formation guard's feature combos), the before and Junior fonts wholesale, the acceptance configs' subset tables, the draft harness (test/test_shaping.py, tools/, postscript_glyph_names.yaml) and the three site corpus files it validates pins against, and the after font's non-family glyphs and layout wiring. The divergence ledger is deliberately not in the store stamp: its per-unit effects reach the shards only through the audit's matched_entry column (in the rows) or through fields the build re-derives and re-patches on every pass (no_verdict, exemplar, class promotion), so a ledger edit invalidates exactly the units whose rows it moved.
+A unit's expensive products — the ink diffs and machine-approval flags, the enrichment (cells, seams, highlights, explain, provenance), and the three drafts — are a pure function of a nameable closure, and the cache's soundness is exactly the claim that the content key covers that closure. The key is two-grained: per unit, the audit rows (which pin the window, its configs, both fonts' rendered names, and the matched ledger classes) plus a per-family digest for every window letter — the family's prose-blind rune digest expanded by its static `resolve.against` closure, joined with a digest of the after font's compiled glyphs for that family (outlines, advances, and cursive anchors, so a drawing or anchor change invalidates even when no name in the rows moves) — with ligature families included whenever all their components appear in the window. Whole store, everything that can move a unit's products without moving a named family: the pipeline and review code, the non-rune data files, the engine's semantics flags, the resolved spec structure and capability-feature universe (cross-rune routes: predicate-class and group memberships, ligature sequences, the formation guard's feature combos), the before and Junior fonts wholesale, the acceptance configs' subset tables, the draft harness (test/test_shaping.py, tools/, postscript_glyph_names.yaml) and the three site corpus files it validates pins against, and the after font's non-family glyphs and layout wiring. The divergence ledger is deliberately not in the store stamp: its per-unit effects reach the shards only through the audit's matched_entry column (in the rows) or through fields the build re-derives and re-patches on every pass (no_verdict, exemplar, class promotion), so a ledger edit invalidates exactly the units whose rows it moved.
 
 What the store serves is the previous build's emitted fragment (read back from the shards it lives in) plus the slim projection the parent's global reduces need: the machine flags and ink deltas, the verdict family, the judged pair, the ink-diff digest for echo grouping, the seam-home projection and per-seam rects, and the unit's mismatch lines. Everything order-derived or ledger-derived — id, batch, echo, class, no_verdict, exemplar, the secondary-seam homes — is recomputed over the full universe every build and patched into served fragments, so a cache hit never freezes a global field; the cluster id alone is trusted from the served fragment, because its inputs (configs, final class, ink diffs) are all under the key. The byte-identity gate (rebuild/test_review_build.py::test_builds_are_byte_identical) is the standing proof: an incrementally rebuilt live surface must match a from-scratch build byte for byte.
 
@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Mapping
 
-from rebuild.pipeline import fingerprint, trace_memo
+from rebuild.pipeline import fingerprint, spec_load
 from rebuild.pipeline import settle as settle_module
 from rebuild.pipeline.model import ResolvedSpec
 from rebuild.review.audit import ACCEPTANCE_CONFIGS, AuditRow, Unit, parse_codepoints
@@ -183,7 +183,7 @@ def environment_stamp(
         f"review_code\t{fingerprint.hash_paths(root, fingerprint.review_code_paths(root))}",
         "data\t" + hashlib.sha256("\n".join(data_lines).encode()).hexdigest(),
         f"engine_flags\tsimulated_prospect={settle_module.SIMULATED_PROSPECT_DEFAULT} vote_slots={settle_module.VOTE_SLOTS_DEFAULT}",
-        f"spec_structure\t{trace_memo.spec_structure_digest(spec)}",
+        f"spec_structure\t{spec_load.spec_structure_digest(spec)}",
         "capability_features\t" + json.dumps(_capability_features(spec)),
         f"before_font\t{_sha256_file(Path(before_font))}",
         f"junior_font\t{_sha256_file(Path(junior_font))}",
@@ -202,7 +202,7 @@ def environment_stamp(
 def family_content_keys(repo_root: Path, spec: ResolvedSpec, after_font: Path) -> tuple[dict[str, str], str]:
     """Per family (bare letters and ligature runes alike), the digest a window's content key cites for it: the family's prose-blind rune digest joined with the digests of its static `resolve.against` closure — the one route by which its records read another rune file directly — and the after font's compiled-glyph digest for the family. Returns the family keys plus the after font's helpers digest for the environment stamp."""
     digests = fingerprint.rune_digests(Path(repo_root))
-    closure = trace_memo.rune_closure(spec)
+    closure = spec_load.rune_closure(spec)
     glyph_digests, helpers = after_font_glyph_digests(after_font)
     keys: dict[str, str] = {}
     for name in sorted(set(digests) | set(glyph_digests)):

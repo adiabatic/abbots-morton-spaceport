@@ -1,9 +1,0 @@
-load_glyph_data (pure-python yaml): 0.171 s cpu
-compile_glyph_set(senior) parent: 0.338 s cpu
-build_senior_fea (repo FEA emit): 2.084 s cpu
-
-variant             cpu_s   wall_s   breakdown
-mono-Reg            0.900    0.900   fontTools save (table pack)=0.17  repo compile_glyph_set (IR)=0.01  | rest(repo python)=0.72
-junior-Reg          0.101    0.101   fontTools save (table pack)=0.05  repo compile_glyph_set (IR)=0.01  feaLib addOpenTypeFeaturesFromString=0.01  | rest(repo python)=0.04
-senior-Reg          7.523    7.527   feaLib addOpenTypeFeaturesFromString=5.67  fontTools save (table pack)=0.88  repo compile_glyph_set (IR)=0.34  | rest(repo python)=0.64
-senior-Bold         7.796    7.798   feaLib addOpenTypeFeaturesFromString=5.92  fontTools save (table pack)=0.90  repo compile_glyph_set (IR)=0.33  | rest(repo python)=0.65

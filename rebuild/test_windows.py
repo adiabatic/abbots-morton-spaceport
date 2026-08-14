@@ -139,7 +139,7 @@ class TestFingerprintGuard:
 
 class TestBuildStageHandoff:
     def test_a_stamped_build_serializes_every_configuration_and_keeps_none(self, tmp_path):
-        tables = run_m1.build_tables(SPEC, tmp_path, inputs="fp-sources")
+        tables = run_m1.build_tables(SPEC, tmp_path, inputs="fp-sources", engine="python")
         assert sorted(tables) == sorted(conform.ACCEPTANCE_CONFIGS)
         for config, (decision, _treaty) in tables.items():
             assert decision.transitions == ()
@@ -150,7 +150,7 @@ class TestBuildStageHandoff:
             assert loaded.transitions
 
     def test_an_unstamped_build_writes_no_enumeration_and_keeps_the_windows(self, tmp_path):
-        tables = run_m1.build_tables(SPEC, tmp_path)
+        tables = run_m1.build_tables(SPEC, tmp_path, engine="python")
         assert not list(tmp_path.glob("windows-*"))
         assert all(decision.transitions for decision, _treaty in tables.values())
 

@@ -32,7 +32,6 @@ LIVE_DELETION_TARGETS = (
     *artifact_cycle.M1_SUMMARY_FILES.values(),
     artifact_cycle.CONFORM_SUMMARY,
     artifact_cycle.KERNEL_DIFFERENTIAL_SUMMARY,
-    artifact_cycle.KERNEL_HARNESS_SUMMARY,
 )
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -45,7 +44,6 @@ GREEN_RECORDS = (
     "PLUMBING_GREEN",
     "CONFORM_GREEN",
     "KERNEL_DIFFERENTIAL_GREEN",
-    "KERNEL_HARNESS_GREEN",
     "REBUILD_GATE_GREEN",
     "RUN_M1_GREEN",
     "MAKE_TEST_GREEN",
@@ -59,7 +57,7 @@ def _redirect_cycle_writes(monkeypatch, tmp_path):
 
     The writes are the green records and the cycle summary, each a module constant this can point under tmp_path. Left live, a test driving _run_cycle over mocked stages leaves a record in rebuild/out that the next real cycle reads as proof that content it never tested had passed.
 
-    The deletes are the five stages that clear stale artifacts before rebuilding them: run_m1's four gate summaries and the summaries gate:conform, gate:kernel-differential and gate:kernel-harness write, each unlinked just before its subprocess spawns so the verdict can only come from this cycle, and the retention pass. Redirecting a constant is enough for the first four; retention takes none — it resolves every target from ROOT at call time — so it is stubbed out instead. Any test reaching a green finish with record_greens set would otherwise sweep the repo: every tmp/review-pre-* snapshot, the root's verdicts-carried-*.json exports, the autosave stashes, and a compaction of the verdict journal. That is destructive against a cycle running in another terminal — it deleted a live pass's only snapshot out from under its carry, stranding the pass's verdicts — and doubly so now that the rebuild gate is meant to run beside a live review server. A test that wants the real retention takes the `real_run_retention` fixture and points ROOT somewhere disposable; a test asserting that _finish reaches retention patches run_retention itself.
+    The deletes are the four stages that clear stale artifacts before rebuilding them: run_m1's four gate summaries and the summaries gate:conform and gate:kernel-differential write, each unlinked just before its subprocess spawns so the verdict can only come from this cycle, and the retention pass. Redirecting a constant is enough for the first three; retention takes none — it resolves every target from ROOT at call time — so it is stubbed out instead. Any test reaching a green finish with record_greens set would otherwise sweep the repo: every tmp/review-pre-* snapshot, the root's verdicts-carried-*.json exports, the autosave stashes, and a compaction of the verdict journal. That is destructive against a cycle running in another terminal — it deleted a live pass's only snapshot out from under its carry, stranding the pass's verdicts — and doubly so now that the rebuild gate is meant to run beside a live review server. A test that wants the real retention takes the `real_run_retention` fixture and points ROOT somewhere disposable; a test asserting that _finish reaches retention patches run_retention itself.
     """
     monkeypatch.setattr(artifact_cycle, "CYCLE_SUMMARY", tmp_path / "cycle_summary.json")
     for name in GREEN_RECORDS:
@@ -74,9 +72,6 @@ def _redirect_cycle_writes(monkeypatch, tmp_path):
         artifact_cycle,
         "KERNEL_DIFFERENTIAL_SUMMARY",
         tmp_path / artifact_cycle.KERNEL_DIFFERENTIAL_SUMMARY.name,
-    )
-    monkeypatch.setattr(
-        artifact_cycle, "KERNEL_HARNESS_SUMMARY", tmp_path / artifact_cycle.KERNEL_HARNESS_SUMMARY.name
     )
     monkeypatch.setattr(artifact_cycle, "run_retention", lambda plan: None)
 
