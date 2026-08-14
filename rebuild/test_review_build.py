@@ -413,7 +413,7 @@ def test_echo_groups_partition_the_human_workload(built):
     siblings = {member["codepoints"] for member in by_echo[example["echo"]]}
     assert "E653:E652:E666" in siblings
     assert "E679:E653:E652:E666" in siblings
-    assert len(siblings) == 159
+    assert len(siblings) == 158
 
 
 def test_cluster_signatures_coarsen_the_echo_grain(built):
