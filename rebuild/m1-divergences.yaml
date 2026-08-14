@@ -146,6 +146,18 @@
   why: |
     The old font stretched half-·Day's (and half ·Day·Utter's) baseline entry by one pixel after the ·Tea·Oy ligature; the runes' baseline extend records are scoped to bare qsTea/qsYe, the ligature is neither, so the rebuild draws the same baseline join one pixel tighter. Adjudicated 2026-07-15 with qsDay's own family from side-by-side renders of both forks: the widen alternative (qsTea_qsOy added to both extend scopes) was scratch-built and proven to restore old ink on exactly these windows with zero collateral, and declined — the drop is intended. The 19 human verdicts covering the phenomenon — all approvals from 2026-06-29, carried through every surface since, spanning the plain-·Day and ·Day·Utter flavors and the word-final rider — had already judged the tighter join right; this entry gives them their ledger home. Word-final members (exit also dropped) previously rode dangling-anchor-dropped, whose ink-identical claim they violated by this one pixel.
 
+- id: vie-baseline-entry-extension-dropped
+  status: intended
+  no_verdict: true
+  match: {predicate: vie_baseline_entry_extension_dropped, configs: all}
+  count: 5938
+  exemplars:
+    - {config: default, codepoints: "E652:E659", baseline: "qsTea.ex-y0|qsVie.en-ext-1", new: "qsTea/full/None/baseline/|qsVie/normal/baseline/None/ (no en-ext-1)"}
+    - {config: default, codepoints: "E670:E659", baseline: "qsIt.ex-y0|qsVie.en-ext-1", new: "qsIt/hapax/None/baseline/|qsVie/normal/baseline/None/ (no en-ext-1)"}
+    - {config: default, codepoints: "E652:E679:E659", baseline: "qsTea_qsOy|qsVie.en-ext-1", new: "qsTea_qsOy/hapax/None/baseline/|qsVie/normal/baseline/None/ (no en-ext-1)"}
+  why: |
+    The old font stretched ·Vie's baseline entry by one pixel after ·It, after ·Tea, and after the ·Tea·Oy ligature by lead expansion; the ·Vie-side entry extends name none of the three, so the rebuild draws every one of those baseline joins a pixel tighter. Adjudicated at the qsVie sitting (2026-08-13) from the rendered windows, one arm at a time: the reviewer asked for the shorter seam on the arm each was shown from, and no ·Vie-side record can honor that on one arm alone — `when.left` reads the left cell, whose `joined_at` is the seam under discussion — so the pixel came off every arm together, and the relocation channel that would have moved it onto the left letter's own record was abandoned with it. The qsIt, qsVie and qsVie_qsUtter runes carry the decision; this entry gives the rows their ledger home. `no_verdict` because the ruling is the seam's rather than any window's: a left that reaches this entry in a later alphabet inherits the same answer, so re-queueing it would only ask a settled question again. The ·It-side rows where the old font drew an exit extension beside ·Vie are a separate phenomenon and stay unmatched — `-ex-ext-1` is guarded out of the name-grain classes on purpose, and the `tea-i-exit-extension-dropped` standing approval is that side's precedent.
+
 - id: no-xheight-entry-extension-dropped
   status: intended
   no_verdict: true
