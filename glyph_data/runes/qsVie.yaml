@@ -87,7 +87,6 @@ policy:
       left:
         family:
         - qsPea
-        - qsTea
         - qsYe
         - qsHe
   - stance: swept-out
@@ -97,7 +96,6 @@ policy:
       left:
         family:
         - qsPea
-        - qsTea
         - qsYe
         - qsHe
   contract: []
