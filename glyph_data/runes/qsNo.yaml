@@ -58,6 +58,7 @@ stances:
             - qsTea
             - qsDay
             - qsVie
+            - qsJai
             - qsIt
             - qsEt
             - qsOy
@@ -136,10 +137,6 @@ policy:
     by: 1
     when:
       right: {family: qsFee}
-  contract:
-  - exit: x-height
-    by: 1
-    when:
-      right: {family: qsJai}
+  contract: []
   resolve: []
   groups: {}

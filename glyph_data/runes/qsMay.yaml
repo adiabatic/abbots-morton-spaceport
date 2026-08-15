@@ -178,10 +178,16 @@ policy:
         - qsDay
         - qsDay_qsUtter
         - qsFee
-        - qsJai
         - qsJay
         - qsRoe
         - qsIt
+  - exit: x-height
+    by: 3
+    when:
+      right:
+        family:
+        - qsJai
+        - qsJai_qsUtter
   - exit: x-height
     by: 1
     when:
@@ -191,6 +197,10 @@ policy:
     by: 1
     when:
       self: {entry: live}
+      right:
+        except:
+        - {family: qsJai}
+        - {family: qsJai_qsUtter}
   contract: []
   resolve: []
   groups:

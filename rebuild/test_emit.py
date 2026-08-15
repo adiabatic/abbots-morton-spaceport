@@ -286,8 +286,11 @@ class TestLateFormationGuardLines:
         assert all("qsDay" not in line for line in plain)
         assert all("qsSee" not in line for line in plain)
         assert all("qsVie" not in line for line in plain)
+        assert all("qsJai" not in line for line in plain)
         assert "    ignore sub qsDay' qsUtter' @m1_form_guard_qsDay_qsUtter;" in guarded
         assert "    sub qsDay' qsUtter' by qsDay_qsUtter;" in guarded
+        assert "    ignore sub qsJai' qsUtter' @m1_form_guard_qsDay_qsUtter;" in guarded
+        assert "    sub qsJai' qsUtter' by qsJai_qsUtter;" in guarded
         assert "    ignore sub qsSee' qsUtter' @m1_form_guard_qsDay_qsUtter;" in guarded
         assert "    ignore sub qsVie' qsUtter' @m1_form_guard_qsDay_qsUtter;" in guarded
         assert guarded.index("    sub qsDay' qsUtter' uni200C by qsDay_qsUtter;") < guarded.index(

@@ -74,10 +74,6 @@ policy:
     when:
       right: {family: qsTea}
       feature: ss03
-  contract:
-  - exit: x-height
-    by: 2
-    when:
-      right: {family: qsJai}
+  contract: []
   resolve: []
   groups: {}
