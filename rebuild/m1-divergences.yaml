@@ -196,6 +196,17 @@
   why: |
     When the base drawing already carries the live anchor, today's pipeline leaves the bare cmap glyph in place and joins on it; the new table always rewrites to the settled cell glyph (cell labels are never the bare name). Drawing and seam identical; name grain only. Also covers the ss10 overlay, where the new font renders the raw cmap glyph at every position while the alias for the old bare name is the anchor-free boundary cell.
 
+- id: see-out-fusion-respelled
+  status: intended
+  match: {predicate: see_out_fusion_respelled, configs: all}
+  ink_identical: true
+  count: 2624
+  exemplars:
+    - {config: default, codepoints: "E65A:E67B:E653", baseline: "qsSee.ex-y0.ex-con-1|qsOut.en-y0.ex-y5.after-see.before-other|qsDay", new: "qsSee/straighter/None/baseline/|qsOut/swept-up/baseline/x-height/en-bind-raked+en-trim-1|qsDay/full/x-height/None/"}
+    - {config: default, codepoints: "E65A:E67B:E652", baseline: "qsSee.ex-y0.ex-con-1|qsOut_qsTea.after-see", new: "qsSee/straighter/None/baseline/|qsOut_qsTea/hapax/baseline/None/en-bind-raked+en-trim-1"}
+  why: |
+    The grounded ·See·Out fusion (the batch-11 sitting's ruling) spells the seam's pull-back on the other side from the old font. The old pipeline's `ex-con-1` is a tuck, not a trim: the compiled contracted ·See keeps its whole tail — kick-left pixel on the baseline included — and only moves the exit anchor in, pulling ·Out one column into the tail. The first M1 transcription read it as ink removal and blanked the tail's baseline pixel, which is exactly what the sitting's complaint caught; the runes now keep the tail whole at its convention anchor and pull the raked redraw's foot instead, landing every after-·See ·Out form — arch, swept-up, and the ·Out+Tea ligature — on the same fused composite the old font draws. Ink identical across the family; name grain only.
+
 - id: ss10-isolation-completed
   status: intended
   match: {predicate: ss10_isolation_completed, configs: [ss10]}

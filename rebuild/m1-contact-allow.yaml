@@ -508,7 +508,7 @@
 - signature: contact:qsTea_qsOy.hapax.ex-y0:qsOut.swept-up.en-y0.ex-y5:y1
 - signature: contact:qsTea_qsOy.hapax.ex-y0:qsOut_qsTea.hapax.en-y0:y1
 
-# The grounded ·See·Out fusion, in its two defect spellings (overlap, seam gap). ·See keeps its full straighter tail, whose kick-left pixel owns the seam row, and ·Out's raked redraws are one column shorter and entry-trimmed, so the leg fuses into the tail at (3, 1) one row above the baseline and draws nothing at the seam row itself. The overlap is the fusion; the empty ·Out seam row is why seam_gap reads no ink there. This recreates the shipped font's fused ·See·Out with the tail grounded — the swept-up and ligature forms are pixel-identical to the old font, and only the exitless arch gains the baseline pixel.
+# The grounded ·See·Out fusion, in its two defect spellings (overlap, seam gap). ·See keeps its full straighter tail, whose kick-left pixel owns the seam row, and ·Out's raked redraws are one column shorter and entry-trimmed, so the leg fuses into the tail at (3, 1) one row above the baseline and draws nothing at the seam row itself. The overlap is the fusion; the empty ·Out seam row is why seam_gap reads no ink there. This recreates the shipped font's fused ·See·Out exactly — the old ex-con-1 was a tuck that kept the tail's ink — so every after-·See form is pixel-identical to the old font (the see-out-fusion-respelled ledger class).
 - signature: contact:qsSee.straighter.ex-y0:qsOut.normal.en-y0.en-bind-raked.en-trim-1:overlap
 - signature: contact:qsSee.straighter.ex-y0:qsOut.swept-up.en-y0.ex-y5.en-bind-raked.en-trim-1:overlap
 - signature: contact:qsSee.straighter.ex-y0:qsOut.swept-up.en-y0.ex-y5.en-bind-raked.en-trim-1.ex-ext-1:overlap
