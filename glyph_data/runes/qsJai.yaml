@@ -136,6 +136,11 @@ policy:
         family:
         - qsPea
         - qsTea
+  - entry: x-height
+    by: 1
+    when:
+      left:
+        family:
         - qsThey
         - qsHe
       right:
