@@ -182,7 +182,7 @@ policy:
         - qsRoe
         - qsIt
   - exit: x-height
-    by: 3
+    by: 2
     when:
       right:
         family:
