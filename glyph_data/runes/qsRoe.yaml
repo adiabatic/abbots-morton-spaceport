@@ -70,6 +70,7 @@ stances:
           toward:
           - family:
             - qsJai
+            - qsJai_qsUtter
             - qsNo
             - qsRoe
             - qsEight

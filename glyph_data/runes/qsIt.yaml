@@ -175,7 +175,6 @@ policy:
     when:
       right:
         family:
-        - qsJai
         - qsCheer
         - qsOwe
   - exit: x-height
@@ -185,6 +184,7 @@ policy:
         family:
         - qsZoo
         - qsJai
+        - qsJai_qsUtter
         - qsCheer
         - qsOwe
   contract: []

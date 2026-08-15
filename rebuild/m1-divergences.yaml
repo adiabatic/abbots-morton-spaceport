@@ -207,6 +207,27 @@
   why: |
     The grounded ·See·Out fusion (the batch-11 sitting's ruling) spells the seam's pull-back on the other side from the old font. The old pipeline's `ex-con-1` is a tuck, not a trim: the compiled contracted ·See keeps its whole tail — kick-left pixel on the baseline included — and only moves the exit anchor in, pulling ·Out one column into the tail. The first M1 transcription read it as ink removal and blanked the tail's baseline pixel, which is exactly what the sitting's complaint caught; the runes now keep the tail whole at its convention anchor and pull the raked redraw's foot instead, landing every after-·See ·Out form — arch, swept-up, and the ·Out+Tea ligature — on the same fused composite the old font draws. Ink identical across the family; name grain only.
 
+- id: may-jai-extension-consolidated
+  status: intended
+  match: {predicate: may_jai_extension_consolidated, configs: all}
+  count: 1736
+  exemplars:
+    - {config: default, codepoints: "E665:E65D", baseline: "qsMay.ex-ext-1|qsJai.en-y5.ex-y0.en-ext-2", new: "qsMay/loop/None/x-height/ex-ext-3|qsJai/hapax/x-height/None/"}
+    - {config: default, codepoints: "E665:E65D:E67A", baseline: "qsMay.ex-ext-1|qsJai_qsUtter.en-ext-2", new: "qsMay/loop/None/x-height/ex-ext-3|qsJai_qsUtter/hapax/x-height/None/"}
+  why: |
+    The old pipeline splits the ·May·J'ai connector across the seam — ·May's exit extends by 1 and ·J'ai's crown entry extends by 2, three added pixels in all — but M1's same-seam non-summing rule suppresses a follower's entry extension whenever the predecessor's exit already carries the seam, so the split spelling cannot survive transcription. qsMay's single by-3 exit record toward the qsJai family carries the whole reach instead: the same three connector pixels land on the same row and the composite ink is unchanged, but the pixels change owners, so ·May's advance grows by the two ·J'ai gives up — the advances move with the ink, the standard exclusion the extension classes share, which is why this class does not claim per-slot ink identity. ·J'ai's en-ext-2 alias resolves to the bare entered cell.
+
+- id: jai-entry-contraction-respelled
+  status: intended
+  match: {predicate: jai_entry_contraction_respelled, configs: all}
+  ink_identical: true
+  count: 425
+  exemplars:
+    - {config: default, codepoints: "E67A:E65D", baseline: "qsUtter.ex-con-2|qsJai.en-y5.ex-y0", new: "qsUtter/mono/None/x-height/|qsJai/hapax/x-height/None/en-con-2"}
+    - {config: default, codepoints: "E666:E65D:E652", baseline: "qsNo.ex-con-1|qsJai.en-y5.ex-y0.ex-ext-1|qsTea.en-y0", new: "qsNo/loop/None/x-height/|qsJai/hapax/x-height/baseline/en-con-1+ex-ext-1|qsTea/full/baseline/None/"}
+  why: |
+    The old pipeline's exit contractions before ·J'ai — by 1 on qsNo/qsLow/qsI, by 2 on qsAh/qsUtter and the `*_qsUtter` ligatures — are tucks, not trims: the compiled left glyph keeps its whole exit stroke and only the anchor moves in, pulling ·J'ai's crown over the kept ink. M1's contract arithmetic removes connector ink, and these exit strokes are too short to give any up (the ·Utter crown is exactly the two pixels a by-2 would take), so the runes re-spell the tuck on the receiver: ·J'ai's own entry contracts, the crown gives up the columns the old font overlapped, and the shortened crown abuts where the old one overlapped. Both spellings place the same composite ink at the same coordinates with the same origins and advances; only ·J'ai's cell name carries the con token where the old name spelled the contraction on the left (or, after ·Ah, as the en-trim the aliases already fold in). Where ·J'ai's exit also extends, the old font demotes its entry adjustment away entirely and the runes' except-scoped entry records reproduce that, so the re-spelling surfaces here only through the left-side tucks that persist.
+
 - id: ss10-isolation-completed
   status: intended
   match: {predicate: ss10_isolation_completed, configs: [ss10]}

@@ -23,6 +23,15 @@
 - signature: contact:qsTea_qsOy.hapax.ex-y0:qsIt.hapax.en-y0:y1
   why: ·Tea·Oy ligature into ·It joins at the baseline today (baseline row E652:E679:E670); the ligature's tail is ·Oy's, so the corner is the same blessed one.
 
+- signature: contact:qsOy.hapax.ex-y0:qsIt.hapax.en-y0.ex-y5.ex-ext-1:y1
+  why: The blessed ·Oy·It corner with ·It's x-height exit extended toward a following ·J'ai (baseline row E679:E670:E65D); the extension adds ink at y5 only, so the tail-against-bar corner is unchanged.
+- signature: contact:qsOy.hapax.ex-y0.locked:qsIt.hapax.en-y0.ex-y5.ex-ext-1:y1
+  why: The ZWNJ-locked twin of the extended-before-·J'ai ·Oy·It corner; identical drawing.
+- signature: contact:qsOy.hapax.en-y5.ex-y0:qsIt.hapax.en-y0.ex-y5.ex-ext-1:y1
+  why: The entered variant of the extended-before-·J'ai ·Oy·It corner.
+- signature: contact:qsTea_qsOy.hapax.ex-y0:qsIt.hapax.en-y0.ex-y5.ex-ext-1:y1
+  why: ·Tea·Oy ligature into ·It with the exit extended toward a following ·J'ai (baseline row E652:E679:E670:E65D); the same blessed tail-against-bar corner.
+
 - signature: contact:qsTea_qsOy.hapax.ex-y0:qsTea.full.en-y0:y1
   why: ·Tea·Oy ligature into ·Tea (baseline row E652:E679:E652); same tail-against-bar corner.
 
@@ -246,6 +255,28 @@
   why: The ZWNJ-locked twin of ·I's loop x-height terminal; identical drawing.
 - signature: dangle:qsI.smaller-loop.en-y0:exit:x-height
   why: The tighter loop ·I wears after ·Pea and ·Roe carries the same x-height terminal; pulling the loop in by a column does not move the flick.
+
+# ·J'ai's baseline bar and the ·J'ai·Utter ligature's crown are unconditional letterform ink, the same shape whether or not the exit joins: the shipped font draws bare qsJai and bare qsJai_qsUtter with the full bar and crown at every word edge and before every non-joining follower, and no withdrawn form exists in quikscript.yaml. The bar's last pixel (and the crown's) does not continue vertically, so neither can earn the automatic `withdrawal: safe` proof. One signature per entry/contraction/lock variant the gate inspects separately; all are the same terminal.
+- signature: dangle:qsJai.hapax:exit:baseline
+  why: ·J'ai's baseline bar terminal, drawn unconditionally in the shipped font; the declined exit keeps it.
+- signature: dangle:qsJai.hapax.en-y5:exit:baseline
+  why: ·J'ai entered at the crown keeps the same bar terminal on a declined exit.
+- signature: dangle:qsJai.hapax.en-y5.en-con-1:exit:baseline
+  why: The entry-contracted-by-one variant keeps the same bar terminal; the contraction touches the crown only.
+- signature: dangle:qsJai.hapax.en-y5.en-con-2:exit:baseline
+  why: The entry-contracted-by-two variant keeps the same bar terminal.
+- signature: dangle:qsJai.hapax.locked:exit:baseline
+  why: The ZWNJ-locked twin of ·J'ai's bar terminal; identical drawing.
+- signature: dangle:qsJai_qsUtter.hapax:exit:x-height
+  why: The ·J'ai·Utter ligature's crown terminal (·Utter's nub at y5), drawn unconditionally in the shipped font; the declined exit keeps it.
+- signature: dangle:qsJai_qsUtter.hapax.en-y5:exit:x-height
+  why: The ligature entered at the crown keeps the same terminal on a declined exit.
+- signature: dangle:qsJai_qsUtter.hapax.en-y5.en-con-1:exit:x-height
+  why: The entry-contracted-by-one ligature keeps the same crown terminal.
+- signature: dangle:qsJai_qsUtter.hapax.en-y5.en-con-2:exit:x-height
+  why: The entry-contracted-by-two ligature keeps the same crown terminal.
+- signature: dangle:qsJai_qsUtter.hapax.locked:exit:x-height
+  why: The ZWNJ-locked twin of the ligature's crown terminal; identical drawing.
 
 - signature: dangle:qsNo.loop:exit:x-height
   why: ·No's loop x-height terminal (top-right nub at y5), drawn unconditionally in the shipped font; the declined exit keeps it.
