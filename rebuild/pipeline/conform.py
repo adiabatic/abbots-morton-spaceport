@@ -1870,6 +1870,13 @@ def classify_divergence(row: DivergentRow) -> str | None:
         return "day-baseline-entry-extension-dropped"
     if "-en-ext-1:qsVie" in phenomena:
         return "vie-baseline-entry-extension-dropped"
+    if (
+        "-ex-con-1" in phenomena
+        and phenomena <= {"-ex-con-1", "+en-trim-1"}
+        and "E65A:E67B" in row.codepoints
+    ):
+        # The grounded ·See·Out fusion re-spells the old pull-back across the seam: the old pipeline's ex-con-1 tucks ·Out into ·See's still-whole tail (anchor-only, ink kept), while the runes keep the tail's anchor at convention and pull the raked redraw's foot instead, so the composite ink is identical and only the names differ. The subset guard keeps any row where real ink moved elsewhere out of the class.
+        return "see-out-fusion-respelled"
     # The may-exit-withdrawal-generalized class retired with qsMay's pulled-back exit; a row resurrecting these phenomena carries an ink delta, so it must surface UNMATCHED rather than fall through to the name-grain classes below.
     if any(item.startswith("+ex-bind-") for item in phenomena) or "-ex-ext-1" in phenomena:
         return None
@@ -1921,6 +1928,7 @@ for _class_id in (
     "zwnj-word-initial-unification",
     "dangling-anchor-dropped",
     "bare-name-live-join",
+    "see-out-fusion-respelled",
 ):
     PREDICATES[_class_id.replace("-", "_")] = _class_predicate(_class_id)
 
