@@ -1878,11 +1878,11 @@ def classify_divergence(row: DivergentRow) -> str | None:
         # The grounded ·See·Out fusion re-spells the old pull-back across the seam: the old pipeline's ex-con-1 tucks ·Out into ·See's still-whole tail (anchor-only, ink kept), while the runes keep the tail's anchor at convention and pull the raked redraw's foot instead, so the composite ink is identical and only the names differ. The subset guard keeps any row where real ink moved elsewhere out of the class.
         return "see-out-fusion-respelled"
     if (
-        "+ex-ext-3" in phenomena
-        and phenomena <= {"+ex-ext-3", "-ex-ext-1", "exit-dropped"}
+        "+ex-ext-2" in phenomena
+        and phenomena <= {"+ex-ext-2", "-ex-ext-1", "exit-dropped"}
         and "E665:E65D" in row.codepoints
     ):
-        # The ·May·J'ai seam consolidates the old split extension (May ex-ext-1 + J'ai en-ext-2, +3 total) onto qsMay's single by-3 exit record: the same three connector pixels ride one side, the composite ink and every glyph origin are unchanged, and only the names differ. The subset guard keeps any row where real ink moved elsewhere out of the class.
+        # The ·May·J'ai seam replaces the old split extension with qsMay's single by-2 exit record in every follower context; the rune's why records the binding one-pixel spacing choice. The subset guard keeps any row where unrelated ink moved elsewhere out of the class.
         return "may-jai-extension-consolidated"
     if phenomena and phenomena <= {"+en-con-1", "+en-con-2"} and "E65D" in row.codepoints:
         # The old pipeline's exit contractions before ·J'ai are tucks — the left keeps its ink and only the anchor moves in, overlapping the follower — which M1 re-spells as ·J'ai's own entry contraction: the crown gives up the overlapped columns and abuts instead, so the placed composite, every origin, and every advance are unchanged and only ·J'ai's cell name gains the con token. The subset guard keeps any row where real ink moved elsewhere out of the class.

@@ -212,10 +212,10 @@
   match: {predicate: may_jai_extension_consolidated, configs: all}
   count: 1736
   exemplars:
-    - {config: default, codepoints: "E665:E65D", baseline: "qsMay.ex-ext-1|qsJai.en-y5.ex-y0.en-ext-2", new: "qsMay/loop/None/x-height/ex-ext-3|qsJai/hapax/x-height/None/"}
-    - {config: default, codepoints: "E665:E65D:E67A", baseline: "qsMay.ex-ext-1|qsJai_qsUtter.en-ext-2", new: "qsMay/loop/None/x-height/ex-ext-3|qsJai_qsUtter/hapax/x-height/None/"}
+    - {config: default, codepoints: "E665:E65D", baseline: "qsMay.ex-ext-1|qsJai.en-y5.ex-y0.en-ext-2", new: "qsMay/loop/None/x-height/ex-ext-2|qsJai/hapax/x-height/None/"}
+    - {config: default, codepoints: "E665:E65D:E67A", baseline: "qsMay.ex-ext-1|qsJai_qsUtter.en-ext-2", new: "qsMay/loop/None/x-height/ex-ext-2|qsJai_qsUtter/hapax/x-height/None/"}
   why: |
-    The old pipeline splits the ·May·J'ai connector across the seam — ·May's exit extends by 1 and ·J'ai's crown entry extends by 2, three added pixels in all — but M1's same-seam non-summing rule suppresses a follower's entry extension whenever the predecessor's exit already carries the seam, so the split spelling cannot survive transcription. qsMay's single by-3 exit record toward the qsJai family carries the whole reach instead: the same three connector pixels land on the same row and the composite ink is unchanged, but the pixels change owners, so ·May's advance grows by the two ·J'ai gives up — the advances move with the ink, the standard exclusion the extension classes share, which is why this class does not claim per-slot ink identity. ·J'ai's en-ext-2 alias resolves to the bare entered cell.
+    The old pipeline splits the ·May·J'ai connector across the seam — ·May's exit extends by 1 and ·J'ai's crown entry extends by 2 — but M1's same-seam non-summing rule cannot preserve that two-sided spelling. qsMay's single by-2 exit record toward the qsJai family carries the replacement reach for every follower context, while ·J'ai's en-ext-2 alias resolves to the bare entered cell. The one-pixel spacing choice is binding in that qsMay record's `why:`; this class identifies the resulting expected ink and name grain without maintaining a second copy of the rationale.
 
 - id: jai-entry-contraction-respelled
   status: intended
