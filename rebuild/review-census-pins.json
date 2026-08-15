@@ -1,14 +1,14 @@
 {
   "_surface": {
-    "generated_at": "2026-08-15T07:04:08Z",
-    "repo_head": "d85c0bc8"
+    "generated_at": "2026-08-15T10:15:18Z",
+    "repo_head": "7222e840"
   },
   "manifest": {
     "totals": {
       "units": 244189,
       "rows": 863424,
       "batches": 139,
-      "echo_groups": 3659
+      "echo_groups": 3657
     },
     "classes_count": 33,
     "machine_approved": {
