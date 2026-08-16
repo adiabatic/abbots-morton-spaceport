@@ -61,6 +61,44 @@ def pytest_configure(config: pytest.Config) -> None:
         raise pytest.UsageError("pyright type check failed (see output above)")
 
 
+# Peak RSS per xdist worker (issue #51): each worker reports its own high-water mark at session finish through workeroutput, the controller collects them as nodes shut down, and the terminal summary prints one line — so what `-n auto` actually costs in RAM is measured on every run instead of folklore. Figures are decimal GB via rebuild.tools.peak_rss, the repo-wide yardstick.
+_worker_peak_rss: dict[str, int] = {}
+
+
+def pytest_sessionfinish(session: pytest.Session) -> None:
+    if hasattr(session.config, "workerinput"):
+        from rebuild.tools.peak_rss import peak_rss_self_bytes
+
+        workeroutput = session.config.workeroutput  # pyright: ignore[reportAttributeAccessIssue]
+        workeroutput["peak_rss_bytes"] = peak_rss_self_bytes()
+
+
+def pytest_testnodedown(node, error) -> None:
+    payload = getattr(node, "workeroutput", None) or {}
+    peak = payload.get("peak_rss_bytes")
+    if isinstance(peak, int):
+        _worker_peak_rss[str(node.gateway.id)] = peak
+
+
+def pytest_terminal_summary(terminalreporter, exitstatus, config: pytest.Config) -> None:
+    if hasattr(config, "workerinput"):
+        return
+    from rebuild.tools.peak_rss import format_gb, peak_rss_self_bytes
+
+    def _worker_order(item: tuple[str, int]) -> tuple[int, str]:
+        digits = "".join(ch for ch in item[0] if ch.isdigit())
+        return (int(digits) if digits else -1, item[0])
+
+    line = f"peak RSS (GB): controller {format_gb(peak_rss_self_bytes())}"
+    if _worker_peak_rss:
+        workers = ", ".join(
+            f"{ident} {format_gb(peak)}"
+            for ident, peak in sorted(_worker_peak_rss.items(), key=_worker_order)
+        )
+        line += f"; workers {workers}"
+    terminalreporter.write_line(line)
+
+
 def _ensure_shaping_cache() -> dict[str, Any]:
     if "fonts" not in _shaping_cache:
         if "_built" not in _shaping_cache:

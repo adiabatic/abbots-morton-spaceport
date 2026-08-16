@@ -1813,6 +1813,20 @@ def test_run_step_refuses_to_spawn_after_registry_closed(tmp_path):
     assert not marker.exists()
 
 
+def test_run_step_measures_the_child_peak_rss(capsys):
+    result = ac._run_step(
+        "gate:js",
+        [sys.executable, "-c", "x = bytearray(64 * 1024 * 1024)"],
+        emit=ac._Emitter(),
+        registry=ac._ChildRegistry(),
+        stream=False,
+    )
+    assert result.returncode == 0
+    assert result.peak_rss_bytes is not None and result.peak_rss_bytes > 64 * 1024 * 1024
+    timing_line = [line for line in capsys.readouterr().out.splitlines() if line.startswith("[t] ")]
+    assert len(timing_line) == 1 and "rss_gb=" in timing_line[0]
+
+
 def test_stage_job_budget():
     assert ac.stage_job_budget(skip_gates=False, ncores=12) == 6
     assert ac.stage_job_budget(skip_gates=False, ncores=5) == 2
