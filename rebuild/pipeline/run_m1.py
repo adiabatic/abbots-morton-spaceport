@@ -53,6 +53,7 @@ from rebuild.pipeline import settle as settle_module
 from rebuild.pipeline.settle import cell_label
 from rebuild.pipeline.spec_load import load_default_spec
 from rebuild.pipeline.table import DecisionTable
+from rebuild.tools.peak_rss import process_peak_rss_bytes, rss_token
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 OUT_DIR = REPO_ROOT / "rebuild" / "out" / "m1"
@@ -271,7 +272,10 @@ def run(
 
     start = time.perf_counter()
     tables = build_tables(spec, out_dir, inputs=inputs, engine=engine, kernel_threads=kernel_threads)
-    print(f"[t] build_tables_total {time.perf_counter() - start:.1f}s", flush=True)
+    print(
+        f"[t] build_tables_total {time.perf_counter() - start:.1f}s {rss_token(process_peak_rss_bytes())}",
+        flush=True,
+    )
 
     start = time.perf_counter()
     cell_glyphs = mint_cell_glyphs(spec, tables)
@@ -363,7 +367,10 @@ def run_font_conformance(out_dir: Path = OUT_DIR, max_length: int = 5, jobs: int
     else:
         rebuilt = build_tables(spec, engine="python")
         decisions = rebuilt
-        print(f"[t] build_tables_total {time.perf_counter() - start:.1f}s", flush=True)
+        print(
+            f"[t] build_tables_total {time.perf_counter() - start:.1f}s {rss_token(process_peak_rss_bytes())}",
+            flush=True,
+        )
     cell_glyphs = mint_cell_glyphs(spec, decisions)
     boundary_horizon = conform.proven_boundary_horizon(
         out_dir / "M1.otf", out_dir / "boundary_equivalence_summary.json"
@@ -602,7 +609,10 @@ def main(argv: list[str] | None = None) -> None:
         before = conform_key()
         start = time.perf_counter()
         conformance = run_font_conformance(max_length=args.conform_horizon, jobs=jobs)
-        print(f"[t] run_font_conformance {time.perf_counter() - start:.1f}s", flush=True)
+        print(
+            f"[t] run_font_conformance {time.perf_counter() - start:.1f}s {rss_token(process_peak_rss_bytes())}",
+            flush=True,
+        )
         print(json.dumps(conformance, indent=2))
         status, _ = evaluate_conform_gate(conformance)
         _settle_green(
@@ -639,7 +649,10 @@ def main(argv: list[str] | None = None) -> None:
     try:
         start = time.perf_counter()
         summary = run(spec=spec, inputs=inputs, engine=args.engine, kernel_threads=args.kernel_threads)
-        print(f"[t] run_total {time.perf_counter() - start:.1f}s", flush=True)
+        print(
+            f"[t] run_total {time.perf_counter() - start:.1f}s {rss_token(process_peak_rss_bytes())}",
+            flush=True,
+        )
         print(json.dumps(summary, indent=2))
         if summary["defect_errors"]:
             raise SystemExit(f"{len(summary['defect_errors'])} defect-gate errors; see pipeline_summary.json")

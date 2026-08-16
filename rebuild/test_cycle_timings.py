@@ -41,6 +41,15 @@ def test_parse_inner_timings_strips_trailing_extras():
     ]
 
 
+def test_parse_inner_timings_reads_a_trailing_rss_token():
+    assert ct.parse_inner_timings("[t] build_tables_total 243.1s rss_gb=8.94") == [
+        {"label": "build_tables_total", "elapsed_s": 243.1, "rss_gb": 8.94}
+    ]
+    assert ct.parse_inner_timings("[t] conform[default] 5.5s shaping_runs=123 rss_gb=0.80") == [
+        {"label": "conform[default]", "elapsed_s": 5.5, "rss_gb": 0.8}
+    ]
+
+
 def test_parse_inner_timings_ignores_lines_without_seconds():
     assert ct.parse_inner_timings("[t] build_tables[default] done") == []
     assert ct.parse_inner_timings("plain noise\nnot a [t] line 3.0s") == []
@@ -86,6 +95,18 @@ def test_record_step_carries_inner_timings_from_both_streams(tmp_path):
         {"label": "phase-a", "elapsed_s": 3.5},
         {"label": "phase-b", "elapsed_s": 2.0},
     ]
+
+
+def test_record_step_carries_the_step_peak_rss_when_measured(tmp_path):
+    path = tmp_path / "j.ndjson"
+    timings = ct.CycleTimings(path)
+    result = _result()
+    result.peak_rss_bytes = 8_940_000_000
+    timings.record_step(result, [])
+    (entry,) = _lines(path)
+    assert entry["peak_rss_bytes"] == 8_940_000_000
+    timings.record_step(_result(), [])
+    assert "peak_rss_bytes" not in _lines(path)[1]
 
 
 def test_wrap_spawn_passes_through_and_records(tmp_path):
@@ -211,7 +232,8 @@ def _view_journal(tmp_path):
                 "name": "slow",
                 "rc": 0,
                 "elapsed_s": 9.0,
-                "inner": [{"label": "phase-a", "elapsed_s": 3.5}],
+                "peak_rss_bytes": 8_940_000_000,
+                "inner": [{"label": "phase-a", "elapsed_s": 3.5, "rss_gb": 8.12}],
             },
             {
                 "kind": "run",
@@ -240,6 +262,7 @@ def test_main_default_view_lists_steps_slowest_first(tmp_path, capsys):
     assert "deferred=conform" in out
     assert out.index("slow") < out.index("fast")
     assert "(rc 1)" in out
+    assert "rss=8.94GB" in out
     assert "phase-a" not in out
 
 
@@ -249,6 +272,7 @@ def test_main_inner_flag_expands_phase_lines(tmp_path, capsys):
     out = capsys.readouterr().out
     assert "phase-a" in out
     assert "3.5s" in out
+    assert "rss=8.12GB" in out
 
 
 def test_main_default_view_flags_a_run_with_no_run_record(tmp_path, capsys):
@@ -285,5 +309,38 @@ def test_main_by_step_aggregates_median_max_latest(tmp_path, capsys):
     )
     assert ct.main(["--journal", str(path), "--by-step"]) == 0
     out = capsys.readouterr().out
-    assert re.search(r"step\s+host\s+runs\s+median\s+max\s+latest", out)
+    assert re.search(r"step\s+host\s+runs\s+median\s+max\s+latest\s+maxrss", out)
     assert re.search(r"gate:conform\s+h1\s+4\s+2\.5s\s+8\.0s\s+3\.0s", out)
+
+
+def test_main_by_step_reports_the_max_recorded_rss_per_step(tmp_path, capsys):
+    path = tmp_path / "j.ndjson"
+    _write_journal(
+        path,
+        [
+            {"kind": "step", "run": "r1", "host": "h1", "name": "run_m1", "rc": 0, "elapsed_s": 1.0},
+            {
+                "kind": "step",
+                "run": "r2",
+                "host": "h1",
+                "name": "run_m1",
+                "rc": 0,
+                "elapsed_s": 2.0,
+                "peak_rss_bytes": 8_940_000_000,
+            },
+            {
+                "kind": "step",
+                "run": "r3",
+                "host": "h1",
+                "name": "run_m1",
+                "rc": 0,
+                "elapsed_s": 3.0,
+                "peak_rss_bytes": 2_000_000_000,
+            },
+            {"kind": "step", "run": "r1", "host": "h1", "name": "merge", "rc": 0, "elapsed_s": 0.5},
+        ],
+    )
+    assert ct.main(["--journal", str(path), "--by-step"]) == 0
+    out = capsys.readouterr().out
+    assert re.search(r"run_m1\s+h1\s+3\s+2\.0s\s+3\.0s\s+3\.0s\s+8\.94GB", out)
+    assert re.search(r"merge\s+h1\s+1\s+0\.5s\s+0\.5s\s+0\.5s\s*$", out, re.MULTILINE)

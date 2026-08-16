@@ -49,6 +49,8 @@ from typing import TYPE_CHECKING
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
+from rebuild.tools.peak_rss import reap_peak_rss_bytes, rss_token  # noqa: E402
+
 if TYPE_CHECKING:
     from rebuild.tools.cycle_timings import CycleTimings
 REVIEW_OUT = ROOT / "rebuild" / "out" / "review"
@@ -1438,6 +1440,7 @@ class _StepResult:
     stdout: str
     stderr: str
     elapsed: float
+    peak_rss_bytes: int | None = None
 
 
 def _terminate_child(proc: subprocess.Popen) -> None:
@@ -1486,11 +1489,13 @@ def _run_step(
         thread.start()
     for thread in threads:
         thread.join()
+    peak_rss = reap_peak_rss_bytes(proc)
     returncode = proc.wait()
     registry.remove(proc)
     elapsed = time.perf_counter() - start
-    emit.emit(f"[t] {name} {elapsed:.1f}s")
-    return _StepResult(name, returncode, "\n".join(out_buf), "\n".join(err_buf), elapsed)
+    rss_suffix = "" if peak_rss is None else f" {rss_token(peak_rss)}"
+    emit.emit(f"[t] {name} {elapsed:.1f}s{rss_suffix}")
+    return _StepResult(name, returncode, "\n".join(out_buf), "\n".join(err_buf), elapsed, peak_rss)
 
 
 def _dump_captured(emit: _Emitter, result: _StepResult) -> None:

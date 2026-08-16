@@ -1,6 +1,6 @@
 """Append-only wall-time telemetry for the artifact cycle, and the reporter that reads it back.
 
-Every artifact-cycle run appends to rebuild/out/cycle-timings.ndjson (gitignored with the rest of rebuild/out, never touched by the retention pass, so each machine accumulates its own history): one "step" line per subprocess the driver actually spawned, and one "run" line when the cycle finishes, interrupted finishes included. A step line carries the driver's step name (run_m1, gate:conform, merge, ...), the argv, the return code, the wall seconds, and — parsed out of the child's captured stdout/stderr — any inner "[t] <label> <secs>s" phase lines the child printed, which is how the per-config conform sweeps and run_m1's phase breakdown survive even for gates whose output is never streamed to the console. A run line carries the run's identity (hostname, cpu count), start/finish stamps, total wall seconds, and the cycle summary's exit/gates/plan blocks, so a slow step can be read in context: which machine, which skips were in effect, what was deferred.
+Every artifact-cycle run appends to rebuild/out/cycle-timings.ndjson (gitignored with the rest of rebuild/out, never touched by the retention pass, so each machine accumulates its own history): one "step" line per subprocess the driver actually spawned, and one "run" line when the cycle finishes, interrupted finishes included. A step line carries the driver's step name (run_m1, gate:conform, merge, ...), the argv, the return code, the wall seconds, the step's peak RSS in bytes (measured by the driver as it reaps the child, so it covers the child's whole process tree — see peak_rss.reap_peak_rss_bytes), and — parsed out of the child's captured stdout/stderr — any inner "[t] <label> <secs>s" phase lines the child printed, which is how the per-config conform sweeps and run_m1's phase breakdown survive even for gates whose output is never streamed to the console. An inner line may carry its own peak-RSS figure as a trailing "rss_gb=<n>" token (peak_rss.rss_token is the writer; decimal GB, like every figure here), which rides into the journal beside the label's seconds. A run line carries the run's identity (hostname, cpu count), start/finish stamps, total wall seconds, and the cycle summary's exit/gates/plan blocks, so a slow step can be read in context: which machine, which skips were in effect, what was deferred.
 
 Skipped stages never spawn and so never produce a step line; whether a stage was skipped, deferred, or genuinely absent is read from the run line's plan and gates blocks, not from the step list.
 
@@ -22,11 +22,14 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
+from rebuild.tools.peak_rss import format_gb
+
 ROOT = Path(__file__).resolve().parents[2]
 JOURNAL = ROOT / "rebuild" / "out" / "cycle-timings.ndjson"
 FORMAT = "ams-cycle-timings/1"
 
-_INNER_LINE = re.compile(r"^\[t\] (.+?) (\d+(?:\.\d+)?)s(?:[ \t].*)?$", re.MULTILINE)
+_INNER_LINE = re.compile(r"^\[t\] (.+?) (\d+(?:\.\d+)?)s(?:[ \t](.*))?$", re.MULTILINE)
+_RSS_TOKEN = re.compile(r"\brss_gb=(\d+(?:\.\d+)?)")
 
 
 def _utc_stamp() -> str:
@@ -34,9 +37,14 @@ def _utc_stamp() -> str:
 
 
 def parse_inner_timings(text: str) -> list[dict]:
-    return [
-        {"label": match.group(1), "elapsed_s": float(match.group(2))} for match in _INNER_LINE.finditer(text)
-    ]
+    entries: list[dict] = []
+    for match in _INNER_LINE.finditer(text):
+        entry: dict = {"label": match.group(1), "elapsed_s": float(match.group(2))}
+        rss = _RSS_TOKEN.search(match.group(3) or "")
+        if rss:
+            entry["rss_gb"] = float(rss.group(1))
+        entries.append(entry)
+    return entries
 
 
 class CycleTimings:
@@ -72,6 +80,9 @@ class CycleTimings:
             "elapsed_s": round(result.elapsed, 1),
             "finished_at": _utc_stamp(),
         }
+        peak = getattr(result, "peak_rss_bytes", None)
+        if peak is not None:
+            entry["peak_rss_bytes"] = int(peak)
         inner = parse_inner_timings(result.stdout + "\n" + result.stderr)
         if inner:
             entry["inner"] = inner
@@ -142,6 +153,11 @@ def _seconds(value) -> float:
     return float(value) if isinstance(value, int | float) else 0.0
 
 
+def _rss_suffix(entry: dict, key: str = "peak_rss_bytes") -> str:
+    value = entry.get(key)
+    return f"  rss={format_gb(value)}GB" if isinstance(value, int | float) else ""
+
+
 def render_runs(
     runs: dict[str, dict],
     steps: dict[str, list[dict]],
@@ -172,10 +188,16 @@ def render_runs(
         for step in sorted(step_list, key=lambda entry: -_seconds(entry.get("elapsed_s"))):
             rc = step.get("rc")
             suffix = "" if rc == 0 else f"  (rc {rc})"
-            lines.append(f"  {_seconds(step.get('elapsed_s')):>8.1f}s  {step.get('name', '?')}{suffix}")
+            lines.append(
+                f"  {_seconds(step.get('elapsed_s')):>8.1f}s  {step.get('name', '?')}{_rss_suffix(step)}{suffix}"
+            )
             if inner:
                 for item in step.get("inner", []):
-                    lines.append(f"  {_seconds(item.get('elapsed_s')):>10.1f}s    {item.get('label', '?')}")
+                    rss = item.get("rss_gb")
+                    inner_suffix = f"  rss={rss:.2f}GB" if isinstance(rss, int | float) else ""
+                    lines.append(
+                        f"  {_seconds(item.get('elapsed_s')):>10.1f}s    {item.get('label', '?')}{inner_suffix}"
+                    )
         if not step_list:
             lines.append("  (no steps spawned — everything skipped or deferred)")
     return lines
@@ -183,10 +205,14 @@ def render_runs(
 
 def render_by_step(steps: dict[str, list[dict]], order: list[str]) -> list[str]:
     buckets: dict[tuple[str, str], list[float]] = {}
+    rss_peaks: dict[tuple[str, str], list[float]] = {}
     for run_id in order:
         for step in steps.get(run_id, []):
             key = (str(step.get("name", "?")), str(step.get("host", "?")))
             buckets.setdefault(key, []).append(_seconds(step.get("elapsed_s")))
+            peak = step.get("peak_rss_bytes")
+            if isinstance(peak, int | float):
+                rss_peaks.setdefault(key, []).append(float(peak))
     rows = [
         (name, host, len(values), statistics.median(values), max(values), values[-1])
         for (name, host), values in buckets.items()
@@ -195,11 +221,13 @@ def render_by_step(steps: dict[str, list[dict]], order: list[str]) -> list[str]:
     name_width = max([len(row[0]) for row in rows] + [len("step")])
     host_width = max([len(row[1]) for row in rows] + [len("host")])
     lines = [
-        f"\n{'step':<{name_width}}  {'host':<{host_width}}  {'runs':>4}  {'median':>8}  {'max':>8}  {'latest':>8}"
+        f"\n{'step':<{name_width}}  {'host':<{host_width}}  {'runs':>4}  {'median':>8}  {'max':>8}  {'latest':>8}  {'maxrss':>8}"
     ]
     for name, host, count, median, peak, latest in rows:
+        recorded = rss_peaks.get((name, host))
+        maxrss = f"{format_gb(max(recorded))}GB" if recorded else ""
         lines.append(
-            f"{name:<{name_width}}  {host:<{host_width}}  {count:>4}  {median:>7.1f}s  {peak:>7.1f}s  {latest:>7.1f}s"
+            f"{name:<{name_width}}  {host:<{host_width}}  {count:>4}  {median:>7.1f}s  {peak:>7.1f}s  {latest:>7.1f}s  {maxrss:>8}"
         )
     return lines
 

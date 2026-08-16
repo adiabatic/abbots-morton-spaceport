@@ -91,7 +91,7 @@ review-cycle:
 verdict-ready:
 	uv run python -m rebuild.tools.verdict_ready $(ARGS)
 
-# Answer "what is the cycle spending its time on, on this machine?": every artifact cycle appends per-step wall times (host-tagged, with each child's inner [t] phase lines) to rebuild/out/cycle-timings.ndjson — append-only, gitignored with the rest of rebuild/out, never pruned by retention, so each machine accumulates its own history. Default view: recent runs, steps slowest-first. ARGS='--by-step' aggregates count/median/max/latest per step and host; ARGS='--inner' expands the phase lines; ARGS='--journal <path>' reads a concatenation of journals from several machines.
+# Answer "what is the cycle spending its time on, on this machine?": every artifact cycle appends per-step wall times and peak RSS (host-tagged, with each child's inner [t] phase lines) to rebuild/out/cycle-timings.ndjson — append-only, gitignored with the rest of rebuild/out, never pruned by retention, so each machine accumulates its own history. Default view: recent runs, steps slowest-first. ARGS='--by-step' aggregates count/median/max/latest seconds plus max recorded RSS per step and host; ARGS='--inner' expands the phase lines; ARGS='--journal <path>' reads a concatenation of journals from several machines.
 cycle-timings:
 	uv run python -m rebuild.tools.cycle_timings $(ARGS)
 
