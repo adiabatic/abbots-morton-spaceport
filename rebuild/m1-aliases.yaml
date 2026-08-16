@@ -155,6 +155,9 @@ qsAh.ex-ext-1: {rune: qsAh, stance: hapax, exit: x-height, adjustments: [ex-ext-
 qsAh.noentry: {rune: qsAh, stance: hapax, adjustments: [locked]}
 qsAh.noentry.ex-con-2: {rune: qsAh, stance: hapax, exit: x-height, adjustments: [locked]}
 qsAh.noentry.ex-ext-1: {rune: qsAh, stance: hapax, exit: x-height, adjustments: [locked, ex-ext-1]}
+qsAwe: {rune: qsAwe, stance: hapax}
+qsAwe.en-ext-1: {rune: qsAwe, stance: hapax, entry: x-height, adjustments: [en-ext-1]}
+qsAwe.noentry: {rune: qsAwe, stance: hapax, adjustments: [locked]}
 qsOy: {rune: qsOy, stance: hapax}
 qsOy.en-y5.ex-y0: {rune: qsOy, stance: hapax, entry: x-height, exit: baseline}
 qsOy.noentry: {rune: qsOy, stance: hapax, adjustments: [locked]}

@@ -50,6 +50,7 @@ stances:
             - qsNo
             - qsIt
             - qsEt
+            - qsAwe
             - qsOy
             - qsUtter
       cells: []

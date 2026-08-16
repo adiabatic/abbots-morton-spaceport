@@ -1,0 +1,96 @@
+rune: qsAwe
+codepoint: 0xE677
+ductus:
+  hapax: | # DRAFT — pending author sign-off
+    Begun at the left along the x-height, the stroke runs briefly rightward, then descends down and to the right in a sigmoid curve and finishes rightward along the baseline.
+mono:
+  bitmap:
+  - "##   "  #
+  - "  #  "
+  - "  #  "
+  - "  #  "
+  - "  #  "
+  - "   ##"  #
+stances:
+  hapax:
+    motion: hapax
+    traits: []
+    bitmap:
+    - "##     "  #
+    - "  #    "
+    - "   #   "
+    - "   #   "
+    - "    #  "
+    - "     ##"  #
+    surface:
+      entries:
+        x-height:
+          x: 0
+          stroke: horizontal
+          from:
+          - family:
+            - qsPea
+            - qsTea
+            - qsDay_qsUtter
+            - qsFee
+            - qsVie_qsUtter
+            - qsSee_qsUtter
+            - qsJai_qsUtter
+            - qsMay
+            - qsNo
+            - qsLow
+            - qsRoe
+            - qsIt
+            - qsI
+            - qsAh
+            - qsUtter
+            - qsOut
+      exits:
+        baseline:
+          x: 7
+          stroke: horizontal
+          toward:
+          - family:
+            - qsTea
+            - qsDay
+            - qsDay_qsUtter
+            - qsVie
+            - qsVie_qsUtter
+            - qsSee
+            - qsMay
+            - qsNo
+            - qsLow
+            - qsRoe
+            - qsIt
+            - qsI
+            - qsAh
+            - qsUtter
+            - qsOut
+            - qsOut_qsTea
+      cells: []
+      unlocks: []
+      require: []
+policy:
+  order:
+  - hapax
+  refuse: []
+  prefer:
+  - cell: {exit: none}
+    over: {exit: baseline}
+    when:
+      right:
+        family: qsTea
+        then:
+          except:
+          - {family: qsPea}
+  extend:
+  - entry: x-height
+    by: 1
+    when:
+      left:
+        family:
+        - qsTea
+        - qsHe
+  contract: []
+  resolve: []
+  groups: {}

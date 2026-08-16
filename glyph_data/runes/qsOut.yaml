@@ -50,6 +50,7 @@ stances:
             - qsNo
             - qsIt
             - qsEt
+            - qsAwe
             - qsOy
             - qsUtter
       cells: []
@@ -91,6 +92,7 @@ stances:
             - qsNo
             - qsIt
             - qsEt
+            - qsAwe
             - qsOy
             - qsUtter
       exits:
@@ -107,6 +109,7 @@ stances:
             - qsNo
             - qsRoe
             - qsEt
+            - qsAwe
             - qsOy
       cells: []
       unlocks: []
