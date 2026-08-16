@@ -117,8 +117,13 @@ policy:
         except:
         - {family: qsTea}
         - {family: qsThaw}
+        - {family: qsVie}
+        - {family: qsVie_qsUtter}
+        - {family: qsSee}
         - {family: qsYe}
         - {family: qsIng}
+        - {family: qsNo}
+        - {family: qsLow}
         - {family: qsRoe}
         - {family: qsExam}
         - {family: qsIt}
