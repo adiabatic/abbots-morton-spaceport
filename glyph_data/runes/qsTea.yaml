@@ -198,6 +198,14 @@ policy:
         - qsKey
         - qsJay
         - qsEight
+  - exit: x-height
+    by: 1
+    when:
+      left: {family: qsMay}
+      right:
+        family: qsJai
+        then: {is: boundary}
+    why: I don't want ·May and ·J’ai to touch at the baseline even though there’s a ·Tea.half between them (visually, on top of the ·J’ai). I want a pixel of space between ·May and ·J’ai
   contract:
   - exit: x-height
     by: 1
