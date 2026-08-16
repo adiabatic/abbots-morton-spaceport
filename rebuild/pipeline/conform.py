@@ -1976,8 +1976,9 @@ def _may_ligature_seam_loosened(row: DivergentRow) -> bool:
 # Membership is not automatic for a newly-migrated rune: qsFee was weighed and deliberately left out, because the old ss10 overlay substitutes every qsFee variant to the bare cmap glyph, which carries no cursive anchors, so the old font already isolates ·Fee correctly and its ss10 seam-loss rows ride the existing ss10_isolation_completed class instead.
 # qsAh is a member because its baseline entry and x-height exit anchors ride the base cmap glyph (the ·Pea/·Oy→·Ah and ·Ah→·Day joins are bare-glyph GPOS attachments with no calt variant), so the old ss10 overlay has nothing to substitute away and keeps drawing those joins.
 # qsOut is a member on the qsAh precedent, entry side only: its baseline entry anchor rides the bare cmap glyph (E650:E67B stays a y0 join under the old ss10), while its x-height exits live on calt variants the old overlay does substitute away. qsOut_qsTea inherits the same bare-glyph entry from its lead, the qsDay_qsUtter shape.
+# qsAwe is a member on the qsAh precedent, both sides at once: the old record has no stances, so its x-height entry and baseline exit both ride the base cmap glyph, and bare qsAwe is the only ·Awe glyph the old font emits under ss10 — keeping the y5 joins into it and the y0 joins out of it wherever the neighbor's anchor also survives the overlay.
 SS10_UNCOVERED_BY_OLD_FONT = frozenset(
-    {"qsAh", "qsDay", "qsNo", "qsLow", "qsUtter", "qsDay_qsUtter", "qsOut", "qsOut_qsTea"}
+    {"qsAh", "qsDay", "qsNo", "qsLow", "qsUtter", "qsDay_qsUtter", "qsOut", "qsOut_qsTea", "qsAwe"}
 )
 
 

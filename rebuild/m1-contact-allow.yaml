@@ -278,6 +278,16 @@
 - signature: dangle:qsJai_qsUtter.hapax.locked:exit:x-height
   why: The ZWNJ-locked twin of the ligature's crown terminal; identical drawing.
 
+# ·Awe's baseline tail is unconditional letterform ink, the same shape whether or not the exit joins: the shipped font draws bare qsAwe with the full tail at every word edge and before every non-joining follower, and no withdrawn form exists in quikscript.yaml. The tail's last pixel does not continue vertically, so it cannot earn the automatic `withdrawal: safe` proof. One signature per entry/extension/lock variant the gate inspects separately; all are the same terminal.
+- signature: dangle:qsAwe.hapax:exit:baseline
+  why: ·Awe's baseline tail terminal, drawn unconditionally in the shipped font; the declined exit keeps it.
+- signature: dangle:qsAwe.hapax.en-y5:exit:baseline
+  why: ·Awe entered at the x-height keeps the same tail terminal on a declined exit.
+- signature: dangle:qsAwe.hapax.en-y5.en-ext-1:exit:baseline
+  why: The entry-extended-by-one variant (after half-·Tea) keeps the same tail terminal; the extension touches the entry bar only.
+- signature: dangle:qsAwe.hapax.locked:exit:baseline
+  why: The ZWNJ-locked twin of ·Awe's tail terminal; identical drawing.
+
 - signature: dangle:qsNo.loop:exit:x-height
   why: ·No's loop x-height terminal (top-right nub at y5), drawn unconditionally in the shipped font; the declined exit keeps it.
 - signature: dangle:qsNo.loop.en-y5:exit:x-height
