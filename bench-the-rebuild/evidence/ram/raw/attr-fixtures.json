@@ -1,0 +1,466 @@
+{
+  "workload_units": 246939,
+  "enriched_units": 246939,
+  "phases": [
+    {
+      "phase": "load_workload",
+      "rss_high_water_bytes": 3357048832,
+      "rss_high_water_gb": 3.36,
+      "traced_current_bytes": 1116151967,
+      "traced_peak_bytes": 1250746104,
+      "traced_peak_gb": 1.25,
+      "top_sites": [
+        {
+          "site": "rebuild/review/audit.py:93",
+          "bytes": 294944368,
+          "count": 4239619
+        },
+        {
+          "site": "rebuild/review/audit.py:92",
+          "bytes": 241730220,
+          "count": 4255665
+        },
+        {
+          "site": "rebuild/review/audit.py:85",
+          "bytes": 178166661,
+          "count": 3367762
+        },
+        {
+          "site": "rebuild/review/audit.py:87",
+          "bytes": 103643784,
+          "count": 863677
+        },
+        {
+          "site": "rebuild/review/audit.py:186",
+          "bytes": 61241416,
+          "count": 246940
+        },
+        {
+          "site": "rebuild/review/audit.py:90",
+          "bytes": 57405746,
+          "count": 1046745
+        },
+        {
+          "site": "rebuild/review/audit.py:177",
+          "bytes": 45436776,
+          "count": 493878
+        },
+        {
+          "site": "rebuild/review/audit.py:161",
+          "bytes": 32591072,
+          "count": 493878
+        },
+        {
+          "site": "rebuild/review/audit.py:192",
+          "bytes": 18762488,
+          "count": 246939
+        },
+        {
+          "site": "rebuild/review/audit.py:183",
+          "bytes": 18762488,
+          "count": 246939
+        },
+        {
+          "site": "<string>:17",
+          "bytes": 15805920,
+          "count": 246954
+        },
+        {
+          "site": "rebuild/review/audit.py:184",
+          "bytes": 14018240,
+          "count": 246939
+        },
+        {
+          "site": "rebuild/review/audit.py:146",
+          "bytes": 12699260,
+          "count": 246939
+        },
+        {
+          "site": "rebuild/review/audit.py:217",
+          "bytes": 11990083,
+          "count": 246940
+        },
+        {
+          "site": "<frozen importlib._bootstrap_external>:511",
+          "bytes": 3087622,
+          "count": 26337
+        },
+        {
+          "site": "rebuild/review/audit.py:185",
+          "bytes": 2055456,
+          "count": 1
+        },
+        {
+          "site": "dataclasses.py:506",
+          "bytes": 409341,
+          "count": 2910
+        },
+        {
+          "site": "<frozen importlib._bootstrap>:491",
+          "bytes": 392226,
+          "count": 3592
+        },
+        {
+          "site": "rebuild/review/audit.py:69",
+          "bytes": 225868,
+          "count": 3087
+        },
+        {
+          "site": ".venv/lib/python3.14/site-packages/fontTools/misc/xmlWriter.py:16",
+          "bytes": 139344,
+          "count": 2050
+        },
+        {
+          "site": "rebuild/review/audit.py:206",
+          "bytes": 127872,
+          "count": 1998
+        },
+        {
+          "site": "rebuild/review/audit.py:209",
+          "bytes": 80880,
+          "count": 1011
+        },
+        {
+          "site": "enum.py:262",
+          "bytes": 72240,
+          "count": 420
+        },
+        {
+          "site": "rebuild/review/audit.py:107",
+          "bytes": 63606,
+          "count": 23
+        },
+        {
+          "site": "enum.py:550",
+          "bytes": 58395,
+          "count": 144
+        },
+        {
+          "site": "dataclasses.py:411",
+          "bytes": 56448,
+          "count": 441
+        },
+        {
+          "site": "entities.py:268",
+          "bytes": 52368,
+          "count": 3
+        },
+        {
+          "site": "<frozen abc>:106",
+          "bytes": 38698,
+          "count": 135
+        },
+        {
+          "site": "<frozen importlib._bootstrap_external>:1437",
+          "bytes": 30047,
+          "count": 246
+        },
+        {
+          "site": "<frozen importlib._bootstrap_external>:133",
+          "bytes": 28006,
+          "count": 169
+        },
+        {
+          "site": "__init__.py:515",
+          "bytes": 20913,
+          "count": 68
+        },
+        {
+          "site": "dataclasses.py:511",
+          "bytes": 20639,
+          "count": 340
+        },
+        {
+          "site": "annotationlib.py:287",
+          "bytes": 19228,
+          "count": 183
+        },
+        {
+          "site": "<string>:2",
+          "bytes": 18424,
+          "count": 164
+        },
+        {
+          "site": "<frozen importlib._bootstrap_external>:1420",
+          "bytes": 18248,
+          "count": 21
+        },
+        {
+          "site": "_compiler.py:778",
+          "bytes": 18208,
+          "count": 37
+        },
+        {
+          "site": "reprlib.py:15",
+          "bytes": 16080,
+          "count": 134
+        },
+        {
+          "site": "dataclasses.py:541",
+          "bytes": 16080,
+          "count": 134
+        },
+        {
+          "site": "entities.py:2511",
+          "bytes": 15632,
+          "count": 153
+        },
+        {
+          "site": "typing.py:2696",
+          "bytes": 15048,
+          "count": 180
+        }
+      ]
+    },
+    {
+      "phase": "enrich_workload",
+      "rss_high_water_bytes": 14811365376,
+      "rss_high_water_gb": 14.81,
+      "traced_current_bytes": 4726918776,
+      "traced_peak_bytes": 6315896421,
+      "traced_peak_gb": 6.32,
+      "top_sites": [
+        {
+          "site": "rebuild/review/enrich.py:906",
+          "bytes": 354252560,
+          "grown_bytes": 354252560,
+          "count": 246939
+        },
+        {
+          "site": "rebuild/review/audit.py:93",
+          "bytes": 589888736,
+          "grown_bytes": 294944368,
+          "count": 8479238
+        },
+        {
+          "site": "rebuild/review/audit.py:92",
+          "bytes": 483460440,
+          "grown_bytes": 241730220,
+          "count": 8511330
+        },
+        {
+          "site": "rebuild/review/audit.py:85",
+          "bytes": 356333322,
+          "grown_bytes": 178166661,
+          "count": 6735524
+        },
+        {
+          "site": "rebuild/pipeline/settle.py:1281",
+          "bytes": 162347496,
+          "grown_bytes": 162347496,
+          "count": 1691087
+        },
+        {
+          "site": "rebuild/pipeline/settle.py:691",
+          "bytes": 138088768,
+          "grown_bytes": 138088768,
+          "count": 1232926
+        },
+        {
+          "site": "rebuild/pipeline/settle.py:1341",
+          "bytes": 125834704,
+          "grown_bytes": 125834704,
+          "count": 873847
+        },
+        {
+          "site": "rebuild/pipeline/settle.py:1425",
+          "bytes": 113127744,
+          "grown_bytes": 113127744,
+          "count": 1000987
+        },
+        {
+          "site": "rebuild/review/audit.py:87",
+          "bytes": 207285024,
+          "grown_bytes": 103641240,
+          "count": 1727354
+        },
+        {
+          "site": "rebuild/pipeline/explain.py:96",
+          "bytes": 92608632,
+          "grown_bytes": 92608632,
+          "count": 964641
+        },
+        {
+          "site": "rebuild/review/enrich.py:812",
+          "bytes": 86353220,
+          "grown_bytes": 86353220,
+          "count": 246939
+        },
+        {
+          "site": "rebuild/pipeline/settle.py:1432",
+          "bytes": 83889264,
+          "grown_bytes": 83889264,
+          "count": 873837
+        },
+        {
+          "site": "rebuild/review/enrich.py:467",
+          "bytes": 71118616,
+          "grown_bytes": 71118616,
+          "count": 246940
+        },
+        {
+          "site": "rebuild/validation/rowmodel.py:68",
+          "bytes": 68114095,
+          "grown_bytes": 68114095,
+          "count": 1213912
+        },
+        {
+          "site": "rebuild/review/enrich.py:199",
+          "bytes": 64204517,
+          "grown_bytes": 64204517,
+          "count": 971641
+        },
+        {
+          "site": "rebuild/review/enrich.py:252",
+          "bytes": 61858688,
+          "grown_bytes": 61858688,
+          "count": 966542
+        },
+        {
+          "site": "rebuild/review/audit.py:186",
+          "bytes": 122482152,
+          "grown_bytes": 61240736,
+          "count": 493878
+        },
+        {
+          "site": "rebuild/review/audit.py:90",
+          "bytes": 114811828,
+          "grown_bytes": 57406082,
+          "count": 2093496
+        },
+        {
+          "site": "rebuild/pipeline/settle.py:1345",
+          "bytes": 55472872,
+          "grown_bytes": 55472872,
+          "count": 873837
+        },
+        {
+          "site": "rebuild/pipeline/conform.py:170",
+          "bytes": 53338824,
+          "grown_bytes": 53338824,
+          "count": 246939
+        },
+        {
+          "site": "rebuild/pipeline/settle.py:639",
+          "bytes": 51339256,
+          "grown_bytes": 51339256,
+          "count": 458383
+        },
+        {
+          "site": "rebuild/review/enrich.py:94",
+          "bytes": 51278595,
+          "grown_bytes": 51278595,
+          "count": 844721
+        },
+        {
+          "site": "rebuild/review/audit.py:177",
+          "bytes": 90873552,
+          "grown_bytes": 45436776,
+          "count": 987756
+        },
+        {
+          "site": "rebuild/review/enrich.py:326",
+          "bytes": 43830656,
+          "grown_bytes": 43830656,
+          "count": 684854
+        },
+        {
+          "site": "rebuild/review/enrich.py:271",
+          "bytes": 39393088,
+          "grown_bytes": 39393088,
+          "count": 614978
+        },
+        {
+          "site": "rebuild/pipeline/settle.py:727",
+          "bytes": 39313824,
+          "grown_bytes": 39313824,
+          "count": 327630
+        },
+        {
+          "site": "rebuild/review/enrich.py:244",
+          "bytes": 37560340,
+          "grown_bytes": 37560340,
+          "count": 1176696
+        },
+        {
+          "site": "rebuild/pipeline/model.py:46",
+          "bytes": 32751844,
+          "grown_bytes": 32751844,
+          "count": 335134
+        },
+        {
+          "site": "rebuild/review/audit.py:161",
+          "bytes": 65182144,
+          "grown_bytes": 32591072,
+          "count": 987756
+        },
+        {
+          "site": "rebuild/validation/rowmodel.py:70",
+          "bytes": 32053664,
+          "grown_bytes": 32053664,
+          "count": 719339
+        },
+        {
+          "site": "rebuild/review/audit.py:69",
+          "bytes": 29449208,
+          "grown_bytes": 29223340,
+          "count": 920826
+        },
+        {
+          "site": "rebuild/pipeline/settle.py:1351",
+          "bytes": 28006800,
+          "grown_bytes": 28006800,
+          "count": 471643
+        },
+        {
+          "site": "rebuild/pipeline/settle.py:671",
+          "bytes": 26791414,
+          "grown_bytes": 26791414,
+          "count": 242523
+        },
+        {
+          "site": "rebuild/pipeline/explain.py:98",
+          "bytes": 25684656,
+          "grown_bytes": 25684656,
+          "count": 246940
+        },
+        {
+          "site": "rebuild/pipeline/settle.py:669",
+          "bytes": 23285056,
+          "grown_bytes": 23285056,
+          "count": 242523
+        },
+        {
+          "site": "rebuild/pipeline/settle.py:624",
+          "bytes": 20798759,
+          "grown_bytes": 20798759,
+          "count": 176769
+        },
+        {
+          "site": "rebuild/review/enrich.py:147",
+          "bytes": 19680216,
+          "grown_bytes": 19680216,
+          "count": 246939
+        },
+        {
+          "site": "rebuild/pipeline/explain.py:99",
+          "bytes": 19680216,
+          "grown_bytes": 19680216,
+          "count": 246939
+        },
+        {
+          "site": "rebuild/review/enrich.py:488",
+          "bytes": 19626200,
+          "grown_bytes": 19626200,
+          "count": 246939
+        },
+        {
+          "site": "rebuild/review/enrich.py:347",
+          "bytes": 19626200,
+          "grown_bytes": 19626200,
+          "count": 246939
+        }
+      ]
+    }
+  ]
+}

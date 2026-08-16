@@ -1,0 +1,396 @@
+{
+  "config": "default",
+  "windows": 1400761,
+  "rules": 3580,
+  "treaty_rows": 6349,
+  "read_wall_s": 31.7,
+  "assemble_wall_s": 30.0,
+  "gc": "frozen",
+  "phases": [
+    {
+      "phase": "read_transitions",
+      "rss_high_water_bytes": 1073561600,
+      "rss_high_water_gb": 1.07,
+      "traced_current_bytes": 537495245,
+      "traced_peak_bytes": 549708417,
+      "traced_peak_gb": 0.55,
+      "top_sites": [
+        {
+          "site": "rebuild/pipeline/kernel_io.py:271",
+          "bytes": 263010696,
+          "count": 2739662
+        },
+        {
+          "site": "rebuild/pipeline/kernel_io.py:277",
+          "bytes": 235330584,
+          "count": 1400761
+        },
+        {
+          "site": "rebuild/pipeline/kernel_io.py:283",
+          "bytes": 27838816,
+          "count": 480374
+        },
+        {
+          "site": "rebuild/pipeline/kernel_io.py:288",
+          "bytes": 11206136,
+          "count": 1
+        },
+        {
+          "site": "decoder.py:361",
+          "bytes": 43951,
+          "count": 634
+        },
+        {
+          "site": "rebuild/pipeline/kernel_io.py:259",
+          "bytes": 33088,
+          "count": 271
+        },
+        {
+          "site": "rebuild/pipeline/kernel_io.py:293",
+          "bytes": 8464,
+          "count": 3
+        },
+        {
+          "site": "rebuild/pipeline/kernel_io.py:294",
+          "bytes": 8408,
+          "count": 2
+        },
+        {
+          "site": "rebuild/pipeline/kernel_io.py:264",
+          "bytes": 7488,
+          "count": 131
+        },
+        {
+          "site": "rebuild/pipeline/kernel_io.py:290",
+          "bytes": 5824,
+          "count": 31
+        },
+        {
+          "site": "rebuild/pipeline/kernel_io.py:286",
+          "bytes": 416,
+          "count": 2
+        },
+        {
+          "site": "gzip.py:503",
+          "bytes": 239,
+          "count": 3
+        },
+        {
+          "site": "gzip.py:605",
+          "bytes": 236,
+          "count": 4
+        },
+        {
+          "site": "<string>:7",
+          "bytes": 136,
+          "count": 2
+        },
+        {
+          "site": "gzip.py:565",
+          "bytes": 120,
+          "count": 1
+        },
+        {
+          "site": "_streams.py:53",
+          "bytes": 120,
+          "count": 1
+        },
+        {
+          "site": "rebuild/pipeline/kernel_io.py:275",
+          "bytes": 112,
+          "count": 2
+        },
+        {
+          "site": "<frozen abc>:123",
+          "bytes": 80,
+          "count": 1
+        },
+        {
+          "site": "bench-the-rebuild/ram/attr_common.py:47",
+          "bytes": 64,
+          "count": 1
+        },
+        {
+          "site": "gzip.py:74",
+          "bytes": 59,
+          "count": 1
+        },
+        {
+          "site": "rebuild/pipeline/kernel_io.py:273",
+          "bytes": 56,
+          "count": 1
+        },
+        {
+          "site": "rebuild/pipeline/kernel_io.py:258",
+          "bytes": 56,
+          "count": 1
+        },
+        {
+          "site": "gzip.py:596",
+          "bytes": 32,
+          "count": 1
+        },
+        {
+          "site": "gzip.py:105",
+          "bytes": 32,
+          "count": 1
+        },
+        {
+          "site": "_streams.py:68",
+          "bytes": 32,
+          "count": 1
+        }
+      ]
+    },
+    {
+      "phase": "assemble_tables",
+      "rss_high_water_bytes": 2754887680,
+      "rss_high_water_gb": 2.75,
+      "traced_current_bytes": 572079735,
+      "traced_peak_bytes": 1125152662,
+      "traced_peak_gb": 1.13,
+      "top_sites": [
+        {
+          "site": "dataclasses.py:1813",
+          "bytes": 21046032,
+          "grown_bytes": 21046032,
+          "count": 125274
+        },
+        {
+          "site": "rebuild/pipeline/table.py:1867",
+          "bytes": 11206136,
+          "grown_bytes": 11206136,
+          "count": 1
+        },
+        {
+          "site": "rebuild/pipeline/table.py:1877",
+          "bytes": 711384,
+          "grown_bytes": 711384,
+          "count": 6350
+        },
+        {
+          "site": "rebuild/pipeline/table.py:94",
+          "bytes": 189504,
+          "grown_bytes": 189504,
+          "count": 1974
+        },
+        {
+          "site": "rebuild/pipeline/table.py:1852",
+          "bytes": 175736,
+          "grown_bytes": 175736,
+          "count": 1997
+        },
+        {
+          "site": "rebuild/pipeline/table.py:1890",
+          "bytes": 144000,
+          "grown_bytes": 144000,
+          "count": 2000
+        },
+        {
+          "site": "rebuild/pipeline/table.py:1971",
+          "bytes": 102128,
+          "grown_bytes": 102128,
+          "count": 1394
+        },
+        {
+          "site": "rebuild/pipeline/table.py:1986",
+          "bytes": 95040,
+          "grown_bytes": 95040,
+          "count": 1188
+        },
+        {
+          "site": "rebuild/pipeline/table.py:2086",
+          "bytes": 84536,
+          "grown_bytes": 84536,
+          "count": 554
+        },
+        {
+          "site": "rebuild/pipeline/table.py:2188",
+          "bytes": 57792,
+          "grown_bytes": 57792,
+          "count": 379
+        },
+        {
+          "site": "rebuild/pipeline/table.py:2199",
+          "bytes": 57776,
+          "grown_bytes": 57776,
+          "count": 379
+        },
+        {
+          "site": "rebuild/pipeline/table.py:2045",
+          "bytes": 56384,
+          "grown_bytes": 56384,
+          "count": 897
+        },
+        {
+          "site": "rebuild/pipeline/table.py:2117",
+          "bytes": 51528,
+          "grown_bytes": 51528,
+          "count": 338
+        },
+        {
+          "site": "rebuild/pipeline/table.py:2128",
+          "bytes": 51512,
+          "grown_bytes": 51512,
+          "count": 338
+        },
+        {
+          "site": "rebuild/pipeline/table.py:1892",
+          "bytes": 51168,
+          "grown_bytes": 51168,
+          "count": 2
+        },
+        {
+          "site": "rebuild/pipeline/table.py:2097",
+          "bytes": 48368,
+          "grown_bytes": 48368,
+          "count": 666
+        },
+        {
+          "site": "rebuild/pipeline/table.py:2212",
+          "bytes": 48232,
+          "grown_bytes": 48232,
+          "count": 317
+        },
+        {
+          "site": "rebuild/pipeline/table.py:2141",
+          "bytes": 43440,
+          "grown_bytes": 43440,
+          "count": 285
+        },
+        {
+          "site": "rebuild/pipeline/table.py:2168",
+          "bytes": 40880,
+          "grown_bytes": 40880,
+          "count": 563
+        },
+        {
+          "site": "rebuild/pipeline/table.py:2109",
+          "bytes": 39680,
+          "grown_bytes": 39680,
+          "count": 620
+        },
+        {
+          "site": "rebuild/pipeline/table.py:1992",
+          "bytes": 38016,
+          "grown_bytes": 38016,
+          "count": 594
+        },
+        {
+          "site": "rebuild/pipeline/table.py:2248",
+          "bytes": 37528,
+          "grown_bytes": 37528,
+          "count": 246
+        },
+        {
+          "site": "rebuild/pipeline/table.py:2259",
+          "bytes": 37512,
+          "grown_bytes": 37512,
+          "count": 246
+        },
+        {
+          "site": "rebuild/pipeline/table.py:2272",
+          "bytes": 37496,
+          "grown_bytes": 37496,
+          "count": 246
+        },
+        {
+          "site": "rebuild/pipeline/table.py:1868",
+          "bytes": 28688,
+          "grown_bytes": 28688,
+          "count": 1
+        },
+        {
+          "site": "rebuild/pipeline/table.py:2241",
+          "bytes": 21928,
+          "grown_bytes": 21928,
+          "count": 248
+        },
+        {
+          "site": "rebuild/pipeline/table.py:1957",
+          "bytes": 19616,
+          "grown_bytes": 19616,
+          "count": 141
+        },
+        {
+          "site": "rebuild/pipeline/table.py:2015",
+          "bytes": 19328,
+          "grown_bytes": 19328,
+          "count": 126
+        },
+        {
+          "site": "rebuild/pipeline/table.py:2028",
+          "bytes": 19320,
+          "grown_bytes": 19320,
+          "count": 126
+        },
+        {
+          "site": "rebuild/pipeline/table.py:2062",
+          "bytes": 5632,
+          "grown_bytes": 5632,
+          "count": 88
+        },
+        {
+          "site": "dataclasses.py:1779",
+          "bytes": 3600,
+          "grown_bytes": 3600,
+          "count": 30
+        },
+        {
+          "site": "rebuild/pipeline/table.py:2053",
+          "bytes": 3456,
+          "grown_bytes": 3456,
+          "count": 54
+        },
+        {
+          "site": "rebuild/pipeline/table.py:1820",
+          "bytes": 3072,
+          "grown_bytes": 3072,
+          "count": 96
+        },
+        {
+          "site": "rebuild/pipeline/table.py:1920",
+          "bytes": 2576,
+          "grown_bytes": 2576,
+          "count": 46
+        },
+        {
+          "site": "rebuild/pipeline/table.py:2233",
+          "bytes": 1728,
+          "grown_bytes": 1728,
+          "count": 27
+        },
+        {
+          "site": "rebuild/pipeline/table.py:2162",
+          "bytes": 1728,
+          "grown_bytes": 1728,
+          "count": 27
+        },
+        {
+          "site": "bench-the-rebuild/ram/attr_common.py:34",
+          "bytes": 1626,
+          "grown_bytes": 1626,
+          "count": 25
+        },
+        {
+          "site": "rebuild/pipeline/table.py:1865",
+          "bytes": 432,
+          "grown_bytes": 432,
+          "count": 2
+        },
+        {
+          "site": "tracemalloc.py:560",
+          "bytes": 328,
+          "grown_bytes": 328,
+          "count": 1
+        },
+        {
+          "site": "tracemalloc.py:423",
+          "bytes": 328,
+          "grown_bytes": 328,
+          "count": 1
+        }
+      ]
+    }
+  ]
+}

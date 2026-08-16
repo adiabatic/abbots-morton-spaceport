@@ -1,0 +1,16 @@
+{
+  "workload_units": 246939,
+  "enriched_units": 246939,
+  "phases": [
+    {
+      "phase": "load_workload",
+      "rss_high_water_bytes": 1406959616,
+      "rss_high_water_gb": 1.41
+    },
+    {
+      "phase": "enrich_workload",
+      "rss_high_water_bytes": 6829244416,
+      "rss_high_water_gb": 6.83
+    }
+  ]
+}
