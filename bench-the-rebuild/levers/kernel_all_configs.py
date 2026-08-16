@@ -23,7 +23,6 @@ import argparse
 import hashlib
 import json
 import os
-import re
 import resource
 import subprocess
 import sys
@@ -39,10 +38,8 @@ sys.path.insert(0, str(ROOT))
 
 from rebuild.pipeline import conform, kernel_io
 from rebuild.pipeline.spec_load import load_default_spec
-from rebuild.tools import kernel_fixpoint, kernel_parity
+from rebuild.tools import kernel_fixpoint, kernel_parity, peak_rss
 from rebuild.tools.cycle_timings import _INNER_LINE
-
-RSS_UNIT = 1 if sys.platform == "darwin" else 1024
 
 
 def cpu_children() -> float:
@@ -50,17 +47,9 @@ def cpu_children() -> float:
     return r.ru_utime + r.ru_stime
 
 
-def time_wrapper() -> list[str]:
-    if not Path("/usr/bin/time").is_file():
-        return []
-    return ["/usr/bin/time", "-l" if sys.platform == "darwin" else "-v"]
-
-
 def peak_rss_gb(text: str) -> float | None:
-    match = re.search(r"(\d+)\s+maximum resident set size", text) or re.search(
-        r"maximum resident set size[^:]*:\s*(\d+)", text, re.I
-    )
-    return round(int(match.group(1)) * RSS_UNIT / 1e9, 2) if match else None
+    measured = peak_rss.parse_time_output(text)
+    return round(peak_rss.bytes_to_gb(measured), 2) if measured is not None else None
 
 
 def phase_times(text: str) -> dict[str, float]:
@@ -95,7 +84,7 @@ def scratch_out_dir(requested: str, arm: str) -> Path:
 
 def run_kernel(binary: Path, spec: Path, out_dir: Path, tokens: list[str], threads: int) -> dict:
     arguments = [
-        *time_wrapper(),
+        *peak_rss.time_wrapper(),
         str(binary),
         "enumerate-configs",
         str(spec),

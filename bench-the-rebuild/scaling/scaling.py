@@ -7,11 +7,27 @@ Cyclic GC is frozen and disabled by default because that is what `run_m1` does a
 `AMS_SCALING_DUMP=<dir>` turns each rung into a kernel-boundary sample as well as a timing: the rung's sub-spec and its default-config fixpoint product are written into that directory, and the row gains the canonical differential digest of the rung's tables. Its timed region calls the two seam halves directly and so leaves out the class-grain assertions a plain `build_tables` runs, which are proof rather than product — the times a dump run reports are therefore its own arm, not rows to fit an exponent against a default run's, and the `mode` field is what says which arm a row came from.
 """
 
-import gc, os, resource, time, json, sys
+import gc, os, time, json, sys
 from dataclasses import replace
 from pathlib import Path
 
 HERE = Path(__file__).resolve()
+
+
+def load_peak_rss():
+    """The live tree's peak-RSS helper, loaded by path rather than imported as `rebuild.tools.peak_rss`: `AMS_SCALING_ROOT` may name an older comparison tree that predates the module, and importing the package name here would bind `rebuild` before that tree reaches `sys.path`. The measured tree changes; the instrument does not."""
+    import importlib.util
+
+    path = HERE.parents[2] / "rebuild" / "tools" / "peak_rss.py"
+    spec = importlib.util.spec_from_file_location("ams_peak_rss", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+peak_rss = load_peak_rss()
+
 sys.path.insert(0, os.environ.get("AMS_SCALING_ROOT") or str(HERE.parents[2]))
 
 from rebuild.pipeline.spec_load import load_default_spec
@@ -70,7 +86,7 @@ for k in [int(x) for x in sys.argv[1:]] or ladder:
         cells=len(d.reachable_cells()),
         cpu=round(cpu, 3),
         wall=round(wall, 3),
-        rss_gb=round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024**3, 2),
+        rss_high_water_gb=round(peak_rss.bytes_to_gb(peak_rss.peak_rss_self_bytes()), 2),
         gc="on" if gc.isenabled() else "frozen",
         deep_classes=getattr(T, "DEEP_CLASSES_DEFAULT", None),
     )

@@ -15,6 +15,11 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[2]
+LIVE_ROOT = Path(__file__).resolve().parents[2]
+
+sys.path.insert(0, str(LIVE_ROOT))
+
+from rebuild.tools.peak_rss import bytes_to_gb, parse_time_output  # noqa: E402
 
 MYPYC = str(HERE / "venv-mypyc/bin/python")
 CYTHON = str(HERE / "venv-cython/bin/python")
@@ -166,15 +171,15 @@ def teardown_cost(name: str) -> dict | None:
     if not tpath.exists() or not jpath.exists():
         return None
     payload = json.loads(jpath.read_text())
-    real = maxrss = None
-    for line in tpath.read_text().splitlines():
+    text = tpath.read_text()
+    real = None
+    for line in text.splitlines():
         s = line.strip()
         if s.endswith("real") or " real " in s:
             parts = s.split()
             if "real" in parts:
                 real = float(parts[parts.index("real") - 1])
-        if "maximum resident set size" in s:
-            maxrss = int(s.split()[0])
+    maxrss = parse_time_output(text)
     if real is None:
         return None
     inside = payload["import_s"] + payload["spec_load_s"] + sum(r["wall_s"] for r in payload["reps"])
@@ -182,7 +187,7 @@ def teardown_cost(name: str) -> dict | None:
         "process_real_s": round(real, 2),
         "timed_work_s": round(inside, 2),
         "startup_plus_teardown_s": round(real - inside, 2),
-        "peak_rss_gb": round(maxrss / 1e9, 2) if maxrss else None,
+        "peak_rss_gb": round(bytes_to_gb(maxrss), 2) if maxrss else None,
     }
 
 

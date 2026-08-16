@@ -11,9 +11,24 @@ import gc
 import hashlib
 import json
 import os
-import resource
 import sys
 import time
+from pathlib import Path
+
+
+def load_peak_rss():
+    """The live tree's peak-RSS helper, loaded by path rather than imported as `rebuild.tools.peak_rss`: this process runs against whichever accelerator tree `PYTHONPATH` names, and putting the repo root on `sys.path` for the sake of the yardstick would leak a second `rebuild` into the import closure the run is measuring."""
+    import importlib.util
+
+    path = Path(__file__).resolve().parents[2] / "rebuild" / "tools" / "peak_rss.py"
+    spec = importlib.util.spec_from_file_location("ams_peak_rss", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+peak_rss = load_peak_rss()
 
 SUBSETS = {
     # 9 runes, one of them a real ligature (qsSee_qsUtter), so the section 5.7 late-formation guard fires.
@@ -150,9 +165,7 @@ def main() -> int:
         reps.append({"wall_s": wall, "cpu_s": cpu})
         del decision, treaty
 
-    maxrss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-    # Darwin reports ru_maxrss in bytes; Linux in kibibytes.
-    peak_rss_mb = maxrss / (1024 * 1024) if sys.platform == "darwin" else maxrss / 1024
+    peak_rss_mb = peak_rss.peak_rss_self_bytes() / (1024 * 1024)
 
     payload = {
         "label": args.label,

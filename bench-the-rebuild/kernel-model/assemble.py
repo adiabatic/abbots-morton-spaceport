@@ -5,6 +5,10 @@ import re
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from rebuild.tools.peak_rss import parse_time_output  # noqa: E402
+
 
 def parse_time(path: Path) -> dict:
     """/usr/bin/time -l output: real/user/sys plus the peak RSS line."""
@@ -17,9 +21,9 @@ def parse_time(path: Path) -> dict:
         out["wall_seconds"] = float(m.group(1))
         out["cpu_seconds"] = float(m.group(2)) + float(m.group(3))
         out["user_seconds"] = float(m.group(2))
-    m = re.search(r"^\s*(\d+)\s+maximum resident set size", text, re.M)
-    if m:
-        out["peak_rss_bytes"] = int(m.group(1))
+    measured = parse_time_output(text)
+    if measured is not None:
+        out["peak_rss_bytes"] = measured
     return out
 
 
