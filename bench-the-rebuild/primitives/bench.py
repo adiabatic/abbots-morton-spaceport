@@ -26,7 +26,6 @@ from __future__ import annotations
 
 import gc
 import json
-import resource
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -35,6 +34,10 @@ from typing import NamedTuple
 
 HERE = Path(__file__).resolve().parent
 DATA = HERE / "data"
+
+sys.path.insert(0, str(HERE.parents[1]))
+
+from rebuild.tools.peak_rss import bytes_to_gb, peak_rss_self_bytes  # noqa: E402
 
 MASK = (1 << 64) - 1
 FNV_OFFSET = 0xCBF29CE484222325
@@ -729,7 +732,7 @@ def main() -> None:
         "meta": meta,
         "wall_s": (perf_counter_ns() - t0) / 1e9,
         "cpu_s": process_time_ns() / 1e9,
-        "peak_rss_gb": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1e9,
+        "peak_rss_gb": bytes_to_gb(peak_rss_self_bytes()),
         "results": RESULTS,
     }
     (HERE / "out").mkdir(exist_ok=True)

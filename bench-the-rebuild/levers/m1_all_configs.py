@@ -33,6 +33,22 @@ import time
 from pathlib import Path
 
 LEVERS_OUT = Path(__file__).resolve().parent / "out"
+LIVE_ROOT = Path(__file__).resolve().parents[2]
+
+
+def load_peak_rss():
+    """The live tree's peak-RSS helper, loaded by path rather than imported as `rebuild.tools.peak_rss`: `--root` may name an older comparison tree that predates the module, and importing the package name here would bind `rebuild` before main() puts that tree on `sys.path`. The measured tree changes; the instrument does not."""
+    import importlib.util
+
+    path = LIVE_ROOT / "rebuild" / "tools" / "peak_rss.py"
+    spec = importlib.util.spec_from_file_location("ams_peak_rss", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+peak_rss = load_peak_rss()
 
 
 def cpu_now() -> float:
@@ -41,8 +57,7 @@ def cpu_now() -> float:
 
 
 def peak_rss_gb() -> float:
-    peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-    return round(peak * (1 if sys.platform == "darwin" else 1024) / 1e9, 2)
+    return round(peak_rss.bytes_to_gb(peak_rss.peak_rss_self_bytes()), 2)
 
 
 def table_digest(decision, treaty) -> str:
@@ -119,7 +134,7 @@ def instrument_configs(table_module, rows: list[dict]) -> None:
                 "rules": len(decision.rules),
                 "treaty_rows": len(treaty.rows),
                 "collections": sum(s["collections"] for s in gc.get_stats()) - collections_before,
-                "rss_gb": peak_rss_gb(),
+                "rss_high_water_gb": peak_rss_gb(),
                 "digest": digest_of(decision, treaty),
             }
         )

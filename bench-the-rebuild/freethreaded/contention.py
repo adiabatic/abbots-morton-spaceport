@@ -20,6 +20,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "bench-the-rebuild/freethreaded"))
 import kernel  # noqa: E402
+from rebuild.tools.peak_rss import bytes_to_gb, peak_rss_self_bytes  # noqa: E402
 
 KEEP = int(sys.argv[1]) if len(sys.argv) > 1 else 9
 NTHREADS = int(sys.argv[2]) if len(sys.argv) > 2 else 6
@@ -57,4 +58,4 @@ def own_spec():
 
 run(f"shared-spec/{NTHREADS}", shared_spec)
 run(f"own-spec/{NTHREADS}", own_spec)
-print(f"peak_rss={resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1e9:.2f}GB pid={os.getpid()}")
+print(f"peak_rss={bytes_to_gb(peak_rss_self_bytes()):.2f}GB pid={os.getpid()}")

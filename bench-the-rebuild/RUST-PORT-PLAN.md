@@ -33,7 +33,7 @@ The decision is made; this table is its record, and two rows keep live jobs. The
 | Alphabet target passes ~18 letters | the migration itself | Every keep-the-Python path is exhausted; only a port reaches further |
 | Six-config cold wall passes ~600 s | `levers/m1_all_configs.py --mode fresh`, or `make cycle-timings`'s `build_tables_total` | The levers are spent |
 | Whole-ladder exponent rises above ~4.5 **in letters**, or ~5.5 in runes | `scaling/scaling.py` after each migration batch, fitted over every rung | Even a parallel port stops reaching 44; work avoidance becomes mandatory regardless of language |
-| Peak RSS at the top rung passes ~half the box | `scaling/scaling.py`'s `rss_gb`, and `m1_all_configs.py`'s `peak_rss_gb` | Memory, not wall clock, becomes the binding constraint — and a port moves that constant without moving its exponent |
+| Peak RSS at the top rung passes ~half the box | `scaling/scaling.py`'s `rss_high_water_gb`, and `m1_all_configs.py`'s `peak_rss_gb` — both decimal GB, measured through `rebuild/tools/peak_rss.py` | Memory, not wall clock, becomes the binding constraint — and a port moves that constant without moving its exponent |
 | Kernel-semantics commits fall below ~1/quarter | `git log -- rebuild/pipeline/{settle,table,model,specificity}.py` | The duplication tax collapses and the port gets much cheaper |
 | `TraceShare` can be made value-keyed | see the open question below | Parallelism and the share stop excluding each other; every parallel figure rises |
 

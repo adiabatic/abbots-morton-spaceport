@@ -1883,8 +1883,11 @@ CONFIG_NAMES = ["default", "ss03", "ss04", "ss05", "ss03+ss05", "ss10"]
 
 def main() -> None:
     import json
-    import resource
     import time
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+    from rebuild.tools.peak_rss import peak_rss_self_bytes
 
     spec_path = sys.argv[1]
     mode = sys.argv[2] if len(sys.argv) > 2 else "one"
@@ -1923,7 +1926,7 @@ def main() -> None:
                 "letters": n_letters,
                 "wall_seconds": wall,
                 "cpu_seconds": cpu,
-                "peak_rss_bytes": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
+                "peak_rss_bytes": peak_rss_self_bytes(),
                 "configs": results,
             }
         )

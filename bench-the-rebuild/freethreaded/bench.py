@@ -31,6 +31,7 @@ sys.path.insert(0, HERE)
 import kernel  # noqa: E402
 from rebuild.pipeline import settle as settle_module  # noqa: E402
 from rebuild.pipeline import table as table_module  # noqa: E402
+from rebuild.tools.peak_rss import bytes_to_gb, peak_rss_self_bytes  # noqa: E402
 
 MODE = sys.argv[1]
 NTHREADS = int(sys.argv[2])
@@ -120,7 +121,7 @@ print(
             "wall_s": round(wall, 3),
             "cpu_s": round(cpu_s, 3),
             "cpu_utilization": round(cpu_s / wall, 3),
-            "peak_rss_gb": round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1e9, 3),
+            "peak_rss_gb": round(bytes_to_gb(peak_rss_self_bytes()), 3),
             "gil_enabled": bool(getattr(sys, "_is_gil_enabled", lambda: True)()),
             "python": sys.version.split()[0],
             "free_threading": "free-threading" in sys.version,

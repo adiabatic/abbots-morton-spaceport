@@ -1,10 +1,11 @@
-import json, os, sys, time, resource
+import json, os, sys, time
 
 t0 = time.perf_counter()
 c0 = time.process_time()
 from rebuild.pipeline.spec_load import load_default_spec
 from rebuild.pipeline import table as T
 from rebuild.pipeline import settle as S
+from rebuild.tools.peak_rss import peak_rss_self_bytes
 
 spec = load_default_spec()
 t_load = time.perf_counter() - t0
@@ -40,7 +41,7 @@ out = {
     "n_treaty": len(treaty.rows),
     "n_cells": len(decision.reachable_cells()),
     "windows_digest": T.windows_digest(decision),
-    "maxrss_bytes": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
+    "peak_rss_bytes": peak_rss_self_bytes(),
     "counters": {k: v[0] for k, v in counters.items()},
 }
 if not out["counters"]:
