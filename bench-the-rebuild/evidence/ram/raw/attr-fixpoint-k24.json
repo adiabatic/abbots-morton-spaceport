@@ -1,0 +1,222 @@
+{
+  "k": 24,
+  "runes": 24,
+  "letters": 18,
+  "windows": 1400761,
+  "rules": 3580,
+  "treaty_rows": 6349,
+  "cells": 271,
+  "wall_s": 609.3,
+  "gc": "frozen",
+  "deep_classes": true,
+  "rss_bytes_per_window": 8898.5,
+  "phase": "build_tables",
+  "rss_high_water_bytes": 12464603136,
+  "rss_high_water_gb": 12.46,
+  "traced_current_bytes": 2841420843,
+  "traced_peak_bytes": 7463755790,
+  "traced_peak_gb": 7.46,
+  "top_sites": [
+    {
+      "site": "rebuild/pipeline/settle.py:800",
+      "bytes": 629971328,
+      "count": 5624744
+    },
+    {
+      "site": "rebuild/pipeline/settle.py:833",
+      "bytes": 335544336,
+      "count": 1
+    },
+    {
+      "site": "rebuild/pipeline/settle.py:832",
+      "bytes": 335544336,
+      "count": 1
+    },
+    {
+      "site": "rebuild/pipeline/settle.py:253",
+      "bytes": 222647624,
+      "count": 3342247
+    },
+    {
+      "site": "rebuild/pipeline/table.py:1676",
+      "bytes": 197868632,
+      "count": 1177774
+    },
+    {
+      "site": "rebuild/pipeline/settle.py:691",
+      "bytes": 144876256,
+      "count": 1293538
+    },
+    {
+      "site": "rebuild/pipeline/settle.py:587",
+      "bytes": 114215264,
+      "count": 1700947
+    },
+    {
+      "site": "rebuild/pipeline/settle.py:569",
+      "bytes": 104226096,
+      "count": 1002174
+    },
+    {
+      "site": "rebuild/pipeline/settle.py:148",
+      "bytes": 88935053,
+      "count": 1460051
+    },
+    {
+      "site": "rebuild/pipeline/settle.py:639",
+      "bytes": 61978928,
+      "count": 553374
+    },
+    {
+      "site": "rebuild/pipeline/settle.py:1425",
+      "bytes": 61164192,
+      "count": 546099
+    },
+    {
+      "site": "rebuild/pipeline/settle.py:605",
+      "bytes": 56121744,
+      "count": 1002174
+    },
+    {
+      "site": "rebuild/pipeline/settle.py:1432",
+      "bytes": 52412256,
+      "count": 545961
+    },
+    {
+      "site": "rebuild/pipeline/settle.py:671",
+      "bytes": 51413039,
+      "count": 451688
+    },
+    {
+      "site": "rebuild/pipeline/settle.py:669",
+      "bytes": 43362048,
+      "count": 451688
+    },
+    {
+      "site": "rebuild/pipeline/settle.py:588",
+      "bytes": 41943064,
+      "count": 1
+    },
+    {
+      "site": "rebuild/pipeline/settle.py:624",
+      "bytes": 28594252,
+      "count": 246068
+    },
+    {
+      "site": "rebuild/pipeline/settle.py:661",
+      "bytes": 26788725,
+      "count": 257269
+    },
+    {
+      "site": "rebuild/pipeline/settle.py:659",
+      "bytes": 24697824,
+      "count": 257269
+    },
+    {
+      "site": "rebuild/pipeline/settle.py:622",
+      "bytes": 23622528,
+      "count": 246068
+    },
+    {
+      "site": "dataclasses.py:1813",
+      "bytes": 21046032,
+      "count": 125274
+    },
+    {
+      "site": "rebuild/pipeline/model.py:46",
+      "bytes": 20064496,
+      "count": 203352
+    },
+    {
+      "site": "rebuild/pipeline/settle.py:713",
+      "bytes": 16690752,
+      "count": 514488
+    },
+    {
+      "site": "rebuild/pipeline/table.py:1775",
+      "bytes": 16416072,
+      "count": 97715
+    },
+    {
+      "site": "rebuild/pipeline/settle.py:688",
+      "bytes": 13123392,
+      "count": 410106
+    },
+    {
+      "site": "rebuild/pipeline/table.py:1867",
+      "bytes": 11206136,
+      "count": 1
+    },
+    {
+      "site": "rebuild/pipeline/settle.py:1354",
+      "bytes": 10918232,
+      "count": 188048
+    },
+    {
+      "site": "rebuild/pipeline/table.py:718",
+      "bytes": 10485784,
+      "count": 1
+    },
+    {
+      "site": "<string>:1",
+      "bytes": 9756688,
+      "count": 135510
+    },
+    {
+      "site": "rebuild/pipeline/table.py:714",
+      "bytes": 9665440,
+      "count": 120818
+    },
+    {
+      "site": "rebuild/pipeline/table.py:775",
+      "bytes": 7925808,
+      "count": 90066
+    },
+    {
+      "site": "rebuild/pipeline/settle.py:643",
+      "bytes": 5458656,
+      "count": 56861
+    },
+    {
+      "site": "rebuild/pipeline/settle.py:645",
+      "bytes": 5309665,
+      "count": 56861
+    },
+    {
+      "site": "rebuild/pipeline/settle.py:632",
+      "bytes": 5094698,
+      "count": 56924
+    },
+    {
+      "site": "rebuild/pipeline/settle.py:742",
+      "bytes": 5017440,
+      "count": 52265
+    },
+    {
+      "site": "rebuild/pipeline/settle.py:1430",
+      "bytes": 4163520,
+      "count": 73755
+    },
+    {
+      "site": "rebuild/pipeline/settle.py:682",
+      "bytes": 3290221,
+      "count": 20923
+    },
+    {
+      "site": "rebuild/pipeline/settle.py:985",
+      "bytes": 3171132,
+      "count": 31359
+    },
+    {
+      "site": "rebuild/pipeline/settle.py:1178",
+      "bytes": 2170161,
+      "count": 44289
+    },
+    {
+      "site": "rebuild/pipeline/settle.py:680",
+      "bytes": 2008608,
+      "count": 20923
+    }
+  ],
+  "traced_peak_bytes_per_window": 5328.4
+}

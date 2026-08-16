@@ -1,0 +1,21 @@
+{
+  "config": "default",
+  "windows": 1400761,
+  "rules": 3580,
+  "treaty_rows": 6349,
+  "read_wall_s": 6.5,
+  "assemble_wall_s": 8.6,
+  "gc": "frozen",
+  "phases": [
+    {
+      "phase": "read_transitions",
+      "rss_high_water_bytes": 603275264,
+      "rss_high_water_gb": 0.6
+    },
+    {
+      "phase": "assemble_tables",
+      "rss_high_water_bytes": 1233092608,
+      "rss_high_water_gb": 1.23
+    }
+  ]
+}
