@@ -693,6 +693,23 @@ def _real_labels(real_spec, names: str, features=()) -> tuple[str, ...]:
     )
 
 
+@pytest.mark.parametrize("lead", ("qsI", "qsAh"))
+@pytest.mark.parametrize("features", ((), ("ss03",)))
+def test_may_tea_jai_keeps_a_baseline_gap(real_spec, lead, features):
+    assert _real_labels(real_spec, f"{lead} qsMay qsTea qsJai", features) == (
+        f"{lead}.{'loop' if lead == 'qsI' else 'hapax'}.ex-y5.ex-ext-1",
+        "qsMay.loop.en-y5",
+        "qsTea.half.ex-y5.ex-ext-1",
+        "qsJai.hapax.en-y5.en-con-1",
+    )
+    assert _real_labels(real_spec, "qsTea qsJai", features) == (
+        "qsTea.half.ex-y5",
+        "qsJai.hapax.en-y5.en-con-1",
+    )
+    follower_labels = _real_labels(real_spec, "qsMay qsTea qsJai qsTea", features)
+    assert follower_labels[1] == ("qsTea.full.en-y5" if features else "qsTea.half.ex-y5")
+
+
 # The depth-3 regression pins (doc/rebuild-design.md section 3.4, the orphaned-·Tea windows): in ·Day·Tea·Utter·Low and ·Oy·Tea·Utter·Low the predecessor used to withdraw its baseline exit on the prospect that ·Tea would join forward into ·Utter, and qsUtter's ·Low-scoped prefer then vetoed the entry, leaving ·Tea joined on neither side. The depth-3 chains on qsDay.policy.prefer[1] and qsOy/qsTea_qsOy.policy.prefer[0] keep the predecessor's exit exactly there, restoring the old font's y0,break,y0 grouping; the contrast windows pin that the yield still fires everywhere else. The depth-4 sextet carries the same phenomenon one token deeper: qsDay.policy.prefer[4]'s entry-live carve-out reads the fourth raw glyph, so ·Pea·Day·Tea·Utter·Tea·May withdraws ·Day's exit and joins ·Tea forward into ·Utter when the fourth letter is an orphan follower, while the rescue still holds when the tail stays joinable (·Pea, or a word-final stop) and ss03 keeps the y5 ·Utter·Tea escape; these windows run five and six letters, past the acceptance oracle's four-letter horizon, so they are pinned here by hand.
 
 
