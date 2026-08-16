@@ -1,6 +1,6 @@
 # bench-the-rebuild
 
-Measurement scaffolding for one open question: **is Python what makes the rebuild slow, and would a Rust or Go port help enough to be worth it?** `RUST-PORT-PLAN.md` holds the decision and the thresholds that settle it. This file says what is here and how to run it.
+Measurement scaffolding for one open question: **is Python what makes the rebuild slow, and would a Rust or Go port help enough to be worth it?** `RUST-PORT-PLAN.md` holds the decision and the thresholds that settle it. A sibling question now lives here on the same isolation rules: **what occupies the rebuild's RAM high-water mark?** — `ram/` holds the attribution harnesses behind the tracker issue #50, and `rebuild/tools/peak_rss.py` is the one yardstick every RSS figure in this tree goes through. This file says what is here and how to run it.
 
 Everything here reads the repo and writes only under this directory. Nothing in `make test`, `make all`, `make test-rebuild` or the artifact cycle touches it, and `bench-the-rebuild/` is in `MAKE_TEST_EXEMPT_PREFIXES` so editing a harness cannot re-arm gate:make-test. Pytest never collects it — `testpaths` is `test/` and `site/` — and pyright does not check it, since `[tool.pyright] include` names `tools`, `test`, `conftest.py` and `rebuild` only.
 
@@ -18,6 +18,9 @@ Rust and Go are needed for the ports; everything else is `uv run`. Neither toolc
 | `primitives/`   | Per-operation costs across the three languages                                                | `zsh run.sh`                        |
 | `ink-and-tsv/`  | The two smaller port candidates: placed-ink and TSV parsing                                   | `zsh run.sh`                        |
 | `cut-the-work/` | Coverage levers no language change can reach                                                  | `zsh run.sh`                        |
+| `ram/`          | What occupies the RAM high-water mark — the attribution runs behind issue #50                 | `uv run python attr_fixpoint.py`    |
+
+`ram/` holds three harnesses, one per attribution the tracker's sub-issues are gated on: `attr_fixpoint.py` (the settle fixpoint at a ladder rung, one process per rung), `attr_fold.py` (the rust-engine fold path — `kernel_io.read_transitions` plus `assemble_tables`), and `attr_fixtures.py` (what the rebuild suite's session fixtures materialize per xdist worker). Each phase records both the tracemalloc peak (compression-blind) and the process high-water, plus a top-allocation-sites table; `AMS_ATTR_TRACE=0` reruns any of them untraced for a clean high-water figure. Raw rows land in `ram/out/`; the curated record is `evidence/ram/`.
 
 Three of those want a word of their own, because they are how a claim gets re-checked rather than re-argued. `levers/m1_all_configs.py` measures the real six-configuration `build_tables` stage — the same call `run_m1` makes, over the same in-process share — in three modes: `nostore` with no persisted memo at all, `fresh` with one present but distrusted, and `warm` with one primed. **`fresh` is the mode the endpoint is quoted in**; `nostore` is materially cheaper because it skips the memo writes, so comparing a `nostore` run against a recorded endpoint flatters it. Its warm mode refuses any output directory outside `levers/out/`, which is what stops a comparison tree's symlinked `rebuild/out` from writing over the real artifacts.
 
