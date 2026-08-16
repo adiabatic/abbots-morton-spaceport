@@ -31,8 +31,8 @@ import struct
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-SRC = ROOT / "tmp" / "perf" / "attr-overhead" / "data"
-OUT = ROOT / "tmp" / "perf2" / "k1-micro" / "data"
+SRC = ROOT / "bench-the-rebuild" / "fixtures"
+OUT = Path(__file__).resolve().parent / "data"
 
 NSLOTS = 10
 NULL = "-"

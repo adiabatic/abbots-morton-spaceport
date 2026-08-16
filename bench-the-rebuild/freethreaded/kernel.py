@@ -16,7 +16,7 @@ import os
 import sys
 
 REPO = os.environ.get("AMS_REPO") or os.path.dirname(
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 )
 if REPO not in sys.path:
     sys.path.insert(0, REPO)

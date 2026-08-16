@@ -22,14 +22,14 @@ import time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-REPO = HERE.parents[2]
+REPO = HERE.parents[1]
 sys.path.insert(0, str(REPO))
 
 from rebuild.pipeline.baseline_subset import M1_ALPHABET, filter_table  # noqa: E402
 from rebuild.review.audit import AUDIT_HEADER, AuditRow, load_audit  # noqa: E402
 from rebuild.validation.rowmodel import Row  # noqa: E402
 
-ROWS_TSV = REPO / "tmp" / "perf" / "attr-overhead" / "data" / "baseline-rows.tsv"
+ROWS_TSV = REPO / "bench-the-rebuild" / "fixtures" / "baseline-rows.tsv"
 AUDIT_TSV = REPO / "rebuild" / "out" / "m1" / "divergence-audit.tsv"
 BIG_TSV = HERE / "work" / "baseline-default.tsv"
 

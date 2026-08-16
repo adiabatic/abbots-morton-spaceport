@@ -12,8 +12,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-REPO = Path(__file__).resolve().parents[3]
-DATA = REPO / "tmp" / "perf" / "attr-overhead" / "data"
+REPO = Path(__file__).resolve().parents[2]
+DATA = REPO / "bench-the-rebuild" / "fixtures"
 
 
 def _load_outlines(path: Path) -> dict[str, tuple]:

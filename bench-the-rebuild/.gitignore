@@ -5,8 +5,7 @@ target/
 .cargo/
 .gopath/
 venv*/
-tree-cython/
-tree-mypyc/
+compilers/tree-*/
 *.time
 *.log
 *.prof

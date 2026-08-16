@@ -18,7 +18,7 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import k3_common  # noqa: E402
 
@@ -238,8 +238,8 @@ def main() -> None:
     # The ports take pre-shaped runs, which is the boundary the cost model draws around K3. This
     # measures what that boundary costs: same 3,000 rows, same checksum, but every glyph run comes
     # from uharfbuzz and every outline from a DecomposingRecordingPen over the shipped fonts.
-    before_font = HERE.parents[2] / "site" / "AbbotsMortonSpaceportSansSenior-Regular.otf"
-    after_font = HERE.parents[2] / "rebuild" / "out" / "m1" / "M1.otf"
+    before_font = HERE.parents[1] / "site" / "AbbotsMortonSpaceportSansSenior-Regular.otf"
+    after_font = HERE.parents[1] / "rebuild" / "out" / "m1" / "M1.otf"
     if before_font.exists() and after_font.exists():
         from rebuild.review.ink import InkComparator
 
@@ -253,8 +253,8 @@ def main() -> None:
             "checksum_matches_pre_extracted_corpus": checksum_live == checksum,
             "shaping_and_outline_overhead_seconds": elapsed_live - elapsed,
             "fraction_of_live_pass_the_ports_replace": elapsed / elapsed_live,
-            "before_font": str(before_font.relative_to(HERE.parents[2])),
-            "after_font": str(after_font.relative_to(HERE.parents[2])),
+            "before_font": str(before_font.relative_to(HERE.parents[1])),
+            "after_font": str(after_font.relative_to(HERE.parents[1])),
             "note": (
                 "InkComparator's default plain Shaper, so four hb.shape calls per row (two per side, "
                 "one for signature and one for config_diff). The surface build passes shaper_for, whose "

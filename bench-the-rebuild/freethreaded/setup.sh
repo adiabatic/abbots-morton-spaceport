@@ -8,7 +8,7 @@ set -e
 set -u
 
 HERE="${0:A:h}"
-REPO="${HERE:h:h:h}"
+REPO="${HERE:h:h}"
 export UV_CACHE_DIR="$REPO/.uv-cache"
 
 uv python install 3.14.6+freethreaded 3.14.6
