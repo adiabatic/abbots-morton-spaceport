@@ -31,7 +31,7 @@ import time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-REPO = HERE.parents[2]
+REPO = HERE.parents[1]
 sys.path.insert(0, str(REPO))
 
 from rebuild.validation.rowmodel import Row, format_codepoints, iter_rows  # noqa: E402

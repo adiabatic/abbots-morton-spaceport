@@ -4,7 +4,7 @@
 # Usage: ./build.sh
 set -e
 HERE="${0:a:h}"
-REPO="${HERE:h:h:h}"
+REPO="${HERE:h:h}"
 cd "$HERE"
 mkdir -p out
 

@@ -14,7 +14,7 @@ import sys
 import time
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "test"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "test"))
 
 from quikscript_shaping_helpers import _context_chars, _qs_text, _shape_with_clusters
 

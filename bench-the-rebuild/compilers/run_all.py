@@ -14,10 +14,9 @@ import time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-REPO = HERE.parents[2]
-LIVE_ROOT = Path(__file__).resolve().parents[2]
+REPO = HERE.parents[1]
 
-sys.path.insert(0, str(LIVE_ROOT))
+sys.path.insert(0, str(REPO))
 
 from rebuild.tools.peak_rss import bytes_to_gb, parse_time_output  # noqa: E402
 

@@ -26,6 +26,7 @@ from rebuild.review import ink as ink_mod  # noqa: E402
 from rebuild.review import status as status_mod  # noqa: E402
 
 REVIEW = ROOT / "rebuild" / "out" / "review"
+LEVERS_OUT = Path(__file__).resolve().parent / "out"
 
 
 def timed(fn, reps=3):
@@ -76,7 +77,8 @@ def human_unit_ids_lever() -> dict:
     shard_bytes = sum((REVIEW / e["shard"]).stat().st_size for e in manifest["classes"] if e.get("shard"))
     # What persisting the id set in the manifest would cost to read back instead.
     payload = json.dumps(sorted(ids))
-    scratch = ROOT / "tmp" / "perf2" / "python-levers" / "human-ids.json"
+    scratch = LEVERS_OUT / "human-ids.json"
+    scratch.parent.mkdir(parents=True, exist_ok=True)
     scratch.write_text(payload)
     t_persisted, ids2 = timed(lambda: frozenset(json.loads(scratch.read_text())), 3)
     return {

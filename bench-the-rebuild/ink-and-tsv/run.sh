@@ -18,7 +18,7 @@ set -e
 set -u
 
 HERE="${0:A:h}"
-REPO="${HERE:h:h:h}"
+REPO="${HERE:h:h}"
 WORK="$HERE/work"
 PASSES="${PASSES:-3}"
 mkdir -p "$WORK"

@@ -11,7 +11,7 @@ set -e
 set -u
 
 HERE="${0:A:h}"
-REPO="${HERE:h:h:h}"
+REPO="${HERE:h:h}"
 FT="$HERE/venv-ft/bin/python"
 GIL="$HERE/venv-gil/bin/python"
 OUT="$HERE/results.ndjson"
