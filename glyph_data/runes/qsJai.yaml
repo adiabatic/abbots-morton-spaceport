@@ -98,13 +98,8 @@ policy:
         family:
         - qsTea
         - qsThaw
-        - qsVie
-        - qsVie_qsUtter
-        - qsSee
         - qsYe
         - qsIng
-        - qsNo
-        - qsLow
         - qsRoe
         - qsExam
         - qsIt
