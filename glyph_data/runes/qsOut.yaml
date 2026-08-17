@@ -1,10 +1,10 @@
 rune: qsOut
 codepoint: 0xE67B
 ductus:
-  normal: | # DRAFT — pending author sign-off
-    Begun at the left end of the baseline, where a previous letter may connect, the stroke climbs diagonally up and to the right to the letter’s crown at the x-height, runs rightward along the crown, and descends the right side, curling back in toward the letter and stopping partway down.
-  swept-up: | # DRAFT — pending author sign-off
-    As the normal motion, but after the crown the stroke, instead of finishing its descent down the right side, keeps climbing up and to the right, ending level at the x-height, where it connects to the next letter.
+  normal: |
+    Begun at the left end of the baseline, where a previous letter may connect, the stroke climbs diagonally up and to the right to the letter’s crown at the x-height, runs rightward along the crown, and descends the right side, curling back in toward the letter in a loop.
+  swept-up: |
+    As the normal motion, but finish the loop rightwards, at the x-height, where it connects to the next letter.
 mono:
   bitmap:
   - "   # "  #

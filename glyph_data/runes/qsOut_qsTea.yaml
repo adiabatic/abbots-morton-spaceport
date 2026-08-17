@@ -3,10 +3,10 @@ sequence:
 - qsOut
 - qsTea
 ductus:
-  hapax: | # DRAFT — pending author sign-off
-    The ·Out stroke and the ·Tea stroke drawn as one motion: the ·Out bowl rises from the baseline as in the normal motion, and at the crown the stroke continues straight up as the ·Tea stem to the top height, then retraces down through the crown and finishes the ·Out descent, curling back in toward the letter.
+  hapax: |
+    The ·Out stroke and the ·Tea stroke drawn as one motion: the ·Out bowl rises from the baseline as in the normal motion, loops around clockwise, and then ends going straight up.
 notes: |
-  Exitless by declaration: the old font compiles no exit-bearing variant of this ligature anywhere in the corpus — every follower arrives unjoined, and the trailing ·Tea's own exit rules never propagate onto it.
+  This letter doesn’t have any exits by design.
 stances:
   hapax:
     motion: hapax

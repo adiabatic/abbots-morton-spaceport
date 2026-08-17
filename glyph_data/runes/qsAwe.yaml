@@ -1,7 +1,7 @@
 rune: qsAwe
 codepoint: 0xE677
 ductus:
-  hapax: | # DRAFT — pending author sign-off
+  hapax: |
     Begun at the left along the x-height, the stroke runs briefly rightward, then descends down and to the right in a sigmoid curve and finishes rightward along the baseline.
 mono:
   bitmap:
