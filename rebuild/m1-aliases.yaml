@@ -158,6 +158,9 @@ qsAh.noentry.ex-ext-1: {rune: qsAh, stance: hapax, exit: x-height, adjustments: 
 qsAwe: {rune: qsAwe, stance: hapax}
 qsAwe.en-ext-1: {rune: qsAwe, stance: hapax, entry: x-height, adjustments: [en-ext-1]}
 qsAwe.noentry: {rune: qsAwe, stance: hapax, adjustments: [locked]}
+qsOx: {rune: qsOx, stance: hapax}
+qsOx.en-ext-1: {rune: qsOx, stance: hapax, entry: x-height, adjustments: [en-ext-1]}
+qsOx.noentry: {rune: qsOx, stance: hapax, adjustments: [locked]}
 qsOy: {rune: qsOy, stance: hapax}
 qsOy.en-y5.ex-y0: {rune: qsOy, stance: hapax, entry: x-height, exit: baseline}
 qsOy.noentry: {rune: qsOy, stance: hapax, adjustments: [locked]}
