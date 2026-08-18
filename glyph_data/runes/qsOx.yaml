@@ -1,8 +1,8 @@
 rune: qsOx
 codepoint: 0xE678
 ductus:
-  hapax: | # DRAFT — pending author sign-off
-    Begun at the left along the x-height, the stroke runs briefly rightward, then descends down and to the right in a straight diagonal and finishes with a short vertical drop to the baseline at the right.
+  hapax: |
+    Begun at the left along the x-height, the stroke runs rightward and down in a vaguely parabolic arc.
 mono:
   bitmap:
   - "##   "  #
