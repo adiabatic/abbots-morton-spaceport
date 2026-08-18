@@ -448,4 +448,4 @@ def test_subset_rows_load_for_every_config(enricher, workload):
 
 def test_subset_tables_iterate(enricher):
     rows = list(iter_rows(M1_DIR / "baseline-default.subset.tsv.gz"))
-    assert len(rows) == 245410
+    assert len(rows) == 292560

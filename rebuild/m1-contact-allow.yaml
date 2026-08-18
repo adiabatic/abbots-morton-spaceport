@@ -288,6 +288,111 @@
 - signature: dangle:qsAwe.hapax.locked:exit:baseline
   why: The ZWNJ-locked twin of ·Awe's tail terminal; identical drawing.
 
+# ·Ox's vertical tail drops from y1 to the baseline one column left of every baseline follower's own left downstroke — the same tail-against-bar corner blessed for ·Oy above, drawn by today's font on every baseline-proven ·Ox join (E678:E652, E678:E670, E678:E67A, E678:E67B all carry a y0 seam).
+# The bare exit cell against each baseline follower.
+- signature: contact:qsOx.hapax.ex-y0:qsTea.full.en-y0:y1
+  why: ·Ox·Tea joins at the baseline today (baseline row E678:E652, seam y0); ·Ox's vertical tail at y1 sits one column left of ·Tea's bar — the same corner today's font draws.
+- signature: contact:qsOx.hapax.ex-y0:qsIt.hapax.en-y0:y1
+  why: ·Ox·It joins at the baseline today (baseline row E678:E670); the same tail-against-bar corner as ·Ox·Tea.
+- signature: contact:qsOx.hapax.ex-y0:qsIt.hapax.en-y0.ex-y0:y1
+  why: The blessed ·Ox·It corner with ·It carrying its own baseline exit onward; the exit side leaves the bar at y1 where it is.
+- signature: contact:qsOx.hapax.ex-y0:qsIt.hapax.en-y0.ex-y5:y1
+  why: The blessed ·Ox·It corner with ·It exiting at the x-height instead; the exit adds ink at y5 only.
+- signature: contact:qsOx.hapax.ex-y0:qsIt.hapax.en-y0.ex-y5.ex-ext-1:y1
+  why: The blessed ·Ox·It corner with ·It's x-height exit extended toward a following ·J'ai (baseline row E678:E670:E65D); the extension adds ink at y5 only, so the corner is unchanged.
+- signature: contact:qsOx.hapax.ex-y0:qsUtter.mono.en-y0:y1
+  why: ·Ox·Utter joins at the baseline today (baseline row E678:E67A); ·Ox's tail abuts ·Utter's left downstroke at y1, the same corner as the blessed ·Ox·It.
+- signature: contact:qsOx.hapax.ex-y0:qsUtter.mono.en-y0.ex-y5:y1
+  why: The blessed ·Ox·Utter corner with ·Utter exiting at the x-height; the crown's exit does not move its left downstroke.
+- signature: contact:qsOx.hapax.ex-y0:qsUtter.mono.en-y0.ex-y5.ex-ext-1:y1
+  why: The blessed ·Ox·Utter corner with ·Utter's x-height exit extended by one; the extension touches the crown only.
+- signature: contact:qsOx.hapax.ex-y0:qsOut.normal.en-y0:y1
+  why: ·Ox·Out joins at the baseline today (baseline row E678:E67B); ·Ox's tail abuts ·Out's left upstroke at y1, the same corner as the blessed ·Ox·Utter.
+- signature: contact:qsOx.hapax.ex-y0:qsOut.swept-up.en-y0.ex-y5:y1
+  why: The blessed ·Ox·Out corner on the swept-up stance that carries an x-height exit; the sweep leaves the left upstroke where it is.
+- signature: contact:qsOx.hapax.ex-y0:qsOut.swept-up.en-y0.ex-y5.ex-ext-1:y1
+  why: The swept-up ·Ox·Out corner with its x-height exit extended by one; the extension touches the sweep only.
+- signature: contact:qsOx.hapax.ex-y0:qsOut_qsTea.hapax.en-y0:y1
+  why: ·Ox into the ·Out·Tea ligature joins at the baseline today (baseline row E678:E67B:E652); the ligature's entry is ·Out's, so the corner is the blessed ·Ox·Out one.
+
+# The ZWNJ-locked twins; the locked cell draws exactly what the bare one draws.
+- signature: contact:qsOx.hapax.ex-y0.locked:qsTea.full.en-y0:y1
+  why: The ZWNJ-locked twin of the blessed ·Ox·Tea corner; the drawing is identical to the bare cell's.
+- signature: contact:qsOx.hapax.ex-y0.locked:qsIt.hapax.en-y0:y1
+  why: The ZWNJ-locked twin of the blessed ·Ox·It corner; the drawing is identical to the bare cell's.
+- signature: contact:qsOx.hapax.ex-y0.locked:qsIt.hapax.en-y0.ex-y0:y1
+  why: The ZWNJ-locked twin of the blessed ·Ox·It corner; the drawing is identical to the bare cell's.
+- signature: contact:qsOx.hapax.ex-y0.locked:qsIt.hapax.en-y0.ex-y5:y1
+  why: The ZWNJ-locked twin of the blessed ·Ox·It corner; the drawing is identical to the bare cell's.
+- signature: contact:qsOx.hapax.ex-y0.locked:qsIt.hapax.en-y0.ex-y5.ex-ext-1:y1
+  why: The ZWNJ-locked twin of the blessed ·Ox·It corner; the drawing is identical to the bare cell's.
+- signature: contact:qsOx.hapax.ex-y0.locked:qsUtter.mono.en-y0:y1
+  why: The ZWNJ-locked twin of the blessed ·Ox·Utter corner; the drawing is identical to the bare cell's.
+- signature: contact:qsOx.hapax.ex-y0.locked:qsUtter.mono.en-y0.ex-y5:y1
+  why: The ZWNJ-locked twin of the blessed ·Ox·Utter corner; the drawing is identical to the bare cell's.
+- signature: contact:qsOx.hapax.ex-y0.locked:qsUtter.mono.en-y0.ex-y5.ex-ext-1:y1
+  why: The ZWNJ-locked twin of the blessed ·Ox·Utter corner; the drawing is identical to the bare cell's.
+- signature: contact:qsOx.hapax.ex-y0.locked:qsOut.normal.en-y0:y1
+  why: The ZWNJ-locked twin of the blessed ·Ox·Out corner; the drawing is identical to the bare cell's.
+- signature: contact:qsOx.hapax.ex-y0.locked:qsOut.swept-up.en-y0.ex-y5:y1
+  why: The ZWNJ-locked twin of the blessed ·Ox·Out corner; the drawing is identical to the bare cell's.
+- signature: contact:qsOx.hapax.ex-y0.locked:qsOut.swept-up.en-y0.ex-y5.ex-ext-1:y1
+  why: The ZWNJ-locked twin of the blessed ·Ox·Out corner; the drawing is identical to the bare cell's.
+- signature: contact:qsOx.hapax.ex-y0.locked:qsOut_qsTea.hapax.en-y0:y1
+  why: The ZWNJ-locked twin of the blessed ·Ox·Out·Tea corner; the drawing is identical to the bare cell's.
+
+# The entered variants (·May·Ox, baseline row E665:E678, seam y5); the x-height entry opens the head and leaves the tail alone.
+- signature: contact:qsOx.hapax.en-y5.ex-y0:qsTea.full.en-y0:y1
+  why: The entered variant of the blessed ·Ox·Tea corner; the x-height entry does not move the tail.
+- signature: contact:qsOx.hapax.en-y5.ex-y0:qsIt.hapax.en-y0:y1
+  why: The entered variant of the blessed ·Ox·It corner; the x-height entry does not move the tail.
+- signature: contact:qsOx.hapax.en-y5.ex-y0:qsIt.hapax.en-y0.ex-y0:y1
+  why: The entered variant of the blessed ·Ox·It corner; the x-height entry does not move the tail.
+- signature: contact:qsOx.hapax.en-y5.ex-y0:qsIt.hapax.en-y0.ex-y5:y1
+  why: The entered variant of the blessed ·Ox·It corner; the x-height entry does not move the tail.
+- signature: contact:qsOx.hapax.en-y5.ex-y0:qsIt.hapax.en-y0.ex-y5.ex-ext-1:y1
+  why: The entered variant of the blessed ·Ox·It corner; the x-height entry does not move the tail.
+- signature: contact:qsOx.hapax.en-y5.ex-y0:qsUtter.mono.en-y0:y1
+  why: The entered variant of the blessed ·Ox·Utter corner; the x-height entry does not move the tail.
+- signature: contact:qsOx.hapax.en-y5.ex-y0:qsUtter.mono.en-y0.ex-y5:y1
+  why: The entered variant of the blessed ·Ox·Utter corner; the x-height entry does not move the tail.
+- signature: contact:qsOx.hapax.en-y5.ex-y0:qsUtter.mono.en-y0.ex-y5.ex-ext-1:y1
+  why: The entered variant of the blessed ·Ox·Utter corner; the x-height entry does not move the tail.
+- signature: contact:qsOx.hapax.en-y5.ex-y0:qsOut.normal.en-y0:y1
+  why: The entered variant of the blessed ·Ox·Out corner; the x-height entry does not move the tail.
+- signature: contact:qsOx.hapax.en-y5.ex-y0:qsOut.swept-up.en-y0.ex-y5:y1
+  why: The entered variant of the blessed ·Ox·Out corner; the x-height entry does not move the tail.
+- signature: contact:qsOx.hapax.en-y5.ex-y0:qsOut.swept-up.en-y0.ex-y5.ex-ext-1:y1
+  why: The entered variant of the blessed ·Ox·Out corner; the x-height entry does not move the tail.
+- signature: contact:qsOx.hapax.en-y5.ex-y0:qsOut_qsTea.hapax.en-y0:y1
+  why: The entered variant of the blessed ·Ox·Out·Tea corner; the x-height entry does not move the tail.
+
+# The entry-extended variants (after half-·Tea, baseline row E652:E678); the extension lengthens the entry bar and nothing else.
+- signature: contact:qsOx.hapax.en-y5.ex-y0.en-ext-1:qsTea.full.en-y0:y1
+  why: The entry-extended-by-one variant of the blessed ·Ox·Tea corner; the extension touches the entry bar only.
+- signature: contact:qsOx.hapax.en-y5.ex-y0.en-ext-1:qsIt.hapax.en-y0:y1
+  why: The entry-extended-by-one variant of the blessed ·Ox·It corner; the extension touches the entry bar only.
+- signature: contact:qsOx.hapax.en-y5.ex-y0.en-ext-1:qsIt.hapax.en-y0.ex-y0:y1
+  why: The entry-extended-by-one variant of the blessed ·Ox·It corner; the extension touches the entry bar only.
+- signature: contact:qsOx.hapax.en-y5.ex-y0.en-ext-1:qsIt.hapax.en-y0.ex-y5:y1
+  why: The entry-extended-by-one variant of the blessed ·Ox·It corner; the extension touches the entry bar only.
+- signature: contact:qsOx.hapax.en-y5.ex-y0.en-ext-1:qsIt.hapax.en-y0.ex-y5.ex-ext-1:y1
+  why: The entry-extended-by-one variant of the blessed ·Ox·It corner; the extension touches the entry bar only.
+- signature: contact:qsOx.hapax.en-y5.ex-y0.en-ext-1:qsUtter.mono.en-y0:y1
+  why: The entry-extended-by-one variant of the blessed ·Ox·Utter corner; the extension touches the entry bar only.
+- signature: contact:qsOx.hapax.en-y5.ex-y0.en-ext-1:qsUtter.mono.en-y0.ex-y5:y1
+  why: The entry-extended-by-one variant of the blessed ·Ox·Utter corner; the extension touches the entry bar only.
+- signature: contact:qsOx.hapax.en-y5.ex-y0.en-ext-1:qsUtter.mono.en-y0.ex-y5.ex-ext-1:y1
+  why: The entry-extended-by-one variant of the blessed ·Ox·Utter corner; the extension touches the entry bar only.
+- signature: contact:qsOx.hapax.en-y5.ex-y0.en-ext-1:qsOut.normal.en-y0:y1
+  why: The entry-extended-by-one variant of the blessed ·Ox·Out corner; the extension touches the entry bar only.
+- signature: contact:qsOx.hapax.en-y5.ex-y0.en-ext-1:qsOut.swept-up.en-y0.ex-y5:y1
+  why: The entry-extended-by-one variant of the blessed ·Ox·Out corner; the extension touches the entry bar only.
+- signature: contact:qsOx.hapax.en-y5.ex-y0.en-ext-1:qsOut.swept-up.en-y0.ex-y5.ex-ext-1:y1
+  why: The entry-extended-by-one variant of the blessed ·Ox·Out corner; the extension touches the entry bar only.
+- signature: contact:qsOx.hapax.en-y5.ex-y0.en-ext-1:qsOut_qsTea.hapax.en-y0:y1
+  why: The entry-extended-by-one variant of the blessed ·Ox·Out·Tea corner; the extension touches the entry bar only.
+
 - signature: dangle:qsNo.loop:exit:x-height
   why: ·No's loop x-height terminal (top-right nub at y5), drawn unconditionally in the shipped font; the declined exit keeps it.
 - signature: dangle:qsNo.loop.en-y5:exit:x-height
