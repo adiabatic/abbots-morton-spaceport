@@ -50,6 +50,7 @@ stances:
             - qsNo
             - qsIt
             - qsEt
+            - qsEight
             - qsAwe
             - qsOx
             - qsOy
@@ -93,6 +94,7 @@ stances:
             - qsNo
             - qsIt
             - qsEt
+            - qsEight
             - qsAwe
             - qsOx
             - qsOy
@@ -111,6 +113,7 @@ stances:
             - qsNo
             - qsRoe
             - qsEt
+            - qsEight
             - qsAwe
             - qsOx
             - qsOy

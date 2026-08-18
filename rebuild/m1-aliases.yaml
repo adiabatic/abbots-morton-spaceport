@@ -18,6 +18,7 @@ qsPea.half.ex-y5.ex-dips: {rune: qsPea, stance: half, exit: x-height}
 qsPea.noentry: {rune: qsPea, stance: full, adjustments: [locked]}
 qsTea: {rune: qsTea, stance: full}
 qsTea.en-y0: {rune: qsTea, stance: full, entry: baseline}
+qsTea.en-y0.en-ext-1: {rune: qsTea, stance: full, entry: baseline, adjustments: [en-ext-1]}
 qsTea.en-y0.ex-y0: {rune: qsTea, stance: full, entry: baseline, exit: baseline}
 qsTea.en-y0.ex-y0.ex-ext-1: {rune: qsTea, stance: full, entry: baseline, exit: baseline, adjustments: [ex-ext-1]}
 qsTea.en-y5.ex-y0: {rune: qsTea, stance: full, entry: x-height, exit: baseline}
@@ -142,6 +143,11 @@ qsIt.noentry: {rune: qsIt, stance: hapax, adjustments: [locked]}
 qsEt: {rune: qsEt, stance: hapax}
 qsEt.en-ext-1: {rune: qsEt, stance: hapax, entry: x-height, adjustments: [en-ext-1]}
 qsEt.noentry: {rune: qsEt, stance: hapax, adjustments: [locked]}
+qsEight: {rune: qsEight, stance: hapax}
+qsEight.en-ext-1: {rune: qsEight, stance: hapax, entry: x-height, adjustments: [en-ext-1]}
+qsEight.ex-ext-1: {rune: qsEight, stance: hapax, exit: baseline, adjustments: [ex-ext-1]}
+qsEight.noentry: {rune: qsEight, stance: hapax, adjustments: [locked]}
+qsEight.noentry.ex-ext-1: {rune: qsEight, stance: hapax, exit: baseline, adjustments: [locked, ex-ext-1]}
 qsI: {rune: qsI, stance: loop}
 qsI.en-y0.ex-y5.smaller-loop: {rune: qsI, stance: smaller-loop, entry: baseline, exit: x-height}
 qsI.ex-con-1: {rune: qsI, stance: loop, exit: x-height}
