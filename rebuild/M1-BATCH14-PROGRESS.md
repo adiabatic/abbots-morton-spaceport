@@ -4,7 +4,7 @@ Scratch for the ·Ox migration. Delete when the batch closes, lifting any surviv
 
 ## Parked
 
-- **The post-migration scaling sweep is owed and rides the RAM tripwire.** Batch 13 measured the Python-arm top rung at about half this box's RAM, and this batch grows the alphabet again; run `bench-the-rebuild/scaling/scaling.py` detached, read the exponents off the whole-ladder fit, and hand any tripwire finding to the speed-up tracker rather than this batch.
+- **The post-migration scaling sweep ran; the RAM tripwire holds at the line.** The Python-arm top rung again peaked at just over half this box's RAM (the `RUST-PORT-PLAN.md` tripwire row batch 13 first hit), while the whole-ladder window and CPU exponents stay in their standing shape — fitted over every rung, never off consecutive pairs, whose tail always reads steeper. The lever inventory is the speed-up tracker's, not this batch's.
 
 ## Shape of the letter, as modeled
 
