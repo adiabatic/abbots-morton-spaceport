@@ -686,7 +686,7 @@ def _mask_provenance(manifest_text: str) -> str:
 
 
 def test_builds_are_byte_identical(built, tmp_path):
-    """A fresh build at yet another jobs count (differing from both the fixture's half-width and the cycle's budget) reproduces the fixture surface byte for byte, masking only the manifest's generated_at/repo_head provenance stamps — mtime- and commit-derived scalars that can move with no content change."""
+    """A fresh build at yet another jobs count (differing from both the fixture's two jobs and the cycle's budget) reproduces the fixture surface byte for byte, masking only the manifest's generated_at/repo_head provenance stamps — mtime- and commit-derived scalars that can move with no content change."""
     out_dir, _manifest = built
     second = tmp_path / "again"
     (second / "units").mkdir(parents=True)

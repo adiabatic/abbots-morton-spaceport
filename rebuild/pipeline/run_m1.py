@@ -590,7 +590,7 @@ def main(argv: list[str] | None = None) -> None:
         "--kernel-threads",
         type=int,
         default=None,
-        help=f"how many configurations --engine rust enumerates at once, capped at the configuration count and the CPU count (default {kernel_exec.KERNEL_THREADS_DEFAULT}); the ceiling is memory rather than CPU",
+        help=f"how many configurations --engine rust enumerates at once, capped at the configuration count and the CPU count (default {kernel_exec.KERNEL_THREADS_DEFAULT}, which AMS_KERNEL_THREADS overrides); the ceiling is memory rather than CPU",
     )
     args = parser.parse_args(argv)
     jobs = args.jobs if args.jobs and args.jobs > 1 else 1
