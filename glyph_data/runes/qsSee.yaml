@@ -75,21 +75,21 @@ stances:
     motion: straighter
     traits: []
     bitmap:
-    - "   #"
-    - "  # "
-    - " #  "
-    - " #  "  #
-    - "  # "
-    - "  # "
-    - "   #"
-    - "   #"
-    - "  # "  #
+    - "  #"
+    - " # "
+    - "#  "
+    - "#  "  #
+    - " # "
+    - " # "
+    - "  #"
+    - "  #"
+    - " # "  #
     surface:
       entries: {}
       exits:
         # This new ·See doesn't work with ·Out like it should — it doesn't even go all the way to the baseline like the old one did. In the rebuild, we should be using `straighter` or `straightest` stances
         baseline:
-          x: 3
+          x: 2
           stroke: diagonal
           toward:
           - family:
@@ -104,20 +104,20 @@ stances:
     motion: straightest
     traits: []
     bitmap:
-    - "   #"
-    - "  # "
-    - " #  "
-    - " #  "  #
-    - "  # "
-    - "  # "
-    - "   #"
-    - "   #"
-    - "   #"  #
+    - "  #"
+    - " # "
+    - "#  "
+    - "#  "  #
+    - " # "
+    - " # "
+    - "  #"
+    - "  #"
+    - "  #"  #
     surface:
       entries: {}
       exits:
         baseline:
-          x: 4
+          x: 3
           stroke: vertical
           toward:
           - {family: qsOoze}
