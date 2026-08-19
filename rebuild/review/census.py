@@ -43,6 +43,8 @@ BEFORE_FONT = REPO_ROOT / "site" / "AbbotsMortonSpaceportSansSenior-Regular.otf"
 
 CLASS_UNIT_COUNT_KEYS = ("boundary-echo", "dangling-anchor-dropped", "bare-name-live-join")
 
+WORKED_EXAMPLE_CODEPOINTS = "E670:E653:E652:E666"
+
 
 def _text(unit) -> str:
     return "".join(chr(value) for value in unit.codepoint_values)
@@ -64,18 +66,26 @@ def manifest_group(manifest: dict) -> dict:
 
 
 def built_group(out_dir: Path, manifest: dict) -> dict:
-    """The post-merge facts computed by walking the surface's unit shards — the human-workload size and the config-note histogram, neither of which is a manifest key."""
+    """The post-merge facts computed by walking the surface's unit shards — the human-workload size, the config-note histogram, and the worked example's echo-sibling count (the distinct windows one ·It·Day·Tea·No verdict answers), none of which is a manifest key."""
     out_dir = Path(out_dir)
     human_units = 0
     distribution: dict[str | None, int] = {}
+    example_echo: str | None = None
+    codepoints_by_echo: dict[str, set[str]] = {}
     for meta in manifest["classes"]:
         for unit in json.loads((out_dir / meta["shard"]).read_text(encoding="utf-8")):
             if unit["batch"] is not None:
                 human_units += 1
+                codepoints_by_echo.setdefault(unit["echo"], set()).add(unit["codepoints"])
+                if unit["codepoints"] == WORKED_EXAMPLE_CODEPOINTS:
+                    example_echo = unit["echo"]
             note = unit["config_note"]
             distribution[note] = distribution.get(note, 0) + 1
+    if example_echo is None:
+        raise ValueError(f"worked example {WORKED_EXAMPLE_CODEPOINTS} is not in the human workload")
     return {
         "human_units": human_units,
+        "worked_example_echo_siblings": len(codepoints_by_echo[example_echo]),
         "config_note_distribution": _encode_note_distribution(distribution),
     }
 

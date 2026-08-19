@@ -51,7 +51,7 @@ def units_by_key(workload):
 def test_letter_table_matches_glyph_names_doc():
     doc = (REPO_ROOT / "doc" / "glyph-names.md").read_text(encoding="utf-8")
     rows = re.findall(r"\|\s*(·\S+)\s*\|\s*U\+([0-9A-F]{4})\s*\|\s*(qs\w+)\s*\|", doc)
-    assert len(rows) == 44
+    assert len(rows) == len(LETTERS)
     for display, hex_value, family in rows:
         codepoint = int(hex_value, 16)
         assert LETTERS[codepoint] == family

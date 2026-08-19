@@ -14,7 +14,7 @@ import yaml
 
 from rebuild.conftest import SURFACE_BUILD_JOBS
 from rebuild.pipeline import fingerprint
-from rebuild.review.audit import ACCEPTANCE_CONFIGS
+from rebuild.review.audit import ACCEPTANCE_CONFIGS, load_ledger
 from rebuild.review.build import (
     FEATURE_DESCRIPTIONS,
     _prune_orphan_shards,
@@ -28,15 +28,17 @@ from rebuild.review.build import (
     config_gate,
     config_note,
 )
-from rebuild.review.census import load_pins
+from rebuild.review.census import WORKED_EXAMPLE_CODEPOINTS, load_pins
 from rebuild.review.export import build_triage, load_units, load_verdicts
 from rebuild.review.ink import InkComparator, delta_digest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 FIXTURES = REPO_ROOT / "rebuild" / "review" / "fixtures"
 M1_DIR = REPO_ROOT / "rebuild" / "out" / "m1"
+LEDGER_PATH = REPO_ROOT / "rebuild" / "m1-divergences.yaml"
 
 PINS = load_pins()
+NO_VERDICT_CLASSES = frozenset(entry.id for entry in load_ledger(LEDGER_PATH) if entry.no_verdict)
 
 
 @pytest.fixture(scope="module")
@@ -202,7 +204,7 @@ def test_check_shards_flags_human_unit_ids_that_do_not_match_batches():
 
 
 def test_machine_approved_histogram_pins_the_census(built):
-    """The kern-neutral ink census the rebatching rests on over the live workload, after the ink-duplicate merge folds name-grain sibling units: the machine-approved units concentrated in the name-grain classes whose visible stragglers differ only in the old font's kerning (boundary-echo, dangling-anchor-dropped, bare-name-live-join), the non-identical remainder, and — after the no-verdict exemptions (the boundary-echo blanket, the two x-height-halves deletion forks, and the dropped baseline entry extension into ·Vie) — the human workload. Every count is pinned in rebuild/review-census-pins.json (the "manifest" group)."""
+    """The kern-neutral ink census the rebatching rests on over the live workload, after the ink-duplicate merge folds name-grain sibling units: the machine-approved units concentrated in the name-grain classes whose visible stragglers differ only in the old font's kerning (boundary-echo, dangling-anchor-dropped, bare-name-live-join), the non-identical remainder, and — after the ledger's no_verdict exemptions — the human workload. Every count is pinned in rebuild/review-census-pins.json (the "manifest" group). The exempt class set is read off the ledger at collection, so flagging a new class moves no literal here."""
     out_dir, manifest = built
     machine = manifest["machine_approved"]
     manifest_pins = PINS["manifest"]
@@ -220,18 +222,11 @@ def test_machine_approved_histogram_pins_the_census(built):
         assert meta["machine_approved_count"] == expected, meta["id"]
     for class_id, count in manifest_pins["class_unit_count"].items():
         assert by_id[class_id]["unit_count"] == count, class_id
-    no_verdict_classes = {
-        "boundary-echo",
-        "no-xheight-entry-extension-dropped",
-        "may-ligature-seam-loosened",
-        "vie-baseline-entry-extension-dropped",
-        "ss03-out-tea-ligature-kept",
-    }
-    for class_id in no_verdict_classes:
+    for class_id in NO_VERDICT_CLASSES:
         assert by_id[class_id]["no_verdict"] is True, class_id
         assert by_id[class_id]["batches"] == [], class_id
     assert all(
-        meta["no_verdict"] is False for meta in manifest["classes"] if meta["id"] not in no_verdict_classes
+        meta["no_verdict"] is False for meta in manifest["classes"] if meta["id"] not in NO_VERDICT_CLASSES
     )
 
 
@@ -409,7 +404,7 @@ def test_echo_groups_partition_the_human_workload(built):
                 continue
             assert isinstance(unit["echo"], str) and unit["echo"].startswith("e-"), unit["id"]
             by_echo.setdefault(unit["echo"], []).append(unit)
-            if unit["codepoints"] == "E670:E653:E652:E666":
+            if unit["codepoints"] == WORKED_EXAMPLE_CODEPOINTS:
                 example = unit
     assert len(by_echo) == manifest["totals"]["echo_groups"] == PINS["manifest"]["totals"]["echo_groups"]
     for members in by_echo.values():
@@ -419,7 +414,7 @@ def test_echo_groups_partition_the_human_workload(built):
     siblings = {member["codepoints"] for member in by_echo[example["echo"]]}
     assert "E653:E652:E666" in siblings
     assert "E679:E653:E652:E666" in siblings
-    assert len(siblings) == 283
+    assert len(siblings) == PINS["built"]["worked_example_echo_siblings"]
 
 
 def test_cluster_signatures_coarsen_the_echo_grain(built):
