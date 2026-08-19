@@ -1393,6 +1393,7 @@ def read_witnesses(path: Path, digest: str) -> tuple[dict[int, str], dict[tuple[
     """The recorded witness texts of one configuration's last hunt — per rule index and per raw window key — or empty maps when the file is missing, unreadable, or carries another table's `windows_digest`. A loaded text is a head start, never a verdict: the top-up loops sweep it and check realization exactly as they would a freshly assembled candidate, so a recording the digest could not see going stale costs one deduplicated sweep and falls through to the normal hunt."""
     rules: dict[int, str] = {}
     windows: dict[tuple[str, ...], str] = {}
+    intern: dict[str, str] = {}
     try:
         with gzip.open(path, "rt", encoding="utf-8") as handle:
             marker, _, payload = handle.readline().rstrip("\n").partition("\t")
@@ -1403,7 +1404,9 @@ def read_witnesses(path: Path, digest: str) -> tuple[dict[int, str], dict[tuple[
                 if kind == "rule":
                     rules[int(fields[0])] = _codepoint_text(fields[1])
                 elif kind == "window":
-                    windows[tuple(fields[:-1])] = _codepoint_text(fields[-1])
+                    windows[tuple(intern.setdefault(field, field) for field in fields[:-1])] = (
+                        _codepoint_text(fields[-1])
+                    )
     except OSError, ValueError, IndexError:
         return {}, {}
     return rules, windows
@@ -1643,7 +1646,6 @@ def _conformance_config(
             renames.get(row.right4, row.right4),
         )
 
-    window_witnesses: dict[tuple[str, ...], str] = {}
     for row in decision.transitions:
         key = renamed_key(row)
         if key in realized:
@@ -1653,14 +1655,13 @@ def _conformance_config(
         if recorded is not None:
             sweep_top_up(recorded)
             if key in realized:
-                window_witnesses[raw_key] = recorded
                 continue
         prefixes, by_right3 = hunt_prefixes()
         for tokens in _window_witness_candidates(spec, prefixes, by_right3, row, decision):
             text = _token_text(spec, tokens)
             sweep_top_up(text)
             if key in realized:
-                window_witnesses[raw_key] = text
+                recorded_windows[raw_key] = text
                 break
     unrealized = [row for row in decision.transitions if renamed_key(row) not in realized]
     result.uncovered_transitions = len(unrealized)
@@ -1689,7 +1690,7 @@ def _conformance_config(
             witness_cache,
             digest,
             {**recorded_rules, **witnessed},
-            {**recorded_windows, **window_witnesses},
+            recorded_windows,
         )
 
     result.modes = sorted(modes)
