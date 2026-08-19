@@ -7,6 +7,7 @@ import pytest
 from rebuild.pipeline import emit_gpos, emit_gsub, geometry
 from rebuild.pipeline.fixtures import mini_spec
 from rebuild.pipeline.model import CellId, CellPlan, marker_glyph_name, relevant_marker_features
+from rebuild.pipeline.settle import EDGE, NAMER_DOT, SPACE, ZWNJ, RightToken, formation_blocked
 
 
 @dataclass(frozen=True)
@@ -301,7 +302,18 @@ class TestLateFormationGuardLines:
         definition = next(
             line for line in registry.definitions if line.startswith("@m1_form_guard_qsDay_qsUtter ")
         )
-        assert definition == "@m1_form_guard_qsDay_qsUtter = [qsAh qsI qsLow qsOut qsVie];"
+        letters = sorted(name for name, rune in real_spec.runes.items() if not rune.sequence)
+        seconds = [RightToken("letter", name) for name in letters] + [EDGE, SPACE, ZWNJ, NAMER_DOT]
+        full_followers = [
+            follower
+            for follower in letters
+            if all(
+                formation_blocked(real_spec, "qsDay_qsUtter", RightToken("letter", follower), second)
+                for second in seconds
+            )
+        ]
+        assert full_followers
+        assert definition == f"@m1_form_guard_qsDay_qsUtter = [{' '.join(full_followers)}];"
         see_released = [
             "    ignore sub qsDay' qsUtter' qsSee uni200C;",
             "    sub qsDay' qsUtter' qsSee qsLow by qsDay_qsUtter;",

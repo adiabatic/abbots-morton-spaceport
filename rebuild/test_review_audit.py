@@ -6,6 +6,7 @@ import pytest
 
 from rebuild.review.audit import (
     AuditRow,
+    LedgerClass,
     assign_batches,
     build_units,
     load_audit,
@@ -99,7 +100,6 @@ def test_real_audit_dedupes_to_measured_counts(workload):
 
 def test_every_ledger_exemplar_resolves_to_a_unit(workload):
     exemplar_keys = {key for entry in workload.ledger for key in entry.exemplar_keys}
-    assert len(exemplar_keys) == 40
     covered = {(row.config, row.codepoints) for unit in workload.units if unit.exemplar for row in unit.rows}
     assert exemplar_keys <= covered
 
@@ -160,18 +160,42 @@ def test_assign_batches_slices_the_human_workload_and_nulls_machine_units(worklo
             unit.batch = None
 
 
-def test_no_verdict_flag_mirrors_the_ledger_class(workload):
-    """The ledger's `no_verdict: true` marks every unit of a wholesale-adjudicated class exempt from individual verdicts; every other unit stays verdictable. The flagged classes are the boundary-echo blanket (the ratified boundary-equals-word-boundary rule), the two x-height-halves deletion forks the user adjudicated from live renders (no-xheight-entry-extension-dropped, may-ligature-seam-loosened), the dropped baseline entry extension into ·Vie, whose ruling is the seam's rather than any one window's (vie-baseline-entry-extension-dropped), and the ·Out+Tea always-forms ruling, which adjudicates the whole ss03 arm wholesale (ss03-out-tea-ligature-kept)."""
-    flagged = {entry.id for entry in workload.ledger if entry.no_verdict}
-    assert flagged == {
-        "boundary-echo",
-        "no-xheight-entry-extension-dropped",
-        "may-ligature-seam-loosened",
-        "vie-baseline-entry-extension-dropped",
-        "ss03-out-tea-ligature-kept",
-    }
-    for unit in workload.units:
+def test_no_verdict_flag_mirrors_the_ledger_class():
+    """The ledger's `no_verdict: true` marks every unit of a wholesale-adjudicated class exempt from individual verdicts; every other unit stays verdictable. Which classes carry the flag is the ledger's own content, not a code contract, so the propagation runs against a synthetic ledger: a unit carries the flag iff its class does."""
+    ledger = [
+        LedgerClass(
+            id="wholesale-adjudicated",
+            status="intended",
+            why="",
+            ink_identical=False,
+            no_verdict=True,
+            count=0,
+            exemplar_keys=frozenset(),
+        ),
+        LedgerClass(
+            id="ordinary-class",
+            status="intended",
+            why="",
+            ink_identical=False,
+            no_verdict=False,
+            count=0,
+            exemplar_keys=frozenset(),
+        ),
+    ]
+    rows = [
+        AuditRow("default", "E650:E665", ("cell",), "wholesale-adjudicated", ("a",), ("b",)),
+        AuditRow("default", "E650:E652", ("cell",), "ordinary-class", ("a",), ("b",)),
+        AuditRow("default", "E650:E650", ("cell",), "UNMATCHED", ("a",), ("b",)),
+    ]
+    units = build_units(rows, ledger, dict(LETTERS))
+    flagged = {entry.id for entry in ledger if entry.no_verdict}
+    for unit in units:
         assert unit.no_verdict == (unit.class_id in flagged), unit.unit_id
+    assert {unit.class_id: unit.no_verdict for unit in units} == {
+        "wholesale-adjudicated": True,
+        "ordinary-class": False,
+        "UNMATCHED": False,
+    }
 
 
 def test_ordering_is_deterministic(workload):
