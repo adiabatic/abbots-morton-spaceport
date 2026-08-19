@@ -197,7 +197,6 @@ policy:
         family:
         - qsKey
         - qsJay
-        - qsEight
   - exit: x-height
     by: 1
     when:

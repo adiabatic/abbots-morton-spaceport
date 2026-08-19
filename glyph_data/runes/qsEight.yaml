@@ -12,7 +12,7 @@ mono:
   - "   # "
   - "    #"  #
 stances:
-  hapax:
+  loop:
     motion: hapax
     traits: []
     bitmap:
@@ -51,7 +51,6 @@ stances:
           stroke: diagonal
           toward:
           - family:
-            - qsTea
             - qsDay
             - qsDay_qsUtter
             - qsVie
@@ -61,7 +60,6 @@ stances:
             - qsNo
             - qsLow
             - qsRoe
-            - qsIt
             - qsI
             - qsAh
             - qsUtter
@@ -70,9 +68,54 @@ stances:
       cells: []
       unlocks: []
       require: []
+  smaller-loop:
+    motion: hapax
+    traits: []
+    bitmap:
+    - "# #  "  #
+    - " # # "
+    - " ##  "
+    - "  #  "
+    - "   # "
+    - "    #"  #
+    surface:
+      entries:
+        x-height:
+          x: 0
+          stroke: horizontal
+          from:
+          - family:
+            - qsPea
+            - qsTea
+            - qsDay_qsUtter
+            - qsFee
+            - qsVie_qsUtter
+            - qsSee_qsUtter
+            - qsJai_qsUtter
+            - qsMay
+            - qsNo
+            - qsLow
+            - qsRoe
+            - qsIt
+            - qsI
+            - qsAh
+            - qsUtter
+            - qsOut
+      exits:
+        baseline:
+          x: 5
+          stroke: diagonal
+          toward:
+          - family:
+            - qsTea
+            - qsIt
+      cells: []
+      unlocks: []
+      require: []
 policy:
   order:
-  - hapax
+  - loop
+  - smaller-loop
   refuse: []
   prefer:
   - cell: {exit: none}
@@ -84,7 +127,8 @@ policy:
           except:
           - {family: qsPea}
   extend:
-  - entry: x-height
+  - stance: loop
+    entry: x-height
     by: 1
     when:
       left:
@@ -92,7 +136,17 @@ policy:
         - qsPea
         - qsTea
         - qsHe
-  - exit: baseline
+  - stance: smaller-loop
+    entry: x-height
+    by: 1
+    when:
+      left:
+        family:
+        - qsPea
+        - qsTea
+        - qsHe
+  - stance: loop
+    exit: baseline
     by: 1
     when:
       right:
@@ -100,7 +154,6 @@ policy:
         - qsYe
         - qsHe
         - qsExam
-        - qsIt
   contract: []
   resolve: []
   groups: {}
