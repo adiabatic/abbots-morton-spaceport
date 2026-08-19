@@ -241,7 +241,7 @@ def write_transitions(product: FixpointProduct, path: Path) -> None:
 
 
 def read_transitions(path: Path) -> FixpointProduct:
-    """The `write_transitions` inverse: a `FixpointProduct` equal to the one written, ready for `table.assemble_tables`. Every label — glyph names, heights, class tokens, provenance pointers — is interned to one instance the way `table.read_windows` interns its rows, because a stream states the same few hundred names on every one of its rows and a parsed product otherwise costs several times the resident size of the one the fixpoint built. Raises OSError when the file is absent and ValueError when it is not a stream this build understands."""
+    """The `write_transitions` inverse: a `FixpointProduct` equal to the one written, ready for `table.assemble_tables`. Every label — glyph names, heights, class tokens, provenance pointers — is interned to one instance the way `table.read_windows` interns its rows, and the settled (cell, seam, extension) triples pool the same way, because a stream states the same few hundred names on every one of its rows and a parsed product otherwise costs several times the resident size of the one the fixpoint built. Raises OSError when the file is absent and ValueError when it is not a stream this build understands."""
     with gzip.open(path, "rt") as handle:
         marker, _, payload = handle.readline().rstrip("\n").partition("\t")
         if marker != f"# {TRANSITIONS_FORMAT}":
@@ -266,9 +266,16 @@ def read_transitions(path: Path) -> FixpointProduct:
             for rune, stance, entry, exit_, adjustments in head["cells"]
         ]
 
+        settled_pool: dict[tuple[int, str | None, int], Settled] = {}
+
         def settled_of(triple: list[Any]) -> Settled:
             seat, seam, extension = triple
-            return Settled(cells[seat], optional(seam), extension)
+            key = (seat, seam, extension)
+            settled = settled_pool.get(key)
+            if settled is None:
+                settled = Settled(cells[seat], optional(seam), extension)
+                settled_pool[key] = settled
+            return settled
 
         transitions = []
         for line in handle:
