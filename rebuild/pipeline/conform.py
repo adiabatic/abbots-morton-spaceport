@@ -1785,7 +1785,7 @@ class BaselineReport:
 
 
 def load_alias_map(path: Path) -> dict[str, CellId | str]:
-    """rebuild/m1-aliases.yaml: old compiled glyph name -> CellId fields, or the literal strings "boundary" / "ignore"."""
+    """rebuild/m1-aliases.yaml: old compiled glyph name -> CellId fields, or the literal strings "boundary" / "ignore" / "pending" (an acknowledged not-yet-authored entry: the completeness gate lets it through, but the comparison still treats the name as unaliased)."""
     raw = yaml.safe_load(Path(path).read_text()) or {}
     aliases: dict[str, CellId | str] = {}
     for old_name, value in raw.items():
@@ -1800,6 +1800,22 @@ def load_alias_map(path: Path) -> dict[str, CellId | str]:
             adjustments=tuple(value.get("adjustments", ())),
         )
     return aliases
+
+
+def unaliased_subset_names(subset_dir: Path, alias_path: Path) -> dict[str, list[str]]:
+    """Every old glyph name in any subset baseline row that resolves through neither the alias map nor BOUNDARY_GLYPH_NAMES, mapped to the sorted configs it appears in. The alias map's contract is completeness over these rows, and a hole is a silent wrong-number generator rather than a loud failure — a ligation-grain row never reaches the per-glyph alias check in `_compare_row`, so its counts ride ledger classes as if the name were understood — which is why run_m1 refuses to build while this is non-empty. A `pending` entry acknowledges a name mid-migration without claiming a denotation: it resolves here and still reads as unaliased in the comparison."""
+    known = set(load_alias_map(alias_path)) | BOUNDARY_GLYPH_NAMES
+    missing: dict[str, set[str]] = {}
+    for table in sorted(Path(subset_dir).glob("baseline-*.subset.tsv.gz")):
+        config = table.name[len("baseline-") : -len(".subset.tsv.gz")]
+        with gzip.open(table, "rt", encoding="utf-8") as fh:
+            for line in fh:
+                if line.startswith("#") or not line.strip():
+                    continue
+                for name in line.split("\t", 2)[1].split("|"):
+                    if name not in known:
+                        missing.setdefault(name, set()).add(config)
+    return {name: sorted(configs) for name, configs in sorted(missing.items())}
 
 
 def _seam_token(spec: ResolvedSpec, seam) -> str:
@@ -2341,7 +2357,7 @@ def _compare_row(
             if old_name in BOUNDARY_GLYPH_NAMES:
                 continue
             alias = aliases.get(old_name)
-            if alias is None:
+            if alias is None or alias == "pending":
                 if "unaliased" not in kinds:
                     kinds.append("unaliased")
                     position = index

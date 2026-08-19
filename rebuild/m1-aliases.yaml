@@ -1,5 +1,6 @@
 # Hand-written alias map for the M1 oracle comparison (M1-PLAN section 6, step 3c): every old compiled glyph name that appears in any subset baseline row, mapped to the CellId the name literally denotes.
 # Conventions, reviewed: a bare family name denotes the isolated drawing with no committed anchors (the old font reuses it both at boundaries and as the join carrier when the base drawing already holds the live anchor — rows where it joins land in the bare-name-live-join ledger class, name grain only). Suffixed names denote exactly the anchors they claim, including anchors the old font leaves dangling at word edges (those rows land in the dangling-anchor ledger classes). `.noentry` names are the old ZWNJ shadow universe and denote the locked twin. Boundary glyph names map to the literal string `boundary` and are skipped by the comparison.
+# run_m1 checks completeness before it builds anything: a subset-row glyph name with no entry here is a loud error naming the missing names. An entry may map to the literal string `pending` to acknowledge a name mid-migration without claiming a denotation — the gate accepts it, and the oracle still treats those rows as unaliased.
 
 space: boundary
 periodcentered: boundary

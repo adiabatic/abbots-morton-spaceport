@@ -117,10 +117,12 @@ class TestAliasAndLedger:
             "  entry: x-height\n"
             "  exit: baseline\n"
             "uni200C: boundary\n"
+            "qsPea: pending\n"
         )
         aliases = conform.load_alias_map(path)
         assert aliases["qsIt.en-y5.ex-y0"] == CellId("qsIt", "hapax", "x-height", "baseline", ())
         assert aliases["uni200C"] == "boundary"
+        assert aliases["qsPea"] == "pending"
 
     def test_ledger_matching_is_exactly_one(self):
         row = conform.DivergentRow(
@@ -279,6 +281,52 @@ class TestSubsetIdentity:
         self._write(tmp_path / "baseline-default.subset.tsv.gz", ["E670\tqsIt.x\t0\t\t0,0,150"])
         with pytest.raises(AssertionError):
             conform.assert_subset_identity(tmp_path, "ss06")
+
+
+class TestAliasCompleteness:
+    def _write(self, path, rows):
+        with gzip.open(path, "wt", encoding="utf-8") as fh:
+            fh.write("# config: x\n")
+            for row in rows:
+                fh.write(row + "\n")
+
+    def _aliases(self, tmp_path):
+        path = tmp_path / "aliases.yaml"
+        path.write_text("qsIt: {rune: qsIt, stance: hapax}\nqsTea.noentry: pending\n")
+        return path
+
+    def test_known_pending_and_boundary_names_resolve(self, tmp_path):
+        self._write(
+            tmp_path / "baseline-default.subset.tsv.gz",
+            [
+                "0020:E670\tspace|qsIt\t0,1\tbreak\t0,0,150|0,0,150",
+                "E652\tqsTea.noentry\t0\t\t0,0,150",
+            ],
+        )
+        assert conform.unaliased_subset_names(tmp_path, self._aliases(tmp_path)) == {}
+
+    def test_missing_names_are_reported_with_their_configs(self, tmp_path):
+        self._write(
+            tmp_path / "baseline-default.subset.tsv.gz",
+            ["E650:E670\tqsPea.ex-y0|qsIt\t0,1\tbreak\t0,0,150|0,0,150"],
+        )
+        self._write(tmp_path / "baseline-ss03.subset.tsv.gz", ["E650\tqsPea.ex-y0\t0\t\t0,0,150"])
+        assert conform.unaliased_subset_names(tmp_path, self._aliases(tmp_path)) == {
+            "qsPea.ex-y0": ["default", "ss03"]
+        }
+
+    def test_pending_alias_reads_as_unaliased_in_the_comparison(self, spec):
+        from rebuild.pipeline import settle as settle_module
+        from rebuild.validation.rowmodel import Row
+
+        row = Row(codepoints=(0xE652,), glyphs=("qsTea",), clusters=(0,), seams=(), positions=((0, 0, 150),))
+        divergent = conform._compare_row(
+            spec, settle_module, {"qsTea": "pending"}, "default", frozenset(), row
+        )
+        assert divergent is not None
+        assert "unaliased" in divergent.kinds
+        assert "unaliased:qsTea" in divergent.phenomena
+        assert divergent == conform._compare_row(spec, settle_module, {}, "default", frozenset(), row)
 
 
 class TestPositionChannel:

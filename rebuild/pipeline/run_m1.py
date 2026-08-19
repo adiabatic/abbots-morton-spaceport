@@ -643,6 +643,14 @@ def main(argv: list[str] | None = None) -> None:
         f"[t] baseline_subset {time.perf_counter() - start:.1f}s ({'refiltered' if refiltered else 'fresh'})",
         flush=True,
     )
+    start = time.perf_counter()
+    missing_aliases = conform.unaliased_subset_names(OUT_DIR, ALIAS_YAML)
+    print(f"[t] alias_completeness {time.perf_counter() - start:.1f}s", flush=True)
+    if missing_aliases:
+        listing = "\n".join(f"  {name} ({', '.join(configs)})" for name, configs in missing_aliases.items())
+        raise SystemExit(
+            f"rebuild/m1-aliases.yaml is missing {len(missing_aliases)} old glyph names that appear in subset baseline rows — every oracle number would be quietly wrong, so author each entry (or map it to the literal `pending` to run anyway with those rows unaliased):\n{listing}"
+        )
     inputs = tables_inputs()
     spec = load_default_spec()
     before = run_m1_key()
