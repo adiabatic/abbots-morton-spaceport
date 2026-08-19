@@ -1,6 +1,6 @@
 """The engine seam in `run_m1` (issue #40, sub-issue #47): the flag that chooses which half of the port enumerates the windows, the digest record both halves leave behind, and the claim that the choice is invisible in what a build writes.
 
-The end-to-end arm is the one that matters and it is stated the only way it can be — the mini fixture built twice, once by each engine, with every artifact compared as bytes and the contract digests compared as a whole. `rebuild/tools/kernel_fixpoint.py` makes the same comparison over the live alphabet and every rung of the scaling ladder, and `gate:kernel-differential` makes it on demand whenever either engine's kernel sources move; what this file adds is that the comparison holds through `build_tables` itself — the writers, the asserts, the stamp and the digest record, not just the fold. It skips rather than fails on a box with no kernel, because the gate is what fails loudly there and a suite that refused to run without a Rust toolchain would be stating the same thing twice and stopping a font author's afternoon over it.
+The end-to-end arm is the one that matters and it is stated the only way it can be — the mini fixture built twice, once by each engine, with every artifact compared as bytes and the contract digests compared as a whole. `rebuild/tools/kernel_fixpoint.py` makes the same comparison over the live alphabet and every rung of the scaling ladder, and `make kernel-gate` makes the same comparison on demand, to be run around any kernel-semantics change; what this file adds is that the comparison holds through `build_tables` itself — the writers, the asserts, the stamp and the digest record, not just the fold. It skips rather than fails on a box with no kernel, because the M1 build itself is what fails loudly there — `run_m1` needs the crate — with `make kernel-gate` saying the same thing again, and a suite that refused to run without a Rust toolchain would only be stopping a font author's afternoon over it a third time.
 
 Everything else here is plumbing at the grain plumbing goes wrong: a flag that parses and then reaches nothing, an engine that would build tables in memory for a caller who cannot stamp them, a world flag list that stops reflecting the defaults it is meant to mirror.
 """
@@ -20,7 +20,7 @@ ARTIFACT_NAMES = ("settlement-{}.tsv", "treaties-{}.tsv", "windows-{}.tsv.gz")
 
 needs_kernel = pytest.mark.skipif(
     shutil.which("cargo") is None or not kernel_exec.BINARY.is_file(),
-    reason="no built Rust kernel here — `make kernel-build` builds it, and gate:kernel-differential is what fails loudly without one",
+    reason="no built Rust kernel here — `make kernel-build` builds it, and the M1 build itself (and `make kernel-gate`) is what fails loudly without one",
 )
 
 
