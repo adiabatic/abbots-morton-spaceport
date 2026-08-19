@@ -137,7 +137,7 @@ kernel-fixpoint-label-grain: kernel-build
 kernel-liveness: kernel-build
 	uv run python -m rebuild.tools.kernel_liveness --exhaustive $(ARGS)
 
-# The artifact cycle's gate:kernel-differential on its own: enumerate the live spec's six acceptance configurations in one kernel process, enumerate the Python side fresh, fold both through Python's own back half, and require the three artifacts and the contract digest to be byte-identical. It builds both sides itself — the cycle's artifacts are the kernel's own fold now, so there is nothing on disk to compare against — which is why the cycle arms it on the kernel sources alone and never on a rune edit. ARGS passes --threads/--skip-build/--out.
+# The standalone Rust-vs-Python differential at artifact grain, to run around a kernel-semantics change (nothing in the artifact cycle runs it): enumerate the live spec's six acceptance configurations in one kernel process, enumerate the Python side fresh, fold both through Python's own back half, and require the three artifacts and the contract digest to be byte-identical. It builds both sides itself — the cycle's artifacts are the kernel's own fold now, so there is nothing on disk to compare against. ARGS passes --threads/--skip-build/--out.
 kernel-gate: kernel-build
 	uv run python -m rebuild.tools.kernel_gate $(ARGS)
 
