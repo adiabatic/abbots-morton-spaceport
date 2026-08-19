@@ -1790,7 +1790,6 @@ def _enumerate(
     # The fixpoint and the liveness probes are done tracing; drop the pile — the engine outlives this build in _LIVENESS_PROBES, so retaining a full trace per window would hold it for nothing.
     if engine._trace_cache is not None:
         engine._trace_cache.clear()
-        engine._trace_fired.clear()
 
     enumerated = sorted(transitions.values(), key=lambda t: t.key)
     return _FixpointContext(

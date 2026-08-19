@@ -197,7 +197,7 @@ class Engine:
         self.vote_slots = VOTE_SLOTS_DEFAULT if vote_slots is None else vote_slots
         # How often a simulated prospect's counterfactual cascade raised and fell back to the candidacy-grain estimate; diagnostic only.
         self.simulated_prospect_fallbacks = 0
-        self._closure_cache: dict[tuple, bool] = {}
+        self._closure_cache: dict[tuple, tuple[bool, tuple[str, ...]]] = {}
         self._order_index_cache: dict[str, dict[str, int]] = {}
         self._exit_sources_cache: dict[
             int,
@@ -211,17 +211,20 @@ class Engine:
         self._candidates_cache: dict[
             tuple, tuple[list[Candidate], tuple[Elimination, ...], tuple[str, ...]]
         ] = {}
-        self._prospect_cache: dict[tuple, int] = {}
-        self._trace_cache: dict[tuple, TransitionTrace] | None = {} if trace_memo else None
+        self._prospect_cache: dict[tuple, tuple[int, tuple[str, ...]]] = {}
+        self._trace_cache: dict[tuple, tuple[TransitionTrace, tuple[str, ...]]] | None = (
+            {} if trace_memo else None
+        )
         # YAML provenance of every authored record that demonstrably fired during settlement under this configuration: refusals that killed a candidate, unlocks that granted capability, row scopes that admitted a side, and extends/contracts/prefers that shaped a committed cell. Closure and prospect evaluations count — a refusal firing inside the lookahead closure is load-bearing for the window that consulted it. The dead-policy gate reads this through DecisionTable.cited_provenance.
         self.fired: set[str] = set()
         # Under `trace_memo`, every fired pointer is also journaled so each memoized evaluation can record its own fired-closure delta (`_begin_capture` / `_end_capture`). The fire-dependent caches would otherwise confound attribution — the first evaluation to consult a sub-result fires its records, later consumers hit the cache silently — so every cache hit replays its stored delta into the journal, making each entry's delta order-independent. Persisting a trace without its delta would starve `fired` of exactly the pointers only served windows exercise, and the dead-policy gate would read live records as dead.
         self._fired_log: list[str] | None = [] if trace_memo else None
         self._capture_starts: list[int] = []
-        self._closure_fired: dict[tuple, tuple[str, ...]] = {}
-        self._prospect_fired: dict[tuple, tuple[str, ...]] = {}
-        self._trace_fired: dict[tuple, tuple[str, ...]] = {}
         self._pointer_intern: dict[str, str] = {}
+        # Value-interning pools: settlement mints the same few hundred distinct committed cells, settleds, and fired-delta tuples millions of times over, and the memos retain them all — one shared instance per value keeps that retention flat (issue 53).
+        self._cell_intern: dict[CellId, CellId] = {}
+        self._settled_intern: dict[Settled, Settled] = {}
+        self._delta_intern: dict[tuple[str, ...], tuple[str, ...]] = {}
 
     def _record_fired(self, provenance: Provenance | None) -> None:
         if provenance is not None:
@@ -251,6 +254,7 @@ class Engine:
         assert log is not None
         start = self._capture_starts.pop()
         delta = tuple(dict.fromkeys(log[start:]))
+        delta = self._delta_intern.setdefault(delta, delta)
         if not self._capture_starts:
             del log[:]
         return delta
@@ -742,14 +746,15 @@ class Engine:
         key = (rune_name, candidate.stance, candidate.entry, candidate.seam, right1.letter, right2)
         cached = self._closure_cache.get(key)
         if cached is not None:
+            result, delta = cached
             if self._fired_log is not None:
-                self._replay_fired(self._closure_fired.get(key, ()))
-            return cached
+                self._replay_fired(delta)
+            return result
         if self._fired_log is None:
             result = bool(
                 self.candidates(self._virtual_left(rune_name, candidate), right1.letter, right2, UNKNOWN)
             )
-            self._closure_cache[key] = result
+            self._closure_cache[key] = (result, ())
             return result
         self._begin_capture()
         try:
@@ -759,8 +764,7 @@ class Engine:
         except BaseException:
             self._abort_capture()
             raise
-        self._closure_fired[key] = self._end_capture()
-        self._closure_cache[key] = result
+        self._closure_cache[key] = (result, self._end_capture())
         return result
 
     def _prospect(
@@ -779,9 +783,10 @@ class Engine:
             key = (rune_name, candidate.stance, candidate.entry, candidate.seam, right1.letter, right2.letter)
             cached = self._prospect_cache.get(key)
             if cached is not None:
+                result, delta = cached
                 if self._fired_log is not None:
-                    self._replay_fired(self._prospect_fired.get(key, ()))
-                return cached
+                    self._replay_fired(delta)
+                return result
             capturing = self._fired_log is not None
             if capturing:
                 self._begin_capture()
@@ -793,9 +798,7 @@ class Engine:
                 if capturing:
                     self._abort_capture()
                 raise
-            if capturing:
-                self._prospect_fired[key] = self._end_capture()
-            self._prospect_cache[key] = result
+            self._prospect_cache[key] = (result, self._end_capture() if capturing else ())
             return result
         key = (
             rune_name,
@@ -809,9 +812,10 @@ class Engine:
         )
         cached = self._prospect_cache.get(key)
         if cached is not None:
+            result, delta = cached
             if self._fired_log is not None:
-                self._replay_fired(self._prospect_fired.get(key, ()))
-            return cached
+                self._replay_fired(delta)
+            return result
         capturing = self._fired_log is not None
         if capturing:
             self._begin_capture()
@@ -828,9 +832,7 @@ class Engine:
             if capturing:
                 self._abort_capture()
             raise
-        if capturing:
-            self._prospect_fired[key] = self._end_capture()
-        self._prospect_cache[key] = result
+        self._prospect_cache[key] = (result, self._end_capture() if capturing else ())
         return result
 
     # --- prefers ----------------------------------------------------------------
@@ -1229,9 +1231,10 @@ class Engine:
             right3,
             right4,
         )
-        trace = cache.get(key)
-        if trace is not None:
-            self._replay_fired(self._trace_fired.get(key, ()))
+        entry = cache.get(key)
+        if entry is not None:
+            trace, delta = entry
+            self._replay_fired(delta)
             return trace
         self._begin_capture()
         try:
@@ -1239,8 +1242,7 @@ class Engine:
         except BaseException:
             self._abort_capture()
             raise
-        self._trace_fired[key] = self._end_capture()
-        cache[key] = trace
+        cache[key] = (trace, self._end_capture())
         return trace
 
     def _transition_trace_uncached(
@@ -1429,7 +1431,9 @@ class Engine:
             exit=winner.seam,
             adjustments=tuple(adjustments),
         )
-        return Settled(cell=cell, seam=winner.seam, extension=extension)
+        cell = self._cell_intern.setdefault(cell, cell)
+        settled = Settled(cell=cell, seam=winner.seam, extension=extension)
+        return self._settled_intern.setdefault(settled, settled)
 
 
 # --- late formation (design section 5.7) ----------------------------------------------------
