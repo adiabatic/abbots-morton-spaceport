@@ -143,11 +143,11 @@ qsIt.noentry: {rune: qsIt, stance: hapax, adjustments: [locked]}
 qsEt: {rune: qsEt, stance: hapax}
 qsEt.en-ext-1: {rune: qsEt, stance: hapax, entry: x-height, adjustments: [en-ext-1]}
 qsEt.noentry: {rune: qsEt, stance: hapax, adjustments: [locked]}
-qsEight: {rune: qsEight, stance: hapax}
-qsEight.en-ext-1: {rune: qsEight, stance: hapax, entry: x-height, adjustments: [en-ext-1]}
-qsEight.ex-ext-1: {rune: qsEight, stance: hapax, exit: baseline, adjustments: [ex-ext-1]}
-qsEight.noentry: {rune: qsEight, stance: hapax, adjustments: [locked]}
-qsEight.noentry.ex-ext-1: {rune: qsEight, stance: hapax, exit: baseline, adjustments: [locked, ex-ext-1]}
+qsEight: {rune: qsEight, stance: normal-sized-loop}
+qsEight.en-ext-1: {rune: qsEight, stance: normal-sized-loop, entry: x-height, adjustments: [en-ext-1]}
+qsEight.ex-ext-1: {rune: qsEight, stance: normal-sized-loop, exit: baseline, adjustments: [ex-ext-1]}
+qsEight.noentry: {rune: qsEight, stance: normal-sized-loop, adjustments: [locked]}
+qsEight.noentry.ex-ext-1: {rune: qsEight, stance: normal-sized-loop, exit: baseline, adjustments: [locked, ex-ext-1]}
 qsI: {rune: qsI, stance: loop}
 qsI.en-y0.ex-y5.smaller-loop: {rune: qsI, stance: smaller-loop, entry: baseline, exit: x-height}
 qsI.ex-con-1: {rune: qsI, stance: loop, exit: x-height}

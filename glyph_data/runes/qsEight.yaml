@@ -12,7 +12,7 @@ mono:
   - "   # "
   - "    #"  #
 stances:
-  loop:
+  normal-sized-loop:
     motion: hapax
     traits: []
     bitmap:
@@ -114,7 +114,7 @@ stances:
       require: []
 policy:
   order:
-  - loop
+  - normal-sized-loop
   - smaller-loop
   refuse: []
   prefer:
@@ -127,7 +127,7 @@ policy:
           except:
           - {family: qsPea}
   extend:
-  - stance: loop
+  - stance: normal-sized-loop
     entry: x-height
     by: 1
     when:
@@ -145,7 +145,7 @@ policy:
         - qsPea
         - qsTea
         - qsHe
-  - stance: loop
+  - stance: normal-sized-loop
     exit: baseline
     by: 1
     when:
