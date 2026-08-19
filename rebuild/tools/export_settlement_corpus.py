@@ -90,7 +90,7 @@ def _memo_key(
     right3: RightToken,
     right4: RightToken,
 ) -> tuple:
-    """The in-memory memo key `settle.Engine.transition_trace` files a computed trace under — the collapsed left plus the five raw tokens. Recomputing it here is what lets a case carry the fired-pointer delta that evaluation journaled, `_trace_fired` being keyed on it; `_replay` treats a missing entry as an error rather than an empty delta, so the day that key shape moves this tool says so instead of quietly exporting no provenance."""
+    """The in-memory memo key `settle.Engine.transition_trace` files a computed trace under — the collapsed left plus the five raw tokens. Recomputing it here is what lets a case carry the fired-pointer delta that evaluation journaled — the trace memo's value holds it beside the trace, keyed on exactly this shape; `_replay` treats a missing entry as an error rather than an empty delta, so the day that key shape moves this tool says so instead of quietly exporting no provenance."""
     settled = left.settled
     return (
         left.kind,
@@ -120,11 +120,13 @@ def _replay(
     except SettleError as error:
         return {"raise": RAISE_UNREACHABLE, "message": str(error)}, True
     key = _memo_key(left, token, right1, right2, right3, right4)
-    fired = engine._trace_fired.get(key)
-    if fired is None:
+    cache = engine._trace_cache
+    entry = cache.get(key) if cache is not None else None
+    if entry is None:
         raise SystemExit(
             f"the settled case {key} left no journaled fired delta — settle.Engine.transition_trace's memo key has moved and _memo_key must follow"
         )
+    fired = entry[1]
     return {
         "settled": _settled_row(trace.settled),
         "prospect": trace.prospect,
