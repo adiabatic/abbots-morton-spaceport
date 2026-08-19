@@ -168,7 +168,7 @@ def main(argv: list[str] | None = None) -> int:
         "--threads",
         type=int,
         default=kernel_exec.KERNEL_THREADS_DEFAULT,
-        help=f"how many configurations the kernel enumerates at once, capped at the configuration count and the CPU count (default {kernel_exec.KERNEL_THREADS_DEFAULT}); byte identity holds at any width, so this is a memory knob",
+        help=f"how many configurations the kernel enumerates at once, capped at the configuration count and the CPU count (default {kernel_exec.KERNEL_THREADS_DEFAULT}, which AMS_KERNEL_THREADS overrides); byte identity holds at any width, so this is a memory knob",
     )
     parser.add_argument(
         "--skip-build",

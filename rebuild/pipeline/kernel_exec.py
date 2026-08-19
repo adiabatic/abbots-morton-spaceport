@@ -2,13 +2,14 @@
 
 The build is `cargo build --release` against the crate's own manifest and nothing else, because release is the only profile anything in this repo runs: the parity, differential, fixpoint and liveness harnesses all reach for `target/release/ams-m1-kernel`, and a debug binary that answered would answer far too slowly to be the same experiment. A box with no `cargo` is a `KernelBuildError` carrying the remedy rather than a stack trace, since that is the one failure a reader can fix in a minute.
 
-`enumerate_configs` is the fan-out verb and the only one the pipeline needs: one process answers every acceptance configuration, writing each one's stream to a file of its own, and the streams are byte-identical to what the same binary emits one configuration at a time at any thread width (sub-issue #46's exit bar). Threads are the caller's to choose because the ceiling is memory rather than CPU — a live configuration holds its whole working set until it has emitted — so `KERNEL_THREADS_DEFAULT` is sub-issue #46's measured width on a 32 GB box and callers cap it at the number of configurations there are to answer and at the CPUs there are to answer them with.
+`enumerate_configs` is the fan-out verb and the only one the pipeline needs: one process answers every acceptance configuration, writing each one's stream to a file of its own, and the streams are byte-identical to what the same binary emits one configuration at a time at any thread width (sub-issue #46's exit bar). Threads are the caller's to choose because the ceiling is memory rather than CPU — a live configuration holds its whole working set until it has emitted — so sub-issue #46 measured 3 as the solo width on a 32 GB box and `KERNEL_THREADS_DEFAULT` ships one below it, because a cycle runs the fan-out beside a pytest pool and the Python fold rather than alone; `AMS_KERNEL_THREADS` overrides it in either direction, and since the streams are byte-identical at any width that override is purely a memory knob. Callers cap whatever width they are handed at the number of configurations there are to answer and at the CPUs there are to answer them with.
 
 The invocation is read strictly, on the CLI contract's own terms: exit 2 is the usage check, which for a well-formed invocation can only mean the verb is absent or the two sides' flag sets have drifted apart; any other nonzero exit is the kernel complaining about its inputs; and stderr on a clean exit is a failure unless timings were asked for, in which case every `[t]` line is forwarded to this process's own stderr verbatim so the cycle journal reads the kernel's per-configuration walls the same way it reads Python's, and anything else on that stream is still a failure. The answer is the files, so bytes on stdout are a failure too.
 """
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from collections.abc import Sequence
@@ -19,7 +20,7 @@ from rebuild.pipeline import settle, table
 REPO_ROOT = Path(__file__).resolve().parents[2]
 BINARY = REPO_ROOT / "rebuild" / "kernel-rs" / "target" / "release" / "ams-m1-kernel"
 MANIFEST = REPO_ROOT / "rebuild" / "kernel-rs" / "Cargo.toml"
-KERNEL_THREADS_DEFAULT = 3
+KERNEL_THREADS_DEFAULT = max(1, int(os.environ.get("AMS_KERNEL_THREADS", "2")))
 TIMEOUT = 1800
 # How much of a failed build's stderr rides the exception: cargo says what is wrong in its last few lines and repeats the whole compilation above them.
 BUILD_TAIL_LINES = 20

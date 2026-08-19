@@ -61,6 +61,12 @@ def pytest_configure(config: pytest.Config) -> None:
         raise pytest.UsageError("pyright type check failed (see output above)")
 
 
+# What `-n auto` resolves to repo-wide. Two, not a core count: the number is sized for the most RAM-constrained box that runs this repo (32 GB, where a full-width pool drove the suite deep into swap), and the per-worker peak-RSS summary below (issue #51) is the standing measurement that justifies it — every run reports what its workers actually cost. Answering this firstresult hook shadows xdist's own, which is where PYTEST_XDIST_AUTO_NUM_WORKERS is normally read, so the variable is read here too and keeps overriding the default a run at a time.
+def pytest_xdist_auto_num_workers(config: pytest.Config) -> int:
+    override = os.environ.get("PYTEST_XDIST_AUTO_NUM_WORKERS")
+    return max(1, int(override)) if override else 2
+
+
 # Peak RSS per xdist worker (issue #51): each worker reports its own high-water mark at session finish through workeroutput, the controller collects them as nodes shut down, and the terminal summary prints one line — so what `-n auto` actually costs in RAM is measured on every run instead of folklore. Figures are decimal GB via rebuild.tools.peak_rss, the repo-wide yardstick.
 _worker_peak_rss: dict[str, int] = {}
 

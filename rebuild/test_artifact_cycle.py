@@ -1584,14 +1584,17 @@ def test_run_step_measures_the_child_peak_rss(capsys):
 
 
 def test_stage_job_budget():
-    assert ac.stage_job_budget(skip_gates=False, ncores=12) == 6
+    assert ac.stage_job_budget(skip_gates=False, ncores=12) == 2
     assert ac.stage_job_budget(skip_gates=False, ncores=5) == 2
+    assert ac.stage_job_budget(skip_gates=False, ncores=3) == 1
     assert ac.stage_job_budget(skip_gates=False, ncores=1) == 1
-    assert ac.stage_job_budget(skip_gates=True, ncores=12) == 12
+    assert ac.stage_job_budget(skip_gates=True, ncores=12) == 4
+    assert ac.stage_job_budget(skip_gates=True, ncores=5) == 4
+    assert ac.stage_job_budget(skip_gates=True, ncores=3) == 3
     assert ac.stage_job_budget(skip_gates=True, ncores=1) == 1
-    assert ac.stage_job_budget(skip_gates=False, skip_make_test=True, ncores=12) == 12
-    assert ac.stage_job_budget(skip_gates=False, skip_make_test=False, ncores=12) == 6
-    assert ac.stage_job_budget(skip_gates=True, skip_make_test=True, ncores=12) == 12
+    assert ac.stage_job_budget(skip_gates=False, skip_make_test=True, ncores=12) == 4
+    assert ac.stage_job_budget(skip_gates=False, skip_make_test=False, ncores=12) == 2
+    assert ac.stage_job_budget(skip_gates=True, skip_make_test=True, ncores=12) == 4
 
 
 def test_dry_run_renders_concurrency():
@@ -1617,7 +1620,7 @@ def test_dry_run_renders_concurrency():
     assert "QUEUED behind gate:make-test (queue policy — one heavy pool at a time)" in text
     assert "submitted after the census step lands its verdict;" in text
     assert "QUEUED behind gate:conform (queue policy — one heavy pool at a time)" in text
-    assert "--jobs budget        : 6" in text
+    assert "--jobs budget        : 2" in text
 
     by_name = {step.name: step for step in plan.steps}
     assert _argv(by_name["run_m1"])[-2:] == ["--jobs", "2"]
@@ -1639,7 +1642,7 @@ def test_dry_run_skip_gates_appends_jobs_budget():
     by_name = {step.name: step for step in plan.steps}
     assert _argv(by_name["run_m1"])[-2:] == ["--jobs", "4"]
     assert _argv(by_name["surface-build"])[-2:] == ["--jobs", "4"]
-    assert "--jobs budget: 12" in ac.render_plan(plan)
+    assert "--jobs budget: 4" in ac.render_plan(plan)
 
     default_plan = ac.build_plan(
         verdicts=Path("v.json"),
@@ -2076,8 +2079,9 @@ def test_skip_make_test_frees_the_build_stage_budget():
     assert gated.job_budget == 2
     gated_by_name = {step.name: step for step in gated.steps}
     assert _argv(gated_by_name["run_m1"])[-2:] == ["--jobs", "2"]
-    assert "half the cores, sharing the box with gate:make-test's full-width pytest pool" in ac.render_plan(
-        gated
+    assert (
+        "half the stage ceiling, sharing the box's memory with gate:make-test's pytest pool"
+        in ac.render_plan(gated)
     )
 
 
@@ -3686,7 +3690,7 @@ def _preflight_args(**overrides):
 
 
 def test_preflight_leaves_a_listening_server_up_for_a_pass_that_writes_nothing_under_it(monkeypatch, capsys):
-    """The gate pass: no surface write to strand the tab, no store write for merge_verdicts to refuse. Nothing to take the port for, so the letters stay on screen for the whole half hour — and this holds without --stop-server, since the flag is permission to stop a server, not an instruction to."""
+    """The gate pass: no surface write to strand the tab, no store write for merge_verdicts to refuse. Nothing to take the port for, so the letters stay on screen for the whole run — and this holds without --stop-server, since the flag is permission to stop a server, not an instruction to."""
     stops: list[int] = []
     monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: True)
     monkeypatch.setattr(ac, "stop_review_server", lambda timeout=0.0: stops.append(1) or True)
