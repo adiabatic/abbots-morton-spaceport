@@ -289,43 +289,43 @@
   why: The ZWNJ-locked twin of ·Awe's tail terminal; identical drawing.
 
 # ·Eight's diagonal tail terminal is unconditional letterform ink on the ·Awe precedent, the same shape whether or not the exit joins: the shipped font draws bare qsEight with the full tail at every word edge and before every non-joining follower, and no withdrawn form exists in quikscript.yaml. The tail's last pixel arrives diagonally with no ink above it, so it cannot earn the automatic `withdrawal: safe` proof. One signature per entry/extension/lock variant the gate inspects separately; all are the same terminal.
-- signature: dangle:qsEight.hapax:exit:baseline
+- signature: dangle:qsEight.loop:exit:baseline
   why: ·Eight's diagonal tail terminal, drawn unconditionally in the shipped font; the declined exit keeps it.
-- signature: dangle:qsEight.hapax.en-y5:exit:baseline
+- signature: dangle:qsEight.loop.en-y5:exit:baseline
   why: ·Eight entered at the x-height keeps the same tail terminal on a declined exit.
-- signature: dangle:qsEight.hapax.en-y5.en-ext-1:exit:baseline
+- signature: dangle:qsEight.loop.en-y5.en-ext-1:exit:baseline
   why: The entry-extended-by-one variant (after the x-height-exiting halves) keeps the same tail terminal; the extension touches the entry bar only.
-- signature: dangle:qsEight.hapax.locked:exit:baseline
+- signature: dangle:qsEight.loop.locked:exit:baseline
   why: The ZWNJ-locked twin of ·Eight's tail terminal; identical drawing.
 
 # ·Eight's bowl closes one column left of ·I's loop: on the baseline-proven ·Eight·I join (baseline row E673:E675, seam y0) the bowl's right side at y4 abuts the loop's left side — the same corner today's font draws. One signature per ·Eight exit variant and ·I onward-exit variant; the drawing at the corner is identical throughout.
 # The bare exit cell against each ·I variant.
-- signature: contact:qsEight.hapax.ex-y0:qsI.loop.en-y0:y4
+- signature: contact:qsEight.loop.ex-y0:qsI.loop.en-y0:y4
   why: ·Eight·I joins at the baseline today (baseline row E673:E675, seam y0); ·Eight's bowl at y4 sits one column left of ·I's loop — the corner today's font draws.
-- signature: contact:qsEight.hapax.ex-y0:qsI.loop.en-y0.ex-y5:y4
+- signature: contact:qsEight.loop.ex-y0:qsI.loop.en-y0.ex-y5:y4
   why: The same corner with ·I carrying its x-height exit onward; the exit is on the loop's right and leaves the left side alone.
-- signature: contact:qsEight.hapax.ex-y0:qsI.loop.en-y0.ex-y5.ex-ext-1:y4
+- signature: contact:qsEight.loop.ex-y0:qsI.loop.en-y0.ex-y5.ex-ext-1:y4
   why: The same corner with ·I's onward exit extended by one; the extension lengthens the y5 connector, not the loop's left side.
 # The ZWNJ-locked twins; the locked cell draws exactly what the bare one draws.
-- signature: contact:qsEight.hapax.ex-y0.locked:qsI.loop.en-y0:y4
+- signature: contact:qsEight.loop.ex-y0.locked:qsI.loop.en-y0:y4
   why: The ZWNJ-locked twin of the blessed bare ·Eight·I corner; identical drawing.
-- signature: contact:qsEight.hapax.ex-y0.locked:qsI.loop.en-y0.ex-y5:y4
+- signature: contact:qsEight.loop.ex-y0.locked:qsI.loop.en-y0.ex-y5:y4
   why: The locked twin with ·I exiting onward; identical drawing at the corner.
-- signature: contact:qsEight.hapax.ex-y0.locked:qsI.loop.en-y0.ex-y5.ex-ext-1:y4
+- signature: contact:qsEight.loop.ex-y0.locked:qsI.loop.en-y0.ex-y5.ex-ext-1:y4
   why: The locked twin with ·I's onward exit extended; identical drawing at the corner.
 # The entered variants (·May·Eight·I, baseline row E665:E673:E675); the x-height entry touches the entry bar and leaves the bowl's right side alone.
-- signature: contact:qsEight.hapax.en-y5.ex-y0:qsI.loop.en-y0:y4
+- signature: contact:qsEight.loop.en-y5.ex-y0:qsI.loop.en-y0:y4
   why: The entered variant of the blessed ·Eight·I corner.
-- signature: contact:qsEight.hapax.en-y5.ex-y0:qsI.loop.en-y0.ex-y5:y4
+- signature: contact:qsEight.loop.en-y5.ex-y0:qsI.loop.en-y0.ex-y5:y4
   why: The entered variant with ·I exiting onward; the corner is unchanged.
-- signature: contact:qsEight.hapax.en-y5.ex-y0:qsI.loop.en-y0.ex-y5.ex-ext-1:y4
+- signature: contact:qsEight.loop.en-y5.ex-y0:qsI.loop.en-y0.ex-y5.ex-ext-1:y4
   why: The entered variant with ·I's onward exit extended; the corner is unchanged.
 # The entry-extended variants (after the x-height-exiting halves, baseline row E652:E673:E675); the extension lengthens the entry bar and nothing else.
-- signature: contact:qsEight.hapax.en-y5.ex-y0.en-ext-1:qsI.loop.en-y0:y4
+- signature: contact:qsEight.loop.en-y5.ex-y0.en-ext-1:qsI.loop.en-y0:y4
   why: The entry-extended variant of the blessed ·Eight·I corner.
-- signature: contact:qsEight.hapax.en-y5.ex-y0.en-ext-1:qsI.loop.en-y0.ex-y5:y4
+- signature: contact:qsEight.loop.en-y5.ex-y0.en-ext-1:qsI.loop.en-y0.ex-y5:y4
   why: The entry-extended variant with ·I exiting onward; the corner is unchanged.
-- signature: contact:qsEight.hapax.en-y5.ex-y0.en-ext-1:qsI.loop.en-y0.ex-y5.ex-ext-1:y4
+- signature: contact:qsEight.loop.en-y5.ex-y0.en-ext-1:qsI.loop.en-y0.ex-y5.ex-ext-1:y4
   why: The entry-extended variant with ·I's onward exit extended; the corner is unchanged.
 
 # ·Ox's vertical tail drops from y1 to the baseline one column left of every baseline follower's own left downstroke — the same tail-against-bar corner blessed for ·Oy above, drawn by today's font on every baseline-proven ·Ox join (E678:E652, E678:E670, E678:E67A, E678:E67B all carry a y0 seam).
