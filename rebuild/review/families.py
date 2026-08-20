@@ -78,7 +78,7 @@ def _unmatched_configs(unit: UnitConfigs) -> list[str]:
     return list(unit.configs)
 
 
-def _deferred_family(unit: UnitConfigs) -> str | None:
+def deferred_family(unit: UnitConfigs) -> str | None:
     """The deferred stylistic-set bucket for a window whose novel behavior never appears under the default config, or None when it is default-reachable. ss04 takes precedence over ss10 over the ss02/ss03/ss05 tail when a window is gated by more than one set."""
     novel = _unmatched_configs(unit)
     if any(_config_features(config) == frozenset() for config in novel):
@@ -128,7 +128,7 @@ def _primary_change(enriched: FamilyInput) -> tuple[str, str, str, str] | None:
 
 def assign_family(enriched: FamilyInput) -> str:
     """The verdict family id for one UNMATCHED unit. Total: every unit resolves to a family, with unmatched-misc as the catch-all."""
-    deferred = _deferred_family(enriched.unit)
+    deferred = deferred_family(enriched.unit)
     if deferred is not None:
         return deferred
 

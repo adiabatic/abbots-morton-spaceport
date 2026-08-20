@@ -1,4 +1,7 @@
-"""Tests for the verdict-family grouper (rebuild/review/families.py): the seam-gain/seam-loss discriminator over hand-built enriched stubs, and the integration partition over the live UNMATCHED units at the name-grain (pre-merge) dedupe — deterministic, total (every window lands in exactly one family, the census summing to the audit total pinned in rebuild/review-census-pins.json), with the stylistic-set-only windows deferred and the named default families matching that pinned census. The built surface then folds ink-duplicate siblings before families are assigned, which pulls the relabeled-only ss04 halves out of deferred-ss04 into their default families; the built counts are pinned in test_review_build."""
+"""Tests for the verdict-family grouper (rebuild/review/families.py): the seam-gain/seam-loss discriminator over hand-built enriched stubs, and the integration partition over the live UNMATCHED units at the name-grain (pre-merge) dedupe — deterministic, total (every window lands in exactly one family, the census summing to the audit total pinned in rebuild/review-census-pins.json), with the stylistic-set-only windows deferred and the named default families matching that pinned census.
+
+The partition itself now comes from the surface build's census-facts.json sidecar, which records the family of every pre-merge UNMATCHED window: a deferred window's bucket is pure config logic over its pre-merge config classes, and every other one is its own fold survivor, so it carries the family phase 1 already computed. A stratified sample re-enriches windows from each family and re-runs `assign_family` on them, which is the continuous proof that the grain bookkeeping holds. The built surface then folds ink-duplicate siblings before families are assigned, which pulls the relabeled-only ss04 halves out of deferred-ss04 into their default families; the built counts are pinned in test_review_build.
+"""
 
 import warnings
 from dataclasses import dataclass
@@ -9,7 +12,7 @@ import pytest
 from rebuild.review import families
 from rebuild.review.audit import _config_index, load_audit, parse_codepoints, render_groups_for_rows
 from rebuild.review.audit import Unit, group_for
-from rebuild.review.census import family_assignments, family_census, load_pins
+from rebuild.review.census import family_census, load_facts, load_pins
 from rebuild.review.enrich import LETTERS, Enricher, load_spec
 from rebuild.review.families import FAMILY_ORDER, FAMILY_WHY, assign_family
 
@@ -129,22 +132,52 @@ def test_stylistic_set_only_windows_defer():
 
 
 @pytest.fixture(scope="module")
-def assigned():
-    return family_assignments(REPO_ROOT)
+def facts(built_review_surface):
+    out_dir, manifest = built_review_surface
+    return load_facts(out_dir, manifest)
 
 
-def test_partition_is_total_and_matches_the_measured_census(assigned):
+@pytest.fixture(scope="module")
+def assigned(facts):
+    return [family for _index, family in facts["premerge"]["families"]]
+
+
+def test_partition_is_total_and_matches_the_measured_census(assigned, facts):
     census = family_census(assigned)
     assert (
         sum(census.values()) == PINS["families"]["total"]
     ), "every UNMATCHED window must land in exactly one family"
     assert census == PINS["families"]["census"]
+    assert facts["pins"]["families"] == {"census": census, "total": len(assigned)}
 
 
 def test_every_assigned_family_is_ordered_and_documented(assigned):
     for family in set(assigned):
         assert family in FAMILY_ORDER
         assert FAMILY_WHY[family]
+
+
+def test_families_cover_exactly_the_unmatched_premerge_units(facts, workload):
+    """The sidecar's family records are indexed into the pre-merge unit list, so the indexes it carries must be precisely the UNMATCHED positions of that list — no matched window claiming a family, no UNMATCHED window left without one."""
+    assert [index for index, _family in facts["premerge"]["families"]] == [
+        index for index, unit in enumerate(workload.units) if unit.class_id == "UNMATCHED"
+    ]
+
+
+def test_fresh_family_derivation_agrees_with_the_sidecar_over_a_sample(facts, workload):
+    """The continuous proof of the grain bookkeeping: sample every family, enrich those windows from the fonts and the spec, and re-run the grouper. A deferred window's bucket has to re-derive from its own pre-merge config classes (the fold widens them, so a survivor's post-merge bucket can differ), and every non-deferred window has to reproduce the phase-1 family its own surviving object carries."""
+    by_family: dict[str, list[tuple[int, str]]] = {}
+    for index, family in facts["premerge"]["families"]:
+        by_family.setdefault(family, []).append((index, family))
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        spec = load_spec(REPO_ROOT)
+    enricher = Enricher(spec, SUBSETS, AFTER_FONT, repo_root=REPO_ROOT, before_font=BEFORE_FONT)
+    for group in by_family.values():
+        for index, family in group[:: max(1, len(group) // 12)]:
+            unit = workload.units[index]
+            assert unit.class_id == "UNMATCHED"
+            assert assign_family(enricher.enrich(unit)) == family, unit.codepoints
 
 
 def test_assignment_is_deterministic():

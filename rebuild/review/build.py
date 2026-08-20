@@ -1,4 +1,4 @@
-"""The review-app generation CLI (rebuild/REVIEW-PLAN.md §1.3): assemble units, precompute enrichment and all three verdict drafts, and write the self-contained rebuild/out/review/ directory — manifest.json, one unit shard per class, copied fonts, and the static app files. Also the `snapshot` subcommand for accepted-state baselines.
+"""The review-app generation CLI (rebuild/REVIEW-PLAN.md §1.3): assemble units, precompute enrichment and all three verdict drafts, and write the self-contained rebuild/out/review/ directory — manifest.json, one unit shard per class, the census-facts.json sidecar the census check reads, copied fonts, and the static app files. Also the `snapshot` subcommand for accepted-state baselines.
 
 Usage:
     uv run python -m rebuild.review.build
@@ -27,7 +27,7 @@ from pathlib import Path
 
 from rebuild.pipeline import fingerprint
 from rebuild.pipeline.baseline_subset import M1_ALPHABET
-from rebuild.review import families, tablediff, unit_cache
+from rebuild.review import census, families, tablediff, unit_cache
 from rebuild.review.audit import (
     ACCEPTANCE_CONFIGS,
     BATCH_SIZE,
@@ -937,6 +937,7 @@ def build_m1(
         return signatures[(format_codepoints(tuple(ord(ch) for ch in text)), config)]
 
     exempt_classes = {entry.id for entry in workload.ledger if entry.no_verdict}
+    premerge_capture = census.capture_premerge(workload.units)
     merge_ink_duplicate_units(workload.units, ink_sig, exempt_classes)
     present = {unit.class_id for unit in workload.units}
     workload.classes_present = [entry for entry in workload.ledger if entry.id in present]
@@ -1104,6 +1105,16 @@ def build_m1(
         mismatches,
     )
     print(f"[t] review.build manifest+check {time.perf_counter() - phase:.1f}s", file=sys.stderr, flush=True)
+
+    phase = time.perf_counter()
+    premerge_facts = census.derive_premerge(premerge_capture, workload.units)
+    census.write_facts(
+        out_dir,
+        census.build_facts(
+            manifest, workload.units, fragments, premerge_capture, premerge_facts, workload.row_count
+        ),
+    )
+    print(f"[t] review.build census-facts {time.perf_counter() - phase:.1f}s", file=sys.stderr, flush=True)
 
     phase = time.perf_counter()
     records = []

@@ -3363,7 +3363,9 @@ def test_census_stale_stderr_matches_the_cycle_parser(monkeypatch, tmp_path, cap
     pins = tmp_path / "pins.json"
     pins.write_text(json.dumps({"audit": {"row_count": 1}}))
     monkeypatch.setattr(census, "PINS_PATH", pins)
-    monkeypatch.setattr(census, "compute_pins", lambda surface: {"audit": {"row_count": 2}})
+    monkeypatch.setattr(
+        census, "compute_pins", lambda surface, from_scratch=False: {"audit": {"row_count": 2}}
+    )
     assert census.main(["--check"]) == 1
     err = capsys.readouterr().err
     assert ac.census_mismatch_lines(err) == ["audit.row_count: pinned 1 != computed 2"]
