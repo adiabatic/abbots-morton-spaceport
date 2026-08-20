@@ -13,7 +13,7 @@ import yaml
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from rebuild.review.ink import delta_digest  # noqa: E402
+from rebuild.review.ink import IDENTITY_DIFF, delta_digest  # noqa: E402
 from rebuild.tools.echo_verdicts import latest_verdicts, load_units  # noqa: E402
 
 SURFACE = ROOT / "rebuild/out/review"
@@ -24,7 +24,7 @@ ALLOWED_VERDICTS = ("approve", "either")
 CELL_FIELDS = 5
 EXIT_EXTENSION = re.compile(r"ex-ext-[1-9][0-9]*")
 DELTA_DIGEST = re.compile(r"d-[0-9a-f]{12}")
-EMPTY_DELTA_DIGEST = delta_digest(((), (), 0))
+EMPTY_DELTA_DIGEST = delta_digest(IDENTITY_DIFF)
 
 
 def _fail(message) -> NoReturn:

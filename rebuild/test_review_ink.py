@@ -1,4 +1,4 @@
-"""Tests for the review surface's ink-identity comparison: the proven census method (uharfbuzz shaping with kerning disabled, DecomposingRecordingPen outlines translated by cumulative advance plus offsets, pieces sorted and compared) reproduces the census facts — u-0000 is ink-identical, the verdict is deterministic, and the full kern-neutral histogram reproduces the machine-approved census over the live workload at the name-grain (pre-merge) dedupe, concentrated in the name-grain classes whose visible stragglers differ only in the old font's kerning, with the no-verdict exemptions (the boundary-echo blanket plus the two x-height-halves deletion forks) leaving the rest as human workload. Every count is pinned in rebuild/review-census-pins.json (the "ink" group). The built surface then folds ink-duplicate sibling units (merge_ink_duplicate_units), so the shipped manifest's counts are smaller — those are pinned in test_review_build. Also here: `delta_digest`, the persisted identity of one config's localized delta, whose shape check_unit enforces and whose recipe is a byte-identity contract with the digests recorded in rebuild/standing-approvals.yaml."""
+"""Tests for the review surface's ink-identity comparison: the unified boolean (config_diff's identity sentinel, which implies the sorted-placed-pieces census reference) reproduces the census facts — u-0000 is ink-identical, the verdict is deterministic, and the full kern-neutral histogram reproduces the machine-approved census over the live workload at the name-grain (pre-merge) dedupe, concentrated in the name-grain classes whose visible stragglers differ only in the old font's kerning, with the no-verdict exemptions (the boundary-echo blanket plus the two x-height-halves deletion forks) leaving the rest as human workload. Every count is pinned in rebuild/review-census-pins.json (the "ink" group). The built surface then folds ink-duplicate sibling units (merge_ink_duplicate_units), so the shipped manifest's counts are smaller — those are pinned in test_review_build. Also here: `delta_digest`, the persisted identity of one config's localized delta, whose shape check_unit enforces and whose recipe is a byte-identity contract with the digests recorded in rebuild/standing-approvals.yaml."""
 
 import hashlib
 import marshal
@@ -11,6 +11,7 @@ from rebuild.review.audit import load_workload
 from rebuild.review.census import ink_histogram, load_pins
 from rebuild.review.enrich import LETTERS
 from rebuild.review.ink import (
+    IDENTITY_DIFF,
     InkComparator,
     JuniorOracle,
     delta_digest,
@@ -95,12 +96,21 @@ def test_config_diff_localizes_the_delta_to_the_changed_region(comparator):
     assert diff_two[2] == -50
 
 
-def test_config_diff_identity_sentinel_matches_ink_identical(workload, comparator):
-    """The ink_identical flag build.py derives from config_diff stays exactly the census's absolute comparison: a diff of ((), (), 0) — empty middles and no follower shift — under every config is the same verdict ink_identical reaches by comparing whole placed runs."""
-    unit = workload.units[0]
-    assert unit.unit_id == "u-0000"
-    assert all(comparator.config_diff(_text(unit), config) == ((), (), 0) for config in unit.configs)
-    assert comparator.ink_identical(_text(unit), unit.configs) is True
+def test_the_retired_sorted_runs_formulation_agrees_over_a_corpus_sample(workload):
+    """The unification contract: ink_identical reads config_diff's identity sentinel, and the retired census formulation — sorted whole placed runs compared across fonts — must reach the same verdict on every (text, config). The sentinel implies run identity by construction (empty middles and no follower shift leave nothing moved), so the direction this samples is the converse: no window whose placed runs match may come back with a nonempty localized delta or a recorded shift. The full-corpus backstop is the pinned census below — a disagreement can only flip a unit identical→non-identical, so any escape moves machine_total off its pin."""
+    comparator = InkComparator(BEFORE_FONT, AFTER_FONT, shaper_for)
+    disagreements = []
+    for unit in workload.units[::200]:
+        text = _text(unit)
+        for config in unit.configs:
+            features = features_for(config)
+            retired = comparator.ink_pieces("before", text, features) == comparator.ink_pieces(
+                "after", text, features
+            )
+            unified = comparator.config_diff(text, config) == IDENTITY_DIFF
+            if retired is not unified:
+                disagreements.append((unit.unit_id, config, retired, unified))
+    assert disagreements == []
 
 
 def test_delta_digest_is_a_d_prefixed_twelve_hex_token(comparator):
@@ -136,7 +146,8 @@ def test_delta_digest_separates_the_deltas_config_diff_separates(comparator):
 
 
 def test_the_identity_diff_digests_to_a_pinned_constant():
-    """((), (), 0) is the ink-identical sentinel the build declines to record, and its digest is the fixed token pinned here — a byte-identity contract, since changing the recipe orphans every digest already written into rebuild/standing-approvals.yaml. A nonzero shift is a different delta and digests apart even with empty middles."""
+    """((), (), 0) is IDENTITY_DIFF, the ink-identical sentinel the build declines to record, and both the constant's value and its digest are pinned here — a byte-identity contract, since changing the recipe orphans every digest already written into rebuild/standing-approvals.yaml. A nonzero shift is a different delta and digests apart even with empty middles."""
+    assert IDENTITY_DIFF == ((), (), 0)
     assert delta_digest(((), (), 0)) == "d-f923c43ec75a"
     assert delta_digest(((), (), 1)) != delta_digest(((), (), 0))
 

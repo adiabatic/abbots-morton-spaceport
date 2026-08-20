@@ -45,6 +45,7 @@ from rebuild.review.audit import (
 from rebuild.review.drafts import Drafter
 from rebuild.review.families import assign_family
 from rebuild.review.ink import (
+    IDENTITY_DIFF,
     JUNIOR_VERIFICATION_METHOD,
     VERIFICATION_METHOD,
     InkComparator,
@@ -487,10 +488,10 @@ class _UnitProjection:
 def _phase1_unit(unit, comparator, oracle, enricher) -> tuple[_UnitProjection, EnrichedUnit]:
     text = "".join(chr(value) for value in unit.codepoint_values)
     diffs = tuple(comparator.config_diff(text, config) for config in unit.configs)
-    unit.ink_identical = all(diff == ((), (), 0) for diff in diffs)
+    unit.ink_identical = all(diff == IDENTITY_DIFF for diff in diffs)
     unit.junior_equivalent = not unit.ink_identical and oracle.approves(unit.configs, text)
     unit.ink_deltas = {
-        config: delta_digest(diff) for config, diff in zip(unit.configs, diffs) if diff != ((), (), 0)
+        config: delta_digest(diff) for config, diff in zip(unit.configs, diffs) if diff != IDENTITY_DIFF
     }
     mismatch_mark = len(enricher.mismatches)
     enriched = enricher.enrich(unit)
