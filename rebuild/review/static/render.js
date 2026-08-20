@@ -155,7 +155,8 @@ export function onlyHereSeamSpans(unit) {
 }
 
 export function needsNoVerdict(unit) {
-  return Boolean(unit.ink_identical || unit.junior_equivalent || unit.no_verdict);
+  // audit.assign_batches records the workload split as batch — null on exactly the machine-approved and no-verdict units, an integer on every human one — and build.check_unit enforces that equivalence on every built surface, so read the one recorded answer instead of re-deriving the disjunction from the flags.
+  return unit.batch === null;
 }
 
 export function echoChip(unit, memberIds) {

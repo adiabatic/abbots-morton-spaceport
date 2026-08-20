@@ -527,12 +527,11 @@ test('ink-identical units are hidden unless the machine toggle is on', () => {
   assert.ok(on.machine.length >= 1);
 });
 
-test('needsNoVerdict covers all three exemption kinds', () => {
-  assert.equal(needsNoVerdict({ ink_identical: true, no_verdict: false }), true);
-  assert.equal(needsNoVerdict({ ink_identical: false, junior_equivalent: true, no_verdict: false }), true);
-  assert.equal(needsNoVerdict({ ink_identical: false, no_verdict: true }), true);
-  assert.equal(needsNoVerdict({ ink_identical: false, no_verdict: false }), false);
-  assert.equal(needsNoVerdict({ ink_identical: false }), false, 'a legacy unit without the field stays human');
+test('needsNoVerdict reads the batch assignment', () => {
+  assert.equal(needsNoVerdict({ batch: null }), true);
+  assert.equal(needsNoVerdict({ batch: 0 }), false, 'batch 0 is a human unit, not an exemption');
+  assert.equal(needsNoVerdict({ batch: 7 }), false);
+  assert.equal(needsNoVerdict({}), false, 'a unit without the field stays human');
 });
 
 test('a no-verdict unit leaves the human queue and appears with the machine toggle', () => {

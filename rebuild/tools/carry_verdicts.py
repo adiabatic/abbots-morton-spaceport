@@ -114,7 +114,7 @@ def main():
 
     manifest = json.loads((args.current_surface / "manifest.json").read_text())
     current = load_surface(args.current_surface)
-    human = [u for u in current if u.get("batch") is not None and not u.get("no_verdict")]
+    human = [u for u in current if u.get("batch") is not None]
 
     key_by_id = {u["id"]: content_hash(u) for u in current}
     keys_seen = collections.Counter(key_by_id.values())

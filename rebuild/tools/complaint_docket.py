@@ -284,7 +284,7 @@ def main(argv=None):
     unknown = sum(1 for unit_id in records if unit_id not in units_by_id)
     if unknown:
         print(f"warning: {unknown} verdict records name units absent from this surface", file=sys.stderr)
-    human = [unit for unit in units if unit.get("batch") is not None and not unit.get("no_verdict")]
+    human = [unit for unit in units if unit.get("batch") is not None]
     human_ids = {unit["id"] for unit in human}
     ruled_ids = {
         entry["id"] for entry in manifest.get("classes", []) if entry.get("status") in RULED_STATUSES
