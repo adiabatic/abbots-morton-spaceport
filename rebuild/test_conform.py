@@ -1,4 +1,4 @@
-"""Conformance-module helper tests: normalization, the raw-pipeline replay, alias/ledger plumbing, kern evaluation, the subset-identity assertion, and the memoized settled-window walk's equivalence to the unmemoized pair it replaced. The font-facing sweep itself runs in run_m1 (it needs settle/table and the compiled mini-font)."""
+"""Conformance-module helper tests: normalization, the raw-pipeline replay, alias/ledger plumbing, kern evaluation, the subset-identity assertion, and the memoized settled-window walk's equivalence to the unmemoized settle it replaced. The font-facing sweep itself runs in run_m1 (it needs settle/table and the compiled mini-font)."""
 
 import gzip
 from collections.abc import Sequence
@@ -87,7 +87,7 @@ class TestNormalization:
         assert names == ["qsIt.ss10", "qsTea.ss10", "qsOy.ss10", "uni200C"]
 
 
-PEA, TEA, MAY, IT, OY = chr(0xE650), chr(0xE652), chr(0xE665), chr(0xE670), chr(0xE679)
+TEA, MAY, IT, OY = chr(0xE652), chr(0xE665), chr(0xE670), chr(0xE679)
 ZWNJ = chr(0x200C)
 DOT = chr(0x00B7)
 
@@ -444,10 +444,6 @@ class TestConformanceMerge:
         sequences: int = 100,
         shaping_runs: int = 100,
         divergences: Sequence[conform.Divergence] = (),
-        uncovered_rules: int = 0,
-        uncovered_transitions: int = 0,
-        topped_up_rules: int = 0,
-        topped_up_sequences: int = 0,
         notes: Sequence[str] = (),
         modes: Sequence[str] = (),
     ) -> conform.ConformanceConfigResult:
@@ -456,29 +452,18 @@ class TestConformanceMerge:
             sequences=sequences,
             shaping_runs=shaping_runs,
             divergences=list(divergences),
-            uncovered_rules=uncovered_rules,
-            uncovered_transitions=uncovered_transitions,
-            topped_up_rules=topped_up_rules,
-            topped_up_sequences=topped_up_sequences,
             notes=list(notes),
             modes=list(modes),
         )
 
-    def test_sequences_come_from_the_first_result_and_counters_sum(self):
+    def test_sequences_come_from_the_first_result_and_shaping_runs_sum(self):
         merged = conform.merge_conformance_results(
             Path("M1.otf"),
-            [
-                self._result("default", shaping_runs=120, topped_up_rules=2, topped_up_sequences=20),
-                self._result("ss02", shaping_runs=110, uncovered_rules=1, uncovered_transitions=3),
-            ],
+            [self._result("default", shaping_runs=120), self._result("ss02", shaping_runs=110)],
         )
         assert merged.sequences == 100
         assert merged.shaping_runs == 230
-        assert merged.topped_up_rules == 2
-        assert merged.topped_up_sequences == 20
-        assert merged.uncovered_rules == 1
-        assert merged.uncovered_transitions == 3
-        assert merged.passed is False
+        assert merged.passed is True
 
     def test_divergences_and_notes_concatenate_in_caller_order(self):
         divergence = conform.Divergence(
@@ -511,37 +496,6 @@ class TestConformanceMerge:
         assert merged.sequences == 0
         assert merged.shaping_runs == 0
         assert merged.passed is True
-
-
-class TestWitnessCacheFile:
-    def test_round_trip_including_space_and_zwnj_texts(self, tmp_path):
-        path = conform.witnesses_path(tmp_path, "default")
-        rules = {0: PEA + TEA + MAY, 7: " " + ZWNJ + IT}
-        windows = {
-            ("qsPea", "#EDGE", "qsTea", "#NA", "#NA", "#NA"): PEA + TEA,
-            ("qsIt", "space", "qsMay", "qsTea", "#NA", "#NA"): " " + IT + MAY + TEA,
-        }
-        conform.write_witnesses(path, "digest-a", rules, windows)
-        assert conform.read_witnesses(path, "digest-a") == (rules, windows)
-
-    def test_another_tables_digest_reads_as_empty(self, tmp_path):
-        path = conform.witnesses_path(tmp_path, "default")
-        conform.write_witnesses(path, "digest-a", {0: PEA}, {})
-        assert conform.read_witnesses(path, "digest-b") == ({}, {})
-
-    def test_a_missing_or_garbled_file_reads_as_empty(self, tmp_path):
-        path = conform.witnesses_path(tmp_path, "default")
-        assert conform.read_witnesses(path, "digest-a") == ({}, {})
-        path.write_bytes(b"not a cache")
-        assert conform.read_witnesses(path, "digest-a") == ({}, {})
-
-    def test_two_writes_of_one_hunt_are_byte_identical(self, tmp_path):
-        first, second = tmp_path / "first.tsv.gz", tmp_path / "second.tsv.gz"
-        for path in (first, second):
-            conform.write_witnesses(
-                path, "digest-a", {3: PEA + MAY}, {("qsPea", "#EDGE", "#NA", "#NA", "#NA", "#NA"): PEA}
-            )
-        assert first.read_bytes() == second.read_bytes()
 
 
 class TestProvenBoundaryHorizon:
@@ -617,11 +571,19 @@ class TestBoundarySummaryProvenance:
         path = tmp_path / "conform_summary.json"
         report.write(path)
         recorded = json.loads(path.read_text())
-        assert not {"max_length", "configs", "font_sha256"} & set(recorded)
+        assert set(recorded) == {
+            "font",
+            "sequences",
+            "shaping_runs",
+            "divergences",
+            "divergences_by_kind",
+            "pass",
+            "notes",
+        }
 
 
 class _SilentShaper:
-    """Enough of a Shaper for the coverage machinery, which never reads shaped output: every text shapes to nothing, so the oracle records one length divergence per text and the structural checks see no slots. The texts it was asked to shape are the observable."""
+    """Enough of a Shaper for the belt's bookkeeping, which never reads shaped output: every text shapes to nothing, so the oracle records one length divergence per text and the structural checks see no slots. The texts it was asked to shape are the observable."""
 
     def __init__(self):
         self.shaped: list[str] = []
@@ -637,20 +599,12 @@ class _SilentShaper:
         return ()
 
 
-class TestTopUpEconomics:
-    """The issue-13 levers over a real decision table (mini spec, horizon short enough that plenty of windows outlive the sweep) with the font faked out: dedupe of the hunt's candidate texts, the recorded-witness warm start, and the boundary gate's structural checks inherited within its proven horizon."""
+class TestBeltEconomics:
+    """What the per-edit belt does and does not spend over a short horizon with the font faked out: every text of every length up to the horizon shapes exactly once, and the structural checks the boundary gate already proved for these font bytes are inherited rather than re-run."""
 
     HORIZON = 2
 
-    @pytest.fixture(scope="class")
-    def decision(self, spec):
-        from rebuild.pipeline.table import build_tables
-
-        return build_tables(spec, frozenset())[0]
-
-    def _run(self, spec, decision, boundary_horizon=None, witness_cache=None):
-        from rebuild.pipeline.settle import cell_label
-
+    def _run(self, spec, boundary_horizon=None):
         shaper = _SilentShaper()
         result = conform._conformance_config(
             shaper,  # pyright: ignore[reportArgumentType]
@@ -658,75 +612,42 @@ class TestTopUpEconomics:
             "default",
             conform.spec_alphabet(spec),
             conform.splitting_boundary_chars(spec),
-            {cell: cell_label(spec, cell) for cell in decision.reachable_cells()},
+            {},
             None,
             self.HORIZON,
-            decision=decision,
             boundary_horizon=boundary_horizon,
-            witness_cache=witness_cache,
         )
         return result, shaper
 
-    def test_no_text_sweeps_twice_and_top_ups_count_distinct_texts(self, spec, decision, monkeypatch):
+    def test_the_sweep_shapes_each_enumerated_text_exactly_once(self, spec, monkeypatch):
         monkeypatch.setattr(conform, "check_split_buffer", lambda *args, **kwargs: None)
-        result, shaper = self._run(spec, decision)
-        assert result.topped_up_sequences > 0
-        assert len(shaper.shaped) == len(set(shaper.shaped))
-        assert result.shaping_runs == result.sequences + result.topped_up_sequences
-        assert result.uncovered_rules == 0
-        assert result.uncovered_transitions == 0
+        result, shaper = self._run(spec)
+        alphabet = len(conform.spec_alphabet(spec))
+        assert result.sequences == alphabet + alphabet**2
+        assert result.shaping_runs == result.sequences
+        assert len(shaper.shaped) == len(set(shaper.shaped)) == result.sequences
+        assert all(len(text) <= self.HORIZON for text in shaper.shaped)
 
-    def test_a_recorded_hunt_spares_the_next_run_the_assembly(self, spec, decision, monkeypatch, tmp_path):
-        assemblies: list[int] = [0]
-        real = conform._window_witness_candidates
-
-        def counted(*args, **kwargs):
-            assemblies[0] += 1
-            return real(*args, **kwargs)
-
-        monkeypatch.setattr(conform, "_window_witness_candidates", counted)
-        cache = conform.witnesses_path(tmp_path, "default")
-        cold, _shaper = self._run(spec, decision, witness_cache=cache)
-        cold_assemblies = assemblies[0]
-        assert cold_assemblies > 0
-        assert cache.exists()
-        first_bytes = cache.read_bytes()
-        warm, _shaper = self._run(spec, decision, witness_cache=cache)
-        assert assemblies[0] == cold_assemblies
-        assert (warm.uncovered_rules, warm.uncovered_transitions) == (0, 0)
-        assert warm.topped_up_rules == cold.topped_up_rules
-        assert 0 < warm.topped_up_sequences <= cold.topped_up_sequences
-        assert cache.read_bytes() == first_bytes
-
-    def test_a_stale_recording_falls_back_to_the_hunt(self, spec, decision, monkeypatch, tmp_path):
-        from rebuild.pipeline import table as table_module
-
-        cache = conform.witnesses_path(tmp_path, "default")
-        self._run(spec, decision, witness_cache=cache)
-        conform.write_witnesses(cache, table_module.windows_digest(decision), {}, {})
-        result, _shaper = self._run(spec, decision, witness_cache=cache)
-        assert (result.uncovered_rules, result.uncovered_transitions) == (0, 0)
-        assert result.topped_up_sequences > 0
-
-    def test_the_boundary_gates_green_is_inherited_within_its_horizon(self, spec, decision, monkeypatch):
+    def test_the_boundary_gates_green_is_inherited_within_its_horizon(self, spec, monkeypatch):
+        inherited = self.HORIZON - 1
         checked: list[str] = []
         monkeypatch.setattr(
             conform, "check_zwnj_structure", lambda text, *args, **kwargs: checked.append(text)
         )
         monkeypatch.setattr(conform, "check_split_buffer", lambda text, *args, **kwargs: checked.append(text))
-        result, _shaper = self._run(spec, decision, boundary_horizon=self.HORIZON)
+        result, _shaper = self._run(spec, boundary_horizon=inherited)
         assert checked
-        assert all(len(text) > self.HORIZON for text in checked)
+        assert all(len(text) > inherited for text in checked)
         assert any("inherited from the green boundary gate" in mode for mode in result.modes)
 
-    def test_without_the_boundary_green_every_text_keeps_its_checks(self, spec, decision, monkeypatch):
+    def test_without_the_boundary_green_every_text_keeps_its_checks(self, spec, monkeypatch):
         checked: list[str] = []
         monkeypatch.setattr(
             conform, "check_zwnj_structure", lambda text, *args, **kwargs: checked.append(text)
         )
         monkeypatch.setattr(conform, "check_split_buffer", lambda *args, **kwargs: None)
-        result, _shaper = self._run(spec, decision)
-        assert any(len(text) <= self.HORIZON for text in checked)
+        result, _shaper = self._run(spec)
+        assert any(len(text) == 1 for text in checked)
         assert not any("inherited from the green boundary gate" in mode for mode in result.modes)
 
 
@@ -743,115 +664,52 @@ class TestRawLabelsLateFormation:
         assert conform.raw_labels(spec, day + utter, frozenset()) == ["qsDay_qsUtter"]
 
 
-class _LazyContextIndex:
-    """A stand-in for the table's `_DeepTokenIndex` on specs whose full fixpoint is too heavy for a unit test: fibers are derived lazily by the real `_DeepFiberDeriver` for exactly the contexts the sweep reaches, tokens minted content-addressed from the full pin-free fibers, and resolution is context-keyed rather than base-keyed — sound here because with no worklist pins every base of a context shares the full member sets."""
-
-    def __init__(self, spec, features, engine):
-        from rebuild.pipeline import table as table_module
-
-        self._table = table_module
-        options = table_module._WindowOptions(spec)
-        self._deriver = table_module._DeepFiberDeriver(
-            spec,
-            engine,
-            options,
-            table_module._liveness_probe(spec, engine),
-            table_module.fourth_slot_filter(spec, features, engine),
-        )
-        self.representatives: dict[str, str] = {}
-        self.minted = 0
-
-    def _token(self, members) -> str:
-        letters = tuple(sorted(member.letter for member in members))
-        if len(letters) == 1:
-            return letters[0]
-        token = self._table.deep_class_id(letters)
-        if token not in self.representatives:
-            self.representatives[token] = letters[0]
-            self.minted += 1
-        return token
-
-    def resolve(self, label, left, right1, right2, right3, right4):
-        boundaryish = self._table.BOUNDARYISH
-        if right3 in boundaryish:
-            return right3, right4
-        ctxf = self._deriver.context(label.split(".")[0], right1.split(".")[0], right2.split(".")[0])
-        member3 = right3.split(".")[0]
-        fiber3 = next(
-            (fiber for fiber in ctxf.fibers if any(m.letter == member3 for m in fiber.members)), None
-        )
-        if fiber3 is None:
-            return right3, right4
-        token3 = self._token(fiber3.members)
-        if right4 in boundaryish:
-            return token3, right4
-        member4 = right4.split(".")[0]
-        group = next(
-            (
-                candidate
-                for candidate in fiber3.r4_groups
-                if any(m.kind == "letter" and m.letter == member4 for m in candidate)
-            ),
-            None,
-        )
-        if group is None:
-            return token3, right4
-        return token3, self._token(group)
-
-
 class TestSettledWindowWalk:
-    """The memoized walk must be observationally identical to the pair it replaced — settle_with_engine for the stream, _matched_windows for the windows and first-matching rules. Over-normalizing the memo key is the one real bug class (a key that blanks a slot the kernel can still read replays a wrong hit somewhere), so both sweeps run exhaustively, the walk reusing its memo from the second text on while the reference path recomputes every text fresh."""
+    """The memoized walk must be observationally identical to the unmemoized settle it replaced, and its memo keys must be exactly the windows `_matched_windows` reads at raw label grain. Over-normalizing the memo key is the one real bug class (a key that blanks a slot the kernel can still read replays a wrong outcome somewhere), so both paths run exhaustively, the walk reusing its memo from the second text on while the reference path settles every text fresh. The rule replay itself no longer rides the walk — `_matched_windows` and `_DeepTokenIndex` keep it, for the font-free witness gate — so the arms that need rules exercise them there."""
 
-    def _assert_walk_matches(
-        self, spec, features, rules_by_input, alphabet, max_length, decision=None, deep_index=None
-    ):
+    def _sweep(self, spec, features, alphabet, max_length, rules_by_input=None, deep_index=None):
+        """Sweep every text up to `max_length`: the walk's settled stream and names against the unmemoized settle, and its memo keys against the raw-grain replay both sides share `_window_rights` for. With `rules_by_input` supplied, the replay also runs through `deep_index` and its (window, first-matching rule) pairs come back for the class-grain arms to assert on."""
         import itertools
 
         from rebuild.pipeline import settle as settle_module
         from rebuild.pipeline import table as table_module
-        from rebuild.pipeline.emit_gsub import _raw_rename_map
 
         engine = settle_module.Engine(spec, features)
         deep = table_module.third_slot_inputs(spec, engine)
         deep3_live = table_module.third_slot_filter(spec, features, engine)
         deep4 = table_module.fourth_slot_inputs(spec, engine)
         deep4_live = table_module.fourth_slot_filter(spec, features, engine)
-        if deep_index is None and decision is not None and getattr(decision, "deep_classes", None):
-            deep_index = conform._DeepTokenIndex(decision, _raw_rename_map(spec, frozenset(features)))
-        walker = conform._SettledWindowWalk(
-            spec, engine, features, rules_by_input, deep, deep3_live, deep4, deep4_live, {}, deep_index
-        )
+        walker = conform._SettledWindowWalk(spec, engine, features, deep, deep3_live, deep4, deep4_live, {})
         reference = settle_module.Engine(spec, features)
+        replayed: list[tuple[tuple[str, ...], int | None]] = []
         for length in range(1, max_length + 1):
             for combo in itertools.product(alphabet, repeat=length):
                 text = "".join(combo)
-                settled, names, matched_rules = walker.walk(text)
+                settled, names = walker.walk(text)
                 expected = settle_module.settle_with_engine(reference, [ord(ch) for ch in text])
                 assert settled == expected, text
                 assert names == conform.settled_names(spec, expected, None), text
-                replayed = {
-                    index: (window, matched)
-                    for index, window, matched in conform._matched_windows(
-                        spec,
-                        text,
-                        features,
-                        names,
-                        rules_by_input,
-                        deep,
-                        deep3_live,
-                        deep4,
-                        deep4_live,
-                        deep_index,
-                    )
-                }
-                for index in range(len(settled)):
-                    if index in replayed:
-                        window, matched = replayed[index]
-                        assert matched_rules[index] == matched, (text, index)
-                        assert window in walker.windows, (text, index)
-                    else:
-                        assert matched_rules[index] is None, (text, index)
-        return walker
+                for _index, window, _matched in conform._matched_windows(
+                    spec, text, features, names, {}, deep, deep3_live, deep4, deep4_live, None
+                ):
+                    assert window in walker.windows, (text, window)
+                if rules_by_input is not None:
+                    replayed += [
+                        (window, matched)
+                        for _index, window, matched in conform._matched_windows(
+                            spec,
+                            text,
+                            features,
+                            names,
+                            rules_by_input,
+                            deep,
+                            deep3_live,
+                            deep4,
+                            deep4_live,
+                            deep_index,
+                        )
+                    ]
+        return walker, replayed
 
     @pytest.mark.parametrize(
         "features",
@@ -859,34 +717,25 @@ class TestSettledWindowWalk:
         ids=["default", "ss03", "ss02+ss03"],
     )
     def test_the_walk_matches_the_unmemoized_pair_over_the_mini_alphabet(self, spec, features):
-        from rebuild.pipeline.table import build_tables
-
-        decision = build_tables(spec, features)[0]
-        rules_by_input = conform._renamed_rules_by_input(spec, features, decision)
-        self._assert_walk_matches(
-            spec, features, rules_by_input, conform.spec_alphabet(spec), 4, decision=decision
-        )
+        self._sweep(spec, features, conform.spec_alphabet(spec), 4)
 
     def test_deep_slot_keys_replay_the_real_chains(self):
-        """The mini spec carries no depth-3 or depth-4 prefers, so the deep-slot arm of the key normalization runs against the real spec: the deep inputs' chain letters plus a boundary, swept to length 5 so right3 and right4 both open. Rules are omitted — the real fixpoint is far too heavy for a unit test — so `matched` is vacuously None on both paths; a lazily derived context index (the real fiber machinery, minted per context the sweep reaches) stands in for the table's transported map, so the assertion weight rides the settled stream and the fiber-token window keys — without it both paths would keep raw labels and prove nothing about the class collapse."""
+        """The mini spec carries no depth-3 or depth-4 prefers, so the deep-slot arm of the key normalization runs against the real spec: the deep inputs' chain letters plus a boundary, swept to length 5 so right3 and right4 both open. The assertion weight rides the settled stream and the window keys — the walk keeps raw labels in its deep slots now, which is strictly finer than the table's own grain, so a live slot must show up in the memo as a real label rather than as #NA."""
         import warnings
 
-        from rebuild.pipeline import settle as settle_module
         from rebuild.pipeline.spec_load import load_default_spec
 
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             real_spec = load_default_spec()
         alphabet = tuple(chr(cp) for cp in (0x0020, 0xE652, 0xE653, 0xE665, 0xE666, 0xE679, 0xE67A))
-        engine = settle_module.Engine(real_spec, frozenset())
-        deep_index = _LazyContextIndex(real_spec, frozenset(), engine)
-        walker = self._assert_walk_matches(real_spec, frozenset(), {}, alphabet, 5, deep_index=deep_index)
-        assert deep_index.minted, "the sweep reached no fiber-collapsed window"
-        assert any(key[4].startswith("#C") for key in walker.windows), "no class token reached the memo"
+        walker, _replayed = self._sweep(real_spec, frozenset(), alphabet, 5)
+        assert any(key[4] != "#NA" for key in walker.windows), "no window opened its third slot"
 
     def test_prospect_live_slots_agree_between_walk_and_replay(self, monkeypatch):
-        """The issue-28 arm of the deep-slot filters, exercised end to end: under the simulated-prospect default, the `_prospect_spec` fixture's A-before-B-C windows carry a live third slot the table enumerates, and the memoized walk, the unmemoized replay, and the built rules must agree on the split — the same observational-identity bar as the chain-arm sweeps above, now with the table's own deep-token index carrying the class map into both paths."""
+        """The issue-28 arm of the deep-slot filters, exercised end to end: under the simulated-prospect default, the `_prospect_spec` fixture's A-before-B-C windows carry a live third slot the table enumerates, and the memoized walk and the unmemoized replay must agree on the split — the same observational-identity bar as the chain-arm sweeps above, with the table's own deep-token index carrying the class map into the replay's rule matching."""
         from rebuild.pipeline import settle as settle_module
+        from rebuild.pipeline.emit_gsub import _raw_rename_map
         from rebuild.pipeline.table import build_tables
         from rebuild.test_settle import _prospect_spec
 
@@ -897,15 +746,18 @@ class TestSettledWindowWalk:
         assert any(rule.look3 for rule in decision.rules)
         assert decision.deep_classes
         rules_by_input = conform._renamed_rules_by_input(spec, frozenset(), decision)
-        self._assert_walk_matches(
-            spec, frozenset(), rules_by_input, conform.spec_alphabet(spec), 5, decision=decision
+        index = conform._DeepTokenIndex(decision, _raw_rename_map(spec, frozenset()))
+        _walker, replayed = self._sweep(
+            spec, frozenset(), conform.spec_alphabet(spec), 5, rules_by_input, index
         )
+        assert any(matched is not None for _window, matched in replayed)
 
-    def test_synthetic_depth4_walk_carries_rules_and_a_genuine_index(self):
-        """The class-grain depth-4 arm with real rules and a real transported index: the mini fixture plus a reach-3 chain on ·Tea, built in the shipping deep world, mints an r4 class at the ·Tea·May·May·May windows; the walk and the replay must agree on the fiber-token keys and the first-matching rules over an alphabet that realizes those windows at length 5."""
+    def test_synthetic_depth4_replay_carries_rules_and_a_genuine_index(self):
+        """The class-grain depth-4 arm with real rules and a real transported index: the mini fixture plus a reach-3 chain on ·Tea, built in the shipping deep world, mints an r4 class at the ·Tea·May·May·May windows, and `_matched_windows` must resolve the realized labels to that class token and match rules against it — the replay half of the pair, which the witness gate leans on, while the walk beside it keeps settling those same texts right."""
         import dataclasses
 
         from rebuild.pipeline import fixtures, model
+        from rebuild.pipeline.emit_gsub import _raw_rename_map
         from rebuild.pipeline.table import build_tables
 
         spec = fixtures.mini_spec()
@@ -929,6 +781,7 @@ class TestSettledWindowWalk:
         decision = build_tables(spec, frozenset())[0]
         assert any(row.right4 in decision.deep_classes for row in decision.transitions)
         rules_by_input = conform._renamed_rules_by_input(spec, frozenset(), decision)
+        index = conform._DeepTokenIndex(decision, _raw_rename_map(spec, frozenset()))
         alphabet = tuple(
             chr(codepoint)
             for codepoint in (
@@ -938,8 +791,11 @@ class TestSettledWindowWalk:
             )
             if codepoint is not None
         ) + (" ",)
-        walker = self._assert_walk_matches(spec, frozenset(), rules_by_input, alphabet, 5, decision=decision)
-        assert any(key[5].startswith("#C") for key in walker.windows), "no r4 class token reached the memo"
+        _walker, replayed = self._sweep(spec, frozenset(), alphabet, 5, rules_by_input, index)
+        assert any(
+            window[5].startswith("#C") for window, _matched in replayed
+        ), "no r4 class token reached the replay"
+        assert any(matched is not None for _window, matched in replayed)
 
 
 class TestDeepTokenIndex:

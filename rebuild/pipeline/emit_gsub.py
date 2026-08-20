@@ -6,11 +6,12 @@ Rule consumption is duck-typed against Group 2's `table.DecisionTable`: each rul
 
 Invariants asserted before returning: no locked twin and no chokepoint output appears in any raw lookahead class; every glyph named by any rule exists in the supplied glyph inventory; zero selection-semantics `ignore sub` (the namer-dot stage's guard and the generated late-formation guard rows are the sanctioned exemptions — both are formation/boundary machinery, not selection semantics).
 
-Beside the FEA text the plan carries a structured mirror of every stage — the pre-empt map, the guarded formation rows and the plain ligatures, the per-feature marker substitutions, the settlement rows, the namer-dot row pair, and the calt lookup order — built at the same statement sites that append the lines, so line order and row order cannot drift. `rebuild/pipeline/readback.py` compares the compiled font against exactly that mirror; nothing else reads it, and nothing in it is parsed back out of the emitted text.
+Beside the FEA text the plan carries a structured mirror of every stage — the pre-empt map, the guarded formation rows and the plain ligatures, the per-feature marker substitutions, the settlement rows, the namer-dot row pair, and the calt lookup order — built at the same statement sites that append the lines, so line order and row order cannot drift. `rebuild/pipeline/readback.py` compares the compiled font against exactly that mirror, and `behavior_classes` enumerates the HarfBuzz-facing shapes it holds so the periodic deep sweep knows when a build has asked the shaper something new; nothing else reads it, and nothing in it is parsed back out of the emitted text.
 """
 
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import dataclass, field
 from typing import Iterable, Mapping
 
@@ -26,6 +27,30 @@ from rebuild.pipeline.model import (
 
 class EmitError(Exception):
     pass
+
+
+BEHAVIOR_CLASSES_FORMAT = "ams-m1-behavior-classes/1"
+
+_KNOWN_PLAN_FIELDS = frozenset(
+    {
+        "fea_text",
+        "class_definitions",
+        "rule_count",
+        "marker_glyphs",
+        "locked_glyphs",
+        "named_glyphs",
+        "ss10_preempt",
+        "formation_guarded_rows",
+        "formation_plain",
+        "marker_lines",
+        "settle_rules",
+        "namer_dot_stage",
+        "calt_stages",
+    }
+)
+_CALT_STAGE_NAMES = frozenset(
+    {"m1_formation_guarded", "m1_formation", "m1_zwnj", "m1_settle", "m1_namer_dot_word_start"}
+)
 
 
 @dataclass(frozen=True)
@@ -62,6 +87,76 @@ class GsubPlan:
     settle_rules: tuple[SettleRule, ...] = ()
     namer_dot_stage: tuple[str, str, frozenset[str]] | None = None  # (dot, lowered, followers)
     calt_stages: tuple[str, ...] = ()  # lookup names in calt definition order
+
+
+def behavior_classes(plan: GsubPlan) -> tuple[str, ...]:
+    """The deep sweep's arming enumeration: every HarfBuzz-facing shape the emitted lookup contains, stated as class tokens rather than as rules. A slot count, a guard arity, a ZWNJ in a backtrack, a locked input, the fall-through across per-family subtable breaks — each is a distinct way the shaper can be asked to behave, and two builds whose token sets agree ask nothing of HarfBuzz that the other did not. That is what lets a deep sweep's green survive a rune edit: the edit moves rules, but if it mints no new token it samples nothing the deep sweep has not already shaped.
+
+    Fail-closed on the `classify_divergence` hard-None idiom, one level up: an unrecognized field on GsubPlan, a lookahead depth past the emitter's own ceiling, a guard arity nobody has emitted, a calt stage under an unknown name — each raises EmitError rather than passing silently, because a shape that enumerates to nothing would arm nothing and the deep sweep's green would quietly stop meaning what it says. The tokens name shapes, never contents: which rules exist and where they sit is read-back's claim (rebuild/pipeline/readback.py), re-proved on every build.
+    """
+    for candidate in dataclasses.fields(plan):
+        if candidate.name not in _KNOWN_PLAN_FIELDS:
+            raise EmitError(
+                f"GsubPlan grew a field the behavior-class enumeration does not know: {candidate.name} — teach behavior_classes its shape so the deep sweep can arm on it"
+            )
+    tokens: set[str] = set()
+    if plan.ss10_preempt:
+        tokens.add("ss10-preempt")
+    sequences = [sequence for sequence, _ligature in plan.formation_plain]
+    sequences += [row.sequence for row in plan.formation_guarded_rows]
+    for sequence in sequences:
+        if len(sequence) < 2:
+            raise EmitError(
+                f"formation row with fewer than two components: {sequence} — teach behavior_classes what that shape asks of the shaper"
+            )
+        tokens.add(f"formation:{len(sequence)}")
+    for row in plan.formation_guarded_rows:
+        depth = len(row.lookahead)
+        if row.ligature is None:
+            if depth not in (1, 2):
+                raise EmitError(
+                    f"guard ignore row over {depth} lookahead slots: {row.sequence} — the guard emits one- and two-slot rows only"
+                )
+            tokens.add(f"guard-ignore:{depth}-slot")
+        elif depth == 0:
+            tokens.add("guard-form:fallback")
+        elif depth == 1:
+            if row.lookahead[0] != frozenset({"uni200C"}):
+                raise EmitError(
+                    f"one-slot forming row over {sorted(row.lookahead[0])}: {row.sequence} — the guard forms at one slot only against an explicit ZWNJ"
+                )
+            tokens.add("guard-form:zwnj")
+        elif depth == 2:
+            tokens.add("guard-form:2-slot")
+        else:
+            raise EmitError(
+                f"forming row over {depth} lookahead slots: {row.sequence} — the guard emits at most two"
+            )
+    for feature in plan.marker_lines:
+        tokens.add(f"marker-fold:{feature}")
+    for rule in plan.settle_rules:
+        depth = len(rule.lookahead)
+        if depth > 4:
+            raise EmitError(
+                f"settlement rule over {depth} lookahead slots: {rule.input_glyph} — the window carries four"
+            )
+        tokens.add(f"settle:bk{1 if rule.backtrack is not None else 0}-la{depth}")
+        if "uni200C" in (rule.backtrack or frozenset()):
+            tokens.add("settle:zwnj-in-backtrack")
+        if any("uni200C" in slot for slot in rule.lookahead):
+            tokens.add("settle:zwnj-in-lookahead")
+        if ".noentry" in rule.input_glyph:
+            tokens.add("settle:locked-input")
+    if len({rule.input_glyph.split(".")[0] for rule in plan.settle_rules}) > 1:
+        tokens.add("settle:cross-subtable")
+    if plan.namer_dot_stage is not None:
+        tokens.add("namer-dot")
+    for name in plan.calt_stages:
+        if name not in _CALT_STAGE_NAMES:
+            raise EmitError(
+                f"calt stage under an unknown name: {name} — teach behavior_classes what that lookup asks of the shaper"
+            )
+    return tuple(sorted(tokens))
 
 
 class _ClassRegistry:

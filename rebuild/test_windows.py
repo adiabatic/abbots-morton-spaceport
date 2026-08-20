@@ -1,4 +1,4 @@
-"""The window enumerations the build stage serializes so the font-vs-settle sweep never rebuilds a fixpoint the same sources already produced: the `table.write_windows` / `table.read_windows` round trip, the fingerprint guard in `run_m1.serialized_tables` that decides between loading and rebuilding, and the drop that keeps a million rows per configuration out of the build's parent process."""
+"""The window enumerations the build stage serializes so nothing downstream rebuilds a fixpoint the same sources already produced — `run_m1.serialized_tables`' header read, which mints the sweep's glyph inventory, and the full rows the font-free witness gate reads: the `table.write_windows` / `table.read_windows` round trip, the fingerprint guard that decides between loading and rebuilding, and the drop that keeps a million rows per configuration out of the build's parent process."""
 
 import gzip
 
@@ -62,7 +62,7 @@ class TestRoundTrip:
 
 
 class TestWindowsDigest:
-    """The witness cache's key: the digest must survive everything a rune edit can move without moving the table (the inputs stamp), and move with anything a hunt actually reads (the rules, the windows)."""
+    """The row-level table digest: it must survive everything a rune edit can move without moving the table (the inputs stamp), and move with anything the settlement rows themselves carry (the rules, the windows, the class map)."""
 
     def test_the_loaded_table_digests_like_the_built_one(self, built, written):
         _inputs, loaded = table_module.read_windows(written)
@@ -153,19 +153,3 @@ class TestBuildStageHandoff:
         tables = run_m1.build_tables(SPEC, tmp_path, engine="python")
         assert not list(tmp_path.glob("windows-*"))
         assert all(decision.transitions for decision, _treaty in tables.values())
-
-    def test_the_sweep_refuses_a_table_handed_over_without_its_windows(self, tmp_path):
-        # The alternative is a clean sweep over nothing: coverage is measured against the table's own windows.
-        decision = build_tables(SPEC, frozenset())[0]
-        with pytest.raises(ValueError):
-            conform._conformance_config(
-                None,  # pyright: ignore[reportArgumentType]
-                SPEC,
-                "default",
-                (),
-                frozenset(),
-                {},
-                None,
-                1,
-                decision=DecisionTable(config="default", rules=decision.rules),
-            )

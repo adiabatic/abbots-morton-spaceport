@@ -218,17 +218,10 @@ def test_a_failed_boundary_gate_clears_the_record(monkeypatch, tmp_path):
 def test_conform_only_records_its_own_green(monkeypatch, tmp_path):
     store = tmp_path / "conform-green.json"
     monkeypatch.setattr(ac, "CONFORM_GREEN", store)
-    monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, horizon=5: "fp-conform")
-    monkeypatch.setattr(ac, "conform_skip_files", lambda root=None, horizon=5: {})
+    monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, horizon=4: "fp-conform")
+    monkeypatch.setattr(ac, "conform_skip_files", lambda root=None, horizon=4: {})
     monkeypatch.setattr(
-        run_m1,
-        "run_font_conformance",
-        lambda max_length, jobs: {
-            "pass": True,
-            "divergences": 0,
-            "uncovered_rules": 0,
-            "uncovered_transitions": 0,
-        },
+        run_m1, "run_font_conformance", lambda max_length, jobs: {"pass": True, "divergences": 0}
     )
     run_m1.main(["--conform-only"])
     record = ac.read_green_record(store)
@@ -236,21 +229,15 @@ def test_conform_only_records_its_own_green(monkeypatch, tmp_path):
     assert record["fingerprint"] == "fp-conform"
 
 
-def test_conform_only_dead_rules_record_no_green(monkeypatch, tmp_path):
+def test_conform_only_divergences_record_no_green(monkeypatch, tmp_path):
     store = tmp_path / "conform-green.json"
     monkeypatch.setattr(ac, "CONFORM_GREEN", store)
-    monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, horizon=5: "fp-conform")
+    monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, horizon=4: "fp-conform")
     monkeypatch.setattr(
-        run_m1,
-        "run_font_conformance",
-        lambda max_length, jobs: {
-            "pass": True,
-            "divergences": 0,
-            "uncovered_rules": 3,
-            "uncovered_transitions": 0,
-        },
+        run_m1, "run_font_conformance", lambda max_length, jobs: {"pass": False, "divergences": 3}
     )
-    run_m1.main(["--conform-only"])
+    with pytest.raises(SystemExit):
+        run_m1.main(["--conform-only"])
     assert ac.read_green_record(store) is None
 
 
@@ -259,12 +246,12 @@ def test_the_conform_horizon_default_matches_the_cycle_driver(monkeypatch, tmp_p
     store = tmp_path / "conform-green.json"
     swept = []
     monkeypatch.setattr(ac, "CONFORM_GREEN", store)
-    monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, horizon=5: "fp-conform")
-    monkeypatch.setattr(ac, "conform_skip_files", lambda root=None, horizon=5: {})
+    monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, horizon=4: "fp-conform")
+    monkeypatch.setattr(ac, "conform_skip_files", lambda root=None, horizon=4: {})
 
     def fake_sweep(max_length, jobs):
         swept.append(max_length)
-        return {"pass": True, "divergences": 0, "uncovered_rules": 0, "uncovered_transitions": 0}
+        return {"pass": True, "divergences": 0}
 
     monkeypatch.setattr(run_m1, "run_font_conformance", fake_sweep)
     run_m1.main(["--conform-only"])
