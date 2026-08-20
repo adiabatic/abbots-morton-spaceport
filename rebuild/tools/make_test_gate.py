@@ -1,6 +1,6 @@
 """`make test`'s entry point: run the font suite only when its input closure has changed since the last green run.
 
-The closure and its fingerprint are artifact_cycle's — every tracked or untracked-unignored file outside rebuild/, glyph_data/runes/, doc/, tmp/, .claude/, and Markdown, i.e. everything the suite (make all, typst, pyright, pytest test/ site/) can read. When the fingerprint matches the shared green record (rebuild/out/make-test-green.json), the recorded green already describes this exact closure content, so re-running the ≈15 CPU-minute suite would verify nothing; the wrapper prints the skip and exits 0. Otherwise it runs the real suite and, on green, rewrites the record — so interactive runs and the artifact cycle's gate:make-test each skip on the other's greens. `make test FORCE=1` (--force) runs the suite regardless; a forced red run whose closure still matches the record deletes it, since the green it claims is contradicted. A green run during which the closure moved records nothing, because the tested content is no longer on disk.
+The closure and its fingerprint are artifact_cycle's — every tracked or untracked-unignored file outside the exempt trees (MAKE_TEST_EXEMPT_PREFIXES, plus Markdown; make_test_exempt is the authority), i.e. everything the suite (make all, typst, pyright, pytest test/ site/) can read. When the fingerprint matches the shared green record (rebuild/out/make-test-green.json), the recorded green already describes this exact closure content, so re-running the ≈15 CPU-minute suite would verify nothing; the wrapper prints the skip and exits 0. Otherwise it runs the real suite and, on green, rewrites the record — so interactive runs and the artifact cycle's gate:make-test each skip on the other's greens. `make test FORCE=1` (--force) runs the suite regardless; a forced red run whose closure still matches the record deletes it, since the green it claims is contradicted. A green run during which the closure moved records nothing, because the tested content is no longer on disk.
 """
 
 from __future__ import annotations
@@ -15,6 +15,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from rebuild.tools.artifact_cycle import (
+    MAKE_TEST_EXEMPT_PREFIXES,
     MAKE_TEST_GREEN,
     make_test_closure_fingerprint,
     read_make_test_green,
@@ -40,7 +41,7 @@ def main(argv: list[str] | None = None) -> int:
     if not args.force and before is not None and recorded is not None and before == recorded["fingerprint"]:
         print(
             f"make test: SKIPPED — input closure unchanged since its last green run ({recorded.get('finished_at')}). "
-            "Nothing the suite reads has changed (diffs confined to rebuild/, glyph_data/runes/, doc/, tmp/, .claude/, or Markdown cannot move it). "
+            f"Nothing the suite reads has changed (diffs confined to {', '.join(MAKE_TEST_EXEMPT_PREFIXES)}, or Markdown cannot move it). "
             "Run `make test FORCE=1` to run it anyway."
         )
         return 0
