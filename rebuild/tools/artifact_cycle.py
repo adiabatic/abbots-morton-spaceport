@@ -1,10 +1,10 @@
 """The one-command driver for the commit-time artifact cycle.
 
-It mechanizes the commit-time sequence: snapshot the current review surface (the only recovery copy, since everything under rebuild/out is gitignored), recompile M1.otf and vet it, rebuild the review surface in place, carry prior verdicts forward onto the fresh manifest, merge the carried file into the live autosave (rebuild.tools.merge_verdicts, so the app needs no manual import; --no-merge opts out), land echo-prefill verdicts onto the freshly restamped autosave (rebuild.tools.echo_verdicts writes fill records for the blanks in unanimously-judged echo groups, then a second merge_verdicts pass imports them, so cross-cycle echo blanks fill without a sitting-prep pass), land standing-approval verdicts the same way (rebuild.tools.standing_verdicts fills blanks matching the checked-in rules in rebuild/standing-approvals.yaml, so once-and-for-all decisions never queue again), re-baseline the census pins, and run the four gates — always printing a summary table at the end, even on failure.
+It mechanizes the commit-time sequence: snapshot the current review surface (the only recovery copy, since everything under rebuild/out is gitignored), recompile M1.otf and vet it, rebuild the review surface in place, carry prior verdicts forward onto the fresh manifest, merge the carried file into the live autosave (rebuild.tools.merge_verdicts, so the app needs no manual import; --no-merge opts out), land echo-prefill verdicts onto the freshly restamped autosave (rebuild.tools.echo_verdicts writes fill records for the blanks in unanimously-judged echo groups, then a second merge_verdicts pass imports them, so cross-cycle echo blanks fill without a sitting-prep pass), land standing-approval verdicts the same way (rebuild.tools.standing_verdicts fills blanks matching the checked-in rules in rebuild/standing-approvals.yaml, so once-and-for-all decisions never queue again), refresh the census pins from the surface's census sidecar and print their git diff (the checked-in pins are the last accepted census, so reviewing that diff at commit time is what accepts a new one), and run the four gates — always printing a summary table at the end, even on failure.
 
 The exit-code trap this driver exists to defuse: run_m1.main() SystemExits nonzero whenever any oracle rows are UNMATCHED, which is always true mid-migration. Its exit code is therefore not the gate; the four summary JSONs it writes are. The real gates are defect_errors, the boundary and Manual-pin passes, and multi_matched == 0.
 
-The two artifact-independent gates (js, make-test) run from t=0 in a small thread pool while the build chain runs inline-serial in the main thread. gate:conform (the exhaustive font-vs-settle sweep, run_m1 --conform-only) starts after the run_m1 gate passes, queued behind make-test by default. gate:rebuild is submitted later, only once the build lane's census step has landed its verdict — the pins are part of the suite's input closure, so submitting earlier means running against pins the same cycle is about to judge or rewrite. That ordering carries two rules. On a pass without --update-pins, a census outcome of STALE (live or replayed) defers the gate outright (skip: "deferred", remedy --update-pins) instead of running it: census-pinned failures under known-stale pins are foregone, so the long suite run could report nothing but hints and could never record green. On an --update-pins pass, the suite always reads the pins the census step just rewrote, so a census-module failure is a real failure, the old start-before-update race and its amnesty are gone, and the pass records rebuild-gate-green.json itself. Under the default queue policy gate:rebuild parks at the tail of the make-test -> conform chain, so only one heavy gate pool is hot at a time — the build chain (census included) rides alongside whichever one that is at half the build stages' job ceiling rather than serial (see stage_job_budget), which is why the late submission costs no wall time. Co-resident, the two heavy pools oversubscribe the cores roughly 2:1, and measured that contention roughly tripled gate:rebuild's wall time — a worse critical path than running the same work in sequence. --rebuild-pool overlap restores full co-residency (gate:rebuild still waits for the census step).
+The two artifact-independent gates (js, make-test) run from t=0 in a small thread pool while the build chain runs inline-serial in the main thread. gate:conform (the exhaustive font-vs-settle sweep, run_m1 --conform-only) starts after the run_m1 gate passes, queued behind make-test by default. gate:rebuild is submitted a little later, once the surface build settles — the suite's census-module fixture prefers the provably-fresh live surface and must never observe one mid-rewrite, where the manifest has landed but review.build has not yet written the sidecar beside it — and from there on the suite reads nothing the build lane writes, the census pins included, so nothing downstream has to land before it can start. Under the default queue policy gate:rebuild parks at the tail of the make-test -> conform chain, so only one heavy gate pool is hot at a time — the build chain rides alongside whichever one that is at half the build stages' job ceiling rather than serial (see stage_job_budget). Co-resident, the two heavy pools oversubscribe the cores roughly 2:1, and measured that contention roughly tripled gate:rebuild's wall time — a worse critical path than running the same work in sequence. --rebuild-pool overlap restores full co-residency.
 
 The cycle runs no Rust-vs-Python differential. Every settlement-semantics change is still written twice — the kernel crate builds the cycle's tables, and Python's settle kernel still ships, with gate:conform re-settling every swept string through it each cycle and emit_gsub calling formation_blocked — but the comparison of the twins at artifact grain is an instrument you reach for by hand: rebuild.tools.kernel_gate (`make kernel-gate`) builds the crate, streams every acceptance config out of the kernel in one child, enumerates the Python side fresh in-process, folds both through the same table.assemble_tables, and byte-compares the three artifacts plus the contract digest. Run it around a kernel-semantics change, where its Python fixpoint per configuration is the price of the proof.
 
@@ -16,9 +16,9 @@ The key is captured the moment the chain closes, not at the end of the pass, so 
 
 The skip demands that the surface build be skipping too, which is what makes the stamp knowable before the pass runs, and it takes the snapshot with it: the snapshot exists to survive this cycle's surface rewrite and to feed this cycle's carry, and a pass doing neither needs no copy. Such a pass also leaves the snapshot pile alone rather than pruning it to the copy it never made, so the stamp-aligned snapshot the last refreshing pass left stays on disk as the recovery source describe_carry_source points at. A flag that names a carry output or a snapshot directory refuses the skip outright, since honoring it would mean writing neither.
 
-The same provably-unchanged principle guards every other heavy stage, each keyed by a content fingerprint over that stage's full input closure and a green record written only after that exact content passed live: run_m1 skips on rebuild/out/run-m1-green.json (the Stage A fingerprint components plus the oracle's subset tables and uv.lock) and re-evaluates its gate from the four summary JSONs already on disk; gate:conform skips on conform-green.json (the run_m1 key plus the M1.otf bytes and the sweep horizon); gate:rebuild skips on rebuild-gate-green.json (the suite's repo closure under rebuild/ and glyph_data/ plus the out/m1 artifacts, site fonts, baselines, conftest.py, pyproject.toml, and uv.lock — also written by rebuild.tools.rebuild_gate, the `make test-rebuild` entry point, so interactive suite greens and cycle greens share one record); surface-build skips when the manifest's recorded inputs fingerprint already equals the one a build would stamp now (a rebuild would be byte-identical, mtime-floored generated_at included, so the autosave stays aligned); and the census check skips on census-result.json, which — unlike the green records — is written after stale checks too: the check is informational (staleness never fails a cycle) and deterministic over its fingerprinted inputs, so a pass whose key matches a recorded stale outcome replays the recorded mismatch lines instead of re-running the check. Pins go stale on every rune edit and stay stale until --update-pins, so without the stale record the converging loop re-derived the same stale verdict on every pass — now milliseconds, since the check reads the surface build's census-facts.json sidecar rather than re-parsing the divergence audit and re-shaping every pre-merge unit, but the record still spares the re-read and re-diff of an outcome nothing moved. The surface, conform, rebuild, and census skips engage only on cycles where run_m1 itself skipped, so a live M1 rebuild can never invalidate a key mid-cycle; green records are written only when the key still matches after the work ran, and a red result whose key matches its record deletes the record (for the census that deletion covers only a check with no verdict to record — a crash or a missing pins file). --fresh runs everything regardless.
+The same provably-unchanged principle guards every other heavy stage, each keyed by a content fingerprint over that stage's full input closure and a green record written only after that exact content passed live: run_m1 skips on rebuild/out/run-m1-green.json (the Stage A fingerprint components plus the oracle's subset tables and uv.lock) and re-evaluates its gate from the four summary JSONs already on disk; gate:conform skips on conform-green.json (the run_m1 key plus the M1.otf bytes and the sweep horizon); gate:rebuild skips on rebuild-gate-green.json (the suite's repo closure under rebuild/ and glyph_data/ plus the out/m1 artifacts, site fonts, baselines, conftest.py, pyproject.toml, and uv.lock — also written by rebuild.tools.rebuild_gate, the `make test-rebuild` entry point, so interactive suite greens and cycle greens share one record); surface-build skips when the manifest's recorded inputs fingerprint already equals the one a build would stamp now (a rebuild would be byte-identical, mtime-floored generated_at included, so the autosave stays aligned). The census step is neither keyed nor skipped: it reads the surface build's census-facts.json sidecar and rewrites one small checked-in file in milliseconds, so it simply runs every pass. The surface, conform, and rebuild skips engage only on cycles where run_m1 itself skipped, so a live M1 rebuild can never invalidate a key mid-cycle; green records are written only when the key still matches after the work ran, and a red result whose key matches its record deletes the record. --fresh runs everything regardless.
 
---defer-gates, which `make review-cycle` passes, turns the cycle from a one-pass verification into a converging loop. On a *refreshing* pass — one where run_m1 or the surface build has real work — the three heavy gates (rebuild, conform, make-test) are recorded pending instead of run, so a rune edit costs only the artifact chain and the letters are on screen in a fraction of the time. The census rides the same deferral: it is informational, no gate reads it, and the one step whose scheduling depends on it — gate:rebuild, submitted only after the census lands a verdict — is itself deferred on any refreshing pass, so leaving it for the converging pass takes a minute off the time to letters-on-screen without changing what any pass verifies. An --update-pins pass never defers it, since refreshing the pins is that pass's whole point. Only a gate that would otherwise run live is deferred: one an auto-skip already proved stays proved, so a pass that merely restamps the review UI can never turn a green gate pending. The next pass has no artifact work left, every stage auto-skips, and the pending gates run against settled artifacts; the pass after that skips those too and costs seconds. Deferral is never a waiver — a deferred gate rides `skip: "deferred"` into the cycle summary, which rebuild.review.status counts as unverified, so `make verdict-ready` and the app banner both stay NOT READY until the loop converges. --no-defer-gates runs them in the one pass, which is what `make artifact-cycle` does at commit time, and --fresh and --force-make-test likewise override deferral for the gates they force. Rehearsal mode (--review-out) never defers: it writes its surface somewhere else, so there is no live surface to see sooner, and its surface build is unskippable by construction — every rehearsal pass would look refreshing and the loop would never converge.
+--defer-gates, which `make review-cycle` passes, turns the cycle from a one-pass verification into a converging loop. On a *refreshing* pass — one where run_m1 or the surface build has real work — the three heavy gates (rebuild, conform, make-test) are recorded pending instead of run, so a rune edit costs only the artifact chain and the letters are on screen in a fraction of the time. Only a gate that would otherwise run live is deferred: one an auto-skip already proved stays proved, so a pass that merely restamps the review UI can never turn a green gate pending. The next pass has no artifact work left, every stage auto-skips, and the pending gates run against settled artifacts; the pass after that skips those too and costs seconds. Deferral is never a waiver — a deferred gate rides `skip: "deferred"` into the cycle summary, which rebuild.review.status counts as unverified, so `make verdict-ready` and the app banner both stay NOT READY until the loop converges. --no-defer-gates runs them in the one pass, which is what `make artifact-cycle` does at commit time, and --fresh and --force-make-test likewise override deferral for the gates they force. Rehearsal mode (--review-out) never defers: it writes its surface somewhere else, so there is no live surface to see sooner, and its surface build is unskippable by construction — every rehearsal pass would look refreshing and the loop would never converge.
 
 Which passes cost the reviewer their letters is decided here rather than by the caller, because only the resolved plan knows. Two of the things a cycle writes belong to the running app — the surface it serves, where livereload watches every shard and a restamped manifest orphans the tab's store, and the verdict store, which merge_verdicts refuses to touch under a live server because an open tab would flush its own copy back over the merge. A pass whose plan skips both writes neither, so a listening server is left alone and the letters stay on screen for the whole run: that is the gate pass, whose long verification the deferred gates exist to move off the look-edit-look path, and which used to black the app out for every minute of it. A pass that does write under the app still needs the port to itself, and --stop-server (which `make review-cycle` passes) is permission to take it — terminate the server and wait out the port — where a bare run still refuses and says how. Retention is the third writer: the app appends to the journal as you verdict, and a compaction rewrites the file around a read, so with a server up the journal and the stash sweep that indexes off it are both left for a later pass.
 
@@ -56,7 +56,6 @@ if TYPE_CHECKING:
 REVIEW_OUT = ROOT / "rebuild" / "out" / "review"
 AUTOSAVE = ROOT / "verdicts-autosave.json"
 M1_OUT = ROOT / "rebuild" / "out" / "m1"
-CENSUS_PINS = ROOT / "rebuild" / "review-census-pins.json"
 CARRY_TOOL = ROOT / "rebuild" / "tools" / "carry_verdicts.py"
 ECHO_TOOL = ROOT / "rebuild" / "tools" / "echo_verdicts.py"
 ECHO_FILL = ROOT / "verdicts-echo-fill.json"
@@ -68,7 +67,6 @@ MAKE_TEST_GREEN = ROOT / "rebuild" / "out" / "make-test-green.json"
 RUN_M1_GREEN = ROOT / "rebuild" / "out" / "run-m1-green.json"
 CONFORM_GREEN = ROOT / "rebuild" / "out" / "conform-green.json"
 REBUILD_GATE_GREEN = ROOT / "rebuild" / "out" / "rebuild-gate-green.json"
-CENSUS_RESULT = ROOT / "rebuild" / "out" / "census-result.json"
 PLUMBING_GREEN = ROOT / "rebuild" / "out" / "plumbing-green.json"
 JSTEST_DIR = ROOT / "rebuild" / "review" / "jstests"
 REVIEW_PORT = 7294
@@ -78,7 +76,6 @@ REBUILD_POOL_POLICY_DEFAULT = "queue"
 DEFERRABLE_GATES = ("rebuild", "conform", "make-test")
 DEFER_NOTE = "surface refreshed this pass; run the cycle again to run it"
 PLUMBING_SKIP_NOTE = "surface, verdicts master, live store, and standing approvals unchanged since the last complete plumbing pass; --fresh overrides"
-STALE_CENSUS_DEFER_NOTE = "stale census pins; re-run with --update-pins to refresh them first"
 SERVER_STAYS_UP_NOTE = "writes neither the surface the app serves nor the verdict store it holds"
 SERVER_STOP_PATTERN = r"rebuild\.review\.serve"
 SERVER_STOP_TIMEOUT = 15.0
@@ -96,15 +93,6 @@ M1_SUMMARY_FILES = {
 CONFORM_SUMMARY = M1_OUT / "conform_summary.json"
 
 BASELINE_REBUILD_FAILURES = frozenset({"rebuild/test_surface.py::test_real_cell_bindings_all_match"})
-
-CENSUS_HINT_MODULES = frozenset(
-    {
-        "test_review_audit",
-        "test_review_build",
-        "test_review_families",
-        "test_review_ink",
-    }
-)
 
 REBUILD_PYTEST_ARGV = [
     "uv",
@@ -201,24 +189,6 @@ def clear_contradicted_green(path: Path, fingerprint: str | None) -> None:
         path.unlink(missing_ok=True)
 
 
-def record_census_result(path: Path, fingerprint: str, status: str, mismatches: list[str]) -> None:
-    """The census check's outcome record, written after stale checks as well as clean ones: the check is informational and deterministic over the inputs its fingerprint hashes, so a stale outcome over unchanged inputs is as replayable as a clean one."""
-    _record_outcome(path, {"fingerprint": fingerprint, "status": status, "mismatches": mismatches})
-
-
-def read_census_result(path: Path) -> dict | None:
-    """The recorded census outcome ({fingerprint, status, mismatches}); None when absent or malformed, missing outcome fields included."""
-    record = read_green_record(path)
-    if (
-        record is not None
-        and record.get("status") in ("clean", "stale")
-        and isinstance(record.get("mismatches"), list)
-        and all(isinstance(line, str) for line in record["mismatches"])
-    ):
-        return record
-    return None
-
-
 def record_plumbing_green(fingerprint: str, carry_out: Path | None, path: Path | None = None) -> None:
     """The verdict plumbing's last-green record. It carries the carried-verdicts file the recorded pass wrote as well as the key, so a later pass that skips the chain can still name the live frontier in its summary instead of reporting no carry at all."""
     _record_outcome(
@@ -252,7 +222,11 @@ def prior_make_test_fingerprint(
 
 
 M1_ARTIFACT_NAMES = ("M1.otf", "divergence-audit.tsv", "inputs_fingerprint.json")
-REBUILD_GATE_EXEMPT_PREFIXES = ("rebuild/evidence/", "rebuild/review/jstests/")
+REBUILD_GATE_EXEMPT_PREFIXES = (
+    "rebuild/evidence/",
+    "rebuild/review/jstests/",
+    "rebuild/review-census-pins.json",
+)
 
 
 def _sha256_path(path: Path) -> str:
@@ -352,7 +326,7 @@ def conform_skip_fingerprint(root: Path = ROOT, horizon: int = CONFORM_HORIZON_D
 
 
 def rebuild_gate_closure_files(root: Path) -> list[str] | None:
-    """Every tracked or untracked-unignored file the rebuild pytest suite can read from the repo: rebuild/ and glyph_data/ (minus Markdown, the carried-verdict evidence, and the JS-only jstests) plus the root conftest.py, pyproject.toml, and uv.lock. None when git is unavailable, in which case the caller must run the gate unconditionally."""
+    """Every tracked or untracked-unignored file the rebuild pytest suite can read from the repo: rebuild/ and glyph_data/ (minus Markdown, the carried-verdict evidence, the JS-only jstests, and the census pins) plus the root conftest.py, pyproject.toml, and uv.lock. The pins are out because the suite no longer reads them and the census step rewrites them mid-pass — they are the cycle's own diff artifact, so leaving them in would invalidate the key of every pass that refreshes them. None when git is unavailable, in which case the caller must run the gate unconditionally."""
     try:
         result = subprocess.run(
             [
@@ -425,28 +399,6 @@ def surface_build_skippable(root: Path = ROOT, review_out: Path | None = None) -
     except KeyError, TypeError:
         return False
     return all((surface / shard).exists() for shard in shards)
-
-
-def census_skip_fingerprint(root: Path = ROOT, surface: Path | None = None) -> str | None:
-    """Content key over the census check's inputs: the surface identity (its recorded fingerprint and stamp), the checked-in pins, and the source artifacts behind the ink and family groups (the audit, the compiled font, and the subset tables; the site fonts and spec ride inside the manifest fingerprint), which stay in the key conservatively even though the check itself now reads the surface's census-facts sidecar rather than re-deriving from them. None when the surface has no fingerprinted manifest."""
-    surface_dir = surface if surface is not None else REVIEW_OUT
-    try:
-        manifest = json.loads((surface_dir / "manifest.json").read_text())
-    except OSError, ValueError:
-        return None
-    fp = manifest.get("inputs_fingerprint")
-    if not isinstance(fp, dict):
-        return None
-    m1 = root / "rebuild" / "out" / "m1"
-    lines = [
-        f"manifest\t{json.dumps(fp, sort_keys=True)}",
-        f"generated_at\t{manifest.get('generated_at')}",
-        f"pins\t{_sha256_path(root / 'rebuild' / 'review-census-pins.json')}",
-        f"M1.otf\t{_sha256_path(m1 / 'M1.otf')}",
-        f"audit\t{_sha256_path(m1 / 'divergence-audit.tsv')}",
-    ]
-    lines += [f"m1/{path.name}\t{_sha256_path(path)}" for path in _subset_tables(root)]
-    return _digest_lines(lines)
 
 
 def plumbing_skip_fingerprint(
@@ -584,15 +536,9 @@ def conform_gate_argv(jobs: int, horizon: int = CONFORM_HORIZON_DEFAULT) -> list
     return argv
 
 
-def classify_rebuild_failure(test_id: str, update_pins: bool) -> str:
-    """Bucket a failing rebuild-suite test id: 'baseline' (the documented always-expected failures in BASELINE_REBUILD_FAILURES), 'census-hint' (a census-pinned review test, expected to go stale after a rune change until --update-pins), or 'hard' (anything unexplained — fails the cycle)."""
-    if test_id in BASELINE_REBUILD_FAILURES:
-        return "baseline"
-    module = test_id.split("::", 1)[0]
-    stem = Path(module).stem
-    if stem in CENSUS_HINT_MODULES and not update_pins:
-        return "census-hint"
-    return "hard"
+def classify_rebuild_failure(test_id: str) -> str:
+    """Bucket a failing rebuild-suite test id: 'baseline' (the documented always-expected failures in BASELINE_REBUILD_FAILURES) or 'hard' (anything unexplained — fails the cycle). Nothing the suite asserts is pinned to a census the cycle rewrites underneath it, so there is no third, forgivable bucket."""
+    return "baseline" if test_id in BASELINE_REBUILD_FAILURES else "hard"
 
 
 @dataclass
@@ -610,7 +556,6 @@ class Plan:
     snapshot_dir: Path
     carry_out: Path | None
     verdicts: Path | None
-    update_pins: bool
     skip_gates: bool
     do_merge: bool = False
     skip_conform: bool = False
@@ -627,14 +572,9 @@ class Plan:
     rebuild_gate_note: str = ""
     conform_note: str = ""
     conform_proven: bool = False
-    skip_census: bool = False
-    census_skip_note: str = ""
-    census_replay: dict | None = None
-    defer_census: bool = False
     skip_plumbing: bool = False
     plumbing_note: str = ""
     plumbing_carry_out: Path | None = None
-    defer_rebuild_on_stale_census: bool = True
     deferred: frozenset[str] = frozenset()
     preserve_snapshot: Path | None = None
     record_greens: bool = False
@@ -643,7 +583,7 @@ class Plan:
     conform_jobs: int = 1
     conform_horizon: int = CONFORM_HORIZON_DEFAULT
     review_out: Path | None = None
-    census_surface: Path = REVIEW_OUT
+    surface_dir: Path = REVIEW_OUT
     complaints_note: str = ""
     retention: bool = False
     steps: list[Step] = field(default_factory=list)
@@ -656,17 +596,6 @@ class Plan:
                     raise ValueError(f"plan step {name!r} runs nothing: {step.note}")
                 return step.argv
         raise KeyError(name)
-
-
-def stale_census_known(plan: Plan) -> bool:
-    """Whether the pass already knows, before running anything, that the census outcome is stale: a recorded stale result whose key matched, i.e. the replay path. A live --check discovers staleness only mid-cycle, so the plan can promise the deferral only here; _run_cycle applies the same policy to a live STALE at submission time."""
-    return (
-        plan.defer_rebuild_on_stale_census
-        and not plan.update_pins
-        and plan.skip_census
-        and plan.census_replay is not None
-        and plan.census_replay.get("status") == "stale"
-    )
 
 
 def jstest_argv() -> list[str]:
@@ -687,7 +616,6 @@ def build_plan(
     no_carry: bool,
     carry_out: Path | None,
     snapshot_dir: Path | None,
-    update_pins: bool,
     skip_gates: bool,
     first_run: bool,
     short_id: str,
@@ -710,14 +638,9 @@ def build_plan(
     rebuild_gate_note: str = "",
     conform_note: str = "",
     conform_proven: bool = False,
-    skip_census: bool = False,
-    census_skip_note: str = "",
-    census_replay: dict | None = None,
-    defer_census: bool = False,
     skip_plumbing: bool = False,
     plumbing_note: str = "",
     plumbing_carry_out: Path | None = None,
-    defer_rebuild_on_stale_census: bool = True,
     deferred: frozenset[str] = frozenset(),
     preserve_snapshot: Path | None = None,
     record_greens: bool = False,
@@ -739,7 +662,7 @@ def build_plan(
         ncores=ncores,
     )
     conform_jobs = min(_CONFORM_JOBS_CAP, ncores or (os.cpu_count() or 1))
-    census_surface = review_out if review_out is not None else REVIEW_OUT
+    surface_dir = review_out if review_out is not None else REVIEW_OUT
     do_merge = do_carry and not no_merge and review_out is None
     do_retention = not keep_history and not first_run and review_out is None
 
@@ -749,7 +672,6 @@ def build_plan(
         snapshot_dir=resolved_snapshot,
         carry_out=resolved_carry_out,
         verdicts=verdicts,
-        update_pins=update_pins,
         skip_gates=skip_gates,
         do_merge=do_merge,
         skip_conform=skip_conform,
@@ -766,14 +688,9 @@ def build_plan(
         rebuild_gate_note=rebuild_gate_note,
         conform_note=conform_note,
         conform_proven=conform_proven,
-        skip_census=skip_census,
-        census_skip_note=census_skip_note,
-        census_replay=census_replay,
-        defer_census=defer_census,
         skip_plumbing=skip_plumbing,
         plumbing_note=plumbing_note,
         plumbing_carry_out=plumbing_carry_out,
-        defer_rebuild_on_stale_census=defer_rebuild_on_stale_census,
         deferred=deferred,
         preserve_snapshot=preserve_snapshot,
         record_greens=record_greens,
@@ -783,7 +700,7 @@ def build_plan(
         conform_jobs=conform_jobs,
         conform_horizon=conform_horizon,
         review_out=review_out,
-        census_surface=census_surface,
+        surface_dir=surface_dir,
     )
 
     if first_run:
@@ -918,12 +835,16 @@ def build_plan(
         plan.steps.append(Step("standing-fill", None, echo_note, lane="build"))
         plan.steps.append(Step("standing-merge", None, echo_note, lane="build"))
 
-    if defer_census:
-        plan.steps.append(Step("census", None, f"DEFERRED ({DEFER_NOTE})", lane="build"))
-    elif skip_census:
-        plan.steps.append(Step("census", None, f"SKIPPED ({census_skip_note})", lane="build"))
+    if review_out is not None:
+        plan.steps.append(
+            Step(
+                "census",
+                None,
+                "SKIPPED (rehearsal: the checked-in pins track the live surface)",
+                lane="build",
+            )
+        )
     else:
-        census_mode = "--update" if update_pins else "--check"
         plan.steps.append(
             Step(
                 "census",
@@ -933,15 +854,11 @@ def build_plan(
                     "python",
                     "-m",
                     "rebuild.review.census",
-                    census_mode,
+                    "--update",
                     "--surface",
-                    str(census_surface),
+                    str(REVIEW_OUT),
                 ],
-                (
-                    "then `git diff -- rebuild/review-census-pins.json`, printed in full"
-                    if update_pins
-                    else "staleness reported informationally"
-                ),
+                "then `git diff -- rebuild/review-census-pins.json`, printed in full — the pins are the last accepted census; review the diff at commit time",
                 lane="build",
             )
         )
@@ -984,20 +901,12 @@ def build_plan(
             plan.steps.append(Step("gate:rebuild", None, f"SKIPPED ({rebuild_gate_note})", lane="rebuild"))
         elif "rebuild" in deferred:
             plan.steps.append(Step("gate:rebuild", None, f"DEFERRED ({DEFER_NOTE})", lane="rebuild"))
-        elif stale_census_known(plan):
-            plan.steps.append(
-                Step("gate:rebuild", None, f"DEFERRED ({STALE_CENSUS_DEFER_NOTE})", lane="rebuild")
-            )
         else:
             plan.steps.append(
                 Step(
                     "gate:rebuild",
                     list(REBUILD_PYTEST_ARGV),
-                    (
-                        "submitted once the census step has rewritten the pins"
-                        if update_pins
-                        else "submitted after the census step; a STALE outcome defers it instead"
-                    ),
+                    "submitted once the surface build settles",
                     lane="rebuild",
                 )
             )
@@ -1111,7 +1020,7 @@ def _render_concurrency(plan: Plan) -> list[str]:
         "",
         f"  Concurrency (pool policy: {plan.pool_policy}):",
         f"    Lane t0   [from t=0, background]  : {t0_lane}",
-        "    Lane build[serial, main thread]  : snapshot -> run_m1 -> surface-build -> carry -> merge -> census -> submit gate:rebuild",
+        "    Lane build[serial, main thread]  : snapshot -> run_m1 -> surface-build -> submit gate:rebuild -> carry -> merge -> census",
     ]
     if plan.skip_conform:
         lines.append("    Lane conform                     : SKIPPED (--skip-conform)")
@@ -1135,12 +1044,8 @@ def _render_concurrency(plan: Plan) -> list[str]:
         )
     elif defer_rebuild:
         lines.append(f"    Lane rebuild                     : DEFERRED ({DEFER_NOTE})")
-    elif stale_census_known(plan):
-        lines.append(f"    Lane rebuild                     : DEFERRED ({STALE_CENSUS_DEFER_NOTE})")
     else:
-        lines.append(
-            "    Lane rebuild                     : submitted after the census step lands its verdict;"
-        )
+        lines.append("    Lane rebuild                     : submitted once the surface build settles;")
         if plan.pool_policy == "overlap":
             lines.append(
                 "                                       CO-RESIDENT with the other pools (overlap policy)"
@@ -1162,7 +1067,7 @@ def _render_concurrency(plan: Plan) -> list[str]:
     else:
         budget_reason = "half the stage ceiling, sharing the box's memory with gate:make-test's pytest pool"
     lines.append(f"    build-stage --jobs budget        : {plan.job_budget}  ({budget_reason})")
-    pending = ["gate:" + name for name in sorted(plan.deferred)] + (["census"] if plan.defer_census else [])
+    pending = ["gate:" + name for name in sorted(plan.deferred)]
     if pending:
         lines.append(f"    deferred to the next pass        : {', '.join(pending)}")
     return lines
@@ -1194,7 +1099,7 @@ def render_plan(plan: Plan) -> str:
 
 @dataclass
 class CycleReport:
-    """The pass's running record. Every `*_status` string here is display-only prose for the summary — it exists to be read by a human, and its wording is free to change. The booleans beside them (`gate_*_green`, `census_stale`, `complaints_ok`) are the machine judgment, set at the moment the outcome is judged and read by every decision that follows; greenness is never re-derived from the status strings. A gate that never joined — skipped, deferred, or never submitted — leaves its boolean None, which is neither green nor red."""
+    """The pass's running record. Every `*_status` string here is display-only prose for the summary — it exists to be read by a human, and its wording is free to change. The booleans beside them (`gate_*_green`, `complaints_ok`) are the machine judgment, set at the moment the outcome is judged and read by every decision that follows; greenness is never re-derived from the status strings. A gate that never joined — skipped, deferred, or never submitted — leaves its boolean None, which is neither green nor red."""
 
     snapshot_dir: Path | None = None
     unmatched: int | None = None
@@ -1218,7 +1123,6 @@ class CycleReport:
     standing_merge_status: str = "not run"
     standing_merge_lines: list[str] = field(default_factory=list)
     census_status: str = "not run"
-    census_stale: bool = False
     complaints_status: str = "not run"
     complaints_ok: bool | None = None
     gate_js: str = "not run"
@@ -1230,7 +1134,6 @@ class CycleReport:
     gate_make_test: str = "not run"
     gate_make_test_green: bool | None = None
     rebuild_recordable: bool = False
-    rebuild_stale_deferred: bool = False
     interrupted: bool = False
 
 
@@ -1385,44 +1288,37 @@ class RebuildOutcome:
 
 _ANSI_SGR = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 
-_STALE_PINS_NOTE = "stale census pins? (re-run with --update-pins)"
 
-
-def _rebuild_verdict(
-    baseline: list[str], census: list[str], hard: list[str], census_note: str
-) -> RebuildOutcome:
+def _rebuild_verdict(baseline: list[str], hard: list[str]) -> RebuildOutcome:
     failures: list[str] = []
     if hard:
         status = f"FAILED ({len(hard)} unexplained)"
         failures.append(f"rebuild suite: {len(hard)} unexplained failure(s)")
+    elif baseline:
+        status = f"green ({len(baseline)} documented baseline)"
     else:
-        parts = []
-        if baseline:
-            parts.append(f"{len(baseline)} documented baseline")
-        if census:
-            parts.append(f"{len(census)} {census_note}")
-        status = "green" if not parts else "green (" + ", ".join(parts) + ")"
+        status = "green"
     return RebuildOutcome(
         status=status,
         failures=failures,
         hard_ids=list(hard),
-        recordable=not hard and not census,
+        recordable=not hard,
         baseline_ids=list(baseline),
     )
 
 
-def classify_rebuild_output(stdout: str, returncode: int, update_pins: bool) -> RebuildOutcome:
-    """Bucket the rebuild suite's FAILED/ERROR summary lines into baseline / census-hint / hard and turn them into a gate verdict — the one judgment of the suite's output, shared by the cycle's gate:rebuild and the interactive wrapper (rebuild.tools.rebuild_gate). pytest emits ANSI color whenever FORCE_COLOR is set (as it is under the agent harness), wrapping each summary line in escape codes, so strip those first — otherwise no line begins with a literal "FAILED "/"ERROR ", the documented baseline can't be subtracted, and every colored run reads as an unexplained hard failure. On an --update-pins run the census-pinned ids stay hard: the cycle submits the suite only after the census step has rewritten the pins, so a census-module failure is judged against the pins the suite actually read."""
+def classify_rebuild_output(stdout: str, returncode: int) -> RebuildOutcome:
+    """Bucket the rebuild suite's FAILED/ERROR summary lines into baseline / hard and turn them into a gate verdict — the one judgment of the suite's output, shared by the cycle's gate:rebuild and the interactive wrapper (rebuild.tools.rebuild_gate). pytest emits ANSI color whenever FORCE_COLOR is set (as it is under the agent harness), wrapping each summary line in escape codes, so strip those first — otherwise no line begins with a literal "FAILED "/"ERROR ", the documented baseline can't be subtracted, and every colored run reads as an unexplained hard failure. Every green is recordable: the only forgivable failures are the documented baseline, which is a property of the content the key already hashes."""
     lines = [_ANSI_SGR.sub("", line) for line in stdout.splitlines()]
     failed_ids = [line.split(None, 2)[1] for line in lines if line.startswith("FAILED ")]
     error_ids = [line.split(None, 2)[1] for line in lines if line.startswith("ERROR ")]
-    buckets: dict[str, list[str]] = {"baseline": [], "census-hint": [], "hard": []}
+    buckets: dict[str, list[str]] = {"baseline": [], "hard": []}
     for test_id in failed_ids:
-        buckets[classify_rebuild_failure(test_id, update_pins)].append(test_id)
+        buckets[classify_rebuild_failure(test_id)].append(test_id)
     buckets["hard"].extend(error_ids)
     if returncode != 0 and not failed_ids and not error_ids:
         buckets["hard"].append(f"pytest exited {returncode} with no parsed FAILED/ERROR lines")
-    return _rebuild_verdict(buckets["baseline"], buckets["census-hint"], buckets["hard"], _STALE_PINS_NOTE)
+    return _rebuild_verdict(buckets["baseline"], buckets["hard"])
 
 
 def _do_run_m1(
@@ -1595,81 +1491,27 @@ def _do_standing_merge(
     return result.returncode == 0
 
 
-_CENSUS_STALE_HEADER = "census pins are stale:"
-
-
-def census_mismatch_lines(stderr: str) -> list[str]:
-    """The per-key mismatch lines of a stale census check, parsed back out of its stderr: the indented block under the "census pins are stale:" header. Empty when the header is absent — a crash or a missing pins file, outcomes with no replayable verdict."""
-    lines = stderr.splitlines()
-    if _CENSUS_STALE_HEADER not in lines:
-        return []
-    out: list[str] = []
-    for line in lines[lines.index(_CENSUS_STALE_HEADER) + 1 :]:
-        if not line.startswith("  "):
-            break
-        out.append(line.strip())
-    return out
-
-
 def _do_census(report: CycleReport, *, spawn, emit: _Emitter, registry: _ChildRegistry, plan: Plan) -> None:
-    """Check (or re-baseline) the census pins, and record the outcome in census-result.json so an unchanged check never re-runs: a clean check records status clean under the key it checked, a stale check records status stale with its mismatch lines (staleness is deterministic over the fingerprinted inputs and non-gating, so it is as replayable as a clean result — and it is the steady state between a rune edit and the next --update-pins), --update records clean over the pins it just wrote (they are current by construction), and a check with no verdict to record — a crash, a missing pins file, an unparseable report — records nothing and deletes a record its key contradicts. The key is computed before a --check spawn (the check mutates nothing) but after an --update (which rewrites the pins the key hashes). This step finishes before gate:rebuild is submitted: on an --update-pins pass the suite therefore always reads the pins just rewritten here, and on a --check pass a STALE verdict defers that gate instead of letting it run against pins it could only re-report as stale."""
-    update_pins = plan.update_pins
-    surface = plan.census_surface
-    record = plan.record_greens and plan.review_out is None
-    if update_pins:
-        census = spawn("census", plan.argv("census"), emit=emit, registry=registry, stream=False)
-        _dump_captured(emit, census)
-        diff = spawn(
-            "git-diff",
-            ["git", "diff", "--", "rebuild/review-census-pins.json"],
-            emit=emit,
-            registry=registry,
-            stream=False,
-        )
-        _dump_captured(emit, diff)
-        if census.returncode != 0:
-            report.census_status = "update FAILED"
-            return
-        if record:
-            key = census_skip_fingerprint(ROOT, surface)
-            if key is not None:
-                record_census_result(CENSUS_RESULT, key, "clean", [])
-        if diff.stdout.strip():
-            report.census_status = "updated (diff shown above — review every moved number)"
-        else:
-            report.census_status = "updated (no change)"
-        return
-    key = census_skip_fingerprint(ROOT, surface) if record else None
+    """Rewrite the census pins from the surface's census-facts.json sidecar and print their git diff. The checked-in pins are the last accepted census, so that diff is exactly what a commit would be accepting: volatile totals that move with every letter added or reshaped, and an invariant block whose movement deserves a closer look. Nothing here gates — the step records no green and never fails the cycle — and a refresh that fails (a surface predating the sidecar, say) is reported and left alone, since the next pass that rebuilds the surface heals it."""
     census = spawn("census", plan.argv("census"), emit=emit, registry=registry, stream=False)
     _dump_captured(emit, census)
-    if census.returncode == 0:
-        if key is not None:
-            record_census_result(CENSUS_RESULT, key, "clean", [])
-        report.census_status = "clean"
+    if census.returncode != 0:
+        report.census_status = f"update FAILED (exit {census.returncode}) — informational"
         return
-    mismatches = census_mismatch_lines(census.stderr)
-    if key is not None and mismatches:
-        record_census_result(CENSUS_RESULT, key, "stale", mismatches)
-    else:
-        clear_contradicted_green(CENSUS_RESULT, key)
-    report.census_status = "STALE (informational — re-run with --update-pins or edit by hand)"
-    report.census_stale = True
-
-
-def _replay_census(report: CycleReport, plan: Plan, emit: _Emitter) -> None:
-    """The census step's skip path. A recorded clean outcome reads as an ordinary skip; a recorded stale outcome replays its mismatch lines and keeps the STALE status in the summary, so every pass shows what is stale without re-paying the check."""
-    replay = plan.census_replay
-    if replay is None or replay["status"] == "clean":
-        report.census_status = f"skipped ({plan.census_skip_note})"
-        report.census_stale = False
-        return
-    emit.emit("census pins are stale (recorded outcome replayed; the check's inputs have not changed):")
-    for line in replay["mismatches"]:
-        emit.emit(f"  {line}")
-    report.census_status = (
-        "STALE (recorded outcome replayed — informational; re-run with --update-pins or edit by hand)"
+    diff = spawn(
+        "git-diff",
+        ["git", "diff", "--", "rebuild/review-census-pins.json"],
+        emit=emit,
+        registry=registry,
+        stream=False,
     )
-    report.census_stale = True
+    _dump_captured(emit, diff)
+    if diff.stdout.strip():
+        report.census_status = (
+            "updated (diff vs the last accepted census shown above — review it at commit time)"
+        )
+    else:
+        report.census_status = "updated (matches the last accepted census)"
 
 
 def _skip_plumbing(report: CycleReport, plan: Plan, emit: _Emitter) -> None:
@@ -1721,7 +1563,7 @@ def _gate_conform_task(
     registry: _ChildRegistry,
     argv: list[str],
 ) -> tuple[str, list[str]]:
-    """gate:conform shapes the exhaustive font-vs-settle sweep against the fresh M1.otf via run_m1 --conform-only. Under the queue policy it queues behind gate:make-test, and gate:rebuild in turn parks behind this sweep, so only one heavy pool is ever hot: co-resident, two heavy pools oversubscribe the box roughly 2:1, and measured that contention roughly tripled gate:rebuild's wall time — a worse critical path than the same work in sequence. Conform runs ahead of rebuild in the chain because rebuild's submission waits on the build lane's census step, and the sweep is long enough to hide that wait entirely. The stale conform_summary.json is unlinked here, just before the sweep spawns, so the verdict can only come from this cycle's subprocess (an auto-skipped gate never runs this task and never reads the file)."""
+    """gate:conform shapes the exhaustive font-vs-settle sweep against the fresh M1.otf via run_m1 --conform-only. Under the queue policy it queues behind gate:make-test, and gate:rebuild in turn parks behind this sweep, so only one heavy pool is ever hot: co-resident, two heavy pools oversubscribe the box roughly 2:1, and measured that contention roughly tripled gate:rebuild's wall time — a worse critical path than the same work in sequence. Conform runs ahead of rebuild in the chain because the sweep needs only the fresh M1.otf, while rebuild's submission waits on the surface build settling. The stale conform_summary.json is unlinked here, just before the sweep spawns, so the verdict can only come from this cycle's subprocess (an auto-skipped gate never runs this task and never reads the file)."""
     CONFORM_SUMMARY.unlink(missing_ok=True)
     if pool_policy == "queue" and make_fut is not None:
         try:
@@ -1749,10 +1591,9 @@ def _gate_rebuild_task(
     spawn,
     emit: _Emitter,
     registry: _ChildRegistry,
-    update_pins: bool,
     argv: list[str],
 ) -> RebuildOutcome:
-    """The rebuild pytest suite, submitted by the build lane only after the census step lands its verdict: an --update-pins pass therefore always runs it against the freshly rewritten pins, and a STALE verdict on a --check pass deferred the gate before this task could exist. Under the queue policy it parks at the tail of the make-test -> conform chain so only one heavy pool is hot at a time."""
+    """The rebuild pytest suite, submitted once the surface build settles. That is the one thing in the build lane it must wait for: the suite's session fixture reads the live surface whenever surface_build_skippable calls it provably fresh, so a gate started against one mid-rewrite would either observe a fresh manifest beside a sidecar review.build has not written yet, or decide the surface is not fresh and waste a whole duplicate build inside the suite. Nothing later in the lane is an input to it, the census pins included. Under the queue policy it still parks at the tail of the make-test -> conform chain so only one heavy pool is hot at a time."""
     if pool_policy == "queue":
         for fut in (conform_fut, make_fut):
             if fut is not None:
@@ -1761,7 +1602,7 @@ def _gate_rebuild_task(
                 except Exception:
                     pass
     result = spawn("gate:rebuild", argv, emit=emit, registry=registry, stream=False)
-    return classify_rebuild_output(result.stdout, result.returncode, update_pins)
+    return classify_rebuild_output(result.stdout, result.returncode)
 
 
 def _gate_result(fut: Future, name: str, failures: list[str]):
@@ -1831,7 +1672,7 @@ def _plumbing_settled(report: CycleReport) -> bool:
 
 
 def _record_gate_greens(report: CycleReport, plan: Plan, gate_keys: dict[str, str], emit: _Emitter) -> None:
-    """Persist the concurrent gates' green records after they joined. gate:conform's key was snapshotted right after run_m1 finished; gate:rebuild's at its later submission, after the census step, so on an --update-pins pass it hashes the pins the suite actually read. Each is recomputed here before recording, so a source file edited while the gates ran — content the gates never tested — can never be recorded green. A red gate whose key still matches its record deletes the falsified record."""
+    """Persist the concurrent gates' green records after they joined. gate:conform's key is snapshotted right after run_m1 finished; gate:rebuild's right after the surface build settles, which is where that gate is submitted — and the census pins are exempt from the rebuild closure, so the refresh later in the pass cannot invalidate the key. Each is recomputed here before recording, so a source file edited while the gates ran — content the gates never tested — can never be recorded green. A red gate whose key still matches its record deletes the falsified record."""
     key = gate_keys.get("conform")
     if key:
         if report.gate_conform_green is True:
@@ -1948,6 +1789,20 @@ def _run_cycle(
             _record_gate_greens(report, plan, gate_keys, emit)
             return _finish(report, failures, plan, timings)
 
+        if not plan.skip_gates and not plan.skip_rebuild_gate and not defer_rebuild:
+            if plan.record_greens:
+                gate_keys["rebuild"] = rebuild_gate_skip_fingerprint(ROOT) or ""
+            rebuild_fut = pool.submit(
+                _gate_rebuild_task,
+                plan.pool_policy,
+                conform_fut,
+                make_fut,
+                spawn,
+                emit,
+                registry,
+                plan.argv("gate:rebuild"),
+            )
+
         plumbing_key: str | None = None
         if plan.skip_plumbing:
             _skip_plumbing(report, plan, emit)
@@ -1984,37 +1839,10 @@ def _run_cycle(
                     failures.append("standing-merge failed")
                 elif _plumbing_settled(report):
                     plumbing_key = plumbing_skip_fingerprint(ROOT, REVIEW_OUT, plan.verdicts)
-        if plan.defer_census:
-            report.census_status = f"deferred ({DEFER_NOTE})"
-            emit.emit(f"\ncensus: DEFERRED — {DEFER_NOTE}.")
-        elif plan.skip_census:
-            _replay_census(report, plan, emit)
+        if plan.review_out is not None:
+            report.census_status = "skipped (rehearsal: the checked-in pins track the live surface)"
         else:
             _do_census(report, spawn=spawn, emit=emit, registry=registry, plan=plan)
-        if not plan.skip_gates and not plan.skip_rebuild_gate and not defer_rebuild:
-            if (
-                plan.defer_rebuild_on_stale_census
-                and not plan.update_pins
-                and plan.review_out is None
-                and report.census_stale
-            ):
-                report.rebuild_stale_deferred = True
-                report.gate_rebuild = f"deferred ({STALE_CENSUS_DEFER_NOTE})"
-                emit.emit(f"gate:rebuild deferred: {STALE_CENSUS_DEFER_NOTE}")
-            else:
-                if plan.record_greens:
-                    gate_keys["rebuild"] = rebuild_gate_skip_fingerprint(ROOT) or ""
-                rebuild_fut = pool.submit(
-                    _gate_rebuild_task,
-                    plan.pool_policy,
-                    conform_fut,
-                    make_fut,
-                    spawn,
-                    emit,
-                    registry,
-                    plan.update_pins,
-                    plan.argv("gate:rebuild"),
-                )
         if plan.complaints_note:
             report.complaints_status = f"skipped ({plan.complaints_note})"
         else:
@@ -2124,10 +1952,7 @@ def cycle_summary_payload(report: CycleReport, failures: list[str], plan: Plan, 
             "rebuild": _gate_entry(
                 report.gate_rebuild,
                 report.gate_rebuild_green,
-                _skip_kind(
-                    proved=plan.skip_rebuild_gate,
-                    deferred="rebuild" in plan.deferred or report.rebuild_stale_deferred,
-                ),
+                _skip_kind(proved=plan.skip_rebuild_gate, deferred="rebuild" in plan.deferred),
             ),
             "conform": _gate_entry(
                 report.gate_conform,
@@ -2182,17 +2007,14 @@ def cycle_summary_payload(report: CycleReport, failures: list[str], plan: Plan, 
             "skip_run_m1": plan.skip_run_m1,
             "skip_surface": plan.skip_surface,
             "skip_rebuild_gate": plan.skip_rebuild_gate,
-            "skip_census": plan.skip_census,
-            "defer_census": plan.defer_census,
             "skip_plumbing": plan.skip_plumbing,
             "deferred": sorted(plan.deferred),
-            "update_pins": plan.update_pins,
             "review_out": _as_str(plan.review_out),
             "first_run": plan.first_run,
             "short_id": plan.short_id,
         },
         "argv": list(sys.argv),
-        "surface": _surface_block(plan.census_surface),
+        "surface": _surface_block(plan.surface_dir),
     }
 
 
@@ -2424,11 +2246,6 @@ def main(argv: list[str] | None = None) -> int:
         help="where to snapshot the current surface (default: tmp/review-pre-<short hash>, or the first free -2, -3 name when a pass at this commit already took it)",
     )
     parser.add_argument(
-        "--update-pins",
-        action="store_true",
-        help="re-baseline the census pins and print their git diff (default: check only, report staleness)",
-    )
-    parser.add_argument(
         "--skip-gates",
         action="store_true",
         help="skip the four post-build gates (JS suite, rebuild suite, conformance sweep, make test)",
@@ -2517,9 +2334,6 @@ def main(argv: list[str] | None = None) -> int:
     rebuild_gate_note = ""
     conform_note = ""
     auto_skip_conform = False
-    skip_census = False
-    census_skip_note = ""
-    census_replay: dict | None = None
     if not args.fresh:
         green = read_green_record(RUN_M1_GREEN)
         if green is not None and green["fingerprint"] == run_m1_fp and m1_artifacts_present(ROOT):
@@ -2552,14 +2366,6 @@ def main(argv: list[str] | None = None) -> int:
                 skip_rebuild_gate = True
                 rebuild_gate_note = "input closure unchanged since its last green run; --fresh overrides"
                 print(f"gate:rebuild auto-skipped: {rebuild_gate_note}")
-        if skip_surface and not args.update_pins:
-            census_key = census_skip_fingerprint(ROOT)
-            result = read_census_result(CENSUS_RESULT)
-            if census_key is not None and result is not None and result["fingerprint"] == census_key:
-                skip_census = True
-                census_replay = result
-                census_skip_note = f"surface, pins, and source inputs unchanged since the last {result['status']} check; --fresh overrides"
-                print(f"census auto-skipped: {census_skip_note}")
 
     preserve_snapshot = unfinished_cycle_snapshot()
     if preserve_snapshot is not None:
@@ -2584,9 +2390,6 @@ def main(argv: list[str] | None = None) -> int:
             + ", ".join("gate:" + name for name in sorted(deferred))
             + f" — {DEFER_NOTE}; --no-defer-gates runs them in this one."
         )
-    defer_census = defer_active and refreshing and not args.update_pins
-    if defer_census:
-        print(f"Census deferred to the next pass — {DEFER_NOTE}; nothing in this pass reads it.")
 
     if not args.no_carry and args.verdicts is None and not first_run:
         resolved = resolve_carry_source()
@@ -2629,7 +2432,6 @@ def main(argv: list[str] | None = None) -> int:
         no_carry=args.no_carry,
         carry_out=args.carry_out,
         snapshot_dir=args.snapshot_dir,
-        update_pins=args.update_pins,
         skip_gates=args.skip_gates,
         first_run=first_run,
         short_id=resolve_short_id(),
@@ -2651,14 +2453,9 @@ def main(argv: list[str] | None = None) -> int:
         rebuild_gate_note=rebuild_gate_note,
         conform_note=conform_note,
         conform_proven=auto_skip_conform,
-        skip_census=skip_census,
-        census_skip_note=census_skip_note,
-        census_replay=census_replay,
-        defer_census=defer_census,
         skip_plumbing=skip_plumbing,
         plumbing_note=plumbing_note,
         plumbing_carry_out=plumbing_carry_out,
-        defer_rebuild_on_stale_census=not args.fresh,
         deferred=deferred,
         preserve_snapshot=preserve_snapshot,
         record_greens=not args.dry_run,
@@ -2711,12 +2508,6 @@ def _finish(report: CycleReport, failures: list[str], plan: Plan, timings: Cycle
             run_retention(plan)
         except Exception as exc:
             print(f"warning: retention pass failed: {exc!r}", file=sys.stderr)
-    if report.rebuild_stale_deferred:
-        print("\nCycle complete — but gate:rebuild was deferred: the census pins are stale, and a suite")
-        print("  run under pins already known stale can never record green. Refresh them first —")
-        print("  `make review-cycle ARGS='--update-pins'` — and that pass runs the suite against the")
-        print("  fresh pins. `make verdict-ready` stays NOT READY until it is green.")
-        return 0
     if plan.deferred:
         names = ", ".join("gate:" + name for name in sorted(plan.deferred))
         print("\nCycle complete — the surface is refreshed and the verdicts are carried onto it.")

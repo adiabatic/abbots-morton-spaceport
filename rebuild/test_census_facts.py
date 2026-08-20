@@ -1,6 +1,6 @@
 """Tests for the census-facts sidecar (rebuild/review/census.py): the projection of a surface build's post-merge phase-1 products back onto the pre-merge grain the pins are defined over, the two mirror functions that must reproduce their source-reading twins exactly, the sidecar's own read/write contract, and the CLI paths that consume it.
 
-Everything here is synthetic and hermetic — hand-built audit rows, hand-set ink verdicts and families, no fonts, no shaping, no live workload — and the module deliberately sits outside the artifact cycle's CENSUS_HINT_MODULES. A failure in the census-hint modules can mean nothing worse than pins awaiting `--update-pins`; a failure here is a derivation bug, always, and must never be triaged as a stale-pins hint.
+Everything here is synthetic and hermetic — hand-built audit rows, hand-set ink verdicts and families, no fonts, no shaping, no live workload — so nothing here can move when the corpus does. The live census numbers shift with every migrated letter and belong to the diff of the checked-in pins; a failure in this module is a derivation bug, always.
 """
 
 import json
@@ -28,6 +28,7 @@ from rebuild.review.census import (
     derive_premerge,
     ink_group_from_flags,
     ink_histogram,
+    invariant_group,
     load_facts,
     workload_digest,
     write_facts,
@@ -210,7 +211,7 @@ def _stub_unit(unit_id: str, codepoints: str, batch: int | None, echo: str | Non
 
 
 def _write_shard(root: Path, records: list[dict]) -> dict:
-    """A surface skeleton holding only what the census reads off one: the three class ids manifest_group looks up by name, one shard carrying `records`, and the manifest scalars the sidecar stamps itself with."""
+    """A surface skeleton holding only what the census reads off one: the three class ids manifest_group looks up by name, each carrying the no-verdict flag and the machine-approved histogram invariant_group reduces, one shard carrying `records`, and the manifest scalars the sidecar stamps itself with."""
     (root / "units").mkdir(parents=True, exist_ok=True)
     ids = ["boundary-echo", "dangling-anchor-dropped", "bare-name-live-join"]
     for position, class_id in enumerate(ids):
@@ -226,10 +227,11 @@ def _write_shard(root: Path, records: list[dict]) -> dict:
                 "id": class_id,
                 "shard": f"units/{class_id}.json",
                 "unit_count": len(records) if position == 0 else 0,
+                "no_verdict": class_id == "boundary-echo",
             }
             for position, class_id in enumerate(ids)
         ],
-        "machine_approved": {"units": 0, "by_class": {}},
+        "machine_approved": {"units": 3, "by_class": {"bare-name-live-join": 2, "boundary-echo": 1}},
         "secondary_seams": {"units_with_markers": 0, "seams_homed": 0},
     }
     (root / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
@@ -265,7 +267,7 @@ def test_built_group_from_memory_mirrors_the_shard_walk(tmp_path):
 
 
 def test_built_group_reports_a_missing_worked_example_as_none(tmp_path):
-    """A workload that never pages the worked example to a human — every mini surface a test builds — reports its echo-sibling count as None rather than refusing to build, and both formulations agree on that too; against the live pins, the pinned count versus a computed None is what surfaces the loss."""
+    """A workload that never pages the worked example to a human — every mini surface a test builds — reports its echo-sibling count as None rather than refusing to build, and both formulations agree on that too; over the live corpus it is the pins diff — an accepted count replaced by a null — that surfaces the loss."""
     units, fragments, records = _example_records()
     units[0].batch = None
     records[0]["batch"] = None
@@ -273,6 +275,14 @@ def test_built_group_reports_a_missing_worked_example_as_none(tmp_path):
     from_memory = built_group_from_memory(units, fragments)
     assert from_memory["worked_example_echo_siblings"] is None
     assert from_memory == built_group(tmp_path, manifest)
+
+
+def _pins(row_count: int) -> dict:
+    """A pin set in the checked-in file's two-block shape, small enough to hand-write: one structural fact and one volatile group."""
+    return {
+        "invariant": {"classes_count": 3, "no_verdict_classes": ["boundary-echo"]},
+        "volatile": {"audit": {"row_count": row_count, "units": 1}},
+    }
 
 
 def _facts(pins: dict, generated_at: str = "2026-01-01T00:00:00Z") -> dict:
@@ -290,7 +300,7 @@ def _facts(pins: dict, generated_at: str = "2026-01-01T00:00:00Z") -> dict:
 
 
 def test_facts_round_trip(tmp_path):
-    facts = _facts({"audit": {"row_count": 2, "units": 1}})
+    facts = _facts(_pins(row_count=2))
     write_facts(tmp_path, facts)
     assert (tmp_path / census.FACTS_FILENAME).read_text(encoding="utf-8").endswith("}\n")
     assert load_facts(tmp_path, {"generated_at": "2026-01-01T00:00:00Z"}) == facts
@@ -312,8 +322,26 @@ def test_load_facts_refuses_a_missing_wrong_format_or_orphaned_sidecar(tmp_path)
         load_facts(tmp_path, {"generated_at": "2026-02-02T00:00:00Z"})
 
 
+def test_invariant_group_keeps_each_sources_own_order():
+    """The structural block draws on three orders and preserves all of them: the machine-approved classes in the manifest's own by_class order (a histogram, not a sorted list), the no-verdict classes in manifest class order, and the families in the FAMILY_ORDER order family_census emits. A block that reshuffled would show a hunk on every pass and so tell a diff reader nothing."""
+    manifest = {
+        "classes": [
+            {"id": "boundary-echo", "no_verdict": True},
+            {"id": "bare-name-live-join", "no_verdict": False},
+            {"id": "halves-entry-extension-restored", "no_verdict": True},
+        ],
+        "machine_approved": {"units": 5, "by_class": {"bare-name-live-join": 3, "boundary-echo": 2}},
+    }
+    assert invariant_group(manifest, {"no-chain-gains": 8, "deferred-ss03": 1}) == {
+        "classes_count": 3,
+        "machine_approved_classes": ["bare-name-live-join", "boundary-echo"],
+        "no_verdict_classes": ["boundary-echo", "halves-entry-extension-restored"],
+        "families": ["no-chain-gains", "deferred-ss03"],
+    }
+
+
 def test_build_facts_reduces_its_own_premerge_records(tmp_path):
-    """The pins the sidecar carries are reductions of the records it carries beside them, so a reader can recompute either group and get the same answer."""
+    """The pins the sidecar carries are reductions of the records it carries beside them, so a reader can recompute either group and get the same answer. The invariant block is a reduction too — of the same manifest and the same family census the volatile groups came from, which is why the two blocks can restate each other without any risk of disagreeing."""
     units, fragments, records = _example_records()
     manifest = _write_shard(tmp_path, records)
     capture = capture_premerge(
@@ -335,12 +363,19 @@ def test_build_facts_reduces_its_own_premerge_records(tmp_path):
     facts = build_facts(manifest, units, fragments, capture, premerge, row_count=2)
     assert facts["format"] == FACTS_FORMAT
     assert facts["surface"]["generated_at"] == manifest["generated_at"]
-    assert facts["pins"]["audit"] == {"row_count": 2, "units": 2}
-    assert facts["pins"]["built"] == built_group(tmp_path, manifest)
-    assert facts["pins"]["families"] == {"census": {"no-chain-gains": 1}, "total": 1}
-    assert facts["pins"]["ink"] == ink_group_from_flags(
+    volatile = facts["pins"]["volatile"]
+    assert volatile["audit"] == {"row_count": 2, "units": 2}
+    assert volatile["built"] == built_group(tmp_path, manifest)
+    assert volatile["families"] == {"census": {"no-chain-gains": 1}, "total": 1}
+    assert volatile["ink"] == ink_group_from_flags(
         [(snap.class_id, snap.no_verdict) for snap in capture], "10"
     )
+    assert facts["pins"]["invariant"] == {
+        "classes_count": 3,
+        "machine_approved_classes": ["bare-name-live-join", "boundary-echo"],
+        "no_verdict_classes": ["boundary-echo"],
+        "families": ["no-chain-gains"],
+    }
     assert facts["premerge"]["ink_identical"] == "10"
     assert facts["premerge"]["workload_digest"] == workload_digest(capture)
 
@@ -355,32 +390,38 @@ def _cli_surface(tmp_path: Path, pins: dict) -> Path:
 
 
 def test_check_reads_the_sidecar_and_reports_per_key_mismatches(tmp_path, monkeypatch, capsys):
-    """`--check --surface DIR` is now a read of that surface's sidecar, compared key by key against the checked-in pins. The mismatch wording is a parse contract with the artifact cycle, which replays recorded stale lines instead of re-running the check."""
+    """`--check --surface DIR` is the manual comparison: a read of that surface's sidecar against the last accepted pins, reported one line per moved key rather than as a diff of the whole file. Both blocks are compared — the file carries no descriptive stamp to skip — so the key names carry their block."""
     pins_path = tmp_path / "pins.json"
     monkeypatch.setattr(census, "PINS_PATH", pins_path)
-    surface = _cli_surface(tmp_path, {"audit": {"row_count": 2, "units": 1}})
+    surface = _cli_surface(tmp_path, _pins(row_count=2))
 
-    pins_path.write_text(json.dumps({"audit": {"row_count": 2, "units": 1}}), encoding="utf-8")
+    pins_path.write_text(json.dumps(_pins(row_count=2)), encoding="utf-8")
     assert census.main(["--check", "--surface", str(surface)]) == 0
 
-    pins_path.write_text(json.dumps({"audit": {"row_count": 1, "units": 1}}), encoding="utf-8")
+    pins_path.write_text(json.dumps(_pins(row_count=1)), encoding="utf-8")
     assert census.main(["--check", "--surface", str(surface)]) == 1
-    assert "  audit.row_count: pinned 1 != computed 2" in capsys.readouterr().err.splitlines()
+    assert "  volatile.audit.row_count: pinned 1 != computed 2" in capsys.readouterr().err.splitlines()
 
 
 def test_update_copies_the_sidecars_pins_verbatim(tmp_path, monkeypatch):
-    """`--update` is a straight copy of the sidecar's pins block into the checked-in file — the regenerator writes exactly what the check reads, so re-baselining can only ever be "review one diff"."""
+    """`--update` is a straight copy of the sidecar's pins block into the checked-in file, both blocks and every key — the build's own emission is what lands, so accepting a census can only ever be "review one diff"."""
     pins_path = tmp_path / "pins.json"
     monkeypatch.setattr(census, "PINS_PATH", pins_path)
     monkeypatch.setattr(census, "REPO_ROOT", tmp_path)
-    pins = {"audit": {"row_count": 2, "units": 1}, "families": {"census": {"no-chain-gains": 1}, "total": 1}}
+    pins = {
+        "invariant": {"classes_count": 3, "families": ["no-chain-gains"]},
+        "volatile": {
+            "audit": {"row_count": 2, "units": 1},
+            "families": {"census": {"no-chain-gains": 1}, "total": 1},
+        },
+    }
     surface = _cli_surface(tmp_path, pins)
     assert census.main(["--update", "--surface", str(surface)]) == 0
     assert json.loads(pins_path.read_text(encoding="utf-8")) == pins
 
 
 def test_from_scratch_recomputes_from_sources_without_the_sidecar(tmp_path, monkeypatch):
-    """`--from-scratch` is the standalone re-derivation the sidecar traded away: it re-reads the source artifacts for the pre-merge groups and never touches census-facts.json, which here is deliberately unreadable."""
+    """`--from-scratch` is the standalone re-derivation the sidecar traded away: it re-reads the source artifacts for the pre-merge groups and never touches census-facts.json, which here is deliberately unreadable. It reaches the same two-block shape, the invariant block reading the families it just re-derived rather than any the sidecar might have held."""
     _units, _fragments, records = _example_records()
     surface = tmp_path / "surface"
     surface.mkdir()
@@ -388,10 +429,21 @@ def test_from_scratch_recomputes_from_sources_without_the_sidecar(tmp_path, monk
     (surface / census.FACTS_FILENAME).write_text("not json at all", encoding="utf-8")
     monkeypatch.setattr(census, "audit_group", lambda repo_root=REPO_ROOT: {"audit": "sentinel"})
     monkeypatch.setattr(census, "ink_group", lambda repo_root=REPO_ROOT: {"ink": "sentinel"})
-    monkeypatch.setattr(census, "families_group", lambda repo_root=REPO_ROOT: {"families": "sentinel"})
+    monkeypatch.setattr(
+        census,
+        "families_group",
+        lambda repo_root=REPO_ROOT: {"census": {"seam-loss-withdrawal": 3}, "total": 3},
+    )
 
     pins = census.compute_pins(surface=surface, from_scratch=True)
-    assert pins["audit"] == {"audit": "sentinel"}
-    assert pins["ink"] == {"ink": "sentinel"}
-    assert pins["families"] == {"families": "sentinel"}
-    assert pins["built"] == built_group(surface, manifest)
+    volatile = pins["volatile"]
+    assert volatile["audit"] == {"audit": "sentinel"}
+    assert volatile["ink"] == {"ink": "sentinel"}
+    assert volatile["families"] == {"census": {"seam-loss-withdrawal": 3}, "total": 3}
+    assert volatile["built"] == built_group(surface, manifest)
+    assert pins["invariant"] == {
+        "classes_count": 3,
+        "machine_approved_classes": ["bare-name-live-join", "boundary-echo"],
+        "no_verdict_classes": ["boundary-echo"],
+        "families": ["seam-loss-withdrawal"],
+    }

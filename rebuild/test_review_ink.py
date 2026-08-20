@@ -1,6 +1,6 @@
 """Tests for the review surface's ink-identity comparison: the unified boolean (config_diff's identity sentinel, which implies the sorted-placed-pieces census reference) reproduces the census facts — u-0000 is ink-identical, and the verdict is deterministic across comparators.
 
-The kern-neutral census over the live workload at the name-grain (pre-merge) dedupe now comes from the surface build's census-facts.json sidecar, which reports one ink flag per pre-merge unit; the aggregates rebuilt from those flags are pinned in rebuild/review-census-pins.json (the "ink" group), concentrated in the name-grain classes whose visible stragglers differ only in the old font's kerning, with the no-verdict exemptions (the boundary-echo blanket plus the two x-height-halves deletion forks) leaving the rest as human workload. Since the flags are derived rather than re-shaped, a sample here re-shapes them fresh — the whole-corpus stride plus a stratum drawn from the sibling windows, the fold-candidate population where a folded unit borrows its survivor's verdict. The built surface then folds those ink-duplicate sibling units (merge_ink_duplicate_units), so the shipped manifest's counts are smaller — those are pinned in test_review_build.
+The kern-neutral census over the live workload at the name-grain (pre-merge) dedupe comes from the surface build's census-facts.json sidecar, which reports one ink flag per pre-merge unit: the machine-approved units concentrated in the name-grain classes whose visible stragglers differ only in the old font's kerning, with the no-verdict exemptions (the boundary-echo blanket plus the two x-height-halves deletion forks) leaving the rest as human workload. The totals themselves are the census's to report — the artifact cycle diffs them into rebuild/review-census-pins.json — so what this module asserts is that the sidecar is consistent with the workload it was taken over: its own aggregate is what its own flags reduce to, and its flag string is indexed against the workload the digest identifies. Since the flags are derived rather than re-shaped, a sample here re-shapes them fresh — the whole-corpus stride plus a stratum drawn from the sibling windows, the fold-candidate population where a folded unit borrows its survivor's verdict. The built surface then folds those ink-duplicate sibling units (merge_ink_duplicate_units), so the shipped manifest's counts are smaller.
 
 Also here: `delta_digest`, the persisted identity of one config's localized delta, whose shape check_unit enforces and whose recipe is a byte-identity contract with the digests recorded in rebuild/standing-approvals.yaml.
 """
@@ -14,7 +14,7 @@ import pytest
 
 from rebuild.review import census
 from rebuild.review.audit import _sibling_windows
-from rebuild.review.census import ink_group_from_flags, load_facts, load_pins
+from rebuild.review.census import ink_group_from_flags, load_facts
 from rebuild.review.ink import (
     IDENTITY_DIFF,
     InkComparator,
@@ -31,8 +31,6 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 BEFORE_FONT = REPO_ROOT / "site" / "AbbotsMortonSpaceportSansSenior-Regular.otf"
 JUNIOR_FONT = REPO_ROOT / "site" / "AbbotsMortonSpaceportSansJunior-Regular.otf"
 AFTER_FONT = REPO_ROOT / "rebuild" / "out" / "m1" / "M1.otf"
-
-PINS = load_pins()
 
 
 @pytest.fixture(scope="module")
@@ -100,7 +98,7 @@ def test_config_diff_localizes_the_delta_to_the_changed_region(comparator):
 
 
 def test_the_retired_sorted_runs_formulation_agrees_over_a_corpus_sample(workload):
-    """The unification contract: ink_identical reads config_diff's identity sentinel, and the retired census formulation — sorted whole placed runs compared across fonts — must reach the same verdict on every (text, config). The sentinel implies run identity by construction (empty middles and no follower shift leave nothing moved), so the direction this samples is the converse: no window whose placed runs match may come back with a nonempty localized delta or a recorded shift. The full-corpus backstop is the pinned census below — a disagreement can only flip a unit identical→non-identical, so any escape moves machine_total off its pin."""
+    """The unification contract: ink_identical reads config_diff's identity sentinel, and the retired census formulation — sorted whole placed runs compared across fonts — must reach the same verdict on every (text, config). The sentinel implies run identity by construction (empty middles and no follower shift leave nothing moved), so the direction this samples is the converse: no window whose placed runs match may come back with a nonempty localized delta or a recorded shift. The full-corpus backstop is the census itself — a disagreement can only flip a unit identical→non-identical, so any escape moves machine_total in the pins diff a human reads at acceptance."""
     comparator = InkComparator(BEFORE_FONT, AFTER_FONT, shaper_for)
     disagreements = []
     for unit in workload.units[::200]:
@@ -155,15 +153,14 @@ def test_the_identity_diff_digests_to_a_pinned_constant():
     assert delta_digest(((), (), 1)) != delta_digest(((), (), 0))
 
 
-def test_census_facts_sidecar_matches_the_pinned_census(built_review_surface, workload):
-    """The kern-neutral census facts the rebatching rests on, at the name-grain (pre-merge) dedupe, as the surface build reports them: one ink flag per pre-merge unit, indexed against the workload the digest identifies, reducing to exactly the pinned ink group — the machine-approved units concentrated in the name-grain classes whose visible difference is only the old font's kerning, the no-verdict share of the rest exempt, and the human workload in its batches. Reducing the flags here rather than trusting the sidecar's own aggregate is what makes the pin a check of the records and not of a number the build wrote twice. Whole-corpus invariant: no UNMATCHED window is ink-identical, because each is a real new join under review."""
+def test_census_facts_sidecar_is_consistent_with_the_live_workload(built_review_surface, workload):
+    """The kern-neutral census facts the rebatching rests on, at the name-grain (pre-merge) dedupe, as the surface build reports them: one ink flag per pre-merge unit, one flag per unit of the workload the digest identifies, and an ink group that is exactly what those flags reduce to — the machine-approved units, the no-verdict share of the rest exempt, and the human workload in its batches. Reducing the flags here rather than trusting the sidecar's own aggregate is what makes this a check of the records and not of a number the build wrote twice. Whole-corpus invariant: no UNMATCHED window is ink-identical, because each is a real new join under review."""
     out_dir, manifest = built_review_surface
     facts = load_facts(out_dir, manifest)
-    assert facts["pins"]["ink"] == PINS["ink"]
-    assert facts["premerge"]["units"] == PINS["audit"]["units"] == len(facts["premerge"]["ink_identical"])
+    assert facts["premerge"]["units"] == len(facts["premerge"]["ink_identical"])
     assert census.workload_digest(workload.units) == facts["premerge"]["workload_digest"]
     rows = [(unit.class_id, unit.no_verdict) for unit in workload.units]
-    assert ink_group_from_flags(rows, facts["premerge"]["ink_identical"]) == facts["pins"]["ink"]
+    assert ink_group_from_flags(rows, facts["premerge"]["ink_identical"]) == facts["pins"]["volatile"]["ink"]
     for index, _family in facts["premerge"]["families"]:
         assert facts["premerge"]["ink_identical"][index] == "0"
 

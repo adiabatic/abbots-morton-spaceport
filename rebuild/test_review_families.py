@@ -1,6 +1,6 @@
-"""Tests for the verdict-family grouper (rebuild/review/families.py): the seam-gain/seam-loss discriminator over hand-built enriched stubs, and the integration partition over the live UNMATCHED units at the name-grain (pre-merge) dedupe — deterministic, total (every window lands in exactly one family, the census summing to the audit total pinned in rebuild/review-census-pins.json), with the stylistic-set-only windows deferred and the named default families matching that pinned census.
+"""Tests for the verdict-family grouper (rebuild/review/families.py): the seam-gain/seam-loss discriminator over hand-built enriched stubs, and the integration partition over the live UNMATCHED units at the name-grain (pre-merge) dedupe — deterministic and total, every window landing in exactly one family, with the stylistic-set-only windows deferred.
 
-The partition itself now comes from the surface build's census-facts.json sidecar, which records the family of every pre-merge UNMATCHED window: a deferred window's bucket is pure config logic over its pre-merge config classes, and every other one is its own fold survivor, so it carries the family phase 1 already computed. A stratified sample re-enriches windows from each family and re-runs `assign_family` on them, which is the continuous proof that the grain bookkeeping holds. The built surface then folds ink-duplicate siblings before families are assigned, which pulls the relabeled-only ss04 halves out of deferred-ss04 into their default families; the built counts are pinned in test_review_build.
+The partition itself comes from the surface build's census-facts.json sidecar, which records the family of every pre-merge UNMATCHED window: a deferred window's bucket is pure config logic over its pre-merge config classes, and every other one is its own fold survivor, so it carries the family phase 1 already computed. How many windows each family holds is the census's to report — the artifact cycle diffs it into rebuild/review-census-pins.json — so what is asserted here is totality and the sidecar's agreement with the families it ships. A stratified sample re-enriches windows from each family and re-runs `assign_family` on them, which is the continuous proof that the grain bookkeeping holds. The built surface then folds ink-duplicate siblings before families are assigned, which pulls the relabeled-only ss04 halves out of deferred-ss04 into their default families.
 """
 
 import warnings
@@ -12,7 +12,7 @@ import pytest
 from rebuild.review import families
 from rebuild.review.audit import _config_index, load_audit, parse_codepoints, render_groups_for_rows
 from rebuild.review.audit import Unit, group_for
-from rebuild.review.census import family_census, load_facts, load_pins
+from rebuild.review.census import family_census, load_facts
 from rebuild.review.enrich import LETTERS, Enricher, load_spec
 from rebuild.review.families import FAMILY_ORDER, FAMILY_WHY, assign_family
 
@@ -21,8 +21,6 @@ AUDIT_PATH = REPO_ROOT / "rebuild" / "out" / "m1" / "divergence-audit.tsv"
 SUBSETS = REPO_ROOT / "rebuild" / "out" / "m1"
 AFTER_FONT = REPO_ROOT / "rebuild" / "out" / "m1" / "M1.otf"
 BEFORE_FONT = REPO_ROOT / "site" / "AbbotsMortonSpaceportSansSenior-Regular.otf"
-
-PINS = load_pins()
 
 
 @dataclass(frozen=True)
@@ -142,13 +140,11 @@ def assigned(facts):
     return [family for _index, family in facts["premerge"]["families"]]
 
 
-def test_partition_is_total_and_matches_the_measured_census(assigned, facts):
+def test_partition_is_total_and_the_sidecar_reports_it(assigned, facts):
+    """The partition is total — the census sums back to the windows it was taken over, so no window landed in two families or none — and the families group the sidecar ships is exactly that census, not a second tally the build kept alongside it."""
     census = family_census(assigned)
-    assert (
-        sum(census.values()) == PINS["families"]["total"]
-    ), "every UNMATCHED window must land in exactly one family"
-    assert census == PINS["families"]["census"]
-    assert facts["pins"]["families"] == {"census": census, "total": len(assigned)}
+    assert sum(census.values()) == len(assigned), "every UNMATCHED window must land in exactly one family"
+    assert facts["pins"]["volatile"]["families"] == {"census": census, "total": len(assigned)}
 
 
 def test_every_assigned_family_is_ordered_and_documented(assigned):

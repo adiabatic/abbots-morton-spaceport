@@ -42,12 +42,12 @@ PYTHONPATH=. uv run python rebuild/tools/probe.py E673:E670         # the smalle
 PYTHONPATH=. uv run python rebuild/tools/probe.py E673:E652:E650    # the smaller loop before ·Tea (no en-ext-1), all configs
 make test-rebuild
 make test
-make artifact-cycle ARGS='--update-pins'
+make artifact-cycle
 make verdict-ready
 ```
 
 ## Resume
 
 ```zsh
-make review-cycle ARGS='--update-pins'
+make review-cycle
 ```

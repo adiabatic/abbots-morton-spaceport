@@ -1,13 +1,17 @@
-"""The single source of truth for the review-surface census pins (rebuild/review-census-pins.json). Both the tests and the artifact-cycle regenerator call the functions here so the checked-in pins and the assertions can never drift.
+"""The review-surface census: the groups a surface build reduces its own state to, and the regenerator that writes them into rebuild/review-census-pins.json — the last accepted census. Every artifact-cycle pass rewrites that file from the surface's census-facts.json sidecar and prints its git diff, and committing the diff is the acceptance. Nothing asserts the checked-in numbers, so a moved count is something to read rather than a baseline to re-bless.
+
+The file is two blocks so that diff reads. `volatile` holds what legitimately moves with every migrated letter: the manifest, built, audit, ink, and families groups, counts and all. `invariant` holds the structural facts whose movement deserves a human — how many classes the surface ships, which classes the build machine-approves, which are exempt from individual verdicts, and which verdict families the corpus reaches. The invariant block deliberately restates structure the volatile dicts' keys already carry; both blocks are machine-written from one emission so they cannot drift apart, and hoisting the structure out is what makes a new class or a new no-verdict exemption its own legible hunk instead of a line lost among moved totals.
+
+The tests no longer read this file at all — a build asserting the numbers it just wrote proves nothing. They assert internal consistency (the deduped units still account for every audit row), source-derived invariants (the manifest's own totals, the ledger's no-verdict classes), and mirrors (a shard walk against the sidecar the same build wrote from memory).
 
 Three grains coexist and must not be conflated. The manifest and built groups are post-merge, read from a built surface after the ink-duplicate fold; the audit, ink, and families groups are the pre-merge name grain, which no surface shard reports.
 
-The pre-merge groups are read from the surface's census-facts.json sidecar, which `build_m1` writes as a by-product: it derives them from the pre-merge state it captured just before folding plus the phase-1 products it computed anyway — each post-merge unit's ink verdict and each UNMATCHED unit's verdict family — instead of re-shaping and re-enriching the whole corpus a second time. That deliberately trades some of the check's independence from the build for a census that costs milliseconds rather than minutes. `--from-scratch` retains the standalone re-derivation from the source inputs (TSV + ledger + fonts + spec) for when the two must be compared, and the sample tests in rebuild/test_review_ink.py and rebuild/test_review_families.py continuously verify the derivation against fresh shaping and enrichment.
+The pre-merge groups are read from the surface's census-facts.json sidecar, which `build_m1` writes as a by-product: it derives them from the pre-merge state it captured just before folding plus the phase-1 products it computed anyway — each post-merge unit's ink verdict and each UNMATCHED unit's verdict family — instead of re-shaping and re-enriching the whole corpus a second time. That deliberately trades some of the comparison's independence from the build for a census that costs milliseconds rather than minutes. `--from-scratch` retains the standalone re-derivation from the source inputs (TSV + ledger + fonts + spec) for when the two must be compared, and the sample tests in rebuild/test_review_ink.py and rebuild/test_review_families.py continuously verify the derivation against fresh shaping and enrichment.
 
 Usage:
-    uv run python -m rebuild.review.census            # --check against the checked-in pins
-    uv run python -m rebuild.review.census --update    # recompute and rewrite the pins file
-    uv run python -m rebuild.review.census --check --surface rebuild/out/review
+    uv run python -m rebuild.review.census --update --surface rebuild/out/review  # what every artifact-cycle pass runs
+    uv run python -m rebuild.review.census --check --surface rebuild/out/review   # the manual comparison
+    uv run python -m rebuild.review.census            # --check, building a fresh temporary surface first
     uv run python -m rebuild.review.census --check --from-scratch
 """
 
@@ -45,7 +49,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 PINS_PATH = REPO_ROOT / "rebuild" / "review-census-pins.json"
 
 FACTS_FILENAME = "census-facts.json"
-FACTS_FORMAT = "ams-census-facts/1"
+FACTS_FORMAT = "ams-census-facts/2"
 FACTS_REMEDY = "rebuild the surface with: uv run python -m rebuild.review.build"
 
 AUDIT_PATH = REPO_ROOT / "rebuild" / "out" / "m1" / "divergence-audit.tsv"
@@ -68,7 +72,6 @@ def manifest_group(manifest: dict) -> dict:
     by_id = {meta["id"]: meta for meta in manifest["classes"]}
     return {
         "totals": dict(manifest["totals"]),
-        "classes_count": len(manifest["classes"]),
         "machine_approved": {
             "units": manifest["machine_approved"]["units"],
             "by_class": dict(manifest["machine_approved"]["by_class"]),
@@ -78,8 +81,18 @@ def manifest_group(manifest: dict) -> dict:
     }
 
 
+def invariant_group(manifest: dict, families_census: dict[str, int]) -> dict:
+    """The structural half of the pins, in the orders their sources already carry: how many classes the surface ships, which classes the build machine-approves, which are exempt from individual verdicts, and which verdict families the corpus reaches. Every one of these is implied by some volatile group's keys, and that restatement is deliberate — both blocks come from one machine emission, so they cannot drift apart, and hoisting the structure into a block of its own is what lets a new class, a new no-verdict exemption, or a family appearing read as its own hunk when the rewritten pins are reviewed as a diff, instead of hiding among the counts a rune commit moves anyway."""
+    return {
+        "classes_count": len(manifest["classes"]),
+        "machine_approved_classes": list(manifest["machine_approved"]["by_class"]),
+        "no_verdict_classes": [meta["id"] for meta in manifest["classes"] if meta["no_verdict"]],
+        "families": list(families_census),
+    }
+
+
 def built_group(out_dir: Path, manifest: dict) -> dict:
-    """The post-merge facts computed by walking the surface's unit shards — the human-workload size, the config-note histogram, and the worked example's echo-sibling count (the distinct windows one ·It·Day·Tea·No verdict answers), none of which is a manifest key. The echo-sibling count is None when the worked example is not in the human workload: only the live corpus is obliged to carry it, and the sidecar is written by every build — the unit-cache tests' mini surfaces included — so the obligation is enforced where it belongs, by the pins comparison reporting the pinned count against a computed None."""
+    """The post-merge facts computed by walking the surface's unit shards — the human-workload size, the config-note histogram, and the worked example's echo-sibling count (the distinct windows one ·It·Day·Tea·No verdict answers), none of which is a manifest key. The echo-sibling count is None when the worked example is not in the human workload: only the live corpus is obliged to carry it, and the sidecar is written by every build — the unit-cache tests' mini surfaces included — so the obligation is enforced where it belongs, by the pins diff replacing an accepted count with a computed None."""
     out_dir = Path(out_dir)
     human_units = 0
     distribution: dict[str | None, int] = {}
@@ -109,10 +122,6 @@ def _encode_note_distribution(distribution: dict[str | None, int]) -> list[list]
         [note, distribution[note]]
         for note in sorted(distribution, key=lambda note: (note is not None, note or ""))
     ]
-
-
-def _decode_note_distribution(pairs) -> dict[str | None, int]:
-    return {note: count for note, count in pairs}
 
 
 def audit_group(repo_root: Path = REPO_ROOT) -> dict:
@@ -360,7 +369,8 @@ def build_facts(
     premerge: PremergeFacts,
     row_count: int,
 ) -> dict:
-    """The sidecar payload: the finished pins a `--check` compares against, plus the pre-merge records they were reduced from, stamped with the identity of the surface that owns them. The records ride along so a reader can re-reduce the pre-merge groups itself — the sample tests do exactly that against fresh shaping."""
+    """The sidecar payload: the finished pins the regenerator copies into the checked-in file, plus the pre-merge records they were reduced from, stamped with the identity of the surface that owns them. The records ride along so a reader can re-reduce the pre-merge groups itself — the sample tests do exactly that against fresh shaping."""
+    families = families_group_from([family for _index, family in premerge.families])
     return {
         "format": FACTS_FORMAT,
         "surface": {
@@ -369,17 +379,16 @@ def build_facts(
             "inputs_fingerprint": manifest["inputs_fingerprint"],
         },
         "pins": {
-            "_surface": {
-                "generated_at": manifest["generated_at"],
-                "repo_head": manifest["repo_head"],
+            "invariant": invariant_group(manifest, families["census"]),
+            "volatile": {
+                "manifest": manifest_group(manifest),
+                "built": built_group_from_memory(units, fragments),
+                "audit": {"row_count": row_count, "units": len(capture)},
+                "ink": ink_group_from_flags(
+                    [(snap.class_id, snap.no_verdict) for snap in capture], premerge.ink_flags
+                ),
+                "families": families,
             },
-            "manifest": manifest_group(manifest),
-            "built": built_group_from_memory(units, fragments),
-            "audit": {"row_count": row_count, "units": len(capture)},
-            "ink": ink_group_from_flags(
-                [(snap.class_id, snap.no_verdict) for snap in capture], premerge.ink_flags
-            ),
-            "families": families_group_from([family for _index, family in premerge.families]),
         },
         "premerge": {
             "units": premerge.units,
@@ -434,31 +443,22 @@ def _build_or_load_surface(surface: Path | None):
 def compute_pins(
     surface: Path | None = None, repo_root: Path = REPO_ROOT, from_scratch: bool = False
 ) -> dict:
-    """The full pin set. By default every group is read from the surface's census-facts.json sidecar, which the build derived from the same state it shaped the surface out of; `from_scratch` recomputes all five groups from the source artifacts instead, re-shaping and re-enriching the corpus."""
+    """The full pin set, both blocks. By default every group is read from the surface's census-facts.json sidecar, which the build derived from the same state it shaped the surface out of; `from_scratch` recomputes all five volatile groups from the source artifacts instead, re-shaping and re-enriching the corpus."""
     if from_scratch:
         with _build_or_load_surface(surface) as (out_dir, manifest):
+            families = families_group(repo_root)
             return {
-                "_surface": {
-                    "generated_at": manifest["generated_at"],
-                    "repo_head": manifest["repo_head"],
+                "invariant": invariant_group(manifest, families["census"]),
+                "volatile": {
+                    "manifest": manifest_group(manifest),
+                    "built": built_group(out_dir, manifest),
+                    "audit": audit_group(repo_root),
+                    "ink": ink_group(repo_root),
+                    "families": families,
                 },
-                "manifest": manifest_group(manifest),
-                "built": built_group(out_dir, manifest),
-                "audit": audit_group(repo_root),
-                "ink": ink_group(repo_root),
-                "families": families_group(repo_root),
             }
     with _build_or_load_surface(surface) as (out_dir, manifest):
         return load_facts(out_dir, manifest)["pins"]
-
-
-def load_pins(path: Path = PINS_PATH) -> dict:
-    """The checked-in pins, with the config-note histogram decoded back to a dict whose null key is the always-covered common case."""
-    pins = json.loads(Path(path).read_text(encoding="utf-8"))
-    pins["built"]["config_note_distribution"] = _decode_note_distribution(
-        pins["built"]["config_note_distribution"]
-    )
-    return pins
 
 
 def _dumps(pins: dict) -> str:
@@ -474,11 +474,11 @@ def _flatten(obj, prefix: str, out: dict) -> None:
 
 
 def _mismatches(old: dict, new: dict) -> list[tuple[str, object, object]]:
-    """Per-key mismatches over the census-data groups, ignoring the descriptive _surface block (its generated_at/repo_head legitimately vary with the surface that produced the pins)."""
+    """Per-key mismatches over the whole pin set — every key of both blocks, since the file carries nothing descriptive to skip."""
     old_flat: dict = {}
     new_flat: dict = {}
-    _flatten({key: value for key, value in old.items() if key != "_surface"}, "", old_flat)
-    _flatten({key: value for key, value in new.items() if key != "_surface"}, "", new_flat)
+    _flatten(old, "", old_flat)
+    _flatten(new, "", new_flat)
     keys = sorted(set(old_flat) | set(new_flat))
     return [
         (key, old_flat.get(key), new_flat.get(key)) for key in keys if old_flat.get(key) != new_flat.get(key)
