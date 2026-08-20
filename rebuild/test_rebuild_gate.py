@@ -74,14 +74,6 @@ def test_documented_baseline_failures_still_read_green_and_record(green_store, m
     assert "documented baseline" in capsys.readouterr().out
 
 
-def test_census_hint_green_records_nothing(green_store, monkeypatch, capsys):
-    _fingerprints(monkeypatch, ["fp-2", "fp-2"])
-    _suite_stub(monkeypatch, returncode=1, stdout="FAILED rebuild/test_review_ink.py::test_x")
-    assert rg.main([]) == 0
-    assert ac.read_green_record(green_store) is None
-    assert "green not recorded" in capsys.readouterr().out
-
-
 def test_hard_failure_propagates_the_exit_code_and_records_nothing(green_store, monkeypatch, capsys):
     _fingerprints(monkeypatch, ["fp-2"])
     _suite_stub(monkeypatch, returncode=3, stdout="FAILED rebuild/test_settle.py::test_x")

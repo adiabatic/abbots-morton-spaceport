@@ -1,4 +1,7 @@
-"""Tests for the review surface's M1-mode unit assembly: TSV/ledger loading, the dedupe to per-config-class units (including the UNMATCHED verdict windows that carry a per-config class map), exemplar resolution, and deterministic triage ordering."""
+"""Tests for the review surface's M1-mode unit assembly: TSV/ledger loading, the dedupe to per-config-class units (including the UNMATCHED verdict windows that carry a per-config class map), exemplar resolution, and deterministic triage ordering.
+
+The live counts belong to the census the surface build emits and the artifact cycle diffs into rebuild/review-census-pins.json, never to an assertion here — they move with every migrated letter. What this module holds the dedupe to is the property that survives that movement: it may collapse rows into units, but it may not lose one.
+"""
 
 from pathlib import Path
 
@@ -16,14 +19,11 @@ from rebuild.review.audit import (
     parse_codepoints,
     render_groups_for_rows,
 )
-from rebuild.review.census import load_pins
 from rebuild.review.enrich import LETTERS
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 AUDIT_PATH = REPO_ROOT / "rebuild" / "out" / "m1" / "divergence-audit.tsv"
 LEDGER_PATH = REPO_ROOT / "rebuild" / "m1-divergences.yaml"
-
-PINS = load_pins()
 
 FIXTURE_AUDIT = """config\tcodepoints\tkinds\tmatched_entry\tbaseline\tnew
 default\tE650:E665\tcell\tdangling-anchor-dropped\tqsPea|qsMay.en-y0\tqsPea/full/None/baseline/|qsMay/loop/baseline/None/
@@ -92,10 +92,11 @@ def test_every_real_unit_has_exactly_one_render_group(workload):
         assert unit.render_groups == (unit.configs,)
 
 
-def test_real_audit_dedupes_to_measured_counts(workload):
-    assert workload.row_count == PINS["audit"]["row_count"]
-    assert len(workload.units) == PINS["audit"]["units"]
-    assert sum(len(unit.rows) for unit in workload.units) == PINS["audit"]["row_count"]
+def test_the_real_dedupe_loses_no_rows(workload):
+    """Every audit row ends up under exactly one unit: the dedupe groups rows, it never drops or duplicates one. How many there are is the census's business, so only the accounting is asserted — plus that both sides are nonempty, since an empty audit would satisfy the sum vacuously."""
+    assert workload.row_count > 0
+    assert len(workload.units) > 0
+    assert sum(len(unit.rows) for unit in workload.units) == workload.row_count
 
 
 def test_every_ledger_exemplar_resolves_to_a_unit(workload):

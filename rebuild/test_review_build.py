@@ -28,7 +28,7 @@ from rebuild.review.build import (
     config_gate,
     config_note,
 )
-from rebuild.review.census import WORKED_EXAMPLE_CODEPOINTS, load_pins
+from rebuild.review.census import WORKED_EXAMPLE_CODEPOINTS, _encode_note_distribution, load_facts
 from rebuild.review.enrich import LETTERS
 from rebuild.review.export import build_triage, load_units, load_verdicts
 from rebuild.review.ink import IDENTITY_DIFF, InkComparator, delta_digest
@@ -38,7 +38,6 @@ FIXTURES = REPO_ROOT / "rebuild" / "review" / "fixtures"
 M1_DIR = REPO_ROOT / "rebuild" / "out" / "m1"
 LEDGER_PATH = REPO_ROOT / "rebuild" / "m1-divergences.yaml"
 
-PINS = load_pins()
 NO_VERDICT_CLASSES = frozenset(entry.id for entry in load_ledger(LEDGER_PATH) if entry.no_verdict)
 
 
@@ -198,8 +197,6 @@ def test_check_unit_leaves_ink_deltas_out_of_the_table_diff_contract():
 def test_full_build_passes_the_contract_checker(built):
     out_dir, manifest = built
     assert check_output_dir(out_dir) == []
-    assert manifest["totals"] == PINS["manifest"]["totals"]
-    assert len(manifest["classes"]) == PINS["manifest"]["classes_count"]
     assert manifest["mode"] == "m1-audit"
 
 
@@ -242,25 +239,18 @@ def test_check_shards_flags_human_unit_ids_that_do_not_match_batches():
     assert any("human_unit_ids" in error for error in check_shards(manifest, shards))
 
 
-def test_machine_approved_histogram_pins_the_census(built):
-    """The kern-neutral ink census the rebatching rests on over the live workload, after the ink-duplicate merge folds name-grain sibling units: the machine-approved units concentrated in the name-grain classes whose visible stragglers differ only in the old font's kerning (boundary-echo, dangling-anchor-dropped, bare-name-live-join), the non-identical remainder, and — after the ledger's no_verdict exemptions — the human workload. Every count is pinned in rebuild/review-census-pins.json (the "manifest" group). The exempt class set is read off the ledger at collection, so flagging a new class moves no literal here."""
+def test_machine_approved_histogram_agrees_with_its_classes(built):
+    """The kern-neutral ink census the rebatching rests on over the live workload, after the ink-duplicate merge folds name-grain sibling units. How many units it approves is the census's to report; what the manifest owes is that its own record hangs together — the histogram sums to the headline count, every class's `machine_approved_count` is that class's entry in it, the approved rows are a real proper share of all rows, and every no_verdict class of the ledger is flagged exempt with no batches. The exempt class set is read off the ledger at collection, so flagging a new class moves no literal here."""
     out_dir, manifest = built
     machine = manifest["machine_approved"]
-    manifest_pins = PINS["manifest"]
-    assert machine["units"] == manifest_pins["machine_approved"]["units"]
-    assert (
-        manifest["totals"]["units"] - machine["units"]
-        == manifest_pins["totals"]["units"] - manifest_pins["machine_approved"]["units"]
-    )
-    assert machine["by_class"] == manifest_pins["machine_approved"]["by_class"]
+    assert machine["units"] == sum(machine["by_class"].values())
+    assert 0 < machine["units"] < manifest["totals"]["units"]
     assert isinstance(machine["rows"], int) and 0 < machine["rows"] < manifest["totals"]["rows"]
     assert machine["method"]
     by_id = {meta["id"]: meta for meta in manifest["classes"]}
     for meta in manifest["classes"]:
         expected = machine["by_class"].get(meta["id"], 0)
         assert meta["machine_approved_count"] == expected, meta["id"]
-    for class_id, count in manifest_pins["class_unit_count"].items():
-        assert by_id[class_id]["unit_count"] == count, class_id
     for class_id in NO_VERDICT_CLASSES:
         assert by_id[class_id]["no_verdict"] is True, class_id
         assert by_id[class_id]["batches"] == [], class_id
@@ -269,11 +259,9 @@ def test_machine_approved_histogram_pins_the_census(built):
     )
 
 
-def test_secondary_seam_census_pins_the_real_data(built):
-    """The secondary-seam resolution census over the live workload, after the ink-duplicate merge: the units carrying visible markers; the seams that link to the shorter unit where the same behavior is the primary judgment; those genuinely context-dependent at the depth-2 horizon (no substring unit reproduces both outcomes with the seam as its primary) that carry home null and are judged in place; and those resolving to an ink-identical home that are suppressed as invisible. The four counts are pinned in rebuild/review-census-pins.json (manifest.secondary_seams)."""
+def test_secondary_seam_census_describes_the_shipped_seams(built):
+    """The secondary-seam resolution census over the live workload, after the ink-duplicate merge: the units carrying visible markers; the seams that link to the shorter unit where the same behavior is the primary judgment; those genuinely context-dependent at the depth-2 horizon (no substring unit reproduces both outcomes with the seam as its primary) that carry home null and are judged in place; and those resolving to an ink-identical home that are suppressed as invisible. Walking the shards has to reproduce the manifest's own three counts, so the summary the app reads can never describe seams the surface does not ship."""
     out_dir, manifest = built
-    seam_pins = PINS["manifest"]["secondary_seams"]
-    assert manifest["secondary_seams"] == seam_pins
 
     units_by_id = {}
     for meta in manifest["classes"]:
@@ -305,10 +293,11 @@ def test_secondary_seam_census_pins_the_real_data(built):
             ), f"{unit['id']}: home {home['id']} is not a substring"
             assert home["pair"] is not None, f"{unit['id']}: home {home['id']} has no primary pair"
             assert home["ink_identical"] is False, f"{unit['id']}: home {home['id']} is machine-approved"
+    seams = manifest["secondary_seams"]
     assert (units_with, homed, homeless) == (
-        seam_pins["units_with_markers"],
-        seam_pins["seams_homed"],
-        seam_pins["seams_homeless"],
+        seams["units_with_markers"],
+        seams["seams_homed"],
+        seams["seams_homeless"],
     )
 
 
@@ -346,12 +335,12 @@ def test_batches_cover_the_human_workload_only(built):
                 human_batches.append((unit["id"], unit["batch"]))
     # Sort by numeric id: with >9,999 units the ids are mixed-width (u-9999, u-10000), so a lexical sort would interleave them and break the contiguous-batch check.
     human_batches.sort(key=lambda pair: int(pair[0][2:]))
-    assert len(human_batches) == PINS["built"]["human_units"]
+    assert len(human_batches) == len(manifest["human_unit_ids"])
     assert [batch for _unit_id, batch in human_batches] == [
         index // 300 for index in range(len(human_batches))
     ]
     assert manifest["human_unit_ids"] == [unit_id for unit_id, _batch in human_batches]
-    assert manifest["totals"]["batches"] == PINS["manifest"]["totals"]["batches"]
+    assert manifest["totals"]["batches"] == len({batch for _unit_id, batch in human_batches})
 
 
 def test_every_built_unit_has_one_render_group_and_a_summary(built):
@@ -445,7 +434,7 @@ def test_echo_groups_partition_the_human_workload(built):
             by_echo.setdefault(unit["echo"], []).append(unit)
             if unit["codepoints"] == WORKED_EXAMPLE_CODEPOINTS:
                 example = unit
-    assert len(by_echo) == manifest["totals"]["echo_groups"] == PINS["manifest"]["totals"]["echo_groups"]
+    assert len(by_echo) == manifest["totals"]["echo_groups"]
     for members in by_echo.values():
         assert len({member["class"] for member in members}) == 1
         assert len({tuple(member["configs"]) for member in members}) == 1
@@ -453,7 +442,8 @@ def test_echo_groups_partition_the_human_workload(built):
     siblings = {member["codepoints"] for member in by_echo[example["echo"]]}
     assert "E653:E652:E666" in siblings
     assert "E679:E653:E652:E666" in siblings
-    assert len(siblings) == PINS["built"]["worked_example_echo_siblings"]
+    facts = load_facts(out_dir, manifest)
+    assert len(siblings) == facts["pins"]["volatile"]["built"]["worked_example_echo_siblings"]
 
 
 def test_cluster_signatures_coarsen_the_echo_grain(built):
@@ -560,14 +550,16 @@ def test_every_built_gate_clause_resolves_to_a_feature_description(built):
     assert seen, "no config gates in the built output"
 
 
-def test_config_note_distribution_over_the_built_output(built):
-    """The facts the badge design rests on: the config-set space collapses to a handful of notes — null for the units covering every non-ss10 config, plus the ss04- and ss03-gated and -excluded minorities, the ss10-only overlay, and a small literal-fallback set."""
+def test_config_note_distribution_mirrors_the_sidecars_histogram(built):
+    """The facts the badge design rests on: the config-set space collapses to a handful of notes — null for the units covering every non-ss10 config, plus the ss04- and ss03-gated and -excluded minorities, the ss10-only overlay, and a small literal-fallback set. Walking the shipped shards has to reproduce the histogram the same build reduced from its own in-memory fragments, so the census can never describe notes the surface does not carry."""
     out_dir, manifest = built
     histogram = {}
     for meta in manifest["classes"]:
         for unit in json.loads((out_dir / meta["shard"]).read_text(encoding="utf-8")):
             histogram[unit["config_note"]] = histogram.get(unit["config_note"], 0) + 1
-    assert histogram == PINS["built"]["config_note_distribution"]
+    facts = load_facts(out_dir, manifest)
+    built_pins = facts["pins"]["volatile"]["built"]
+    assert _encode_note_distribution(histogram) == built_pins["config_note_distribution"]
 
 
 def test_feature_descriptions_keys_match_the_readme_stylistic_set_list():
@@ -833,12 +825,12 @@ def test_export_round_trip(built, tmp_path):
     assert counts["neither"] == 1
     assert counts["skip"] == 1
     assert counts["skipped_no_verdict"] == 1
-    assert counts["units_total"] == PINS["manifest"]["totals"]["units"]
-    assert counts["human_units_total"] == PINS["built"]["human_units"]
+    assert counts["units_total"] == manifest["totals"]["units"]
+    assert counts["human_units_total"] == len(manifest["human_unit_ids"])
 
     machine = triage["machine_approved"]
-    assert machine["count"] == PINS["manifest"]["machine_approved"]["units"]
-    assert machine["by_class"] == PINS["manifest"]["machine_approved"]["by_class"]
+    assert machine["count"] == manifest["machine_approved"]["units"]
+    assert machine["by_class"] == manifest["machine_approved"]["by_class"]
     assert machine["method"]
     assert machine["rows_covered"] == sum(
         len(unit["configs"]) for unit in units.values() if unit["ink_identical"] or unit["junior_equivalent"]
@@ -850,7 +842,7 @@ def test_export_round_trip(built, tmp_path):
             expanded.extend(range(int(start[2:]), int(end[2:]) + 1))
         else:
             expanded.append(int(token[2:]))
-    assert len(expanded) == PINS["manifest"]["machine_approved"]["units"]
+    assert len(expanded) == manifest["machine_approved"]["units"]
     assert {f"u-{number:04d}" for number in expanded} == {
         unit_id for unit_id, unit in units.items() if unit["ink_identical"] or unit["junior_equivalent"]
     }

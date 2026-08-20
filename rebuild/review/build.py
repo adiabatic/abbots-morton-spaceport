@@ -1,4 +1,4 @@
-"""The review-app generation CLI (rebuild/REVIEW-PLAN.md §1.3): assemble units, precompute enrichment and all three verdict drafts, and write the self-contained rebuild/out/review/ directory — manifest.json, one unit shard per class, the census-facts.json sidecar the census check reads, copied fonts, and the static app files. Also the `snapshot` subcommand for accepted-state baselines.
+"""The review-app generation CLI (rebuild/REVIEW-PLAN.md §1.3): assemble units, precompute enrichment and all three verdict drafts, and write the self-contained rebuild/out/review/ directory — manifest.json, one unit shard per class, the census-facts.json sidecar the artifact cycle's census refresh copies into the checked-in pins, copied fonts, and the static app files. Also the `snapshot` subcommand for accepted-state baselines.
 
 Usage:
     uv run python -m rebuild.review.build

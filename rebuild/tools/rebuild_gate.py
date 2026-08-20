@@ -1,6 +1,6 @@
 """`make test-rebuild`'s entry point: run the rebuild pytest suite only when gate:rebuild's input closure has changed since the last green run.
 
-The closure and its fingerprint are artifact_cycle's — the rebuild/ and glyph_data/ sources (minus Markdown, the carried-verdict evidence, and the JS-only jstests) plus conftest.py, pyproject.toml, uv.lock, the out/m1 artifacts the suite reads, and the site fonts and baselines it shapes against. When the fingerprint matches the shared green record (rebuild/out/rebuild-gate-green.json), the recorded green already describes this exact closure content and the wrapper exits 0. Otherwise it runs the suite with the cycle's exact argv and judges the result through the cycle's own failure classifier, because a plain exit-code check cannot: the suite exits nonzero by design on the documented baseline failures, which classify as green; a stale-census green is a pass but not recordable (it depends on the pin re-baseline only the artifact cycle runs); an unexplained failure is red. A recordable green rewrites the record — so interactive runs and the artifact cycle's gate:rebuild each skip on the other's greens. `make test-rebuild FORCE=1` (--force) runs the suite regardless; a red run whose closure still matches the record deletes it, since the green it claims is contradicted. A green run during which the closure moved records nothing, because the tested content is no longer on disk.
+The closure and its fingerprint are artifact_cycle's — the rebuild/ and glyph_data/ sources (minus Markdown, the carried-verdict evidence, the JS-only jstests, and the census pins the suite no longer reads) plus conftest.py, pyproject.toml, uv.lock, the out/m1 artifacts the suite reads, and the site fonts and baselines it shapes against. When the fingerprint matches the shared green record (rebuild/out/rebuild-gate-green.json), the recorded green already describes this exact closure content and the wrapper exits 0. Otherwise it runs the suite with the cycle's exact argv and judges the result through the cycle's own failure classifier, because a plain exit-code check cannot: the suite exits nonzero by design on the documented baseline failures, which classify as green, while an unexplained failure is red. That baseline-vs-hard split is the whole judgment, so every green is recordable. A recordable green rewrites the record — so interactive runs and the artifact cycle's gate:rebuild each skip on the other's greens. `make test-rebuild FORCE=1` (--force) runs the suite regardless; a red run whose closure still matches the record deletes it, since the green it claims is contradicted. A green run during which the closure moved records nothing, because the tested content is no longer on disk.
 """
 
 from __future__ import annotations
@@ -58,18 +58,13 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     returncode, stdout = _run_suite()
-    outcome = classify_rebuild_output(stdout, returncode, update_pins=False)
+    outcome = classify_rebuild_output(stdout, returncode)
     for test_id in outcome.hard_ids:
         print(f"  hard rebuild failure: {test_id}")
     if outcome.hard_ids:
         clear_contradicted_green(REBUILD_GATE_GREEN, before)
         print(f"make test-rebuild: {outcome.status}")
         return returncode if returncode != 0 else 1
-    if not outcome.recordable:
-        print(
-            f"make test-rebuild: {outcome.status} — green not recorded (a stale-census green depends on the pin re-baseline only the artifact cycle runs)"
-        )
-        return 0
     if before is None:
         print(
             f"make test-rebuild: {outcome.status} (closure fingerprint unavailable without git — not recorded)"

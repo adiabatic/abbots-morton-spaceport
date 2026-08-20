@@ -328,25 +328,6 @@ def test_gates_an_unverified_conform_blocks_readiness(tmp_path):
     assert call(tmp_path)["checks"]["gates"]["level"] == "ok"
 
 
-def test_gates_stale_pins_deferral_points_at_update_pins(tmp_path):
-    write_surface(tmp_path / "rebuild" / "out" / "review")
-    write_summary(
-        tmp_path,
-        gates=_gate_map(
-            rebuild={
-                "status": "deferred (stale census pins; re-run with --update-pins to refresh them first)",
-                "green": False,
-                "skip": "deferred",
-            },
-        ),
-    )
-    gates = call(tmp_path)["checks"]["gates"]
-    assert gates["level"] == "fail"
-    assert "deferred these gates under stale census pins: rebuild" in gates["detail"]
-    assert gates["remedy"] == "make review-cycle ARGS='--update-pins'"
-    assert call(tmp_path)["ready"] is False
-
-
 def test_gates_deferred_alongside_a_proved_skip_still_reads_as_deferred(tmp_path):
     write_surface(tmp_path / "rebuild" / "out" / "review")
     write_summary(
