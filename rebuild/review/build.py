@@ -1564,6 +1564,7 @@ def check_unit(unit: dict, mode: str = "m1-audit") -> list[str]:
             "content_key must be a sha256 hex stamp in m1-audit mode",
         )
     need(isinstance(unit.get("no_verdict"), bool), "no_verdict must be a bool")
+    # This equivalence is what lets every consumer read batch alone rather than re-deriving the disjunction: render.js's needsNoVerdict, export's human_units_total, complaint_docket, and carry_verdicts all split the workload on batch being null.
     if (
         unit.get("ink_identical") is True
         or unit.get("junior_equivalent") is True

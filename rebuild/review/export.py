@@ -239,13 +239,7 @@ def build_triage(manifest: dict, units: dict[str, dict], verdicts: dict) -> dict
         "counts": {
             **counts,
             "units_total": len(units),
-            "human_units_total": sum(
-                1
-                for unit in units.values()
-                if not unit.get("ink_identical")
-                and not unit.get("junior_equivalent")
-                and not unit.get("no_verdict")
-            ),
+            "human_units_total": sum(1 for unit in units.values() if unit.get("batch") is not None),
             "skipped_no_verdict": len(exempt),
             "rows_covered": covered,
         },
