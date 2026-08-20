@@ -272,7 +272,7 @@ class TestLateFormationGuardLines:
 
     def test_guarded_ligature_moves_to_its_own_contextual_lookup(self, spec):
         registry = emit_gsub._ClassRegistry()
-        guarded, plain, ignores = emit_gsub._formation_lines(spec, registry)
+        guarded, plain, ignores, _rows, _pairs = emit_gsub._formation_lines(spec, registry)
         assert "    sub qsTea qsOy by qsTea_qsOy;" in plain
         assert all("qsDay" not in line for line in plain)
         assert all("qsUtter" not in line for line in plain)
@@ -313,7 +313,7 @@ class TestLateFormationGuardLines:
     def test_partially_blocked_follower_gets_a_two_slot_ignore(self, spec):
         """·Tea takes the pair apart only when a second ·Tea follows, so it compiles to a two-slot ignore over that one third letter rather than joining the one-slot guard class — the branch the shipped alphabet no longer reaches."""
         registry = emit_gsub._ClassRegistry()
-        guarded, _plain, ignores = emit_gsub._formation_lines(spec, registry)
+        guarded, _plain, ignores, _rows, _pairs = emit_gsub._formation_lines(spec, registry)
         letters = sorted(name for name, rune in spec.runes.items() if not rune.sequence)
         blocked_seconds = [
             second
@@ -333,6 +333,6 @@ class TestLateFormationGuardLines:
     def test_utter_second_slot_releases_uniformly(self, spec):
         """Ligature-transparent left scopes let the formed ligature serve a following alternate ·Utter wherever the unformed trail could — the alternate's x-height entry scope names qsDay_qsUtter alongside qsUtter — so before a following ·Utter the ligature always forms and the guard emits no second-slot ·Utter rows at all."""
         registry = emit_gsub._ClassRegistry()
-        guarded, _plain, _ignores = emit_gsub._formation_lines(spec, registry)
+        guarded, _plain, _ignores, _rows, _pairs = emit_gsub._formation_lines(spec, registry)
         utter_second = [line for line in guarded if "qsDay' qsUtter' qsUtter" in line]
         assert utter_second == []

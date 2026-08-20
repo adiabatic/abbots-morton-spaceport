@@ -16,8 +16,19 @@ INK_X_OFFSET = 1
 CURS_HEIGHT_YS = (0, 5, 6, 8)
 
 
-def _anchor(x_px: int, y_px: int) -> str:
-    return f"<anchor {(x_px + INK_X_OFFSET) * PIXEL} {y_px * PIXEL}>"
+Anchor = tuple[int, int] | None
+Registration = tuple[Anchor, Anchor]
+
+
+def _units(anchor: tuple[int, int] | None) -> Anchor:
+    if anchor is None:
+        return None
+    x_px, y_px = anchor
+    return ((x_px + INK_X_OFFSET) * PIXEL, y_px * PIXEL)
+
+
+def _anchor(units: Anchor) -> str:
+    return "<anchor NULL>" if units is None else f"<anchor {units[0]} {units[1]}>"
 
 
 def _entry_heights(spec: ResolvedSpec, rune_name: str) -> set[int]:
@@ -31,8 +42,11 @@ def _entry_heights(spec: ResolvedSpec, rune_name: str) -> set[int]:
     return heights
 
 
-def emit_gpos(glyphs: Mapping[CellId, GlyphRecord], spec: ResolvedSpec | None = None) -> str:
-    per_height: dict[int, dict[str, tuple[str, str]]] = {y: {} for y in CURS_HEIGHT_YS}
+def cursive_registrations(
+    glyphs: Mapping[CellId, GlyphRecord], spec: ResolvedSpec | None = None
+) -> dict[int, dict[str, Registration]]:
+    """Per registered height, every glyph's (entry, exit) anchor pair in font units — what `emit_gpos` renders and what `rebuild/pipeline/readback.py` holds the compiled GPOS to. An absent side is None, and a locked twin's parity registration is (None, None)."""
+    per_height: dict[int, dict[str, Registration]] = {y: {} for y in CURS_HEIGHT_YS}
     for cell, record in glyphs.items():
         for y in CURS_HEIGHT_YS:
             entry = None
@@ -43,23 +57,25 @@ def emit_gpos(glyphs: Mapping[CellId, GlyphRecord], spec: ResolvedSpec | None = 
             exit_anchor = record.exit if record.exit is not None and record.exit[1] == y else None
             if entry is None and exit_anchor is None:
                 continue
-            per_height[y][record.name] = (
-                _anchor(*entry) if entry else "<anchor NULL>",
-                _anchor(*exit_anchor) if exit_anchor else "<anchor NULL>",
-            )
+            per_height[y][record.name] = (_units(entry), _units(exit_anchor))
 
-    parity_skipped = spec is None
     if spec is not None:
         for cell, record in glyphs.items():
             if "locked" not in cell.adjustments:
                 continue
             for y in _entry_heights(spec, cell.rune):
-                per_height.setdefault(y, {}).setdefault(record.name, ("<anchor NULL>", "<anchor NULL>"))
+                per_height.setdefault(y, {}).setdefault(record.name, (None, None))
+    return per_height
+
+
+def emit_gpos(glyphs: Mapping[CellId, GlyphRecord], spec: ResolvedSpec | None = None) -> str:
+    per_height = cursive_registrations(glyphs, spec)
+    parity_skipped = spec is None
 
     blocks: list[str] = []
     for y in CURS_HEIGHT_YS:
         statements = [
-            f"        pos cursive {name} {entry} {exit};"
+            f"        pos cursive {name} {_anchor(entry)} {_anchor(exit)};"
             for name, (entry, exit) in sorted(per_height[y].items())
         ]
         if not statements:
