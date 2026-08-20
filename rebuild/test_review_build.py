@@ -31,7 +31,7 @@ from rebuild.review.build import (
 from rebuild.review.census import WORKED_EXAMPLE_CODEPOINTS, load_pins
 from rebuild.review.enrich import LETTERS
 from rebuild.review.export import build_triage, load_units, load_verdicts
-from rebuild.review.ink import InkComparator, delta_digest
+from rebuild.review.ink import IDENTITY_DIFF, InkComparator, delta_digest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 FIXTURES = REPO_ROOT / "rebuild" / "review" / "fixtures"
@@ -406,7 +406,7 @@ def test_built_ink_deltas_match_the_comparator_recipe(built):
         expected = {}
         for config in unit["configs"]:
             diff = comparator.config_diff(text, config)
-            if diff != ((), (), 0):
+            if diff != IDENTITY_DIFF:
                 expected[config] = delta_digest(diff)
         assert unit["ink_deltas"] == expected, unit["id"]
         sampled += 1

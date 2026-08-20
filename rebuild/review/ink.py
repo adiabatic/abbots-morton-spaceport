@@ -1,4 +1,4 @@
-"""Ink-identity comparison for the review surface: a unit is ink_identical when both shipped fonts put exactly the same ink in the same places under every config in the unit's set — only glyph names (and inkless marker glyphs) differ, so no human judgment is meaningful. The method is the proven census reference: shape the unit's text with uharfbuzz via rebuild.validation.shaping.Shaper, record each glyph's outline with fontTools' DecomposingRecordingPen, translate it by the cumulative x_advance plus the glyph's x_offset/y_offset, then sort the placed pieces and compare across fonts. All review-surface shaping is kern-neutral (`kern_neutral`): the rebuild has no kerning until its own later milestone, so the old font's kern feature is pure noise in before/after comparisons and is disabled on both sides."""
+"""Ink-identity comparison for the review surface: a unit is ink_identical when both shipped fonts put exactly the same ink in the same places under every config in the unit's set — only glyph names (and inkless marker glyphs) differ, so no human judgment is meaningful. The ink is recorded the census reference's way: shape the unit's text with uharfbuzz via rebuild.validation.shaping.Shaper, record each glyph's outline with fontTools' DecomposingRecordingPen, and place it at the cumulative x_advance plus the glyph's x_offset/y_offset. The boolean itself has one implementation: `ink_identical` reads `config_diff`'s identity sentinel (IDENTITY_DIFF — empty middles and no follower shift), the same check the surface build applies to the per-config diffs it computes anyway, so the census and the build can never part company. The sentinel implies the reference comparison — sorted placed pieces equal across fonts — by construction, and the property test in rebuild/test_review_ink.py holds the converse over a corpus sample; the sorted-pieces formulation survives as `ink_pieces`, serving the signature/dedupe channel and the Junior oracle rather than the identity verdict. All review-surface shaping is kern-neutral (`kern_neutral`): the rebuild has no kerning until its own later milestone, so the old font's kern feature is pure noise in before/after comparisons and is disabled on both sides."""
 
 from __future__ import annotations
 
@@ -44,6 +44,9 @@ def features_for(config: str | None) -> dict[str, bool]:
 def kern_neutral(features: dict[str, bool] | None) -> dict[str, bool]:
     """The review surface's kern-off shaping features: the config's stylistic-set features plus an unconditional `kern: False`, for both fonts. A no-op on the after font (it carries no kern feature yet), but explicit so the rule survives the later kerning milestone, where kern differences get their own review."""
     return {**(features or {}), "kern": False}
+
+
+IDENTITY_DIFF = ((), (), 0)
 
 
 def delta_digest(diff: tuple) -> str:
@@ -136,11 +139,8 @@ class InkComparator:
         return tuple(pieces)
 
     def ink_identical(self, text: str, configs: tuple[str, ...]) -> bool:
-        for config in configs:
-            features = features_for(config)
-            if self.ink_pieces("before", text, features) != self.ink_pieces("after", text, features):
-                return False
-        return True
+        """The ink-identity boolean, read from config_diff's identity sentinel: True exactly when every config's localized delta is IDENTITY_DIFF — empty middles and no follower shift. The sentinel implies the census reference (both fonts' sorted placed pieces compare equal), so every machine approval this grants is sound under the reference reading; the retired whole-runs formulation survives in ink_pieces for the signature channel and the Junior oracle, and the property test in rebuild/test_review_ink.py holds the two formulations equal over a corpus sample."""
+        return all(self.config_diff(text, config) == IDENTITY_DIFF for config in configs)
 
     def signature(self, text: str, config: str) -> tuple:
         """The rendered-outcome identity of one text under one config: the (before pieces, after pieces) pair. Two rows whose signatures are equal put exactly the same ink in the same places in both fonts, so they present the same visual question no matter how their glyph names differ."""
@@ -175,7 +175,7 @@ class InkComparator:
         return pieces
 
     def config_diff(self, text: str, config: str) -> tuple:
-        """The before→after ink delta under one config, localized to the changed region: the two shaped runs are aligned glyph-by-glyph from both ends, stripping the common prefix (same ink at the same position) and the common suffix (same ink rigidly shifted by one uniform dx — followers that merely slid over because the change altered the run's advance), and the remaining middles are multiset-subtracted and jointly translated so the delta's leftmost point sits at x=0. Returns (pieces only the before font draws, pieces only the after font draws, suffix shift); ((), (), 0) means ink-identical. Two units whose judged pair, class, config set, and per-config deltas all agree show the same pixels appearing and disappearing — the echo-group key — no matter which unchanged letters surround the change."""
+        """The before→after ink delta under one config, localized to the changed region: the two shaped runs are aligned glyph-by-glyph from both ends, stripping the common prefix (same ink at the same position) and the common suffix (same ink rigidly shifted by one uniform dx — followers that merely slid over because the change altered the run's advance), and the remaining middles are multiset-subtracted and jointly translated so the delta's leftmost point sits at x=0. Returns (pieces only the before font draws, pieces only the after font draws, suffix shift); IDENTITY_DIFF — empty middles and no follower shift — means ink-identical, and is the one sentinel `ink_identical`, the surface build's per-unit flag, and the standing approvals' empty-delta digest all read. Two units whose judged pair, class, config set, and per-config deltas all agree show the same pixels appearing and disappearing — the echo-group key — no matter which unchanged letters surround the change."""
         features = features_for(config)
         before = self.run_ink("before", text, features)
         after = self.run_ink("after", text, features)
