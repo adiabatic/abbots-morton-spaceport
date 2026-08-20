@@ -4,7 +4,7 @@ It mechanizes the commit-time sequence: snapshot the current review surface (the
 
 The exit-code trap this driver exists to defuse: run_m1.main() SystemExits nonzero whenever any oracle rows are UNMATCHED, which is always true mid-migration. Its exit code is therefore not the gate; the four summary JSONs it writes are. The real gates are defect_errors, the boundary and Manual-pin passes, and multi_matched == 0.
 
-The two artifact-independent gates (js, make-test) run from t=0 in a small thread pool while the build chain runs inline-serial in the main thread. gate:conform (the exhaustive font-vs-settle sweep, run_m1 --conform-only) starts after the run_m1 gate passes, queued behind make-test by default. gate:rebuild is submitted a little later, once the surface build settles — the suite's census-module fixture prefers the provably-fresh live surface and must never observe one mid-rewrite, where the manifest has landed but review.build has not yet written the sidecar beside it — and from there on the suite reads nothing the build lane writes, the census pins included, so nothing downstream has to land before it can start. Under the default queue policy gate:rebuild parks at the tail of the make-test -> conform chain, so only one heavy gate pool is hot at a time — the build chain rides alongside whichever one that is at half the build stages' job ceiling rather than serial (see stage_job_budget). Co-resident, the two heavy pools oversubscribe the cores roughly 2:1, and measured that contention roughly tripled gate:rebuild's wall time — a worse critical path than running the same work in sequence. --rebuild-pool overlap restores full co-residency.
+The two artifact-independent gates (js, make-test) run from t=0 in a small thread pool while the build chain runs inline-serial in the main thread. gate:conform (the exhaustive font-vs-settle sweep at the per-edit horizon, run_m1 --conform-only) starts after the run_m1 gate passes, queued behind make-test by default; its periodic deep form is `make conform-deep`, which the cycle never runs and only reports on — one line in the summary saying whether the emitted lookup has grown a shape the last deep run never shaped. gate:rebuild is submitted a little later, once the surface build settles — the suite's census-module fixture prefers the provably-fresh live surface and must never observe one mid-rewrite, where the manifest has landed but review.build has not yet written the sidecar beside it — and from there on the suite reads nothing the build lane writes, the census pins included, so nothing downstream has to land before it can start. Under the default queue policy gate:rebuild parks at the tail of the make-test -> conform chain, so only one heavy gate pool is hot at a time — the build chain rides alongside whichever one that is at half the build stages' job ceiling rather than serial (see stage_job_budget). Co-resident, the two heavy pools oversubscribe the cores roughly 2:1, and measured that contention roughly tripled gate:rebuild's wall time — a worse critical path than running the same work in sequence. --rebuild-pool overlap restores full co-residency.
 
 The cycle runs no Rust-vs-Python differential. Every settlement-semantics change is still written twice — the kernel crate builds the cycle's tables, and Python's settle kernel still ships, with gate:conform re-settling every swept string through it each cycle and emit_gsub calling formation_blocked — but the comparison of the twins at artifact grain is an instrument you reach for by hand: rebuild.tools.kernel_gate (`make kernel-gate`) builds the crate, streams every acceptance config out of the kernel in one child, enumerates the Python side fresh in-process, folds both through the same table.assemble_tables, and byte-compares the three artifacts plus the contract digest. Run it around a kernel-semantics change, where its Python fixpoint per configuration is the price of the proof.
 
@@ -66,6 +66,8 @@ CYCLE_TIMINGS = ROOT / "rebuild" / "out" / "cycle-timings.ndjson"
 MAKE_TEST_GREEN = ROOT / "rebuild" / "out" / "make-test-green.json"
 RUN_M1_GREEN = ROOT / "rebuild" / "out" / "run-m1-green.json"
 CONFORM_GREEN = ROOT / "rebuild" / "out" / "conform-green.json"
+DEEP_SWEEP_GREEN = ROOT / "rebuild" / "out" / "deep-sweep-green.json"
+BEHAVIOR_CLASSES = M1_OUT / "behavior_classes.json"
 REBUILD_GATE_GREEN = ROOT / "rebuild" / "out" / "rebuild-gate-green.json"
 PLUMBING_GREEN = ROOT / "rebuild" / "out" / "plumbing-green.json"
 JSTEST_DIR = ROOT / "rebuild" / "review" / "jstests"
@@ -81,7 +83,14 @@ SERVER_STOP_PATTERN = r"rebuild\.review\.serve"
 SERVER_STOP_TIMEOUT = 15.0
 _GATE_POOL_WORKERS = 6
 _CONFORM_JOBS_CAP = 8
-CONFORM_HORIZON_DEFAULT = 5
+CONFORM_HORIZON_DEFAULT = 4
+DEEP_SWEEP_HORIZON_DEFAULT = 5
+COMPILE_CODE_FILES = (
+    "rebuild/pipeline/emit_gsub.py",
+    "rebuild/pipeline/emit_gpos.py",
+    "rebuild/pipeline/pack_gsub.py",
+    "rebuild/pipeline/compile_font.py",
+)
 RETENTION_WINDOW_DAYS = 7
 
 M1_SUMMARY_FILES = {
@@ -325,6 +334,77 @@ def conform_skip_fingerprint(root: Path = ROOT, horizon: int = CONFORM_HORIZON_D
     return _digest_lines(conform_skip_lines(root, horizon))
 
 
+def deep_sweep_skip_lines(root: Path = ROOT) -> list[str] | None:
+    """The deep sweep's arming key: the behavior-class set the build enumerated (rebuild/out/m1/behavior_classes.json, written by emit_gsub.behavior_classes), the font-compilation code that turns a plan into bytes, and the shaper version the sweep shapes through. None when no build has left a sidecar to read, which is the caller's cue to run the cycle before asking whether the deep sweep is armed.
+
+    Deliberately not the rune digests and not M1.otf's bytes: a rune edit moves both on every pass, and the deep sweep exists to sample HarfBuzz behavior at a depth the belt cannot reach. What it samples is the set of shapes the emitted lookup asks the shaper to handle, so an edit that mints no new shape leaves nothing for a deeper run to find, and its green legitimately survives. There is also no horizon line: the deep sweep is "5 or deeper", so the depth a green record proved rides in the record's payload and is compared with >=, where folding it into the key would make a horizon-6 green fail to satisfy a horizon-5 question.
+
+    Each class is its own line label rather than a shared `class` label with the token as its value, so that the per-file map behind the key (`_files_of`, stored in the green record) holds one entry per token and `moved_inputs_note` can name the shape that appeared — which is the whole content of the "armed" report.
+    """
+    import importlib.metadata
+
+    from rebuild.pipeline.emit_gsub import BEHAVIOR_CLASSES_FORMAT
+
+    try:
+        payload = json.loads((root / BEHAVIOR_CLASSES.relative_to(ROOT)).read_text())
+    except OSError, ValueError:
+        return None
+    if not isinstance(payload, dict) or payload.get("format") != BEHAVIOR_CLASSES_FORMAT:
+        return None
+    classes = payload.get("classes")
+    if not isinstance(classes, list) or not all(isinstance(token, str) for token in classes):
+        return None
+    lines = [f"class:{token}\tpresent" for token in classes]
+    lines += [f"{rel}\t{_sha256_path(root / rel)}" for rel in COMPILE_CODE_FILES]
+    lines.append(f"uharfbuzz\t{importlib.metadata.version('uharfbuzz')}")
+    return lines
+
+
+def deep_sweep_skip_files(root: Path = ROOT) -> dict[str, str] | None:
+    lines = deep_sweep_skip_lines(root)
+    return None if lines is None else _files_of(lines)
+
+
+def deep_sweep_skip_fingerprint(root: Path = ROOT) -> str | None:
+    lines = deep_sweep_skip_lines(root)
+    return None if lines is None else _digest_lines(lines)
+
+
+def record_deep_sweep_green(
+    fingerprint: str, horizon: int, files: dict[str, str] | None = None, path: Path | None = None
+) -> None:
+    """The deep sweep's last-green record. It carries the horizon the recorded run actually swept as well as the key, because the arming key is depth-blind on purpose: a green is a claim about a depth, and `deep_sweep_status` reads it back to answer whether an already-proved run went deep enough for the depth being asked about."""
+    _record_outcome(
+        path if path is not None else DEEP_SWEEP_GREEN,
+        {"fingerprint": fingerprint, "horizon": horizon, "files": files},
+    )
+
+
+def deep_sweep_status(root: Path = ROOT, horizon: int = DEEP_SWEEP_HORIZON_DEFAULT) -> tuple[str, str]:
+    """Whether the periodic deep sweep still stands for what the build now emits, as (status, note) for the cycle's one-line report. `current` means a green record matches the arming key at this depth or deeper; `armed` means something the deep sweep samples for has moved (a novel rule shape, the compilation path, the shaper) or the recorded run was shallower than asked, and `make conform-deep` is the remedy; `never-run` means no record at all; `unknown` means no build has left a behavior-class sidecar to key on. Reporting only — the deep sweep is never a cycle gate."""
+    fingerprint = deep_sweep_skip_fingerprint(root)
+    if fingerprint is None:
+        return "unknown", "no behavior-class sidecar yet; it lands with the next M1 build"
+    record = read_green_record(DEEP_SWEEP_GREEN)
+    if record is None:
+        return "never-run", "no deep sweep has been recorded; run `make conform-deep`"
+    if record["fingerprint"] != fingerprint:
+        files = deep_sweep_skip_files(root)
+        moved = moved_inputs_note(record, files) if files is not None else None
+        detail = f"{moved}; " if moved else ""
+        return (
+            "armed",
+            f"{detail}the build emits shapes the last deep sweep never saw; run `make conform-deep`",
+        )
+    recorded = record.get("horizon")
+    if not isinstance(recorded, int) or recorded < horizon:
+        return (
+            "armed",
+            f"the recorded deep sweep reached horizon {recorded}, shallower than {horizon}; run `make conform-deep`",
+        )
+    return "current", f"horizon {recorded}"
+
+
 def rebuild_gate_closure_files(root: Path) -> list[str] | None:
     """Every tracked or untracked-unignored file the rebuild pytest suite can read from the repo: rebuild/ and glyph_data/ (minus Markdown, the carried-verdict evidence, the JS-only jstests, and the census pins) plus the root conftest.py, pyproject.toml, and uv.lock. The pins are out because the suite no longer reads them and the census step rewrites them mid-pass — they are the cycle's own diff artifact, so leaving them in would invalidate the key of every pass that refreshes them. None when git is unavailable, in which case the caller must run the gate unconditionally."""
     try:
@@ -510,16 +590,12 @@ def evaluate_run_m1_gate(pipeline: dict, boundary: dict, manual_pins: dict, orac
 
 
 def evaluate_conform_gate(summary: dict | None) -> tuple[str, list[str]]:
-    """Judge gate:conform from conform_summary.json's contents (None = the subprocess never wrote one). `pass` is the verdict; the detail lines name what broke — shaping divergences are compiler defects by definition, and nonzero uncovered counts mean dead generated rules or transitions."""
+    """Judge gate:conform from conform_summary.json's contents (None = the subprocess never wrote one). `pass` is the verdict, and the belt has exactly one way to fail: a font-vs-settle divergence, which is a compiler defect by definition. Whether the font holds every rule the build planned is read-back's claim, re-proved inside run_m1 on every build, and dead generated rules are rebuild/test_rule_witnesses.py's — neither reaches this summary."""
     if summary is None:
         return "FAILED (no conform_summary.json)", ["conform gate: run_m1 --conform-only wrote no summary"]
     failures: list[str] = []
     if summary.get("divergences"):
         failures.append(f"conform gate: {summary['divergences']} font-vs-settle divergence(s)")
-    if summary.get("uncovered_rules"):
-        failures.append(f"conform gate: {summary['uncovered_rules']} dead settlement rule(s)")
-    if summary.get("uncovered_transitions"):
-        failures.append(f"conform gate: {summary['uncovered_transitions']} dead decision-table transition(s)")
     if not summary.get("pass") and not failures:
         failures.append("conform gate: pass is false")
     if failures:
@@ -1862,6 +1938,14 @@ def _run_cycle(
         pool.shutdown(wait=True)
 
 
+def _deep_sweep_report(root: Path = ROOT) -> tuple[str, str]:
+    """`deep_sweep_status` for the summary, and never a reason for a pass to fail: the deep sweep is an out-of-band instrument the cycle only reports on, so anything that goes wrong reading its record reads as unknown."""
+    try:
+        return deep_sweep_status(root)
+    except Exception as exc:
+        return "unknown", f"could not be read ({exc!r})"
+
+
 def _print_summary(report: CycleReport) -> None:
     def show(value: object) -> str:
         return "—" if value is None else str(value)
@@ -1902,6 +1986,8 @@ def _print_summary(report: CycleReport) -> None:
     print(f"  gate: rebuild      : {report.gate_rebuild}")
     print(f"  gate: conform      : {report.gate_conform}")
     print(f"  gate: make test    : {report.gate_make_test}")
+    deep_status, deep_note = _deep_sweep_report()
+    print(f"  deep sweep         : {deep_status} ({deep_note})")
     print("  run_m1 summaries   :")
     for path in M1_SUMMARY_FILES.values():
         print(f"      {path}")
@@ -1942,6 +2028,7 @@ def _surface_block(surface_dir: Path) -> dict:
 
 
 def cycle_summary_payload(report: CycleReport, failures: list[str], plan: Plan, exit_kind: str) -> dict:
+    deep_status, deep_note = _deep_sweep_report()
     return {
         "format": "ams-cycle-summary/1",
         "finished_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
@@ -1969,6 +2056,7 @@ def cycle_summary_payload(report: CycleReport, failures: list[str], plan: Plan, 
                 _skip_kind(proved=plan.skip_make_test, deferred="make-test" in plan.deferred),
             ),
         },
+        "deep_sweep": {"status": deep_status, "note": deep_note},
         "make_test_fingerprint": (
             plan.make_test_fingerprint if report.gate_make_test_green is True or plan.skip_make_test else None
         ),
@@ -2275,7 +2363,7 @@ def main(argv: list[str] | None = None) -> int:
         "--conform-horizon",
         type=int,
         default=CONFORM_HORIZON_DEFAULT,
-        help="exhaustive sweep length for gate:conform, passed through to run_m1 --conform-only; drop below 5 when the sweep becomes the cycle's long pole — witness top-ups keep rule/transition coverage exact at any horizon",
+        help=f"exhaustive sweep length for gate:conform, passed through to run_m1 --conform-only (default {CONFORM_HORIZON_DEFAULT}, the per-edit belt); going deeper here is `make conform-deep`'s job, which runs out of band and keys its own green on the emitted lookup's behavior classes",
     )
     parser.add_argument(
         "--rebuild-pool",

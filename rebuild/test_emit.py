@@ -1,6 +1,6 @@
 """emit_gsub / emit_gpos tests over the fixture spec with duck-typed decision tables."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import pytest
 
@@ -232,6 +232,96 @@ class TestEmitGsub:
         assert lookup_body.index("ignore sub periodcentered' uni200C;") < lookup_body.index(
             "sub periodcentered' @m1_namer_short_followers by periodcentered.lowered;"
         )
+
+
+class TestBehaviorClasses:
+    """The deep sweep's arming enumeration over the same fixture plan the emission tests above assert the text of: the token set must be exactly what that plan's shapes imply, and every shape the enumeration does not recognize must raise rather than enumerate to nothing — a plan that arms nothing would leave a deep-sweep green standing over a build it never shaped."""
+
+    FIXTURE_TOKENS = {
+        "formation:2",
+        "guard-form:2-slot",
+        "guard-form:fallback",
+        "guard-form:zwnj",
+        "guard-ignore:1-slot",
+        "guard-ignore:2-slot",
+        "marker-fold:ss02",
+        "marker-fold:ss03",
+        "marker-fold:ss04",
+        "marker-fold:ss05",
+        "namer-dot",
+        "settle:bk0-la1",
+        "settle:bk0-la2",
+        "settle:bk1-la0",
+        "settle:cross-subtable",
+        "settle:zwnj-in-lookahead",
+    }
+
+    @pytest.fixture
+    def plan(self, spec, glyphs):
+        return emit_gsub.emit_gsub(spec, {frozenset(): FakeDecision(_rules(spec, glyphs))}, glyphs=glyphs)
+
+    def test_the_tokens_are_exactly_the_shapes_the_fixture_plan_emits(self, plan):
+        assert set(emit_gsub.behavior_classes(plan)) == self.FIXTURE_TOKENS
+        assert list(emit_gsub.behavior_classes(plan)) == sorted(self.FIXTURE_TOKENS)
+
+    def test_the_ss10_preempt_is_a_shape_of_its_own(self, spec, glyphs):
+        twins = {"qsIt": "qsIt.ss10", "qsMay": "qsMay.ss10", "qsTea": "qsTea.ss10", "qsOy": "qsOy.ss10"}
+        with_twins = emit_gsub.emit_gsub(
+            spec, {frozenset(): FakeDecision(_rules(spec, glyphs))}, glyphs=glyphs, ss10_twins=twins
+        )
+        assert set(emit_gsub.behavior_classes(with_twins)) == self.FIXTURE_TOKENS | {"ss10-preempt"}
+
+    def test_a_locked_input_and_a_backtrack_zwnj_each_mint_a_token(self, plan):
+        grown = replace(
+            plan,
+            settle_rules=plan.settle_rules
+            + (
+                emit_gsub.SettleRule(
+                    input_glyph="qsTea.noentry",
+                    backtrack=frozenset({"uni200C"}),
+                    lookahead=(),
+                    outcome="qsTea",
+                ),
+            ),
+        )
+        assert {"settle:locked-input", "settle:zwnj-in-backtrack"} <= set(emit_gsub.behavior_classes(grown))
+
+    def test_a_single_family_of_settle_rules_never_crosses_a_subtable(self, plan):
+        alone = replace(plan, settle_rules=plan.settle_rules[:1])
+        assert "settle:cross-subtable" not in emit_gsub.behavior_classes(alone)
+
+    def test_a_rule_past_the_window_depth_raises(self, plan):
+        slot = frozenset({"qsMay"})
+        deeper = replace(
+            plan,
+            settle_rules=(emit_gsub.SettleRule("qsIt", None, (slot, slot, slot, slot, slot), "qsIt.ex-y0"),),
+        )
+        with pytest.raises(emit_gsub.EmitError):
+            emit_gsub.behavior_classes(deeper)
+
+    def test_an_unrecognized_guard_row_raises(self, plan):
+        slot = frozenset({"qsSee"})
+        cases = [
+            emit_gsub.FormationRow(("qsDay", "qsUtter"), (slot, slot, slot), None),
+            emit_gsub.FormationRow(("qsDay", "qsUtter"), (slot,), "qsDay_qsUtter"),
+            emit_gsub.FormationRow(("qsDay", "qsUtter"), (slot, slot, slot), "qsDay_qsUtter"),
+            emit_gsub.FormationRow(("qsDay",), (), "qsDay_qsUtter"),
+        ]
+        for row in cases:
+            with pytest.raises(emit_gsub.EmitError):
+                emit_gsub.behavior_classes(replace(plan, formation_guarded_rows=(row,)))
+
+    def test_an_unknown_calt_stage_raises(self, plan):
+        with pytest.raises(emit_gsub.EmitError):
+            emit_gsub.behavior_classes(replace(plan, calt_stages=plan.calt_stages + ("m1_something_new",)))
+
+    def test_a_plan_that_grew_a_field_raises(self):
+        @dataclass
+        class GrownPlan(emit_gsub.GsubPlan):
+            novel_stage: tuple[str, ...] = ()
+
+        with pytest.raises(emit_gsub.EmitError):
+            emit_gsub.behavior_classes(GrownPlan(fea_text=""))
 
 
 class TestEmitGpos:

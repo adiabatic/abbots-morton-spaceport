@@ -37,7 +37,8 @@ for h in 3 4 5; do
     > "$OUT/conform-h$h-cold.log" 2>&1
 done
 
-# Same horizon again over the witnesses the cold pass just recorded: the steady-state / ink-only-edit case.
+# A second horizon-5 pass. It used to price the warm witness caches; the sweep keeps no caches any more
+# (issue #74 moved coverage to read-back), so this now just re-times the same run.
 SWEEP_JSON="$OUT/conform-h5-warm.json" PYTHONPATH="$REPO" \
   uv run python "$HARNESS/sweep_horizon.py" "$HARNESS/m1" 5 "$HARNESS/run-h5" boundary-green \
   > "$OUT/conform-h5-warm.log" 2>&1

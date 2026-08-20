@@ -1,6 +1,6 @@
 """The M1 integration driver (M1-PLAN Phase 5): the full pipeline run over the real rune files, writing every section 8 artifact under rebuild/out/m1/.
 
-Stages: load_default_spec -> per-configuration decision/treaty tables (partition + E-STRANDED asserted, TSVs written, and the window enumeration serialized under the fingerprint of the sources it came from, so `--conform-only` replays it rather than rebuilding the fixpoint) -> glyph inventory minting (settled cells named by the table's own cell labels, plus the raw cmap glyphs, marker twins, chokepoint twins, and the namer dot pair) -> defects gates (run_gates merged with surface.check_anchor_conventions) -> emit_gsub/emit_gpos -> build_mini_font with the budget gate -> read-back (the font just written, re-parsed from its own bytes and structurally proven against the plan the emitters held; rebuild/pipeline/readback.py).
+Stages: load_default_spec -> per-configuration decision/treaty tables (partition + E-STRANDED asserted, TSVs written, and the window enumeration serialized under the fingerprint of the sources it came from, so `--conform-only` mints its glyph inventory from it rather than rebuilding the fixpoint) -> glyph inventory minting (settled cells named by the table's own cell labels, plus the raw cmap glyphs, marker twins, chokepoint twins, and the namer dot pair) -> defects gates (run_gates merged with surface.check_anchor_conventions) -> emit_gsub/emit_gpos (whose plan also enumerates the emitted lookup's HarfBuzz-facing shapes into behavior_classes.json, the arming key rebuild/tools/deep_sweep.py reads) -> build_mini_font with the budget gate -> read-back (the font just written, re-parsed from its own bytes and structurally proven against the plan the emitters held; rebuild/pipeline/readback.py).
 
 The glyph-name contract this driver pins: settlement-lookup outcomes are `settle.cell_label` names, so the decision-table rules and the compiled glyph set agree by construction; the raw cmap glyph for each rune is the bare rune name drawn as the isolated cell but carrying no curs anchors; marker, chokepoint, and ss10 twins reuse the bare drawing (under ss10 the pre-empt lookup substitutes every letter's cmap glyph by its anchor-free `.ss10` twin before formation, so no ligature ever forms, nothing settles, each letter keeps its own cluster, and every seam is a break).
 
@@ -297,6 +297,14 @@ def run(
     start = time.perf_counter()
     curs_glyphs = {**cell_glyphs, **bare, **twins}
     gsub_plan = emit_gsub.emit_gsub(spec, tables, glyphs={**cell_glyphs, **bare}, ss10_twins=ss10_twins)
+    classes = emit_gsub.behavior_classes(gsub_plan)
+    (out_dir / "behavior_classes.json").write_text(
+        json.dumps(
+            {"format": emit_gsub.BEHAVIOR_CLASSES_FORMAT, "classes": list(classes)},
+            indent=2,
+        )
+        + "\n"
+    )
     gpos_fea = emit_gpos.emit_gpos(curs_glyphs, spec=spec)
     fea = gsub_plan.fea_text + "\n" + gpos_fea
     print(f"[t] emit_gsub_gpos {time.perf_counter() - start:.1f}s", flush=True)
@@ -365,21 +373,22 @@ def tables_inputs() -> str:
     return inputs
 
 
-def run_font_conformance(out_dir: Path = OUT_DIR, max_length: int = 5, jobs: int = 1) -> dict:
-    """The exhaustive font-vs-settle sweep. The tables it replays are the ones the build stage already produced from these same sources, read back per configuration; only when that fingerprint fails to match does the fixpoint run again here, which is the standalone case of a sweep against a font whose runes have since moved. Two carried-forward proofs cut the spend: the boundary gate's summary, when green for exactly this M1.otf, hands the sweep its structural checks within the proven horizon, and each config's recorded witness winners (`witnesses-<config>.tsv.gz` beside the windows) spare a hunt whose table did not move."""
+def run_font_conformance(
+    out_dir: Path = OUT_DIR,
+    max_length: int = 4,
+    jobs: int = 1,
+    summary_name: str = "conform_summary.json",
+) -> dict:
+    """The exhaustive font-vs-settle sweep — the per-edit belt at `max_length` 4, and the same sweep deeper when rebuild.tools.deep_sweep asks for it under its own `summary_name`. The tables the build stage left under `out_dir` are read back here for one reason only, the glyph inventory `mint_cell_glyphs` needs to name settled cells and read their anchors; the sweep itself takes no table, because what it proves is HarfBuzz's behavior against the kernel's, and read-back already proved the font holds the rules the build planned. A fingerprint that fails to match rebuilds those tables in-process, which is the standalone case of a sweep against a font whose runes have since moved. The boundary gate's summary, when green for exactly this M1.otf, hands the sweep its structural checks within the proven horizon."""
     inputs = tables_inputs()
     spec = load_default_spec()
     start = time.perf_counter()
     serialized = serialized_tables(out_dir, inputs)
-    windows: dict[str, Path] | None = None
-    rebuilt: dict[str, tuple] | None = None
     if serialized is not None:
         decisions: Mapping[str, DecisionTable | tuple[DecisionTable, ...]] = serialized
-        windows = {config: table_module.windows_path(out_dir, config) for config in serialized}
         print(f"[t] load_tables {time.perf_counter() - start:.1f}s", flush=True)
     else:
-        rebuilt = build_tables(spec, engine="python")
-        decisions = rebuilt
+        decisions = build_tables(spec, engine="python")
         print(
             f"[t] build_tables_total {time.perf_counter() - start:.1f}s {rss_token(process_peak_rss_bytes())}",
             flush=True,
@@ -388,9 +397,6 @@ def run_font_conformance(out_dir: Path = OUT_DIR, max_length: int = 5, jobs: int
     boundary_horizon = conform.proven_boundary_horizon(
         out_dir / "M1.otf", out_dir / "boundary_equivalence_summary.json"
     )
-    witness_caches = {
-        config: conform.witnesses_path(out_dir, config) for config in conform.ACCEPTANCE_CONFIGS
-    }
     if jobs > 1:
         collected: dict[str, conform.ConformanceConfigResult] = {}
         with _spawn_pool(jobs) as pool:
@@ -402,10 +408,7 @@ def run_font_conformance(out_dir: Path = OUT_DIR, max_length: int = 5, jobs: int
                     config,
                     max_length,
                     cell_glyphs,
-                    decision=None if rebuilt is None else rebuilt[config][0],
-                    windows_path=None if windows is None else windows[config],
                     boundary_horizon=boundary_horizon,
-                    witness_cache_path=witness_caches[config],
                 ): config
                 for config in conform.ACCEPTANCE_CONFIGS
             }
@@ -414,7 +417,7 @@ def run_font_conformance(out_dir: Path = OUT_DIR, max_length: int = 5, jobs: int
                 collected[result.config] = result
         ordered = [collected[config] for config in conform.ACCEPTANCE_CONFIGS]
         report = conform.merge_conformance_results(out_dir / "M1.otf", ordered)
-        report.write(out_dir / "conform_summary.json")
+        report.write(out_dir / summary_name)
     else:
         report = conform.run_conformance(
             out_dir / "M1.otf",
@@ -422,19 +425,13 @@ def run_font_conformance(out_dir: Path = OUT_DIR, max_length: int = 5, jobs: int
             glyphs=cell_glyphs,
             max_length=max_length,
             out_dir=out_dir,
-            tables=rebuilt,
-            windows=windows,
             boundary_horizon=boundary_horizon,
-            witness_caches=witness_caches,
+            summary_name=summary_name,
         )
     summary = {
         "sequences": report.sequences,
         "shaping_runs": report.shaping_runs,
         "divergences": len(report.divergences),
-        "uncovered_rules": report.uncovered_rules,
-        "uncovered_transitions": report.uncovered_transitions,
-        "topped_up_rules": report.topped_up_rules,
-        "topped_up_sequences": report.topped_up_sequences,
         "pass": report.passed,
         "notes": report.notes,
     }
@@ -590,8 +587,8 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument(
         "--conform-horizon",
         type=int,
-        default=5,
-        help="exhaustive sweep length for --conform-only; witnesses complete rule/transition coverage beyond it",
+        default=4,
+        help="exhaustive sweep length for --conform-only (the per-edit belt); `make conform-deep` runs the same sweep deeper on demand",
     )
     parser.add_argument(
         "--engine",
@@ -693,9 +690,11 @@ def main(argv: list[str] | None = None) -> None:
         oracle = run_oracle(spec=spec, jobs=jobs)
         print(f"[t] run_oracle {time.perf_counter() - start:.1f}s", flush=True)
         print(json.dumps(oracle, indent=2))
-    except SystemExit:
+    except (SystemExit, readback.ReadbackError, emit_gsub.EmitError) as error:
         _settle_green(RUN_M1_GREEN, before, False, run_m1_key, "run_m1")
-        raise
+        if isinstance(error, SystemExit):
+            raise
+        raise SystemExit(str(error))
     gate = evaluate_run_m1_gate(summary, boundary_gate, pin_gate, oracle)
     recordable = gate.ok and args.engine == ENGINE_DEFAULT
     if gate.ok and not recordable:

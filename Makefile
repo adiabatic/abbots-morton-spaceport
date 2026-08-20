@@ -1,4 +1,4 @@
-.PHONY: all test test-rebuild test-slowly test-leaks leak-snapshot typecheck print-job serve explainer check-html-before check-html-after build-kerning-hardcases review test-and-review review-build review-serve review-cycle artifact-cycle verdict-ready cycle-timings complaint-docket novelty-order kernel-build kernel-check kernel-parity kernel-differential kernel-fixpoint kernel-fixpoint-pinned kernel-fixpoint-label-grain kernel-liveness kernel-gate prettier woff2 clean
+.PHONY: all test test-rebuild test-slowly test-leaks leak-snapshot typecheck print-job serve explainer check-html-before check-html-after build-kerning-hardcases review test-and-review review-build review-serve review-cycle artifact-cycle verdict-ready cycle-timings complaint-docket novelty-order kernel-build kernel-check kernel-parity kernel-differential kernel-fixpoint kernel-fixpoint-pinned kernel-fixpoint-label-grain kernel-liveness kernel-gate conform-deep prettier woff2 clean
 
 all:
 	uv run python tools/build_font.py glyph_data/ site/
@@ -140,6 +140,10 @@ kernel-liveness: kernel-build
 # The standalone Rust-vs-Python differential at artifact grain, to run around a kernel-semantics change (nothing in the artifact cycle runs it): enumerate the live spec's six acceptance configurations in one kernel process, enumerate the Python side fresh, fold both through Python's own back half, and require the three artifacts and the contract digest to be byte-identical. It builds both sides itself — the cycle's artifacts are the kernel's own fold now, so there is nothing on disk to compare against. ARGS passes --threads/--skip-build/--out.
 kernel-gate: kernel-build
 	uv run python -m rebuild.tools.kernel_gate $(ARGS)
+
+# The periodic deep form of gate:conform: the exhaustive font-vs-settle sweep at horizon 5+ (ARGS='--horizon 6' to go deeper, ARGS='--status' to ask whether it is armed), run by hand or overnight and never by the cycle. Its green is keyed on the emitted lookup's behavior classes, the font-compilation code and the uharfbuzz version rather than on the runes, so a rune edit that introduces no novel rule shape never stales it; a green deep run also refreshes gate:conform's own record, since an exhaustive sweep at this depth covers every text the per-edit belt shapes. The artifact cycle prints armed/current each pass.
+conform-deep:
+	uv run python -m rebuild.tools.deep_sweep $(ARGS)
 
 # Compress the built OTFs in site/ into WOFF2 alongside them.
 woff2: all

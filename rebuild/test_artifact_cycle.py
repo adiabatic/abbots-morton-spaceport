@@ -76,30 +76,15 @@ def test_gate_unmatched_alone_is_not_a_failure():
 
 
 def test_conform_gate_passes_on_clean_summary():
-    status, failures = ac.evaluate_conform_gate(
-        {"divergences": 0, "uncovered_rules": 0, "uncovered_transitions": 0, "pass": True}
-    )
+    status, failures = ac.evaluate_conform_gate({"divergences": 0, "pass": True})
     assert status == "green"
     assert failures == []
 
 
 def test_conform_gate_fails_on_divergences():
-    status, failures = ac.evaluate_conform_gate(
-        {"divergences": 3, "uncovered_rules": 0, "uncovered_transitions": 0, "pass": False}
-    )
+    status, failures = ac.evaluate_conform_gate({"divergences": 3, "pass": False})
     assert status == "FAILED"
     assert failures == ["conform gate: 3 font-vs-settle divergence(s)"]
-
-
-def test_conform_gate_fails_on_dead_rules_and_transitions():
-    status, failures = ac.evaluate_conform_gate(
-        {"divergences": 0, "uncovered_rules": 2, "uncovered_transitions": 5, "pass": False}
-    )
-    assert status == "FAILED"
-    assert failures == [
-        "conform gate: 2 dead settlement rule(s)",
-        "conform gate: 5 dead decision-table transition(s)",
-    ]
 
 
 def test_conform_gate_fails_on_missing_summary():
@@ -223,10 +208,10 @@ def test_dry_run_plan_conform_jobs_cap():
 
 
 def test_dry_run_plan_conform_horizon():
-    plan = _plan(conform_horizon=4)
+    plan = _plan(conform_horizon=3)
     by_name = {step.name: step for step in plan.steps}
-    assert _argv(by_name["gate:conform"])[-2:] == ["--conform-horizon", "4"]
-    assert plan.conform_horizon == 4
+    assert _argv(by_name["gate:conform"])[-2:] == ["--conform-horizon", "3"]
+    assert plan.conform_horizon == 3
 
     default = _plan()
     default_by_name = {step.name: step for step in default.steps}
@@ -2258,6 +2243,101 @@ def test_conform_skip_fingerprint_includes_horizon_and_font(tmp_path):
     assert ac.conform_skip_fingerprint(tmp_path, 4) != base
     (tmp_path / "rebuild" / "out" / "m1" / "M1.otf").write_bytes(b"OTTO")
     assert ac.conform_skip_fingerprint(tmp_path, 5) != base
+
+
+def _write_behavior_classes(root, classes, fmt=None):
+    from rebuild.pipeline.emit_gsub import BEHAVIOR_CLASSES_FORMAT
+
+    m1 = root / "rebuild" / "out" / "m1"
+    m1.mkdir(parents=True, exist_ok=True)
+    (m1 / "behavior_classes.json").write_text(
+        json.dumps({"format": fmt or BEHAVIOR_CLASSES_FORMAT, "classes": list(classes)})
+    )
+    for rel in ac.COMPILE_CODE_FILES:
+        path = root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"# {rel}\n")
+    return m1 / "behavior_classes.json"
+
+
+def test_deep_sweep_skip_lines_need_a_sidecar_in_the_expected_format(tmp_path):
+    assert ac.deep_sweep_skip_lines(tmp_path) is None
+    assert ac.deep_sweep_skip_fingerprint(tmp_path) is None
+    assert ac.deep_sweep_skip_files(tmp_path) is None
+    sidecar = _write_behavior_classes(tmp_path, ["settle:bk0-la1"], fmt="ams-m1-behavior-classes/999")
+    assert ac.deep_sweep_skip_lines(tmp_path) is None
+    sidecar.write_text("not json")
+    assert ac.deep_sweep_skip_lines(tmp_path) is None
+
+
+def test_deep_sweep_skip_lines_name_the_classes_the_code_and_the_shaper(tmp_path):
+    _write_behavior_classes(tmp_path, ["namer-dot", "settle:bk1-la2"])
+    lines = ac.deep_sweep_skip_lines(tmp_path)
+    assert lines is not None
+    assert lines[:2] == ["class:namer-dot\tpresent", "class:settle:bk1-la2\tpresent"]
+    files = ac.deep_sweep_skip_files(tmp_path)
+    assert files is not None
+    assert set(ac.COMPILE_CODE_FILES) <= set(files)
+    assert "uharfbuzz" in files
+    assert not any(name.startswith("horizon") for name in files)
+    assert ac._digest_lines(lines) == ac.deep_sweep_skip_fingerprint(tmp_path)
+
+
+def test_deep_sweep_fingerprint_moves_with_a_class_or_the_compile_code(tmp_path):
+    _write_behavior_classes(tmp_path, ["namer-dot"])
+    base = ac.deep_sweep_skip_fingerprint(tmp_path)
+    _write_behavior_classes(tmp_path, ["namer-dot", "guard-form:zwnj"])
+    grown = ac.deep_sweep_skip_fingerprint(tmp_path)
+    assert grown != base
+    (tmp_path / ac.COMPILE_CODE_FILES[0]).write_text("# rewritten\n")
+    assert ac.deep_sweep_skip_fingerprint(tmp_path) != grown
+
+
+def test_deep_sweep_status_walks_unknown_never_run_armed_and_current(tmp_path, monkeypatch):
+    store = tmp_path / "deep-sweep-green.json"
+    monkeypatch.setattr(ac, "DEEP_SWEEP_GREEN", store)
+    status, note = ac.deep_sweep_status(tmp_path)
+    assert status == "unknown"
+    assert "behavior-class sidecar" in note
+
+    _write_behavior_classes(tmp_path, ["namer-dot"])
+    status, note = ac.deep_sweep_status(tmp_path)
+    assert status == "never-run"
+    assert "make conform-deep" in note
+
+    fingerprint = ac.deep_sweep_skip_fingerprint(tmp_path)
+    assert fingerprint is not None
+    ac.record_deep_sweep_green(fingerprint, 5, files=ac.deep_sweep_skip_files(tmp_path), path=store)
+    record = ac.read_green_record(store)
+    assert record is not None
+    assert record["horizon"] == 5
+    assert ac.deep_sweep_status(tmp_path) == ("current", "horizon 5")
+    assert ac.deep_sweep_status(tmp_path, horizon=4)[0] == "current"
+
+    assert ac.deep_sweep_status(tmp_path, horizon=6)[0] == "armed"
+    assert "shallower" in ac.deep_sweep_status(tmp_path, horizon=6)[1]
+
+    _write_behavior_classes(tmp_path, ["namer-dot", "guard-form:zwnj"])
+    status, note = ac.deep_sweep_status(tmp_path)
+    assert status == "armed"
+    assert "make conform-deep" in note
+    assert "class:guard-form:zwnj (new)" in note
+
+
+def test_cycle_summary_payload_carries_the_deep_sweep_status(monkeypatch):
+    monkeypatch.setattr(ac, "deep_sweep_status", lambda root=ac.ROOT, horizon=5: ("armed", "a new shape"))
+    payload = ac.cycle_summary_payload(_green_report(), [], _plan(), "ok")
+    assert payload["deep_sweep"] == {"status": "armed", "note": "a new shape"}
+
+
+def test_the_deep_sweep_line_never_fails_the_summary(monkeypatch):
+    def explode(root=ac.ROOT, horizon=5):
+        raise OSError("no record")
+
+    monkeypatch.setattr(ac, "deep_sweep_status", explode)
+    assert ac._deep_sweep_report()[0] == "unknown"
+    payload = ac.cycle_summary_payload(_green_report(), [], _plan(), "ok")
+    assert payload["deep_sweep"]["status"] == "unknown"
 
 
 def test_run_m1_skip_files_carry_the_lines_behind_the_fingerprint(tmp_path):
