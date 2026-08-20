@@ -110,15 +110,27 @@ def test_boundary_rows_lead_their_groups(default_tables):
             assert fallback_positions[-1] == len(rules) - 1
 
 
-def test_ss04_table_is_row_identical_to_default(default_tables):
-    # Stated over expanded_transitions: semantic row identity, immune to fiber-boundary differences between configs whose outcomes agree — though content-addressed ids make the class rows comparable too, which the second assertion pins.
-    decision, treaty = default_tables
-    ss04_decision, ss04_treaty = build_tables(SPEC, frozenset({"ss04"}))
-    assert [(r.key, r.outcome) for r in ss04_decision.expanded_transitions()] == [
-        (r.key, r.outcome) for r in decision.expanded_transitions()
-    ]
+def test_ss04_opens_the_it_pass_through_after_day(default_tables):
+    """·It's ss04 unlock is gated `left: qsDay` on the baseline/baseline pairing, so it can only bite in a world that holds a ·Day — which the fixture spec does. Stated over expanded_transitions, so the claim is about semantic rows rather than fiber boundaries: enabling ss04 moves exactly the ·It rows whose left is a ·Day cell onto the same-height pass-through, every row the table gains is one seated behind that new cell, nothing is lost, and the deep-class collapse is untouched."""
+    decision, _treaty = default_tables
+    ss04_decision, _ss04_treaty = build_tables(SPEC, frozenset({"ss04"}))
+    ss04_decision.assert_outcome_partition()
+    ss04_decision.assert_e_stranded()
+    pass_through = "qsIt.hapax.en-y0.ex-y0.ex-ext-1"
+    default_outcomes = {row.outcome for row in decision.transitions}
+    assert {row.outcome for row in ss04_decision.transitions} - default_outcomes == {pass_through}
+    assert not default_outcomes - {row.outcome for row in ss04_decision.transitions}
+    base = {row.key: row.outcome for row in decision.expanded_transitions()}
+    rows = list(ss04_decision.expanded_transitions())
+    moved = [row for row in rows if row.key in base and base[row.key] != row.outcome]
+    gained = [row for row in rows if row.key not in base]
+    assert moved and gained
+    assert {row.input_glyph for row in moved} == {"qsIt"}
+    assert all(row.left.startswith("qsDay.") for row in moved)
+    assert {row.outcome for row in moved} == {pass_through}
+    assert {row.left for row in gained} == {pass_through}
+    assert not set(base) - {row.key for row in rows}
     assert ss04_decision.deep_classes == decision.deep_classes
-    assert ss04_treaty.rows == treaty.rows
 
 
 def test_ss03_table_differs_and_validates(ss03_tables):

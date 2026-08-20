@@ -268,73 +268,71 @@ class TestEmitGpos:
 
 
 class TestLateFormationGuardLines:
-    """The section 5.7 guard's FEA realization over the real loaded rune YAML (the mini fixture spec has no guarded ligature, so its formation lookup keeps the plain type-4 shape asserted above)."""
+    """The section 5.7 guard's FEA realization over the mini fixture spec, whose qsDay_qsUtter corner carries the guard's worked example; qsTea_qsOy is never blocked there, so it stays in the plain type-4 lookup asserted above."""
 
-    @pytest.fixture(scope="class")
-    def real_spec(self):
-        import warnings
-
-        from rebuild.pipeline.spec_load import load_default_spec
-
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            return load_default_spec()
-
-    def test_guarded_ligature_moves_to_its_own_contextual_lookup(self, real_spec):
+    def test_guarded_ligature_moves_to_its_own_contextual_lookup(self, spec):
         registry = emit_gsub._ClassRegistry()
-        guarded, plain, ignores = emit_gsub._formation_lines(real_spec, registry)
+        guarded, plain, ignores = emit_gsub._formation_lines(spec, registry)
         assert "    sub qsTea qsOy by qsTea_qsOy;" in plain
         assert all("qsDay" not in line for line in plain)
-        assert all("qsSee" not in line for line in plain)
-        assert all("qsVie" not in line for line in plain)
-        assert all("qsJai" not in line for line in plain)
-        assert "    ignore sub qsDay' qsUtter' @m1_form_guard_qsDay_qsUtter;" in guarded
+        assert all("qsUtter" not in line for line in plain)
         assert "    sub qsDay' qsUtter' by qsDay_qsUtter;" in guarded
-        assert "    ignore sub qsJai' qsUtter' @m1_form_guard_qsDay_qsUtter;" in guarded
-        assert "    sub qsJai' qsUtter' by qsJai_qsUtter;" in guarded
-        assert "    ignore sub qsSee' qsUtter' @m1_form_guard_qsDay_qsUtter;" in guarded
-        assert "    ignore sub qsVie' qsUtter' @m1_form_guard_qsDay_qsUtter;" in guarded
-        assert guarded.index("    sub qsDay' qsUtter' uni200C by qsDay_qsUtter;") < guarded.index(
-            "    ignore sub qsDay' qsUtter' @m1_form_guard_qsDay_qsUtter;"
-        )
-        assert guarded[-1] == "    sub qsVie' qsUtter' by qsVie_qsUtter;"
-        assert "ignore sub qsDay' qsUtter' @m1_form_guard_qsDay_qsUtter;" in ignores
-        definition = next(
-            line for line in registry.definitions if line.startswith("@m1_form_guard_qsDay_qsUtter ")
-        )
-        letters = sorted(name for name, rune in real_spec.runes.items() if not rune.sequence)
+        assert guarded[-1] == "    sub qsDay' qsUtter' by qsDay_qsUtter;"
+        letters = sorted(name for name, rune in spec.runes.items() if not rune.sequence)
         seconds = [RightToken("letter", name) for name in letters] + [EDGE, SPACE, ZWNJ, NAMER_DOT]
         full_followers = [
             follower
             for follower in letters
             if all(
-                formation_blocked(real_spec, "qsDay_qsUtter", RightToken("letter", follower), second)
+                formation_blocked(spec, "qsDay_qsUtter", RightToken("letter", follower), second)
                 for second in seconds
             )
         ]
-        assert full_followers
-        assert definition == f"@m1_form_guard_qsDay_qsUtter = [{' '.join(full_followers)}];"
+        assert full_followers == ["qsLow"]
+        one_slot = f"    ignore sub qsDay' qsUtter' {' '.join(full_followers)};"
+        assert one_slot in guarded
+        assert one_slot.strip() in ignores
+        # A one-member guard set is inlined by _ClassRegistry.ref, so the mini world defines no class for it.
+        assert not [line for line in registry.definitions if "m1_form_guard" in line]
+        assert guarded.index("    sub qsDay' qsUtter' uni200C by qsDay_qsUtter;") < guarded.index(one_slot)
         see_released = [
             "    ignore sub qsDay' qsUtter' qsSee uni200C;",
             "    sub qsDay' qsUtter' qsSee qsLow by qsDay_qsUtter;",
-            "    sub qsDay' qsUtter' qsSee qsUtter by qsDay_qsUtter;",
         ]
         for line in see_released:
             assert line in guarded
         assert guarded.index(see_released[0]) < guarded.index(see_released[1])
-        assert guarded.index(see_released[2]) < guarded.index(
-            "    ignore sub qsDay' qsUtter' @m1_form_guard_qsDay_qsUtter;"
-        )
+        assert guarded.index(see_released[1]) < guarded.index(one_slot)
         blanket = "    ignore sub qsDay' qsUtter' qsSee;"
         assert blanket in guarded
-        assert guarded.index(blanket) > guarded.index(see_released[2])
+        assert guarded.index(blanket) > guarded.index(see_released[1])
         assert guarded.index(blanket) < guarded.index("    sub qsDay' qsUtter' by qsDay_qsUtter;")
         assert "ignore sub qsDay' qsUtter' qsSee;" in ignores
         assert "ignore sub qsDay' qsUtter' qsSee uni200C;" in ignores
 
-    def test_utter_second_slot_releases_uniformly(self, real_spec):
-        """Ligature-transparent left scopes let the formed ligature serve a following alternate ·Utter wherever the unformed trail could, so the guard's old partial second-slot ·Utter rows (a two-slot ignore over nine third letters, pinning the unformed renderings of u-119433/u-119447/u-119448) compile away entirely — before a following ·Utter the ligature always forms."""
+    def test_partially_blocked_follower_gets_a_two_slot_ignore(self, spec):
+        """·Tea takes the pair apart only when a second ·Tea follows, so it compiles to a two-slot ignore over that one third letter rather than joining the one-slot guard class — the branch the shipped alphabet no longer reaches."""
         registry = emit_gsub._ClassRegistry()
-        guarded, _plain, _ignores = emit_gsub._formation_lines(real_spec, registry)
+        guarded, _plain, ignores = emit_gsub._formation_lines(spec, registry)
+        letters = sorted(name for name, rune in spec.runes.items() if not rune.sequence)
+        blocked_seconds = [
+            second
+            for second in letters
+            if formation_blocked(
+                spec, "qsDay_qsUtter", RightToken("letter", "qsTea"), RightToken("letter", second)
+            )
+        ]
+        assert blocked_seconds == ["qsTea"]
+        assert "    ignore sub qsDay' qsUtter' qsTea qsTea;" in guarded
+        assert "ignore sub qsDay' qsUtter' qsTea qsTea;" in ignores
+        assert not [line for line in guarded if line == "    ignore sub qsDay' qsUtter' qsTea;"]
+        assert guarded.index("    sub qsDay' qsUtter' qsTea uni200C by qsDay_qsUtter;") < guarded.index(
+            "    ignore sub qsDay' qsUtter' qsTea qsTea;"
+        )
+
+    def test_utter_second_slot_releases_uniformly(self, spec):
+        """Ligature-transparent left scopes let the formed ligature serve a following alternate ·Utter wherever the unformed trail could — the alternate's x-height entry scope names qsDay_qsUtter alongside qsUtter — so before a following ·Utter the ligature always forms and the guard emits no second-slot ·Utter rows at all."""
+        registry = emit_gsub._ClassRegistry()
+        guarded, _plain, _ignores = emit_gsub._formation_lines(spec, registry)
         utter_second = [line for line in guarded if "qsDay' qsUtter' qsUtter" in line]
         assert utter_second == []

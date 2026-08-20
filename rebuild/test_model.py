@@ -57,10 +57,23 @@ class TestNaming:
 
 
 class TestFixtureSpec:
-    def test_all_six_runes_modeled(self):
+    def test_all_eleven_runes_modeled(self):
         spec = mini_spec()
-        assert sorted(spec.runes) == ["qsIt", "qsMay", "qsOy", "qsPea", "qsTea", "qsTea_qsOy"]
+        assert sorted(spec.runes) == [
+            "qsDay",
+            "qsDay_qsUtter",
+            "qsIt",
+            "qsLow",
+            "qsMay",
+            "qsOy",
+            "qsPea",
+            "qsSee",
+            "qsTea",
+            "qsTea_qsOy",
+            "qsUtter",
+        ]
         assert spec.runes["qsTea_qsOy"].sequence == ("qsTea", "qsOy")
+        assert spec.runes["qsDay_qsUtter"].sequence == ("qsDay", "qsUtter")
         assert spec.registry.heights == {"baseline": 0, "x-height": 5, "y6": 6, "top": 8}
 
     def test_bitmaps_match_the_authored_rune_files(self):
@@ -68,3 +81,5 @@ class TestFixtureSpec:
         assert spec.runes["qsIt"].stances["hapax"].bitmap.rows == ("#",) * 6
         assert spec.runes["qsMay"].stances["loop"].bitmap.rows[0] == "   ##"
         assert spec.runes["qsPea"].stances["half"].bitmaps["half-dips-both-sides"].rows[3] == "#  #"
+        assert spec.runes["qsUtter"].stances["alternate"].bitmaps["reaches-way-back"].rows[0] == "##### "
+        assert spec.runes["qsDay_qsUtter"].stances["full"].bitmap.y_offset == -3
