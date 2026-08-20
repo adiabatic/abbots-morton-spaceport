@@ -5,6 +5,8 @@ Stage order, fixed by lookup definition order (which fixes LookupList indices an
 Rule consumption is duck-typed against Group 2's `table.DecisionTable`: each rule exposes `input_glyph`, `backtrack` / `look1` / `look2` / `look3` / `look4` (tuples of glyph labels or None; `look3` and `look4` are read via getattr so pre-depth duck-typed tables keep working), `outcome`, `joint`, `provenance`. A rule with a live `look3` compiles to one further lookahead class after `look2` — the raw third slot a depth-3 prefer record reads — and a live `look4` to one more after that, the raw fourth slot a depth-4 record reads. When `tables_by_config` carries several configurations, their rule lists are folded by exact-duplicate union with a conflict assertion — sound exactly when the table builder already disambiguates inputs by marker labels per configuration (the prototype's feature-fold invariant); a same-window different-outcome collision raises.
 
 Invariants asserted before returning: no locked twin and no chokepoint output appears in any raw lookahead class; every glyph named by any rule exists in the supplied glyph inventory; zero selection-semantics `ignore sub` (the namer-dot stage's guard and the generated late-formation guard rows are the sanctioned exemptions — both are formation/boundary machinery, not selection semantics).
+
+Beside the FEA text the plan carries a structured mirror of every stage — the pre-empt map, the guarded formation rows and the plain ligatures, the per-feature marker substitutions, the settlement rows, the namer-dot row pair, and the calt lookup order — built at the same statement sites that append the lines, so line order and row order cannot drift. `rebuild/pipeline/readback.py` compares the compiled font against exactly that mirror; nothing else reads it, and nothing in it is parsed back out of the emitted text.
 """
 
 from __future__ import annotations
@@ -26,6 +28,25 @@ class EmitError(Exception):
     pass
 
 
+@dataclass(frozen=True)
+class FormationRow:
+    """One emitted row of the guarded formation lookup as slot glyph-sets: the marked input sequence, the lookahead slots near-to-far (a literal glyph is a singleton set), and the rune the row forms — None for a guard's `ignore sub` row."""
+
+    sequence: tuple[str, ...]
+    lookahead: tuple[frozenset[str], ...]
+    ligature: str | None
+
+
+@dataclass(frozen=True)
+class SettleRule:
+    """One emitted settlement row as slot glyph-sets: the single input glyph, the backtrack class when the row carries one, the non-empty lookahead slots in emitted order, and the outcome."""
+
+    input_glyph: str
+    backtrack: frozenset[str] | None
+    lookahead: tuple[frozenset[str], ...]
+    outcome: str
+
+
 @dataclass
 class GsubPlan:
     fea_text: str
@@ -34,6 +55,13 @@ class GsubPlan:
     marker_glyphs: dict[str, str] = field(default_factory=dict)  # marker glyph -> base raw glyph
     locked_glyphs: dict[str, str] = field(default_factory=dict)  # locked twin -> raw glyph
     named_glyphs: frozenset[str] = frozenset()
+    ss10_preempt: dict[str, str] = field(default_factory=dict)  # raw cmap glyph -> .ss10 twin
+    formation_guarded_rows: tuple[FormationRow, ...] = ()
+    formation_plain: tuple[tuple[tuple[str, ...], str], ...] = ()  # (components, ligature)
+    marker_lines: dict[str, dict[str, str]] = field(default_factory=dict)  # feature -> {source: target}
+    settle_rules: tuple[SettleRule, ...] = ()
+    namer_dot_stage: tuple[str, str, frozenset[str]] | None = None  # (dot, lowered, followers)
+    calt_stages: tuple[str, ...] = ()  # lookup names in calt definition order
 
 
 class _ClassRegistry:
@@ -70,9 +98,12 @@ def marker_states(rune_name: str, features: tuple[str, ...]) -> dict[str, frozen
     return states
 
 
-def _marker_lookups(spec: ResolvedSpec) -> tuple[dict[str, list[str]], dict[str, str]]:
-    """Per stylistic set, the marker substitution lines; plus the marker-glyph registry. The lookup for set F maps every union state over the sets emitted before F (and the bare rune) to the state plus F, so multi-set configurations compose in definition order."""
+def _marker_lookups(
+    spec: ResolvedSpec,
+) -> tuple[dict[str, list[str]], dict[str, str], dict[str, dict[str, str]]]:
+    """Per stylistic set, the marker substitution lines; plus the marker-glyph registry and the same substitutions as source→target mappings for the read-back. The lookup for set F maps every union state over the sets emitted before F (and the bare rune) to the state plus F, so multi-set configurations compose in definition order."""
     per_feature: dict[str, list[str]] = {}
+    per_feature_pairs: dict[str, dict[str, str]] = {}
     marker_glyphs: dict[str, str] = {}
     all_features = sorted(
         {feature for rune in spec.runes.values() for feature in relevant_marker_features(rune)}
@@ -86,16 +117,20 @@ def _marker_lookups(spec: ResolvedSpec) -> tuple[dict[str, list[str]], dict[str,
         for index, feature in enumerate(sorted(relevant, key=all_features.index)):
             earlier = tuple(sorted(relevant, key=all_features.index)[:index])
             lines = per_feature.setdefault(feature, [])
+            pairs = per_feature_pairs.setdefault(feature, {})
             for mask in range(1 << len(earlier)):
                 state = frozenset(f for bit, f in enumerate(earlier) if mask & (1 << bit))
                 source = marker_glyph_name(rune_name, state)
                 target = marker_glyph_name(rune_name, state | {feature})
                 lines.append(f"    sub {source} by {target};")
-    return per_feature, marker_glyphs
+                pairs[source] = target
+    return per_feature, marker_glyphs, per_feature_pairs
 
 
-def _formation_lines(spec: ResolvedSpec, registry: _ClassRegistry) -> tuple[list[str], list[str], list[str]]:
-    """Formation lines split by the section 5.7 late-formation guard: (guarded chaining-context lookup lines, plain type-4 lookup lines, the generated `ignore sub` statements for the invariant exemption). Guard verdicts come from `settle.formation_blocked` over the two raw slots past the sequence — the same function the kernel and the table builder consult, so model, table, and font agree by construction. A blocked follower whose second-slot verdicts cover every letter and every boundary gets a one-slot ignore; a follower blocked only under specific second slots gets a two-slot ignore over a letter class (a boundary or text-edge second slot then falls through to the forming fallback, matching its False verdict); a follower blocked at every boundary second slot but released under specific letter seconds inverts the discipline — explicit two-slot forming rows for the released letters, behind a ZWNJ-explicit two-slot ignore so a skipped ZWNJ cannot satisfy a released slot, ahead of a blanket one-slot ignore whose match-at-anything (text edge included) realizes the boundary blocks. A verdict that differs among the boundary second slots themselves remains inexpressible and errors. ZWNJ-explicit forming rows precede the ignores because HarfBuzz skips default-ignorables in contextual matching — without them a guard class could match across a skipped ZWNJ that the model treats as a boundary."""
+def _formation_lines(
+    spec: ResolvedSpec, registry: _ClassRegistry
+) -> tuple[list[str], list[str], list[str], list[FormationRow], list[tuple[tuple[str, ...], str]]]:
+    """Formation lines split by the section 5.7 late-formation guard: (guarded chaining-context lookup lines, plain type-4 lookup lines, the generated `ignore sub` statements for the invariant exemption, the guarded rows as slot glyph-sets, the plain (components, ligature) pairs). Each structured row is appended beside the line it describes, so the read-back's expectation cannot drift from the emitted text. Guard verdicts come from `settle.formation_blocked` over the two raw slots past the sequence — the same function the kernel and the table builder consult, so model, table, and font agree by construction. A blocked follower whose second-slot verdicts cover every letter and every boundary gets a one-slot ignore; a follower blocked only under specific second slots gets a two-slot ignore over a letter class (a boundary or text-edge second slot then falls through to the forming fallback, matching its False verdict); a follower blocked at every boundary second slot but released under specific letter seconds inverts the discipline — explicit two-slot forming rows for the released letters, behind a ZWNJ-explicit two-slot ignore so a skipped ZWNJ cannot satisfy a released slot, ahead of a blanket one-slot ignore whose match-at-anything (text edge included) realizes the boundary blocks. A verdict that differs among the boundary second slots themselves remains inexpressible and errors. ZWNJ-explicit forming rows precede the ignores because HarfBuzz skips default-ignorables in contextual matching — without them a guard class could match across a skipped ZWNJ that the model treats as a boundary."""
     from rebuild.pipeline import settle as settle_module
     from rebuild.pipeline.settle import EDGE, NAMER_DOT, SPACE, ZWNJ, RightToken
 
@@ -104,6 +139,8 @@ def _formation_lines(spec: ResolvedSpec, registry: _ClassRegistry) -> tuple[list
     guarded_lines: list[str] = []
     plain_lines: list[str] = []
     ignores: list[str] = []
+    guarded_rows: list[FormationRow] = []
+    plain_pairs: list[tuple[tuple[str, ...], str]] = []
     for name, rune in spec.runes.items():
         if not rune.sequence:
             continue
@@ -140,34 +177,46 @@ def _formation_lines(spec: ResolvedSpec, registry: _ClassRegistry) -> tuple[list
                 partial_followers.append((follower, blocked_letters))
         if not full_followers and not partial_followers and not released_followers:
             plain_lines.append(f"    sub {' '.join(rune.sequence)} by {name};")
+            plain_pairs.append((tuple(rune.sequence), name))
             continue
+        sequence = tuple(rune.sequence)
         marked_input = " ".join(f"{part}'" for part in rune.sequence)
         guarded_lines.append(f"    sub {marked_input} uni200C by {name};")
+        guarded_rows.append(FormationRow(sequence, (frozenset({"uni200C"}),), name))
         for follower, _blocked in partial_followers:
             guarded_lines.append(f"    sub {marked_input} {follower} uni200C by {name};")
+            guarded_rows.append(FormationRow(sequence, (frozenset({follower}), frozenset({"uni200C"})), name))
         for follower, _released in released_followers:
             line = f"ignore sub {marked_input} {follower} uni200C;"
             guarded_lines.append(f"    {line}")
+            guarded_rows.append(FormationRow(sequence, (frozenset({follower}), frozenset({"uni200C"})), None))
             ignores.append(line)
         for follower, released in released_followers:
             for second in released:
                 guarded_lines.append(f"    sub {marked_input} {follower} {second} by {name};")
+                guarded_rows.append(
+                    FormationRow(sequence, (frozenset({follower}), frozenset({second})), name)
+                )
         if full_followers:
             ref = registry.ref(tuple(full_followers), f"m1_form_guard_{_fea_safe(name)}")
             line = f"ignore sub {marked_input} {ref};"
             guarded_lines.append(f"    {line}")
+            guarded_rows.append(FormationRow(sequence, (frozenset(full_followers),), None))
             ignores.append(line)
         for follower, blocked in partial_followers:
             ref = registry.ref(blocked, f"m1_form_guard_{_fea_safe(name)}_{_fea_safe(follower)}")
             line = f"ignore sub {marked_input} {follower} {ref};"
             guarded_lines.append(f"    {line}")
+            guarded_rows.append(FormationRow(sequence, (frozenset({follower}), frozenset(blocked)), None))
             ignores.append(line)
         for follower, _released in released_followers:
             line = f"ignore sub {marked_input} {follower};"
             guarded_lines.append(f"    {line}")
+            guarded_rows.append(FormationRow(sequence, (frozenset({follower}),), None))
             ignores.append(line)
         guarded_lines.append(f"    sub {marked_input} by {name};")
-    return guarded_lines, plain_lines, ignores
+        guarded_rows.append(FormationRow(sequence, (), name))
+    return guarded_lines, plain_lines, ignores, guarded_rows, plain_pairs
 
 
 def _entry_live_members(spec: ResolvedSpec) -> list[str]:
@@ -272,7 +321,9 @@ def _fold_rules(tables_by_config: Mapping, spec: ResolvedSpec | None = None) -> 
 
 def _settle_lines(
     rules: Iterable, registry: _ClassRegistry, marker_names: frozenset[str] = frozenset()
-) -> tuple[list[str], int]:
+) -> tuple[list[str], int, list]:
+    """The settlement lines, their count, and the folded rules in the exact order the lines were emitted from — the order the read-back rebuilds its per-input-glyph expectations in."""
+
     def mentions_marker(rule) -> bool:
         return any(
             label in marker_names
@@ -321,7 +372,7 @@ def _settle_lines(
         comment = f"  # {' | '.join(comment_bits)}" if comment_bits else ""
         lines.append("    " + " ".join(parts) + comment)
         count += 1
-    return lines, count
+    return lines, count, grouped
 
 
 def _assert_invariants(
@@ -376,10 +427,12 @@ def emit_gsub(
     """`glyphs` feeds the settlement outcomes and the namer-dot follower class; `ss10_twins` (raw cmap glyph name → anchor-free `.ss10` twin name) feeds the ss10 pre-empt lookup; each stage is skipped with a comment when its input is absent (a recorded M1-PLAN section 5 signature extension — the plan's two-argument form cannot reach the glyph inventory)."""
     registry = _ClassRegistry()
     rules = _fold_rules(tables_by_config, spec)
-    per_feature_markers, marker_glyphs = _marker_lookups(spec)
+    per_feature_markers, marker_glyphs, marker_pairs = _marker_lookups(spec)
     marker_names = frozenset(marker_glyphs) | frozenset(locked_glyph_name(name) for name in marker_glyphs)
-    formation_guarded, formation_plain, formation_ignores = _formation_lines(spec, registry)
-    settle_lines, rule_count = _settle_lines(rules, registry, marker_names)
+    formation_guarded, formation_plain, formation_ignores, guarded_rows, plain_pairs = _formation_lines(
+        spec, registry
+    )
+    settle_lines, rule_count, grouped_rules = _settle_lines(rules, registry, marker_names)
 
     live_members = _entry_live_members(spec)
     locked_members = [locked_glyph_name(name) for name in live_members]
@@ -427,6 +480,7 @@ def emit_gsub(
     parts.append("\nlookup m1_settle useExtension {\n" + "\n".join(settle_lines) + "\n} m1_settle;")
 
     namer_lines: list[str] = []
+    namer_dot_stage: tuple[str, str, frozenset[str]] | None = None
     if namer_dot is not None and names_by_cell:
         dot_glyph, lowered_glyph = namer_dot
         shorts = spec.registry.predicate_classes.get("shorts", frozenset())
@@ -435,6 +489,7 @@ def emit_gsub(
             follower_names.update(twin for raw_name, twin in ss10_twins.items() if raw_name in shorts)
         followers = sorted(follower_names)
         if followers:
+            namer_dot_stage = (dot_glyph, lowered_glyph, frozenset(followers))
             namer_lines.append(f"@m1_namer_short_followers = [{' '.join(followers)}];")
             namer_lines.append(
                 "lookup m1_namer_dot_word_start {\n"
@@ -487,4 +542,28 @@ def emit_gsub(
         marker_glyphs=marker_glyphs,
         locked_glyphs={locked_glyph_name(name): name for name in live_members},
         named_glyphs=frozenset(named_glyphs),
+        ss10_preempt=dict(ss10_twins) if ss10_twins else {},
+        formation_guarded_rows=tuple(guarded_rows),
+        formation_plain=tuple(plain_pairs),
+        marker_lines={feature: dict(pairs) for feature, pairs in marker_pairs.items()},
+        settle_rules=tuple(
+            SettleRule(
+                input_glyph=rule.input_glyph,
+                backtrack=frozenset(rule.backtrack) if rule.backtrack else None,
+                lookahead=tuple(
+                    frozenset(slot)
+                    for slot in (
+                        rule.look1,
+                        rule.look2,
+                        getattr(rule, "look3", None),
+                        getattr(rule, "look4", None),
+                    )
+                    if slot
+                ),
+                outcome=rule.outcome,
+            )
+            for rule in grouped_rules
+        ),
+        namer_dot_stage=namer_dot_stage,
+        calt_stages=tuple(calt_lookups),
     )

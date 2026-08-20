@@ -27,6 +27,7 @@ rebuild/pipeline/
   emit_gsub.py        four-stage GSUB + namer-dot stage
   emit_gpos.py        per-height curs lookups
   compile_font.py     mini-font build via build_font(senior_fea=...) + budget gate
+  readback.py         post-compile read-back: the written font re-parsed and structurally proven against the plan
   conform.py          HarfBuzz per-transition gate, exhaustive sweep, baseline-oracle comparison, ledger matching
   explain.py          the §6.3a CLI (python -m rebuild.pipeline.explain)
   baseline_subset.py  streaming filter of rebuild/out/baseline-*.tsv.gz to the migrated alphabet; re-run whenever the alphabet grows
@@ -294,7 +295,7 @@ def explain(spec: ResolvedSpec, codepoints: Sequence[int], features: frozenset[s
     # candidates); rendered as aligned text. Accepts qs-names or hex codepoints, colon-separated.
 ```
 
-### Group 3 — realization (`geometry`, `defects`, `emit_gsub`, `emit_gpos`, `compile_font`, `conform`, `baseline_subset`, `coretext_smoke`)
+### Group 3 — realization (`geometry`, `defects`, `emit_gsub`, `emit_gpos`, `compile_font`, `readback`, `conform`, `baseline_subset`, `coretext_smoke`)
 
 ```python
 # geometry.py
@@ -331,6 +332,14 @@ def emit_gpos(glyphs: Mapping[CellId, GlyphRecord]) -> str: ...
 
 # compile_font.py
 def build_mini_font(glyphs, fea: str, out_path: Path) -> Path: ...
+
+# readback.py — issue-73 signature extension: the post-compile read-back stage
+def verify_font(font_path: Path, plan: GsubPlan, cursive) -> dict: ...
+    # the written bytes re-parsed and structurally compared against the emitters' own plan: every GSUB
+    # stage's decompiled rules (the packed settlement lookup through pack_gsub.per_glyph_sequences),
+    # FeatureList/ScriptList registration, cross-feature LookupList order, every lookupFlag, and the four
+    # curs lookups' anchor records. Transcription round-trip, never cascade prediction; divergences land in
+    # readback_summary.json and fail the build like the budget gate.
     # the prototype's verified recipe: legacy glyphs:-only dict (qs names suffixed .prop), empty
     # glyph_families, metadata, build_font(..., variant="senior", senior_fea=fea). Then the budget gate:
     # _report_gsub_budget + direct table parse → budget.json; FAIL if fontTools falls back to per-rule
@@ -479,6 +488,7 @@ There is no closing report: the milestone’s record is the commit history plus 
 - **The §10 tier-3 per-transition gate is realized as the exhaustive sweep plus coverage accounting:** at the migrated alphabet every transition whose shortest window fits inside the conform horizon is covered by enumeration (ZWNJ-interleaved variants included, since ZWNJ is enumerated); where the deep slots enumerate at class grain a transition is an equivalence class of label windows and the floor is one realized witness per class row, the classes being build-proven fibers; uncovered rules/transitions are reported in `ConformReport` and fail the gate, with BFS-derived shortest-example top-up as the growth path rather than a separate generator.
 - **`compare_against_baseline` compares ligation, seams, cell identity, and — per the original §6 step 3(d) — old-vs-new positions.** The oracle gate shapes every seam- and ligation-identical row against the new font and diffs drawn positions (per-slot glyph origins plus the run’s total advance — the two fonts legitimately decompose a seam differently between the left glyph’s advance and the right glyph’s x_offset) against the baseline with sidecar kerns normalized out via `KernEvaluator`; uni200C is default-ignorable so the old font kerns across it, and the normalization’s kern partner skips ZWNJ slots accordingly. Rows whose matched cell-grain ledger class legitimately redraws ink are excluded and counted (`ink_identical: true` in the ledger marks the classes whose claim the position channel enforces). Ledger counts land in `BaselineReport` and `divergence-audit.tsv`; the committed-shape ledger YAML is never rewritten by the run.
 - **`compile_font` uses the prototype’s `Proto`-style metadata dict under the name `AbbotsMortonSpaceportM1`** (metric parity with `glyph_data/metadata.yaml` deferred to integration) and auto-adds `space`/`uni200C` records when absent. The budget gate fails on format-3 chained-context fallback below the 16,384-byte headroom floor and yellow-flags GSUB type 7 Extension promotion in `budget.json`, per the two prototype follow-ups.
+- **The read-back stage (issue #73) rides two recorded signature extensions.** `GsubPlan` carries structured per-stage expectations populated at emission — the ss10 pre-empt map, the guarded and plain formation rows, the per-feature marker substitutions, the folded-and-ordered settlement rules, the namer-dot stage, and the calt stage list — so `readback.verify_font` compares the re-parsed font against the same in-memory data that produced the FEA text, never against a re-derivation that could drift; and `emit_gpos.cursive_registrations` exposes the per-height anchor registry the curs lookups render, in font units, as the GPOS expectation surface. `run()` verifies the font immediately after `build_mini_font`, writes `readback_summary.json` beside the other per-gate summaries, and raises on divergence the way the budget gate does. Scope is deliberately the back half — FEA text → feaLib → packing → serialization → re-parsed bytes; the fold → FEA front half keeps its emission-time invariant asserts and stays covered by conform.
 - **`coretext_smoke` copies the Swift harness into `rebuild/pipeline/`** (never importing from or invoking `prototype/`), extends the sequence set (`smoke_sequences_m1.txt`: qsPea rows, migrated-family seams, qsTea_qsOy windows, namer-dot rows), and runs every configuration in `conform.ACCEPTANCE_CONFIGS` per sequence.
 
 ### Integration
@@ -491,4 +501,4 @@ There is no closing report: the milestone’s record is the commit history plus 
 - **Scope a `from:` or `toward:` list from the baseline TSV, never from FEA reconnaissance.** The old font joins a bare pair by GPOS cursive attachment alone whenever both bare glyphs carry same-height anchors — no calt rule fires, so an FEA grep reports the pair as “no interaction” and a scope authored from that reading silently drops real joins in both directions. The length-2 rows of `rebuild/out/m1/baseline-<config>.subset.tsv.gz` are the definitive pair-level join map.
 - **Off-anchor-contact appeals live in `rebuild/m1-contact-allow.yaml`** (committed-shape, human-reviewed like the ledger): one signature per corner today’s font already draws on a baseline-proven join (·Oy/·TeaOy tails against ·It/·Tea bars at y1, the ·Pea·Pea y6 chain at y7, and their entered/locked variants).
 - **The divergence ledger matches through one classifier:** `conform.classify_divergence` assigns each divergent row a single class from its phenomenon set (per-position alias-vs-settled cell deltas plus seam gains/losses), and every ledger predicate is `classify(row) == id`, so the exactly-one invariant holds by construction. Per-entry counts land in `divergence-audit.tsv` and `oracle_summary.json`.
-- **`rebuild/pipeline/run_m1.py` is the integration driver** (`uv run python -m rebuild.pipeline.run_m1`): tables + TSVs, glyph minting (settled cells named by `settle.cell_label`, so rules and glyphs agree by construction; raw cmap glyphs carry no curs anchors), defect gates merged with `surface.check_anchor_conventions`, emit, mini-font build, then the oracle gate. Font-side conformance runs via `run_m1 --conform-only` (per-config sharding with `--jobs`, horizon via `--conform-horizon`; the artifact cycle wires it in as `gate:conform`), and the CoreText smoke via `python -m rebuild.pipeline.coretext_smoke`.
+- **`rebuild/pipeline/run_m1.py` is the integration driver** (`uv run python -m rebuild.pipeline.run_m1`): tables + TSVs, glyph minting (settled cells named by `settle.cell_label`, so rules and glyphs agree by construction; raw cmap glyphs carry no curs anchors), defect gates merged with `surface.check_anchor_conventions`, emit, mini-font build, the post-compile read-back, then the oracle gate. Font-side conformance runs via `run_m1 --conform-only` (per-config sharding with `--jobs`, horizon via `--conform-horizon`; the artifact cycle wires it in as `gate:conform`), and the CoreText smoke via `python -m rebuild.pipeline.coretext_smoke`.
