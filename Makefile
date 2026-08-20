@@ -26,7 +26,7 @@ typecheck:
 prettier:
 	uv run black -q .
 
-# Self-skipping: the wrapper exits 0 in ≈a second when nothing the suite reads has changed since its last green run (the input closure excludes rebuild/, glyph_data/runes/, doc/, tmp/, .claude/, and Markdown; the green record at rebuild/out/make-test-green.json is shared with the artifact cycle's gate:make-test). FORCE=1 runs the suite regardless. The pyright gate runs inside pytest_configure (via AMS_RUN_PYRIGHT) so it overlaps the font build instead of preceding it serially; it still fast-fails before the workers spawn. Which paths get checked is `[tool.pyright] include` in pyproject.toml, not the argv here — every invocation is a bare `uv run pyright` so that list is the single authority. The `typecheck` target stays for standalone use; pre-commit runs black only.
+# Self-skipping: the wrapper exits 0 in ≈a second when nothing the suite reads has changed since its last green run (the exempt trees are MAKE_TEST_EXEMPT_PREFIXES in rebuild/tools/artifact_cycle.py, plus Markdown; the green record at rebuild/out/make-test-green.json is shared with the artifact cycle's gate:make-test). FORCE=1 runs the suite regardless. The pyright gate runs inside pytest_configure (via AMS_RUN_PYRIGHT) so it overlaps the font build instead of preceding it serially; it still fast-fails before the workers spawn. Which paths get checked is `[tool.pyright] include` in pyproject.toml, not the argv here — every invocation is a bare `uv run pyright` so that list is the single authority. The `typecheck` target stays for standalone use; pre-commit runs black only.
 test:
 	AMS_RUN_PYRIGHT=1 uv run python -m rebuild.tools.make_test_gate $(if $(FORCE),--force)
 
