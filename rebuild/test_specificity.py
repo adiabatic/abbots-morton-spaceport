@@ -22,7 +22,9 @@ def extend(by=1, **when_kwargs) -> PolicyRecord:
 
 class TestAxisExpansion:
     def test_class_reference_expands_to_registry_membership(self):
-        assert class_members(SPEC, "halves-that-exit-at-x-height") == frozenset({"qsPea", "qsTea"})
+        assert class_members(SPEC, "halves-that-exit-at-x-height") == frozenset(
+            {"qsPea", "qsTea", "qsDay_qsUtter"}
+        )
 
     def test_rune_local_group_resolves(self):
         assert "qsShe" in class_members(SPEC, "utter-pass-through-vetoes", owner="qsIt")
@@ -35,7 +37,7 @@ class TestAxisExpansion:
         when = When(
             left=Condition(klass=("halves-that-exit-at-x-height",), except_=(Condition(family=("qsPea",)),))
         )
-        assert axis_sets(SPEC, when)["left.family"] == frozenset({"qsTea"})
+        assert axis_sets(SPEC, when)["left.family"] == frozenset({"qsTea", "qsDay_qsUtter"})
 
     def test_is_boundary_expands_to_the_token_set(self):
         when = When(right=Condition(is_token="boundary"))
