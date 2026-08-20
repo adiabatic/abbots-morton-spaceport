@@ -14,7 +14,7 @@ import yaml
 
 from rebuild.conftest import SURFACE_BUILD_JOBS
 from rebuild.pipeline import fingerprint
-from rebuild.review.audit import ACCEPTANCE_CONFIGS, load_ledger
+from rebuild.review.audit import ACCEPTANCE_CONFIGS, load_ledger, load_workload
 from rebuild.review.build import (
     FEATURE_DESCRIPTIONS,
     _prune_orphan_shards,
@@ -29,6 +29,7 @@ from rebuild.review.build import (
     config_note,
 )
 from rebuild.review.census import WORKED_EXAMPLE_CODEPOINTS, load_pins
+from rebuild.review.enrich import LETTERS
 from rebuild.review.export import build_triage, load_units, load_verdicts
 from rebuild.review.ink import InkComparator, delta_digest
 
@@ -90,6 +91,44 @@ def test_fixture_units_exercise_the_contract_branches():
     assert any(
         unit["ink_deltas"] and set(unit["ink_deltas"]) < set(unit["configs"]) for unit in units
     ), "a fixture unit must exercise the ink_deltas branch where only some configs diverge"
+
+
+def test_fixture_sources_derive_the_checked_in_shards():
+    """The fixture's checked-in sources really are its shards' sources: `load_workload` over fixture-audit.tsv and fixture-ledger.yaml reproduces every unit the shards ship, every class the manifest lists, and every count it declares. The manifest's per-class and total row counts are only checkable against something here — `check_shards` compares them against each other, never against rows — so hand-growing the fixture can no longer leave the totals describing a workload the TSV doesn't hold.
+
+    Two bindings are deliberately looser than equality. Unit ids are not part of it: `build_units` numbers units in triage order — ledger class, then lead-family-pair group, then codepoints — which is not the order the shards' hand-assigned ids run in, so each derived unit is matched to its shard unit by window. Config order is compared as a multiset for a related reason: the fixture's ss02-era vocabulary sits outside ACCEPTANCE_CONFIGS, so `build_units` sorts those configs behind the ranked ones while the shards keep the hand-written order.
+    """
+    manifest = json.loads((FIXTURES / "manifest.json").read_text(encoding="utf-8"))
+    workload = load_workload(FIXTURES / "fixture-audit.tsv", FIXTURES / "fixture-ledger.yaml", dict(LETTERS))
+    shipped = {unit["codepoints"]: unit for unit in _load_fixture_units()}
+    assert len(shipped) == 6
+    assert {unit.codepoints for unit in workload.units} == set(shipped)
+
+    for derived in workload.units:
+        unit = shipped[derived.codepoints]
+        assert derived.class_id == unit["class"]
+        assert derived.group == unit["group"]
+        assert derived.kinds == tuple(unit["kinds"])
+        assert sorted(derived.configs) == sorted(unit["configs"])
+        assert derived.exemplar == unit["exemplar"]
+        assert derived.baseline == tuple(unit["before"]["glyphs"])
+        assert derived.new == tuple(unit["after"]["cells"])
+
+    for entry, meta in zip(workload.ledger, manifest["classes"], strict=True):
+        assert entry.id == meta["id"]
+        assert entry.status == meta["status"]
+        assert entry.why == meta["why"]
+        assert entry.ink_identical == meta["ink_identical"]
+        assert entry.no_verdict == meta["no_verdict"]
+
+    assert [entry.id for entry in workload.classes_present] == [meta["id"] for meta in manifest["classes"]]
+    by_class = workload.units_by_class()
+    for meta in manifest["classes"]:
+        members = by_class[meta["id"]]
+        assert len(members) == meta["unit_count"]
+        assert sum(len(member.rows) for member in members) == meta["row_count"]
+    assert len(workload.units) == manifest["totals"]["units"]
+    assert workload.row_count == manifest["totals"]["rows"]
 
 
 def _fixture_unit(*, ink_identical: bool) -> dict:

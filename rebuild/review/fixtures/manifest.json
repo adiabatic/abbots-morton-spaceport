@@ -64,7 +64,7 @@
  ],
  "totals": {
   "units": 6,
-  "rows": 25,
+  "rows": 27,
   "batches": 1,
   "echo_groups": 4
  },
@@ -96,7 +96,7 @@
    "no_verdict": false,
    "why": "Fixture class A: hand-written units exercising the multi-config, ZWNJ, ligation, and duplicate-pin branches of the shard contract.",
    "unit_count": 4,
-   "row_count": 18,
+   "row_count": 20,
    "machine_approved_count": 1,
    "shard": "units/fixture-intended.json",
    "batches": [

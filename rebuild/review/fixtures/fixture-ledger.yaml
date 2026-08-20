@@ -1,0 +1,20 @@
+# The class half of the review surface's contract fixture (rebuild/review/fixtures/README.md): the two hand-written classes the fixture shards are filed under, in rebuild/review/audit.py's ledger schema.
+# Entry order is the surface's class order, so these two also pin the order the fixture manifest's `classes` block runs in. The real ledger's `match` and `count` keys are absent by design: nothing classifies these rows — fixture-audit.tsv names each row's class in its `matched_entry` column — and the review build never reads a class count. `exemplars` is carried, because two shipped units are exemplars: `build_units` pools the (config, codepoints) keys across the whole ledger and marks a unit an exemplar when any of its rows matches one, so each key below names a row that unit actually has.
+# Hand-maintained beside the units it describes; no build ever writes this file.
+
+- id: fixture-intended
+  status: intended
+  ink_identical: true
+  no_verdict: false
+  exemplars:
+    - {config: ss03, codepoints: "200C:E652:E679", baseline: "space|qsTea_qsOy", new: "zwnj/boundary/None/None/|qsTea_qsOy/hapax/None/None/"}
+    - {config: default, codepoints: "E670:E670", baseline: "qsIt.ex-y5|qsIt", new: "qsIt/hapax/None/None/|qsIt/hapax/None/None/"}
+  why: |
+    Fixture class A: hand-written units exercising the multi-config, ZWNJ, ligation, and duplicate-pin branches of the shard contract.
+
+- id: fixture-drift
+  status: drift-accepted
+  ink_identical: false
+  no_verdict: false
+  why: |
+    Fixture class B: hand-written units exercising the namer-dot and pair-null branches.
