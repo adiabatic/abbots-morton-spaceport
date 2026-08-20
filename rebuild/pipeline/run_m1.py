@@ -614,11 +614,11 @@ def main(argv: list[str] | None = None) -> None:
             flush=True,
         )
         print(json.dumps(conformance, indent=2))
-        status, _ = evaluate_conform_gate(conformance)
+        _, conform_failures = evaluate_conform_gate(conformance)
         _settle_green(
             CONFORM_GREEN,
             before,
-            status == "green",
+            not conform_failures,
             conform_key,
             "gate:conform",
             files_of=lambda: conform_skip_files(REPO_ROOT, args.conform_horizon),

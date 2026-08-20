@@ -648,6 +648,15 @@ class Plan:
     retention: bool = False
     steps: list[Step] = field(default_factory=list)
 
+    def argv(self, name: str) -> list[str]:
+        """The named step's command line. build_plan is the only writer of step argvs and the executor runs exactly what the plan printed, so a step's command line can never fork between the plan and the run."""
+        for step in self.steps:
+            if step.name == name:
+                if step.argv is None:
+                    raise ValueError(f"plan step {name!r} runs nothing: {step.note}")
+                return step.argv
+        raise KeyError(name)
+
 
 def stale_census_known(plan: Plan) -> bool:
     """Whether the pass already knows, before running anything, that the census outcome is stale: a recorded stale result whose key matched, i.e. the replay path. A live --check discovers staleness only mid-cycle, so the plan can promise the deferral only here; _run_cycle applies the same policy to a live STALE at submission time."""
@@ -1185,6 +1194,8 @@ def render_plan(plan: Plan) -> str:
 
 @dataclass
 class CycleReport:
+    """The pass's running record. Every `*_status` string here is display-only prose for the summary — it exists to be read by a human, and its wording is free to change. The booleans beside them (`gate_*_green`, `census_stale`, `complaints_ok`) are the machine judgment, set at the moment the outcome is judged and read by every decision that follows; greenness is never re-derived from the status strings. A gate that never joined — skipped, deferred, or never submitted — leaves its boolean None, which is neither green nor red."""
+
     snapshot_dir: Path | None = None
     unmatched: int | None = None
     multi_matched: int | None = None
@@ -1207,11 +1218,17 @@ class CycleReport:
     standing_merge_status: str = "not run"
     standing_merge_lines: list[str] = field(default_factory=list)
     census_status: str = "not run"
+    census_stale: bool = False
     complaints_status: str = "not run"
+    complaints_ok: bool | None = None
     gate_js: str = "not run"
+    gate_js_green: bool | None = None
     gate_rebuild: str = "not run"
+    gate_rebuild_green: bool | None = None
     gate_conform: str = "not run"
+    gate_conform_green: bool | None = None
     gate_make_test: str = "not run"
+    gate_make_test_green: bool | None = None
     rebuild_recordable: bool = False
     rebuild_stale_deferred: bool = False
     interrupted: bool = False
@@ -1357,20 +1374,6 @@ def _dump_captured(emit: _Emitter, result: _StepResult) -> None:
         emit.emit_block(lines)
 
 
-def _parse_surface_build(stderr: str) -> tuple[int, int, int] | None:
-    for line in stderr.splitlines():
-        stripped = line.strip()
-        if stripped.startswith("Wrote ") and "units," in stripped and "batches)" in stripped:
-            inner = stripped[stripped.index("(") + 1 : stripped.rindex(")")]
-            numbers = []
-            for chunk in inner.split(","):
-                token = chunk.strip().split(" ", 1)[0]
-                numbers.append(int(token))
-            if len(numbers) == 3:
-                return numbers[0], numbers[1], numbers[2]
-    return None
-
-
 @dataclass
 class RebuildOutcome:
     status: str
@@ -1428,7 +1431,7 @@ def _do_run_m1(
     spawn,
     emit: _Emitter,
     registry: _ChildRegistry,
-    budget: int,
+    argv: list[str] | None = None,
     skip: bool = False,
     skip_note: str = "",
     record: bool = False,
@@ -1440,9 +1443,6 @@ def _do_run_m1(
     else:
         for path in M1_SUMMARY_FILES.values():
             path.unlink(missing_ok=True)
-        argv = ["uv", "run", "python", "-m", "rebuild.pipeline.run_m1"]
-        if budget > 1:
-            argv += ["--jobs", str(budget)]
         spawn("run_m1", argv, emit=emit, registry=registry, stream=True)
     missing = [name for name, path in M1_SUMMARY_FILES.items() if not path.exists()]
     if missing:
@@ -1476,6 +1476,19 @@ def _run_m1_reasons(gate: GateOutcome | None) -> list[str]:
     return list(gate.failures)
 
 
+def _read_surface_totals(report: CycleReport, surface_dir: Path) -> bool:
+    try:
+        manifest = json.loads((surface_dir / "manifest.json").read_text())
+    except OSError, ValueError:
+        return False
+    totals = manifest.get("totals") or {}
+    report.surface_units = totals.get("units")
+    report.surface_rows = totals.get("rows")
+    report.surface_batches = totals.get("batches")
+    report.echo_groups = totals.get("echo_groups")
+    return True
+
+
 def _do_surface_build(
     report: CycleReport,
     *,
@@ -1483,61 +1496,30 @@ def _do_surface_build(
     emit: _Emitter,
     registry: _ChildRegistry,
     review_out: Path | None,
-    budget: int,
+    argv: list[str] | None = None,
     skip: bool = False,
     skip_note: str = "",
-    fresh: bool = False,
 ) -> bool:
+    """Rebuild (or, when `skip` is set, reuse) the review surface. Both paths take the four totals from the surface's own manifest.json — review.build's validated output, whose integer totals build.check_manifest enforces — rather than scraping them back out of the build's stderr, so the numbers the summary reports are the ones the surface on disk actually carries."""
+    surface_dir = review_out if review_out is not None else REVIEW_OUT
     if skip:
-        surface_dir = review_out if review_out is not None else REVIEW_OUT
-        try:
-            manifest = json.loads((surface_dir / "manifest.json").read_text())
-        except OSError, ValueError:
+        if not _read_surface_totals(report, surface_dir):
             emit.emit("ERROR: surface-build skip: the manifest vanished mid-cycle; rerun with --fresh.")
             return False
-        totals = manifest.get("totals") or {}
-        report.surface_units = totals.get("units")
-        report.surface_rows = totals.get("rows")
-        report.surface_batches = totals.get("batches")
-        report.echo_groups = totals.get("echo_groups")
         emit.emit(f"\nsurface-build: SKIPPED — {skip_note}.")
         return True
-    argv = ["uv", "run", "python", "-m", "rebuild.review.build"]
-    if budget > 1:
-        argv += ["--jobs", str(budget)]
-    if review_out is not None:
-        argv += ["--out", str(review_out)]
-    if fresh:
-        argv += ["--fresh-unit-cache"]
     result = spawn("surface-build", argv, emit=emit, registry=registry, stream=True)
-    parsed = _parse_surface_build(result.stderr) if result.returncode == 0 else None
-    if result.returncode != 0 or parsed is None:
-        emit.emit(
-            "ERROR: review.build did not complete cleanly (no 'Wrote ... (N units, R rows, B batches)' line)."
-        )
+    if result.returncode != 0:
+        emit.emit(f"ERROR: review.build exited {result.returncode}.")
         return False
-    report.surface_units, report.surface_rows, report.surface_batches = parsed
-    surface_dir = review_out if review_out is not None else REVIEW_OUT
-    manifest = json.loads((surface_dir / "manifest.json").read_text())
-    report.echo_groups = manifest.get("totals", {}).get("echo_groups")
+    if not _read_surface_totals(report, surface_dir):
+        emit.emit("ERROR: review.build exited 0 but left no readable manifest.json.")
+        return False
     return True
 
 
 def _do_carry(report: CycleReport, *, spawn, emit: _Emitter, registry: _ChildRegistry, plan: Plan) -> bool:
-    argv = [
-        "uv",
-        "run",
-        "python",
-        str(CARRY_TOOL),
-        "--source",
-        str(plan.snapshot_dir),
-        str(plan.verdicts),
-        "--out",
-        str(plan.carry_out),
-    ]
-    if plan.review_out is not None:
-        argv += ["--current-surface", str(plan.review_out)]
-    result = spawn("carry", argv, emit=emit, registry=registry, stream=False)
+    result = spawn("carry", plan.argv("carry"), emit=emit, registry=registry, stream=False)
     _dump_captured(emit, result)
     report.carry_out = plan.carry_out
     for line in result.stdout.splitlines():
@@ -1547,8 +1529,7 @@ def _do_carry(report: CycleReport, *, spawn, emit: _Emitter, registry: _ChildReg
 
 
 def _do_merge(report: CycleReport, *, spawn, emit: _Emitter, registry: _ChildRegistry, plan: Plan) -> bool:
-    argv = ["uv", "run", "python", "-m", "rebuild.tools.merge_verdicts", str(plan.carry_out)]
-    result = spawn("merge", argv, emit=emit, registry=registry, stream=False)
+    result = spawn("merge", plan.argv("merge"), emit=emit, registry=registry, stream=False)
     _dump_captured(emit, result)
     for line in result.stdout.splitlines():
         stripped = line.strip()
@@ -1561,8 +1542,7 @@ def _do_merge(report: CycleReport, *, spawn, emit: _Emitter, registry: _ChildReg
 def _do_echo_fill(
     report: CycleReport, *, spawn, emit: _Emitter, registry: _ChildRegistry, plan: Plan
 ) -> bool:
-    argv = ["uv", "run", "python", str(ECHO_TOOL), str(AUTOSAVE)]
-    result = spawn("echo-fill", argv, emit=emit, registry=registry, stream=False)
+    result = spawn("echo-fill", plan.argv("echo-fill"), emit=emit, registry=registry, stream=False)
     _dump_captured(emit, result)
     for line in result.stdout.splitlines():
         stripped = line.strip()
@@ -1575,8 +1555,7 @@ def _do_echo_fill(
 def _do_echo_merge(
     report: CycleReport, *, spawn, emit: _Emitter, registry: _ChildRegistry, plan: Plan
 ) -> bool:
-    argv = ["uv", "run", "python", "-m", "rebuild.tools.merge_verdicts", str(ECHO_FILL)]
-    result = spawn("echo-merge", argv, emit=emit, registry=registry, stream=False)
+    result = spawn("echo-merge", plan.argv("echo-merge"), emit=emit, registry=registry, stream=False)
     _dump_captured(emit, result)
     for line in result.stdout.splitlines():
         stripped = line.strip()
@@ -1589,8 +1568,7 @@ def _do_echo_merge(
 def _do_standing_fill(
     report: CycleReport, *, spawn, emit: _Emitter, registry: _ChildRegistry, plan: Plan
 ) -> bool:
-    argv = ["uv", "run", "python", str(STANDING_TOOL), str(AUTOSAVE)]
-    result = spawn("standing-fill", argv, emit=emit, registry=registry, stream=False)
+    result = spawn("standing-fill", plan.argv("standing-fill"), emit=emit, registry=registry, stream=False)
     _dump_captured(emit, result)
     for line in result.stdout.splitlines():
         stripped = line.strip()
@@ -1605,8 +1583,7 @@ def _do_standing_fill(
 def _do_standing_merge(
     report: CycleReport, *, spawn, emit: _Emitter, registry: _ChildRegistry, plan: Plan
 ) -> bool:
-    argv = ["uv", "run", "python", "-m", "rebuild.tools.merge_verdicts", str(STANDING_FILL)]
-    result = spawn("standing-merge", argv, emit=emit, registry=registry, stream=False)
+    result = spawn("standing-merge", plan.argv("standing-merge"), emit=emit, registry=registry, stream=False)
     _dump_captured(emit, result)
     for line in result.stdout.splitlines():
         stripped = line.strip()
@@ -1634,24 +1611,13 @@ def census_mismatch_lines(stderr: str) -> list[str]:
     return out
 
 
-def _do_census(
-    *,
-    spawn,
-    emit: _Emitter,
-    registry: _ChildRegistry,
-    update_pins: bool,
-    surface: Path,
-    record: bool = False,
-) -> str:
+def _do_census(report: CycleReport, *, spawn, emit: _Emitter, registry: _ChildRegistry, plan: Plan) -> None:
     """Check (or re-baseline) the census pins, and record the outcome in census-result.json so an unchanged check never re-runs: a clean check records status clean under the key it checked, a stale check records status stale with its mismatch lines (staleness is deterministic over the fingerprinted inputs and non-gating, so it is as replayable as a clean result — and it is the steady state between a rune edit and the next --update-pins), --update records clean over the pins it just wrote (they are current by construction), and a check with no verdict to record — a crash, a missing pins file, an unparseable report — records nothing and deletes a record its key contradicts. The key is computed before a --check spawn (the check mutates nothing) but after an --update (which rewrites the pins the key hashes). This step finishes before gate:rebuild is submitted: on an --update-pins pass the suite therefore always reads the pins just rewritten here, and on a --check pass a STALE verdict defers that gate instead of letting it run against pins it could only re-report as stale."""
+    update_pins = plan.update_pins
+    surface = plan.census_surface
+    record = plan.record_greens and plan.review_out is None
     if update_pins:
-        census = spawn(
-            "census",
-            ["uv", "run", "python", "-m", "rebuild.review.census", "--update", "--surface", str(surface)],
-            emit=emit,
-            registry=registry,
-            stream=False,
-        )
+        census = spawn("census", plan.argv("census"), emit=emit, registry=registry, stream=False)
         _dump_captured(emit, census)
         diff = spawn(
             "git-diff",
@@ -1662,44 +1628,48 @@ def _do_census(
         )
         _dump_captured(emit, diff)
         if census.returncode != 0:
-            return "update FAILED"
+            report.census_status = "update FAILED"
+            return
         if record:
             key = census_skip_fingerprint(ROOT, surface)
             if key is not None:
                 record_census_result(CENSUS_RESULT, key, "clean", [])
         if diff.stdout.strip():
-            return "updated (diff shown above — review every moved number)"
-        return "updated (no change)"
+            report.census_status = "updated (diff shown above — review every moved number)"
+        else:
+            report.census_status = "updated (no change)"
+        return
     key = census_skip_fingerprint(ROOT, surface) if record else None
-    census = spawn(
-        "census",
-        ["uv", "run", "python", "-m", "rebuild.review.census", "--check", "--surface", str(surface)],
-        emit=emit,
-        registry=registry,
-        stream=False,
-    )
+    census = spawn("census", plan.argv("census"), emit=emit, registry=registry, stream=False)
     _dump_captured(emit, census)
     if census.returncode == 0:
         if key is not None:
             record_census_result(CENSUS_RESULT, key, "clean", [])
-        return "clean"
+        report.census_status = "clean"
+        return
     mismatches = census_mismatch_lines(census.stderr)
     if key is not None and mismatches:
         record_census_result(CENSUS_RESULT, key, "stale", mismatches)
     else:
         clear_contradicted_green(CENSUS_RESULT, key)
-    return "STALE (informational — re-run with --update-pins or edit by hand)"
+    report.census_status = "STALE (informational — re-run with --update-pins or edit by hand)"
+    report.census_stale = True
 
 
-def _replay_census(plan: Plan, emit: _Emitter) -> str:
+def _replay_census(report: CycleReport, plan: Plan, emit: _Emitter) -> None:
     """The census step's skip path. A recorded clean outcome reads as an ordinary skip; a recorded stale outcome replays its mismatch lines and keeps the STALE status in the summary, so every pass shows what is stale without re-paying the check."""
     replay = plan.census_replay
     if replay is None or replay["status"] == "clean":
-        return f"skipped ({plan.census_skip_note})"
+        report.census_status = f"skipped ({plan.census_skip_note})"
+        report.census_stale = False
+        return
     emit.emit("census pins are stale (recorded outcome replayed; the check's inputs have not changed):")
     for line in replay["mismatches"]:
         emit.emit(f"  {line}")
-    return "STALE (recorded outcome replayed — informational; re-run with --update-pins or edit by hand)"
+    report.census_status = (
+        "STALE (recorded outcome replayed — informational; re-run with --update-pins or edit by hand)"
+    )
+    report.census_stale = True
 
 
 def _skip_plumbing(report: CycleReport, plan: Plan, emit: _Emitter) -> None:
@@ -1714,32 +1684,33 @@ def _skip_plumbing(report: CycleReport, plan: Plan, emit: _Emitter) -> None:
     report.standing_merge_status = note
 
 
-def _do_complaints(*, spawn, emit: _Emitter, registry: _ChildRegistry) -> str:
-    result = spawn(
-        "complaints",
-        ["uv", "run", "python", "-m", "rebuild.tools.complaint_docket", str(AUTOSAVE)],
-        emit=emit,
-        registry=registry,
-        stream=False,
-    )
+def _do_complaints(
+    report: CycleReport, *, spawn, emit: _Emitter, registry: _ChildRegistry, plan: Plan
+) -> None:
+    result = spawn("complaints", plan.argv("complaints"), emit=emit, registry=registry, stream=False)
     _dump_captured(emit, result)
     if result.returncode != 0:
-        return f"FAILED (exit {result.returncode}) — informational"
+        report.complaints_status = f"FAILED (exit {result.returncode}) — informational"
+        report.complaints_ok = False
+        return
+    report.complaints_ok = True
     for line in result.stdout.splitlines():
         stripped = line.strip()
         if stripped == "no open complaints":
-            return stripped
+            report.complaints_status = stripped
+            return
         if stripped.startswith("wrote ") and ": " in stripped:
-            return stripped.split(": ", 1)[1]
-    return "done"
+            report.complaints_status = stripped.split(": ", 1)[1]
+            return
+    report.complaints_status = "done"
 
 
-def _gate_js_task(spawn, emit: _Emitter, registry: _ChildRegistry) -> _StepResult:
-    return spawn("gate:js", jstest_argv(), emit=emit, registry=registry, stream=False)
+def _gate_js_task(argv: list[str], spawn, emit: _Emitter, registry: _ChildRegistry) -> _StepResult:
+    return spawn("gate:js", argv, emit=emit, registry=registry, stream=False)
 
 
-def _gate_make_test_task(spawn, emit: _Emitter, registry: _ChildRegistry) -> _StepResult:
-    return spawn("gate:make-test", ["make", "test"], emit=emit, registry=registry, stream=True)
+def _gate_make_test_task(argv: list[str], spawn, emit: _Emitter, registry: _ChildRegistry) -> _StepResult:
+    return spawn("gate:make-test", argv, emit=emit, registry=registry, stream=True)
 
 
 def _gate_conform_task(
@@ -1779,6 +1750,7 @@ def _gate_rebuild_task(
     emit: _Emitter,
     registry: _ChildRegistry,
     update_pins: bool,
+    argv: list[str],
 ) -> RebuildOutcome:
     """The rebuild pytest suite, submitted by the build lane only after the census step lands its verdict: an --update-pins pass therefore always runs it against the freshly rewritten pins, and a STALE verdict on a --check pass deferred the gate before this task could exist. Under the queue policy it parks at the tail of the make-test -> conform chain so only one heavy pool is hot at a time."""
     if pool_policy == "queue":
@@ -1788,7 +1760,7 @@ def _gate_rebuild_task(
                     fut.result()
                 except Exception:
                     pass
-    result = spawn("gate:rebuild", REBUILD_PYTEST_ARGV, emit=emit, registry=registry, stream=False)
+    result = spawn("gate:rebuild", argv, emit=emit, registry=registry, stream=False)
     return classify_rebuild_output(result.stdout, result.returncode, update_pins)
 
 
@@ -1813,7 +1785,9 @@ def _join_gates(
         js = _gate_result(js_fut, "gate:js", failures)
         if js is None:
             report.gate_js = "FAILED (exception)"
+            report.gate_js_green = False
         else:
+            report.gate_js_green = js.returncode == 0
             report.gate_js = "green" if js.returncode == 0 else f"FAILED (exit {js.returncode})"
             if js.returncode != 0:
                 failures.append("JS suite failed")
@@ -1821,8 +1795,10 @@ def _join_gates(
         outcome = _gate_result(rebuild_fut, "gate:rebuild", failures)
         if outcome is None:
             report.gate_rebuild = "FAILED (exception)"
+            report.gate_rebuild_green = False
         else:
             report.gate_rebuild = outcome.status
+            report.gate_rebuild_green = not outcome.failures
             report.rebuild_recordable = outcome.recordable
             for test_id in outcome.hard_ids:
                 emit.emit(f"  hard rebuild failure: {test_id}")
@@ -1831,15 +1807,19 @@ def _join_gates(
         conform = _gate_result(conform_fut, "gate:conform", failures)
         if conform is None:
             report.gate_conform = "FAILED (exception)"
+            report.gate_conform_green = False
         else:
             status, conform_failures = conform
             report.gate_conform = status
+            report.gate_conform_green = not conform_failures
             failures.extend(conform_failures)
     if make_fut is not None:
         make = _gate_result(make_fut, "gate:make-test", failures)
         if make is None:
             report.gate_make_test = "FAILED (exception)"
+            report.gate_make_test_green = False
         else:
+            report.gate_make_test_green = make.returncode == 0
             report.gate_make_test = "green" if make.returncode == 0 else f"FAILED (exit {make.returncode})"
             if make.returncode != 0:
                 failures.append("make test failed")
@@ -1854,25 +1834,25 @@ def _record_gate_greens(report: CycleReport, plan: Plan, gate_keys: dict[str, st
     """Persist the concurrent gates' green records after they joined. gate:conform's key was snapshotted right after run_m1 finished; gate:rebuild's at its later submission, after the census step, so on an --update-pins pass it hashes the pins the suite actually read. Each is recomputed here before recording, so a source file edited while the gates ran — content the gates never tested — can never be recorded green. A red gate whose key still matches its record deletes the falsified record."""
     key = gate_keys.get("conform")
     if key:
-        if report.gate_conform == "green":
+        if report.gate_conform_green is True:
             if conform_skip_fingerprint(ROOT, plan.conform_horizon) == key:
                 record_green(CONFORM_GREEN, key, files=conform_skip_files(ROOT, plan.conform_horizon))
             else:
                 emit.emit(
                     "gate:conform green, but its inputs changed while the cycle ran — green not recorded"
                 )
-        elif report.gate_conform.startswith("FAILED"):
+        elif report.gate_conform_green is False:
             clear_contradicted_green(CONFORM_GREEN, key)
     key = gate_keys.get("rebuild")
     if key:
-        if report.gate_rebuild.startswith("green") and report.rebuild_recordable:
+        if report.rebuild_recordable:
             if rebuild_gate_skip_fingerprint(ROOT) == key:
                 record_green(REBUILD_GATE_GREEN, key)
             else:
                 emit.emit(
                     "gate:rebuild green, but its input closure changed while the cycle ran — green not recorded"
                 )
-        elif report.gate_rebuild.startswith("FAILED"):
+        elif report.gate_rebuild_green is False:
             clear_contradicted_green(REBUILD_GATE_GREEN, key)
 
 
@@ -1892,11 +1872,15 @@ def _run_cycle(
         defer_rebuild = "rebuild" in plan.deferred
         defer_conform = "conform" in plan.deferred
         defer_make_test = "make-test" in plan.deferred
-        js_fut = None if plan.skip_gates else pool.submit(_gate_js_task, spawn, emit, registry)
+        js_fut = (
+            None
+            if plan.skip_gates
+            else pool.submit(_gate_js_task, plan.argv("gate:js"), spawn, emit, registry)
+        )
         make_fut = (
             None
             if plan.skip_gates or plan.skip_make_test or defer_make_test
-            else pool.submit(_gate_make_test_task, spawn, emit, registry)
+            else pool.submit(_gate_make_test_task, plan.argv("gate:make-test"), spawn, emit, registry)
         )
         rebuild_fut: Future | None = None
         conform_fut: Future | None = None
@@ -1919,7 +1903,7 @@ def _run_cycle(
             spawn=spawn,
             emit=emit,
             registry=registry,
-            budget=plan.job_budget,
+            argv=None if plan.skip_run_m1 else plan.argv("run_m1"),
             skip=plan.skip_run_m1,
             skip_note=plan.run_m1_note,
             record=plan.record_greens,
@@ -1944,7 +1928,7 @@ def _run_cycle(
                 spawn,
                 emit,
                 registry,
-                conform_gate_argv(plan.conform_jobs, plan.conform_horizon),
+                plan.argv("gate:conform"),
             )
 
         if not _do_surface_build(
@@ -1953,10 +1937,9 @@ def _run_cycle(
             emit=emit,
             registry=registry,
             review_out=plan.review_out,
-            budget=plan.job_budget,
+            argv=None if plan.skip_surface else plan.argv("surface-build"),
             skip=plan.skip_surface,
             skip_note=plan.surface_note,
-            fresh=plan.fresh,
         ):
             failures.append("surface rebuild failed")
             if not plan.skip_gates and not plan.skip_rebuild_gate and not defer_rebuild:
@@ -2005,22 +1988,15 @@ def _run_cycle(
             report.census_status = f"deferred ({DEFER_NOTE})"
             emit.emit(f"\ncensus: DEFERRED — {DEFER_NOTE}.")
         elif plan.skip_census:
-            report.census_status = _replay_census(plan, emit)
+            _replay_census(report, plan, emit)
         else:
-            report.census_status = _do_census(
-                spawn=spawn,
-                emit=emit,
-                registry=registry,
-                update_pins=plan.update_pins,
-                surface=plan.census_surface,
-                record=plan.record_greens and plan.review_out is None,
-            )
+            _do_census(report, spawn=spawn, emit=emit, registry=registry, plan=plan)
         if not plan.skip_gates and not plan.skip_rebuild_gate and not defer_rebuild:
             if (
                 plan.defer_rebuild_on_stale_census
                 and not plan.update_pins
                 and plan.review_out is None
-                and report.census_status.startswith("STALE")
+                and report.census_stale
             ):
                 report.rebuild_stale_deferred = True
                 report.gate_rebuild = f"deferred ({STALE_CENSUS_DEFER_NOTE})"
@@ -2037,14 +2013,13 @@ def _run_cycle(
                     emit,
                     registry,
                     plan.update_pins,
+                    plan.argv("gate:rebuild"),
                 )
-        complaints_ran = False
         if plan.complaints_note:
             report.complaints_status = f"skipped ({plan.complaints_note})"
         else:
-            report.complaints_status = _do_complaints(spawn=spawn, emit=emit, registry=registry)
-            complaints_ran = not report.complaints_status.startswith("FAILED")
-        if plumbing_key and complaints_ran and plan.record_greens and plan.review_out is None:
+            _do_complaints(report, spawn=spawn, emit=emit, registry=registry, plan=plan)
+        if plumbing_key and report.complaints_ok is True and plan.record_greens and plan.review_out is None:
             record_plumbing_green(plumbing_key, plan.carry_out)
 
         _join_gates(report, failures, js_fut, rebuild_fut, conform_fut, make_fut, emit)
@@ -2110,9 +2085,12 @@ def _as_str(value: object | None) -> str | None:
     return None if value is None else str(value)
 
 
-def _gate_entry(status: str, skip: str | None = None) -> dict:
-    """`skip` is why the gate did not run, and it is the discriminator the readiness checker needs: "proved" means a matching green record already showed this exact content passing, so the state is verified; "forced" means a flag suppressed the gate and nothing proved anything; "deferred" means this pass chose the surface over the verification and left the gate for the next one, which is likewise unproven but has a one-command remedy. The status prose cannot carry that — every kind reads as some flavor of "skipped" — and a reader that cannot tell them apart is what once let --skip-conform report READY."""
-    return {"status": status, "green": status.startswith("green"), "skip": skip}
+def _gate_entry(status: str, green: bool | None, skip: str | None = None) -> dict:
+    """`green` is the judgment the gate recorded when it joined — True exactly when it ran in this pass and passed — never a re-reading of `status`, whose prose is for the human summary. A gate that never joined carries None and publishes False, since nothing was verified.
+
+    `skip` is why the gate did not run, and it is the discriminator the readiness checker needs: "proved" means a matching green record already showed this exact content passing, so the state is verified; "forced" means a flag suppressed the gate and nothing proved anything; "deferred" means this pass chose the surface over the verification and left the gate for the next one, which is likewise unproven but has a one-command remedy. The status prose cannot carry that — every kind reads as some flavor of "skipped" — and a reader that cannot tell them apart is what once let --skip-conform report READY.
+    """
+    return {"status": status, "green": green is True, "skip": skip}
 
 
 def _skip_kind(*, proved: bool, deferred: bool, forced: bool = False) -> str | None:
@@ -2142,9 +2120,10 @@ def cycle_summary_payload(report: CycleReport, failures: list[str], plan: Plan, 
         "exit": exit_kind,
         "failures": list(failures),
         "gates": {
-            "js": _gate_entry(report.gate_js),
+            "js": _gate_entry(report.gate_js, report.gate_js_green),
             "rebuild": _gate_entry(
                 report.gate_rebuild,
+                report.gate_rebuild_green,
                 _skip_kind(
                     proved=plan.skip_rebuild_gate,
                     deferred="rebuild" in plan.deferred or report.rebuild_stale_deferred,
@@ -2152,6 +2131,7 @@ def cycle_summary_payload(report: CycleReport, failures: list[str], plan: Plan, 
             ),
             "conform": _gate_entry(
                 report.gate_conform,
+                report.gate_conform_green,
                 _skip_kind(
                     proved=plan.conform_proven,
                     deferred="conform" in plan.deferred,
@@ -2160,13 +2140,12 @@ def cycle_summary_payload(report: CycleReport, failures: list[str], plan: Plan, 
             ),
             "make_test": _gate_entry(
                 report.gate_make_test,
+                report.gate_make_test_green,
                 _skip_kind(proved=plan.skip_make_test, deferred="make-test" in plan.deferred),
             ),
         },
         "make_test_fingerprint": (
-            plan.make_test_fingerprint
-            if report.gate_make_test.startswith("green") or plan.skip_make_test
-            else None
+            plan.make_test_fingerprint if report.gate_make_test_green is True or plan.skip_make_test else None
         ),
         "unmatched": report.unmatched,
         "multi_matched": report.multi_matched,
@@ -2645,56 +2624,6 @@ def main(argv: list[str] | None = None) -> int:
                 plumbing_carry_out = Path(recorded_carry)
             print(f"verdict plumbing auto-skipped: {plumbing_note}")
 
-    if args.dry_run:
-        plan = build_plan(
-            verdicts=args.verdicts,
-            no_carry=args.no_carry,
-            carry_out=args.carry_out,
-            snapshot_dir=args.snapshot_dir,
-            update_pins=args.update_pins,
-            skip_gates=args.skip_gates,
-            first_run=first_run,
-            short_id=resolve_short_id(),
-            no_merge=args.no_merge,
-            skip_conform=args.skip_conform or auto_skip_conform,
-            skip_make_test=skip_make_test,
-            make_test_note=make_test_note,
-            make_test_fingerprint=make_test_fp,
-            conform_horizon=args.conform_horizon,
-            pool_policy=args.rebuild_pool,
-            review_out=args.review_out,
-            skip_run_m1=skip_run_m1,
-            run_m1_note=run_m1_note,
-            run_m1_fingerprint=run_m1_fp,
-            fresh=args.fresh,
-            skip_surface=skip_surface,
-            surface_note=surface_note,
-            skip_rebuild_gate=skip_rebuild_gate,
-            rebuild_gate_note=rebuild_gate_note,
-            conform_note=conform_note,
-            conform_proven=auto_skip_conform,
-            skip_census=skip_census,
-            census_skip_note=census_skip_note,
-            census_replay=census_replay,
-            defer_census=defer_census,
-            skip_plumbing=skip_plumbing,
-            plumbing_note=plumbing_note,
-            plumbing_carry_out=plumbing_carry_out,
-            deferred=deferred,
-            preserve_snapshot=preserve_snapshot,
-            keep_history=args.keep_history,
-        )
-        print(render_plan(plan))
-        return 0
-
-    if not _preflight(
-        args, may_stay_up=server_may_stay_up(skip_surface=skip_surface, skip_plumbing=skip_plumbing)
-    ):
-        return 2
-
-    if first_run:
-        print("First-run mode: no existing surface at rebuild/out/review — skipping snapshot and carry.")
-
     plan = build_plan(
         verdicts=args.verdicts,
         no_carry=args.no_carry,
@@ -2732,9 +2661,21 @@ def main(argv: list[str] | None = None) -> int:
         defer_rebuild_on_stale_census=not args.fresh,
         deferred=deferred,
         preserve_snapshot=preserve_snapshot,
-        record_greens=True,
+        record_greens=not args.dry_run,
         keep_history=args.keep_history,
     )
+
+    if args.dry_run:
+        print(render_plan(plan))
+        return 0
+
+    if not _preflight(
+        args, may_stay_up=server_may_stay_up(skip_surface=skip_surface, skip_plumbing=skip_plumbing)
+    ):
+        return 2
+
+    if first_run:
+        print("First-run mode: no existing surface at rebuild/out/review — skipping snapshot and carry.")
 
     report = CycleReport()
     from rebuild.tools.cycle_timings import CycleTimings

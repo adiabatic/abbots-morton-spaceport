@@ -376,7 +376,12 @@ def test_dry_run_plan_complaints_skips_on_rehearsal_first_run_and_missing_autosa
     assert "no verdicts store" in by_name["complaints"].note
 
 
-def test_do_complaints_scrapes_the_headline_and_never_fails_the_cycle():
+def test_do_complaints_scrapes_the_headline_and_never_fails_the_cycle(tmp_path, monkeypatch):
+    autosave = tmp_path / "verdicts-autosave.json"
+    autosave.write_text("{}")
+    monkeypatch.setattr(ac, "AUTOSAVE", autosave)
+    plan = _plan()
+
     def spawn(name, argv, *, emit, registry, stream):
         return _step(
             name,
@@ -384,20 +389,26 @@ def test_do_complaints_scrapes_the_headline_and_never_fails_the_cycle():
             "wrote /x/tmp/complaints-data.json: 3 open complaints (1 fresh / 2 standing) in 2 groups — 5 park candidates, 4 approved sharers likely churn if fixed\n",
         )
 
-    status = ac._do_complaints(spawn=spawn, emit=ac._Emitter(), registry=ac._ChildRegistry())
-    assert status.startswith("3 open complaints")
+    report = ac.CycleReport()
+    ac._do_complaints(report, spawn=spawn, emit=ac._Emitter(), registry=ac._ChildRegistry(), plan=plan)
+    assert report.complaints_status.startswith("3 open complaints")
+    assert report.complaints_ok is True
 
     def spawn_empty(name, argv, *, emit, registry, stream):
         return _step(name, 0, "no open complaints\n")
 
-    status = ac._do_complaints(spawn=spawn_empty, emit=ac._Emitter(), registry=ac._ChildRegistry())
-    assert status == "no open complaints"
+    report = ac.CycleReport()
+    ac._do_complaints(report, spawn=spawn_empty, emit=ac._Emitter(), registry=ac._ChildRegistry(), plan=plan)
+    assert report.complaints_status == "no open complaints"
+    assert report.complaints_ok is True
 
     def spawn_broken(name, argv, *, emit, registry, stream):
         return _step(name, 2, "boom\n")
 
-    status = ac._do_complaints(spawn=spawn_broken, emit=ac._Emitter(), registry=ac._ChildRegistry())
-    assert status == "FAILED (exit 2) — informational"
+    report = ac.CycleReport()
+    ac._do_complaints(report, spawn=spawn_broken, emit=ac._Emitter(), registry=ac._ChildRegistry(), plan=plan)
+    assert report.complaints_status == "FAILED (exit 2) — informational"
+    assert report.complaints_ok is False
 
 
 def test_dry_run_plan_merge_skipped_without_carry():
@@ -502,13 +513,70 @@ def test_render_plan_is_stringable():
     assert "rebuild.pipeline.run_m1" in text
 
 
-def test_parse_surface_build_line():
-    stderr = "some noise\nWrote /x/rebuild/out/review (15897 units, 81867 rows, 16 batches)\ntrailer\n"
-    assert ac._parse_surface_build(stderr) == (15897, 81867, 16)
+def _built_surface(tmp_path, **totals):
+    surface = tmp_path / "review"
+    surface.mkdir()
+    (surface / "manifest.json").write_text(json.dumps({"totals": totals}))
+    return surface
 
 
-def test_parse_surface_build_missing():
-    assert ac._parse_surface_build("nothing here\n") is None
+def test_do_surface_build_takes_its_totals_from_the_manifest_the_build_wrote(tmp_path):
+    surface = _built_surface(tmp_path, units=15897, rows=81867, batches=16, echo_groups=402)
+    report = ac.CycleReport()
+    ok = ac._do_surface_build(
+        report,
+        spawn=lambda name, argv, **k: _step(name, 0),
+        emit=ac._Emitter(),
+        registry=ac._ChildRegistry(),
+        review_out=surface,
+        argv=["uv", "run", "python", "-m", "rebuild.review.build"],
+    )
+    assert ok
+    assert (report.surface_units, report.surface_rows, report.surface_batches, report.echo_groups) == (
+        15897,
+        81867,
+        16,
+        402,
+    )
+
+
+def test_do_surface_build_fails_when_a_clean_build_left_no_manifest(tmp_path, capsys):
+    surface = tmp_path / "review"
+    surface.mkdir()
+    report = ac.CycleReport()
+    ok = ac._do_surface_build(
+        report,
+        spawn=lambda name, argv, **k: _step(name, 0),
+        emit=ac._Emitter(),
+        registry=ac._ChildRegistry(),
+        review_out=surface,
+        argv=["uv", "run", "python", "-m", "rebuild.review.build"],
+    )
+    assert not ok
+    assert "review.build exited 0 but left no readable manifest.json" in capsys.readouterr().out
+    assert report.surface_units is None
+
+
+def test_do_surface_build_reads_no_totals_from_a_failed_build(tmp_path, capsys):
+    """A nonzero review.build says nothing about the manifest beside it — that one is the previous pass's, and reporting its totals as this pass's would be a lie. So the failure short-circuits before the read."""
+    surface = _built_surface(tmp_path, units=1, rows=2, batches=3, echo_groups=4)
+    report = ac.CycleReport()
+    ok = ac._do_surface_build(
+        report,
+        spawn=lambda name, argv, **k: _step(name, 3),
+        emit=ac._Emitter(),
+        registry=ac._ChildRegistry(),
+        review_out=surface,
+        argv=["uv", "run", "python", "-m", "rebuild.review.build"],
+    )
+    assert not ok
+    assert "review.build exited 3" in capsys.readouterr().out
+    assert (report.surface_units, report.surface_rows, report.surface_batches, report.echo_groups) == (
+        None,
+        None,
+        None,
+        None,
+    )
 
 
 def _argv(step: ac.Step) -> list[str]:
@@ -536,7 +604,7 @@ def _step(name="x", rc=0, stdout="", stderr=""):
     return ac._StepResult(name, rc, stdout, stderr, 0.0)
 
 
-def _pass_run_m1(report, *, spawn, emit, registry, budget, **_):
+def _pass_run_m1(report, *, spawn, emit, registry, **_):
     report.unmatched = 1
     report.multi_matched = 0
     report.boundary_pass = True
@@ -544,7 +612,7 @@ def _pass_run_m1(report, *, spawn, emit, registry, budget, **_):
     return ac.GateOutcome(True, [], 1, 0)
 
 
-def _surface_ok(report, *, spawn, emit, registry, review_out, budget, **_):
+def _surface_ok(report, *, spawn, emit, registry, review_out, **_):
     report.surface_units = 1
     return True
 
@@ -579,19 +647,19 @@ def _standing_merge_ok(report, *, spawn, emit, registry, plan):
     return True
 
 
-def _census_clean(*, spawn, emit, registry, update_pins, surface, **_):
-    return "clean"
+def _census_clean(report, *, spawn, emit, registry, plan):
+    report.census_status = "clean"
 
 
-def _js_ok(spawn, emit, registry):
+def _js_ok(argv, spawn, emit, registry):
     return _step("gate:js", 0)
 
 
-def _make_ok(spawn, emit, registry):
+def _make_ok(argv, spawn, emit, registry):
     return _step("gate:make-test", 0)
 
 
-def _rebuild_green(pool_policy, conform_fut, make_fut, spawn, emit, registry, update_pins):
+def _rebuild_green(pool_policy, conform_fut, make_fut, spawn, emit, registry, update_pins, argv):
     return ac.RebuildOutcome("green", [], [])
 
 
@@ -964,23 +1032,39 @@ def test_do_standing_merge_parses_the_summary_line():
     assert any(line.startswith("merged 1 file(s)") for line in report.standing_merge_lines)
 
 
+def test_the_executor_spawns_the_argv_the_plan_holds():
+    """The single authority: build_plan writes each step's command line and the executor runs that one, so rewriting a live step's argv is enough to change what gets spawned — no executor rebuilds its own copy."""
+    plan = _plan()
+    sentinel = ["uv", "run", "python", "sentinel-carry", "--only-here"]
+    {step.name: step for step in plan.steps}["carry"].argv = sentinel
+    spawned: list[tuple[str, list[str]]] = []
+
+    def fake_spawn(name, argv, *, emit, registry, stream):
+        spawned.append((name, argv))
+        return _step(name, 0)
+
+    report = ac.CycleReport()
+    assert ac._do_carry(report, spawn=fake_spawn, emit=ac._Emitter(), registry=ac._ChildRegistry(), plan=plan)
+    assert spawned == [("carry", sentinel)]
+
+
 def test_gates_launch_before_run_m1_finishes(monkeypatch):
     record = {}
     js_started = threading.Event()
     make_started = threading.Event()
     release_run_m1 = threading.Event()
 
-    def fake_js(spawn, emit, registry):
+    def fake_js(argv, spawn, emit, registry):
         record["js_start"] = time.monotonic()
         js_started.set()
         return _step("gate:js", 0)
 
-    def fake_make(spawn, emit, registry):
+    def fake_make(argv, spawn, emit, registry):
         record["make_start"] = time.monotonic()
         make_started.set()
         return _step("gate:make-test", 0)
 
-    def fake_run_m1(report, *, spawn, emit, registry, budget, **_):
+    def fake_run_m1(report, *, spawn, emit, registry, **_):
         release_run_m1.wait()
         record["run_m1_finish"] = time.monotonic()
         return ac.GateOutcome(True, [], 1, 0)
@@ -1016,11 +1100,11 @@ def test_gates_launch_before_run_m1_finishes(monkeypatch):
 def test_gate_rebuild_waits_for_run_m1_pass(monkeypatch):
     record = {}
 
-    def fake_run_m1(report, *, spawn, emit, registry, budget, **_):
+    def fake_run_m1(report, *, spawn, emit, registry, **_):
         record["run_m1_finish"] = time.monotonic()
         return ac.GateOutcome(True, [], 1, 0)
 
-    def fake_rebuild(pool_policy, conform_fut, make_fut, spawn, emit, registry, update_pins):
+    def fake_rebuild(pool_policy, conform_fut, make_fut, spawn, emit, registry, update_pins, argv):
         record["rebuild_invoked"] = time.monotonic()
         return ac.RebuildOutcome("green", [], [])
 
@@ -1041,10 +1125,10 @@ def test_gate_rebuild_waits_for_run_m1_pass(monkeypatch):
 def test_gate_rebuild_skipped_when_run_m1_fails(monkeypatch, capsys):
     called = {"rebuild": False}
 
-    def fake_run_m1(report, *, spawn, emit, registry, budget, **_):
+    def fake_run_m1(report, *, spawn, emit, registry, **_):
         return None
 
-    def fake_rebuild(pool_policy, conform_fut, make_fut, spawn, emit, registry, update_pins):
+    def fake_rebuild(pool_policy, conform_fut, make_fut, spawn, emit, registry, update_pins, argv):
         called["rebuild"] = True
         return ac.RebuildOutcome("green", [], [])
 
@@ -1070,7 +1154,7 @@ def test_pool_queue_serializes_rebuild_after_make_test(monkeypatch):
     release_make = threading.Event()
     make_running = threading.Event()
 
-    def fake_make(spawn, emit, registry):
+    def fake_make(argv, spawn, emit, registry):
         make_running.set()
         release_make.wait()
         record["make_finish"] = time.monotonic()
@@ -1108,11 +1192,11 @@ def test_pool_overlap_starts_rebuild_before_make_test_done(monkeypatch):
     release_make = threading.Event()
     rebuild_started = threading.Event()
 
-    def fake_run_m1(report, *, spawn, emit, registry, budget, **_):
+    def fake_run_m1(report, *, spawn, emit, registry, **_):
         record["run_m1_finish"] = time.monotonic()
         return ac.GateOutcome(True, [], 1, 0)
 
-    def fake_make(spawn, emit, registry):
+    def fake_make(argv, spawn, emit, registry):
         release_make.wait()
         record["make_finish"] = time.monotonic()
         return _step("gate:make-test", 0)
@@ -1154,7 +1238,7 @@ def test_pool_queue_rebuild_waits_for_conform_gate(monkeypatch):
     conform_running = threading.Event()
     rebuild_started = threading.Event()
 
-    def fake_make(spawn, emit, registry):
+    def fake_make(argv, spawn, emit, registry):
         make_running.set()
         release_make.wait()
         record["make_finish"] = time.monotonic()
@@ -1210,7 +1294,7 @@ def test_pool_queue_rebuild_falls_back_to_make_test_when_conform_skipped(monkeyp
     make_running = threading.Event()
     rebuild_started = threading.Event()
 
-    def fake_make(spawn, emit, registry):
+    def fake_make(argv, spawn, emit, registry):
         make_running.set()
         release_make.wait()
         record["make_finish"] = time.monotonic()
@@ -1264,29 +1348,29 @@ def test_summary_exact_under_out_of_order_completion(monkeypatch, capsys):
     ev_make = threading.Event()
     ev_rebuild = threading.Event()
 
-    def fake_run_m1(report, *, spawn, emit, registry, budget, **_):
+    def fake_run_m1(report, *, spawn, emit, registry, **_):
         report.unmatched = 7777
         report.multi_matched = 0
         report.boundary_pass = True
         report.pins_pass = True
         return ac.GateOutcome(True, [], 7777, 0)
 
-    def fake_surface(report, *, spawn, emit, registry, review_out, budget, **_):
+    def fake_surface(report, *, spawn, emit, registry, review_out, **_):
         report.surface_units = 15903
         report.surface_rows = 81894
         report.surface_batches = 16
         report.echo_groups = 42
         return True
 
-    def fake_js(spawn, emit, registry):
+    def fake_js(argv, spawn, emit, registry):
         ev_js.wait()
         return _step("gate:js", 0)
 
-    def fake_make(spawn, emit, registry):
+    def fake_make(argv, spawn, emit, registry):
         ev_make.wait()
         return _step("gate:make-test", 0)
 
-    def fake_rebuild(pool_policy, conform_fut, make_fut, spawn, emit, registry, update_pins):
+    def fake_rebuild(pool_policy, conform_fut, make_fut, spawn, emit, registry, update_pins, argv):
         ev_rebuild.wait()
         return ac.RebuildOutcome("green (1 documented baseline)", [], [])
 
@@ -1381,7 +1465,9 @@ def test_gate_rebuild_stays_captured_and_parses_failures(capsys):
 
     emit = ac._Emitter()
     registry = ac._ChildRegistry()
-    outcome = ac._gate_rebuild_task("overlap", None, None, fake_spawn, emit, registry, False)
+    outcome = ac._gate_rebuild_task(
+        "overlap", None, None, fake_spawn, emit, registry, False, list(ac.REBUILD_PYTEST_ARGV)
+    )
 
     assert seen["stream"] is False
     assert len(outcome.hard_ids) == 2
@@ -1410,11 +1496,11 @@ def test_classify_rebuild_reads_colored_pytest_output():
 
 
 def test_failure_funnels_from_concurrent_branch(monkeypatch, capsys):
-    def fake_surface(report, *, spawn, emit, registry, review_out, budget, **_):
+    def fake_surface(report, *, spawn, emit, registry, review_out, **_):
         report.surface_units = 100
         return True
 
-    def fake_make(spawn, emit, registry):
+    def fake_make(argv, spawn, emit, registry):
         return _step("gate:make-test", 1)
 
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
@@ -1438,7 +1524,7 @@ def test_failure_funnels_from_concurrent_branch(monkeypatch, capsys):
 
 
 def test_gate_task_exception_still_prints_one_summary(monkeypatch, capsys):
-    def raising_js(spawn, emit, registry):
+    def raising_js(argv, spawn, emit, registry):
         raise FileNotFoundError("node not found")
 
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
@@ -1462,7 +1548,7 @@ def test_gate_task_exception_still_prints_one_summary(monkeypatch, capsys):
 
 
 def test_queue_policy_rebuild_runs_when_make_test_task_raises(monkeypatch, capsys):
-    def raising_make(spawn, emit, registry):
+    def raising_make(argv, spawn, emit, registry):
         raise FileNotFoundError("make not found")
 
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
@@ -1502,7 +1588,7 @@ def test_queue_policy_rebuild_runs_when_conform_task_raises(monkeypatch, capsys)
 
 
 def test_run_m1_failure_still_collects_make_test(monkeypatch, capsys):
-    def fake_run_m1(report, *, spawn, emit, registry, budget, **_):
+    def fake_run_m1(report, *, spawn, emit, registry, **_):
         return None
 
     monkeypatch.setattr(ac, "_do_run_m1", fake_run_m1)
@@ -1527,7 +1613,7 @@ def test_keyboard_interrupt_terminates_children_and_returns_130(monkeypatch, cap
     proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
     registry.add(proc)
 
-    def boom(report, *, spawn, emit, registry, budget, **_):
+    def boom(report, *, spawn, emit, registry, **_):
         raise KeyboardInterrupt
 
     monkeypatch.setattr(ac, "_do_run_m1", boom)
@@ -1690,9 +1776,13 @@ def test_review_out_rehearsal_plan(monkeypatch):
 def _green_report():
     report = ac.CycleReport()
     report.gate_js = "green"
+    report.gate_js_green = True
     report.gate_rebuild = "green"
+    report.gate_rebuild_green = True
     report.gate_conform = "green"
+    report.gate_conform_green = True
     report.gate_make_test = "green"
+    report.gate_make_test_green = True
     return report
 
 
@@ -1711,17 +1801,24 @@ def test_cycle_summary_payload_all_green_exit_ok():
     assert payload["finished_at"].endswith("Z")
 
 
-def test_cycle_summary_payload_annotated_green_rebuild_is_green():
+def test_cycle_summary_payload_green_follows_the_boolean_not_the_status_prose():
+    """The payload's `green` is the judgment the gate recorded, so an annotated green stays green and prose that merely reads green cannot make it so."""
     report = _green_report()
     report.gate_rebuild = "green (4 documented baseline)"
     payload = ac.cycle_summary_payload(report, [], _plan(), "ok")
     assert payload["gates"]["rebuild"]["green"] is True
     assert payload["gates"]["rebuild"]["status"] == "green (4 documented baseline)"
 
+    report.gate_conform_green = False
+    payload = ac.cycle_summary_payload(report, [], _plan(), "ok")
+    assert payload["gates"]["conform"]["status"] == "green"
+    assert payload["gates"]["conform"]["green"] is False
+
 
 def test_cycle_summary_payload_skipped_conform_not_green():
     report = _green_report()
     report.gate_conform = "skipped (--skip-conform)"
+    report.gate_conform_green = None
     payload = ac.cycle_summary_payload(report, [], _plan(skip_conform=True), "ok")
     assert payload["gates"]["conform"]["green"] is False
     assert payload["gates"]["conform"]["status"] == "skipped (--skip-conform)"
@@ -1732,6 +1829,7 @@ def test_cycle_summary_payload_skipped_conform_not_green():
 def test_cycle_summary_payload_marks_a_forced_conform_skip_unproved():
     report = _green_report()
     report.gate_conform = "skipped (--skip-conform)"
+    report.gate_conform_green = None
     payload = ac.cycle_summary_payload(report, [], _plan(skip_conform=True), "ok")
     assert payload["gates"]["conform"]["skip"] == "forced"
 
@@ -1739,8 +1837,11 @@ def test_cycle_summary_payload_marks_a_forced_conform_skip_unproved():
 def test_cycle_summary_payload_marks_auto_skips_proved():
     report = _green_report()
     report.gate_conform = "skipped (inputs unchanged)"
+    report.gate_conform_green = None
     report.gate_rebuild = "skipped (closure unchanged)"
+    report.gate_rebuild_green = None
     report.gate_make_test = "skipped (closure unchanged)"
+    report.gate_make_test_green = None
     plan = _plan(
         skip_conform=True,
         conform_proven=True,
@@ -1823,7 +1924,7 @@ def test_cycle_writes_green_summary_with_surface(monkeypatch, tmp_path):
 
 
 def test_cycle_writes_failed_summary_on_run_m1_failure(monkeypatch, tmp_path):
-    def fake_run_m1(report, *, spawn, emit, registry, budget, **_):
+    def fake_run_m1(report, *, spawn, emit, registry, **_):
         return None
 
     monkeypatch.setattr(ac, "_do_run_m1", fake_run_m1)
@@ -1843,7 +1944,7 @@ def test_cycle_writes_failed_summary_on_run_m1_failure(monkeypatch, tmp_path):
 
 
 def test_cycle_writes_interrupted_summary(monkeypatch, tmp_path):
-    def boom(report, *, spawn, emit, registry, budget, **_):
+    def boom(report, *, spawn, emit, registry, **_):
         raise KeyboardInterrupt
 
     monkeypatch.setattr(ac, "_do_run_m1", boom)
@@ -2090,10 +2191,12 @@ def test_summary_payload_carries_the_fingerprint_only_while_green(tmp_path):
     report = ac.CycleReport()
 
     report.gate_make_test = "green"
+    report.gate_make_test_green = True
     payload = ac.cycle_summary_payload(report, [], plan, "ok")
     assert payload["make_test_fingerprint"] == "fp-1"
 
     report.gate_make_test = "FAILED (exit 2)"
+    report.gate_make_test_green = False
     payload = ac.cycle_summary_payload(report, ["make test failed"], plan, "failed")
     assert payload["make_test_fingerprint"] is None
 
@@ -2116,7 +2219,7 @@ def test_summary_payload_carries_the_fingerprint_only_while_green(tmp_path):
 def test_run_cycle_never_spawns_make_test_when_skipped(monkeypatch):
     record = {"make_calls": 0}
 
-    def fake_make(spawn, emit, registry):
+    def fake_make(argv, spawn, emit, registry):
         record["make_calls"] += 1
         return _step("gate:make-test", 0)
 
@@ -2359,7 +2462,7 @@ def test_dry_run_plan_auto_skip_conform_note():
 def test_run_cycle_never_spawns_rebuild_gate_when_skipped(monkeypatch):
     record = {"rebuild_calls": 0}
 
-    def fake_rebuild(pool_policy, conform_fut, make_fut, spawn, emit, registry, update_pins):
+    def fake_rebuild(pool_policy, conform_fut, make_fut, spawn, emit, registry, update_pins, argv):
         record["rebuild_calls"] += 1
         return ac.RebuildOutcome("green", [], [])
 
@@ -2440,7 +2543,7 @@ def test_a_proved_skip_outranks_deferral_in_the_plan():
 def test_run_cycle_never_spawns_a_deferred_gate(monkeypatch):
     calls = {"rebuild": 0, "conform": 0, "make-test": 0}
 
-    def fake_rebuild(pool_policy, conform_fut, make_fut, spawn, emit, registry, update_pins):
+    def fake_rebuild(pool_policy, conform_fut, make_fut, spawn, emit, registry, update_pins, argv):
         calls["rebuild"] += 1
         return ac.RebuildOutcome("green", [], [])
 
@@ -2448,7 +2551,7 @@ def test_run_cycle_never_spawns_a_deferred_gate(monkeypatch):
         calls["conform"] += 1
         return "green", []
 
-    def fake_make(spawn, emit, registry):
+    def fake_make(argv, spawn, emit, registry):
         calls["make-test"] += 1
         return _step("gate:make-test", 0)
 
@@ -2470,7 +2573,7 @@ def test_run_cycle_never_spawns_a_deferred_gate(monkeypatch):
 
 
 def test_a_deferred_gate_keeps_its_status_when_run_m1_fails(monkeypatch):
-    def failing_run_m1(report, *, spawn, emit, registry, budget, **_):
+    def failing_run_m1(report, *, spawn, emit, registry, **_):
         return ac.GateOutcome(False, ["boundary gate failed"], 0, 0)
 
     monkeypatch.setattr(ac, "_do_run_m1", failing_run_m1)
@@ -2506,8 +2609,11 @@ def test_run_cycle_records_no_green_for_a_deferred_gate(monkeypatch, tmp_path):
 def test_cycle_summary_payload_marks_deferred_skips():
     report = _green_report()
     report.gate_rebuild = f"deferred ({ac.DEFER_NOTE})"
+    report.gate_rebuild_green = None
     report.gate_conform = f"deferred ({ac.DEFER_NOTE})"
+    report.gate_conform_green = None
     report.gate_make_test = f"deferred ({ac.DEFER_NOTE})"
+    report.gate_make_test_green = None
     plan = _plan(deferred=frozenset({"rebuild", "conform", "make-test"}))
     payload = ac.cycle_summary_payload(report, [], plan, "ok")
     for name in ("rebuild", "conform", "make_test"):
@@ -2718,7 +2824,6 @@ def test_do_run_m1_skip_reads_recorded_summaries(monkeypatch, tmp_path):
         spawn=no_spawn,
         emit=ac._Emitter(),
         registry=ac._ChildRegistry(),
-        budget=1,
         skip=True,
         skip_note="test skip",
     )
@@ -2747,7 +2852,7 @@ def test_do_run_m1_records_green_only_when_fingerprint_stable(monkeypatch, tmp_p
         spawn=write_summaries,
         emit=ac._Emitter(),
         registry=ac._ChildRegistry(),
-        budget=1,
+        argv=["uv", "run", "python", "-m", "rebuild.pipeline.run_m1"],
         record=True,
         fingerprint="fp-live",
     )
@@ -2762,7 +2867,7 @@ def test_do_run_m1_records_green_only_when_fingerprint_stable(monkeypatch, tmp_p
         spawn=write_summaries,
         emit=ac._Emitter(),
         registry=ac._ChildRegistry(),
-        budget=1,
+        argv=["uv", "run", "python", "-m", "rebuild.pipeline.run_m1"],
         record=True,
         fingerprint="fp-from-before-a-mid-run-edit",
     )
@@ -2790,7 +2895,7 @@ def test_do_run_m1_red_deletes_matching_green(monkeypatch, tmp_path):
         spawn=write_red,
         emit=ac._Emitter(),
         registry=ac._ChildRegistry(),
-        budget=1,
+        argv=["uv", "run", "python", "-m", "rebuild.pipeline.run_m1"],
         record=True,
         fingerprint="fp-1",
     )
@@ -2807,7 +2912,6 @@ def test_do_run_m1_red_deletes_matching_green(monkeypatch, tmp_path):
         spawn=no_spawn,
         emit=ac._Emitter(),
         registry=ac._ChildRegistry(),
-        budget=1,
         skip=True,
         skip_note="test",
         record=True,
@@ -2835,7 +2939,6 @@ def test_do_surface_build_skip_reads_manifest_totals(monkeypatch, tmp_path):
         emit=ac._Emitter(),
         registry=ac._ChildRegistry(),
         review_out=None,
-        budget=1,
         skip=True,
         skip_note="test",
     )
@@ -2858,7 +2961,9 @@ def test_record_gate_greens_records_refuses_and_clears(monkeypatch, tmp_path):
     plan = _plan()
     report = ac.CycleReport()
     report.gate_conform = "green"
+    report.gate_conform_green = True
     report.gate_rebuild = "green (4 documented baseline)"
+    report.gate_rebuild_green = True
     report.rebuild_recordable = True
     ac._record_gate_greens(report, plan, {"conform": "cfp", "rebuild": "rfp"}, ac._Emitter())
     conform_record = ac.read_green_record(conform_green)
@@ -2881,6 +2986,7 @@ def test_record_gate_greens_records_refuses_and_clears(monkeypatch, tmp_path):
 
     ac.record_green(conform_green, "cfp")
     report.gate_conform = "FAILED"
+    report.gate_conform_green = False
     ac._record_gate_greens(report, plan, {"conform": "cfp"}, ac._Emitter())
     assert ac.read_green_record(conform_green) is None
 
@@ -2899,7 +3005,7 @@ def test_classify_rebuild_recordable_only_when_unannotated():
     assert not hard.recordable
 
 
-def _census_failing_rebuild(pool_policy, conform_fut, make_fut, spawn, emit, registry, update_pins):
+def _census_failing_rebuild(pool_policy, conform_fut, make_fut, spawn, emit, registry, update_pins, argv):
     return ac.classify_rebuild_output(
         "FAILED rebuild/test_review_build.py::test_totals_pinned", 1, update_pins=update_pins
     )
@@ -2908,8 +3014,8 @@ def _census_failing_rebuild(pool_policy, conform_fut, make_fut, spawn, emit, reg
 def test_update_pins_cycle_keeps_census_failures_hard(monkeypatch, capsys):
     """On an --update-pins pass the gate is submitted only after the census step has rewritten the pins, so a census-module failure is judged against the pins the suite actually read — a genuine failure that turns the cycle red."""
 
-    def census_update(*, spawn, emit, registry, update_pins, surface, **_):
-        return "updated (diff shown above — review every moved number)"
+    def census_update(report, *, spawn, emit, registry, plan):
+        report.census_status = "updated (diff shown above — review every moved number)"
 
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
@@ -2931,8 +3037,8 @@ def test_update_pins_cycle_keeps_census_failures_hard(monkeypatch, capsys):
 def test_update_pins_cycle_still_submits_the_gate_when_the_update_failed(monkeypatch, capsys):
     """A failed census --update is not a stale verdict: the gate still runs against whatever pins are on disk, and its census failures stay hard, so the cycle turns red instead of deferring past a broken tracked pins file."""
 
-    def census_dies(*, spawn, emit, registry, update_pins, surface, **_):
-        return "update FAILED"
+    def census_dies(report, *, spawn, emit, registry, plan):
+        report.census_status = "update FAILED"
 
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
@@ -2956,9 +3062,9 @@ def test_update_pins_cycle_still_submits_the_gate_when_the_update_failed(monkeyp
 def test_update_pins_census_update_completes_before_the_rebuild_gate_spawns(monkeypatch):
     record = {}
 
-    def census_update(*, spawn, emit, registry, update_pins, surface, **_):
+    def census_update(report, *, spawn, emit, registry, plan):
         record["census_finish"] = time.monotonic()
-        return "updated (no change)"
+        report.census_status = "updated (no change)"
 
     def fake_spawn(name, argv, *, emit, registry, stream):
         if name == "gate:rebuild":
@@ -2991,11 +3097,11 @@ def test_update_pins_cycle_records_rebuild_green_after_the_refresh(monkeypatch, 
     monkeypatch.setattr(ac, "rebuild_gate_skip_fingerprint", lambda root=None: "rfp")
     monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, horizon=None: "cfp")
 
-    def recordable_rebuild(pool_policy, conform_fut, make_fut, spawn, emit, registry, update_pins):
+    def recordable_rebuild(pool_policy, conform_fut, make_fut, spawn, emit, registry, update_pins, argv):
         return ac.RebuildOutcome("green", [], [], recordable=True)
 
-    def census_update(*, spawn, emit, registry, update_pins, surface, **_):
-        return "updated (no change)"
+    def census_update(report, *, spawn, emit, registry, plan):
+        report.census_status = "updated (no change)"
 
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
@@ -3019,12 +3125,13 @@ def test_update_pins_cycle_records_rebuild_green_after_the_refresh(monkeypatch, 
 def test_a_stale_census_defers_the_rebuild_gate(monkeypatch, tmp_path, capsys):
     calls = {"rebuild": 0}
 
-    def fake_rebuild(pool_policy, conform_fut, make_fut, spawn, emit, registry, update_pins):
+    def fake_rebuild(pool_policy, conform_fut, make_fut, spawn, emit, registry, update_pins, argv):
         calls["rebuild"] += 1
         return ac.RebuildOutcome("green", [], [])
 
-    def census_stale(*, spawn, emit, registry, update_pins, surface, **_):
-        return "STALE (informational — re-run with --update-pins or edit by hand)"
+    def census_stale(report, *, spawn, emit, registry, plan):
+        report.census_status = "STALE (informational — re-run with --update-pins or edit by hand)"
+        report.census_stale = True
 
     monkeypatch.setattr(ac, "run_retention", lambda plan: None)
     monkeypatch.setattr(ac, "REBUILD_GATE_GREEN", tmp_path / "rebuild-gate-green.json")
@@ -3059,12 +3166,13 @@ def test_a_stale_census_defers_the_rebuild_gate(monkeypatch, tmp_path, capsys):
 def test_a_stale_census_never_defers_update_pins_rehearsal_or_no_defer(monkeypatch, tmp_path):
     calls = {"rebuild": 0}
 
-    def fake_rebuild(pool_policy, conform_fut, make_fut, spawn, emit, registry, update_pins):
+    def fake_rebuild(pool_policy, conform_fut, make_fut, spawn, emit, registry, update_pins, argv):
         calls["rebuild"] += 1
         return ac.RebuildOutcome("green", [], [])
 
-    def census_stale(*, spawn, emit, registry, update_pins, surface, **_):
-        return "STALE (informational — re-run with --update-pins or edit by hand)"
+    def census_stale(report, *, spawn, emit, registry, plan):
+        report.census_status = "STALE (informational — re-run with --update-pins or edit by hand)"
+        report.census_stale = True
 
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
@@ -3091,11 +3199,11 @@ def test_a_stale_census_never_defers_update_pins_rehearsal_or_no_defer(monkeypat
 def test_surface_build_failure_leaves_the_rebuild_gate_not_run(monkeypatch, capsys):
     calls = {"rebuild": 0}
 
-    def fake_rebuild(pool_policy, conform_fut, make_fut, spawn, emit, registry, update_pins):
+    def fake_rebuild(pool_policy, conform_fut, make_fut, spawn, emit, registry, update_pins, argv):
         calls["rebuild"] += 1
         return ac.RebuildOutcome("green", [], [])
 
-    def failing_surface(report, *, spawn, emit, registry, review_out, budget, **_):
+    def failing_surface(report, *, spawn, emit, registry, review_out, **_):
         return False
 
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
@@ -3157,6 +3265,7 @@ def test_dry_run_plan_defers_the_rebuild_gate_on_a_recorded_stale_census():
 def test_cycle_summary_payload_marks_a_stale_deferred_rebuild_deferred():
     report = _green_report()
     report.gate_rebuild = f"deferred ({ac.STALE_CENSUS_DEFER_NOTE})"
+    report.gate_rebuild_green = None
     report.rebuild_stale_deferred = True
     payload = ac.cycle_summary_payload(report, [], _plan(), "ok")
     assert payload["gates"]["rebuild"]["skip"] == "deferred"
@@ -3180,15 +3289,17 @@ def test_do_census_records_clean_and_stale_outcomes(monkeypatch, tmp_path):
     result_path = tmp_path / "census-result.json"
     monkeypatch.setattr(ac, "CENSUS_RESULT", result_path)
     monkeypatch.setattr(ac, "census_skip_fingerprint", lambda root=None, surface=None: "cen-fp")
-    status = ac._do_census(
+    plan = _plan(record_greens=True)
+    report = ac.CycleReport()
+    ac._do_census(
+        report,
         spawn=lambda *a, **k: _step("census", 0),
         emit=ac._Emitter(),
         registry=ac._ChildRegistry(),
-        update_pins=False,
-        surface=tmp_path,
-        record=True,
+        plan=plan,
     )
-    assert status == "clean"
+    assert report.census_status == "clean"
+    assert report.census_stale is False
     record = ac.read_census_result(result_path)
     assert record is not None
     assert (record["fingerprint"], record["status"], record["mismatches"]) == ("cen-fp", "clean", [])
@@ -3200,15 +3311,16 @@ def test_do_census_records_clean_and_stale_outcomes(monkeypatch, tmp_path):
             "Re-baseline with: uv run python -m rebuild.review.census --update",
         ]
     )
-    status = ac._do_census(
+    report = ac.CycleReport()
+    ac._do_census(
+        report,
         spawn=lambda *a, **k: _step("census", 1, stderr=stale_stderr),
         emit=ac._Emitter(),
         registry=ac._ChildRegistry(),
-        update_pins=False,
-        surface=tmp_path,
-        record=True,
+        plan=plan,
     )
-    assert status.startswith("STALE")
+    assert report.census_status.startswith("STALE")
+    assert report.census_stale is True
     record = ac.read_census_result(result_path)
     assert record is not None
     assert (record["fingerprint"], record["status"]) == ("cen-fp", "stale")
@@ -3224,15 +3336,16 @@ def test_do_census_never_records_a_verdictless_failure(monkeypatch, tmp_path):
     monkeypatch.setattr(ac, "CENSUS_RESULT", result_path)
     monkeypatch.setattr(ac, "census_skip_fingerprint", lambda root=None, surface=None: "cen-fp")
     ac.record_census_result(result_path, "cen-fp", "clean", [])
-    status = ac._do_census(
+    report = ac.CycleReport()
+    ac._do_census(
+        report,
         spawn=lambda *a, **k: _step("census", 1, stderr="Traceback (most recent call last):\n  boom"),
         emit=ac._Emitter(),
         registry=ac._ChildRegistry(),
-        update_pins=False,
-        surface=tmp_path,
-        record=True,
+        plan=_plan(record_greens=True),
     )
-    assert status.startswith("STALE")
+    assert report.census_status.startswith("STALE")
+    assert report.census_stale is True
     assert ac.read_census_result(result_path) is None
 
 
@@ -3257,7 +3370,7 @@ def test_census_stale_stderr_matches_the_cycle_parser(monkeypatch, tmp_path, cap
 
 
 def test_run_cycle_replays_a_recorded_stale_census(monkeypatch, capsys):
-    def census_must_not_run(**_):
+    def census_must_not_run(*args, **kwargs):
         raise AssertionError("skip path must not run the census")
 
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
@@ -3281,6 +3394,7 @@ def test_run_cycle_replays_a_recorded_stale_census(monkeypatch, capsys):
     rc = ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=lambda *a, **k: _step())
     assert rc == 0
     assert report.census_status.startswith("STALE (recorded outcome replayed")
+    assert report.census_stale is True
     assert report.rebuild_stale_deferred is True
     assert report.gate_rebuild == f"deferred ({ac.STALE_CENSUS_DEFER_NOTE})"
     out = capsys.readouterr().out
@@ -3305,6 +3419,7 @@ def test_run_cycle_reads_a_replayed_clean_outcome_as_an_ordinary_skip(monkeypatc
     rc = ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=lambda *a, **k: _step())
     assert rc == 0
     assert report.census_status == f"skipped ({plan.census_skip_note})"
+    assert report.census_stale is False
 
 
 def test_dry_run_plan_defers_the_census():
@@ -3317,7 +3432,7 @@ def test_dry_run_plan_defers_the_census():
 
 
 def test_run_cycle_never_spawns_a_deferred_census(monkeypatch):
-    def census_must_not_run(**_):
+    def census_must_not_run(*args, **kwargs):
         raise AssertionError("a deferred census must not run")
 
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
@@ -3495,8 +3610,9 @@ def test_run_cycle_records_the_plumbing_green_only_after_a_complete_chain(monkey
     monkeypatch.setattr(ac, "PLUMBING_GREEN", green)
     monkeypatch.setattr(ac, "plumbing_skip_fingerprint", lambda root=None, surface=None, master=None: "plu")
 
-    def complaints_ok(*, spawn, emit, registry):
-        return "3 open complaints in 2 groups"
+    def complaints_ok(report, *, spawn, emit, registry, plan):
+        report.complaints_status = "3 open complaints in 2 groups"
+        report.complaints_ok = True
 
     monkeypatch.setattr(ac, "_do_complaints", complaints_ok)
     plan = _plan(record_greens=True)
@@ -3512,8 +3628,9 @@ def test_run_cycle_records_the_plumbing_green_only_after_a_complete_chain(monkey
 
     green.unlink()
 
-    def complaints_broken(*, spawn, emit, registry):
-        return "FAILED (exit 2) — informational"
+    def complaints_broken(report, *, spawn, emit, registry, plan):
+        report.complaints_status = "FAILED (exit 2) — informational"
+        report.complaints_ok = False
 
     monkeypatch.setattr(ac, "_do_complaints", complaints_broken)
     rc = ac._run_cycle(
@@ -3558,7 +3675,7 @@ def test_run_cycle_records_no_plumbing_green_when_standing_fills_landed(monkeypa
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
     _patch_build_chain(monkeypatch)
     _patch_gate_fingerprints(monkeypatch)
-    monkeypatch.setattr(ac, "_do_complaints", lambda *, spawn, emit, registry: "no open complaints")
+    monkeypatch.setattr(ac, "_do_complaints", _complaints_ok)
     monkeypatch.setattr(ac, "plumbing_skip_fingerprint", lambda root=None, surface=None, master=None: "plu")
     green = tmp_path / "plumbing-green.json"
     monkeypatch.setattr(ac, "PLUMBING_GREEN", green)
@@ -4092,7 +4209,7 @@ def test_finish_survives_a_retention_error(monkeypatch):
     assert rc == 0
 
 
-def _spawning_run_m1(report, *, spawn, emit, registry, budget, **_):
+def _spawning_run_m1(report, *, spawn, emit, registry, **_):
     spawn("run_m1", ["uv", "run", "fake-m1"], emit=emit, registry=registry, stream=True)
     report.unmatched = 1
     report.multi_matched = 0
@@ -4101,14 +4218,15 @@ def _spawning_run_m1(report, *, spawn, emit, registry, budget, **_):
     return ac.GateOutcome(True, [], 1, 0)
 
 
-def _spawning_surface(report, *, spawn, emit, registry, review_out, budget, **_):
+def _spawning_surface(report, *, spawn, emit, registry, review_out, **_):
     spawn("surface", ["uv", "run", "fake-surface"], emit=emit, registry=registry, stream=False)
     report.surface_units = 1
     return True
 
 
-def _complaints_ok(*, spawn, emit, registry):
-    return "no open complaints"
+def _complaints_ok(report, *, spawn, emit, registry, plan):
+    report.complaints_status = "no open complaints"
+    report.complaints_ok = True
 
 
 def _patch_timing_cycle(monkeypatch):
