@@ -712,7 +712,7 @@ def test_prune_orphan_shards_no_units_dir_is_noop(tmp_path):
     assert _prune_orphan_shards(tmp_path, {"classes": []}) == []
 
 
-_PROVENANCE_STAMPS = re.compile(r'("(?:generated_at|repo_head)": )"[^"]*"')
+_PROVENANCE_STAMPS = re.compile(r'("(?:generated_at|repo_head)": ?)"[^"]*"')
 
 
 def _mask_provenance(manifest_text: str) -> str:
@@ -720,7 +720,7 @@ def _mask_provenance(manifest_text: str) -> str:
 
 
 def test_builds_are_byte_identical(built, tmp_path):
-    """A fresh build at yet another jobs count (differing from both the fixture's two jobs and the cycle's budget) reproduces the fixture surface byte for byte, masking only the manifest's generated_at/repo_head provenance stamps — mtime- and commit-derived scalars that can move with no content change."""
+    """A fresh build at yet another jobs count (differing from both the fixture's two jobs and the cycle's budget) reproduces the fixture surface byte for byte — manifest, census-facts sidecar, and every shard — masking only the generated_at/repo_head provenance stamps, mtime- and commit-derived scalars that can move with no content change."""
     out_dir, _manifest = built
     second = tmp_path / "again"
     (second / "units").mkdir(parents=True)
@@ -730,6 +730,9 @@ def test_builds_are_byte_identical(built, tmp_path):
     first_manifest = _mask_provenance((out_dir / "manifest.json").read_text(encoding="utf-8"))
     second_manifest = _mask_provenance((second / "manifest.json").read_text(encoding="utf-8"))
     assert first_manifest == second_manifest
+    first_facts = _mask_provenance((out_dir / "census-facts.json").read_text(encoding="utf-8"))
+    second_facts = _mask_provenance((second / "census-facts.json").read_text(encoding="utf-8"))
+    assert first_facts == second_facts
     first_shards = sorted(path.name for path in (out_dir / "units").glob("*.json"))
     second_shards = sorted(path.name for path in (second / "units").glob("*.json"))
     assert first_shards == second_shards

@@ -1,4 +1,9 @@
-"""Tests for the review surface's ink-identity comparison: the unified boolean (config_diff's identity sentinel, which implies the sorted-placed-pieces census reference) reproduces the census facts — u-0000 is ink-identical, the verdict is deterministic, and the full kern-neutral histogram reproduces the machine-approved census over the live workload at the name-grain (pre-merge) dedupe, concentrated in the name-grain classes whose visible stragglers differ only in the old font's kerning, with the no-verdict exemptions (the boundary-echo blanket plus the two x-height-halves deletion forks) leaving the rest as human workload. Every count is pinned in rebuild/review-census-pins.json (the "ink" group). The built surface then folds ink-duplicate sibling units (merge_ink_duplicate_units), so the shipped manifest's counts are smaller — those are pinned in test_review_build. Also here: `delta_digest`, the persisted identity of one config's localized delta, whose shape check_unit enforces and whose recipe is a byte-identity contract with the digests recorded in rebuild/standing-approvals.yaml."""
+"""Tests for the review surface's ink-identity comparison: the unified boolean (config_diff's identity sentinel, which implies the sorted-placed-pieces census reference) reproduces the census facts — u-0000 is ink-identical, and the verdict is deterministic across comparators.
+
+The kern-neutral census over the live workload at the name-grain (pre-merge) dedupe now comes from the surface build's census-facts.json sidecar, which reports one ink flag per pre-merge unit; the aggregates rebuilt from those flags are pinned in rebuild/review-census-pins.json (the "ink" group), concentrated in the name-grain classes whose visible stragglers differ only in the old font's kerning, with the no-verdict exemptions (the boundary-echo blanket plus the two x-height-halves deletion forks) leaving the rest as human workload. Since the flags are derived rather than re-shaped, a sample here re-shapes them fresh — the whole-corpus stride plus a stratum drawn from the sibling windows, the fold-candidate population where a folded unit borrows its survivor's verdict. The built surface then folds those ink-duplicate sibling units (merge_ink_duplicate_units), so the shipped manifest's counts are smaller — those are pinned in test_review_build.
+
+Also here: `delta_digest`, the persisted identity of one config's localized delta, whose shape check_unit enforces and whose recipe is a byte-identity contract with the digests recorded in rebuild/standing-approvals.yaml.
+"""
 
 import hashlib
 import marshal
@@ -7,9 +12,9 @@ from pathlib import Path
 
 import pytest
 
-from rebuild.review.audit import load_workload
-from rebuild.review.census import ink_histogram, load_pins
-from rebuild.review.enrich import LETTERS
+from rebuild.review import census
+from rebuild.review.audit import _sibling_windows
+from rebuild.review.census import ink_group_from_flags, load_facts, load_pins
 from rebuild.review.ink import (
     IDENTITY_DIFF,
     InkComparator,
@@ -23,8 +28,6 @@ from rebuild.review.ink import (
 from rebuild.validation.shaping import Shaper
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-AUDIT_PATH = REPO_ROOT / "rebuild" / "out" / "m1" / "divergence-audit.tsv"
-LEDGER_PATH = REPO_ROOT / "rebuild" / "m1-divergences.yaml"
 BEFORE_FONT = REPO_ROOT / "site" / "AbbotsMortonSpaceportSansSenior-Regular.otf"
 JUNIOR_FONT = REPO_ROOT / "site" / "AbbotsMortonSpaceportSansJunior-Regular.otf"
 AFTER_FONT = REPO_ROOT / "rebuild" / "out" / "m1" / "M1.otf"
@@ -152,25 +155,36 @@ def test_the_identity_diff_digests_to_a_pinned_constant():
     assert delta_digest(((), (), 1)) != delta_digest(((), (), 0))
 
 
-def test_full_histogram_reproduces_the_census(comparator):
-    """The kern-neutral census facts the rebatching rests on over the live workload at the name-grain (pre-merge) dedupe: the machine-approved units are ink-identical under every config in their sets, concentrated in the name-grain classes (boundary-echo, dangling-anchor-dropped, bare-name-live-join) whose visible difference is only the old font's kerning; the no-verdict share of the non-identical units — the boundary-echo blanket plus the two x-height-halves deletion forks — is exempt, leaving the human workload in its batches. Every count is pinned in rebuild/review-census-pins.json. No verdict family (the UNMATCHED windows) is ink-identical: each is a real new join under review. The built surface additionally folds ink-duplicate siblings; its smaller counts are pinned in test_review_build.
+def test_census_facts_sidecar_matches_the_pinned_census(built_review_surface, workload):
+    """The kern-neutral census facts the rebatching rests on, at the name-grain (pre-merge) dedupe, as the surface build reports them: one ink flag per pre-merge unit, indexed against the workload the digest identifies, reducing to exactly the pinned ink group — the machine-approved units concentrated in the name-grain classes whose visible difference is only the old font's kerning, the no-verdict share of the rest exempt, and the human workload in its batches. Reducing the flags here rather than trusting the sidecar's own aggregate is what makes the pin a check of the records and not of a number the build wrote twice. Whole-corpus invariant: no UNMATCHED window is ink-identical, because each is a real new join under review."""
+    out_dir, manifest = built_review_surface
+    facts = load_facts(out_dir, manifest)
+    assert facts["pins"]["ink"] == PINS["ink"]
+    assert facts["premerge"]["units"] == PINS["audit"]["units"] == len(facts["premerge"]["ink_identical"])
+    assert census.workload_digest(workload.units) == facts["premerge"]["workload_digest"]
+    rows = [(unit.class_id, unit.no_verdict) for unit in workload.units]
+    assert ink_group_from_flags(rows, facts["premerge"]["ink_identical"]) == facts["pins"]["ink"]
+    for index, _family in facts["premerge"]["families"]:
+        assert facts["premerge"]["ink_identical"][index] == "0"
 
-    This test loads its own workload rather than taking the shared session fixture: `ink_histogram` writes its verdicts (`ink_identical`, `batch`) into the units it censuses, and those writes are the very state asserted below — on the shared graph they would leak into every later test in the worker.
-    """
-    workload = load_workload(AUDIT_PATH, LEDGER_PATH, dict(LETTERS))
-    pins = PINS["ink"]
-    stats = ink_histogram(workload, comparator)
-    assert stats["machine_total"] == pins["machine_total"]
-    assert stats["non_identical"] == pins["non_identical"]
-    assert stats["by_class"] == pins["by_class"]
-    assert not any(unit.class_id == "UNMATCHED" and unit.ink_identical for unit in workload.units)
 
-    assert stats["batches"] == pins["batches"]
-    assert stats["boundary_echo_exempt"] == pins["boundary_echo_exempt"]
-    assert stats["human_units"] == pins["human_units"]
-    human = [unit for unit in workload.units if not unit.ink_identical and not unit.no_verdict]
-    assert [unit.batch for unit in human] == [index // 300 for index in range(len(human))]
-    assert all(unit.batch is None for unit in workload.units if unit.ink_identical or unit.no_verdict)
+def test_fresh_ink_derivation_agrees_with_the_sidecar_over_a_sample(
+    built_review_surface, workload, comparator
+):
+    """The sidecar's flags are projected from the build's phase 1, not re-shaped, so something has to keep the projection honest against the fonts. Two strata do: a stride over the whole corpus, and a stride over the units of multi-sibling windows — the fold-candidate population, where a folded unit's flag is its survivor's rather than its own, which is exactly the grain the derivation must get right."""
+    out_dir, manifest = built_review_surface
+    facts = load_facts(out_dir, manifest)
+    assert len(workload.units) == facts["premerge"]["units"]
+    flags = facts["premerge"]["ink_identical"]
+    position = {id(unit): index for index, unit in enumerate(workload.units)}
+    sibling_indices = sorted(
+        position[id(unit)] for siblings in _sibling_windows(workload.units).values() for unit in siblings
+    )
+    stride = max(1, len(sibling_indices) // 150)
+    sample = sorted(set(range(0, len(workload.units), 1000)) | set(sibling_indices[::stride]))
+    for index in sample:
+        unit = workload.units[index]
+        assert comparator.ink_identical(_text(unit), unit.configs) == (flags[index] == "1"), unit.unit_id
 
 
 def test_signature_digest_is_determined_by_the_tuple_alone(comparator):
