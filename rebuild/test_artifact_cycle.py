@@ -2171,8 +2171,8 @@ def test_make_test_exempt_classification():
         "FONTLOG.md",
         "tmp/scratch.txt",
         ".claude/settings.json",
-        "bench-the-rebuild/kernel-model/model.py",
-        "bench-the-rebuild/kernel-model/rust/src/engine.rs",
+        "bench-the-rebuild/scaling/scaling.py",
+        "bench-the-rebuild/primitives/rust/src/main.rs",
         "bench-the-rebuild/fixtures/baseline-rows.tsv",
     ):
         assert ac.make_test_exempt(path), path

@@ -4,7 +4,7 @@ Scratch for the ·Eight migration. Delete when the batch closes, lifting any sur
 
 ## Parked
 
-- **The post-migration scaling sweep is owed.** `bench-the-rebuild/scaling/scaling.py` re-runs after each migration batch as the early warning; read peak RSS off the run alongside the exponents (the Python-arm top rung has sat at the `RUST-PORT-PLAN.md` tripwire row for two batches running) and hand a tripped run to the speed-up tracker rather than this batch.
+- **The post-migration scaling sweep ran, on the kernel arm issue #77 moved it to; the RAM tripwire holds under the line.** Every rung goes through `ams-m1-kernel` now, so the top rung's peak is that kernel child's own high-water, and it sits under the `RUST-PORT-PLAN.md` half-the-box row — within reach of it, not at it, where the Python arm sat for batches 13 and 14 — while the whole-ladder window and CPU fits stay in their standing shape in both denominators, fitted over every rung, never off consecutive pairs, whose tail always reads steeper (`bench-the-rebuild/scaling/scaling.txt` is this run; a pre-#77 row compares on exponent, not constant). The lever inventory is the speed-up tracker's, not this batch's.
 
 ## Shape of the letter, as modeled
 

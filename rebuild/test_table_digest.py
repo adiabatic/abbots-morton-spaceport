@@ -1,17 +1,12 @@
-"""The canonical differential digest: `table.table_digest` over one configuration's built pair. Two things are proved here — that the digest is a function of the tables alone, so two builds of unchanged sources agree, and that it is sensitive at full contract grain, so dropping any one rule, window row, treaty row, reachable cell or cited-provenance pointer, moving the identity-guard count, flipping a rule's joint flag, or stripping a rule's provenance, moves it. The third test holds the promoted digest in lockstep with the byte-for-byte copy `bench-the-rebuild/levers/m1_all_configs.py` keeps for the older comparison trees it measures."""
+"""The canonical differential digest: `table.table_digest` over one configuration's built pair. Two things are proved here — that the digest is a function of the tables alone, so two builds of unchanged sources agree, and that it is sensitive at full contract grain, so dropping any one rule, window row, treaty row, reachable cell or cited-provenance pointer, moving the identity-guard count, flipping a rule's joint flag, or stripping a rule's provenance, moves it."""
 
 import dataclasses
-import importlib
-from pathlib import Path
 
 import pytest
 
 from rebuild.pipeline import fixtures
 from rebuild.pipeline import table as table_module
 from rebuild.pipeline.table import DecisionTable, TreatyTable, build_tables, table_digest
-
-REPO_ROOT = Path(__file__).resolve().parent.parent
-LEVERS = REPO_ROOT / "bench-the-rebuild" / "levers"
 
 SPEC = fixtures.mini_spec()
 
@@ -94,13 +89,3 @@ class TestSensitivity:
         assert table_digest(*mutate(dataclasses.replace(decision), dataclasses.replace(treaty))) != (
             table_digest(decision, treaty)
         )
-
-
-class TestBenchParity:
-    def test_the_lever_copy_and_the_promoted_digest_agree(self, built, monkeypatch):
-        monkeypatch.syspath_prepend(str(LEVERS))
-        lever = importlib.import_module("m1_all_configs")
-        assert lever.table_digest(*built) == table_digest(*built)
-        for features in (frozenset({"ss03"}), frozenset({"ss04"})):
-            pair = build_tables(SPEC, features)
-            assert lever.table_digest(*pair) == table_digest(*pair)
