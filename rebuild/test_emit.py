@@ -1,5 +1,6 @@
 """emit_gsub / emit_gpos tests over the fixture spec with duck-typed decision tables."""
 
+from collections import Counter
 from dataclasses import dataclass, replace
 
 import pytest
@@ -192,6 +193,43 @@ class TestEmitGsub:
                 {frozenset(): FakeDecision([a]), frozenset({"ss03"}): FakeDecision([b])},
                 glyphs=glyphs,
             )
+
+    def test_fold_settle_rules_matches_the_plan(self, spec, glyphs):
+        tables = {
+            frozenset(): FakeDecision(_rules(spec, glyphs)),
+            frozenset({"ss03"}): FakeDecision(_rules(spec, glyphs)),
+        }
+        plan = emit_gsub.emit_gsub(spec, tables, glyphs=glyphs)
+        assert plan.settle_rules
+        assert plan.settle_rules == emit_gsub.fold_settle_rules(spec, tables)
+
+    def test_folded_rows_carry_their_sources(self, spec, glyphs):
+        names = {cell: record.name for cell, record in glyphs.items()}
+        it_ex = names[CellId("qsIt", "hapax", None, "baseline", ())]
+        shared = FakeRule("qsIt", None, ("qsMay",), None, it_ex, provenance=("p1",))
+        default_only = FakeRule(
+            "qsMay", (it_ex,), None, None, names[CellId("qsMay", "loop", "baseline", "x-height", ())]
+        )
+        ss03_only = FakeRule(
+            "qsTea.ss03", (it_ex,), None, None, names[CellId("qsTea", "half", None, "x-height", ())]
+        )
+        plan = emit_gsub.emit_gsub(
+            spec,
+            {
+                frozenset(): FakeDecision([default_only, shared]),
+                frozenset({"ss03"}): FakeDecision([shared, ss03_only]),
+            },
+            glyphs=glyphs,
+        )
+        by_input = {rule.input_glyph: rule for rule in plan.settle_rules}
+        assert by_input["qsIt"].sources == (("default", 1), ("ss03", 0))
+        assert by_input["qsMay"].sources == (("default", 0),)
+        assert by_input["qsTea.ss03"].sources == (("ss03", 1),)
+        sourced = Counter(source for rule in plan.settle_rules for source in rule.sources)
+        assert sourced == Counter([("default", 0), ("default", 1), ("ss03", 0), ("ss03", 1)])
+        assert emit_gsub._config_name(frozenset()) == "default"
+        assert emit_gsub._config_name(frozenset({"ss03", "ss05"})) == "ss03+ss05"
+        assert emit_gsub._config_name("ss10") == "ss10"
 
     def test_ss10_preempt_defined_before_formation(self, spec, glyphs):
         twins = {"qsIt": "qsIt.ss10", "qsMay": "qsMay.ss10", "qsTea": "qsTea.ss10", "qsOy": "qsOy.ss10"}
