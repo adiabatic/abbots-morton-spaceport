@@ -64,12 +64,13 @@ class FormationRow:
 
 @dataclass(frozen=True)
 class SettleRule:
-    """One emitted settlement row as slot glyph-sets: the single input glyph, the backtrack class when the row carries one, the non-empty lookahead slots in emitted order, and the outcome."""
+    """One emitted settlement row as slot glyph-sets: the single input glyph, the backtrack class when the row carries one, the non-empty lookahead slots in emitted order, and the outcome. `sources` names the per-configuration table rules that folded into this row, as `(configuration name, rule index within that configuration's table)` pairs in fold order — the witness gate's link from what ships back to what the table builder derived, so coverage can be counted over the emitted list rather than over the tables behind it."""
 
     input_glyph: str
     backtrack: frozenset[str] | None
     lookahead: tuple[frozenset[str], ...]
     outcome: str
+    sources: tuple[tuple[str, int], ...] = ()
 
 
 @dataclass
@@ -222,6 +223,12 @@ def _marker_lookups(
     return per_feature, marker_glyphs, per_feature_pairs
 
 
+def _marker_names(spec: ResolvedSpec) -> frozenset[str]:
+    """Every marker twin and its chokepoint twin: the labels whose presence in a lookahead slot sorts a rule ahead of the bare-label rules that would otherwise swallow its windows."""
+    _per_feature, marker_glyphs, _pairs = _marker_lookups(spec)
+    return frozenset(marker_glyphs) | frozenset(locked_glyph_name(name) for name in marker_glyphs)
+
+
 def _formation_lines(
     spec: ResolvedSpec, registry: _ClassRegistry
 ) -> tuple[list[str], list[str], list[str], list[FormationRow], list[tuple[tuple[str, ...], str]]]:
@@ -336,12 +343,21 @@ class _FoldedRule:
     outcome: str
     provenance: tuple[str, ...]
     joint: bool
+    sources: tuple[tuple[str, int], ...] = ()
 
 
 def _config_features(config) -> frozenset[str]:
     if isinstance(config, str):
         return frozenset(config.split("+")) - {"default"}
     return frozenset(config)
+
+
+def _config_name(config) -> str:
+    """A configuration key spelled the way `conform.ACCEPTANCE_CONFIGS` spells it, whether the caller keyed its tables by name or by feature set: a name passes through, the empty set is `default`, and a non-empty set joins its members with `+` in sorted order — so a source recorded against a folded row names a configuration a reader can look up."""
+    if isinstance(config, str):
+        return config
+    features = sorted(config)
+    return "+".join(features) if features else "default"
 
 
 def _raw_rename_map(spec: ResolvedSpec | None, features: frozenset[str]) -> dict[str, str]:
@@ -384,15 +400,34 @@ def _renamed(rule, renames: dict[str, str]):
     )
 
 
-def _fold_rules(tables_by_config: Mapping, spec: ResolvedSpec | None = None) -> list:
-    rules: list = []
-    seen: dict[tuple, str] = {}
+def _as_folded(rule, sources: tuple[tuple[str, int], ...]) -> _FoldedRule:
+    def slot(members) -> tuple[str, ...] | None:
+        return tuple(members) if members is not None else None
+
+    return _FoldedRule(
+        input_glyph=rule.input_glyph,
+        backtrack=slot(rule.backtrack),
+        look1=slot(rule.look1),
+        look2=slot(rule.look2),
+        look3=slot(getattr(rule, "look3", None)),
+        look4=slot(getattr(rule, "look4", None)),
+        outcome=rule.outcome,
+        provenance=tuple(rule.provenance or ()),
+        joint=bool(getattr(rule, "joint", False)),
+        sources=sources,
+    )
+
+
+def _fold_rules(tables_by_config: Mapping, spec: ResolvedSpec | None = None) -> list[_FoldedRule]:
+    """The per-configuration tables folded into the single rule list the settlement lookup ships, every returned row carrying the sources it was folded from: a row's `sources` name every configuration whose table contributed that same window key, in fold order, so a row that ships can be traced back to the table rules that derived it — and through them to their witnesses."""
+    rules: list[_FoldedRule] = []
+    positions: dict[tuple, int] = {}
     for config in sorted(tables_by_config, key=lambda c: sorted(_config_features(c))):
         table = tables_by_config[config]
         if isinstance(table, (tuple, list)):
             table = table[0]
         renames = _raw_rename_map(spec, _config_features(config))
-        for raw_rule in getattr(table, "rules", ()):
+        for index, raw_rule in enumerate(getattr(table, "rules", ())):
             rule = _renamed(raw_rule, renames)
             key = (
                 rule.input_glyph,
@@ -402,22 +437,23 @@ def _fold_rules(tables_by_config: Mapping, spec: ResolvedSpec | None = None) -> 
                 getattr(rule, "look3", None),
                 getattr(rule, "look4", None),
             )
-            existing = seen.get(key)
-            if existing is not None:
-                if existing != rule.outcome:
-                    raise EmitError(
-                        f"feature fold conflict at {key}: {existing} vs {rule.outcome} — the marker encoding cannot express this"
-                    )
+            source = (_config_name(config), index)
+            position = positions.get(key)
+            if position is None:
+                positions[key] = len(rules)
+                rules.append(_as_folded(rule, (source,)))
                 continue
-            seen[key] = rule.outcome
-            rules.append(rule)
+            folded = rules[position]
+            if folded.outcome != rule.outcome:
+                raise EmitError(
+                    f"feature fold conflict at {key}: {folded.outcome} vs {rule.outcome} — the marker encoding cannot express this"
+                )
+            rules[position] = dataclasses.replace(folded, sources=folded.sources + (source,))
     return rules
 
 
-def _settle_lines(
-    rules: Iterable, registry: _ClassRegistry, marker_names: frozenset[str] = frozenset()
-) -> tuple[list[str], int, list]:
-    """The settlement lines, their count, and the folded rules in the exact order the lines were emitted from — the order the read-back rebuilds its per-input-glyph expectations in."""
+def _ordered_settle_rules(rules: Iterable, marker_names: frozenset[str] = frozenset()) -> list:
+    """The folded rules in the exact order the settlement lines are emitted from — the order the read-back rebuilds its per-input-glyph expectations in, and so the order first-match-wins runs the shipped lookup in."""
 
     def mentions_marker(rule) -> bool:
         return any(
@@ -434,11 +470,14 @@ def _settle_lines(
         # First-match-wins discipline across the config fold: backtracked (committed-left and ZWNJ-guard) rules keep their precedence over slot-dropped boundary-left rules, and within each block a rule whose lookahead names a marker twin sorts ahead of the bare-label rules that would otherwise swallow its windows via a dropped slot — sound because the marker substitution is unconditional, so a marker label and the bare label it shadows never occur in the same stream. Stable, preserving every config's internal ordering.
         ordered = sorted(input_rules, key=lambda rule: (rule.backtrack is None, not mentions_marker(rule)))
         by_family.setdefault(input_glyph.split(".")[0], []).extend(ordered)
-    grouped = [rule for family_rules in by_family.values() for rule in family_rules]
+    return [rule for family_rules in by_family.values() for rule in family_rules]
+
+
+def _settle_lines(grouped: Iterable, registry: _ClassRegistry) -> list[str]:
+    """One FEA line per rule over an already-ordered rule list, with a `subtable;` break wherever the input family changes. Emission only: which rule ships where is settled upstream in `_ordered_settle_rules`, so the lines and the rows the plan carries are read off one list and cannot drift apart."""
     lines: list[str] = []
     counters: dict[str, int] = {}
     current_family: str | None = None
-    count = 0
     for rule in grouped:
         family = rule.input_glyph.split(".")[0]
         if current_family is not None and family != current_family:
@@ -466,8 +505,33 @@ def _settle_lines(
         ]
         comment = f"  # {' | '.join(comment_bits)}" if comment_bits else ""
         lines.append("    " + " ".join(parts) + comment)
-        count += 1
-    return lines, count, grouped
+    return lines
+
+
+def _settle_rule_of(rule) -> SettleRule:
+    """One folded rule as the plan's structured row: the slots as glyph-sets, and the sources the fold recorded, carried through so the record beside the build names the table rules behind every emitted row."""
+    return SettleRule(
+        input_glyph=rule.input_glyph,
+        backtrack=frozenset(rule.backtrack) if rule.backtrack else None,
+        lookahead=tuple(
+            frozenset(slot)
+            for slot in (
+                rule.look1,
+                rule.look2,
+                getattr(rule, "look3", None),
+                getattr(rule, "look4", None),
+            )
+            if slot
+        ),
+        outcome=rule.outcome,
+        sources=tuple(getattr(rule, "sources", ())),
+    )
+
+
+def fold_settle_rules(spec: ResolvedSpec, tables_by_config: Mapping) -> tuple[SettleRule, ...]:
+    """The emitted settlement lookup's rows in FEA order, each carrying the per-configuration table rules it folded from — the same fold, the same marker renaming and the same ordering `emit_gsub` writes, exposed on its own so a reader of the recorded fold (rebuild/test_rule_witnesses.py) can hold it to the stamped tables without minting a glyph inventory or emitting FEA text."""
+    grouped = _ordered_settle_rules(_fold_rules(tables_by_config, spec), _marker_names(spec))
+    return tuple(_settle_rule_of(rule) for rule in grouped)
 
 
 def _assert_invariants(
@@ -523,11 +587,13 @@ def emit_gsub(
     registry = _ClassRegistry()
     rules = _fold_rules(tables_by_config, spec)
     per_feature_markers, marker_glyphs, marker_pairs = _marker_lookups(spec)
-    marker_names = frozenset(marker_glyphs) | frozenset(locked_glyph_name(name) for name in marker_glyphs)
+    marker_names = _marker_names(spec)
     formation_guarded, formation_plain, formation_ignores, guarded_rows, plain_pairs = _formation_lines(
         spec, registry
     )
-    settle_lines, rule_count, grouped_rules = _settle_lines(rules, registry, marker_names)
+    grouped_rules = _ordered_settle_rules(rules, marker_names)
+    settle_lines = _settle_lines(grouped_rules, registry)
+    rule_count = len(grouped_rules)
 
     live_members = _entry_live_members(spec)
     locked_members = [locked_glyph_name(name) for name in live_members]
@@ -641,24 +707,7 @@ def emit_gsub(
         formation_guarded_rows=tuple(guarded_rows),
         formation_plain=tuple(plain_pairs),
         marker_lines={feature: dict(pairs) for feature, pairs in marker_pairs.items()},
-        settle_rules=tuple(
-            SettleRule(
-                input_glyph=rule.input_glyph,
-                backtrack=frozenset(rule.backtrack) if rule.backtrack else None,
-                lookahead=tuple(
-                    frozenset(slot)
-                    for slot in (
-                        rule.look1,
-                        rule.look2,
-                        getattr(rule, "look3", None),
-                        getattr(rule, "look4", None),
-                    )
-                    if slot
-                ),
-                outcome=rule.outcome,
-            )
-            for rule in grouped_rules
-        ),
+        settle_rules=tuple(_settle_rule_of(rule) for rule in grouped_rules),
         namer_dot_stage=namer_dot_stage,
         calt_stages=tuple(calt_lookups),
     )
