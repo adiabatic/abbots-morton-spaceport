@@ -29,7 +29,7 @@ def stamped_decision(config: str) -> DecisionTable | None:
 
 
 @pytest.mark.parametrize("config", conform.ACCEPTANCE_CONFIGS)
-def test_every_rule_has_a_witness(spec, config):
+def test_every_rule_has_a_witness(spec, config, live_artifacts):
     features = conform.features_for_config(config)
     decision = stamped_decision(config)
     if decision is None:
@@ -46,7 +46,7 @@ def test_every_rule_has_a_witness(spec, config):
     assert len(report.witnessed) == len(decision.rules)
 
 
-def test_the_stamped_table_is_what_a_fresh_fixpoint_builds(spec):
+def test_the_stamped_table_is_what_a_fresh_fixpoint_builds(spec, live_artifacts):
     """The parity backstop for the substitution above, paid once on the default configuration instead of once per arm: a fresh fixpoint over the current sources produces exactly the rules and windows the stamped enumeration carries. One configuration suffices because every configuration rides the same write_windows/read_windows handoff and the same stamp, and test_windows.py already proves that handoff faithful on the mini spec; what this adds is the real spec, end to end, across processes."""
     decision = stamped_decision("default")
     if decision is None:

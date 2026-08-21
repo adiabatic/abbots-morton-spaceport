@@ -30,12 +30,11 @@ from rebuild.validation.shaping import Shaper
 REPO_ROOT = Path(__file__).resolve().parent.parent
 BEFORE_FONT = REPO_ROOT / "site" / "AbbotsMortonSpaceportSansSenior-Regular.otf"
 JUNIOR_FONT = REPO_ROOT / "site" / "AbbotsMortonSpaceportSansJunior-Regular.otf"
-AFTER_FONT = REPO_ROOT / "rebuild" / "out" / "m1" / "M1.otf"
 
 
 @pytest.fixture(scope="module")
-def comparator():
-    return InkComparator(BEFORE_FONT, AFTER_FONT)
+def comparator(live_artifacts):
+    return InkComparator(BEFORE_FONT, live_artifacts.font)
 
 
 def _text(unit) -> str:
@@ -74,8 +73,8 @@ def test_u_0000_is_ink_identical(workload, comparator):
     assert comparator.ink_identical(_text(unit), unit.configs) is True
 
 
-def test_verdicts_are_deterministic_across_two_comparators(workload, comparator):
-    again = InkComparator(BEFORE_FONT, AFTER_FONT)
+def test_verdicts_are_deterministic_across_two_comparators(workload, comparator, live_artifacts):
+    again = InkComparator(BEFORE_FONT, live_artifacts.font)
     sample = workload.units[::200]
     assert [comparator.ink_identical(_text(unit), unit.configs) for unit in sample] == [
         again.ink_identical(_text(unit), unit.configs) for unit in sample
@@ -97,9 +96,9 @@ def test_config_diff_localizes_the_delta_to_the_changed_region(comparator):
     assert diff_two[2] == -50
 
 
-def test_the_retired_sorted_runs_formulation_agrees_over_a_corpus_sample(workload):
+def test_the_retired_sorted_runs_formulation_agrees_over_a_corpus_sample(workload, live_artifacts):
     """The unification contract: ink_identical reads config_diff's identity sentinel, and the retired census formulation — sorted whole placed runs compared across fonts — must reach the same verdict on every (text, config). The sentinel implies run identity by construction (empty middles and no follower shift leave nothing moved), so the direction this samples is the converse: no window whose placed runs match may come back with a nonempty localized delta or a recorded shift. The full-corpus backstop is the census itself — a disagreement can only flip a unit identical→non-identical, so any escape moves machine_total in the pins diff a human reads at acceptance."""
-    comparator = InkComparator(BEFORE_FONT, AFTER_FONT, shaper_for)
+    comparator = InkComparator(BEFORE_FONT, live_artifacts.font, shaper_for)
     disagreements = []
     for unit in workload.units[::200]:
         text = _text(unit)
@@ -124,11 +123,11 @@ def test_delta_digest_is_a_d_prefixed_twelve_hex_token(comparator):
         assert all(character in "0123456789abcdef" for character in digest[2:])
 
 
-def test_delta_digest_is_determined_by_the_tuple_alone(comparator):
+def test_delta_digest_is_determined_by_the_tuple_alone(comparator, live_artifacts):
     """Equal tuples digest equally no matter which comparator, run, or process produced them — that is what lets a digest recorded in rebuild/standing-approvals.yaml keep matching across rebuilds. Asserted both against a freshly constructed comparator and against a hand-written copy of the tuple."""
     pair = "".join(chr(value) for value in (0xE650, 0xE665))
     diff = comparator.config_diff(pair, "default")
-    again = InkComparator(BEFORE_FONT, AFTER_FONT)
+    again = InkComparator(BEFORE_FONT, live_artifacts.font)
     assert delta_digest(again.config_diff(pair, "default")) == delta_digest(diff)
     assert delta_digest((diff[0], diff[1], diff[2])) == delta_digest(diff)
 
@@ -184,11 +183,11 @@ def test_fresh_ink_derivation_agrees_with_the_sidecar_over_a_sample(
         assert comparator.ink_identical(_text(unit), unit.configs) == (flags[index] == "1"), unit.unit_id
 
 
-def test_signature_digest_is_determined_by_the_tuple_alone(comparator):
+def test_signature_digest_is_determined_by_the_tuple_alone(comparator, live_artifacts):
     """Equal signatures digest equally across comparators and processes — what lets the persisted ink-signature store serve a digest recorded by a prior build — and different placed ink digests apart."""
     pair = "".join(chr(value) for value in (0xE650, 0xE665))
     digest = signature_digest(comparator.signature(pair, "default"))
-    again = InkComparator(BEFORE_FONT, AFTER_FONT)
+    again = InkComparator(BEFORE_FONT, live_artifacts.font)
     assert signature_digest(again.signature(pair, "default")) == digest
     assert signature_digest(comparator.signature(pair[:1], "default")) != digest
 
@@ -230,8 +229,8 @@ def test_shaper_for_rekeys_when_the_font_changes_on_disk(tmp_path):
 
 
 @pytest.fixture(scope="module")
-def oracle():
-    return JuniorOracle(JUNIOR_FONT, BEFORE_FONT, AFTER_FONT)
+def oracle(live_artifacts):
+    return JuniorOracle(JUNIOR_FONT, BEFORE_FONT, live_artifacts.font)
 
 
 def test_junior_tracking_premise_holds(oracle):

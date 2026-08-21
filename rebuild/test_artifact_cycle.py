@@ -12,9 +12,47 @@ from typing import Any
 
 import pytest
 
+from rebuild.conftest import is_live_artifact_path
 from rebuild.review import journal
 from rebuild.tools import artifact_cycle as ac
 from rebuild.tools.cycle_timings import CycleTimings
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+@pytest.fixture(autouse=True)
+def _redirect_contracts_lane_reads(monkeypatch, tmp_path):
+    """The read half of the suite's no-live-repo standard, and it needs its own argument, because a read costs the repo nothing and so was never covered by the write redirect in the conftest. What it costs instead is the truth of the test: the cycle resolves its *read* paths from the live repo at call time exactly as it resolves its write paths, so a test driving `_run_cycle` over mocked stages still renders its summary from whatever review surface and behavior-class sidecar happen to be sitting in rebuild/out — a number the test never built, from a build it never ran, which flips with the working tree under it. Every test here is a contracts-lane test, so there is no lane to check and no legitimate live read to preserve: this module sees the live artifacts as absent, and the audit guard fails anything that reaches past this for one.
+
+    It says that at the four seams that turn a live path into a value the cycle keys on. The review surface is a constant and redirects as one. The behavior-class sidecar cannot: `deep_sweep_skip_lines` re-roots BEHAVIOR_CLASSES against ROOT, so pointing the constant outside ROOT makes it unreadable for *every* root and breaks the tests that pass their own — the seam that survives is the default root itself. The last two are what the gates' `*_skip_lines(ROOT)` reach through: two globs over rebuild/out (`baselines_value`, `_subset_tables`) and the per-file digest, which answers "absent" for a live path exactly as it already does for one that is missing. Every one of them answers only for the live root, so a caller that passes its own — which is how the tests about those functions are written — runs the real thing.
+    """
+    from rebuild.pipeline import fingerprint
+
+    real_sweep_lines = ac.deep_sweep_skip_lines
+    real_baselines = fingerprint.baselines_value
+    real_subsets = ac._subset_tables
+    real_sha = ac._sha256_path
+    monkeypatch.setattr(ac, "REVIEW_OUT", tmp_path / "review")
+    monkeypatch.setattr(
+        ac,
+        "_sha256_path",
+        lambda path: "absent" if is_live_artifact_path(path) else real_sha(path),
+    )
+    monkeypatch.setattr(
+        ac,
+        "_subset_tables",
+        lambda root: [] if root == REPO_ROOT else real_subsets(root),
+    )
+    monkeypatch.setattr(
+        ac,
+        "deep_sweep_skip_lines",
+        lambda root=ac.ROOT: None if root == ac.ROOT else real_sweep_lines(root),
+    )
+    monkeypatch.setattr(
+        fingerprint,
+        "baselines_value",
+        lambda root: "contracts-lane" if root == REPO_ROOT else real_baselines(root),
+    )
 
 
 def _pass_summaries():
@@ -166,11 +204,28 @@ def test_dry_run_plan_default():
         "--surface",
         str(ac.REVIEW_OUT),
     ]
-    assert by_name["gate:rebuild"].argv == [
+    assert by_name["gate:rebuild-contracts"].argv == [
         "uv",
         "run",
         "pytest",
         "rebuild/",
+        "--lane",
+        "contracts",
+        "-n",
+        "auto",
+        "--dist",
+        "worksteal",
+        "-q",
+        "--tb=no",
+        "-rfE",
+    ]
+    assert by_name["gate:rebuild-validators"].argv == [
+        "uv",
+        "run",
+        "pytest",
+        "rebuild/",
+        "--lane",
+        "validators",
         "-n",
         "auto",
         "--dist",
@@ -224,7 +279,8 @@ def test_dry_run_plan_skip_conform():
     by_name = {step.name: step for step in plan.steps}
     assert by_name["gate:conform"].argv is None
     assert by_name["gate:conform"].note == "SKIPPED (--skip-conform)"
-    assert by_name["gate:rebuild"].argv is not None
+    assert by_name["gate:rebuild-contracts"].argv is not None
+    assert by_name["gate:rebuild-validators"].argv is not None
 
 
 def test_dry_run_plan_merge_follows_carry():
@@ -295,8 +351,8 @@ def test_dry_run_plan_no_merge_skips_the_merge_step():
     assert plan.do_merge is False
 
 
-def test_dry_run_plan_rehearsal_never_touches_the_autosave():
-    plan = _plan(review_out=Path("tmp/reh"))
+def test_dry_run_plan_rehearsal_never_touches_the_autosave(tmp_path):
+    plan = _plan(review_out=tmp_path / "reh")
     by_name = {step.name: step for step in plan.steps}
     assert by_name["merge"].argv is None
     assert "rehearsal" in by_name["merge"].note
@@ -335,7 +391,7 @@ def test_dry_run_plan_complaints_skips_on_rehearsal_first_run_and_missing_autosa
     autosave = tmp_path / "verdicts-autosave.json"
     autosave.write_text("{}")
     monkeypatch.setattr(ac, "AUTOSAVE", autosave)
-    rehearsal = _plan(review_out=Path("tmp/reh"))
+    rehearsal = _plan(review_out=tmp_path / "reh")
     by_name = {step.name: step for step in rehearsal.steps}
     assert by_name["complaints"].argv is None
     assert "rehearsal" in by_name["complaints"].note
@@ -464,7 +520,8 @@ def test_dry_run_plan_skip_gates():
     )
     names = {step.name for step in plan.steps}
     assert "gate:js" not in names
-    assert "gate:rebuild" not in names
+    assert "gate:rebuild-contracts" not in names
+    assert "gate:rebuild-validators" not in names
     assert "gate:conform" not in names
 
 
@@ -628,7 +685,11 @@ def _make_ok(argv, spawn, emit, registry):
     return _step("gate:make-test", 0)
 
 
-def _rebuild_green(pool_policy, conform_fut, make_fut, spawn, emit, registry, argv):
+def _contracts_green(pool_policy, conform_fut, make_fut, spawn, emit, registry, argv):
+    return ac.RebuildOutcome("green", [], [])
+
+
+def _validators_green(pool_policy, conform_fut, contracts_fut, make_fut, spawn, emit, registry, argv):
     return ac.RebuildOutcome("green", [], [])
 
 
@@ -639,7 +700,7 @@ def _conform_green(pool_policy, make_fut, spawn, emit, registry, argv):
 def _patch_gate_fingerprints(monkeypatch):
     """The gate greens' keys, for a test that only cares that a green was or wasn't recorded. Unstubbed these are the live ones: _run_cycle snapshots them before the gates and _record_gate_greens recomputes them after, and each pass runs git ls-files over the repo and sha256s all of rebuild/, glyph_data/, the fonts, and the baseline TSVs — several seconds per test, and an answer that depends on the working tree rather than on the arrangement the test set up. Whether a moved key withholds the green is its own test."""
     monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, horizon=None: "cfp")
-    monkeypatch.setattr(ac, "rebuild_gate_skip_fingerprint", lambda root=None: "rfp")
+    monkeypatch.setattr(ac, "rebuild_lane_fingerprint", lambda root, lane: f"rfp-{lane}")
 
 
 def _patch_build_chain(monkeypatch):
@@ -665,7 +726,8 @@ def test_merge_failure_fails_the_cycle(monkeypatch, capsys):
     monkeypatch.setattr(ac, "_do_census", _census_clean)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
-    monkeypatch.setattr(ac, "_gate_rebuild_task", _rebuild_green)
+    monkeypatch.setattr(ac, "_gate_contracts_task", _contracts_green)
+    monkeypatch.setattr(ac, "_gate_validators_task", _validators_green)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
 
     plan = _plan()
@@ -694,7 +756,8 @@ def test_merge_not_run_when_carry_fails(monkeypatch, capsys):
     monkeypatch.setattr(ac, "_do_census", _census_clean)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
-    monkeypatch.setattr(ac, "_gate_rebuild_task", _rebuild_green)
+    monkeypatch.setattr(ac, "_gate_contracts_task", _contracts_green)
+    monkeypatch.setattr(ac, "_gate_validators_task", _validators_green)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
 
     plan = _plan()
@@ -727,7 +790,8 @@ def test_echo_fill_failure_fails_the_cycle(monkeypatch, capsys):
     monkeypatch.setattr(ac, "_do_census", _census_clean)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
-    monkeypatch.setattr(ac, "_gate_rebuild_task", _rebuild_green)
+    monkeypatch.setattr(ac, "_gate_contracts_task", _contracts_green)
+    monkeypatch.setattr(ac, "_gate_validators_task", _validators_green)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
 
     plan = _plan()
@@ -757,7 +821,8 @@ def test_echo_merge_failure_fails_the_cycle(monkeypatch, capsys):
     monkeypatch.setattr(ac, "_do_census", _census_clean)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
-    monkeypatch.setattr(ac, "_gate_rebuild_task", _rebuild_green)
+    monkeypatch.setattr(ac, "_gate_contracts_task", _contracts_green)
+    monkeypatch.setattr(ac, "_gate_validators_task", _validators_green)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
 
     plan = _plan()
@@ -794,7 +859,8 @@ def test_standing_fill_failure_fails_the_cycle(monkeypatch, capsys):
     monkeypatch.setattr(ac, "_do_census", _census_clean)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
-    monkeypatch.setattr(ac, "_gate_rebuild_task", _rebuild_green)
+    monkeypatch.setattr(ac, "_gate_contracts_task", _contracts_green)
+    monkeypatch.setattr(ac, "_gate_validators_task", _validators_green)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
 
     plan = _plan()
@@ -828,7 +894,8 @@ def test_echo_helpers_not_run_when_do_merge_false(monkeypatch):
     monkeypatch.setattr(ac, "_do_census", _census_clean)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
-    monkeypatch.setattr(ac, "_gate_rebuild_task", _rebuild_green)
+    monkeypatch.setattr(ac, "_gate_contracts_task", _contracts_green)
+    monkeypatch.setattr(ac, "_gate_validators_task", _validators_green)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
 
     plan = _plan(no_merge=True)
@@ -1041,7 +1108,8 @@ def test_gates_launch_before_run_m1_finishes(monkeypatch):
     monkeypatch.setattr(ac, "_gate_js_task", fake_js)
     monkeypatch.setattr(ac, "_gate_make_test_task", fake_make)
     monkeypatch.setattr(ac, "_do_run_m1", fake_run_m1)
-    monkeypatch.setattr(ac, "_gate_rebuild_task", _rebuild_green)
+    monkeypatch.setattr(ac, "_gate_contracts_task", _contracts_green)
+    monkeypatch.setattr(ac, "_gate_validators_task", _validators_green)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
     _patch_build_chain(monkeypatch)
 
@@ -1066,19 +1134,24 @@ def test_gates_launch_before_run_m1_finishes(monkeypatch):
     assert record["make_start"] < record["run_m1_finish"]
 
 
-def test_gate_rebuild_waits_for_run_m1_pass(monkeypatch):
+def test_both_rebuild_lanes_wait_for_run_m1_pass(monkeypatch):
     record = {}
 
     def fake_run_m1(report, *, spawn, emit, registry, **_):
         record["run_m1_finish"] = time.monotonic()
         return ac.GateOutcome(True, [], 1, 0)
 
-    def fake_rebuild(pool_policy, conform_fut, make_fut, spawn, emit, registry, argv):
-        record["rebuild_invoked"] = time.monotonic()
+    def fake_contracts(pool_policy, conform_fut, make_fut, spawn, emit, registry, argv):
+        record["contracts_invoked"] = time.monotonic()
+        return ac.RebuildOutcome("green", [], [])
+
+    def fake_validators(pool_policy, conform_fut, contracts_fut, make_fut, spawn, emit, registry, argv):
+        record["validators_invoked"] = time.monotonic()
         return ac.RebuildOutcome("green", [], [])
 
     monkeypatch.setattr(ac, "_do_run_m1", fake_run_m1)
-    monkeypatch.setattr(ac, "_gate_rebuild_task", fake_rebuild)
+    monkeypatch.setattr(ac, "_gate_contracts_task", fake_contracts)
+    monkeypatch.setattr(ac, "_gate_validators_task", fake_validators)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
@@ -1088,21 +1161,27 @@ def test_gate_rebuild_waits_for_run_m1_pass(monkeypatch):
     report = ac.CycleReport()
     ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=lambda *a, **k: _step())
 
-    assert record["rebuild_invoked"] >= record["run_m1_finish"]
+    assert record["contracts_invoked"] >= record["run_m1_finish"]
+    assert record["validators_invoked"] >= record["run_m1_finish"]
 
 
-def test_gate_rebuild_skipped_when_run_m1_fails(monkeypatch, capsys):
-    called = {"rebuild": False}
+def test_both_rebuild_lanes_are_skipped_when_run_m1_fails(monkeypatch, capsys):
+    called = {"contracts": False, "validators": False}
 
     def fake_run_m1(report, *, spawn, emit, registry, **_):
         return None
 
-    def fake_rebuild(pool_policy, conform_fut, make_fut, spawn, emit, registry, argv):
-        called["rebuild"] = True
+    def fake_contracts(pool_policy, conform_fut, make_fut, spawn, emit, registry, argv):
+        called["contracts"] = True
+        return ac.RebuildOutcome("green", [], [])
+
+    def fake_validators(pool_policy, conform_fut, contracts_fut, make_fut, spawn, emit, registry, argv):
+        called["validators"] = True
         return ac.RebuildOutcome("green", [], [])
 
     monkeypatch.setattr(ac, "_do_run_m1", fake_run_m1)
-    monkeypatch.setattr(ac, "_gate_rebuild_task", fake_rebuild)
+    monkeypatch.setattr(ac, "_gate_contracts_task", fake_contracts)
+    monkeypatch.setattr(ac, "_gate_validators_task", fake_validators)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
     _patch_build_chain(monkeypatch)
@@ -1111,14 +1190,15 @@ def test_gate_rebuild_skipped_when_run_m1_fails(monkeypatch, capsys):
     report = ac.CycleReport()
     rc = ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=lambda *a, **k: _step())
 
-    assert not called["rebuild"]
-    assert report.gate_rebuild == "not run (run_m1 gate failed)"
+    assert called == {"contracts": False, "validators": False}
+    assert report.gate_contracts == "not run (run_m1 gate failed)"
+    assert report.gate_validators == "not run (run_m1 gate failed)"
     assert report.gate_conform == "not run (run_m1 gate failed)"
     assert rc == 1
     assert capsys.readouterr().out.count("ARTIFACT CYCLE SUMMARY") == 1
 
 
-def test_pool_queue_serializes_rebuild_after_make_test(monkeypatch):
+def test_pool_queue_serializes_the_contracts_lane_after_make_test(monkeypatch):
     record = {}
     release_make = threading.Event()
     make_running = threading.Event()
@@ -1130,8 +1210,8 @@ def test_pool_queue_serializes_rebuild_after_make_test(monkeypatch):
         return _step("gate:make-test", 0)
 
     def fake_spawn(name, argv, *, emit, registry, stream):
-        if name == "gate:rebuild":
-            record["rebuild_start"] = time.monotonic()
+        if name == "gate:rebuild-contracts":
+            record["contracts_start"] = time.monotonic()
         return _step(name, 0)
 
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
@@ -1153,13 +1233,13 @@ def test_pool_queue_serializes_rebuild_after_make_test(monkeypatch):
     release_make.set()
     t.join()
 
-    assert record["rebuild_start"] >= record["make_finish"]
+    assert record["contracts_start"] >= record["make_finish"]
 
 
-def test_pool_overlap_starts_rebuild_before_make_test_done(monkeypatch):
+def test_pool_overlap_starts_the_contracts_lane_before_make_test_done(monkeypatch):
     record = {}
     release_make = threading.Event()
-    rebuild_started = threading.Event()
+    contracts_started = threading.Event()
 
     def fake_run_m1(report, *, spawn, emit, registry, **_):
         record["run_m1_finish"] = time.monotonic()
@@ -1171,9 +1251,9 @@ def test_pool_overlap_starts_rebuild_before_make_test_done(monkeypatch):
         return _step("gate:make-test", 0)
 
     def fake_spawn(name, argv, *, emit, registry, stream):
-        if name == "gate:rebuild":
-            record["rebuild_start"] = time.monotonic()
-            rebuild_started.set()
+        if name == "gate:rebuild-contracts":
+            record["contracts_start"] = time.monotonic()
+            contracts_started.set()
         return _step(name, 0)
 
     monkeypatch.setattr(ac, "_do_run_m1", fake_run_m1)
@@ -1191,21 +1271,24 @@ def test_pool_overlap_starts_rebuild_before_make_test_done(monkeypatch):
         )
     )
     t.start()
-    rebuild_started.wait()
+    contracts_started.wait()
     release_make.set()
     t.join()
 
-    assert record["rebuild_start"] < record["make_finish"]
-    assert record["rebuild_start"] >= record["run_m1_finish"]
+    assert record["contracts_start"] < record["make_finish"]
+    assert record["contracts_start"] >= record["run_m1_finish"]
 
 
-def test_pool_queue_rebuild_waits_for_conform_gate(monkeypatch):
+def test_pool_queue_runs_make_test_then_conform_then_contracts_then_validators(monkeypatch):
+    """The whole queue chain, in one run: only one heavy pool is hot at a time, and the short contracts lane goes ahead of the half-hour validators lane so a code error fails the cycle before the long one starts."""
     record = {}
     release_make = threading.Event()
     make_running = threading.Event()
     release_conform = threading.Event()
     conform_running = threading.Event()
-    rebuild_started = threading.Event()
+    contracts_started = threading.Event()
+    release_contracts = threading.Event()
+    validators_started = threading.Event()
 
     def fake_make(argv, spawn, emit, registry):
         make_running.set()
@@ -1220,10 +1303,16 @@ def test_pool_queue_rebuild_waits_for_conform_gate(monkeypatch):
         return "green", []
 
     def fake_spawn(name, argv, *, emit, registry, stream):
-        if name == "gate:rebuild":
-            record["rebuild_start"] = time.monotonic()
-            record["rebuild_argv"] = argv
-            rebuild_started.set()
+        if name == "gate:rebuild-contracts":
+            record["contracts_start"] = time.monotonic()
+            record["contracts_argv"] = argv
+            contracts_started.set()
+            release_contracts.wait()
+            record["contracts_finish"] = time.monotonic()
+        if name == "gate:rebuild-validators":
+            record["validators_start"] = time.monotonic()
+            record["validators_argv"] = argv
+            validators_started.set()
         return _step(name, 0)
 
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
@@ -1243,25 +1332,31 @@ def test_pool_queue_rebuild_waits_for_conform_gate(monkeypatch):
     t.start()
     make_running.wait()
     conform_running.wait()
-    assert "rebuild_start" not in record
+    assert "contracts_start" not in record
     release_make.set()
-    assert not rebuild_started.wait(0.2)
+    assert not contracts_started.wait(0.2)
     release_conform.set()
-    rebuild_started.wait()
+    contracts_started.wait()
+    assert not validators_started.wait(0.2)
+    release_contracts.set()
+    validators_started.wait()
     t.join()
 
-    assert record["rebuild_start"] >= record["conform_finish"]
-    assert record["rebuild_start"] >= record["make_finish"]
-    assert record["rebuild_argv"] == list(ac.REBUILD_PYTEST_ARGV)
-    assert report.gate_rebuild == "green"
+    assert record["contracts_start"] >= record["conform_finish"]
+    assert record["contracts_start"] >= record["make_finish"]
+    assert record["validators_start"] >= record["contracts_finish"]
+    assert record["contracts_argv"] == ac.rebuild_lane_argv("contracts")
+    assert record["validators_argv"] == ac.rebuild_lane_argv("validators")
+    assert report.gate_contracts == "green"
+    assert report.gate_validators == "green"
     assert box["rc"] == 0
 
 
-def test_pool_queue_rebuild_falls_back_to_make_test_when_conform_skipped(monkeypatch):
+def test_pool_queue_contracts_falls_back_to_make_test_when_conform_skipped(monkeypatch):
     record = {}
     release_make = threading.Event()
     make_running = threading.Event()
-    rebuild_started = threading.Event()
+    contracts_started = threading.Event()
 
     def fake_make(argv, spawn, emit, registry):
         make_running.set()
@@ -1270,9 +1365,9 @@ def test_pool_queue_rebuild_falls_back_to_make_test_when_conform_skipped(monkeyp
         return _step("gate:make-test", 0)
 
     def fake_spawn(name, argv, *, emit, registry, stream):
-        if name == "gate:rebuild":
-            record["rebuild_start"] = time.monotonic()
-            rebuild_started.set()
+        if name == "gate:rebuild-contracts":
+            record["contracts_start"] = time.monotonic()
+            contracts_started.set()
         return _step(name, 0)
 
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
@@ -1290,24 +1385,26 @@ def test_pool_queue_rebuild_falls_back_to_make_test_when_conform_skipped(monkeyp
     )
     t.start()
     make_running.wait()
-    assert not rebuild_started.wait(0.2)
+    assert not contracts_started.wait(0.2)
     release_make.set()
-    rebuild_started.wait()
+    contracts_started.wait()
     t.join()
 
-    assert record["rebuild_start"] >= record["make_finish"]
+    assert record["contracts_start"] >= record["make_finish"]
     assert report.gate_conform == "skipped (--skip-conform)"
-    assert report.gate_rebuild == "green"
+    assert report.gate_contracts == "green"
+    assert report.gate_validators == "green"
     assert box["rc"] == 0
 
 
 def test_the_gate_pool_seats_every_gate_task_at_once():
-    """Under the queue policy a parked task holds its worker for the whole wait — conform on make-test, rebuild on both — so the pool seats every gate task at once, with two seats to spare. The chain cannot actually deadlock at a smaller width — submission order matches the parking order and the pool is FIFO, so a task only ever parks on a future already seated or done — but a seat short of the task count would serialize a wait behind an unrelated task's completion, which is the queueing this pool exists not to do."""
+    """Under the queue policy a parked task holds its worker for the whole wait — conform on make-test, contracts on both, validators on all three — so the pool seats every gate task at once, with two seats to spare. The chain cannot actually deadlock at a smaller width — submission order matches the parking order and the pool is FIFO, so a task only ever parks on a future already seated or done — but a seat short of the task count would serialize a wait behind an unrelated task's completion, which is the queueing this pool exists not to do."""
     gate_tasks = (
         ac._gate_js_task,
         ac._gate_make_test_task,
         ac._gate_conform_task,
-        ac._gate_rebuild_task,
+        ac._gate_contracts_task,
+        ac._gate_validators_task,
     )
     assert ac._GATE_POOL_WORKERS == len(gate_tasks) + 2
 
@@ -1315,7 +1412,8 @@ def test_the_gate_pool_seats_every_gate_task_at_once():
 def test_summary_exact_under_out_of_order_completion(monkeypatch, capsys):
     ev_js = threading.Event()
     ev_make = threading.Event()
-    ev_rebuild = threading.Event()
+    ev_contracts = threading.Event()
+    ev_validators = threading.Event()
 
     def fake_run_m1(report, *, spawn, emit, registry, **_):
         report.unmatched = 7777
@@ -1339,9 +1437,13 @@ def test_summary_exact_under_out_of_order_completion(monkeypatch, capsys):
         ev_make.wait()
         return _step("gate:make-test", 0)
 
-    def fake_rebuild(pool_policy, conform_fut, make_fut, spawn, emit, registry, argv):
-        ev_rebuild.wait()
+    def fake_contracts(pool_policy, conform_fut, make_fut, spawn, emit, registry, argv):
+        ev_contracts.wait()
         return ac.RebuildOutcome("green (1 documented baseline)", [], [])
+
+    def fake_validators(pool_policy, conform_fut, contracts_fut, make_fut, spawn, emit, registry, argv):
+        ev_validators.wait()
+        return ac.RebuildOutcome("green", [], [])
 
     monkeypatch.setattr(ac, "_do_run_m1", fake_run_m1)
     monkeypatch.setattr(ac, "_do_surface_build", fake_surface)
@@ -1349,7 +1451,8 @@ def test_summary_exact_under_out_of_order_completion(monkeypatch, capsys):
     monkeypatch.setattr(ac, "_do_census", _census_clean)
     monkeypatch.setattr(ac, "_gate_js_task", fake_js)
     monkeypatch.setattr(ac, "_gate_make_test_task", fake_make)
-    monkeypatch.setattr(ac, "_gate_rebuild_task", fake_rebuild)
+    monkeypatch.setattr(ac, "_gate_contracts_task", fake_contracts)
+    monkeypatch.setattr(ac, "_gate_validators_task", fake_validators)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
 
     plan = _plan()
@@ -1363,7 +1466,8 @@ def test_summary_exact_under_out_of_order_completion(monkeypatch, capsys):
     )
     t.start()
     ev_make.set()
-    ev_rebuild.set()
+    ev_validators.set()
+    ev_contracts.set()
     ev_js.set()
     t.join()
 
@@ -1374,7 +1478,8 @@ def test_summary_exact_under_out_of_order_completion(monkeypatch, capsys):
     assert report.unmatched == 7777
     assert report.gate_js == "green"
     assert report.gate_make_test == "green"
-    assert report.gate_rebuild == "green (1 documented baseline)"
+    assert report.gate_contracts == "green (1 documented baseline)"
+    assert report.gate_validators == "green"
     assert report.gate_conform == "green"
     out = capsys.readouterr().out
     assert out.count("ARTIFACT CYCLE SUMMARY") == 1
@@ -1416,7 +1521,8 @@ def test_prefix_streaming_serialized_no_interleave(capsys):
         assert match.group(1) == match.group(2), line
 
 
-def test_gate_rebuild_stays_captured_and_parses_failures(capsys):
+@pytest.mark.parametrize("lane", ac.REBUILD_LANES)
+def test_a_rebuild_lane_stays_captured_and_parses_failures(lane, capsys):
     stdout = "\n".join(
         [
             "FAILED rebuild/test_unknown_thing.py::test_x - boom",
@@ -1434,10 +1540,13 @@ def test_gate_rebuild_stays_captured_and_parses_failures(capsys):
 
     emit = ac._Emitter()
     registry = ac._ChildRegistry()
-    outcome = ac._gate_rebuild_task(
-        "overlap", None, None, fake_spawn, emit, registry, list(ac.REBUILD_PYTEST_ARGV)
-    )
+    argv = ac.rebuild_lane_argv(lane)
+    if lane == "contracts":
+        outcome = ac._gate_contracts_task("overlap", None, None, fake_spawn, emit, registry, argv)
+    else:
+        outcome = ac._gate_validators_task("overlap", None, None, None, fake_spawn, emit, registry, argv)
 
+    assert seen["name"] == f"gate:rebuild-{lane}"
     assert seen["stream"] is False
     assert outcome.baseline_ids == ["rebuild/test_surface.py::test_real_cell_bindings_all_match"]
     assert len(outcome.hard_ids) == 3
@@ -1447,11 +1556,14 @@ def test_gate_rebuild_stays_captured_and_parses_failures(capsys):
     failures = []
     with ThreadPoolExecutor(max_workers=1) as pool:
         fut = pool.submit(lambda: outcome)
-        ac._join_gates(report, failures, None, fut, None, None, emit)
-    assert report.gate_rebuild == "FAILED (3 unexplained)"
+        futures = (fut, None) if lane == "contracts" else (None, fut)
+        ac._join_gates(report, failures, None, *futures, None, None, emit)
+    status = report.gate_contracts if lane == "contracts" else report.gate_validators
+    assert status == "FAILED (3 unexplained)"
 
     out = capsys.readouterr().out
-    assert not any(line.startswith("[gate:rebuild]") for line in out.splitlines())
+    assert not any(line.startswith(f"[gate:rebuild-{lane}]") for line in out.splitlines())
+    assert f"hard rebuild failure ({lane}): rebuild/test_boom.py::test_y" in out
 
 
 def test_classify_rebuild_reads_colored_pytest_output():
@@ -1479,7 +1591,8 @@ def test_failure_funnels_from_concurrent_branch(monkeypatch, capsys):
     monkeypatch.setattr(ac, "_do_census", _census_clean)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_gate_make_test_task", fake_make)
-    monkeypatch.setattr(ac, "_gate_rebuild_task", _rebuild_green)
+    monkeypatch.setattr(ac, "_gate_contracts_task", _contracts_green)
+    monkeypatch.setattr(ac, "_gate_validators_task", _validators_green)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
 
     plan = _plan()
@@ -1501,7 +1614,8 @@ def test_gate_task_exception_still_prints_one_summary(monkeypatch, capsys):
     _patch_build_chain(monkeypatch)
     monkeypatch.setattr(ac, "_gate_js_task", raising_js)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
-    monkeypatch.setattr(ac, "_gate_rebuild_task", _rebuild_green)
+    monkeypatch.setattr(ac, "_gate_contracts_task", _contracts_green)
+    monkeypatch.setattr(ac, "_gate_validators_task", _validators_green)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
 
     plan = _plan()
@@ -1511,13 +1625,14 @@ def test_gate_task_exception_still_prints_one_summary(monkeypatch, capsys):
     assert rc == 1
     assert report.gate_js == "FAILED (exception)"
     assert report.gate_make_test == "green"
-    assert report.gate_rebuild == "green"
+    assert report.gate_contracts == "green"
+    assert report.gate_validators == "green"
     out = capsys.readouterr().out
     assert out.count("ARTIFACT CYCLE SUMMARY") == 1
     assert "gate:js raised: FileNotFoundError('node not found')" in out
 
 
-def test_queue_policy_rebuild_runs_when_make_test_task_raises(monkeypatch, capsys):
+def test_queue_policy_rebuild_lanes_run_when_make_test_task_raises(monkeypatch, capsys):
     def raising_make(argv, spawn, emit, registry):
         raise FileNotFoundError("make not found")
 
@@ -1533,11 +1648,11 @@ def test_queue_policy_rebuild_runs_when_make_test_task_raises(monkeypatch, capsy
 
     assert rc == 1
     assert report.gate_make_test == "FAILED (exception)"
-    assert report.gate_rebuild == "green"
+    assert report.gate_contracts == "green"
     assert capsys.readouterr().out.count("ARTIFACT CYCLE SUMMARY") == 1
 
 
-def test_queue_policy_rebuild_runs_when_conform_task_raises(monkeypatch, capsys):
+def test_queue_policy_rebuild_lanes_run_when_conform_task_raises(monkeypatch, capsys):
     def raising_conform(pool_policy, make_fut, spawn, emit, registry, argv):
         raise FileNotFoundError("conform pool blew up")
 
@@ -1553,7 +1668,7 @@ def test_queue_policy_rebuild_runs_when_conform_task_raises(monkeypatch, capsys)
 
     assert rc == 1
     assert report.gate_conform == "FAILED (exception)"
-    assert report.gate_rebuild == "green"
+    assert report.gate_contracts == "green"
     assert capsys.readouterr().out.count("ARTIFACT CYCLE SUMMARY") == 1
 
 
@@ -1564,7 +1679,8 @@ def test_run_m1_failure_still_collects_make_test(monkeypatch, capsys):
     monkeypatch.setattr(ac, "_do_run_m1", fake_run_m1)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
-    monkeypatch.setattr(ac, "_gate_rebuild_task", _rebuild_green)
+    monkeypatch.setattr(ac, "_gate_contracts_task", _contracts_green)
+    monkeypatch.setattr(ac, "_gate_validators_task", _validators_green)
     _patch_build_chain(monkeypatch)
 
     plan = _plan()
@@ -1572,7 +1688,8 @@ def test_run_m1_failure_still_collects_make_test(monkeypatch, capsys):
     rc = ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=lambda *a, **k: _step())
 
     assert report.gate_make_test == "green"
-    assert report.gate_rebuild == "not run (run_m1 gate failed)"
+    assert report.gate_contracts == "not run (run_m1 gate failed)"
+    assert report.gate_validators == "not run (run_m1 gate failed)"
     assert report.gate_conform == "not run (run_m1 gate failed)"
     assert rc == 1
     assert capsys.readouterr().out.count("ARTIFACT CYCLE SUMMARY") == 1
@@ -1618,7 +1735,11 @@ def test_run_step_refuses_to_spawn_after_registry_closed(tmp_path):
     marker = tmp_path / "child-ran.txt"
     script = f"open({str(marker)!r}, 'w').close()"
     result = ac._run_step(
-        "gate:rebuild", [sys.executable, "-c", script], emit=ac._Emitter(), registry=registry, stream=False
+        "gate:rebuild-contracts",
+        [sys.executable, "-c", script],
+        emit=ac._Emitter(),
+        registry=registry,
+        stream=False,
     )
     assert result.returncode == 130
     assert result.stdout == ""
@@ -1668,13 +1789,22 @@ def test_dry_run_renders_concurrency():
     assert "pool policy: queue" in text
     assert "Lane t0" in text
     assert "Lane build" in text
-    assert "Lane rebuild" in text
+    assert "Lane rebuild-contracts" in text
+    assert "Lane rebuild-validators" in text
     assert "Lane conform" in text
     assert "Lane kernel" not in text
-    assert "surface-build -> submit gate:rebuild -> carry -> merge -> census" in text
+    assert (
+        "surface-build -> submit gate:rebuild-contracts, gate:rebuild-validators -> carry -> merge -> census"
+        in text
+    )
     assert "QUEUED behind gate:make-test (queue policy — one heavy pool at a time)" in text
-    assert "Lane rebuild                     : submitted once the surface build settles;" in text
+    assert "Lane rebuild-contracts           : submitted once the surface build settles;" in text
     assert "QUEUED behind gate:conform (queue policy — one heavy pool at a time)" in text
+    assert "Lane rebuild-validators          : submitted once the surface build settles;" in text
+    assert (
+        "QUEUED behind gate:rebuild-contracts, whose chain already waits on gate:conform and gate:make-test"
+        in text
+    )
     assert "--jobs budget        : 2" in text
 
     by_name = {step.name: step for step in plan.steps}
@@ -1713,7 +1843,8 @@ def test_dry_run_skip_gates_appends_jobs_budget():
     assert _argv(default_by_name["surface-build"])[-2:] == ["--jobs", "2"]
 
 
-def test_review_out_rehearsal_plan(monkeypatch):
+def test_review_out_rehearsal_plan(monkeypatch, tmp_path):
+    rehearsal_out = tmp_path / "reh"
     plan = ac.build_plan(
         verdicts=Path("v.json"),
         no_carry=False,
@@ -1722,19 +1853,19 @@ def test_review_out_rehearsal_plan(monkeypatch):
         skip_gates=False,
         first_run=False,
         short_id="abc1234",
-        review_out=Path("tmp/reh"),
+        review_out=rehearsal_out,
     )
     by_name = {step.name: step for step in plan.steps}
-    assert _argv(by_name["surface-build"])[-2:] == ["--out", "tmp/reh"]
+    assert _argv(by_name["surface-build"])[-2:] == ["--out", str(rehearsal_out)]
     assert by_name["census"].argv is None
     assert by_name["census"].note == "SKIPPED (rehearsal: the checked-in pins track the live surface)"
-    assert _argv(by_name["carry"])[-2:] == ["--current-surface", "tmp/reh"]
-    assert plan.surface_dir == Path("tmp/reh")
-    assert plan.review_out == Path("tmp/reh")
+    assert _argv(by_name["carry"])[-2:] == ["--current-surface", str(rehearsal_out)]
+    assert plan.surface_dir == rehearsal_out
+    assert plan.review_out == rehearsal_out
     assert str(ac.REVIEW_OUT) in by_name["snapshot"].note
 
     monkeypatch.setattr(ac, "server_listening", lambda *a, **k: True)
-    waiver = argparse.Namespace(review_out=Path("tmp/reh"), yes=False, stop_server=False)
+    waiver = argparse.Namespace(review_out=rehearsal_out, yes=False, stop_server=False)
     assert ac._preflight(waiver) is True
     refuse = argparse.Namespace(review_out=None, yes=False, stop_server=False)
     assert ac._preflight(refuse) is False
@@ -1744,8 +1875,10 @@ def _green_report():
     report = ac.CycleReport()
     report.gate_js = "green"
     report.gate_js_green = True
-    report.gate_rebuild = "green"
-    report.gate_rebuild_green = True
+    report.gate_contracts = "green"
+    report.gate_contracts_green = True
+    report.gate_validators = "green"
+    report.gate_validators_green = True
     report.gate_conform = "green"
     report.gate_conform_green = True
     report.gate_make_test = "green"
@@ -1760,7 +1893,8 @@ def test_cycle_summary_payload_all_green_exit_ok():
     assert payload["failures"] == []
     assert set(payload["gates"]) == {
         "js",
-        "rebuild",
+        "rebuild_contracts",
+        "rebuild_validators",
         "conform",
         "make_test",
     }
@@ -1771,10 +1905,10 @@ def test_cycle_summary_payload_all_green_exit_ok():
 def test_cycle_summary_payload_green_follows_the_boolean_not_the_status_prose():
     """The payload's `green` is the judgment the gate recorded, so an annotated green stays green and prose that merely reads green cannot make it so."""
     report = _green_report()
-    report.gate_rebuild = "green (4 documented baseline)"
+    report.gate_contracts = "green (4 documented baseline)"
     payload = ac.cycle_summary_payload(report, [], _plan(), "ok")
-    assert payload["gates"]["rebuild"]["green"] is True
-    assert payload["gates"]["rebuild"]["status"] == "green (4 documented baseline)"
+    assert payload["gates"]["rebuild_contracts"]["green"] is True
+    assert payload["gates"]["rebuild_contracts"]["status"] == "green (4 documented baseline)"
 
     report.gate_conform_green = False
     payload = ac.cycle_summary_payload(report, [], _plan(), "ok")
@@ -1805,19 +1939,23 @@ def test_cycle_summary_payload_marks_auto_skips_proved():
     report = _green_report()
     report.gate_conform = "skipped (inputs unchanged)"
     report.gate_conform_green = None
-    report.gate_rebuild = "skipped (closure unchanged)"
-    report.gate_rebuild_green = None
+    report.gate_contracts = "skipped (closure unchanged)"
+    report.gate_contracts_green = None
+    report.gate_validators = "skipped (closure unchanged)"
+    report.gate_validators_green = None
     report.gate_make_test = "skipped (closure unchanged)"
     report.gate_make_test_green = None
     plan = _plan(
         skip_conform=True,
         conform_proven=True,
-        skip_rebuild_gate=True,
+        skip_contracts=True,
+        skip_validators=True,
         skip_make_test=True,
     )
     payload = ac.cycle_summary_payload(report, [], plan, "ok")
     assert payload["gates"]["conform"]["skip"] == "proved"
-    assert payload["gates"]["rebuild"]["skip"] == "proved"
+    assert payload["gates"]["rebuild_contracts"]["skip"] == "proved"
+    assert payload["gates"]["rebuild_validators"]["skip"] == "proved"
     assert payload["gates"]["make_test"]["skip"] == "proved"
     assert payload["gates"]["js"]["skip"] is None
 
@@ -1841,7 +1979,8 @@ def test_cycle_summary_payload_plan_block_and_argv():
         "skip_conform": False,
         "skip_run_m1": False,
         "skip_surface": False,
-        "skip_rebuild_gate": False,
+        "skip_contracts": False,
+        "skip_validators": False,
         "skip_plumbing": False,
         "deferred": [],
         "review_out": None,
@@ -1869,7 +2008,8 @@ def test_cycle_writes_green_summary_with_surface(monkeypatch, tmp_path):
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
-    monkeypatch.setattr(ac, "_gate_rebuild_task", _rebuild_green)
+    monkeypatch.setattr(ac, "_gate_contracts_task", _contracts_green)
+    monkeypatch.setattr(ac, "_gate_validators_task", _validators_green)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
     _patch_build_chain(monkeypatch)
 
@@ -1894,7 +2034,8 @@ def test_cycle_writes_failed_summary_on_run_m1_failure(monkeypatch, tmp_path):
     monkeypatch.setattr(ac, "_do_run_m1", fake_run_m1)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
-    monkeypatch.setattr(ac, "_gate_rebuild_task", _rebuild_green)
+    monkeypatch.setattr(ac, "_gate_contracts_task", _contracts_green)
+    monkeypatch.setattr(ac, "_gate_validators_task", _validators_green)
     _patch_build_chain(monkeypatch)
 
     plan = _plan(review_out=tmp_path / "surface")
@@ -1930,7 +2071,8 @@ def test_cycle_summary_surface_nulls_when_manifest_missing(monkeypatch, tmp_path
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
-    monkeypatch.setattr(ac, "_gate_rebuild_task", _rebuild_green)
+    monkeypatch.setattr(ac, "_gate_contracts_task", _contracts_green)
+    monkeypatch.setattr(ac, "_gate_validators_task", _validators_green)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
     _patch_build_chain(monkeypatch)
 
@@ -1966,7 +2108,12 @@ def _seed_auto_repo(tmp_path, monkeypatch, *, stamp="2026-07-17T20:24:44Z"):
     monkeypatch.setattr(ac, "JSTEST_DIR", tmp_path / "rebuild" / "review" / "jstests")
     monkeypatch.setattr(ac, "RUN_M1_GREEN", tmp_path / "rebuild" / "out" / "run-m1-green.json")
     monkeypatch.setattr(ac, "CONFORM_GREEN", tmp_path / "rebuild" / "out" / "conform-green.json")
-    monkeypatch.setattr(ac, "REBUILD_GATE_GREEN", tmp_path / "rebuild" / "out" / "rebuild-gate-green.json")
+    monkeypatch.setattr(
+        ac, "REBUILD_CONTRACTS_GREEN", tmp_path / "rebuild" / "out" / "rebuild-contracts-green.json"
+    )
+    monkeypatch.setattr(
+        ac, "REBUILD_VALIDATORS_GREEN", tmp_path / "rebuild" / "out" / "rebuild-validators-green.json"
+    )
 
 
 def test_dry_run_auto_resolves_the_carry_source(tmp_path, monkeypatch, capsys):
@@ -2123,7 +2270,7 @@ def test_dry_run_plan_skip_make_test():
     by_name = {step.name: step for step in plan.steps}
     assert by_name["gate:make-test"].argv is None
     assert by_name["gate:make-test"].note == "SKIPPED (closure unchanged since its last green run)"
-    assert by_name["gate:rebuild"].argv is not None
+    assert by_name["gate:rebuild-contracts"].argv is not None
     rendered = ac.render_plan(plan)
     assert "gate:make-test not running, so no queueing" in rendered
     assert "Lane t0   [from t=0, background]  : gate:js" in rendered
@@ -2189,7 +2336,8 @@ def test_run_cycle_never_spawns_make_test_when_skipped(monkeypatch):
     monkeypatch.setattr(ac, "_gate_make_test_task", fake_make)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
-    monkeypatch.setattr(ac, "_gate_rebuild_task", _rebuild_green)
+    monkeypatch.setattr(ac, "_gate_contracts_task", _contracts_green)
+    monkeypatch.setattr(ac, "_gate_validators_task", _validators_green)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
     _patch_build_chain(monkeypatch)
 
@@ -2199,7 +2347,8 @@ def test_run_cycle_never_spawns_make_test_when_skipped(monkeypatch):
     assert rc == 0
     assert record["make_calls"] == 0
     assert report.gate_make_test == "skipped (closure unchanged since its last green run)"
-    assert report.gate_rebuild == "green"
+    assert report.gate_contracts == "green"
+    assert report.gate_validators == "green"
     assert report.gate_conform == "green"
 
 
@@ -2417,16 +2566,50 @@ def test_rebuild_gate_closure_none_outside_git(tmp_path):
     assert ac.rebuild_gate_closure_files(tmp_path) is None
 
 
-def test_rebuild_gate_fingerprint_is_prose_blind_for_runes(tmp_path):
+@pytest.mark.parametrize("lane", ac.REBUILD_LANES)
+def test_both_lane_fingerprints_are_prose_blind_for_runes(lane, tmp_path):
+    """Both lanes carry the rune files, because contracts tests load the live spec too — so a geometry edit moves both keys and a prose edit moves neither."""
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
     (tmp_path / "glyph_data" / "runes").mkdir(parents=True)
     rune = tmp_path / "glyph_data" / "runes" / "qsX.yaml"
     rune.write_text("rune: qsX\nductus:\n  hapax: |\n    A stroke.\n")
-    before = ac.rebuild_gate_skip_fingerprint(tmp_path)
+    before = ac.rebuild_lane_fingerprint(tmp_path, lane)
     rune.write_text("rune: qsX\nductus:\n  hapax: |\n    A different stroke.\n")
-    assert ac.rebuild_gate_skip_fingerprint(tmp_path) == before
+    assert ac.rebuild_lane_fingerprint(tmp_path, lane) == before
     rune.write_text("rune: qsY\nductus:\n  hapax: |\n    A different stroke.\n")
-    assert ac.rebuild_gate_skip_fingerprint(tmp_path) != before
+    assert ac.rebuild_lane_fingerprint(tmp_path, lane) != before
+
+
+def test_only_the_validators_key_sees_the_build_artifacts(tmp_path):
+    """The whole point of the split key: an artifact-only change re-runs the lane that reads artifacts and nothing else, so a live M1 rebuild can never invalidate the contracts key mid-cycle."""
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    (tmp_path / "rebuild").mkdir()
+    (tmp_path / "rebuild" / "test_x.py").write_text("")
+    (tmp_path / ".gitignore").write_text("rebuild/out/\n")
+    m1 = tmp_path / "rebuild" / "out" / "m1"
+    m1.mkdir(parents=True)
+    (m1 / "M1.otf").write_bytes(b"OTTO")
+    (m1 / "baseline-default.subset.tsv.gz").write_bytes(b"rows")
+    contracts = ac.rebuild_lane_fingerprint(tmp_path, "contracts")
+    validators = ac.rebuild_lane_fingerprint(tmp_path, "validators")
+    assert contracts != validators
+
+    (m1 / "M1.otf").write_bytes(b"OTTO-rebuilt")
+    assert ac.rebuild_lane_fingerprint(tmp_path, "contracts") == contracts
+    assert ac.rebuild_lane_fingerprint(tmp_path, "validators") != validators
+
+    validators = ac.rebuild_lane_fingerprint(tmp_path, "validators")
+    (m1 / "baseline-default.subset.tsv.gz").write_bytes(b"more rows")
+    assert ac.rebuild_lane_fingerprint(tmp_path, "contracts") == contracts
+    assert ac.rebuild_lane_fingerprint(tmp_path, "validators") != validators
+
+    (tmp_path / "rebuild" / "test_x.py").write_text("x = 1\n")
+    assert ac.rebuild_lane_fingerprint(tmp_path, "contracts") != contracts
+
+
+def test_both_lane_fingerprints_are_none_outside_git(tmp_path):
+    for lane in ac.REBUILD_LANES:
+        assert ac.rebuild_lane_fingerprint(tmp_path, lane) is None
 
 
 def test_surface_build_skippable_matches_manifest(tmp_path):
@@ -2465,9 +2648,10 @@ def test_the_census_pins_are_outside_the_rebuild_closure(tmp_path):
     pins = tmp_path / "rebuild" / "review-census-pins.json"
     pins.write_text(json.dumps({"invariant": {"classes": 3}, "volatile": {"rows": 1}}))
     assert ac.rebuild_gate_closure_files(tmp_path) == ["rebuild/test_x.py"]
-    before = ac.rebuild_gate_skip_fingerprint(tmp_path)
+    before = {lane: ac.rebuild_lane_fingerprint(tmp_path, lane) for lane in ac.REBUILD_LANES}
     pins.write_text(json.dumps({"invariant": {"classes": 3}, "volatile": {"rows": 2}}))
-    assert ac.rebuild_gate_skip_fingerprint(tmp_path) == before
+    for lane in ac.REBUILD_LANES:
+        assert ac.rebuild_lane_fingerprint(tmp_path, lane) == before[lane]
 
 
 def test_dry_run_plan_skip_run_m1_and_surface_still_runs_the_census():
@@ -2484,20 +2668,35 @@ def test_dry_run_plan_skip_run_m1_and_surface_still_runs_the_census():
     assert by_name["surface-build"].argv is None
     assert _argv(by_name["census"])[-3:] == ["--update", "--surface", str(ac.REVIEW_OUT)]
     assert by_name["carry"].argv is not None
-    assert by_name["gate:rebuild"].argv is not None
+    assert by_name["gate:rebuild-validators"].argv is not None
 
 
-def test_dry_run_plan_skip_rebuild_gate():
+def test_dry_run_plan_skip_rebuild_lanes():
     plan = _plan(
-        skip_rebuild_gate=True,
-        rebuild_gate_note="input closure unchanged since its last green run; --fresh overrides",
+        skip_contracts=True,
+        contracts_note="input closure unchanged since its last green run; --fresh overrides",
+        skip_validators=True,
+        validators_note="input closure unchanged since its last green run; --fresh overrides",
     )
     by_name = {step.name: step for step in plan.steps}
-    assert by_name["gate:rebuild"].argv is None
-    assert "SKIPPED (input closure unchanged" in by_name["gate:rebuild"].note
+    for name in ("gate:rebuild-contracts", "gate:rebuild-validators"):
+        assert by_name[name].argv is None
+        assert "SKIPPED (input closure unchanged" in by_name[name].note
     assert by_name["gate:conform"].argv is not None
     rendered = ac.render_plan(plan)
-    assert "Lane rebuild                     : SKIPPED" in rendered
+    assert "Lane rebuild-contracts           : SKIPPED" in rendered
+    assert "Lane rebuild-validators          : SKIPPED" in rendered
+
+
+def test_dry_run_plan_skips_only_the_contracts_lane():
+    """The common shape of a pass that rebuilt M1: the artifacts moved, so validators must run, while the contracts key — which holds no artifact — is still proved."""
+    plan = _plan(skip_contracts=True, contracts_note="input closure unchanged since its last green run")
+    by_name = {step.name: step for step in plan.steps}
+    assert by_name["gate:rebuild-contracts"].argv is None
+    assert by_name["gate:rebuild-validators"].argv is not None
+    rendered = ac.render_plan(plan)
+    assert "Lane rebuild-contracts           : SKIPPED" in rendered
+    assert "QUEUED behind gate:conform (queue policy; the contracts lane is not running)" in rendered
 
 
 def test_dry_run_plan_auto_skip_conform_note():
@@ -2510,50 +2709,61 @@ def test_dry_run_plan_auto_skip_conform_note():
     assert "font and sweep inputs unchanged" in by_name["gate:conform"].note
 
 
-def test_run_cycle_never_spawns_rebuild_gate_when_skipped(monkeypatch):
-    record = {"rebuild_calls": 0}
+def test_run_cycle_never_spawns_a_skipped_rebuild_lane(monkeypatch):
+    record = {"contracts": 0, "validators": 0}
 
-    def fake_rebuild(pool_policy, conform_fut, make_fut, spawn, emit, registry, argv):
-        record["rebuild_calls"] += 1
+    def fake_contracts(pool_policy, conform_fut, make_fut, spawn, emit, registry, argv):
+        record["contracts"] += 1
         return ac.RebuildOutcome("green", [], [])
 
-    monkeypatch.setattr(ac, "_gate_rebuild_task", fake_rebuild)
+    def fake_validators(pool_policy, conform_fut, contracts_fut, make_fut, spawn, emit, registry, argv):
+        record["validators"] += 1
+        return ac.RebuildOutcome("green", [], [])
+
+    monkeypatch.setattr(ac, "_gate_contracts_task", fake_contracts)
+    monkeypatch.setattr(ac, "_gate_validators_task", fake_validators)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
     _patch_build_chain(monkeypatch)
 
-    plan = _plan(
-        skip_rebuild_gate=True,
-        rebuild_gate_note="input closure unchanged since its last green run; --fresh overrides",
-    )
+    note = "input closure unchanged since its last green run; --fresh overrides"
+    plan = _plan(skip_contracts=True, contracts_note=note)
     report = ac.CycleReport()
     rc = ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=lambda *a, **k: _step())
     assert rc == 0
-    assert record["rebuild_calls"] == 0
-    assert report.gate_rebuild.startswith("skipped (input closure unchanged")
+    assert record == {"contracts": 0, "validators": 1}
+    assert report.gate_contracts.startswith("skipped (input closure unchanged")
+    assert report.gate_validators == "green"
     assert report.gate_conform == "green"
+
+    plan = _plan(skip_contracts=True, contracts_note=note, skip_validators=True, validators_note=note)
+    report = ac.CycleReport()
+    assert ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=lambda *a, **k: _step()) == 0
+    assert record == {"contracts": 0, "validators": 1}
+    assert report.gate_validators.startswith("skipped (input closure unchanged")
 
 
 ALL_RUN = {
-    "rebuild": True,
+    "rebuild-contracts": True,
+    "rebuild-validators": True,
     "conform": True,
     "make-test": True,
 }
+ALL_DEFERRED = frozenset(ALL_RUN)
 
 
 def test_deferred_gates_needs_both_the_flag_and_a_refreshing_pass():
-    assert ac.deferred_gates(defer=True, refreshing=True, would_run=ALL_RUN) == frozenset(
-        {"rebuild", "conform", "make-test"}
-    )
+    assert ac.deferred_gates(defer=True, refreshing=True, would_run=ALL_RUN) == ALL_DEFERRED
     assert ac.deferred_gates(defer=False, refreshing=True, would_run=ALL_RUN) == frozenset()
     assert ac.deferred_gates(defer=True, refreshing=False, would_run=ALL_RUN) == frozenset()
 
 
 def test_deferred_gates_never_demotes_a_gate_that_would_not_run():
     would_run = {
-        "rebuild": False,
+        "rebuild-contracts": False,
+        "rebuild-validators": False,
         "conform": False,
         "make-test": True,
     }
@@ -2562,14 +2772,22 @@ def test_deferred_gates_never_demotes_a_gate_that_would_not_run():
 
 
 def test_dry_run_plan_deferred_gates_replace_their_steps():
-    plan = _plan(deferred=frozenset({"rebuild", "conform", "make-test"}))
+    plan = _plan(deferred=ALL_DEFERRED)
     by_name = {step.name: step for step in plan.steps}
-    for name in ("gate:rebuild", "gate:conform", "gate:make-test"):
+    for name in (
+        "gate:rebuild-contracts",
+        "gate:rebuild-validators",
+        "gate:conform",
+        "gate:make-test",
+    ):
         assert by_name[name].argv is None
         assert by_name[name].note == f"DEFERRED ({ac.DEFER_NOTE})"
     assert by_name["gate:js"].argv is not None
     rendered = ac.render_plan(plan)
-    assert "deferred to the next pass        : gate:conform, gate:make-test, gate:rebuild" in rendered
+    assert (
+        "deferred to the next pass        : gate:conform, gate:make-test, gate:rebuild-contracts, gate:rebuild-validators"
+        in rendered
+    )
 
 
 def test_deferring_make_test_frees_the_build_stage_budget():
@@ -2585,17 +2803,23 @@ def test_deferring_make_test_frees_the_build_stage_budget():
 
 def test_a_proved_skip_outranks_deferral_in_the_plan():
     plan = _plan(
-        skip_rebuild_gate=True, rebuild_gate_note="closure unchanged", deferred=frozenset({"rebuild"})
+        skip_contracts=True,
+        contracts_note="closure unchanged",
+        deferred=frozenset({"rebuild-contracts"}),
     )
     by_name = {step.name: step for step in plan.steps}
-    assert by_name["gate:rebuild"].note == "SKIPPED (closure unchanged)"
+    assert by_name["gate:rebuild-contracts"].note == "SKIPPED (closure unchanged)"
 
 
 def test_run_cycle_never_spawns_a_deferred_gate(monkeypatch):
-    calls = {"rebuild": 0, "conform": 0, "make-test": 0}
+    calls = {name: 0 for name in ALL_RUN}
 
-    def fake_rebuild(pool_policy, conform_fut, make_fut, spawn, emit, registry, argv):
-        calls["rebuild"] += 1
+    def fake_contracts(pool_policy, conform_fut, make_fut, spawn, emit, registry, argv):
+        calls["rebuild-contracts"] += 1
+        return ac.RebuildOutcome("green", [], [])
+
+    def fake_validators(pool_policy, conform_fut, contracts_fut, make_fut, spawn, emit, registry, argv):
+        calls["rebuild-validators"] += 1
         return ac.RebuildOutcome("green", [], [])
 
     def fake_conform(pool_policy, make_fut, spawn, emit, registry, argv):
@@ -2606,20 +2830,26 @@ def test_run_cycle_never_spawns_a_deferred_gate(monkeypatch):
         calls["make-test"] += 1
         return _step("gate:make-test", 0)
 
-    monkeypatch.setattr(ac, "_gate_rebuild_task", fake_rebuild)
+    monkeypatch.setattr(ac, "_gate_contracts_task", fake_contracts)
+    monkeypatch.setattr(ac, "_gate_validators_task", fake_validators)
     monkeypatch.setattr(ac, "_gate_conform_task", fake_conform)
     monkeypatch.setattr(ac, "_gate_make_test_task", fake_make)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
     _patch_build_chain(monkeypatch)
 
-    plan = _plan(deferred=frozenset({"rebuild", "conform", "make-test"}))
+    plan = _plan(deferred=ALL_DEFERRED)
     report = ac.CycleReport()
     rc = ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=lambda *a, **k: _step())
     assert rc == 0
-    assert calls == {"rebuild": 0, "conform": 0, "make-test": 0}
+    assert calls == {name: 0 for name in ALL_RUN}
     assert report.gate_js == "green"
-    for status in (report.gate_rebuild, report.gate_conform, report.gate_make_test):
+    for status in (
+        report.gate_contracts,
+        report.gate_validators,
+        report.gate_conform,
+        report.gate_make_test,
+    ):
         assert status == f"deferred ({ac.DEFER_NOTE})"
 
 
@@ -2631,70 +2861,78 @@ def test_a_deferred_gate_keeps_its_status_when_run_m1_fails(monkeypatch):
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     _patch_build_chain(monkeypatch)
 
-    plan = _plan(deferred=frozenset({"rebuild", "conform", "make-test"}))
+    plan = _plan(deferred=ALL_DEFERRED)
     report = ac.CycleReport()
     rc = ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=lambda *a, **k: _step())
     assert rc == 1
-    assert report.gate_rebuild == f"deferred ({ac.DEFER_NOTE})"
+    assert report.gate_contracts == f"deferred ({ac.DEFER_NOTE})"
+    assert report.gate_validators == f"deferred ({ac.DEFER_NOTE})"
     assert report.gate_conform == f"deferred ({ac.DEFER_NOTE})"
 
 
 def test_run_cycle_records_no_green_for_a_deferred_gate(monkeypatch, tmp_path):
     monkeypatch.setattr(ac, "run_retention", lambda plan: None)
     monkeypatch.setattr(ac, "CONFORM_GREEN", tmp_path / "conform-green.json")
-    monkeypatch.setattr(ac, "REBUILD_GATE_GREEN", tmp_path / "rebuild-gate-green.json")
+    monkeypatch.setattr(ac, "REBUILD_CONTRACTS_GREEN", tmp_path / "rebuild-contracts-green.json")
+    monkeypatch.setattr(ac, "REBUILD_VALIDATORS_GREEN", tmp_path / "rebuild-validators-green.json")
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     _patch_build_chain(monkeypatch)
 
-    plan = _plan(
-        deferred=frozenset({"rebuild", "conform", "make-test"}),
-        record_greens=True,
-    )
+    plan = _plan(deferred=ALL_DEFERRED, record_greens=True)
     report = ac.CycleReport()
     assert ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=lambda *a, **k: _step()) == 0
-    assert not (tmp_path / "conform-green.json").exists()
-    assert not (tmp_path / "rebuild-gate-green.json").exists()
+    for name in ("conform-green.json", "rebuild-contracts-green.json", "rebuild-validators-green.json"):
+        assert not (tmp_path / name).exists()
 
 
 def test_cycle_summary_payload_marks_deferred_skips():
     report = _green_report()
-    report.gate_rebuild = f"deferred ({ac.DEFER_NOTE})"
-    report.gate_rebuild_green = None
+    report.gate_contracts = f"deferred ({ac.DEFER_NOTE})"
+    report.gate_contracts_green = None
+    report.gate_validators = f"deferred ({ac.DEFER_NOTE})"
+    report.gate_validators_green = None
     report.gate_conform = f"deferred ({ac.DEFER_NOTE})"
     report.gate_conform_green = None
     report.gate_make_test = f"deferred ({ac.DEFER_NOTE})"
     report.gate_make_test_green = None
-    plan = _plan(deferred=frozenset({"rebuild", "conform", "make-test"}))
+    plan = _plan(deferred=ALL_DEFERRED)
     payload = ac.cycle_summary_payload(report, [], plan, "ok")
-    for name in ("rebuild", "conform", "make_test"):
+    for name in ("rebuild_contracts", "rebuild_validators", "conform", "make_test"):
         assert payload["gates"][name]["skip"] == "deferred"
         assert payload["gates"][name]["green"] is False
     assert payload["gates"]["js"]["skip"] is None
     assert payload["make_test_fingerprint"] is None
-    assert payload["plan"]["deferred"] == ["conform", "make-test", "rebuild"]
+    assert payload["plan"]["deferred"] == [
+        "conform",
+        "make-test",
+        "rebuild-contracts",
+        "rebuild-validators",
+    ]
 
 
 def test_cycle_summary_payload_prefers_proved_and_forced_over_deferred():
     report = _green_report()
     plan = _plan(
-        skip_rebuild_gate=True,
+        skip_contracts=True,
+        skip_validators=True,
         skip_conform=True,
         skip_make_test=True,
-        deferred=frozenset({"rebuild", "conform", "make-test"}),
+        deferred=ALL_DEFERRED,
     )
     payload = ac.cycle_summary_payload(report, [], plan, "ok")
-    assert payload["gates"]["rebuild"]["skip"] == "proved"
+    assert payload["gates"]["rebuild_contracts"]["skip"] == "proved"
+    assert payload["gates"]["rebuild_validators"]["skip"] == "proved"
     assert payload["gates"]["make_test"]["skip"] == "proved"
     assert payload["gates"]["conform"]["skip"] == "forced"
 
 
 def test_finish_hands_a_deferred_green_cycle_to_the_next_pass(monkeypatch, capsys):
     monkeypatch.setattr(ac, "run_retention", lambda plan: None)
-    plan = _plan(deferred=frozenset({"conform", "rebuild"}))
+    plan = _plan(deferred=frozenset({"conform", "rebuild-contracts"}))
     assert ac._finish(_green_report(), [], plan) == 0
     out = capsys.readouterr().out
-    assert "Deferred, and so far unverified on this content: gate:conform, gate:rebuild." in out
+    assert "Deferred, and so far unverified on this content: gate:conform, gate:rebuild-contracts." in out
     assert "run `make review-cycle` again" in out
     assert "NOT READY" in out
 
@@ -2741,14 +2979,19 @@ def _defer_repo(tmp_path, monkeypatch, stamp="2026-07-17T20:24:44Z"):
     (tmp_path / "verdicts-autosave.json").write_text(json.dumps(_verdicts_doc(stamp, ["u-1"])))
     monkeypatch.setattr(ac, "run_m1_skip_fingerprint", lambda root=None: "key")
     monkeypatch.setattr(ac, "make_test_closure_fingerprint", lambda root=None: None)
+    monkeypatch.setattr(ac, "rebuild_lane_fingerprint", lambda root, lane: f"no-match-{lane}")
 
 
 def test_main_defers_on_a_refreshing_pass(tmp_path, monkeypatch, capsys):
     _defer_repo(tmp_path, monkeypatch)
     assert ac.main(["--dry-run", "--defer-gates"]) == 0
     out = capsys.readouterr().out
-    assert "Heavy gates deferred to the next pass: gate:conform, gate:make-test, gate:rebuild" in out
-    assert "gate:rebuild: DEFERRED" in out
+    assert (
+        "Heavy gates deferred to the next pass: gate:conform, gate:make-test, gate:rebuild-contracts, gate:rebuild-validators"
+        in out
+    )
+    assert "gate:rebuild-contracts: DEFERRED" in out
+    assert "gate:rebuild-validators: DEFERRED" in out
     assert "gate:conform: DEFERRED" in out
 
 
@@ -2772,7 +3015,7 @@ def test_main_never_defers_a_gate_a_flag_already_forces(tmp_path, monkeypatch, c
     ]
     assert ac.main(argv) == 0
     out = capsys.readouterr().out
-    assert "Heavy gates deferred to the next pass: gate:rebuild" in out
+    assert "Heavy gates deferred to the next pass: gate:rebuild-contracts, gate:rebuild-validators" in out
     assert "gate:conform: SKIPPED (--skip-conform)" in out
     assert "gate:make-test: make test" in out
 
@@ -2784,12 +3027,51 @@ def test_main_defers_nothing_once_the_artifacts_have_settled(tmp_path, monkeypat
     monkeypatch.setattr(ac, "m1_artifacts_present", lambda root=None: True)
     monkeypatch.setattr(ac, "surface_build_skippable", lambda root=None: True)
     monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, horizon=None: "no-match")
-    monkeypatch.setattr(ac, "rebuild_gate_skip_fingerprint", lambda root=None: "no-match")
     assert ac.main(["--dry-run", "--defer-gates"]) == 0
     out = capsys.readouterr().out
     assert "Heavy gates deferred" not in out
-    assert "gate:rebuild: uv run pytest" in out
+    assert "gate:rebuild-contracts: uv run pytest" in out
+    assert "gate:rebuild-validators: uv run pytest" in out
     assert "gate:conform: uv run python -m rebuild.pipeline.run_m1 --conform-only" in out
+
+
+def test_main_auto_skips_the_contracts_lane_even_when_run_m1_runs_live(tmp_path, monkeypatch, capsys):
+    """The contracts closure holds no build artifact at all, so a live M1 rebuild cannot invalidate its key mid-pass — which is why that skip sits outside the run_m1-skipped block the validators skip has to ride in."""
+    _defer_repo(tmp_path, monkeypatch)
+    monkeypatch.setattr(ac, "rebuild_lane_fingerprint", lambda root, lane: f"key-{lane}")
+    ac.record_green(ac.REBUILD_CONTRACTS_GREEN, "key-contracts")
+    ac.record_green(ac.REBUILD_VALIDATORS_GREEN, "key-validators")
+    assert ac.main(["--dry-run"]) == 0
+    out = capsys.readouterr().out
+    assert "run_m1 auto-skipped" not in out
+    assert "gate:rebuild-contracts auto-skipped" in out
+    assert "gate:rebuild-validators auto-skipped" not in out
+    assert "gate:rebuild-contracts: SKIPPED (input closure unchanged" in out
+    assert "gate:rebuild-validators: uv run pytest" in out
+
+
+def test_main_auto_skips_both_lanes_once_the_artifacts_have_settled(tmp_path, monkeypatch, capsys):
+    _defer_repo(tmp_path, monkeypatch)
+    ac.record_green(ac.RUN_M1_GREEN, "key")
+    monkeypatch.setattr(ac, "m1_artifacts_present", lambda root=None: True)
+    monkeypatch.setattr(ac, "surface_build_skippable", lambda root=None: True)
+    monkeypatch.setattr(ac, "rebuild_lane_fingerprint", lambda root, lane: f"key-{lane}")
+    ac.record_green(ac.REBUILD_CONTRACTS_GREEN, "key-contracts")
+    ac.record_green(ac.REBUILD_VALIDATORS_GREEN, "key-validators")
+    assert ac.main(["--dry-run"]) == 0
+    out = capsys.readouterr().out
+    assert "gate:rebuild-contracts auto-skipped" in out
+    assert "gate:rebuild-validators auto-skipped" in out
+
+
+def test_main_forces_both_lanes_under_fresh(tmp_path, monkeypatch, capsys):
+    _defer_repo(tmp_path, monkeypatch)
+    monkeypatch.setattr(ac, "rebuild_lane_fingerprint", lambda root, lane: f"key-{lane}")
+    ac.record_green(ac.REBUILD_CONTRACTS_GREEN, "key-contracts")
+    assert ac.main(["--dry-run", "--fresh"]) == 0
+    out = capsys.readouterr().out
+    assert "auto-skipped" not in out
+    assert "gate:rebuild-contracts: uv run pytest" in out
 
 
 def test_main_never_defers_a_rehearsal(tmp_path, monkeypatch, capsys):
@@ -2798,11 +3080,10 @@ def test_main_never_defers_a_rehearsal(tmp_path, monkeypatch, capsys):
     ac.record_green(ac.RUN_M1_GREEN, "key")
     monkeypatch.setattr(ac, "m1_artifacts_present", lambda root=None: True)
     monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, horizon=None: "no-match")
-    monkeypatch.setattr(ac, "rebuild_gate_skip_fingerprint", lambda root=None: "no-match")
     assert ac.main(["--dry-run", "--defer-gates", "--review-out", str(tmp_path / "rehearse")]) == 0
     out = capsys.readouterr().out
     assert "Heavy gates deferred" not in out
-    assert "gate:rebuild: uv run pytest" in out
+    assert "gate:rebuild-contracts: uv run pytest" in out
 
 
 def test_unfinished_cycle_snapshot_is_only_claimed_from_a_red_summary(tmp_path):
@@ -2975,38 +3256,58 @@ def test_do_surface_build_skip_reads_manifest_totals(monkeypatch, tmp_path):
 
 def test_record_gate_greens_records_refuses_and_clears(monkeypatch, tmp_path):
     conform_green = tmp_path / "conform-green.json"
-    rebuild_green = tmp_path / "rebuild-gate-green.json"
+    contracts_green = tmp_path / "rebuild-contracts-green.json"
+    validators_green = tmp_path / "rebuild-validators-green.json"
     monkeypatch.setattr(ac, "CONFORM_GREEN", conform_green)
-    monkeypatch.setattr(ac, "REBUILD_GATE_GREEN", rebuild_green)
+    monkeypatch.setattr(ac, "REBUILD_CONTRACTS_GREEN", contracts_green)
+    monkeypatch.setattr(ac, "REBUILD_VALIDATORS_GREEN", validators_green)
     monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, horizon=None: "cfp")
-    monkeypatch.setattr(ac, "rebuild_gate_skip_fingerprint", lambda root=None: "rfp")
+    _patch_gate_fingerprints(monkeypatch)
+    keys = {"conform": "cfp", "contracts": "rfp-contracts", "validators": "rfp-validators"}
     plan = _plan()
     report = ac.CycleReport()
     report.gate_conform = "green"
     report.gate_conform_green = True
-    report.gate_rebuild = "green (4 documented baseline)"
-    report.gate_rebuild_green = True
-    report.rebuild_recordable = True
-    ac._record_gate_greens(report, plan, {"conform": "cfp", "rebuild": "rfp"}, ac._Emitter())
-    conform_record = ac.read_green_record(conform_green)
-    rebuild_record = ac.read_green_record(rebuild_green)
-    assert conform_record is not None
-    assert rebuild_record is not None
-    assert conform_record["fingerprint"] == "cfp"
-    assert rebuild_record["fingerprint"] == "rfp"
+    report.gate_contracts = "green (4 documented baseline)"
+    report.gate_contracts_green = True
+    report.contracts_recordable = True
+    report.gate_validators = "green"
+    report.gate_validators_green = True
+    report.validators_recordable = True
+    ac._record_gate_greens(report, plan, keys, ac._Emitter())
+    for path, expected in (
+        (conform_green, "cfp"),
+        (contracts_green, "rfp-contracts"),
+        (validators_green, "rfp-validators"),
+    ):
+        record = ac.read_green_record(path)
+        assert record is not None
+        assert record["fingerprint"] == expected
 
     conform_green.unlink()
-    rebuild_green.unlink()
-    ac._record_gate_greens(report, plan, {"conform": "moved", "rebuild": "moved-too"}, ac._Emitter())
-    assert ac.read_green_record(conform_green) is None
-    assert ac.read_green_record(rebuild_green) is None
+    contracts_green.unlink()
+    validators_green.unlink()
+    moved = {"conform": "moved", "contracts": "moved-too", "validators": "moved-as-well"}
+    ac._record_gate_greens(report, plan, moved, ac._Emitter())
+    for path in (conform_green, contracts_green, validators_green):
+        assert ac.read_green_record(path) is None
 
-    ac.record_green(rebuild_green, "rfp")
-    report.gate_rebuild = "FAILED (1 unexplained)"
-    report.gate_rebuild_green = False
-    report.rebuild_recordable = False
-    ac._record_gate_greens(report, plan, {"rebuild": "rfp"}, ac._Emitter())
-    assert ac.read_green_record(rebuild_green) is None
+    ac.record_green(contracts_green, "rfp-contracts")
+    ac.record_green(validators_green, "rfp-validators")
+    report.gate_contracts = "FAILED (1 unexplained)"
+    report.gate_contracts_green = False
+    report.contracts_recordable = False
+    ac._record_gate_greens(report, plan, keys, ac._Emitter())
+    assert ac.read_green_record(contracts_green) is None
+    surviving = ac.read_green_record(validators_green)
+    assert surviving is not None
+    assert surviving["fingerprint"] == "rfp-validators"
+
+    report.gate_validators = "FAILED (1 unexplained)"
+    report.gate_validators_green = False
+    report.validators_recordable = False
+    ac._record_gate_greens(report, plan, keys, ac._Emitter())
+    assert ac.read_green_record(validators_green) is None
 
     ac.record_green(conform_green, "cfp")
     report.gate_conform = "FAILED"
@@ -3078,7 +3379,8 @@ def test_a_failed_census_refresh_never_fails_the_cycle(monkeypatch):
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
-    monkeypatch.setattr(ac, "_gate_rebuild_task", _rebuild_green)
+    monkeypatch.setattr(ac, "_gate_contracts_task", _contracts_green)
+    monkeypatch.setattr(ac, "_gate_validators_task", _validators_green)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
     _patch_build_chain(monkeypatch)
     monkeypatch.setattr(ac, "_do_census", census_dies)
@@ -3092,7 +3394,7 @@ def test_a_failed_census_refresh_never_fails_the_cycle(monkeypatch):
     assert json.loads(ac.CYCLE_SUMMARY.read_text())["failures"] == []
 
 
-def test_a_rehearsal_never_runs_the_census(monkeypatch):
+def test_a_rehearsal_never_runs_the_census(monkeypatch, tmp_path):
     """The checked-in pins describe the live surface. A rehearsal builds somewhere else, so refreshing them from it would replace the accepted census with one of a surface nobody serves."""
 
     def census_must_not_run(*args, **kwargs):
@@ -3101,12 +3403,13 @@ def test_a_rehearsal_never_runs_the_census(monkeypatch):
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
-    monkeypatch.setattr(ac, "_gate_rebuild_task", _rebuild_green)
+    monkeypatch.setattr(ac, "_gate_contracts_task", _contracts_green)
+    monkeypatch.setattr(ac, "_gate_validators_task", _validators_green)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
     _patch_build_chain(monkeypatch)
     monkeypatch.setattr(ac, "_do_census", census_must_not_run)
 
-    plan = _plan(review_out=Path("tmp/reh"))
+    plan = _plan(review_out=tmp_path / "reh")
     report = ac.CycleReport()
     rc = ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=lambda *a, **k: _step())
 
@@ -3114,24 +3417,24 @@ def test_a_rehearsal_never_runs_the_census(monkeypatch):
     assert report.census_status == "skipped (rehearsal: the checked-in pins track the live surface)"
 
 
-def test_gate_rebuild_is_submitted_once_the_surface_build_settles(monkeypatch):
-    """The submission sits in exactly one window: after the surface build and before everything else in the lane. It waits for the surface because the suite's session fixture reads the live surface whenever it is provably fresh, and a gate started mid-rewrite would see the manifest without the sidecar review.build writes after it. It waits for nothing further, because the carry, the merge and the census are not inputs to the suite."""
-    spawned = threading.Event()
+def test_both_rebuild_lanes_are_submitted_once_the_surface_build_settles(monkeypatch):
+    """The submission window is the same for both lanes: after the surface build and before everything else in the build lane. Validators waits for the surface because its session fixture reads the live surface whenever it is provably fresh, and a lane started mid-rewrite would see the manifest without the sidecar review.build writes after it; contracts reads no artifact but must not put a full-width pool beside the build either. Neither waits for anything further, because the carry, the merge and the census are not inputs to the suite."""
+    spawned = {"gate:rebuild-contracts": threading.Event(), "gate:rebuild-validators": threading.Event()}
     order: list[str] = []
 
     def fake_spawn(name, argv, *, emit, registry, stream):
-        if name == "gate:rebuild":
-            spawned.set()
+        if name in spawned:
+            spawned[name].set()
         return _step(name, 0)
 
     def surface_first(report, *, spawn, emit, registry, review_out, **_):
-        assert not spawned.is_set()
+        assert not any(event.is_set() for event in spawned.values())
         order.append("surface")
         report.surface_units = 1
         return True
 
     def census_after(report, *, spawn, emit, registry, plan):
-        assert spawned.wait(timeout=30)
+        assert all(event.wait(timeout=30) for event in spawned.values())
         order.append("census")
         report.census_status = "updated (matches the last accepted census)"
 
@@ -3149,15 +3452,20 @@ def test_gate_rebuild_is_submitted_once_the_surface_build_settles(monkeypatch):
 
     assert rc == 0
     assert order == ["surface", "census"]
-    assert report.gate_rebuild == "green"
+    assert report.gate_contracts == "green"
+    assert report.gate_validators == "green"
 
 
-def test_surface_build_failure_leaves_the_rebuild_gate_not_run(monkeypatch, capsys):
-    """A failed surface build stops the lane before the submission, so there is no future to join — the gate reports why it never ran."""
-    calls = {"rebuild": 0}
+def test_surface_build_failure_leaves_both_rebuild_lanes_not_run(monkeypatch, capsys):
+    """A failed surface build stops the build lane before either submission, so there is no future to join — both gates report why they never ran."""
+    calls = {"contracts": 0, "validators": 0}
 
-    def fake_rebuild(pool_policy, conform_fut, make_fut, spawn, emit, registry, argv):
-        calls["rebuild"] += 1
+    def fake_contracts(pool_policy, conform_fut, make_fut, spawn, emit, registry, argv):
+        calls["contracts"] += 1
+        return ac.RebuildOutcome("green", [], [])
+
+    def fake_validators(pool_policy, conform_fut, contracts_fut, make_fut, spawn, emit, registry, argv):
+        calls["validators"] += 1
         return ac.RebuildOutcome("green", [], [])
 
     def failing_surface(report, *, spawn, emit, registry, review_out, **_):
@@ -3167,7 +3475,8 @@ def test_surface_build_failure_leaves_the_rebuild_gate_not_run(monkeypatch, caps
     monkeypatch.setattr(ac, "_do_surface_build", failing_surface)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
-    monkeypatch.setattr(ac, "_gate_rebuild_task", fake_rebuild)
+    monkeypatch.setattr(ac, "_gate_contracts_task", fake_contracts)
+    monkeypatch.setattr(ac, "_gate_validators_task", fake_validators)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
 
     plan = _plan()
@@ -3175,24 +3484,26 @@ def test_surface_build_failure_leaves_the_rebuild_gate_not_run(monkeypatch, caps
     rc = ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=lambda *a, **k: _step())
 
     assert rc == 1
-    assert calls["rebuild"] == 0
-    assert report.gate_rebuild == "not run (surface build failed)"
+    assert calls == {"contracts": 0, "validators": 0}
+    assert report.gate_contracts == "not run (surface build failed)"
+    assert report.gate_validators == "not run (surface build failed)"
     assert "surface rebuild failed" in capsys.readouterr().out
 
 
-def test_run_m1_failure_still_leaves_the_rebuild_gate_not_run(monkeypatch, capsys):
-    """The one early return that predates the submission: nothing was queued, so the gate reports why it never ran."""
+def test_run_m1_failure_still_leaves_both_rebuild_lanes_not_run(monkeypatch, capsys):
+    """The one early return that predates the submissions: nothing was queued, so both gates report why they never ran."""
 
     def failing_run_m1(report, *, spawn, emit, registry, **_):
         return ac.GateOutcome(False, ["boundary-equals-text-edge gate failed (2 divergences)"], 1, 0)
 
-    def rebuild_must_not_run(*args, **kwargs):
-        raise AssertionError("gate:rebuild must not be submitted when run_m1's gate fails")
+    def must_not_run(*args, **kwargs):
+        raise AssertionError("no rebuild lane may be submitted when run_m1's gate fails")
 
     monkeypatch.setattr(ac, "_do_run_m1", failing_run_m1)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
-    monkeypatch.setattr(ac, "_gate_rebuild_task", rebuild_must_not_run)
+    monkeypatch.setattr(ac, "_gate_contracts_task", must_not_run)
+    monkeypatch.setattr(ac, "_gate_validators_task", must_not_run)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
 
     plan = _plan()
@@ -3200,7 +3511,8 @@ def test_run_m1_failure_still_leaves_the_rebuild_gate_not_run(monkeypatch, capsy
     rc = ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=lambda *a, **k: _step())
 
     assert rc == 1
-    assert report.gate_rebuild == "not run (run_m1 gate failed)"
+    assert report.gate_contracts == "not run (run_m1 gate failed)"
+    assert report.gate_validators == "not run (run_m1 gate failed)"
     assert "boundary-equals-text-edge gate failed" in capsys.readouterr().out
 
 
@@ -3303,7 +3615,8 @@ def test_run_cycle_never_spawns_the_plumbing_when_skipped(monkeypatch, tmp_path)
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
-    monkeypatch.setattr(ac, "_gate_rebuild_task", _rebuild_green)
+    monkeypatch.setattr(ac, "_gate_contracts_task", _contracts_green)
+    monkeypatch.setattr(ac, "_gate_validators_task", _validators_green)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
     _patch_build_chain(monkeypatch)
     _patch_gate_fingerprints(monkeypatch)
@@ -3335,7 +3648,8 @@ def test_run_cycle_records_the_plumbing_green_only_after_a_complete_chain(monkey
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
-    monkeypatch.setattr(ac, "_gate_rebuild_task", _rebuild_green)
+    monkeypatch.setattr(ac, "_gate_contracts_task", _contracts_green)
+    monkeypatch.setattr(ac, "_gate_validators_task", _validators_green)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
     _patch_build_chain(monkeypatch)
     _patch_gate_fingerprints(monkeypatch)
@@ -3404,7 +3718,8 @@ def test_run_cycle_records_no_plumbing_green_when_standing_fills_landed(monkeypa
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
-    monkeypatch.setattr(ac, "_gate_rebuild_task", _rebuild_green)
+    monkeypatch.setattr(ac, "_gate_contracts_task", _contracts_green)
+    monkeypatch.setattr(ac, "_gate_validators_task", _validators_green)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
     _patch_build_chain(monkeypatch)
     _patch_gate_fingerprints(monkeypatch)
@@ -3454,7 +3769,6 @@ def _settled_repo(tmp_path, monkeypatch):
     monkeypatch.setattr(ac, "m1_artifacts_present", lambda root=None: True)
     monkeypatch.setattr(ac, "surface_build_skippable", lambda root=None: True)
     monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, horizon=None: "no-match")
-    monkeypatch.setattr(ac, "rebuild_gate_skip_fingerprint", lambda root=None: "no-match")
     monkeypatch.setattr(ac, "PLUMBING_GREEN", tmp_path / "rebuild" / "out" / "plumbing-green.json")
     monkeypatch.setattr(ac, "plumbing_skip_fingerprint", lambda root=None, surface=None, master=None: "plu")
 
@@ -3813,8 +4127,8 @@ def test_build_plan_retention_off_on_first_run():
     assert "first run" in by_name["retention"].note
 
 
-def test_build_plan_retention_off_on_rehearsal():
-    plan = _plan(review_out=Path("tmp/reh"))
+def test_build_plan_retention_off_on_rehearsal(tmp_path):
+    plan = _plan(review_out=tmp_path / "reh")
     assert plan.retention is False
     by_name = {step.name: step for step in plan.steps}
     assert "rehearsal" in by_name["retention"].note
@@ -3974,7 +4288,8 @@ def _patch_timing_cycle(monkeypatch):
     monkeypatch.setattr(ac, "_do_complaints", _complaints_ok)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
-    monkeypatch.setattr(ac, "_gate_rebuild_task", _rebuild_green)
+    monkeypatch.setattr(ac, "_gate_contracts_task", _contracts_green)
+    monkeypatch.setattr(ac, "_gate_validators_task", _validators_green)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
 
 

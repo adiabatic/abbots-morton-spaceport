@@ -27,8 +27,6 @@ from rebuild.review.ink import kern_neutral
 from rebuild.validation.rowmodel import iter_rows
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-M1_DIR = REPO_ROOT / "rebuild" / "out" / "m1"
-AFTER_FONT = M1_DIR / "M1.otf"
 
 
 @pytest.fixture(scope="module")
@@ -39,8 +37,8 @@ def spec():
 
 
 @pytest.fixture(scope="module")
-def enricher(spec):
-    return Enricher(spec, M1_DIR, AFTER_FONT)
+def enricher(spec, live_artifacts):
+    return Enricher(spec, live_artifacts.m1, live_artifacts.font)
 
 
 @pytest.fixture(scope="module")
@@ -212,11 +210,11 @@ def test_single_cell_unit_has_null_pair(enricher):
     assert enriched.pair is None
 
 
-def test_highlight_matches_hmtx_sums_on_a_break_only_unit(enricher, units_by_key):
+def test_highlight_matches_hmtx_sums_on_a_break_only_unit(enricher, units_by_key, live_artifacts):
     unit = units_by_key[("E670:E670", "default")]
     enriched = enricher.enrich(unit)
     assert enriched.after_seams == ("break",)
-    font = TTFont(str(AFTER_FONT))
+    font = TTFont(str(live_artifacts.font))
     hmtx = font["hmtx"]
     shaped = enricher.after_shaper.shape("".join(chr(v) for v in unit.codepoint_values))
     advances = [hmtx[name][0] for name in shaped.names]
@@ -446,6 +444,6 @@ def test_subset_rows_load_for_every_config(enricher, workload):
         assert enricher.subset_row(config, "E650:E665") is not None
 
 
-def test_subset_tables_iterate(enricher):
-    rows = list(iter_rows(M1_DIR / "baseline-default.subset.tsv.gz"))
+def test_subset_tables_iterate(enricher, live_artifacts):
+    rows = list(iter_rows(live_artifacts.m1 / "baseline-default.subset.tsv.gz"))
     assert len(rows) == 346200

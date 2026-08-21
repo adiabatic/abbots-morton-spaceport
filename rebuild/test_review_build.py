@@ -35,7 +35,6 @@ from rebuild.review.ink import IDENTITY_DIFF, InkComparator, delta_digest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 FIXTURES = REPO_ROOT / "rebuild" / "review" / "fixtures"
-M1_DIR = REPO_ROOT / "rebuild" / "out" / "m1"
 LEDGER_PATH = REPO_ROOT / "rebuild" / "m1-divergences.yaml"
 
 NO_VERDICT_CLASSES = frozenset(entry.id for entry in load_ledger(LEDGER_PATH) if entry.no_verdict)
@@ -200,11 +199,13 @@ def test_full_build_passes_the_contract_checker(built):
     assert manifest["mode"] == "m1-audit"
 
 
-def test_manifest_carries_the_inputs_fingerprint(built):
+def test_manifest_carries_the_inputs_fingerprint(built, live_artifacts):
     _out_dir, manifest = built
     inputs = manifest["inputs_fingerprint"]
     assert set(inputs) == set(fingerprint.COMPONENTS)
-    recorded = fingerprint.read_stage_a(M1_DIR) or {key: None for key in fingerprint.STAGE_A_COMPONENTS}
+    recorded = fingerprint.read_stage_a(live_artifacts.m1) or {
+        key: None for key in fingerprint.STAGE_A_COMPONENTS
+    }
     for key in fingerprint.STAGE_A_COMPONENTS:
         assert inputs[key] == recorded[key]
     for key in fingerprint.STAGE_B_COMPONENTS:
@@ -927,14 +928,14 @@ def test_export_rejects_bad_format(tmp_path):
         load_verdicts(bad)
 
 
-def test_table_diff_build(tmp_path):
+def test_table_diff_build(tmp_path, live_artifacts):
     old_dir = tmp_path / "old"
     new_dir = tmp_path / "new"
     old_dir.mkdir()
     new_dir.mkdir()
     for name in ("settlement-default.tsv", "treaties-default.tsv"):
-        shutil.copyfile(M1_DIR / name, old_dir / name)
-        shutil.copyfile(M1_DIR / name, new_dir / name)
+        shutil.copyfile(live_artifacts.m1 / name, old_dir / name)
+        shutil.copyfile(live_artifacts.m1 / name, new_dir / name)
     settlement = (new_dir / "settlement-default.tsv").read_text().splitlines()
     settlement[-1] = settlement[-1].rsplit("\t", 2)[0] + "\tjoint\tsynthetic-pointer"
     (new_dir / "settlement-default.tsv").write_text("\n".join(settlement) + "\n")
@@ -945,7 +946,7 @@ def test_table_diff_build(tmp_path):
         old_dir,
         new_dir,
         REPO_ROOT / "site" / "AbbotsMortonSpaceportSansSenior-Regular.otf",
-        M1_DIR / "M1.otf",
+        live_artifacts.font,
         with_witnesses=True,
         witness_depth=2,
     )

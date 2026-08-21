@@ -111,6 +111,7 @@ def test_red_leaves_a_record_for_other_content_alone(green_store):
 
 
 def _stub_full_run(monkeypatch, *, defect_errors=(), boundary=True, pins=True, oracle_pass=False):
+    monkeypatch.setattr(run_m1.conform, "unaliased_subset_names", lambda subset_dir, alias_path: {})
     monkeypatch.setattr(run_m1.baseline_subset, "ensure_fresh", lambda repo_root: False)
     monkeypatch.setattr(run_m1, "load_default_spec", lambda: object())
     monkeypatch.setattr(ac, "run_m1_skip_files", lambda root=None: {})
