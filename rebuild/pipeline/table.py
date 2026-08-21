@@ -451,10 +451,7 @@ def windows_digest(decision: DecisionTable) -> str:
 
 
 def table_digest(decision: DecisionTable, treaty: TreatyTable) -> str:
-    """The canonical differential digest, at full contract grain: one scalar saying whether two builds of one configuration agree on the ordered rules with their provenance and joint flags, every enumerated window row as stored, the treaty rows, the reachable cells, the cited provenance and the identity-guard count. That is the whole observable product of `build_tables`, so a port, a lever or a refactor that claims to change nothing is checked against this and nothing narrower. `windows_digest` stays the narrower row-level check — it omits the treaty, the cells, the provenance and the guards on purpose, so that it answers only whether the settlement rows themselves moved. The deep-class map needs no section of its own here: class ids are content-addressed over their member sets, so a moved map moves the row fields that cite it.
-
-    `bench-the-rebuild/levers/m1_all_configs.py` carries a byte-for-byte copy for the comparison trees it measures, which predate this function; keep the two algorithms in lockstep, and `rebuild/test_table_digest.py` proves they agree.
-    """
+    """The canonical differential digest, at full contract grain: one scalar saying whether two builds of one configuration agree on the ordered rules with their provenance and joint flags, every enumerated window row as stored, the treaty rows, the reachable cells, the cited provenance and the identity-guard count. That is the whole observable product of `build_tables`, so a port, a lever or a refactor that claims to change nothing is checked against this and nothing narrower. `windows_digest` stays the narrower row-level check — it omits the treaty, the cells, the provenance and the guards on purpose, so that it answers only whether the settlement rows themselves moved. The deep-class map needs no section of its own here: class ids are content-addressed over their member sets, so a moved map moves the row fields that cite it."""
     h = hashlib.sha256()
     h.update(f"config\t{decision.config}\n".encode())
     for rule in decision.rules:
