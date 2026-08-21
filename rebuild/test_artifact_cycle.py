@@ -2371,8 +2371,10 @@ def test_green_record_roundtrip(tmp_path):
 def test_run_m1_skip_fingerprint_moves_with_runes_and_subsets(tmp_path):
     (tmp_path / "glyph_data" / "runes").mkdir(parents=True)
     (tmp_path / "rebuild" / "out" / "m1").mkdir(parents=True)
+    (tmp_path / "rebuild" / "kernel-rs" / "src").mkdir(parents=True)
     (tmp_path / "uv.lock").write_text("lock-1")
     (tmp_path / "glyph_data" / "runes" / "qsX.yaml").write_text("a: 1\n")
+    (tmp_path / "rebuild" / "kernel-rs" / "src" / "guard.rs").write_text("guard-1\n")
     first = ac.run_m1_skip_fingerprint(tmp_path)
     assert first == ac.run_m1_skip_fingerprint(tmp_path)
     (tmp_path / "glyph_data" / "runes" / "qsX.yaml").write_text("a: 2\n")
@@ -2382,7 +2384,10 @@ def test_run_m1_skip_fingerprint_moves_with_runes_and_subsets(tmp_path):
     third = ac.run_m1_skip_fingerprint(tmp_path)
     assert third != second
     (tmp_path / "uv.lock").write_text("lock-2")
-    assert ac.run_m1_skip_fingerprint(tmp_path) != third
+    fourth = ac.run_m1_skip_fingerprint(tmp_path)
+    assert fourth != third
+    (tmp_path / "rebuild" / "kernel-rs" / "src" / "guard.rs").write_text("guard-2\n")
+    assert ac.run_m1_skip_fingerprint(tmp_path) != fourth
 
 
 def test_conform_skip_fingerprint_includes_horizon_and_font(tmp_path):

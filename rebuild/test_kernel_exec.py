@@ -10,6 +10,7 @@ import pytest
 
 from rebuild.pipeline import conform, fixtures, kernel_exec, run_m1
 from rebuild.pipeline import table as table_module
+from rebuild.pipeline.settle import EDGE, NAMER_DOT, SPACE, UNKNOWN, ZWNJ, RightToken
 
 SPEC = fixtures.mini_spec()
 STAMP = "kernel-pinned-stamp"
@@ -79,6 +80,18 @@ class TestTheInvocationSeam:
         kernel_exec.ensure_built()
         kernel_exec.ensure_built()
         assert builds == [1]
+
+    def test_guard_sweep_returns_the_complete_semantic_surface(self):
+        verdicts = kernel_exec.guard_sweep(SPEC)
+        letters = tuple(RightToken("letter", name) for name in sorted(SPEC.runes))
+        ligatures = tuple(name for name, rune in SPEC.runes.items() if rune.sequence)
+        second_slots = (*letters, EDGE, SPACE, ZWNJ, NAMER_DOT, UNKNOWN)
+        assert len(verdicts) == len(ligatures) * len(letters) * len(second_slots)
+        assert set(verdicts.values()) <= {False, True}
+        first = letters[0]
+        for ligature in ligatures:
+            assert (ligature, first, ZWNJ) in verdicts
+            assert (ligature, first, NAMER_DOT) in verdicts
 
 
 @pytest.mark.parametrize(

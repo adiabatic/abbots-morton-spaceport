@@ -45,10 +45,14 @@ def data_paths(repo_root: Path) -> list[Path]:
 
 
 def pipeline_code_paths(repo_root: Path) -> list[Path]:
-    """rebuild/validation rides in this component: the shaper, row model, seam classifier, and Manual-pin replays are the before side of the M1 comparison — both fingerprinted trees import them — and a key blind to that tree would let every skip fire over changed code. The whole directory, not just the modules currently imported: a list that tracks who happens to import what goes wrong the next time an import is added, and over-invalidation is the safe direction."""
+    """rebuild/validation and the kernel crate ride in this component: the shaper, row model, seam classifier, and Manual-pin replays are the before side of the M1 comparison, while the crate emits the transition stream and formation guard the font is built from. Both fingerprinted Python trees and the crate's complete build-input surface are included rather than tracking current imports or modules piecemeal; those lists go wrong the next time an import or Rust module is added, and over-invalidation is the safe direction."""
     root = Path(repo_root)
-    return sorted((root / "rebuild" / "pipeline").glob("*.py")) + sorted(
-        (root / "rebuild" / "validation").glob("*.py")
+    kernel = root / "rebuild" / "kernel-rs"
+    return (
+        sorted((root / "rebuild" / "pipeline").glob("*.py"))
+        + sorted((root / "rebuild" / "validation").glob("*.py"))
+        + [kernel / "Cargo.toml", kernel / "Cargo.lock"]
+        + sorted((kernel / "src").rglob("*.rs"))
     )
 
 

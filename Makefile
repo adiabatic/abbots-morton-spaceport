@@ -117,7 +117,7 @@ kernel-check:
 kernel-parity: kernel-build
 	uv run python -m rebuild.tools.kernel_parity
 
-# Prove the Rust settlement core answers every window the way Python's settle kernel does — the twin that still ships, since gate:conform re-settles through it and emit_gsub reads formation_blocked from it: the late-formation guard swept exhaustively, seeded fuzz windows in each mode combination the port has to reproduce, and the golden single-window corpus sampled off the kernel's own stream and replayed per acceptance configuration — all compared as bytes, result record and fired-pointer delta included. ARGS passes the harness's own knobs; ARGS='--skip-corpus' is the fast form that skips the per-configuration kernel enumerations.
+# Prove the Rust settlement core answers every window the way Python's settle kernel does — the independent twin that still ships as gate:conform's re-settler and this differential's oracle: the late-formation guard swept exhaustively, seeded fuzz windows in each mode combination the port has to reproduce, and the golden single-window corpus sampled off the kernel's own stream and replayed per acceptance configuration — all compared as bytes, result record and fired-pointer delta included. ARGS passes the harness's own knobs; ARGS='--skip-corpus' is the fast form that skips the per-configuration kernel enumerations.
 kernel-differential: kernel-build
 	uv run python -m rebuild.tools.kernel_differential $(ARGS)
 

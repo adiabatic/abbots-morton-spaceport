@@ -5,10 +5,10 @@ from dataclasses import dataclass, replace
 
 import pytest
 
-from rebuild.pipeline import emit_gpos, emit_gsub, geometry
+from rebuild.pipeline import emit_gpos, emit_gsub, geometry, kernel_exec
 from rebuild.pipeline.fixtures import mini_spec
 from rebuild.pipeline.model import CellId, CellPlan, marker_glyph_name, relevant_marker_features
-from rebuild.pipeline.settle import EDGE, NAMER_DOT, SPACE, ZWNJ, RightToken, formation_blocked
+from rebuild.pipeline.settle import EDGE, NAMER_DOT, SPACE, ZWNJ, RightToken
 
 
 @dataclass(frozen=True)
@@ -59,6 +59,11 @@ def glyphs(spec):
             plan = CellPlan(cell=cell, entry_curs_only=(0, 8))
         records[cell] = geometry.realize(spec, plan)
     return records
+
+
+@pytest.fixture(scope="module")
+def guard_verdicts(spec):
+    return kernel_exec.guard_sweep(spec)
 
 
 def _rules(spec, glyphs):
@@ -398,9 +403,9 @@ class TestEmitGpos:
 class TestLateFormationGuardLines:
     """The section 5.7 guard's FEA realization over the mini fixture spec, whose qsDay_qsUtter corner carries the guard's worked example; qsTea_qsOy is never blocked there, so it stays in the plain type-4 lookup asserted above."""
 
-    def test_guarded_ligature_moves_to_its_own_contextual_lookup(self, spec):
+    def test_guarded_ligature_moves_to_its_own_contextual_lookup(self, spec, guard_verdicts):
         registry = emit_gsub._ClassRegistry()
-        guarded, plain, ignores, _rows, _pairs = emit_gsub._formation_lines(spec, registry)
+        guarded, plain, ignores, _rows, _pairs = emit_gsub._formation_lines(spec, registry, guard_verdicts)
         assert "    sub qsTea qsOy by qsTea_qsOy;" in plain
         assert all("qsDay" not in line for line in plain)
         assert all("qsUtter" not in line for line in plain)
@@ -412,7 +417,7 @@ class TestLateFormationGuardLines:
             follower
             for follower in letters
             if all(
-                formation_blocked(spec, "qsDay_qsUtter", RightToken("letter", follower), second)
+                guard_verdicts[("qsDay_qsUtter", RightToken("letter", follower), second)]
                 for second in seconds
             )
         ]
@@ -438,17 +443,21 @@ class TestLateFormationGuardLines:
         assert "ignore sub qsDay' qsUtter' qsSee;" in ignores
         assert "ignore sub qsDay' qsUtter' qsSee uni200C;" in ignores
 
-    def test_partially_blocked_follower_gets_a_two_slot_ignore(self, spec):
+    def test_partially_blocked_follower_gets_a_two_slot_ignore(self, spec, guard_verdicts):
         """·Tea takes the pair apart only when a second ·Tea follows, so it compiles to a two-slot ignore over that one third letter rather than joining the one-slot guard class — the branch the shipped alphabet no longer reaches."""
         registry = emit_gsub._ClassRegistry()
-        guarded, _plain, ignores, _rows, _pairs = emit_gsub._formation_lines(spec, registry)
+        guarded, _plain, ignores, _rows, _pairs = emit_gsub._formation_lines(spec, registry, guard_verdicts)
         letters = sorted(name for name, rune in spec.runes.items() if not rune.sequence)
         blocked_seconds = [
             second
             for second in letters
-            if formation_blocked(
-                spec, "qsDay_qsUtter", RightToken("letter", "qsTea"), RightToken("letter", second)
-            )
+            if guard_verdicts[
+                (
+                    "qsDay_qsUtter",
+                    RightToken("letter", "qsTea"),
+                    RightToken("letter", second),
+                )
+            ]
         ]
         assert blocked_seconds == ["qsTea"]
         assert "    ignore sub qsDay' qsUtter' qsTea qsTea;" in guarded
@@ -458,9 +467,29 @@ class TestLateFormationGuardLines:
             "    ignore sub qsDay' qsUtter' qsTea qsTea;"
         )
 
-    def test_utter_second_slot_releases_uniformly(self, spec):
+    def test_utter_second_slot_releases_uniformly(self, spec, guard_verdicts):
         """Ligature-transparent left scopes let the formed ligature serve a following alternate ·Utter wherever the unformed trail could — the alternate's x-height entry scope names qsDay_qsUtter alongside qsUtter — so before a following ·Utter the ligature always forms and the guard emits no second-slot ·Utter rows at all."""
         registry = emit_gsub._ClassRegistry()
-        guarded, _plain, _ignores, _rows, _pairs = emit_gsub._formation_lines(spec, registry)
+        guarded, _plain, _ignores, _rows, _pairs = emit_gsub._formation_lines(spec, registry, guard_verdicts)
         utter_second = [line for line in guarded if "qsDay' qsUtter' qsUtter" in line]
         assert utter_second == []
+
+    def test_emission_reads_one_crate_sweep_and_not_the_python_guard(
+        self, spec, glyphs, guard_verdicts, monkeypatch
+    ):
+        from rebuild.pipeline import settle as settle_module
+
+        sweeps = []
+
+        def crate_guard(received_spec):
+            sweeps.append(received_spec)
+            return guard_verdicts
+
+        def python_guard(*_arguments, **_keywords):
+            raise AssertionError("emit_gsub consulted Python's formation guard")
+
+        monkeypatch.setattr(kernel_exec, "guard_sweep", crate_guard)
+        monkeypatch.setattr(settle_module, "formation_blocked", python_guard)
+        plan = emit_gsub.emit_gsub(spec, {frozenset(): FakeDecision(_rules(spec, glyphs))}, glyphs=glyphs)
+        assert plan.formation_guarded_rows
+        assert sweeps == [spec]
