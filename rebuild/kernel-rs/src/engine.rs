@@ -1396,9 +1396,9 @@ impl<'i> Engine<'i> {
 
     // --- the probe surface -------------------------------------------------------------
 
-    /// [`Engine::prospect`] under the name the deep-slot liveness probes call it by, `table._ProspectLiveness._third_class_live`'s and `_fourth_class_live`'s `self.engine._prospect(...)`.
+    /// [`Engine::prospect`] under the name the deep-slot liveness probes call it by.
     ///
-    /// Python's probes reach straight into a private method, and this pair of wrappers is what lets the port keep that reach visible instead of widening the settlement surface for it: the probes are the only callers, the delegation is total, and nothing about the term changes by being asked for from [`crate::liveness`] rather than from the ranking. The candidate a probe hands in is the bare `Candidate(stance, None, seam, 0)` shape of the input frame, not a candidate the enumeration produced.
+    /// The probes reach into what is otherwise an internal ranking term, and this pair of wrappers is what keeps that reach visible instead of widening the settlement surface for it: the probes are the only callers, the delegation is total, and nothing about the term changes by being asked for from [`crate::liveness`] rather than from the ranking. The candidate a probe hands in is the bare `Candidate(stance, None, seam, 0)` shape of the input frame, not a candidate the enumeration produced.
     #[allow(dead_code)]
     pub(crate) fn probe_prospect(
         &mut self,
@@ -1409,7 +1409,7 @@ impl<'i> Engine<'i> {
         self.prospect(rune_name, candidate, slots)
     }
 
-    /// [`Engine::prefer_favors`] under the name the vote arm calls it by, `_ProspectLiveness._vote_class_live`'s `self.engine._prefer_favors(...)`. The same total delegation as [`Engine::probe_prospect`], for the same reason.
+    /// [`Engine::prefer_favors`] under the name the vote arm calls it by. The same total delegation as [`Engine::probe_prospect`], for the same reason.
     #[allow(dead_code)]
     pub(crate) fn probe_prefer_favors(
         &mut self,

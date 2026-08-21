@@ -569,16 +569,8 @@ _EDGE_LABEL = "#EDGE"
 _NA_LABEL = "#NA"
 
 
-def _window_rights(
-    labels: list[str],
-    index: int,
-    deep: frozenset[str],
-    deep3_live: Callable[[str, str, str], bool],
-    deep4: frozenset[str],
-    deep4_live: Callable[[str, str, str, str], bool],
-) -> tuple[str, str, str, str]:
-    """The normalized lookahead slots of the settlement window at `index`: right2 is #NA past a boundary or the edge, and the deep slots open only where the table enumerates them — an input `deep`/`deep4` admits (the table's `third_slot_inputs` / `fourth_slot_inputs`) whose window is still live over the nearer slots (`deep3_live` / `deep4_live`, the table's `third_slot_filter` / `fourth_slot_filter`, whose verdicts carry the simulated-prospect arm whenever the engines do). Shared by `_matched_windows` and `_SettledWindowWalk` so the replay, the memo key, and the table agree on which slots a window carries."""
-    label = labels[index]
+def _window_rights(labels: list[str], index: int) -> tuple[str, str, str, str]:
+    """The raw settlement window at `index`, out to the fourth slot: each slot is the next label along, `#EDGE` past the end of the buffer, and `#NA` the moment the slot before it is a boundary, the edge, or itself `#NA` — the standing convention that no record peeks past a boundary. The table's deep-slot structure plays no part here, and needs none: a rule that dropped a slot matches any token at it (`_first_matching_rule`), so a raw token standing at a slot the enumeration never split matches exactly the slot-dropped rule HarfBuzz would match. Keying the settle memo this finely is sound with no relevance oracle at all, because `transition_trace` reads exactly these slots and nothing beyond them — and it is also the faster of the two, measured on the live alphabet at the belt's horizon: the probes that decided which slots to blank cost far more than the traces the blanking saved. Shared by `_matched_windows` and `_SettledWindowWalk` so the replay and the memo key read one window."""
     right1 = labels[index + 1] if index + 1 < len(labels) else _EDGE_LABEL
     right2 = (
         _NA_LABEL
@@ -587,20 +579,12 @@ def _window_rights(
     )
     right3 = (
         _NA_LABEL
-        if right2 in _WINDOW_BOUNDARIES
-        or right2 in (_EDGE_LABEL, _NA_LABEL)
-        or _label_family(label) not in deep
-        or not deep3_live(_label_family(label), _label_family(right1), _label_family(right2))
+        if right2 in _WINDOW_BOUNDARIES or right2 in (_EDGE_LABEL, _NA_LABEL)
         else (labels[index + 3] if index + 3 < len(labels) else _EDGE_LABEL)
     )
     right4 = (
         _NA_LABEL
-        if right3 in _WINDOW_BOUNDARIES
-        or right3 in (_EDGE_LABEL, _NA_LABEL)
-        or _label_family(label) not in deep4
-        or not deep4_live(
-            _label_family(label), _label_family(right1), _label_family(right2), _label_family(right3)
-        )
+        if right3 in _WINDOW_BOUNDARIES or right3 in (_EDGE_LABEL, _NA_LABEL)
         else (labels[index + 4] if index + 4 < len(labels) else _EDGE_LABEL)
     )
     return right1, right2, right3, right4
@@ -637,29 +621,8 @@ def _first_matching_rule(
     return None
 
 
-def _matched_windows(
-    spec,
-    text,
-    features,
-    expected,
-    rules_by_input,
-    deep=None,
-    deep3_live=None,
-    deep4=None,
-    deep4_live=None,
-    deep_index=None,
-):
-    """Replay the settlement lookup's view of one string: yield (position, window key, first-matching rule index or None) per letter slot, with labels and rules in the config's renamed (marker-folded) space and the left slot read from the settled stream — the exact first-match-wins semantics the emitted FEA compiles to. `deep` is the table's `third_slot_inputs` set and `deep4` its `fourth_slot_inputs` set (computed here when not supplied); the third window slot is #NA except where the table enumerates it — an admitted input with letters at both nearer slots, gated by `deep3_live` (the table's `third_slot_filter`, built here when not supplied) — and the fourth repeats that one deeper, gated the same way by `deep4_live` (the table's `fourth_slot_filter`), so the replay and the table agree on which windows carry live deep slots. `deep_index` is the table's `_DeepTokenIndex`; token resolution is a separate step strictly after `_window_rights`' gates, which must see raw labels, and needs the settled left this loop holds — with no index the deep slots stay raw labels, which on a class-grain table realize no row."""
-    from rebuild.pipeline import table as table_module
-
-    if deep is None:
-        deep = table_module.third_slot_inputs(spec)
-    if deep3_live is None:
-        deep3_live = table_module.third_slot_filter(spec, frozenset(features))
-    if deep4 is None:
-        deep4 = table_module.fourth_slot_inputs(spec)
-    if deep4_live is None:
-        deep4_live = table_module.fourth_slot_filter(spec, frozenset(features))
+def _matched_windows(spec, text, features, expected, rules_by_input, deep_index=None):
+    """Replay the settlement lookup's view of one string: yield (position, window key, first-matching rule index or None) per letter slot, with labels and rules in the config's renamed (marker-folded) space and the left slot read from the settled stream — the exact first-match-wins semantics the emitted FEA compiles to. The window slots are the raw ones `_window_rights` reads; nothing here consults which slots the table chose to split, because a rule that dropped one matches whatever stands at it. `deep_index` is the table's `_DeepTokenIndex`; token resolution is a separate step strictly after `_window_rights`, which reads raw labels, and needs the settled left this loop holds — with no index the deep slots stay raw labels, which on a class-grain table realize no row."""
     try:
         labels = raw_labels(spec, text, features)
     except ValueError:
@@ -676,7 +639,7 @@ def _matched_windows(
             left = labels[index - 1]
         else:
             left = settled[index - 1]
-        right1, right2, right3, right4 = _window_rights(labels, index, deep, deep3_live, deep4, deep4_live)
+        right1, right2, right3, right4 = _window_rights(labels, index)
         if deep_index is not None:
             right3, right4 = deep_index.resolve(label, left, right1, right2, right3, right4)
         matched = _first_matching_rule(
@@ -722,7 +685,7 @@ def _token_representative(decision, label: str) -> str:
 
 
 class _DeepTokenIndex:
-    """The per-config transport of a table's deep-slot class tokens into the walk and the replay (issue 26). Two levels, because r4 fibers are per (base, r3 token), never per base alone: `{(renamed input, settled left, renamed r1, renamed r2) -> {renamed member label -> r3 token}}` and the same keyed one deeper on the resolved r3 token — the class id verbatim when the row's r3 is a class, otherwise the bare r3 in renamed space, because that is exactly what `resolve`'s r3 step hands back for each shape (a class token never renames; a bare label reaches `resolve` already marker-folded). Built once per config from `decision.transitions` + `decision.deep_classes` + the rename map; `resolve` runs in the callers that hold the settled left, strictly after `_window_rights`' gates — those gates index `spec.runes` by `_label_family`, so a class id must never reach them. A boundary label passes through, and a live-but-unindexed member falls back to the raw label, which then matches no row — today's exact behavior for a window the table lacks, which the enumeration's exactness precludes. `representatives` maps each class token to its renamed first member for the rule-membership tests, exact rather than heuristic because the build asserts every emitted look class holds a token's members all-in or all-out."""
+    """The per-config transport of a table's deep-slot class tokens into the walk and the replay (issue 26). Two levels, because r4 fibers are per (base, r3 token), never per base alone: `{(renamed input, settled left, renamed r1, renamed r2) -> {renamed member label -> r3 token}}` and the same keyed one deeper on the resolved r3 token — the class id verbatim when the row's r3 is a class, otherwise the bare r3 in renamed space, because that is exactly what `resolve`'s r3 step hands back for each shape (a class token never renames; a bare label reaches `resolve` already marker-folded). Built once per config from `decision.transitions` + `decision.deep_classes` + the rename map; `resolve` runs in the callers that hold the settled left, strictly after `_window_rights` has read the raw labels, so a class id never stands where a raw one is expected. A boundary label passes through, and a live-but-unindexed member falls back to the raw label, which then matches no row — today's exact behavior for a window the table lacks, which the enumeration's exactness precludes. `representatives` maps each class token to its renamed first member for the rule-membership tests, exact rather than heuristic because the build asserts every emitted look class holds a token's members all-in or all-out."""
 
     def __init__(self, decision, renames: Mapping[str, str]):
         self.representatives: dict[str, str] = {}
@@ -764,26 +727,18 @@ class _DeepTokenIndex:
 
 
 class _SettledWindowWalk:
-    """The memoized settle walk one conformance config runs over every swept text: a single left-to-right pass computes each letter slot's normalized window key — exactly `_matched_windows`' slots at raw label grain, with the left read from the just-settled stream — and resolves it through `windows`, a window -> (Settled, glyph name) memo, calling `engine.transition_trace` only on a miss; the memoized Settled feeds the next slot's left exactly as `settle_traces` does. The memo is a pure speed device and nothing else: it records no coverage, and the sweep's verdict is the same whether every window misses or every window hits. Sound because every memoized outcome is a pure function of the normalized window: the left label is the settled cell's glyph name (injective over every CellId field, whether minted by `cell_label` or `geometry.display_name`), and the deep slots blank only where the spec-level relevance filters prove nothing can read them — no own-rune chain, and no simulated follower choice when the engines carry the issue-28 prospect — the same rules the build's partition gates assert. A record shape that read a token through a normalized-away slot (none exists today — no `then` hop follows an `is:` boundary condition) would settle wrongly only via each window's first-reached representative rather than diverging on every text, so the walk-equivalence sweeps in rebuild/test_conform.py are the alarm that must move first. A hit skips `transition_trace` and so stops re-recording into `engine.fired`, which the conform run never reads. `windows` is deliberately unbounded; the interned labels plus deduplicated outcome tuples keep the residual cost to the key tuples themselves."""
+    """The memoized settle walk one conformance config runs over every swept text: a single left-to-right pass computes each letter slot's raw window key — exactly `_matched_windows`' slots, with the left read from the just-settled stream — and resolves it through `windows`, a window -> (Settled, glyph name) memo, calling `engine.transition_trace` only on a miss; the memoized Settled feeds the next slot's left exactly as `settle_traces` does. The memo is a pure speed device and nothing else: it records no coverage, and the sweep's verdict is the same whether every window misses or every window hits. Sound because every memoized outcome is a pure function of the window as keyed: the left label is the settled cell's glyph name (injective over every CellId field, whether minted by `cell_label` or `geometry.display_name`), and the right slots are the raw tokens `transition_trace` reads, all of them and none beyond. That last point is why the walk needs no liveness oracle at all — it once blanked the deep slots wherever the table's relevance filters proved nothing could read them, and paid more for the probes than the blanking ever saved. A hit skips `transition_trace` and so stops re-recording into `engine.fired`, which the conform run never reads. `windows` is deliberately unbounded; the interned labels plus deduplicated outcome tuples keep the residual cost to the key tuples themselves. The walk-equivalence sweeps in rebuild/test_conform.py are the standing alarm on all of it."""
 
     def __init__(
         self,
         spec: ResolvedSpec,
         engine: Engine,
         features: frozenset[str],
-        deep: frozenset[str],
-        deep3_live: Callable[[str, str, str], bool],
-        deep4: frozenset[str],
-        deep4_live: Callable[[str, str, str, str], bool],
         glyph_names: Mapping[CellId, str],
     ):
         self.spec = spec
         self.engine = engine
         self.features = features
-        self.deep = deep
-        self.deep3_live = deep3_live
-        self.deep4 = deep4
-        self.deep4_live = deep4_live
         self.glyph_names = glyph_names
         self.windows: dict[tuple[str, str, str, str, str, str], tuple[Settled, str]] = {}
         self._outcomes: dict[tuple[Settled, str], tuple[Settled, str]] = {}
@@ -813,11 +768,7 @@ class _SettledWindowWalk:
                 left = labels[index - 1]
             else:
                 left = names[index - 1]
-            window = (
-                label,
-                left,
-                *_window_rights(labels, index, self.deep, self.deep3_live, self.deep4, self.deep4_live),
-            )
+            window = (label, left, *_window_rights(labels, index))
             outcome = self.windows.get(window)
             if outcome is None:
                 item = self.engine.transition_trace(
@@ -1299,17 +1250,12 @@ def find_rule_witnesses(spec, features, decision, glyph_names=None) -> WitnessRe
 
     if glyph_names is None:
         glyph_names = {cell: cell_label(spec, cell) for cell in decision.reachable_cells()}
-    from rebuild.pipeline import table as table_module
     from rebuild.pipeline.emit_gsub import _raw_rename_map
 
     rules_by_input = _renamed_rules_by_input(spec, features, decision)
     prefixes, by_right3 = _shortest_window_prefixes(decision)
     rows_by_rule = _first_match_rows(decision)
     engine = settle_module.Engine(spec, frozenset(features))
-    deep = table_module.third_slot_inputs(spec, engine)
-    deep4 = table_module.fourth_slot_inputs(spec, engine)
-    deep3_live = table_module.third_slot_filter(spec, frozenset(features), engine)
-    deep4_live = table_module.fourth_slot_filter(spec, frozenset(features), engine)
     deep_index = (
         _DeepTokenIndex(decision, _raw_rename_map(spec, frozenset(features)))
         if getattr(decision, "deep_classes", None)
@@ -1327,16 +1273,7 @@ def find_rule_witnesses(spec, features, decision, glyph_names=None) -> WitnessRe
             if any(
                 matched == index
                 for _pos, _window, matched in _matched_windows(
-                    spec,
-                    text,
-                    features,
-                    expected,
-                    rules_by_input,
-                    deep,
-                    deep3_live,
-                    deep4,
-                    deep4_live,
-                    deep_index,
+                    spec, text, features, expected, rules_by_input, deep_index
                 )
             ):
                 witness = text
@@ -1409,19 +1346,14 @@ def _conformance_config(
 ) -> ConformanceConfigResult:
     """One config's belt run: every string of length 1..max_length over the alphabet, shaped against the font and diffed against the settled stream, with the ZWNJ structural checks, split-buffer equivalence and gap-0 pen positions riding along. Configs share nothing, so this is the unit both the serial wrapper and the process-pool worker call. Settlement rides `_SettledWindowWalk`'s per-config memo, which is a speed device only — the sweep's verdict does not depend on which windows it has already seen. `boundary_horizon` (the boundary gate's proven horizon for this font, `proven_boundary_horizon`) lets the sweep inherit `check_zwnj_structure` and `check_split_buffer` for texts within it, where that gate already proved them for the same font bytes."""
     from rebuild.pipeline import settle as settle_module
-    from rebuild.pipeline import table as table_module
 
     features = features_for_config(config)
     engine = settle_module.Engine(spec, features)
 
     result = ConformanceConfigResult(config=config)
-    deep = table_module.third_slot_inputs(spec, engine)
-    deep3_live = table_module.third_slot_filter(spec, features, engine)
-    deep4 = table_module.fourth_slot_inputs(spec, engine)
-    deep4_live = table_module.fourth_slot_filter(spec, features, engine)
     modes: set[str] = set()
     overlay = isolated_overlay_active(spec, features)
-    walker = _SettledWindowWalk(spec, engine, features, deep, deep3_live, deep4, deep4_live, glyph_names)
+    walker = _SettledWindowWalk(spec, engine, features, glyph_names)
 
     def sweep_text(text: str) -> None:
         shaped = shaper.shape(text, features)

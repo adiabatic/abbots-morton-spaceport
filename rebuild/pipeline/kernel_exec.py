@@ -1,21 +1,28 @@
-"""The Rust kernel's invocation seam for the pipeline (issue #40, sub-issue #47): build the binary, and ask it for one whole cycle's transition streams. It lives here rather than beside the four `rebuild/tools/kernel_*.py` harnesses because `run_m1` is what calls it and the pipeline does not import from the tools tree; the harnesses keep their own copies of the same constants, which is duplication with a reason — each of them is an exit-bar instrument that has to state the contract it is measuring rather than inherit it from the thing it measures.
+"""The kernel boundary's Python face (issue #40, sub-issue #47; the only fixpoint there is since issue #78): build the binary, fan one process out over a whole cycle's transition streams, and hand back the single-configuration product and tables for everything that is not `run_m1`. It lives here rather than beside the `rebuild/tools/kernel_*.py` harnesses because the pipeline is what calls it and the pipeline does not import from the tools tree; `rebuild/tools/kernel_differential.py` and `kernel_parity.py` keep their own copies of the same constants, which is duplication with a reason — each of them is an exit-bar instrument that has to state the contract it is measuring rather than inherit it from the thing it measures.
 
-The build is `cargo build --release` against the crate's own manifest and nothing else, because release is the only profile anything in this repo runs: the parity, differential, fixpoint and liveness harnesses all reach for `target/release/ams-m1-kernel`, and a debug binary that answered would answer far too slowly to be the same experiment. A box with no `cargo` is a `KernelBuildError` carrying the remedy rather than a stack trace, since that is the one failure a reader can fix in a minute.
+The build is `cargo build --release` against the crate's own manifest and nothing else, because release is the only profile anything in this repo runs: the pipeline, the parity harness and the differential all reach for `target/release/ams-m1-kernel`, and a debug binary that answered would answer far too slowly to be the same experiment. A box with no `cargo` is a `KernelBuildError` carrying the remedy rather than a stack trace, since that is the one failure a reader can fix in a minute; `ensure_built` is the memoized form every caller in a process shares, so a suite that builds a hundred tables pays for one build.
 
-`enumerate_configs` is the fan-out verb and the only one the pipeline needs: one process answers every acceptance configuration, writing each one's stream to a file of its own, and the streams are byte-identical to what the same binary emits one configuration at a time at any thread width (sub-issue #46's exit bar). Threads are the caller's to choose because the ceiling is memory rather than CPU — a live configuration holds its whole working set until it has emitted — so sub-issue #46 measured 3 as the solo width on a 32 GB box and `KERNEL_THREADS_DEFAULT` ships one below it, because a cycle runs the fan-out beside a pytest pool and the Python fold rather than alone; `AMS_KERNEL_THREADS` overrides it in either direction, and since the streams are byte-identical at any width that override is purely a memory knob. Callers cap whatever width they are handed at the number of configurations there are to answer and at the CPUs there are to answer them with.
+`enumerate_configs` is the fan-out verb and the one `run_m1` needs: one process answers every acceptance configuration, writing each one's stream to a file of its own, and the streams are byte-identical to what the same binary emits one configuration at a time at any thread width (sub-issue #46's exit bar). Threads are the caller's to choose because the ceiling is memory rather than CPU — a live configuration holds its whole working set until it has emitted — so sub-issue #46 measured 3 as the solo width on a 32 GB box and `KERNEL_THREADS_DEFAULT` ships one below it, because a cycle runs the fan-out beside a pytest pool and the Python fold rather than alone; `AMS_KERNEL_THREADS` overrides it in either direction, and since the streams are byte-identical at any width that override is purely a memory knob. Callers cap whatever width they are handed at the number of configurations there are to answer and at the CPUs there are to answer them with.
+
+`enumerate_transitions` and `build_tables` are the single-configuration forms of the same call, in memory and writing nothing: one spec dumped to a scratch directory, one stream enumerated and read back as the `table.FixpointProduct` the fold consumes. That product is where the two halves of the build meet, so this module is where the seam is invoked from — the crate enumerates, `table.assemble_tables` folds — and a test, a tool or a hand-assembled spec reaches the build through here, while `run_m1.build_tables` is the persisting, whole-cycle form that stamps its artifacts with the sources they came from.
 
 The invocation is read strictly, on the CLI contract's own terms: exit 2 is the usage check, which for a well-formed invocation can only mean the verb is absent or the two sides' flag sets have drifted apart; any other nonzero exit is the kernel complaining about its inputs; and stderr on a clean exit is a failure unless timings were asked for, in which case every `[t]` line is forwarded to this process's own stderr verbatim so the cycle journal reads the kernel's per-configuration walls the same way it reads Python's, and anything else on that stream is still a failure. The answer is the files, so bytes on stdout are a failure too.
 """
 
 from __future__ import annotations
 
+import gzip
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 from collections.abc import Sequence
 from pathlib import Path
 
-from rebuild.pipeline import settle, table
+from rebuild.pipeline import kernel_io, settle, table
+from rebuild.pipeline.model import ResolvedSpec, feature_config_token
+from rebuild.pipeline.table import DecisionTable, FixpointProduct, TreatyTable
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 BINARY = REPO_ROOT / "rebuild" / "kernel-rs" / "target" / "release" / "ams-m1-kernel"
@@ -24,12 +31,16 @@ KERNEL_THREADS_DEFAULT = max(1, int(os.environ.get("AMS_KERNEL_THREADS", "2")))
 TIMEOUT = 1800
 # How much of a failed build's stderr rides the exception: cargo says what is wrong in its last few lines and repeats the whole compilation above them.
 BUILD_TAIL_LINES = 20
-# The three semantics flags a fixpoint's shape depends on, each as (the kernel flag that says it is off, the module holding the default, the attribute), exactly as `rebuild/tools/kernel_fixpoint.py` states them. Off is what carries a flag, so the shipping world invokes the verb bare.
+# The issue-26 flag: deep window slots enumerate at class grain (one row per outcome fiber, expanded back to labels for every fold-side consumer). It is a kernel invocation flag, carried across by `world_flags` like settle's two semantics defaults — module-level, consulted at call time, AMS_DEEP_CLASSES=0 the label-grain comparison state — and `class_grain` states the grain rule the crate itself applies.
+DEEP_CLASSES_DEFAULT = os.environ.get("AMS_DEEP_CLASSES", "1") != "0"
+# The three semantics flags a fixpoint's shape depends on, each as (the kernel flag that says it is off, the module holding the default, the attribute). Off is what carries a flag, so the shipping world invokes the verb bare.
 WORLD_FLAGS = (
     ("--candidacy-prospect", settle, "SIMULATED_PROSPECT_DEFAULT"),
     ("--vote-slots-off", settle, "VOTE_SLOTS_DEFAULT"),
-    ("--deep-classes-off", table, "DEEP_CLASSES_DEFAULT"),
+    ("--deep-classes-off", sys.modules[__name__], "DEEP_CLASSES_DEFAULT"),
 )
+
+_BUILT = False
 
 
 class KernelBuildError(RuntimeError):
@@ -59,9 +70,23 @@ def cargo_build() -> None:
         raise KernelBuildError(f"the kernel did not build (cargo exited {finished.returncode}):\n{tail}")
 
 
+def ensure_built() -> None:
+    """`cargo_build` once per process, and nothing at all on every call after. The build itself is what a caller wants before its first invocation — the sources on disk are what must answer — but a warm `cargo` still costs a fraction of a second, and a suite or a cycle stage that builds a hundred tables would pay it a hundred times over for a binary that cannot have moved underneath it. A caller that genuinely wants the toolchain consulted again calls `cargo_build` directly."""
+    global _BUILT
+    if _BUILT:
+        return
+    cargo_build()
+    _BUILT = True
+
+
 def world_flags() -> list[str]:
     """The mode flags the kernel needs to enumerate the world this Python process is in — one per default that is off. All three are module-level defaults consulted at construction time, so the environment is the only lever on the Python side and this is what carries it across to the kernel; the same three tokens ride `run_m1.tables_inputs`, so a flag-on enumeration can never be mistaken for a flag-off one on either side of the seam."""
     return [flag for flag, module, attribute in WORLD_FLAGS if not getattr(module, attribute)]
+
+
+def class_grain() -> bool:
+    """Whether the enumeration this process asks for splits its deep slots into outcome fibers — the grain rule the crate applies, restated on the Python side for the callers that have to name it. `AMS_DEEP_CLASSES` asks for class grain, but the fibers have a source only where a deep token can move an outcome at all: in the pinned candidacy world, with neither the simulated prospect nor the shifted vote slots, there is nothing to probe and the crate enumerates at label grain whatever the flag says. `run_m1.tables_inputs` reads this, because the stamp on a serialized enumeration has to distinguish the two grains."""
+    return DEEP_CLASSES_DEFAULT and (settle.SIMULATED_PROSPECT_DEFAULT or settle.VOTE_SLOTS_DEFAULT)
 
 
 def enumerate_configs(
@@ -132,3 +157,36 @@ def _forward_stderr(errors: str, timings: bool, arguments: list[str]) -> None:
         )
     for line in lines:
         print(line, file=sys.stderr, flush=True)
+
+
+def read_stream(stream: Path, scratch: Path) -> FixpointProduct:
+    """One kernel stream read back as the product it stands for. `enumerate-configs` writes plain ndjson where `kernel_io.read_transitions` reads the gzip shape every artifact under `rebuild/out/` wears, so the bytes are packed on the way in — at the cheapest compression there is, since this copy is written, read once and unlinked, and what the reader wants from it is the shape rather than the size. Both files go as soon as the product is in hand: a live configuration's stream is hundreds of megabytes and a whole cycle's worth would otherwise sit in the scratch directory for the length of the build."""
+    packed = scratch / f"{stream.stem}.ndjson.gz"
+    with (
+        stream.open("rb") as plain,
+        packed.open("wb") as raw,
+        gzip.GzipFile(filename="", fileobj=raw, mode="wb", mtime=0, compresslevel=1) as handle,
+    ):
+        shutil.copyfileobj(plain, handle)
+    stream.unlink()
+    product = kernel_io.read_transitions(packed)
+    packed.unlink()
+    return product
+
+
+def enumerate_transitions(spec: ResolvedSpec, features: frozenset[str]) -> FixpointProduct:
+    """One configuration's reachable windows, enumerated by the crate and parsed back into the value the Python half folds. This is the seam `table.FixpointProduct` is stated at: the kernel enumerates, `table.assemble_tables` folds, and nothing between them is consulted, so a product that arrived over this boundary assembles into exactly the tables the enumeration that produced it would have. Everything is in memory and nothing survives the call — the spec dump and the stream live in a scratch directory that goes with the frame — which is the form a test, a tool, or a spec someone assembled by hand builds through; `run_m1.build_tables` is the persisting, multi-configuration form, and the only one that stamps what it writes."""
+    with tempfile.TemporaryDirectory() as scratch:
+        directory = Path(scratch)
+        spec_path = directory / "spec.json"
+        kernel_io.write_spec(spec, spec_path)
+        ensure_built()
+        streams = enumerate_configs(
+            spec_path, directory / "streams", [feature_config_token(features)], threads=1
+        )
+        return read_stream(next(iter(streams.values())), directory)
+
+
+def build_tables(spec: ResolvedSpec, features: frozenset[str]) -> tuple[DecisionTable, TreatyTable]:
+    """One configuration's decision and treaty tables: the crate for the fixpoint, `table.assemble_tables` for the fold. The table-level asserts are deliberately not run here — the live build's per-configuration fold runs `assert_outcome_partition` and `assert_e_stranded` itself, and a caller that wants them calls them on the table it is handed."""
+    return table.assemble_tables(spec, enumerate_transitions(spec, features))

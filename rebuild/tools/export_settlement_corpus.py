@@ -4,7 +4,7 @@ Layout follows the enumeration artifacts beside it: gzip with a zeroed stamp, a 
 
 Several of those head and case fields exist for the differential rather than for the export. The message, because the unreachable bucket is where a port's error paths differ most and an identity alone cannot tell an E-STRANDED apart from a rune that is not modeled, so the messages are compared byte for byte like everything else. The modes, because `simulated_prospect` and `vote_slots` are engine-construction flags a replay has to be handed rather than infer, and a corpus read back without them would be replayed under whatever the reader's own defaults were. And everything past the fired delta, because a window's row is the answer and not the reasoning: a port that ranks by the wrong join count, eliminates a candidate at the wrong stage, or wins at the floor where Python won at the prefers can still land on the same cell at this window and diverge at the next one, and a comparison that stopped at the row would call that a pass. The seeded fuzz corpus next door (`fuzz_settlement_corpus`) writes this same layout and shares this module's replay, so the harness has one reader for both piles.
 
-Sampling is deterministic, and runs in two arms because the kernel's two answer shapes live in different places. Settled cases replay a stratified sample of the fixpoint's own rows: `enumerate_transitions`' key-sorted stream grouped per (input family, left kind, identity-vs-moved outcome, each deep slot's liveness on its own, the joint floor, whether notes fired) with the first `--per-group` rows of each group kept, so every shape of window the enumeration reaches — depth-4 rows, flagged seams and note-carrying rows included, none of which the cheap key-order prefix would reach on its own — is represented while the corpus stays a sample rather than a second copy of the table. Beside the strata sits a short list of window families the sample carries unconditionally (`FORCED_WINDOWS`): a stratum key describes a row's shape, and the recorded window the deep-slot liveness belt exists for is shaped like every other depth-4 row, so it needs naming rather than sampling. A named family that this spec models and the enumeration did not produce aborts the export, because silence is how the forcing fails. Each replay's arguments are reconstructed from the row it came from — the left from `left_settled` where it has one and from `table.BOUNDARY_LEFT_LABELS` where it does not, a deep class id at either deep slot through its representative member, and a `#NA` slot as `EDGE`, which is exactly what the enumeration handed the kernel wherever it recorded `#NA`. A sampled row that raises on replay aborts the export: the row came from the enumeration, so a raise there is a reconstruction defect, never a case. Raising cases come from where no enumerated row can reach: the virtual lefts `table._ProspectLiveness` probes with, crossed with its probe alphabet at the two nearer slots and `EDGE` at the deep ones. Both surfaces are reused rather than copied (`_seat_left_classes`, `_probe_tokens`), so the corpus's left collapse and probe alphabet are the build's own; the walk records every window that raises and a per-family cap (`--per-family`) stops it.
+Sampling is deterministic, and runs in two arms because the kernel's two answer shapes live in different places. Settled cases replay a stratified sample of the kernel's own rows: the key-sorted stream `kernel_exec.enumerate_transitions` hands back, grouped per (input family, left kind, identity-vs-moved outcome, each deep slot's liveness on its own, the joint floor, whether notes fired) with the first `--per-group` rows of each group kept, so every shape of window the enumeration reaches — depth-4 rows, flagged seams and note-carrying rows included, none of which the cheap key-order prefix would reach on its own — is represented while the corpus stays a sample rather than a second copy of the table. Beside the strata sits a short list of window families the sample carries unconditionally (`FORCED_WINDOWS`): a stratum key describes a row's shape, and the recorded window the deep-slot liveness belt exists for is shaped like every other depth-4 row, so it needs naming rather than sampling. A named family that this spec models and the enumeration did not produce aborts the export, because silence is how the forcing fails. Each replay's arguments are reconstructed from the row it came from — the left from `left_settled` where it has one and from `table.BOUNDARY_LEFT_LABELS` where it does not, a deep class id at either deep slot through its representative member, and a `#NA` slot as `EDGE`, which is exactly what the enumeration handed the kernel wherever it recorded `#NA`. A sampled row that raises on replay aborts the export: the row came from the enumeration, so a raise there is a reconstruction defect, never a case. Raising cases come from where no enumerated row can reach: a virtual left per (family, stance, seam) plus the four boundary kinds, crossed with the probe alphabet at the two nearer slots and `EDGE` at the deep ones. Those two surfaces are drawn here rather than borrowed, and drawn deliberately wide — the kernel's own liveness probes work the same shapes, minus the signature collapse that merges lefts a follower cannot tell apart, so what is cut here is a superset of every window the crate's belt hands its settlement engine; the walk records every window that raises and a per-family cap (`--per-family`) stops it.
 
 `read_corpus` is the reader side of the same contract, and the one place the format marker is checked; the differential harness reads a file through it rather than re-deriving the layout.
 
@@ -20,7 +20,7 @@ import time
 from pathlib import Path
 from typing import Iterator
 
-from rebuild.pipeline import conform, fixtures, spec_load
+from rebuild.pipeline import conform, fixtures, kernel_exec, spec_load
 from rebuild.pipeline import table as table_module
 from rebuild.pipeline.model import CellId, ResolvedSpec, Settled
 from rebuild.pipeline.run_m1 import REPO_ROOT
@@ -47,7 +47,7 @@ DEFAULT_PER_FAMILY = 4
 RAISE_INCOMPARABLE = "E-INCOMPARABLE"
 RAISE_AMBIGUOUS = "E-AMBIGUOUS"
 RAISE_UNREACHABLE = "E-UNREACHABLE"
-# Window families the settled sample carries whatever the strata caps say, keyed on the input and the three nearer slots. There is one: the family `table.py`'s joint34 comment records, ·See·No·No·Roe·No·Oy, where the fourth-slot ·Oy moves the seat through two levels of simulation while every EDGE-fourth and UNKNOWN-fourth probe agrees. What the forcing buys is narrow and worth stating exactly: those windows become settled cases in the corpus at all. A stratum key describes a row's shape and these rows are shaped like any other depth-4 row, so the sampler reaches them by luck or not at all. It is not a test of the liveness belt that opened them — `settle-cases` replays the windows it is handed through the settlement engine and never consults a slot filter, and every case here was cut from Python's own product, so nothing in this corpus could disagree about which slots are live. The belt's gate is `kernel_liveness`'s exhaustive third arm; this is the settlement engine being asked, case by case, the window the belt exists for. The right3 test is against the member expansion rather than the label, because at class grain the slot carries a `#C…` id and qsNo is one member of it; right4 and the left are unconstrained, so every matching row rides — each replaying its class-grain deep slots through `token_representative` exactly as any other sampled row does.
+# Window families the settled sample carries whatever the strata caps say, keyed on the input and the three nearer slots. There is one: the family `table.py`'s joint34 comment records, ·See·No·No·Roe·No·Oy, where the fourth-slot ·Oy moves the seat through two levels of simulation while every EDGE-fourth and UNKNOWN-fourth probe agrees. What the forcing buys is narrow and worth stating exactly: those windows become settled cases in the corpus at all. A stratum key describes a row's shape and these rows are shaped like any other depth-4 row, so the sampler reaches them by luck or not at all. It is not a test of the liveness belt that opened them — `settle-cases` replays the windows it is handed through the settlement engine and never consults a slot filter, and every case here was cut from Python's own product, so nothing in this corpus could disagree about which slots are live. The belt itself is the crate's (`liveness.rs`) and `gate:conform` is its alarm; this is the settlement engine being asked, case by case, the window the belt exists for. The right3 test is against the member expansion rather than the label, because at class grain the slot carries a `#C…` id and qsNo is one member of it; right4 and the left are unconstrained, so every matching row rides — each replaying its class-grain deep slots through `token_representative` exactly as any other sampled row does.
 FORCED_WINDOWS = ({"input": "qsNo", "right1": "qsNo", "right2": "qsRoe", "right3": "qsNo"},)
 
 _BOUNDARY_KIND_OF_LABEL = {label: kind for kind, label in BOUNDARY_LEFT_LABELS.items()}
@@ -194,7 +194,7 @@ def _modeled(spec: ResolvedSpec, window: dict) -> bool:
 
 
 def settled_cases(engine: Engine, product: FixpointProduct, per_group: int) -> list[dict]:
-    """The settled arm: the first `per_group` rows of each stratum of the fixpoint's key-sorted stream plus every row of a `FORCED_WINDOWS` family, replayed through the corpus engine so each case carries its own fired delta. A forced row still tallies against its stratum, so what the cap admits is untouched and the forcing only ever adds.
+    """The settled arm: the first `per_group` rows of each stratum of the kernel's key-sorted stream plus every row of a `FORCED_WINDOWS` family, replayed through the corpus engine so each case carries its own fired delta. A forced row still tallies against its stratum, so what the cap admits is untouched and the forcing only ever adds.
 
     A named family that matches nothing aborts the export. The forcing's whole guarantee is that these windows are in the corpus, and the way it fails is silence: a rune renamed, a record edited, a window that stopped being reachable, and the family drops out while every other case still exports and every gate downstream still passes. Only families this spec models are held to it, so the mini fixture — which models none of the live alphabet's — exports as before.
     """
@@ -241,25 +241,50 @@ def settled_cases(engine: Engine, product: FixpointProduct, per_group: int) -> l
     return rows
 
 
+def _probe_tokens(spec: ResolvedSpec) -> list[RightToken]:
+    """The probe alphabet the raising arm crosses its lefts with: the four boundary tokens, then every rune in name order."""
+    return [EDGE, SPACE, ZWNJ, NAMER_DOT] + [RightToken("letter", name) for name in sorted(spec.runes)]
+
+
+def _virtual_lefts(spec: ResolvedSpec) -> list[LeftContext]:
+    """One left per (family, stance, committable seam) plus the four boundary kinds, in the spec's own declaration order. A virtual left states a committed shape without an entry, which is exactly what a follower reads of it, and the seams are the ones a stance can actually commit: no seam at all unless the stance requires an exit, then its declared exits, then any seam an unlock introduces that the declarations do not already carry."""
+    lefts = [LeftContext("edge"), LeftContext("space"), LeftContext("zwnj"), LeftContext("namer-dot")]
+    for family, rune in spec.runes.items():
+        for stance_name, stance in rune.stances.items():
+            seams = (
+                ([] if "exit" in stance.surface.require else [None])
+                + list(stance.surface.exits)
+                + [
+                    unlock.exit
+                    for unlock in stance.surface.unlocks
+                    if unlock.exit is not None and unlock.exit not in stance.surface.exits
+                ]
+            )
+            for seam in dict.fromkeys(seams):
+                cell = CellId(rune=family, stance=stance_name, entry=None, exit=seam, adjustments=())
+                lefts.append(LeftContext("letter", Settled(cell=cell, seam=seam, extension=0)))
+    return lefts
+
+
 def _probe_windows(
-    liveness: table_module._ProspectLiveness, family: str
+    lefts: list[LeftContext], tokens: list[RightToken]
 ) -> Iterator[tuple[LeftContext, tuple[RightToken, ...]]]:
-    """Every virtual-left window the raising arm probes for one input family, in a fixed order: the collapsed left classes crossed with the probe alphabet at both nearer slots, the deep slots held at EDGE."""
-    tokens = liveness._probe_tokens()
-    for left in liveness._seat_left_classes(family):
+    """Every virtual-left window the raising arm probes, in a fixed order: the lefts crossed with the probe alphabet at both nearer slots, the deep slots held at EDGE."""
+    for left in lefts:
         for right1 in tokens:
             for right2 in tokens:
                 yield left, (right1, right2, EDGE, EDGE)
 
 
 def raising_cases(spec: ResolvedSpec, engine: Engine, per_family: int) -> list[dict]:
-    """The raising arm: virtual lefts probed the way the deep-slot liveness filters probe them, recording every window that raises until the per-family cap stops the family's walk."""
-    liveness = table_module._ProspectLiveness(spec, engine)
+    """The raising arm: virtual lefts drawn the way the kernel's deep-slot liveness probes draw them, recording every window that raises until the per-family cap stops the family's walk. The draw is deliberately uncollapsed where the belt's own is signature-collapsed, so the surface cut here contains every window the belt probes."""
+    tokens = _probe_tokens(spec)
+    lefts = _virtual_lefts(spec)
     rows: list[dict] = []
     for family in sorted(spec.runes):
         token = RightToken("letter", family)
         recorded = 0
-        for left, rights in _probe_windows(liveness, family):
+        for left, rights in _probe_windows(lefts, tokens):
             if recorded >= per_family:
                 break
             result, raised = _replay(engine, left, token, rights)
@@ -316,7 +341,7 @@ def export_config(
 ) -> tuple[Path, int, int]:
     """One configuration's corpus file, and the (settled, raising) case counts behind it."""
     features = conform.features_for_config(config)
-    product = table_module.enumerate_transitions(spec, features)
+    product = kernel_exec.enumerate_transitions(spec, features)
     engine = Engine(spec, features, trace_memo=True)
     settled = settled_cases(engine, product, per_group)
     raising = raising_cases(spec, engine, per_family)

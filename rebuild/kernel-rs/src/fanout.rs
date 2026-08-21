@@ -2,7 +2,7 @@
 //!
 //! Byte-identity across thread counts is a property of the arrangement rather than of a comparison. One [`SpecIndex`] is shared, and it can only be shared: nothing on it is mutable and nothing in it has interior mutability, so every configuration reads the same spec and none can disturb it. Everything else — the engine, the window options, the two slot filters, the liveness probe, the fiber deriver — is built inside [`crate::fixpoint::enumerate_transitions`], per call, which is to say per configuration. No state crosses, so no schedule can be observed in the output.
 //!
-//! Parallelism stops at the configuration, and declining to go finer is a decision rather than an omission: the worklist's LIFO drain order is contract — the first visitor of a class-grain fiber fixes the representative every row of that fiber is written from, and `cited_provenance` is what the one engine fired while tracing that configuration's windows — so a worklist split across threads could not be both deterministic and identical to Python's sequential answer.
+//! Parallelism stops at the configuration, and declining to go finer is a decision rather than an omission: the worklist's LIFO drain order is contract — the first visitor of a class-grain fiber fixes the representative every row of that fiber is written from, and `cited_provenance` is what the one engine fired while tracing that configuration's windows — so a worklist split across threads could not be both deterministic and identical to the sequential answer.
 
 use std::collections::BTreeSet;
 use std::io::Write;

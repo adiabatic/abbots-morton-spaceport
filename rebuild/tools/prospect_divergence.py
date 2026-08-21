@@ -12,7 +12,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 from typing import cast
 
-from rebuild.pipeline import conform
+from rebuild.pipeline import conform, kernel_exec
 from rebuild.pipeline import table as table_module
 from rebuild.pipeline.model import ResolvedSpec
 from rebuild.pipeline.run_m1 import OUT_DIR
@@ -74,7 +74,7 @@ def write_divergences(decision: table_module.DecisionTable, path: Path) -> tuple
 
 
 def _worker(spec: ResolvedSpec, config: str, out_dir: Path) -> tuple[str, int, int]:
-    decision, _treaty = table_module.build_tables(spec, conform.features_for_config(config))
+    decision, _treaty = kernel_exec.build_tables(spec, conform.features_for_config(config))
     lines, windows = write_divergences(decision, out_dir / f"prospect-divergence-{config}.tsv")
     return config, lines, windows
 

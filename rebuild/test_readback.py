@@ -4,8 +4,16 @@ import json
 
 import pytest
 
-from rebuild.pipeline import compile_font, conform, emit_gpos, emit_gsub, fixtures, readback, run_m1
-from rebuild.pipeline import table as table_module
+from rebuild.pipeline import (
+    compile_font,
+    conform,
+    emit_gpos,
+    emit_gsub,
+    fixtures,
+    kernel_exec,
+    readback,
+    run_m1,
+)
 
 CONFIGS = ("default", "ss03")
 
@@ -14,7 +22,7 @@ CONFIGS = ("default", "ss03")
 def built(tmp_path_factory):
     spec = fixtures.mini_spec()
     tables: dict[str, tuple] = {
-        config: table_module.build_tables(spec, conform.features_for_config(config)) for config in CONFIGS
+        config: kernel_exec.build_tables(spec, conform.features_for_config(config)) for config in CONFIGS
     }
     cell_glyphs = run_m1.mint_cell_glyphs(spec, tables)
     bare, twins, ss10_twins = run_m1.mint_raw_glyphs(spec)

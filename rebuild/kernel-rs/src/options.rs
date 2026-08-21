@@ -1,10 +1,10 @@
-//! The per-build static structures behind the right-slot option pipelines, `rebuild/pipeline/table.py`'s `_formation_pairs`, `_survivable_formation_windows` and `_WindowOptions`: which adjacent rune pairs some ligature's sequence spells, the section 5.7 survivable-window maps that say under which followers such a pair still enumerates unformed, and the third- and fourth-slot option pipelines themselves. One implementation, exactly as the Python original insists: the enumeration loop and the partition assertion both compute their option lists by running this code, so a filter added to the pipeline cannot be added to one caller and forgotten in the other.
+//! The per-build static structures behind the right-slot option pipelines: which adjacent rune pairs some ligature's sequence spells, the section 5.7 survivable-window maps that say under which followers such a pair still enumerates unformed, and the third- and fourth-slot option pipelines themselves. One implementation, deliberately: the enumeration loop and the partition assertion both compute their option lists by running this code, so a filter added to the pipeline cannot be added to one caller and forgotten in the other.
 //!
 //! Everything here is a pure function of the spec plus the late-formation guard, which is why it is computed once per build and read everywhere afterwards. The guard is the expensive half — every allowed set is a sweep over the whole option alphabet — and it is also the half whose verdicts are memoized, so building a [`WindowOptions`] warms the cache the option pipelines then hit.
 //!
-//! Two departures from a literal transcription, both forced by ownership and neither by semantics. The guard state lives inside [`WindowOptions`] rather than behind Python's module-level `id()`-keyed cache, so every method that can reach a verdict takes `&mut self`; and a survivable follower map is handed out behind an [`Rc`] rather than as a borrow, so a caller can hold the map its window inherits across the guard-consulting filters that run after it. Python gets both for free from a garbage-collected reference and a spec passed by argument.
+//! Two shapes here are forced by ownership rather than by semantics. The guard state lives inside [`WindowOptions`] rather than behind a module-level `id()`-keyed cache the way `settle._guard_state` does, so every method that can reach a verdict takes `&mut self`; and a survivable follower map is handed out behind an [`Rc`] rather than as a borrow, so a caller can hold the map its window inherits across the guard-consulting filters that run after it. A garbage-collected language gets both for free.
 //!
-//! The overwrite in [`WindowOptions::survivable`] is load-bearing and is reproduced rather than smoothed over: two ligatures whose sequences end in the same `(lead, trail)` pair both write at that pair's seat, and the one that wins is the one the dump declares later, because the loop walks the runes in the model's stored order. Python's `dict` does exactly that for exactly that reason, and the enumeration's admission of an unformed pair therefore depends on which ligature spoke last.
+//! The overwrite in [`WindowOptions::survivable`] is load-bearing and is kept rather than smoothed over: two ligatures whose sequences end in the same `(lead, trail)` pair both write at that pair's seat, and the one that wins is the one the dump declares later, because the loop walks the runes in the model's stored order. The enumeration's admission of an unformed pair therefore depends on which ligature spoke last.
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::rc::Rc;
@@ -15,7 +15,7 @@ use crate::index::SpecIndex;
 use crate::model::{Rune, Sym};
 use crate::types::{EDGE, NAMER_DOT, RightToken, SPACE, TokenKind, ZWNJ};
 
-/// The four non-letter tokens a raw right slot can hold, in the order every option pipeline lists them ahead of the letters. `_WindowOptions.right_boundaries`; the order is output-visible, because an option list is filtered and never re-sorted.
+/// The four non-letter tokens a raw right slot can hold, in the order every option pipeline lists them ahead of the letters. The order is output-visible, because an option list is filtered and never re-sorted.
 pub const RIGHT_BOUNDARIES: [RightToken; 4] = [EDGE, SPACE, ZWNJ, NAMER_DOT];
 
 /// One `(lead, trail)` pair that some rune's sequence spells adjacently — the key both the formation-pair set and the survivable map are indexed by.
@@ -24,7 +24,7 @@ pub type FormationPair = (Sym, Sym);
 /// What one formation pair's survivable window allows, per plain follower: the right2 options under which the pair survives unformed, or `None` where the follower is itself a formed ligature that swallowed both guard slots and so restricts nothing. A follower absent from the map is the third case and the strongest one — the pair does not survive under it at all.
 pub type FollowerMap = HashMap<Sym, Option<BTreeSet<RightToken>>>;
 
-/// Every adjacent `(lead, trail)` pair every rune's sequence spells, `table._formation_pairs`. Membership is the only question ever asked of it, so it is an unordered set here exactly as it is a `frozenset` there.
+/// Every adjacent `(lead, trail)` pair every rune's sequence spells. Membership is the only question ever asked of it, so an unordered set is the honest type.
 pub fn formation_pairs(index: &SpecIndex) -> HashSet<FormationPair> {
     let mut pairs = HashSet::new();
     for (_, rune) in index.runes() {
@@ -47,7 +47,7 @@ pub fn formation_pairs(index: &SpecIndex) -> HashSet<FormationPair> {
     pairs
 }
 
-/// The section 5.7 late-formation guard translated into the table's post-formation label space, `table._survivable_formation_windows`: for each formation pair, the right2 options under which the pair survives unformed, each mapped to the allowed right2 tokens of the trail's own subsequent window. The guard reads raw slots, so a ligature label at either slot is queried through its raw components — [`raw_of`] at the option side, and the follower's own last two sequence entries at the follower side.
+/// The section 5.7 late-formation guard translated into the table's post-formation label space: for each formation pair, the right2 options under which the pair survives unformed, each mapped to the allowed right2 tokens of the trail's own subsequent window. The guard reads raw slots, so a ligature label at either slot is queried through its raw components — [`raw_of`] at the option side, and the follower's own last two sequence entries at the follower side.
 ///
 /// A follower whose allowed set comes out empty is dropped rather than stored empty, and a pair whose whole map comes out empty never lands at all; the enumeration reads that absence as "this window is inadmissible outright", which is a different thing from an empty allowance.
 pub fn survivable_formation_windows(
@@ -114,7 +114,7 @@ pub fn survivable_formation_windows(
     Ok(out)
 }
 
-/// The raw token a post-formation label stands for at the guard's second slot, `_survivable_formation_windows`'s local `raw_of`: a ligature label is queried through the lead of its own sequence, because the guard reads the raw stream and a formed ligature is not in it. Everything else is already raw and passes through.
+/// The raw token a post-formation label stands for at the guard's second slot: a ligature label is queried through the lead of its own sequence, because the guard reads the raw stream and a formed ligature is not in it. Everything else is already raw and passes through.
 pub fn raw_of(index: &SpecIndex, token: RightToken) -> RightToken {
     if token.kind() != TokenKind::Letter {
         return token;
@@ -125,7 +125,7 @@ pub fn raw_of(index: &SpecIndex, token: RightToken) -> RightToken {
     }
 }
 
-/// The per-build static structures the right-slot option pipelines run out of, `table._WindowOptions`. Built once per spec; every field is a pure function of the spec and the guard, and every method is a line-faithful port of the pipeline that reads them.
+/// The per-build static structures the right-slot option pipelines run out of. Built once per spec; every field is a pure function of the spec and the guard, and every method is the pipeline that reads them.
 pub struct WindowOptions<'i> {
     guard: GuardState<'i>,
     /// Every modeled rune name, sorted by resolved string. `sorted(spec.runes)` — by the name, never by the symbol, because interning order is an accident of what the dump mentioned first and this order reaches the emitted rows.
@@ -181,7 +181,7 @@ impl<'i> WindowOptions<'i> {
         })
     }
 
-    /// Whether a formed `name` ligature can immediately precede `(next1, next2)` in a post-formation stream, `_WindowOptions.liga_formed_before`: its own guard, read over the raw tokens those post-formation neighbors stand for, must not fire. `next2 = None` means the second guard slot lies beyond the window, so the verdict is existential over [`WindowOptions::raw_second_options`] — some raw continuation lets the ligature stand.
+    /// Whether a formed `name` ligature can immediately precede `(next1, next2)` in a post-formation stream: its own guard, read over the raw tokens those post-formation neighbors stand for, must not fire. `next2 = None` means the second guard slot lies beyond the window, so the verdict is existential over [`WindowOptions::raw_second_options`] — some raw continuation lets the ligature stand.
     ///
     /// A ligature at `next1` supplies both raw slots out of its own sequence, so `next2` is not read at all in that branch — including the `sequence[1]` read, which is the sequence's second entry and not its last.
     pub fn liga_formed_before(
@@ -223,7 +223,7 @@ impl<'i> WindowOptions<'i> {
         Ok(false)
     }
 
-    /// The late-formation follower map an `(input, right1)` window inherits, `_WindowOptions.context_follower_map`: `None` when the pair is not a formation pair and so restricts nothing, and the survivable map's entry otherwise. The enumeration never reaches a pair whose entry is absent, because such windows are inadmissible outright, so both absences collapse to the one answer here exactly as they do in Python.
+    /// The late-formation follower map an `(input, right1)` window inherits: `None` when the pair is not a formation pair and so restricts nothing, and the survivable map's entry otherwise. The enumeration never reaches a pair whose entry is absent, because such windows are inadmissible outright, so both absences collapse to the one answer here.
     pub fn context_follower_map(&self, rune_name: Sym, right1: Sym) -> Option<Rc<FollowerMap>> {
         if !self.formation_pairs.contains(&(rune_name, right1)) {
             return None;
@@ -231,9 +231,9 @@ impl<'i> WindowOptions<'i> {
         self.survivable.get(&(rune_name, right1)).cloned()
     }
 
-    /// The third slot's options for a window whose two nearer slots are letters, `_WindowOptions.right3_options`. Five filters over the boundaries-then-letters list, applied in this order and never re-sorted: the pairs `right2` would form that no survivable window admits are out; the inherited follower map restricts to what the trail's own window allows; a formation pair at `(right1, right2)` narrows to the letters its survivable map names; a ligature at `right1` must still stand before `(right2, option)`; and a ligature at `right2` must still stand before the option with the slot past it beyond the window.
+    /// The third slot's options for a window whose two nearer slots are letters. Five filters over the boundaries-then-letters list, applied in this order and never re-sorted: the pairs `right2` would form that no survivable window admits are out; the inherited follower map restricts to what the trail's own window allows; a formation pair at `(right1, right2)` narrows to the letters its survivable map names; a ligature at `right1` must still stand before `(right2, option)`; and a ligature at `right2` must still stand before the option with the slot past it beyond the window.
     ///
-    /// Both nearer slots are read as letters up front, where Python reads `.letter` inside each comprehension. The pair tests at the end read both unconditionally, so a non-letter at either slot raises there in Python and panics here — the same outcome from the same caller error, one step earlier.
+    /// Both nearer slots are read as letters up front rather than inside each filter. The pair tests at the end read both unconditionally, so a non-letter at either slot panics here — the caller error surfaces one step earlier than it otherwise would.
     pub fn right3_options(
         &mut self,
         right1: RightToken,
@@ -265,7 +265,7 @@ impl<'i> WindowOptions<'i> {
         Ok(options)
     }
 
-    /// The fourth slot's options once the third is concrete, `_WindowOptions.right4_options`. The same shape one slot deeper: the pairs `right3` would form that no survivable window admits are out; a formation pair at `(right1, right2)` restricts through the allowance it records for `right3`; a formation pair at `(right2, right3)` narrows to the letters its own survivable map names; a ligature at `right2` must still stand before `(right3, option)`; and a ligature at `right3` must still stand before the option with the slot past it beyond the window. All three nearer slots are read as letters up front, for the reason [`WindowOptions::right3_options`] gives.
+    /// The fourth slot's options once the third is concrete. The same shape one slot deeper: the pairs `right3` would form that no survivable window admits are out; a formation pair at `(right1, right2)` restricts through the allowance it records for `right3`; a formation pair at `(right2, right3)` narrows to the letters its own survivable map names; a ligature at `right2` must still stand before `(right3, option)`; and a ligature at `right3` must still stand before the option with the slot past it beyond the window. All three nearer slots are read as letters up front, for the reason [`WindowOptions::right3_options`] gives.
     pub fn right4_options(
         &mut self,
         right1: RightToken,

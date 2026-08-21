@@ -1,4 +1,4 @@
-"""Both serializations at the kernel boundary. The resolved-spec dump is the leg the Rust settlement kernel will read a spec through — value round trip, canonical fixpoint, the collection order the dump promises to preserve, and the loud refusals that keep a wrong dump from parsing as a partial one; both specs are exercised there, the mini fixture for reach into hand-built corners and the live alphabet because that is the tree the port actually carries. The transition stream is the return leg, and its test is the sub-issue's own proof: write a fixpoint product, parse it back, hand the parsed value to `assemble_tables`, and get the tables `build_tables` builds down to the serialized bytes — which is what licenses a kernel that produces the stream to replace the half that enumerated it. The stream runs on the mini spec alone, because what it proves is a property of the format rather than of any one alphabet."""
+"""Both serializations at the kernel boundary. The resolved-spec dump is the leg the Rust settlement kernel will read a spec through — value round trip, canonical fixpoint, the collection order the dump promises to preserve, and the loud refusals that keep a wrong dump from parsing as a partial one; both specs are exercised there, the mini fixture for reach into hand-built corners and the live alphabet because that is the tree the port actually carries. The transition stream is the return leg, and its test is the sub-issue's own proof: write a fixpoint product, parse it back, hand the parsed value to `assemble_tables`, and get the tables a straight-through build produces down to the serialized bytes — the round trip is the format's proof, and it is what licensed the kernel that produces the stream to replace the half that once enumerated it. The stream runs on the mini spec alone, because what it proves is a property of the format rather than of any one alphabet."""
 
 import dataclasses
 import gzip
@@ -8,8 +8,9 @@ import pytest
 
 from rebuild.pipeline import fixtures, kernel_io, spec_load
 from rebuild.pipeline import table as table_module
+from rebuild.pipeline.kernel_exec import build_tables, enumerate_transitions
 from rebuild.pipeline.model import ResolvedSpec, Rune, SurfaceRow
-from rebuild.pipeline.table import assemble_tables, build_tables, enumerate_transitions
+from rebuild.pipeline.table import assemble_tables
 
 MINI = fixtures.mini_spec()
 CONFIGS = {"default": frozenset(), "ss03": frozenset({"ss03"}), "ss04": frozenset({"ss04"})}

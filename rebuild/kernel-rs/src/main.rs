@@ -1,10 +1,10 @@
-//! `ams-m1-kernel` — the Rust reimplementation of the M1 settlement kernel (tracker issue #40). Today it does the ingest step, the settlement core and the table build's kernel half: it reads an `ams-m1-spec/1` dump into the interned model, echoes that model back out in canonical form (sub-issue #42), settles single windows against it — one case file at a time for the differential, and the whole late-formation surface for the guard (sub-issue #43) — runs the whole table-build worklist fixpoint over one configuration in either candidacy world and at either deep-slot grain, writing the transitions stream Python folds into its artifacts (sub-issues #44 and #45), runs a whole named set of configurations that way in one process, concurrently, for the builds that want all of them at once (sub-issue #46), and answers deep-slot liveness and fiber questions one key at a time for the liveness-grain differential (sub-issue #45).
+//! `ams-m1-kernel` — the Rust reimplementation of the M1 settlement kernel (tracker issue #40). Today it does the ingest step, the settlement core and the table build's kernel half: it reads an `ams-m1-spec/1` dump into the interned model, echoes that model back out in canonical form (sub-issue #42), settles single windows against it — one case file at a time for the differential, and the whole late-formation surface for the guard (sub-issue #43) — runs the whole table-build worklist fixpoint over one configuration in either candidacy world and at either deep-slot grain, writing the transitions stream Python folds into its artifacts (sub-issues #44 and #45), runs a whole named set of configurations that way in one process, concurrently, for the builds that want all of them at once (sub-issue #46), and answers deep-slot liveness and fiber questions one key at a time, a liveness-grain inspection verb (sub-issue #45) whose Python-side differential retired at issue #78.
 //!
-//! **`rebuild/pipeline/kernel_io.py` is the binding contract for the dump, and `rebuild/pipeline/settle.py` with `rebuild/pipeline/specificity.py` for the settlement.** Their module and function docstrings define both halves of each boundary, and this crate is measured against them rather than the other way around: the dump is whatever `kernel_io.spec_json` writes, the strictness is whatever `kernel_io.spec_of` enforces, a settled window is whatever `settle.Engine.transition_trace` returns down to its raise messages, and where this crate and those modules disagree, those modules are right. `rebuild/pipeline/table.py` is the contract for the fixpoint and for everything the deep slots do. `bench-the-rebuild/RUST-PORT-PLAN.md` carries the design facts behind the port — chiefly that the packing, not the language, is the win, and that the standard SipHash hasher beat the finalizer-less fast hasher that a first pass reached for.
+//! **`rebuild/pipeline/kernel_io.py` is the binding contract for the dump, and `rebuild/pipeline/settle.py` with `rebuild/pipeline/specificity.py` for the settlement.** Their module and function docstrings define both halves of each boundary, and this crate is measured against them rather than the other way around: the dump is whatever `kernel_io.spec_json` writes, the strictness is whatever `kernel_io.spec_of` enforces, a settled window is whatever `settle.Engine.transition_trace` returns down to its raise messages, and where this crate and those modules disagree, those modules are right. The fixpoint and everything the deep slots do have no such twin: `rebuild/pipeline/table.py` was their contract until issue #78 retired the Python fixpoint, and this crate has been the fixpoint of record since — what remains on that side is the fold, `assemble_tables` over the stream this crate writes. `bench-the-rebuild/RUST-PORT-PLAN.md` carries the design facts behind the port — chiefly that the packing, not the language, is the win, and that the standard SipHash hasher beat the finalizer-less fast hasher that a first pass reached for.
 //!
 //! **A change to `rebuild/pipeline/model.py` is a cross-group coordination event, and it lands on this crate too.** The Python codec is driven by `dataclasses.fields`, so a new field rides the dump with no edit there; this crate spells its field sets by hand and will therefore refuse the new dump rather than silently drop the field. `make kernel-parity` is what catches the lag, and it catches it as a byte diff on the very next run.
 //!
-//! Six make targets drive the crate from the repo root: `make kernel-build` compiles the release binary the harnesses run, `make kernel-check` is the crate's own gate (`cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test`), `make kernel-parity` echoes the live alphabet and every rung of the nested ladder through the binary and compares the bytes against Python, `make kernel-differential` settles every window of the golden corpus, a seeded fuzz sweep, and the exhaustive formation-guard surface on both sides and compares those bytes too, `make kernel-fixpoint` enumerates whole configurations on both sides and compares the stream byte for byte together with the three artifacts and the digest Python folds out of it, and `make kernel-liveness` sweeps the deep-slot filters and the fiber partitions key by key against Python's own.
+//! Five make targets drive the crate from the repo root: `make kernel-build` compiles the release binary the harnesses run, `make kernel-check` is the crate's own gate (`cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test`), `make kernel-parity` echoes the live alphabet and every rung of the nested ladder through the binary and compares the bytes against Python, `make kernel-differential` settles every window of the golden corpus, a seeded fuzz sweep, and the exhaustive formation-guard surface on both sides and compares those bytes too, and `make kernel-gate` runs the last three together as one aggregate.
 //!
 //! The CLI is positional arguments and a hand-rolled flag scan, never an argument parser, and stdout carries the answer and nothing else, ever. Three flags name the world a verb answers in, and all three are spelled as negations of the shipping configuration — `--candidacy-prospect`, `--vote-slots-off`, `--deep-classes-off` — so a bare invocation is what ships and every departure from it is visible in the command line:
 //!
@@ -515,9 +515,9 @@ fn guard_sweep(path: &str) -> Result<(), String> {
     write_lines(&lines)
 }
 
-/// One key file answered through one engine in file order — the liveness-grain differential's whole kernel side.
+/// One key file answered through one engine in file order — the whole of the `liveness-cases` verb.
 ///
-/// Everything the answers are read out of is built once and shared: one engine, one liveness probe, one filter per depth, one deriver. That is not a shortcut around a cold comparison but the arrangement the fixpoint itself runs in, and the memos it makes possible are what keep a full sweep affordable.
+/// Everything the answers are read out of is built once and shared: one engine, one liveness probe, one filter per depth, one deriver. That is not a shortcut around a cold read but the arrangement the fixpoint itself runs in, and the memos it makes possible are what keep a full sweep affordable.
 fn liveness_cases(plan: &LivenessPlan<'_>) -> Result<(), String> {
     let index = read_index(plan.spec)?;
     let features = feature_syms(&index, plan.spec, &plan.features)?;
@@ -558,7 +558,7 @@ impl<'i> LivenessScaffolding<'i> {
 
     /// One key line's answer: `live` or `dead` for the two filter shapes, and the context's fiber partition as compact JSON for the third.
     ///
-    /// The probe is lent only where the engine's own modes make a deep world, which is exactly where `third_slot_filter` builds a `_ProspectLiveness` at all — with both flags off the filters are the own-rune chain census and nothing else, and lending a probe there would answer a question Python never asks. The deriver, by contrast, answers whatever it is asked: a `fibers` key is only ever generated for a live letter-letter context of a deep world, and which contexts those are is the caller's knowledge.
+    /// The probe is lent only where the engine's own modes make a deep world, which is exactly where the filters carry a liveness arm at all — with both flags off they are the own-rune chain census and nothing else, and lending a probe there would answer a question the enumeration never asks. The deriver, by contrast, answers whatever it is asked: a `fibers` key is only ever generated for a live letter-letter context of a deep world, and which contexts those are is the caller's knowledge.
     fn answer(&mut self, engine: &mut Engine<'i>, line: &str) -> Result<String, String> {
         let index = engine.index();
         let deep_world = engine.simulated_prospect() || engine.vote_slots();
@@ -617,7 +617,7 @@ impl<'i> LivenessScaffolding<'i> {
     }
 }
 
-/// The probe a filter is lent in this world, `third_slot_filter`'s `liveness = _liveness_probe(spec, probe) if probe.simulated_prospect or probe.vote_slots else None`.
+/// The probe a filter is lent in this world: `Some(_)` where either issue-28 flag is on, and `None` in the pinned world, where the chain arm is the whole verdict.
 fn probe_in<'l, 'i>(
     deep_world: bool,
     liveness: &'l mut ProspectLiveness<'i>,
@@ -642,9 +642,9 @@ fn families<const N: usize>(index: &SpecIndex, names: [&&str; N]) -> Result<[Sym
     Ok(out)
 }
 
-/// One context's fiber partition in the shape the Python emitter writes with `json.dumps(..., separators=(",", ":"))`: the boundary options, then one object per fiber carrying its members, its fourth-slot verdict and its r4 groups.
+/// One context's fiber partition as compact JSON: the boundary options, then one object per fiber carrying its members, its fourth-slot verdict and its r4 groups.
 ///
-/// Every collection rides in the deriver's own order — boundary options in static-list order, fibers in first-member-encountered order, members as collected, r4 groups in option-pipeline order — because that order is what the two sides are being compared on. A dead fourth spells its groups as the empty list.
+/// Every collection rides in the deriver's own order — boundary options in static-list order, fibers in first-member-encountered order, members as collected, r4 groups in option-pipeline order — because that order is what the class ids and the row stream are cut from, and a partition read as a set would call two different tables equal. A dead fourth spells its groups as the empty list.
 fn fibers_json(index: &SpecIndex, context: &ContextFibers) -> String {
     let boundaries = labels_json(index, &context.boundary_options);
     let fibers: Vec<String> = context
@@ -670,7 +670,7 @@ fn fibers_json(index: &SpecIndex, context: &ContextFibers) -> String {
     )
 }
 
-/// One token list as a compact JSON array of `table._right_token_label` labels.
+/// One token list as a compact JSON array of [`right_token_label`] labels.
 fn labels_json(index: &SpecIndex, tokens: &[ams_m1_kernel::types::RightToken]) -> String {
     let quoted: Vec<String> = tokens
         .iter()
