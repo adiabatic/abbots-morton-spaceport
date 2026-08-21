@@ -12,6 +12,7 @@ def _fake_repo(tmp_path):
     (root / "glyph_data" / "runes").mkdir(parents=True)
     (root / "rebuild" / "schema").mkdir(parents=True)
     (root / "rebuild" / "pipeline").mkdir(parents=True)
+    (root / "rebuild" / "kernel-rs" / "src").mkdir(parents=True)
     (root / "rebuild" / "review" / "static").mkdir(parents=True)
     (root / "rebuild" / "out").mkdir(parents=True)
     (root / "site").mkdir(parents=True)
@@ -25,6 +26,9 @@ def _fake_repo(tmp_path):
     (root / "rebuild" / "m1-aliases.yaml").write_text("[]\n")
     (root / "rebuild" / "m1-divergences.yaml").write_text("[]\n")
     (root / "rebuild" / "pipeline" / "table.py").write_text("TABLE = 1\n")
+    (root / "rebuild" / "kernel-rs" / "Cargo.toml").write_text("[package]\nname = 'kernel'\n")
+    (root / "rebuild" / "kernel-rs" / "Cargo.lock").write_text("lock\n")
+    (root / "rebuild" / "kernel-rs" / "src" / "guard.rs").write_text("const GUARD: bool = true;\n")
     (root / "rebuild" / "validation").mkdir(parents=True)
     (root / "rebuild" / "validation" / "shaping.py").write_text("SENIOR_FONT = 1\n")
     (root / "rebuild" / "review" / "build.py").write_text("BUILD = 1\n")
@@ -141,15 +145,24 @@ def test_tables_environment_value_is_rune_blind_but_tracks_the_rest(tmp_path):
     assert fingerprint.tables_environment_value(root) != moved_data
 
 
-def test_pipeline_code_covers_validation_and_isolates_edits(tmp_path):
+def test_pipeline_code_covers_validation_and_the_kernel_and_isolates_edits(tmp_path):
     root = _fake_repo(tmp_path)
     assert root / "rebuild" / "validation" / "shaping.py" in fingerprint.pipeline_code_paths(root)
+    assert root / "rebuild" / "kernel-rs" / "Cargo.toml" in fingerprint.pipeline_code_paths(root)
+    assert root / "rebuild" / "kernel-rs" / "Cargo.lock" in fingerprint.pipeline_code_paths(root)
+    assert root / "rebuild" / "kernel-rs" / "src" / "guard.rs" in fingerprint.pipeline_code_paths(root)
     before = fingerprint.compute_all(root)
     (root / "rebuild" / "validation" / "shaping.py").write_text("SENIOR_FONT = 2\n")
     after = fingerprint.compute_all(root)
     assert after["pipeline_code"] != before["pipeline_code"]
     assert {key: after[key] for key in fingerprint.COMPONENTS if key != "pipeline_code"} == {
         key: before[key] for key in fingerprint.COMPONENTS if key != "pipeline_code"
+    }
+    (root / "rebuild" / "kernel-rs" / "src" / "guard.rs").write_text("const GUARD: bool = false;\n")
+    after_kernel = fingerprint.compute_all(root)
+    assert after_kernel["pipeline_code"] != after["pipeline_code"]
+    assert {key: after_kernel[key] for key in fingerprint.COMPONENTS if key != "pipeline_code"} == {
+        key: after[key] for key in fingerprint.COMPONENTS if key != "pipeline_code"
     }
 
 

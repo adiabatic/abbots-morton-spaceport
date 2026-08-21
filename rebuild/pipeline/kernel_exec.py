@@ -1,4 +1,4 @@
-"""The kernel boundary's Python face (issue #40, sub-issue #47; the only fixpoint there is since issue #78): build the binary, fan one process out over a whole cycle's transition streams, and hand back the single-configuration product and tables for everything that is not `run_m1`. It lives here rather than beside the `rebuild/tools/kernel_*.py` harnesses because the pipeline is what calls it and the pipeline does not import from the tools tree; `rebuild/tools/kernel_differential.py` and `kernel_parity.py` keep their own copies of the same constants, which is duplication with a reason — each of them is an exit-bar instrument that has to state the contract it is measuring rather than inherit it from the thing it measures.
+"""The kernel boundary's Python face (issue #40, sub-issue #47; the only fixpoint there is since issue #78): build the binary, fan one process out over a whole cycle's transition streams, read the section 5.7 guard surface, and hand back the single-configuration product and tables for everything that is not `run_m1`. It lives here rather than beside the `rebuild/tools/kernel_*.py` harnesses because the pipeline is what calls it and the pipeline does not import from the tools tree; `rebuild/tools/kernel_differential.py` and `kernel_parity.py` keep their own copies of the same constants, which is duplication with a reason — each of them is an exit-bar instrument that has to state the contract it is measuring rather than inherit it from the thing it measures.
 
 The build is `cargo build --release` against the crate's own manifest and nothing else, because release is the only profile anything in this repo runs: the pipeline, the parity harness and the differential all reach for `target/release/ams-m1-kernel`, and a debug binary that answered would answer far too slowly to be the same experiment. A box with no `cargo` is a `KernelBuildError` carrying the remedy rather than a stack trace, since that is the one failure a reader can fix in a minute; `ensure_built` is the memoized form every caller in a process shares, so a suite that builds a hundred tables pays for one build.
 
@@ -6,7 +6,9 @@ The build is `cargo build --release` against the crate's own manifest and nothin
 
 `enumerate_transitions` and `build_tables` are the single-configuration forms of the same call, in memory and writing nothing: one spec dumped to a scratch directory, one stream enumerated and read back as the `table.FixpointProduct` the fold consumes. That product is where the two halves of the build meet, so this module is where the seam is invoked from — the crate enumerates, `table.assemble_tables` folds — and a test, a tool or a hand-assembled spec reaches the build through here, while `run_m1.build_tables` is the persisting, whole-cycle form that stamps its artifacts with the sources they came from.
 
-The invocation is read strictly, on the CLI contract's own terms: exit 2 is the usage check, which for a well-formed invocation can only mean the verb is absent or the two sides' flag sets have drifted apart; any other nonzero exit is the kernel complaining about its inputs; and stderr on a clean exit is a failure unless timings were asked for, in which case every `[t]` line is forwarded to this process's own stderr verbatim so the cycle journal reads the kernel's per-configuration walls the same way it reads Python's, and anything else on that stream is still a failure. The answer is the files, so bytes on stdout are a failure too.
+`guard_sweep` is the other in-memory form: one spec dump, one crate invocation, and one complete mapping from `(ligature, first raw slot, second raw slot)` to the config-blind formation verdict. The CLI spells boundary tokens as `edge`, `space`, `zwnj`, `namer-dot`, and `unknown`; the mapping converts them to Python's `RightToken` constants at the boundary so consumers never confuse those model tokens with glyph names such as `uni200C` or `periodcentered`.
+
+The invocation is read strictly, on the CLI contract's own terms: exit 2 is the usage check, which for a well-formed invocation can only mean the verb is absent or the two sides' flag sets have drifted apart; any other nonzero exit is the kernel complaining about its inputs; and stderr on a clean exit is a failure unless timings were asked for, in which case every `[t]` line is forwarded to this process's own stderr verbatim so the cycle journal reads the kernel's per-configuration walls the same way it reads Python's, and anything else on that stream is still a failure. Enumeration answers in files, so bytes on stdout there are a failure; `guard-sweep` answers on stdout and its complete TSV surface is parsed strictly.
 """
 
 from __future__ import annotations
@@ -39,6 +41,10 @@ WORLD_FLAGS = (
     ("--vote-slots-off", settle, "VOTE_SLOTS_DEFAULT"),
     ("--deep-classes-off", sys.modules[__name__], "DEEP_CLASSES_DEFAULT"),
 )
+GUARD_TAIL_TOKENS = {
+    token.kind: token for token in (settle.EDGE, settle.SPACE, settle.ZWNJ, settle.NAMER_DOT, settle.UNKNOWN)
+}
+FormationGuard = dict[tuple[str, settle.RightToken, settle.RightToken], bool]
 
 _BUILT = False
 
@@ -157,6 +163,98 @@ def _forward_stderr(errors: str, timings: bool, arguments: list[str]) -> None:
         )
     for line in lines:
         print(line, file=sys.stderr, flush=True)
+
+
+def _guard_verdicts(spec: ResolvedSpec, spec_path: Path) -> FormationGuard:
+    """Invoke `guard-sweep` over one already-dumped spec and parse its complete answer. Completeness and uniqueness are checked here rather than left to a consumer's lookup miss, because a clean kernel exit that silently omitted or duplicated a row is a broken boundary, not an emitter error."""
+    arguments = [str(BINARY), "guard-sweep", str(spec_path)]
+    try:
+        finished = subprocess.run(arguments, capture_output=True, timeout=TIMEOUT)
+    except FileNotFoundError:
+        raise KernelRunError(
+            f"no kernel binary at {BINARY} — run `make kernel-build` first, or let the caller's cargo_build() build it"
+        ) from None
+    except subprocess.TimeoutExpired:
+        raise KernelRunError(
+            f"the kernel gave no answer within {TIMEOUT} seconds on guard-sweep ({' '.join(arguments)})"
+        ) from None
+    errors = finished.stderr.decode(errors="replace").strip()
+    if finished.returncode == 2:
+        raise KernelRunError(
+            f"kernel does not support guard-sweep yet, or rejected the invocation as a usage error: {errors} ({' '.join(arguments)})"
+        )
+    if finished.returncode != 0:
+        raise KernelRunError(f"the kernel exited {finished.returncode} on guard-sweep: {errors}")
+    if errors:
+        raise KernelRunError(f"the kernel wrote to stderr on a clean guard-sweep exit: {errors}")
+    try:
+        lines = finished.stdout.decode().splitlines()
+    except UnicodeDecodeError as error:
+        raise KernelRunError(f"the kernel wrote non-UTF-8 guard-sweep output: {error}") from None
+
+    rune_names = frozenset(spec.runes)
+    ligature_names = frozenset(name for name, rune in spec.runes.items() if rune.sequence)
+    verdicts: FormationGuard = {}
+    for line_number, line in enumerate(lines, 1):
+        fields = line.split("\t")
+        if len(fields) != 4:
+            raise KernelRunError(
+                f"guard-sweep line {line_number} has {len(fields)} tab-separated fields, expected 4: {line!r}"
+            )
+        ligature, right1_name, right2_name, verdict = fields
+        if ligature not in ligature_names:
+            raise KernelRunError(
+                f"guard-sweep line {line_number} names non-ligature {ligature!r} as its ligature"
+            )
+        if right1_name not in rune_names:
+            raise KernelRunError(
+                f"guard-sweep line {line_number} names unknown first-slot rune {right1_name!r}"
+            )
+        right1 = settle.RightToken("letter", right1_name)
+        if right2_name in rune_names:
+            right2 = settle.RightToken("letter", right2_name)
+        else:
+            right2 = GUARD_TAIL_TOKENS.get(right2_name)
+            if right2 is None:
+                raise KernelRunError(
+                    f"guard-sweep line {line_number} names unknown second-slot token {right2_name!r}"
+                )
+        if verdict not in ("blocked", "free"):
+            raise KernelRunError(
+                f"guard-sweep line {line_number} has unknown verdict {verdict!r}, expected 'blocked' or 'free'"
+            )
+        key = (ligature, right1, right2)
+        if key in verdicts:
+            raise KernelRunError(f"guard-sweep line {line_number} duplicates {fields[:3]}")
+        verdicts[key] = verdict == "blocked"
+
+    letters = tuple(settle.RightToken("letter", name) for name in sorted(rune_names))
+    second_slots = (*letters, *GUARD_TAIL_TOKENS.values())
+    expected = {
+        (ligature, right1, right2)
+        for ligature in ligature_names
+        for right1 in letters
+        for right2 in second_slots
+    }
+    missing = expected - verdicts.keys()
+    extra = verdicts.keys() - expected
+    if missing or extra:
+        detail = []
+        if missing:
+            detail.append(f"missing {len(missing)}")
+        if extra:
+            detail.append(f"carrying {len(extra)} unexpected")
+        raise KernelRunError(f"guard-sweep returned an incomplete surface ({', '.join(detail)} verdicts)")
+    return verdicts
+
+
+def guard_sweep(spec: ResolvedSpec) -> FormationGuard:
+    """The crate's complete config-blind section 5.7 verdict surface for `spec`, parsed into Python model tokens. One call performs exactly one `guard-sweep` invocation."""
+    with tempfile.TemporaryDirectory() as scratch:
+        spec_path = Path(scratch) / "spec.json"
+        kernel_io.write_spec(spec, spec_path)
+        ensure_built()
+        return _guard_verdicts(spec, spec_path)
 
 
 def read_stream(stream: Path, scratch: Path) -> FixpointProduct:

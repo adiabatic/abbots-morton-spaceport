@@ -1,6 +1,6 @@
 """GSUB emission in the prototype-proven section 7 shape (M1-PLAN section 5, Group 3).
 
-Stage order, fixed by lookup definition order (which fixes LookupList indices and hence cross-feature application order on both shapers): the ss10 isolated-input pre-empt (single substitutions replacing every letter's raw cmap glyph by its anchor-free `.ss10` twin; defined first so that under ss10 it applies before formation can see the buffer — the twins appear in no formation sequence, marker line, chokepoint class, or settlement input, so under ss10 no ligature ever forms, nothing settles, and each letter keeps its own cluster) → formation (type-4 over the registry's ligature sequences; a ligature the section 5.7 late-formation guard ever blocks moves into its own chaining-context lookup `m1_formation_guarded`, staged first, whose generated `ignore sub` rows realize the guard over the two raw lookahead slots — with ZWNJ-explicit forming rows ordered ahead of them so a skipped ZWNJ can never satisfy a guard class, per the table builder's boundary-row discipline — and whose verdicts come straight from `settle.formation_blocked`, config-blind by that function's construction, so the pre-marker staging loses nothing) → ss marker substitutions (unconditional, per set, staged after formation so enabling a set cannot un-form a ligature; composite markers render multi-set union states) → the ZWNJ chokepoint (`sub uni200C @entry-live' by @entry-locked`) → ONE settlement lookup of chained-context single substitutions with per-family `subtable;` breaks, positive rules only, `useExtension` so its per-rule format-3 subtables ride 32-bit Extension offsets (the depth-4 rules pushed the uint16 subtable-offset headroom under the K2 floor; the budget gate yellow-flags the promotion by design) — then, post-settlement, the namer-dot mini-calt (supplied here because `_namer_dot_calt_fea` is a no-op on the `senior_fea` path; its follower class includes the ss10 twins of the Short letters so the dot still lowers under ss10).
+Stage order, fixed by lookup definition order (which fixes LookupList indices and hence cross-feature application order on both shapers): the ss10 isolated-input pre-empt (single substitutions replacing every letter's raw cmap glyph by its anchor-free `.ss10` twin; defined first so that under ss10 it applies before formation can see the buffer — the twins appear in no formation sequence, marker line, chokepoint class, or settlement input, so under ss10 no ligature ever forms, nothing settles, and each letter keeps its own cluster) → formation (type-4 over the registry's ligature sequences; a ligature the section 5.7 late-formation guard ever blocks moves into its own chaining-context lookup `m1_formation_guarded`, staged first, whose generated `ignore sub` rows realize the guard over the two raw lookahead slots — with ZWNJ-explicit forming rows ordered ahead of them so a skipped ZWNJ can never satisfy a guard class, per the table builder's boundary-row discipline — and whose verdicts come from one `guard-sweep` invocation against the kernel crate, config-blind by that verb's construction, so the pre-marker staging loses nothing) → ss marker substitutions (unconditional, per set, staged after formation so enabling a set cannot un-form a ligature; composite markers render multi-set union states) → the ZWNJ chokepoint (`sub uni200C @entry-live' by @entry-locked`) → ONE settlement lookup of chained-context single substitutions with per-family `subtable;` breaks, positive rules only, `useExtension` so its per-rule format-3 subtables ride 32-bit Extension offsets (the depth-4 rules pushed the uint16 subtable-offset headroom under the K2 floor; the budget gate yellow-flags the promotion by design) — then, post-settlement, the namer-dot mini-calt (supplied here because `_namer_dot_calt_fea` is a no-op on the `senior_fea` path; its follower class includes the ss10 twins of the Short letters so the dot still lowers under ss10).
 
 Rule consumption is duck-typed against Group 2's `table.DecisionTable`: each rule exposes `input_glyph`, `backtrack` / `look1` / `look2` / `look3` / `look4` (tuples of glyph labels or None; `look3` and `look4` are read via getattr so pre-depth duck-typed tables keep working), `outcome`, `joint`, `provenance`. A rule with a live `look3` compiles to one further lookahead class after `look2` — the raw third slot a depth-3 prefer record reads — and a live `look4` to one more after that, the raw fourth slot a depth-4 record reads. When `tables_by_config` carries several configurations, their rule lists are folded by exact-duplicate union with a conflict assertion — sound exactly when the table builder already disambiguates inputs by marker labels per configuration (the prototype's feature-fold invariant); a same-window different-outcome collision raises.
 
@@ -15,6 +15,7 @@ import dataclasses
 from dataclasses import dataclass, field
 from typing import Iterable, Mapping
 
+from rebuild.pipeline import kernel_exec
 from rebuild.pipeline.model import (
     CellId,
     GlyphRecord,
@@ -23,6 +24,7 @@ from rebuild.pipeline.model import (
     marker_glyph_name,
     relevant_marker_features,
 )
+from rebuild.pipeline.settle import RightToken
 
 
 class EmitError(Exception):
@@ -230,11 +232,12 @@ def _marker_names(spec: ResolvedSpec) -> frozenset[str]:
 
 
 def _formation_lines(
-    spec: ResolvedSpec, registry: _ClassRegistry
+    spec: ResolvedSpec,
+    registry: _ClassRegistry,
+    guard_verdicts: Mapping[tuple[str, RightToken, RightToken], bool],
 ) -> tuple[list[str], list[str], list[str], list[FormationRow], list[tuple[tuple[str, ...], str]]]:
-    """Formation lines split by the section 5.7 late-formation guard: (guarded chaining-context lookup lines, plain type-4 lookup lines, the generated `ignore sub` statements for the invariant exemption, the guarded rows as slot glyph-sets, the plain (components, ligature) pairs). Each structured row is appended beside the line it describes, so the read-back's expectation cannot drift from the emitted text. Guard verdicts come from `settle.formation_blocked` over the two raw slots past the sequence — the same function the kernel and the table builder consult, so model, table, and font agree by construction. A blocked follower whose second-slot verdicts cover every letter and every boundary gets a one-slot ignore; a follower blocked only under specific second slots gets a two-slot ignore over a letter class (a boundary or text-edge second slot then falls through to the forming fallback, matching its False verdict); a follower blocked at every boundary second slot but released under specific letter seconds inverts the discipline — explicit two-slot forming rows for the released letters, behind a ZWNJ-explicit two-slot ignore so a skipped ZWNJ cannot satisfy a released slot, ahead of a blanket one-slot ignore whose match-at-anything (text edge included) realizes the boundary blocks. A verdict that differs among the boundary second slots themselves remains inexpressible and errors. ZWNJ-explicit forming rows precede the ignores because HarfBuzz skips default-ignorables in contextual matching — without them a guard class could match across a skipped ZWNJ that the model treats as a boundary."""
-    from rebuild.pipeline import settle as settle_module
-    from rebuild.pipeline.settle import EDGE, NAMER_DOT, SPACE, ZWNJ, RightToken
+    """Formation lines split by the section 5.7 late-formation guard: (guarded chaining-context lookup lines, plain type-4 lookup lines, the generated `ignore sub` statements for the invariant exemption, the guarded rows as slot glyph-sets, the plain (components, ligature) pairs). Each structured row is appended beside the line it describes, so the read-back's expectation cannot drift from the emitted text. `guard_verdicts` is the crate's complete `guard-sweep` answer over the two raw slots past the sequence, so model, table, and font read the engine of record directly. A blocked follower whose second-slot verdicts cover every letter and every boundary gets a one-slot ignore; a follower blocked only under specific second slots gets a two-slot ignore over a letter class (a boundary or text-edge second slot then falls through to the forming fallback, matching its False verdict); a follower blocked at every boundary second slot but released under specific letter seconds inverts the discipline — explicit two-slot forming rows for the released letters, behind a ZWNJ-explicit two-slot ignore so a skipped ZWNJ cannot satisfy a released slot, ahead of a blanket one-slot ignore whose match-at-anything (text edge included) realizes the boundary blocks. A verdict that differs among the boundary second slots themselves remains inexpressible and errors. ZWNJ-explicit forming rows precede the ignores because HarfBuzz skips default-ignorables in contextual matching — without them a guard class could match across a skipped ZWNJ that the model treats as a boundary."""
+    from rebuild.pipeline.settle import EDGE, NAMER_DOT, SPACE, ZWNJ
 
     letters = sorted(name for name, rune in spec.runes.items() if not rune.sequence)
     boundary_tokens = (EDGE, SPACE, ZWNJ, NAMER_DOT)
@@ -255,14 +258,11 @@ def _formation_lines(
                 sorted(
                     second
                     for second in letters
-                    if settle_module.formation_blocked(
-                        spec, name, follower_token, RightToken("letter", second)
-                    )
+                    if guard_verdicts[(name, follower_token, RightToken("letter", second))]
                 )
             )
             blocked_boundaries = [
-                settle_module.formation_blocked(spec, name, follower_token, boundary)
-                for boundary in boundary_tokens
+                guard_verdicts[(name, follower_token, boundary)] for boundary in boundary_tokens
             ]
             if not blocked_letters and not any(blocked_boundaries):
                 continue
@@ -588,8 +588,9 @@ def emit_gsub(
     rules = _fold_rules(tables_by_config, spec)
     per_feature_markers, marker_glyphs, marker_pairs = _marker_lookups(spec)
     marker_names = _marker_names(spec)
+    guard_verdicts = kernel_exec.guard_sweep(spec)
     formation_guarded, formation_plain, formation_ignores, guarded_rows, plain_pairs = _formation_lines(
-        spec, registry
+        spec, registry, guard_verdicts
     )
     grouped_rules = _ordered_settle_rules(rules, marker_names)
     settle_lines = _settle_lines(grouped_rules, registry)
