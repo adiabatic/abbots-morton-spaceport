@@ -6,7 +6,8 @@ import pytest
 
 from rebuild.pipeline import fixtures
 from rebuild.pipeline import table as table_module
-from rebuild.pipeline.table import DecisionTable, TreatyTable, build_tables, table_digest
+from rebuild.pipeline.kernel_exec import build_tables
+from rebuild.pipeline.table import DecisionTable, TreatyTable, table_digest
 
 SPEC = fixtures.mini_spec()
 

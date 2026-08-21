@@ -221,7 +221,7 @@ fn combinations(features: &[Sym], size: usize) -> Vec<Vec<Sym>> {
 
 /// The whole late-formation surface as the `guard-sweep` verb prints it: one tab-separated `liga right1 right2 blocked|free` row per triple, ligatures in sorted-name order, then every modeled letter at the first raw slot, then every modeled letter followed by the four boundary kinds and `unknown` at the second.
 ///
-/// The surface is exhaustively enumerable rather than sampled, which is what makes it the differential's cheapest arm and the one with no sampling to argue about. The letter vocabulary is every modeled rune, ligature runes included, exactly as `table._ProspectLiveness._probe_tokens` reads it.
+/// The surface is exhaustively enumerable rather than sampled, which is what makes it the differential's cheapest arm and the one with no sampling to argue about. The letter vocabulary is every modeled rune, ligature runes included — the same alphabet the deep-slot liveness probes sweep.
 pub fn sweep(index: &SpecIndex) -> Result<Vec<String>, SettleError> {
     let mut letters: Vec<Sym> = index.runes().iter().map(|(name, _)| *name).collect();
     letters.sort_by(|left, right| index.resolve(*left).cmp(index.resolve(*right)));

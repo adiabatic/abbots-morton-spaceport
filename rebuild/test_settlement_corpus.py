@@ -12,8 +12,9 @@ from pathlib import Path
 import pytest
 
 from rebuild.pipeline import fixtures, kernel_io, settle
+from rebuild.pipeline.kernel_exec import enumerate_transitions
 from rebuild.pipeline.settle import EDGE, NAMER_DOT, SPACE, UNKNOWN, ZWNJ, Engine, RightToken
-from rebuild.pipeline.table import NA_LABEL, DecisionTable, Transition, enumerate_transitions
+from rebuild.pipeline.table import NA_LABEL, DecisionTable, Transition
 from rebuild.tools import export_settlement_corpus, fuzz_settlement_corpus, kernel_differential
 
 CONFIG = "default"

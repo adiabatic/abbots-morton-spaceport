@@ -1,4 +1,4 @@
-//! The issue-26 fiber source, `rebuild/pipeline/table.py`'s `_Fiber`, `_ContextFibers` and `_DeepFiberDeriver`: per live context `(input family, right1, right2)`, the static third-slot option list's letters partitioned into fibers of an outcome-probe function, derived lazily on first reach and memoized per build.
+//! The issue-26 fiber source: per live context `(input family, right1, right2)`, the static third-slot option list's letters partitioned into fibers of an outcome-probe function, derived lazily on first reach and memoized per build.
 //!
 //! A fiber is an equivalence class of third tokens that the enumeration may collapse into one row. The key per candidate letter `t3` has three components. First the probe function itself: for every left class in [`ProspectLiveness::seat_left_classes`] and every bounded coordinate, the full row-visible record — the settled triple, the prospect, the joint-floor flag and the notes — with the three raise identities kept as three distinct values (E-INCOMPARABLE, E-AMBIGUOUS, and everything else; [`crate::error::SettleError`] carries that split for exactly this reason, and collapsing any two would silently merge fibers the review surface and the treaty fold read apart). Second the `fourth_slot_matters` verdict itself. Third, for members whose verdict is true, the *computed* r4 option list, run through [`WindowOptions::right4_options`] per member — structurally, so a filter added to that pipeline without a key update fails [`crate::fixpoint`]'s partition assertion loudly instead of silently splitting a fiber.
 //!
@@ -21,10 +21,10 @@ use crate::model::Sym;
 use crate::options::WindowOptions;
 use crate::types::{EDGE, LeftContext, RightToken, Settled, TokenKind, UNKNOWN};
 
-/// The coordinates an r4-dead member is probed at, `_DeepFiberDeriver.context`'s `coords = (EDGE, UNKNOWN)`. Such a member is traced only at `EDGE` by the enumeration and enqueues no r4 pin, so no deeper coordinate is ever read for it and probing the whole alphabet there would key the fiber on windows nothing consults.
+/// The coordinates an r4-dead member is probed at, `(EDGE, UNKNOWN)`. Such a member is traced only at `EDGE` by the enumeration and enqueues no r4 pin, so no deeper coordinate is ever read for it and probing the whole alphabet there would key the fiber on windows nothing consults.
 const DEAD_FOURTH_COORDS: [RightToken; 2] = [EDGE, UNKNOWN];
 
-/// One probed window's row-visible record, `_DeepFiberDeriver._record`. A settled window carries everything a row reports — the settled triple, the prospect, the joint-floor flag and the notes — and the three raise identities stay three distinct values, because a fiber that merged an E-INCOMPARABLE window with an unreachable one would collapse two outcomes the review surface and the treaty fold read apart.
+/// One probed window's row-visible record. A settled window carries everything a row reports — the settled triple, the prospect, the joint-floor flag and the notes — and the three raise identities stay three distinct values, because a fiber that merged an E-INCOMPARABLE window with an unreachable one would collapse two outcomes the review surface and the treaty fold read apart.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 enum FiberRecord {
     Settled {
@@ -46,7 +46,7 @@ struct FiberKey {
     probe: Vec<Vec<FiberRecord>>,
 }
 
-/// One r3 letter fiber of a live context, `table._Fiber`: the member tokens, the member-uniform `fourth_slot_matters` verdict, and — only where that verdict is true — the shared r4 sub-enumeration.
+/// One r3 letter fiber of a live context: the member tokens, the member-uniform `fourth_slot_matters` verdict, and — only where that verdict is true — the shared r4 sub-enumeration.
 ///
 /// `members` arrives in sorted-letter order, which is the order the static option list already has, so the first member is the deterministic representative. `r4_groups` is the computed r4 option list partitioned into boundary singletons and r4 letter fibers, in option-pipeline order; a dead fourth carries none at all.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -56,7 +56,7 @@ pub struct Fiber {
     pub r4_groups: Vec<Vec<RightToken>>,
 }
 
-/// One live context's whole third-slot partition, `table._ContextFibers`: the static option list's boundaries in their own order, and its letters as fibers in first-member-encountered order.
+/// One live context's whole third-slot partition: the static option list's boundaries in their own order, and its letters as fibers in first-member-encountered order.
 ///
 /// The boundaries are carried rather than re-derived because the enumeration walks them ahead of the fibers and pins them exactly as it pins a fiber's members, and because a boundary third slot is a class of one by definition — nothing about the outcome probe would ever merge two of them.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -65,7 +65,7 @@ pub struct ContextFibers {
     pub fibers: Vec<Fiber>,
 }
 
-/// The per-build fiber deriver, `table._DeepFiberDeriver`. Everything it needs beyond its own memo arrives per call — the engine, the liveness probe, the fourth-slot filter and the option pipelines are all the fixpoint's, lent for the derivation, because a second copy of any of them would fork a memo the product reports through.
+/// The per-build fiber deriver. Everything it needs beyond its own memo arrives per call — the engine, the liveness probe, the fourth-slot filter and the option pipelines are all the fixpoint's, lent for the derivation, because a second copy of any of them would fork a memo the product reports through.
 #[derive(Debug, Default)]
 pub struct DeepFiberDeriver {
     contexts: HashMap<(Sym, Sym, Sym), Rc<ContextFibers>>,
@@ -77,13 +77,13 @@ impl DeepFiberDeriver {
         Self::default()
     }
 
-    /// This context's fiber partition, derived on first reach and memoized after, `_DeepFiberDeriver.context`.
+    /// This context's fiber partition, derived on first reach and memoized after.
     ///
     /// The static option list is [`WindowOptions::right3_options`] over the follower map [`WindowOptions::context_follower_map`] hands back for `(family, right1)` — the same computation the enumeration runs, not a restatement of it. Its non-letter entries become [`ContextFibers::boundary_options`] untouched; its letters are probed and grouped.
     ///
-    /// A context is only ever asked for where the third slot is live, but the deriver does not check that and answers whatever it is asked, exactly as Python's does: the caller that knows the verdict is the caller that has already computed it.
+    /// A context is only ever asked for where the third slot is live, but the deriver does not check that and answers whatever it is asked: the caller that knows the verdict is the caller that has already computed it.
     ///
-    /// The fourth-slot filter is lent the liveness probe on the same terms `fourth_slot_filter` builds one on — where the engine's own modes make a deep world, and nowhere else. That is not a second opinion about the world but the very closure Python's `enumerate_transitions` hands its deriver, which is the one the enumeration itself asks; a deriver only ever runs in a deep world anyway, so the two spellings can only differ where nothing calls either.
+    /// The fourth-slot filter is lent the liveness probe on the terms [`crate::census`] sets out — where the engine's own modes make a deep world, and nowhere else. That is not a second opinion about the world but the very filter the enumeration itself asks; a deriver only ever runs in a deep world anyway, so the two spellings can only differ where nothing calls either.
     #[allow(clippy::too_many_arguments)]
     pub fn context(
         &mut self,
@@ -182,7 +182,7 @@ impl DeepFiberDeriver {
     }
 }
 
-/// One probed window's record, `_DeepFiberDeriver._record` — the trace where the window settles, and one of the three raise identities where it does not.
+/// One probed window's record — the trace where the window settles, and one of the three raise identities where it does not.
 fn record(
     engine: &mut Engine<'_>,
     left: &LeftContext,
@@ -520,7 +520,7 @@ mod tests {
         spec_of(&[pea, tea, acceptor("qsMay"), acceptor("qsIt")])
     }
 
-    /// One context's partition spelled the way the `liveness-cases` verb spells it — every token through [`right_token_label`], which is `table._right_token_label` and therefore the vocabulary the differential compares in, so a golden here reads as the answer a sweep would.
+    /// One context's partition spelled the way the `liveness-cases` verb spells it — every token through [`right_token_label`], the vocabulary that verb answers in, so a golden here reads as the answer a sweep would.
     fn spelled(index: &SpecIndex, context: &ContextFibers) -> String {
         let names = |tokens: &[RightToken]| -> Vec<String> {
             tokens

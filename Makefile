@@ -1,4 +1,4 @@
-.PHONY: all test test-rebuild test-slowly test-leaks leak-snapshot typecheck print-job serve explainer check-html-before check-html-after build-kerning-hardcases review test-and-review review-build review-serve review-cycle artifact-cycle verdict-ready cycle-timings complaint-docket novelty-order kernel-build kernel-check kernel-parity kernel-differential kernel-fixpoint kernel-fixpoint-pinned kernel-fixpoint-label-grain kernel-liveness kernel-gate conform-deep prettier woff2 clean
+.PHONY: all test test-rebuild test-slowly test-leaks leak-snapshot typecheck print-job serve explainer check-html-before check-html-after build-kerning-hardcases review test-and-review review-build review-serve review-cycle artifact-cycle verdict-ready cycle-timings complaint-docket novelty-order kernel-build kernel-check kernel-parity kernel-differential kernel-gate conform-deep prettier woff2 clean
 
 all:
 	uv run python tools/build_font.py glyph_data/ site/
@@ -117,29 +117,12 @@ kernel-check:
 kernel-parity: kernel-build
 	uv run python -m rebuild.tools.kernel_parity
 
-# Prove the Rust settlement core answers every window the way Python does: the late-formation guard swept exhaustively, seeded fuzz windows in each mode combination the port has to reproduce, and the golden single-window corpus replayed per acceptance configuration — all compared as bytes, result record and fired-pointer delta included. ARGS passes the harness's own knobs; ARGS='--skip-corpus' is the fast form that skips the per-configuration fixpoints.
+# Prove the Rust settlement core answers every window the way Python's settle kernel does — the twin that still ships, since gate:conform re-settles through it and emit_gsub reads formation_blocked from it: the late-formation guard swept exhaustively, seeded fuzz windows in each mode combination the port has to reproduce, and the golden single-window corpus sampled off the kernel's own stream and replayed per acceptance configuration — all compared as bytes, result record and fired-pointer delta included. ARGS passes the harness's own knobs; ARGS='--skip-corpus' is the fast form that skips the per-configuration kernel enumerations.
 kernel-differential: kernel-build
 	uv run python -m rebuild.tools.kernel_differential $(ARGS)
 
-# Prove the Rust kernel's table-build fixpoint is Python's: for the live alphabet, every scaling-ladder rung and every acceptance configuration, compare the whole transition stream as bytes, fold the kernel's own stream back through assemble_tables and compare the three persisted artifacts, and compare table_digest. This is the shipping world — the harness reflects whatever world the Python process is in onto the kernel's flags, so a bare recipe compares the fixpoint a build actually enumerates. ARGS='--live-only' is the fast form that skips the ladder.
-kernel-fixpoint: kernel-build
-	uv run python -m rebuild.tools.kernel_fixpoint $(ARGS)
-
-# The same comparison in sub-issue #44's pinned candidacy world, kept as a standing regression now that the shipping world is the default arm: both semantics flags off, which is also the one world where enumeration stays label-grain whatever AMS_DEEP_CLASSES says.
-kernel-fixpoint-pinned: kernel-build
-	AMS_SIMULATED_PROSPECT=0 AMS_VOTE_SLOTS=0 uv run python -m rebuild.tools.kernel_fixpoint $(ARGS)
-
-# The same comparison at label grain: the deep slots enumerate one row per token instead of one per outcome fiber, which is the kernel's --deep-classes-off arm and the comparison state the issue-26 class grain is measured against.
-kernel-fixpoint-label-grain: kernel-build
-	AMS_DEEP_CLASSES=0 uv run python -m rebuild.tools.kernel_fixpoint $(ARGS)
-
-# Prove the Rust kernel's deep-slot liveness is Python's, one grain below the fixpoint: every letter triple's third-slot verdict, every quad's fourth-slot verdict, and the class-grain fiber partition of every live context — in all four mode combinations, compared as bytes. Where a wrong verdict reaches kernel-fixpoint as thousands of rows that split differently, it reads here as one triple. --exhaustive rides the recipe because at this alphabet it is free: the third arm has already driven the fourth-slot probes through the joint34 belt, so the whole quad space answers off a warm memo, while a sample sized for that space misses nearly every live fourth slot there is. ARGS='--python-only' writes the keys and Python's answers without invoking a binary, which is the Python half of a cross-build comparison.
-kernel-liveness: kernel-build
-	uv run python -m rebuild.tools.kernel_liveness --exhaustive $(ARGS)
-
-# The standalone Rust-vs-Python differential at artifact grain, to run around a kernel-semantics change (nothing in the artifact cycle runs it): enumerate the live spec's six acceptance configurations in one kernel process, enumerate the Python side fresh, fold both through Python's own back half, and require the three artifacts and the contract digest to be byte-identical. It builds both sides itself — the cycle's artifacts are the kernel's own fold now, so there is nothing on disk to compare against. ARGS passes --threads/--skip-build/--out.
-kernel-gate: kernel-build
-	uv run python -m rebuild.tools.kernel_gate $(ARGS)
+# The thing to run around any kernel-semantics change (nothing in the artifact cycle runs it): the crate's own gate, the spec-ingest parity, and the settlement differential against Python's settle kernel, minutes end to end. The fixpoint byte-compare this target used to be retired with the Python fixpoint at issue #78 — the crate is the only enumeration there is, so there is no second one to compare it against; enumeration trust is gate:conform's, the witness gate's and the table's own partition and replay asserts'. ARGS reaches kernel-differential.
+kernel-gate: kernel-check kernel-parity kernel-differential
 
 # The periodic deep form of gate:conform: the exhaustive font-vs-settle sweep at horizon 5+ (ARGS='--horizon 6' to go deeper, ARGS='--status' to ask whether it is armed), run by hand or overnight and never by the cycle. Its green is keyed on the emitted lookup's behavior classes, the font-compilation code and the uharfbuzz version rather than on the runes, so a rune edit that introduces no novel rule shape never stales it; a green deep run also refreshes gate:conform's own record, since an exhaustive sweep at this depth covers every text the per-edit belt shapes. The artifact cycle prints armed/current each pass.
 conform-deep:

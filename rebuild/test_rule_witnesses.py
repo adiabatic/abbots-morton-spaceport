@@ -1,6 +1,6 @@
 """Rule-witness coverage: every settlement rule the table builder emits must have a settle-verified realizing string, derived fresh from the decision table on every run — nothing is pinned, so the witness set tracks the rune files automatically. A rule with no witness is dead code in the emitted FEA, which is a generator defect. The worked example this guards: the `qsNo.loop qsMay' qsMay …` rules need six tokens (·Day·Tea·No·May·May·May), past what any affordable exhaustive sweep enumerates (the per-edit belt stops at four), so witness derivation — not sweep length — is what keeps this gate exact as the alphabet grows.
 
-The decision table itself is another matter: the fixpoint costs minutes per configuration, and the build stage already serialized every configuration's enumeration under rebuild/out/m1, stamped with the fingerprint of the sources it read — the same stamp the conformance sweep trusts instead of rebuilding. Every arm here reads that artifact, and an artifact that is missing, unreadable, or stamped from other sources than the ones on disk fails the gate outright with a message saying to run the build first, rather than rebuilding the fixpoint in-process: that rebuild was tracker #66's decision 4 to undo, because it turned a stale `make test-rebuild` from minutes into the better part of an hour and sprang on exactly the bare run an author reaches for after a rune edit. `test_the_stamped_table_is_what_a_fresh_fixpoint_builds` remains the one parity check between the stamped enumeration and a fresh fixpoint, paid once rather than once per arm.
+The decision table itself is another matter: the fixpoint costs minutes per configuration, and the build stage already serialized every configuration's enumeration under rebuild/out/m1, stamped with the fingerprint of the sources it read — the same stamp the conformance sweep trusts instead of rebuilding. Every arm here reads that artifact, and an artifact that is missing, unreadable, or stamped from other sources than the ones on disk fails the gate outright with a message saying to run the build first, rather than rebuilding the fixpoint in-process: that rebuild was tracker #66's decision 4 to undo, because it turned a stale `make test-rebuild` from minutes into the better part of an hour and sprang on exactly the bare run an author reaches for after a rune edit. There is no parity arm beside them any more: the stamp binds an enumeration to the sources it was built from, and since issue 78 the crate is the only fixpoint there is, so a fresh enumeration here could only restate the same engine's answer at the price of a live build.
 
 Coverage is enumerated over the emitted rule list — the fold read-back proved the font holds, which the build records in `settle-fold.ndjson` with each row's per-configuration sources — by holding that record to the stamped tables: every emitted row folds from at least one table rule, every table rule folds into exactly one emitted row, and the per-configuration arms witness every table rule. Together that says every row the font ships has a settle-verified realizing string under the configuration that derived it, and it says so about the shipped lookup rather than about the six tables it folds from. No accounting here runs over any other list, which is the gap behind the issue-28 incident: a coverage tally that read complete while a family of vote-chain rules had no witness at all.
 """
@@ -10,7 +10,7 @@ from collections import Counter
 
 import pytest
 
-from rebuild.pipeline import conform, emit_gsub, fixtures, readback, run_m1
+from rebuild.pipeline import conform, emit_gsub, fixtures, kernel_exec, readback, run_m1
 from rebuild.pipeline import table as table_module
 from rebuild.pipeline.spec_load import load_default_spec
 from rebuild.pipeline.table import DecisionTable, Rule
@@ -73,18 +73,6 @@ def test_every_rule_has_a_witness(spec, config, live_artifacts):
     assert len(report.witnessed) == len(decision.rules)
 
 
-def test_the_stamped_table_is_what_a_fresh_fixpoint_builds(spec, live_artifacts):
-    """The parity backstop for the substitution above, paid once on the default configuration instead of once per arm: a fresh fixpoint over the current sources produces exactly the rules and windows the stamped enumeration carries. One configuration suffices because every configuration rides the same write_windows/read_windows handoff and the same stamp, and test_windows.py already proves that handoff faithful on the mini spec; what this adds is the real spec, end to end, across processes."""
-    decision = stamped_decision("default")
-    fresh, _treaty = table_module.build_tables(spec, conform.features_for_config("default"))
-    assert len(fresh.rules) == len(decision.rules)
-    assert fresh.rules == decision.rules
-    assert fresh.reachable_cells() == decision.reachable_cells()
-    assert [(row.key, row.outcome) for row in fresh.transitions] == [
-        (row.key, row.outcome) for row in decision.transitions
-    ]
-
-
 def test_every_emitted_rule_folds_from_a_stamped_table_rule(spec, live_artifacts):
     """The emitted-list half of the coverage claim. The arms above witness every rule of every stamped table; this holds the recorded fold — what read-back proved the font holds — to those same tables: re-folding the stamped rules reproduces the record row for row, sources included, every emitted row names at least one source, and every table rule is the source of exactly one row. Together: every row the font ships has a settle-verified realizing string under the configuration that derived it, and the accounting unit is the shipped lookup rather than the six tables it folds from."""
     fold = stamped_fold()
@@ -126,7 +114,7 @@ def test_every_emitted_rule_folds_from_a_stamped_table_rule(spec, live_artifacts
 
 def test_mini_spec_rules_all_witnessed():
     spec = fixtures.mini_spec()
-    decision, _treaty = table_module.build_tables(spec, frozenset())
+    decision, _treaty = kernel_exec.build_tables(spec, frozenset())
     report = conform.find_rule_witnesses(spec, frozenset(), decision)
     assert not report.unwitnessed
 
@@ -135,7 +123,7 @@ def test_mini_spec_emitted_rules_all_fold_from_witnessed_rules():
     """The whole claim end to end on the fixture, font-free and without a stamped artifact in sight: both mini tables are witnessed rule for rule, and every row the fold emits names sources that are among those witnessed rules, exactly one row per rule. What the live arms prove about the shipped lookup, this proves about the machinery that produces it."""
     spec = fixtures.mini_spec()
     tables = {
-        config: table_module.build_tables(spec, conform.features_for_config(config)) for config in CONFIGS
+        config: kernel_exec.build_tables(spec, conform.features_for_config(config)) for config in CONFIGS
     }
     emitted = emit_gsub.fold_settle_rules(spec, tables)
     reports = {}
@@ -157,7 +145,7 @@ def test_mini_spec_emitted_rules_all_fold_from_witnessed_rules():
 
 def test_dead_rule_raises_the_alarm():
     spec = fixtures.mini_spec()
-    decision, _treaty = table_module.build_tables(spec, frozenset())
+    decision, _treaty = kernel_exec.build_tables(spec, frozenset())
     dead = Rule(
         input_glyph="qsMay",
         backtrack=("qsNever.loop",),

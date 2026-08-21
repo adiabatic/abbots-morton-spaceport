@@ -4,9 +4,10 @@ import gzip
 
 import pytest
 
-from rebuild.pipeline import conform, fixtures, run_m1
+from rebuild.pipeline import conform, fixtures, kernel_exec, run_m1
 from rebuild.pipeline import table as table_module
-from rebuild.pipeline.table import DecisionTable, build_tables
+from rebuild.pipeline.kernel_exec import build_tables
+from rebuild.pipeline.table import DecisionTable
 
 SPEC = fixtures.mini_spec()
 
@@ -95,10 +96,10 @@ class TestWindowsDigest:
 
 
 def test_the_deep_classes_stamp_rides_tables_inputs(monkeypatch):
-    monkeypatch.setattr(table_module, "DEEP_CLASSES_DEFAULT", True)
+    monkeypatch.setattr(kernel_exec, "DEEP_CLASSES_DEFAULT", True)
     with_classes = run_m1.tables_inputs()
     assert with_classes.endswith("+deep-classes")
-    monkeypatch.setattr(table_module, "DEEP_CLASSES_DEFAULT", False)
+    monkeypatch.setattr(kernel_exec, "DEEP_CLASSES_DEFAULT", False)
     assert run_m1.tables_inputs() == with_classes.removesuffix("+deep-classes")
 
 
@@ -139,7 +140,7 @@ class TestFingerprintGuard:
 
 class TestBuildStageHandoff:
     def test_a_stamped_build_serializes_every_configuration_and_keeps_none(self, tmp_path):
-        tables = run_m1.build_tables(SPEC, tmp_path, inputs="fp-sources", engine="python")
+        tables = run_m1.build_tables(SPEC, tmp_path, inputs="fp-sources")
         assert sorted(tables) == sorted(conform.ACCEPTANCE_CONFIGS)
         for config, (decision, _treaty) in tables.items():
             assert decision.transitions == ()
@@ -150,6 +151,6 @@ class TestBuildStageHandoff:
             assert loaded.transitions
 
     def test_an_unstamped_build_writes_no_enumeration_and_keeps_the_windows(self, tmp_path):
-        tables = run_m1.build_tables(SPEC, tmp_path, engine="python")
+        tables = run_m1.build_tables(SPEC, tmp_path)
         assert not list(tmp_path.glob("windows-*"))
         assert all(decision.transitions for decision, _treaty in tables.values())

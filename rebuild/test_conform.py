@@ -665,21 +665,16 @@ class TestRawLabelsLateFormation:
 
 
 class TestSettledWindowWalk:
-    """The memoized walk must be observationally identical to the unmemoized settle it replaced, and its memo keys must be exactly the windows `_matched_windows` reads at raw label grain. Over-normalizing the memo key is the one real bug class (a key that blanks a slot the kernel can still read replays a wrong outcome somewhere), so both paths run exhaustively, the walk reusing its memo from the second text on while the reference path settles every text fresh. The rule replay itself no longer rides the walk — `_matched_windows` and `_DeepTokenIndex` keep it, for the font-free witness gate — so the arms that need rules exercise them there."""
+    """The memo now keys on the raw window — every slot `transition_trace` can read, none of them blanked — so the bar is two things at once: observational identity with the unmemoized settle, and key agreement with `_matched_windows`, which reads the same raw slots. Over-keying was never the risk; under-keying was (a key that blanks a slot the kernel can still read replays a wrong outcome somewhere), and both paths run exhaustively here, the walk reusing its memo from the second text on while the reference path settles every text fresh. The rule replay itself no longer rides the walk — `_matched_windows` and `_DeepTokenIndex` keep it, for the font-free witness gate — so the arms that need rules exercise them there."""
 
     def _sweep(self, spec, features, alphabet, max_length, rules_by_input=None, deep_index=None):
         """Sweep every text up to `max_length`: the walk's settled stream and names against the unmemoized settle, and its memo keys against the raw-grain replay both sides share `_window_rights` for. With `rules_by_input` supplied, the replay also runs through `deep_index` and its (window, first-matching rule) pairs come back for the class-grain arms to assert on."""
         import itertools
 
         from rebuild.pipeline import settle as settle_module
-        from rebuild.pipeline import table as table_module
 
         engine = settle_module.Engine(spec, features)
-        deep = table_module.third_slot_inputs(spec, engine)
-        deep3_live = table_module.third_slot_filter(spec, features, engine)
-        deep4 = table_module.fourth_slot_inputs(spec, engine)
-        deep4_live = table_module.fourth_slot_filter(spec, features, engine)
-        walker = conform._SettledWindowWalk(spec, engine, features, deep, deep3_live, deep4, deep4_live, {})
+        walker = conform._SettledWindowWalk(spec, engine, features, {})
         reference = settle_module.Engine(spec, features)
         replayed: list[tuple[tuple[str, ...], int | None]] = []
         for length in range(1, max_length + 1):
@@ -690,23 +685,14 @@ class TestSettledWindowWalk:
                 assert settled == expected, text
                 assert names == conform.settled_names(spec, expected, None), text
                 for _index, window, _matched in conform._matched_windows(
-                    spec, text, features, names, {}, deep, deep3_live, deep4, deep4_live, None
+                    spec, text, features, names, {}, None
                 ):
                     assert window in walker.windows, (text, window)
                 if rules_by_input is not None:
                     replayed += [
                         (window, matched)
                         for _index, window, matched in conform._matched_windows(
-                            spec,
-                            text,
-                            features,
-                            names,
-                            rules_by_input,
-                            deep,
-                            deep3_live,
-                            deep4,
-                            deep4_live,
-                            deep_index,
+                            spec, text, features, names, rules_by_input, deep_index
                         )
                     ]
         return walker, replayed
@@ -736,7 +722,7 @@ class TestSettledWindowWalk:
         """The issue-28 arm of the deep-slot filters, exercised end to end: under the simulated-prospect default, the `_prospect_spec` fixture's A-before-B-C windows carry a live third slot the table enumerates, and the memoized walk and the unmemoized replay must agree on the split — the same observational-identity bar as the chain-arm sweeps above, with the table's own deep-token index carrying the class map into the replay's rule matching."""
         from rebuild.pipeline import settle as settle_module
         from rebuild.pipeline.emit_gsub import _raw_rename_map
-        from rebuild.pipeline.table import build_tables
+        from rebuild.pipeline.kernel_exec import build_tables
         from rebuild.test_settle import _prospect_spec
 
         monkeypatch.setattr(settle_module, "SIMULATED_PROSPECT_DEFAULT", True)
@@ -758,7 +744,7 @@ class TestSettledWindowWalk:
 
         from rebuild.pipeline import fixtures, model
         from rebuild.pipeline.emit_gsub import _raw_rename_map
-        from rebuild.pipeline.table import build_tables
+        from rebuild.pipeline.kernel_exec import build_tables
 
         spec = fixtures.mini_spec()
         tea = spec.runes["qsTea"]
@@ -806,7 +792,7 @@ class TestDeepTokenIndex:
 
         from rebuild.pipeline import model
         from rebuild.pipeline.emit_gsub import _raw_rename_map
-        from rebuild.pipeline.table import build_tables
+        from rebuild.pipeline.kernel_exec import build_tables
 
         spec = mini_spec()
         tea = spec.runes["qsTea"]
