@@ -17,9 +17,6 @@ from rebuild.review.enrich import LETTERS, Enricher, load_spec
 from rebuild.review.families import FAMILY_ORDER, FAMILY_WHY, assign_family
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-AUDIT_PATH = REPO_ROOT / "rebuild" / "out" / "m1" / "divergence-audit.tsv"
-SUBSETS = REPO_ROOT / "rebuild" / "out" / "m1"
-AFTER_FONT = REPO_ROOT / "rebuild" / "out" / "m1" / "M1.otf"
 BEFORE_FONT = REPO_ROOT / "site" / "AbbotsMortonSpaceportSansSenior-Regular.otf"
 
 
@@ -160,7 +157,7 @@ def test_families_cover_exactly_the_unmatched_premerge_units(facts, workload):
     ]
 
 
-def test_fresh_family_derivation_agrees_with_the_sidecar_over_a_sample(facts, workload):
+def test_fresh_family_derivation_agrees_with_the_sidecar_over_a_sample(facts, workload, live_artifacts):
     """The continuous proof of the grain bookkeeping: sample every family, enrich those windows from the fonts and the spec, and re-run the grouper. A deferred window's bucket has to re-derive from its own pre-merge config classes (the fold widens them, so a survivor's post-merge bucket can differ), and every non-deferred window has to reproduce the phase-1 family its own surviving object carries."""
     by_family: dict[str, list[tuple[int, str]]] = {}
     for index, family in facts["premerge"]["families"]:
@@ -168,7 +165,9 @@ def test_fresh_family_derivation_agrees_with_the_sidecar_over_a_sample(facts, wo
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         spec = load_spec(REPO_ROOT)
-    enricher = Enricher(spec, SUBSETS, AFTER_FONT, repo_root=REPO_ROOT, before_font=BEFORE_FONT)
+    enricher = Enricher(
+        spec, live_artifacts.m1, live_artifacts.font, repo_root=REPO_ROOT, before_font=BEFORE_FONT
+    )
     for group in by_family.values():
         for index, family in group[:: max(1, len(group) // 12)]:
             unit = workload.units[index]
@@ -176,8 +175,8 @@ def test_fresh_family_derivation_agrees_with_the_sidecar_over_a_sample(facts, wo
             assert assign_family(enricher.enrich(unit)) == family, unit.codepoints
 
 
-def test_assignment_is_deterministic():
-    rows = load_audit(AUDIT_PATH)
+def test_assignment_is_deterministic(live_artifacts):
+    rows = load_audit(live_artifacts.audit)
     sample = next((r.codepoints, r.baseline, r.new) for r in rows if r.matched_entry == "UNMATCHED")
     members = [r for r in rows if (r.codepoints, r.baseline, r.new) == sample]
     with warnings.catch_warnings():
@@ -197,6 +196,6 @@ def test_assignment_is_deterministic():
         render_groups=render_groups_for_rows(ordered),
         config_classes=config_classes,
     )
-    a = Enricher(spec, SUBSETS, AFTER_FONT, repo_root=REPO_ROOT, before_font=BEFORE_FONT)
-    b = Enricher(spec, SUBSETS, AFTER_FONT, repo_root=REPO_ROOT, before_font=BEFORE_FONT)
+    a = Enricher(spec, live_artifacts.m1, live_artifacts.font, repo_root=REPO_ROOT, before_font=BEFORE_FONT)
+    b = Enricher(spec, live_artifacts.m1, live_artifacts.font, repo_root=REPO_ROOT, before_font=BEFORE_FONT)
     assert assign_family(a.enrich(unit)) == assign_family(b.enrich(unit))

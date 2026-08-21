@@ -17,21 +17,19 @@ from rebuild.review.drafts import (
 from rebuild.review.enrich import Enricher, load_spec
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-M1_DIR = REPO_ROOT / "rebuild" / "out" / "m1"
-AFTER_FONT = M1_DIR / "M1.otf"
 
 
 @pytest.fixture(scope="module")
-def enricher():
+def enricher(live_artifacts):
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         spec = load_spec(REPO_ROOT)
-    return Enricher(spec, M1_DIR, AFTER_FONT)
+    return Enricher(spec, live_artifacts.m1, live_artifacts.font)
 
 
 @pytest.fixture(scope="module")
-def drafter():
-    return Drafter(AFTER_FONT)
+def drafter(live_artifacts):
+    return Drafter(live_artifacts.font)
 
 
 def test_every_drafted_pin_passes_the_real_parser(drafter, enriched_units):
@@ -220,12 +218,12 @@ def test_any_of_orders_after_behavior_first(drafter, enricher, workload):
     assert draft.candidates[0] == after_expect
 
 
-def test_duplicate_detection_fires_on_a_known_pinned_text(enriched_units):
+def test_duplicate_detection_fires_on_a_known_pinned_text(enriched_units, live_artifacts):
     enriched = enriched_units[0]
     text = "".join(chr(value) for value in enriched.unit.codepoint_values)
     token = enriched.unit.configs[0]
     index = {(text, token): {"source": "site/the-manual.html:123", "attribute": "data-expect"}}
-    drafter = Drafter(AFTER_FONT, corpus_index=index)
+    drafter = Drafter(live_artifacts.font, corpus_index=index)
     pin = drafter.draft_pin(enriched)
     assert pin.duplicate_of == "site/the-manual.html:123"
     assert pin.attribute == "data-expect"

@@ -13,8 +13,6 @@ from rebuild.review.audit import AuditRow, Unit
 from rebuild.review.build import _cluster_id, build_m1
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-M1_DIR = REPO_ROOT / "rebuild" / "out" / "m1"
-AUDIT = M1_DIR / "divergence-audit.tsv"
 LEDGER = REPO_ROOT / "rebuild" / "m1-divergences.yaml"
 
 _LETTERS = {"E650", "E652", "E653", "E668"}
@@ -22,8 +20,8 @@ _BOUNDARIES = {"0020", "200C", "00B7"}
 
 
 @pytest.fixture(scope="module")
-def mini_audit(tmp_path_factory):
-    lines = AUDIT.read_text(encoding="utf-8").splitlines()
+def mini_audit(tmp_path_factory, live_artifacts):
+    lines = live_artifacts.audit.read_text(encoding="utf-8").splitlines()
     header, rows = lines[0], lines[1:]
     kept = []
     for row in rows:

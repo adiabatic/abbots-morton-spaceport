@@ -1,10 +1,10 @@
 """The one-command driver for the commit-time artifact cycle.
 
-It mechanizes the commit-time sequence: snapshot the current review surface (the only recovery copy, since everything under rebuild/out is gitignored), recompile M1.otf and vet it, rebuild the review surface in place, carry prior verdicts forward onto the fresh manifest, merge the carried file into the live autosave (rebuild.tools.merge_verdicts, so the app needs no manual import; --no-merge opts out), land echo-prefill verdicts onto the freshly restamped autosave (rebuild.tools.echo_verdicts writes fill records for the blanks in unanimously-judged echo groups, then a second merge_verdicts pass imports them, so cross-cycle echo blanks fill without a sitting-prep pass), land standing-approval verdicts the same way (rebuild.tools.standing_verdicts fills blanks matching the checked-in rules in rebuild/standing-approvals.yaml, so once-and-for-all decisions never queue again), refresh the census pins from the surface's census sidecar and print their git diff (the checked-in pins are the last accepted census, so reviewing that diff at commit time is what accepts a new one), and run the four gates — always printing a summary table at the end, even on failure.
+It mechanizes the commit-time sequence: snapshot the current review surface (the only recovery copy, since everything under rebuild/out is gitignored), recompile M1.otf and vet it, rebuild the review surface in place, carry prior verdicts forward onto the fresh manifest, merge the carried file into the live autosave (rebuild.tools.merge_verdicts, so the app needs no manual import; --no-merge opts out), land echo-prefill verdicts onto the freshly restamped autosave (rebuild.tools.echo_verdicts writes fill records for the blanks in unanimously-judged echo groups, then a second merge_verdicts pass imports them, so cross-cycle echo blanks fill without a sitting-prep pass), land standing-approval verdicts the same way (rebuild.tools.standing_verdicts fills blanks matching the checked-in rules in rebuild/standing-approvals.yaml, so once-and-for-all decisions never queue again), refresh the census pins from the surface's census sidecar and print their git diff (the checked-in pins are the last accepted census, so reviewing that diff at commit time is what accepts a new one), and run the five gates — always printing a summary table at the end, even on failure.
 
 The exit-code trap this driver exists to defuse: run_m1.main() SystemExits nonzero whenever any oracle rows are UNMATCHED, which is always true mid-migration. Its exit code is therefore not the gate; the four summary JSONs it writes are. The real gates are defect_errors, the boundary and Manual-pin passes, and multi_matched == 0.
 
-The two artifact-independent gates (js, make-test) run from t=0 in a small thread pool while the build chain runs inline-serial in the main thread. gate:conform (the exhaustive font-vs-settle sweep at the per-edit horizon, run_m1 --conform-only) starts after the run_m1 gate passes, queued behind make-test by default; its periodic deep form is `make conform-deep`, which the cycle never runs and only reports on — one line in the summary saying whether the emitted lookup has grown a shape the last deep run never shaped. gate:rebuild is submitted a little later, once the surface build settles — the suite's census-module fixture prefers the provably-fresh live surface and must never observe one mid-rewrite, where the manifest has landed but review.build has not yet written the sidecar beside it — and from there on the suite reads nothing the build lane writes, the census pins included, so nothing downstream has to land before it can start. Under the default queue policy gate:rebuild parks at the tail of the make-test -> conform chain, so only one heavy gate pool is hot at a time — the build chain rides alongside whichever one that is at half the build stages' job ceiling rather than serial (see stage_job_budget). Co-resident, the two heavy pools oversubscribe the cores roughly 2:1, and measured that contention roughly tripled gate:rebuild's wall time — a worse critical path than running the same work in sequence. --rebuild-pool overlap restores full co-residency.
+The two artifact-independent gates (js, make-test) run from t=0 in a small thread pool while the build chain runs inline-serial in the main thread. gate:conform (the exhaustive font-vs-settle sweep at the per-edit horizon, run_m1 --conform-only) starts after the run_m1 gate passes, queued behind make-test by default; its periodic deep form is `make conform-deep`, which the cycle never runs and only reports on — one line in the summary saying whether the emitted lookup has grown a shape the last deep run never shaped. The rebuild suite runs as two gates over two lanes (rebuild/conftest.py is the authority on which test is which): gate:rebuild-contracts is every test whose fixture closure holds no live build artifact, at the box's full xdist width, and gate:rebuild-validators is the rest — the readers of rebuild/out, the review surface and the fixture caches — at the checked-in two workers, because each of those workers carries a live fixture's working set. Both are submitted once the surface build settles. For validators that is a correctness requirement: its census-module fixture prefers the provably-fresh live surface and must never observe one mid-rewrite, where the manifest has landed but review.build has not yet written the sidecar beside it. For contracts it is only courtesy — the lane reads no artifact at all — but a full-width pool must not share the box with the M1 or surface build, and waiting costs it nothing, since it parks behind conform anyway and on the common gate pass every upstream stage auto-skips, so it starts at t=0. From there on neither lane reads anything the build lane writes, the census pins included, so nothing downstream has to land before they can start. Under the default queue policy the chain is make-test -> conform -> rebuild-contracts -> rebuild-validators, so only one heavy gate pool is hot at a time — the build chain rides alongside whichever one that is at half the build stages' job ceiling rather than serial (see stage_job_budget). Contracts goes ahead of validators because it is the short lane and fails fast on a code error before the half-hour one starts. Co-resident, two heavy pools oversubscribe the cores roughly 2:1, and measured that contention roughly tripled the rebuild suite's wall time — a worse critical path than running the same work in sequence. --rebuild-pool overlap restores full co-residency.
 
 The cycle runs no Rust-vs-Python differential. Every settlement-semantics change is still written twice — the kernel crate builds the cycle's tables, and Python's settle kernel still ships, with gate:conform re-settling every swept string through it each cycle and emit_gsub calling formation_blocked — but the comparison of the twins at artifact grain is an instrument you reach for by hand: rebuild.tools.kernel_gate (`make kernel-gate`) builds the crate, streams every acceptance config out of the kernel in one child, enumerates the Python side fresh in-process, folds both through the same table.assemble_tables, and byte-compares the three artifacts plus the contract digest. Run it around a kernel-semantics change, where its Python fixpoint per configuration is the price of the proof.
 
@@ -16,9 +16,9 @@ The key is captured the moment the chain closes, not at the end of the pass, so 
 
 The skip demands that the surface build be skipping too, which is what makes the stamp knowable before the pass runs, and it takes the snapshot with it: the snapshot exists to survive this cycle's surface rewrite and to feed this cycle's carry, and a pass doing neither needs no copy. Such a pass also leaves the snapshot pile alone rather than pruning it to the copy it never made, so the stamp-aligned snapshot the last refreshing pass left stays on disk as the recovery source describe_carry_source points at. A flag that names a carry output or a snapshot directory refuses the skip outright, since honoring it would mean writing neither.
 
-The same provably-unchanged principle guards every other heavy stage, each keyed by a content fingerprint over that stage's full input closure and a green record written only after that exact content passed live: run_m1 skips on rebuild/out/run-m1-green.json (the Stage A fingerprint components plus the oracle's subset tables and uv.lock) and re-evaluates its gate from the four summary JSONs already on disk; gate:conform skips on conform-green.json (the run_m1 key plus the M1.otf bytes and the sweep horizon); gate:rebuild skips on rebuild-gate-green.json (the suite's repo closure under rebuild/ and glyph_data/ plus the out/m1 artifacts, site fonts, baselines, conftest.py, pyproject.toml, and uv.lock — also written by rebuild.tools.rebuild_gate, the `make test-rebuild` entry point, so interactive suite greens and cycle greens share one record); surface-build skips when the manifest's recorded inputs fingerprint already equals the one a build would stamp now (a rebuild would be byte-identical, mtime-floored generated_at included, so the autosave stays aligned). The census step is neither keyed nor skipped: it reads the surface build's census-facts.json sidecar and rewrites one small checked-in file in milliseconds, so it simply runs every pass. The surface, conform, and rebuild skips engage only on cycles where run_m1 itself skipped, so a live M1 rebuild can never invalidate a key mid-cycle; green records are written only when the key still matches after the work ran, and a red result whose key matches its record deletes the record. --fresh runs everything regardless.
+The same provably-unchanged principle guards every other heavy stage, each keyed by a content fingerprint over that stage's full input closure and a green record written only after that exact content passed live: run_m1 skips on rebuild/out/run-m1-green.json (the Stage A fingerprint components plus the oracle's subset tables and uv.lock) and re-evaluates its gate from the four summary JSONs already on disk; gate:conform skips on conform-green.json (the run_m1 key plus the M1.otf bytes and the sweep horizon); each rebuild lane skips on its own record (rebuild-contracts-green.json, rebuild-validators-green.json), keyed by rebuild_lane_fingerprint over that lane's own closure — both hold the suite's repo closure under rebuild/ and glyph_data/ plus conftest.py, pyproject.toml, uv.lock and the site fonts, and validators adds the out/m1 artifacts and the baselines it shapes against, which is exactly why the contracts key holds no artifact and the contracts lane can skip whether or not run_m1 rebuilt: a live M1 rebuild writes only under rebuild/out, which that closure does not contain. Both records are also written by rebuild.tools.rebuild_gate, the `make test-rebuild` entry point, so interactive suite greens and cycle greens share them; surface-build skips when the manifest's recorded inputs fingerprint already equals the one a build would stamp now (a rebuild would be byte-identical, mtime-floored generated_at included, so the autosave stays aligned). The census step is neither keyed nor skipped: it reads the surface build's census-facts.json sidecar and rewrites one small checked-in file in milliseconds, so it simply runs every pass. The surface, conform, and rebuild-validators skips engage only on cycles where run_m1 itself skipped, so a live M1 rebuild can never invalidate a key mid-cycle; green records are written only when the key still matches after the work ran, and a red result whose key matches its record deletes the record. --fresh runs everything regardless.
 
---defer-gates, which `make review-cycle` passes, turns the cycle from a one-pass verification into a converging loop. On a *refreshing* pass — one where run_m1 or the surface build has real work — the three heavy gates (rebuild, conform, make-test) are recorded pending instead of run, so a rune edit costs only the artifact chain and the letters are on screen in a fraction of the time. Only a gate that would otherwise run live is deferred: one an auto-skip already proved stays proved, so a pass that merely restamps the review UI can never turn a green gate pending. The next pass has no artifact work left, every stage auto-skips, and the pending gates run against settled artifacts; the pass after that skips those too and costs seconds. Deferral is never a waiver — a deferred gate rides `skip: "deferred"` into the cycle summary, which rebuild.review.status counts as unverified, so `make verdict-ready` and the app banner both stay NOT READY until the loop converges. --no-defer-gates runs them in the one pass, which is what `make artifact-cycle` does at commit time, and --fresh and --force-make-test likewise override deferral for the gates they force. Rehearsal mode (--review-out) never defers: it writes its surface somewhere else, so there is no live surface to see sooner, and its surface build is unskippable by construction — every rehearsal pass would look refreshing and the loop would never converge.
+--defer-gates, which `make review-cycle` passes, turns the cycle from a one-pass verification into a converging loop. On a *refreshing* pass — one where run_m1 or the surface build has real work — the four heavy gates (rebuild-contracts, rebuild-validators, conform, make-test) are recorded pending instead of run, so a rune edit costs only the artifact chain and the letters are on screen in a fraction of the time. Only a gate that would otherwise run live is deferred: one an auto-skip already proved stays proved, so a pass that merely restamps the review UI can never turn a green gate pending. The next pass has no artifact work left, every stage auto-skips, and the pending gates run against settled artifacts; the pass after that skips those too and costs seconds. Deferral is never a waiver — a deferred gate rides `skip: "deferred"` into the cycle summary, which rebuild.review.status counts as unverified, so `make verdict-ready` and the app banner both stay NOT READY until the loop converges. --no-defer-gates runs them in the one pass, which is what `make artifact-cycle` does at commit time, and --fresh and --force-make-test likewise override deferral for the gates they force. Rehearsal mode (--review-out) never defers: it writes its surface somewhere else, so there is no live surface to see sooner, and its surface build is unskippable by construction — every rehearsal pass would look refreshing and the loop would never converge.
 
 Which passes cost the reviewer their letters is decided here rather than by the caller, because only the resolved plan knows. Two of the things a cycle writes belong to the running app — the surface it serves, where livereload watches every shard and a restamped manifest orphans the tab's store, and the verdict store, which merge_verdicts refuses to touch under a live server because an open tab would flush its own copy back over the merge. A pass whose plan skips both writes neither, so a listening server is left alone and the letters stay on screen for the whole run: that is the gate pass, whose long verification the deferred gates exist to move off the look-edit-look path, and which used to black the app out for every minute of it. A pass that does write under the app still needs the port to itself, and --stop-server (which `make review-cycle` passes) is permission to take it — terminate the server and wait out the port — where a bare run still refuses and says how. Retention is the third writer: the app appends to the journal as you verdict, and a compaction rewrites the file around a read, so with a server up the journal and the stash sweep that indexes off it are both left for a later pass.
 
@@ -68,20 +68,21 @@ RUN_M1_GREEN = ROOT / "rebuild" / "out" / "run-m1-green.json"
 CONFORM_GREEN = ROOT / "rebuild" / "out" / "conform-green.json"
 DEEP_SWEEP_GREEN = ROOT / "rebuild" / "out" / "deep-sweep-green.json"
 BEHAVIOR_CLASSES = M1_OUT / "behavior_classes.json"
-REBUILD_GATE_GREEN = ROOT / "rebuild" / "out" / "rebuild-gate-green.json"
+REBUILD_CONTRACTS_GREEN = ROOT / "rebuild" / "out" / "rebuild-contracts-green.json"
+REBUILD_VALIDATORS_GREEN = ROOT / "rebuild" / "out" / "rebuild-validators-green.json"
 PLUMBING_GREEN = ROOT / "rebuild" / "out" / "plumbing-green.json"
 JSTEST_DIR = ROOT / "rebuild" / "review" / "jstests"
 REVIEW_PORT = 7294
 
 POOL_POLICIES = ("queue", "overlap")
 REBUILD_POOL_POLICY_DEFAULT = "queue"
-DEFERRABLE_GATES = ("rebuild", "conform", "make-test")
+DEFERRABLE_GATES = ("rebuild-contracts", "rebuild-validators", "conform", "make-test")
 DEFER_NOTE = "surface refreshed this pass; run the cycle again to run it"
 PLUMBING_SKIP_NOTE = "surface, verdicts master, live store, and standing approvals unchanged since the last complete plumbing pass; --fresh overrides"
 SERVER_STAYS_UP_NOTE = "writes neither the surface the app serves nor the verdict store it holds"
 SERVER_STOP_PATTERN = r"rebuild\.review\.serve"
 SERVER_STOP_TIMEOUT = 15.0
-_GATE_POOL_WORKERS = 6
+_GATE_POOL_WORKERS = 7
 _CONFORM_JOBS_CAP = 8
 CONFORM_HORIZON_DEFAULT = 4
 DEEP_SWEEP_HORIZON_DEFAULT = 5
@@ -103,19 +104,32 @@ CONFORM_SUMMARY = M1_OUT / "conform_summary.json"
 
 BASELINE_REBUILD_FAILURES = frozenset({"rebuild/test_surface.py::test_real_cell_bindings_all_match"})
 
-REBUILD_PYTEST_ARGV = [
-    "uv",
-    "run",
-    "pytest",
-    "rebuild/",
-    "-n",
-    "auto",
-    "--dist",
-    "worksteal",
-    "-q",
-    "--tb=no",
-    "-rfE",
-]
+REBUILD_LANES = ("contracts", "validators")
+
+
+def rebuild_lane_green(lane: str) -> Path:
+    """Where a lane's green record lives, read off the module at call time rather than captured, because the rebuild suite's own conftest redirects both constants under tmp_path so a test driving the cycle cannot leave a record in rebuild/out that the next real pass reads as proof."""
+    return {"contracts": REBUILD_CONTRACTS_GREEN, "validators": REBUILD_VALIDATORS_GREEN}[lane]
+
+
+def rebuild_lane_argv(lane: str) -> list[str]:
+    """One lane of the rebuild suite. `--lane` is the rebuild conftest's own option, and it also decides the pool width: the contracts lane's `-n auto` resolves to the box's cores, since none of its workers holds a live build artifact, while the validators lane falls back to the checked-in two."""
+    return [
+        "uv",
+        "run",
+        "pytest",
+        "rebuild/",
+        "--lane",
+        lane,
+        "-n",
+        "auto",
+        "--dist",
+        "worksteal",
+        "-q",
+        "--tb=no",
+        "-rfE",
+    ]
+
 
 MAKE_TEST_EXEMPT_PREFIXES = (
     "rebuild/",
@@ -406,7 +420,7 @@ def deep_sweep_status(root: Path = ROOT, horizon: int = DEEP_SWEEP_HORIZON_DEFAU
 
 
 def rebuild_gate_closure_files(root: Path) -> list[str] | None:
-    """Every tracked or untracked-unignored file the rebuild pytest suite can read from the repo: rebuild/ and glyph_data/ (minus Markdown, the carried-verdict evidence, the JS-only jstests, and the census pins) plus the root conftest.py, pyproject.toml, and uv.lock. The pins are out because the suite no longer reads them and the census step rewrites them mid-pass — they are the cycle's own diff artifact, so leaving them in would invalidate the key of every pass that refreshes them. None when git is unavailable, in which case the caller must run the gate unconditionally."""
+    """Every tracked or untracked-unignored file the rebuild pytest suite can read from the repo, and the shared half of both lanes' input closures: rebuild/ and glyph_data/ (minus Markdown, the carried-verdict evidence, the JS-only jstests, and the census pins) plus the root conftest.py, pyproject.toml, and uv.lock. The pins are out because the suite no longer reads them and the census step rewrites them mid-pass — they are the cycle's own diff artifact, so leaving them in would invalidate the key of every pass that refreshes them. None when git is unavailable, in which case the caller must run the gate unconditionally."""
     try:
         result = subprocess.run(
             [
@@ -439,19 +453,20 @@ def rebuild_gate_closure_files(root: Path) -> list[str] | None:
     )
 
 
-def rebuild_gate_skip_fingerprint(root: Path = ROOT) -> str | None:
-    """Content key over gate:rebuild's full input closure: the repo files from rebuild_gate_closure_files plus the out/m1 artifacts the suite reads and the site fonts and baselines it shapes against. The verdict store is deliberately absent — the suite exercises it only through fixtures — which is what lets verdict-only cycles skip the gate."""
+def rebuild_lane_fingerprint(root: Path, lane: str) -> str | None:
+    """Content key over one lane's full input closure, and the two closures are what make the lanes separately skippable. Contracts covers the repo files from rebuild_gate_closure_files plus the site fonts, which its shaping tests measure against and which are the frozen old font, unmoved by any rune edit; it deliberately contains no build artifact at all, so a verdict-only or artifact-only cycle re-runs nothing here, and a live M1 rebuild — which writes only under rebuild/out — cannot invalidate the key mid-pass. Validators adds exactly what that lane reads on top: the out/m1 artifacts, the oracle's subset tables, and the baselines. Both contain the rune files, prose-blind, because several contracts tests load the live spec. The verdict store is absent from both — the suite exercises it only through fixtures — which is what lets a verdict-only cycle skip the suite entirely. None when git is unavailable, in which case the caller must run the lane unconditionally."""
     from rebuild.pipeline import fingerprint
 
     files = rebuild_gate_closure_files(root)
     if files is None:
         return None
-    m1 = root / "rebuild" / "out" / "m1"
     lines = [f"{rel}\t{_closure_digest(root, rel)}" for rel in files]
-    lines += [f"m1/{name}\t{_sha256_path(m1 / name)}" for name in M1_ARTIFACT_NAMES]
-    lines += [f"m1/{path.name}\t{_sha256_path(path)}" for path in _subset_tables(root)]
     lines.append(f"fonts\t{fingerprint.hash_paths(root, fingerprint.font_paths(root))}")
-    lines.append(f"baselines\t{fingerprint.baselines_value(root)}")
+    if lane == "validators":
+        m1 = root / "rebuild" / "out" / "m1"
+        lines += [f"m1/{name}\t{_sha256_path(m1 / name)}" for name in M1_ARTIFACT_NAMES]
+        lines += [f"m1/{path.name}\t{_sha256_path(path)}" for path in _subset_tables(root)]
+        lines.append(f"baselines\t{fingerprint.baselines_value(root)}")
     return _digest_lines(lines)
 
 
@@ -644,8 +659,10 @@ class Plan:
     fresh: bool = False
     skip_surface: bool = False
     surface_note: str = ""
-    skip_rebuild_gate: bool = False
-    rebuild_gate_note: str = ""
+    skip_contracts: bool = False
+    contracts_note: str = ""
+    skip_validators: bool = False
+    validators_note: str = ""
     conform_note: str = ""
     conform_proven: bool = False
     skip_plumbing: bool = False
@@ -710,8 +727,10 @@ def build_plan(
     fresh: bool = False,
     skip_surface: bool = False,
     surface_note: str = "",
-    skip_rebuild_gate: bool = False,
-    rebuild_gate_note: str = "",
+    skip_contracts: bool = False,
+    contracts_note: str = "",
+    skip_validators: bool = False,
+    validators_note: str = "",
     conform_note: str = "",
     conform_proven: bool = False,
     skip_plumbing: bool = False,
@@ -760,8 +779,10 @@ def build_plan(
         fresh=fresh,
         skip_surface=skip_surface,
         surface_note=surface_note,
-        skip_rebuild_gate=skip_rebuild_gate,
-        rebuild_gate_note=rebuild_gate_note,
+        skip_contracts=skip_contracts,
+        contracts_note=contracts_note,
+        skip_validators=skip_validators,
+        validators_note=validators_note,
         conform_note=conform_note,
         conform_proven=conform_proven,
         skip_plumbing=skip_plumbing,
@@ -973,17 +994,38 @@ def build_plan(
             plan.steps.append(
                 Step("gate:conform", conform_gate_argv(conform_jobs, conform_horizon), lane="conform")
             )
-        if skip_rebuild_gate:
-            plan.steps.append(Step("gate:rebuild", None, f"SKIPPED ({rebuild_gate_note})", lane="rebuild"))
-        elif "rebuild" in deferred:
-            plan.steps.append(Step("gate:rebuild", None, f"DEFERRED ({DEFER_NOTE})", lane="rebuild"))
+        if skip_contracts:
+            plan.steps.append(
+                Step("gate:rebuild-contracts", None, f"SKIPPED ({contracts_note})", lane="contracts")
+            )
+        elif "rebuild-contracts" in deferred:
+            plan.steps.append(
+                Step("gate:rebuild-contracts", None, f"DEFERRED ({DEFER_NOTE})", lane="contracts")
+            )
         else:
             plan.steps.append(
                 Step(
-                    "gate:rebuild",
-                    list(REBUILD_PYTEST_ARGV),
+                    "gate:rebuild-contracts",
+                    rebuild_lane_argv("contracts"),
+                    "submitted once the surface build settles; queued ahead of the validators lane",
+                    lane="contracts",
+                )
+            )
+        if skip_validators:
+            plan.steps.append(
+                Step("gate:rebuild-validators", None, f"SKIPPED ({validators_note})", lane="validators")
+            )
+        elif "rebuild-validators" in deferred:
+            plan.steps.append(
+                Step("gate:rebuild-validators", None, f"DEFERRED ({DEFER_NOTE})", lane="validators")
+            )
+        else:
+            plan.steps.append(
+                Step(
+                    "gate:rebuild-validators",
+                    rebuild_lane_argv("validators"),
                     "submitted once the surface build settles",
-                    lane="rebuild",
+                    lane="validators",
                 )
             )
         if skip_make_test:
@@ -1086,17 +1128,19 @@ def _render_concurrency(plan: Plan) -> list[str]:
             "  Concurrency (--skip-gates):",
             f"    Lane build only; no gates; --jobs budget: {plan.job_budget}",
         ]
-    defer_rebuild = "rebuild" in plan.deferred
+    defer_contracts = "rebuild-contracts" in plan.deferred
+    defer_validators = "rebuild-validators" in plan.deferred
     defer_conform = "conform" in plan.deferred
     defer_make_test = "make-test" in plan.deferred
     no_make_test = plan.skip_make_test or defer_make_test
     no_conform = plan.skip_conform or defer_conform
+    no_contracts = plan.skip_contracts or defer_contracts
     t0_lane = "gate:js" if no_make_test else "gate:js, gate:make-test"
     lines = [
         "",
         f"  Concurrency (pool policy: {plan.pool_policy}):",
         f"    Lane t0   [from t=0, background]  : {t0_lane}",
-        "    Lane build[serial, main thread]  : snapshot -> run_m1 -> surface-build -> submit gate:rebuild -> carry -> merge -> census",
+        "    Lane build[serial, main thread]  : snapshot -> run_m1 -> surface-build -> submit gate:rebuild-contracts, gate:rebuild-validators -> carry -> merge -> census",
     ]
     if plan.skip_conform:
         lines.append("    Lane conform                     : SKIPPED (--skip-conform)")
@@ -1114,14 +1158,14 @@ def _render_concurrency(plan: Plan) -> list[str]:
         lines.append(
             f"    Lane conform                     : starts when run_m1's four JSONs pass; gate:make-test not running, so no queueing (--jobs {plan.conform_jobs})"
         )
-    if plan.skip_rebuild_gate:
+    if plan.skip_contracts:
         lines.append(
-            "    Lane rebuild                     : SKIPPED (inputs unchanged since its last green run)"
+            "    Lane rebuild-contracts           : SKIPPED (inputs unchanged since its last green run)"
         )
-    elif defer_rebuild:
-        lines.append(f"    Lane rebuild                     : DEFERRED ({DEFER_NOTE})")
+    elif defer_contracts:
+        lines.append(f"    Lane rebuild-contracts           : DEFERRED ({DEFER_NOTE})")
     else:
-        lines.append("    Lane rebuild                     : submitted once the surface build settles;")
+        lines.append("    Lane rebuild-contracts           : submitted once the surface build settles;")
         if plan.pool_policy == "overlap":
             lines.append(
                 "                                       CO-RESIDENT with the other pools (overlap policy)"
@@ -1133,6 +1177,32 @@ def _render_concurrency(plan: Plan) -> list[str]:
         elif not no_make_test:
             lines.append(
                 "                                       QUEUED behind gate:make-test (queue policy; gate:conform not running)"
+            )
+        else:
+            lines.append("                                       no other heavy pool running, so no queueing")
+    if plan.skip_validators:
+        lines.append(
+            "    Lane rebuild-validators          : SKIPPED (inputs unchanged since its last green run)"
+        )
+    elif defer_validators:
+        lines.append(f"    Lane rebuild-validators          : DEFERRED ({DEFER_NOTE})")
+    else:
+        lines.append("    Lane rebuild-validators          : submitted once the surface build settles;")
+        if plan.pool_policy == "overlap":
+            lines.append(
+                "                                       CO-RESIDENT with the other pools (overlap policy)"
+            )
+        elif not no_contracts:
+            lines.append(
+                "                                       QUEUED behind gate:rebuild-contracts, whose chain already waits on gate:conform and gate:make-test"
+            )
+        elif not no_conform:
+            lines.append(
+                "                                       QUEUED behind gate:conform (queue policy; the contracts lane is not running)"
+            )
+        elif not no_make_test:
+            lines.append(
+                "                                       QUEUED behind gate:make-test (queue policy; neither gate:conform nor the contracts lane is running)"
             )
         else:
             lines.append("                                       no other heavy pool running, so no queueing")
@@ -1203,13 +1273,16 @@ class CycleReport:
     complaints_ok: bool | None = None
     gate_js: str = "not run"
     gate_js_green: bool | None = None
-    gate_rebuild: str = "not run"
-    gate_rebuild_green: bool | None = None
+    gate_contracts: str = "not run"
+    gate_contracts_green: bool | None = None
+    gate_validators: str = "not run"
+    gate_validators_green: bool | None = None
     gate_conform: str = "not run"
     gate_conform_green: bool | None = None
     gate_make_test: str = "not run"
     gate_make_test_green: bool | None = None
-    rebuild_recordable: bool = False
+    contracts_recordable: bool = False
+    validators_recordable: bool = False
     interrupted: bool = False
 
 
@@ -1250,7 +1323,7 @@ class _ChildRegistry:
             return self._closed
 
     def add(self, proc: subprocess.Popen) -> bool:
-        """Track a live child. Returns False once terminate_all has torn the registry down, so a worker that unblocks after a KeyboardInterrupt (the queue-mode gate tasks parked on an earlier gate's future — rebuild on make-test, conform on rebuild — are the case) never leaves a fresh subprocess untracked — the caller reaps it instead of spawning an orphaned pytest army."""
+        """Track a live child. Returns False once terminate_all has torn the registry down, so a worker that unblocks after a KeyboardInterrupt (the queue-mode gate tasks parked on an earlier gate's future — conform on make-test, the rebuild lanes on conform and on each other — are the case) never leaves a fresh subprocess untracked — the caller reaps it instead of spawning an orphaned pytest army."""
         with self._lock:
             if self._closed:
                 return False
@@ -1384,7 +1457,7 @@ def _rebuild_verdict(baseline: list[str], hard: list[str]) -> RebuildOutcome:
 
 
 def classify_rebuild_output(stdout: str, returncode: int) -> RebuildOutcome:
-    """Bucket the rebuild suite's FAILED/ERROR summary lines into baseline / hard and turn them into a gate verdict — the one judgment of the suite's output, shared by the cycle's gate:rebuild and the interactive wrapper (rebuild.tools.rebuild_gate). pytest emits ANSI color whenever FORCE_COLOR is set (as it is under the agent harness), wrapping each summary line in escape codes, so strip those first — otherwise no line begins with a literal "FAILED "/"ERROR ", the documented baseline can't be subtracted, and every colored run reads as an unexplained hard failure. Every green is recordable: the only forgivable failures are the documented baseline, which is a property of the content the key already hashes."""
+    """Bucket the rebuild suite's FAILED/ERROR summary lines into baseline / hard and turn them into a gate verdict — the one judgment of the suite's output, lane-blind and so shared by both of the cycle's rebuild gates and by the interactive wrapper (rebuild.tools.rebuild_gate). pytest emits ANSI color whenever FORCE_COLOR is set (as it is under the agent harness), wrapping each summary line in escape codes, so strip those first — otherwise no line begins with a literal "FAILED "/"ERROR ", the documented baseline can't be subtracted, and every colored run reads as an unexplained hard failure. Every green is recordable: the only forgivable failures are the documented baseline, which is a property of the content the key already hashes."""
     lines = [_ANSI_SGR.sub("", line) for line in stdout.splitlines()]
     failed_ids = [line.split(None, 2)[1] for line in lines if line.startswith("FAILED ")]
     error_ids = [line.split(None, 2)[1] for line in lines if line.startswith("ERROR ")]
@@ -1639,13 +1712,10 @@ def _gate_conform_task(
     registry: _ChildRegistry,
     argv: list[str],
 ) -> tuple[str, list[str]]:
-    """gate:conform shapes the exhaustive font-vs-settle sweep against the fresh M1.otf via run_m1 --conform-only. Under the queue policy it queues behind gate:make-test, and gate:rebuild in turn parks behind this sweep, so only one heavy pool is ever hot: co-resident, two heavy pools oversubscribe the box roughly 2:1, and measured that contention roughly tripled gate:rebuild's wall time — a worse critical path than the same work in sequence. Conform runs ahead of rebuild in the chain because the sweep needs only the fresh M1.otf, while rebuild's submission waits on the surface build settling. The stale conform_summary.json is unlinked here, just before the sweep spawns, so the verdict can only come from this cycle's subprocess (an auto-skipped gate never runs this task and never reads the file)."""
+    """gate:conform shapes the exhaustive font-vs-settle sweep against the fresh M1.otf via run_m1 --conform-only. Under the queue policy it queues behind gate:make-test, and both rebuild lanes in turn park behind this sweep, so only one heavy pool is ever hot: co-resident, two heavy pools oversubscribe the box roughly 2:1, and measured that contention roughly tripled the rebuild suite's wall time — a worse critical path than the same work in sequence. Conform runs ahead of the rebuild lanes in the chain because the sweep needs only the fresh M1.otf, while their submission waits on the surface build settling. The stale conform_summary.json is unlinked here, just before the sweep spawns, so the verdict can only come from this cycle's subprocess (an auto-skipped gate never runs this task and never reads the file)."""
     CONFORM_SUMMARY.unlink(missing_ok=True)
-    if pool_policy == "queue" and make_fut is not None:
-        try:
-            make_fut.result()
-        except Exception:
-            pass
+    if pool_policy == "queue":
+        _await_gate_futures(make_fut)
     result = spawn("gate:conform", argv, emit=emit, registry=registry, stream=False)
     summary = None
     if CONFORM_SUMMARY.exists():
@@ -1660,7 +1730,17 @@ def _gate_conform_task(
     return status, failures
 
 
-def _gate_rebuild_task(
+def _await_gate_futures(*futures: Future | None) -> None:
+    """Park until each named gate has finished, caring only that it is done and never how it went — a gate that raised is the joiner's problem, and a queued lane still gets its turn at the box."""
+    for fut in futures:
+        if fut is not None:
+            try:
+                fut.result()
+            except Exception:
+                pass
+
+
+def _gate_contracts_task(
     pool_policy: str,
     conform_fut: Future | None,
     make_fut: Future | None,
@@ -1669,15 +1749,27 @@ def _gate_rebuild_task(
     registry: _ChildRegistry,
     argv: list[str],
 ) -> RebuildOutcome:
-    """The rebuild pytest suite, submitted once the surface build settles. That is the one thing in the build lane it must wait for: the suite's session fixture reads the live surface whenever surface_build_skippable calls it provably fresh, so a gate started against one mid-rewrite would either observe a fresh manifest beside a sidecar review.build has not written yet, or decide the surface is not fresh and waste a whole duplicate build inside the suite. Nothing later in the lane is an input to it, the census pins included. Under the queue policy it still parks at the tail of the make-test -> conform chain so only one heavy pool is hot at a time."""
+    """The rebuild suite's contracts lane — every test whose fixture closure holds no live build artifact, run at the box's full xdist width. It reads nothing the build lane writes, yet it is still submitted once the surface build settles, for two reasons that have nothing to do with correctness: a full-width pool must not share the box with the M1 build or the surface build, whose peaks are what the repo's parallelism defaults are sized against, and waiting costs it nothing, since under the queue policy it parks behind conform anyway and on the common gate pass every stage upstream auto-skips, so it starts at t=0 regardless. Under the queue policy it parks at the tail of the make-test -> conform chain so only one heavy pool is hot at a time, and it goes ahead of the validators lane because it is the short one and fails fast on a code error before the half-hour lane starts."""
     if pool_policy == "queue":
-        for fut in (conform_fut, make_fut):
-            if fut is not None:
-                try:
-                    fut.result()
-                except Exception:
-                    pass
-    result = spawn("gate:rebuild", argv, emit=emit, registry=registry, stream=False)
+        _await_gate_futures(conform_fut, make_fut)
+    result = spawn("gate:rebuild-contracts", argv, emit=emit, registry=registry, stream=False)
+    return classify_rebuild_output(result.stdout, result.returncode)
+
+
+def _gate_validators_task(
+    pool_policy: str,
+    conform_fut: Future | None,
+    contracts_fut: Future | None,
+    make_fut: Future | None,
+    spawn,
+    emit: _Emitter,
+    registry: _ChildRegistry,
+    argv: list[str],
+) -> RebuildOutcome:
+    """The rebuild suite's validators lane — the tests that read rebuild/out, the review surface and the fixture caches, at the checked-in two workers because each of them carries a live fixture's working set. Submitted once the surface build settles, which for this lane is a correctness requirement rather than a courtesy: its session fixture reads the live surface whenever surface_build_skippable calls it provably fresh, so a lane started against one mid-rewrite would either observe a fresh manifest beside a sidecar review.build has not written yet, or decide the surface is not fresh and waste a whole duplicate build inside the suite. Nothing later in the build lane is an input to it, the census pins included. Under the queue policy it parks at the tail of the whole chain, contracts included."""
+    if pool_policy == "queue":
+        _await_gate_futures(conform_fut, contracts_fut, make_fut)
+    result = spawn("gate:rebuild-validators", argv, emit=emit, registry=registry, stream=False)
     return classify_rebuild_output(result.stdout, result.returncode)
 
 
@@ -1689,11 +1781,36 @@ def _gate_result(fut: Future, name: str, failures: list[str]):
         return None
 
 
+def _join_rebuild_lane(
+    report: CycleReport,
+    failures: list[str],
+    fut: Future,
+    lane: str,
+    emit: _Emitter,
+) -> None:
+    """Fold one lane's outcome into the report. The classifier is lane-blind — the documented baseline is a property of the content, not of which pool ran it — so the only per-lane thing here is which three fields the verdict lands in."""
+    outcome = _gate_result(fut, f"gate:rebuild-{lane}", failures)
+    if outcome is None:
+        status, green, recordable = "FAILED (exception)", False, False
+    else:
+        status, green, recordable = outcome.status, not outcome.failures, outcome.recordable
+        for test_id in outcome.hard_ids:
+            emit.emit(f"  hard rebuild failure ({lane}): {test_id}")
+        failures.extend(outcome.failures)
+    if lane == "contracts":
+        report.gate_contracts, report.gate_contracts_green = status, green
+        report.contracts_recordable = recordable
+    else:
+        report.gate_validators, report.gate_validators_green = status, green
+        report.validators_recordable = recordable
+
+
 def _join_gates(
     report: CycleReport,
     failures: list[str],
     js_fut: Future | None,
-    rebuild_fut: Future | None,
+    contracts_fut: Future | None,
+    validators_fut: Future | None,
     conform_fut: Future | None,
     make_fut: Future | None,
     emit: _Emitter,
@@ -1708,18 +1825,10 @@ def _join_gates(
             report.gate_js = "green" if js.returncode == 0 else f"FAILED (exit {js.returncode})"
             if js.returncode != 0:
                 failures.append("JS suite failed")
-    if rebuild_fut is not None:
-        outcome = _gate_result(rebuild_fut, "gate:rebuild", failures)
-        if outcome is None:
-            report.gate_rebuild = "FAILED (exception)"
-            report.gate_rebuild_green = False
-        else:
-            report.gate_rebuild = outcome.status
-            report.gate_rebuild_green = not outcome.failures
-            report.rebuild_recordable = outcome.recordable
-            for test_id in outcome.hard_ids:
-                emit.emit(f"  hard rebuild failure: {test_id}")
-            failures.extend(outcome.failures)
+    if contracts_fut is not None:
+        _join_rebuild_lane(report, failures, contracts_fut, "contracts", emit)
+    if validators_fut is not None:
+        _join_rebuild_lane(report, failures, validators_fut, "validators", emit)
     if conform_fut is not None:
         conform = _gate_result(conform_fut, "gate:conform", failures)
         if conform is None:
@@ -1748,7 +1857,7 @@ def _plumbing_settled(report: CycleReport) -> bool:
 
 
 def _record_gate_greens(report: CycleReport, plan: Plan, gate_keys: dict[str, str], emit: _Emitter) -> None:
-    """Persist the concurrent gates' green records after they joined. gate:conform's key is snapshotted right after run_m1 finished; gate:rebuild's right after the surface build settles, which is where that gate is submitted — and the census pins are exempt from the rebuild closure, so the refresh later in the pass cannot invalidate the key. Each is recomputed here before recording, so a source file edited while the gates ran — content the gates never tested — can never be recorded green. A red gate whose key still matches its record deletes the falsified record."""
+    """Persist the concurrent gates' green records after they joined. gate:conform's key is snapshotted right after run_m1 finished; both rebuild lanes' keys right after the surface build settles, which is where those gates are submitted — and the census pins are exempt from the rebuild closure, so the refresh later in the pass cannot invalidate either key. Each is recomputed here before recording, so a source file edited while the gates ran — content the gates never tested — can never be recorded green. A red gate whose key still matches its record deletes the falsified record."""
     key = gate_keys.get("conform")
     if key:
         if report.gate_conform_green is True:
@@ -1760,17 +1869,23 @@ def _record_gate_greens(report: CycleReport, plan: Plan, gate_keys: dict[str, st
                 )
         elif report.gate_conform_green is False:
             clear_contradicted_green(CONFORM_GREEN, key)
-    key = gate_keys.get("rebuild")
-    if key:
-        if report.rebuild_recordable:
-            if rebuild_gate_skip_fingerprint(ROOT) == key:
-                record_green(REBUILD_GATE_GREEN, key)
+    for lane, recordable, green in (
+        ("contracts", report.contracts_recordable, report.gate_contracts_green),
+        ("validators", report.validators_recordable, report.gate_validators_green),
+    ):
+        key = gate_keys.get(lane)
+        if not key:
+            continue
+        record = rebuild_lane_green(lane)
+        if recordable:
+            if rebuild_lane_fingerprint(ROOT, lane) == key:
+                record_green(record, key)
             else:
                 emit.emit(
-                    "gate:rebuild green, but its input closure changed while the cycle ran — green not recorded"
+                    f"gate:rebuild-{lane} green, but its input closure changed while the cycle ran — green not recorded"
                 )
-        elif report.gate_rebuild_green is False:
-            clear_contradicted_green(REBUILD_GATE_GREEN, key)
+        elif green is False:
+            clear_contradicted_green(record, key)
 
 
 def _run_cycle(
@@ -1786,7 +1901,8 @@ def _run_cycle(
     pool = ThreadPoolExecutor(max_workers=_GATE_POOL_WORKERS)
     failures: list[str] = []
     try:
-        defer_rebuild = "rebuild" in plan.deferred
+        defer_contracts = "rebuild-contracts" in plan.deferred
+        defer_validators = "rebuild-validators" in plan.deferred
         defer_conform = "conform" in plan.deferred
         defer_make_test = "make-test" in plan.deferred
         js_fut = (
@@ -1799,17 +1915,22 @@ def _run_cycle(
             if plan.skip_gates or plan.skip_make_test or defer_make_test
             else pool.submit(_gate_make_test_task, plan.argv("gate:make-test"), spawn, emit, registry)
         )
-        rebuild_fut: Future | None = None
+        contracts_fut: Future | None = None
+        validators_fut: Future | None = None
         conform_fut: Future | None = None
         gate_keys: dict[str, str] = {}
         if not plan.skip_gates and plan.skip_conform:
             report.gate_conform = f"skipped ({plan.conform_note or '--skip-conform'})"
         elif defer_conform:
             report.gate_conform = f"deferred ({DEFER_NOTE})"
-        if not plan.skip_gates and plan.skip_rebuild_gate:
-            report.gate_rebuild = f"skipped ({plan.rebuild_gate_note})"
-        elif defer_rebuild:
-            report.gate_rebuild = f"deferred ({DEFER_NOTE})"
+        if not plan.skip_gates and plan.skip_contracts:
+            report.gate_contracts = f"skipped ({plan.contracts_note})"
+        elif defer_contracts:
+            report.gate_contracts = f"deferred ({DEFER_NOTE})"
+        if not plan.skip_gates and plan.skip_validators:
+            report.gate_validators = f"skipped ({plan.validators_note})"
+        elif defer_validators:
+            report.gate_validators = f"deferred ({DEFER_NOTE})"
         if not plan.skip_gates and plan.skip_make_test:
             report.gate_make_test = f"skipped ({plan.make_test_note})"
         elif defer_make_test:
@@ -1828,11 +1949,13 @@ def _run_cycle(
         )
         if gate is None or not gate.ok:
             failures.extend(_run_m1_reasons(gate))
-            if (plan.skip_gates or not plan.skip_rebuild_gate) and not defer_rebuild:
-                report.gate_rebuild = "not run (run_m1 gate failed)"
+            if (plan.skip_gates or not plan.skip_contracts) and not defer_contracts:
+                report.gate_contracts = "not run (run_m1 gate failed)"
+            if (plan.skip_gates or not plan.skip_validators) and not defer_validators:
+                report.gate_validators = "not run (run_m1 gate failed)"
             if not plan.skip_gates and not plan.skip_conform and not defer_conform:
                 report.gate_conform = "not run (run_m1 gate failed)"
-            _join_gates(report, failures, js_fut, None, None, make_fut, emit)
+            _join_gates(report, failures, js_fut, None, None, None, make_fut, emit)
             return _finish(report, failures, plan, timings)
 
         if not plan.skip_gates and not plan.skip_conform and not defer_conform:
@@ -1859,24 +1982,40 @@ def _run_cycle(
             skip_note=plan.surface_note,
         ):
             failures.append("surface rebuild failed")
-            if not plan.skip_gates and not plan.skip_rebuild_gate and not defer_rebuild:
-                report.gate_rebuild = "not run (surface build failed)"
-            _join_gates(report, failures, js_fut, None, conform_fut, make_fut, emit)
+            if not plan.skip_gates and not plan.skip_contracts and not defer_contracts:
+                report.gate_contracts = "not run (surface build failed)"
+            if not plan.skip_gates and not plan.skip_validators and not defer_validators:
+                report.gate_validators = "not run (surface build failed)"
+            _join_gates(report, failures, js_fut, None, None, conform_fut, make_fut, emit)
             _record_gate_greens(report, plan, gate_keys, emit)
             return _finish(report, failures, plan, timings)
 
-        if not plan.skip_gates and not plan.skip_rebuild_gate and not defer_rebuild:
+        if not plan.skip_gates and not plan.skip_contracts and not defer_contracts:
             if plan.record_greens:
-                gate_keys["rebuild"] = rebuild_gate_skip_fingerprint(ROOT) or ""
-            rebuild_fut = pool.submit(
-                _gate_rebuild_task,
+                gate_keys["contracts"] = rebuild_lane_fingerprint(ROOT, "contracts") or ""
+            contracts_fut = pool.submit(
+                _gate_contracts_task,
                 plan.pool_policy,
                 conform_fut,
                 make_fut,
                 spawn,
                 emit,
                 registry,
-                plan.argv("gate:rebuild"),
+                plan.argv("gate:rebuild-contracts"),
+            )
+        if not plan.skip_gates and not plan.skip_validators and not defer_validators:
+            if plan.record_greens:
+                gate_keys["validators"] = rebuild_lane_fingerprint(ROOT, "validators") or ""
+            validators_fut = pool.submit(
+                _gate_validators_task,
+                plan.pool_policy,
+                conform_fut,
+                contracts_fut,
+                make_fut,
+                spawn,
+                emit,
+                registry,
+                plan.argv("gate:rebuild-validators"),
             )
 
         plumbing_key: str | None = None
@@ -1926,7 +2065,7 @@ def _run_cycle(
         if plumbing_key and report.complaints_ok is True and plan.record_greens and plan.review_out is None:
             record_plumbing_green(plumbing_key, plan.carry_out)
 
-        _join_gates(report, failures, js_fut, rebuild_fut, conform_fut, make_fut, emit)
+        _join_gates(report, failures, js_fut, contracts_fut, validators_fut, conform_fut, make_fut, emit)
         _record_gate_greens(report, plan, gate_keys, emit)
         return _finish(report, failures, plan, timings)
     except KeyboardInterrupt:
@@ -1953,42 +2092,43 @@ def _print_summary(report: CycleReport) -> None:
     print("\n" + "=" * 68)
     print("ARTIFACT CYCLE SUMMARY")
     print("=" * 68)
-    print(f"  snapshot dir       : {show(report.snapshot_dir)}")
-    print(f"  oracle UNMATCHED   : {show(report.unmatched)} (informational)")
-    print(f"  oracle multi_match : {show(report.multi_matched)}")
-    print(f"  boundary gate      : {'pass' if report.boundary_pass else show(report.boundary_pass)}")
-    print(f"  Manual-pin gate    : {'pass' if report.pins_pass else show(report.pins_pass)}")
-    print(f"  surface units      : {show(report.surface_units)}")
-    print(f"  surface rows       : {show(report.surface_rows)}")
-    print(f"  surface batches    : {show(report.surface_batches)}")
-    print(f"  echo groups        : {show(report.echo_groups)}")
-    print(f"  carry output       : {show(report.carry_out)}")
+    print(f"  snapshot dir            : {show(report.snapshot_dir)}")
+    print(f"  oracle UNMATCHED        : {show(report.unmatched)} (informational)")
+    print(f"  oracle multi_match      : {show(report.multi_matched)}")
+    print(f"  boundary gate           : {'pass' if report.boundary_pass else show(report.boundary_pass)}")
+    print(f"  Manual-pin gate         : {'pass' if report.pins_pass else show(report.pins_pass)}")
+    print(f"  surface units           : {show(report.surface_units)}")
+    print(f"  surface rows            : {show(report.surface_rows)}")
+    print(f"  surface batches         : {show(report.surface_batches)}")
+    print(f"  echo groups             : {show(report.echo_groups)}")
+    print(f"  carry output            : {show(report.carry_out)}")
     for line in report.carry_lines:
         print(f"      {line}")
-    print(f"  merge -> autosave  : {report.merge_status}")
+    print(f"  merge -> autosave       : {report.merge_status}")
     for line in report.merge_lines:
         print(f"      {line}")
-    print(f"  echo-fill          : {report.echo_fill_status}")
+    print(f"  echo-fill               : {report.echo_fill_status}")
     for line in report.echo_fill_lines:
         print(f"      {line}")
-    print(f"  echo-merge         : {report.echo_merge_status}")
+    print(f"  echo-merge              : {report.echo_merge_status}")
     for line in report.echo_merge_lines:
         print(f"      {line}")
-    print(f"  standing-fill      : {report.standing_fill_status}")
+    print(f"  standing-fill           : {report.standing_fill_status}")
     for line in report.standing_fill_lines:
         print(f"      {line}")
-    print(f"  standing-merge     : {report.standing_merge_status}")
+    print(f"  standing-merge          : {report.standing_merge_status}")
     for line in report.standing_merge_lines:
         print(f"      {line}")
-    print(f"  census pins        : {report.census_status}")
-    print(f"  complaint groups   : {report.complaints_status}")
-    print(f"  gate: JS suite     : {report.gate_js}")
-    print(f"  gate: rebuild      : {report.gate_rebuild}")
-    print(f"  gate: conform      : {report.gate_conform}")
-    print(f"  gate: make test    : {report.gate_make_test}")
+    print(f"  census pins             : {report.census_status}")
+    print(f"  complaint groups        : {report.complaints_status}")
+    print(f"  gate: JS suite          : {report.gate_js}")
+    print(f"  gate: rebuild contracts : {report.gate_contracts}")
+    print(f"  gate: rebuild validators: {report.gate_validators}")
+    print(f"  gate: conform           : {report.gate_conform}")
+    print(f"  gate: make test         : {report.gate_make_test}")
     deep_status, deep_note = _deep_sweep_report()
-    print(f"  deep sweep         : {deep_status} ({deep_note})")
-    print("  run_m1 summaries   :")
+    print(f"  deep sweep              : {deep_status} ({deep_note})")
+    print("  run_m1 summaries        :")
     for path in M1_SUMMARY_FILES.values():
         print(f"      {path}")
     print(f"      {CONFORM_SUMMARY}")
@@ -2036,10 +2176,15 @@ def cycle_summary_payload(report: CycleReport, failures: list[str], plan: Plan, 
         "failures": list(failures),
         "gates": {
             "js": _gate_entry(report.gate_js, report.gate_js_green),
-            "rebuild": _gate_entry(
-                report.gate_rebuild,
-                report.gate_rebuild_green,
-                _skip_kind(proved=plan.skip_rebuild_gate, deferred="rebuild" in plan.deferred),
+            "rebuild_contracts": _gate_entry(
+                report.gate_contracts,
+                report.gate_contracts_green,
+                _skip_kind(proved=plan.skip_contracts, deferred="rebuild-contracts" in plan.deferred),
+            ),
+            "rebuild_validators": _gate_entry(
+                report.gate_validators,
+                report.gate_validators_green,
+                _skip_kind(proved=plan.skip_validators, deferred="rebuild-validators" in plan.deferred),
             ),
             "conform": _gate_entry(
                 report.gate_conform,
@@ -2094,7 +2239,8 @@ def cycle_summary_payload(report: CycleReport, failures: list[str], plan: Plan, 
             "skip_conform": plan.skip_conform,
             "skip_run_m1": plan.skip_run_m1,
             "skip_surface": plan.skip_surface,
-            "skip_rebuild_gate": plan.skip_rebuild_gate,
+            "skip_contracts": plan.skip_contracts,
+            "skip_validators": plan.skip_validators,
             "skip_plumbing": plan.skip_plumbing,
             "deferred": sorted(plan.deferred),
             "review_out": _as_str(plan.review_out),
@@ -2336,7 +2482,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--skip-gates",
         action="store_true",
-        help="skip the four post-build gates (JS suite, rebuild suite, conformance sweep, make test)",
+        help="skip the five post-build gates (JS suite, the rebuild suite's contracts and validators lanes, conformance sweep, make test)",
     )
     parser.add_argument(
         "--skip-conform",
@@ -2352,7 +2498,7 @@ def main(argv: list[str] | None = None) -> int:
         "--defer-gates",
         action=argparse.BooleanOptionalAction,
         default=False,
-        help="on a pass that rebuilds M1 or the surface, record the heavy gates (rebuild, conform, make-test) pending instead of running them, so the letters are on screen sooner; the next pass has no artifact work and runs them. `make review-cycle` passes this; a deferred gate is unproven, so readiness stays NOT READY until a later pass clears it",
+        help="on a pass that rebuilds M1 or the surface, record the heavy gates (rebuild-contracts, rebuild-validators, conform, make-test) pending instead of running them, so the letters are on screen sooner; the next pass has no artifact work and runs them. `make review-cycle` passes this; a deferred gate is unproven, so readiness stays NOT READY until a later pass clears it",
     )
     parser.add_argument(
         "--fresh",
@@ -2369,7 +2515,7 @@ def main(argv: list[str] | None = None) -> int:
         "--rebuild-pool",
         choices=POOL_POLICIES,
         default=REBUILD_POOL_POLICY_DEFAULT,
-        help="how the heavy gates share cores: 'queue' (one pool at a time — make-test, then conform, then rebuild; default) or 'overlap' (co-resident)",
+        help="how the heavy gates share cores: 'queue' (one pool at a time — make-test, then conform, then the rebuild suite's contracts lane, then its validators lane; default) or 'overlap' (co-resident)",
     )
     parser.add_argument(
         "--review-out",
@@ -2418,10 +2564,19 @@ def main(argv: list[str] | None = None) -> int:
     run_m1_note = ""
     skip_surface = False
     surface_note = ""
-    skip_rebuild_gate = False
-    rebuild_gate_note = ""
+    skip_contracts = False
+    contracts_note = ""
+    skip_validators = False
+    validators_note = ""
     conform_note = ""
     auto_skip_conform = False
+    if not args.fresh and not args.skip_gates:
+        contracts_key = rebuild_lane_fingerprint(ROOT, "contracts")
+        green = read_green_record(REBUILD_CONTRACTS_GREEN)
+        if contracts_key is not None and green is not None and green["fingerprint"] == contracts_key:
+            skip_contracts = True
+            contracts_note = "input closure unchanged since its last green run; --fresh overrides"
+            print(f"gate:rebuild-contracts auto-skipped: {contracts_note}")
     if not args.fresh:
         green = read_green_record(RUN_M1_GREEN)
         if green is not None and green["fingerprint"] == run_m1_fp and m1_artifacts_present(ROOT):
@@ -2448,12 +2603,12 @@ def main(argv: list[str] | None = None) -> int:
                 conform_note = "font and sweep inputs unchanged since its last green sweep; --fresh overrides"
                 print(f"gate:conform auto-skipped: {conform_note}")
         if not args.skip_gates:
-            rebuild_key = rebuild_gate_skip_fingerprint(ROOT)
-            green = read_green_record(REBUILD_GATE_GREEN)
-            if rebuild_key is not None and green is not None and green["fingerprint"] == rebuild_key:
-                skip_rebuild_gate = True
-                rebuild_gate_note = "input closure unchanged since its last green run; --fresh overrides"
-                print(f"gate:rebuild auto-skipped: {rebuild_gate_note}")
+            validators_key = rebuild_lane_fingerprint(ROOT, "validators")
+            green = read_green_record(REBUILD_VALIDATORS_GREEN)
+            if validators_key is not None and green is not None and green["fingerprint"] == validators_key:
+                skip_validators = True
+                validators_note = "input closure unchanged since its last green run; --fresh overrides"
+                print(f"gate:rebuild-validators auto-skipped: {validators_note}")
 
     preserve_snapshot = unfinished_cycle_snapshot()
     if preserve_snapshot is not None:
@@ -2467,7 +2622,8 @@ def main(argv: list[str] | None = None) -> int:
         defer=defer_active,
         refreshing=refreshing,
         would_run={
-            "rebuild": not args.skip_gates and not skip_rebuild_gate,
+            "rebuild-contracts": not args.skip_gates and not skip_contracts,
+            "rebuild-validators": not args.skip_gates and not skip_validators,
             "conform": not args.skip_gates and not args.skip_conform and not auto_skip_conform,
             "make-test": not args.skip_gates and not skip_make_test and not args.force_make_test,
         },
@@ -2537,8 +2693,10 @@ def main(argv: list[str] | None = None) -> int:
         fresh=args.fresh,
         skip_surface=skip_surface,
         surface_note=surface_note,
-        skip_rebuild_gate=skip_rebuild_gate,
-        rebuild_gate_note=rebuild_gate_note,
+        skip_contracts=skip_contracts,
+        contracts_note=contracts_note,
+        skip_validators=skip_validators,
+        validators_note=validators_note,
         conform_note=conform_note,
         conform_proven=auto_skip_conform,
         skip_plumbing=skip_plumbing,

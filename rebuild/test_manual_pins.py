@@ -1,7 +1,5 @@
 """Manual-pin gate tests: the corpus pins whose text the migrated alphabet can express must all replay cleanly against the built M1 artifact (the standing conformance guarantee, mirrored as a hard gate in run_m1.main()), the spec-based trait and exact-glyph semantics must resolve through stance declarations rather than glyph-name substrings, and the gate must actually fail on a pin that contradicts the font."""
 
-from pathlib import Path
-
 import pytest
 
 from rebuild.pipeline import manual_pins
@@ -12,9 +10,6 @@ from rebuild.validation.classify import SeamClassifier
 from rebuild.validation.pins import PinRun, _import_test_shaping
 from rebuild.validation.shaping import Shaper
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
-M1_FONT = REPO_ROOT / "rebuild" / "out" / "m1" / "M1.otf"
-
 
 @pytest.fixture(scope="module")
 def spec():
@@ -22,8 +17,8 @@ def spec():
 
 
 @pytest.fixture(scope="module")
-def gate_report(spec):
-    return manual_pins.run_gate(M1_FONT, spec)
+def gate_report(spec, live_artifacts):
+    return manual_pins.run_gate(live_artifacts.font, spec)
 
 
 class TestGate:
@@ -76,10 +71,10 @@ class TestSemantics:
 
 
 class TestTeeth:
-    def test_contradicting_pin_fails(self, spec):
+    def test_contradicting_pin_fails(self, spec, live_artifacts):
         ts = _import_test_shaping()
-        shaper = Shaper(M1_FONT)
-        classifier = SeamClassifier(M1_FONT)
+        shaper = Shaper(live_artifacts.font)
+        classifier = SeamClassifier(live_artifacts.font)
         text = "\ue670\ue666"
         for expect in ("·It | ·No", "·It ~b~ ·No"):
             tokens, connections = ts.parse_expect(expect)

@@ -10,7 +10,6 @@ from rebuild.review import tablediff
 from rebuild.review.enrich import load_spec
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-M1_DIR = REPO_ROOT / "rebuild" / "out" / "m1"
 
 SETTLEMENT_OLD = """# settlement table, config default
 input\tbacktrack\tlookahead1\tlookahead2\toutcome\tjoint\tprovenance
@@ -153,8 +152,8 @@ def test_load_settlement_widths_round_trip(tmp_path):
     assert next(iter(nine)).look4 == frozenset({"qsLow"})
 
 
-def test_self_diff_is_empty():
-    entries = tablediff.diff_dirs(M1_DIR, M1_DIR)
+def test_self_diff_is_empty(live_artifacts):
+    entries = tablediff.diff_dirs(live_artifacts.m1, live_artifacts.m1)
     assert entries == []
 
 
@@ -175,11 +174,11 @@ def witness_index():
     return spec, tablediff.WitnessIndex(spec, "default", max_depth=3)
 
 
-def test_witness_resettles_to_the_settlement_row(witness_index):
+def test_witness_resettles_to_the_settlement_row(witness_index, live_artifacts):
     from rebuild.pipeline.settle import settle, cell_label
 
     spec, index = witness_index
-    rows = tablediff.load_settlement(M1_DIR / "settlement-default.tsv")
+    rows = tablediff.load_settlement(live_artifacts.m1 / "settlement-default.tsv")
     checked = 0
     for key, value in list(rows.items())[::10]:
         witness = index.witness_settlement(key)
@@ -192,11 +191,11 @@ def test_witness_resettles_to_the_settlement_row(witness_index):
     assert checked >= 5
 
 
-def test_witness_resettles_to_the_treaty_pair(witness_index):
+def test_witness_resettles_to_the_treaty_pair(witness_index, live_artifacts):
     from rebuild.pipeline.settle import settle, cell_label
 
     spec, index = witness_index
-    rows = tablediff.load_treaty(M1_DIR / "treaties-default.tsv")
+    rows = tablediff.load_treaty(live_artifacts.m1 / "treaties-default.tsv")
     checked = 0
     for key in list(rows)[::25]:
         witness = index.witness_treaty(key)
@@ -218,11 +217,11 @@ def test_witness_attach_fills_entries(witness_index, table_dirs):
     assert changed.witness is not None
 
 
-def test_snapshot_round_trip(tmp_path):
+def test_snapshot_round_trip(tmp_path, live_artifacts):
     snapshot_dir = tmp_path / "accepted"
-    snapshot = tablediff.write_snapshot(M1_DIR, M1_DIR / "M1.otf", snapshot_dir, REPO_ROOT)
+    snapshot = tablediff.write_snapshot(live_artifacts.m1, live_artifacts.font, snapshot_dir, REPO_ROOT)
     assert (snapshot_dir / "snapshot.json").exists()
     assert (snapshot_dir / "M1.otf").exists()
     assert "settlement-default.tsv" in snapshot["files"]
     assert snapshot["files"]["M1.otf"]["sha256"]
-    assert tablediff.diff_dirs(snapshot_dir, M1_DIR) == []
+    assert tablediff.diff_dirs(snapshot_dir, live_artifacts.m1) == []
