@@ -13,6 +13,7 @@ The invocation is read strictly, on the CLI contract's own terms: exit 2 is the 
 
 from __future__ import annotations
 
+import fcntl
 import gzip
 import json
 import os
@@ -32,6 +33,8 @@ BINARY = REPO_ROOT / "rebuild" / "kernel-rs" / "target" / "release" / "ams-m1-ke
 MANIFEST = REPO_ROOT / "rebuild" / "kernel-rs" / "Cargo.toml"
 KERNEL_THREADS_DEFAULT = max(1, int(os.environ.get("AMS_KERNEL_THREADS", "2")))
 TIMEOUT = 1800
+# Every `cargo build` re-uplifts the binary into target/release — removes it, then hard-links the fresh one in — even when nothing recompiled, so a build in one process can make another process's exec miss the file for an instant. One lock in the target directory orders the two: a build holds it exclusively for the uplift, an invocation holds it shared for exactly the spawn, and never for the run.
+LOCK_PATH = MANIFEST.parent / "target" / ".ams-kernel-uplift.lock"
 # How much of a failed build's stderr rides the exception: cargo says what is wrong in its last few lines and repeats the whole compilation above them.
 BUILD_TAIL_LINES = 20
 # The issue-26 flag: deep window slots enumerate at class grain (one row per outcome fiber, expanded back to labels for every fold-side consumer). It is a kernel invocation flag, carried across by `world_flags` like settle's two semantics defaults — module-level, consulted at call time, AMS_DEEP_CLASSES=0 the label-grain comparison state — and `class_grain` states the grain rule the crate itself applies.
@@ -65,7 +68,8 @@ def cargo_build() -> None:
     """Build the kernel in release mode, the way `make kernel-build` does. Callers run this before every fan-out rather than checking whether the binary exists: a stale binary and a fresh one are the same file, and the whole point of a differential engine is that the sources on disk are what answered. A warm build costs a fraction of a second; a cold one costs what a cold one costs."""
     arguments = ["cargo", "build", "--release", "--manifest-path", str(MANIFEST)]
     try:
-        finished = subprocess.run(arguments, capture_output=True, timeout=TIMEOUT)
+        with _uplift_lock(fcntl.LOCK_EX):
+            finished = subprocess.run(arguments, capture_output=True, timeout=TIMEOUT)
     except FileNotFoundError:
         raise KernelBuildError(
             "no cargo on PATH — install the Rust toolchain (https://rustup.rs) to build the M1 kernel"
@@ -78,6 +82,47 @@ def cargo_build() -> None:
         errors = finished.stderr.decode(errors="replace").strip().split("\n")
         tail = "\n".join(errors[-BUILD_TAIL_LINES:])
         raise KernelBuildError(f"the kernel did not build (cargo exited {finished.returncode}):\n{tail}")
+
+
+class _UpliftLock:
+    def __init__(self, mode: int) -> None:
+        self._mode = mode
+        self._handle = None
+
+    def __enter__(self):
+        LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
+        self._handle = LOCK_PATH.open("w")
+        fcntl.flock(self._handle, self._mode)
+        return self
+
+    def __exit__(self, *_exc) -> None:
+        assert self._handle is not None
+        fcntl.flock(self._handle, fcntl.LOCK_UN)
+        self._handle.close()
+
+
+def _uplift_lock(mode: int) -> _UpliftLock:
+    return _UpliftLock(mode)
+
+
+def _run_kernel(arguments: list[str], verb: str) -> subprocess.CompletedProcess:
+    """Invoke the binary with the uplift lock held shared across the spawn alone — the one instant a concurrent `cargo build` could make the path vanish — then wait unlocked, so a minutes-long enumeration never stalls a build elsewhere. Raises the same `KernelRunError`s every verb used to raise for a missing binary or a silent kernel."""
+    try:
+        with _uplift_lock(fcntl.LOCK_SH):
+            process = subprocess.Popen(arguments, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    except FileNotFoundError:
+        raise KernelRunError(
+            f"no kernel binary at {BINARY} — run `make kernel-build` first, or let the caller's cargo_build() build it"
+        ) from None
+    try:
+        stdout, stderr = process.communicate(timeout=TIMEOUT)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.communicate()
+        raise KernelRunError(
+            f"the kernel gave no answer within {TIMEOUT} seconds on {verb} ({' '.join(arguments)})"
+        ) from None
+    return subprocess.CompletedProcess(arguments, process.returncode, stdout, stderr)
 
 
 def ensure_built() -> None:
@@ -124,16 +169,7 @@ def enumerate_configs(
     ]
     if timings:
         arguments.append("--timings")
-    try:
-        finished = subprocess.run(arguments, capture_output=True, timeout=TIMEOUT)
-    except FileNotFoundError:
-        raise KernelRunError(
-            f"no kernel binary at {BINARY} — run `make kernel-build` first, or let the caller's cargo_build() build it"
-        ) from None
-    except subprocess.TimeoutExpired:
-        raise KernelRunError(
-            f"the kernel gave no answer within {TIMEOUT} seconds on enumerate-configs ({' '.join(arguments)})"
-        ) from None
+    finished = _run_kernel(arguments, "enumerate-configs")
     errors = finished.stderr.decode(errors="replace").strip()
     if finished.returncode == 2:
         raise KernelRunError(
@@ -185,16 +221,7 @@ def _settle_cases(
     if features:
         arguments.append(f"--features={','.join(sorted(features))}")
     arguments.extend(settlement_flags())
-    try:
-        finished = subprocess.run(arguments, capture_output=True, timeout=TIMEOUT)
-    except FileNotFoundError:
-        raise KernelRunError(
-            f"no kernel binary at {BINARY} — run `make kernel-build` first, or let the caller's cargo_build() build it"
-        ) from None
-    except subprocess.TimeoutExpired:
-        raise KernelRunError(
-            f"the kernel gave no answer within {TIMEOUT} seconds on settle-cases ({' '.join(arguments)})"
-        ) from None
+    finished = _run_kernel(arguments, "settle-cases")
     errors = finished.stderr.decode(errors="replace").strip()
     if finished.returncode == 2:
         raise KernelRunError(
@@ -248,16 +275,7 @@ def settle_cases(spec: ResolvedSpec, cases: Sequence[Mapping], features: frozens
 def _guard_verdicts(spec: ResolvedSpec, spec_path: Path) -> FormationGuard:
     """Invoke `guard-sweep` over one already-dumped spec and parse its complete answer. Completeness and uniqueness are checked here rather than left to a consumer's lookup miss, because a clean kernel exit that silently omitted or duplicated a row is a broken boundary, not an emitter error."""
     arguments = [str(BINARY), "guard-sweep", str(spec_path)]
-    try:
-        finished = subprocess.run(arguments, capture_output=True, timeout=TIMEOUT)
-    except FileNotFoundError:
-        raise KernelRunError(
-            f"no kernel binary at {BINARY} — run `make kernel-build` first, or let the caller's cargo_build() build it"
-        ) from None
-    except subprocess.TimeoutExpired:
-        raise KernelRunError(
-            f"the kernel gave no answer within {TIMEOUT} seconds on guard-sweep ({' '.join(arguments)})"
-        ) from None
+    finished = _run_kernel(arguments, "guard-sweep")
     errors = finished.stderr.decode(errors="replace").strip()
     if finished.returncode == 2:
         raise KernelRunError(
