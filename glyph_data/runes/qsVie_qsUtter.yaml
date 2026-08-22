@@ -52,7 +52,6 @@ policy:
     when:
       left:
         family:
-        - qsPea
         - qsYe
         - qsHe
   contract: []
