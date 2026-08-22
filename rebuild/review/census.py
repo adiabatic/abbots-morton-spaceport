@@ -300,6 +300,8 @@ def derive_premerge(capture: list[PremergeUnit], live_units: Sequence[Unit]) -> 
             if not family:
                 raise ValueError(f"window {snap.codepoints}: UNMATCHED unit resolved to no verdict family")
             assigned.append((index, family))
+    # The flags are an index into the capture, so one per captured unit is the whole of what makes an index into them mean anything.
+    assert len(flags) == len(capture), f"{len(flags)} ink flags over {len(capture)} pre-merge units"
     return PremergeFacts(
         units=len(capture),
         workload_digest=workload_digest(capture),

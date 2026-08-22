@@ -171,8 +171,8 @@
    "ss10": "d-5281ac12b1b3"
   },
   "no_verdict": false,
-  "echo": "e-0000",
-  "cluster": "c-0d41f7a0",
+  "echo": "e-0004",
+  "cluster": "c-0d41f7a5",
   "class": "fixture-drift",
   "group": "qsTea:qsOy",
   "codepoints": "E652:E679",
