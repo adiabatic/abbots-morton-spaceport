@@ -5,6 +5,8 @@ Bitmaps, anchors, bindings, pairings, and the policy records below are transcrib
 What every rune here transcribes is the loader's resolved output for this rune set, not the raw YAML — so left-facing family transparency (spec_load's `_expand_ligature_lefts`) is applied throughout, over the mini world's own ligature inventory rather than the live alphabet's. A `when.left` or entry `from:` scope naming qsUtter therefore also names qsDay_qsUtter, in the older records as much as the newer ones. Adding a ligature to this fixture means walking the left-facing conditions of every rune already here.
 
 Two ligature worlds live here. qsTea_qsOy forms unconditionally, so it keeps the plain type-4 formation shape; qsDay/qsUtter/qsLow/qsSee/qsDay_qsUtter carry the section 5.7 late-formation guard's worked example, so the guard's own FEA rows and the raw labels it reshapes have a mini world to assert against instead of the loaded spec. That second world is transcribed with one deliberate omission: every policy record whose `when:` carries a `then:` chain is left out, because a chained record opens a depth-3/4 window and the mini world stays at depth 2 so its table builds stay cheap and rebuild/test_conform.py's deep-slot tests keep the real spec as their deep-window authority. Kept records hold their real YAML indices in `Provenance.path`, which is how a subset announces itself here.
+
+`synthetic_spec` and `prospect_spec` beside the mini world are a different kind of fixture: three and four invented letters carrying no geometry anyone renders, built to isolate one ranking stage each where the real records leave it unexercised. They live here rather than in a test file because the crate keeps twins of both under the same names, and because more than one caller now settles them.
 """
 
 from __future__ import annotations
@@ -1208,3 +1210,173 @@ def mini_spec() -> ResolvedSpec:
         )
     }
     return ResolvedSpec(runes=runes, registry=_registry())
+
+
+def synthetic_spec(prefer_a=(), prefer_b=(), contract_b=()) -> ResolvedSpec:
+    """Three letters: A exits at the x-height toward anything; B enters at the x-height (entered B is exitless by pairing) and exits at the baseline only when unentered; C enters at the baseline. The A.B seam therefore ties join-vs-prospect at one window join each — the floor and prefer testbed. The crate states the same testbed in its own four-family vocabulary as `engine.rs`'s `ranking_spec`."""
+    a = Rune(
+        name="A",
+        codepoint=0xE001,
+        ductus={"stroke": "synthetic"},
+        stances={
+            "stroke": Stance(
+                "stroke",
+                motion="stroke",
+                surface=Surface(
+                    exits={"x-height": SurfaceRow("x-height", x=1, withdrawal="safe")},
+                ),
+            ),
+            "flourish": Stance("flourish", motion="stroke"),
+        },
+        policy=Policy(order=("stroke", "flourish"), prefer=tuple(prefer_a)),
+    )
+    b = Rune(
+        name="B",
+        codepoint=0xE002,
+        ductus={"hook": "synthetic"},
+        stances={
+            "hook": Stance(
+                "hook",
+                motion="hook",
+                surface=Surface(
+                    entries={"x-height": SurfaceRow("x-height", x=0)},
+                    exits={"baseline": SurfaceRow("baseline", x=1, withdrawal="safe")},
+                    pairings=Pairings(never=(Pairing("x-height", "baseline"),)),
+                ),
+            ),
+        },
+        policy=Policy(order=("hook",), prefer=tuple(prefer_b), contract=tuple(contract_b)),
+    )
+    c = Rune(
+        name="C",
+        codepoint=0xE003,
+        ductus={"base": "synthetic"},
+        stances={
+            "base": Stance(
+                "base",
+                motion="base",
+                surface=Surface(entries={"baseline": SurfaceRow("baseline", x=0)}),
+            ),
+        },
+        policy=Policy(order=("base",)),
+    )
+    registry = ScriptRegistry(
+        heights={"baseline": 0, "x-height": 5, "y6": 6, "top": 8},
+        boundary_tokens={
+            "space": BoundaryToken(0x0020, splits_runs=True),
+            "zwnj": BoundaryToken(0x200C, splits_runs=True),
+            "namer-dot": BoundaryToken(0x00B7, splits_runs=False),
+        },
+        predicate_classes={},
+        families={
+            "A": FamilyInfo(codepoint=0xE001),
+            "B": FamilyInfo(codepoint=0xE002),
+            "C": FamilyInfo(codepoint=0xE003),
+        },
+    )
+    return ResolvedSpec(runes={"A": a, "B": b, "C": c}, registry=registry)
+
+
+def prospect_spec() -> ResolvedSpec:
+    """Four letters replaying the issue-28 signature (the ·No·No·Tea·Day shape). A exits at both heights and prefers x-height over baseline as a yielding tie-break; B enters at both heights, is exitless when entered at the x-height, and yields its baseline exit before C·D; entered C is exitless, so B joining C forecloses C·D while B declining buys it. The optimistic prospect therefore scores A's baseline candidate as if B's onward join will happen, but B's own cascade provably yields it one seat later — the simulated prospect sees the yield from A's seat. The crate states the same shape in its own vocabulary as `engine.rs`'s `prospect_spec`."""
+    a = Rune(
+        name="A",
+        codepoint=0xE011,
+        ductus={"stroke": "synthetic"},
+        stances={
+            "stroke": Stance(
+                "stroke",
+                motion="stroke",
+                surface=Surface(
+                    exits={
+                        "x-height": SurfaceRow("x-height", x=1, withdrawal="safe"),
+                        "baseline": SurfaceRow("baseline", x=1, withdrawal="safe"),
+                    },
+                ),
+            ),
+        },
+        policy=Policy(
+            order=("stroke",),
+            prefer=(
+                PolicyRecord(
+                    kind="prefer", cell={"exit": "x-height"}, over={"exit": "baseline"}, when=When()
+                ),
+            ),
+        ),
+    )
+    b = Rune(
+        name="B",
+        codepoint=0xE012,
+        ductus={"hook": "synthetic"},
+        stances={
+            "hook": Stance(
+                "hook",
+                motion="hook",
+                surface=Surface(
+                    entries={
+                        "x-height": SurfaceRow("x-height", x=0),
+                        "baseline": SurfaceRow("baseline", x=0),
+                    },
+                    exits={"baseline": SurfaceRow("baseline", x=1, withdrawal="safe")},
+                    pairings=Pairings(never=(Pairing("x-height", "baseline"),)),
+                ),
+            ),
+        },
+        policy=Policy(
+            order=("hook",),
+            prefer=(
+                PolicyRecord(
+                    kind="prefer",
+                    cell={"exit": "none"},
+                    over={"exit": "baseline"},
+                    when=When(right=Condition(family=("C",), then=Condition(family=("D",)))),
+                ),
+            ),
+        ),
+    )
+    c = Rune(
+        name="C",
+        codepoint=0xE013,
+        ductus={"base": "synthetic"},
+        stances={
+            "base": Stance(
+                "base",
+                motion="base",
+                surface=Surface(
+                    entries={"baseline": SurfaceRow("baseline", x=0)},
+                    exits={"baseline": SurfaceRow("baseline", x=1, withdrawal="safe")},
+                    pairings=Pairings(never=(Pairing("baseline", "baseline"),)),
+                ),
+            ),
+        },
+        policy=Policy(order=("base",)),
+    )
+    d = Rune(
+        name="D",
+        codepoint=0xE014,
+        ductus={"base": "synthetic"},
+        stances={
+            "base": Stance(
+                "base",
+                motion="base",
+                surface=Surface(entries={"baseline": SurfaceRow("baseline", x=0)}),
+            ),
+        },
+        policy=Policy(order=("base",)),
+    )
+    registry = ScriptRegistry(
+        heights={"baseline": 0, "x-height": 5, "y6": 6, "top": 8},
+        boundary_tokens={
+            "space": BoundaryToken(0x0020, splits_runs=True),
+            "zwnj": BoundaryToken(0x200C, splits_runs=True),
+            "namer-dot": BoundaryToken(0x00B7, splits_runs=False),
+        },
+        predicate_classes={},
+        families={
+            "A": FamilyInfo(codepoint=0xE011),
+            "B": FamilyInfo(codepoint=0xE012),
+            "C": FamilyInfo(codepoint=0xE013),
+            "D": FamilyInfo(codepoint=0xE014),
+        },
+    )
+    return ResolvedSpec(runes={"A": a, "B": b, "C": c, "D": d}, registry=registry)

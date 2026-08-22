@@ -1,10 +1,10 @@
 """Conformance gates (M1-PLAN sections 5 and 6, Group 3): HarfBuzz vs the settlement function, and the settlement function vs the section 13.1 baseline oracle.
 
-`run_conformance` promotes prototype/conform.py: the Shaper (MONOTONE_CHARACTERS cluster level; names via TTFont, never HarfBuzz's truncating API), the exhaustive length-1..horizon enumeration per acceptance configuration (the per-edit belt, horizon 4 by default), the ZWNJ structural checks (zero advance, no ink), split-buffer equivalence, gap-0 pen positions, and the font-vs-settle oracle diff, which takes no ledger: any divergence is a compiler defect by definition. Coverage is deliberately not this sweep's job: read-back (rebuild/pipeline/readback.py) proves per build that the compiled font holds every emitted rule at its planned position, and rebuild/test_rule_witnesses.py remains the font-free dead-rule alarm, so the sweep's remaining unique charter is what only shaping the real binary can test — HarfBuzz's application semantics (lookup interaction across features, backtrack-sees-settled across subtable breaks, default-ignorable skipping, class matching, Extension indirection) and the sufficiency of the 6-slot window abstraction itself, which witness-constructed strings structurally cannot probe because witnesses are built from that abstraction. The deep form of the same sweep runs at horizon 5 or deeper on demand (`make conform-deep`, rebuild/tools/deep_sweep.py), armed by the behavior-class enumeration `emit_gsub.behavior_classes` plus the font-compilation code and the uharfbuzz version, so a rune edit that introduces no novel rule shape never stales it. The ZWNJ/split-buffer checks ride the belt itself, on the texts they can say anything about, which is where the standalone horizon-5 boundary gate's charter now lives: proven per build at the belt's horizon and periodically deeper by `make conform-deep`. Settlement rides `_SettledWindowWalk`'s per-config window memo, so redundant windows cost dict probes rather than kernel transitions, and the oracle's rows settle through a walk of their own.
+`run_conformance` promotes prototype/conform.py: the Shaper (MONOTONE_CHARACTERS cluster level; names via TTFont, never HarfBuzz's truncating API), the exhaustive length-1..horizon enumeration per acceptance configuration (the per-edit belt, horizon 4 by default), the ZWNJ structural checks (zero advance, no ink), split-buffer equivalence, gap-0 pen positions, and the font-vs-settle oracle diff, which takes no ledger: any divergence is a compiler defect by definition. Coverage is deliberately not this sweep's job: read-back (rebuild/pipeline/readback.py) proves per build that the compiled font holds every emitted rule at its planned position, and rebuild/test_rule_witnesses.py remains the font-free dead-rule alarm, so the sweep's remaining unique charter is what only shaping the real binary can test — HarfBuzz's application semantics (lookup interaction across features, backtrack-sees-settled across subtable breaks, default-ignorable skipping, class matching, Extension indirection) and the sufficiency of the 6-slot window abstraction itself, which witness-constructed strings structurally cannot probe because witnesses are built from that abstraction. The deep form of the same sweep runs at horizon 5 or deeper on demand (`make conform-deep`, rebuild/tools/deep_sweep.py), armed by the behavior-class enumeration `emit_gsub.behavior_classes` plus the font-compilation code and the uharfbuzz version, so a rune edit that introduces no novel rule shape never stales it. The ZWNJ/split-buffer checks ride the belt itself, on the texts they can say anything about, which is where the standalone horizon-5 boundary gate's charter now lives: proven per build at the belt's horizon and periodically deeper by `make conform-deep`. Settlement rides `_SettledWindowWalk`'s per-config window memo, so a distinct raw window costs one batched crate answer and every recurrence across the sweep's texts costs a dict probe, and the oracle's rows settle through a walk of their own.
 
-`compare_against_baseline` is the section 6 oracle gate: stream the filtered sub-tables, run `settle` per row, compare ligation (clusters), per-seam classification, and cell identity through the hand-written alias map; every divergent row must match exactly one ledger entry (zero matches fails conformance, two-plus fails the ledger). When a font path is supplied, the gate also compares positions old-vs-new (M1-PLAN section 6 step 3d): each row is shaped against the new font and its per-slot (x_offset, y_offset, x_advance) triples are compared against the baseline's, with sidecar kerns normalized out of the old advances via `KernEvaluator` (the new font emits no kerning). Position equality is enforced on every row whose seam topology and ligation match the baseline and whose cell-grain divergence class (if any) claims ink identity (`ink_identical: true` in the ledger); rows whose matched class legitimately redraws ink (extensions restored or suppressed, withdrawal bindings) are excluded and counted, because their advances move with the ink by design.
+`compare_against_baseline` is the section 6 oracle gate: stream the filtered sub-tables, settle every row through a walk of its own, compare ligation (clusters), per-seam classification, and cell identity through the hand-written alias map; every divergent row must match exactly one ledger entry (zero matches fails conformance, two-plus fails the ledger). When a font path is supplied, the gate also compares positions old-vs-new (M1-PLAN section 6 step 3d): each row is shaped against the new font and its per-slot (x_offset, y_offset, x_advance) triples are compared against the baseline's, with sidecar kerns normalized out of the old advances via `KernEvaluator` (the new font emits no kerning). Position equality is enforced on every row whose seam topology and ligation match the baseline and whose cell-grain divergence class (if any) claims ink identity (`ink_identical: true` in the ledger); rows whose matched class legitimately redraws ink (extensions restored or suppressed, withdrawal bindings) are excluded and counted, because their advances move with the ink by design.
 
-Group 2's `settle` and `table` modules are imported lazily inside the entry points, so this module and its helpers load without them.
+Settlement itself is the crate's, reached through `kernel_exec`: `_SettledWindowWalk` batches whole waves of distinct raw windows into `kernel_exec.settle_windows`, the witness search hoists one `kernel_exec.guard_sweep` and threads its verdict surface through every formation call below it, and nothing here re-derives a settled cell. `table` is still imported lazily inside the entry points that read a decision table, so the shaping half of this module loads without it.
 """
 
 from __future__ import annotations
@@ -16,11 +16,11 @@ import sys
 import time
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable, Iterable, Mapping
+from typing import TYPE_CHECKING, Callable, Iterable, Mapping, Sequence
 
 import yaml
 
-from rebuild.pipeline import geometry
+from rebuild.pipeline import geometry, kernel_exec, settle
 from rebuild.pipeline.model import (
     CellId,
     GlyphRecord,
@@ -35,13 +35,16 @@ from rebuild.validation.rowmodel import CONFIGS, Row, iter_rows
 
 if TYPE_CHECKING:
     from rebuild.pipeline.emit_gsub import _FoldedRule
-    from rebuild.pipeline.settle import Engine, RightToken
     from rebuild.pipeline.table import Rule
 
 ZWNJ = "\u200c"
 ZWNJ_SENTINEL = "<zwnj>"
 BOUNDARY_GLYPH_NAMES = {"space", "uni200C", "periodcentered", "periodcentered.lowered"}
 ACCEPTANCE_CONFIGS = ("default", "ss03", "ss04", "ss05", "ss03+ss05", "ss10")
+# How many of a belt bucket's texts one walk holds at a time. The bucket itself is streamed, never materialized: horizon 5's length-5 bucket is millions of texts, while a chunk's states cost tens of megabytes whatever the horizon.
+TEXT_CHUNK = 65536
+# The same bound on the oracle's side, where the texts arrive as baseline rows rather than as a product.
+ORACLE_ROW_CHUNK = 65536
 
 
 @dataclass
@@ -376,27 +379,27 @@ def isolated_overlay_names(spec: ResolvedSpec, settled: Iterable) -> list[str]:
 _BOUNDARY_KIND_LABELS = {"space": "space", "zwnj": "uni200C", "namer-dot": "periodcentered"}
 
 
-def raw_labels(spec: ResolvedSpec, text: str, features: frozenset[str]) -> list[str]:
-    """The raw GSUB pipeline replay: formation (delegated to settle.form_ligatures, so the section 5.7 late-formation guard applies here exactly as in the kernel and the emitted lookup), marker fold, ZWNJ chokepoint — the labels the settlement lookup sees."""
-    from rebuild.pipeline import settle as settle_module
-
+def raw_labels(
+    spec: ResolvedSpec, text: str, features: frozenset[str], guard_verdicts: settle.FormationGuard
+) -> list[str]:
+    """The raw GSUB pipeline replay: formation (delegated to settle.form_ligatures, so the section 5.7 late-formation guard applies here exactly as in the kernel and the emitted lookup), marker fold, ZWNJ chokepoint — the labels the settlement lookup sees. `guard_verdicts` is the crate's complete verdict surface for this spec (`kernel_exec.guard_sweep`), which the caller hoists once rather than sweeping per text."""
     by_codepoint = {
         info.codepoint: name for name, info in spec.registry.families.items() if info.codepoint is not None
     }
     boundary_by_codepoint = {token.codepoint: name for name, token in spec.registry.boundary_tokens.items()}
-    tokens: list[RightToken] = []
+    tokens: list[settle.RightToken] = []
     for ch in text:
         cp = ord(ch)
         if cp in boundary_by_codepoint:
-            tokens.append(settle_module.RightToken(boundary_by_codepoint[cp]))
+            tokens.append(settle.RightToken(boundary_by_codepoint[cp]))
         elif cp in by_codepoint:
-            tokens.append(settle_module.RightToken("letter", by_codepoint[cp]))
+            tokens.append(settle.RightToken("letter", by_codepoint[cp]))
         else:
             raise ValueError(f"U+{cp:04X} outside the spec alphabet")
-    return _formed_labels(spec, settle_module.form_ligatures(spec, tokens), features)
+    return formed_labels(spec, settle.form_ligatures(spec, tokens, guard_verdicts), features)
 
 
-def _formed_labels(spec: ResolvedSpec, formed: list[RightToken], features: frozenset[str]) -> list[str]:
+def formed_labels(spec: ResolvedSpec, formed: list[settle.RightToken], features: frozenset[str]) -> list[str]:
     """The post-formation stream's labels in the config's renamed space: marker fold, then the ZWNJ chokepoint's `.noentry` suffix on entry-bearing letters. Interned, so the window keys built from millions of texts share one string object per label instead of holding a fresh fold per text alive."""
     labels: list[str] = []
     for position, token in enumerate(formed):
@@ -426,7 +429,7 @@ _NA_LABEL = "#NA"
 
 
 def _window_rights(labels: list[str], index: int) -> tuple[str, str, str, str]:
-    """The raw settlement window at `index`, out to the fourth slot: each slot is the next label along, `#EDGE` past the end of the buffer, and `#NA` the moment the slot before it is a boundary, the edge, or itself `#NA` — the standing convention that no record peeks past a boundary. The table's deep-slot structure plays no part here, and needs none: a rule that dropped a slot matches any token at it (`_first_matching_rule`), so a raw token standing at a slot the enumeration never split matches exactly the slot-dropped rule HarfBuzz would match. Keying the settle memo this finely is sound with no relevance oracle at all, because `transition_trace` reads exactly these slots and nothing beyond them — and it is also the faster of the two, measured on the live alphabet at the belt's horizon: the probes that decided which slots to blank cost far more than the traces the blanking saved. Shared by `_matched_windows` and `_SettledWindowWalk` so the replay and the memo key read one window."""
+    """The raw settlement window at `index`, out to the fourth slot: each slot is the next label along, `#EDGE` past the end of the buffer, and `#NA` the moment the slot before it is a boundary, the edge, or itself `#NA` — the standing convention that no record peeks past a boundary. The table's deep-slot structure plays no part here, and needs none: a rule that dropped a slot matches any token at it (`_first_matching_rule`), so a raw token standing at a slot the enumeration never split matches exactly the slot-dropped rule HarfBuzz would match. Keying the settle memo this finely is sound with no relevance oracle at all, because one window's settlement is a function of exactly these slots and nothing beyond them — the crate reads the four raw slots a case row carries and no more — and it is also the faster of the two, measured on the live alphabet at the belt's horizon: the probes that decided which slots to blank cost far more than the answers the blanking saved. Shared by `_matched_windows` and `_SettledWindowWalk` so the replay and the memo key read one window."""
     right1 = labels[index + 1] if index + 1 < len(labels) else _EDGE_LABEL
     right2 = (
         _NA_LABEL
@@ -477,10 +480,10 @@ def _first_matching_rule(
     return None
 
 
-def _matched_windows(spec, text, features, expected, rules_by_input, deep_index=None):
+def _matched_windows(spec, text, features, guard_verdicts, expected, rules_by_input, deep_index=None):
     """Replay the settlement lookup's view of one string: yield (position, window key, first-matching rule index or None) per letter slot, with labels and rules in the config's renamed (marker-folded) space and the left slot read from the settled stream — the exact first-match-wins semantics the emitted FEA compiles to. The window slots are the raw ones `_window_rights` reads; nothing here consults which slots the table chose to split, because a rule that dropped one matches whatever stands at it. `deep_index` is the table's `_DeepTokenIndex`; token resolution is a separate step strictly after `_window_rights`, which reads raw labels, and needs the settled left this loop holds — with no index the deep slots stay raw labels, which on a class-grain table realize no row."""
     try:
-        labels = raw_labels(spec, text, features)
+        labels = raw_labels(spec, text, features, guard_verdicts)
     except ValueError:
         return
     settled = normalize_expected(list(expected))
@@ -582,68 +585,186 @@ class _DeepTokenIndex:
         return token3, token4
 
 
+_Window = tuple[str, str, str, str, str, str]
+
+
+@dataclass
+class _WalkState:
+    """One text mid-walk: its tokens and labels, the settled stream and names built so far, the resolved left, and the position the walk has reached. A state is either finished (`index` past the last token) or parked on a letter position whose window the memo does not yet hold."""
+
+    text: str
+    tokens: list[settle.RightToken]
+    labels: list[str]
+    settled: list[Settled]
+    names: list[str]
+    left: settle.LeftContext
+    index: int = 0
+
+
 class _SettledWindowWalk:
-    """The memoized settle walk one conformance config runs over every swept text: a single left-to-right pass computes each letter slot's raw window key — exactly `_matched_windows`' slots, with the left read from the just-settled stream — and resolves it through `windows`, a window -> (Settled, glyph name) memo, calling `engine.transition_trace` only on a miss; the memoized Settled feeds the next slot's left exactly as `settle_traces` does. The memo is a pure speed device and nothing else: it records no coverage, and the sweep's verdict is the same whether every window misses or every window hits. Sound because every memoized outcome is a pure function of the window as keyed: the left label is the settled cell's glyph name (injective over every CellId field, whether minted by `cell_label` or `geometry.display_name`), and the right slots are the raw tokens `transition_trace` reads, all of them and none beyond. That last point is why the walk needs no liveness oracle at all — it once blanked the deep slots wherever the table's relevance filters proved nothing could read them, and paid more for the probes than the blanking ever saved. A hit skips `transition_trace` and so stops re-recording into `engine.fired`, which the conform run never reads. `windows` is deliberately unbounded; the interned labels plus deduplicated outcome tuples keep the residual cost to the key tuples themselves. The walk-equivalence sweeps in rebuild/test_conform.py are the standing alarm on all of it."""
+    """The memoized settle walk one conformance config runs over every swept text: a left-to-right pass computes each letter slot's raw window key — exactly `_matched_windows`' slots, with the left read from the just-settled stream — and resolves it through `windows`, a window -> (Settled, glyph name) memo; only a miss reaches the crate. The memo is a pure speed device and nothing else: it records no coverage, and the sweep's verdict is the same whether every window misses or every window hits. Sound because every memoized outcome is a pure function of the window as keyed: the left label is the settled cell's glyph name (injective over every CellId field, whether minted by `cell_label` or `geometry.display_name`), and the right slots are the raw tokens a case row carries, all of them and none beyond. That last point is why the walk needs no liveness oracle at all — it once blanked the deep slots wherever the table's relevance filters proved nothing could read them, and paid more for the probes than the blanking ever saved. `windows` is deliberately unbounded; the interned labels plus deduplicated outcome tuples keep the residual cost to the key tuples themselves. The walk-equivalence sweeps in rebuild/test_conform.py are the standing alarm on all of it.
+
+    Batching is what makes the crate affordable here. `settle-cases` answers independent windows, but a text's next left is the previous window's answer, so `_run` advances a whole pile of texts in waves: every state runs forward to its first memo miss, the misses contribute one case row each — deduplicated by memo key, since a key that two states reach in the same wave is one question — and one `kernel_exec.settle_windows` invocation answers up to `batch` of them before every state advances again. A wave collects at most `batch` new keys and parks the rest for the next one, so a caller's chunk size bounds its own resident cost rather than the invocation's. `walk` is the same loop over a single text, which means a miss there spends a whole kernel spawn on one window; `single_settles` counts those, so a caller that forgot to `prefill` can see what it is paying.
+
+    `audit_dedupe` is the standing argument for the dedupe made checkable: with it on, every distinct raw case row a memo key carries beyond the representative is settled too and asserted equal to the memoized outcome, which is the claim `_window_rights`' `#NA` cascade makes — that two raw windows keyed alike settle alike.
+    """
 
     def __init__(
         self,
         spec: ResolvedSpec,
-        engine: Engine,
         features: frozenset[str],
         glyph_names: Mapping[CellId, str],
+        guard_verdicts: settle.FormationGuard,
+        *,
+        batch: int = kernel_exec.SETTLE_WINDOW_BATCH,
+        audit_dedupe: bool = False,
     ):
         self.spec = spec
-        self.engine = engine
         self.features = features
         self.glyph_names = glyph_names
-        self.windows: dict[tuple[str, str, str, str, str, str], tuple[Settled, str]] = {}
+        self.guard_verdicts = guard_verdicts
+        self.batch = max(1, batch)
+        self.audit_dedupe = audit_dedupe
+        self.windows: dict[_Window, tuple[Settled, str]] = {}
+        self.single_settles = 0
+        self.audit_extra_rows = 0
+        self.audit_multi_keys: set[_Window] = set()
         self._outcomes: dict[tuple[Settled, str], tuple[Settled, str]] = {}
+        self._settle_calls = 0
+        self._audit_seen: set[tuple[settle.LeftContext, settle.RightToken, tuple[settle.RightToken, ...]]] = (
+            set()
+        )
+        self._audit_pending: list[tuple[_Window, dict]] = []
 
     def walk(self, text: str) -> tuple[list[Settled], list[str]]:
-        """Settle one text through the memo. Returns (settled items, their glyph names)."""
-        from rebuild.pipeline import settle as settle_module
+        """Settle one text through the memo. Returns (settled items, their glyph names). Every miss along the way is its own kernel invocation, counted in `single_settles` — `prefill` is what a caller with a pile of texts reaches for instead."""
+        before = self._settle_calls
+        settled, names = self._run([text], collect=True)[0]
+        self.single_settles += self._settle_calls - before
+        return settled, names
 
+    def walk_many(self, texts: Sequence[str]) -> list[tuple[list[Settled], list[str]]]:
+        """Settle a whole chunk of texts in waves, answering one (settled, names) pair per text in the order asked."""
+        return self._run(texts, collect=True)
+
+    def prefill(self, texts: Sequence[str]) -> None:
+        """Fill the memo from a pile of texts and keep nothing else, so a caller that will walk them one at a time later pays waves rather than spawns."""
+        self._run(texts, collect=False)
+
+    def _state(self, text: str) -> _WalkState:
         spec = self.spec
-        tokens = settle_module.form_ligatures(
-            spec, settle_module.tokens_from_codepoints(spec, [ord(ch) for ch in text])
+        tokens = settle.form_ligatures(
+            spec,
+            settle.tokens_from_codepoints(spec, [ord(ch) for ch in text]),
+            self.guard_verdicts,
         )
-        labels = _formed_labels(spec, tokens, self.features)
-        settled: list[Settled] = []
-        names: list[str] = []
-        left_context = settle_module.LeftContext("edge")
-        for index, token in enumerate(tokens):
+        return _WalkState(
+            text=text,
+            tokens=tokens,
+            labels=formed_labels(spec, tokens, self.features),
+            settled=[],
+            names=[],
+            left=settle.LeftContext("edge"),
+        )
+
+    def _window(self, state: _WalkState) -> _Window:
+        labels, index = state.labels, state.index
+        if index == 0:
+            left = _EDGE_LABEL
+        elif labels[index - 1] in _WINDOW_BOUNDARIES:
+            left = labels[index - 1]
+        else:
+            left = state.names[index - 1]
+        return (labels[index], left, *_window_rights(labels, index))
+
+    def _rights(self, state: _WalkState) -> tuple[settle.RightToken, ...]:
+        tokens, index = state.tokens, state.index
+        return tuple(
+            tokens[slot] if slot < len(tokens) else settle.EDGE for slot in range(index + 1, index + 5)
+        )
+
+    def _commit(self, state: _WalkState, outcome: tuple[Settled, str]) -> None:
+        item, name = outcome
+        state.settled.append(item)
+        state.names.append(name)
+        state.left = settle.LeftContext("letter", item)
+        state.index += 1
+
+    def _advance(self, state: _WalkState) -> bool:
+        """Run one state forward until it needs an answer this walk does not have. Boundary positions settle to their model constant here and never reach the kernel. True means the state is parked on a memo miss."""
+        while state.index < len(state.tokens):
+            token = state.tokens[state.index]
             if token.kind != "letter":
-                settled.append(settle_module.boundary_settled(token.kind))
-                names.append(_BOUNDARY_KIND_LABELS[token.kind])
-                left_context = settle_module.LeftContext(token.kind)
+                state.settled.append(settle.boundary_settled(token.kind))
+                state.names.append(_BOUNDARY_KIND_LABELS[token.kind])
+                state.left = settle.LeftContext(token.kind)
+                state.index += 1
                 continue
-            label = labels[index]
-            if index == 0:
-                left = _EDGE_LABEL
-            elif labels[index - 1] in _WINDOW_BOUNDARIES:
-                left = labels[index - 1]
-            else:
-                left = names[index - 1]
-            window = (label, left, *_window_rights(labels, index))
+            window = self._window(state)
             outcome = self.windows.get(window)
             if outcome is None:
-                item = self.engine.transition_trace(
-                    left_context,
-                    token,
-                    tokens[index + 1] if index + 1 < len(tokens) else settle_module.EDGE,
-                    tokens[index + 2] if index + 2 < len(tokens) else settle_module.EDGE,
-                    tokens[index + 3] if index + 3 < len(tokens) else settle_module.EDGE,
-                    tokens[index + 4] if index + 4 < len(tokens) else settle_module.EDGE,
-                ).settled
-                name = self.glyph_names.get(item.cell) or geometry.display_name(spec, item.cell)
-                fresh = (item, name)
-                outcome = self._outcomes.setdefault(fresh, fresh)
-                self.windows[window] = outcome
-            item, name = outcome
-            settled.append(item)
-            names.append(name)
-            left_context = settle_module.LeftContext("letter", item)
-        return settled, names
+                return True
+            if self.audit_dedupe:
+                self._note_raw(window, state)
+            self._commit(state, outcome)
+        return False
+
+    def _record(self, window: _Window, item: Settled) -> None:
+        name = self.glyph_names.get(item.cell) or geometry.display_name(self.spec, item.cell)
+        fresh = (item, name)
+        self.windows[window] = self._outcomes.setdefault(fresh, fresh)
+
+    def _settle(self, cases: list[dict]) -> list[Settled]:
+        self._settle_calls += 1
+        return kernel_exec.settle_windows(self.spec, cases, self.features, batch=self.batch)
+
+    def _note_raw(self, window: _Window, state: _WalkState) -> None:
+        """Queue a raw case row this memo key has not been asked under before. The first such row per key is the representative the wave already asked; every later one is a distinct question the dedupe claims has the same answer, and `_drain_audit` is where that claim is settled."""
+        raw = (state.left, state.tokens[state.index], self._rights(state))
+        if raw in self._audit_seen:
+            return
+        self._audit_seen.add(raw)
+        self.audit_multi_keys.add(window)
+        self._audit_pending.append((window, kernel_exec.case_row(*raw)))
+
+    def _drain_audit(self) -> None:
+        """Settle the raw case rows a memo key carries beyond its representative and hold each to the memoized outcome — the dedupe's own premise, checked rather than assumed."""
+        pending, self._audit_pending = self._audit_pending, []
+        self.audit_extra_rows += len(pending)
+        for start in range(0, len(pending), self.batch):
+            chunk = pending[start : start + self.batch]
+            for (window, _case), item in zip(chunk, self._settle([case for _window, case in chunk])):
+                memoized = self.windows[window][0]
+                assert item == memoized, (window, item, memoized)
+
+    def _run(self, texts: Sequence[str], collect: bool) -> list[tuple[list[Settled], list[str]]]:
+        states = [self._state(text) for text in texts]
+        pending = [state for state in states if self._advance(state)]
+        while pending:
+            keys: list[_Window] = []
+            cases: list[dict] = []
+            asked: set[_Window] = set()
+            for state in pending:
+                window = self._window(state)
+                if window in asked:
+                    if self.audit_dedupe:
+                        self._note_raw(window, state)
+                    continue
+                if len(cases) >= self.batch:
+                    continue
+                asked.add(window)
+                keys.append(window)
+                cases.append(kernel_exec.case_row(state.left, state.tokens[state.index], self._rights(state)))
+                if self.audit_dedupe:
+                    self._audit_seen.add((state.left, state.tokens[state.index], self._rights(state)))
+            for window, item in zip(keys, self._settle(cases)):
+                self._record(window, item)
+            pending = [state for state in pending if self._advance(state)]
+            if self._audit_pending:
+                self._drain_audit()
+        if self._audit_pending:
+            self._drain_audit()
+        return [(state.settled, state.names) for state in states] if collect else []
 
 
 def _token_text(spec: ResolvedSpec, tokens: Iterable[str]) -> str:
@@ -718,14 +839,12 @@ def _shortest_window_prefixes(decision):
     return prefixes, by_right3
 
 
-def _refolds_intact(spec, tokens) -> bool:
+def _refolds_intact(spec, guard_verdicts, tokens) -> bool:
     """Whether a witness token stream survives the raw replay unchanged: expand ligature tokens to components, re-run guarded formation, and demand the original stream back. A prefix ligature can be un-formed (its guard slots are the witness's own following tokens) and an adjacent pair can re-form — either way the stream no longer realizes the intended window."""
-    from rebuild.pipeline import settle as settle_module
-
     boundary_by_label = {
-        "space": settle_module.SPACE,
-        "uni200C": settle_module.ZWNJ,
-        "periodcentered": settle_module.NAMER_DOT,
+        "space": settle.SPACE,
+        "uni200C": settle.ZWNJ,
+        "periodcentered": settle.NAMER_DOT,
     }
     label_by_kind = {"space": "space", "zwnj": "uni200C", "namer-dot": "periodcentered"}
     stream: list = []
@@ -734,13 +853,15 @@ def _refolds_intact(spec, tokens) -> bool:
             stream.append(boundary_by_label[token])
             continue
         for part in spec.runes[token].sequence or (token,):
-            stream.append(settle_module.RightToken("letter", part))
-    formed = settle_module.form_ligatures(spec, stream)
+            stream.append(settle.RightToken("letter", part))
+    formed = settle.form_ligatures(spec, stream, guard_verdicts)
     labels = [label_by_kind[t.kind] if t.kind != "letter" else t.letter for t in formed]
     return labels == list(tokens)
 
 
-def _window_witness_candidates(spec, prefixes, by_right3, row, decision=None) -> list[tuple[str, ...]]:
+def _window_witness_candidates(
+    spec, guard_verdicts, prefixes, by_right3, row, decision=None
+) -> list[tuple[str, ...]]:
     """Assemble candidate token streams that could realize one transition row's window, most-plausible prefix first: the BFS prefixes pinned to the row's own deep slots — a class token trying each member's label-grain bucket in member order — then the unpinned buckets, then the flat shortest prefixes. Several candidates exist because a deep record upstream of the prefix can invalidate one path for this row's specific right context while another path stays realizable; the caller sweeps or settles each until the window is actually realized."""
     from rebuild.pipeline.table import NA_LABEL
 
@@ -767,24 +888,24 @@ def _window_witness_candidates(spec, prefixes, by_right3, row, decision=None) ->
             ordered_prefixes.append((prefix, rep3))
     candidates: list[tuple[str, ...]] = []
     for prefix, member in ordered_prefixes[:6]:
-        tokens = _assemble_window_witness(spec, prefix, row, decision, right3_label=member)
+        tokens = _assemble_window_witness(spec, guard_verdicts, prefix, row, decision, right3_label=member)
         if tokens is not None and tokens not in candidates:
             candidates.append(tokens)
     return candidates
 
 
-def _guard_follower_slots(spec, settle_module, label):
+def _guard_follower_slots(spec, label):
     """The raw slots a section 5.7 guard reads when the window slot after a formation pair holds `label`: a formed-ligature label stands for its own component sequence in the raw stream, so the guard's two slots are that ligature's lead and trailing components — pinned by the label itself, with no room for a hunted second-slot token between them — while a letter label is its own first slot with the second left open (None) for the caller's hunt. First possible with qsSee_qsUtter, whose lead is itself a member of another ligature's guard class."""
     rune = spec.runes.get(label)
     if rune is not None and rune.sequence:
         return (
-            settle_module.RightToken("letter", rune.sequence[0]),
-            settle_module.RightToken("letter", rune.sequence[-1]),
+            settle.RightToken("letter", rune.sequence[0]),
+            settle.RightToken("letter", rune.sequence[-1]),
         )
-    return settle_module.RightToken("letter", label), None
+    return settle.RightToken("letter", label), None
 
 
-def _formed_liga_guard_repair(spec, settle_module, tokens: list) -> bool:
+def _formed_liga_guard_repair(spec, guard_verdicts, tokens: list) -> bool:
     """A formed-ligature label anywhere in an assembled stream must satisfy its own section 5.7 guard over the raw tokens that follow it, or the raw replay would leave the pair unformed and the stream would never realize the window. An interior label has its guard slots pinned by the stream, so a blocked verdict just discards the candidate — the same fate `_refolds_intact` would deliver, caught early. A label whose letter follower is the stream's last token reads the text edge at the guard's second slot, and a blocked verdict there is repaired in place by appending a letter under which the guard releases. First needed when the guard learned right2-dependent verdicts: a `(qsDay_qsUtter, qsSee)` lookahead adjacency with nothing deeper pinned is realizable only under a ·Low or ·Utter continuation. Returns False when the stream is unrealizable."""
     from rebuild.pipeline.table import BOUNDARY_LEFT_LABELS
 
@@ -795,29 +916,29 @@ def _formed_liga_guard_repair(spec, settle_module, tokens: list) -> bool:
 
     def slot(index: int):
         if index >= len(tokens):
-            return settle_module.EDGE
+            return settle.EDGE
         token = tokens[index]
         kind = boundary_kinds.get(token)
         if kind is not None:
-            return settle_module.RightToken(kind)
+            return settle.RightToken(kind)
         rune = spec.runes.get(token)
         if rune is not None and rune.sequence:
-            return settle_module.RightToken("letter", rune.sequence[0])
-        return settle_module.RightToken("letter", token)
+            return settle.RightToken("letter", rune.sequence[0])
+        return settle.RightToken("letter", token)
 
     for i in range(len(tokens)):
         rune = spec.runes.get(tokens[i])
         if rune is None or not rune.sequence:
             continue
         follower, pinned_second = (
-            _guard_follower_slots(spec, settle_module, tokens[i + 1])
+            _guard_follower_slots(spec, tokens[i + 1])
             if i + 1 < len(tokens) and tokens[i + 1] not in boundary_kinds
             else (slot(i + 1), None)
         )
         if follower.kind != "letter":
             continue
         second = pinned_second if pinned_second is not None else slot(i + 2)
-        if not settle_module.formation_blocked(spec, tokens[i], follower, second):
+        if not settle.guard_blocks(guard_verdicts, tokens[i], follower, second):
             continue
         if pinned_second is not None or i + 2 < len(tokens):
             return False
@@ -827,8 +948,8 @@ def _formed_liga_guard_repair(spec, settle_module, tokens: list) -> bool:
                 for name in sorted(spec.runes)
                 if not spec.runes[name].sequence
                 and (tokens[i + 1], name) not in pairs
-                and not settle_module.formation_blocked(
-                    spec, tokens[i], follower, settle_module.RightToken("letter", name)
+                and not settle.guard_blocks(
+                    guard_verdicts, tokens[i], follower, settle.RightToken("letter", name)
                 )
             ),
             None,
@@ -839,9 +960,10 @@ def _formed_liga_guard_repair(spec, settle_module, tokens: list) -> bool:
     return True
 
 
-def _assemble_window_witness(spec, prefix, row, decision=None, right3_label=None) -> tuple[str, ...] | None:
+def _assemble_window_witness(
+    spec, guard_verdicts, prefix, row, decision=None, right3_label=None
+) -> tuple[str, ...] | None:
     """One candidate stream from one prefix: the prefix, the input, then just enough right context to pin right1/right2 (a boundary token, a letter, or nothing for the text edge) plus the pinned deep slots — a class token pinned by `right3_label` when the caller's prefix bucket carries a member premise, by its representative member otherwise, and every read below sees the choice because the two locals are resolved at assignment. A window whose input and right1 are a formation pair exists only where the section 5.7 guard fires, and the guard's second slot is the token after right2 — beyond what the window pins — so such a witness is extended with a second-slot letter under which the guard fires. The assembled stream must survive the raw replay unchanged (`_refolds_intact`); a stream the guard would refold differently — a prefix ligature un-formed, an adjacent pair re-formed — is discarded so the caller falls through to the next candidate."""
-    from rebuild.pipeline import settle as settle_module
     from rebuild.pipeline.table import BOUNDARY_LEFT_LABELS, EDGE_LABEL, NA_LABEL
 
     boundary_labels = {label for kind, label in BOUNDARY_LEFT_LABELS.items() if kind != "edge"}
@@ -882,16 +1004,14 @@ def _assemble_window_witness(spec, prefix, row, decision=None, right3_label=None
                         tokens.append(_label_family(right4))
                     liga_at_lookahead = pairs.get((_label_family(row.right1), _label_family(row.right2)))
                     if liga_at_lookahead is not None and right4 in (EDGE_LABEL, NA_LABEL):
-                        follower, pinned_second = _guard_follower_slots(
-                            spec, settle_module, _label_family(right3)
-                        )
+                        follower, pinned_second = _guard_follower_slots(spec, _label_family(right3))
                         if pinned_second is not None:
-                            if not settle_module.formation_blocked(
-                                spec, liga_at_lookahead, follower, pinned_second
+                            if not settle.guard_blocks(
+                                guard_verdicts, liga_at_lookahead, follower, pinned_second
                             ):
                                 return None
-                        elif not settle_module.formation_blocked(
-                            spec, liga_at_lookahead, follower, settle_module.EDGE
+                        elif not settle.guard_blocks(
+                            guard_verdicts, liga_at_lookahead, follower, settle.EDGE
                         ):
                             second = next(
                                 (
@@ -899,11 +1019,11 @@ def _assemble_window_witness(spec, prefix, row, decision=None, right3_label=None
                                     for name in sorted(spec.runes)
                                     if not spec.runes[name].sequence
                                     and (_label_family(right3), name) not in pairs
-                                    and settle_module.formation_blocked(
-                                        spec,
+                                    and settle.guard_blocks(
+                                        guard_verdicts,
                                         liga_at_lookahead,
                                         follower,
-                                        settle_module.RightToken("letter", name),
+                                        settle.RightToken("letter", name),
                                     )
                                 ),
                                 None,
@@ -913,23 +1033,19 @@ def _assemble_window_witness(spec, prefix, row, decision=None, right3_label=None
                             tokens.append(second)
                     liga_past = pairs.get((_label_family(row.right2), _label_family(right3)))
                     if liga_past is not None and right4_letter:
-                        r4_token, pinned_second = _guard_follower_slots(
-                            spec, settle_module, _label_family(right4)
-                        )
+                        r4_token, pinned_second = _guard_follower_slots(spec, _label_family(right4))
                         if pinned_second is not None:
-                            if not settle_module.formation_blocked(spec, liga_past, r4_token, pinned_second):
+                            if not settle.guard_blocks(guard_verdicts, liga_past, r4_token, pinned_second):
                                 return None
-                        elif not settle_module.formation_blocked(
-                            spec, liga_past, r4_token, settle_module.EDGE
-                        ):
+                        elif not settle.guard_blocks(guard_verdicts, liga_past, r4_token, settle.EDGE):
                             second = next(
                                 (
                                     name
                                     for name in sorted(spec.runes)
                                     if not spec.runes[name].sequence
                                     and (_label_family(right4), name) not in pairs
-                                    and settle_module.formation_blocked(
-                                        spec, liga_past, r4_token, settle_module.RightToken("letter", name)
+                                    and settle.guard_blocks(
+                                        guard_verdicts, liga_past, r4_token, settle.RightToken("letter", name)
                                     )
                                 ),
                                 None,
@@ -940,9 +1056,7 @@ def _assemble_window_witness(spec, prefix, row, decision=None, right3_label=None
                     elif (
                         liga_past is not None
                         and right4 in (EDGE_LABEL, NA_LABEL)
-                        and not settle_module.formation_blocked(
-                            spec, liga_past, settle_module.EDGE, settle_module.EDGE
-                        )
+                        and not settle.guard_blocks(guard_verdicts, liga_past, settle.EDGE, settle.EDGE)
                     ):
                         follower = next(
                             (
@@ -950,11 +1064,11 @@ def _assemble_window_witness(spec, prefix, row, decision=None, right3_label=None
                                 for name in sorted(spec.runes)
                                 if not spec.runes[name].sequence
                                 and (_label_family(right3), name) not in pairs
-                                and settle_module.formation_blocked(
-                                    spec,
+                                and settle.guard_blocks(
+                                    guard_verdicts,
                                     liga_past,
-                                    settle_module.RightToken("letter", name),
-                                    settle_module.EDGE,
+                                    settle.RightToken("letter", name),
+                                    settle.EDGE,
                                 )
                             ),
                             None,
@@ -964,8 +1078,8 @@ def _assemble_window_witness(spec, prefix, row, decision=None, right3_label=None
                         tokens.append(follower)
                     if right4_letter:
                         liga_next = pairs.get((_label_family(right3), _label_family(right4)))
-                        if liga_next is not None and not settle_module.formation_blocked(
-                            spec, liga_next, settle_module.EDGE, settle_module.EDGE
+                        if liga_next is not None and not settle.guard_blocks(
+                            guard_verdicts, liga_next, settle.EDGE, settle.EDGE
                         ):
                             follower = next(
                                 (
@@ -973,11 +1087,11 @@ def _assemble_window_witness(spec, prefix, row, decision=None, right3_label=None
                                     for name in sorted(spec.runes)
                                     if not spec.runes[name].sequence
                                     and (_label_family(right4), name) not in pairs
-                                    and settle_module.formation_blocked(
-                                        spec,
+                                    and settle.guard_blocks(
+                                        guard_verdicts,
                                         liga_next,
-                                        settle_module.RightToken("letter", name),
-                                        settle_module.EDGE,
+                                        settle.RightToken("letter", name),
+                                        settle.EDGE,
                                     )
                                 ),
                                 None,
@@ -988,21 +1102,19 @@ def _assemble_window_witness(spec, prefix, row, decision=None, right3_label=None
             else:
                 liga = pairs.get((_label_family(row.input_glyph), _label_family(row.right1)))
                 if liga is not None:
-                    follower, pinned_second = _guard_follower_slots(
-                        spec, settle_module, _label_family(row.right2)
-                    )
+                    follower, pinned_second = _guard_follower_slots(spec, _label_family(row.right2))
                     if pinned_second is not None:
-                        if not settle_module.formation_blocked(spec, liga, follower, pinned_second):
+                        if not settle.guard_blocks(guard_verdicts, liga, follower, pinned_second):
                             return None
-                    elif not settle_module.formation_blocked(spec, liga, follower, settle_module.EDGE):
+                    elif not settle.guard_blocks(guard_verdicts, liga, follower, settle.EDGE):
                         second = next(
                             (
                                 name
                                 for name in sorted(spec.runes)
                                 if not spec.runes[name].sequence
                                 and (_label_family(row.right2), name) not in pairs
-                                and settle_module.formation_blocked(
-                                    spec, liga, follower, settle_module.RightToken("letter", name)
+                                and settle.guard_blocks(
+                                    guard_verdicts, liga, follower, settle.RightToken("letter", name)
                                 )
                             ),
                             None,
@@ -1011,8 +1123,8 @@ def _assemble_window_witness(spec, prefix, row, decision=None, right3_label=None
                             return None
                         tokens.append(second)
                 liga_at_lookahead = pairs.get((_label_family(row.right1), _label_family(row.right2)))
-                if liga_at_lookahead is not None and not settle_module.formation_blocked(
-                    spec, liga_at_lookahead, settle_module.EDGE, settle_module.EDGE
+                if liga_at_lookahead is not None and not settle.guard_blocks(
+                    guard_verdicts, liga_at_lookahead, settle.EDGE, settle.EDGE
                 ):
                     follower = next(
                         (
@@ -1020,11 +1132,11 @@ def _assemble_window_witness(spec, prefix, row, decision=None, right3_label=None
                             for name in sorted(spec.runes)
                             if not spec.runes[name].sequence
                             and (_label_family(row.right2), name) not in pairs
-                            and settle_module.formation_blocked(
-                                spec,
+                            and settle.guard_blocks(
+                                guard_verdicts,
                                 liga_at_lookahead,
-                                settle_module.RightToken("letter", name),
-                                settle_module.EDGE,
+                                settle.RightToken("letter", name),
+                                settle.EDGE,
                             )
                         ),
                         None,
@@ -1032,9 +1144,9 @@ def _assemble_window_witness(spec, prefix, row, decision=None, right3_label=None
                     if follower is None:
                         return None
                     tokens.append(follower)
-    if not _formed_liga_guard_repair(spec, settle_module, tokens):
+    if not _formed_liga_guard_repair(spec, guard_verdicts, tokens):
         return None
-    if not _refolds_intact(spec, tokens):
+    if not _refolds_intact(spec, guard_verdicts, tokens):
         return None
     return tuple(tokens)
 
@@ -1075,12 +1187,12 @@ def _first_match_rows(decision) -> dict[int, list]:
 
 
 def _candidate_witness_tokens(
-    spec, prefixes, by_right3, rows, decision=None, limit: int = 10
+    spec, guard_verdicts, prefixes, by_right3, rows, decision=None, limit: int = 10
 ) -> list[tuple[str, ...]]:
     candidates = {
         tokens
         for row in rows
-        for tokens in _window_witness_candidates(spec, prefixes, by_right3, row, decision)
+        for tokens in _window_witness_candidates(spec, guard_verdicts, prefixes, by_right3, row, decision)
     }
     return sorted(candidates, key=lambda tokens: (len(tokens), tokens))[:limit]
 
@@ -1107,37 +1219,46 @@ class WitnessReport:
     unwitnessed: list[int] = field(default_factory=list)
 
 
-def find_rule_witnesses(spec, features, decision, glyph_names=None) -> WitnessReport:
-    """The font-free half of rule coverage: for every settlement rule, derive a shortest realizing string from the table's windows and verify against settle() that the rule actually first-matches somewhere in it. A rule left unwitnessed has no realizing string the table can construct — dead code in the emitted FEA — so this is the always-on generator-defect alarm (rebuild/test_rule_witnesses.py), font-free by construction: it asks whether a rule can ever fire, where read-back asks whether the compiled font holds it and the sweep asks whether HarfBuzz applies it the way the kernel says."""
-    from rebuild.pipeline import settle as settle_module
-    from rebuild.pipeline.settle import cell_label
+def find_rule_witnesses(spec, features, decision, glyph_names=None, guard_verdicts=None) -> WitnessReport:
+    """The font-free half of rule coverage: for every settlement rule, derive a shortest realizing string from the table's windows and verify against the crate's settlement that the rule actually first-matches somewhere in it. A rule left unwitnessed has no realizing string the table can construct — dead code in the emitted FEA — so this is the always-on generator-defect alarm (rebuild/test_rule_witnesses.py), font-free by construction: it asks whether a rule can ever fire, where read-back asks whether the compiled font holds it and the sweep asks whether HarfBuzz applies it the way the kernel says.
 
-    if glyph_names is None:
-        glyph_names = {cell: cell_label(spec, cell) for cell in decision.reachable_cells()}
+    One guard sweep and one walk serve the whole table. Candidate streams are assembled for every rule first, because the assembly is where the section 5.7 guard is read hundreds of thousands of times and a per-call sweep would spawn a kernel for each; then every candidate text prefills the walk in waves, so the lazy first-witness loop below settles nothing — it reads the memo the prefill filled.
+    """
     from rebuild.pipeline.emit_gsub import _raw_rename_map
 
+    if guard_verdicts is None:
+        guard_verdicts = kernel_exec.guard_sweep(spec)
+    if glyph_names is None:
+        glyph_names = {cell: settle.cell_label(spec, cell) for cell in decision.reachable_cells()}
+    features = frozenset(features)
     rules_by_input = _renamed_rules_by_input(spec, features, decision)
     prefixes, by_right3 = _shortest_window_prefixes(decision)
     rows_by_rule = _first_match_rows(decision)
-    engine = settle_module.Engine(spec, frozenset(features))
     deep_index = (
-        _DeepTokenIndex(decision, _raw_rename_map(spec, frozenset(features)))
+        _DeepTokenIndex(decision, _raw_rename_map(spec, features))
         if getattr(decision, "deep_classes", None)
         else None
     )
+    candidates = [
+        [
+            _token_text(spec, tokens)
+            for tokens in _candidate_witness_tokens(
+                spec, guard_verdicts, prefixes, by_right3, rows_by_rule.get(index, ()), decision
+            )
+        ]
+        for index in range(len(decision.rules))
+    ]
+    walker = _SettledWindowWalk(spec, features, glyph_names, guard_verdicts)
+    walker.prefill(sorted({text for texts in candidates for text in texts}))
     report = WitnessReport(config=decision.config, rules=len(decision.rules))
     for index in range(len(decision.rules)):
         witness = None
-        for tokens in _candidate_witness_tokens(
-            spec, prefixes, by_right3, rows_by_rule.get(index, ()), decision
-        ):
-            text = _token_text(spec, tokens)
-            settled = settle_module.settle_with_engine(engine, [ord(ch) for ch in text])
-            expected = settled_names(spec, settled, glyph_names)
+        for text in candidates[index]:
+            _settled, expected = walker.walk(text)
             if any(
                 matched == index
                 for _pos, _window, matched in _matched_windows(
-                    spec, text, features, expected, rules_by_input, deep_index
+                    spec, text, features, guard_verdicts, expected, rules_by_input, deep_index
                 )
             ):
                 witness = text
@@ -1165,6 +1286,7 @@ def run_conformance(
     glyph_names = {cell: record.name for cell, record in (glyphs or {}).items()}
     glyphs_by_name = {record.name: record for record in (glyphs or {}).values()}
     anchors_of = anchors_in_font_units(glyphs_by_name) if glyphs else None
+    guard_verdicts = kernel_exec.guard_sweep(spec)
 
     results = [
         _conformance_config(
@@ -1176,6 +1298,7 @@ def run_conformance(
             glyph_names,
             anchors_of,
             max_length,
+            guard_verdicts,
         )
         for config in configs
     ]
@@ -1204,35 +1327,39 @@ def _conformance_config(
     glyph_names: Mapping[CellId, str],
     anchors_of: Callable[[str], dict | None] | None,
     max_length: int,
+    guard_verdicts: settle.FormationGuard | None = None,
 ) -> ConformanceConfigResult:
-    """One config's belt run: every string of length 1..max_length over the alphabet, shaped against the font and diffed against the settled stream, with the ZWNJ structural checks, split-buffer equivalence and gap-0 pen positions riding along. Configs share nothing, so this is the unit both the serial wrapper and the process-pool worker call. Settlement rides `_SettledWindowWalk`'s per-config memo, which is a speed device only — the sweep's verdict does not depend on which windows it has already seen. The two structural checks run here on the texts they can say anything about — a ZWNJ-free text has no ZWNJ slot to weigh and a splitter-free one is trivially identical to its own single segment — which is the whole of their coverage now that the standalone horizon-5 boundary pass has gone; the deep sweep takes them past this horizon on its own arming key."""
-    from rebuild.pipeline import settle as settle_module
-
+    """One config's belt run: every string of length 1..max_length over the alphabet, shaped against the font and diffed against the settled stream, with the ZWNJ structural checks, split-buffer equivalence and gap-0 pen positions riding along. Configs share nothing, so this is the unit both the serial wrapper and the process-pool worker call. Settlement rides `_SettledWindowWalk`'s per-config memo, which is a speed device only — the sweep's verdict does not depend on which windows it has already seen. Each length's texts are streamed through the walk `TEXT_CHUNK` at a time rather than enumerated whole, because a bucket at any interesting horizon is millions of strings and only the chunk in flight need be resident; the swept order is the product's own either way. The two structural checks run here on the texts they can say anything about — a ZWNJ-free text has no ZWNJ slot to weigh and a splitter-free one is trivially identical to its own single segment — which is the whole of their coverage now that the standalone horizon-5 boundary pass has gone; the deep sweep takes them past this horizon on its own arming key."""
     features = features_for_config(config)
-    engine = settle_module.Engine(spec, features)
+    if guard_verdicts is None:
+        guard_verdicts = kernel_exec.guard_sweep(spec)
 
     result = ConformanceConfigResult(config=config)
     modes: set[str] = set()
     overlay = isolated_overlay_active(spec, features)
-    walker = _SettledWindowWalk(spec, engine, features, glyph_names)
+    walker = _SettledWindowWalk(spec, features, glyph_names, guard_verdicts)
 
-    def sweep_text(text: str) -> None:
+    def sweep_text(text: str, settled: list[Settled], names: list[str]) -> None:
         shaped = shaper.shape(text, features)
         result.shaping_runs += 1
         if ZWNJ in text:
             check_zwnj_structure(text, config, shaper, shaped, result.divergences)
         if set(text) & splitters:
             check_split_buffer(text, config, features, shaper, shaped, result.divergences, splitters)
-        settled, expected_cells = walker.walk(text)
-        expected = isolated_overlay_names(spec, settled) if overlay else expected_cells
+        expected = isolated_overlay_names(spec, settled) if overlay else names
         check_oracle(text, config, shaped, expected, result.divergences, modes)
         if anchors_of is not None:
             check_join_gaps(text, config, shaper, shaped, anchors_of, result.divergences)
 
     for length in range(1, max_length + 1):
-        for combo in itertools.product(alphabet, repeat=length):
-            result.sequences += 1
-            sweep_text("".join(combo))
+        stream = itertools.product(alphabet, repeat=length)
+        while True:
+            chunk = ["".join(combo) for combo in itertools.islice(stream, TEXT_CHUNK)]
+            if not chunk:
+                break
+            result.sequences += len(chunk)
+            for text, (settled, names) in zip(chunk, walker.walk_many(chunk)):
+                sweep_text(text, settled, names)
 
     result.modes = sorted(modes)
     return result
@@ -1244,14 +1371,17 @@ def conformance_config_worker(
     config: str,
     max_length: int = 4,
     glyphs: Mapping[CellId, GlyphRecord] | None = None,
+    guard_verdicts: settle.FormationGuard | None = None,
 ) -> ConformanceConfigResult:
-    """One config's sweep in its own process, everything it needs rebuilt here from the spec and the font."""
+    """One config's sweep in its own process, everything it needs rebuilt here from the spec and the font. The section 5.7 verdict surface is one of those things: a fan-out hands each worker its own spec, so each sweeps once for itself unless the caller has one to pass down — a fifth of a second against a sweep that runs for a minute."""
     shaper = Shaper(Path(font_path))
     alphabet = spec_alphabet(spec)
     splitters = splitting_boundary_chars(spec)
     glyph_names = {cell: record.name for cell, record in (glyphs or {}).items()}
     glyphs_by_name = {record.name: record for record in (glyphs or {}).values()}
     anchors_of = anchors_in_font_units(glyphs_by_name) if glyphs else None
+    if guard_verdicts is None:
+        guard_verdicts = kernel_exec.guard_sweep(spec)
     return _conformance_config(
         shaper,
         spec,
@@ -1261,6 +1391,7 @@ def conformance_config_worker(
         glyph_names,
         anchors_of,
         max_length,
+        guard_verdicts,
     )
 
 
@@ -1648,7 +1779,6 @@ class OracleConfigResult:
 
 def _compare_config(
     spec: ResolvedSpec,
-    settle_module,
     subset_tables_dir: Path,
     config: str,
     features: frozenset[str],
@@ -1657,84 +1787,90 @@ def _compare_config(
     ink_identical_ids,
     shaper: "Shaper | None",
     kern: "KernEvaluator | None",
-    engine,
+    guard_verdicts: settle.FormationGuard,
 ) -> OracleConfigResult:
     result = OracleConfigResult(config=config)
     table_path = Path(subset_tables_dir) / f"baseline-{config}.subset.tsv.gz"
     if not table_path.exists():
         result.notes.append(f"{config}: subset table missing at {table_path}")
         return result
-    # The oracle's rows are the same texts the belt sweeps, so they settle through the same per-config window memo rather than from scratch a row at a time. Names go unread here — the row's own cells are what `_compare_row` reads — so the walk gets no glyph inventory and keys its lefts on the generated display names, which are as injective as the minted ones.
-    walker = _SettledWindowWalk(spec, engine, features, {}) if engine is not None else None
+    # The oracle's rows are the same texts the belt sweeps, so they settle through a window memo of their own rather than from scratch a row at a time, a chunk of rows prefilling the walk in waves before any of them is compared. Names go unread here — the row's own cells are what `_compare_row` reads — so the walk gets no glyph inventory and keys its lefts on the generated display names, which are as injective as the minted ones.
+    walker = _SettledWindowWalk(spec, features, {}, guard_verdicts)
     config_started = time.perf_counter()
-    for row in iter_rows(table_path):
-        result.rows_compared += 1
-        divergent = _compare_row(spec, settle_module, aliases, config, features, row, walker=walker)
-        matches = _match_ledger(ledger, divergent) if divergent is not None else []
-        if shaper is not None:
-            topology_clean = divergent is None or not ({"ligation", "seam"} & set(divergent.kinds))
-            class_claims_ink_identity = divergent is None or (
-                len(matches) == 1 and matches[0] in ink_identical_ids
-            )
-            if topology_clean and class_claims_ink_identity:
-                drift = _position_drift(shaper, kern, features, row)
-                result.positions_compared += 1
-                if drift is not None:
-                    drift_notes, kern_attributable = drift
-                    phenomena = ("position-kern-attributable",) if kern_attributable else ()
-                    prior_ink_match = matches[0] if len(matches) == 1 else None
-                    if divergent is None:
-                        divergent = DivergentRow(
-                            config=config,
-                            codepoints=":".join(f"{cp:04X}" for cp in row.codepoints),
-                            kinds=("position",),
-                            position=-1,
-                            baseline_glyphs=tuple(row.glyphs),
-                            baseline_seams=tuple(row.seams),
-                            new_cells=tuple(glyph for glyph in drift_notes),
-                            new_seams=(),
-                            phenomena=phenomena + ("position-drift",),
-                        )
-                    else:
-                        divergent = replace(
-                            divergent,
-                            kinds=divergent.kinds + ("position",),
-                            phenomena=divergent.phenomena + phenomena + ("position-drift",),
-                        )
-                    rematch = _match_ledger(ledger, divergent)
-                    # A kern-attributable position residue is out of scope (the kern channel), so it never demotes a cell-grain row that already matched a single ink-identical class — that row's ink-identity claim survives the kern bookkeeping. A non-kern-attributable drift is a genuine ink shift and is allowed to override the prior match (so the position channel can chase it to ground).
-                    if not rematch and kern_attributable and prior_ink_match is not None:
-                        matches = [prior_ink_match]
-                    else:
-                        matches = rematch
+    rows = iter_rows(table_path)
+    while True:
+        chunk = list(itertools.islice(rows, ORACLE_ROW_CHUNK))
+        if not chunk:
+            break
+        walker.prefill([row.text for row in chunk])
+        for row in chunk:
+            result.rows_compared += 1
+            divergent = _compare_row(spec, aliases, config, features, row, walker)
+            matches = _match_ledger(ledger, divergent) if divergent is not None else []
+            if shaper is not None:
+                topology_clean = divergent is None or not ({"ligation", "seam"} & set(divergent.kinds))
+                class_claims_ink_identity = divergent is None or (
+                    len(matches) == 1 and matches[0] in ink_identical_ids
+                )
+                if topology_clean and class_claims_ink_identity:
+                    drift = _position_drift(shaper, kern, features, row)
+                    result.positions_compared += 1
+                    if drift is not None:
+                        drift_notes, kern_attributable = drift
+                        phenomena = ("position-kern-attributable",) if kern_attributable else ()
+                        prior_ink_match = matches[0] if len(matches) == 1 else None
+                        if divergent is None:
+                            divergent = DivergentRow(
+                                config=config,
+                                codepoints=":".join(f"{cp:04X}" for cp in row.codepoints),
+                                kinds=("position",),
+                                position=-1,
+                                baseline_glyphs=tuple(row.glyphs),
+                                baseline_seams=tuple(row.seams),
+                                new_cells=tuple(glyph for glyph in drift_notes),
+                                new_seams=(),
+                                phenomena=phenomena + ("position-drift",),
+                            )
+                        else:
+                            divergent = replace(
+                                divergent,
+                                kinds=divergent.kinds + ("position",),
+                                phenomena=divergent.phenomena + phenomena + ("position-drift",),
+                            )
+                        rematch = _match_ledger(ledger, divergent)
+                        # A kern-attributable position residue is out of scope (the kern channel), so it never demotes a cell-grain row that already matched a single ink-identical class — that row's ink-identity claim survives the kern bookkeeping. A non-kern-attributable drift is a genuine ink shift and is allowed to override the prior match (so the position channel can chase it to ground).
+                        if not rematch and kern_attributable and prior_ink_match is not None:
+                            matches = [prior_ink_match]
+                        else:
+                            matches = rematch
+                else:
+                    result.positions_excluded += 1
+            if divergent is None:
+                continue
+            result.divergent_rows += 1
+            if len(matches) == 1:
+                entry_id = matches[0]
+                result.counts_by_entry[entry_id] = result.counts_by_entry.get(entry_id, 0) + 1
+            elif not matches:
+                result.unmatched.append(divergent)
             else:
-                result.positions_excluded += 1
-        if divergent is None:
-            continue
-        result.divergent_rows += 1
-        if len(matches) == 1:
-            entry_id = matches[0]
-            result.counts_by_entry[entry_id] = result.counts_by_entry.get(entry_id, 0) + 1
-        elif not matches:
-            result.unmatched.append(divergent)
-        else:
-            result.multi_matched.append((divergent, tuple(matches)))
-        result.audit_lines.append(
-            "\t".join(
-                (
-                    config,
-                    divergent.codepoints,
-                    ",".join(divergent.kinds),
+                result.multi_matched.append((divergent, tuple(matches)))
+            result.audit_lines.append(
+                "\t".join(
                     (
-                        matches[0]
-                        if len(matches) == 1
-                        else ("UNMATCHED" if not matches else "+".join(matches))
-                    ),
-                    "|".join(divergent.baseline_glyphs),
-                    "|".join(divergent.new_cells),
+                        config,
+                        divergent.codepoints,
+                        ",".join(divergent.kinds),
+                        (
+                            matches[0]
+                            if len(matches) == 1
+                            else ("UNMATCHED" if not matches else "+".join(matches))
+                        ),
+                        "|".join(divergent.baseline_glyphs),
+                        "|".join(divergent.new_cells),
+                    )
                 )
             )
-        )
     print(
         f"[t] oracle {config} {time.perf_counter() - config_started:.2f}s rows={result.rows_compared} positions={result.positions_compared}",
         file=sys.stderr,
@@ -1752,18 +1888,15 @@ def oracle_config_worker(
     font_path: Path | None,
     kern_sidecar_path: Path | None,
 ) -> OracleConfigResult:
-    from rebuild.pipeline import settle as settle_module
-
+    """One config's oracle compare in its own process. The section 5.7 verdict surface is swept here, once per worker, exactly as the belt's worker sweeps its own."""
     aliases = load_alias_map(alias_path)
     ledger = yaml.safe_load(Path(ledger_path).read_text()) or []
     ink_identical_ids = {entry.get("id") for entry in ledger if entry.get("ink_identical")}
     shaper = Shaper(Path(font_path)) if font_path is not None else None
     kern = KernEvaluator(Path(kern_sidecar_path)) if kern_sidecar_path is not None else None
     features = features_for_config(config)
-    engine = settle_module.Engine(spec, features)
     return _compare_config(
         spec,
-        settle_module,
         subset_tables_dir,
         config,
         features,
@@ -1772,7 +1905,7 @@ def oracle_config_worker(
         ink_identical_ids,
         shaper,
         kern,
-        engine,
+        kernel_exec.guard_sweep(spec),
     )
 
 
@@ -1802,34 +1935,29 @@ def compare_against_baseline(
     out_dir: Path | None = None,
     font_path: Path | None = None,
     kern_sidecar_path: Path | None = None,
-    hoist: bool = True,
 ) -> BaselineReport:
-    from rebuild.pipeline import settle as settle_module
-
     aliases = load_alias_map(alias_path)
     ledger = yaml.safe_load(Path(ledger_path).read_text()) or []
     ink_identical_ids = {entry.get("id") for entry in ledger if entry.get("ink_identical")}
     shaper = Shaper(Path(font_path)) if font_path is not None else None
     kern = KernEvaluator(Path(kern_sidecar_path)) if kern_sidecar_path is not None else None
+    guard_verdicts = kernel_exec.guard_sweep(spec)
     started = time.perf_counter()
 
     results: list[OracleConfigResult] = []
     for config in configs:
-        features = features_for_config(config)
-        engine = settle_module.Engine(spec, features) if hoist else None
         results.append(
             _compare_config(
                 spec,
-                settle_module,
                 subset_tables_dir,
                 config,
-                features,
+                features_for_config(config),
                 aliases,
                 ledger,
                 ink_identical_ids,
                 shaper,
                 kern,
-                engine,
+                guard_verdicts,
             )
         )
     report, audit_lines = merge_oracle_results(results)
@@ -1848,17 +1976,13 @@ def compare_against_baseline(
 
 def _compare_row(
     spec,
-    settle_module,
     aliases,
     config: str,
     features: frozenset[str],
     row: Row,
-    walker: "_SettledWindowWalk | None" = None,
+    walker: "_SettledWindowWalk",
 ) -> DivergentRow | None:
-    if walker is not None:
-        settled, _names = walker.walk(row.text)
-    else:
-        settled = settle_module.settle(spec, list(row.codepoints), features)
+    settled, _names = walker.walk(row.text)
     if isolated_overlay_active(spec, features):
         # The overlay renders the anchor-free isolated drawing at every letter position; in cell terms that is the boundary cell of the default stance (the alias map's bare-name denotation), with every seam visually a break. A ligature-rune cell expands to one such cell per component (the ss10 pre-empt keeps the ligature from ever forming in the buffer), so a window whose pair formed in the old font diverges at ligation grain.
         expanded: list = []

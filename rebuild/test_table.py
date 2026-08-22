@@ -17,18 +17,11 @@ SPEC = fixtures.mini_spec()
 
 
 def candidacy_tables(spec, features):
-    """Build tables in the fully pinned world (`simulated_prospect` and `vote_slots` both off) regardless of the shipping defaults — the world the chain-arm lazy-enumeration tests document, where deep slots open only for own-rune `then:` chains. The defaults are what `kernel_exec.world_flags` carries to the kernel, so switching them here is what puts the crate in that world."""
-    from rebuild.pipeline import settle as settle_module
-
-    prior = settle_module.SIMULATED_PROSPECT_DEFAULT
-    prior_votes = settle_module.VOTE_SLOTS_DEFAULT
-    settle_module.SIMULATED_PROSPECT_DEFAULT = False
-    settle_module.VOTE_SLOTS_DEFAULT = False
-    try:
+    """Build tables in the fully pinned world (`simulated_prospect` and `vote_slots` both off) regardless of the shipping defaults — the world the chain-arm lazy-enumeration tests document, where deep slots open only for own-rune `then:` chains. The defaults are what `kernel_exec.world_flags` carries to the kernel, so switching them here is what puts the crate in that world. Through `MonkeyPatch` rather than by assignment, so a default that has moved house fails loudly here instead of being set on a name nothing reads any more."""
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(kernel_exec, "SIMULATED_PROSPECT_DEFAULT", False)
+        patch.setattr(kernel_exec, "VOTE_SLOTS_DEFAULT", False)
         return build_tables(spec, features)
-    finally:
-        settle_module.SIMULATED_PROSPECT_DEFAULT = prior
-        settle_module.VOTE_SLOTS_DEFAULT = prior_votes
 
 
 def chain_inputs(spec, reach):
@@ -489,18 +482,14 @@ class TestProspectLiveSlots:
 
     @pytest.fixture()
     def prospect_spec(self):
-        from rebuild.test_settle import _prospect_spec
-
-        return _prospect_spec()
+        return fixtures.prospect_spec()
 
     def test_flag_off_keeps_the_chain_only_world(self, prospect_spec):
         decision, _treaty = candidacy_tables(prospect_spec, frozenset())
         assert all(row.right3 == NA_LABEL for row in decision.transitions)
 
     def test_flag_on_opens_exactly_the_sensitive_window(self, prospect_spec, monkeypatch):
-        from rebuild.pipeline import settle as settle_module
-
-        monkeypatch.setattr(settle_module, "SIMULATED_PROSPECT_DEFAULT", True)
+        monkeypatch.setattr(kernel_exec, "SIMULATED_PROSPECT_DEFAULT", True)
         decision, _treaty = build_tables(prospect_spec, frozenset())
         replay(decision)
         split = {
@@ -515,20 +504,16 @@ class TestProspectLiveSlots:
 
 
 class TestDeepClasses:
-    """The issue-26 class-grain enumeration: deep window slots keyed by outcome fibers, expanded back to labels for every fold-side consumer. The two-arm equality tests build the same spec with the class-grain flag on and off — the off arm is genuinely the kernel's label-grain path, bypassing all fiber code — and assert the expansion boundary holds: identical expanded row multiset, identical rules, identical cited provenance, identical treaty. The real-left arm re-traces every member of every multi-member row at the row's actual settled left, through Python settle rather than the crate, which is what keeps the left-class collapse the fibers import checked by something other than the engine that performed it."""
+    """The issue-26 class-grain enumeration: deep window slots keyed by outcome fibers, expanded back to labels for every fold-side consumer. The two-arm equality tests build the same spec with the class-grain flag on and off — the off arm is genuinely the kernel's label-grain path, bypassing all fiber code — and assert the expansion boundary holds: identical expanded row multiset, identical rules, identical cited provenance, identical treaty. The real-left arm re-traces every member of every multi-member row at the row's actual settled left, asking the crate per window rather than reading its enumeration, so a fiber the fold collapsed that the per-window answer disagrees with still fails here."""
 
     @pytest.fixture()
     def deep_world(self, monkeypatch):
-        from rebuild.pipeline import settle as settle_module
-
-        monkeypatch.setattr(settle_module, "SIMULATED_PROSPECT_DEFAULT", True)
+        monkeypatch.setattr(kernel_exec, "SIMULATED_PROSPECT_DEFAULT", True)
         return None
 
     @pytest.fixture()
     def prospect_spec(self):
-        from rebuild.test_settle import _prospect_spec
-
-        return _prospect_spec()
+        return fixtures.prospect_spec()
 
     @pytest.fixture()
     def synthetic_depth4_spec(self):
@@ -612,8 +597,8 @@ class TestDeepClasses:
         ids=["prospect", "synthetic-depth4"],
     )
     def test_real_lefts_agree_with_the_fiber_collapse(self, request, deep_world, spec_fixture, expect_r4):
-        """The section 2.2 real-left arm: for every multi-member token in the enumeration, every member traces identically at the row's actual settled left — full probe record, not just the settled cell. The collapse is the crate's, and the re-trace here is Python settle's, so this stays an independent check rather than the engine confirming itself. Asked of the product rather than of the tables, because the settled left a row is re-traced at is exactly what the fold drops on its way to a window row. Two fixtures, because the prospect spec mints no r4 classes: the synthetic depth-4 arm is what exercises the per-(context, r3 class) r4 partition at real lefts, and its `checked4` assertion is what keeps that branch from going quietly dead again."""
-        from rebuild.pipeline.settle import EDGE, Engine, LeftContext, RightToken
+        """The section 2.2 real-left arm: for every multi-member token in the enumeration, every member traces identically at the row's actual settled left — full probe record, not just the settled cell. Both sides are the crate's now, but they are two different questions asked of it: the collapse comes out of the enumeration and the re-trace out of `settle-cases`, so a fiber the fold merged that the per-window answer pulls apart still fails here. Asked of the product rather than of the tables, because the settled left a row is re-traced at is exactly what the fold drops on its way to a window row. Every member window rides one batched invocation, in the world the enumeration ran in. Two fixtures, because the prospect spec mints no r4 classes: the synthetic depth-4 arm is what exercises the per-(context, r3 class) r4 partition at real lefts, and its `checked4` assertion is what keeps that branch from going quietly dead again."""
+        from rebuild.pipeline.settle import EDGE, LeftContext, RightToken
 
         spec = request.getfixturevalue(spec_fixture)
         product = kernel_exec.enumerate_transitions(spec, frozenset())
@@ -623,11 +608,18 @@ class TestDeepClasses:
             members = product.deep_classes.get(token)
             return members[0] if members else token
 
-        engine = Engine(spec, frozenset(), simulated_prospect=True)
         kinds = {"#EDGE": "edge", "space": "space", "uni200C": "zwnj", "periodcentered": "namer-dot"}
-        checked3 = 0
-        checked4 = 0
-        for row in product.transitions:
+
+        def right_token(label):
+            if label == NA_LABEL:
+                return EDGE
+            if label in BOUNDARYISH:
+                return {"#EDGE": EDGE}.get(label) or RightToken(kinds[label])
+            return RightToken("letter", label)
+
+        cases = []
+        asked = []
+        for index, row in enumerate(product.transitions):
             members3 = product.deep_classes.get(row.right3)
             members4 = product.deep_classes.get(row.right4)
             if members3 is None and members4 is None:
@@ -640,26 +632,39 @@ class TestDeepClasses:
             token = RightToken("letter", row.input_glyph.split(".")[0])
             r1tok = RightToken("letter", row.right1)
             r2tok = RightToken("letter", row.right2)
-            rep4_label = representative(row.right4)
-            if rep4_label == NA_LABEL:
-                rep4 = EDGE
-            elif rep4_label in BOUNDARYISH:
-                rep4 = {"#EDGE": EDGE}.get(rep4_label) or RightToken(kinds[rep4_label])
-            else:
-                rep4 = RightToken("letter", rep4_label)
-
-            def record(r3tok, r4tok):
-                trace = engine.transition_trace(left, token, r1tok, r2tok, r3tok, r4tok)
-                return (trace.settled, trace.prospect, trace.joint_floor, trace.notes)
-
+            rep4 = right_token(representative(row.right4))
             if members3 is not None:
-                records = {record(RightToken("letter", member), rep4): member for member in members3}
-                assert len(records) == 1, (row.key, sorted(records.values()))
-                checked3 += 1
+                for member in members3:
+                    cases.append(
+                        kernel_exec.case_row(left, token, (r1tok, r2tok, RightToken("letter", member), rep4))
+                    )
+                    asked.append(((index, 3), row.key, member))
             if members4 is not None:
-                rep3 = RightToken("letter", representative(row.right3))
-                records4 = {record(rep3, RightToken("letter", member)): member for member in members4}
-                assert len(records4) == 1, (row.key, sorted(records4.values()))
+                rep3 = right_token(representative(row.right3))
+                for member in members4:
+                    cases.append(
+                        kernel_exec.case_row(left, token, (r1tok, r2tok, rep3, RightToken("letter", member)))
+                    )
+                    asked.append(((index, 4), row.key, member))
+
+        answers = kernel_exec.settle_cases(
+            spec,
+            cases,
+            frozenset(),
+            modes=kernel_exec.SettlementModes(simulated_prospect=True, vote_slots=True),
+        )
+        records: dict[tuple[int, int], tuple[tuple, dict[tuple, str]]] = {}
+        for (asked_at, key, member), answer in zip(asked, answers):
+            trace = kernel_exec.trace_of(answer["result"])
+            probe = (trace.settled, trace.prospect, trace.joint_floor, trace.notes)
+            records.setdefault(asked_at, (key, {}))[1][probe] = member
+        checked3 = 0
+        checked4 = 0
+        for (_index, slot), (key, seen) in records.items():
+            assert len(seen) == 1, (key, slot, sorted(seen.values()))
+            if slot == 3:
+                checked3 += 1
+            else:
                 checked4 += 1
         assert checked3
         if expect_r4:

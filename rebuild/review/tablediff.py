@@ -251,69 +251,86 @@ def _load_if_exists(path: Path, loader):
 
 
 class WitnessIndex:
-    """A per-config settlement sweep over every sequence of letters and boundaries up to `max_depth`, indexed two ways: per-position context tuples (input, settled left, raw right1, raw right2) for settlement-row witnesses, and adjacent settled-label pairs for treaty-row witnesses. Sequences enumerate shortest-first in codepoint order, so the recorded witness is always the first (shortest) one."""
+    """A per-config settlement sweep over every sequence of letters and boundaries up to `max_depth`, indexed two ways: per-position context tuples (input, settled left, raw right1, raw right2) for settlement-row witnesses, and adjacent settled-label pairs for treaty-row witnesses. Sequences enumerate shortest-first in codepoint order, so the recorded witness is always the first (shortest) one. Each depth streams through the crate `chunk` sequences at a time — the whole batch settles in waves, one invocation per wave rather than one per text — and a sequence the kernel refuses is dropped with the rest of its batch left standing, which is what a sweep over texts nobody chose needs."""
 
     EDGE = "#EDGE"
     NA = "#NA"
     BOUNDARYISH = frozenset({"space", "uni200C", "periodcentered"})
 
-    def __init__(self, spec, config: str, max_depth: int = 5):
+    def __init__(self, spec, config: str, max_depth: int = 5, chunk: int = 20000):
         import itertools
 
-        from rebuild.pipeline.conform import features_for_config, raw_labels, spec_alphabet
-        from rebuild.pipeline.settle import Engine, cell_label, is_boundary_settled, settle_traces
+        from rebuild.pipeline import kernel_exec, settle
+        from rebuild.pipeline.conform import features_for_config, formed_labels, spec_alphabet
 
         self.spec = spec
         self.config = config
         features = features_for_config(config)
-        engine = Engine(spec, features)
+        guard_verdicts = kernel_exec.guard_sweep(spec)
         self.positions: dict[tuple[str, str, str, str, str, str], tuple[int, ...]] = {}
         self.pairs: dict[tuple[str, str], tuple[int, ...]] = {}
         alphabet = spec_alphabet(spec)
         for depth in range(1, max_depth + 1):
-            for combo in itertools.product(alphabet, repeat=depth):
-                text = "".join(combo)
-                codepoints = tuple(ord(ch) for ch in text)
-                try:
-                    raw = raw_labels(spec, text, features)
-                    traces = settle_traces(engine, codepoints)
-                except Exception:
-                    continue
-                settled_labels = [cell_label(spec, trace.settled.cell) for trace in traces]
-                letter_mask = [not is_boundary_settled(trace.settled) for trace in traces]
-                if len(raw) != len(settled_labels):
-                    continue
-                for index, label in enumerate(raw):
-                    if label in self.BOUNDARYISH:
-                        continue
-                    left = (
-                        self.EDGE
-                        if index == 0
-                        else (
-                            raw[index - 1]
-                            if raw[index - 1] in self.BOUNDARYISH
-                            else settled_labels[index - 1]
+            stream = itertools.product(alphabet, repeat=depth)
+            while True:
+                batch = list(itertools.islice(stream, chunk))
+                if not batch:
+                    break
+                requests: list[tuple[list, frozenset[str]]] = []
+                asked: list[tuple[tuple[int, ...], list[str]]] = []
+                for combo in batch:
+                    text = "".join(combo)
+                    codepoints = tuple(ord(ch) for ch in text)
+                    try:
+                        tokens = settle.form_ligatures(
+                            spec, settle.tokens_from_codepoints(spec, codepoints), guard_verdicts
                         )
-                    )
-                    right1 = raw[index + 1] if index + 1 < len(raw) else self.EDGE
-                    right2 = (
-                        self.NA
-                        if right1 in self.BOUNDARYISH or right1 == self.EDGE
-                        else (raw[index + 2] if index + 2 < len(raw) else self.EDGE)
-                    )
-                    right3 = (
-                        self.NA
-                        if right2 in self.BOUNDARYISH or right2 in (self.EDGE, self.NA)
-                        else (raw[index + 3] if index + 3 < len(raw) else self.EDGE)
-                    )
-                    right4 = (
-                        self.NA
-                        if right3 in self.BOUNDARYISH or right3 in (self.EDGE, self.NA)
-                        else (raw[index + 4] if index + 4 < len(raw) else self.EDGE)
-                    )
-                    self.positions.setdefault((label, left, right1, right2, right3, right4), codepoints)
-                    if index + 1 < len(settled_labels) and letter_mask[index] and letter_mask[index + 1]:
-                        self.pairs.setdefault((settled_labels[index], settled_labels[index + 1]), codepoints)
+                        raw = formed_labels(spec, tokens, features)
+                    except Exception:
+                        continue
+                    requests.append((tokens, features))
+                    asked.append((codepoints, raw))
+                answers = kernel_exec.settle_sequences(spec, requests, on_error="drop")
+                for (codepoints, raw), traces in zip(asked, answers):
+                    if traces is None:
+                        continue
+                    settled_labels = [settle.cell_label(spec, trace.settled.cell) for trace in traces]
+                    letter_mask = [not settle.is_boundary_settled(trace.settled) for trace in traces]
+                    if len(raw) != len(settled_labels):
+                        continue
+                    for index, label in enumerate(raw):
+                        if label in self.BOUNDARYISH:
+                            continue
+                        left = (
+                            self.EDGE
+                            if index == 0
+                            else (
+                                raw[index - 1]
+                                if raw[index - 1] in self.BOUNDARYISH
+                                else settled_labels[index - 1]
+                            )
+                        )
+                        right1 = raw[index + 1] if index + 1 < len(raw) else self.EDGE
+                        right2 = (
+                            self.NA
+                            if right1 in self.BOUNDARYISH or right1 == self.EDGE
+                            else (raw[index + 2] if index + 2 < len(raw) else self.EDGE)
+                        )
+                        right3 = (
+                            self.NA
+                            if right2 in self.BOUNDARYISH or right2 in (self.EDGE, self.NA)
+                            else (raw[index + 3] if index + 3 < len(raw) else self.EDGE)
+                        )
+                        right4 = (
+                            self.NA
+                            if right3 in self.BOUNDARYISH or right3 in (self.EDGE, self.NA)
+                            else (raw[index + 4] if index + 4 < len(raw) else self.EDGE)
+                        )
+                        self.positions.setdefault((label, left, right1, right2, right3, right4), codepoints)
+                        if index + 1 < len(settled_labels) and letter_mask[index] and letter_mask[index + 1]:
+                            self.pairs.setdefault(
+                                (settled_labels[index], settled_labels[index + 1]), codepoints
+                            )
 
     def witness_settlement(self, key: SettlementKey) -> tuple[int, ...] | None:
         best: tuple[int, ...] | None = None

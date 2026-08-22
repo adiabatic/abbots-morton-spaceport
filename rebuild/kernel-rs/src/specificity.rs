@@ -1,8 +1,8 @@
-//! The section 6.2 extensional specificity order, `rebuild/pipeline/specificity.py`.
+//! The section 6.2 extensional specificity order, and the only implementation of it. Every ranking question settlement asks — which prefer applies first, which extend a window's demand comes from, whether two records co-match and disagree — is answered here.
 //!
 //! A record's specificity is not a number and not a declaration order; it is the set of windows the record's `when:` matches. Every constrained axis expands to its concrete match set over the finite registry, and record A outranks B when A's set is contained in B's on every axis B constrains, strictly so on at least one. That is what makes a literal family list, a predicate class, and a mixed literal-plus-class condition comparable for free — narrowness within an axis is set inclusion after expansion, so nothing has to know that `qsTea` happens to be a member of some class. Non-nested overlap with conflicting demands is the hard error E-INCOMPARABLE, because the records provably co-match a window and the kernel refuses to guess which one the author meant.
 //!
-//! The port's one structural decision is how an axis is keyed. Python keys the expansion by a dotted path — `left.family`, `right.then.then.is` — and only ever uses those keys to line two records' axes up against each other, so the spelling never reaches an output. [`AxisKey`] is that path as a packed value instead: which side, how many `then:` hops deep, and which of the five condition axes. It has to distinguish exactly what the strings distinguish, arbitrarily deep chains included, which is why the depth is a counter rather than a `then`-or-not flag: a fact stated two hops out and the same fact stated one hop out are different constraints, and collapsing them would silently make one record outrank another it merely resembles.
+//! The port's one structural decision is how an axis is keyed. The Python original keyed the expansion by a dotted path — `left.family`, `right.then.then.is` — and only ever used those keys to line two records' axes up against each other, so the spelling never reached an output. [`AxisKey`] is that path as a packed value instead: which side, how many `then:` hops deep, and which of the five condition axes. It has to distinguish exactly what the strings distinguish, arbitrarily deep chains included, which is why the depth is a counter rather than a `then`-or-not flag: a fact stated two hops out and the same fact stated one hop out are different constraints, and collapsing them would silently make one record outrank another it merely resembles.
 //!
 //! Evaluation is stratified and stays that way here: predicate-class membership arrives pre-resolved from the registry through [`SpecIndex::class_members`], so expanding a policy condition never re-enters settlement. The one place expansion is deliberately approximate is `except:` — a carve-out that constrains anything beyond the family axis is ignored rather than modeled, an over-approximation that can only push a pair toward INCOMPARABLE, which is the refuse-to-guess direction.
 
@@ -274,7 +274,7 @@ pub fn default_demand(record: &PolicyRecord) -> Demand {
 
 /// Among records that all matched one concrete window, the unique most-specific one — `specificity.pick_most_specific`. Nesting resolves silently, because the narrow record wins by membership; several maximal records demanding the same thing collapse to the first in declaration order; several maximal records demanding different things are E-INCOMPARABLE, and the overlap is a fact rather than a possibility because the records have already co-matched.
 ///
-/// `records` and `owners` are parallel, and a record is identified by its address exactly as Python identifies it by `is`, so the same record handed in twice is skipped against itself rather than compared with its twin. An empty `records` panics, as the Python original raises `ValueError`: it is a caller bug, and returning a settlement error instead would hand it to `_prospect`'s fallback, which swallows settlement errors and would therefore hide the bug in a wrong prospect rather than a crash.
+/// `records` and `owners` are parallel, and a record is identified by its address, so the same record handed in twice is skipped against itself rather than compared with its twin. An empty `records` panics rather than answering: it is a caller bug, and returning a settlement error instead would hand it to the prospect's fallback, which swallows settlement errors and would therefore hide the bug in a wrong prospect rather than a crash.
 pub fn pick_most_specific<'r>(
     index: &SpecIndex,
     records: &[&'r PolicyRecord],
@@ -360,7 +360,7 @@ mod tests {
         fixtures::when(&[("right", &fixtures::condition(overrides))])
     }
 
-    /// The spec every test in this module reads: one rune, `qsHost`, whose `extend` list carries the conditions the section 6.2 cases are stated over, against the shared four-family registry and its one predicate class.
+    /// The spec every test in this module reads: one rune, `qsHost`, whose `extend` list carries the conditions the section 6.2 cases are stated over, against the shared four-family registry, its one predicate class, and the one ligature family a literal name is compared through.
     fn host_spec() -> SpecIndex {
         let halves = fixtures::names(&["halves-that-exit-at-x-height"]);
         let tea = fixtures::names(&["qsTea"]);
@@ -423,6 +423,67 @@ mod tests {
                             ])]),
                         ),
                     ]),
+                )],
+            ),
+            authored(
+                "left-class-carved-chain",
+                &[(
+                    "when",
+                    &left(&[
+                        ("klass", &halves),
+                        (
+                            "except_",
+                            &fixtures::seq(&[&fixtures::condition(&[
+                                ("family", &fixtures::names(&["qsPea"])),
+                                (
+                                    "then",
+                                    &fixtures::condition(&[(
+                                        "family",
+                                        &fixtures::names(&["qsMay"]),
+                                    )]),
+                                ),
+                            ])]),
+                        ),
+                    ]),
+                )],
+            ),
+            authored(
+                "right-it-carved-chain",
+                &[(
+                    "when",
+                    &right(&[
+                        ("family", &fixtures::names(&["qsIt"])),
+                        (
+                            "except_",
+                            &fixtures::seq(&[&fixtures::condition(&[
+                                ("family", &fixtures::names(&["qsIt"])),
+                                (
+                                    "then",
+                                    &fixtures::condition(&[(
+                                        "family",
+                                        &fixtures::names(&["qsMay"]),
+                                    )]),
+                                ),
+                            ])]),
+                        ),
+                    ]),
+                )],
+            ),
+            authored(
+                "left-liga",
+                &[(
+                    "when",
+                    &left(&[("family", &fixtures::names(&["qsPea_qsTea"]))]),
+                )],
+            ),
+            authored(
+                "left-liga-and-parts",
+                &[(
+                    "when",
+                    &left(&[(
+                        "family",
+                        &fixtures::names(&["qsPea", "qsTea", "qsPea_qsTea"]),
+                    )]),
                 )],
             ),
             authored(
@@ -557,7 +618,7 @@ mod tests {
         );
         fixtures::index_of(&fixtures::dump(
             &fixtures::map(&[(HOST, &host)]),
-            &fixtures::four_family_registry(),
+            &fixtures::ligature_family_registry(),
         ))
     }
 
@@ -669,6 +730,51 @@ mod tests {
         assert_eq!(
             ranked(&index, "left-class-carved-multi-axis", "left-class"),
             Ordering::Equal
+        );
+    }
+
+    #[test]
+    fn an_except_entry_carrying_a_chain_adds_no_axis_and_subtracts_nothing() {
+        let index = host_spec();
+        assert_eq!(
+            axes_of(&index, "left-class-carved-chain"),
+            axes_of(&index, "left-class"),
+            "the carve-out hangs a `then:` hop off its family, so it is ignored rather than subtracted"
+        );
+        assert_eq!(
+            ranked(&index, "left-class-carved-chain", "left-class"),
+            Ordering::Equal
+        );
+        assert_eq!(
+            axes_of(&index, "right-it-carved-chain"),
+            axes_of(&index, "right-it"),
+            "and only a condition's own spine keys an axis, so the carve-out's chain adds none"
+        );
+        assert_eq!(
+            ranked(&index, "right-it-carved-chain", "right-it"),
+            Ordering::Equal
+        );
+    }
+
+    #[test]
+    fn a_ligature_family_name_ranks_as_an_ordinary_family() {
+        let index = host_spec();
+        assert_eq!(
+            axis(
+                &index,
+                "left-liga",
+                side_axis(WhenSide::Left, 0, ConditionAxis::Family)
+            ),
+            ["qsPea_qsTea"],
+            "a ligature name expands to itself, never to the components it is spelled from"
+        );
+        assert_eq!(
+            ranked(&index, "left-liga", "left-liga-and-parts"),
+            Ordering::AOutranks
+        );
+        assert_eq!(
+            ranked(&index, "left-liga-and-parts", "left-liga"),
+            Ordering::BOutranks
         );
     }
 

@@ -1,58 +1,72 @@
-"""Settlement-kernel tests over the real M1 rune data (rebuild/pipeline/fixtures.py), small synthetic specs for the stages the real records leave unexercised (prefers, the structural-floor joint flag, bind contracts), and round-1 verdict pins that load glyph_data/runes/*.yaml directly (the fixture transcription is frozen at M1 and predates the verdict records).
+"""Settlement tests over the real M1 rune data (the mini spec of rebuild/pipeline/fixtures.py), the synthetic specs for the stages the real records leave unexercised (fixtures.synthetic_spec and fixtures.prospect_spec), and round-1 verdict pins that load glyph_data/runes/*.yaml directly (the fixture transcription is frozen at M1 and predates the verdict records). Every window here settles in the crate: each table below rides one kernel_exec.settle_sequences call behind one guard sweep, so a worker pays a handful of invocations for the whole module rather than one per row, and a window a test asks for that its table never listed comes back as a KeyError rather than as a quiet extra spawn.
 
 Expectations marked AUTHORED-DATA FINDING assert the authored rune files' actual semantics where they knowingly diverge from today's font (the qsMay grounded exit is unscoped and its refusal list lacks qsTea; the qsMay baseline entry extension's trigger list lacks qsTea_qsOy; qsMay withdraws its exit stub mid-word). Those rows are divergence-ledger material for Phase 5, not kernel bugs — see the Deviations section appended to rebuild/M1-PLAN.md.
-"""
 
-from collections import OrderedDict
+Two claims about the retired Python engine's own internals went with it rather than moving to the crate. The candidate cache's aliasing — a warm engine handing back the very list it built before, unmutated by a settlement in between — is a statement about a shared Python list the crate has no counterpart for; what the memo owes is pinned instead by engine.rs's only_a_trace_memo_engine_memoizes_an_enumeration_and_a_hit_replays_its_delta and a_warm_engine_fires_exactly_what_a_cold_one_fires. The pairing-set cache's bound went with the cache: the crate keys pairing sets on StanceId, so a spec has exactly as many as it has stances and there is nothing left to cap.
+"""
 
 import pytest
 
-from rebuild.pipeline import fixtures
-from rebuild.pipeline.model import (
-    BoundaryToken,
-    CellId,
-    Condition,
-    FamilyInfo,
-    Pairing,
-    Pairings,
-    Policy,
-    PolicyRecord,
-    ResolvedSpec,
-    Rune,
-    ScriptRegistry,
-    Settled,
-    Stance,
-    Surface,
-    SurfaceRow,
-    When,
-)
-from rebuild.pipeline import settle as settle_module
+from rebuild.pipeline import fixtures, kernel_exec
+from rebuild.pipeline.model import CellId, Condition, PolicyRecord, Settled, When
 from rebuild.pipeline.settle import (
     EDGE,
-    UNKNOWN,
-    Candidate,
-    Engine,
-    EStrandedError,
     LeftContext,
     RightToken,
+    SettleError,
     cell_label,
+    form_ligatures,
+    guard_blocks,
     is_entry_bearing,
-    settle,
-    settle_with_engine,
+    tokens_from_codepoints,
     word_position,
 )
 
 SPEC = fixtures.mini_spec()
 
-NAME_TO_CODEPOINT = {
-    name: info.codepoint for name, info in SPEC.registry.families.items() if info.codepoint is not None
-}
-NAME_TO_CODEPOINT.update({name: token.codepoint for name, token in SPEC.registry.boundary_tokens.items()})
+
+def _name_to_codepoint(spec) -> dict[str, int]:
+    mapping = {
+        name: info.codepoint for name, info in spec.registry.families.items() if info.codepoint is not None
+    }
+    mapping.update({name: token.codepoint for name, token in spec.registry.boundary_tokens.items()})
+    return mapping
 
 
-def run(sequence: str, features=()) -> tuple[str, ...]:
-    codepoints = [NAME_TO_CODEPOINT[name] for name in sequence.split()]
-    return tuple(cell_label(SPEC, settled.cell) for settled in settle(SPEC, codepoints, frozenset(features)))
+def _traces(spec, requests, *, modes=None):
+    """One kernel batch for a whole table of windows: sweep the guard once, form each request's ligatures against that one surface, and hand every already-formed token sequence to `kernel_exec.settle_sequences` in a single call, which spends one invocation per wave per feature configuration rather than one per row. `modes` names a settlement world other than this process's."""
+    guard = kernel_exec.guard_sweep(spec)
+    formed = [
+        (form_ligatures(spec, tokens_from_codepoints(spec, codepoints), guard), frozenset(features))
+        for codepoints, features in requests
+    ]
+    answered = kernel_exec.settle_sequences(spec, formed, modes=modes)
+    traces = []
+    for row in answered:
+        assert row is not None
+        traces.append(row)
+    return traces
+
+
+def _settled(spec, requests, *, modes=None):
+    return [tuple(trace.settled for trace in row) for row in _traces(spec, requests, modes=modes)]
+
+
+def _labels(spec, requests, *, modes=None):
+    return [
+        tuple(cell_label(spec, settled.cell) for settled in row)
+        for row in _settled(spec, requests, modes=modes)
+    ]
+
+
+def _requests(spec, windows):
+    codepoints = _name_to_codepoint(spec)
+    return [([codepoints[name] for name in names.split()], features) for names, features in windows]
+
+
+def _window_settled(spec, windows, *, modes=None):
+    """Every named window of `windows` settled in one batch, keyed by the `(names, features)` pair that asked for it."""
+    return dict(zip(windows, _settled(spec, _requests(spec, windows), modes=modes)))
 
 
 ROWS = (
@@ -147,153 +161,53 @@ ROWS = (
     ),
 )
 
+ROW_WINDOWS = tuple(dict.fromkeys((sequence, features) for sequence, features, _expected in ROWS))
+
+
+@pytest.fixture(scope="module")
+def row_settled():
+    """Every window ROWS names, settled in one batch over the mini spec."""
+    return _window_settled(SPEC, ROW_WINDOWS)
+
+
+@pytest.fixture(scope="module")
+def row_labels(row_settled):
+    """The same batch as cell labels, which is what most rows assert."""
+    return {key: tuple(cell_label(SPEC, settled.cell) for settled in row) for key, row in row_settled.items()}
+
 
 @pytest.mark.parametrize(
     "sequence,features,expected", ROWS, ids=[f"{row[0]}|{'+'.join(row[1]) or 'default'}" for row in ROWS]
 )
-def test_settlement_rows(sequence, features, expected):
-    assert run(sequence, features) == expected
+def test_settlement_rows(row_labels, sequence, features, expected):
+    assert row_labels[(sequence, features)] == expected
 
 
-def test_exit_extension_amount_rides_the_seam():
-    codepoints = [NAME_TO_CODEPOINT[name] for name in ("qsMay", "qsIt")]
-    settled = settle(SPEC, codepoints, frozenset())
+def test_exit_extension_amount_rides_the_seam(row_settled):
+    settled = row_settled[("qsMay qsIt", ())]
     assert settled[0].extension == 1
     assert settled[0].seam == "x-height"
     assert settled[1].extension == 0
 
 
-def test_entry_extension_suppressed_when_left_seam_already_extended():
-    codepoints = [NAME_TO_CODEPOINT[name] for name in ("qsMay", "qsIt", "qsMay")]
-    settled = settle(SPEC, codepoints, frozenset())
+def test_entry_extension_suppressed_when_left_seam_already_extended(row_settled):
+    settled = row_settled[("qsMay qsIt qsMay", ())]
     assert settled[1].extension == 1
     assert settled[2].cell.adjustments == ()
 
 
-def test_right_chain_matcher_nested_then():
-    engine = Engine(SPEC, frozenset())
-    tea, may, it = (RightToken("letter", name) for name in ("qsTea", "qsMay", "qsIt"))
-    chain = Condition(family=("qsTea",), then=Condition(family=("qsMay",), then=Condition(family=("qsIt",))))
-    assert engine.cond_matches_right(None, chain, (tea, may, it)) is True
-    assert engine.cond_matches_right(None, chain, (tea, may, tea)) is False
-    assert engine.cond_matches_right(None, chain, (tea, it, it)) is False
-    assert engine.cond_matches_right(None, chain, (may, may, it)) is False
-    assert engine.cond_matches_right(None, chain, (tea, may, UNKNOWN)) is None
-    assert engine.cond_matches_right(None, chain, (tea, may)) is None
-    assert engine.cond_matches_right(None, chain, (tea,)) is None
-
-
-def test_right_chain_matcher_except_hops_walk_forward():
-    engine = Engine(SPEC, frozenset())
-    tea, may, it = (RightToken("letter", name) for name in ("qsTea", "qsMay", "qsIt"))
-    cond = Condition(
-        family=("qsTea", "qsIt"),
-        except_=(
-            Condition(family=("qsTea",), then=Condition(family=("qsMay",), then=Condition(family=("qsIt",)))),
-        ),
-    )
-    assert engine.cond_matches_right(None, cond, (tea, may, it)) is False
-    assert engine.cond_matches_right(None, cond, (tea, may, tea)) is True
-    assert engine.cond_matches_right(None, cond, (tea, tea, it)) is True
-    assert engine.cond_matches_right(None, cond, (it, may, it)) is True
-    assert engine.cond_matches_right(None, cond, (may, may, it)) is False
-    assert engine.cond_matches_right(None, cond, (tea, may, UNKNOWN)) is None
-    assert engine.cond_matches_right(None, cond, (tea,)) is None
-
-
-def test_right_chain_matcher_reach_three():
-    engine = Engine(SPEC, frozenset())
-    tea, may, it = (RightToken("letter", name) for name in ("qsTea", "qsMay", "qsIt"))
-    chain = Condition(
-        family=("qsTea",),
-        then=Condition(
-            family=("qsMay",), then=Condition(family=("qsIt",), then=Condition(family=("qsTea",)))
-        ),
-    )
-    assert engine.cond_matches_right(None, chain, (tea, may, it, tea)) is True
-    assert engine.cond_matches_right(None, chain, (tea, may, it, may)) is False
-    assert engine.cond_matches_right(None, chain, (tea, may, tea, tea)) is False
-    assert engine.cond_matches_right(None, chain, (tea, may, it, UNKNOWN)) is None
-    assert engine.cond_matches_right(None, chain, (tea, may, it)) is None
-
-
-def test_right_chain_matcher_except_reach_three():
-    engine = Engine(SPEC, frozenset())
-    tea, may, it = (RightToken("letter", name) for name in ("qsTea", "qsMay", "qsIt"))
-    cond = Condition(
-        family=("qsTea", "qsIt"),
-        except_=(
-            Condition(
-                family=("qsTea",),
-                then=Condition(
-                    family=("qsMay",),
-                    then=Condition(family=("qsIt",), then=Condition(family=("qsTea",))),
-                ),
-            ),
-        ),
-    )
-    assert engine.cond_matches_right(None, cond, (tea, may, it, tea)) is False
-    assert engine.cond_matches_right(None, cond, (tea, may, it, may)) is True
-    assert engine.cond_matches_right(None, cond, (tea, may, tea, tea)) is True
-    assert engine.cond_matches_right(None, cond, (may, may, it, tea)) is False
-    assert engine.cond_matches_right(None, cond, (tea, may, it, UNKNOWN)) is None
-
-
-def test_when_matches_third_slot_defaults_unknown():
-    engine = Engine(SPEC, frozenset())
-    tea, may, it = (RightToken("letter", name) for name in ("qsTea", "qsMay", "qsIt"))
-    when = When(
-        right=Condition(
-            family=("qsTea",), then=Condition(family=("qsMay",), then=Condition(family=("qsIt",)))
-        )
-    )
-    left = LeftContext("edge")
-    assert (
-        engine.when_matches(None, when, left=left, entry=None, seam=None, right1=tea, right2=may, right3=it)
-        is True
-    )
-    assert (
-        engine.when_matches(None, when, left=left, entry=None, seam=None, right1=tea, right2=may, right3=tea)
-        is False
-    )
-    assert engine.when_matches(None, when, left=left, entry=None, seam=None, right1=tea, right2=may) is None
-
-
-def test_when_matches_fourth_slot_defaults_unknown():
-    engine = Engine(SPEC, frozenset())
-    tea, may, it = (RightToken("letter", name) for name in ("qsTea", "qsMay", "qsIt"))
-    when = When(
-        right=Condition(
-            family=("qsTea",),
-            then=Condition(
-                family=("qsMay",), then=Condition(family=("qsIt",), then=Condition(family=("qsTea",)))
-            ),
-        )
-    )
-    left = LeftContext("edge")
-    assert (
-        engine.when_matches(
-            None, when, left=left, entry=None, seam=None, right1=tea, right2=may, right3=it, right4=tea
-        )
-        is True
-    )
-    assert (
-        engine.when_matches(
-            None, when, left=left, entry=None, seam=None, right1=tea, right2=may, right3=it, right4=may
-        )
-        is False
-    )
-    assert (
-        engine.when_matches(None, when, left=left, entry=None, seam=None, right1=tea, right2=may, right3=it)
-        is None
-    )
-
-
-def test_e_stranded_raises_on_forged_commitment():
-    engine = Engine(SPEC, frozenset())
+def test_a_committed_seam_nothing_accepts_is_unreachable():
+    """A left forged with an exit at the top — a height nothing in the mini alphabet enters at — is a window the lookahead closure would never have built, and the crate refuses it rather than settling something. The refusal crosses the seam as `settle.SettleError` carrying the corpus bucket beside the crate's own sentence, which `engine.rs`'s `a_left_that_committed_a_seam_nothing_accepts_is_stranded` states in the crate's vocabulary; `ex-y8` is the mini registry's `top`."""
     forged = LeftContext("letter", Settled(CellId("qsTea", "full", None, "top"), seam="top", extension=0))
-    with pytest.raises(EStrandedError):
-        engine.transition_trace(forged, RightToken("letter", "qsIt"), EDGE, EDGE)
+    case = kernel_exec.case_row(forged, RightToken("letter", "qsIt"), (EDGE, EDGE, EDGE, EDGE))
+    answer = kernel_exec.settle_cases(SPEC, [case], frozenset())[0]
+    with pytest.raises(SettleError) as caught:
+        kernel_exec.trace_of(answer["result"])
+    assert caught.value.bucket == "E-UNREACHABLE"
+    assert str(caught.value) == (
+        "E-STRANDED: qsTea.full.ex-y8 committed an exit at top but qsIt has no acceptor cell "
+        "(the lookahead closure should have prevented this commitment)"
+    )
 
 
 def test_entry_bearing_census():
@@ -303,32 +217,6 @@ def test_entry_bearing_census():
     assert is_entry_bearing(SPEC, "qsIt")
     assert is_entry_bearing(SPEC, "qsOy")
     assert not is_entry_bearing(SPEC, "qsTea_qsOy")
-
-
-def test_cached_candidates_are_shared_without_being_mutated_by_settlement():
-    engine = Engine(SPEC, frozenset(), trace_memo=True)
-    left = LeftContext("edge")
-    token = RightToken("letter", "qsMay")
-    right1 = RightToken("letter", "qsTea")
-    cached = engine.candidates(left, token.letter, right1, EDGE)
-    snapshot = tuple(cached)
-
-    assert engine.candidates(left, token.letter, right1, EDGE) is cached
-    engine.transition_trace(left, token, right1, EDGE)
-    assert engine.candidates(left, token.letter, right1, EDGE) is cached
-    assert tuple(cached) == snapshot
-
-
-def test_pairing_set_cache_stays_bounded(monkeypatch):
-    monkeypatch.setattr(settle_module, "_PAIRING_SETS", OrderedDict())
-    for index in range(settle_module._PAIRING_SETS_CAP + 1):
-        stance = Stance(
-            f"stance-{index}",
-            motion="synthetic",
-            surface=Surface(pairings=Pairings(never=(Pairing("none", "none"),))),
-        )
-        Engine._pairing_allowed(stance, "none", "none", [])
-    assert len(settle_module._PAIRING_SETS) == settle_module._PAIRING_SETS_CAP
 
 
 def test_word_position_derivation():
@@ -343,81 +231,9 @@ def test_word_position_derivation():
 # --- synthetic specs for the stages the real records leave unexercised ---------------------
 
 
-def _synthetic_spec(prefer_a=(), prefer_b=(), contract_b=()) -> ResolvedSpec:
-    """Three letters: A exits at the x-height toward anything; B enters at the x-height (entered B is exitless by pairing) and exits at the baseline only when unentered; C enters at the baseline. The A.B seam therefore ties join-vs-prospect at one window join each — the floor and prefer testbed."""
-    a = Rune(
-        name="A",
-        codepoint=0xE001,
-        ductus={"stroke": "synthetic"},
-        stances={
-            "stroke": Stance(
-                "stroke",
-                motion="stroke",
-                surface=Surface(
-                    exits={"x-height": SurfaceRow("x-height", x=1, withdrawal="safe")},
-                ),
-            ),
-            "flourish": Stance("flourish", motion="stroke"),
-        },
-        policy=Policy(order=("stroke", "flourish"), prefer=tuple(prefer_a)),
-    )
-    b = Rune(
-        name="B",
-        codepoint=0xE002,
-        ductus={"hook": "synthetic"},
-        stances={
-            "hook": Stance(
-                "hook",
-                motion="hook",
-                surface=Surface(
-                    entries={"x-height": SurfaceRow("x-height", x=0)},
-                    exits={"baseline": SurfaceRow("baseline", x=1, withdrawal="safe")},
-                    pairings=Pairings(never=(Pairing("x-height", "baseline"),)),
-                ),
-            ),
-        },
-        policy=Policy(order=("hook",), prefer=tuple(prefer_b), contract=tuple(contract_b)),
-    )
-    c = Rune(
-        name="C",
-        codepoint=0xE003,
-        ductus={"base": "synthetic"},
-        stances={
-            "base": Stance(
-                "base",
-                motion="base",
-                surface=Surface(entries={"baseline": SurfaceRow("baseline", x=0)}),
-            ),
-        },
-        policy=Policy(order=("base",)),
-    )
-    registry = ScriptRegistry(
-        heights={"baseline": 0, "x-height": 5, "y6": 6, "top": 8},
-        boundary_tokens={
-            "space": BoundaryToken(0x0020, splits_runs=True),
-            "zwnj": BoundaryToken(0x200C, splits_runs=True),
-            "namer-dot": BoundaryToken(0x00B7, splits_runs=False),
-        },
-        predicate_classes={},
-        families={
-            "A": FamilyInfo(codepoint=0xE001),
-            "B": FamilyInfo(codepoint=0xE002),
-            "C": FamilyInfo(codepoint=0xE003),
-        },
-    )
-    return ResolvedSpec(runes={"A": a, "B": b, "C": c}, registry=registry)
-
-
-def _labels(spec, codepoints, features=frozenset()):
-    return tuple(cell_label(spec, settled.cell) for settled in settle(spec, codepoints, features))
-
-
 def test_floor_breaks_realization_tie_toward_the_join_and_flags_joint():
-    spec = _synthetic_spec()
-    engine = Engine(spec, frozenset())
-    trace = engine.transition_trace(
-        LeftContext("edge"), RightToken("letter", "A"), RightToken("letter", "B"), RightToken("letter", "C")
-    )
+    spec = fixtures.synthetic_spec()
+    trace = _traces(spec, [([0xE001, 0xE002, 0xE003], ())])[0][0]
     assert trace.settled.cell == CellId("A", "stroke", None, "x-height")
     assert trace.decided_stage == "floor"
     assert trace.joint_floor
@@ -425,41 +241,9 @@ def test_floor_breaks_realization_tie_toward_the_join_and_flags_joint():
 
 def test_follower_cell_grain_prefer_withholds_the_predecessor_exit():
     prefer = PolicyRecord(kind="prefer", cell={"exit": "baseline"}, over={"entry": "x-height"}, when=When())
-    spec = _synthetic_spec(prefer_b=(prefer,))
-    labels = _labels(spec, [0xE001, 0xE002, 0xE003])
+    spec = fixtures.synthetic_spec(prefer_b=(prefer,))
+    labels = _labels(spec, [([0xE001, 0xE002, 0xE003], ())])[0]
     assert labels == ("A.stroke", "B.hook.ex-y0", "C.base.en-y0")
-
-
-def test_prefer_deep_slots_reach_the_own_record_and_shift_for_a_follower_vote():
-    """The own-rune branch reads the seat's raw deep slots directly in every mode. The vote branch's reading is the stage-4b flag's whole subject: with `vote_slots` off (the pinned world) everything past the vote's right1 is UNKNOWN and a chained vote fires optimistically no matter what the deep slots hold; with it on (the shipping default) the vote reads the seat's slots shifted once, so the same chain resolves definitively — firing where the third slot satisfies its hop and going irrelevant where it refutes it."""
-    spec = _synthetic_spec()
-    engine = Engine(spec, frozenset())
-    candidate = Candidate("stroke", None, "x-height", 0)
-    a, b, c = (RightToken("letter", name) for name in ("A", "B", "C"))
-    left = LeftContext("edge")
-    own = PolicyRecord(
-        kind="prefer",
-        stance="stroke",
-        when=When(
-            right=Condition(family=("B",), then=Condition(family=("C",), then=Condition(family=("A",))))
-        ),
-    )
-    assert engine._prefer_favors("A", own, "A", candidate, left, b, c, a, UNKNOWN) is True
-    assert engine._prefer_favors("A", own, "A", candidate, left, b, c, c, UNKNOWN) is None
-    follower = PolicyRecord(
-        kind="prefer",
-        stance="hook",
-        when=When(right=Condition(family=("C",), then=Condition(family=("A",)))),
-    )
-    pinned = Engine(spec, frozenset(), vote_slots=False)
-    baseline = pinned._prefer_favors("B", follower, "A", candidate, left, b, c, UNKNOWN, UNKNOWN)
-    assert baseline is True
-    assert pinned._prefer_favors("B", follower, "A", candidate, left, b, c, a, a) is baseline
-    assert pinned._prefer_favors("B", follower, "A", candidate, left, b, c, c, c) is baseline
-    shifted = Engine(spec, frozenset(), vote_slots=True)
-    assert shifted._prefer_favors("B", follower, "A", candidate, left, b, c, a, UNKNOWN) is True
-    assert shifted._prefer_favors("B", follower, "A", candidate, left, b, c, c, UNKNOWN) is None
-    assert shifted._prefer_favors("B", follower, "A", candidate, left, b, c, UNKNOWN, UNKNOWN) is True
 
 
 def test_absolute_prefer_outranks_join_count():
@@ -470,8 +254,8 @@ def test_absolute_prefer_outranks_join_count():
         when=When(right=Condition(family=("B",))),
         why="taste over join, recorded",
     )
-    spec = _synthetic_spec(prefer_a=(prefer,))
-    labels = _labels(spec, [0xE001, 0xE002])
+    spec = fixtures.synthetic_spec(prefer_a=(prefer,))
+    labels = _labels(spec, [([0xE001, 0xE002], ())])[0]
     assert labels[0] == "A.flourish"
 
 
@@ -483,145 +267,37 @@ def test_bind_contract_lands_in_the_adjustments_grammar():
         bind="hook-after-a",
         when=When(left=Condition(family=("A",), joined_at="x-height")),
     )
-    spec = _synthetic_spec(contract_b=(contract,))
-    labels = _labels(spec, [0xE001, 0xE002])
+    spec = fixtures.synthetic_spec(contract_b=(contract,))
+    labels = _labels(spec, [([0xE001, 0xE002], ())])[0]
     assert labels == ("A.stroke.ex-y5", "B.hook.en-y5.en-bind-hook-after-a")
 
 
-def _prospect_spec() -> ResolvedSpec:
-    """Four letters replaying the issue-28 signature (the ·No·No·Tea·Day shape). A exits at both heights and prefers x-height over baseline as a yielding tie-break; B enters at both heights, is exitless when entered at the x-height, and yields its baseline exit before C·D; entered C is exitless, so B joining C forecloses C·D while B declining buys it. The optimistic prospect therefore scores A's baseline candidate as if B's onward join will happen, but B's own cascade provably yields it one seat later — the simulated prospect sees the yield from A's seat."""
-    a = Rune(
-        name="A",
-        codepoint=0xE011,
-        ductus={"stroke": "synthetic"},
-        stances={
-            "stroke": Stance(
-                "stroke",
-                motion="stroke",
-                surface=Surface(
-                    exits={
-                        "x-height": SurfaceRow("x-height", x=1, withdrawal="safe"),
-                        "baseline": SurfaceRow("baseline", x=1, withdrawal="safe"),
-                    },
-                ),
-            ),
-        },
-        policy=Policy(
-            order=("stroke",),
-            prefer=(
-                PolicyRecord(
-                    kind="prefer", cell={"exit": "x-height"}, over={"exit": "baseline"}, when=When()
-                ),
-            ),
-        ),
-    )
-    b = Rune(
-        name="B",
-        codepoint=0xE012,
-        ductus={"hook": "synthetic"},
-        stances={
-            "hook": Stance(
-                "hook",
-                motion="hook",
-                surface=Surface(
-                    entries={
-                        "x-height": SurfaceRow("x-height", x=0),
-                        "baseline": SurfaceRow("baseline", x=0),
-                    },
-                    exits={"baseline": SurfaceRow("baseline", x=1, withdrawal="safe")},
-                    pairings=Pairings(never=(Pairing("x-height", "baseline"),)),
-                ),
-            ),
-        },
-        policy=Policy(
-            order=("hook",),
-            prefer=(
-                PolicyRecord(
-                    kind="prefer",
-                    cell={"exit": "none"},
-                    over={"exit": "baseline"},
-                    when=When(right=Condition(family=("C",), then=Condition(family=("D",)))),
-                ),
-            ),
-        ),
-    )
-    c = Rune(
-        name="C",
-        codepoint=0xE013,
-        ductus={"base": "synthetic"},
-        stances={
-            "base": Stance(
-                "base",
-                motion="base",
-                surface=Surface(
-                    entries={"baseline": SurfaceRow("baseline", x=0)},
-                    exits={"baseline": SurfaceRow("baseline", x=1, withdrawal="safe")},
-                    pairings=Pairings(never=(Pairing("baseline", "baseline"),)),
-                ),
-            ),
-        },
-        policy=Policy(order=("base",)),
-    )
-    d = Rune(
-        name="D",
-        codepoint=0xE014,
-        ductus={"base": "synthetic"},
-        stances={
-            "base": Stance(
-                "base",
-                motion="base",
-                surface=Surface(entries={"baseline": SurfaceRow("baseline", x=0)}),
-            ),
-        },
-        policy=Policy(order=("base",)),
-    )
-    registry = ScriptRegistry(
-        heights={"baseline": 0, "x-height": 5, "y6": 6, "top": 8},
-        boundary_tokens={
-            "space": BoundaryToken(0x0020, splits_runs=True),
-            "zwnj": BoundaryToken(0x200C, splits_runs=True),
-            "namer-dot": BoundaryToken(0x00B7, splits_runs=False),
-        },
-        predicate_classes={},
-        families={
-            "A": FamilyInfo(codepoint=0xE011),
-            "B": FamilyInfo(codepoint=0xE012),
-            "C": FamilyInfo(codepoint=0xE013),
-            "D": FamilyInfo(codepoint=0xE014),
-        },
-    )
-    return ResolvedSpec(runes={"A": a, "B": b, "C": c, "D": d}, registry=registry)
+PROSPECT_SPEC = fixtures.prospect_spec()
+PROSPECT_WINDOWS = ("A B C D", "A B")
 
 
-def test_simulated_prospect_sees_the_follower_yield_the_promised_join():
-    spec = _prospect_spec()
-    sequence = [0xE011, 0xE012, 0xE013, 0xE014]
-    optimistic = Engine(spec, frozenset(), simulated_prospect=False)
-    off = tuple(cell_label(spec, s.cell) for s in settle_with_engine(optimistic, sequence))
-    assert off == ("A.stroke.ex-y0", "B.hook.en-y0", "C.base.ex-y0", "D.base.en-y0")
-    simulated = Engine(spec, frozenset(), simulated_prospect=True)
-    on = tuple(cell_label(spec, s.cell) for s in settle_with_engine(simulated, sequence))
-    assert on == ("A.stroke.ex-y5", "B.hook.en-y5", "C.base.ex-y0", "D.base.en-y0")
+@pytest.fixture(scope="module")
+def prospect_settled():
+    """Both prospect windows under both settlement worlds, one batch per world. `SettlementModes` names the world on the invocation instead of monkeypatching this process's defaults, so the optimistic arm and the simulated one are two argv spellings rather than two environments."""
+    settled = {}
+    for simulated in (False, True):
+        modes = kernel_exec.SettlementModes(simulated_prospect=simulated, vote_slots=True)
+        windows = tuple((names, ()) for names in PROSPECT_WINDOWS)
+        for (names, _features), row in _window_settled(PROSPECT_SPEC, windows, modes=modes).items():
+            settled[(names, simulated)] = row
+    return settled
 
 
-def test_simulated_prospect_bottoms_out_at_the_window_edge():
-    spec = _prospect_spec()
-    sequence = [0xE011, 0xE012]
-    optimistic = Engine(spec, frozenset(), simulated_prospect=False)
-    simulated = Engine(spec, frozenset(), simulated_prospect=True)
-    assert settle_with_engine(optimistic, sequence) == settle_with_engine(simulated, sequence)
-    candidate = Candidate("stroke", None, "baseline", 0, 1)
-    assert simulated._prospect("A", candidate, RightToken("letter", "B"), EDGE) == 0
-    assert simulated._prospect("A", candidate, RightToken("letter", "B"), UNKNOWN) == 0
+def test_simulated_prospect_sees_the_follower_yield_the_promised_join(prospect_settled):
+    optimistic = tuple(cell_label(PROSPECT_SPEC, s.cell) for s in prospect_settled[("A B C D", False)])
+    assert optimistic == ("A.stroke.ex-y0", "B.hook.en-y0", "C.base.ex-y0", "D.base.en-y0")
+    simulated = tuple(cell_label(PROSPECT_SPEC, s.cell) for s in prospect_settled[("A B C D", True)])
+    assert simulated == ("A.stroke.ex-y5", "B.hook.en-y5", "C.base.ex-y0", "D.base.en-y0")
 
 
-def test_guard_engines_stay_candidacy_grain_under_the_simulated_default(monkeypatch):
-    monkeypatch.setattr(settle_module, "SIMULATED_PROSPECT_DEFAULT", True)
-    spec = _prospect_spec()
-    assert Engine(spec, frozenset()).simulated_prospect is True
-    state = settle_module._guard_state(spec)
-    assert state["engines"]
-    assert not any(engine.simulated_prospect for engine in state["engines"])
+def test_simulated_prospect_bottoms_out_at_the_window_edge(prospect_settled):
+    """Two letters and nothing past them: the simulated prospect has no follower transition to run, so both worlds settle the window identically. That the third term is zero there rather than merely equal is `engine.rs`'s `the_prospect_bottoms_out_at_the_window_edge_where_both_modes_agree`, which reads the term off a ladder the settled cell does not carry across the seam."""
+    assert prospect_settled[("A B", False)] == prospect_settled[("A B", True)]
 
 
 # Round-1 verdict pins over the real loaded rune YAML. The fixture spec above is the frozen M1 transcription and intentionally predates the round-1 verdict records, so these rows load glyph_data/runes/*.yaml directly. They pin the greedy ·May·May pairing of the round-1 verdict (u-0341, "the old way seems nicer to write out by hand"): chains pair up y0 | break | y0 | break, like the shipped font does at every length. The quad is the verdicted window; the quint and sextet are the only gate that sees qsMay's chain-interior prefer (the one scoped on an unjoined ·May to its left) — the acceptance oracle's window universe tops out at four letters, where the word-start record alone reproduces every outcome, and without the chain-interior record chains of five or more regress to the rejected defer-to-the-tail grouping.
@@ -675,38 +351,30 @@ MAY_CHAIN_ROWS = (
 @pytest.mark.parametrize(
     "length,expected", MAY_CHAIN_ROWS, ids=[f"qsMay-x{row[0]}" for row in MAY_CHAIN_ROWS]
 )
-def test_round1_greedy_may_chain_pairing(real_spec, length, expected):
-    may = real_spec.registry.families["qsMay"].codepoint
-    labels = tuple(
-        cell_label(real_spec, settled.cell) for settled in settle(real_spec, [may] * length, frozenset())
-    )
-    assert labels == expected
+def test_round1_greedy_may_chain_pairing(real_labels, length, expected):
+    assert real_labels[(" ".join(["qsMay"] * length), ())] == expected
 
 
 # The section 5.7 late-formation guard over the real loaded rune YAML. The Manual pin `·Day | ·Utter.alt ·Low` (site/the-manual.html) is the live counterexample to unconditional formation: the ligature exits only at the x-height, ·Low enters only at the baseline, and the unformed alternate ·Utter carries the baseline seam the ligature would destroy. The guard yields formation exactly there, and qsUtter.policy.prefer[2] (the section 5.9 follower one-liner) makes ·Day withhold its exit so the alternate is free to reach.
 
-
-def _real_labels(real_spec, names: str, features=()) -> tuple[str, ...]:
-    codepoints = [real_spec.registry.families[name].codepoint for name in names.split()]
-    return tuple(
-        cell_label(real_spec, settled.cell) for settled in settle(real_spec, codepoints, frozenset(features))
-    )
+MAY_TEA_JAI_LEADS = ("qsI", "qsAh")
+MAY_TEA_JAI_WINDOWS = ("qsTea qsJai", "qsMay qsTea qsJai qsTea")
 
 
-@pytest.mark.parametrize("lead", ("qsI", "qsAh"))
+@pytest.mark.parametrize("lead", MAY_TEA_JAI_LEADS)
 @pytest.mark.parametrize("features", ((), ("ss03",)))
-def test_may_tea_jai_keeps_a_baseline_gap(real_spec, lead, features):
-    assert _real_labels(real_spec, f"{lead} qsMay qsTea qsJai", features) == (
+def test_may_tea_jai_keeps_a_baseline_gap(real_labels, lead, features):
+    assert real_labels[(f"{lead} qsMay qsTea qsJai", features)] == (
         f"{lead}.{'loop' if lead == 'qsI' else 'hapax'}.ex-y5.ex-ext-1",
         "qsMay.loop.en-y5",
         "qsTea.half.ex-y5.ex-ext-1",
         "qsJai.hapax.en-y5.en-con-1",
     )
-    assert _real_labels(real_spec, "qsTea qsJai", features) == (
+    assert real_labels[("qsTea qsJai", features)] == (
         "qsTea.half.ex-y5",
         "qsJai.hapax.en-y5.en-con-1",
     )
-    follower_labels = _real_labels(real_spec, "qsMay qsTea qsJai qsTea", features)
+    follower_labels = real_labels[("qsMay qsTea qsJai qsTea", features)]
     assert follower_labels[1] == ("qsTea.full.en-y5" if features else "qsTea.half.ex-y5")
 
 
@@ -739,8 +407,8 @@ ORPHANED_TEA_ROWS = (
     "sequence,expected", ORPHANED_TEA_ROWS, ids=[row[0].replace(" ", "|") for row in ORPHANED_TEA_ROWS]
 )
 @pytest.mark.parametrize("features", ((), ("ss03",)), ids=["default", "ss03"])
-def test_orphaned_tea_depth3_windows(real_spec, sequence, features, expected):
-    assert _real_labels(real_spec, sequence, features) == expected
+def test_orphaned_tea_depth3_windows(real_labels, sequence, features, expected):
+    assert real_labels[(sequence, features)] == expected
 
 
 ORPHAN_DEPTH4_ROWS = (
@@ -802,44 +470,52 @@ ORPHAN_DEPTH4_ROWS = (
         for row in ORPHAN_DEPTH4_ROWS
     ],
 )
-def test_orphaned_tea_depth4_windows(real_spec, sequence, features, expected):
-    assert _real_labels(real_spec, sequence, features) == expected
+def test_orphaned_tea_depth4_windows(real_labels, sequence, features, expected):
+    assert real_labels[(sequence, features)] == expected
 
 
-def test_late_formation_yields_before_low(real_spec):
-    assert _real_labels(real_spec, "qsDay qsUtter qsLow") == (
+def test_late_formation_yields_before_low(real_labels):
+    assert real_labels[("qsDay qsUtter qsLow", ())] == (
         "qsDay.full",
         "qsUtter.alternate.ex-y0",
         "qsLow.hapax.en-y0",
     )
 
 
-def test_formation_survives_where_the_ligature_serves_the_follower(real_spec):
-    assert _real_labels(real_spec, "qsDay qsUtter") == ("qsDay_qsUtter.full",)
-    assert _real_labels(real_spec, "qsDay qsUtter qsMay") == (
+def test_formation_survives_where_the_ligature_serves_the_follower(real_labels):
+    assert real_labels[("qsDay qsUtter", ())] == ("qsDay_qsUtter.full",)
+    assert real_labels[("qsDay qsUtter qsMay", ())] == (
         "qsDay_qsUtter.full.ex-y5",
         "qsMay.loop.en-y5",
     )
-    assert _real_labels(real_spec, "qsDay qsUtter qsTea") == ("qsDay_qsUtter.full", "qsTea.full")
-    assert _real_labels(real_spec, "qsDay qsUtter qsTea", features=("ss03",)) == (
+    assert real_labels[("qsDay qsUtter qsTea", ())] == ("qsDay_qsUtter.full", "qsTea.full")
+    assert real_labels[("qsDay qsUtter qsTea", ("ss03",))] == (
         "qsDay_qsUtter.full.ex-y5.ex-ext-1",
         "qsTea.full.en-y5",
     )
 
 
-def test_formation_blocked_verdicts_are_config_blind(real_spec):
-    from rebuild.pipeline.settle import formation_blocked
-
+def test_formation_blocked_verdicts_are_config_blind(real_spec, real_guard):
     low = RightToken("letter", "qsLow")
     tea = RightToken("letter", "qsTea")
     utter = RightToken("letter", "qsUtter")
-    assert formation_blocked(real_spec, "qsDay_qsUtter", low, EDGE)
-    assert formation_blocked(real_spec, "qsDay_qsUtter", low, tea)
-    assert not formation_blocked(real_spec, "qsDay_qsUtter", tea, EDGE)
-    assert not formation_blocked(real_spec, "qsDay_qsUtter", utter, EDGE)
-    assert not formation_blocked(real_spec, "qsDay_qsUtter", utter, tea)
-    for follower in list(real_spec.runes):
-        assert not formation_blocked(real_spec, "qsTea_qsOy", RightToken("letter", follower), EDGE)
+    assert real_guard[("qsDay_qsUtter", low, EDGE)]
+    assert real_guard[("qsDay_qsUtter", low, tea)]
+    assert not real_guard[("qsDay_qsUtter", tea, EDGE)]
+    assert not real_guard[("qsDay_qsUtter", utter, EDGE)]
+    assert not real_guard[("qsDay_qsUtter", utter, tea)]
+    for follower in real_spec.runes:
+        assert not real_guard[("qsTea_qsOy", RightToken("letter", follower), EDGE)]
+
+
+def test_the_guard_reads_letters_only_and_indexes_the_surface_it_was_given(real_guard):
+    """The two ends of `guard_blocks`. A first slot that is not a letter never blocks — the guard exists to keep a ligature from stranding a follower, and a boundary is no follower — so the sweep carries no rows for one and none are asked for. Every other triple is an indexed read, so a surface that does not cover the window says so instead of quietly reading as free; `.get(key, False)` here would form every ligature the emitted lookup withholds, silently."""
+    utter = RightToken("letter", "qsUtter")
+    assert not guard_blocks(real_guard, "qsDay_qsUtter", EDGE, utter)
+    assert not guard_blocks(real_guard, "qsDay_qsUtter", RightToken("space"), utter)
+    assert guard_blocks(real_guard, "qsDay_qsUtter", RightToken("letter", "qsLow"), EDGE)
+    with pytest.raises(KeyError):
+        guard_blocks(real_guard, "qsDay_qsUtter", RightToken("letter", "qsNotARune"), EDGE)
 
 
 # Ligature-transparent left scopes (spec_load._expand_ligature_lefts): a family named in an entry from-scope also admits every registered ligature whose sequence ends in that family, so the sitting's rejected windows u-121942/u-121944 settle the half ·Pea after ·See+Utter exactly as they do after bare ·Utter, and the follower's own join lands. The ·No arm deliberately pins the approved divergence (u-119404/u-135614): full ·Pea takes the baseline join into flipped ·No behind every qsUtter-trailing left alike.
@@ -874,15 +550,55 @@ LIGATURE_TRANSPARENT_PEA_ROWS = (
     LIGATURE_TRANSPARENT_PEA_ROWS,
     ids=[row[0].replace(" ", "|") for row in LIGATURE_TRANSPARENT_PEA_ROWS],
 )
-def test_ligature_left_admits_trailing_family_scopes(real_spec, sequence, expected):
-    assert _real_labels(real_spec, sequence) == expected
+def test_ligature_left_admits_trailing_family_scopes(real_labels, sequence, expected):
+    assert real_labels[(sequence, ())] == expected
 
 
-def test_resolve_record_breaks_the_tea_oy_it_no_crossing(real_spec):
+def test_resolve_record_breaks_the_tea_oy_it_no_crossing(real_labels):
     """The section 5.8 against-a-named-record slice, live: qsTea_qsOy's resolve against qsIt's withhold-before-no-after-oy vote picks the ligature's baseline exit at the tied (·It, ·No, live-third) windows, so the ligature arm renders like the approved bare-·Oy arm instead of raising E-INCOMPARABLE."""
-    assert _real_labels(real_spec, "qsTea qsOy qsIt qsNo qsAh") == (
+    assert real_labels[("qsTea qsOy qsIt qsNo qsAh", ())] == (
         "qsTea_qsOy.hapax.ex-y0",
         "qsIt.hapax.en-y0",
         "qsNo.flipped.ex-y0",
         "qsAh.hapax.en-y0",
     )
+
+
+# Every window the real-spec tables above name, gathered so the whole file settles them in one batch: one guard sweep and one settle_sequences call, six waves deep, rather than a kernel spawn per row. The tuple is that batch's entire universe on purpose — `real_labels` keys on the window itself, so a test asking for a window nobody listed here raises KeyError instead of quietly going unsettled.
+REAL_WINDOWS = tuple(
+    dict.fromkeys(
+        (
+            *((" ".join(["qsMay"] * length), ()) for length, _expected in MAY_CHAIN_ROWS),
+            *(
+                (names, features)
+                for features in ((), ("ss03",))
+                for lead in MAY_TEA_JAI_LEADS
+                for names in (f"{lead} qsMay qsTea qsJai", *MAY_TEA_JAI_WINDOWS)
+            ),
+            *((names, features) for features in ((), ("ss03",)) for names, _expected in ORPHANED_TEA_ROWS),
+            *((names, features) for names, features, _expected in ORPHAN_DEPTH4_ROWS),
+            ("qsDay qsUtter qsLow", ()),
+            ("qsDay qsUtter", ()),
+            ("qsDay qsUtter qsMay", ()),
+            ("qsDay qsUtter qsTea", ()),
+            ("qsDay qsUtter qsTea", ("ss03",)),
+            *((names, ()) for names, _expected in LIGATURE_TRANSPARENT_PEA_ROWS),
+            ("qsTea qsOy qsIt qsNo qsAh", ()),
+        )
+    )
+)
+
+
+@pytest.fixture(scope="module")
+def real_guard(real_spec):
+    """The crate's complete late-formation verdict surface for the loaded rune YAML — the same memoized sweep `_traces` forms every real-spec window against."""
+    return kernel_exec.guard_sweep(real_spec)
+
+
+@pytest.fixture(scope="module")
+def real_labels(real_spec):
+    """Every window of REAL_WINDOWS as cell labels, settled in one batch over the loaded rune YAML."""
+    return {
+        key: tuple(cell_label(real_spec, settled.cell) for settled in row)
+        for key, row in _window_settled(real_spec, REAL_WINDOWS).items()
+    }

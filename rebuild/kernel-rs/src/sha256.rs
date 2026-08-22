@@ -30,7 +30,7 @@ pub fn digest_hex(message: &[u8]) -> String {
         padded.push(0);
     }
     padded.extend_from_slice(&bits.to_be_bytes());
-    for block in padded.chunks_exact(64) {
+    for block in padded.as_chunks::<64>().0 {
         compress(&mut state, block);
     }
     let mut out = String::with_capacity(64);
@@ -43,8 +43,8 @@ pub fn digest_hex(message: &[u8]) -> String {
 /// One 64-byte block folded into the state: the message schedule, then the sixty-four rounds over the eight working variables, then the Davies-Meyer addition back into the state.
 fn compress(state: &mut [u32; 8], block: &[u8]) {
     let mut schedule = [0u32; 64];
-    for (seat, word) in block.chunks_exact(4).enumerate() {
-        schedule[seat] = u32::from_be_bytes([word[0], word[1], word[2], word[3]]);
+    for (seat, word) in block.as_chunks::<4>().0.iter().enumerate() {
+        schedule[seat] = u32::from_be_bytes(*word);
     }
     for seat in 16..64 {
         let near = schedule[seat - 15];

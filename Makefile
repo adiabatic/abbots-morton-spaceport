@@ -1,4 +1,4 @@
-.PHONY: all test test-rebuild test-slowly test-leaks leak-snapshot typecheck print-job serve explainer check-html-before check-html-after build-kerning-hardcases review test-and-review review-build review-serve review-cycle artifact-cycle verdict-ready cycle-timings complaint-docket novelty-order kernel-build kernel-check kernel-parity kernel-differential kernel-gate conform-deep prettier woff2 clean
+.PHONY: all test test-rebuild test-slowly test-leaks leak-snapshot typecheck print-job serve explainer check-html-before check-html-after build-kerning-hardcases review test-and-review review-build review-serve review-cycle artifact-cycle verdict-ready cycle-timings complaint-docket novelty-order kernel-build kernel-check kernel-parity kernel-gate conform-deep prettier woff2 clean
 
 all:
 	uv run python tools/build_font.py glyph_data/ site/
@@ -107,7 +107,7 @@ novelty-order:
 kernel-build:
 	cargo build --release --manifest-path rebuild/kernel-rs/Cargo.toml
 
-# The crate's own gate: formatting, clippy with every warning fatal, and the crate's whole unit suite — spec ingest and its canonical-JSON echo, the specificity order, the settlement engine, the late-formation guard, and corpus-case replay. Named by surface rather than by case, because the suite grows with every packet of the port and any list of tests written here is stale by the next one.
+# The settlement's gate: formatting, clippy with every warning fatal, and the crate's whole unit suite — spec ingest and its canonical-JSON echo, the specificity order, the settlement engine, the late-formation guard, and corpus-case replay. The crate is the only implementation of any of those, so what passes here is what ships. Named by surface rather than by case, because the suite grows with every packet of the port and any list of tests written here is stale by the next one.
 kernel-check:
 	cargo fmt --check --manifest-path rebuild/kernel-rs/Cargo.toml
 	cargo clippy --all-targets --manifest-path rebuild/kernel-rs/Cargo.toml -- -D warnings
@@ -117,12 +117,8 @@ kernel-check:
 kernel-parity: kernel-build
 	uv run python -m rebuild.tools.kernel_parity
 
-# Prove the Rust settlement core answers every window the way Python's settle kernel does — the independent twin that still ships as gate:conform's re-settler and this differential's oracle: the late-formation guard swept exhaustively, seeded fuzz windows in each mode combination the port has to reproduce, and the golden single-window corpus sampled off the kernel's own stream and replayed per acceptance configuration — all compared as bytes, result record and fired-pointer delta included. ARGS passes the harness's own knobs; ARGS='--skip-corpus' is the fast form that skips the per-configuration kernel enumerations.
-kernel-differential: kernel-build
-	uv run python -m rebuild.tools.kernel_differential $(ARGS)
-
-# The thing to run around any kernel-semantics change (nothing in the artifact cycle runs it): the crate's own gate, the spec-ingest parity, and the settlement differential against Python's settle kernel, minutes end to end. The fixpoint byte-compare this target used to be retired with the Python fixpoint at issue #78 — the crate is the only enumeration there is, so there is no second one to compare it against; enumeration trust is gate:conform's, the witness gate's and the crate's own partition and replay asserts, which it raises as it folds. ARGS reaches kernel-differential.
-kernel-gate: kernel-check kernel-parity kernel-differential
+# The thing to run around any kernel-semantics change (nothing in the artifact cycle runs it): the crate's own gate and the spec-ingest parity, seconds to a minute end to end. There is no settlement differential here and no fixpoint byte-compare, because there is no second settler and no second enumeration to compare against — settlement has one home. Settlement trust is the crate's own tests, gate:conform's HarfBuzz shaping against a per-window re-settle keyed on the raw window, and the witness gate. Neither leg takes knobs, so this target reads no ARGS.
+kernel-gate: kernel-check kernel-parity
 
 # The periodic deep form of gate:conform: the exhaustive font-vs-settle sweep at horizon 5+ (ARGS='--horizon 6' to go deeper, ARGS='--status' to ask whether it is armed), run by hand or overnight and never by the cycle. Its green is keyed on the emitted lookup's behavior classes, the font-compilation code and the uharfbuzz version rather than on the runes, so a rune edit that introduces no novel rule shape never stales it; a green deep run also refreshes gate:conform's own record, since an exhaustive sweep at this depth covers every text the per-edit belt shapes. The artifact cycle prints armed/current each pass.
 conform-deep:

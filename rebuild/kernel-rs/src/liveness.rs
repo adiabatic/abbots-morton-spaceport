@@ -865,7 +865,7 @@ mod tests {
         assert!(Rc::ptr_eq(&first, &second));
     }
 
-    /// The issue-28 shape, `test_settle.py`'s `_prospect_spec`: `qsPea` exits at both heights and prefers the x-height as a yielding tie-break; `qsTea` enters at both, is exitless when entered at the x-height, and yields its own baseline exit exactly where the slots past it spell `qsMay·qsIt`; an entered `qsMay` is exitless, so `qsTea` joining `qsMay` forecloses that onward join while `qsTea` declining buys it. Nothing here chains far enough to be censused, so every verdict below is the liveness arm's alone.
+    /// The issue-28 shape, `rebuild/pipeline/fixtures.py`'s `prospect_spec`: `qsPea` exits at both heights and prefers the x-height as a yielding tie-break; `qsTea` enters at both, is exitless when entered at the x-height, and yields its own baseline exit exactly where the slots past it spell `qsMay·qsIt`; an entered `qsMay` is exitless, so `qsTea` joining `qsMay` forecloses that onward join while `qsTea` declining buys it. Nothing here chains far enough to be censused, so every verdict below is the liveness arm's alone.
     fn prospect_spec() -> SpecIndex {
         let pea = letter(
             "qsPea",

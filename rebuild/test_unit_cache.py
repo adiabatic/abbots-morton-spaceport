@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from rebuild.pipeline import fixtures, settle
+from rebuild.pipeline import fixtures, kernel_exec
 from rebuild.review import unit_cache
 from rebuild.review.audit import AuditRow, Unit
 from rebuild.review.build import SITE_BEFORE_FONT, SITE_JUNIOR_FONT, _cluster_id, build_m1
@@ -178,13 +178,13 @@ def test_unit_store_environment_tracks_each_kernel_settlement_mode(monkeypatch):
             "after-helpers",
         )
 
-    prospect = settle.SIMULATED_PROSPECT_DEFAULT
-    votes = settle.VOTE_SLOTS_DEFAULT
+    prospect = kernel_exec.SIMULATED_PROSPECT_DEFAULT
+    votes = kernel_exec.VOTE_SLOTS_DEFAULT
     base = stamp()
-    monkeypatch.setattr(settle, "SIMULATED_PROSPECT_DEFAULT", not prospect)
+    monkeypatch.setattr(kernel_exec, "SIMULATED_PROSPECT_DEFAULT", not prospect)
     assert stamp() != base
-    monkeypatch.setattr(settle, "SIMULATED_PROSPECT_DEFAULT", prospect)
-    monkeypatch.setattr(settle, "VOTE_SLOTS_DEFAULT", not votes)
+    monkeypatch.setattr(kernel_exec, "SIMULATED_PROSPECT_DEFAULT", prospect)
+    monkeypatch.setattr(kernel_exec, "VOTE_SLOTS_DEFAULT", not votes)
     assert stamp() != base
 
 

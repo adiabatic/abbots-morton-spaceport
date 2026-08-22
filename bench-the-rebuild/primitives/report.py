@@ -94,9 +94,9 @@ CALLS = {
     "transition_trace": 2_428_420,
     "_prefer_favors": 9_786_077,
 }
-# Per-call primitive recipe. ESTIMATED: read off rebuild/pipeline/settle.py's
-# bodies (candidates 519-620, _prospect, transition_trace 1180-1290,
-# _prefer_favors 754-830) plus the measured stance fan-out in
+# Per-call primitive recipe. ESTIMATED: read off the settlement engine's bodies
+# (rebuild/kernel-rs/src/engine.rs's candidates_uncached, prospect_uncached,
+# transition_trace_uncached and prefer_favors) plus the measured stance fan-out in
 # bench-the-rebuild/fixtures/candidate-fields.tsv (81 rune-stance-entry-exit
 # rows over 18 runes = 4.5 candidate rows per call site, of which ~2.5 survive
 # to construction). Nothing here is measured; the composite is only as good as

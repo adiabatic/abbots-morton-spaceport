@@ -1,12 +1,16 @@
-"""The kernel boundary's Python face (issue #40, sub-issue #47; the only fixpoint there is since issue #78): build the binary, fan one process out over a whole cycle's transition streams, read the section 5.7 guard surface, replay batched author-facing explain cases, and hand back the single-configuration product and tables for everything that is not `run_m1`. It lives here rather than beside the `rebuild/tools/kernel_*.py` harnesses because the pipeline is what calls it and the pipeline does not import from the tools tree; `rebuild/tools/kernel_differential.py` and `kernel_parity.py` keep their own copies of the same constants, which is duplication with a reason — each of them is an exit-bar instrument that has to state the contract it is measuring rather than inherit it from the thing it measures.
+"""The kernel boundary's Python face (issue #40, sub-issue #47; the only fixpoint there is since issue #78, and the only way this side settles anything at all): build the binary, fan one process out over a whole cycle's transition streams, read the section 5.7 guard surface, settle batched windows for explain, review, conform and the tests, and hand back the single-configuration product and tables for everything that is not `run_m1`. It lives here rather than beside the `rebuild/tools/kernel_*.py` harnesses because the pipeline is what calls it and the pipeline does not import from the tools tree; `rebuild/tools/kernel_parity.py` keeps its own copy of the same constants, which is duplication with a reason — it is an exit-bar instrument that has to state the contract it is measuring rather than inherit it from the thing it measures.
 
-The build is `cargo build --release` against the crate's own manifest and nothing else, because release is the only profile anything in this repo runs: the pipeline, the parity harness and the differential all reach for `target/release/ams-m1-kernel`, and a debug binary that answered would answer far too slowly to be the same experiment. A box with no `cargo` is a `KernelBuildError` carrying the remedy rather than a stack trace, since that is the one failure a reader can fix in a minute; `ensure_built` is the memoized form every caller in a process shares, so a suite that builds a hundred tables pays for one build.
+The semantics defaults live here too, beside the flags that carry them across the boundary: `SIMULATED_PROSPECT_DEFAULT` and `VOTE_SLOTS_DEFAULT` belong to settlement, `DEEP_CLASSES_DEFAULT` to enumeration, and each is a module attribute consulted at call time, so the environment is the only lever a whole process has and a test can monkeypatch one. A caller that wants a named world instead of this process's builds a `SettlementModes` and hands it to `settle_cases`, `settle_windows` or `settle_sequences`; nothing else puts a settlement flag on an argv.
 
-`build_table_files` is the verb `run_m1` needs: one process enumerates a configuration and folds it in place, writing its settlement TSV, its treaty TSV and its plain window enumeration, and answering with the contract digest of the pair. There is no stream on that path at all — the fold reads the product the worklist still holds — which is what the several hundred megabytes a configuration's transitions used to cost in writing, reading and holding parsed bought back. `enumerate_configs` is the stream fan-out beside it, what the corpus exporter reaches for and nothing on a build's path does: one process answers every named configuration, writing each one's stream to a file of its own, and the streams are byte-identical to what the same binary emits one configuration at a time at any thread width (sub-issue #46's exit bar). Threads are the caller's to choose because the ceiling is memory rather than CPU — a live configuration holds its whole working set until it has emitted — so sub-issue #46 measured 3 as the solo width on a 32 GB box and `KERNEL_THREADS_DEFAULT` ships one below it, because a cycle runs the fan-out beside a pytest pool rather than alone; `AMS_KERNEL_THREADS` overrides it in either direction, and since the streams are byte-identical at any width that override is purely a memory knob. Callers cap whatever width they are handed at the number of configurations there are to answer and at the CPUs there are to answer them with.
+The build is `cargo build --release` against the crate's own manifest and nothing else, because release is the only profile anything in this repo runs: the pipeline and the parity harness both reach for `target/release/ams-m1-kernel`, and a debug binary that answered would answer far too slowly to be the same instrument. A box with no `cargo` is a `KernelBuildError` carrying the remedy rather than a stack trace, since that is the one failure a reader can fix in a minute; `ensure_built` is the memoized form every caller in a process shares, so a suite that builds a hundred tables pays for one build.
 
-`build_tables` and `enumerate_transitions` are the single-configuration forms in memory, each writing nothing that outlives the call: one spec dumped to a scratch directory, and then either the two tables — `build-tables` into that directory, read back through `table.read_windows` and `table.read_treaty_tsv` — or the raw product, enumerated as a stream and parsed into a `table.FixpointProduct`. The first is how a test, a tool or a hand-assembled spec reaches a table; the second is how `rebuild/tools/export_settlement_corpus.py` reaches the rows a table drops, and is the only thing left that asks for a stream at all.
+`build_table_files` is the verb `run_m1` needs: one process enumerates a configuration and folds it in place, writing its settlement TSV, its treaty TSV and its plain window enumeration, and answering with the contract digest of the pair. There is no stream on that path at all — the fold reads the product the worklist still holds — which is what the several hundred megabytes a configuration's transitions used to cost in writing, reading and holding parsed bought back. `enumerate_configs` is the stream fan-out beside it, which nothing on a build's path and no tool asks for: one process answers every named configuration, writing each one's stream to a file of its own, and the streams are byte-identical to what the same binary emits one configuration at a time at any thread width (sub-issue #46's exit bar). Threads are the caller's to choose because the ceiling is memory rather than CPU — a live configuration holds its whole working set until it has emitted — so sub-issue #46 measured 3 as the solo width on a 32 GB box and `KERNEL_THREADS_DEFAULT` ships one below it, because a cycle runs the fan-out beside a pytest pool rather than alone; `AMS_KERNEL_THREADS` overrides it in either direction, and since the streams are byte-identical at any width that override is purely a memory knob. Callers cap whatever width they are handed at the number of configurations there are to answer and at the CPUs there are to answer them with.
 
-`guard_sweep` is one other in-memory form: one spec dump, one crate invocation, and one complete mapping from `(ligature, first raw slot, second raw slot)` to the config-blind formation verdict. `settle_cases` is the author-facing sibling: a file of independent `ams-m1-corpus/3` windows in, the full Rust trace objects out, with count and question echo checked before the caller decodes a report. The CLI spells boundary tokens as `edge`, `space`, `zwnj`, `namer-dot`, and `unknown`; the guard mapping converts them to Python's `RightToken` constants at the boundary so consumers never confuse those model tokens with glyph names such as `uni200C` or `periodcentered`.
+`build_tables` and `enumerate_transitions` are the single-configuration forms in memory, each writing nothing that outlives the call: one spec dumped to a scratch directory, and then either the two tables — `build-tables` into that directory, read back through `table.read_windows` and `table.read_treaty_tsv` — or the raw product, enumerated as a stream and parsed into a `table.FixpointProduct`. The first is how a test, a tool or a hand-assembled spec reaches a table; the second is the raw product a fold consumes, which no build stage and no tool asks for any more, and `rebuild/test_kernel_exec.py` is what keeps that path exercised.
+
+`guard_sweep` is one other in-memory form: one crate invocation and one complete mapping from `(ligature, first raw slot, second raw slot)` to the config-blind formation verdict, memoized per spec identity so a process sweeps one spec once however many callers ask. The settlement verbs sit beside it and share its spec dump. `settle_cases` is the raw form — a file of independent `ams-m1-corpus/3` windows in, the full Rust trace objects out, with count and question echo checked before anything decodes. `settle_windows` decodes each answer straight to a `Settled`, for the conform walker, which wants outcomes by the tens of thousands rather than traces. `settle_sequences` is what explain, the probe and the review surface reach for: the verb takes independent windows, while a sequence's next left context is the previous window's answer, so a batch of whole sequences advances in waves — all first positions, then all second positions off the first wave's answers — with boundary positions answered locally because they are model constants. `settle_codepoints` is the one-line form over a text. The CLI spells boundary tokens as `edge`, `space`, `zwnj`, `namer-dot`, and `unknown`; the guard mapping converts them to Python's `RightToken` constants at the boundary so consumers never confuse those model tokens with glyph names such as `uni200C` or `periodcentered`.
+
+The codecs between the transport rows and the pipeline's model types live here as well — `case_row` and `settled_row` on the way out, `trace_of` on the way back — because every settlement caller needs them and none of them should be reaching into another consumer's module for one. A window the crate refuses answers `{raise, message}`, and that becomes a `settle.SettleError` carrying the crate's bucket and its sentence verbatim, so a caller can sort refusals without reading prose; an answer malformed in any other way is the boundary itself being wrong and stays a `KernelRunError`.
 
 The invocation is read strictly, on the CLI contract's own terms: exit 2 is the usage check, which for a well-formed invocation can only mean the verb is absent or the two sides' flag sets have drifted apart; any other nonzero exit is the kernel complaining about its inputs; and stderr on a clean exit is a failure unless timings were asked for, in which case every `[t]` line is forwarded to this process's own stderr verbatim so the cycle journal reads the kernel's per-configuration walls the same way it reads Python's, and anything else on that stream is still a failure. Enumeration answers in files, so bytes on stdout there are a failure; `build-tables` answers in files too but reports its digests on stdout, one JSON object per line, and the set is checked against the configurations that were asked for; `guard-sweep` answers on stdout and its complete TSV surface is parsed strictly.
 """
@@ -19,11 +23,14 @@ import os
 import subprocess
 import sys
 import tempfile
+import threading
+from collections import OrderedDict
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from rebuild.pipeline import kernel_io, settle, table
-from rebuild.pipeline.model import ResolvedSpec, feature_config_token
+from rebuild.pipeline.model import CellId, Provenance, ResolvedSpec, Settled, feature_config_token
 from rebuild.pipeline.table import DecisionTable, FixpointProduct, TreatyTable
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -35,12 +42,16 @@ TIMEOUT = 1800
 LOCK_PATH = MANIFEST.parent / "target" / ".ams-kernel-uplift.lock"
 # How much of a failed build's stderr rides the exception: cargo says what is wrong in its last few lines and repeats the whole compilation above them.
 BUILD_TAIL_LINES = 20
-# The issue-26 flag: deep window slots enumerate at class grain (one row per outcome fiber, expanded back to labels for every fold-side consumer). It is a kernel invocation flag, carried across by `world_flags` like settle's two semantics defaults — module-level, consulted at call time, AMS_DEEP_CLASSES=0 the label-grain comparison state — and `class_grain` states the grain rule the crate itself applies.
+# The issue-28 flag, default on since stage 3: the third join-count term is scored by the follower's simulated transition instead of seam-bearing candidacy. Module-level so the default is one edit and a comparison run_m1 can opt out across its spawn-pool workers via AMS_SIMULATED_PROSPECT=0; consulted at call time, so a test may monkeypatch it and a caller wanting one named world regardless passes `SettlementModes`.
+SIMULATED_PROSPECT_DEFAULT = os.environ.get("AMS_SIMULATED_PROSPECT", "1") != "0"
+# The issue-28 stage-4b companion flag, default on: follower votes are evaluated over the seat's real shifted slots (vote right1 = seat right2, right2 = seat right3, right3 = seat right4) instead of pinning everything past the vote's own right1 to UNKNOWN, so a chained vote resolves inside the window instead of firing optimistically wherever its then: hop read the pin. Same plumbing contract as SIMULATED_PROSPECT_DEFAULT: module-level, consulted at call time, AMS_VOTE_SLOTS=0 is the comparison state.
+VOTE_SLOTS_DEFAULT = os.environ.get("AMS_VOTE_SLOTS", "1") != "0"
+# The issue-26 flag: deep window slots enumerate at class grain (one row per outcome fiber, expanded back to labels for every fold-side consumer). It is a kernel invocation flag, carried across by `world_flags` like the two semantics defaults above — module-level, consulted at call time, AMS_DEEP_CLASSES=0 the label-grain comparison state — and `class_grain` states the grain rule the crate itself applies.
 DEEP_CLASSES_DEFAULT = os.environ.get("AMS_DEEP_CLASSES", "1") != "0"
-# The three semantics flags a fixpoint's shape depends on, each as (the kernel flag that says it is off, the module holding the default, the attribute). Off is what carries a flag, so the shipping world invokes the verb bare.
+# The three semantics flags a fixpoint's shape depends on, each as (the kernel flag that says it is off, the module holding the default, the attribute). All three defaults are this module's, and the module is named rather than closed over so a monkeypatched attribute is what a later call reads. Off is what carries a flag, so the shipping world invokes the verb bare.
 SETTLEMENT_FLAGS = (
-    ("--candidacy-prospect", settle, "SIMULATED_PROSPECT_DEFAULT"),
-    ("--vote-slots-off", settle, "VOTE_SLOTS_DEFAULT"),
+    ("--candidacy-prospect", sys.modules[__name__], "SIMULATED_PROSPECT_DEFAULT"),
+    ("--vote-slots-off", sys.modules[__name__], "VOTE_SLOTS_DEFAULT"),
 )
 WORLD_FLAGS = (
     *SETTLEMENT_FLAGS,
@@ -49,11 +60,25 @@ WORLD_FLAGS = (
 GUARD_TAIL_TOKENS = {
     token.kind: token for token in (settle.EDGE, settle.SPACE, settle.ZWNJ, settle.NAMER_DOT, settle.UNKNOWN)
 }
-FormationGuard = dict[tuple[str, settle.RightToken, settle.RightToken], bool]
+FormationGuard = settle.FormationGuard
+# How many windows ride one `settle-cases` invocation on the sequence path, where every answer comes back as a whole decoded trace. A spawn costs about a third of a second and a case about sixteen microseconds, so the batch is sized to keep the spawn a rounding error while the decoded traces — some kilobytes each — stay a bounded pile.
+SETTLE_CASE_BATCH_SIZE = 2048
+# The same bound for `settle_windows`, where an answer decodes to a `Settled` and nothing else. Eight times the trace batch, because the resident cost per case is a fraction of a trace's and the conform walker has hundreds of thousands of distinct windows to get through.
+SETTLE_WINDOW_BATCH = 16384
 
 _BUILT = False
 # The stamp a window enumeration nobody will keep is written under. `build-tables` always writes the payload — it is where the head a caller reads its rules and cells back out of comes from — and always demands a stamp for its head, but a caller with no fingerprint over the repo's rune files has none to give and deletes the payload unread rather than packing it, so the word it carried never reaches an artifact.
 UNSTAMPED_WINDOWS = "unstamped"
+
+# One scratch dump per live spec, keyed on identity and holding the spec strongly so an id can never be recycled underneath an entry. A dump costs a few milliseconds and a couple of hundred kilobytes, and the settlement verbs would otherwise pay for one per invocation; the cap is small because the callers that matter hold one spec, and eviction cleans the directory.
+_SPEC_DUMPS: OrderedDict[int, tuple[ResolvedSpec, tempfile.TemporaryDirectory, Path]] = OrderedDict()
+_SPEC_DUMPS_CAP = 4
+_SPEC_DUMPS_LOCK = threading.Lock()
+
+# The same shape for the guard surface, which is a whole crate invocation rather than a file write.
+_GUARD_SWEEPS: OrderedDict[int, tuple[ResolvedSpec, FormationGuard]] = OrderedDict()
+_GUARD_SWEEPS_CAP = 4
+_GUARD_SWEEPS_LOCK = threading.Lock()
 
 
 class KernelBuildError(RuntimeError):
@@ -65,7 +90,7 @@ class KernelRunError(RuntimeError):
 
 
 def cargo_build() -> None:
-    """Build the kernel in release mode, the way `make kernel-build` does. Callers run this before every fan-out rather than checking whether the binary exists: a stale binary and a fresh one are the same file, and the whole point of a differential engine is that the sources on disk are what answered. A warm build costs a fraction of a second; a cold one costs what a cold one costs."""
+    """Build the kernel in release mode, the way `make kernel-build` does. Callers run this before every fan-out rather than checking whether the binary exists: a stale binary and a fresh one are the same file, and what a caller needs is that the sources on disk are what answered. A warm build costs a fraction of a second; a cold one costs what a cold one costs."""
     arguments = ["cargo", "build", "--release", "--manifest-path", str(MANIFEST)]
     try:
         with _uplift_lock(fcntl.LOCK_EX):
@@ -135,18 +160,58 @@ def ensure_built() -> None:
 
 
 def world_flags() -> list[str]:
-    """The mode flags the kernel needs to enumerate the world this Python process is in — one per default that is off. All three are module-level defaults consulted at construction time, so the environment is the only lever on the Python side and this is what carries it across to the kernel; the same three tokens ride `run_m1.tables_inputs`, so a flag-on enumeration can never be mistaken for a flag-off one on either side of the seam."""
+    """The mode flags the kernel needs to enumerate the world this Python process is in — one per default that is off. All three are this module's defaults, consulted at call time, so the environment is the only lever on the Python side and this is what carries it across to the kernel; the same three tokens ride `run_m1.tables_inputs`, so a flag-on enumeration can never be mistaken for a flag-off one on either side of the seam."""
     return [flag for flag, module, attribute in WORLD_FLAGS if not getattr(module, attribute)]
 
 
-def settlement_flags() -> list[str]:
-    """The two mode flags shared by every direct settlement invocation. Deep-class grain belongs only to enumeration, so it is deliberately absent from this narrower list."""
-    return [flag for flag, module, attribute in SETTLEMENT_FLAGS if not getattr(module, attribute)]
+@dataclass(frozen=True)
+class SettlementModes:
+    """One named settlement world, for a caller that wants a world other than the one its process is in. `current()` is the process's own — the module defaults, read now rather than at import — and `flags()` is what those two booleans put on an argv, spelled and ordered by `SETTLEMENT_FLAGS` so there is one authority for the spellings. Passing an explicit pair is how a comparison, a pinned test, or a guard-grain caller asks for a world without touching the module defaults every other caller in the process is reading."""
+
+    simulated_prospect: bool
+    vote_slots: bool
+
+    @classmethod
+    def current(cls) -> SettlementModes:
+        return cls(simulated_prospect=SIMULATED_PROSPECT_DEFAULT, vote_slots=VOTE_SLOTS_DEFAULT)
+
+    def flags(self) -> list[str]:
+        on = {
+            "SIMULATED_PROSPECT_DEFAULT": self.simulated_prospect,
+            "VOTE_SLOTS_DEFAULT": self.vote_slots,
+        }
+        return [flag for flag, _module, attribute in SETTLEMENT_FLAGS if not on[attribute]]
+
+
+def settlement_flags(modes: SettlementModes | None = None) -> list[str]:
+    """The two mode flags shared by every direct settlement invocation, for `modes` or for this process's own world. Deep-class grain belongs only to enumeration, so it is deliberately absent from this narrower list."""
+    if modes is None:
+        modes = SettlementModes.current()
+    return modes.flags()
 
 
 def class_grain() -> bool:
     """Whether the enumeration this process asks for splits its deep slots into outcome fibers — the grain rule the crate applies, restated on the Python side for the callers that have to name it. `AMS_DEEP_CLASSES` asks for class grain, but the fibers have a source only where a deep token can move an outcome at all: in the pinned candidacy world, with neither the simulated prospect nor the shifted vote slots, there is nothing to probe and the crate enumerates at label grain whatever the flag says. `run_m1.tables_inputs` reads this, because the stamp on a serialized enumeration has to distinguish the two grains."""
-    return DEEP_CLASSES_DEFAULT and (settle.SIMULATED_PROSPECT_DEFAULT or settle.VOTE_SLOTS_DEFAULT)
+    return DEEP_CLASSES_DEFAULT and (SIMULATED_PROSPECT_DEFAULT or VOTE_SLOTS_DEFAULT)
+
+
+def _spec_dump(spec: ResolvedSpec) -> Path:
+    """The path of this spec's `spec.json`, dumped once per spec identity per process. Every settlement verb and the guard sweep read the same file: the dump is the fixed cost of reaching the kernel at all, and a walker that settles a hundred batches of one spec should pay it once rather than a hundred times. The entry holds the spec strongly, so its `id` cannot be recycled while the dump stands for it, and holds the `TemporaryDirectory` so eviction is what removes the file rather than a garbage collection nobody scheduled."""
+    key = id(spec)
+    with _SPEC_DUMPS_LOCK:
+        held = _SPEC_DUMPS.get(key)
+        if held is not None and held[0] is spec:
+            _SPEC_DUMPS.move_to_end(key)
+            return held[2]
+        scratch = tempfile.TemporaryDirectory()
+        path = Path(scratch.name) / "spec.json"
+        kernel_io.write_spec(spec, path)
+        _SPEC_DUMPS[key] = (spec, scratch, path)
+        _SPEC_DUMPS.move_to_end(key)
+        while len(_SPEC_DUMPS) > _SPEC_DUMPS_CAP:
+            _evicted_key, (_evicted_spec, evicted_scratch, _evicted_path) = _SPEC_DUMPS.popitem(last=False)
+            evicted_scratch.cleanup()
+        return path
 
 
 def enumerate_configs(
@@ -285,17 +350,23 @@ def _tagged(line: str, tag: str) -> str:
     return f"{marker} {label}[{tag}] {tail}"
 
 
+def _identity(answer: dict) -> dict:
+    return answer
+
+
 def _settle_cases(
     spec_path: Path,
     cases_path: Path,
     cases: Sequence[Mapping],
     features: frozenset[str],
-) -> list[dict]:
-    """Invoke `settle-cases` over one already-written spec and case file, then prove that the kernel returned one answer per question without changing or reordering any question fields."""
+    modes: SettlementModes | None = None,
+    decode=_identity,
+):
+    """Invoke `settle-cases` over one already-written spec and case file, then prove that the kernel returned one answer per question without changing or reordering any question fields. `decode` is the per-line seam: the default hands back the whole answer, and a caller that wants one model value per window — `settle_windows` wants a `Settled` — passes a decoder instead of building a list of answer dictionaries it would immediately throw away."""
     arguments = [str(BINARY), "settle-cases", str(spec_path), str(cases_path)]
     if features:
         arguments.append(f"--features={','.join(sorted(features))}")
-    arguments.extend(settlement_flags())
+    arguments.extend(settlement_flags(modes))
     finished = _run_kernel(arguments, "settle-cases")
     errors = finished.stderr.decode(errors="replace").strip()
     if finished.returncode == 2:
@@ -312,7 +383,7 @@ def _settle_cases(
         raise KernelRunError(f"the kernel wrote non-UTF-8 settle-cases output: {error}") from None
     if len(lines) != len(cases):
         raise KernelRunError(f"settle-cases returned {len(lines)} answers for {len(cases)} questions")
-    answers: list[dict] = []
+    answers = []
     for line_number, (line, question) in enumerate(zip(lines, cases), 1):
         try:
             answer = json.loads(line)
@@ -326,25 +397,254 @@ def _settle_cases(
             raise KernelRunError(f"settle-cases line {line_number} changed or reordered its question")
         if "result" not in answer:
             raise KernelRunError(f"settle-cases line {line_number} has no result")
-        answers.append(answer)
+        answers.append(decode(answer))
     return answers
 
 
-def settle_cases(spec: ResolvedSpec, cases: Sequence[Mapping], features: frozenset[str]) -> list[dict]:
-    """Replay a batch of settlement windows through the crate and return the full trace objects it emitted. The case dictionaries use the `ams-m1-corpus/3` row shape; the caller owns conversion between those transport rows and pipeline model types."""
+def _settle_batch(
+    spec: ResolvedSpec,
+    cases: Sequence[Mapping],
+    features: frozenset[str],
+    modes: SettlementModes | None,
+    decode,
+):
+    """One `settle-cases` invocation over one batch: the spec dump is the memoized one, so only the case file is written per call, and it goes with the frame."""
     if not cases:
         return []
+    spec_path = _spec_dump(spec)
     with tempfile.TemporaryDirectory() as scratch:
-        directory = Path(scratch)
-        spec_path = directory / "spec.json"
-        cases_path = directory / "cases.ndjson"
-        kernel_io.write_spec(spec, spec_path)
+        cases_path = Path(scratch) / "cases.ndjson"
         cases_path.write_text(
             "".join(json.dumps(dict(case), separators=(",", ":")) + "\n" for case in cases),
             encoding="utf-8",
         )
         ensure_built()
-        return _settle_cases(spec_path, cases_path, cases, frozenset(features))
+        return _settle_cases(spec_path, cases_path, cases, frozenset(features), modes, decode)
+
+
+def settle_cases(
+    spec: ResolvedSpec,
+    cases: Sequence[Mapping],
+    features: frozenset[str],
+    modes: SettlementModes | None = None,
+) -> list[dict]:
+    """Replay a batch of settlement windows through the crate and return the full answers it emitted. The case dictionaries use the `ams-m1-corpus/3` row shape — `case_row` builds one — and `trace_of` is what reads an answer's `result` back into a `TransitionTrace`. `modes` names the settlement world; without one the process's own defaults answer."""
+    return _settle_batch(spec, cases, features, modes, _identity)
+
+
+def token_row(token: settle.RightToken) -> dict:
+    """One raw lookahead slot in the transport shape."""
+    return {"kind": token.kind, "letter": token.rune}
+
+
+def settled_row(settled: Settled) -> dict:
+    """One settled cell in the transport shape, which is how a left context reaches the kernel."""
+    cell = settled.cell
+    return {
+        "cell": [cell.rune, cell.stance, cell.entry, cell.exit, list(cell.adjustments)],
+        "seam": settled.seam,
+        "extension": settled.extension,
+    }
+
+
+def case_row(left: settle.LeftContext, token: settle.RightToken, rights: Sequence[settle.RightToken]) -> dict:
+    """One independent window as `settle-cases` reads it: the resolved left, the rune being settled, and the four raw slots after it. The whole row rides back on the answer line, which is what lines a batch's answers up with its questions."""
+    return {
+        "left": {
+            "kind": left.kind,
+            "settled": settled_row(left.settled) if left.settled is not None else None,
+        },
+        "input": token.rune,
+        "right": [token_row(right) for right in rights],
+        "result": None,
+    }
+
+
+def _refusal(result: Mapping) -> None:
+    """The crate's refusal answer, re-raised as this side's `SettleError`. A well-formed refusal is `{raise, message}` and nothing else: the raise identity becomes the error's bucket and the crate's sentence becomes the message verbatim, so nothing downstream has to parse prose to sort one refusal from another. Anything else wearing a `raise` key is the boundary being wrong rather than the window, and stays a `KernelRunError`."""
+    if "raise" not in result:
+        return
+    bucket = result.get("raise")
+    message = result.get("message")
+    if set(result) != {"raise", "message"} or not isinstance(bucket, str) or not isinstance(message, str):
+        raise KernelRunError(f"settle-cases returned a malformed refusal: {result!r}")
+    raise settle.SettleError(message, bucket)
+
+
+def _candidate_of(row) -> settle.Candidate:
+    if not isinstance(row, list) or len(row) != 5:
+        raise KernelRunError(f"settle-cases returned a malformed candidate: {row!r}")
+    stance, entry, seam, order_index, exit_index = row
+    return settle.Candidate(stance, entry, seam, order_index, exit_index)
+
+
+def _settled_of(result) -> Settled:
+    """The settled cell alone, for a caller with no use for the ladder that chose it."""
+    if not isinstance(result, Mapping):
+        raise KernelRunError(f"settle-cases returned a malformed result: {result!r}")
+    _refusal(result)
+    row = result.get("settled")
+    if not isinstance(row, Mapping) or set(row) != {"cell", "seam", "extension"}:
+        raise KernelRunError(f"settle-cases returned a malformed settled result: {row!r}")
+    cell_row = row["cell"]
+    if not isinstance(cell_row, list) or len(cell_row) != 5 or not isinstance(cell_row[4], list):
+        raise KernelRunError(f"settle-cases returned a malformed cell: {cell_row!r}")
+    cell = CellId(cell_row[0], cell_row[1], cell_row[2], cell_row[3], tuple(cell_row[4]))
+    return Settled(cell, row["seam"], row["extension"])
+
+
+def _provenance_of(pointer) -> Provenance | None:
+    if pointer is None:
+        return None
+    if not isinstance(pointer, str) or ":" not in pointer:
+        raise KernelRunError(f"settle-cases returned a malformed provenance pointer: {pointer!r}")
+    file, path = pointer.rsplit(":", 1)
+    return Provenance(file, path)
+
+
+def trace_of(result) -> settle.TransitionTrace:
+    """One answer's `result` read back into the trace every author-facing consumer renders: the settled cell, the ranked ladder, the eliminations with their YAML provenance, the stage that decided, and the notes."""
+    if not isinstance(result, Mapping):
+        raise KernelRunError(f"settle-cases returned a malformed result: {result!r}")
+    _refusal(result)
+    expected = {
+        "settled",
+        "prospect",
+        "joint_floor",
+        "notes",
+        "fired",
+        "decided_stage",
+        "runner_up",
+        "ranked",
+        "eliminations",
+    }
+    if set(result) != expected:
+        raise KernelRunError(
+            f"settle-cases returned trace fields {sorted(result)}, expected {sorted(expected)}"
+        )
+    for field_name in ("notes", "fired", "ranked", "eliminations"):
+        if not isinstance(result[field_name], list):
+            raise KernelRunError(
+                f"settle-cases returned a malformed {field_name} field: {result[field_name]!r}"
+            )
+    ranked = tuple(
+        settle.RankedCandidate(_candidate_of(row[0]), row[1], row[2])
+        for row in result["ranked"]
+        if isinstance(row, list) and len(row) == 3
+    )
+    if len(ranked) != len(result["ranked"]):
+        raise KernelRunError("settle-cases returned a malformed ranked ladder")
+    eliminations = tuple(
+        settle.Elimination(row[0], row[1], _provenance_of(row[2]))
+        for row in result["eliminations"]
+        if isinstance(row, list) and len(row) == 3
+    )
+    if len(eliminations) != len(result["eliminations"]):
+        raise KernelRunError("settle-cases returned malformed eliminations")
+    runner_up = None if result["runner_up"] is None else _candidate_of(result["runner_up"])
+    return settle.TransitionTrace(
+        settled=_settled_of(result),
+        joint_floor=result["joint_floor"],
+        prospect=result["prospect"],
+        ranked=ranked,
+        eliminations=eliminations,
+        decided_stage=result["decided_stage"],
+        runner_up=runner_up,
+        notes=tuple(result["notes"]),
+    )
+
+
+def _settled_answer(answer: dict) -> Settled:
+    return _settled_of(answer["result"])
+
+
+def settle_windows(
+    spec: ResolvedSpec,
+    cases: Sequence[Mapping],
+    features: frozenset[str],
+    batch: int = SETTLE_WINDOW_BATCH,
+    modes: SettlementModes | None = None,
+) -> list[Settled]:
+    """One `Settled` per case, in the order the cases were asked, decoded straight off each answer line. This is the conform walker's verb: it settles distinct raw windows by the hundred thousand and keeps only the outcome, so a whole trace decoded into Python objects per window would be two orders of magnitude of memory spent on ladders nothing reads. `batch` bounds how many windows ride one invocation."""
+    out: list[Settled] = []
+    for start in range(0, len(cases), batch):
+        out.extend(_settle_batch(spec, cases[start : start + batch], features, modes, _settled_answer))
+    return out
+
+
+@dataclass
+class _SequenceState:
+    tokens: tuple[settle.RightToken, ...]
+    features: frozenset[str]
+    traces: list[settle.TransitionTrace] = field(default_factory=list)
+    left: settle.LeftContext = settle.LeftContext("edge")
+    dropped: bool = False
+
+
+def settle_sequences(
+    spec: ResolvedSpec,
+    requests: Sequence[tuple[Sequence[settle.RightToken], frozenset[str]]],
+    *,
+    on_error: str = "raise",
+    modes: SettlementModes | None = None,
+) -> list[list[settle.TransitionTrace] | None]:
+    """A trace per position for each already-formed token sequence, in the order the sequences were asked. This is the batching verb: `settle-cases` answers independent windows, while a sequence's next left context is the previous window's answer, so the batch advances in waves — every sequence's first position, then every sequence's second position off the first wave's answers — and each wave spends one invocation per feature configuration per `SETTLE_CASE_BATCH_SIZE` windows rather than one per sequence. Boundary positions never reach the kernel: they settle to a model constant and reset the left here.
+
+    Tokenization and formation are the caller's, because a caller that already knows its tokens should not be handed a codepoint list to re-derive them from; `settle_codepoints` is the form that does both. `on_error="raise"` lets a refusal out at the wave that hit it, which names the offending left and input in the crate's own sentence. `on_error="drop"` instead answers `None` for that one sequence and leaves every other sequence in the wave to finish — a caller sweeping texts it does not control (the table diff's witness index) wants the survivors rather than the first complaint.
+    """
+    states = [
+        _SequenceState(tokens=tuple(tokens), features=frozenset(features)) for tokens, features in requests
+    ]
+    max_positions = max((len(state.tokens) for state in states), default=0)
+    for position in range(max_positions):
+        batches: dict[frozenset[str], list[tuple[_SequenceState, dict]]] = {}
+        for state in states:
+            if state.dropped or position >= len(state.tokens):
+                continue
+            token = state.tokens[position]
+            if token.kind != "letter":
+                state.traces.append(
+                    settle.TransitionTrace(
+                        settle.boundary_settled(token.kind), False, 0, (), (), "boundary", None, ()
+                    )
+                )
+                state.left = settle.LeftContext(token.kind)
+                continue
+            rights = tuple(
+                state.tokens[index] if index < len(state.tokens) else settle.EDGE
+                for index in range(position + 1, position + 5)
+            )
+            batches.setdefault(state.features, []).append((state, case_row(state.left, token, rights)))
+        for features, pending in batches.items():
+            for start in range(0, len(pending), SETTLE_CASE_BATCH_SIZE):
+                chunk = pending[start : start + SETTLE_CASE_BATCH_SIZE]
+                answers = settle_cases(spec, [case for _state, case in chunk], features, modes=modes)
+                for (state, _case), answer in zip(chunk, answers):
+                    try:
+                        trace = trace_of(answer["result"])
+                    except settle.SettleError:
+                        if on_error != "drop":
+                            raise
+                        state.dropped = True
+                        continue
+                    state.traces.append(trace)
+                    state.left = settle.LeftContext("letter", trace.settled)
+    return [None if state.dropped else state.traces for state in states]
+
+
+def settle_codepoints(
+    spec: ResolvedSpec,
+    codepoints: Sequence[int],
+    features: frozenset[str],
+    guard_verdicts: FormationGuard | None = None,
+) -> list[Settled]:
+    """One text settled end to end: tokenize, form its ligatures against the guard surface, settle every position through the crate, and hand back the settled cells. `guard_verdicts` lets a caller with a sweep already in hand skip the memo lookup entirely."""
+    if guard_verdicts is None:
+        guard_verdicts = guard_sweep(spec)
+    tokens = settle.form_ligatures(spec, settle.tokens_from_codepoints(spec, codepoints), guard_verdicts)
+    traces = settle_sequences(spec, [(tokens, frozenset(features))])[0]
+    assert traces is not None
+    return [trace.settled for trace in traces]
 
 
 def _guard_verdicts(spec: ResolvedSpec, spec_path: Path) -> FormationGuard:
@@ -422,12 +722,21 @@ def _guard_verdicts(spec: ResolvedSpec, spec_path: Path) -> FormationGuard:
 
 
 def guard_sweep(spec: ResolvedSpec) -> FormationGuard:
-    """The crate's complete config-blind section 5.7 verdict surface for `spec`, parsed into Python model tokens. One call performs exactly one `guard-sweep` invocation."""
-    with tempfile.TemporaryDirectory() as scratch:
-        spec_path = Path(scratch) / "spec.json"
-        kernel_io.write_spec(spec, spec_path)
+    """The crate's complete config-blind section 5.7 verdict surface for `spec`, parsed into Python model tokens. Exactly one `guard-sweep` invocation runs per spec identity per process, however many callers ask: the sweep is a fifth of a second and a few thousand entries, and formation is staged before everything, so a surface build, an emitter and a walker in one process would otherwise each spawn for the same answer. The mapping handed back is the memo's own, shared and read-only by convention; a caller that needs to mutate one takes a copy."""
+    key = id(spec)
+    with _GUARD_SWEEPS_LOCK:
+        held = _GUARD_SWEEPS.get(key)
+        if held is not None and held[0] is spec:
+            _GUARD_SWEEPS.move_to_end(key)
+            return held[1]
+        spec_path = _spec_dump(spec)
         ensure_built()
-        return _guard_verdicts(spec, spec_path)
+        verdicts = _guard_verdicts(spec, spec_path)
+        _GUARD_SWEEPS[key] = (spec, verdicts)
+        _GUARD_SWEEPS.move_to_end(key)
+        while len(_GUARD_SWEEPS) > _GUARD_SWEEPS_CAP:
+            _GUARD_SWEEPS.popitem(last=False)
+        return verdicts
 
 
 def read_stream(stream: Path) -> FixpointProduct:
@@ -439,7 +748,7 @@ def read_stream(stream: Path) -> FixpointProduct:
 
 
 def enumerate_transitions(spec: ResolvedSpec, features: frozenset[str]) -> FixpointProduct:
-    """One configuration's reachable windows, enumerated by the crate and parsed back into the value the stream is stated at. `table.FixpointProduct` carries everything the fold reads and nothing else the engine touched, which is why a consumer that wants what a table drops — the settled cells, the seams, the optimistic prospect, the fired provenance per row — asks for the product rather than for the tables. Nothing on a build's path does: `build_tables` beside this one folds in the crate and never writes a stream, and the one caller left is `rebuild/tools/export_settlement_corpus.py`. Everything is in memory and nothing survives the call — the spec dump and the stream live in a scratch directory that goes with the frame."""
+    """One configuration's reachable windows, enumerated by the crate and parsed back into the value the stream is stated at. `table.FixpointProduct` carries everything the fold reads and nothing else the engine touched, which is why a consumer that wants what a table drops — the settled cells, the seams, the optimistic prospect, the fired provenance per row — asks for the product rather than for the tables. Nothing does any more: `build_tables` beside this one folds in the crate and never writes a stream, and no tool asks for one either, so what keeps the path exercised is `rebuild/test_kernel_exec.py`. Everything is in memory and nothing survives the call — the spec dump and the stream live in a scratch directory that goes with the frame."""
     with tempfile.TemporaryDirectory() as scratch:
         directory = Path(scratch)
         spec_path = directory / "spec.json"

@@ -474,22 +474,15 @@ class TestLateFormationGuardLines:
         utter_second = [line for line in guarded if "qsDay' qsUtter' qsUtter" in line]
         assert utter_second == []
 
-    def test_emission_reads_one_crate_sweep_and_not_the_python_guard(
-        self, spec, glyphs, guard_verdicts, monkeypatch
-    ):
-        from rebuild.pipeline import settle as settle_module
-
+    def test_emission_reads_one_crate_sweep(self, spec, glyphs, guard_verdicts, monkeypatch):
+        """Every guarded row an emission writes comes off one sweep of the spec it was handed: `emit_gsub` asks `kernel_exec.guard_sweep` once and reads the whole verdict surface from that answer, rather than asking per ligature or per window."""
         sweeps = []
 
         def crate_guard(received_spec):
             sweeps.append(received_spec)
             return guard_verdicts
 
-        def python_guard(*_arguments, **_keywords):
-            raise AssertionError("emit_gsub consulted Python's formation guard")
-
         monkeypatch.setattr(kernel_exec, "guard_sweep", crate_guard)
-        monkeypatch.setattr(settle_module, "formation_blocked", python_guard)
         plan = emit_gsub.emit_gsub(spec, {frozenset(): FakeDecision(_rules(spec, glyphs))}, glyphs=glyphs)
         assert plan.formation_guarded_rows
         assert sweeps == [spec]

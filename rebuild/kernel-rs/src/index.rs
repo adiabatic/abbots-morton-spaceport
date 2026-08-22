@@ -2,7 +2,7 @@
 //!
 //! The model is deliberately lookup-free — `model.rs` says so, and says the sub-issue that needs indexed access should build the index it needs. This is that index. It exists because Python gets these lookups for free from `dict`: `spec.runes[name]`, `stance.surface.entries.get(height)`, `spec.registry.heights[height]` are all constant-time reads of a mapping that also remembers its insertion order, and the Rust model splits those two properties apart — the [`Table`] keeps the order and this module adds the lookup. Nothing here changes a semantic; every accessor answers exactly what the corresponding Python subscript answers, including which answer is "absent".
 //!
-//! Two further things live here because they are pure functions of the spec that Python recomputes or caches per engine, and a per-spec answer is the same answer. The stance order index — `policy.order` extended by declaration order, with `order.index(...)`'s exact arithmetic including the seats that names not naming a stance still occupy — is cached per engine in `settle.Engine._order_index_cache` and is precomputed here instead. `is_entry_bearing` and the per-rune entry-stroke set are Python module-level functions recomputed on every call; both are feature-blind reads of the surface, so they are resolved once at build time.
+//! Two further things live here because they are pure functions of the spec that a per-engine cache would only recompute, and a per-spec answer is the same answer. The stance order index — `policy.order` extended by declaration order, with `order.index(...)`'s exact arithmetic including the seats that names not naming a stance still occupy — is resolved once at build time rather than per engine, and so are `is_entry_bearing` and the per-rune entry-stroke set, both feature-blind reads of the surface. `settle.is_entry_bearing` answers the first of those on the Python side too, for the callers that ask it before a window reaches this crate.
 //!
 //! The index takes ownership of the [`Spec`] rather than borrowing it, which buys two things. There are no lifetimes to thread through the engine, the guard, and the caches; and the interner is reachable mutably at build time, so [`Vocab`] and the withdrawn-state symbols can be interned into the spec's own pool instead of living in a second one. Interning into that pool cannot disturb emission, which walks the tree and never the pool.
 
@@ -14,7 +14,7 @@ use crate::model::{
 };
 use crate::types::{Vocab, WITHDRAWN_SUFFIX};
 
-/// One stance's identity within a spec: the rune's declaration seat and the stance's seat inside it. This is the port's replacement for Python's `id(stance)`, which `settle.py` uses to key the exit-sources and pairing-set caches; a seat pair is `Copy`, hashes on two integers, and cannot be recycled the way an address can, which is why the Python originals need identity re-checks and small LRU caps and this does not.
+/// One stance's identity within a spec: the rune's declaration seat and the stance's seat inside it. This is what the exit-sources and pairing-set caches key on, in place of a stance's address: a seat pair is `Copy`, hashes on two integers, and cannot be recycled the way an address can, which is why an address-keyed cache needs identity re-checks and a small cap and this needs neither.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct StanceId {
     pub rune: u32,
@@ -216,7 +216,7 @@ impl SpecIndex {
         self.rune_entry(seat).0
     }
 
-    /// Whether this spec models the rune — Python's `name in spec.runes`, the check that guards every letter-token read.
+    /// Whether this spec models the rune — `name in spec.runes` as `model.ResolvedSpec` spells it, the check that guards every letter-token read.
     pub fn is_modeled(&self, name: Sym) -> bool {
         self.runes.contains_key(&name)
     }
@@ -245,7 +245,7 @@ impl SpecIndex {
 
     /// The stance's rank in its rune's declared order — the third stage of the ranking, and `settle.Engine._order_index_cache`'s value, resolved at build time.
     ///
-    /// The arithmetic is Python's and is load-bearing: the order list is `policy.order` when it is non-empty and declaration order otherwise, then every stance the list omits is appended in declaration order, and each stance's index is its first position in that list. A name in `policy.order` that is not a stance still occupies its seat, so the stances after it rank one lower than a naive enumeration would give them.
+    /// The arithmetic is load-bearing: the order list is `policy.order` when it is non-empty and declaration order otherwise, then every stance the list omits is appended in declaration order, and each stance's index is its first position in that list. A name in `policy.order` that is not a stance still occupies its seat, so the stances after it rank one lower than a naive enumeration would give them.
     pub fn order_index(&self, id: StanceId) -> usize {
         self.rune_index[id.rune as usize].order_index[id.stance as usize]
     }
@@ -272,7 +272,7 @@ impl SpecIndex {
         Some((seat, row_at(&self.stance(id).surface.exits, seat)))
     }
 
-    /// Whether the stance declares an exit at this height — Python's `height in stance.surface.exits`, the shadowing test an unlock exit has to pass.
+    /// Whether the stance declares an exit at this height — `height in stance.surface.exits` as `model.Surface` spells it, the shadowing test an unlock exit has to pass.
     pub fn declares_exit(&self, id: StanceId, height: Sym) -> bool {
         self.rows(id).exits.contains_key(&height)
     }
@@ -318,7 +318,7 @@ impl SpecIndex {
 
     /// Resolve a `class:` reference to family names, `specificity.class_members`: registry predicate classes first, then the owning rune's local groups, then any rune's groups in rune declaration order — `spec_load` lints cross-rune duplicates, so the last step is unambiguous on a linted spec.
     ///
-    /// An unresolvable name is a spec defect rather than a settlement outcome: `spec_load` refuses a dangling class reference, so this cannot fire on a spec the pipeline built. It surfaces as [`SettleError::Plain`] because that is the only shape the kernel's callers already handle; Python raises the base `SpecificityError`, which no call site catches, so the two differ only in what an impossible spec would do.
+    /// An unresolvable name is a spec defect rather than a settlement outcome: `spec_load` refuses a dangling class reference, so this cannot fire on a spec the pipeline built. It surfaces as [`SettleError::Plain`] because that is the only shape the kernel's callers already handle.
     pub fn class_members(
         &self,
         name: Sym,
@@ -342,7 +342,7 @@ impl SpecIndex {
         )))
     }
 
-    /// Every stroke a rune offers on a selectable entry row, across its stances — `settle.Engine._rune_entry_strokes`, which a right-side `stroke:` condition tests membership in. An unmodeled rune has none, as the Python original's `frozenset()` return says.
+    /// Every stroke a rune offers on a selectable entry row, across its stances — the set a right-side `stroke:` condition tests membership in. An unmodeled rune has none rather than raising, because a condition may name one.
     pub fn entry_strokes(&self, rune: Sym) -> &BTreeSet<Sym> {
         match self.rune_seat(rune) {
             Some(seat) => &self.rune_index[seat as usize].entry_strokes,
@@ -841,8 +841,30 @@ pub mod fixtures {
         dump(&runes, &four_family_registry())
     }
 
+    /// The letters the fixture registries share, as a registry spells them.
+    const FOUR_FAMILIES: &[(&str, &str)] = &[
+        ("qsPea", r#"{"codepoint":58960,"sequence":null}"#),
+        ("qsTea", r#"{"codepoint":58962,"sequence":null}"#),
+        ("qsMay", r#"{"codepoint":58981,"sequence":null}"#),
+        ("qsIt", r#"{"codepoint":58992,"sequence":null}"#),
+    ];
+
     /// The registry the fixture specs share: two heights, the four families, and the predicate class the specificity tests expand.
     pub fn four_family_registry() -> String {
+        registry_over(FOUR_FAMILIES)
+    }
+
+    /// [`four_family_registry`] plus the one ligature family, `qsPea_qsTea`, which carries a sequence where a letter carries a code point and is an ordinary literal name everywhere an axis reads one.
+    pub fn ligature_family_registry() -> String {
+        let mut families = FOUR_FAMILIES.to_vec();
+        families.push((
+            "qsPea_qsTea",
+            r#"{"codepoint":null,"sequence":["qsPea","qsTea"]}"#,
+        ));
+        registry_over(&families)
+    }
+
+    fn registry_over(families: &[(&str, &str)]) -> String {
         registry(&[
             ("heights", &map(&[("baseline", "0"), ("x-height", "5")])),
             (
@@ -856,15 +878,7 @@ pub mod fixtures {
                 "predicate_classes",
                 &map(&[("halves-that-exit-at-x-height", &names(&["qsPea", "qsTea"]))]),
             ),
-            (
-                "families",
-                &map(&[
-                    ("qsPea", r#"{"codepoint":58960,"sequence":null}"#),
-                    ("qsTea", r#"{"codepoint":58962,"sequence":null}"#),
-                    ("qsMay", r#"{"codepoint":58981,"sequence":null}"#),
-                    ("qsIt", r#"{"codepoint":58992,"sequence":null}"#),
-                ]),
-            ),
+            ("families", &map(families)),
         ])
     }
 }

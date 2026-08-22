@@ -6,7 +6,7 @@ Chain honesty: run_m1 persists the Stage A components (`data`, `baselines`, `pip
 
 `tables_value` serves the same honesty for a build artifact rather than a manifest: the serialized decision tables carry it, so the conformance sweep can tell a table its own sources produced from one it must rebuild.
 
-Rune files are hashed by `rune_file_digest`, a prose-blind digest over the parsed document rather than the raw bytes: YAML comments and formatting, the ductus prose, the notes prose, and the `why` rationale on prefer/extend/contract/resolve/unlock records are all documentation nothing downstream consumes, so editing them must not stale the surface or re-run a cycle. What stays in the digest is exactly what can move an output or a gate: every geometric and policy field, the ductus *keys* (motion names, which the parity and naming lints enforce), the *presence* of every prose field (the schema requires `why` on absolute prefers), and — the one quoted prose — `policy.refuse[].why`, which settle.py embeds in elimination diagnostics that the review surface serves in its explain panel.
+Rune files are hashed by `rune_file_digest`, a prose-blind digest over the parsed document rather than the raw bytes: YAML comments and formatting, the ductus prose, the notes prose, and the `why` rationale on prefer/extend/contract/resolve/unlock records are all documentation nothing downstream consumes, so editing them must not stale the surface or re-run a cycle. What stays in the digest is exactly what can move an output or a gate: every geometric and policy field, the ductus *keys* (motion names, which the parity and naming lints enforce), the *presence* of every prose field (the schema requires `why` on absolute prefers), and — the one quoted prose — `policy.refuse[].why`, which the kernel crate's engine embeds in the elimination diagnostics the review surface serves in its explain panel.
 """
 
 from __future__ import annotations
@@ -116,7 +116,7 @@ def _projected_stance(stance: object) -> object:
 
 
 def _projected_rune(document: object) -> object:
-    """The prose-blind view of a parsed rune document (see the module docstring for the contract). Anything shaped in a way the schema would reject — a non-string prose value, a non-dict ductus — passes through unprojected, so a type-breaking edit still moves the digest and the load failure it causes stays visible. refuse records keep their `why`: it is the one rationale settle.py quotes into the elimination diagnostics the review surface serves."""
+    """The prose-blind view of a parsed rune document (see the module docstring for the contract). Anything shaped in a way the schema would reject — a non-string prose value, a non-dict ductus — passes through unprojected, so a type-breaking edit still moves the digest and the load failure it causes stays visible. refuse records keep their `why`: it is the one rationale the crate's engine quotes into the elimination diagnostics the review surface serves."""
     if not isinstance(document, dict):
         return document
     projected = dict(document)

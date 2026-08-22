@@ -8,7 +8,7 @@ make all
 
 Dependencies are managed with `uv` and defined in `pyproject.toml`.
 
-The M1 rebuild’s table-build kernel _is_ the Rust crate under `rebuild/kernel-rs/`, so a Rust toolchain — `cargo`, from [rustup](https://rustup.rs) — joins `uv` as a prerequisite for that side of the tree, and what it holds up is every table build: the crate is the only fixpoint since issue #78, so a box without `cargo` cannot build the M1 artifacts, run the rebuild test suite, or export the settlement corpus at all. `make kernel-build` builds it in release mode (the pipeline builds it itself before every fan-out). The font build itself needs none of this.
+The M1 rebuild’s table-build kernel _is_ the Rust crate under `rebuild/kernel-rs/`, so a Rust toolchain — `cargo`, from [rustup](https://rustup.rs) — joins `uv` as a prerequisite for that side of the tree, and what it holds up is every table build: the crate is the only fixpoint since issue #78, so a box without `cargo` cannot build the M1 artifacts, settle a window, or run the rebuild test suite at all. `make kernel-build` builds it in release mode (the pipeline builds it itself before every fan-out). The font build itself needs none of this.
 
 ## Testing
 

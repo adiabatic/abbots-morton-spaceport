@@ -1,10 +1,10 @@
-//! The section 5.7 late-formation guard, `rebuild/pipeline/settle.py`'s `formation_blocked` and the two helpers beneath it: whether a ligature yields to its components in one window because the trailing component, left unformed, would realize a seam toward the follower while the formed ligature could realize none. The trail side is settled at ranking grain — a full [`Engine::transition_trace`] with the lead's default unjoined stance as its left, so follower votes and the runes' prefers count and not only candidacy — while the ligature side is kept generously at candidacy grain with the run edge as its left.
+//! The section 5.7 late-formation guard, and the only home the verdict has: whether a ligature yields to its components in one window because the trailing component, left unformed, would realize a seam toward the follower while the formed ligature could realize none. The trail side is settled at ranking grain — a full [`Engine::transition_trace`] with the lead's default unjoined stance as its left, so follower votes and the runes' prefers count and not only candidacy — while the ligature side is kept generously at candidacy grain with the run edge as its left.
 //!
 //! The verdict is a pure function of the ligature and the two raw slots past its sequence, which is the whole reason it can compile into the formation lookup the font ships: that lookup stages before the stylistic-set marker substitutions and is therefore config-blind, so the verdict is quantified over the powerset of capability-unlock features and fires only where every configuration agrees. The engines that answer it are dedicated ones with both issue-28 flags pinned off and every slot past the two the verdict is keyed on bound to the window edge — `vote_deep_slot` at [`EDGE`], plus `EDGE` in the trace's third and fourth slots — so a vote or a prefer that would need deeper raw text to fire definitively can never flip a formation verdict as a side effect of a settlement-scoring change. Whether the guard should ever follow either flag is its own reviewed change with its own flip inventory, which is why the pins live here rather than being read off the engine defaults.
 //!
-//! Python fakes per-spec state with a module-level `id()`-keyed LRU, because its `Engine` takes the spec as a call argument and there is nowhere else for the powerset to live; here it is an ordinary [`GuardState`] the caller builds once per spec and keeps, which is the same sharing without the identity re-check or the cap. The engines are plain ones — no trace memo, so nothing journals and [`Engine::candidates`] runs uncached — because no verdict reads a fired delta.
+//! [`GuardState`] is ordinary per-spec state, built once and kept: the powerset lives on it rather than in a cache beside it. `settle.form_ligatures` reads its verdicts from the whole swept mapping, which `kernel_exec.guard_sweep` memoizes per spec identity, so one process sweeps one spec once however many texts it forms. The engines are plain ones — no trace memo, so nothing journals and [`Engine::candidates`] runs uncached — because no verdict reads a fired delta.
 //!
-//! One structural departure from a literal transcription: `_follower_formation` is hoisted out of the per-engine loop. It reads the spec and the two slots and nothing of the engine, so Python computes the same answer once per engine in the loop it short-circuits; computing it once up front is what lets the verdict memo and the engines be borrowed apart, and it is the same value either way.
+//! One structural note: [`GuardState::follower_formation`] is answered once up front rather than inside the per-engine loop. It reads the spec and the two slots and nothing of the engine, so the answer is the same either way, and hoisting it is what lets the verdict memo and the engines be borrowed apart.
 
 use std::collections::{HashMap, HashSet};
 
@@ -22,7 +22,7 @@ const TAIL_TOKENS: [RightToken; 5] = [EDGE, SPACE, ZWNJ, NAMER_DOT, UNKNOWN];
 /// One verdict's identity: the ligature under formation and the two raw slots past its sequence. Nothing else can reach a verdict, which is exactly the property the emitted lookup depends on.
 type VerdictKey = (Sym, RightToken, RightToken);
 
-/// One spec's guard state: the capability-feature powerset as engines, and the verdicts they have already agreed on. `settle._guard_state`'s dictionary, minus the identity dance a recyclable `id()` forces on the Python side.
+/// One spec's guard state: the capability-feature powerset as engines, and the verdicts they have already agreed on.
 pub struct GuardState<'i> {
     index: &'i SpecIndex,
     engines: Vec<Engine<'i>>,
@@ -222,7 +222,7 @@ fn combinations(features: &[Sym], size: usize) -> Vec<Vec<Sym>> {
 
 /// The whole late-formation surface as the `guard-sweep` verb prints it: one tab-separated `liga right1 right2 blocked|free` row per triple, ligatures in sorted-name order, then every modeled letter at the first raw slot, then every modeled letter followed by the four boundary kinds and `unknown` at the second.
 ///
-/// The surface is exhaustively enumerable rather than sampled, which is what makes it the differential's cheapest arm and the one with no sampling to argue about. The letter vocabulary is every modeled rune, ligature runes included — the same alphabet the deep-slot liveness probes sweep.
+/// The surface is exhaustively enumerable rather than sampled, which is what lets one sweep answer every formation question a build can ask, with no sampling to argue about. The letter vocabulary is every modeled rune, ligature runes included — the same alphabet the deep-slot liveness probes sweep.
 pub fn sweep(index: &SpecIndex) -> Result<Vec<String>, SettleError> {
     let mut letters: Vec<Sym> = index.runes().iter().map(|(name, _)| *name).collect();
     letters.sort_by(|left, right| index.resolve(*left).cmp(index.resolve(*right)));
@@ -409,6 +409,42 @@ mod tests {
                 .expect("the scan runs"),
             None
         );
+    }
+
+    #[test]
+    fn the_guard_engines_pin_the_modes_the_shipping_world_leaves_on() {
+        let shipping = EngineModes::default();
+        assert!(shipping.simulated_prospect, "the shipping world simulates");
+        assert!(shipping.vote_slots, "and reads a vote's slots shifted");
+        let baseline = object(&[row("baseline", &[])]);
+        let unlocks = fixtures::seq(&[&unlock("ss03"), &unlock("ss05")]);
+        let pea = rune(
+            "qsPea",
+            &[stance(
+                "half",
+                "{}",
+                &baseline,
+                &[("unlocks", unlocks.as_str())],
+            )],
+            &[("codepoint", "58960")],
+        );
+        let tea = rune(
+            "qsTea",
+            &[stance("plain", &baseline, "{}", &[])],
+            &[("codepoint", "58962")],
+        );
+        let index = spec_of(&[pea, tea]);
+        let state = GuardState::new(&index);
+        assert_eq!(state.engine_count(), 4);
+        for engine in &state.engines {
+            assert!(!engine.simulated_prospect());
+            assert!(!engine.vote_slots());
+            assert_eq!(engine.vote_deep_slot(), EDGE);
+            assert!(
+                !engine.trace_memo(),
+                "no verdict reads a fired delta, so nothing journals"
+            );
+        }
     }
 
     #[test]
