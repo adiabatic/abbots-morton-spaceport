@@ -10,7 +10,9 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
+use crate::artifacts;
 use crate::fixpoint::{self, EnumerationModes};
+use crate::fold;
 use crate::index::SpecIndex;
 use crate::model::Sym;
 use crate::stream;
@@ -110,13 +112,7 @@ pub fn run_config(
 
 /// Every configuration's stream written under `outdir`, at most `workers` of them in flight, with each one's timing lines returned in the order the caller named its configurations.
 ///
-/// The directory is made with its parents, as the Python artifact writers make theirs, and a file already sitting where a configuration's stream goes is overwritten rather than refused. Every other `transitions-*.ndjson` there is swept first, because a consumer globbing the directory after a clean exit would otherwise read a configuration this run never answered as one of its answers.
-///
-/// A `workers` of 0 is a run at one worker rather than a run that claims nothing: the count caps concurrency, and no cap can mean fewer than the one worker it takes to walk the list.
-///
-/// The worklist is a seat counter and nothing else: a worker claims the next configuration, answers it, and claims again, so one worker walks the whole list in listed order and several share it out without a plan. Order is recovered from the seat each answer carries rather than from the order the answers arrived in, which is what makes the returned lines — and therefore a caller's stderr — a function of the plan alone.
-///
-/// The first failure stops further claims, since a run whose exit is nonzero says nothing about the directory it half filled, and the complaint reported is the earliest-seated of those any worker reached.
+/// The directory is made with its parents, as the Python artifact writers make theirs, and a file already sitting where a configuration's stream goes is overwritten rather than refused. Every other `transitions-*.ndjson` there is swept first, because a consumer globbing the directory after a clean exit would otherwise read a configuration this run never answered as one of its answers. [`claim_all`] carries the scheduling and the failure rule.
 pub fn run_configs(
     index: &SpecIndex,
     configs: &[Configuration<'_>],
@@ -127,21 +123,37 @@ pub fn run_configs(
 ) -> Result<Vec<Vec<String>>, String> {
     std::fs::create_dir_all(outdir).map_err(|error| format!("{}: {error}", outdir.display()))?;
     sweep_unnamed_streams(outdir, configs)?;
+    claim_all(configs, workers, |config| {
+        into_file(index, config, modes, outdir, report)
+    })
+}
+
+/// Every configuration answered by `answer`, at most `workers` of them in flight, with each answer returned at the seat its configuration was named in.
+///
+/// The worklist is a seat counter and nothing else: a worker claims the next configuration, answers it, and claims again, so one worker walks the whole list in listed order and several share it out without a plan. Order is recovered from the seat each answer carries rather than from the order the answers arrived in, which is what makes a caller's stderr and stdout a function of the plan alone.
+///
+/// A `workers` of 0 is a run at one worker rather than a run that claims nothing: the count caps concurrency, and no cap can mean fewer than the one worker it takes to walk the list. The first failure stops further claims, since a run whose exit is nonzero says nothing about the directory it half filled, and the complaint reported is the earliest-seated of those any worker reached.
+fn claim_all<T: Send>(
+    configs: &[Configuration<'_>],
+    workers: usize,
+    answer: impl Fn(&Configuration<'_>) -> Result<T, String> + Sync,
+) -> Result<Vec<T>, String> {
     let workers = workers.max(1);
     let next = AtomicUsize::new(0);
     let stop = AtomicBool::new(false);
+    let answer = &answer;
     let claimed = std::thread::scope(|scope| {
         let handles: Vec<_> = (0..workers)
             .map(|_| {
                 scope.spawn(|| {
-                    let mut mine: Vec<(usize, Vec<String>)> = Vec::new();
+                    let mut mine: Vec<(usize, T)> = Vec::new();
                     while !stop.load(Ordering::Relaxed) {
                         let seat = next.fetch_add(1, Ordering::Relaxed);
                         let Some(config) = configs.get(seat) else {
                             break;
                         };
-                        match into_file(index, config, modes, outdir, report) {
-                            Ok(timed) => mine.push((seat, timed)),
+                        match answer(config) {
+                            Ok(answered) => mine.push((seat, answered)),
                             Err(complaint) => {
                                 stop.store(true, Ordering::Relaxed);
                                 return Err((seat, complaint));
@@ -161,13 +173,13 @@ pub fn run_configs(
             })
             .collect::<Vec<_>>()
     });
-    let mut lines: Vec<Vec<String>> = vec![Vec::new(); configs.len()];
+    let mut seated: Vec<Option<T>> = (0..configs.len()).map(|_| None).collect();
     let mut failure: Option<(usize, String)> = None;
-    for answer in claimed {
-        match answer {
+    for outcome in claimed {
+        match outcome {
             Ok(answered) => {
-                for (seat, timed) in answered {
-                    lines[seat] = timed;
+                for (seat, one) in answered {
+                    seated[seat] = Some(one);
                 }
             }
             Err((seat, complaint)) => {
@@ -179,8 +191,81 @@ pub fn run_configs(
     }
     match failure {
         Some((_, complaint)) => Err(complaint),
-        None => Ok(lines),
+        None => Ok(seated
+            .into_iter()
+            .map(|one| one.expect("a run with no failure seated every configuration"))
+            .collect()),
     }
+}
+
+/// What one configuration's table build answered: the contract digest of its two tables, and its timing lines.
+pub struct TableAnswer {
+    pub digest: String,
+    pub timed: Vec<String>,
+}
+
+/// Every configuration's two tables, its window enumeration and its digest, written under `outdir` at most `workers` at a time.
+///
+/// Nothing is swept first, unlike the stream fan-out: `run_m1.build_tables` writes into the build's own artifact directory beside a dozen other families, and a run that deleted the tables of a configuration set the build no longer names would be answering a question nobody asked it.
+pub fn run_configs_tables(
+    index: &SpecIndex,
+    configs: &[Configuration<'_>],
+    modes: EnumerationModes,
+    outdir: &Path,
+    inputs: &str,
+    workers: usize,
+    report: Report,
+) -> Result<Vec<TableAnswer>, String> {
+    std::fs::create_dir_all(outdir).map_err(|error| format!("{}: {error}", outdir.display()))?;
+    claim_all(configs, workers, |config| {
+        run_config_tables(index, config, modes, outdir, inputs, report)
+            .map_err(|complaint| format!("{}: {complaint}", config.token))
+    })
+}
+
+/// One configuration folded in place: its fixpoint, the fold over the product that fixpoint still holds, the three artifact files, and the digest of the pair. The two phases are named `enumerate[<config>]` and `fold[<config>]` when the caller wants them timed, the census's `[c]` lines riding ahead of them as they do for a stream run.
+pub fn run_config_tables(
+    index: &SpecIndex,
+    config: &Configuration<'_>,
+    modes: EnumerationModes,
+    outdir: &Path,
+    inputs: &str,
+    report: Report,
+) -> Result<TableAnswer, String> {
+    let token = config.token;
+    let mut timed: Vec<String> = Vec::new();
+    let mut census: Vec<String> = Vec::new();
+    let started = Instant::now();
+    let product = if report.census {
+        fixpoint::enumerate_censused(index, &config.features, modes, &mut census)
+    } else {
+        fixpoint::enumerate_transitions(index, &config.features, modes)
+    }?;
+    timed.append(&mut census);
+    if report.timings {
+        timed.push(timing_line(
+            &format!("enumerate[{token}]"),
+            started.elapsed(),
+        ));
+    }
+    let started = Instant::now();
+    let folded = fold::fold_product(index, product)?;
+    let settlement = outdir.join(format!("settlement-{token}.tsv"));
+    write_text(&settlement, &artifacts::settlement_tsv(&folded.decision))?;
+    let treaties = outdir.join(format!("treaties-{token}.tsv"));
+    write_text(&treaties, &artifacts::treaty_tsv(&folded.treaty))?;
+    let windows = outdir.join(format!("windows-{token}.tsv"));
+    artifacts::write_windows(index, &folded.decision, inputs, &windows)
+        .map_err(|error| format!("{}: {error}", windows.display()))?;
+    let digest = artifacts::table_digest(index, &folded.decision, &folded.treaty);
+    if report.timings {
+        timed.push(timing_line(&format!("fold[{token}]"), started.elapsed()));
+    }
+    Ok(TableAnswer { digest, timed })
+}
+
+fn write_text(path: &Path, text: &str) -> Result<(), String> {
+    std::fs::write(path, text).map_err(|error| format!("{}: {error}", path.display()))
 }
 
 /// One configuration answered into its own file under `outdir`, which is the only thing a worker does. Every complaint names the configuration, since a caller running several has no other way to tell which one failed, and one the filesystem raised names the file it raised it about.

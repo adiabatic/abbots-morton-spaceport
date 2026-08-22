@@ -1,6 +1,6 @@
 """The M1 integration driver (M1-PLAN Phase 5): the full pipeline run over the real rune files, writing every section 8 artifact under rebuild/out/m1/.
 
-Stages: load_default_spec -> per-configuration decision/treaty tables (the first-match-wins replay asserted as each one folds, TSVs written, and the window enumeration serialized under the fingerprint of the sources it came from, so `--conform-only` mints its glyph inventory from it and refuses to run against a stale or missing one) -> glyph inventory minting (settled cells named by the table's own cell labels, plus the raw cmap glyphs, marker twins, chokepoint twins, and the namer dot pair) -> defects gates (run_gates merged with surface.check_anchor_conventions) -> emit_gsub/emit_gpos (whose plan also enumerates the emitted lookup's HarfBuzz-facing shapes into behavior_classes.json, the arming key rebuild/tools/deep_sweep.py reads) -> build_mini_font with the budget gate -> read-back (the font just written, re-parsed from its own bytes and structurally proven against the plan the emitters held, and that plan's settlement rows recorded beside the summary with their per-configuration sources for the witness gate to count coverage over; rebuild/pipeline/readback.py).
+Stages: load_default_spec -> per-configuration decision/treaty tables (enumerated and folded in the kernel crate, one process per configuration: the first-match-wins replay asserted as each one folds, TSVs written, and the window enumeration serialized under the fingerprint of the sources it came from, so `--conform-only` mints its glyph inventory from it and refuses to run against a stale or missing one) -> glyph inventory minting (settled cells named by the table's own cell labels, plus the raw cmap glyphs, marker twins, chokepoint twins, and the namer dot pair) -> defects gates (run_gates merged with surface.check_anchor_conventions) -> emit_gsub/emit_gpos (whose plan also enumerates the emitted lookup's HarfBuzz-facing shapes into behavior_classes.json, the arming key rebuild/tools/deep_sweep.py reads) -> build_mini_font with the budget gate -> read-back (the font just written, re-parsed from its own bytes and structurally proven against the plan the emitters held, and that plan's settlement rows recorded beside the summary with their per-configuration sources for the witness gate to count coverage over; rebuild/pipeline/readback.py).
 
 The glyph-name contract this driver pins: settlement-lookup outcomes are `settle.cell_label` names, so the decision-table rules and the compiled glyph set agree by construction; the raw cmap glyph for each rune is the bare rune name drawn as the isolated cell but carrying no curs anchors; marker, chokepoint, and ss10 twins reuse the bare drawing (under ss10 the pre-empt lookup substitutes every letter's cmap glyph by its anchor-free `.ss10` twin before formation, so no ligature ever forms, nothing settles, each letter keeps its own cluster, and every seam is a break).
 
@@ -13,9 +13,11 @@ from __future__ import annotations
 
 import argparse
 import gc
+import gzip
 import json
 import multiprocessing
 import os
+import shutil
 import sys
 import tempfile
 import time
@@ -74,40 +76,27 @@ def _spawn_pool(jobs: int) -> ProcessPoolExecutor:
     return ProcessPoolExecutor(max_workers=workers, mp_context=multiprocessing.get_context("spawn"))
 
 
-def _persist_tables(decision, treaty, out_dir: Path | None, inputs: str | None):
-    """Write one configuration's artifacts, in whichever process built them, and hand back the table the parent actually reads plus the contract digest of the pair. Given the fingerprint that names its sources, the window enumeration goes to disk for the conformance sweep to load and is dropped from the returned table: a million rows per configuration is a pickle across the pool boundary and a resident peak that nothing after the build spends. The digest is taken here, between the writers and that drop, because `table.table_digest` covers those window rows; a caller with nowhere to write gets None rather than the several seconds a digest nothing will read would cost."""
-    if out_dir is None:
-        return decision, None
-    decision.write_tsv(out_dir / f"settlement-{decision.config}.tsv")
-    treaty.write_tsv(out_dir / f"treaties-{decision.config}.tsv")
-    digest = table_module.table_digest(decision, treaty)
-    if inputs is None:
-        return decision, digest
-    table_module.write_windows(decision, table_module.windows_path(out_dir, decision.config), inputs)
-    return replace(decision, transitions=()), digest
-
-
 def build_tables(
     spec: ResolvedSpec,
     out_dir: Path | None = None,
     inputs: str | None = None,
     kernel_threads: int | None = None,
-    fold_jobs: int = 1,
 ) -> dict[str, tuple]:
-    """Every acceptance configuration's decision and treaty tables: the resolved spec dumped once, one `enumerate-configs` process per configuration, and each stream folded back through the Python half the moment it lands rather than after the last one has. The kernel crate is the only fixpoint there is (issue 78), so there is nothing to choose between here and nothing an artifact could disagree with; `kernel_exec.build_tables` is the same work for one configuration in memory, which is what a test or a hand-assembled spec builds through.
+    """Every acceptance configuration's decision and treaty tables: the resolved spec dumped once, then one `build-tables` process per configuration, each of which enumerates its fixpoint and folds it in place. There is no stream and no fold on this side at all — the crate writes the settlement TSV, the treaty TSV and the window enumeration itself, so the several hundred megabytes a configuration's transitions cost to write, to read and to hold parsed are never spent.
 
-    `out_dir`, when given, gets the section 8 TSVs and `table-digests.json` — each configuration's `table.table_digest`, taken while the window rows are still in hand, which is the grain the rest of the rebuild states table identity at. A caller with nowhere to write gets the tables and nothing else. Both the returned mapping and the digest record are rebuilt in `conform.ACCEPTANCE_CONFIGS` order however the configurations finish, so completion order can never reach an artifact.
+    What Python does per configuration is small and is what only Python can do: pack the plain window payload into the `.gz` the artifact is (the compressor never crossed the boundary), read the head back for the rules, the reachable cells and the fired provenance every downstream stage needs, and parse the treaty TSV back for the defect gates.
 
-    `inputs` is `fingerprint.tables_value` over the sources this spec was loaded from. Supplying it alongside `out_dir` serializes each configuration's window enumeration next to the TSVs — where `run_font_conformance` picks it up rather than rebuilding anything — and drops those windows from the tables returned here, since only the rules, the reachable cells and the fired provenance are read after the build; `table.read_windows` gets them back. Omit it and the tables come back whole, which is what a caller building a spec of its own must do: the fingerprint names the repo's rune files and cannot vouch for tables they did not produce.
+    `out_dir`, when given, gets the section 8 TSVs and `table-digests.json` — each configuration's `table.table_digest`, taken in the crate while the window rows are still in hand, which is the grain the rest of the rebuild states table identity at. A caller with nowhere to write gets the tables and nothing else. Both the returned mapping and the digest record are rebuilt in `conform.ACCEPTANCE_CONFIGS` order however the configurations finish, so completion order can never reach an artifact.
 
-    `kernel_threads` is how many single-threaded kernel processes run at once — the crate contracts its streams byte-identical at any width, so this is purely a memory knob, capped at the configuration count and the CPU count and defaulted low because a configuration in flight holds its whole working set until it has emitted. `fold_jobs` is the same knob for the Python side and defaults to one: a fold is several gigabytes of its own, and one beside the kernel processes is what the box this repo is sized for has room for.
+    `inputs` is `fingerprint.tables_value` over the sources this spec was loaded from. Supplying it alongside `out_dir` keeps each configuration's window enumeration next to the TSVs — where `run_font_conformance` picks it up rather than rebuilding anything — under the stamp that names those sources; omit it and the payload is read for its head and deleted, which is what a caller building a spec of its own must have, since the fingerprint names the repo's rune files and cannot vouch for tables they did not produce.
+
+    `kernel_threads` is how many configurations are in flight at once, capped at the configuration count and the CPU count and defaulted low because a configuration holds its whole working set from the first window it reaches to the last artifact it writes. The fold's own width went with the Python fold: it runs inside the enumerating process now, and there is nothing left on this side to widen.
     """
     configs = conform.ACCEPTANCE_CONFIGS
     threads = max(
         1,
         min(kernel_threads or kernel_exec.KERNEL_THREADS_DEFAULT, len(configs), os.process_cpu_count() or 1),
     )
-    folds = max(1, min(fold_jobs, len(configs)))
     kernel_exec.ensure_built()
     built: dict[str, tuple] = {}
     digests: dict[str, str] = {}
@@ -115,51 +104,54 @@ def build_tables(
         directory = Path(scratch)
         spec_path = directory / "spec.json"
         kernel_io.write_spec(spec, spec_path)
+        tables_dir = directory / "tables" if out_dir is None else out_dir
+        tables_dir.mkdir(parents=True, exist_ok=True)
 
-        # Each configuration gets a directory of its own because `enumerate-configs` sweeps streams its own `--configs` list does not name, and six processes sharing one directory would sweep each other's answers away.
-        def enumerate_one(config: str) -> tuple[str, Path]:
+        def build_one(config: str) -> tuple[str, tuple, str]:
             start = time.perf_counter()
-            streams = kernel_exec.enumerate_configs(
+            answered = kernel_exec.build_table_files(
                 spec_path,
-                directory / "streams" / config,
+                tables_dir,
                 [config],
+                inputs=inputs if inputs is not None else kernel_exec.UNSTAMPED_WINDOWS,
                 threads=1,
                 timings=True,
                 timings_tag=config,
             )
             print(f"[t] kernel_enumerate[{config}] {time.perf_counter() - start:.1f}s", flush=True)
-            return config, streams[config]
-
-        def fold_one(config: str, stream: Path) -> tuple[str, tuple, str | None]:
             start = time.perf_counter()
-            decision, treaty = table_module.assemble_tables(
-                spec, kernel_exec.read_stream(stream), assert_partition=True
-            )
-            persisted, digest = _persist_tables(decision, treaty, out_dir, inputs)
-            print(f"[t] assemble_tables[{config}] {time.perf_counter() - start:.1f}s", flush=True)
-            return config, (persisted, treaty), digest
+            payload = tables_dir / f"windows-{config}.tsv"
+            with payload.open("rt", encoding="utf-8") as handle:
+                _stamp, decision = table_module.read_windows(handle, windows=False)
+            treaty = table_module.read_treaty_tsv(tables_dir / f"treaties-{config}.tsv")
+            if inputs is not None and out_dir is not None:
+                _pack_windows(payload, table_module.windows_path(tables_dir, config))
+            payload.unlink()
+            print(f"[t] pack_windows[{config}] {time.perf_counter() - start:.1f}s", flush=True)
+            return config, (decision, treaty), answered[config]
 
-        with (
-            ThreadPoolExecutor(max_workers=threads) as kernels,
-            ThreadPoolExecutor(max_workers=folds) as folders,
-        ):
-            enumerations = [kernels.submit(enumerate_one, config) for config in configs]
-            folded = []
-            for enumeration in as_completed(enumerations):
-                config, stream = enumeration.result()
-                folded.append(folders.submit(fold_one, config, stream))
-            for fold in as_completed(folded):
-                config, tables, digest = fold.result()
+        with ThreadPoolExecutor(max_workers=threads) as kernels:
+            for finished in as_completed([kernels.submit(build_one, config) for config in configs]):
+                config, tables, digest = finished.result()
                 built[config] = tables
-                if digest is not None:
-                    digests[config] = digest
+                digests[config] = digest
     if out_dir is not None:
         _write_table_digests(out_dir, inputs, {config: digests[config] for config in configs})
     return {config: built[config] for config in configs}
 
 
+def _pack_windows(payload: Path, path: Path) -> None:
+    """The plain window enumeration the kernel wrote, packed into the artifact beside the TSVs — a zeroed gzip stamp so two builds of one table are byte-identical, and level 6 rather than zlib's maximum, which is a wall-clock choice and not a contract one: what anything states identity at is the decompressed bytes. The crate's `artifacts::write_windows` carries the same note beside the payload it writes."""
+    with (
+        payload.open("rb") as source,
+        path.open("wb") as raw,
+        gzip.GzipFile(filename="", fileobj=raw, mode="wb", mtime=0, compresslevel=6) as packed,
+    ):
+        shutil.copyfileobj(source, packed, length=1 << 20)
+
+
 def _write_table_digests(out_dir: Path, inputs: str | None, digests: dict[str, str]) -> None:
-    """The per-configuration contract digests a build leaves beside its tables, in acceptance order under the same stamp the windows heads carry. `table.table_digest` is the grain the rest of the rebuild states table identity at — the ordered rules with their provenance, every enumerated window row, the treaty rows, the reachable cells, the cited provenance and the identity guards — so a comparison of two builds is made against these rather than against the TSVs alone, which drop most of that. It has to be written at build time: the digest covers rows `_persist_tables` drops on its way out, and recovering one afterwards would cost the fixpoint that produced it."""
+    """The per-configuration contract digests a build leaves beside its tables, in acceptance order under the same stamp the windows heads carry. `table.table_digest` is the grain the rest of the rebuild states table identity at — the ordered rules with their provenance, every enumerated window row, the treaty rows, the reachable cells, the cited provenance and the identity guards — so a comparison of two builds is made against these rather than against the TSVs alone, which drop most of that. It has to be taken at build time: the digest covers the window rows, which only the process that enumerated them ever holds, and recovering one afterwards would cost the fixpoint that produced it."""
     payload = {"format": TABLE_DIGESTS_FORMAT, "inputs": inputs, "digests": digests}
     (out_dir / "table-digests.json").write_text(json.dumps(payload, indent=2) + "\n")
 
@@ -231,9 +223,8 @@ def run(
     spec: ResolvedSpec | None = None,
     inputs: str | None = None,
     kernel_threads: int | None = None,
-    fold_jobs: int = 1,
 ) -> dict:
-    """`inputs` is `fingerprint.tables_value` over the sources `spec` was loaded from, snapshotted before the load so it can only ever name content the tables are at least as new as. Supplying it serializes the window enumeration under `out_dir` for the conformance sweep; a caller running a spec of its own leaves it out. `kernel_threads` and `fold_jobs` reach the table build and nothing else."""
+    """`inputs` is `fingerprint.tables_value` over the sources `spec` was loaded from, snapshotted before the load so it can only ever name content the tables are at least as new as. Supplying it serializes the window enumeration under `out_dir` for the conformance sweep; a caller running a spec of its own leaves it out. `kernel_threads` reaches the table build and nothing else."""
     out_dir.mkdir(parents=True, exist_ok=True)
     start = time.perf_counter()
     if spec is None:
@@ -241,7 +232,7 @@ def run(
     print(f"[t] spec_load {time.perf_counter() - start:.1f}s", flush=True)
 
     start = time.perf_counter()
-    tables = build_tables(spec, out_dir, inputs=inputs, kernel_threads=kernel_threads, fold_jobs=fold_jobs)
+    tables = build_tables(spec, out_dir, inputs=inputs, kernel_threads=kernel_threads)
     print(
         f"[t] build_tables_total {time.perf_counter() - start:.1f}s {rss_token(process_peak_rss_bytes())}",
         flush=True,
@@ -568,13 +559,7 @@ def main(argv: list[str] | None = None) -> None:
         "--kernel-threads",
         type=int,
         default=None,
-        help=f"how many configurations the kernel enumerates at once, capped at the configuration count and the CPU count (default {kernel_exec.KERNEL_THREADS_DEFAULT}, which AMS_KERNEL_THREADS overrides); the ceiling is memory rather than CPU",
-    )
-    parser.add_argument(
-        "--fold-jobs",
-        type=int,
-        default=1,
-        help="how many configurations the Python fold assembles at once, each a few gigabytes beside the kernel processes it now overlaps; 1 is what the 32 GB box this repo is sized for has room for",
+        help=f"how many configurations the kernel enumerates and folds at once, capped at the configuration count and the CPU count (default {kernel_exec.KERNEL_THREADS_DEFAULT}, which AMS_KERNEL_THREADS overrides); the ceiling is memory rather than CPU",
     )
     args = parser.parse_args(argv)
     jobs = args.jobs if args.jobs and args.jobs > 1 else 1
@@ -644,7 +629,7 @@ def main(argv: list[str] | None = None) -> None:
     before = run_m1_key()
     try:
         start = time.perf_counter()
-        summary = run(spec=spec, inputs=inputs, kernel_threads=args.kernel_threads, fold_jobs=args.fold_jobs)
+        summary = run(spec=spec, inputs=inputs, kernel_threads=args.kernel_threads)
         print(
             f"[t] run_total {time.perf_counter() - start:.1f}s {rss_token(process_peak_rss_bytes())}",
             flush=True,

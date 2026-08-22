@@ -1,6 +1,6 @@
-//! `ams-m1-kernel` — the Rust reimplementation of the M1 settlement kernel (tracker issue #40). Today it does the ingest step, the settlement core and the table build's kernel half: it reads an `ams-m1-spec/1` dump into the interned model, echoes that model back out in canonical form (sub-issue #42), settles single windows against it — one case file at a time for the differential, and the whole late-formation surface for the guard (sub-issue #43) — runs the whole table-build worklist fixpoint over one configuration in either candidacy world and at either deep-slot grain, writing the transitions stream Python folds into its artifacts (sub-issues #44 and #45), runs a whole named set of configurations that way in one process, concurrently, for the builds that want all of them at once (sub-issue #46), and answers deep-slot liveness and fiber questions one key at a time, a liveness-grain inspection verb (sub-issue #45) whose Python-side differential retired at issue #78.
+//! `ams-m1-kernel` — the Rust reimplementation of the M1 settlement kernel (tracker issue #40). Today it does the ingest step, the settlement core and the whole table build: it reads an `ams-m1-spec/1` dump into the interned model, echoes that model back out in canonical form (sub-issue #42), settles single windows against it — one case file at a time for the differential, and the whole late-formation surface for the guard (sub-issue #43) — runs the whole table-build worklist fixpoint over one configuration in either candidacy world and at either deep-slot grain, writing the transitions stream a Python fold still reads (sub-issues #44 and #45), runs a whole named set of configurations that way in one process, concurrently, for the builds that want all of them at once (sub-issue #46), folds those configurations into the two tables and the window enumeration a build persists rather than emitting a stream at all, and answers deep-slot liveness and fiber questions one key at a time, a liveness-grain inspection verb (sub-issue #45) whose Python-side differential retired at issue #78.
 //!
-//! **`rebuild/pipeline/kernel_io.py` is the binding contract for the dump, and `rebuild/pipeline/settle.py` with `rebuild/pipeline/specificity.py` for the settlement.** Their module and function docstrings define both halves of each boundary, and this crate is measured against them rather than the other way around: the dump is whatever `kernel_io.spec_json` writes, the strictness is whatever `kernel_io.spec_of` enforces, a settled window is whatever `settle.Engine.transition_trace` returns down to its raise messages, and where this crate and those modules disagree, those modules are right. The fixpoint and everything the deep slots do have no such twin: `rebuild/pipeline/table.py` was their contract until issue #78 retired the Python fixpoint, and this crate has been the fixpoint of record since — what remains on that side is the fold, `assemble_tables` over the stream this crate writes. `bench-the-rebuild/RUST-PORT-PLAN.md` carries the design facts behind the port — chiefly that the packing, not the language, is the win, and that the standard SipHash hasher beat the finalizer-less fast hasher that a first pass reached for.
+//! **`rebuild/pipeline/kernel_io.py` is the binding contract for the dump, and `rebuild/pipeline/settle.py` with `rebuild/pipeline/specificity.py` for the settlement.** Their module and function docstrings define both halves of each boundary, and this crate is measured against them rather than the other way around: the dump is whatever `kernel_io.spec_json` writes, the strictness is whatever `kernel_io.spec_of` enforces, a settled window is whatever `settle.Engine.transition_trace` returns down to its raise messages, and where this crate and those modules disagree, those modules are right. The fixpoint and everything the deep slots do have no such twin: `rebuild/pipeline/table.py` was their contract until issue #78 retired the Python fixpoint, and this crate has been the fixpoint of record since. The fold is the other way round again — `table.py` is the binding contract for [`ams_m1_kernel::fold`] and [`ams_m1_kernel::artifacts`] exactly as `kernel_io.py` is for the stream, `assemble_tables` stands beside the crate's fold as the thing a differential compares it against, and byte-identity of the persisted artifacts is what holds the two to one answer. `bench-the-rebuild/RUST-PORT-PLAN.md` carries the design facts behind the port — chiefly that the packing, not the language, is the win, and that the standard SipHash hasher beat the finalizer-less fast hasher that a first pass reached for.
 //!
 //! **A change to `rebuild/pipeline/model.py` is a cross-group coordination event, and it lands on this crate too.** The Python codec is driven by `dataclasses.fields`, so a new field rides the dump with no edit there; this crate spells its field sets by hand and will therefore refuse the new dump rather than silently drop the field. `make kernel-parity` is what catches the lag, and it catches it as a byte diff on the very next run.
 //!
@@ -13,6 +13,7 @@
 //! - `ams-m1-kernel guard-sweep <spec>` writes the whole section 5.7 late-formation surface, one tab-separated verdict per line.
 //! - `ams-m1-kernel enumerate <spec> [--features=a,b,…] [--candidacy-prospect] [--vote-slots-off] [--deep-classes-off] [--timings]` runs one configuration's whole table-build fixpoint and writes the uncompressed `ams-m1-transitions/1` stream — the head line and one row per window. `--deep-classes-off` is Python's `AMS_DEEP_CLASSES=0`, the label-grain arm; in the pinned candidacy world enumeration is label-grain regardless, so the flag is accepted and does nothing there. The harness gzips the stream, as it gunzips the case files, for the same reason.
 //! - `ams-m1-kernel enumerate-configs <spec> <outdir> --configs=a,b,… [--threads=N] [--candidacy-prospect] [--vote-slots-off] [--deep-classes-off] [--timings]` runs several configurations' fixpoints in one process and writes each one's stream to `<outdir>/transitions-<config>.ndjson`, creating the directory with its parents and overwriting what it finds. stdout stays silent, because here the answer is the files — and they mean nothing except on exit 0, since a configuration that fails exits 1 naming itself and leaves whatever the other configurations had already written behind. A run that does reach exit 0 leaves that promise glob-safe: any `transitions-*.ndjson` already in the directory naming a configuration this run was not asked about is swept before the first one is written, so the whole set a consumer finds there is the set the command line named. `--configs=` is required and spells the configurations the way Python does, `conform.ACCEPTANCE_CONFIGS`'s own tokens: `default` for no features, anything else a `+`-joined feature list whose names are checked against the spec exactly as `--features=` checks them. A token that is not the canonical spelling of the features it names — out of order, repeated, empty, or empty between two `+` — is a usage error rather than a configuration, which is what keeps the filename, the stream head's `config` and the caller's own word for it in agreement by construction. The world flags name one world for the whole invocation, as they do for one `enumerate`.
+//! - `ams-m1-kernel build-tables <spec> <outdir> --configs=a,b,… --inputs=<stamp> [--threads=N] [--candidacy-prospect] [--vote-slots-off] [--deep-classes-off] [--timings] [--cache-census]` runs the same fixpoints and then folds each one in place, writing `<outdir>/settlement-<config>.tsv`, `<outdir>/treaties-<config>.tsv` and the uncompressed `<outdir>/windows-<config>.tsv` under the fingerprint `--inputs` names, and writing one `{"config":…,"digest":…}` line per configuration to stdout in the order the command line named them. No stream is written and none is read: the fold runs on the product the worklist still holds, which is what a Python fold reading several hundred megabytes back off disk used to cost. The harness gzips the windows payload, as it gzips the stream, for the same reason. The directory is created and nothing in it is swept — a build writes into its own artifact directory beside a dozen other families. `--inputs=` is required, because a serialized enumeration is trusted or refused on the stamp it carries.
 //! - `ams-m1-kernel liveness-cases <spec> <keys> [--features=a,b,…] [--candidacy-prospect] [--vote-slots-off]` answers one deep-slot question per key line: `3<tab><input><tab><r1><tab><r2>` and `4<tab><input><tab><r1><tab><r2><tab><r3>` answer `live` or `dead` — the full filter verdict, chain arm and liveness arm together — and `fibers<tab><input><tab><r1><tab><r2>` answers with the context's fiber partition as compact JSON. Every name is a rune family name; a key naming anything else stops the run. Each output line is the key line, a tab, and the answer, in file order.
 //!
 //! Concurrency reaches exactly as far as the configuration and no further: `enumerate-configs` runs at most `--threads` configurations at once, by default one per configuration and capped by the machine's parallelism. [`ams_m1_kernel::fanout`] carries both halves of why that is the whole of it — what makes the bytes a function of the plan rather than of the schedule, and why the worklist inside one configuration stays sequential. Peak memory rises roughly linearly with that width, since each configuration in flight holds its whole working set until its stream has been emitted, so `--threads` is the lever a machine with less memory than parallelism reaches for.
@@ -42,13 +43,14 @@ use ams_m1_kernel::options::WindowOptions;
 use ams_m1_kernel::stream::feature_config_token;
 use ams_m1_kernel::{cases, emit, fanout, guard, parse, stream};
 
-const USAGE: &str = "usage: ams-m1-kernel spec-echo <spec>\n       ams-m1-kernel settle-cases <spec> <cases> [--features=a,b] [--candidacy-prospect] [--vote-slots-off]\n       ams-m1-kernel guard-sweep <spec>\n       ams-m1-kernel enumerate <spec> [--features=a,b] [--candidacy-prospect] [--vote-slots-off] [--deep-classes-off] [--timings] [--cache-census]\n       ams-m1-kernel enumerate-configs <spec> <outdir> --configs=default,ss03 [--threads=N] [--candidacy-prospect] [--vote-slots-off] [--deep-classes-off] [--timings] [--cache-census]\n       ams-m1-kernel liveness-cases <spec> <keys> [--features=a,b] [--candidacy-prospect] [--vote-slots-off]";
+const USAGE: &str = "usage: ams-m1-kernel spec-echo <spec>\n       ams-m1-kernel settle-cases <spec> <cases> [--features=a,b] [--candidacy-prospect] [--vote-slots-off]\n       ams-m1-kernel guard-sweep <spec>\n       ams-m1-kernel enumerate <spec> [--features=a,b] [--candidacy-prospect] [--vote-slots-off] [--deep-classes-off] [--timings] [--cache-census]\n       ams-m1-kernel enumerate-configs <spec> <outdir> --configs=default,ss03 [--threads=N] [--candidacy-prospect] [--vote-slots-off] [--deep-classes-off] [--timings] [--cache-census]\n       ams-m1-kernel build-tables <spec> <outdir> --configs=default,ss03 --inputs=<stamp> [--threads=N] [--candidacy-prospect] [--vote-slots-off] [--deep-classes-off] [--timings] [--cache-census]\n       ams-m1-kernel liveness-cases <spec> <keys> [--features=a,b] [--candidacy-prospect] [--vote-slots-off]";
 
 /// What a command line named, before any verb has said how many positionals it wants. The three mode flags are spelled as negations because all three modes ship on, so a plain invocation is the shipping configuration.
 struct Flags<'a> {
     positionals: Vec<&'a str>,
     features: Vec<&'a str>,
     configs: Option<Vec<&'a str>>,
+    inputs: Option<&'a str>,
     threads: Option<usize>,
     timings: bool,
     census: bool,
@@ -64,6 +66,8 @@ struct Vocabulary {
     features: bool,
     /// The two flags of a multi-configuration run, `--configs=` and `--threads=`, which only ever arrive together.
     configs: bool,
+    /// `--inputs=`, the fingerprint stamp a windows head carries, which only the table build writes one of.
+    inputs: bool,
     /// `--timings` and `--cache-census`, the two stderr diagnostics, which the same verbs spell.
     timings: bool,
 }
@@ -73,18 +77,28 @@ const CASES_FLAGS: Vocabulary = Vocabulary {
     grain: false,
     features: true,
     configs: false,
+    inputs: false,
     timings: false,
 };
 const ENUMERATE_FLAGS: Vocabulary = Vocabulary {
     grain: true,
     features: true,
     configs: false,
+    inputs: false,
     timings: true,
 };
 const CONFIGS_FLAGS: Vocabulary = Vocabulary {
     grain: true,
     features: false,
     configs: true,
+    inputs: false,
+    timings: true,
+};
+const TABLES_FLAGS: Vocabulary = Vocabulary {
+    grain: true,
+    features: false,
+    configs: true,
+    inputs: true,
     timings: true,
 };
 
@@ -125,6 +139,20 @@ struct ConfigsPlan<'a> {
 struct ConfigRequest<'a> {
     token: &'a str,
     features: Vec<&'a str>,
+}
+
+/// What a `build-tables` invocation asked for: [`ConfigsPlan`]'s world and set of configurations, plus the fingerprint stamp every window enumeration it writes carries in its head.
+struct TablesPlan<'a> {
+    spec: &'a str,
+    outdir: &'a str,
+    configs: Vec<ConfigRequest<'a>>,
+    inputs: &'a str,
+    threads: Option<usize>,
+    simulated_prospect: bool,
+    vote_slots: bool,
+    deep_classes: bool,
+    timings: bool,
+    census: bool,
 }
 
 /// What a `liveness-cases` invocation asked for. There is no grain flag: a fiber partition is derived wherever the deep world holds, whatever grain an enumeration would then be written at.
@@ -178,6 +206,12 @@ fn main() -> ExitCode {
             };
             enumerate_configs(&plan)
         }
+        "build-tables" => {
+            let Some(plan) = plan_tables(rest) else {
+                return usage();
+            };
+            build_tables(&plan)
+        }
         "liveness-cases" => {
             let Some(plan) = plan_liveness(rest) else {
                 return usage();
@@ -207,6 +241,7 @@ fn scan_flags(rest: &[String], vocabulary: Vocabulary) -> Option<Flags<'_>> {
     let mut positionals: Vec<&str> = Vec::new();
     let mut features: Option<Vec<&str>> = None;
     let mut configs: Option<Vec<&str>> = None;
+    let mut inputs: Option<&str> = None;
     let mut threads: Option<usize> = None;
     let mut timings = false;
     let mut census = false;
@@ -238,6 +273,13 @@ fn scan_flags(rest: &[String], vocabulary: Vocabulary) -> Option<Flags<'_>> {
                 return None;
             }
             configs = Some(list.split(',').collect());
+        } else if vocabulary.inputs
+            && let Some(stamp) = argument.strip_prefix("--inputs=")
+        {
+            if stamp.is_empty() || inputs.is_some() {
+                return None;
+            }
+            inputs = Some(stamp);
         } else if vocabulary.configs
             && let Some(count) = argument.strip_prefix("--threads=")
         {
@@ -255,6 +297,7 @@ fn scan_flags(rest: &[String], vocabulary: Vocabulary) -> Option<Flags<'_>> {
         positionals,
         features: features.unwrap_or_default(),
         configs,
+        inputs,
         threads,
         timings,
         census,
@@ -297,13 +340,9 @@ fn plan_enumerate(rest: &[String]) -> Option<EnumeratePlan<'_>> {
 /// What a set of configuration tokens named, or `None` for a set this verb will not answer.
 ///
 /// The tokens are checked against their own canonical spelling here, before any spec has been read, because the check is a fact about the token rather than about the alphabet: a token is refused unless it is exactly what [`stream::config_token`] would name the features it parses into. `ss05+ss03` and `ss03+ss03` are therefore usage errors rather than aliases of `ss03+ss05` and `ss03`, and so is a repeated token — two runs of one configuration would race for one filename. An empty stretch between two `+`, or before the first or after the last, is refused on its own account rather than left to the canonical check, which `+ss03` would otherwise pass by sorting its nameless feature to the front. Whether those feature names exist is the spec's question and is asked later, exactly where `--features=` asks it.
-fn plan_configs(rest: &[String]) -> Option<ConfigsPlan<'_>> {
-    let flags = scan_flags(rest, CONFIGS_FLAGS)?;
-    let [spec, outdir] = flags.positionals.as_slice() else {
-        return None;
-    };
+fn config_requests(tokens: Vec<&str>) -> Option<Vec<ConfigRequest<'_>>> {
     let mut configs: Vec<ConfigRequest<'_>> = Vec::new();
-    for token in flags.configs? {
+    for token in tokens {
         if token.is_empty() || configs.iter().any(|named| named.token == token) {
             return None;
         }
@@ -319,10 +358,40 @@ fn plan_configs(rest: &[String]) -> Option<ConfigsPlan<'_>> {
         }
         configs.push(ConfigRequest { token, features });
     }
+    Some(configs)
+}
+
+fn plan_configs(rest: &[String]) -> Option<ConfigsPlan<'_>> {
+    let flags = scan_flags(rest, CONFIGS_FLAGS)?;
+    let [spec, outdir] = flags.positionals.as_slice() else {
+        return None;
+    };
+    let configs = config_requests(flags.configs?)?;
     Some(ConfigsPlan {
         spec,
         outdir,
         configs,
+        threads: flags.threads,
+        simulated_prospect: flags.simulated_prospect,
+        vote_slots: flags.vote_slots,
+        deep_classes: flags.deep_classes,
+        timings: flags.timings,
+        census: flags.census,
+    })
+}
+
+/// What a `build-tables` command line named. The stamp is required rather than defaulted: it is what a serialized enumeration is trusted or refused on, and a build that wrote one under a stamp nobody chose would be a table the sweep would happily replay against runes that had since moved.
+fn plan_tables(rest: &[String]) -> Option<TablesPlan<'_>> {
+    let flags = scan_flags(rest, TABLES_FLAGS)?;
+    let [spec, outdir] = flags.positionals.as_slice() else {
+        return None;
+    };
+    let configs = config_requests(flags.configs?)?;
+    Some(TablesPlan {
+        spec,
+        outdir,
+        configs,
+        inputs: flags.inputs?,
         threads: flags.threads,
         simulated_prospect: flags.simulated_prospect,
         vote_slots: flags.vote_slots,
@@ -482,6 +551,56 @@ fn enumerate_configs(plan: &ConfigsPlan<'_>) -> Result<(), String> {
         clock.extend(timed);
     }
     clock.finish("enumerate_total");
+    Ok(())
+}
+
+/// A whole named set of configurations folded into their tables under the directory the plan named, at most `--threads` of them at once. Each configuration's settlement TSV, treaty TSV and window enumeration are the files it leaves; its contract digest is one JSON line on stdout, in the order the plan named its configurations, because a digest is a scalar its caller assembles into `table-digests.json` rather than an artifact family of its own.
+fn build_tables(plan: &TablesPlan<'_>) -> Result<(), String> {
+    let report = fanout::Report {
+        timings: plan.timings,
+        census: plan.census,
+    };
+    let mut clock = Timings::new(report);
+    let started = Instant::now();
+    let index = read_index(plan.spec)?;
+    clock.record("spec_parse", started.elapsed());
+    let mut resolved: Vec<fanout::Configuration<'_>> = Vec::with_capacity(plan.configs.len());
+    for config in &plan.configs {
+        resolved.push(fanout::Configuration {
+            token: config.token,
+            features: feature_syms(&index, plan.spec, &config.features)?,
+        });
+    }
+    let modes = EnumerationModes {
+        simulated_prospect: plan.simulated_prospect,
+        vote_slots: plan.vote_slots,
+        deep_classes: plan.deep_classes,
+    };
+    let workers = plan
+        .threads
+        .unwrap_or_else(fanout::available_threads)
+        .min(resolved.len());
+    let answers = fanout::run_configs_tables(
+        &index,
+        &resolved,
+        modes,
+        Path::new(plan.outdir),
+        plan.inputs,
+        workers,
+        report,
+    )
+    .map_err(|complaint| format!("{}: {complaint}", plan.spec))?;
+    let mut lines: Vec<String> = Vec::with_capacity(answers.len());
+    for (config, answer) in plan.configs.iter().zip(answers) {
+        lines.push(format!(
+            "{{\"config\":{},\"digest\":{}}}",
+            json_string(config.token),
+            json_string(&answer.digest)
+        ));
+        clock.extend(answer.timed);
+    }
+    write_lines(&lines)?;
+    clock.finish("tables_total");
     Ok(())
 }
 

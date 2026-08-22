@@ -1,24 +1,22 @@
 """How steeply does the M1 fixpoint grow with the modeled alphabet? Only part of the 44-letter target is modeled today, so what this sweep bears on is how far the port's constant factor reaches toward it: a workload that grows steeply in the alphabet spends a constant factor quickly. It is the migration's early-warning system rather than a one-time measurement — a port moves the constant and not the exponent, so a ladder that steepens between batches makes work avoidance due regardless of language, and `bench-the-rebuild/RUST-PORT-PLAN.md`'s threshold rows are stated against what this prints. The top rung is the whole current alphabet, which is the check that the sweep measures the real kernel rather than a subset of it.
 
-Every rung goes through the kernel crate: one `enumerate-configs --configs=default --threads=1` child per rung, the engine of record, so the ladder times what a build runs. That is also what makes a row's `rss_high_water_gb` the rung's own figure — the child's process high-water, reaped with it through `peak_rss.reap_peak_rss_bytes` — rather than the cumulative maximum an in-process sweep charged every rung with once the tallest rung had run. `cpu` and `wall` cover the whole child: spec parse, enumerate and emit together, emit being a serialization the in-process Python arm never paid, so a row from before this change — the ones in git's history of `scaling.txt`, say — compares on exponent and not on constant. The `[t]` lines split that total into `spec_parse_s`, `enumerate_s` and `emit_s`, null rather than 0.0 for a phase the child did not report, since a zero there would read as a measurement.
+Every rung goes through the kernel crate: one `build-tables --configs=default --threads=1` child per rung — the verb a build runs, enumerating the rung and folding it in place — so the ladder times the whole of what a build spends on a configuration. That is also what makes a row's `rss_high_water_gb` the rung's own figure — the child's process high-water, reaped with it through `peak_rss.reap_peak_rss_bytes` — rather than the cumulative maximum an in-process sweep charged every rung with once the tallest rung had run. `cpu` and `wall` cover the whole child: spec parse, enumerate, fold and the artifacts it writes. Twice now that total has changed what it covers — at #77 when the arm stopped being Python's, and here when the fold came inside the child and the stream stopped being written — so a row from an earlier run compares on exponent and not on constant. The `[t]` lines split it into `spec_parse_s`, `enumerate_s` and `fold_s`, null rather than 0.0 for a phase the child did not report, since a zero there would read as a measurement.
 
-The Python half folds each stream the way `kernel_exec.read_stream` and `run_m1.build_tables` fold a build's — packed to gzip at the cheapest compression there is, read back through `kernel_io.read_transitions`, handed to `table.assemble_tables` — outside the timed region and reported on its own as `fold_s`. That fold is what keeps `windows`, `rules` and `cells` the same label-grain counts the sweep has always printed, and what gives every row a `digest` at `table.table_digest`'s contract grain, so a rung whose seconds drifted and a rung whose answer changed are two different events.
+`windows`, `rules` and `cells` are then read off the artifacts the child wrote — the head of its window payload for the rules and the reachable cells, its body counted a line at a time — and `digest` is the contract-grain scalar the child reports on stdout, at exactly `table.table_digest`'s grain, so a rung whose seconds drifted and a rung whose answer changed are two different events. Nothing here folds anything: the counts cost a streamed read of a file the child had already written, where the Python fold they used to come from cost a parsed product and several gigabytes.
 
 The report is the consecutive-pair exponents against runes, as before, plus a least-squares fit of ln count on ln alphabet over the whole ladder in both denominators. Fit the whole ladder and state the denominator: a single pair swings by a large fraction of the threshold on ordinary scatter and on which letters that rung happened to add, and a rune exponent is the letter exponent times `d ln letters / d ln runes`, which the nested ladder drives from below 1 to above 1 as it stops adding ligatures and starts adding letters. RUST-PORT-PLAN.md states its threshold in this fitted form and in both bases — about 4.5 in letters, about 5.5 in runes — and those are one threshold rather than two.
 
-The knobs. Positional arguments are the rune counts to cut rungs at, any k rather than only a ladder rung, and default to the full ladder from `kernel_parity.ladder_rungs`, which is the ladder's one authority now that this script imports it instead of reproducing it. `AMS_SCALING_DUMP=<dir>` keeps each rung's spec dump and its kernel stream instead of letting a temporary directory take them, which is how `levers/kernel_all_configs.py --spec <dir>/spec-rN.json` re-times one rung, or times all six configurations on it. `AMS_SCALING_BINARY=<path>` measures that binary as-is rather than building the crate — the arm-at-another-revision knob, in the seat `AMS_SCALING_ROOT` held when the arm was a Python tree to import from. `AMS_DEEP_CLASSES=0`, `AMS_SIMULATED_PROSPECT=0` and `AMS_VOTE_SLOTS=0` reach the child through `kernel_exec.world_flags()`, and every row's `world` names the flags that rode, `shipping defaults` when none did.
+The knobs. Positional arguments are the rune counts to cut rungs at, any k rather than only a ladder rung, and default to the full ladder from `kernel_parity.ladder_rungs`, which is the ladder's one authority now that this script imports it instead of reproducing it. `AMS_SCALING_DUMP=<dir>` keeps each rung's spec dump and the artifacts its child wrote instead of letting a temporary directory take them, which is how `levers/kernel_all_configs.py --spec <dir>/spec-rN.json` re-times one rung, or times all six configurations on it. `AMS_SCALING_BINARY=<path>` measures that binary as-is rather than building the crate — the arm-at-another-revision knob, in the seat `AMS_SCALING_ROOT` held when the arm was a Python tree to import from. `AMS_DEEP_CLASSES=0`, `AMS_SIMULATED_PROSPECT=0` and `AMS_VOTE_SLOTS=0` reach the child through `kernel_exec.world_flags()`, and every row's `world` names the flags that rode, `shipping defaults` when none did.
 
 Rows print as they land and the whole set is written to `scaling.json` beside this file. Run it from anywhere: `uv run python bench-the-rebuild/scaling/scaling.py [k ...]`.
 """
 
 from __future__ import annotations
 
-import gzip
 import json
 import math
 import os
 import resource
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -30,7 +28,6 @@ HERE = Path(__file__).resolve()
 sys.path.insert(0, str(HERE.parents[2]))
 
 from rebuild.pipeline import kernel_exec, kernel_io, table
-from rebuild.pipeline.model import ResolvedSpec
 from rebuild.pipeline.spec_load import load_default_spec
 from rebuild.tools import kernel_parity, peak_rss
 from rebuild.tools.cycle_timings import _INNER_LINE
@@ -53,14 +50,15 @@ def cpu_children() -> float:
     return usage.ru_utime + usage.ru_stime
 
 
-def run_rung(binary: Path, spec_path: Path, out_dir: Path) -> dict:
-    """One rung's fixpoint as one kernel child, with the wall, the CPU and the peak resident set the child itself spent. Its streams go to files and its two captures to temporary files rather than pipes, because the peak-RSS yardstick has to reap the child with `os.wait4` and a pipe would want a reader first; the CPU is a `RUSAGE_CHILDREN` delta, which attributes to this rung only because one child runs at a time. The CLI contract is read as strictly here as `kernel_exec.enumerate_configs` reads it — exit 2 is a usage refusal, any other nonzero is a complaint about the inputs, bytes on stdout are a failure since the answer is the files, and stderr on a clean exit may carry `[t]` lines and nothing else."""
+def run_rung(binary: Path, spec_path: Path, out_dir: Path, stamp: str) -> dict:
+    """One rung's tables as one kernel child, with the wall, the CPU and the peak resident set the child itself spent. Its artifacts go to files and its two captures to temporary files rather than pipes, because the peak-RSS yardstick has to reap the child with `os.wait4` and a pipe would want a reader first; the CPU is a `RUSAGE_CHILDREN` delta, which attributes to this rung only because one child runs at a time. The CLI contract is read as strictly here as `kernel_exec.build_table_files` reads it — exit 2 is a usage refusal, any other nonzero is a complaint about the inputs, stdout carries one `{config, digest}` line per configuration and nothing else, and stderr on a clean exit may carry `[t]` lines and nothing else."""
     arguments = [
         str(binary),
-        "enumerate-configs",
+        "build-tables",
         str(spec_path),
         str(out_dir),
         "--configs=default",
+        f"--inputs={stamp}",
         "--threads=1",
         *kernel_exec.world_flags(),
         "--timings",
@@ -80,33 +78,34 @@ def run_rung(binary: Path, spec_path: Path, out_dir: Path) -> dict:
         stderr = err.read().decode(errors="replace").strip()
     if process.returncode == 2:
         raise SystemExit(
-            f"the kernel rejected the invocation as a usage error, or does not support enumerate-configs: {stderr} ({' '.join(arguments)})"
+            f"the kernel rejected the invocation as a usage error, or does not support build-tables: {stderr} ({' '.join(arguments)})"
         )
     if process.returncode != 0:
-        raise SystemExit(f"the kernel exited {process.returncode} on enumerate-configs: {stderr}")
-    if stdout:
-        raise SystemExit(
-            f"the kernel wrote {len(stdout)} bytes to stdout on a clean enumerate-configs exit, where the answer is the files"
-        )
+        raise SystemExit(f"the kernel exited {process.returncode} on build-tables: {stderr}")
+    answers = [json.loads(line) for line in stdout.decode().splitlines()]
+    if [answer.get("config") for answer in answers] != ["default"]:
+        raise SystemExit(f"build-tables answered for {[a.get('config') for a in answers]}, not for default")
     stray = [line for line in stderr.split("\n") if line and not line.startswith("[t] ")]
     if stray:
         raise SystemExit(f"the kernel wrote a non-timing line to stderr on a clean exit: {stray[0]}")
     phases = {match.group(1): float(match.group(2)) for match in _INNER_LINE.finditer(stderr)}
-    return {"wall": wall, "cpu": cpu, "rss": rss, "phases": phases}
+    return {
+        "wall": wall,
+        "cpu": cpu,
+        "rss": rss,
+        "phases": phases,
+        "digest": answers[0]["digest"],
+    }
 
 
-def fold(sub: ResolvedSpec, stream: Path) -> tuple:
-    """One rung's stream folded into its two tables, exactly as `kernel_exec.read_stream` packs and reads a build's: the plain ndjson the kernel wrote is packed beside itself into the gzip shape `kernel_io.read_transitions` reads, at the cheapest compression, since the copy is written, read once and unlinked."""
-    packed = stream.with_name(f"{stream.stem}.ndjson.gz")
-    with (
-        stream.open("rb") as plain,
-        packed.open("wb") as raw,
-        gzip.GzipFile(filename="", fileobj=raw, mode="wb", mtime=0, compresslevel=1) as handle,
-    ):
-        shutil.copyfileobj(plain, handle)
-    product = kernel_io.read_transitions(packed)
-    packed.unlink()
-    return table.assemble_tables(sub, product)
+def counts(payload: Path) -> tuple[int, int, int]:
+    """One rung's windows, rules and reachable cells, off the payload the child wrote: the head answers the last two in one line, and the body is counted a line at a time rather than materialized, since the whole point of the fold moving into the crate is that nothing on this side holds a million rows again."""
+    with payload.open("rt", encoding="utf-8") as handle:
+        _stamp, decision = table.read_windows(handle, windows=False)
+        if tuple(handle.readline().rstrip("\n").split("\t")) != table.WINDOWS_COLUMNS:
+            raise SystemExit(f"{payload}: window columns are not {table.WINDOWS_COLUMNS}")
+        windows = sum(1 for _ in handle)
+    return windows, len(decision.rules), len(decision.reachable_cells())
 
 
 def fit(xs: list[int], ys: list[float]) -> float | None:
@@ -174,32 +173,28 @@ def main() -> int:
             spec_path = root / f"spec-r{runes}.json"
             out_dir = root / f"r{runes}"
             kernel_io.write_spec(sub, spec_path)
-            run = run_rung(binary, spec_path, out_dir)
-            stream = out_dir / "transitions-default.ndjson"
-            started = time.perf_counter()
-            decision, treaty = fold(sub, stream)
-            fold_s = time.perf_counter() - started
+            run = run_rung(binary, spec_path, out_dir, f"scaling-r{runes}")
+            payload = out_dir / "windows-default.tsv"
+            windows, rules, cells = counts(payload)
             if not dump:
-                stream.unlink()
+                payload.unlink()
             rss = run["rss"]
             row = {
                 "runes": runes,
                 "letters": letters,
                 "ligs": runes - letters,
-                "windows": len(decision.transitions),
-                "rules": len(decision.rules),
-                "cells": len(decision.reachable_cells()),
+                "windows": windows,
+                "rules": rules,
+                "cells": cells,
                 "cpu": round(run["cpu"], 3),
                 "wall": round(run["wall"], 3),
                 "spec_parse_s": run["phases"].get("spec_parse"),
                 "enumerate_s": run["phases"].get("enumerate[default]"),
-                "emit_s": run["phases"].get("emit[default]"),
-                "fold_s": round(fold_s, 3),
+                "fold_s": run["phases"].get("fold[default]"),
                 "rss_high_water_gb": None if rss is None else round(peak_rss.bytes_to_gb(rss), 2),
                 "world": " ".join(kernel_exec.world_flags()) or "shipping defaults",
-                "digest": table.table_digest(decision, treaty),
+                "digest": run["digest"],
             }
-            del decision, treaty
             rows.append(row)
             print(json.dumps(row), flush=True)
     json.dump(rows, open(HERE.parent / "scaling.json", "w"), indent=1)

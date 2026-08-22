@@ -1,27 +1,53 @@
-"""The window enumerations the build stage serializes so nothing downstream rebuilds a fixpoint the same sources already produced — `run_m1.serialized_tables`' header read, which mints the sweep's glyph inventory, and the full rows the font-free witness gate reads: the `table.write_windows` / `table.read_windows` round trip, the fingerprint guard that decides between loading and rebuilding, and the drop that keeps a million rows per configuration out of the build's parent process."""
+"""The window enumerations the build stage serializes so nothing downstream rebuilds a fixpoint the same sources already produced — `run_m1.serialized_tables`' header read, which mints the sweep's glyph inventory, and the full rows the font-free witness gate reads: what `table.read_windows` gets back off the artifact, the fingerprint guard that decides between loading and rebuilding, and the drop that keeps a million rows per configuration out of the build's parent process. Every fixture here is a real build's artifact rather than something Python composed, because since the fold moved into the crate the writer is `artifacts::write_windows` and the packer is `run_m1._pack_windows`; a fixture that needs a stamp the build did not give it edits the build's own file through `restamp`."""
 
 import gzip
+import json
 
 import pytest
 
 from rebuild.pipeline import conform, fixtures, kernel_exec, run_m1
 from rebuild.pipeline import table as table_module
-from rebuild.pipeline.kernel_exec import build_tables
-from rebuild.pipeline.table import DecisionTable
 
 SPEC = fixtures.mini_spec()
 
 
 @pytest.fixture(scope="module")
+def build_a(tmp_path_factory):
+    out_dir = tmp_path_factory.mktemp("windows-a")
+    return out_dir, run_m1.build_tables(SPEC, out_dir, inputs="fp-sources")
+
+
+@pytest.fixture(scope="module")
+def build_b(tmp_path_factory):
+    out_dir = tmp_path_factory.mktemp("windows-b")
+    run_m1.build_tables(SPEC, out_dir, inputs="fp-sources")
+    return out_dir
+
+
+@pytest.fixture(scope="module")
 def built():
-    return build_tables(SPEC, frozenset())[0]
+    """The default configuration's whole table in memory, rows included — which the build's own parent never holds — so the artifact is checked against a second reading of the kernel rather than against itself."""
+    return kernel_exec.build_tables(SPEC, frozenset())[0]
 
 
 @pytest.fixture
-def written(built, tmp_path):
-    path = table_module.windows_path(tmp_path, built.config)
-    table_module.write_windows(built, path, "fp-sources")
-    return path
+def written(build_a):
+    out_dir, _tables = build_a
+    return table_module.windows_path(out_dir, "default")
+
+
+def restamp(source, dest, inputs):
+    """One enumeration under a different fingerprint: the head's `inputs` field rewritten in the payload and the whole thing repacked the way `run_m1._pack_windows` packs one, zeroed stamp included."""
+    marker, _, payload = gzip.decompress(source.read_bytes()).decode().partition("\t")
+    head, _, rows = payload.partition("\n")
+    record = json.loads(head)
+    record["inputs"] = inputs
+    body = f"{marker}\t{json.dumps(record, separators=(',', ':'))}\n{rows}"
+    with (
+        dest.open("wb") as raw,
+        gzip.GzipFile(filename="", fileobj=raw, mode="wb", mtime=0, compresslevel=6) as handle,
+    ):
+        handle.write(body.encode())
 
 
 class TestRoundTrip:
@@ -48,11 +74,14 @@ class TestRoundTrip:
         assert head.rules == built.rules
         assert head.reachable_cells() == built.reachable_cells()
 
-    def test_two_writes_of_one_table_are_byte_identical(self, built, tmp_path):
-        first, second = tmp_path / "first.tsv.gz", tmp_path / "second.tsv.gz"
-        table_module.write_windows(built, first, "fp-sources")
-        table_module.write_windows(built, second, "fp-sources")
-        assert first.read_bytes() == second.read_bytes()
+    def test_two_builds_of_one_spec_write_the_same_bytes(self, build_a, build_b):
+        """Diff-stability where it is actually stated — over two whole builds rather than over two calls to one writer — since the settlement and treaty TSVs are the crate's bytes and the enumeration is the crate's payload under this side's zeroed gzip stamp."""
+        first, _tables = build_a
+        for config in conform.ACCEPTANCE_CONFIGS:
+            for name in (f"settlement-{config}.tsv", f"treaties-{config}.tsv"):
+                assert (first / name).read_bytes() == (build_b / name).read_bytes(), name
+            packed = table_module.windows_path(first, config)
+            assert packed.read_bytes() == table_module.windows_path(build_b, config).read_bytes(), config
 
     def test_a_file_that_is_not_an_enumeration_is_refused(self, tmp_path):
         path = table_module.windows_path(tmp_path, "default")
@@ -69,12 +98,12 @@ class TestWindowsDigest:
         _inputs, loaded = table_module.read_windows(written)
         assert table_module.windows_digest(loaded) == table_module.windows_digest(built)
 
-    def test_the_inputs_stamp_is_outside_the_digest(self, built, tmp_path):
-        first, second = tmp_path / "first.tsv.gz", tmp_path / "second.tsv.gz"
-        table_module.write_windows(built, first, "fp-sources")
-        table_module.write_windows(built, second, "fp-moved")
+    def test_the_inputs_stamp_is_outside_the_digest(self, written, tmp_path):
+        moved = tmp_path / "moved.tsv.gz"
+        restamp(written, moved, "fp-moved")
+        assert table_module.read_windows(moved, windows=False)[0] == "fp-moved"
         digests = {
-            table_module.windows_digest(table_module.read_windows(path)[1]) for path in (first, second)
+            table_module.windows_digest(table_module.read_windows(path)[1]) for path in (written, moved)
         }
         assert len(digests) == 1
 
@@ -103,54 +132,74 @@ def test_the_deep_classes_stamp_rides_tables_inputs(monkeypatch):
     assert run_m1.tables_inputs() == with_classes.removesuffix("+deep-classes")
 
 
-def _write_every_config(out_dir, inputs):
-    for config in conform.ACCEPTANCE_CONFIGS:
-        table_module.write_windows(
-            DecisionTable(config=config), table_module.windows_path(out_dir, config), inputs
-        )
-
-
 class TestFingerprintGuard:
-    def test_a_complete_matching_set_loads(self, tmp_path):
-        _write_every_config(tmp_path, "fp-sources")
-        tables = run_m1.serialized_tables(tmp_path, "fp-sources")
+    @pytest.fixture
+    def stamped(self, build_a, tmp_path):
+        source, _tables = build_a
+
+        def write(inputs, configs=conform.ACCEPTANCE_CONFIGS):
+            for config in configs:
+                restamp(
+                    table_module.windows_path(source, config),
+                    table_module.windows_path(tmp_path, config),
+                    inputs,
+                )
+            return tmp_path
+
+        return write
+
+    def test_a_complete_matching_set_loads(self, stamped):
+        out_dir = stamped("fp-sources")
+        tables = run_m1.serialized_tables(out_dir, "fp-sources")
         assert tables is not None
         assert sorted(tables) == sorted(conform.ACCEPTANCE_CONFIGS)
 
-    def test_one_configuration_written_from_other_sources_rejects_the_set(self, tmp_path):
-        _write_every_config(tmp_path, "fp-sources")
-        table_module.write_windows(
-            DecisionTable(config="ss03"), table_module.windows_path(tmp_path, "ss03"), "fp-moved"
-        )
-        assert run_m1.serialized_tables(tmp_path, "fp-sources") is None
+    def test_one_configuration_written_from_other_sources_rejects_the_set(self, stamped):
+        out_dir = stamped("fp-sources")
+        stamped("fp-moved", ["ss03"])
+        assert run_m1.serialized_tables(out_dir, "fp-sources") is None
 
-    def test_one_missing_configuration_rejects_the_set(self, tmp_path):
-        _write_every_config(tmp_path, "fp-sources")
-        table_module.windows_path(tmp_path, "ss10").unlink()
-        assert run_m1.serialized_tables(tmp_path, "fp-sources") is None
+    def test_one_missing_configuration_rejects_the_set(self, stamped):
+        out_dir = stamped("fp-sources")
+        table_module.windows_path(out_dir, "ss10").unlink()
+        assert run_m1.serialized_tables(out_dir, "fp-sources") is None
 
-    def test_one_unreadable_configuration_rejects_the_set(self, tmp_path):
-        _write_every_config(tmp_path, "fp-sources")
-        table_module.windows_path(tmp_path, "ss05").write_bytes(b"not an enumeration")
-        assert run_m1.serialized_tables(tmp_path, "fp-sources") is None
+    def test_one_unreadable_configuration_rejects_the_set(self, stamped):
+        out_dir = stamped("fp-sources")
+        table_module.windows_path(out_dir, "ss05").write_bytes(b"not an enumeration")
+        assert run_m1.serialized_tables(out_dir, "fp-sources") is None
 
     def test_an_empty_directory_rejects_rather_than_raises(self, tmp_path):
         assert run_m1.serialized_tables(tmp_path, "fp-sources") is None
 
 
 class TestBuildStageHandoff:
-    def test_a_stamped_build_serializes_every_configuration_and_keeps_none(self, tmp_path):
-        tables = run_m1.build_tables(SPEC, tmp_path, inputs="fp-sources")
+    """What the build stage hands its parent since the fold moved into the crate: the head of each configuration's enumeration and its treaty rows, with the enumeration itself on disk under the stamp that names its sources. The rows never cross into the parent at all — a million per configuration is a resident peak nothing after the build spends — so what the parent holds is what `read_windows(windows=False)` answers."""
+
+    def test_a_stamped_build_serializes_every_configuration_and_keeps_none(self, build_a):
+        out_dir, tables = build_a
         assert sorted(tables) == sorted(conform.ACCEPTANCE_CONFIGS)
-        for config, (decision, _treaty) in tables.items():
+        for config, (decision, treaty) in tables.items():
             assert decision.transitions == ()
             assert decision.rules
-            inputs, loaded = table_module.read_windows(table_module.windows_path(tmp_path, config))
+            assert treaty.rows and treaty.config == config
+            inputs, loaded = table_module.read_windows(table_module.windows_path(out_dir, config))
             assert inputs == "fp-sources"
             assert loaded.rules == decision.rules
             assert loaded.transitions
 
-    def test_an_unstamped_build_writes_no_enumeration_and_keeps_the_windows(self, tmp_path):
-        tables = run_m1.build_tables(SPEC, tmp_path)
+    def test_an_unstamped_build_leaves_no_enumeration_behind(self, tmp_path):
+        run_m1.build_tables(SPEC, tmp_path)
         assert not list(tmp_path.glob("windows-*"))
-        assert all(decision.transitions for decision, _treaty in tables.values())
+
+    def test_the_crates_artifacts_are_what_this_sides_writers_write_back(self, build_a, tmp_path):
+        """Both TSVs are the crate's bytes now, so what keeps this side's copies of those writers and of `table_digest` honest is that they reproduce them: read the enumeration and the treaty rows back, write them out again here, and require the same bytes and the same recorded digest. A rule-ordering divergence between the two sides shows in the settlement TSV, which is the shipped GSUB order."""
+        out_dir, _tables = build_a
+        _inputs, decision = table_module.read_windows(table_module.windows_path(out_dir, "default"))
+        treaty = table_module.read_treaty_tsv(out_dir / "treaties-default.tsv")
+        decision.write_tsv(tmp_path / "settlement-default.tsv")
+        treaty.write_tsv(tmp_path / "treaties-default.tsv")
+        for name in ("settlement-default.tsv", "treaties-default.tsv"):
+            assert (tmp_path / name).read_bytes() == (out_dir / name).read_bytes(), name
+        record = json.loads((out_dir / "table-digests.json").read_text())
+        assert record["digests"]["default"] == table_module.table_digest(decision, treaty)

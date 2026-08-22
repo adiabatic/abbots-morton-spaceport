@@ -326,11 +326,11 @@ fn strings_json(values: &[String]) -> String {
     format!("[{}]", quoted.join(","))
 }
 
-fn key_repr(key: [&str; 6]) -> String {
+pub(crate) fn key_repr(key: [&str; 6]) -> String {
     python_tuple(&key.map(python_repr))
 }
 
-fn cell_key_repr(key: &CellKey) -> String {
+pub(crate) fn cell_key_repr(key: &CellKey) -> String {
     let (rune, stance, entry, exit, adjustments) = key;
     let adjustments: Vec<String> = adjustments.iter().map(|token| python_repr(token)).collect();
     python_tuple(&[
@@ -343,7 +343,7 @@ fn cell_key_repr(key: &CellKey) -> String {
 }
 
 /// A tuple in Python's own repr — comma-space between items, and the trailing comma a one-item tuple needs to still read as one.
-fn python_tuple(items: &[String]) -> String {
+pub(crate) fn python_tuple(items: &[String]) -> String {
     match items {
         [] => "()".to_owned(),
         [only] => format!("({only},)"),
@@ -354,7 +354,7 @@ fn python_tuple(items: &[String]) -> String {
 /// One string in Python's repr, which is what a raise message pastes a tuple's members in: single quotes unless the text carries a single quote and no double one, backslash and the chosen quote escaped, the three whitespace escapes spelled short, and every other ASCII control character as `\xNN`.
 ///
 /// Non-ASCII passes through, which is Python's behavior for every printable code point and therefore for every name the alphabet spells. A non-printable one would differ, and nothing authored carries one — a rune name, a stance name, a height and an adjustment token are all drawn from the ASCII vocabulary the dump's own grammar admits.
-fn python_repr(value: &str) -> String {
+pub(crate) fn python_repr(value: &str) -> String {
     let quote = if value.contains('\'') && !value.contains('"') {
         '"'
     } else {

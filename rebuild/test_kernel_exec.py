@@ -188,6 +188,8 @@ def test_the_class_grain_rule_needs_a_fiber_source(monkeypatch, deep, prospect, 
 
 @pytest.mark.parametrize("config", sorted(CONFIGS))
 class TestTheProductStandsAlone:
+    """What a stream carries has to stand on its own, because nothing folds it here any more: the rows in the key order `fold::assert_key_sorted` refuses a product for losing, and every cell they name present in the product that named them. The joint flags those rows carry are the trace's floor alone — what the prospect-divergence pass then makes of them is the crate's `fold::tests::the_prospect_pass_raises_joints_and_clears_none`, which can see the rows on both sides of the pass where this side sees only the artifacts."""
+
     def test_the_stream_is_key_sorted_without_duplicates(self, products, config):
         keys = [row.key for row in products[config].transitions]
         assert keys == sorted(keys)
@@ -199,18 +201,6 @@ class TestTheProductStandsAlone:
             assert row.settled.cell in product.cells
             if row.left_settled is not None:
                 assert row.left_settled.cell in product.cells
-
-    def test_the_prospect_divergence_pass_runs_in_the_back_half(self, products, config):
-        """The fold genuinely raises joint flags the kernel left unflagged — the prospect-divergence pass runs on this side of the boundary rather than vacuously — and it is monotone, never clearing a joint the trace floor set. The mini spec's one deep class never covers a divergent row, so the claim is stated over the class-grain stream as a whole instead of over a class row in particular."""
-        product = products[config]
-        folded, _treaty = table_module.assemble_tables(SPEC, product)
-        rows = [row for row in folded.transitions if isinstance(row, table_module.Transition)]
-        assert [row.key for row in product.transitions] == [row.key for row in rows]
-        flipped = [
-            before.key for before, after in zip(product.transitions, rows) if after.joint and not before.joint
-        ]
-        assert flipped
-        assert not any(before.joint and not after.joint for before, after in zip(product.transitions, rows))
 
 
 def test_the_default_configuration_enumerates_at_class_grain(products):
@@ -242,15 +232,16 @@ class TestTheDigestRecord:
         assert record["inputs"] is None
         assert list(record["digests"]) == list(conform.ACCEPTANCE_CONFIGS)
         assert not sorted(tmp_path.glob("windows-*"))
+        assert sorted(path.name for path in tmp_path.glob("settlement-*"))
 
 
 class TestTheKernelInvocation:
     def test_a_caller_with_nowhere_to_write_still_gets_its_tables(self, tmp_path, monkeypatch):
-        """The kernel serves an in-memory build too: the arm that once refused a caller with no `out_dir` existed only to route such callers to the in-process fixpoint, and there is no such fixpoint now."""
+        """A caller with no `out_dir` gets the tables and leaves nothing behind: the kernel's artifacts land in a scratch directory that goes with the frame, and what comes back is the head every downstream stage reads plus the treaty rows the defect gates want."""
         monkeypatch.chdir(tmp_path)
         tables = run_m1.build_tables(SPEC)
         assert list(tables) == list(conform.ACCEPTANCE_CONFIGS)
-        assert all(decision.transitions for decision, _treaty in tables.values())
+        assert all(decision.rules and treaty.rows for decision, treaty in tables.values())
         assert not sorted(tmp_path.iterdir())
 
     @pytest.mark.parametrize(
@@ -264,33 +255,53 @@ class TestTheKernelInvocation:
     def test_the_thread_width_is_how_many_configurations_run_at_once(
         self, monkeypatch, tmp_path, asked, wanted
     ):
-        """The width is no longer a flag on one invocation: every configuration gets a single-threaded process of its own, tagged so its timing lines stay attributable, and the width is how many of those the build keeps in flight."""
+        """The width is not a flag on one invocation: every configuration gets a single-threaded process of its own that enumerates and folds it, tagged so its timing lines stay attributable, and the width is how many of those the build keeps in flight."""
         live = 0
         peak = 0
         seen = []
         lock = threading.Lock()
 
-        def enumerate_configs(spec_path, out_dir, configs, *, threads, timings=False, timings_tag=None):
+        def build_table_files(
+            spec_path, out_dir, configs, *, inputs, threads, timings=False, timings_tag=None
+        ):
             nonlocal live, peak
             with lock:
                 live += 1
                 peak = max(peak, live)
-                seen.append((tuple(configs), threads, timings_tag))
+                seen.append((tuple(configs), threads, timings_tag, inputs))
             time.sleep(0.05)
             with lock:
                 live -= 1
             raise Reached
 
         monkeypatch.setattr(kernel_exec, "ensure_built", lambda: None)
-        monkeypatch.setattr(kernel_exec, "enumerate_configs", enumerate_configs)
+        monkeypatch.setattr(kernel_exec, "build_table_files", build_table_files)
         with pytest.raises(Reached):
             run_m1.build_tables(SPEC, tmp_path, inputs=STAMP, kernel_threads=asked)
         assert peak == min(wanted, os.process_cpu_count() or 1)
-        assert sorted(config for (config,), _threads, _tag in seen) == sorted(conform.ACCEPTANCE_CONFIGS)
-        assert {threads for _configs, threads, _tag in seen} == {1}
-        assert all(tag == config for (config,), _threads, tag in seen)
+        assert sorted(config for (config,), _threads, _tag, _stamp in seen) == sorted(
+            conform.ACCEPTANCE_CONFIGS
+        )
+        assert {threads for _configs, threads, _tag, _stamp in seen} == {1}
+        assert all(tag == config for (config,), _threads, tag, _stamp in seen)
+        assert {stamp for _configs, _threads, _tag, stamp in seen} == {STAMP}
 
-    def test_run_hands_both_widths_to_the_table_build(self, monkeypatch, tmp_path):
+    def test_an_unstamped_build_names_a_stamp_the_kernel_will_accept(self, monkeypatch, tmp_path):
+        """The verb requires a stamp, and a build with none still has to name one: the payload it writes is where the head comes from, and it is deleted unread rather than kept, so the word it carried never reaches an artifact."""
+        seen = []
+
+        def build_table_files(spec_path, out_dir, configs, *, inputs, **rest):
+            seen.append(inputs)
+            raise Reached
+
+        monkeypatch.setattr(kernel_exec, "ensure_built", lambda: None)
+        monkeypatch.setattr(kernel_exec, "build_table_files", build_table_files)
+        with pytest.raises(Reached):
+            run_m1.build_tables(SPEC, tmp_path)
+        assert set(seen) == {kernel_exec.UNSTAMPED_WINDOWS}
+        assert kernel_exec.UNSTAMPED_WINDOWS
+
+    def test_run_hands_the_width_to_the_table_build(self, monkeypatch, tmp_path):
         seen = {}
 
         def build_tables(spec, out_dir=None, **rest):
@@ -299,15 +310,12 @@ class TestTheKernelInvocation:
 
         monkeypatch.setattr(run_m1, "build_tables", build_tables)
         with pytest.raises(Reached):
-            run_m1.run(out_dir=tmp_path, spec=SPEC, inputs=STAMP, kernel_threads=5, fold_jobs=3)
+            run_m1.run(out_dir=tmp_path, spec=SPEC, inputs=STAMP, kernel_threads=5)
         assert seen["kernel_threads"] == 5
-        assert seen["fold_jobs"] == 3
+        assert "fold_jobs" not in seen
 
-    @pytest.mark.parametrize(
-        "argv, threads, folds",
-        [([], None, 1), (["--kernel-threads", "5", "--fold-jobs", "2"], 5, 2)],
-    )
-    def test_the_cli_carries_the_thread_width_into_run(self, monkeypatch, argv, threads, folds):
+    @pytest.mark.parametrize("argv, threads", [([], None), (["--kernel-threads", "5"], 5)])
+    def test_the_cli_carries_the_thread_width_into_run(self, monkeypatch, argv, threads):
         from rebuild.tools import artifact_cycle
 
         seen = {}
@@ -325,4 +333,4 @@ class TestTheKernelInvocation:
         with pytest.raises(Reached):
             run_m1.main(argv)
         assert seen["kernel_threads"] == threads
-        assert seen["fold_jobs"] == folds
+        assert "fold_jobs" not in seen

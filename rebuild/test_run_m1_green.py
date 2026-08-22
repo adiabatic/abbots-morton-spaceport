@@ -118,7 +118,7 @@ def _stub_full_run(monkeypatch, *, defect_errors=(), pins=True, pins_in_scope=14
     monkeypatch.setattr(
         run_m1,
         "run",
-        lambda spec, inputs, kernel_threads=None, fold_jobs=1: {
+        lambda spec, inputs, kernel_threads=None: {
             "defect_errors": list(defect_errors),
             "notes": [],
         },
@@ -162,8 +162,7 @@ def test_main_refreshes_the_baseline_subset_before_anything_reads_it(monkeypatch
     monkeypatch.setattr(
         run_m1,
         "run",
-        lambda spec, inputs, kernel_threads=None, fold_jobs=1: events.append("run")
-        or {"defect_errors": [], "notes": []},
+        lambda spec, inputs, kernel_threads=None: events.append("run") or {"defect_errors": [], "notes": []},
     )
     monkeypatch.setattr(
         run_m1,
