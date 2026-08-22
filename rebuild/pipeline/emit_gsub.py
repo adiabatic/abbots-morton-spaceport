@@ -529,9 +529,46 @@ def _settle_rule_of(rule) -> SettleRule:
 
 
 def fold_settle_rules(spec: ResolvedSpec, tables_by_config: Mapping) -> tuple[SettleRule, ...]:
-    """The emitted settlement lookup's rows in FEA order, each carrying the per-configuration table rules it folded from — the same fold, the same marker renaming and the same ordering `emit_gsub` writes, exposed on its own so a reader of the recorded fold (rebuild/test_rule_witnesses.py) can hold it to the stamped tables without minting a glyph inventory or emitting FEA text."""
+    """The emitted settlement lookup's rows in FEA order, each carrying the per-configuration table rules it folded from — the same fold, the same marker renaming and the same ordering `emit_gsub` writes, exposed on its own so a reader of the recorded fold can hold it to the stamped tables without minting a glyph inventory or emitting FEA text."""
     grouped = _ordered_settle_rules(_fold_rules(tables_by_config, spec), _marker_names(spec))
+    _assert_fold_sources(grouped, tables_by_config)
     return tuple(_settle_rule_of(rule) for rule in grouped)
+
+
+def _assert_fold_sources(rules: Iterable, tables_by_config: Mapping) -> None:
+    """The fold's accounting, held at build time rather than re-derived by a test afterwards: every emitted row names at least one table rule it folded from, every table rule of every configuration handed in sources exactly one row, and the configurations the rows name are exactly the ones with rules to contribute (which is what the record beside the build writes down as its `configs`). Together that is what makes the shipped lookup — not the six tables behind it — the unit coverage is counted over: a row with no source could ship unwitnessed, and a rule that sourced no row would be a table rule the font never got."""
+    rules = list(rules)
+    unsourced = [rule for rule in rules if not getattr(rule, "sources", ())]
+    if unsourced:
+        raise EmitError(
+            f"{len(unsourced)} folded row(s) name no table rule they came from, starting at {unsourced[0].input_glyph} -> {unsourced[0].outcome}"
+        )
+    counts: dict[tuple[str, int], int] = {}
+    for rule in rules:
+        for source in rule.sources:
+            counts[source] = counts.get(source, 0) + 1
+    doubled = sorted(source for source, count in counts.items() if count != 1)
+    if doubled:
+        raise EmitError(f"{len(doubled)} table rule(s) source more than one folded row: {doubled[:5]}")
+    contributing: list[str] = []
+    for config in sorted(tables_by_config, key=lambda c: sorted(_config_features(c))):
+        table = tables_by_config[config]
+        if isinstance(table, (tuple, list)):
+            table = table[0]
+        name = _config_name(config)
+        want = set(range(len(getattr(table, "rules", ()))))
+        got = {index for source_name, index in counts if source_name == name}
+        if got != want:
+            raise EmitError(
+                f"{name}: {len(want - got)} table rule(s) fold into no emitted row, {len(got - want)} recorded source(s) name no rule of the table"
+            )
+        if want:
+            contributing.append(name)
+    named = {source_name for rule in rules for source_name, _ in rule.sources}
+    if named != set(contributing):
+        raise EmitError(
+            f"the folded rows name configurations {sorted(named)}, not the {contributing} the fold was handed"
+        )
 
 
 def _assert_invariants(
@@ -695,6 +732,7 @@ def emit_gsub(
     allowed_ignores = (
         frozenset({f"ignore sub {namer_dot[0]}' uni200C;"}) if namer_dot is not None else frozenset()
     ) | frozenset(formation_ignores)
+    _assert_fold_sources(grouped_rules, tables_by_config)
     _assert_invariants(rules, frozenset(named_glyphs), fea, locked_set, allowed_ignores)
 
     return GsubPlan(

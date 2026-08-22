@@ -2,6 +2,8 @@
 
 What makes it periodic rather than per-edit is what its green is keyed on. The arming key (`artifact_cycle.deep_sweep_skip_lines`) is the behavior-class set the build enumerated out of the emitted lookup (`emit_gsub.behavior_classes`), the font-compilation code that turns a plan into bytes, and the uharfbuzz version that shapes them — not the runes and not M1.otf. So a rune edit that moves thousands of rules but mints no new rule shape leaves this green standing, and the cycle keeps saying `current`; the moment a build emits a shape no earlier build did, or the compilation path or the shaper moves, the same key goes `armed` and the cycle says so once per pass. Nothing gates on it: an armed deep sweep is a note to run this overnight, not a red cycle.
 
+The two structural checks the belt runs — every ZWNJ slot zero-advance and inkless, and every splitter-separated buffer identical to its segments shaped alone — come along at this depth, which is where their coverage past the belt's horizon now lives: the standalone horizon-5 boundary gate that used to prove them on every build is gone, and nothing else shapes a length-5 string.
+
 A green run also refreshes gate:conform's own record when it swept at least the belt's horizon, because an exhaustive sweep at any depth N covers every string the belt at depth 4 would have shaped. So an overnight deep run leaves the next cycle's belt already proved rather than making the reviewer wait for it twice.
 
 Run as: uv run python -m rebuild.tools.deep_sweep, or through `make conform-deep`.
@@ -11,7 +13,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
 from pathlib import Path
 
@@ -26,7 +27,6 @@ from rebuild.tools.artifact_cycle import (
     DEEP_SWEEP_GREEN,
     DEEP_SWEEP_HORIZON_DEFAULT,
     RUN_M1_GREEN,
-    _CONFORM_JOBS_CAP,
     clear_contradicted_green,
     conform_skip_files,
     conform_skip_fingerprint,
@@ -37,6 +37,7 @@ from rebuild.tools.artifact_cycle import (
     record_deep_sweep_green,
     record_green,
     run_m1_skip_fingerprint,
+    sweep_job_budget,
 )
 
 SUMMARY_NAME = "deep_sweep_summary.json"
@@ -70,7 +71,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--jobs",
         type=int,
-        default=min(_CONFORM_JOBS_CAP, os.cpu_count() or 1),
+        default=sweep_job_budget(),
         help="how many acceptance configurations sweep at once, in the same lane the cycle's conform gate uses",
     )
     parser.add_argument(

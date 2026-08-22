@@ -498,72 +498,7 @@ class TestConformanceMerge:
         assert merged.passed is True
 
 
-class TestProvenBoundaryHorizon:
-    def _summary(self, tmp_path, font_bytes=b"font", overrides=None):
-        import hashlib
-        import json
-
-        font = tmp_path / "M1.otf"
-        font.write_bytes(font_bytes)
-        summary = {
-            "pass": True,
-            "max_length": 5,
-            "configs": list(conform.ACCEPTANCE_CONFIGS),
-            "font_sha256": hashlib.sha256(b"font").hexdigest(),
-        }
-        summary.update(overrides or {})
-        path = tmp_path / "boundary_equivalence_summary.json"
-        path.write_text(json.dumps(summary))
-        return font, path
-
-    def test_a_green_summary_for_these_font_bytes_hands_over_its_horizon(self, tmp_path):
-        font, path = self._summary(tmp_path)
-        assert conform.proven_boundary_horizon(font, path) == 5
-
-    def test_a_red_summary_declines(self, tmp_path):
-        font, path = self._summary(tmp_path, overrides={"pass": False})
-        assert conform.proven_boundary_horizon(font, path) is None
-
-    def test_a_rebuilt_font_declines(self, tmp_path):
-        font, path = self._summary(tmp_path, font_bytes=b"rebuilt since")
-        assert conform.proven_boundary_horizon(font, path) is None
-
-    def test_a_summary_short_a_requested_config_declines(self, tmp_path):
-        font, path = self._summary(tmp_path, overrides={"configs": ["default"]})
-        assert conform.proven_boundary_horizon(font, path) is None
-        assert conform.proven_boundary_horizon(font, path, configs=("default",)) == 5
-
-    def test_a_summary_predating_the_provenance_keys_declines(self, tmp_path):
-        font, path = self._summary(tmp_path)
-        import json
-
-        recorded = json.loads(path.read_text())
-        for key in ("max_length", "configs", "font_sha256"):
-            recorded.pop(key)
-        path.write_text(json.dumps(recorded))
-        assert conform.proven_boundary_horizon(font, path) is None
-
-    def test_a_missing_summary_declines(self, tmp_path):
-        font = tmp_path / "M1.otf"
-        font.write_bytes(b"font")
-        assert conform.proven_boundary_horizon(font, tmp_path / "absent.json") is None
-
-
-class TestBoundarySummaryProvenance:
-    def test_merged_boundary_results_carry_the_proof_the_conform_sweep_leans_on(self, tmp_path):
-        import json
-
-        font = tmp_path / "M1.otf"
-        font.write_bytes(b"font")
-        results = [conform.BoundaryConfigResult(config=config) for config in conform.ACCEPTANCE_CONFIGS]
-        report = conform.merge_boundary_results(font, results, max_length=5)
-        summary_path = tmp_path / "boundary_equivalence_summary.json"
-        report.write(summary_path)
-        recorded = json.loads(summary_path.read_text())
-        assert recorded["max_length"] == 5
-        assert recorded["configs"] == list(conform.ACCEPTANCE_CONFIGS)
-        assert conform.proven_boundary_horizon(font, summary_path) == 5
-
+class TestConformSummary:
     def test_a_conformance_summary_stays_in_its_established_shape(self, tmp_path):
         import json
 
@@ -600,11 +535,11 @@ class _SilentShaper:
 
 
 class TestBeltEconomics:
-    """What the per-edit belt does and does not spend over a short horizon with the font faked out: every text of every length up to the horizon shapes exactly once, and the structural checks the boundary gate already proved for these font bytes are inherited rather than re-run."""
+    """What the per-edit belt does and does not spend over a short horizon with the font faked out: every text of every length up to the horizon shapes exactly once, and the two structural checks run on exactly the texts they can say anything about."""
 
     HORIZON = 2
 
-    def _run(self, spec, boundary_horizon=None):
+    def _run(self, spec):
         shaper = _SilentShaper()
         result = conform._conformance_config(
             shaper,  # pyright: ignore[reportArgumentType]
@@ -615,7 +550,6 @@ class TestBeltEconomics:
             {},
             None,
             self.HORIZON,
-            boundary_horizon=boundary_horizon,
         )
         return result, shaper
 
@@ -628,27 +562,21 @@ class TestBeltEconomics:
         assert len(shaper.shaped) == len(set(shaper.shaped)) == result.sequences
         assert all(len(text) <= self.HORIZON for text in shaper.shaped)
 
-    def test_the_boundary_gates_green_is_inherited_within_its_horizon(self, spec, monkeypatch):
-        inherited = self.HORIZON - 1
-        checked: list[str] = []
+    def test_the_structural_checks_run_on_the_texts_that_carry_a_boundary(self, spec, monkeypatch):
+        """The retired boundary gate's charter, now the belt's: every ZWNJ-bearing text is weighed for zero-advance inkless slots and every splitter-bearing one against its own segments — and no other text pays for either, since a text with no boundary in it satisfies both by construction."""
+        zwnj_checked: list[str] = []
+        split_checked: list[str] = []
         monkeypatch.setattr(
-            conform, "check_zwnj_structure", lambda text, *args, **kwargs: checked.append(text)
+            conform, "check_zwnj_structure", lambda text, *args, **kwargs: zwnj_checked.append(text)
         )
-        monkeypatch.setattr(conform, "check_split_buffer", lambda text, *args, **kwargs: checked.append(text))
-        result, _shaper = self._run(spec, boundary_horizon=inherited)
-        assert checked
-        assert all(len(text) > inherited for text in checked)
-        assert any("inherited from the green boundary gate" in mode for mode in result.modes)
-
-    def test_without_the_boundary_green_every_text_keeps_its_checks(self, spec, monkeypatch):
-        checked: list[str] = []
         monkeypatch.setattr(
-            conform, "check_zwnj_structure", lambda text, *args, **kwargs: checked.append(text)
+            conform, "check_split_buffer", lambda text, *args, **kwargs: split_checked.append(text)
         )
-        monkeypatch.setattr(conform, "check_split_buffer", lambda *args, **kwargs: None)
-        result, _shaper = self._run(spec)
-        assert any(len(text) == 1 for text in checked)
-        assert not any("inherited from the green boundary gate" in mode for mode in result.modes)
+        _result, shaper = self._run(spec)
+        splitters = conform.splitting_boundary_chars(spec)
+        assert set(zwnj_checked) == {text for text in shaper.shaped if conform.ZWNJ in text}
+        assert set(split_checked) == {text for text in shaper.shaped if set(text) & splitters}
+        assert zwnj_checked and split_checked
 
 
 class TestRawLabelsLateFormation:
@@ -854,3 +782,43 @@ class TestDeepTokenIndex:
         assert (
             bare_renamed_r3_under_class_r4
         ), "no row exercises the renamed-bare-r3 + class-r4 shape this arm exists for"
+
+
+class TestWitnessRowCap:
+    """The witness search reads a bounded sample of each rule's first-matching windows. What must survive the bound is the alarm: a rule no window can realize still comes back unwitnessed, and the sample never invents a witness for one."""
+
+    def _tables(self):
+        from rebuild.pipeline import kernel_exec
+
+        return kernel_exec.build_tables(mini_spec(), frozenset())
+
+    def test_the_cap_bounds_the_rows_kept_per_rule(self):
+        spec = mini_spec()
+        decision, _treaty = self._tables()
+        rows = conform._first_match_rows(decision)
+        assert rows
+        assert all(len(kept) <= conform.WITNESS_ROW_CAP for kept in rows.values())
+        assert not conform.find_rule_witnesses(spec, frozenset(), decision).unwitnessed
+
+    def test_a_dead_rule_is_still_reported_under_the_cap(self, monkeypatch):
+        import dataclasses
+
+        from rebuild.pipeline.table import Rule
+
+        spec = mini_spec()
+        decision, _treaty = self._tables()
+        dead = Rule(
+            input_glyph="qsMay",
+            backtrack=("qsNever.loop",),
+            look1=None,
+            look2=None,
+            look3=None,
+            look4=None,
+            outcome="qsMay",
+            provenance=(),
+            joint=False,
+        )
+        poisoned = dataclasses.replace(decision, rules=decision.rules + (dead,))
+        monkeypatch.setattr(conform, "WITNESS_ROW_CAP", 1)
+        report = conform.find_rule_witnesses(spec, frozenset(), poisoned)
+        assert report.unwitnessed == [len(decision.rules)]

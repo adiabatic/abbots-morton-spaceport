@@ -2,9 +2,9 @@
 
 It mechanizes the commit-time sequence: snapshot the current review surface (the only recovery copy, since everything under rebuild/out is gitignored), recompile M1.otf and vet it, rebuild the review surface in place, carry prior verdicts forward onto the fresh manifest, merge the carried file into the live autosave (rebuild.tools.merge_verdicts, so the app needs no manual import; --no-merge opts out), land echo-prefill verdicts onto the freshly restamped autosave (rebuild.tools.echo_verdicts writes fill records for the blanks in unanimously-judged echo groups, then a second merge_verdicts pass imports them, so cross-cycle echo blanks fill without a sitting-prep pass), land standing-approval verdicts the same way (rebuild.tools.standing_verdicts fills blanks matching the checked-in rules in rebuild/standing-approvals.yaml, so once-and-for-all decisions never queue again), refresh the census pins from the surface's census sidecar and print their git diff (the checked-in pins are the last accepted census, so reviewing that diff at commit time is what accepts a new one), and run the five gates — always printing a summary table at the end, even on failure.
 
-The exit-code trap this driver exists to defuse: run_m1.main() SystemExits nonzero whenever any oracle rows are UNMATCHED, which is always true mid-migration. Its exit code is therefore not the gate; the four summary JSONs it writes are. The real gates are defect_errors, the boundary and Manual-pin passes, and multi_matched == 0.
+The exit-code trap this driver exists to defuse: run_m1.main() SystemExits nonzero whenever any oracle rows are UNMATCHED, which is always true mid-migration. Its exit code is therefore not the gate; the three summary JSONs it writes are. The real gates are defect_errors, the Manual-pin verdict (scope included, so a gate that replayed nothing cannot pass), and multi_matched == 0.
 
-The two artifact-independent gates (js, make-test) run from t=0 in a small thread pool while the build chain runs inline-serial in the main thread. gate:conform (the exhaustive font-vs-settle sweep at the per-edit horizon, run_m1 --conform-only) starts after the run_m1 gate passes, queued behind make-test by default; its periodic deep form is `make conform-deep`, which the cycle never runs and only reports on — one line in the summary saying whether the emitted lookup has grown a shape the last deep run never shaped. The rebuild suite runs as two gates over two lanes (rebuild/conftest.py is the authority on which test is which): gate:rebuild-contracts is every test whose fixture closure holds no live build artifact, at the box's full xdist width, and gate:rebuild-validators is the rest — the readers of rebuild/out, the review surface and the fixture caches — at the checked-in two workers, because each of those workers carries a live fixture's working set. Both are submitted once the surface build settles. For validators that is a correctness requirement: its census-module fixture prefers the provably-fresh live surface and must never observe one mid-rewrite, where the manifest has landed but review.build has not yet written the sidecar beside it. For contracts it is only courtesy — the lane reads no artifact at all — but a full-width pool must not share the box with the M1 or surface build, and waiting costs it nothing, since it parks behind conform anyway and on the common gate pass every upstream stage auto-skips, so it starts at t=0. From there on neither lane reads anything the build lane writes, the census pins included, so nothing downstream has to land before they can start. Under the default queue policy the chain is make-test -> conform -> rebuild-contracts -> rebuild-validators, so only one heavy gate pool is hot at a time — the build chain rides alongside whichever one that is at half the build stages' job ceiling rather than serial (see stage_job_budget). Contracts goes ahead of validators because it is the short lane and fails fast on a code error before the half-hour one starts. Co-resident, two heavy pools oversubscribe the cores roughly 2:1, and measured that contention roughly tripled the rebuild suite's wall time — a worse critical path than running the same work in sequence. --rebuild-pool overlap restores full co-residency.
+The two artifact-independent gates (js, make-test) run from t=0 in a small thread pool while the build chain runs inline-serial in the main thread. gate:conform (the exhaustive font-vs-settle sweep at the per-edit horizon, run_m1 --conform-only) starts after the run_m1 gate passes, queued behind make-test by default; its periodic deep form is `make conform-deep`, which the cycle never runs and only reports on — one line in the summary saying whether the emitted lookup has grown a shape the last deep run never shaped. The rebuild suite runs as two gates over two lanes (rebuild/conftest.py is the authority on which test is which): gate:rebuild-contracts is every test whose fixture closure holds no live build artifact, at the box's full xdist width, and gate:rebuild-validators is the rest — the readers of rebuild/out, the review surface and the fixture caches — at the checked-in two workers, because each of those workers carries a live fixture's working set. Both are submitted once the surface build settles. For validators that is a correctness requirement: its census-module fixture prefers the provably-fresh live surface and must never observe one mid-rewrite, where the manifest has landed but review.build has not yet written the sidecar beside it. For contracts it is only courtesy — the lane reads no artifact at all — but a full-width pool must not share the box with the M1 or surface build, and waiting costs it nothing, since it parks behind conform anyway and on the common gate pass every upstream stage auto-skips, so it starts at t=0. From there on neither lane reads anything the build lane writes, the census pins included, so nothing downstream has to land before they can start. Under the default queue policy the chain is make-test -> conform -> rebuild-contracts -> rebuild-validators, so only one heavy gate pool is hot at a time — the build chain rides alongside whichever one that is rather than serial, at the widths sweep_job_budget and surface_job_budget resolve (the sweeps take one process per acceptance configuration; the surface build takes the box minus whatever make-test is holding). Contracts goes ahead of validators because it is the short lane and fails fast on a code error before the half-hour one starts. Co-resident, two heavy pools oversubscribe the cores roughly 2:1, and measured that contention roughly tripled the rebuild suite's wall time — a worse critical path than running the same work in sequence. --rebuild-pool overlap restores full co-residency.
 
 The cycle runs no Rust-vs-Python differential, and since issue 78 there is no second fixpoint for one to compare: the kernel crate is the only engine that enumerates, so the tables cannot drift from a twin that no longer exists. Python's settle kernel does still ship as gate:conform's independent re-settler and the differential's oracle, while emit_gsub reads the crate's formation guard directly, so a settlement-semantics change is still written twice and `make kernel-gate` is the on-demand instrument to reach for around one: the crate's own gate, the spec-ingest parity, and the settle differential's three arms (the exhaustive guard sweep, the seeded fuzz, and the golden corpus replayed off the kernel's own stream). It costs minutes where the old fixpoint byte-compare cost an hour.
 
@@ -83,7 +83,7 @@ SERVER_STAYS_UP_NOTE = "writes neither the surface the app serves nor the verdic
 SERVER_STOP_PATTERN = r"rebuild\.review\.serve"
 SERVER_STOP_TIMEOUT = 15.0
 _GATE_POOL_WORKERS = 7
-_CONFORM_JOBS_CAP = 8
+SURFACE_JOBS_CAP = 8
 CONFORM_HORIZON_DEFAULT = 4
 DEEP_SWEEP_HORIZON_DEFAULT = 5
 COMPILE_CODE_FILES = (
@@ -96,7 +96,6 @@ RETENTION_WINDOW_DAYS = 7
 
 M1_SUMMARY_FILES = {
     "pipeline": M1_OUT / "pipeline_summary.json",
-    "boundary": M1_OUT / "boundary_equivalence_summary.json",
     "manual_pins": M1_OUT / "manual_pins_summary.json",
     "oracle": M1_OUT / "oracle_summary.json",
 }
@@ -113,7 +112,7 @@ def rebuild_lane_green(lane: str) -> Path:
 
 
 def rebuild_lane_argv(lane: str) -> list[str]:
-    """One lane of the rebuild suite. `--lane` is the rebuild conftest's own option, and it also decides the pool width: the contracts lane's `-n auto` resolves to the box's cores, since none of its workers holds a live build artifact, while the validators lane falls back to the checked-in two."""
+    """One lane of the rebuild suite. `--lane` is the rebuild conftest's own option, and it also decides the pool width: the contracts lane's `-n auto` resolves to the box's cores, since none of its workers holds a live build artifact, while the validators lane falls back to the checked-in two. Every run prints its twenty-five slowest tests, so the lane's own record says where its minutes went and a cost survey needs no special invocation."""
     return [
         "uv",
         "run",
@@ -128,6 +127,7 @@ def rebuild_lane_argv(lane: str) -> list[str]:
         "-q",
         "--tb=no",
         "-rfE",
+        "--durations=25",
     ]
 
 
@@ -326,7 +326,7 @@ def moved_inputs_note(record: dict | None, current: dict[str, str], limit: int =
 
 
 def m1_artifacts_present(root: Path = ROOT) -> bool:
-    """Whether rebuild/out/m1 still holds everything a skipped run_m1 must leave behind: the four gate summaries and the artifacts the surface build consumes."""
+    """Whether rebuild/out/m1 still holds everything a skipped run_m1 must leave behind: the three gate summaries and the artifacts the surface build consumes."""
     m1 = root / "rebuild" / "out" / "m1"
     names = [path.name for path in M1_SUMMARY_FILES.values()] + list(M1_ARTIFACT_NAMES)
     return all((m1 / name).exists() for name in names)
@@ -576,21 +576,19 @@ class GateOutcome:
     multi_matched: int | None
 
 
-def evaluate_run_m1_gate(pipeline: dict, boundary: dict, manual_pins: dict, oracle: dict) -> GateOutcome:
-    """Decide whether the M1 build passed from its four summary JSONs. run_m1's own exit code is not usable — it fails on any UNMATCHED oracle rows, always present mid-migration — so this reads defect_errors, the boundary/Manual-pin passes, and multi_matched instead, and records UNMATCHED only as informational."""
+def evaluate_run_m1_gate(pipeline: dict, manual_pins: dict, oracle: dict) -> GateOutcome:
+    """Decide whether the M1 build passed from its three summary JSONs. run_m1's own exit code is not usable — it fails on any UNMATCHED oracle rows, always present mid-migration — so this reads defect_errors, the Manual-pin verdict, and multi_matched instead, and records UNMATCHED only as informational. The pin verdict is run_m1's own (`manual_pin_gate_failure`), scope included, so a gate that replayed nothing cannot pass here either."""
+    from rebuild.pipeline.run_m1 import manual_pin_gate_failure
+
     failures: list[str] = []
 
     defect_errors = pipeline.get("defect_errors") or []
     if defect_errors:
         failures.append(f"{len(defect_errors)} defect-gate error(s): {defect_errors[0]}")
 
-    if not boundary.get("pass"):
-        failures.append(f"boundary-equals-text-edge gate failed ({boundary.get('divergences')} divergences)")
-
-    if not manual_pins.get("pass"):
-        failures.append(
-            f"Manual-pin gate failed ({len(manual_pins.get('disagreements') or [])} disagreements)"
-        )
+    pin_failure = manual_pin_gate_failure(manual_pins)
+    if pin_failure is not None:
+        failures.append(pin_failure)
 
     multi_matched = oracle.get("multi_matched")
     if multi_matched is not None and multi_matched > 0:
@@ -672,7 +670,9 @@ class Plan:
     preserve_snapshot: Path | None = None
     record_greens: bool = False
     pool_policy: str = REBUILD_POOL_POLICY_DEFAULT
-    job_budget: int = 1
+    surface_jobs: int = 1
+    sweep_jobs: int = 1
+    kernel_threads: int = 1
     conform_jobs: int = 1
     conform_horizon: int = CONFORM_HORIZON_DEFAULT
     review_out: Path | None = None
@@ -697,10 +697,26 @@ def jstest_argv() -> list[str]:
     return ["node", "--test", *files]
 
 
-def stage_job_budget(*, skip_gates: bool, skip_make_test: bool = False, ncores: int | None = None) -> int:
-    """The --jobs budget the driver hands run_m1 and surface-build, ceilinged at four however many cores the box has. What binds here is memory, not CPU: run_m1 and the surface build are the heaviest stages in the repo and both scale their footprint with --jobs, so the ceiling is sized for the most RAM-constrained box that runs this (32 GB, where a full-width build chain swapped rather than ran). Under a gated cycle `make test`'s pytest pool is hot from t=0, so the build stages take half that ceiling rather than all of it, leaving the resident set of whichever heavy pool is up — make-test from t=0, then under the queue policy at most one gate pool behind it — room to be resident beside them. But not one job: everything downstream (the surface, the carry, and both queued heavy gates) waits on run_m1, so serializing the build chain put it on the critical path of every gated cycle. The ceiling opens up entirely whenever make-test isn't actually going to run: --skip-gates, the closure-unchanged auto-skip, or deferral all leave the build stages the only heavy thing resident. gate:js still runs from t=0 in every case, but it's a single node process, not a pool."""
-    n = min(ncores or (os.cpu_count() or 1), 4)
-    return n if skip_gates or skip_make_test else max(1, n // 2)
+def kernel_exec_threads_default() -> int:
+    """The kernel fan-out's own default width, named by the cycle rather than inherited silently, because it is the one width on this box that memory binds: a live configuration holds its whole working set until it emits. AMS_KERNEL_THREADS still sets it — this reads the value that variable resolves to."""
+    from rebuild.pipeline.kernel_exec import KERNEL_THREADS_DEFAULT
+
+    return KERNEL_THREADS_DEFAULT
+
+
+def sweep_job_budget(ncores: int | None = None) -> int:
+    """The --jobs budget for the post-build sweeps — run_m1's Manual-pin/oracle shards and gate:conform's belt — which is one process per acceptance configuration and no more, because that is all `run_m1._spawn_pool` will start. This is a CPU budget, not a memory one: a sweep worker holds its shaper, its window memo and one config's rows, a fraction of a gigabyte, so six of them fit beside anything else the cycle runs. run_m1's memory ceiling lives entirely in the table build, whose width is --kernel-threads and which these jobs never reach."""
+    from rebuild.pipeline.conform import ACCEPTANCE_CONFIGS
+
+    return max(1, min(len(ACCEPTANCE_CONFIGS), ncores or (os.cpu_count() or 1)))
+
+
+def surface_job_budget(*, skip_gates: bool, skip_make_test: bool = False, ncores: int | None = None) -> int:
+    """The --jobs budget for the review-surface build, the one stage whose fan-out is worth spending cores on: its peak RSS is the enriched universe it holds whole and barely moves with the width (measured 13.25 GB at ten jobs against 13.77 GB at two), so what bounds it is the box's cores, capped at SURFACE_JOBS_CAP where the build stops scaling. Under a gated cycle `make test`'s pytest pool is hot from t=0, so two cores are left to it; --skip-gates, the closure-unchanged auto-skip and deferral all give them back. gate:js runs from t=0 in every case, but it is a single node process, not a pool."""
+    n = ncores or (os.cpu_count() or 1)
+    if not (skip_gates or skip_make_test):
+        n -= 2
+    return max(1, min(n, SURFACE_JOBS_CAP))
 
 
 def build_plan(
@@ -751,12 +767,14 @@ def build_plan(
             carry_out if carry_out is not None else ROOT / f"verdicts-carried-{short_id}.json"
         )
 
-    job_budget = stage_job_budget(
+    surface_jobs = surface_job_budget(
         skip_gates=skip_gates,
         skip_make_test=skip_make_test or "make-test" in deferred,
         ncores=ncores,
     )
-    conform_jobs = min(_CONFORM_JOBS_CAP, ncores or (os.cpu_count() or 1))
+    sweep_jobs = sweep_job_budget(ncores)
+    conform_jobs = sweep_jobs
+    kernel_threads = kernel_exec_threads_default()
     surface_dir = review_out if review_out is not None else REVIEW_OUT
     do_merge = do_carry and not no_merge and review_out is None
     do_retention = not keep_history and not first_run and review_out is None
@@ -793,7 +811,9 @@ def build_plan(
         record_greens=record_greens,
         retention=do_retention,
         pool_policy=pool_policy,
-        job_budget=job_budget,
+        surface_jobs=surface_jobs,
+        sweep_jobs=sweep_jobs,
+        kernel_threads=kernel_threads,
         conform_jobs=conform_jobs,
         conform_horizon=conform_horizon,
         review_out=review_out,
@@ -834,16 +854,17 @@ def build_plan(
         )
     else:
         run_m1_argv = ["uv", "run", "python", "-m", "rebuild.pipeline.run_m1"]
-        if job_budget > 1:
-            run_m1_argv += ["--jobs", str(job_budget)]
+        if sweep_jobs > 1:
+            run_m1_argv += ["--jobs", str(sweep_jobs)]
+        run_m1_argv += ["--kernel-threads", str(kernel_threads)]
         plan.steps.append(Step("run_m1", run_m1_argv, lane="build"))
 
     if skip_surface:
         plan.steps.append(Step("surface-build", None, f"SKIPPED ({surface_note})", lane="build"))
     else:
         surface_argv = ["uv", "run", "python", "-m", "rebuild.review.build"]
-        if job_budget > 1:
-            surface_argv += ["--jobs", str(job_budget)]
+        if surface_jobs > 1:
+            surface_argv += ["--jobs", str(surface_jobs)]
         if review_out is not None:
             surface_argv += ["--out", str(review_out)]
         if fresh:
@@ -1126,7 +1147,7 @@ def _render_concurrency(plan: Plan) -> list[str]:
         return [
             "",
             "  Concurrency (--skip-gates):",
-            f"    Lane build only; no gates; --jobs budget: {plan.job_budget}",
+            f"    Lane build only; no gates; run_m1 sweeps --jobs {plan.sweep_jobs} at --kernel-threads {plan.kernel_threads}, surface-build --jobs {plan.surface_jobs}",
         ]
     defer_contracts = "rebuild-contracts" in plan.deferred
     defer_validators = "rebuild-validators" in plan.deferred
@@ -1148,15 +1169,15 @@ def _render_concurrency(plan: Plan) -> list[str]:
         lines.append(f"    Lane conform                     : DEFERRED ({DEFER_NOTE})")
     elif plan.pool_policy == "overlap":
         lines.append(
-            f"    Lane conform                     : starts when run_m1's four JSONs pass; CO-RESIDENT with the pytest pools (--jobs {plan.conform_jobs})"
+            f"    Lane conform                     : starts when run_m1's three JSONs pass; CO-RESIDENT with the pytest pools (--jobs {plan.conform_jobs})"
         )
     elif not no_make_test:
         lines.append(
-            f"    Lane conform                     : starts when run_m1's four JSONs pass; QUEUED behind gate:make-test (queue policy — one heavy pool at a time) (--jobs {plan.conform_jobs})"
+            f"    Lane conform                     : starts when run_m1's three JSONs pass; QUEUED behind gate:make-test (queue policy — one heavy pool at a time) (--jobs {plan.conform_jobs})"
         )
     else:
         lines.append(
-            f"    Lane conform                     : starts when run_m1's four JSONs pass; gate:make-test not running, so no queueing (--jobs {plan.conform_jobs})"
+            f"    Lane conform                     : starts when run_m1's three JSONs pass; gate:make-test not running, so no queueing (--jobs {plan.conform_jobs})"
         )
     if plan.skip_contracts:
         lines.append(
@@ -1207,12 +1228,18 @@ def _render_concurrency(plan: Plan) -> list[str]:
         else:
             lines.append("                                       no other heavy pool running, so no queueing")
     if plan.skip_make_test:
-        budget_reason = "gate:make-test skipped, so the build stages fan out"
+        surface_reason = "gate:make-test skipped, so the surface build takes the whole box"
     elif defer_make_test:
-        budget_reason = "gate:make-test deferred, so the build stages fan out"
+        surface_reason = "gate:make-test deferred, so the surface build takes the whole box"
     else:
-        budget_reason = "half the stage ceiling, sharing the box's memory with gate:make-test's pytest pool"
-    lines.append(f"    build-stage --jobs budget        : {plan.job_budget}  ({budget_reason})")
+        surface_reason = "two cores left to gate:make-test's pytest pool"
+    lines.append(
+        f"    run_m1 sweeps --jobs             : {plan.sweep_jobs}  (one process per acceptance configuration)"
+    )
+    lines.append(
+        f"    run_m1 --kernel-threads          : {plan.kernel_threads}  (the table build's memory ceiling, the one width RAM binds)"
+    )
+    lines.append(f"    surface-build --jobs             : {plan.surface_jobs}  ({surface_reason})")
     pending = ["gate:" + name for name in sorted(plan.deferred)]
     if pending:
         lines.append(f"    deferred to the next pass        : {', '.join(pending)}")
@@ -1250,7 +1277,6 @@ class CycleReport:
     snapshot_dir: Path | None = None
     unmatched: int | None = None
     multi_matched: int | None = None
-    boundary_pass: bool | None = None
     pins_pass: bool | None = None
     surface_units: int | None = None
     surface_rows: int | None = None
@@ -1482,7 +1508,7 @@ def _do_run_m1(
     record: bool = False,
     fingerprint: str | None = None,
 ) -> GateOutcome | None:
-    """Run (or, when `skip` is set, reuse) the M1 build and judge its gate from the four summary JSONs. The skip path leaves rebuild/out/m1 untouched and re-evaluates the recorded summaries, which is sound because run_m1's outputs are deterministic and timestamp-free over the fingerprinted inputs. A live green records the fingerprint only if it still matches — an input edited mid-run means the tested content is no longer on disk — and a live red matching the record deletes it."""
+    """Run (or, when `skip` is set, reuse) the M1 build and judge its gate from the three summary JSONs. The skip path leaves rebuild/out/m1 untouched and re-evaluates the recorded summaries, which is sound because run_m1's outputs are deterministic and timestamp-free over the fingerprinted inputs. A live green records the fingerprint only if it still matches — an input edited mid-run means the tested content is no longer on disk — and a live red matching the record deletes it."""
     if skip:
         emit.emit(f"\nrun_m1: SKIPPED — {skip_note}; evaluating the gate from the recorded summaries.")
     else:
@@ -1497,12 +1523,9 @@ def _do_run_m1(
             )
         return None
     summaries = {name: _load_summary(path) for name, path in M1_SUMMARY_FILES.items()}
-    gate = evaluate_run_m1_gate(
-        summaries["pipeline"], summaries["boundary"], summaries["manual_pins"], summaries["oracle"]
-    )
+    gate = evaluate_run_m1_gate(summaries["pipeline"], summaries["manual_pins"], summaries["oracle"])
     report.unmatched = gate.unmatched
     report.multi_matched = gate.multi_matched
-    report.boundary_pass = bool(summaries["boundary"].get("pass"))
     report.pins_pass = bool(summaries["manual_pins"].get("pass"))
     if record and fingerprint is not None:
         if not gate.ok:
@@ -1517,7 +1540,7 @@ def _do_run_m1(
 
 def _run_m1_reasons(gate: GateOutcome | None) -> list[str]:
     if gate is None:
-        return ["run_m1 did not write all four summary files"]
+        return ["run_m1 did not write all three summary files"]
     return list(gate.failures)
 
 
@@ -2095,7 +2118,6 @@ def _print_summary(report: CycleReport) -> None:
     print(f"  snapshot dir            : {show(report.snapshot_dir)}")
     print(f"  oracle UNMATCHED        : {show(report.unmatched)} (informational)")
     print(f"  oracle multi_match      : {show(report.multi_matched)}")
-    print(f"  boundary gate           : {'pass' if report.boundary_pass else show(report.boundary_pass)}")
     print(f"  Manual-pin gate         : {'pass' if report.pins_pass else show(report.pins_pass)}")
     print(f"  surface units           : {show(report.surface_units)}")
     print(f"  surface rows            : {show(report.surface_rows)}")
@@ -2207,7 +2229,6 @@ def cycle_summary_payload(report: CycleReport, failures: list[str], plan: Plan, 
         ),
         "unmatched": report.unmatched,
         "multi_matched": report.multi_matched,
-        "boundary_pass": report.boundary_pass,
         "pins_pass": report.pins_pass,
         "surface_units": report.surface_units,
         "surface_rows": report.surface_rows,

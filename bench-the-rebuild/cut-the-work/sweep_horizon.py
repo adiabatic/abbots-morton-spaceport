@@ -1,6 +1,6 @@
 """Time gate:conform's six-config sweep at a given --conform-horizon, against an isolated, self-consistent (spec, tables, M1.otf) triple.
 
-Faithful to run_m1.run_font_conformance: the same `conform.conformance_config_worker` per config in a spawn pool, the same glyph inventory minted from the serialized window enumeration, the same inherited boundary-gate horizon. One deliberate difference, reported: the out dir is a scratch copy, so nothing in rebuild/out is read as input or written.
+Faithful to run_m1.run_font_conformance: the same `conform.conformance_config_worker` per config in a spawn pool, the same glyph inventory minted from the serialized window enumeration, the same structural checks riding along on every boundary-bearing text. One deliberate difference, reported: the out dir is a scratch copy, so nothing in rebuild/out is read as input or written.
 
 Per config it records the shaping clock by watching Shaper.shape, whose call count is the whole sweep now that the belt shapes only its exhaustive enumeration.
 """
@@ -18,7 +18,7 @@ from pathlib import Path
 from rebuild.pipeline import conform, run_m1
 
 
-def timed_worker(spec, font_path, config, horizon, glyphs, boundary_horizon):
+def timed_worker(spec, font_path, config, horizon, glyphs):
     """conformance_config_worker plus a shape-level clock. Patching Shaper.shape here (in the child, before the sweep starts) leaves the swept computation untouched; the counters ride module state and come back in the payload."""
     stats = {"calls": 0, "hb_s": 0.0, "setup_at": None}
     original = conform.Shaper.shape
@@ -35,9 +35,7 @@ def timed_worker(spec, font_path, config, horizon, glyphs, boundary_horizon):
 
     conform.Shaper.shape = counting_shape
     try:
-        result = conform.conformance_config_worker(
-            spec, font_path, config, horizon, glyphs, boundary_horizon=boundary_horizon
-        )
+        result = conform.conformance_config_worker(spec, font_path, config, horizon, glyphs)
     finally:
         conform.Shaper.shape = original
     wall = time.perf_counter() - t0
@@ -60,7 +58,6 @@ def main() -> None:
     out_dir = Path(sys.argv[1]).resolve()
     horizon = int(sys.argv[2])
     report_dir = Path(sys.argv[3]).resolve()
-    boundary = sys.argv[4] == "boundary-green"
     report_dir.mkdir(parents=True, exist_ok=True)
 
     inputs = run_m1.tables_inputs()
@@ -82,7 +79,6 @@ def main() -> None:
                 config,
                 horizon,
                 cell_glyphs,
-                horizon if boundary else None,
             ): config
             for config in conform.ACCEPTANCE_CONFIGS
         }
@@ -95,7 +91,6 @@ def main() -> None:
     ordered = [results[c] for c in conform.ACCEPTANCE_CONFIGS]
     summary = {
         "horizon": horizon,
-        "boundary_horizon_supplied": boundary,
         "pool_wall_s": wall,
         "sum_config_wall_s": sum(r["wall_s"] for r in ordered),
         "sum_setup_s": sum(r["setup_s"] for r in ordered),
