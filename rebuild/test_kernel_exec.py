@@ -54,6 +54,75 @@ class TestTheInvocationSeam:
         monkeypatch.setattr(module, attribute, False)
         assert kernel_exec.world_flags() == [flag]
 
+    def test_settlement_flags_exclude_the_enumerations_deep_grain(self, monkeypatch):
+        for _flag, module, attribute in kernel_exec.WORLD_FLAGS:
+            monkeypatch.setattr(module, attribute, False)
+        assert kernel_exec.settlement_flags() == ["--candidacy-prospect", "--vote-slots-off"]
+        assert "--deep-classes-off" not in kernel_exec.settlement_flags()
+
+    def test_settle_cases_batches_questions_with_canonical_features_and_modes(self, monkeypatch, tmp_path):
+        question = {
+            "left": {"kind": "edge", "settled": None},
+            "input": "qsMay",
+            "right": [
+                {"kind": "edge", "letter": None},
+                {"kind": "edge", "letter": None},
+                {"kind": "edge", "letter": None},
+                {"kind": "edge", "letter": None},
+            ],
+            "result": None,
+        }
+        answer = {**question, "result": {"settled": "trace"}}
+        calls = []
+
+        class Finished:
+            returncode = 0
+            stdout = (json.dumps(answer) + "\n").encode()
+            stderr = b""
+
+        def run(arguments, **kwargs):
+            calls.append((arguments, kwargs))
+            return Finished()
+
+        monkeypatch.setattr(kernel_exec.subprocess, "run", run)
+        for _flag, module, attribute in kernel_exec.WORLD_FLAGS:
+            monkeypatch.setattr(module, attribute, False)
+        got = kernel_exec._settle_cases(
+            tmp_path / "spec.json",
+            tmp_path / "cases.ndjson",
+            [question],
+            frozenset({"ss05", "ss03"}),
+        )
+        assert got == [answer]
+        arguments = calls[0][0]
+        assert arguments[1:4] == [
+            "settle-cases",
+            str(tmp_path / "spec.json"),
+            str(tmp_path / "cases.ndjson"),
+        ]
+        assert "--features=ss03,ss05" in arguments
+        assert "--candidacy-prospect" in arguments
+        assert "--vote-slots-off" in arguments
+        assert "--deep-classes-off" not in arguments
+
+    def test_settle_cases_refuses_an_answer_to_a_different_question(self, monkeypatch, tmp_path):
+        question = {"left": {}, "input": "qsMay", "right": [], "result": None}
+        changed = {**question, "input": "qsIt", "result": {}}
+
+        class Finished:
+            returncode = 0
+            stdout = (json.dumps(changed) + "\n").encode()
+            stderr = b""
+
+        monkeypatch.setattr(kernel_exec.subprocess, "run", lambda *args, **kwargs: Finished())
+        with pytest.raises(kernel_exec.KernelRunError, match="changed"):
+            kernel_exec._settle_cases(
+                tmp_path / "spec.json",
+                tmp_path / "cases.ndjson",
+                [question],
+                frozenset(),
+            )
+
     def test_a_missing_binary_names_the_recipe_that_builds_one(self, monkeypatch, tmp_path):
         monkeypatch.setattr(kernel_exec, "BINARY", tmp_path / "ams-m1-kernel")
         with pytest.raises(kernel_exec.KernelRunError) as complaint:

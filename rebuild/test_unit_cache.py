@@ -8,9 +8,10 @@ from pathlib import Path
 
 import pytest
 
+from rebuild.pipeline import fixtures, settle
 from rebuild.review import unit_cache
 from rebuild.review.audit import AuditRow, Unit
-from rebuild.review.build import _cluster_id, build_m1
+from rebuild.review.build import SITE_BEFORE_FONT, SITE_JUNIOR_FONT, _cluster_id, build_m1
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 LEDGER = REPO_ROOT / "rebuild" / "m1-divergences.yaml"
@@ -153,6 +154,29 @@ def test_corrupt_signature_store_reshapes_and_degrades_to_the_same_bytes(
     assert cached == 0
     assert shaped > 0
     assert _tree(surface) == _tree(base_surface)
+
+
+def test_unit_store_environment_tracks_each_kernel_settlement_mode(live_artifacts, monkeypatch):
+    spec = fixtures.mini_spec()
+
+    def stamp():
+        return unit_cache.environment_stamp(
+            REPO_ROOT,
+            spec,
+            live_artifacts.m1,
+            SITE_BEFORE_FONT,
+            SITE_JUNIOR_FONT,
+            "after-helpers",
+        )
+
+    prospect = settle.SIMULATED_PROSPECT_DEFAULT
+    votes = settle.VOTE_SLOTS_DEFAULT
+    base = stamp()
+    monkeypatch.setattr(settle, "SIMULATED_PROSPECT_DEFAULT", not prospect)
+    assert stamp() != base
+    monkeypatch.setattr(settle, "SIMULATED_PROSPECT_DEFAULT", prospect)
+    monkeypatch.setattr(settle, "VOTE_SLOTS_DEFAULT", not votes)
+    assert stamp() != base
 
 
 # --- the key and cluster byte-contracts ------------------------------------------------

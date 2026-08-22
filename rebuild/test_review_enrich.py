@@ -134,8 +134,7 @@ def test_after_seams_agree_with_direct_settle(spec, enricher, workload):
 
 
 def test_derived_cells_match_the_audit_for_every_unit(enricher, workload):
-    for unit in workload.units:
-        enricher.enrich(unit)
+    enricher.enrich_many(workload.units)
     assert enricher.mismatches == []
 
 

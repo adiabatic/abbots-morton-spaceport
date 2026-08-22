@@ -485,7 +485,7 @@ class _UnitProjection:
     mismatches: tuple[str, ...]
 
 
-def _phase1_unit(unit, comparator, oracle, enricher) -> tuple[_UnitProjection, EnrichedUnit]:
+def _phase1_unit(unit, comparator, oracle, enricher, report=None) -> tuple[_UnitProjection, EnrichedUnit]:
     text = "".join(chr(value) for value in unit.codepoint_values)
     diffs = tuple(comparator.config_diff(text, config) for config in unit.configs)
     unit.ink_identical = all(diff == IDENTITY_DIFF for diff in diffs)
@@ -494,7 +494,7 @@ def _phase1_unit(unit, comparator, oracle, enricher) -> tuple[_UnitProjection, E
         config: delta_digest(diff) for config, diff in zip(unit.configs, diffs) if diff != IDENTITY_DIFF
     }
     mismatch_mark = len(enricher.mismatches)
-    enriched = enricher.enrich(unit)
+    enriched = enricher.enrich(unit, report)
     family = assign_family(enriched) if unit.class_id == UNMATCHED_CLASS else ""
     diffs_repr = repr(diffs)
     projection = _UnitProjection(
@@ -613,10 +613,11 @@ def _surface_worker(conn, init: dict) -> None:
                 return
             if message[0] == "phase1":
                 results: list[_UnitProjection] = []
-                for unit in message[1]:
-                    projection, enriched = _phase1_unit(unit, comparator, oracle, enricher)
-                    retained[unit.unit_id] = enriched
-                    results.append(projection)
+                for unit_batch, reports in enricher.explain_unit_batches(message[1]):
+                    for unit, report in zip(unit_batch, reports):
+                        projection, enriched = _phase1_unit(unit, comparator, oracle, enricher, report)
+                        retained[unit.unit_id] = enriched
+                        results.append(projection)
                 conn.send(("ok", results))
             elif message[0] == "phase2":
                 fragments: dict[str, dict] = {}
@@ -713,10 +714,11 @@ class _FreshRunner:
                 shaper_factory=shaper_for,
             )
             self._drafter = Drafter(self._after_font, repo_root=self._repo_root, shaper_factory=shaper_for)
-            for unit in self._fresh:
-                projection, enriched = _phase1_unit(unit, comparator, oracle, enricher)
-                self._retained[unit.unit_id] = enriched
-                projections[projection.unit_id] = projection
+            for unit_batch, reports in enricher.explain_unit_batches(self._fresh):
+                for unit, report in zip(unit_batch, reports):
+                    projection, enriched = _phase1_unit(unit, comparator, oracle, enricher, report)
+                    self._retained[unit.unit_id] = enriched
+                    projections[projection.unit_id] = projection
         return projections
 
     def phase2(self, injections: dict[str, tuple]) -> dict[str, dict]:

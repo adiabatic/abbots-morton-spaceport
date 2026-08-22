@@ -18,8 +18,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Mapping
 
-from rebuild.pipeline import fingerprint, spec_load
-from rebuild.pipeline import settle as settle_module
+from rebuild.pipeline import fingerprint, kernel_exec, spec_load
 from rebuild.pipeline.model import ResolvedSpec
 from rebuild.review.audit import ACCEPTANCE_CONFIGS, AuditRow, Unit, parse_codepoints
 from rebuild.review.drafts import CORPUS_FILES
@@ -182,7 +181,7 @@ def environment_stamp(
         f"pipeline_code\t{fingerprint.hash_paths(root, fingerprint.pipeline_code_paths(root))}",
         f"review_code\t{fingerprint.hash_paths(root, fingerprint.review_code_paths(root))}",
         "data\t" + hashlib.sha256("\n".join(data_lines).encode()).hexdigest(),
-        f"engine_flags\tsimulated_prospect={settle_module.SIMULATED_PROSPECT_DEFAULT} vote_slots={settle_module.VOTE_SLOTS_DEFAULT}",
+        "settlement_flags\t" + json.dumps(kernel_exec.settlement_flags()),
         f"spec_structure\t{spec_load.spec_structure_digest(spec)}",
         "capability_features\t" + json.dumps(_capability_features(spec)),
         f"before_font\t{_sha256_file(Path(before_font))}",

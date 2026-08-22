@@ -167,7 +167,7 @@ def family_assignments(repo_root: Path = REPO_ROOT) -> list[str]:
         warnings.simplefilter("ignore")
         spec = load_spec(repo_root)
     enricher = Enricher(spec, SUBSET_DIR, AFTER_FONT, repo_root=repo_root, before_font=BEFORE_FONT)
-    out: list[str] = []
+    units: list[Unit] = []
     for (codepoints, baseline, new), members in by_triple.items():
         if not any(member.matched_entry == "UNMATCHED" for member in members):
             continue
@@ -185,8 +185,8 @@ def family_assignments(repo_root: Path = REPO_ROOT) -> list[str]:
             render_groups=render_groups_for_rows(ordered),
             config_classes=config_classes,
         )
-        out.append(assign_family(enricher.enrich(unit)))
-    return out
+        units.append(unit)
+    return [assign_family(enriched) for enriched in enricher.enrich_many(units)]
 
 
 def family_census(assignments: list[str]) -> dict[str, int]:

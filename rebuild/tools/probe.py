@@ -1,13 +1,16 @@
 """Probe a codepoint window: old-font baseline (glyphs+seams, all configs) vs new settlement.
-Usage: uv run python rebuild/tools/probe.py E653:E666:E652
+Usage: PYTHONPATH=. uv run python rebuild/tools/probe.py E653:E666:E652
 """
 
-import sys, gzip
+import gzip
+import sys
+from collections.abc import Sequence
 from pathlib import Path
+
 from rebuild.pipeline import conform
+from rebuild.pipeline.explain import explain_many
 from rebuild.pipeline.run_m1 import OUT_DIR
 from rebuild.pipeline.spec_load import load_default_spec
-from rebuild.pipeline import settle as settle_module
 
 CONFIGS = ["default", "ss03", "ss05", "ss03+ss05", "ss04", "ss10"]
 
@@ -26,20 +29,22 @@ def load_subset(cfg):
     return rows
 
 
-def main():
-    cps_str = sys.argv[1].upper()
+def main(argv: Sequence[str] | None = None):
+    arguments = list(sys.argv[1:] if argv is None else argv)
+    cps_str = arguments[0].upper()
     cps = [int(x, 16) for x in cps_str.split(":")]
     spec = load_default_spec()
+    features = [conform.features_for_config(config) for config in CONFIGS]
+    reports = explain_many(spec, [(cps, active) for active in features])
     print(f"=== window {cps_str} ===")
-    for cfg in CONFIGS:
+    for cfg, report in zip(CONFIGS, reports):
         sub = load_subset(cfg)
-        feats = conform.features_for_config(cfg)
         # baseline
         b = sub.get(cps_str)
         bg = b[1] if b else "(not in subset)"
         bs = b[3] if b else ""
         # new settlement
-        settled = settle_module.settle(spec, list(cps), feats)
+        settled = report.settled
         cells = []
         seams = []
         for i, it in enumerate(settled):
