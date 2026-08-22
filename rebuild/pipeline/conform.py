@@ -1557,7 +1557,7 @@ def classify_divergence(row: DivergentRow) -> str | None:
         return "no-xheight-entry-extension-dropped"
     if phenomena & {"-en-ext-1:qsDay", "-en-ext-1:qsDay_qsUtter"}:
         return "day-baseline-entry-extension-dropped"
-    if "-en-ext-1:qsVie" in phenomena:
+    if phenomena & {"-en-ext-1:qsVie", "-en-ext-1:qsVie_qsUtter"}:
         return "vie-baseline-entry-extension-dropped"
     if (
         "-ex-con-1" in phenomena
