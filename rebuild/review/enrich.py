@@ -2,18 +2,20 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, field
+from itertools import batched
 from pathlib import Path
 from typing import Callable
 
-from rebuild.pipeline import spec_load
+from rebuild.pipeline import kernel_exec, spec_load
 from rebuild.pipeline.conform import (
     BOUNDARY_GLYPH_NAMES,
     features_for_config,
     isolated_overlay_active,
     load_alias_map,
 )
-from rebuild.pipeline.explain import ExplainReport, explain
+from rebuild.pipeline.explain import ExplainReport, explain_many
 from rebuild.pipeline.model import CellId, ResolvedSpec, Settled
 from rebuild.pipeline.settle import form_ligatures, is_boundary_settled, tokens_from_codepoints
 from rebuild.review.audit import Unit
@@ -74,6 +76,7 @@ SPACE = 0x0020
 NAMER_DOT = 0x00B7
 ZWNJ = 0x200C
 BOUNDARIES = {SPACE: "space", NAMER_DOT: "namer-dot", ZWNJ: "zwnj"}
+EXPLAIN_UNIT_BATCH_SIZE = 8192
 
 _SPECIAL_DISPLAY = {"qsIng": "·-ing", "qsJai": "·J’ai"}
 _BOUNDARY_NOTATION = {SPACE: "␣", NAMER_DOT: "·", ZWNJ: "◊ZWNJ"}
@@ -300,6 +303,7 @@ class Enricher:
         self._outlines = {"before": OutlineCache(before_font), "after": OutlineCache(after_font)}
         self.aliases = load_alias_map(alias_path or repo_root / "rebuild" / "m1-aliases.yaml")
         self._subset_rows: dict[str, dict[str, Row]] = {}
+        self._guard_verdicts: kernel_exec.FormationGuard | None = None
         self.mismatches: list[str] = []
 
     def subset_row(self, config: str, codepoints: str) -> Row | None:
@@ -314,7 +318,9 @@ class Enricher:
 
     def formed_spans(self, codepoint_values: tuple[int, ...]) -> list[tuple[int, int]]:
         tokens = tokens_from_codepoints(self.spec, codepoint_values)
-        formed = form_ligatures(self.spec, tokens)
+        if self._guard_verdicts is None:
+            self._guard_verdicts = kernel_exec.guard_sweep(self.spec)
+        formed = form_ligatures(self.spec, tokens, self._guard_verdicts)
         spans: list[tuple[int, int]] = []
         consumed = 0
         for token in formed:
@@ -334,12 +340,37 @@ class Enricher:
             return "break"
         return f"y{self.spec.registry.y_of(seam)}"
 
-    def enrich(self, unit: Unit) -> EnrichedUnit:
+    def explain_units(self, units: Sequence[Unit]) -> list[ExplainReport]:
+        """Settle one unit batch through the Rust kernel before the enrichment loop consumes its reports."""
+        if self._guard_verdicts is None:
+            self._guard_verdicts = kernel_exec.guard_sweep(self.spec)
+        return explain_many(
+            self.spec,
+            [(unit.codepoint_values, features_for_config(unit.configs[0])) for unit in units],
+            self._guard_verdicts,
+        )
+
+    def enrich_many(self, units: Sequence[Unit]) -> list[EnrichedUnit]:
+        """Enrich an already-classified batch with one shared settlement pass."""
+        enriched = []
+        for unit_batch, reports in self.explain_unit_batches(units):
+            enriched.extend(self.enrich(unit, report) for unit, report in zip(unit_batch, reports))
+        return enriched
+
+    def explain_unit_batches(
+        self, units: Sequence[Unit]
+    ) -> Iterator[tuple[tuple[Unit, ...], list[ExplainReport]]]:
+        """Settle bounded batches so the complete surface never retains every verbose trace at once."""
+        for unit_batch in batched(units, EXPLAIN_UNIT_BATCH_SIZE):
+            yield unit_batch, self.explain_units(unit_batch)
+
+    def enrich(self, unit: Unit, report: ExplainReport | None = None) -> EnrichedUnit:
         values = unit.codepoint_values
         config = unit.configs[0]
         features = features_for_config(config)
         overlay = isolated_overlay_active(self.spec, features)
-        report = explain(self.spec, list(values), features)
+        if report is None:
+            report = self.explain_units([unit])[0]
         settled = list(report.settled)
         if overlay:
             settled = overlay_settled(self.spec, settled)

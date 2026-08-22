@@ -1,4 +1,4 @@
-"""The kernel boundary's Python face (issue #40, sub-issue #47; the only fixpoint there is since issue #78): build the binary, fan one process out over a whole cycle's transition streams, read the section 5.7 guard surface, and hand back the single-configuration product and tables for everything that is not `run_m1`. It lives here rather than beside the `rebuild/tools/kernel_*.py` harnesses because the pipeline is what calls it and the pipeline does not import from the tools tree; `rebuild/tools/kernel_differential.py` and `kernel_parity.py` keep their own copies of the same constants, which is duplication with a reason — each of them is an exit-bar instrument that has to state the contract it is measuring rather than inherit it from the thing it measures.
+"""The kernel boundary's Python face (issue #40, sub-issue #47; the only fixpoint there is since issue #78): build the binary, fan one process out over a whole cycle's transition streams, read the section 5.7 guard surface, replay batched author-facing explain cases, and hand back the single-configuration product and tables for everything that is not `run_m1`. It lives here rather than beside the `rebuild/tools/kernel_*.py` harnesses because the pipeline is what calls it and the pipeline does not import from the tools tree; `rebuild/tools/kernel_differential.py` and `kernel_parity.py` keep their own copies of the same constants, which is duplication with a reason — each of them is an exit-bar instrument that has to state the contract it is measuring rather than inherit it from the thing it measures.
 
 The build is `cargo build --release` against the crate's own manifest and nothing else, because release is the only profile anything in this repo runs: the pipeline, the parity harness and the differential all reach for `target/release/ams-m1-kernel`, and a debug binary that answered would answer far too slowly to be the same experiment. A box with no `cargo` is a `KernelBuildError` carrying the remedy rather than a stack trace, since that is the one failure a reader can fix in a minute; `ensure_built` is the memoized form every caller in a process shares, so a suite that builds a hundred tables pays for one build.
 
@@ -6,7 +6,7 @@ The build is `cargo build --release` against the crate's own manifest and nothin
 
 `enumerate_transitions` and `build_tables` are the single-configuration forms of the same call, in memory and writing nothing: one spec dumped to a scratch directory, one stream enumerated and read back as the `table.FixpointProduct` the fold consumes. That product is where the two halves of the build meet, so this module is where the seam is invoked from — the crate enumerates, `table.assemble_tables` folds — and a test, a tool or a hand-assembled spec reaches the build through here, while `run_m1.build_tables` is the persisting, whole-cycle form that stamps its artifacts with the sources they came from.
 
-`guard_sweep` is the other in-memory form: one spec dump, one crate invocation, and one complete mapping from `(ligature, first raw slot, second raw slot)` to the config-blind formation verdict. The CLI spells boundary tokens as `edge`, `space`, `zwnj`, `namer-dot`, and `unknown`; the mapping converts them to Python's `RightToken` constants at the boundary so consumers never confuse those model tokens with glyph names such as `uni200C` or `periodcentered`.
+`guard_sweep` is one other in-memory form: one spec dump, one crate invocation, and one complete mapping from `(ligature, first raw slot, second raw slot)` to the config-blind formation verdict. `settle_cases` is the author-facing sibling: a file of independent `ams-m1-corpus/3` windows in, the full Rust trace objects out, with count and question echo checked before the caller decodes a report. The CLI spells boundary tokens as `edge`, `space`, `zwnj`, `namer-dot`, and `unknown`; the guard mapping converts them to Python's `RightToken` constants at the boundary so consumers never confuse those model tokens with glyph names such as `uni200C` or `periodcentered`.
 
 The invocation is read strictly, on the CLI contract's own terms: exit 2 is the usage check, which for a well-formed invocation can only mean the verb is absent or the two sides' flag sets have drifted apart; any other nonzero exit is the kernel complaining about its inputs; and stderr on a clean exit is a failure unless timings were asked for, in which case every `[t]` line is forwarded to this process's own stderr verbatim so the cycle journal reads the kernel's per-configuration walls the same way it reads Python's, and anything else on that stream is still a failure. Enumeration answers in files, so bytes on stdout there are a failure; `guard-sweep` answers on stdout and its complete TSV surface is parsed strictly.
 """
@@ -14,12 +14,13 @@ The invocation is read strictly, on the CLI contract's own terms: exit 2 is the 
 from __future__ import annotations
 
 import gzip
+import json
 import os
 import shutil
 import subprocess
 import sys
 import tempfile
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 from rebuild.pipeline import kernel_io, settle, table
@@ -36,9 +37,12 @@ BUILD_TAIL_LINES = 20
 # The issue-26 flag: deep window slots enumerate at class grain (one row per outcome fiber, expanded back to labels for every fold-side consumer). It is a kernel invocation flag, carried across by `world_flags` like settle's two semantics defaults — module-level, consulted at call time, AMS_DEEP_CLASSES=0 the label-grain comparison state — and `class_grain` states the grain rule the crate itself applies.
 DEEP_CLASSES_DEFAULT = os.environ.get("AMS_DEEP_CLASSES", "1") != "0"
 # The three semantics flags a fixpoint's shape depends on, each as (the kernel flag that says it is off, the module holding the default, the attribute). Off is what carries a flag, so the shipping world invokes the verb bare.
-WORLD_FLAGS = (
+SETTLEMENT_FLAGS = (
     ("--candidacy-prospect", settle, "SIMULATED_PROSPECT_DEFAULT"),
     ("--vote-slots-off", settle, "VOTE_SLOTS_DEFAULT"),
+)
+WORLD_FLAGS = (
+    *SETTLEMENT_FLAGS,
     ("--deep-classes-off", sys.modules[__name__], "DEEP_CLASSES_DEFAULT"),
 )
 GUARD_TAIL_TOKENS = {
@@ -88,6 +92,11 @@ def ensure_built() -> None:
 def world_flags() -> list[str]:
     """The mode flags the kernel needs to enumerate the world this Python process is in — one per default that is off. All three are module-level defaults consulted at construction time, so the environment is the only lever on the Python side and this is what carries it across to the kernel; the same three tokens ride `run_m1.tables_inputs`, so a flag-on enumeration can never be mistaken for a flag-off one on either side of the seam."""
     return [flag for flag, module, attribute in WORLD_FLAGS if not getattr(module, attribute)]
+
+
+def settlement_flags() -> list[str]:
+    """The two mode flags shared by every direct settlement invocation. Deep-class grain belongs only to enumeration, so it is deliberately absent from this narrower list."""
+    return [flag for flag, module, attribute in SETTLEMENT_FLAGS if not getattr(module, attribute)]
 
 
 def class_grain() -> bool:
@@ -163,6 +172,77 @@ def _forward_stderr(errors: str, timings: bool, arguments: list[str]) -> None:
         )
     for line in lines:
         print(line, file=sys.stderr, flush=True)
+
+
+def _settle_cases(
+    spec_path: Path,
+    cases_path: Path,
+    cases: Sequence[Mapping],
+    features: frozenset[str],
+) -> list[dict]:
+    """Invoke `settle-cases` over one already-written spec and case file, then prove that the kernel returned one answer per question without changing or reordering any question fields."""
+    arguments = [str(BINARY), "settle-cases", str(spec_path), str(cases_path)]
+    if features:
+        arguments.append(f"--features={','.join(sorted(features))}")
+    arguments.extend(settlement_flags())
+    try:
+        finished = subprocess.run(arguments, capture_output=True, timeout=TIMEOUT)
+    except FileNotFoundError:
+        raise KernelRunError(
+            f"no kernel binary at {BINARY} — run `make kernel-build` first, or let the caller's cargo_build() build it"
+        ) from None
+    except subprocess.TimeoutExpired:
+        raise KernelRunError(
+            f"the kernel gave no answer within {TIMEOUT} seconds on settle-cases ({' '.join(arguments)})"
+        ) from None
+    errors = finished.stderr.decode(errors="replace").strip()
+    if finished.returncode == 2:
+        raise KernelRunError(
+            f"kernel does not support settle-cases yet, or rejected the invocation as a usage error: {errors} ({' '.join(arguments)})"
+        )
+    if finished.returncode != 0:
+        raise KernelRunError(f"the kernel exited {finished.returncode} on settle-cases: {errors}")
+    if errors:
+        raise KernelRunError(f"the kernel wrote to stderr on a clean settle-cases exit: {errors}")
+    try:
+        lines = finished.stdout.decode().splitlines()
+    except UnicodeDecodeError as error:
+        raise KernelRunError(f"the kernel wrote non-UTF-8 settle-cases output: {error}") from None
+    if len(lines) != len(cases):
+        raise KernelRunError(f"settle-cases returned {len(lines)} answers for {len(cases)} questions")
+    answers: list[dict] = []
+    for line_number, (line, question) in enumerate(zip(lines, cases), 1):
+        try:
+            answer = json.loads(line)
+        except json.JSONDecodeError as error:
+            raise KernelRunError(f"settle-cases line {line_number} is not JSON: {error.msg}") from None
+        if not isinstance(answer, dict):
+            raise KernelRunError(f"settle-cases line {line_number} is not a JSON object")
+        expected_question = {key: value for key, value in question.items() if key != "result"}
+        returned_question = {key: value for key, value in answer.items() if key != "result"}
+        if list(answer) != list(question) or returned_question != expected_question:
+            raise KernelRunError(f"settle-cases line {line_number} changed or reordered its question")
+        if "result" not in answer:
+            raise KernelRunError(f"settle-cases line {line_number} has no result")
+        answers.append(answer)
+    return answers
+
+
+def settle_cases(spec: ResolvedSpec, cases: Sequence[Mapping], features: frozenset[str]) -> list[dict]:
+    """Replay a batch of settlement windows through the crate and return the full trace objects it emitted. The case dictionaries use the `ams-m1-corpus/3` row shape; the caller owns conversion between those transport rows and pipeline model types."""
+    if not cases:
+        return []
+    with tempfile.TemporaryDirectory() as scratch:
+        directory = Path(scratch)
+        spec_path = directory / "spec.json"
+        cases_path = directory / "cases.ndjson"
+        kernel_io.write_spec(spec, spec_path)
+        cases_path.write_text(
+            "".join(json.dumps(dict(case), separators=(",", ":")) + "\n" for case in cases),
+            encoding="utf-8",
+        )
+        ensure_built()
+        return _settle_cases(spec_path, cases_path, cases, frozenset(features))
 
 
 def _guard_verdicts(spec: ResolvedSpec, spec_path: Path) -> FormationGuard:

@@ -6,14 +6,14 @@ Boundary semantics: space and ZWNJ split runs and derive word position; the name
 
 Withdrawal is candidate semantics, not a fixup: a join that does not realize mid-word leaves the cell's exit state none, and when the declined exit row binds a named withdrawal bitmap the cell carries an `ex-bind-<bitmap>` adjustment (the model's closed adjustments grammar) so the withdrawn drawing is part of the cell's identity; `withdrawal: safe` rows collapse to the plain exit-none cell. At a boundary the exit was never declined, so the base drawing stands.
 
-`transition` keeps the plan's contract signature and returns Settled; `transition_trace` is the additive rich form the table builder and the explain CLI consume, extended with raw third and fourth lookahead slots (`right3` / `right4`, default UNKNOWN) that only an own-rune prefer record's `then:` chain can reach — see `_prefer_favors` for the discipline that keeps every other consumer UNKNOWN-optimistic at those slots.
+`transition` keeps the plan's contract signature and returns Settled; `transition_trace` is the additive rich form the Python verifier and differential oracle consume, mirrored by the crate's `settle-cases` trace for the author-facing explain path and extended with raw third and fourth lookahead slots (`right3` / `right4`, default UNKNOWN) that only an own-rune prefer record's `then:` chain can reach — see `_prefer_favors` for the discipline that keeps every other consumer UNKNOWN-optimistic at those slots.
 """
 
 from __future__ import annotations
 
 import os
 from collections import OrderedDict
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from itertools import combinations
 from typing import NamedTuple
@@ -1552,8 +1552,12 @@ def tokens_from_codepoints(spec: ResolvedSpec, codepoints: Sequence[int]) -> lis
     return tokens
 
 
-def form_ligatures(spec: ResolvedSpec, tokens: list[RightToken]) -> list[RightToken]:
-    """Type-4 formation over the modeled ligature runes, greedy left to right, longest sequence first — staged before everything else, markers included, each match yielding to the section 5.7 late-formation guard over the two raw tokens past the sequence (design section 5.7)."""
+def form_ligatures(
+    spec: ResolvedSpec,
+    tokens: list[RightToken],
+    guard_verdicts: Mapping[tuple[str, RightToken, RightToken], bool] | None = None,
+) -> list[RightToken]:
+    """Type-4 formation over the modeled ligature runes, greedy left to right, longest sequence first — staged before everything else, markers included, each match yielding to the section 5.7 late-formation guard over the two raw tokens past the sequence (design section 5.7). `guard_verdicts` supplies the crate's complete guard sweep to author-facing callers; the independent Python guard remains the default for conformance and the differential oracle."""
     sequences = sorted(
         ((rune.sequence, name) for name, rune in spec.runes.items() if rune.sequence),
         key=lambda item: -len(item[0]),
@@ -1571,7 +1575,12 @@ def form_ligatures(spec: ResolvedSpec, tokens: list[RightToken]) -> list[RightTo
                 ):
                     right1 = tokens[end] if end < len(tokens) else EDGE
                     right2 = tokens[end + 1] if end + 1 < len(tokens) else EDGE
-                    if formation_blocked(spec, name, right1, right2):
+                    blocked = (
+                        formation_blocked(spec, name, right1, right2)
+                        if guard_verdicts is None
+                        else right1.kind == "letter" and guard_verdicts[(name, right1, right2)]
+                    )
+                    if blocked:
                         continue
                     match = (name, len(sequence))
                     break
