@@ -17,20 +17,22 @@ from rebuild.review.audit import AuditRow, Unit
 from rebuild.review.build import SITE_BEFORE_FONT, SITE_JUNIOR_FONT, _cluster_id, build_m1
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-LEDGER = REPO_ROOT / "rebuild" / "m1-divergences.yaml"
 MINI = REPO_ROOT / "rebuild" / "review" / "fixtures" / "mini"
+LEDGER = MINI / "m1-divergences.yaml"
 MINI_AUDIT = MINI / "audit.tsv"
 MINI_FONT = MINI / "M1.otf"
+MINI_SPEC = MINI / "spec"
 
 
 def _build(out, audit_path=MINI_AUDIT, **kwargs):
-    """One mini surface, always over the frozen bundle's subset tables and after-font."""
+    """One mini surface, always over the frozen bundle: its subset tables, its after-font, its ledger, and its spec. The spec is what keeps the bundle hermetic — the enricher re-settles every window from it, so reading the repo's live runes would make a rune edit break this module until the bundle was regenerated."""
     return build_m1(
         out,
         audit_path=audit_path,
         ledger_path=LEDGER,
         subset_dir=MINI,
         after_font=MINI_FONT,
+        spec_root=MINI_SPEC,
         **kwargs,
     )
 

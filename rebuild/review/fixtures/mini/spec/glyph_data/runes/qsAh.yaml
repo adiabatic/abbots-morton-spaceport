@@ -1,0 +1,82 @@
+rune: qsAh
+codepoint: 0xE676
+ductus:
+  hapax: |
+    Begun at the left along the baseline, the stroke runs briefly rightward, then climbs up and to the right in a sigmoid curve and finishes rightward at the x-height.
+mono:
+  bitmap:
+  - "   ##"  #
+  - "  #  "
+  - "  #  "
+  - "  #  "
+  - "  #  "
+  - "##   "  #
+stances:
+  hapax:
+    motion: hapax
+    traits: []
+    bitmap:
+    - "     ##"  #
+    - "    #  "
+    - "   #   "
+    - "   #   "
+    - "  #    "
+    - "##     "  #
+    surface:
+      entries:
+        baseline:
+          x: 0
+          stroke: horizontal
+          from:
+          - family:
+            - qsPea
+            - qsTea
+            - qsTea_qsOy
+            - qsDay
+            - qsGay
+            - qsThey
+            - qsJai
+            - qsYe
+            - qsHe
+            - qsWhy
+            - qsMay
+            - qsNo
+            - qsRoe
+            - qsExcite
+            - qsIt
+            - qsEt
+            - qsEight
+            - qsAwe
+            - qsOx
+            - qsOy
+            - qsUtter
+      exits:
+        x-height:
+          x: 7
+          stroke: horizontal
+      cells: []
+      unlocks: []
+      require: []
+policy:
+  order:
+  - hapax
+  refuse: []
+  prefer: []
+  extend:
+  - exit: x-height
+    by: 1
+    when:
+      right:
+        family:
+        - qsBay
+        - qsThey
+        - qsFee
+        - qsMay
+  - exit: x-height
+    by: 1
+    when:
+      right: {family: qsTea}
+      feature: ss03
+  contract: []
+  resolve: []
+  groups: {}

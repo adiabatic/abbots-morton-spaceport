@@ -1,0 +1,51 @@
+rune: qsSee_qsUtter
+sequence:
+- qsSee
+- qsUtter
+ductus:
+  hapax: |
+    The ·See stroke and the ·Utter stroke drawn as one motion: begun at the crest, the stroke descends leftward down the ·See spine to the x-height, then curves leftward to the baseline. Then the ·Utter part of the stroke retraces part of the ·See part on the way back up and to the right, and eventually breaks out on its own and ends at the x-height, where it may connect to the next letter.
+stances:
+  hapax:
+    motion: hapax
+    traits: []
+    bitmap:
+    - "  #  "
+    - " #   "
+    - "#    "
+    - "#  ##"  #
+    - "# #  "
+    - " #   "
+    - " #   "
+    - "#    "
+    - "#    "  #
+    surface:
+      entries: {}
+      exits:
+        x-height:
+          x: 5
+          stroke: horizontal
+      cells: []
+      unlocks: []
+      require: []
+policy:
+  order:
+  - hapax
+  refuse: []
+  prefer: []
+  extend:
+  - exit: x-height
+    by: 1
+    when:
+      right: {family: qsFee}
+  - exit: x-height
+    by: 1
+    when:
+      right: {family: qsMay}
+  - exit: x-height
+    by: 1
+    when:
+      right: {family: qsTea}
+      feature: ss03
+  resolve: []
+  groups: {}

@@ -19,8 +19,9 @@ from rebuild.review.enrich import load_spec
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 MINI = REPO_ROOT / "rebuild" / "review" / "fixtures" / "mini"
-LEDGER = REPO_ROOT / "rebuild" / "m1-divergences.yaml"
+LEDGER = MINI / "m1-divergences.yaml"
 MINI_FONT = MINI / "M1.otf"
+MINI_SPEC = MINI / "spec"
 MOVED_FAMILY = "qsRoe"
 WIDENED_BY = 10
 
@@ -32,6 +33,7 @@ def _mini_build(out: Path, after_font: Path, **kwargs) -> dict:
         ledger_path=LEDGER,
         subset_dir=MINI,
         after_font=after_font,
+        spec_root=MINI_SPEC,
         jobs=1,
         **kwargs,
     )
