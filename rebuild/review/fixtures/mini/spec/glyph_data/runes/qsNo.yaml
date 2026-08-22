@@ -1,0 +1,145 @@
+rune: qsNo
+codepoint: 0xE666
+ductus:
+  loop: |
+    Drawn clockwise from the top left, looping at the bottom, and then exiting on the top right.
+  flipped: |
+    As the loop, but drawn upside down: begun from the lower left, looping over the top, and exiting at the baseline on the right.
+mono:
+  bitmap:
+  - "#   #"  #
+  - " # # "
+  - "  #  "
+  - " # # "
+  - " # # "
+  - "  #  "  #
+stances:
+  loop:
+    motion: loop
+    traits: []
+    bitmap:
+    - "#   #"  #
+    - " # # "
+    - "  #  "
+    - " # # "
+    - " # # "
+    - "  #  "  #
+    surface:
+      entries:
+        x-height:
+          x: 0
+          stroke: diagonal
+      exits:
+        x-height:
+          x: 5
+          stroke: diagonal
+      cells: []
+      unlocks: []
+      require: []
+  flipped:
+    motion: flipped
+    traits:
+    - alt
+    bitmap:
+    - "  #  "  #
+    - " # # "
+    - " # # "
+    - "  #  "
+    - " # # "
+    - "#   #"  #
+    surface:
+      entries:
+        baseline:
+          x: 0
+          stroke: diagonal
+          from:
+          - family:
+            - qsPea
+            - qsTea
+            - qsDay
+            - qsVie
+            - qsJai
+            - qsIt
+            - qsEt
+            - qsEight
+            - qsAwe
+            - qsOx
+            - qsOy
+            - qsNo
+            - qsRoe
+            - qsUtter
+            - qsTea_qsOy
+      exits:
+        baseline:
+          x: 5
+          stroke: diagonal
+      cells: []
+      unlocks: []
+      require: []
+policy:
+  order:
+  - loop
+  - flipped
+  refuse: []
+  prefer:
+  - stance: flipped
+    when:
+      left:
+        family: qsIt
+        joined_at: baseline
+  - cell: {exit: x-height}
+    over: {exit: baseline}
+    when:
+      left:
+        except:
+        - {family: qsPea}
+        - {family: qsIt}
+      right:
+        family:
+        - qsDay
+        - qsNo
+        - qsIt
+        - qsOy
+    why: '`·Pea.!half ~b~ ·No.alt` looks nicer than `·Pea.half ~x~ ·No.!alt`'
+  - cell: {exit: none}
+    over: {exit: baseline}
+    when:
+      left:
+        family:
+        - qsTea_qsOy
+        - qsDay
+        - qsIt
+        - qsOy
+        joined_at: baseline
+      right:
+        family: qsTea
+        then: {family: qsIt}
+  - cell: {exit: none}
+    over: {exit: baseline}
+    when:
+      right:
+        family: qsTea
+        then: {family: qsDay}
+    why: I want a word-final ·Tea·Day pair to bind more tightly than the average. This stops `·No.alt ~b~ ·Tea`.
+  - cell: {exit: baseline}
+    over: {exit: x-height}
+    when:
+      left: {is: boundary}
+      right: {family: qsMay}
+  - cell: {exit: baseline}
+    over: {exit: none}
+    when:
+      left: {is: boundary}
+      right:
+        family: qsUtter
+        except:
+        - family: qsUtter
+          then: {family: qsMay}
+  extend:
+  - exit: x-height
+    by: 1
+    when:
+      right: {family: qsFee}
+  contract: []
+  resolve: []
+  groups: {}

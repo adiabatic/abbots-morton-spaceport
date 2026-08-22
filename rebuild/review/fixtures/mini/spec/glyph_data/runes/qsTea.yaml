@@ -1,0 +1,219 @@
+rune: qsTea
+codepoint: 0xE652
+ductus:
+  full: |
+    - Written as a single vertical stroke from the top line straight down to the baseline.
+    - Or the same stroke, written from the baseline straight up to the top line.
+    - Under ss03, when the previous letter's stroke arrives at the x-height and the next letter joins at the baseline, the bar is still drawn full-height: the incoming stroke goes up to the top, then doubles back down to the baseline to serve the next letter's join.
+  half: |
+    As the full motion, but the stroke covers only the span from the top line down to the x-height.
+mono:
+  bitmap:
+  - "  #  "
+  - "  #  "
+  - "  #  "
+  - "  #  "  #
+  - "  #  "
+  - "  #  "
+  - "  #  "
+  - "  #  "
+  - "  #  "  #
+stances:
+  full:
+    motion: full
+    traits: []
+    bitmap:
+    - "#"
+    - "#"
+    - "#"
+    - "#"  #
+    - "#"
+    - "#"
+    - "#"
+    - "#"
+    - "#"  #
+    surface:
+      entries:
+        baseline:
+          x: 0
+          stroke: vertical
+        top:
+          x: 0
+          stroke: vertical
+      exits:
+        baseline:
+          x: 1
+          stroke: vertical
+          withdrawal: safe
+      pairings:
+        never:
+        - entry: baseline
+          exit: baseline
+      cells: []
+      unlocks:
+      - pairing:
+          entry: baseline
+          exit: baseline
+        feature: ss05
+        when:
+          left: {family: qsEt}
+      - entry: x-height
+        feature: ss03
+        when:
+          left:
+            family:
+            - qsDay_qsUtter
+            - qsFee
+            - qsMay
+            - qsLow
+            - qsI
+            - qsAh
+            - qsUtter
+            - qsOut
+        why: When ss03 is on, I’d rather have `·Ah ~x~ ·Tea.!half` than `·Ah | ·Tea` or `·Ah ~x~ ·Tea.half` — and same thing for other letters (not just ·Ah) that stick out with a flat rightward stroke
+      require: []
+  half:
+    motion: half
+    traits:
+    - half
+    bitmap:
+    - "#"
+    - "#"
+    - "#"
+    - "#"  #
+    - " "
+    - " "
+    - " "
+    - " "
+    - " "  #
+    surface:
+      entries:
+        # The default from-scope is the baseline-effective trigger set per the migration's allowlist-polarity rule (section 13.3): only the halves reach this row without ss03, even though today's YAML row is formally unscoped.
+        x-height:
+          x: 0
+          stroke: vertical
+          from:
+          - class: halves-that-exit-at-x-height
+            except:
+            - {family: qsDay_qsUtter}
+        top:
+          x: 0
+          stroke: vertical
+      exits:
+        x-height:
+          x: 1
+          stroke: vertical
+          withdrawal: safe
+      pairings:
+        never:
+        - entry: x-height
+          exit: x-height
+      cells: []
+      unlocks:
+      - entry: x-height
+        feature: ss03
+        when:
+          left:
+            family:
+            - qsDay_qsUtter
+            - qsVie_qsUtter
+            - qsSee_qsUtter
+            - qsJai_qsUtter
+            - qsMay
+            - qsLow
+            - qsI
+            - qsAh
+            - qsUtter
+            - qsOut
+      require: []
+policy:
+  order:
+  - full
+  - half
+  refuse:
+  - entry: baseline
+    when:
+      left:
+        family:
+        - qsPea
+        - qsTea
+        - qsYe
+        - qsHe
+        - qsExam
+        - qsIt
+        - qsEat
+  - exit: baseline
+    when:
+      self: {entry: none}
+      left: {family: qsEt}
+  - exit: baseline
+    when:
+      left:
+        family: qsOut
+        joined_at: none
+  - exit: x-height
+    when:
+      left:
+        family: qsOut
+        joined_at: none
+  - exit: baseline
+    when:
+      right:
+        family:
+        - qsThaw
+        - qsExcite
+        - qsExam
+        - qsIt
+    why: ·Tea and ·It are both vertical, and two adjacent verticals joined at the baseline render as one extra-thick stroke.
+  - stance: half
+    entry: x-height
+    when:
+      right: {family: qsTea}
+  - exit: x-height
+    when:
+      self: {entry: none}
+      left: {family: qsEt}
+  - exit: x-height
+    when:
+      right:
+        family:
+        - qsTea
+        - qsFee
+        - qsCheer
+        - qsYe
+        - qsOwe
+        - qsFoot
+  prefer:
+  - stance: half
+    when:
+      right:
+        family: qsIt
+        then: {family: qsEt}
+  extend:
+  - entry: baseline
+    by: 1
+    when:
+      left:
+        family:
+        - qsKey
+        - qsJay
+  - exit: x-height
+    by: 1
+    when:
+      left: {family: qsMay}
+      right:
+        family: qsJai
+        then: {is: boundary}
+    why: I don't want ·May and ·J’ai to touch at the baseline even though there’s a ·Tea.half between them (visually, on top of the ·J’ai). I want a pixel of space between ·May and ·J’ai
+  contract:
+  - exit: x-height
+    by: 1
+    when:
+      right: {family: qsZoo}
+  - exit: x-height
+    by: 1
+    when:
+      self: {entry: none}
+      right: {family: qsJay}
+  resolve: []
+  groups: {}

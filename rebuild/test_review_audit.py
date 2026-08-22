@@ -25,8 +25,10 @@ from rebuild.review.audit import (
 from rebuild.review.enrich import LETTERS
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-MINI_AUDIT = REPO_ROOT / "rebuild" / "review" / "fixtures" / "mini" / "audit.tsv"
-LEDGER_PATH = REPO_ROOT / "rebuild" / "m1-divergences.yaml"
+MINI = REPO_ROOT / "rebuild" / "review" / "fixtures" / "mini"
+MINI_AUDIT = MINI / "audit.tsv"
+# The bundle's own ledger, not the repo's: the audit rows name its classes, and a class renamed upstream would strand rows this module asserts over.
+LEDGER_PATH = MINI / "m1-divergences.yaml"
 
 FIXTURE_AUDIT = """config\tcodepoints\tkinds\tmatched_entry\tbaseline\tnew
 default\tE650:E665\tcell\tdangling-anchor-dropped\tqsPea|qsMay.en-y0\tqsPea/full/None/baseline/|qsMay/loop/baseline/None/

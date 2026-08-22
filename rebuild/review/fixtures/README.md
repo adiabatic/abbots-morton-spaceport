@@ -15,13 +15,15 @@ A second, quite different fixture living beside this one: not a hand-written min
 
 What it lets run in the contracts lane, at full width, instead of the validators lane: the whole of `rebuild/test_unit_cache.py` (a mini `build_m1` costs seconds), the ordering and dedupe properties in `rebuild/test_review_audit.py`, `test_assignment_is_deterministic` in `rebuild/test_review_families.py`, and the table-diff build and snapshot round trip.
 
-The three parts move together and only together — a subset slice from one build beside a font from another would have the enricher reporting glyph disagreements that are the bundle's fault. The one thing it cannot freeze is the spec: `build_m1` loads that from the repo root, so a rune edit that changes how any of these windows settles leaves the frozen `new` cells describing a rebuild that no longer happens. That is the bundle's cue to be regenerated:
+It also holds the ledger whose class names those rows carry, and — under `spec/` — the runes, `script.yaml` and schemas the rows settled under. The spec copy is what makes the bundle hermetic: `build_m1` takes a `spec_root`, and every mini-bundle test passes this one, so the settlement the enricher re-derives is the one these rows were written under. A rune edit cannot leave the frozen `new` cells describing a rebuild that no longer happens, and the contracts lane no longer goes red after one until the bundle is remade. Everything else in a mini build still comes from the repo root — the fingerprints, the git head, the manifest's relative paths, the corpus the pin drafts validate against — because those are facts about the checkout rather than about the workload.
+
+All of it moves together and only together — a subset slice from one build beside a font from another, or a spec from a third, would have the enricher reporting glyph disagreements that are the bundle's fault. Regenerate the whole of it at once, after a fresh `run_m1`:
 
 ```zsh
 uv run python rebuild/review/fixtures/mini/regenerate.py
 ```
 
-Run it after `run_m1` has left a fresh `rebuild/out/m1`; the script is the authority on what the bundle holds and how the filter is drawn.
+That script is the authority on what the bundle holds and how the filter is drawn.
 
 ## Growing it
 

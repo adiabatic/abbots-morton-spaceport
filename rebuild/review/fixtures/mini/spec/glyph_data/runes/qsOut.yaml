@@ -1,0 +1,155 @@
+rune: qsOut
+codepoint: 0xE67B
+ductus:
+  normal: |
+    Begun at the left end of the baseline, where a previous letter may connect, the stroke climbs diagonally up and to the right to the letter’s crown at the x-height, runs rightward along the crown, and descends the right side, curling back in toward the letter in a loop.
+  swept-up: |
+    As the normal motion, but finish the loop rightwards, at the x-height, where it connects to the next letter.
+mono:
+  bitmap:
+  - "   # "  #
+  - "  # #"
+  - " # # "
+  - "#    "
+  - "#    "
+  - "#    "  #
+stances:
+  normal:
+    motion: normal
+    traits: []
+    bitmap:
+    - "    ### "  #
+    - "   ##  #"
+    - "  # #  #"
+    - " #   ## "
+    - "#       "
+    - "#       "  #
+    bitmaps:
+      raked:
+        bitmap:
+        - "     ### "  #
+        - "    ##  #"
+        - "   # #  #"
+        - "  #   ## "
+        - " #       "
+        - " #       "  #
+    surface:
+      entries:
+        baseline:
+          x: 0
+          stroke: vertical
+          from:
+          - family:
+            - qsPea
+            - qsTea
+            - qsTea_qsOy
+            - qsDay
+            - qsSee
+            - qsJai
+            - qsMay
+            - qsNo
+            - qsIt
+            - qsEt
+            - qsEight
+            - qsAwe
+            - qsOx
+            - qsOy
+            - qsUtter
+      cells: []
+      unlocks: []
+      require: []
+  swept-up:
+    motion: swept-up
+    traits: []
+    bitmap:
+    - "   ##"  #
+    - "  #  "
+    - " # # "
+    - "# #  "
+    - "#    "
+    - "#    "  #
+    bitmaps:
+      raked:
+        bitmap:
+        - "     ##"  #
+        - "    #  "
+        - "   # # "
+        - "  # #  "
+        - " #     "
+        - " #     "  #
+    surface:
+      entries:
+        baseline:
+          x: 0
+          stroke: vertical
+          from:
+          - family:
+            - qsPea
+            - qsTea
+            - qsTea_qsOy
+            - qsDay
+            - qsSee
+            - qsJai
+            - qsMay
+            - qsNo
+            - qsIt
+            - qsEt
+            - qsEight
+            - qsAwe
+            - qsOx
+            - qsOy
+            - qsUtter
+      exits:
+        x-height:
+          x: 5
+          stroke: horizontal
+          toward:
+          - family:
+            - qsDay
+            - qsDay_qsUtter
+            - qsFee
+            - qsJai
+            - qsJai_qsUtter
+            - qsNo
+            - qsRoe
+            - qsEt
+            - qsEight
+            - qsAwe
+            - qsOx
+            - qsOy
+      cells: []
+      unlocks: []
+      require: []
+policy:
+  order:
+  - normal
+  - swept-up
+  refuse: []
+  prefer:
+  - cell: {exit: x-height}
+    over: {exit: none}
+    when:
+      right:
+        except:
+        - {family: qsFee}
+  extend:
+  - exit: x-height
+    by: 1
+    when:
+      right: {family: qsFee}
+  contract:
+  - stance: normal
+    entry: baseline
+    bind: raked
+    trim: 1
+    why: I'd like to recreate the old look of ·See·Out.
+    when:
+      left: {family: qsSee}
+  - stance: swept-up
+    entry: baseline
+    bind: raked
+    trim: 1
+    when:
+      left: {family: qsSee}
+  resolve: []
+  groups: {}

@@ -1,0 +1,116 @@
+rune: qsJai_qsUtter
+sequence:
+- qsJai
+- qsUtter
+ductus:
+  hapax: |
+    The ·J'ai stroke and the ·Utter stroke drawn as one motion: the ·J'ai part as usual down through its descender curl, but instead of rejoining the baseline and ending, the stroke climbs diagonally up and to the right, out of the descender and past the baseline, and finishes with ·Utter's short rightward crown at the x-height, where it may connect to the next letter.
+stances:
+  hapax:
+    motion: hapax
+    traits: []
+    bitmap:
+    - " ####   ##"  #
+    - "     # #  "
+    - "     ##   "
+    - "    ##    "
+    - "   ##     "
+    - "  # #     "  #
+    - " #  #     "
+    - "#  #      "
+    - " ##       "
+    y_offset: -3
+    surface:
+      entries:
+        x-height:
+          x: 1
+          stroke: horizontal
+          from:
+          - family:
+            - qsPea
+            - qsTea
+            - qsDay_qsUtter
+            - qsFee
+            - qsVie_qsUtter
+            - qsSee_qsUtter
+            - qsJai_qsUtter
+            - qsMay
+            - qsNo
+            - qsLow
+            - qsRoe
+            - qsIt
+            - qsI
+            - qsAh
+            - qsUtter
+            - qsOut
+      exits:
+        x-height:
+          x: 10
+          stroke: horizontal
+          toward:
+          - family:
+            - qsPea
+            - qsTea
+            - qsDay
+            - qsDay_qsUtter
+            - qsFee
+            - qsJai
+            - qsJai_qsUtter
+            - qsMay
+            - qsNo
+            - qsRoe
+            - qsIt
+            - qsEt
+            - qsEight
+            - qsAwe
+            - qsOx
+            - qsOy
+      cells: []
+      unlocks: []
+      require: []
+policy:
+  order:
+  - hapax
+  refuse: []
+  prefer: []
+  extend:
+  - exit: x-height
+    by: 1
+    when:
+      right: {family: qsFee}
+  - exit: x-height
+    by: 1
+    when:
+      right: {family: qsTea}
+      feature: ss03
+  - entry: x-height
+    by: 2
+    when:
+      left: {family: qsGay}
+  contract:
+  - entry: x-height
+    by: 1
+    when:
+      left:
+        family:
+        - qsPea
+        - qsTea
+        - qsThey
+        - qsHe
+  - entry: x-height
+    by: 1
+    when:
+      left:
+        family:
+        - qsNo
+        - qsLow
+        - qsI
+  - entry: x-height
+    by: 2
+    when:
+      left:
+        family:
+        - qsAh
+        - qsUtter
+  resolve: []
+  groups: {}

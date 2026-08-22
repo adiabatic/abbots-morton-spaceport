@@ -1,0 +1,106 @@
+rune: qsOy
+codepoint: 0xE679
+ductus:
+  hapax: |
+    A small loop sitting at the x-height, written clockwise from its top, closing on itself; the stroke then runs out diagonally down to the right, ending at the baseline, where it may connect to the next letter. When a previous letter joins at the x-height, the loop opens on the left to receive the join.
+mono:
+  bitmap:
+  - " #   "  #
+  - "# #  "
+  - " # # "
+  - "    #"
+  - "    #"
+  - "    #"  #
+stances:
+  hapax:
+    motion: hapax
+    traits: []
+    bitmap:
+    - " ###    "  #
+    - "#  ##   "
+    - "#  # #  "
+    - " ##   # "
+    - "       #"
+    - "       #"  #
+    bitmaps:
+      open-on-the-left:
+        bitmap:
+        - "##   "  #
+        - "  #  "
+        - " # # "
+        - "  # #"
+        - "    #"
+        - "    #"  #
+    surface:
+      entries:
+        x-height:
+          x: 0
+          stroke: horizontal
+          joined: open-on-the-left
+          from:
+          - family:
+            - qsDay_qsUtter
+            - qsGay
+            - qsFee
+            - qsVie_qsUtter
+            - qsSee_qsUtter
+            - qsMay
+            - qsNo
+            - qsLow
+            - qsRoe
+            - qsI
+            - qsAh
+            - qsUtter
+            - qsOut
+      exits:
+        baseline:
+          x: 8
+          stroke: vertical
+          withdrawal: safe
+      cells:
+      - entry: x-height
+        exit: baseline
+        bitmap: open-on-the-left
+        exit_x: 5
+      unlocks: []
+      require: []
+policy:
+  order:
+  - hapax
+  refuse: []
+  prefer:
+  - cell: {exit: none}
+    over: {exit: baseline}
+    when:
+      right:
+        family:
+        - qsTea
+        - qsIt
+        except:
+        - family: qsTea
+          then:
+            family: qsUtter
+            then: {family: qsLow}
+        - family: qsTea
+          then:
+            family: qsUtter
+            then:
+              family: qsTea
+              except:
+              - family: qsTea
+                then:
+                  family:
+                  - qsDay
+                  - qsDay_qsUtter
+                  - qsMay
+                  - qsNo
+                  - qsLow
+                  - qsIt
+                  - qsAh
+                  - qsUtter
+        - family: qsIt
+          then: {family: qsNo}
+  extend: []
+  contract: []
+  resolve: []
+  groups: {}
