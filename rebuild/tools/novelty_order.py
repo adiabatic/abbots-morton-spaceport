@@ -6,6 +6,7 @@ import json
 import pathlib
 import subprocess
 import sys
+from collections.abc import Callable
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
@@ -111,7 +112,11 @@ def novelty_order(reps):
     return order
 
 
-def main():
+def _copy_to_clipboard(text: str) -> None:
+    subprocess.run(["pbcopy"], input=text.encode(), check=True)
+
+
+def main(clipboard_write: Callable[[str], None] | None = None):
     parser = argparse.ArgumentParser(description=(__doc__ or "").split(",")[0] + ".")
     parser.add_argument(
         "verdicts",
@@ -158,8 +163,9 @@ def main():
         )
     url = f"http://localhost:{PORT}/#units={','.join(emitted)}&order=given"
     print(url)
-    if sys.platform == "darwin":
-        subprocess.run(["pbcopy"], input=url.encode(), check=True)
+    clipboard_write = clipboard_write or (_copy_to_clipboard if sys.platform == "darwin" else None)
+    if clipboard_write is not None:
+        clipboard_write(url)
         print("(copied to clipboard)")
 
 

@@ -115,7 +115,7 @@ def run_main(repo, monkeypatch, capsys, *extra):
         "sys.argv",
         ["novelty_order.py", str(repo["verdicts"]), "--surface", str(repo["surface"]), *extra],
     )
-    no.main()
+    no.main(clipboard_write=lambda _url: None)
     return capsys.readouterr().out
 
 
@@ -138,6 +138,19 @@ def test_main_prints_the_order_given_worklist_url(repo, monkeypatch, capsys):
     assert url.startswith("http://localhost:")
     assert url.endswith("&order=given")
     assert {"u-0001", "u-0002"} == set(url.split("#units=")[1].split("&")[0].split(","))
+
+
+def test_main_routes_the_worklist_url_through_the_clipboard_hook(repo, monkeypatch, capsys):
+    write_surface(repo, [unit("u-0001")])
+    write_verdicts(repo, [])
+    copied = []
+    monkeypatch.setattr(
+        "sys.argv",
+        ["novelty_order.py", str(repo["verdicts"]), "--surface", str(repo["surface"])],
+    )
+    no.main(clipboard_write=copied.append)
+    out = capsys.readouterr().out
+    assert copied == [worklist_url(out)]
 
 
 def test_main_limit_emits_a_prefix(repo, monkeypatch, capsys):
