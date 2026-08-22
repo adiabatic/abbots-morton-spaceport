@@ -116,7 +116,7 @@ def _copy_to_clipboard(text: str) -> None:
     subprocess.run(["pbcopy"], input=text.encode(), check=True)
 
 
-def main(clipboard_write: Callable[[str], None] | None = None):
+def main(clipboard_write: Callable[[str], None] | None = None, *, units=None):
     parser = argparse.ArgumentParser(description=(__doc__ or "").split(",")[0] + ".")
     parser.add_argument(
         "verdicts",
@@ -144,7 +144,7 @@ def main(clipboard_write: Callable[[str], None] | None = None):
         )
     records = latest_verdicts(verdicts_path)
 
-    reps, blank_count = blank_reps(load_units(surface), records)
+    reps, blank_count = blank_reps(units if units is not None else load_units(surface), records)
     if not reps:
         print("No blank units — nothing to order.")
         return

@@ -1,6 +1,8 @@
 """The one-command driver for the commit-time artifact cycle.
 
-It mechanizes the commit-time sequence: snapshot the current review surface (the only recovery copy, since everything under rebuild/out is gitignored), recompile M1.otf and vet it, rebuild the review surface in place, carry prior verdicts forward onto the fresh manifest, merge the carried file into the live autosave (rebuild.tools.merge_verdicts, so the app needs no manual import; --no-merge opts out), land echo-prefill verdicts onto the freshly restamped autosave (rebuild.tools.echo_verdicts writes fill records for the blanks in unanimously-judged echo groups, then a second merge_verdicts pass imports them, so cross-cycle echo blanks fill without a sitting-prep pass), land standing-approval verdicts the same way (rebuild.tools.standing_verdicts fills blanks matching the checked-in rules in rebuild/standing-approvals.yaml, so once-and-for-all decisions never queue again), refresh the census pins from the surface's census sidecar and print their git diff (the checked-in pins are the last accepted census, so reviewing that diff at commit time is what accepts a new one), and run the five gates — always printing a summary table at the end, even on failure.
+It mechanizes the commit-time sequence: snapshot the current review surface (the only recovery copy, since everything under rebuild/out is gitignored), recompile M1.otf and vet it, rebuild the review surface in place, run the verdict plumbing over it, refresh the census pins from the surface's census sidecar and print their git diff (the checked-in pins are the last accepted census, so reviewing that diff at commit time is what accepts a new one), and run the five gates — always printing a summary table at the end, even on failure.
+
+The plumbing is one step and one child process, rebuild.tools.verdict_chain: carry prior verdicts forward onto the fresh manifest, merge the carried file into the live autosave (so the app needs no manual import; --no-merge opts out), land echo-prefill verdicts for the blanks in unanimously-judged echo groups, land standing-approval verdicts matching the checked-in rules in rebuild/standing-approvals.yaml, merge each fill as it lands, run the echo pass again to witness that the cascade has closed, and cluster the open complaints. It was seven children until each of them separately parsed 1.9 GB of unit shards to reach a few slim fields per unit; they read the build's per-unit index sidecar now, and one process holds one copy of it for the whole chain. The chain prints a `[chain] <step>` banner around each step and a `[t] <step>` line after it, so the summary below and the cycle-timings journal still read a line per step.
 
 The exit-code trap this driver exists to defuse: run_m1.main() SystemExits nonzero whenever any oracle rows are UNMATCHED, which is always true mid-migration. Its exit code is therefore not the gate; the three summary JSONs it writes are. The real gates are defect_errors, the Manual-pin verdict (scope included, so a gate that replayed nothing cannot pass), and multi_matched == 0.
 
@@ -10,9 +12,9 @@ The cycle runs no Rust-vs-Python differential, and since issue 78 there is no se
 
 gate:make-test is auto-skipped when its input closure is provably unchanged since the last green run. The closure is every tracked or untracked-unignored file outside the exempt trees (MAKE_TEST_EXEMPT_PREFIXES; make_test_exempt is the authority) and Markdown — nothing `make test` executes (make all -> build_font over glyph_data/*.yaml non-recursively, typst, pyright over tools/ test/ conftest.py, pytest test/ site/) reads those trees, so a diff confined to them cannot move the gate's outcome and re-running its ≈15 CPU-minutes would verify nothing. The last green fingerprint lives in rebuild/out/make-test-green.json, written by rebuild.tools.make_test_gate — the `make test` entry point — on every green run, so interactive greens and cycle greens share one record and `make test` itself self-skips on the same test. cycle_summary.json still records the fingerprint the cycle ran (or validly skipped) against, and prior_make_test_fingerprint falls back to it when the shared record is absent. The fingerprint sees file content only — a system-toolchain change (a typst upgrade, say; pyright and pytest are pinned through uv.lock, which is in the closure) is invisible to it. --force-make-test runs the gate regardless (as does `make test FORCE=1` inside the wrapper).
 
-The verdict plumbing — snapshot, carry, merge, echo-fill and its merge, standing-fill and its merge, complaints — is guarded the same way, by rebuild/out/plumbing-green.json. Every one of those steps is a pure function of the surface, the verdicts master, the live store, the checked-in standing approvals, and its own code, so the key is (the surface's inputs fingerprint and stamp, the master's path and bytes, the autosave's bytes, standing-approvals' bytes, all of rebuild/tools/ plus review/serve.py). Two of those components are there because a narrower key looked sufficient and was not. The master, because it is the one input the autosave's hash cannot see: an export dropped at the repo root can outrank the autosave in the auto-resolution and carry verdicts the store has never held. The code, because every sibling key folds in its own stage's executable and this chain's lives in a tree no other fingerprint reads — without it a fix to a fill's matcher or the carry's ink fallback would be skipped as already proven, silently never running.
+The verdict plumbing is guarded the same way, by rebuild/out/plumbing-green.json. Every step of it is a pure function of the surface, the verdicts master, the live store, the checked-in standing approvals, and its own code, so the key is (the surface's inputs fingerprint and stamp, the master's path and bytes, the autosave's bytes, standing-approvals' bytes, the chain's own import closure plus review/serve.py). Two of those components are there because a narrower key looked sufficient and was not. The master, because it is the one input the autosave's hash cannot see: an export dropped at the repo root can outrank the autosave in the auto-resolution and carry verdicts the store has never held. The code, because every sibling key folds in its own stage's executable and this chain's lives in a tree no other fingerprint reads — without it a fix to a fill's matcher or the carry's ink fallback would be skipped as already proven, silently never running. That component is the named closure `plumbing_code_paths` rather than the whole of rebuild/tools/, and rebuild/test_plumbing_closure.py walks the entry points' import graph on every contracts run to prove the name still covers what runs.
 
-The key is captured the moment the chain closes, not at the end of the pass, so a store write landing while the census runs cannot be absorbed into a fixpoint nothing verified; the record itself is written later, once complaints has also succeeded. And the fixpoint is claimed only when the chain can witness it. The steps feed forward — the carry's merge gives echo-fill new agreement to read, and echo-fill only removes blanks, so it can never hand standing-fill work it did not already have — but standing-fill runs last with nothing to re-read it, and a standing fill can make an echo group unanimous while a blank sibling remains. So a green is recorded only when the standing merge moved nothing, which is exactly when that cascade is closed; a pass whose standing fills did land leaves the next pass to finish it. That ordering is also why complaints is not deferrable: deferring it would keep a settled pass from ever recording the fixpoint it reached, trading ≈3s once for the whole chain's ≈23s on every pass after.
+The key is captured the moment the chain closes, not at the end of the pass, so a store write landing while the census runs cannot be absorbed into a fixpoint nothing verified; the record itself is written later, once complaints has also succeeded. And the fixpoint is claimed only when the chain has witnessed it. The steps feed forward — the carry's merge gives echo-fill new agreement to read, and echo-fill only removes blanks, so it can never hand standing-fill work it did not already have — but standing-fill runs last, and a standing fill can make an echo group unanimous while a blank sibling remains. That used to cost a whole extra pass: the green was refused whenever the standing merge moved anything, and the next cycle closed the cascade. In one process another echo pass costs a second, so the chain runs the cascade to a standstill itself and the green rests on a re-run that demonstrably wrote nothing.
 
 The skip demands that the surface build be skipping too, which is what makes the stamp knowable before the pass runs, and it takes the snapshot with it: the snapshot exists to survive this cycle's surface rewrite and to feed this cycle's carry, and a pass doing neither needs no copy. Such a pass also leaves the snapshot pile alone rather than pruning it to the copy it never made, so the stamp-aligned snapshot the last refreshing pass left stays on disk as the recovery source describe_carry_source points at. A flag that names a carry output or a snapshot directory refuses the skip outright, since honoring it would mean writing neither.
 
@@ -20,7 +22,7 @@ The same provably-unchanged principle guards every other heavy stage, each keyed
 
 --defer-gates, which `make review-cycle` passes, turns the cycle from a one-pass verification into a converging loop. On a *refreshing* pass — one where run_m1 or the surface build has real work — the four heavy gates (rebuild-contracts, rebuild-validators, conform, make-test) are recorded pending instead of run, so a rune edit costs only the artifact chain and the letters are on screen in a fraction of the time. Only a gate that would otherwise run live is deferred: one an auto-skip already proved stays proved, so a pass that merely restamps the review UI can never turn a green gate pending. The next pass has no artifact work left, every stage auto-skips, and the pending gates run against settled artifacts; the pass after that skips those too and costs seconds. Deferral is never a waiver — a deferred gate rides `skip: "deferred"` into the cycle summary, which rebuild.review.status counts as unverified, so `make verdict-ready` and the app banner both stay NOT READY until the loop converges. --no-defer-gates runs them in the one pass, which is what `make artifact-cycle` does at commit time, and --fresh and --force-make-test likewise override deferral for the gates they force. Rehearsal mode (--review-out) never defers: it writes its surface somewhere else, so there is no live surface to see sooner, and its surface build is unskippable by construction — every rehearsal pass would look refreshing and the loop would never converge.
 
-Which passes cost the reviewer their letters is decided here rather than by the caller, because only the resolved plan knows. Two of the things a cycle writes belong to the running app — the surface it serves, where livereload watches every shard and a restamped manifest orphans the tab's store, and the verdict store, which merge_verdicts refuses to touch under a live server because an open tab would flush its own copy back over the merge. A pass whose plan skips both writes neither, so a listening server is left alone and the letters stay on screen for the whole run: that is the gate pass, whose long verification the deferred gates exist to move off the look-edit-look path, and which used to black the app out for every minute of it. A pass that does write under the app still needs the port to itself, and --stop-server (which `make review-cycle` passes) is permission to take it — terminate the server and wait out the port — where a bare run still refuses and says how. Retention is the third writer: the app appends to the journal as you verdict, and a compaction rewrites the file around a read, so with a server up the journal and the stash sweep that indexes off it are both left for a later pass.
+Which passes cost the reviewer their letters is decided here rather than by the caller, because only the resolved plan knows. Two of the things a cycle writes belong to the running app — the surface it serves, where livereload watches every shard and a restamped manifest orphans the tab's store, and the verdict store, which merge_verdicts refuses to touch under a live server because an open tab would flush its own copy back over the merge. A pass whose plan skips both writes neither, so a listening server is left alone and the letters stay on screen for the whole run: that is the gate pass, whose long verification the deferred gates exist to move off the look-edit-look path, and which used to black the app out for every minute of it. A pass whose surface did not move but whose store did takes a shape of its own: the carry there is provably the identity — the snapshot it would read is a clone of the same surface, every content key resolves to itself, and the carry preserves each record's `at`, which the merge compares strictly — so the snapshot and the carry are skipped and the master is merged straight in, which is the one thing the store's own hash cannot see. That pass still writes the store, so it is a port-taking one. A pass that does write under the app needs the port to itself, and --stop-server (which `make review-cycle` passes) is permission to take it — terminate the server and wait out the port — where a bare run still refuses and says how. Retention is the third writer: the app appends to the journal as you verdict, and a compaction rewrites the file around a read, so with a server up the journal and the stash sweep that indexes off it are both left for a later pass.
 
 A green finish ends with a retention pass over the cycle's own disk piles, all of them regenerable or journal-covered: every tmp/review-pre-* snapshot except this cycle's is deleted (a snapshot is read once, by its own cycle's carry, and never again), root verdicts-carried-*.json files not stamped for the live surface are deleted (only the stamp-aligned frontier is ever read; the tracked copy under rebuild/evidence/ is never touched), verdicts-autosave-* stashes not referenced by a journal event at or after the last base event are deleted (the journal, not the stashes, is the sanctioned recovery path — and the reference index is the test because a stash's mtime predates the event that created it), and the journal itself is compacted to the newest base event older than RETENTION_WINDOW_DAYS, keeping at least that many days of --restore-as-of history. Failed, interrupted, first-run, and rehearsal cycles never prune; --keep-history opts out entirely; a retention error warns and never turns a green cycle red.
 
@@ -56,11 +58,12 @@ if TYPE_CHECKING:
 REVIEW_OUT = ROOT / "rebuild" / "out" / "review"
 AUTOSAVE = ROOT / "verdicts-autosave.json"
 M1_OUT = ROOT / "rebuild" / "out" / "m1"
-CARRY_TOOL = ROOT / "rebuild" / "tools" / "carry_verdicts.py"
-ECHO_TOOL = ROOT / "rebuild" / "tools" / "echo_verdicts.py"
 ECHO_FILL = ROOT / "verdicts-echo-fill.json"
-STANDING_TOOL = ROOT / "rebuild" / "tools" / "standing_verdicts.py"
 STANDING_FILL = ROOT / "verdicts-standing-fill.json"
+# The banners rebuild.tools.verdict_chain prints around each step of the chain, which is how one child's output still reads as seven steps here.
+CHAIN_BANNER = "[chain] "
+CHAIN_FAILED = CHAIN_BANNER + "failed: "
+CHAIN_FIXPOINT = CHAIN_BANNER + "fixpoint: "
 CYCLE_SUMMARY = ROOT / "rebuild" / "out" / "cycle_summary.json"
 CYCLE_TIMINGS = ROOT / "rebuild" / "out" / "cycle-timings.ndjson"
 MAKE_TEST_GREEN = ROOT / "rebuild" / "out" / "make-test-green.json"
@@ -496,10 +499,31 @@ def surface_build_skippable(root: Path = ROOT, review_out: Path | None = None) -
     return all((surface / shard).exists() for shard in shards)
 
 
+# The chain's own code, named module by module rather than as the whole of rebuild/tools/: the closure of rebuild.tools.verdict_chain (which runs every step) plus this driver (which builds its argv) and the two the driver imports to journal a run. rebuild/test_plumbing_closure.py walks the import graph from those entry points on every contracts run and fails if anything reachable in this repo is outside the union of this list, the manifest fingerprint's review_code and pipeline_code, and serve.py — so the list cannot go stale the way a hand-written one otherwise would, and hashing twenty-three unrelated tools to be safe is no longer the price of the guarantee.
+PLUMBING_ENTRY_POINTS = ("rebuild.tools.verdict_chain", "rebuild.tools.artifact_cycle")
+PLUMBING_TOOL_MODULES = (
+    "artifact_cycle",
+    "carry_verdicts",
+    "complaint_docket",
+    "cycle_timings",
+    "echo_verdicts",
+    "merge_verdicts",
+    "peak_rss",
+    "review_docket",
+    "standing_verdicts",
+    "verdict_chain",
+    "verdict_notes",
+)
+
+
+def plumbing_code_paths(root: Path = ROOT) -> list[Path]:
+    return [Path(root) / "rebuild" / "tools" / f"{name}.py" for name in PLUMBING_TOOL_MODULES]
+
+
 def plumbing_skip_fingerprint(
     root: Path = ROOT, surface: Path | None = None, master: Path | None = None
 ) -> str | None:
-    """Content key over everything the verdict plumbing reads: the surface it resolves unit ids against, the verdicts master it carries forward, the live store it merges into, the checked-in standing approvals, and the chain's own code. Carry, merge, both fills with their merges, and the complaint docket are pure functions of exactly those, and the chain is idempotent once it has run — so a key matching the record a *complete* chain left behind proves re-running it would write nothing new. The master is in the key because it is the one input the autosave's hash cannot see: an export dropped at the repo root can outrank the autosave in the auto-resolution and carry verdicts the store has never held. The code is in it for the same reason every sibling key carries its own stage's executable — a fix to a fill's matcher or to the carry's fallback must run rather than be skipped as proven — and it is the whole of rebuild/tools/ plus review/serve.py: this driver builds the chain's argv and merge_verdicts reads the store through serve.py, while review/'s other modules already ride inside the manifest fingerprint's review_code. None when the surface has no fingerprinted manifest or no master was resolved."""
+    """Content key over everything the verdict plumbing reads: the surface it resolves unit ids against, the verdicts master it carries forward, the live store it merges into, the checked-in standing approvals, and the chain's own code. Carry, merge, both fills with their merges, and the complaint docket are pure functions of exactly those, and the chain is idempotent once it has run — so a key matching the record a *complete* chain left behind proves re-running it would write nothing new. The master is in the key because it is the one input the autosave's hash cannot see: an export dropped at the repo root can outrank the autosave in the auto-resolution and carry verdicts the store has never held. The code is in it for the same reason every sibling key carries its own stage's executable — a fix to a fill's matcher or to the carry's fallback must run rather than be skipped as proven — and it is the chain's real import closure (`plumbing_code_paths`, which a contracts test holds against the entry points' import graph) plus review/serve.py, which merge_verdicts reads the store through; review/'s other modules already ride inside the manifest fingerprint's review_code. None when the surface has no fingerprinted manifest or no master was resolved."""
     if master is None:
         return None
     surface_dir = surface if surface is not None else REVIEW_OUT
@@ -518,7 +542,7 @@ def plumbing_skip_fingerprint(
         f"master\t{master}\t{_sha256_path(Path(master))}",
         f"autosave\t{_sha256_path(root / 'verdicts-autosave.json')}",
         f"standing\t{_sha256_path(root / 'rebuild' / 'standing-approvals.yaml')}",
-        f"tools_code\t{fingerprint.hash_paths(root, sorted((root / 'rebuild' / 'tools').glob('*.py')))}",
+        f"tools_code\t{fingerprint.hash_paths(root, plumbing_code_paths(root))}",
         f"serve\t{_sha256_path(root / 'rebuild' / 'review' / 'serve.py')}",
     ]
     return _digest_lines(lines)
@@ -666,6 +690,7 @@ class Plan:
     skip_plumbing: bool = False
     plumbing_note: str = ""
     plumbing_carry_out: Path | None = None
+    plumbing_store_only: bool = False
     deferred: frozenset[str] = frozenset()
     preserve_snapshot: Path | None = None
     record_greens: bool = False
@@ -680,6 +705,10 @@ class Plan:
     complaints_note: str = ""
     retention: bool = False
     steps: list[Step] = field(default_factory=list)
+
+    def runs(self, name: str) -> bool:
+        """Whether the named step has a command line to run at all — a step the plan skipped carries a note instead."""
+        return any(step.name == name and step.argv is not None for step in self.steps)
 
     def argv(self, name: str) -> list[str]:
         """The named step's command line. build_plan is the only writer of step argvs and the executor runs exactly what the plan printed, so a step's command line can never fork between the plan and the run."""
@@ -752,6 +781,7 @@ def build_plan(
     skip_plumbing: bool = False,
     plumbing_note: str = "",
     plumbing_carry_out: Path | None = None,
+    store_only: bool = False,
     deferred: frozenset[str] = frozenset(),
     preserve_snapshot: Path | None = None,
     record_greens: bool = False,
@@ -760,7 +790,7 @@ def build_plan(
     resolved_snapshot = (
         snapshot_dir if snapshot_dir is not None else resolve_snapshot_dir(ROOT / "tmp", short_id)
     )
-    do_carry = not no_carry and not first_run and not skip_plumbing
+    do_carry = not no_carry and not first_run and not skip_plumbing and not store_only
     resolved_carry_out: Path | None = None
     if do_carry:
         resolved_carry_out = (
@@ -806,6 +836,7 @@ def build_plan(
         skip_plumbing=skip_plumbing,
         plumbing_note=plumbing_note,
         plumbing_carry_out=plumbing_carry_out,
+        plumbing_store_only=store_only,
         deferred=deferred,
         preserve_snapshot=preserve_snapshot,
         record_greens=record_greens,
@@ -830,6 +861,15 @@ def build_plan(
                 "snapshot",
                 None,
                 f"SKIPPED ({plumbing_note}); no carry reads it and no surface write threatens the live copy",
+                lane="build",
+            )
+        )
+    elif store_only:
+        plan.steps.append(
+            Step(
+                "snapshot",
+                None,
+                "SKIPPED (the surface did not move, so there is no carry to feed and nothing to survive)",
                 lane="build",
             )
         )
@@ -871,87 +911,64 @@ def build_plan(
             surface_argv += ["--fresh-unit-cache"]
         plan.steps.append(Step("surface-build", surface_argv, lane="build"))
 
-    if do_carry:
-        assert resolved_carry_out is not None
-        carry_argv = [
+    if review_out is not None:
+        plan.complaints_note = "rehearsal: reads the live autosave"
+    elif first_run:
+        plan.complaints_note = "first run: no verdicts to cluster"
+    elif skip_plumbing:
+        plan.complaints_note = plumbing_note
+    elif not AUTOSAVE.exists():
+        plan.complaints_note = "no verdicts store"
+
+    if skip_plumbing:
+        plumbing_step_note = f"SKIPPED ({plumbing_note})"
+    elif first_run:
+        plumbing_step_note = "SKIPPED (first run)"
+    elif not do_carry and not store_only:
+        plumbing_step_note = "SKIPPED (--no-carry)"
+    else:
+        plumbing_step_note = ""
+    if plumbing_step_note:
+        plan.steps.append(Step("plumbing", None, plumbing_step_note, lane="build"))
+    else:
+        plumbing_argv = [
             "uv",
             "run",
             "python",
-            str(CARRY_TOOL),
-            "--source",
-            str(resolved_snapshot),
-            str(verdicts),
-            "--out",
-            str(resolved_carry_out),
+            "-m",
+            "rebuild.tools.verdict_chain",
+            "--surface",
+            str(surface_dir),
         ]
-        if review_out is not None:
-            carry_argv += ["--current-surface", str(review_out)]
-        plan.steps.append(Step("carry", carry_argv, lane="build"))
-    elif skip_plumbing:
-        plan.steps.append(Step("carry", None, f"SKIPPED ({plumbing_note})", lane="build"))
-    elif first_run:
-        plan.steps.append(Step("carry", None, "SKIPPED (first run)", lane="build"))
-    else:
-        plan.steps.append(Step("carry", None, "SKIPPED (--no-carry)", lane="build"))
-
-    if do_merge:
-        assert resolved_carry_out is not None
-        plan.steps.append(
-            Step(
-                "merge",
-                ["uv", "run", "python", "-m", "rebuild.tools.merge_verdicts", str(resolved_carry_out)],
-                lane="build",
-            )
-        )
-    elif do_carry and review_out is not None:
-        plan.steps.append(
-            Step("merge", None, "SKIPPED (rehearsal: the live autosave is never written)", lane="build")
-        )
-    elif do_carry:
-        plan.steps.append(Step("merge", None, "SKIPPED (--no-merge)", lane="build"))
-    elif skip_plumbing:
-        plan.steps.append(Step("merge", None, f"SKIPPED ({plumbing_note})", lane="build"))
-    elif first_run:
-        plan.steps.append(Step("merge", None, "SKIPPED (first run)", lane="build"))
-    else:
-        plan.steps.append(Step("merge", None, "SKIPPED (--no-carry)", lane="build"))
-
-    if do_merge:
-        plan.steps.append(
-            Step("echo-fill", ["uv", "run", "python", str(ECHO_TOOL), str(AUTOSAVE)], lane="build")
-        )
-        plan.steps.append(
-            Step(
-                "echo-merge",
-                ["uv", "run", "python", "-m", "rebuild.tools.merge_verdicts", str(ECHO_FILL)],
-                lane="build",
-            )
-        )
-        plan.steps.append(
-            Step("standing-fill", ["uv", "run", "python", str(STANDING_TOOL), str(AUTOSAVE)], lane="build")
-        )
-        plan.steps.append(
-            Step(
-                "standing-merge",
-                ["uv", "run", "python", "-m", "rebuild.tools.merge_verdicts", str(STANDING_FILL)],
-                lane="build",
-            )
-        )
-    else:
-        if do_carry and review_out is not None:
-            echo_note = "SKIPPED (rehearsal: the live autosave is never written)"
-        elif do_carry:
-            echo_note = "SKIPPED (--no-merge)"
-        elif skip_plumbing:
-            echo_note = f"SKIPPED ({plumbing_note})"
-        elif first_run:
-            echo_note = "SKIPPED (first run)"
+        if do_carry:
+            assert resolved_carry_out is not None
+            plumbing_argv += [
+                "--source",
+                str(resolved_snapshot),
+                str(verdicts),
+                "--carry-out",
+                str(resolved_carry_out),
+            ]
         else:
-            echo_note = "SKIPPED (--no-carry)"
-        plan.steps.append(Step("echo-fill", None, echo_note, lane="build"))
-        plan.steps.append(Step("echo-merge", None, echo_note, lane="build"))
-        plan.steps.append(Step("standing-fill", None, echo_note, lane="build"))
-        plan.steps.append(Step("standing-merge", None, echo_note, lane="build"))
+            plumbing_argv += ["--merge-master", str(verdicts)]
+        if not do_merge:
+            plumbing_argv += ["--no-merge"]
+        if plan.complaints_note:
+            plumbing_argv += ["--no-complaints"]
+        if do_carry and not do_merge:
+            note = (
+                "carry only (rehearsal: the live autosave is never written)"
+                if review_out is not None
+                else "carry only (--no-merge)"
+            )
+        elif store_only:
+            note = (
+                "the surface did not move, so the carry is the identity: merge the master, then the fills "
+                "and the docket"
+            )
+        else:
+            note = "carry -> merge -> echo fill -> standing fill -> the fills' fixpoint -> complaint docket, in one process"
+        plan.steps.append(Step("plumbing", plumbing_argv, note, lane="build"))
 
     if review_out is not None:
         plan.steps.append(
@@ -977,26 +994,6 @@ def build_plan(
                     str(REVIEW_OUT),
                 ],
                 "then `git diff -- rebuild/review-census-pins.json`, printed in full — the pins are the last accepted census; review the diff at commit time",
-                lane="build",
-            )
-        )
-
-    if review_out is not None:
-        plan.complaints_note = "rehearsal: reads the live autosave"
-    elif first_run:
-        plan.complaints_note = "first run: no verdicts to cluster"
-    elif skip_plumbing:
-        plan.complaints_note = plumbing_note
-    elif not AUTOSAVE.exists():
-        plan.complaints_note = "no verdicts store"
-    if plan.complaints_note:
-        plan.steps.append(Step("complaints", None, f"SKIPPED ({plan.complaints_note})", lane="build"))
-    else:
-        plan.steps.append(
-            Step(
-                "complaints",
-                ["uv", "run", "python", "-m", "rebuild.tools.complaint_docket", str(AUTOSAVE)],
-                "informational, non-gating",
                 lane="build",
             )
         )
@@ -1161,7 +1158,7 @@ def _render_concurrency(plan: Plan) -> list[str]:
         "",
         f"  Concurrency (pool policy: {plan.pool_policy}):",
         f"    Lane t0   [from t=0, background]  : {t0_lane}",
-        "    Lane build[serial, main thread]  : snapshot -> run_m1 -> surface-build -> submit gate:rebuild-contracts, gate:rebuild-validators -> carry -> merge -> census",
+        "    Lane build[serial, main thread]  : snapshot -> run_m1 -> surface-build -> submit gate:rebuild-contracts, gate:rebuild-validators -> plumbing -> census",
     ]
     if plan.skip_conform:
         lines.append("    Lane conform                     : SKIPPED (--skip-conform)")
@@ -1294,6 +1291,7 @@ class CycleReport:
     standing_fill_lines: list[str] = field(default_factory=list)
     standing_merge_status: str = "not run"
     standing_merge_lines: list[str] = field(default_factory=list)
+    plumbing_fixpoint: bool = False
     census_status: str = "not run"
     complaints_status: str = "not run"
     complaints_ok: bool | None = None
@@ -1586,81 +1584,124 @@ def _do_surface_build(
     return True
 
 
-def _do_carry(report: CycleReport, *, spawn, emit: _Emitter, registry: _ChildRegistry, plan: Plan) -> bool:
-    result = spawn("carry", plan.argv("carry"), emit=emit, registry=registry, stream=False)
-    _dump_captured(emit, result)
-    report.carry_out = plan.carry_out
-    for line in result.stdout.splitlines():
-        if any(word in line for word in ("carried", "kinds", "queue", "fallback")):
-            report.carry_lines.append(line.strip())
-    return result.returncode == 0
+_PLUMBING_FAILURES = {
+    "carry": "carry_verdicts failed",
+    "merge": "verdict merge failed",
+    "echo-fill": "echo-fill failed",
+    "echo-merge": "echo-merge failed",
+    "standing-fill": "standing-fill failed",
+    "standing-merge": "standing-merge failed",
+}
 
 
-def _do_merge(report: CycleReport, *, spawn, emit: _Emitter, registry: _ChildRegistry, plan: Plan) -> bool:
-    result = spawn("merge", plan.argv("merge"), emit=emit, registry=registry, stream=False)
-    _dump_captured(emit, result)
-    for line in result.stdout.splitlines():
-        stripped = line.strip()
-        if stripped.startswith(("merged ", "nothing changed", "stashed ")):
-            report.merge_lines.append(stripped)
-    report.merge_status = "merged" if result.returncode == 0 else f"FAILED (exit {result.returncode})"
-    return result.returncode == 0
+def plumbing_sections(text: str) -> dict[str, list[str]]:
+    """The chain's output split at its `[chain] <step>` banners. One subprocess prints what seven used to, and this is what lets the summary keep a line per step: the driver reads each step's own lines out of the stream rather than out of its own process table. Later rounds of the echo pass fold into the first round's section, since they are the same step of the cascade run again."""
+    sections: dict[str, list[str]] = {}
+    current: str | None = None
+    for line in text.splitlines():
+        if line.startswith(CHAIN_BANNER):
+            name = line[len(CHAIN_BANNER) :].strip()
+            if name.startswith(("fixpoint:", "failed:")):
+                current = None
+                continue
+            current = re.sub(r"-\d+$", "", name)
+            sections.setdefault(current, [])
+            continue
+        if current is not None:
+            sections[current].append(line)
+    return sections
 
 
-def _do_echo_fill(
+def _scrape(lines: list[str], keep) -> list[str]:
+    return [line.strip() for line in lines if keep(line.strip())]
+
+
+def _do_plumbing(
     report: CycleReport, *, spawn, emit: _Emitter, registry: _ChildRegistry, plan: Plan
-) -> bool:
-    result = spawn("echo-fill", plan.argv("echo-fill"), emit=emit, registry=registry, stream=False)
+) -> list[str]:
+    """Run the whole verdict chain as one child and rebuild the per-step report from its output. Returns the failure messages the cycle should carry, which are the same ones the seven separate steps used to append."""
+    result = spawn("plumbing", plan.argv("plumbing"), emit=emit, registry=registry, stream=False)
     _dump_captured(emit, result)
+    report.carry_out = plan.carry_out if plan.carry_out is not None else plan.plumbing_carry_out
+    sections = plumbing_sections(result.stdout)
+    failed = ""
     for line in result.stdout.splitlines():
-        stripped = line.strip()
-        if stripped.startswith("wrote ") and "echo-fill verdicts" in stripped:
-            report.echo_fill_lines.append(stripped)
-    report.echo_fill_status = "filled" if result.returncode == 0 else f"FAILED (exit {result.returncode})"
-    return result.returncode == 0
-
-
-def _do_echo_merge(
-    report: CycleReport, *, spawn, emit: _Emitter, registry: _ChildRegistry, plan: Plan
-) -> bool:
-    result = spawn("echo-merge", plan.argv("echo-merge"), emit=emit, registry=registry, stream=False)
-    _dump_captured(emit, result)
-    for line in result.stdout.splitlines():
-        stripped = line.strip()
-        if stripped.startswith(("merged ", "nothing changed", "stashed ")):
-            report.echo_merge_lines.append(stripped)
-    report.echo_merge_status = "merged" if result.returncode == 0 else f"FAILED (exit {result.returncode})"
-    return result.returncode == 0
-
-
-def _do_standing_fill(
-    report: CycleReport, *, spawn, emit: _Emitter, registry: _ChildRegistry, plan: Plan
-) -> bool:
-    result = spawn("standing-fill", plan.argv("standing-fill"), emit=emit, registry=registry, stream=False)
-    _dump_captured(emit, result)
-    for line in result.stdout.splitlines():
-        stripped = line.strip()
-        if stripped.startswith("wrote ") and "standing-approval verdicts" in stripped:
-            report.standing_fill_lines.append(stripped)
-        elif stripped.endswith("held for review by except_left"):
-            report.standing_fill_lines.append(stripped)
-    report.standing_fill_status = "filled" if result.returncode == 0 else f"FAILED (exit {result.returncode})"
-    return result.returncode == 0
-
-
-def _do_standing_merge(
-    report: CycleReport, *, spawn, emit: _Emitter, registry: _ChildRegistry, plan: Plan
-) -> bool:
-    result = spawn("standing-merge", plan.argv("standing-merge"), emit=emit, registry=registry, stream=False)
-    _dump_captured(emit, result)
-    for line in result.stdout.splitlines():
-        stripped = line.strip()
-        if stripped.startswith(("merged ", "nothing changed", "stashed ")):
-            report.standing_merge_lines.append(stripped)
-    report.standing_merge_status = (
-        "merged" if result.returncode == 0 else f"FAILED (exit {result.returncode})"
+        if line.startswith(CHAIN_FAILED):
+            failed = line[len(CHAIN_FAILED) :].split(" ", 1)[0]
+            failed = re.sub(r"-\d+$", "", failed)
+    report.plumbing_fixpoint = any(
+        line.startswith(CHAIN_FIXPOINT + "witnessed") for line in result.stdout.splitlines()
     )
-    return result.returncode == 0
+
+    report.carry_lines = _scrape(
+        sections.get("carry", []),
+        lambda line: any(word in line for word in ("carried", "kinds", "queue", "fallback")),
+    )
+    for name in ("merge", "echo-merge", "standing-merge"):
+        setattr(
+            report,
+            name.replace("-", "_") + "_lines",
+            _scrape(
+                sections.get(name, []),
+                lambda line: line.startswith(("merged ", "nothing changed", "stashed ")),
+            ),
+        )
+    report.echo_fill_lines = _scrape(
+        sections.get("echo-fill", []),
+        lambda line: line.startswith("wrote ") and "echo-fill verdicts" in line,
+    )
+    report.standing_fill_lines = _scrape(
+        sections.get("standing-fill", []),
+        lambda line: (line.startswith("wrote ") and "standing-approval verdicts" in line)
+        or line.endswith("held for review by except_left"),
+    )
+
+    # A step at or after the one that failed either is it or never ran; a step before it ran, and says what it did.
+    done = (
+        ("merge", "merged"),
+        ("echo-fill", "filled"),
+        ("echo-merge", "merged"),
+        ("standing-fill", "filled"),
+        ("standing-merge", "merged"),
+    )
+    order = ["carry", *(name for name, _word in done)]
+    blocked = order.index(failed) if failed in order else len(order)
+    for name, word in done:
+        if order.index(name) > blocked:
+            status = f"not run ({failed} failed)"
+        elif name == failed:
+            status = f"FAILED (exit {result.returncode})"
+        elif name in sections:
+            status = word
+        else:
+            status = "not run"
+        setattr(report, name.replace("-", "_") + "_status", status)
+    failures: list[str] = []
+    if failed in _PLUMBING_FAILURES:
+        failures.append(_PLUMBING_FAILURES[failed])
+    elif result.returncode != 0 and failed != "complaints":
+        failures.append(f"the verdict chain failed (exit {result.returncode})")
+
+    if "complaints" in sections:
+        _read_complaints(report, sections["complaints"], result.returncode if failed == "complaints" else 0)
+    return failures
+
+
+def _read_complaints(report: CycleReport, lines: list[str], returncode: int) -> None:
+    if returncode != 0:
+        report.complaints_status = f"FAILED (exit {returncode}) — informational"
+        report.complaints_ok = False
+        return
+    report.complaints_ok = True
+    for line in lines:
+        stripped = line.strip()
+        if stripped == "no open complaints":
+            report.complaints_status = stripped
+            return
+        if stripped.startswith("wrote ") and ": " in stripped:
+            report.complaints_status = stripped.split(": ", 1)[1]
+            return
+    report.complaints_status = "done"
 
 
 def _do_census(report: CycleReport, *, spawn, emit: _Emitter, registry: _ChildRegistry, plan: Plan) -> None:
@@ -1696,27 +1737,6 @@ def _skip_plumbing(report: CycleReport, plan: Plan, emit: _Emitter) -> None:
     report.echo_merge_status = note
     report.standing_fill_status = note
     report.standing_merge_status = note
-
-
-def _do_complaints(
-    report: CycleReport, *, spawn, emit: _Emitter, registry: _ChildRegistry, plan: Plan
-) -> None:
-    result = spawn("complaints", plan.argv("complaints"), emit=emit, registry=registry, stream=False)
-    _dump_captured(emit, result)
-    if result.returncode != 0:
-        report.complaints_status = f"FAILED (exit {result.returncode}) — informational"
-        report.complaints_ok = False
-        return
-    report.complaints_ok = True
-    for line in result.stdout.splitlines():
-        stripped = line.strip()
-        if stripped == "no open complaints":
-            report.complaints_status = stripped
-            return
-        if stripped.startswith("wrote ") and ": " in stripped:
-            report.complaints_status = stripped.split(": ", 1)[1]
-            return
-    report.complaints_status = "done"
 
 
 def _gate_js_task(argv: list[str], spawn, emit: _Emitter, registry: _ChildRegistry) -> _StepResult:
@@ -1875,8 +1895,8 @@ def _join_gates(
 
 
 def _plumbing_settled(report: CycleReport) -> bool:
-    """Whether the chain closed at a fixpoint, which is what the plumbing green claims and only the last step can witness. Each step feeds the next — the carry's merge gives echo-fill new agreement to read, and echo-fill only ever removes blanks, so it can never hand standing-fill work it did not already have — but standing-fill runs last and nothing re-reads it: a standing fill landing on one unit can make its echo group unanimous and leave a blank sibling that echo-fill would have taken on the following pass. So the fixpoint is provable exactly when the standing merge moved nothing, and a pass whose standing fills did land records no green and lets the next pass close the cascade."""
-    return any(line.startswith("nothing changed") for line in report.standing_merge_lines)
+    """Whether the chain closed at a fixpoint, which is what the plumbing green claims. It used to be inferred from the standing merge writing nothing — a standing fill landing on one unit can make its echo group unanimous and leave a blank sibling that only the next pass's echo fill would take, so a pass whose fills landed had to hand the cascade on. Holding the index in one process makes another echo pass cost a second, so the chain runs the cascade to a standstill itself and says so: the green now rests on a witnessed re-run that wrote nothing rather than on an ordering argument."""
+    return report.plumbing_fixpoint
 
 
 def _record_gate_greens(report: CycleReport, plan: Plan, gate_keys: dict[str, str], emit: _Emitter) -> None:
@@ -2044,49 +2064,19 @@ def _run_cycle(
         plumbing_key: str | None = None
         if plan.skip_plumbing:
             _skip_plumbing(report, plan, emit)
-        elif plan.carry_out is not None:
-            carried = _do_carry(report, spawn=spawn, emit=emit, registry=registry, plan=plan)
-            if not carried:
-                failures.append("carry_verdicts failed")
-            if plan.do_merge:
-                if not carried:
-                    report.merge_status = "not run (carry failed)"
-                    report.echo_fill_status = "not run (carry failed)"
-                    report.echo_merge_status = "not run (carry failed)"
-                    report.standing_fill_status = "not run (carry failed)"
-                    report.standing_merge_status = "not run (carry failed)"
-                elif not _do_merge(report, spawn=spawn, emit=emit, registry=registry, plan=plan):
-                    failures.append("verdict merge failed")
-                    report.echo_fill_status = "not run (merge failed)"
-                    report.echo_merge_status = "not run (merge failed)"
-                    report.standing_fill_status = "not run (merge failed)"
-                    report.standing_merge_status = "not run (merge failed)"
-                elif not _do_echo_fill(report, spawn=spawn, emit=emit, registry=registry, plan=plan):
-                    failures.append("echo-fill failed")
-                    report.echo_merge_status = "not run (echo-fill failed)"
-                    report.standing_fill_status = "not run (echo-fill failed)"
-                    report.standing_merge_status = "not run (echo-fill failed)"
-                elif not _do_echo_merge(report, spawn=spawn, emit=emit, registry=registry, plan=plan):
-                    failures.append("echo-merge failed")
-                    report.standing_fill_status = "not run (echo-merge failed)"
-                    report.standing_merge_status = "not run (echo-merge failed)"
-                elif not _do_standing_fill(report, spawn=spawn, emit=emit, registry=registry, plan=plan):
-                    failures.append("standing-fill failed")
-                    report.standing_merge_status = "not run (standing-fill failed)"
-                elif not _do_standing_merge(report, spawn=spawn, emit=emit, registry=registry, plan=plan):
-                    failures.append("standing-merge failed")
-                elif _plumbing_settled(report):
-                    plumbing_key = plumbing_skip_fingerprint(ROOT, REVIEW_OUT, plan.verdicts)
+        elif plan.runs("plumbing"):
+            chain_failures = _do_plumbing(report, spawn=spawn, emit=emit, registry=registry, plan=plan)
+            failures.extend(chain_failures)
+            if not chain_failures and plan.do_merge and _plumbing_settled(report):
+                plumbing_key = plumbing_skip_fingerprint(ROOT, REVIEW_OUT, plan.verdicts)
+        if plan.complaints_note:
+            report.complaints_status = f"skipped ({plan.complaints_note})"
         if plan.review_out is not None:
             report.census_status = "skipped (rehearsal: the checked-in pins track the live surface)"
         else:
             _do_census(report, spawn=spawn, emit=emit, registry=registry, plan=plan)
-        if plan.complaints_note:
-            report.complaints_status = f"skipped ({plan.complaints_note})"
-        else:
-            _do_complaints(report, spawn=spawn, emit=emit, registry=registry, plan=plan)
         if plumbing_key and report.complaints_ok is True and plan.record_greens and plan.review_out is None:
-            record_plumbing_green(plumbing_key, plan.carry_out)
+            record_plumbing_green(plumbing_key, plan.carry_out or plan.plumbing_carry_out)
 
         _join_gates(report, failures, js_fut, contracts_fut, validators_fut, conform_fut, make_fut, emit)
         _record_gate_greens(report, plan, gate_keys, emit)
@@ -2670,6 +2660,7 @@ def main(argv: list[str] | None = None) -> int:
             args.verdicts = resolved["path"]
 
     skip_plumbing = False
+    store_only = False
     plumbing_note = ""
     plumbing_carry_out: Path | None = None
     if (
@@ -2684,13 +2675,20 @@ def main(argv: list[str] | None = None) -> int:
     ):
         plumbing_key = plumbing_skip_fingerprint(ROOT, REVIEW_OUT, args.verdicts)
         record = read_green_record(PLUMBING_GREEN)
+        recorded_carry = (record or {}).get("carry_out")
+        if isinstance(recorded_carry, str) and Path(recorded_carry).exists():
+            plumbing_carry_out = Path(recorded_carry)
         if plumbing_key is not None and record is not None and record["fingerprint"] == plumbing_key:
             skip_plumbing = True
             plumbing_note = PLUMBING_SKIP_NOTE
-            recorded_carry = record.get("carry_out")
-            if isinstance(recorded_carry, str) and Path(recorded_carry).exists():
-                plumbing_carry_out = Path(recorded_carry)
             print(f"verdict plumbing auto-skipped: {plumbing_note}")
+        elif plumbing_key is not None and args.verdicts is not None:
+            # The surface has not moved, so the carry would resolve every unit against itself: the snapshot is a clone of this same surface, the content keys are equal, and the carry preserves each record's `at`, which the merge compares strictly — so its re-prefixed notes could never land. Only the store moved, and the one input the store's own hash cannot see is the master, so merging that directly is the whole of what the carry was for.
+            store_only = True
+            print(
+                "verdict plumbing: the surface did not move, so the carry is the identity — merging the "
+                "master straight in, then the fills and the docket."
+            )
 
     plan = build_plan(
         verdicts=args.verdicts,
@@ -2723,6 +2721,7 @@ def main(argv: list[str] | None = None) -> int:
         skip_plumbing=skip_plumbing,
         plumbing_note=plumbing_note,
         plumbing_carry_out=plumbing_carry_out,
+        store_only=store_only,
         deferred=deferred,
         preserve_snapshot=preserve_snapshot,
         record_greens=not args.dry_run,
@@ -2746,7 +2745,7 @@ def main(argv: list[str] | None = None) -> int:
 
     timings = CycleTimings(CYCLE_TIMINGS)
 
-    if not first_run and not plan.skip_plumbing:
+    if not first_run and not plan.skip_plumbing and not plan.plumbing_store_only:
         if plan.snapshot_dir.exists():
             print(f"ERROR: snapshot dir already exists: {plan.snapshot_dir}")
             print(

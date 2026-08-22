@@ -1,0 +1,182 @@
+"""The per-unit index sidecar the surface build writes beside its manifest: that it is a true projection of the shards, that it is refused rather than trusted when its stamp does not describe the manifest on disk, and that the fallback to the shards answers identically. The plumbing reads the index and never the shards now, so a field that drifts out of the projection does not read as an error — a standing rule quietly stops matching and a blessed delta re-queues. This is what stops that: every field, every unit, held against the shipped fixture shards."""
+
+from __future__ import annotations
+
+import gzip
+import json
+import shutil
+from pathlib import Path
+
+from rebuild.review import unit_index
+from rebuild.review.build import _check_output_files
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+FIXTURES = REPO_ROOT / "rebuild" / "review" / "fixtures"
+
+
+def _fixture_surface(tmp_path: Path) -> Path:
+    surface = tmp_path / "surface"
+    shutil.copytree(FIXTURES / "units", surface / "units")
+    shutil.copyfile(FIXTURES / "manifest.json", surface / "manifest.json")
+    return surface
+
+
+def _shard_units(surface: Path) -> list[dict]:
+    units: list[dict] = []
+    for path in sorted((surface / "units").glob("*.json")):
+        units.extend(json.loads(path.read_text(encoding="utf-8")))
+    return units
+
+
+def _write(surface: Path) -> Path:
+    shards = [
+        (path.stem, json.loads(path.read_text(encoding="utf-8")))
+        for path in sorted((surface / "units").glob("*.json"))
+    ]
+    return unit_index.write_index(surface, shards)
+
+
+def test_the_index_is_the_shards_field_for_field(tmp_path):
+    surface = _fixture_surface(tmp_path)
+    _write(surface)
+    records = unit_index.load_index(surface)
+    assert records is not None
+    fragments = _shard_units(surface)
+    assert len(records) == len(fragments)
+    by_id = {fragment["id"]: fragment for fragment in fragments}
+    for record in records:
+        fragment = by_id[record["id"]]
+        for field, value in record.items():
+            if field == "render_groups":
+                assert value == len(fragment.get("render_groups") or []), record["id"]
+            elif field == "secondary_seams":
+                assert value == len(fragment.get("secondary_seams") or []), record["id"]
+            elif field == "policy":
+                policy = (fragment.get("drafts") or {}).get("policy")
+                expected = (
+                    None
+                    if not policy
+                    else {
+                        "file": policy["file"],
+                        "keypath": policy["keypath"],
+                        "suggested_record": policy.get("suggested_record"),
+                    }
+                )
+                assert value == expected, record["id"]
+            elif field in ("before", "after"):
+                block = fragment.get(field) or {}
+                for key, inner in value.items():
+                    assert inner == (block.get(key) or []), f"{record['id']}.{field}.{key}"
+            elif field in ("notation_tokens", "configs", "kinds", "provenance"):
+                assert value == (fragment.get(field) or []), f"{record['id']}.{field}"
+            else:
+                assert value == fragment.get(field), f"{record['id']}.{field}"
+
+
+def test_the_index_covers_every_field_the_plumbing_reads(tmp_path):
+    """Named rather than derived, so adding a field to the projection is a deliberate act and removing one that a tool reads fails here rather than in a fill that silently matches nothing."""
+    surface = _fixture_surface(tmp_path)
+    _write(surface)
+    records = unit_index.load_index(surface)
+    assert records is not None
+    assert set(records[0]) == {
+        "id",
+        "batch",
+        "class",
+        "cluster",
+        "echo",
+        "group",
+        "notation",
+        "notation_tokens",
+        "codepoints",
+        "configs",
+        "kinds",
+        "ink_identical",
+        "junior_equivalent",
+        "ink_deltas",
+        "no_verdict",
+        "content_key",
+        "render_groups",
+        "summary",
+        "provenance",
+        "pair",
+        "secondary_seams",
+        "before",
+        "after",
+        "policy",
+    }
+
+
+def test_the_index_holds_the_units_in_shard_order(tmp_path):
+    surface = _fixture_surface(tmp_path)
+    _write(surface)
+    records = unit_index.load_index(surface)
+    assert records is not None
+    assert [record["id"] for record in records] == [unit["id"] for unit in _shard_units(surface)]
+
+
+def test_a_surface_with_no_index_falls_back_to_the_shards(tmp_path):
+    surface = _fixture_surface(tmp_path)
+    assert unit_index.load_index(surface) is None
+    fallback = unit_index.load_units(surface)
+    _write(surface)
+    assert unit_index.load_units(surface) == fallback
+
+
+def test_an_index_stamped_for_another_manifest_is_refused(tmp_path):
+    surface = _fixture_surface(tmp_path)
+    _write(surface)
+    fallback = [unit_index.index_record(unit) for unit in _shard_units(surface)]
+    assert unit_index.load_index(surface) == fallback
+
+    manifest = json.loads((surface / "manifest.json").read_text(encoding="utf-8"))
+    manifest["generated_at"] = "2099-01-01T00:00:00Z"
+    (surface / "manifest.json").write_text(json.dumps(manifest, indent=1) + "\n", encoding="utf-8")
+    assert unit_index.index_is_current(surface) is False
+    assert unit_index.load_index(surface) is None
+    # The shards are the authority, so a stale stamp costs a slower read and never a wrong answer.
+    assert unit_index.load_units(surface) == fallback
+
+
+def test_a_truncated_or_foreign_index_is_refused(tmp_path):
+    surface = _fixture_surface(tmp_path)
+    path = _write(surface)
+    path.write_bytes(b"")
+    assert unit_index.load_index(surface) is None
+    with gzip.open(path, "wb") as stream:
+        stream.write((json.dumps({"format": "something-else"}) + "\n").encode())
+    assert unit_index.load_index(surface) is None
+
+
+def test_writing_the_index_twice_writes_the_same_bytes(tmp_path):
+    surface = _fixture_surface(tmp_path)
+    first = _write(surface).read_bytes()
+    assert _write(surface).read_bytes() == first
+
+
+def test_iter_units_and_load_units_agree(tmp_path):
+    surface = _fixture_surface(tmp_path)
+    _write(surface)
+    assert list(unit_index.iter_units(surface)) == unit_index.load_units(surface)
+
+
+def _output_manifest(surface: Path) -> dict:
+    return {"classes": [], "fonts": {}}
+
+
+def test_the_contract_check_requires_the_sidecar(tmp_path):
+    surface = _fixture_surface(tmp_path)
+    (surface / "index.html").write_text("<html></html>", encoding="utf-8")
+    manifest = _output_manifest(surface)
+    assert any("units-index" in line for line in _check_output_files(surface, manifest))
+    _write(surface)
+    assert _check_output_files(surface, manifest) == []
+
+
+def test_the_contract_check_refuses_a_sidecar_stamped_for_another_manifest(tmp_path):
+    surface = _fixture_surface(tmp_path)
+    (surface / "index.html").write_text("<html></html>", encoding="utf-8")
+    _write(surface)
+    (surface / "manifest.json").write_text("{}\n", encoding="utf-8")
+    complaints = _check_output_files(surface, _output_manifest(surface))
+    assert any("stamped for another manifest" in line for line in complaints)

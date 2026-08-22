@@ -4,8 +4,13 @@ import argparse
 import collections
 import json
 import pathlib
+import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from rebuild.review import unit_index  # noqa: E402
 
 SURFACE = ROOT / "rebuild/out/review"
 DATA_OUT = ROOT / "tmp/docket-data.json"
@@ -21,10 +26,8 @@ def verdicts_agree(verdicts):
 
 
 def load_units(surface):
-    units = []
-    for path in sorted((surface / "units").glob("*.json")):
-        units.extend(json.loads(path.read_text()))
-    return units
+    """Every unit on the surface in the slim index shape (rebuild.review.unit_index owns the projection and the shard fallback). The tools that share this loader — the docket data, the novelty order, the standing fill, the complaint docket — between them read a couple of dozen fields per unit, and reading the shards for them meant parsing 1.9 GB to reach a few hundred bytes each."""
+    return unit_index.load_units(surface)
 
 
 def latest_verdicts(path):
@@ -36,14 +39,14 @@ def latest_verdicts(path):
     return best
 
 
-def main():
+def main(argv=None, *, units=None):
     parser = argparse.ArgumentParser(description=(__doc__ or "").split(":")[0] + ".")
     parser.add_argument(
         "verdicts", help="the verdicts file for the current frontier (an export or the autosave)"
     )
     parser.add_argument("--surface", default=str(SURFACE))
     parser.add_argument("--data-out", default=str(DATA_OUT))
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     surface = pathlib.Path(args.surface)
     manifest = json.loads((surface / "manifest.json").read_text())
@@ -56,7 +59,7 @@ def main():
         )
     records = latest_verdicts(verdicts_path)
 
-    units = load_units(surface)
+    units = load_units(surface) if units is None else units
     human = [unit for unit in units if unit["batch"] is not None]
     unclustered = [unit["id"] for unit in human if not unit.get("cluster")]
     if unclustered:
