@@ -1,40 +1,26 @@
 """Shared fixtures for the rebuild suite, and the two-lane split that decides how wide it may run.
 
-The suite divides into two lanes, and lane membership is *derived*, never hand-listed: `live_artifacts` is the one fixture that names the build's live output, so a test that requests it — directly, or through any fixture that requests it — is a **validators** test, and everything else is a **contracts** test. Contracts tests read only checked-in inputs and what they build themselves, so nothing in that lane carries the 14–17 GB working set the live fixtures do and the lane may run at full xdist width; the validators lane keeps the checked-in 2-worker default the root conftest sets, which is sized for the most RAM-constrained box that runs this repo. `--lane contracts` / `--lane validators` selects one (the default `all` runs both, which is what a bare `uv run pytest rebuild/` still does), and `pytest_xdist_auto_num_workers` here answers `-n auto` for the contracts lane only, deferring to the root conftest — and to `PYTEST_XDIST_AUTO_NUM_WORKERS` ahead of it — in every other case.
+The suite divides into two lanes, and lane membership is *derived*, never hand-listed: `live_artifacts` is the one fixture that names the build's live output, so a test that requests it — directly, or through any fixture that requests it — is a **validators** test, and everything else is a **contracts** test. Contracts tests read only checked-in inputs and what they build themselves, so nothing in that lane reaches a live artifact at all and the lane may run at full xdist width; the validators lane now holds only assertions about the live artifact that no build check makes, each materializing what it needs and nothing more, so it takes a measured width of its own rather than the repo-wide default. `--lane contracts` / `--lane validators` selects one (the default `all` runs both, which is what a bare `uv run pytest rebuild/` still does), and `pytest_xdist_auto_num_workers` here answers `-n auto` for both lanes, deferring to the root conftest — and to `PYTEST_XDIST_AUTO_NUM_WORKERS` ahead of it — in every other case.
 
 A derived rule needs a check that the derivation is honest, so a `sys.addaudithook` guard makes lane membership structural rather than aspirational. It is installed once per process, sits inactive, and is switched on only for the setup, call, and teardown of a contracts-lane item; while active, any read or write whose path falls under the live-artifact trees (`rebuild/out/`, the whole of `tmp/`, the gate's own exempt prefixes, the root `verdicts-*` stores) raises `ContractsLaneViolation` naming the test and the path, and a phase that swallows that exception still fails through `pytest_runtest_makereport`. What the guard does not cover is documented at the hook: subprocess children run unaudited, and `Path.exists()`/stat never reach it — it is the content reads that are caught, which is the leak that matters.
 
-`_redirect_cycle_writes` is the standing guarantee that running the suite never costs the working repo a file; it is autouse, so every module in rebuild/ gets it whether or not its author thought about the cycle. `built_review_surface` owes every test a read-only review surface at the current input state while building as little as possible. First preference: when `surface_build_skippable` proves the cycle's own rebuild/out/review already reflects these inputs byte for byte, the fixture yields that directory directly and builds nothing — the steady state under the artifact cycle, and the same standard of proof the cycle itself skips its surface step on. That path assumes no artifact cycle is concurrently rewriting rebuild/out/review, the same standing assumption the suite already makes about the out/m1 artifacts it reads.
+`_redirect_cycle_writes` is the standing guarantee that running the suite never costs the working repo a file; it is autouse, so every module in rebuild/ gets it whether or not its author thought about the cycle.
 
-When the live surface is stale or absent, the cross-process cache under tmp/review-surface-test-cache/<key>/ serves instead: one worker builds under an exclusive flock (parallel at SURFACE_BUILD_JOBS — two jobs, the standing width for a surface build under a hot xdist pool, sized like every parallelism default here for the most RAM-constrained box that runs this; the artifact cycle's own job_budget caps match it); every other worker blocks on the lock and then loads the finished surface from disk, so a suite run costs at most one build instead of one per worker. The key is content-only — the full inputs fingerprint (data, baselines, pipeline code, review code, static, fonts) plus the out/m1 artifacts build_m1 reads — and deliberately mtime-blind, so cross-run hits survive pure mtime churn (git checkout, a make all that rewrote identical bytes). The manifest's generated_at/repo_head provenance stamps sit outside the key: two content-identical builds can differ in those two scalars, which is why test_builds_are_byte_identical masks them rather than requiring stamp-exact identity. flock (not a sentinel spinloop) serializes builders because the kernel releases it if a building worker dies, so a crash mid-build leaves no deadlock, just a missing DONE marker the next holder rebuilds over.
+`built_review_surface` yields the cycle's own rebuild/out/review, read-only, and **refuses rather than builds**: when `surface_build_skippable` cannot prove that surface reflects today's inputs, the fixture fails naming the command that fixes it. That is the decision `stamped_decision` already makes one file over for the settlement tables, made here for the same reason — building a surface inside a pytest worker cost the better part of ten minutes and fifteen gigabytes, sprang on exactly the bare `make test-rebuild` an author reaches for after a rune edit, and re-derived what the artifact cycle had just built. In the cycle the surface step settles before the gates are submitted, so the refusal essentially never fires there.
 
-`enriched_units` owes every test the whole live workload enriched, and runs the same cache for the same reason. Scoping that fixture to a module bought nothing: `--dist worksteal` hands each test to whichever worker is free, so a module whose tests sweep the enriched universe scatters over as many workers as it has such tests and every one of them re-enriched the workload from scratch. One worker now builds under the same exclusive flock and writes a compressed pickle; the rest block and unpickle it, at a small fraction of the enrichment it stands in for. That fixture holds its lock through the read as well, for a reason its docstring records: what a reader materializes here is gigabytes, not a manifest.
-
-`workload` is the same collapse one stage upstream: the un-enriched live workload, which four review modules used to load module-scoped, each paying the 92 MB audit parse per worker — and worse than per-worker, since worksteal can hand a worker a module it already finalized and the fixture rebuilds. One session-scoped fixture on the same cache discipline now serves them all.
+The whole-workload fixtures are gone with it. `enriched_units` enriched all 451k units to check properties of drafts the build itself computes for every shipped unit, and `workload` held the un-enriched graph so that sixteen worked examples could look up windows whose codepoints they already name; between them they were the reason this lane ran two workers wide. What stands in their place is exactly what those readers turn out to need: `example_units` streams the live audit once into a filtered copy and loads a Workload of the named windows only, and `workload_index` keeps the census grain — codepoints, class, no-verdict flag, configs, in workload order — for the two tests whose assertion is "the sidecar's flag at position *i* describes workload unit *i*" and which therefore need the ordered list rather than the graph.
 """
 
-import fcntl
-import gzip
-import hashlib
 import json
 import os
-import pickle
-import shutil
 import sys
-import warnings
 from collections.abc import Iterable
 from dataclasses import dataclass
-from functools import cache
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import pytest
 
 from rebuild.tools import artifact_cycle
-
-if TYPE_CHECKING:
-    from rebuild.review.audit import Workload
-    from rebuild.review.enrich import EnrichedUnit
 
 REAL_RUN_RETENTION = artifact_cycle.run_retention
 LIVE_DELETION_TARGETS = (
@@ -43,11 +29,6 @@ LIVE_DELETION_TARGETS = (
 )
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-CACHE_ROOT = REPO_ROOT / "tmp" / "review-surface-test-cache"
-ENRICH_CACHE_ROOT = REPO_ROOT / "tmp" / "review-enrich-test-cache"
-WORKLOAD_CACHE_ROOT = REPO_ROOT / "tmp" / "review-workload-test-cache"
-CACHE_KEEP = 2
-SURFACE_BUILD_JOBS = 2
 GREEN_RECORDS = (
     "PLUMBING_GREEN",
     "CONFORM_GREEN",
@@ -59,9 +40,10 @@ GREEN_RECORDS = (
 
 REBUILD_DIR = Path(__file__).resolve().parent
 LANES = ("contracts", "validators")
+VALIDATORS_WORKERS = 4
 LIVE_FIXTURE = "live_artifacts"
 
-# The live trees, derived rather than listed: rebuild/out/ (everything the build and the cycle write), the whole of tmp/, the root-level verdicts-* stores, and whatever the rebuild gate exempts from its input closure. That last list is derived rather than copied so it tracks the gate, but it needs one subtraction, because its three entries are exempt for two different reasons: rebuild/evidence/ and the census pins are regenerated state the gate refuses to hash, while rebuild/review/jstests/ is checked-in JavaScript that is merely outside a Python closure — source, which a contracts test is free to read, and which the cycle's own plan step globs while enumerating the JS suite. tmp/ is forbidden whole rather than by the fixture caches and cycle snapshots that happen to sit in it: the tree is entirely outside the suite's input closure, and the write standard below already bars every test from writing under the live repo, so nothing a contracts test may legitimately read can be there. A test that wants a scratch directory takes `tmp_path`.
+# The live trees, derived rather than listed: rebuild/out/ (everything the build and the cycle write), the whole of tmp/, the root-level verdicts-* stores, and whatever the rebuild gate exempts from its input closure. That last list is derived rather than copied so it tracks the gate, but it needs one subtraction, because its three entries are exempt for two different reasons: rebuild/evidence/ and the census pins are regenerated state the gate refuses to hash, while rebuild/review/jstests/ is checked-in JavaScript that is merely outside a Python closure — source, which a contracts test is free to read, and which the cycle's own plan step globs while enumerating the JS suite. tmp/ is forbidden whole rather than by the cycle snapshots that happen to sit in it: the tree is entirely outside the suite's input closure, and the write standard below already bars every test from writing under the live repo, so nothing a contracts test may legitimately read can be there. A test that wants a scratch directory takes `tmp_path`.
 _FORBIDDEN = tuple(
     os.path.join(str(REPO_ROOT), rel)
     for rel in (
@@ -221,11 +203,19 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
 
 @pytest.hookimpl(tryfirst=True)
 def pytest_xdist_auto_num_workers(config: pytest.Config) -> int | None:
-    """What `-n auto` resolves to for the contracts lane, and nothing else. The checked-in default is 2 because a validators worker peaks at 14–17 GB and a full-width pool of them drives the most RAM-constrained box that runs this repo into swap — but a contracts worker builds nothing live and holds none of that, so the lane that provably contains no live fixture is free to take every core. Returning None hands the question back: to the root conftest's 2, or, when `PYTEST_XDIST_AUTO_NUM_WORKERS` is set, to the root conftest's reading of that override, which stays the one way to widen any pool here a run at a time."""
+    """What `-n auto` resolves to for each lane of this suite. Both answers are measured rather than inherited: the root conftest's repo-wide 2 was sized for validators workers that peaked at 14–17 GB, and neither lane looks like that any more.
+
+    Contracts takes every core — no test in it reaches a live artifact, so nothing there holds a working set worth bounding. Validators takes VALIDATORS_WORKERS, and the `peak RSS (GB): ... workers ...` line the root conftest prints at the end of every run is both its justification and its standing check. With the in-process surface build refused and the whole-workload fixtures retired, most of what a worker holds is a filtered Workload, a couple of subset tables, or a font; the one item still measured in gigabytes is `workload_index`, whose transient peak while `load_workload` builds the graph it projects put a worker at ≈2.5 GB. Four of those fit on the most RAM-constrained box that runs this repo with room to spare, and going wider buys little: the lane is short enough that per-worker interpreter and collection cost starts to show, and its tail is the six per-config witness arms, which four slots already cover.
+
+    `PYTEST_XDIST_AUTO_NUM_WORKERS` still comes first for both, by returning None so the root conftest reads it: that stays the one way to widen any pool here a run at a time.
+    """
     if os.environ.get("PYTEST_XDIST_AUTO_NUM_WORKERS"):
         return None
-    if config.getoption("lane", default=None) == "contracts":
+    lane = config.getoption("lane", default=None)
+    if lane == "contracts":
         return os.cpu_count() or 2
+    if lane == "validators":
+        return min(VALIDATORS_WORKERS, os.cpu_count() or VALIDATORS_WORKERS)
     return None
 
 
@@ -302,177 +292,133 @@ def live_deletion_targets():
     return list(LIVE_DELETION_TARGETS)
 
 
-@cache
-def surface_cache_key() -> str | None:
-    """Content-only key over everything that can move a build byte: the full inputs fingerprint and the out/m1 artifacts build_m1 reads (M1.otf, the divergence audit, the subset tables, the recorded stage-A fingerprint). None when the out/m1 artifacts don't exist yet (fresh clone); the fixture then falls back to an uncached per-session build. Memoized because two fixtures now key off it and the hash reads a hundred-odd megabytes — the audit alone is most of it — which no worker should pay twice; the inputs cannot move under a running session."""
-    from rebuild.pipeline import fingerprint
-    from rebuild.review import build
-
-    if not build.M1_AUDIT.exists() or not build.M1_AFTER_FONT.exists():
-        return None
-    m1_inputs = [build.M1_AFTER_FONT, build.M1_AUDIT, build.M1_SUBSETS / fingerprint.STAGE_A_FILENAME]
-    m1_inputs += sorted(build.M1_SUBSETS.glob("baseline-*.subset.tsv.gz"))
-    try:
-        payload = {
-            "inputs": fingerprint.compute_all(REPO_ROOT),
-            "m1_artifacts": fingerprint.hash_paths(REPO_ROOT, m1_inputs),
-        }
-    except OSError:
-        return None
-    return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()[:16]
-
-
-def _entry_mtime(entry: Path) -> float:
-    try:
-        return entry.stat().st_mtime
-    except OSError:
-        return 0.0
-
-
-def _prune_stale_entries(root: Path, current: Path) -> None:
-    """Drop all but the newest CACHE_KEEP-1 sibling entries under `root`, taking each victim's own lock non-blocking first so a concurrent pytest run still reading that entry (it holds the lock for its whole read) is skipped instead of yanked out from under. Lock files are never unlinked: removing one while another process holds it open would let a third process lock a fresh inode under the same name, and two holders of "the" lock is exactly the corruption flock exists to prevent. A victim that vanishes between the listing and its stat sorts last rather than raising: the pruner runs unlocked up to this point, so another session pruning the same root concurrently — two roots means a session now runs this twice — would otherwise take the whole run down over an entry it was about to delete anyway."""
-    entries = sorted(
-        (entry for entry in root.iterdir() if entry.is_dir() and entry != current),
-        key=_entry_mtime,
-        reverse=True,
-    )
-    for stale in entries[CACHE_KEEP - 1 :]:
-        with (root / f"{stale.name}.lock").open("w") as lock:
-            try:
-                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except OSError:
-                continue
-            try:
-                shutil.rmtree(stale, ignore_errors=True)
-            finally:
-                fcntl.flock(lock, fcntl.LOCK_UN)
-
-
 @pytest.fixture(scope="session")
-def built_review_surface(tmp_path_factory, live_artifacts: LiveArtifacts):
-    """Yields (surface_dir, manifest). The provably-fresh rebuild/out/review is yielded read-only with no lock — nothing prunes the live surface. A cache entry is held under a shared flock for the whole session, so tests can read shards for minutes while a concurrent session's pruner (which takes the victim's lock exclusively, non-blocking) can never delete the entry out from under them. The builder path takes the lock exclusively, then downgrades to shared — a single-holder downgrade, never the two-reader upgrade that can deadlock flock."""
-    from rebuild.review.build import build_m1
+def built_review_surface(live_artifacts: LiveArtifacts):
+    """Yields (surface_dir, manifest) for the cycle's own rebuild/out/review — read-only, never built here. `surface_build_skippable` is the proof: the manifest's recorded inputs fingerprint equals the one a build would stamp now, which is the same standard the artifact cycle skips its own surface step on, and in a cycle that step settles before any gate is submitted, so this is the taken branch every time the gate runs.
+
+    When it cannot be proven, the fixture fails naming the command that fixes it instead of building a surface of its own. A build inside a pytest worker is a fifteen-gigabyte, several-hundred-second job that re-derives what the cycle already produced, and worksteal will happily land it on a worker that is holding something else; the cost of refusing is that a bare `make test-rebuild` after a rune edit fails fast rather than grinding, which is the trade `stamped_decision` in test_rule_witnesses already makes for the stamped tables.
+    """
     from rebuild.tools.artifact_cycle import REVIEW_OUT, surface_build_skippable
 
-    if surface_build_skippable(REPO_ROOT):
-        manifest = json.loads((REVIEW_OUT / "manifest.json").read_text(encoding="utf-8"))
-        yield REVIEW_OUT, manifest
-        return
-    key = surface_cache_key()
-    if key is None:
-        out_dir = tmp_path_factory.mktemp("review-out")
-        build_m1(out_dir, jobs=SURFACE_BUILD_JOBS)
-        manifest = json.loads((out_dir / "manifest.json").read_text(encoding="utf-8"))
-        yield out_dir, manifest
-        return
-    CACHE_ROOT.mkdir(parents=True, exist_ok=True)
-    entry = CACHE_ROOT / key
-    surface = entry / "surface"
-    done = entry / "DONE"
-    with (CACHE_ROOT / f"{key}.lock").open("w") as lock:
-        if done.exists():
-            fcntl.flock(lock, fcntl.LOCK_SH)
-        else:
-            fcntl.flock(lock, fcntl.LOCK_EX)
-            if not done.exists():
-                shutil.rmtree(entry, ignore_errors=True)
-                surface.mkdir(parents=True)
-                build_m1(surface, jobs=SURFACE_BUILD_JOBS)
-                done.write_text("")
-                _prune_stale_entries(CACHE_ROOT, entry)
-            fcntl.flock(lock, fcntl.LOCK_SH)
-        manifest = json.loads((surface / "manifest.json").read_text(encoding="utf-8"))
-        yield surface, manifest
+    if not surface_build_skippable(REPO_ROOT):
+        pytest.fail(
+            f"no review surface under {REVIEW_OUT} is stamped with the current inputs — a stale or missing "
+            "surface fails this gate instead of building one in-process; run `make review-cycle` (or "
+            "`uv run python -m rebuild.review.build`) first"
+        )
+    manifest = json.loads((REVIEW_OUT / "manifest.json").read_text(encoding="utf-8"))
+    return REVIEW_OUT, manifest
 
 
-def _enrich_workload() -> list[EnrichedUnit]:
-    """The live M1 workload with every unit enriched — what the cache holds, and what a cacheless run builds directly."""
-    from rebuild.review.audit import load_workload
-    from rebuild.review.build import M1_AFTER_FONT, M1_AUDIT, M1_LEDGER, M1_SUBSETS
-    from rebuild.review.enrich import LETTERS, Enricher, load_spec
-
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        spec = load_spec(REPO_ROOT)
-    enricher = Enricher(spec, M1_SUBSETS, M1_AFTER_FONT)
-    workload = load_workload(M1_AUDIT, M1_LEDGER, dict(LETTERS))
-    return enricher.enrich_many(workload.units)
-
-
-@pytest.fixture(scope="module")
-def enriched_units(live_artifacts: LiveArtifacts) -> list[EnrichedUnit]:
-    """Every unit of the live workload, enriched, read-only for the one module that consumes it. Module scope is deliberate: every consumer lives in `test_review_drafts.py`, and releasing this multi-gigabyte graph when that module finishes keeps work-stealing from carrying it into the end-of-suite surface-build tests. The cache is `built_review_surface`'s — the same `surface_cache_key`, a superset of what enrichment reads (the inputs fingerprint's pipeline_code component covers the rebuild/validation shaping and row-model code enrichment imports) so it can only over-invalidate (None on a fresh clone falls back to an uncached build), the same one-builder-under-flock discipline, the same non-blocking prune. What it stores is a gzipped protocol-5 pickle of the real EnrichedUnits, written and read as a stream so neither side ever holds the serialized form beside the objects; at compresslevel 1 it is an order of magnitude smaller than the raw pickle and costs a fraction of a second to inflate. Every worker returns the round trip, the builder included, so no test can quietly come to depend on being the one that enriched.
-
-    The lock is exclusive for the read too, which is where this fixture departs from `built_review_surface` and its shared-hold downgrade. That fixture's readers pull a few files off disk; this one's each materialize an enriched universe several gigabytes live, and letting the queued workers do that at once is not a small pessimization but a machine-wide one — measured on a 34 GB host, concurrent reads spent an order of magnitude more time in the kernel reclaiming pages than the whole serialized run costs, so the exclusive hold buys more by staggering the readers than the parallelism it gives up was ever worth. Staggering the readers is the whole of its job: a shared hold would fend off a concurrent pruner just as well. It is released before the first test runs either way.
-
-    The payload, not the marker, is what proves the entry usable. An interrupted prune deletes the entry's files in directory order and can strand a DONE whose pickle is already gone, which on a one-file payload is the likely outcome rather than a corner — and a marker taken on trust would then wedge that key for every session that ever computes it again.
-    """
-    key = surface_cache_key()
-    if key is None:
-        return _enrich_workload()
-    ENRICH_CACHE_ROOT.mkdir(parents=True, exist_ok=True)
-    entry = ENRICH_CACHE_ROOT / key
-    blob = entry / "units.pickle.gz"
-    done = entry / "DONE"
-    with (ENRICH_CACHE_ROOT / f"{key}.lock").open("w") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
-        if not (done.exists() and blob.exists()):
-            shutil.rmtree(entry, ignore_errors=True)
-            entry.mkdir(parents=True)
-            with gzip.open(blob, "wb", compresslevel=1) as handle:
-                pickle.dump(_enrich_workload(), handle, protocol=5)
-            done.write_text("")
-            _prune_stale_entries(ENRICH_CACHE_ROOT, entry)
-        with gzip.open(blob, "rb") as handle:
-            return pickle.load(handle)
+# The windows the worked examples name. Every test that used to scan the whole workload for one unit hard-coded its codepoints already; the three that asked for "some unit of class X" are pinned here instead, so an emptied class fails loudly rather than silently sampling something else.
+EXAMPLE_WINDOWS = frozenset(
+    {
+        "0020:E650:E650",
+        "200C:E652:E679",
+        "200C:E665:E679:E650",
+        "E650:E650:E670",
+        "E650:E650:200C:E67A",
+        "E658:E666",
+        "E650:200C:E650:E665",
+        "E650:200C:E650:E670",
+        "E650:E670:E65D",
+        "E652:E670",
+        "E652:E653:E67A:E652",
+        "E665:E666:E666",
+        "E665:E670:E652:E679",
+        "E670:E670",
+        "E670:E67A:E670:E665",
+    }
+)
 
 
-def workload_cache_key() -> str | None:
-    """`load_workload`'s input closure: the audit and ledger bytes, the letter map, and rebuild/review/audit.py itself — the loader's own code is in the key because a pickle from before an audit.py change would hand every worker units the loader on disk no longer builds, with the gate reading green over them. Deliberately narrower than `surface_cache_key`: nothing else in the inputs fingerprint can move a Workload byte, so a rune edit or a review-code change elsewhere doesn't evict a still-true entry. None when the audit artifact doesn't exist yet (fresh clone); the fixture then falls back to an uncached per-session load."""
-    from rebuild.pipeline import fingerprint
-    from rebuild.review.build import M1_AUDIT, M1_LEDGER
-    from rebuild.review.enrich import LETTERS
-
-    if not M1_AUDIT.exists():
-        return None
-    inputs = [M1_AUDIT, M1_LEDGER, REPO_ROOT / "rebuild" / "review" / "audit.py"]
-    try:
-        digest = fingerprint.hash_paths(REPO_ROOT, inputs)
-    except OSError:
-        return None
-    return hashlib.sha256(f"{digest}\n{sorted(LETTERS.items())!r}".encode()).hexdigest()[:16]
-
-
-def _load_live_workload() -> Workload:
-    """The live M1 workload as `load_workload` builds it — what the cache holds, and what a cacheless run builds directly."""
-    from rebuild.review.audit import load_workload
-    from rebuild.review.build import M1_AUDIT, M1_LEDGER
-    from rebuild.review.enrich import LETTERS
-
-    return load_workload(M1_AUDIT, M1_LEDGER, dict(LETTERS))
+def _filter_audit(audit_path: Path, windows: Iterable[str], destination: Path) -> Path:
+    """Copy the audit's header plus the rows of the named windows into `destination`, streaming — so the filtered load below goes through `load_audit` itself rather than a second parser that could drift from it, without ever holding the 307 MB original."""
+    wanted = frozenset(windows)
+    with open(audit_path, encoding="utf-8") as source, open(destination, "w", encoding="utf-8") as sink:
+        sink.write(next(source))
+        for line in source:
+            fields = line.split("\t", 2)
+            if len(fields) > 1 and fields[1] in wanted:
+                sink.write(line)
+    return destination
 
 
 @pytest.fixture(scope="session")
-def workload(live_artifacts: LiveArtifacts) -> Workload:
-    """The live workload, loaded once per suite run instead of once per module per worker. Module scope was never the per-module cost it read as: under `--dist worksteal` it is per-worker at best and measured worse, because worksteal hands out items in no particular module order, so a worker bouncing back into a module it already finalized pays the same load again — a probed gate run built the four modules' fixtures 13 times for 63 CPU-seconds, single workers paying the same module twice. The cache is `enriched_units`' discipline exactly: one builder under an exclusive flock writing a gzipped protocol-5 pickle, every other worker blocking and unpickling at a fraction of the load it stands in for, the lock held through the read so the ≈0.8 GB inflations stagger instead of landing at once, and the payload — not the marker — proving the entry usable.
+def audit_windows(tmp_path_factory, live_artifacts: LiveArtifacts):
+    """A loader for `Workload`s over named windows of the live audit: `audit_windows({"E652:E670", ...})` streams the audit once per distinct window set and returns the units those rows build. The dedupe key is (codepoints, baseline, new), so a window's units come out exactly as they do over the whole audit — same configs, kinds, class, config_classes, render groups. What differs is what the filter cannot preserve: unit ids, batches, and triage `group` ordering are relative to the filtered list, so nothing may assert on them here."""
+    from rebuild.review.audit import load_workload
+    from rebuild.review.build import M1_LEDGER
+    from rebuild.review.enrich import LETTERS
 
-    Each worker's round trip is its own object graph, but within a worker every module now shares one, and `Unit` is mutable, so the graph is read-only by contract. The one test that writes is contained: `test_assign_batches_slices_the_human_workload_and_nulls_machine_units` restores the loader defaults in its `finally` — a restore this fixture load-bears on, since `test_unit_ids_are_sequential_and_batches_unassigned_until_ink_is_known` asserts those defaults on the shared graph.
+    root = tmp_path_factory.mktemp("audit-windows")
+    cache: dict[frozenset[str], object] = {}
+
+    def load(windows: Iterable[str]):
+        key = frozenset(windows)
+        if key not in cache:
+            path = _filter_audit(live_artifacts.audit, key, root / f"{len(cache)}.tsv")
+            cache[key] = load_workload(path, M1_LEDGER, dict(LETTERS))
+        return cache[key]
+
+    return load
+
+
+@pytest.fixture(scope="session")
+def example_units(audit_windows):
+    """The worked-example windows of `EXAMPLE_WINDOWS`, keyed by (codepoints, first config) the way the retired `units_by_key` was. This is what replaced the whole-workload `workload` fixture for the sixteen tests that wanted one unit each: a streamed filter and a few dozen units instead of a 451k-unit graph and its two gigabytes."""
+    workload = audit_windows(EXAMPLE_WINDOWS)
+    return {(unit.codepoints, unit.configs[0]): unit for unit in workload.units}
+
+
+@dataclass(frozen=True)
+class IndexedUnit:
+    """One pre-merge unit at the census grain — the four fields `census.workload_digest` is defined over, and the whole of what a flag-alignment test needs to say "position *i* of the sidecar describes this window"."""
+
+    codepoints: str
+    class_id: str
+    no_verdict: bool
+    configs: tuple[str, ...]
+
+    @property
+    def codepoint_values(self) -> tuple[int, ...]:
+        from rebuild.review.audit import parse_codepoints
+
+        return parse_codepoints(self.codepoints)
+
+
+@dataclass(frozen=True)
+class WorkloadIndex:
+    units: tuple[IndexedUnit, ...]
+    row_count: int
+    sibling_positions: tuple[int, ...]
+
+
+@pytest.fixture(scope="session")
+def workload_index(live_artifacts: LiveArtifacts) -> WorkloadIndex:
+    """The live pre-merge unit list at census grain, in workload order, plus the positions of the multi-sibling windows the ink sample stratifies over. Built through `load_workload` — the ordering is the loader's and cannot drift from it — and projected immediately, so the graph is transient rather than resident: a worker that touches this pays the audit parse once and keeps tens of megabytes, where the retired `workload` fixture kept the whole graph and its AuditRows for the whole session.
+
+    Anything needing a real `Unit` — an enrichment, a re-shape — takes `example_units` or `audit_windows` instead; this fixture deliberately holds no rows, so it cannot grow back into the graph it replaced.
     """
-    key = workload_cache_key()
-    if key is None:
-        return _load_live_workload()
-    WORKLOAD_CACHE_ROOT.mkdir(parents=True, exist_ok=True)
-    entry = WORKLOAD_CACHE_ROOT / key
-    blob = entry / "workload.pickle.gz"
-    done = entry / "DONE"
-    with (WORKLOAD_CACHE_ROOT / f"{key}.lock").open("w") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
-        if not (done.exists() and blob.exists()):
-            shutil.rmtree(entry, ignore_errors=True)
-            entry.mkdir(parents=True)
-            with gzip.open(blob, "wb", compresslevel=1) as handle:
-                pickle.dump(_load_live_workload(), handle, protocol=5)
-            done.write_text("")
-            _prune_stale_entries(WORKLOAD_CACHE_ROOT, entry)
-        with gzip.open(blob, "rb") as handle:
-            return pickle.load(handle)
+    from rebuild.review.audit import _sibling_windows, load_workload
+    from rebuild.review.build import M1_AUDIT, M1_LEDGER
+    from rebuild.review.enrich import LETTERS
+
+    workload = load_workload(M1_AUDIT, M1_LEDGER, dict(LETTERS))
+    position = {id(unit): index for index, unit in enumerate(workload.units)}
+    siblings = tuple(
+        sorted(position[id(unit)] for group in _sibling_windows(workload.units).values() for unit in group)
+    )
+    return WorkloadIndex(
+        units=tuple(
+            IndexedUnit(
+                codepoints=unit.codepoints,
+                class_id=unit.class_id,
+                no_verdict=unit.no_verdict,
+                configs=unit.configs,
+            )
+            for unit in workload.units
+        ),
+        row_count=workload.row_count,
+        sibling_positions=siblings,
+    )

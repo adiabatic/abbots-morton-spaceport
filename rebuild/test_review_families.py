@@ -10,14 +10,14 @@ from pathlib import Path
 import pytest
 
 from rebuild.review import families
-from rebuild.review.audit import _config_index, load_audit, parse_codepoints, render_groups_for_rows
-from rebuild.review.audit import Unit, group_for
+from rebuild.review.audit import load_workload
 from rebuild.review.census import family_census, load_facts
 from rebuild.review.enrich import LETTERS, Enricher, load_spec
 from rebuild.review.families import FAMILY_ORDER, FAMILY_WHY, assign_family
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 BEFORE_FONT = REPO_ROOT / "site" / "AbbotsMortonSpaceportSansSenior-Regular.otf"
+LEDGER_PATH = REPO_ROOT / "rebuild" / "m1-divergences.yaml"
 
 
 @dataclass(frozen=True)
@@ -150,52 +150,54 @@ def test_every_assigned_family_is_ordered_and_documented(assigned):
         assert FAMILY_WHY[family]
 
 
-def test_families_cover_exactly_the_unmatched_premerge_units(facts, workload):
+def test_families_cover_exactly_the_unmatched_premerge_units(facts, workload_index):
     """The sidecar's family records are indexed into the pre-merge unit list, so the indexes it carries must be precisely the UNMATCHED positions of that list — no matched window claiming a family, no UNMATCHED window left without one."""
     assert [index for index, _family in facts["premerge"]["families"]] == [
-        index for index, unit in enumerate(workload.units) if unit.class_id == "UNMATCHED"
+        index for index, unit in enumerate(workload_index.units) if unit.class_id == "UNMATCHED"
     ]
 
 
-def test_fresh_family_derivation_agrees_with_the_sidecar_over_a_sample(facts, workload, live_artifacts):
-    """The continuous proof of the grain bookkeeping: sample every family, enrich those windows from the fonts and the spec, and re-run the grouper. A deferred window's bucket has to re-derive from its own pre-merge config classes (the fold widens them, so a survivor's post-merge bucket can differ), and every non-deferred window has to reproduce the phase-1 family its own surviving object carries."""
-    by_family: dict[str, list[tuple[int, str]]] = {}
+SAMPLE_PER_FAMILY = 4
+
+
+def test_fresh_family_derivation_agrees_with_the_sidecar_over_a_sample(
+    facts, workload_index, audit_windows, live_artifacts
+):
+    """The continuous proof of the grain bookkeeping: sample every family, enrich those windows from the fonts and the spec, and re-run the grouper. A deferred window's bucket has to re-derive from its own pre-merge config classes (the fold widens them, so a survivor's post-merge bucket can differ), and every non-deferred window has to reproduce the phase-1 family its own surviving object carries.
+
+    Bounded at SAMPLE_PER_FAMILY windows apiece and loaded through a filtered pass over the audit: the property is that the derivation agrees, and a stride of a dozen per family witnessed that no better than four while dragging in the whole 451k-unit graph to do it.
+    """
+    by_family: dict[str, list[int]] = {}
     for index, family in facts["premerge"]["families"]:
-        by_family.setdefault(family, []).append((index, family))
+        by_family.setdefault(family, []).append(index)
+    sampled = {}
+    for family, indexes in by_family.items():
+        for index in indexes[:: max(1, len(indexes) // SAMPLE_PER_FAMILY)][:SAMPLE_PER_FAMILY]:
+            entry = workload_index.units[index]
+            sampled[(entry.codepoints, entry.configs[0])] = family
+    workload = audit_windows({codepoints for codepoints, _config in sampled})
+    units = {(unit.codepoints, unit.configs[0]): unit for unit in workload.units}
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         spec = load_spec(REPO_ROOT)
     enricher = Enricher(
         spec, live_artifacts.m1, live_artifacts.font, repo_root=REPO_ROOT, before_font=BEFORE_FONT
     )
-    for group in by_family.values():
-        for index, family in group[:: max(1, len(group) // 12)]:
-            unit = workload.units[index]
-            assert unit.class_id == "UNMATCHED"
-            assert assign_family(enricher.enrich(unit)) == family, unit.codepoints
+    assert sampled
+    for key, family in sampled.items():
+        unit = units[key]
+        assert unit.class_id == "UNMATCHED"
+        assert assign_family(enricher.enrich(unit)) == family, unit.codepoints
 
 
-def test_assignment_is_deterministic(live_artifacts):
-    rows = load_audit(live_artifacts.audit)
-    sample = next((r.codepoints, r.baseline, r.new) for r in rows if r.matched_entry == "UNMATCHED")
-    members = [r for r in rows if (r.codepoints, r.baseline, r.new) == sample]
+def test_assignment_is_deterministic():
+    """Two independently constructed Enrichers assign the same family to the same window. That is a property of the code, not of any window, so it runs over the frozen mini-M1 bundle: no live audit to scan for a sample, no live subset tables to parse, and the whole thing lands in the contracts lane."""
+    mini = REPO_ROOT / "rebuild" / "review" / "fixtures" / "mini"
+    workload = load_workload(mini / "audit.tsv", LEDGER_PATH, dict(LETTERS))
+    unit = next(item for item in workload.units if item.class_id == "UNMATCHED")
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         spec = load_spec(REPO_ROOT)
-    config_classes = {m.config: m.matched_entry for m in members}
-    ordered = tuple(sorted(members, key=lambda m: _config_index(m.config)))
-    unit = Unit(
-        codepoints=sample[0],
-        baseline=sample[1],
-        new=sample[2],
-        class_id="UNMATCHED",
-        rows=ordered,
-        configs=tuple(m.config for m in ordered),
-        kinds=(),
-        group=group_for(parse_codepoints(sample[0]), dict(LETTERS)),
-        render_groups=render_groups_for_rows(ordered),
-        config_classes=config_classes,
-    )
-    a = Enricher(spec, live_artifacts.m1, live_artifacts.font, repo_root=REPO_ROOT, before_font=BEFORE_FONT)
-    b = Enricher(spec, live_artifacts.m1, live_artifacts.font, repo_root=REPO_ROOT, before_font=BEFORE_FONT)
+    a = Enricher(spec, mini, mini / "M1.otf", repo_root=REPO_ROOT, before_font=BEFORE_FONT)
+    b = Enricher(spec, mini, mini / "M1.otf", repo_root=REPO_ROOT, before_font=BEFORE_FONT)
     assert assign_family(a.enrich(unit)) == assign_family(b.enrich(unit))

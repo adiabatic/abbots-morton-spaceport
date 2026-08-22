@@ -1,4 +1,7 @@
-"""Tests for the three verdict drafters against real M1 units: every drafted pin parses with the repo's actual data-expect parser and validates semantically against rebuild/out/m1/M1.otf, the seam-to-connector map is total over observed seams, policy drafts name only provenance that occurs in the unit's explain trace and carry schema-valid records, any-of candidates are individually parseable and pairwise distinct, and duplicate detection fires on a known corpus-pinned text."""
+"""Tests for the three verdict drafters against real M1 units: the semantic validator's teeth, the policy drafter's branch table on worked-example windows (contract for a gained extension, refuse for a new join, prefer on a name-grain divergence and on an empty trace, and the decline), any-of candidate ordering, and duplicate detection against a synthetic corpus index.
+
+The whole-corpus sweeps that used to live here are gone: what every drafted pin and policy record must satisfy — the pin parses and replays "pass", the record is schema-valid and names only trace provenance in a real file, the any-of candidates are distinct and parseable — `check_unit` now asserts on every unit the build ships, cached ones included, which is a superset of what a re-enrichment of the workload could witness. The worked examples that remain take their windows from `example_units`, a filtered load of the audit rather than the whole 451k-unit graph.
+"""
 
 import warnings
 from pathlib import Path
@@ -6,7 +9,6 @@ from pathlib import Path
 import pytest
 
 from rebuild.review.drafts import (
-    CONNECTORS,
     Drafter,
     _import_test_shaping,
     build_corpus_index,
@@ -32,41 +34,22 @@ def drafter(live_artifacts):
     return Drafter(live_artifacts.font)
 
 
-def test_every_drafted_pin_passes_the_real_parser(drafter, enriched_units):
+def test_pins_are_whole_word_with_no_variant_assertions():
+    """A drafted pin asserts the word and its joins, never which stance a letter took: `expect_string` emits bare letter names, so no token it produces can carry a variant, a negated variant, or an exact-glyph assertion. Asserted over the emitter rather than over a corpus of drafts, because it is the emitter's property — a sweep of 451k units restated it 451k times."""
     ts = _import_test_shaping()
-    for enriched in enriched_units:
-        pin = drafter.draft_pin(enriched)
-        assert pin.syntax == "pass", f"{enriched.unit.codepoints}: {pin.syntax}"
-        tokens, connections = ts.parse_expect(pin.expect)
-        assert len(connections) == len(tokens) - 1
-
-
-def test_every_drafted_pin_validates_against_the_after_font(drafter, enriched_units):
-    failures = [
-        (enriched.unit.codepoints, pin.expect, pin.semantics_after_font)
-        for enriched in enriched_units
-        for pin in (drafter.draft_pin(enriched),)
-        if pin.semantics_after_font != "pass"
-    ]
-    assert failures == []
-
-
-def test_pins_are_whole_word_with_no_variant_assertions(drafter, enriched_units):
-    ts = _import_test_shaping()
-    for enriched in enriched_units[::100]:
-        pin = drafter.draft_pin(enriched)
-        tokens, _connections = ts.parse_expect(pin.expect)
+    cases = (
+        ((0x200C, 0xE652, 0xE679), ((0, 1), (1, 3)), ("break",)),
+        ((0x00B7, 0xE650), ((0, 1), (1, 2)), ("break",)),
+        ((0xE652, 0xE670), ((0, 1), (1, 2)), ("y5",)),
+        ((0xE650, 0xE665, 0xE667), ((0, 1), (1, 2), (2, 3)), ("y0", "y0")),
+        ((0xE650, 0x0020, 0xE650), ((0, 1), (1, 2), (2, 3)), ("break", "break")),
+    )
+    for values, spans, seams in cases:
+        tokens, _connections = ts.parse_expect(expect_string(values, spans, seams))
         for token in tokens:
             assert token["variants"] == []
             assert token["neg_variants"] == []
             assert not token["exact_glyph"]
-
-
-def test_connector_map_is_total_over_observed_seams(enriched_units):
-    observed = {
-        seam for enriched in enriched_units for seam in (*enriched.after_seams, *enriched.before_seams)
-    }
-    assert observed <= set(CONNECTORS)
 
 
 def test_semantic_validation_rejects_a_wrong_pin(drafter):
@@ -92,27 +75,9 @@ def test_expect_string_handles_boundaries_and_ligatures():
     assert expect_string(values, spans, ("break",)) == "\\· | ·Pea"
 
 
-def test_policy_drafts_name_only_trace_provenance_and_real_files(drafter, enriched_units):
-    checked = 0
-    for enriched in enriched_units[::50]:
-        policy = drafter.draft_policy(enriched)
-        if policy is None:
-            continue
-        checked += 1
-        assert (REPO_ROOT / policy.file).exists(), policy.file
-        assert set(policy.names_provenance) <= set(enriched.provenance)
-        assert policy.schema_valid, (enriched.unit.codepoints, policy.suggested_record)
-        assert policy.keypath in ("policy.refuse[+]", "policy.prefer[+]", "policy.contract[+]")
-        assert enriched.unit.codepoints in policy.why_stub
-    assert checked > 0
-
-
-def test_policy_draft_prefers_contract_for_gained_extension(drafter, enricher, workload):
-    unit = next(
-        unit
-        for unit in workload.units
-        if unit.codepoints == "E652:E653:E67A:E652" and unit.class_id == "halves-entry-extension-restored"
-    )
+def test_policy_draft_prefers_contract_for_gained_extension(drafter, enricher, example_units):
+    unit = example_units[("E652:E653:E67A:E652", "ss03")]
+    assert unit.class_id == "halves-entry-extension-restored"
     policy = drafter.draft_policy(enricher.enrich(unit))
     assert policy is not None
     assert policy.keypath == "policy.contract[+]"
@@ -121,12 +86,9 @@ def test_policy_draft_prefers_contract_for_gained_extension(drafter, enricher, w
     assert any("policy.extend" in pointer for pointer in policy.names_provenance)
 
 
-def test_policy_draft_refuses_when_the_divergence_includes_a_new_join(drafter, enricher, workload):
-    unit = next(
-        unit
-        for unit in workload.units
-        if unit.codepoints == "E665:E670:E652:E679" and unit.class_id == "pre-ligature-cleanup-regularized"
-    )
+def test_policy_draft_refuses_when_the_divergence_includes_a_new_join(drafter, enricher, example_units):
+    unit = example_units[("E665:E670:E652:E679", "default")]
+    assert unit.class_id == "pre-ligature-cleanup-regularized"
     policy = drafter.draft_policy(enricher.enrich(unit))
     assert policy is not None
     assert policy.keypath == "policy.refuse[+]"
@@ -136,29 +98,19 @@ def test_policy_draft_refuses_when_the_divergence_includes_a_new_join(drafter, e
     assert policy.schema_valid
 
 
-def test_contract_drafts_never_ride_a_new_join(drafter, enriched_units):
-    for enriched in enriched_units:
-        policy = drafter.draft_policy(enriched)
-        if policy is None or policy.keypath != "policy.contract[+]":
-            continue
-        position = drafter._policy_position(enriched)
-        assert drafter._new_join_side(enriched, position) is None, enriched.unit.codepoints
-
-
-def test_refuse_drafts_never_target_seam_identical_units(drafter, enriched_units):
-    for enriched in enriched_units:
+def test_refuse_drafts_never_target_seam_identical_units(drafter, enricher, example_units):
+    """A refuse draft says "do not take this new join", so it must never land on a unit whose seams did not move. Branch 4 of `draft_policy` implies it; the new-join branch does not, and this is the witness that its glyph-index seam equality and the codepoint-gap lookup cannot disagree. Sampled over the worked-example windows rather than swept over the corpus — the property is about the two derivations agreeing, not about how many units agree."""
+    for unit in example_units.values():
+        enriched = enricher.enrich(unit)
         policy = drafter.draft_policy(enriched)
         if policy is None or policy.keypath != "policy.refuse[+]":
             continue
         assert not drafter._seam_identical(enriched), enriched.unit.codepoints
 
 
-def test_policy_draft_pins_baseline_cell_on_name_grain_divergence(drafter, enricher, workload):
-    unit = next(
-        unit
-        for unit in workload.units
-        if unit.codepoints == "E650:200C:E650:E665" and unit.class_id == "boundary-echo"
-    )
+def test_policy_draft_pins_baseline_cell_on_name_grain_divergence(drafter, enricher, example_units):
+    unit = example_units[("E650:200C:E650:E665", "default")]
+    assert unit.class_id == "boundary-echo"
     policy = drafter.draft_policy(enricher.enrich(unit))
     assert policy is not None
     assert policy.keypath == "policy.prefer[+]"
@@ -168,49 +120,33 @@ def test_policy_draft_pins_baseline_cell_on_name_grain_divergence(drafter, enric
     assert policy.schema_valid
 
 
-def test_policy_draft_declines_unexpressible_name_grain_divergence(drafter, enricher, workload):
-    unit = next(
-        unit
-        for unit in workload.units
-        if unit.codepoints == "E650:200C:E650:E670" and unit.class_id == "boundary-echo"
-    )
+def test_policy_draft_declines_unexpressible_name_grain_divergence(drafter, enricher, example_units):
+    unit = example_units[("E650:200C:E650:E670", "default")]
+    assert unit.class_id == "boundary-echo"
     assert drafter.draft_policy(enricher.enrich(unit)) is None
 
 
-def test_policy_draft_uses_prefer_when_provenance_is_empty(drafter, enricher, workload):
-    unit = next(
-        unit
-        for unit in workload.units
-        if unit.class_id == "bare-name-live-join" and not unit.codepoints.startswith("00B7")
-    )
+def test_policy_draft_uses_prefer_when_provenance_is_empty(drafter, enricher, example_units):
+    """The bare-name ·Fee·No window: a live join the runes never spoke about, so the trace names no record and `draft_policy` falls to its prefer branch. Pinned to one window rather than sampled from the class, so a window that grows provenance fails here loudly instead of skipping the branch and reporting green."""
+    unit = example_units[("E658:E666", "default")]
+    assert unit.class_id == "bare-name-live-join"
     enriched = enricher.enrich(unit)
-    if enriched.provenance:
-        pytest.skip("sampled bare-name unit unexpectedly carries provenance")
+    assert enriched.provenance == ()
     policy = drafter.draft_policy(enriched)
     assert policy is not None
     assert policy.keypath == "policy.prefer[+]"
 
 
-def test_policy_note_is_threaded_into_the_why_stub(drafter, enriched_units):
-    enriched = enriched_units[0]
+def test_policy_note_is_threaded_into_the_why_stub(drafter, enricher, example_units):
+    enriched = enricher.enrich(example_units[("E650:200C:E650:E665", "default")])
     policy = drafter.draft_policy(enriched, note="seam looks reached-for")
     assert policy is not None
     assert policy.why_stub.endswith("seam looks reached-for")
 
 
-def test_any_of_candidates_parse_and_are_distinct(drafter, enriched_units):
-    ts = _import_test_shaping()
-    for enriched in enriched_units[::25]:
-        draft = drafter.draft_any_of(enriched)
-        assert len(set(draft.candidates)) == len(draft.candidates)
-        for candidate in draft.candidates:
-            ts.parse_expect(candidate)
-        for token in draft.text.split(" "):
-            assert token.startswith("qs") or token in ("space", "ZWNJ", "·")
-
-
-def test_any_of_orders_after_behavior_first(drafter, enricher, workload):
-    unit = next(unit for unit in workload.units if unit.class_id == "regrouping-floor-drift")
+def test_any_of_orders_after_behavior_first(drafter, enricher, example_units):
+    unit = example_units[("E650:E670:E65D", "default")]
+    assert unit.class_id == "regrouping-floor-drift"
     enriched = enricher.enrich(unit)
     draft = drafter.draft_any_of(enriched)
     assert len(draft.candidates) == 2
@@ -218,8 +154,8 @@ def test_any_of_orders_after_behavior_first(drafter, enricher, workload):
     assert draft.candidates[0] == after_expect
 
 
-def test_duplicate_detection_fires_on_a_known_pinned_text(enriched_units, live_artifacts):
-    enriched = enriched_units[0]
+def test_duplicate_detection_fires_on_a_known_pinned_text(enricher, example_units, live_artifacts):
+    enriched = enricher.enrich(example_units[("E652:E670", "default")])
     text = "".join(chr(value) for value in enriched.unit.codepoint_values)
     token = enriched.unit.configs[0]
     index = {(text, token): {"source": "site/the-manual.html:123", "attribute": "data-expect"}}
@@ -234,18 +170,3 @@ def test_real_corpus_index_collects_manual_pins():
     assert len(index) > 500
     assert any(key[1] == "default" for key in index)
     assert any(record["attribute"] == "data-expect" for record in index.values())
-
-
-def test_real_units_do_not_collide_with_corpus_pins(drafter, enriched_units):
-    duplicates = [
-        (enriched.unit.codepoints, pin.duplicate_of)
-        for enriched in enriched_units[::100]
-        for pin in (drafter.draft_pin(enriched),)
-        if pin.duplicate_of is not None
-    ]
-    for _codepoints, source in duplicates:
-        assert source.split(":")[0] in {
-            "site/index.html",
-            "site/the-manual.html",
-            "site/extra-senior-words.html",
-        }

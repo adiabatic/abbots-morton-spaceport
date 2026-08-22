@@ -1,4 +1,7 @@
-"""Tests for the general table-vs-table treaty-diff mode: added/removed/changed classification on synthetic table pairs, remove+add pairing into regrouped rows, provenance-only demotion, witness search that re-settles to the changed row, and the snapshot round-trip."""
+"""Tests for the general table-vs-table treaty-diff mode: added/removed/changed classification on synthetic table pairs, remove+add pairing into regrouped rows, provenance-only demotion, witness search that re-settles to the changed row, and the snapshot round-trip.
+
+Only the two witness arms are about the live tables — they re-settle real settlement rows and treaty pairs and check the outcome comes back. The classification, the round trip, and the self-diff are properties of `diff_dirs` and `write_snapshot` over any tables, so they take the synthetic pair or the frozen mini-M1 bundle and run in the contracts lane.
+"""
 
 import warnings
 from pathlib import Path
@@ -10,6 +13,7 @@ from rebuild.review import tablediff
 from rebuild.review.enrich import load_spec
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+MINI = REPO_ROOT / "rebuild" / "review" / "fixtures" / "mini"
 
 SETTLEMENT_OLD = """# settlement table, config default
 input\tbacktrack\tlookahead1\tlookahead2\toutcome\tjoint\tprovenance
@@ -152,9 +156,10 @@ def test_load_settlement_widths_round_trip(tmp_path):
     assert next(iter(nine)).look4 == frozenset({"qsLow"})
 
 
-def test_self_diff_is_empty(live_artifacts):
-    entries = tablediff.diff_dirs(live_artifacts.m1, live_artifacts.m1)
-    assert entries == []
+def test_self_diff_is_empty(table_dirs):
+    """A directory diffed against itself is empty — a property of `diff_dirs`, not of any particular tables, which is why the synthetic pair witnesses it as well as the live one did and without reaching rebuild/out."""
+    old_dir, _new_dir = table_dirs
+    assert tablediff.diff_dirs(old_dir, old_dir) == []
 
 
 def test_diff_is_deterministic(table_dirs):
@@ -217,11 +222,12 @@ def test_witness_attach_fills_entries(witness_index, table_dirs):
     assert changed.witness is not None
 
 
-def test_snapshot_round_trip(tmp_path, live_artifacts):
+def test_snapshot_round_trip(tmp_path):
+    """`write_snapshot` copies a table directory's TSVs and the font beside them, records sha256s, and the copy diffs empty against its source. The frozen mini-M1 bundle is the table directory here: real tables and a real font, checked in, so what the round trip is about — the copy, not today's rules — runs in the contracts lane."""
     snapshot_dir = tmp_path / "accepted"
-    snapshot = tablediff.write_snapshot(live_artifacts.m1, live_artifacts.font, snapshot_dir, REPO_ROOT)
+    snapshot = tablediff.write_snapshot(MINI, MINI / "M1.otf", snapshot_dir, REPO_ROOT)
     assert (snapshot_dir / "snapshot.json").exists()
     assert (snapshot_dir / "M1.otf").exists()
     assert "settlement-default.tsv" in snapshot["files"]
     assert snapshot["files"]["M1.otf"]["sha256"]
-    assert tablediff.diff_dirs(snapshot_dir, live_artifacts.m1) == []
+    assert tablediff.diff_dirs(snapshot_dir, MINI) == []

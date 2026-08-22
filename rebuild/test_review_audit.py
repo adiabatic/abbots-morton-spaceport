@@ -1,6 +1,8 @@
-"""Tests for the review surface's M1-mode unit assembly: TSV/ledger loading, the dedupe to per-config-class units (including the UNMATCHED verdict windows that carry a per-config class map), exemplar resolution, and deterministic triage ordering.
+"""Tests for the review surface's M1-mode unit assembly: TSV/ledger loading, the dedupe to per-config-class units (including the UNMATCHED verdict windows that carry a per-config class map), and deterministic triage ordering.
 
-The live counts belong to the census the surface build emits and the artifact cycle diffs into rebuild/review-census-pins.json, never to an assertion here — they move with every migrated letter. What this module holds the dedupe to is the property that survives that movement: it may collapse rows into units, but it may not lose one.
+None of it needs the live audit. Ordering, id assignment, batch slicing, config order, and the one-render-group invariant are properties of `build_units` and `assign_batches` over any input, and the frozen mini workload under rebuild/review/fixtures/mini/ is a thousand real windows' worth of input — so the whole module runs in the contracts lane at full width. The two claims that really were about the live corpus, that the dedupe conserves rows and that every ledger exemplar resolves, are `build_units`' own assertions now, where they cover every build rather than every gate run.
+
+The live counts belong to the census the surface build emits and the artifact cycle diffs into rebuild/review-census-pins.json, never to an assertion here — they move with every migrated letter.
 """
 
 from pathlib import Path
@@ -8,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from rebuild.review.audit import (
+    ACCEPTANCE_CONFIGS,
     AuditRow,
     LedgerClass,
     assign_batches,
@@ -22,7 +25,7 @@ from rebuild.review.audit import (
 from rebuild.review.enrich import LETTERS
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-AUDIT_PATH = REPO_ROOT / "rebuild" / "out" / "m1" / "divergence-audit.tsv"
+MINI_AUDIT = REPO_ROOT / "rebuild" / "review" / "fixtures" / "mini" / "audit.tsv"
 LEDGER_PATH = REPO_ROOT / "rebuild" / "m1-divergences.yaml"
 
 FIXTURE_AUDIT = """config\tcodepoints\tkinds\tmatched_entry\tbaseline\tnew
@@ -86,33 +89,34 @@ def test_render_groups_split_by_rendered_outcome_identity():
     assert render_groups_for_rows(rows) == (("default", "ss03"), ("ss02",))
 
 
-def test_every_real_unit_has_exactly_one_render_group(workload):
+@pytest.fixture
+def mini():
+    """The frozen mini-M1 audit under rebuild/review/fixtures/mini/, loaded against the real ledger — a thousand-odd real windows over four letters, which is what these properties want: enough classes to order, enough per-config splits to dedupe, and not one byte of rebuild/out/. Regenerating it is `fixtures/mini/regenerate.py`."""
+    return load_workload(MINI_AUDIT, LEDGER_PATH, dict(LETTERS))
+
+
+def test_every_unit_has_exactly_one_render_group(mini):
     """The M1 invariant of the dedupe key: a unit's rows share (codepoints, baseline, new), so the per-config rendered outcomes can never differ within a unit — even the per-config-split UNMATCHED units (blessed under ss03, novel under default) render identically across configs, the difference being only the class label. If this ever fails, the data violates the dedupe key's documented guarantee and the extra groups must render stacked, never collapsed."""
-    for unit in workload.units:
+    for unit in mini.units:
         assert unit.render_groups == (unit.configs,)
 
 
-def test_the_real_dedupe_loses_no_rows(workload):
-    """Every audit row ends up under exactly one unit: the dedupe groups rows, it never drops or duplicates one. How many there are is the census's business, so only the accounting is asserted — plus that both sides are nonempty, since an empty audit would satisfy the sum vacuously."""
-    assert workload.row_count > 0
-    assert len(workload.units) > 0
-    assert sum(len(unit.rows) for unit in workload.units) == workload.row_count
+def test_the_dedupe_loses_no_rows(mini):
+    """Every audit row ends up under exactly one unit: the dedupe groups rows, it never drops or duplicates one. How many there are is the census's business, so only the accounting is asserted — plus that both sides are nonempty, since an empty audit would satisfy the sum vacuously. Over the live corpus this is `build_units`' own assertion, which is why it need not be swept here."""
+    assert mini.row_count > 0
+    assert len(mini.units) > 0
+    assert sum(len(unit.rows) for unit in mini.units) == mini.row_count
 
 
-def test_every_ledger_exemplar_resolves_to_a_unit(workload):
-    exemplar_keys = {key for entry in workload.ledger for key in entry.exemplar_keys}
-    covered = {(row.config, row.codepoints) for unit in workload.units if unit.exemplar for row in unit.rows}
-    assert exemplar_keys <= covered
-
-
-def test_triage_order_follows_ledger_then_group_then_codepoints(workload):
+def test_triage_order_follows_ledger_then_group_then_codepoints(mini):
     # The UNMATCHED units carry the sentinel class at workload level (their verdict family is assigned later, at build time); they rank after every ledger class so they sort last and clean-unit ids are preserved.
-    class_order = {entry.id: index for index, entry in enumerate(workload.ledger)}
-    indices = [class_order.get(unit.class_id, len(workload.ledger)) for unit in workload.units]
+    class_order = {entry.id: index for index, entry in enumerate(mini.ledger)}
+    indices = [class_order.get(unit.class_id, len(mini.ledger)) for unit in mini.units]
     assert indices == sorted(indices)
     by_class: dict[str, list] = {}
-    for unit in workload.units:
+    for unit in mini.units:
         by_class.setdefault(unit.class_id, []).append(unit)
+    assert len(by_class) > 1, "the mini workload must span classes for the ordering to say anything"
     for units in by_class.values():
         groups = [unit.group for unit in units]
         first_seen: dict[str, int] = {}
@@ -129,36 +133,33 @@ def test_triage_order_follows_ledger_then_group_then_codepoints(workload):
                 )
 
 
-def test_unit_ids_are_sequential_and_batches_unassigned_until_ink_is_known(workload):
-    for index, unit in enumerate(workload.units):
+def test_unit_ids_are_sequential_and_batches_unassigned_until_ink_is_known(mini):
+    for index, unit in enumerate(mini.units):
         assert unit.unit_id == f"u-{index:04d}"
         assert unit.batch is None
         assert unit.ink_identical is False
 
 
-def test_assign_batches_slices_the_human_workload_and_nulls_machine_units(workload):
-    for index, unit in enumerate(workload.units):
+def test_assign_batches_slices_the_human_workload_and_nulls_machine_units(mini):
+    """`assign_batches` is pure over a unit list, so the mini workload witnesses it exactly as the live one did — and without the live graph there is no longer a test that mutates a shared session fixture and has to put it back."""
+    units = mini.units
+    for index, unit in enumerate(units):
         unit.ink_identical = index % 3 == 0
         unit.junior_equivalent = index % 3 == 1 and index % 5 == 0
-    try:
-        total = assign_batches(workload.units, batch_size=300)
-        human = [
-            unit
-            for unit in workload.units
-            if not unit.ink_identical and not unit.junior_equivalent and not unit.no_verdict
-        ]
-        assert [unit.batch for unit in human] == [index // 300 for index in range(len(human))]
-        assert all(
-            unit.batch is None
-            for unit in workload.units
-            if unit.ink_identical or unit.junior_equivalent or unit.no_verdict
-        )
-        assert total == (len(human) + 299) // 300
-    finally:
-        for unit in workload.units:
-            unit.ink_identical = False
-            unit.junior_equivalent = False
-            unit.batch = None
+    total = assign_batches(units, batch_size=300)
+    human = [
+        unit
+        for unit in units
+        if not unit.ink_identical and not unit.junior_equivalent and not unit.no_verdict
+    ]
+    assert human
+    assert [unit.batch for unit in human] == [index // 300 for index in range(len(human))]
+    assert all(
+        unit.batch is None
+        for unit in units
+        if unit.ink_identical or unit.junior_equivalent or unit.no_verdict
+    )
+    assert total == (len(human) + 299) // 300
 
 
 def test_no_verdict_flag_mirrors_the_ledger_class():
@@ -199,17 +200,15 @@ def test_no_verdict_flag_mirrors_the_ledger_class():
     }
 
 
-def test_ordering_is_deterministic(workload):
-    again = load_workload(AUDIT_PATH, LEDGER_PATH, dict(LETTERS))
-    assert [unit.unit_id for unit in again.units] == [unit.unit_id for unit in workload.units]
-    assert [unit.codepoints for unit in again.units] == [unit.codepoints for unit in workload.units]
+def test_ordering_is_deterministic(mini):
+    again = load_workload(MINI_AUDIT, LEDGER_PATH, dict(LETTERS))
+    assert [unit.unit_id for unit in again.units] == [unit.unit_id for unit in mini.units]
+    assert [unit.codepoints for unit in again.units] == [unit.codepoints for unit in mini.units]
 
 
-def test_configs_within_a_unit_are_in_acceptance_order(workload):
-    order = {
-        token: index for index, token in enumerate(("default", "ss03", "ss04", "ss05", "ss03+ss05", "ss10"))
-    }
-    for unit in workload.units:
+def test_configs_within_a_unit_are_in_acceptance_order(mini):
+    order = {token: index for index, token in enumerate(ACCEPTANCE_CONFIGS)}
+    for unit in mini.units:
         ranks = [order[config] for config in unit.configs]
         assert ranks == sorted(ranks)
 
