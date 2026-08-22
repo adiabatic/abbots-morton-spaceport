@@ -13,6 +13,7 @@ import datetime
 import hashlib
 import json
 import multiprocessing
+import random
 import shutil
 import subprocess
 import sys
@@ -20,7 +21,7 @@ import time
 import traceback
 import warnings
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import lru_cache
 from itertools import combinations
 from pathlib import Path
@@ -42,7 +43,7 @@ from rebuild.review.audit import (
     signature_rows,
     synthesize_family_classes,
 )
-from rebuild.review.drafts import Drafter
+from rebuild.review.drafts import Drafter, _import_test_shaping
 from rebuild.review.families import assign_family
 from rebuild.review.ink import (
     IDENTITY_DIFF,
@@ -470,7 +471,7 @@ def _cluster_id(configs, class_id, diffs) -> str:
 
 @dataclass(frozen=True)
 class _UnitProjection:
-    """The slim, picklable phase-1 result a surface worker returns per unit: everything the parent's serial reduces read plus everything the unit cache persists, and never the EnrichedUnit (its ≈61 KB ExplainReport stays alive worker-side for phase 2). The ink diffs travel as their repr string and its digest — the repr feeds the cluster id byte-contract, the digest is the echo key's diff component — so the parent never round-trips the tuple form."""
+    """The slim, picklable phase-1 result a surface worker returns per unit: everything the parent's serial reduces read plus everything the unit cache persists, and never the EnrichedUnit (which stays alive worker-side for phase 2). The ink diffs travel as their repr string and its digest — the repr feeds the cluster id byte-contract, the digest is the echo key's diff component — so the parent never round-trips the tuple form."""
 
     unit_id: str
     ink_identical: bool
@@ -525,6 +526,16 @@ def _phase2_unit(enriched: EnrichedUnit, injection, drafter: Drafter) -> dict:
         seam.home = home
         seam.suppressed = suppressed
     return unit_to_json(enriched, drafter)
+
+
+VERIFICATION_SAMPLE = 200
+
+
+def _verification_sample(served: list[str], seed: str, size: int = VERIFICATION_SAMPLE) -> list[str]:
+    """Which cache-served units this build recomputes from nothing and holds against what it served. Deterministic in the inputs — the seed is the store's own environment stamp, a digest of them — so a failure reproduces on a rerun of the same build rather than depending on which units a random draw happened to reach. Sampling is what makes the check continuous rather than periodic: the guarantee a from-scratch comparison run once a cycle gives you all at once, this gives you a couple of hundred windows at a time, on every build, at a cost in the tenths of a second."""
+    if not served:
+        return []
+    return random.Random(seed).sample(served, min(size, len(served)))
 
 
 # Below this, pool startup (spawn plus two font loads per worker) stops paying for itself against a serial pass through the parent's shared shapers; see rebuild/out/cycle-timings.ndjson for the measured rates this was set from.
@@ -590,7 +601,7 @@ def _resolve_signature_digests(
 
 
 def _surface_worker(conn, init: dict) -> None:
-    """A persistent, stateful surface worker (spawn-only: uharfbuzz/fontTools C objects are not fork-safe, and drafts._import_test_shaping mutates a module-global singleton). Phase 1 computes config_diff + enrich over its slice and retains each EnrichedUnit in-process; phase 2 injects the parent's global fields and emits the shard JSON from the retained ExplainReports."""
+    """A persistent, stateful surface worker (spawn-only: uharfbuzz/fontTools C objects are not fork-safe, and drafts._import_test_shaping mutates a module-global singleton). Phase 1 computes config_diff + enrich over its slice and retains each EnrichedUnit in-process; phase 2 injects the parent's global fields and emits the shard JSON from the retained enrichment. The third message, `verify`, recomputes both phases for a handful of units the cache served — units this worker never enriched — and answers with their content keys alone, which is what makes the served fragments continuously checkable against a fresh computation of the same window."""
     try:
         comparator = InkComparator(init["before_font"], init["after_font"], shaper_for)
         oracle = JuniorOracle(init["junior_font"], init["before_font"], init["after_font"], shaper_for)
@@ -624,6 +635,12 @@ def _surface_worker(conn, init: dict) -> None:
                 for unit_id, injection in message[1].items():
                     fragments[unit_id] = _phase2_unit(retained[unit_id], injection, drafter)
                 conn.send(("ok", fragments))
+            elif message[0] == "verify":
+                keys: dict[str, str] = {}
+                for unit, injection in message[1]:
+                    _projection, enriched = _phase1_unit(unit, comparator, oracle, enricher, None)
+                    keys[unit.unit_id] = _phase2_unit(enriched, injection, drafter)["content_key"]
+                conn.send(("ok", keys))
     except Exception:
         try:
             conn.send(("error", traceback.format_exc()))
@@ -657,20 +674,24 @@ class _FreshRunner:
         after_font: Path,
         junior_font: Path,
         repo_root: Path,
+        verify: list | None = None,
     ) -> None:
         self._fresh = fresh
+        self._verify = list(verify or ())
         self._before_font = before_font
         self._after_font = after_font
         self._junior_font = junior_font
         self._subset_dir = subset_dir
         self._repo_root = repo_root
         self._retained: dict[str, EnrichedUnit] = {}
-        self._drafter: Drafter | None = None
+        self._local: tuple | None = None
         self._procs: list = []
         self._conns: list = []
         self._slices: list[list] = []
-        if jobs > 1 and len(fresh) > 1:
-            nworkers = min(jobs, len(fresh))
+        # The verification sample is worker work too, and it is the whole of the work when the cache served every unit: a pool sized on the fresh pile alone would leave a no-change rebuild recomputing its sample in the parent, paying one subset-table load per config for it.
+        workload_size = max(len(fresh), len(self._verify))
+        if jobs > 1 and workload_size > 1:
+            nworkers = min(jobs, workload_size)
             self._slices = _partition(fresh, nworkers)
             init = {
                 "before_font": before_font,
@@ -700,20 +721,7 @@ class _FreshRunner:
                 for projection in reply[1]:
                     projections[projection.unit_id] = projection
         elif self._fresh:
-            comparator = InkComparator(self._before_font, self._after_font, shaper_for)
-            oracle = JuniorOracle(self._junior_font, self._before_font, self._after_font, shaper_for)
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
-                spec = load_spec(self._repo_root)
-            enricher = Enricher(
-                spec,
-                self._subset_dir,
-                self._after_font,
-                repo_root=self._repo_root,
-                before_font=self._before_font,
-                shaper_factory=shaper_for,
-            )
-            self._drafter = Drafter(self._after_font, repo_root=self._repo_root, shaper_factory=shaper_for)
+            comparator, oracle, enricher, _drafter = self._in_process()
             for unit_batch, reports in enricher.explain_unit_batches(self._fresh):
                 for unit, report in zip(unit_batch, reports):
                     projection, enriched = _phase1_unit(unit, comparator, oracle, enricher, report)
@@ -733,12 +741,60 @@ class _FreshRunner:
                     raise RuntimeError("surface worker failed in phase 2:\n" + reply[1])
                 fragments.update(reply[1])
         else:
+            _comparator, _oracle, _enricher, drafter = self._in_process()
             for unit in self._fresh:
-                assert self._drafter is not None
                 fragments[unit.unit_id] = _phase2_unit(
-                    self._retained[unit.unit_id], injections[unit.unit_id], self._drafter
+                    self._retained[unit.unit_id], injections[unit.unit_id], drafter
                 )
         return fragments
+
+    def _in_process(self) -> tuple:
+        """The comparator, oracle, enricher, and drafter the serial path works through, built once and on first use. Lazy because the verification sample can be the only work there is — a rebuild the cache served whole still recomputes its sample, and it must not pay for these until it does."""
+        if self._local is None:
+            comparator = InkComparator(self._before_font, self._after_font, shaper_for)
+            oracle = JuniorOracle(self._junior_font, self._before_font, self._after_font, shaper_for)
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                spec = load_spec(self._repo_root)
+            enricher = Enricher(
+                spec,
+                self._subset_dir,
+                self._after_font,
+                repo_root=self._repo_root,
+                before_font=self._before_font,
+                shaper_factory=shaper_for,
+            )
+            drafter = Drafter(self._after_font, repo_root=self._repo_root, shaper_factory=shaper_for)
+            self._local = (comparator, oracle, enricher, drafter)
+        return self._local
+
+    def verify(self, injections: dict[str, tuple]) -> dict[str, str]:
+        """Recompute both phases for the sampled units the cache served, and answer with their content keys. The units are recomputed from nothing — a fresh explain, a fresh config_diff, a fresh enrichment, fresh drafts — so the key that comes back is what this build would have written had the unit missed the cache, and the caller compares it against the key the served fragment carries."""
+        keys: dict[str, str] = {}
+        if not self._verify:
+            return keys
+        if self._conns:
+            for index, conn in enumerate(self._conns):
+                conn.send(
+                    (
+                        "verify",
+                        [
+                            (unit, injections[unit.unit_id])
+                            for unit in self._verify[index :: len(self._conns)]
+                        ],
+                    )
+                )
+            for conn in self._conns:
+                reply = conn.recv()
+                if reply[0] == "error":
+                    raise RuntimeError("surface worker failed while verifying a served unit:\n" + reply[1])
+                keys.update(reply[1])
+        else:
+            comparator, oracle, enricher, drafter = self._in_process()
+            for unit in self._verify:
+                _projection, enriched = _phase1_unit(unit, comparator, oracle, enricher, None)
+                keys[unit.unit_id] = _phase2_unit(enriched, injections[unit.unit_id], drafter)["content_key"]
+        return keys
 
     def close(self) -> None:
         for conn in self._conns:
@@ -839,15 +895,16 @@ def _write_surface(
     if pruned:
         print(f"Pruned {len(pruned)} orphan shard(s): {', '.join(pruned)}", file=sys.stderr)
     copy_static(out_dir, static_dir)
+    # A unit whose re-settled cells disagree with the audit it was built from is a surface describing a font nobody compiled, which is the one thing this directory exists not to be. It used to print and carry on; the divergence is empty today and a build that makes it non-empty should stop rather than ship.
+    errors: list[str] = []
     if mismatches:
-        print(
-            f"warning: {len(mismatches)} units where re-settled cells diverge from the audit "
-            f"(first: {mismatches[0]})",
-            file=sys.stderr,
+        errors.append(
+            f"enricher: re-settled cells diverge from the audit in {len(mismatches)} units "
+            f"(first: {mismatches[0]})"
         )
-    errors = check_manifest(manifest)
-    errors.extend(check_shards(manifest, shards_by_class))
-    errors.extend(_check_output_files(out_dir, manifest))
+    errors.extend(check_manifest(manifest))
+    errors.extend(check_shards(manifest, shards_by_class, repo_root))
+    errors.extend(_check_output_files(out_dir, manifest, repo_root))
     if errors:
         raise SystemExit("contract check failed:\n" + "\n".join(errors[:20]))
     return manifest
@@ -915,6 +972,17 @@ def build_m1(
 ) -> dict:
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
+    missing_subsets = [
+        config
+        for config in ACCEPTANCE_CONFIGS
+        if not (subset_dir / f"baseline-{config}.subset.tsv.gz").is_file()
+        or (subset_dir / f"baseline-{config}.subset.tsv.gz").stat().st_size == 0
+    ]
+    # The enricher reads these lazily, one config at a time, deep inside the units phase — so a missing table used to surface as a per-unit ValueError several hundred seconds in. Every acceptance config needs one, and the cheapest moment to say so is before any of it starts.
+    if missing_subsets:
+        raise SystemExit(
+            f"missing or empty baseline subset tables under {subset_dir}: {', '.join(missing_subsets)}"
+        )
 
     phase = time.perf_counter()
     workload = load_workload(audit_path, ledger_path, dict(LETTERS))
@@ -973,6 +1041,9 @@ def build_m1(
         prior_fragments = unit_cache.load_prior_fragments(out_dir, wanted)
         served = {uid: cached for uid, cached in candidates.items() if cached.prior_id in prior_fragments}
     fresh = [unit for unit in workload.units if unit.unit_id not in served]
+    sampled = set(_verification_sample(sorted(served), environment))
+    # Copies, because recomputing a unit's phase 1 writes the ink flags onto it and phase 2 writes the injected batch and class; the originals are the ones the reduces and the store read.
+    verify_units = [replace(unit) for unit in workload.units if unit.unit_id in sampled]
     print(
         f"[t] review.build plan {time.perf_counter() - phase:.1f}s"
         f"\t(served {len(served)} of {len(workload.units)} units from cache)",
@@ -981,7 +1052,9 @@ def build_m1(
     )
 
     phase = time.perf_counter()
-    runner = _FreshRunner(fresh, jobs, subset_dir, before_font, after_font, junior_font, repo_root)
+    runner = _FreshRunner(
+        fresh, jobs, subset_dir, before_font, after_font, junior_font, repo_root, verify_units
+    )
     try:
         projections = runner.phase1()
 
@@ -1062,12 +1135,12 @@ def build_m1(
             [states[unit.unit_id].seam_home for unit in workload.units]
         )
 
-        fragments = runner.phase2(
-            {
-                unit.unit_id: (unit.batch, unit.echo, unit.cluster, unit.class_id, assignments[unit.unit_id])
-                for unit in fresh
-            }
-        )
+        injections = {
+            unit.unit_id: (unit.batch, unit.echo, unit.cluster, unit.class_id, assignments[unit.unit_id])
+            for unit in workload.units
+        }
+        fragments = runner.phase2({unit.unit_id: injections[unit.unit_id] for unit in fresh})
+        verified = runner.verify(injections)
     finally:
         runner.close()
 
@@ -1077,10 +1150,22 @@ def build_m1(
             fragments[unit.unit_id] = patch_cached_fragment(
                 prior_fragments[cached.prior_id], unit, cached.seams, assignments[unit.unit_id]
             )
+    # What the cache serves must be what a fresh computation of the same window writes, including the twelve scaffold fields `patch_cached_fragment` re-stamps without recomputing the stamp. The content key is the whole of the claim: it hashes every adjudicable field of the fragment, so one comparison per sampled unit covers the ink flags, the enrichment, the seams, the geometry, and the drafts at once.
+    stale = sorted(
+        unit_id
+        for unit_id, key in verified.items()
+        if key != prior_fragments[served[unit_id].prior_id].get("content_key")
+    )
+    if stale:
+        raise SystemExit(
+            f"the unit cache served {len(stale)} of {len(verified)} sampled units whose content key does "
+            f"not match a fresh recomputation: {', '.join(stale[:10])}"
+        )
     mismatches = [line for unit in workload.units for line in states[unit.unit_id].mismatches]
     echo_count = len(echo_ids)
     print(
-        f"[t] review.build units {time.perf_counter() - phase:.1f}s\t(jobs={jobs}, fresh={len(fresh)})",
+        f"[t] review.build units {time.perf_counter() - phase:.1f}s"
+        f"\t(jobs={jobs}, fresh={len(fresh)}, verified={len(verified)} served)",
         file=sys.stderr,
         flush=True,
     )
@@ -1110,6 +1195,15 @@ def build_m1(
 
     phase = time.perf_counter()
     premerge_facts = census.derive_premerge(premerge_capture, workload.units)
+    # An UNMATCHED window is a real new join under review, so it is never ink-identical — a whole-corpus fact rather than a property of the projection, which is why it is asserted over the live workload here and not inside `derive_premerge`, where synthetic callers legitimately build the shape it forbids.
+    families_on_identical = [
+        index for index, _family in premerge_facts.families if premerge_facts.ink_flags[index] == "1"
+    ]
+    if families_on_identical:
+        raise SystemExit(
+            f"{len(families_on_identical)} ink-identical pre-merge units carry a verdict family "
+            f"(first at capture index {families_on_identical[0]})"
+        )
     census.write_facts(
         out_dir,
         census.build_facts(
@@ -1611,6 +1705,10 @@ def check_unit(unit: dict, mode: str = "m1-audit") -> list[str]:
             need(cluster is None, "units outside the human workload must carry cluster null")
     for key in ("class", "group", "notation", "summary", "explain"):
         need(isinstance(unit.get(key), str) and unit.get(key) != "", f"{key} must be a nonempty string")
+    summary = unit.get("summary")
+    if mode == "m1-audit" and isinstance(summary, str):
+        need(summary.startswith("New: "), "summary must open with the New: clause")
+        need("\n" not in summary, "summary must be one line")
     need(isinstance(unit.get("configs"), list) and unit.get("configs"), "configs must be a nonempty list")
     need("config_note" in unit, "config_note must be present")
     note = unit.get("config_note")
@@ -1640,6 +1738,9 @@ def check_unit(unit: dict, mode: str = "m1-audit") -> list[str]:
         )
     groups = unit.get("render_groups")
     need(isinstance(groups, list) and groups, "render_groups must be a nonempty list")
+    # One group per unit is the M1 dedupe key's own guarantee: a unit's rows share (codepoints, baseline, new), so its configs cannot render differently. Data that broke it would have to render stacked rather than be collapsed, so it is a build error and not a display choice.
+    if mode == "m1-audit" and isinstance(groups, list):
+        need(len(groups) == 1, "m1-audit units must carry exactly one render group")
     grouped_configs: list[str] = []
     for group in groups if isinstance(groups, list) else ():
         need(
@@ -1760,9 +1861,12 @@ def check_unit(unit: dict, mode: str = "m1-audit") -> list[str]:
                 f"highlight.{side} must carry integer x_min/x_max/advance_total",
             )
             if isinstance(record, dict) and all(
-                isinstance(record.get(key), int) for key in ("x_min", "x_max")
+                isinstance(record.get(key), int) for key in ("x_min", "x_max", "advance_total")
             ):
-                need(record["x_min"] <= record["x_max"], f"highlight.{side} x_min must not exceed x_max")
+                need(
+                    record["x_min"] <= record["x_max"] <= record["advance_total"],
+                    f"highlight.{side} must satisfy x_min <= x_max <= advance_total",
+                )
 
     def need_rect(record, label: str) -> None:
         need(
@@ -1770,8 +1874,13 @@ def check_unit(unit: dict, mode: str = "m1-audit") -> list[str]:
             and all(isinstance(record.get(key), int) for key in ("x_min", "x_max", "advance_total")),
             f"{label} must carry integer x_min/x_max/advance_total",
         )
-        if isinstance(record, dict) and all(isinstance(record.get(key), int) for key in ("x_min", "x_max")):
-            need(record["x_min"] <= record["x_max"], f"{label} x_min must not exceed x_max")
+        if isinstance(record, dict) and all(
+            isinstance(record.get(key), int) for key in ("x_min", "x_max", "advance_total")
+        ):
+            need(
+                record["x_min"] <= record["x_max"] <= record["advance_total"],
+                f"{label} must satisfy x_min <= x_max <= advance_total",
+            )
 
     seams = unit.get("secondary_seams")
     if seams is not None:
@@ -1826,6 +1935,13 @@ def check_unit(unit: dict, mode: str = "m1-audit") -> list[str]:
                 pin.get("stylistic_set") is None or isinstance(pin.get("stylistic_set"), str),
                 "drafts.pin.stylistic_set must be null or a string",
             )
+            # A pin the reviewer would paste into the corpus and watch fail is worse than no pin: the two verdicts the drafter records against it — the repo's own parser, and a replay of the assertion against the after font — must both read pass on every shipped unit.
+            if mode == "m1-audit":
+                need(pin.get("syntax") == "pass", f"drafts.pin.syntax is {pin.get('syntax')!r}")
+                need(
+                    pin.get("semantics_after_font") == "pass",
+                    f"drafts.pin.semantics_after_font is {pin.get('semantics_after_font')!r}",
+                )
         policy = drafts.get("policy")
         if policy is not None:
             for key in ("file", "keypath", "suggested_record", "decided_stage", "why_stub"):
@@ -1838,6 +1954,23 @@ def check_unit(unit: dict, mode: str = "m1-audit") -> list[str]:
                 "drafts.policy.names_provenance must be a list",
             )
             need(isinstance(policy.get("schema_valid"), bool), "drafts.policy.schema_valid must be a bool")
+            if mode == "m1-audit":
+                need(
+                    policy.get("schema_valid") is True,
+                    "drafts.policy.suggested_record must validate against the rune schema",
+                )
+                need(
+                    policy.get("keypath") in ("policy.refuse[+]", "policy.prefer[+]", "policy.contract[+]"),
+                    f"drafts.policy.keypath is {policy.get('keypath')!r}",
+                )
+                # The draft may only name records the unit's own trace named; anything else would send the reviewer to edit a record that had nothing to do with what they are looking at.
+                if isinstance(policy.get("names_provenance"), list) and isinstance(
+                    unit.get("provenance"), list
+                ):
+                    need(
+                        set(policy["names_provenance"]) <= set(unit["provenance"]),
+                        "drafts.policy.names_provenance must come from the unit's own provenance",
+                    )
         any_of = drafts.get("any_of")
         if mode == "m1-audit":
             need(any_of is not None, "drafts.any_of must be present in m1-audit mode")
@@ -1847,17 +1980,41 @@ def check_unit(unit: dict, mode: str = "m1-audit") -> list[str]:
                 "drafts.any_of.text must be a nonempty string",
             )
             need(isinstance(any_of.get("features"), dict), "drafts.any_of.features must be a mapping")
+            candidates = any_of.get("candidates")
             need(
-                isinstance(any_of.get("candidates"), list) and any_of.get("candidates"),
+                isinstance(candidates, list) and candidates,
                 "drafts.any_of.candidates must be a nonempty list",
             )
+            if isinstance(candidates, list):
+                need(
+                    len(set(candidates)) == len(candidates),
+                    "drafts.any_of.candidates must not repeat a behavior",
+                )
+                # The after-behavior candidate is the pin, already parsed above; the before-behavior one is written from the baseline subset row and is the only string here nothing else checks.
+                if mode == "m1-audit":
+                    expect = pin.get("expect") if isinstance(pin, dict) else None
+                    parse_expect = _import_test_shaping().parse_expect
+                    for candidate in candidates:
+                        if candidate == expect or not isinstance(candidate, str):
+                            continue
+                        try:
+                            parse_expect(candidate)
+                        except ValueError as error:
+                            need(False, f"drafts.any_of candidate {candidate!r} does not parse: {error}")
     return errors
 
 
-def check_shards(manifest: dict, shards_by_class: dict[str, list[dict]]) -> list[str]:
-    """The unit-grain half of the §7 contract check over in-memory shard payloads, keyed by class id — shared between the build's post-write self-check (which hands it the very dicts it serialized) and `check_output_dir` (which re-parses them from disk). Classes missing from the mapping are reported by the caller, which knows whether that means an unwritten file or an unassembled shard."""
+def check_shards(
+    manifest: dict, shards_by_class: dict[str, list[dict]], repo_root: Path | None = None
+) -> list[str]:
+    """The unit-grain half of the §7 contract check over in-memory shard payloads, keyed by class id — shared between the build's post-write self-check (which hands it the very dicts it serialized) and `check_output_dir` (which re-parses them from disk). Classes missing from the mapping are reported by the caller, which knows whether that means an unwritten file or an unassembled shard. `repo_root`, when given, also resolves the distinct policy-draft files once and checks they exist; every other predicate here is over the payload alone.
+
+    Its second job is the cross-unit grain — the properties no single fragment can carry: that an echo group and a cluster each hold one class and one config set and that every echo nests inside one cluster, that the manifest's `human_unit_ids` really is the id-ordered human workload in contiguous batches, and that each secondary seam's home is a shorter unit of the same window where that adjacency is the primary judgment. Those were swept by tests over the live surface once a lane; here they run over every shipped unit on every build.
+    """
     errors: list[str] = []
     mode = manifest.get("mode", "m1-audit")
+    descriptions = manifest.get("feature_descriptions") or {}
+    batch_size = manifest.get("batch_size")
 
     seen_units = 0
     seen_rows = 0
@@ -1868,15 +2025,47 @@ def check_shards(manifest: dict, shards_by_class: dict[str, list[dict]]) -> list
     seam_units = 0
     seams_homed = 0
     seams_homeless = 0
+    echo_keys: dict[str | None, set[tuple]] = {}
+    cluster_keys: dict[str | None, set[tuple]] = {}
+    echo_cluster: dict[str | None, str | None] = {}
+    human_batches: list[tuple[int, str, object]] = []
+    identity: dict[str | None, tuple] = {}
+    policy_files: set[str] = set()
     for meta in manifest.get("classes", ()):
         shard = shards_by_class.get(meta.get("id", ""))
         if shard is None:
             continue
         if len(shard) != meta.get("unit_count"):
             errors.append(f"shard {meta['id']}: {len(shard)} units, manifest says {meta.get('unit_count')}")
+        if meta.get("no_verdict") and meta.get("batches"):
+            errors.append(f"class {meta.get('id')}: a no-verdict class must carry no batches")
         machine_count = 0
         for unit in shard:
             errors.extend(check_unit(unit, mode))
+            unit_id = unit.get("id")
+            identity[unit_id] = (
+                unit.get("codepoints"),
+                unit.get("pair") is not None,
+                unit.get("ink_identical") is True,
+            )
+            policy = (unit.get("drafts") or {}).get("policy") or {}
+            if isinstance(policy.get("file"), str):
+                policy_files.add(policy["file"])
+            for clause in unit.get("config_gate") or ():
+                if isinstance(clause, dict) and not descriptions.get(clause.get("feature")):
+                    errors.append(
+                        f"unit {unit_id}: config_gate names {clause.get('feature')!r}, which the manifest's "
+                        "feature_descriptions does not gloss"
+                    )
+            # Echo and cluster are m1-audit grains; a table-diff unit carries null for both, and reading them as group ids would put every one of its units in the same nonexistent group.
+            if mode == "m1-audit" and unit.get("batch") is not None and isinstance(unit_id, str):
+                key = (unit.get("class"), tuple(unit.get("configs") or ()))
+                echo_keys.setdefault(unit.get("echo"), set()).add(key)
+                cluster_keys.setdefault(unit.get("cluster"), set()).add(key)
+                if echo_cluster.setdefault(unit.get("echo"), unit.get("cluster")) != unit.get("cluster"):
+                    errors.append(f"unit {unit_id}: echo {unit.get('echo')} spans two clusters")
+                if unit_id[2:].isdigit():
+                    human_batches.append((int(unit_id[2:]), unit_id, unit.get("batch")))
             if unit.get("class") != meta.get("id"):
                 errors.append(f"unit {unit.get('id')}: class {unit.get('class')} in shard {meta.get('id')}")
             if unit.get("id") in seen_ids:
@@ -1933,12 +2122,47 @@ def check_shards(manifest: dict, shards_by_class: dict[str, list[dict]]) -> list
         )
     if seen_machine_by_class != {key: value for key, value in (machine.get("by_class") or {}).items()}:
         errors.append("machine_approved.by_class does not match the shards' machine-approved counts")
+    for echo, keys in echo_keys.items():
+        if len(keys) > 1:
+            errors.append(f"echo {echo}: one group spans {sorted(keys)[:2]}")
+    for cluster, keys in cluster_keys.items():
+        if len(keys) > 1:
+            errors.append(f"cluster {cluster}: one signature spans {sorted(keys)[:2]}")
+    if mode == "m1-audit" and isinstance(batch_size, int) and batch_size > 0:
+        human_batches.sort()
+        ordered = [unit_id for _number, unit_id, _batch in human_batches]
+        if ordered != manifest.get("human_unit_ids"):
+            errors.append("human_unit_ids is not the id-ordered sequence of the shards' batched units")
+        expected = [index // batch_size for index in range(len(human_batches))]
+        if [batch for _number, _unit_id, batch in human_batches] != expected:
+            errors.append(f"batches are not contiguous slices of {batch_size} over the id-ordered workload")
+        if manifest.get("totals", {}).get("batches") != len({b for _n, _u, b in human_batches}):
+            errors.append("totals.batches does not count the distinct batches in the shards")
     for unit_id, home in seam_homes:
         if home == unit_id:
             errors.append(f"unit {unit_id}: a secondary seam names itself as home")
         elif home not in seen_ids:
             errors.append(f"unit {unit_id}: secondary seam home {home} is not a unit in this output")
     seam_census = manifest.get("secondary_seams")
+    # The home relation's own shape, checkable only where the resolver assigned it — which is exactly where it wrote the census. A home is a shorter window contained in this one, judging the same adjacency as its own primary pair; and it is never ink-identical, because a home with nothing to see is what `seams_suppressed_invisible` counts instead of homing.
+    if isinstance(seam_census, dict):
+        for unit_id, home in seam_homes:
+            if home not in identity or unit_id not in identity:
+                continue
+            tokens = (identity[unit_id][0] or "").split(":")
+            home_tokens = (identity[home][0] or "").split(":")
+            contained = len(home_tokens) <= len(tokens) and any(
+                tokens[offset : offset + len(home_tokens)] == home_tokens
+                for offset in range(len(tokens) - len(home_tokens) + 1)
+            )
+            if not contained:
+                errors.append(f"unit {unit_id}: secondary seam home {home} is not a substring window")
+            if not identity[home][1]:
+                errors.append(f"unit {unit_id}: secondary seam home {home} has no primary pair")
+            if identity[home][2]:
+                errors.append(f"unit {unit_id}: secondary seam home {home} is ink-identical")
+            if identity[unit_id][2]:
+                errors.append(f"unit {unit_id}: an ink-identical unit carries a secondary seam")
     if isinstance(seam_census, dict):
         for key, observed in (
             ("units_with_markers", seam_units),
@@ -1947,23 +2171,42 @@ def check_shards(manifest: dict, shards_by_class: dict[str, list[dict]]) -> list
         ):
             if seam_census.get(key) != observed:
                 errors.append(f"secondary_seams.{key} {seam_census.get(key)} != {observed} in the shards")
+    if repo_root is not None:
+        for name in sorted(policy_files):
+            if not (Path(repo_root) / name).is_file():
+                errors.append(f"drafts.policy names {name}, which is not a file in the repo")
     return errors
 
 
-def _check_output_files(out_dir: Path, manifest: dict) -> list[str]:
+def _check_output_files(out_dir: Path, manifest: dict, repo_root: Path | None = None) -> list[str]:
+    """The files beside the manifest: every shard present and non-empty, the index page written, and each copied font matching both the sha the manifest recorded and — when `repo_root` resolves the source it names — the font it was copied from. That second comparison is what catches a surface serving last cycle's letters: the copy is faithful to a manifest written over an M1.otf that has since moved on."""
     errors: list[str] = []
+    for meta in manifest.get("classes", ()):
+        shard_path = Path(out_dir) / meta.get("shard", "")
+        if not shard_path.is_file():
+            errors.append(f"shard {meta.get('shard')} is missing")
+        elif shard_path.stat().st_size == 0:
+            errors.append(f"shard {meta.get('shard')} is empty")
     for side, record in (manifest.get("fonts") or {}).items():
         font_path = Path(out_dir) / record.get("file", "")
         if not font_path.exists():
             errors.append(f"fonts.{side}: {record.get('file')} is missing")
-        elif _sha256(font_path) != record.get("sha256"):
+            continue
+        digest = _sha256(font_path)
+        if digest != record.get("sha256"):
             errors.append(f"fonts.{side}: sha256 mismatch")
+        if repo_root is not None and isinstance(record.get("source"), str):
+            source = Path(record["source"])
+            if not source.is_absolute():
+                source = Path(repo_root) / source
+            if source.is_file() and _sha256(source) != digest:
+                errors.append(f"fonts.{side}: the copy is not {record['source']} as it stands on disk")
     if not (Path(out_dir) / "index.html").exists():
         errors.append("index.html is missing")
     return errors
 
 
-def check_output_dir(out_dir: Path) -> list[str]:
+def check_output_dir(out_dir: Path, repo_root: Path | None = None) -> list[str]:
     out_dir = Path(out_dir)
     errors: list[str] = []
     manifest_path = out_dir / "manifest.json"
@@ -1975,11 +2218,10 @@ def check_output_dir(out_dir: Path) -> list[str]:
     for meta in manifest.get("classes", ()):
         shard_path = out_dir / meta.get("shard", "")
         if not shard_path.exists():
-            errors.append(f"shard {meta.get('shard')} is missing")
             continue
         shards_by_class[meta.get("id", "")] = json.loads(shard_path.read_text(encoding="utf-8"))
-    errors.extend(check_shards(manifest, shards_by_class))
-    errors.extend(_check_output_files(out_dir, manifest))
+    errors.extend(check_shards(manifest, shards_by_class, repo_root))
+    errors.extend(_check_output_files(out_dir, manifest, repo_root))
     return errors
 
 

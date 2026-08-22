@@ -1,4 +1,4 @@
-"""Ink-identity comparison for the review surface: a unit is ink_identical when both shipped fonts put exactly the same ink in the same places under every config in the unit's set — only glyph names (and inkless marker glyphs) differ, so no human judgment is meaningful. The ink is recorded the census reference's way: shape the unit's text with uharfbuzz via rebuild.validation.shaping.Shaper, record each glyph's outline with fontTools' DecomposingRecordingPen, and place it at the cumulative x_advance plus the glyph's x_offset/y_offset. The boolean itself has one implementation: `ink_identical` reads `config_diff`'s identity sentinel (IDENTITY_DIFF — empty middles and no follower shift), the same check the surface build applies to the per-config diffs it computes anyway, so the census and the build can never part company. The sentinel implies the reference comparison — sorted placed pieces equal across fonts — by construction, and the property test in rebuild/test_review_ink.py holds the converse over a corpus sample; the sorted-pieces formulation survives as `ink_pieces`, serving the signature/dedupe channel and the Junior oracle rather than the identity verdict. All review-surface shaping is kern-neutral (`kern_neutral`): the rebuild has no kerning until its own later milestone, so the old font's kern feature is pure noise in before/after comparisons and is disabled on both sides."""
+"""Ink-identity comparison for the review surface: a unit is ink_identical when both shipped fonts put exactly the same ink in the same places under every config in the unit's set — only glyph names (and inkless marker glyphs) differ, so no human judgment is meaningful. The ink is recorded the census reference's way: shape the unit's text with uharfbuzz via rebuild.validation.shaping.Shaper, record each glyph's outline with fontTools' DecomposingRecordingPen, and place it at the cumulative x_advance plus the glyph's x_offset/y_offset. Placement is compared, not built: each glyph's outline is interned once to a shape key and its own-frame origin (see `OutlineIntern`), and a placed piece travels as (shape key, absolute x, absolute y), which compares equal exactly when the translated geometry would — two glyphs drawing identical strokes from different origins included. The translated point tuples are then materialized only for the pieces that survive into a returned delta, which for most windows is none of them. The boolean itself has one implementation: `ink_identical` reads `config_diff`'s identity sentinel (IDENTITY_DIFF — empty middles and no follower shift), the same check the surface build applies to the per-config diffs it computes anyway, so the census and the build can never part company. The sentinel implies the reference comparison — sorted placed pieces equal across fonts — by construction, and the property test in rebuild/test_review_ink.py holds the converse over a corpus sample; the sorted-pieces formulation survives as `ink_pieces`, serving the signature/dedupe channel and the Junior oracle rather than the identity verdict. All review-surface shaping is kern-neutral (`kern_neutral`): the rebuild has no kerning until its own later milestone, so the old font's kern feature is pure noise in before/after comparisons and is disabled on both sides."""
 
 from __future__ import annotations
 
@@ -55,7 +55,7 @@ def delta_digest(diff: tuple) -> str:
 
 
 def signature_digest(signature: tuple) -> str:
-    """The persisted identity of one `InkComparator.signature` result: the sha256 of its marshal-v2 bytes. Version 2 deliberately predates marshal's identity-based back references, so equal nested tuples digest equally even when one reuses an object the other reconstructs. Digest equality is signature equality for the ink-duplicate merge's purposes — the merge only ever groups by the value, never reads inside it — which is what lets the surface build serve signatures from the persisted store (rebuild/review/unit_cache.py) instead of re-shaping every relabel-split window on every pass."""
+    """The persisted identity of one `InkComparator.signature` result: the sha256 of its marshal-v2 bytes. Version 2 deliberately predates marshal's identity-based back references, so equal nested tuples digest equally even when one reuses an object the other reconstructs. Digest equality is signature equality for the ink-duplicate merge's purposes — the merge only ever groups by the value, never reads inside it — which is what lets the surface build serve signatures from the persisted store (rebuild/review/unit_cache.py) instead of re-shaping every relabel-split window on every pass. Unlike `delta_digest` this is not a byte contract with anything checked in: it is only ever compared for equality within one build and persisted in a store that self-invalidates on any stamp mismatch, so the day the pieces changed from translated geometry to (outline key, x, y) triples cost exactly one store miss."""
     return hashlib.sha256(marshal.dumps(signature, 2)).hexdigest()
 
 
@@ -95,12 +95,53 @@ def translate_outline(value: tuple, dx: int, dy: int) -> tuple:
     )
 
 
-class OutlineCache:
-    """One font's decomposed glyph outlines, recorded lazily and cached by glyph name; `placed` translates an outline to a pen position, returning () for an inkless glyph so callers can skip markers uniformly."""
+EMPTY_OUTLINE_KEY = b""
 
-    def __init__(self, font_path: Path | str) -> None:
+
+def outline_shape_key(value: tuple) -> tuple[bytes, int, int]:
+    """One decomposed outline split into a shape and an origin: the sha1 of the marshal-v2 bytes of the outline translated so its own leftmost, lowest point sits at (0, 0), plus that point. Splitting is the whole point — two glyphs drawn identically but positioned differently inside their own frames (`qsSee.ex-y0.ex-ext-2` and `qsSee.straighter.ex-y0.ex-ext-2` are the worked example, 50 units apart) share a shape key, and their placements differ by exactly the origins, so a placed piece written as (shape key, absolute x, absolute y) compares equal precisely when the placed geometry does. Content-derived rather than sequence-assigned so the same outline earns the same key in every process: ink-signature digests are grouped across the parent's spawn pool, and a per-process intern counter would hand two workers different digests for the same picture. Marshal version 2 predates the identity-based back references, so equal nested tuples key equally even when one reuses an object the other reconstructs."""
+    points = [point for _operator, points in value for point in points if point is not None]
+    if not points:
+        return (hashlib.sha1(marshal.dumps(value, 2)).digest(), 0, 0)
+    origin_x = min(point[0] for point in points)
+    origin_y = min(point[1] for point in points)
+    canonical = translate_outline(value, -origin_x, -origin_y)
+    return (hashlib.sha1(marshal.dumps(canonical, 2)).digest(), origin_x, origin_y)
+
+
+class OutlineIntern:
+    """The outline table the fonts of one comparison share: `place` interns an outline to its shape key, remembering the origin-normalized value so a surviving delta piece can be materialized back, and `value` reads that back. Interning by shape rather than by glyph name is what makes a key comparable across fonts, and it is what lets `config_diff` do all of its alignment, multiset subtraction, and normalization over small tuples of ints and bytes, building translated geometry only for the pieces that survive into the returned delta — which for most windows is none of them."""
+
+    def __init__(self) -> None:
+        self._values: dict[bytes, tuple] = {}
+        self._drawn: dict[bytes, bool] = {}
+
+    def place(self, value: tuple) -> tuple[bytes, int, int]:
+        if not value:
+            return (EMPTY_OUTLINE_KEY, 0, 0)
+        key, origin_x, origin_y = outline_shape_key(value)
+        if key not in self._values:
+            canonical = translate_outline(value, -origin_x, -origin_y)
+            self._values[key] = canonical
+            self._drawn[key] = any(point is not None for _op, points in canonical for point in points)
+        return (key, origin_x, origin_y)
+
+    def value(self, key: bytes) -> tuple:
+        return self._values[key]
+
+    def draws(self, key: bytes) -> bool:
+        """Whether the shape has any point at all. An outline of bare path operators contributes no x to the delta's normalization, exactly as the point-walking form it replaces contributed none."""
+        return self._drawn[key]
+
+
+class OutlineCache:
+    """One font's decomposed glyph outlines, recorded lazily and cached by glyph name; `placed` translates an outline to a pen position, returning () for an inkless glyph so callers can skip markers uniformly, and `shape_key` answers the same question in the shared intern's key space, which is where the comparator does its work."""
+
+    def __init__(self, font_path: Path | str, intern: OutlineIntern | None = None) -> None:
         self._glyph_set = TTFont(str(font_path)).getGlyphSet()
         self._cache: dict[str, tuple] = {}
+        self._keys: dict[str, tuple[bytes, int, int]] = {}
+        self.intern = intern if intern is not None else OutlineIntern()
 
     def outline(self, name: str) -> tuple:
         if name not in self._cache:
@@ -109,31 +150,39 @@ class OutlineCache:
             self._cache[name] = tuple((operator, tuple(points)) for operator, points in pen.value)
         return self._cache[name]
 
+    def shape_key(self, name: str) -> tuple[bytes, int, int]:
+        """The glyph's (shape key, origin x, origin y), computed once per name."""
+        entry = self._keys.get(name)
+        if entry is None:
+            entry = self._keys[name] = self.intern.place(self.outline(name))
+        return entry
+
     def placed(self, name: str, dx: int, dy: int) -> tuple:
         value = self.outline(name)
         return translate_outline(value, dx, dy) if value else ()
 
 
 class InkComparator:
-    """Holds one Shaper and one OutlineCache per font; `ink_identical` is a deterministic boolean over (text, configs). The surface build passes `shaper_factory=shaper_for` so its components share one memoized Shaper per font; the default keeps a plain private Shaper, because a memo is pure memory cost for callers like carry_verdicts that never shape the same text twice."""
+    """Holds one Shaper and one OutlineCache per font, both caches sharing one `OutlineIntern` so a piece can be compared across fonts as (shape key, absolute x, absolute y) without ever building the translated geometry; `ink_identical` is a deterministic boolean over (text, configs). The surface build passes `shaper_factory=shaper_for` so its components share one memoized Shaper per font; the default keeps a plain private Shaper, because a memo is pure memory cost for callers like carry_verdicts that never shape the same text twice."""
 
     def __init__(
         self, before_font: Path | str, after_font: Path | str, shaper_factory: Callable = Shaper
     ) -> None:
+        self.intern = OutlineIntern()
         self._sides: dict[str, tuple[Shaper, OutlineCache]] = {}
         for side, path in (("before", before_font), ("after", after_font)):
-            self._sides[side] = (shaper_factory(path), OutlineCache(path))
+            self._sides[side] = (shaper_factory(path), OutlineCache(path, self.intern))
 
     def ink_pieces(self, side: str, text: str, features: dict[str, bool]) -> tuple:
-        """The placed outlines of one shaped run, sorted: one piece per glyph that carries ink, translated to its pen position. Inkless glyphs (space, ZWNJ, empty markers) contribute no piece. Shaping is always kern-neutral."""
+        """The placed outlines of one shaped run, sorted: one (shape key, absolute x, absolute y) piece per glyph that carries ink, at its pen position. Inkless glyphs (space, ZWNJ, empty markers) contribute no piece. The triple stands in for the geometry — two pieces compare equal exactly when the translated outlines would, across fonts and across processes alike — which is what keeps the translated outlines from being built at all on this path. Shaping is always kern-neutral."""
         shaper, outlines = self._sides[side]
         result = shaper.shape(text, kern_neutral(features))
         pieces = []
         pen_x = 0
         for name, (x_offset, y_offset, x_advance) in zip(result.names, result.positions):
-            placed = outlines.placed(name, pen_x + x_offset, y_offset)
-            if placed:
-                pieces.append(placed)
+            key, origin_x, origin_y = outlines.shape_key(name)
+            if key:
+                pieces.append((key, pen_x + x_offset + origin_x, y_offset + origin_y))
             pen_x += x_advance
         pieces.sort()
         return tuple(pieces)
@@ -143,7 +192,7 @@ class InkComparator:
         return all(self.config_diff(text, config) == IDENTITY_DIFF for config in configs)
 
     def signature(self, text: str, config: str) -> tuple:
-        """The rendered-outcome identity of one text under one config: the (before pieces, after pieces) pair. Two rows whose signatures are equal put exactly the same ink in the same places in both fonts, so they present the same visual question no matter how their glyph names differ."""
+        """The rendered-outcome identity of one text under one config: the (before pieces, after pieces) pair, each piece an (outline key, x, y) triple. Two rows whose signatures are equal put exactly the same ink in the same places in both fonts, so they present the same visual question no matter how their glyph names differ."""
         features = features_for(config)
         return (self.ink_pieces("before", text, features), self.ink_pieces("after", text, features))
 
@@ -154,23 +203,23 @@ class InkComparator:
         pieces = []
         pen_x = 0
         for name, (x_offset, y_offset, x_advance) in zip(result.names, result.positions):
-            placed = outlines.placed(name, pen_x + x_offset, y_offset)
-            if placed:
-                pieces.append(placed)
+            key, origin_x, origin_y = outlines.shape_key(name)
+            if key:
+                pieces.append((key, pen_x + x_offset + origin_x, y_offset + origin_y))
             pen_x += x_advance - (tracking if name.startswith("qs") else 0)
         pieces.sort()
         return tuple(pieces)
 
     def run_ink(self, side: str, text: str, features: dict[str, bool]) -> list:
-        """The placed ink of one shaped run in run order: one (own-frame outline, pen position) entry per glyph that carries ink, so config_diff can align the two fonts' runs glyph-by-glyph. Shaping is always kern-neutral."""
+        """The placed ink of one shaped run in run order: one (shape key, absolute x, absolute y, own-frame origin x) entry per glyph that carries ink, so config_diff can align the two fonts' runs glyph-by-glyph. The first three place the ink and are all the multiset subtraction reads; the fourth is what distinguishes two glyphs that draw the same strokes from different origins, which the prefix and suffix strips — alignment questions about the run, not about the page — still need to tell apart. Shaping is always kern-neutral."""
         shaper, outlines = self._sides[side]
         result = shaper.shape(text, kern_neutral(features))
         pieces = []
         pen_x = 0
         for name, (x_offset, y_offset, x_advance) in zip(result.names, result.positions):
-            placed = outlines.placed(name, 0, y_offset)
-            if placed:
-                pieces.append((placed, pen_x + x_offset))
+            key, origin_x, origin_y = outlines.shape_key(name)
+            if key:
+                pieces.append((key, pen_x + x_offset + origin_x, y_offset + origin_y, origin_x))
             pen_x += x_advance
         return pieces
 
@@ -185,11 +234,11 @@ class InkComparator:
         stripped = 0
         shift = None
         while len(before) - 1 - stripped >= start and len(after) - 1 - stripped >= start:
-            outline_before, pen_before = before[len(before) - 1 - stripped]
-            outline_after, pen_after = after[len(after) - 1 - stripped]
-            if outline_before != outline_after:
+            key_b, x_b, y_b, origin_b = before[len(before) - 1 - stripped]
+            key_a, x_a, y_a, origin_a = after[len(after) - 1 - stripped]
+            if key_b != key_a or y_b != y_a or origin_b != origin_a:
                 break
-            dx = pen_after - pen_before
+            dx = x_a - x_b
             if shift is None:
                 shift = dx
             if dx != shift:
@@ -197,38 +246,21 @@ class InkComparator:
             stripped += 1
         if shift is None:
             shift = 0
-        middle_before = Counter(
-            translate_outline(outline, pen, 0) for outline, pen in before[start : len(before) - stripped]
-        )
-        middle_after = Counter(
-            translate_outline(outline, pen, 0) for outline, pen in after[start : len(after) - stripped]
-        )
+        middle_before = Counter(piece[:3] for piece in before[start : len(before) - stripped])
+        middle_after = Counter(piece[:3] for piece in after[start : len(after) - stripped])
         before_only = list((middle_before - middle_after).elements())
         after_only = list((middle_after - middle_before).elements())
-        xs = [
-            point[0]
-            for piece in before_only + after_only
-            for _operator, points in piece
-            for point in points
-            if point is not None
-        ]
+        if not before_only and not after_only:
+            return ((), (), shift)
+        intern = self.intern
+        # Every shape sits at x = 0 in its own frame, so a piece's leftmost point is its absolute x and the delta's leftmost point is the smallest of them; no geometry needs building to find it.
+        xs = [x for key, x, _y in before_only + after_only if intern.draws(key)]
         if not xs:
             return ((), (), shift)
         x0 = min(xs)
 
         def normalize(pieces):
-            return tuple(
-                sorted(
-                    tuple(
-                        (
-                            operator,
-                            tuple(point if point is None else (point[0] - x0, point[1]) for point in points),
-                        )
-                        for operator, points in piece
-                    )
-                    for piece in pieces
-                )
-            )
+            return tuple(sorted(translate_outline(intern.value(key), x - x0, y) for key, x, y in pieces))
 
         return (normalize(before_only), normalize(after_only), shift)
 

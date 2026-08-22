@@ -290,7 +290,7 @@ class Drafter:
         position = self._policy_position(enriched)
         if position is None:
             return None
-        settled = enriched.report.positions[position].trace.settled
+        settled = enriched.report.positions[position].settled
         cell = settled.cell
         rune = cell.rune
         why = f"Reviewer rejected the M1 outcome for {unit.codepoints} ({enriched.notation})"
@@ -343,14 +343,14 @@ class Drafter:
                 record, default_flow_style=True, width=10**6, allow_unicode=True, sort_keys=False
             ).strip(),
             names_provenance=enriched.provenance,
-            decided_stage=enriched.report.positions[position].trace.decided_stage,
+            decided_stage=enriched.report.positions[position].decided_stage,
             schema_valid=schema_valid,
             why_stub=why,
         )
 
     def _new_join_side(self, enriched: EnrichedUnit, position: int) -> str | None:
         """When a gap adjacent to the divergent cell is joined in the new behavior but was a break in the baseline, the smallest counter-lever is a refuse on the anchor that reaches across that gap (REVIEW-PLAN §4.3: positive-record outcomes get a refuse) — a contract could only shrink an extension, never restore the break. Returns "exit" or "entry" for the side carrying the new join, or None."""
-        cell = enriched.report.positions[position].trace.settled.cell
+        cell = enriched.report.positions[position].settled.cell
         if (
             position < len(enriched.after_seams)
             and enriched.after_seams[position] != "break"
@@ -405,7 +405,7 @@ class Drafter:
     @staticmethod
     def _gained_extension_side(enriched: EnrichedUnit, position: int) -> tuple[str, str, int] | None:
         """When the divergent cell carries an en-ext/ex-ext adjustment the baseline glyph at the same position lacks, the smallest counter-lever is a contract record on that side, not a refuse: returns (side keyword, height name, pixels). The caller checks `_new_join_side` first — an extension riding a join the baseline didn't have needs a refuse, because contracting it would keep the unwanted join."""
-        settled = enriched.report.positions[position].trace.settled
+        settled = enriched.report.positions[position].settled
         cell = settled.cell
         span_start = enriched.after_spans[position][0]
         before_index = 0
@@ -425,10 +425,10 @@ class Drafter:
     def _policy_position(self, enriched: EnrichedUnit) -> int | None:
         positions = enriched.report.positions
         for index in enriched.diff_positions:
-            if index < len(positions) and not is_boundary_settled(positions[index].trace.settled):
+            if index < len(positions) and not is_boundary_settled(positions[index].settled):
                 return index
         for index, position in enumerate(positions):
-            if not is_boundary_settled(position.trace.settled):
+            if not is_boundary_settled(position.settled):
                 return index
         return None
 
@@ -436,11 +436,11 @@ class Drafter:
         """The window across the gap the record targets: an exit-side lever scopes to the right neighbor, an entry-side lever to the left, falling back to `_window_when` when that neighbor is a boundary."""
         positions = enriched.report.positions
         if side == "exit" and position + 1 < len(positions):
-            right = positions[position + 1].trace.settled
+            right = positions[position + 1].settled
             if not is_boundary_settled(right):
                 return {"right": {"family": [right.cell.rune]}}
         if side == "entry" and position > 0:
-            left = positions[position - 1].trace.settled
+            left = positions[position - 1].settled
             if not is_boundary_settled(left):
                 return {"left": {"family": [left.cell.rune]}}
         return self._window_when(enriched, position)
@@ -448,11 +448,11 @@ class Drafter:
     def _window_when(self, enriched: EnrichedUnit, position: int) -> dict:
         positions = enriched.report.positions
         if position + 1 < len(positions):
-            right = positions[position + 1].trace.settled
+            right = positions[position + 1].settled
             if not is_boundary_settled(right):
                 return {"right": {"family": [right.cell.rune]}}
         if position > 0:
-            left = positions[position - 1].trace.settled
+            left = positions[position - 1].settled
             if not is_boundary_settled(left):
                 return {"left": {"family": [left.cell.rune]}}
         return {"word": "isolated"}

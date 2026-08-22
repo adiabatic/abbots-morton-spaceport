@@ -213,6 +213,21 @@ class SecondarySeam:
     suppressed: bool = False
 
 
+@dataclass(frozen=True)
+class TracePosition:
+    """One settled position as the drafters read it — the cell that settled there and the stage that decided it — and nothing else."""
+
+    settled: Settled
+    decided_stage: str
+
+
+@dataclass(frozen=True)
+class TraceReport:
+    """What an enriched unit keeps of its `ExplainReport` once `enrich` is done with it: one `TracePosition` per position, which is the whole of what the three drafters read (`positions[i].settled`, `.settled.cell`, `.decided_stage`, and how many there are). The report itself never leaves `enrich` — the explain text is rendered and filtered there and the summary is written from it — because a surface worker holds every unit it enriched from phase 1 until the parent's global reduces finish, and full reports were by far the largest thing in that pile."""
+
+    positions: tuple[TracePosition, ...]
+
+
 @dataclass
 class EnrichedUnit:
     unit: Unit
@@ -230,9 +245,8 @@ class EnrichedUnit:
     boundary_marks: tuple[dict, ...]
     explain_text: str
     provenance: tuple[str, ...]
-    report: ExplainReport
+    report: TraceReport
     summary: str = ""
-    diff_traces: tuple = ()
     notes: tuple[str, ...] = ()
     after_spans: tuple[tuple[int, int], ...] = ()
     before_spans: tuple[tuple[int, int], ...] = ()
@@ -402,6 +416,10 @@ class Enricher:
             raise ValueError(f"no baseline subset row for {config} {unit.codepoints}")
         before_spans = _spans_from_clusters(row.clusters, len(values))
         before_seams = tuple(row.seams[row.clusters[index + 1] - 1] for index in range(len(row.glyphs) - 1))
+        # Two ways to read the glyph-grain seams out of a codepoint-grain subset row — take the seam at each cluster's last codepoint, or drop the `lig` seams that live inside a cluster — and they must agree, which is what the second one being one expression rather than a test makes cheap to keep saying.
+        assert before_seams == tuple(
+            seam for seam in row.seams if seam != "lig"
+        ), f"{config} {unit.codepoints}: before seams {before_seams} disagree with the lig-filtered row seams"
 
         diff_cp, divergent_gaps = self._diff_codepoints(values, row, before_spans, settled, after_spans)
         diff_positions = tuple(sorted({_covering(after_spans, cp) for cp in diff_cp}))
@@ -513,9 +531,13 @@ class Enricher:
             boundary_marks=boundary_marks,
             explain_text=explain_text,
             provenance=provenance,
-            report=report,
+            report=TraceReport(
+                positions=tuple(
+                    TracePosition(settled=position.trace.settled, decided_stage=position.trace.decided_stage)
+                    for position in report.positions
+                )
+            ),
             summary=summary,
-            diff_traces=diff_traces,
             after_spans=tuple(after_spans),
             before_spans=tuple(before_spans),
             secondary_seams=tuple(secondary_seams),

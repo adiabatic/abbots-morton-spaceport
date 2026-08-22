@@ -1,12 +1,12 @@
 """The persisted per-unit surface cache (issue 20): the review build's phase-1/phase-2 products carried across builds, keyed by per-unit content keys, so a one-rune edit re-enriches the windows that could feel it and serves everything else from the previous surface's shards.
 
-A unit's expensive products — the ink diffs and machine-approval flags, the enrichment (cells, seams, highlights, explain, provenance), and the three drafts — are a pure function of a nameable closure, and the cache's soundness is exactly the claim that the content key covers that closure. The key is two-grained: per unit, the audit rows (which pin the window, its configs, both fonts' rendered names, and the matched ledger classes) plus a per-family digest for every window letter — the family's prose-blind rune digest expanded by its static `resolve.against` closure, joined with a digest of the after font's compiled glyphs for that family (outlines, advances, and cursive anchors, so a drawing or anchor change invalidates even when no name in the rows moves) — with ligature families included whenever all their components appear in the window. Whole store, everything that can move a unit's products without moving a named family: the pipeline and review code, the non-rune data files, the engine's semantics flags, the resolved spec structure and capability-feature universe (cross-rune routes: predicate-class and group memberships, ligature sequences, the formation guard's feature combos), the before and Junior fonts wholesale, the acceptance configs' subset tables, the draft harness (test/test_shaping.py, tools/, postscript_glyph_names.yaml) and the three site corpus files it validates pins against, and the after font's non-family glyphs and layout wiring. The divergence ledger is deliberately not in the store stamp: its per-unit effects reach the shards only through the audit's matched_entry column (in the rows) or through fields the build re-derives and re-patches on every pass (no_verdict, exemplar, class promotion), so a ledger edit invalidates exactly the units whose rows it moved.
+A unit's expensive products — the ink diffs and machine-approval flags, the enrichment (cells, seams, highlights, explain, provenance), and the three drafts — are a pure function of a nameable closure, and the cache's soundness is exactly the claim that the content key covers that closure. The key is two-grained: per unit, the audit rows (which pin the window, its configs, both fonts' rendered names, and the matched ledger classes) plus a per-family digest for every window letter — the family's prose-blind rune digest expanded by its static `resolve.against` closure, joined with a digest of the after font's compiled glyphs for that family (outlines, advances, and cursive anchors, so a drawing or anchor change invalidates even when no name in the rows moves) — with ligature families included whenever all their components appear in the window. Whole store, everything that can move a unit's products without moving a named family: the pipeline and review code, the non-rune data files, the engine's semantics flags, the resolved spec structure and capability-feature universe (cross-rune routes: predicate-class and group memberships, ligature sequences, the formation guard's feature combos), the before and Junior fonts wholesale, the acceptance configs' subset tables, the draft harness (test/test_shaping.py, tools/, postscript_glyph_names.yaml) and the three site corpus files it validates pins against, and the after font's non-family glyphs, cmap, and GPOS wiring. What is deliberately outside every stamp is the after font's GSUB wiring; `after_font_glyph_digests` carries the argument for why a window's glyph selection is covered without it. The divergence ledger is deliberately not in the store stamp: its per-unit effects reach the shards only through the audit's matched_entry column (in the rows) or through fields the build re-derives and re-patches on every pass (no_verdict, exemplar, class promotion), so a ledger edit invalidates exactly the units whose rows it moved.
 
 What the store serves is the previous build's emitted fragment (read back from the shards it lives in) plus the slim projection the parent's global reduces need: the machine flags and ink deltas, the verdict family, the judged pair, the ink-diff digest for echo grouping, the seam-home projection and per-seam rects, and the unit's mismatch lines. Everything order-derived or ledger-derived — id, batch, echo, class, no_verdict, exemplar, the secondary-seam homes — is recomputed over the full universe every build and patched into served fragments, so a cache hit never freezes a global field; the cluster id alone is trusted from the served fragment, because its inputs (configs, final class, ink diffs) are all under the key. The byte-identity gate (rebuild/test_review_build.py::test_builds_are_byte_identical) is the standing proof: an incrementally rebuilt live surface must match a from-scratch build byte for byte.
 
 This module also owns the carry content key (the render identity rebuild/tools/carry_verdicts.py resolves prior verdicts against), so the build can stamp each unit's `content_key` at emission time and carry can probe stamped hashes instead of re-serializing every unit — one definition, shared by both sides, with the stamp itself excluded from the projection it hashes.
 
-Beside the per-unit store lives the ink-signature store (issue 18), which does for the ink-duplicate merge what the unit store does for enrichment: the merge needs one rendered-outcome signature per (window, config) over every relabel-split window — the one per-unit product computed before the unit universe exists, so the unit store can never serve it — and re-shaping those serially was the load phase's floor. Each entry's key follows the unit key's two-grained soundness argument exactly: the audit row pins the window, the config, and both fonts' rendered names (the audit is regenerated from the live fonts, so a GSUB change that moves shaping reaches the key through the names even when no glyph outline moved), and the per-family digests pin the after font's outlines, advances, and cursive anchors for every family the window can touch. The whole-store stamp carries what signatures depend on beyond that: the shaping code and the before font wholesale, plus the after font's non-family glyphs, cmap, and layout wiring. Deliberately absent: the ledger, the subsets, the Junior font, the corpus, and the draft harness — signatures read none of them, so this store survives edits that drop the unit store, and a build that re-enriches everything can still skip re-shaping the merge.
+Beside the per-unit store lives the ink-signature store (issue 18), which does for the ink-duplicate merge what the unit store does for enrichment: the merge needs one rendered-outcome signature per (window, config) over every relabel-split window — the one per-unit product computed before the unit universe exists, so the unit store can never serve it — and re-shaping those serially was the load phase's floor. Each entry's key follows the unit key's two-grained soundness argument exactly: the audit row pins the window, the config, the before font's rendered names, and the settled cells the after font is compiled to reproduce, and the per-family digests pin the after font's outlines, advances, and cursive anchors for every family the window can touch. The whole-store stamp carries what signatures depend on beyond that: the shaping code and the before font wholesale, plus the after font's non-family glyphs, cmap, and GPOS wiring. Deliberately absent: the ledger, the subsets, the Junior font, the corpus, and the draft harness — signatures read none of them, so this store survives edits that drop the unit store, and a build that re-enriches everything can still skip re-shaping the merge.
 """
 
 from __future__ import annotations
@@ -99,7 +99,10 @@ def _cursive_anchor_map(font) -> dict[str, list]:
 
 
 def after_font_glyph_digests(after_font: Path) -> tuple[dict[str, str], str]:
-    """Per qs family, a digest over the after font's compiled glyphs whose name stem belongs to it (decomposed outline operations, so subroutine plumbing can never hide a change; advance and sidebearing; cursive anchors), plus one environment digest over everything else the shaped run can touch regardless of family: the non-qs glyphs (boundary and marker helpers), the cmap, and the GPOS feature-to-lookup wiring."""
+    """Per qs family, a digest over the after font's compiled glyphs whose name stem belongs to it (decomposed outline operations, so subroutine plumbing can never hide a change; advance and sidebearing; cursive anchors), plus one environment digest over everything else the shaped run can touch regardless of family: the non-qs glyphs (boundary and marker helpers), the cmap, and the GPOS feature-to-lookup wiring.
+
+    The GSUB wiring is deliberately not in the environment digest, and it is the one omission worth arguing. A rune edit moves the GSUB lookup list on essentially every cycle, so folding it in here made both whole-store stamps move on exactly the workflow the cache exists for — a store that never once served a unit. What covers a window's glyph selection instead is a pair of things already in the keys: the audit row's `new` column, which is the settled cell the window resolves to and which the per-unit and per-signature keys both hash, and `gate:conform`, which re-shapes the compiled font through HarfBuzz every cycle and proves its selection is the settlement's. So within a cycle whose conform gate is green, which glyph the after font puts in a window is a function of that window's settled cells, and those cells cannot move without the unit's key moving. Everything the selected glyph then contributes — outline, advance, cursive anchors — is in the per-family digests, for every variant of every family the window can reach rather than only the selected one, and the code that emits the GSUB at all is in the environment stamp's pipeline fingerprint. GPOS stays because its channel is positional: it can move a run without moving a name or a cell.
+    """
     from fontTools.pens.recordingPen import DecomposingRecordingPen
     from fontTools.ttLib import TTFont
 
@@ -128,7 +131,7 @@ def after_font_glyph_digests(after_font: Path) -> tuple[dict[str, str], str]:
     }
 
     wiring: list = []
-    for tag in ("GSUB", "GPOS"):
+    for tag in ("GPOS",):
         if tag not in font:
             continue
         table = font[tag].table  # pyright: ignore[reportAttributeAccessIssue]
@@ -252,13 +255,13 @@ class UnitKeyer:
         return hashlib.sha256("\n".join(lines).encode()).hexdigest()
 
     def signature_key(self, row: AuditRow) -> str:
-        """One ink-signature store entry's content key: the audit row's window, config, and both fonts' rendered names — everything the row pins that a signature depends on, deliberately without `kinds` and `matched_entry`, which are classification the shaped ink never reads (a ledger edit must not re-shape a window) — plus the same per-family digests the unit key cites."""
+        """One ink-signature store entry's content key: the audit row's window, config, the before font's rendered names, and the settled cells the after font is compiled to reproduce — everything the row pins that a signature depends on, deliberately without `kinds` and `matched_entry`, which are classification the shaped ink never reads (a ledger edit must not re-shape a window) — plus the same per-family digests the unit key cites. Truncated to sixteen hex characters, unlike the unit key: this one is written a million times over into a store whose 64-character keys were most of its bytes, and sixty-four bits over a million entries puts a collision at one in forty million — which would in any case only hand one window's sibling group a wrong-but-equal ink signature."""
         families = frozenset(
             self._family_of[value] for value in parse_codepoints(row.codepoints) if value in self._family_of
         )
         lines = ["\t".join((row.config, row.codepoints, "|".join(row.baseline), "|".join(row.new)))]
         lines += [f"{name}\t{self._family_keys[name]}" for name in self._relevant_families(families)]
-        return hashlib.sha256("\n".join(lines).encode()).hexdigest()
+        return hashlib.sha256("\n".join(lines).encode()).hexdigest()[:16]
 
 
 @dataclass
@@ -317,12 +320,12 @@ class CachedUnit:
 
 
 def write_store(out_dir: Path, environment: str, records: Iterable[CachedUnit]) -> None:
-    """Written after the manifest, stamped with the manifest's bytes, so a store can prove it describes the shards beside it; a crash between the two leaves a stamp mismatch and the next build falls back to a full pass. The gzip mtime is pinned so consecutive identical builds stay byte-identical."""
+    """Written after the manifest, stamped with the manifest's bytes, so a store can prove it describes the shards beside it; a crash between the two leaves a stamp mismatch and the next build falls back to a full pass. The gzip mtime is pinned so consecutive identical builds stay byte-identical, and the compression level with it — level 1 rather than 9, because this file is written once and read once per build and the four seconds level 9 spends buying ten megabytes on a scratch artifact are four seconds off every cycle."""
     manifest_sha = _sha256_file(Path(out_dir) / "manifest.json")
     header = {"format": STORE_FORMAT, "environment": environment, "manifest_sha256": manifest_sha}
     path = store_path(out_dir)
     with open(path, "wb") as handle:
-        with gzip.GzipFile(fileobj=handle, mode="wb", mtime=0) as stream:
+        with gzip.GzipFile(fileobj=handle, mode="wb", mtime=0, compresslevel=1) as stream:
             stream.write((json.dumps(header) + "\n").encode())
             for record in records:
                 stream.write((json.dumps(record.to_record()) + "\n").encode())
@@ -367,10 +370,10 @@ def signature_environment(repo_root: Path, before_font: Path, after_helpers_dige
 
 
 def write_signature_store(out_dir: Path, environment: str, entries: Mapping[str, str]) -> None:
-    """One JSON header line, then one `key\\tdigest` line per entry, sorted by key; the pinned gzip mtime and the sort are what keep consecutive builds of the same inputs byte-identical. Written fresh each build with exactly the entries the merge needed, so stale windows age out rather than accumulating."""
+    """One JSON header line, then one `key\\tdigest` line per entry, sorted by key; the pinned gzip mtime and the sort are what keep consecutive builds of the same inputs byte-identical. Written fresh each build with exactly the entries the merge needed, so stale windows age out rather than accumulating. Level 1, like the unit store: this is a million lines of hex, which is incompressible, and level 9 was spending four seconds for well under a percent."""
     header = {"format": SIGNATURE_STORE_FORMAT, "environment": environment}
     with open(signature_store_path(out_dir), "wb") as handle:
-        with gzip.GzipFile(fileobj=handle, mode="wb", mtime=0) as stream:
+        with gzip.GzipFile(fileobj=handle, mode="wb", mtime=0, compresslevel=1) as stream:
             stream.write((json.dumps(header) + "\n").encode())
             for key in sorted(entries):
                 stream.write(f"{key}\t{entries[key]}\n".encode())
