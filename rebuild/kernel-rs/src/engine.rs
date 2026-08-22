@@ -11,6 +11,7 @@
 //! Three raises live in this half, all of them spec defects rather than settlement outcomes, and all three keep Python's sentence: a left condition carrying `then:`, a right condition carrying a left-only axis, and an unresolvable class name (which [`SpecIndex::class_members`] raises). Everything else here answers rather than raises — an unavailable entry, a forbidden pairing, a closed-out exit, and a refusal are all eliminations, and a window with no candidates at all is the ranking's problem, not enumeration's.
 
 use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
 
 use crate::error::SettleError;
 use crate::index::{SpecIndex, StanceId};
@@ -20,9 +21,15 @@ use crate::model::{
 use crate::specificity;
 use crate::types::{
     AdjustmentToken, Candidate, CellId, DecidedStage, Elimination, EliminationStage, LeftContext,
-    RankedCandidate, RightToken, Settled, Side, TokenKind, TransitionTrace, UNKNOWN, Vocab,
-    boundary_settled, cell_label, provenance_pointer, word_position,
+    RankedCandidate, RightToken, Settled, Side, TokenKind, TraceLadder, TransitionTrace, UNKNOWN,
+    Vocab, boundary_settled, cell_label, provenance_pointer, word_position,
 };
+
+/// Where a candidate enumeration's eliminations go, together with whether their sentences are wanted at all. Separating the two is what lets the table fixpoint keep every elimination's stage and pointer — the notes on a row are built from those — while formatting none of the prose that names them.
+struct EliminationSink<'a> {
+    list: Option<&'a mut Vec<Elimination>>,
+    describe: bool,
+}
 
 /// One authored record's YAML pointer, as the fired set and every journaled delta hold it — `model.Provenance`'s two halves, kept apart so the value is `Copy` and hashes on two integers instead of on a composed string. [`Pointer::text`] builds the `file:path` spelling Python's `str(Provenance)` gives, which is what the corpus and the notes carry.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -48,6 +55,33 @@ impl Pointer {
                 file: self.file,
                 path: self.path,
             },
+        )
+    }
+}
+
+/// One collection's occupancy, as the `--cache-census` diagnostic reports it. A capacity beside a length is what tells a table that is merely large apart from one that is mostly empty slack, which is the difference between a shrink worth taking and one that would buy nothing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CacheSize {
+    pub name: &'static str,
+    pub len: usize,
+    pub capacity: usize,
+}
+
+impl CacheSize {
+    /// One named collection's pair.
+    pub fn of(name: &'static str, len: usize, capacity: usize) -> Self {
+        Self {
+            name,
+            len,
+            capacity,
+        }
+    }
+
+    /// The line the census writes for it.
+    pub fn line(&self, config: &str) -> String {
+        format!(
+            "[c] {config} {} len={} cap={}",
+            self.name, self.len, self.capacity
         )
     }
 }
@@ -102,6 +136,8 @@ pub struct EngineModes {
     pub vote_slots: bool,
     /// Whether the engine memoizes whole windows and journals a fired delta per memoized evaluation. Off everywhere but the table fixpoint and the differential replay.
     pub trace_memo: bool,
+    /// Whether a trace carries its explain ladder — the ranking, the eliminations with their sentences, and the runner-up. On everywhere a person or the differential reads a trace; off in the table fixpoint, whose rows read the settled triple, the prospect, the joint floor and the notes, and nothing else. Formatting a ladder nobody reads is the enumeration's largest avoidable allocation, so this is where that decision is spelled.
+    pub explain_ladder: bool,
 }
 
 impl Default for EngineModes {
@@ -111,6 +147,7 @@ impl Default for EngineModes {
             simulated_prospect: true,
             vote_slots: true,
             trace_memo: false,
+            explain_ladder: true,
         }
     }
 }
@@ -135,7 +172,7 @@ struct PairingSets {
 struct CandidatesEntry {
     candidates: Vec<Candidate>,
     eliminations: Vec<Elimination>,
-    delta: Vec<Pointer>,
+    delta: Box<[Pointer]>,
 }
 
 /// The candidate memo's key, which collapses the left exactly as Python's does: the kind, and the settled cell's rune, stance and seam. The left's entry, its adjustments and its extension are deliberately absent — enumeration reads none of them, so two settled lefts differing only there enumerate identically and share one entry. The trace memo's key keeps the extension, because the commit's same-seam suppression does read it.
@@ -217,6 +254,9 @@ struct Applicable<'i> {
     favored: HashSet<Candidate>,
 }
 
+/// The window memo and its fired journal in one table: a shadow map on the same 72-byte key would cost the key and its hashbrown slack a second time, for a value that is only ever read alongside the trace it belongs to.
+type TraceMemo = HashMap<TraceKey, (TransitionTrace, Box<[Pointer]>)>;
+
 /// One settlement engine per (spec, feature configuration), `settle.Engine`.
 pub struct Engine<'i> {
     index: &'i SpecIndex,
@@ -228,16 +268,15 @@ pub struct Engine<'i> {
     fired: HashSet<Pointer>,
     fired_log: Option<Vec<Pointer>>,
     capture_starts: Vec<usize>,
-    closure_cache: HashMap<ClosureKey, bool>,
-    closure_fired: HashMap<ClosureKey, Vec<Pointer>>,
-    candidates_cache: HashMap<CandidatesKey, CandidatesEntry>,
-    prospect_cache: HashMap<ProspectKey, i64>,
-    prospect_fired: HashMap<ProspectKey, Vec<Pointer>>,
+    /// Each memo carries its own fired delta beside its verdict rather than in a shadow map on the same key: the delta is only ever read alongside the verdict it belongs to, and a second table would pay for the key and its hashbrown slack twice over.
+    closure_cache: HashMap<ClosureKey, (bool, Box<[Pointer]>)>,
+    candidates_cache: HashMap<CandidatesKey, Rc<CandidatesEntry>>,
+    prospect_cache: HashMap<ProspectKey, (i64, Box<[Pointer]>)>,
     exit_sources_cache: HashMap<StanceId, (Vec<ExitSource<'i>>, Vec<Pointer>)>,
     virtual_left_cache: HashMap<(Sym, Candidate), LeftContext>,
     pairing_sets: HashMap<StanceId, PairingSets>,
-    trace_cache: Option<HashMap<TraceKey, TransitionTrace>>,
-    trace_fired: HashMap<TraceKey, Vec<Pointer>>,
+    explain_ladder: bool,
+    trace_cache: Option<TraceMemo>,
 }
 
 impl<'i> Engine<'i> {
@@ -263,15 +302,13 @@ impl<'i> Engine<'i> {
             fired_log: modes.trace_memo.then(Vec::new),
             capture_starts: Vec::new(),
             closure_cache: HashMap::new(),
-            closure_fired: HashMap::new(),
             candidates_cache: HashMap::new(),
             prospect_cache: HashMap::new(),
-            prospect_fired: HashMap::new(),
             exit_sources_cache: HashMap::new(),
             virtual_left_cache: HashMap::new(),
             pairing_sets: HashMap::new(),
+            explain_ladder: modes.explain_ladder,
             trace_cache: modes.trace_memo.then(HashMap::new),
-            trace_fired: HashMap::new(),
         }
     }
 
@@ -310,6 +347,16 @@ impl<'i> Engine<'i> {
         self.trace_cache.is_some()
     }
 
+    /// Drop every memo this engine holds, keeping the fired set and the small per-spec tables. What follows a fixpoint's last trace is a drain and a sort of the whole product, and holding the window memos alive across it is the enumeration's peak — two working sets that never need to coexist.
+    ///
+    /// A memo is a pure cache here: every entry replays the pointers its computation fired, so a cleared one re-fires them rather than swallowing them, and nothing a later evaluation decides can move. Callers still snapshot [`Engine::fired`] before releasing, because re-firing after the snapshot is what makes the release invisible rather than merely harmless.
+    pub fn release_memos(&mut self) {
+        self.trace_cache = self.trace_cache.as_ref().map(|_| HashMap::new());
+        self.candidates_cache = HashMap::new();
+        self.prospect_cache = HashMap::new();
+        self.closure_cache = HashMap::new();
+    }
+
     /// Every authored record that demonstrably fired under this configuration — refusals that killed a candidate, unlocks that granted capability, row scopes that admitted a side, and the adjustments and prefers that shaped a committed cell. The dead-policy gate reads this; iteration order never reaches an output, which is why a plain hash set serves.
     pub fn fired(&self) -> &HashSet<Pointer> {
         &self.fired
@@ -322,9 +369,69 @@ impl<'i> Engine<'i> {
         token: RightToken,
         slots: Slots,
     ) -> Option<&[Pointer]> {
-        self.trace_fired
+        self.trace_cache
+            .as_ref()?
             .get(&Self::trace_key(left, token.rune()?, slots))
-            .map(Vec::as_slice)
+            .map(|(_, delta)| &**delta)
+    }
+
+    /// Every memo this engine holds, as `--cache-census` reports them: the entries each one carries and the buckets it carries them in. The order is the declaration order of the fields, so two runs' censuses line up row for row.
+    pub fn cache_census(&self) -> Vec<CacheSize> {
+        let mut out = vec![
+            CacheSize::of("fired", self.fired.len(), self.fired.capacity()),
+            CacheSize::of(
+                "closure_cache",
+                self.closure_cache.len(),
+                self.closure_cache.capacity(),
+            ),
+            CacheSize::of(
+                "candidates_cache",
+                self.candidates_cache.len(),
+                self.candidates_cache.capacity(),
+            ),
+            CacheSize::of(
+                "prospect_cache",
+                self.prospect_cache.len(),
+                self.prospect_cache.capacity(),
+            ),
+            CacheSize::of(
+                "exit_sources_cache",
+                self.exit_sources_cache.len(),
+                self.exit_sources_cache.capacity(),
+            ),
+            CacheSize::of(
+                "virtual_left_cache",
+                self.virtual_left_cache.len(),
+                self.virtual_left_cache.capacity(),
+            ),
+            CacheSize::of(
+                "pairing_sets",
+                self.pairing_sets.len(),
+                self.pairing_sets.capacity(),
+            ),
+        ];
+        if let Some(cache) = self.trace_cache.as_ref() {
+            out.push(CacheSize::of("trace_cache", cache.len(), cache.capacity()));
+        }
+        out
+    }
+
+    /// How many bytes of elimination sentence the two memos are holding — the explain-only text a run that never reads a ladder still pays for. Counted rather than estimated, because it is the figure that decides whether formatting them at all is worth its RAM.
+    pub fn elimination_text_bytes(&self) -> usize {
+        let cached: usize = self
+            .candidates_cache
+            .values()
+            .flat_map(|entry| entry.eliminations.iter())
+            .map(|elimination| elimination.description.len())
+            .sum();
+        let traced: usize = self
+            .trace_cache
+            .iter()
+            .flat_map(HashMap::values)
+            .flat_map(|(trace, _)| trace.ladder().eliminations.iter())
+            .map(|elimination| elimination.description.len())
+            .sum();
+        cached + traced
     }
 
     // --- the fired journal ---------------------------------------------------
@@ -344,20 +451,6 @@ impl<'i> Engine<'i> {
         }
     }
 
-    fn replay_fired(&mut self, delta: &[Pointer]) {
-        if delta.is_empty() {
-            return;
-        }
-        self.fired.extend(delta.iter().copied());
-        if !self.capture_starts.is_empty() {
-            let log = self
-                .fired_log
-                .as_mut()
-                .expect("a capture is only ever open while the journal exists");
-            log.extend_from_slice(delta);
-        }
-    }
-
     fn begin_capture(&mut self) {
         let log = self
             .fired_log
@@ -367,7 +460,7 @@ impl<'i> Engine<'i> {
     }
 
     /// Close the innermost capture and hand back what fired inside it, deduplicated with the first firing of each pointer kept — Python's `dict.fromkeys`. When the outermost capture closes the journal empties, so it never grows past one top-level evaluation.
-    fn end_capture(&mut self) -> Vec<Pointer> {
+    fn end_capture(&mut self) -> Box<[Pointer]> {
         let start = self
             .capture_starts
             .pop()
@@ -386,7 +479,7 @@ impl<'i> Engine<'i> {
         if self.capture_starts.is_empty() {
             log.clear();
         }
-        delta
+        delta.into_boxed_slice()
     }
 
     /// Abandon the innermost capture. A raising evaluation records no delta — it is never cached — but its firings stay journaled for any enclosing capture, because they demonstrably fired during that evaluation and a fresh replay would fire them again.
@@ -863,10 +956,16 @@ impl<'i> Engine<'i> {
             return self.candidates_uncached(left, rune_name, right1, right2, eliminations);
         }
         let key = Self::candidates_key(left, rune_name, right1, right2);
+        // A hit clones a pointer rather than the entry: the candidates and the eliminations behind it are read out and thrown away microseconds later, and most callers ask for no eliminations at all, so deep-copying the entry's two vectors and every sentence in them was the enumeration's busiest wasted allocation.
         let entry = match self.candidates_cache.get(&key) {
             Some(cached) => {
-                let cached = cached.clone();
-                self.replay_fired(&cached.delta);
+                let cached = Rc::clone(cached);
+                replay_into(
+                    &mut self.fired,
+                    &mut self.fired_log,
+                    &self.capture_starts,
+                    &cached.delta,
+                );
                 cached
             }
             None => {
@@ -885,19 +984,19 @@ impl<'i> Engine<'i> {
                         return Err(error);
                     }
                 };
-                let entry = CandidatesEntry {
+                let entry = Rc::new(CandidatesEntry {
                     candidates: out,
                     eliminations: local,
                     delta: self.end_capture(),
-                };
-                self.candidates_cache.insert(key, entry.clone());
+                });
+                self.candidates_cache.insert(key, Rc::clone(&entry));
                 entry
             }
         };
         if let Some(list) = eliminations {
-            list.extend(entry.eliminations);
+            list.extend(entry.eliminations.iter().cloned());
         }
-        Ok(entry.candidates)
+        Ok(entry.candidates.clone())
     }
 
     fn candidates_key(
@@ -923,8 +1022,12 @@ impl<'i> Engine<'i> {
         rune_name: Sym,
         right1: RightToken,
         right2: RightToken,
-        mut eliminations: Option<&mut Vec<Elimination>>,
+        eliminations: Option<&mut Vec<Elimination>>,
     ) -> Result<Vec<Candidate>, SettleError> {
+        let mut eliminations = EliminationSink {
+            list: eliminations,
+            describe: self.explain_ladder,
+        };
         let index = self.index();
         let vocab = index.vocab();
         let seat = index.rune_seat(rune_name).unwrap_or_else(|| {
@@ -1170,11 +1273,14 @@ impl<'i> Engine<'i> {
             right1: follower,
             right2,
         };
-        if let Some(&cached) = self.closure_cache.get(&key) {
-            if self.fired_log.is_some() {
-                let delta = self.closure_fired.get(&key).cloned().unwrap_or_default();
-                self.replay_fired(&delta);
-            }
+        if let Some((cached, delta)) = self.closure_cache.get(&key) {
+            let cached = *cached;
+            replay_into(
+                &mut self.fired,
+                &mut self.fired_log,
+                &self.capture_starts,
+                delta,
+            );
             return Ok(cached);
         }
         let virtual_left = self.virtual_left(rune_name, *candidate);
@@ -1182,7 +1288,7 @@ impl<'i> Engine<'i> {
             let result = !self
                 .candidates(&virtual_left, follower, right2, UNKNOWN, None)?
                 .is_empty();
-            self.closure_cache.insert(key, result);
+            self.closure_cache.insert(key, (result, Box::default()));
             return Ok(result);
         }
         self.begin_capture();
@@ -1194,8 +1300,7 @@ impl<'i> Engine<'i> {
             }
         };
         let delta = self.end_capture();
-        self.closure_fired.insert(key, delta);
-        self.closure_cache.insert(key, result);
+        self.closure_cache.insert(key, (result, delta));
         Ok(result)
     }
 
@@ -1252,11 +1357,14 @@ impl<'i> Engine<'i> {
                 right2: slots.right2.letter(),
             }
         };
-        if let Some(&cached) = self.prospect_cache.get(&key) {
-            if self.fired_log.is_some() {
-                let delta = self.prospect_fired.get(&key).cloned().unwrap_or_default();
-                self.replay_fired(&delta);
-            }
+        if let Some((cached, delta)) = self.prospect_cache.get(&key) {
+            let cached = *cached;
+            replay_into(
+                &mut self.fired,
+                &mut self.fired_log,
+                &self.capture_starts,
+                delta,
+            );
             return Ok(cached);
         }
         let capturing = self.fired_log.is_some();
@@ -1272,11 +1380,12 @@ impl<'i> Engine<'i> {
                 return Err(error);
             }
         };
-        if capturing {
-            let delta = self.end_capture();
-            self.prospect_fired.insert(key, delta);
-        }
-        self.prospect_cache.insert(key, result);
+        let delta = if capturing {
+            self.end_capture()
+        } else {
+            Box::default()
+        };
+        self.prospect_cache.insert(key, (result, delta));
         Ok(result)
     }
 
@@ -1292,8 +1401,10 @@ impl<'i> Engine<'i> {
             return self.seam_bearing_follower_exists(&virtual_left, follower, slots.right2);
         }
         let shifted = Slots::new(slots.right2, slots.right3, slots.right4, UNKNOWN);
-        match self.transition_trace(&virtual_left, slots.right1, shifted) {
-            Ok(trace) => Ok(i64::from(trace.settled.seam.is_some())),
+        match self.with_trace(&virtual_left, slots.right1, shifted, |trace| {
+            i64::from(trace.settled.seam.is_some())
+        }) {
+            Ok(seam_bearing) => Ok(seam_bearing),
             Err(_) => {
                 self.simulated_prospect_fallbacks += 1;
                 self.seam_bearing_follower_exists(&virtual_left, follower, slots.right2)
@@ -1958,25 +2069,23 @@ impl<'i> Engine<'i> {
                 settled: boundary_settled(self.index().vocab(), token.kind()),
                 joint_floor: false,
                 prospect: 0,
-                ranked: Vec::new(),
-                eliminations: Vec::new(),
                 decided_stage: DecidedStage::Boundary,
-                runner_up: None,
                 notes: Vec::new(),
+                ladder: None,
             });
         }
         if self.trace_cache.is_none() {
             return self.transition_trace_uncached(left, token, slots);
         }
         let key = Self::trace_key(left, token.letter(), slots);
-        if let Some(trace) = self
-            .trace_cache
-            .as_ref()
-            .and_then(|cache| cache.get(&key))
-            .cloned()
-        {
-            let delta = self.trace_fired.get(&key).cloned().unwrap_or_default();
-            self.replay_fired(&delta);
+        if let Some((trace, delta)) = self.trace_cache.as_ref().and_then(|cache| cache.get(&key)) {
+            let trace = trace.clone();
+            replay_into(
+                &mut self.fired,
+                &mut self.fired_log,
+                &self.capture_starts,
+                delta,
+            );
             return Ok(trace);
         }
         self.begin_capture();
@@ -1988,12 +2097,42 @@ impl<'i> Engine<'i> {
             }
         };
         let delta = self.end_capture();
-        self.trace_fired.insert(key, delta);
         self.trace_cache
             .as_mut()
             .expect("the memo is what brought us here")
-            .insert(key, trace.clone());
+            .insert(key, (trace.clone(), delta));
         Ok(trace)
+    }
+
+    /// One field or two off a window's trace, read where the trace already sits in the memo rather than through a copy of it. `settle.Engine.transition_trace` answers with a whole owned record, and most of its callers inside this engine want a seam or a cell out of it — so a hit on the memo would otherwise deep-copy a settled cell, its notes and its adjustment list to answer a question about one `Option`.
+    ///
+    /// The fired delta is replayed on a hit exactly as [`Engine::transition_trace`] replays it, because that is what makes a warm engine's fired set equal a cold one's, and no reading shortcut may skip it.
+    pub(crate) fn with_trace<T>(
+        &mut self,
+        left: &LeftContext,
+        token: RightToken,
+        slots: Slots,
+        read: impl FnOnce(&TransitionTrace) -> T,
+    ) -> Result<T, SettleError> {
+        if token.kind() == TokenKind::Letter
+            && let Some(key) = self
+                .trace_cache
+                .is_some()
+                .then(|| Self::trace_key(left, token.letter(), slots))
+            && let Some((trace, delta)) =
+                self.trace_cache.as_ref().and_then(|cache| cache.get(&key))
+        {
+            let answer = read(trace);
+            replay_into(
+                &mut self.fired,
+                &mut self.fired_log,
+                &self.capture_starts,
+                delta,
+            );
+            return Ok(answer);
+        }
+        let trace = self.transition_trace(left, token, slots)?;
+        Ok(read(&trace))
     }
 
     fn transition_trace_uncached(
@@ -2151,43 +2290,72 @@ impl<'i> Engine<'i> {
             Slots::pair(slots.right1, slots.right2),
             &mut notes,
         )?;
-        let mut scored: Vec<RankedCandidate> = ranked_order
-            .iter()
-            .map(|candidate| ranked[candidate])
-            .collect();
-        scored.sort_by_key(|entry| {
-            (
-                -entry.join_count,
-                entry.candidate.order_index,
-                entry.candidate.exit_index,
-            )
+        let ladder = self.explain_ladder.then(|| {
+            let mut scored: Vec<RankedCandidate> = ranked_order
+                .iter()
+                .map(|candidate| ranked[candidate])
+                .collect();
+            scored.sort_by_key(|entry| {
+                (
+                    -entry.join_count,
+                    entry.candidate.order_index,
+                    entry.candidate.exit_index,
+                )
+            });
+            Box::new(TraceLadder {
+                ranked: scored,
+                eliminations,
+                runner_up,
+            })
         });
         Ok(TransitionTrace {
             settled,
             joint_floor,
             prospect: ranked[&winner].prospect,
-            ranked: scored,
-            eliminations,
             decided_stage,
-            runner_up,
             notes,
+            ladder,
         })
     }
 }
 
-/// Append one candidate's elimination when the caller asked for eliminations at all. The description is built lazily because the closure and the prospect both enumerate with eliminations off, and formatting a sentence nobody reads is the one avoidable cost in the enumeration's inner loop.
+/// Append one candidate's elimination when the caller asked for eliminations at all. The description is built lazily because the closure and the prospect both enumerate with eliminations off, and formatting a sentence nobody reads is the one avoidable cost in the enumeration's inner loop — which is also why a sink that is not recording a ladder leaves the sentence empty and keeps only the stage and the pointer the notes are built from.
 fn record_elimination(
-    eliminations: &mut Option<&mut Vec<Elimination>>,
+    sink: &mut EliminationSink<'_>,
     stage: EliminationStage,
     description: impl FnOnce() -> String,
     provenance: Option<&Provenance>,
 ) {
-    if let Some(list) = eliminations.as_deref_mut() {
+    let describe = sink.describe;
+    if let Some(list) = sink.list.as_deref_mut() {
         list.push(Elimination {
             stage,
-            description: description(),
+            description: if describe {
+                description()
+            } else {
+                String::new()
+            },
             provenance: provenance.cloned(),
         });
+    }
+}
+
+/// One memo entry's fired delta replayed into the journal, spelled over the three fields it touches rather than over the whole engine. That is what lets a hit replay the delta where it sits in the memo instead of copying it out first: the memo and the journal are disjoint fields, and only a receiver that named the whole engine made them look otherwise.
+fn replay_into(
+    fired: &mut HashSet<Pointer>,
+    fired_log: &mut Option<Vec<Pointer>>,
+    capture_starts: &[usize],
+    delta: &[Pointer],
+) {
+    if delta.is_empty() {
+        return;
+    }
+    fired.extend(delta.iter().copied());
+    if !capture_starts.is_empty() {
+        let log = fired_log
+            .as_mut()
+            .expect("a capture is only ever open while the journal exists");
+        log.extend_from_slice(delta);
     }
 }
 
@@ -3417,9 +3585,9 @@ mod tests {
         engine.begin_capture();
         engine.record_pointer(two);
         engine.record_pointer(one);
-        assert_eq!(engine.end_capture(), vec![two, one]);
+        assert_eq!(*engine.end_capture(), *vec![two, one]);
         engine.record_pointer(three);
-        assert_eq!(engine.end_capture(), vec![one, two, three]);
+        assert_eq!(*engine.end_capture(), *vec![one, two, three]);
         assert!(
             engine
                 .fired_log
@@ -3454,7 +3622,7 @@ mod tests {
         engine.begin_capture();
         engine.record_pointer(two);
         engine.abort_capture();
-        assert_eq!(engine.end_capture(), vec![one, two]);
+        assert_eq!(*engine.end_capture(), *vec![one, two]);
     }
 
     #[test]
@@ -3494,8 +3662,9 @@ mod tests {
                 .candidates_cache
                 .get(&Engine::candidates_key(&left, may, EDGE, EDGE))
                 .expect("the window this test enumerated is memoized")
-                .delta,
-            vec![unlock]
+                .delta
+                .as_ref(),
+            [unlock]
         );
         memoized.fired.clear();
         let again = memoized
@@ -3807,10 +3976,10 @@ mod tests {
         );
         assert_eq!(trace.prospect, 0);
         assert!(!trace.joint_floor);
-        assert!(trace.ranked.is_empty());
-        assert!(trace.eliminations.is_empty());
+        assert!(trace.ladder().ranked.is_empty());
+        assert!(trace.ladder().eliminations.is_empty());
         assert!(trace.notes.is_empty());
-        assert_eq!(trace.runner_up, None);
+        assert_eq!(trace.ladder().runner_up, None);
     }
 
     #[test]
@@ -3834,12 +4003,13 @@ mod tests {
         assert_eq!(trace.settled.cell.exit, Some(x_height));
         assert_eq!(trace.settled.seam, Some(x_height));
         assert_eq!(
-            trace.runner_up,
+            trace.ladder().runner_up,
             Some(Candidate::non_joining(stroke, None, 0))
         );
         assert_eq!(trace.prospect, 0);
         assert_eq!(
             trace
+                .ladder()
                 .ranked
                 .iter()
                 .map(|entry| (entry.candidate, entry.join_count))
@@ -3869,7 +4039,7 @@ mod tests {
             Some(fixtures::sym(&plain, "x-height"))
         );
         assert_eq!(
-            trace.runner_up,
+            trace.ladder().runner_up,
             Some(Candidate::non_joining(stroke_of(&plain), None, 0))
         );
 
@@ -3915,7 +4085,7 @@ mod tests {
         assert_eq!(trace.decided_stage, DecidedStage::YieldingPrefer);
         assert_eq!(trace.settled.cell.stance, fixtures::sym(&index, "flourish"));
         assert_eq!(
-            trace.runner_up,
+            trace.ladder().runner_up,
             Some(Candidate::joining(
                 fixtures::sym(&index, "stroke"),
                 None,
@@ -3936,7 +4106,7 @@ mod tests {
         assert_eq!(trace.decided_stage, DecidedStage::Order);
         assert_eq!(trace.settled.cell.stance, fixtures::sym(&index, "stroke"));
         assert_eq!(
-            trace.runner_up,
+            trace.ladder().runner_up,
             Some(Candidate::non_joining(
                 fixtures::sym(&index, "flourish"),
                 None,
@@ -4602,6 +4772,7 @@ mod tests {
         assert_eq!(estimated, simulated);
         assert_eq!(
             estimated
+                .ladder()
                 .ranked
                 .iter()
                 .map(|entry| entry.prospect)
@@ -4729,7 +4900,12 @@ mod tests {
                 .contains_key(&key),
             "the raising window itself is not cached, though the simulated windows it opened are"
         );
-        assert!(!engine.trace_fired.contains_key(&key));
+        assert!(
+            engine
+                .trace_cache
+                .as_ref()
+                .is_none_or(|cache| !cache.contains_key(&key))
+        );
         assert!(
             engine.fired().contains(&Pointer {
                 file: fixtures::sym(&index, "qsPea.yaml"),

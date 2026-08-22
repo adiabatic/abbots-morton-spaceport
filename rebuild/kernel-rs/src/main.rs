@@ -17,6 +17,8 @@
 //!
 //! Concurrency reaches exactly as far as the configuration and no further: `enumerate-configs` runs at most `--threads` configurations at once, by default one per configuration and capped by the machine's parallelism. [`ams_m1_kernel::fanout`] carries both halves of why that is the whole of it — what makes the bytes a function of the plan rather than of the schedule, and why the worklist inside one configuration stays sequential. Peak memory rises roughly linearly with that width, since each configuration in flight holds its whole working set until its stream has been emitted, so `--threads` is the lever a machine with less memory than parallelism reaches for.
 //!
+//! `--cache-census` rides the same two verbs and writes `[c] <config> <collection> len=<n> cap=<m>` lines to stderr, one per memo, plus the elimination text the memos were holding and the process's resident size sampled either side of the memo release and past the sort. It is the instrument every memory decision about this crate is made with, because the arithmetic on a struct definition can only estimate what one censused run states — and it is a diagnostic rather than an answer, so it costs nothing when it is not asked for and never touches the stream. The lines ride the same buffered stderr `--timings` uses and are written in `--configs` order; the two flags are independent, so a census can be taken without a clock and the other way round.
+//!
 //! `--timings` rides `enumerate` and `enumerate-configs` and writes `[t] <label> <secs>s` lines to stderr at one decimal, `rebuild/pipeline/run_m1.py`'s spelling, which is what `rebuild/tools/cycle_timings.py` parses back out of a captured child: `spec_parse` for the read, the parse and the index, then `enumerate[<config>]` and `emit[<config>]` per configuration, then `enumerate_total`. Every line is buffered and written once the last configuration is done, in `--configs` order, so stderr reads the same at any thread count. Without the flag nothing reaches stderr on a clean exit, which is a contract of its own: the identity harness reads any stderr there as a failure.
 //!
 //! A usage mistake — wrong argument count, wrong verb, an unknown flag, a flag the named verb does not spell, an argument that is not valid Unicode — exits 2; a file that cannot be read, parsed, or validated, a directory that cannot be written, a case file or key file this build cannot answer, and a window that will not settle, exit 1 with a one-line complaint on stderr.
@@ -40,7 +42,7 @@ use ams_m1_kernel::options::WindowOptions;
 use ams_m1_kernel::stream::feature_config_token;
 use ams_m1_kernel::{cases, emit, fanout, guard, parse, stream};
 
-const USAGE: &str = "usage: ams-m1-kernel spec-echo <spec>\n       ams-m1-kernel settle-cases <spec> <cases> [--features=a,b] [--candidacy-prospect] [--vote-slots-off]\n       ams-m1-kernel guard-sweep <spec>\n       ams-m1-kernel enumerate <spec> [--features=a,b] [--candidacy-prospect] [--vote-slots-off] [--deep-classes-off] [--timings]\n       ams-m1-kernel enumerate-configs <spec> <outdir> --configs=default,ss03 [--threads=N] [--candidacy-prospect] [--vote-slots-off] [--deep-classes-off] [--timings]\n       ams-m1-kernel liveness-cases <spec> <keys> [--features=a,b] [--candidacy-prospect] [--vote-slots-off]";
+const USAGE: &str = "usage: ams-m1-kernel spec-echo <spec>\n       ams-m1-kernel settle-cases <spec> <cases> [--features=a,b] [--candidacy-prospect] [--vote-slots-off]\n       ams-m1-kernel guard-sweep <spec>\n       ams-m1-kernel enumerate <spec> [--features=a,b] [--candidacy-prospect] [--vote-slots-off] [--deep-classes-off] [--timings] [--cache-census]\n       ams-m1-kernel enumerate-configs <spec> <outdir> --configs=default,ss03 [--threads=N] [--candidacy-prospect] [--vote-slots-off] [--deep-classes-off] [--timings] [--cache-census]\n       ams-m1-kernel liveness-cases <spec> <keys> [--features=a,b] [--candidacy-prospect] [--vote-slots-off]";
 
 /// What a command line named, before any verb has said how many positionals it wants. The three mode flags are spelled as negations because all three modes ship on, so a plain invocation is the shipping configuration.
 struct Flags<'a> {
@@ -49,6 +51,7 @@ struct Flags<'a> {
     configs: Option<Vec<&'a str>>,
     threads: Option<usize>,
     timings: bool,
+    census: bool,
     simulated_prospect: bool,
     vote_slots: bool,
     deep_classes: bool,
@@ -61,6 +64,7 @@ struct Vocabulary {
     features: bool,
     /// The two flags of a multi-configuration run, `--configs=` and `--threads=`, which only ever arrive together.
     configs: bool,
+    /// `--timings` and `--cache-census`, the two stderr diagnostics, which the same verbs spell.
     timings: bool,
 }
 
@@ -101,6 +105,7 @@ struct EnumeratePlan<'a> {
     vote_slots: bool,
     deep_classes: bool,
     timings: bool,
+    census: bool,
 }
 
 /// What an `enumerate-configs` invocation asked for: [`EnumeratePlan`]'s world over a whole named set of configurations and a directory to write them into, with the feature list replaced by the configuration tokens that spell it.
@@ -113,6 +118,7 @@ struct ConfigsPlan<'a> {
     vote_slots: bool,
     deep_classes: bool,
     timings: bool,
+    census: bool,
 }
 
 /// One configuration a command line named: the token it was spelled by — which is the filename, the stream head's `config` and the label of its timing lines — and the feature names that token parses into.
@@ -203,6 +209,7 @@ fn scan_flags(rest: &[String], vocabulary: Vocabulary) -> Option<Flags<'_>> {
     let mut configs: Option<Vec<&str>> = None;
     let mut threads: Option<usize> = None;
     let mut timings = false;
+    let mut census = false;
     let mut simulated_prospect = true;
     let mut vote_slots = true;
     let mut deep_classes = true;
@@ -215,6 +222,8 @@ fn scan_flags(rest: &[String], vocabulary: Vocabulary) -> Option<Flags<'_>> {
             deep_classes = false;
         } else if vocabulary.timings && argument == "--timings" {
             timings = true;
+        } else if vocabulary.timings && argument == "--cache-census" {
+            census = true;
         } else if vocabulary.features
             && let Some(list) = argument.strip_prefix("--features=")
         {
@@ -248,6 +257,7 @@ fn scan_flags(rest: &[String], vocabulary: Vocabulary) -> Option<Flags<'_>> {
         configs,
         threads,
         timings,
+        census,
         simulated_prospect,
         vote_slots,
         deep_classes,
@@ -280,6 +290,7 @@ fn plan_enumerate(rest: &[String]) -> Option<EnumeratePlan<'_>> {
         vote_slots: flags.vote_slots,
         deep_classes: flags.deep_classes,
         timings: flags.timings,
+        census: flags.census,
     })
 }
 
@@ -317,6 +328,7 @@ fn plan_configs(rest: &[String]) -> Option<ConfigsPlan<'_>> {
         vote_slots: flags.vote_slots,
         deep_classes: flags.deep_classes,
         timings: flags.timings,
+        census: flags.census,
     })
 }
 
@@ -395,7 +407,11 @@ fn settle_cases(plan: &CasesPlan<'_>) -> Result<(), String> {
 
 /// One configuration's whole fixpoint as the uncompressed transitions stream, in whichever of the four mode combinations the command line named and at whichever grain follows from them.
 fn enumerate(plan: &EnumeratePlan<'_>) -> Result<(), String> {
-    let mut clock = Timings::new(plan.timings);
+    let report = fanout::Report {
+        timings: plan.timings,
+        census: plan.census,
+    };
+    let mut clock = Timings::new(report);
     let started = Instant::now();
     let index = read_index(plan.spec)?;
     clock.record("spec_parse", started.elapsed());
@@ -415,7 +431,7 @@ fn enumerate(plan: &EnumeratePlan<'_>) -> Result<(), String> {
         &config,
         modes,
         &mut std::io::stdout().lock(),
-        plan.timings,
+        report,
     )
     .map_err(|failure| match failure {
         fanout::Failure::Refused(complaint) => format!("{}: {complaint}", plan.spec),
@@ -428,7 +444,11 @@ fn enumerate(plan: &EnumeratePlan<'_>) -> Result<(), String> {
 
 /// A whole named set of configurations' fixpoints, each one written as its own file under the directory the plan named, at most `--threads` of them at once. Nothing lands on stdout: the answer here is the files, and they are only meaningful on exit 0.
 fn enumerate_configs(plan: &ConfigsPlan<'_>) -> Result<(), String> {
-    let mut clock = Timings::new(plan.timings);
+    let report = fanout::Report {
+        timings: plan.timings,
+        census: plan.census,
+    };
+    let mut clock = Timings::new(report);
     let started = Instant::now();
     let index = read_index(plan.spec)?;
     clock.record("spec_parse", started.elapsed());
@@ -455,7 +475,7 @@ fn enumerate_configs(plan: &ConfigsPlan<'_>) -> Result<(), String> {
         modes,
         Path::new(plan.outdir),
         workers,
-        plan.timings,
+        report,
     )
     .map_err(|complaint| format!("{}: {complaint}", plan.spec))?
     {
@@ -470,21 +490,23 @@ fn enumerate_configs(plan: &ConfigsPlan<'_>) -> Result<(), String> {
 /// Buffering is what makes a concurrent run's stderr readable and comparable: a line written when its phase ended would order stderr by the schedule, so the whole set is written once, in the order the plan named its configurations. A run without the flag records nothing and writes nothing, which is not merely tidiness — the identity harness reads any stderr on a clean exit as a failure.
 struct Timings {
     wanted: bool,
+    phases: bool,
     started: Instant,
     lines: Vec<String>,
 }
 
 impl Timings {
-    fn new(wanted: bool) -> Self {
+    fn new(report: fanout::Report) -> Self {
         Self {
-            wanted,
+            wanted: !report.silent(),
+            phases: report.timings,
             started: Instant::now(),
             lines: Vec::new(),
         }
     }
 
     fn record(&mut self, label: &str, elapsed: Duration) {
-        if self.wanted {
+        if self.phases {
             self.lines.push(fanout::timing_line(label, elapsed));
         }
     }
@@ -707,6 +729,7 @@ mod tests {
         vote_slots: bool,
         deep_classes: bool,
         timings: bool,
+        census: bool,
     }
 
     /// The same for `enumerate-configs`, whose configurations and thread count have no counterpart on the other verbs.
@@ -719,6 +742,7 @@ mod tests {
         vote_slots: bool,
         deep_classes: bool,
         timings: bool,
+        census: bool,
     }
 
     fn owned(words: &[&str]) -> Vec<String> {
@@ -735,6 +759,7 @@ mod tests {
             vote_slots: plan.vote_slots,
             deep_classes: plan.deep_classes,
             timings: plan.timings,
+            census: plan.census,
         })
     }
 
@@ -753,6 +778,7 @@ mod tests {
             vote_slots: plan.vote_slots,
             deep_classes: plan.deep_classes,
             timings: plan.timings,
+            census: plan.census,
         })
     }
 
@@ -766,6 +792,7 @@ mod tests {
             vote_slots: plan.vote_slots,
             deep_classes: true,
             timings: false,
+            census: false,
         })
     }
 
@@ -779,6 +806,7 @@ mod tests {
             vote_slots: plan.vote_slots,
             deep_classes: true,
             timings: false,
+            census: false,
         })
     }
 
@@ -968,5 +996,25 @@ mod tests {
         );
         assert!(cased(&["spec.json", "cases.txt", "--timings"]).is_none());
         assert!(livened(&["spec.json", "keys.txt", "--timings"]).is_none());
+    }
+
+    /// `--cache-census` rides the same two verbs and stands apart from `--timings`, because the RAM diagnostic and the phase clock are asked for separately.
+    #[test]
+    fn only_the_enumerating_verbs_spell_the_cache_census_flag() {
+        let censused =
+            enumerated(&["spec.json", "--cache-census"]).expect("one enumeration can be censused");
+        assert!(censused.census && !censused.timings);
+        assert!(
+            fanned(&["spec.json", "out", "--configs=default", "--cache-census"])
+                .expect("and so can a fan-out")
+                .census
+        );
+        assert!(
+            !enumerated(&["spec.json"])
+                .expect("a bare enumeration")
+                .census
+        );
+        assert!(cased(&["spec.json", "cases.txt", "--cache-census"]).is_none());
+        assert!(livened(&["spec.json", "keys.txt", "--cache-census"]).is_none());
     }
 }

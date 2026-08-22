@@ -7,8 +7,11 @@
 //! A cell is spelled once, in the head, and every row names its settled cell by its seat there, which is why the emitter rather than the fixpoint owns the cell sort: a seat is an index into [`cell_key`] order and nothing else. A row naming a cell the product does not count among its reachable cells is refused here, at the boundary, exactly as `write_transitions` raises `PartitionError` rather than letting the fold meet the disagreement later.
 
 use std::collections::{BTreeSet, HashMap, HashSet};
+use std::fmt::Write as _;
+use std::io::Write as _;
+use std::rc::Rc;
 
-use crate::emit::json_string;
+use crate::emit::{escape_into, json_string};
 use crate::index::SpecIndex;
 use crate::model::Sym;
 use crate::types::{CellId, Settled, adjustment_text};
@@ -28,16 +31,18 @@ pub struct FixpointProduct {
     pub cells: Vec<CellId>,
 }
 
-/// One enriched row, `table.Transition`: the label view of a settled window plus the four fields only the fixpoint and the fold read. The seven labels are owned strings rather than symbols because a window slot is not always a name the spec interned — `#EDGE`, `#NA`, and the ZWNJ twin's `.noentry` suffix are the kernel's own spellings — and nothing downstream keys on them as anything but text.
+/// One enriched row, `table.Transition`: the label view of a settled window plus the four fields only the fixpoint and the fold read. The seven labels are text rather than symbols because a window slot is not always a name the spec interned — `#EDGE`, `#NA`, and the ZWNJ twin's `.noentry` suffix are the kernel's own spellings — and nothing downstream keys on them as anything but text.
+///
+/// They are shared handles rather than owned strings because a product holds millions of rows over a few tens of thousands of distinct spellings: the fixpoint interns each one once and every row that names it holds the same allocation. Sorting and every raise message read them as the `&str` they are, so nothing about the stream moves.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TransitionRow {
-    pub input_glyph: String,
-    pub left: String,
-    pub right1: String,
-    pub right2: String,
-    pub right3: String,
-    pub right4: String,
-    pub outcome: String,
+    pub input_glyph: Rc<str>,
+    pub left: Rc<str>,
+    pub right1: Rc<str>,
+    pub right2: Rc<str>,
+    pub right3: Rc<str>,
+    pub right4: Rc<str>,
+    pub outcome: Rc<str>,
     pub settled: Settled,
     pub left_settled: Option<Settled>,
     pub joint: bool,
@@ -97,10 +102,25 @@ pub fn feature_config_token(index: &SpecIndex, features: impl IntoIterator<Item 
     config_token(features.into_iter().map(|feature| index.resolve(feature)))
 }
 
-/// One product as the whole stream text, `kernel_io.write_transitions` without the gzip: the `# ams-m1-transitions/1<tab><head json>` line, then one compact JSON array per transition in the product's own order, every line newline-terminated.
+/// Why a product did not reach the sink: the emitter refused it, or the sink would not take the bytes. Told apart because the two blame different things, exactly as the fan-out's own failure does.
+#[derive(Debug)]
+pub enum WriteFailure {
+    /// The product's rows and its cells disagree, in `write_transitions`'s own sentence.
+    Refused(String),
+    /// The sink the stream was being written to would not take it.
+    Sink(std::io::Error),
+}
+
+/// One product written to `sink` as the whole stream, `kernel_io.write_transitions` without the gzip: the `# ams-m1-transitions/1<tab><head json>` line, then one compact JSON array per transition in the product's own order, every line newline-terminated.
 ///
-/// The error is `write_transitions`'s `PartitionError` sentence verbatim, tuple reprs included, and it is returned rather than written around: nothing lands on stdout for a product whose rows and cells disagree. A row's settled cell is checked before its left-settled one because that is the order Python's list literal evaluates its two `seated` calls in, so a row missing both is named by its settled cell.
-pub fn emit_transitions(index: &SpecIndex, product: &FixpointProduct) -> Result<String, String> {
+/// Every row's cells are seated before the first byte is written, which is what keeps `write_transitions`'s promise that nothing lands on the sink for a product whose rows and cells disagree. The refusal is that function's `PartitionError` sentence verbatim, tuple reprs included. A row's settled cell is checked before its left-settled one because that is the order Python's list literal evaluates its two `seated` calls in, so a row missing both is named by its settled cell.
+///
+/// The bytes go out a line at a time through one reused buffer rather than through a single `String` of the whole stream: a configuration's stream is hundreds of megabytes, and holding it entire — with the doubling transient a growing `String` carries — is the emitter's whole memory cost for no benefit at all.
+pub fn write_transitions(
+    index: &SpecIndex,
+    product: &FixpointProduct,
+    sink: &mut dyn std::io::Write,
+) -> Result<(), WriteFailure> {
     let mut cells: Vec<(CellKey, &CellId)> = product
         .cells
         .iter()
@@ -116,17 +136,41 @@ pub fn emit_transitions(index: &SpecIndex, product: &FixpointProduct) -> Result<
         .map(|(seat, (_, cell))| (*cell, seat))
         .collect();
 
-    let mut out = String::new();
-    out.push_str("# ");
-    out.push_str(TRANSITIONS_FORMAT);
-    out.push('\t');
-    head_into(&mut out, index, product, &cells);
-    out.push('\n');
     for row in &product.transitions {
-        row_into(&mut out, index, &seats, row)?;
-        out.push('\n');
+        seat_of(index, &seats, &row.settled, row, "settles into").map_err(WriteFailure::Refused)?;
+        if let Some(left) = &row.left_settled {
+            seat_of(index, &seats, left, row, "carries the left-settled cell")
+                .map_err(WriteFailure::Refused)?;
+        }
     }
-    Ok(out)
+
+    let mut out = std::io::BufWriter::with_capacity(1 << 20, sink);
+    let mut line = String::new();
+    line.push_str("# ");
+    line.push_str(TRANSITIONS_FORMAT);
+    line.push('\t');
+    head_into(&mut line, index, product, &cells);
+    line.push('\n');
+    out.write_all(line.as_bytes()).map_err(WriteFailure::Sink)?;
+    for row in &product.transitions {
+        line.clear();
+        row_into(&mut line, index, &seats, row).map_err(WriteFailure::Refused)?;
+        line.push('\n');
+        out.write_all(line.as_bytes()).map_err(WriteFailure::Sink)?;
+    }
+    out.flush().map_err(WriteFailure::Sink)
+}
+
+/// [`write_transitions`] into a `String`, which is what a test that wants to read the whole stream back asks for. Nothing on the shipping path builds one: a configuration's stream is hundreds of megabytes.
+pub fn emit_transitions(index: &SpecIndex, product: &FixpointProduct) -> Result<String, String> {
+    let mut bytes: Vec<u8> = Vec::new();
+    match write_transitions(index, product, &mut bytes) {
+        Ok(()) => Ok(String::from_utf8(bytes).expect("the emitter writes text")),
+        Err(WriteFailure::Refused(complaint)) => Err(complaint),
+        Err(WriteFailure::Sink(error)) => {
+            unreachable!("a growing byte buffer cannot refuse a write: {error}")
+        }
+    }
 }
 
 /// The head object, its four keys in the order Python's dict literal inserts them — `config`, `cells`, `deep_classes`, `cited_provenance` — with the set-valued ones sorted here rather than by whoever produced them. A `deep_classes` entry sorts on the whole pair, as `sorted(mapping.items())` does, which is the same order as by token alone for the unique tokens a map can hold.
@@ -180,54 +224,94 @@ fn cell_json(index: &SpecIndex, cell: &CellId) -> String {
     )
 }
 
-/// One row as the body spells it: the six window labels and the outcome, the settled triple, the left-settled triple or `null`, the joint flag, the prospect, and the provenance in the first-seen order the rule fold joins pointers in.
+/// One row as the body spells it, appended to the caller's buffer: the six window labels and the outcome, the settled triple, the left-settled triple or `null`, the joint flag, the prospect, and the provenance in the first-seen order the rule fold joins pointers in.
 fn row_into(
     out: &mut String,
     index: &SpecIndex,
     seats: &HashMap<&CellId, usize>,
     row: &TransitionRow,
 ) -> Result<(), String> {
-    let settled = seated(index, seats, &row.settled, row, "settles into")?;
-    let left_settled = match &row.left_settled {
-        Some(left) => seated(index, seats, left, row, "carries the left-settled cell")?,
-        None => "null".to_owned(),
-    };
-    out.push_str(&format!(
-        "[{},{},{},{},{},{},{},{settled},{left_settled},{},{},{}]",
-        json_string(&row.input_glyph),
-        json_string(&row.left),
-        json_string(&row.right1),
-        json_string(&row.right2),
-        json_string(&row.right3),
-        json_string(&row.right4),
-        json_string(&row.outcome),
-        if row.joint { "true" } else { "false" },
-        row.prospect,
-        strings_json(&row.provenance)
-    ));
+    out.push('[');
+    for label in row.key() {
+        escape_into(out, label);
+        out.push(',');
+    }
+    escape_into(out, &row.outcome);
+    out.push(',');
+    settled_into(out, index, seats, &row.settled, row, "settles into")?;
+    out.push(',');
+    match &row.left_settled {
+        Some(left) => settled_into(
+            out,
+            index,
+            seats,
+            left,
+            row,
+            "carries the left-settled cell",
+        )?,
+        None => out.push_str("null"),
+    }
+    out.push_str(if row.joint { ",true," } else { ",false," });
+    let _ = write!(out, "{}", row.prospect);
+    out.push(',');
+    strings_into(out, &row.provenance);
+    out.push(']');
     Ok(())
 }
 
-/// One settled record as a row carries it: the cell's seat in the head, the seam it committed, and the connector pixels on that seam. A cell with no seat is the boundary's own refusal, in `write_transitions`'s sentence — the row named by its six-label key and the cell by its `_cell_key` tuple, both in Python's repr.
-fn seated(
+/// One settled record as a row carries it: the cell's seat in the head, the seam it committed, and the connector pixels on that seam.
+fn settled_into(
+    out: &mut String,
     index: &SpecIndex,
     seats: &HashMap<&CellId, usize>,
     settled: &Settled,
     row: &TransitionRow,
     relation: &str,
-) -> Result<String, String> {
-    let Some(seat) = seats.get(&settled.cell) else {
-        return Err(format!(
+) -> Result<(), String> {
+    let seat = seat_of(index, seats, settled, row, relation)?;
+    out.push('[');
+    let _ = write!(out, "{seat}");
+    out.push(',');
+    height_into(out, index, settled.seam);
+    out.push(',');
+    let _ = write!(out, "{}", settled.extension);
+    out.push(']');
+    Ok(())
+}
+
+/// One settled cell's seat in the head. A cell with no seat is the boundary's own refusal, in `write_transitions`'s sentence — the row named by its six-label key and the cell by its `_cell_key` tuple, both in Python's repr.
+fn seat_of(
+    index: &SpecIndex,
+    seats: &HashMap<&CellId, usize>,
+    settled: &Settled,
+    row: &TransitionRow,
+    relation: &str,
+) -> Result<usize, String> {
+    seats.get(&settled.cell).copied().ok_or_else(|| {
+        format!(
             "the transition {} {relation} {}, which the product does not count among its reachable cells",
             key_repr(row.key()),
             cell_key_repr(&cell_key(index, &settled.cell))
-        ));
-    };
-    Ok(format!(
-        "[{seat},{},{}]",
-        height_json(index, settled.seam),
-        settled.extension
-    ))
+        )
+    })
+}
+
+fn height_into(out: &mut String, index: &SpecIndex, height: Option<Sym>) {
+    match height {
+        Some(height) => escape_into(out, index.resolve(height)),
+        None => out.push_str("null"),
+    }
+}
+
+fn strings_into(out: &mut String, values: &[String]) {
+    out.push('[');
+    for (seat, value) in values.iter().enumerate() {
+        if seat > 0 {
+            out.push(',');
+        }
+        escape_into(out, value);
+    }
+    out.push(']');
 }
 
 fn height_json(index: &SpecIndex, height: Option<Sym>) -> String {
@@ -361,13 +445,13 @@ mod tests {
 
     fn edge_row(index: &SpecIndex) -> TransitionRow {
         TransitionRow {
-            input_glyph: "qsPea".to_owned(),
-            left: "#EDGE".to_owned(),
-            right1: "space".to_owned(),
-            right2: "#NA".to_owned(),
-            right3: "#NA".to_owned(),
-            right4: "#NA".to_owned(),
-            outcome: "qsPea.half".to_owned(),
+            input_glyph: Rc::from("qsPea"),
+            left: Rc::from("#EDGE"),
+            right1: Rc::from("space"),
+            right2: Rc::from("#NA"),
+            right3: Rc::from("#NA"),
+            right4: Rc::from("#NA"),
+            outcome: Rc::from("qsPea.half"),
             settled: Settled {
                 cell: pea_cell(index),
                 seam: None,
@@ -382,13 +466,13 @@ mod tests {
 
     fn left_settled_row(index: &SpecIndex) -> TransitionRow {
         TransitionRow {
-            input_glyph: "qsTea.noentry".to_owned(),
-            left: "qsPea.half.en-y0.ex-y5".to_owned(),
-            right1: "qsIt".to_owned(),
-            right2: "qsMay".to_owned(),
-            right3: "qsPea".to_owned(),
-            right4: "#NA".to_owned(),
-            outcome: "qsTea.half.ex-y0.locked".to_owned(),
+            input_glyph: Rc::from("qsTea.noentry"),
+            left: Rc::from("qsPea.half.en-y0.ex-y5"),
+            right1: Rc::from("qsIt"),
+            right2: Rc::from("qsMay"),
+            right3: Rc::from("qsPea"),
+            right4: Rc::from("#NA"),
+            outcome: Rc::from("qsTea.half.ex-y0.locked"),
             settled: Settled {
                 cell: tea_locked(index),
                 seam: Some(fixtures::sym(index, "baseline")),
@@ -410,13 +494,13 @@ mod tests {
 
     fn boundary_left_row(index: &SpecIndex) -> TransitionRow {
         TransitionRow {
-            input_glyph: "qsTea".to_owned(),
-            left: "space".to_owned(),
-            right1: "qsPea".to_owned(),
-            right2: "#EDGE".to_owned(),
-            right3: "#NA".to_owned(),
-            right4: "#NA".to_owned(),
-            outcome: "qsTea.half.en-y5.en-ext-1.ex-bind-pulled-back".to_owned(),
+            input_glyph: Rc::from("qsTea"),
+            left: Rc::from("space"),
+            right1: Rc::from("qsPea"),
+            right2: Rc::from("#EDGE"),
+            right3: Rc::from("#NA"),
+            right4: Rc::from("#NA"),
+            outcome: Rc::from("qsTea.half.en-y5.en-ext-1.ex-bind-pulled-back"),
             settled: Settled {
                 cell: tea_bound(index),
                 seam: None,

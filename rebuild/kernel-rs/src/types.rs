@@ -384,17 +384,41 @@ impl DecidedStage {
     }
 }
 
+/// How a window was decided, beyond what it decided — `settle.TransitionTrace`'s explain half: the ranking every survivor was scored into, every candidate that did not survive with the sentence naming why, and the closest loser. Nobody reads it to build a font; the explain CLI, the probe and the review surface's panel are its whole audience.
+///
+/// It is a type of its own, and boxed where a trace carries one, because the table fixpoint asks for millions of traces and reads none of this: a ladder formatted for a reader who will never arrive is the largest avoidable allocation in the enumeration.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct TraceLadder {
+    pub ranked: Vec<RankedCandidate>,
+    pub eliminations: Vec<Elimination>,
+    pub runner_up: Option<Candidate>,
+}
+
+/// The ladder a trace that carries none answers with, so that a reader may ask any trace for its ranking and get an honest empty one.
+static NO_LADDER: TraceLadder = TraceLadder {
+    ranked: Vec::new(),
+    eliminations: Vec::new(),
+    runner_up: None,
+};
+
 /// The rich settlement result, `settle.TransitionTrace`: what the window settled into plus everything the table build, the explain CLI and the review surface read about how it got there. Notes are formatted strings — YAML pointers and the two authored sentences the kernel writes — because nothing downstream keys on them.
+///
+/// The explain half hangs off [`TransitionTrace::ladder`] and is absent wherever the engine was built without [`crate::engine::EngineModes::explain_ladder`] — which is the table fixpoint and nothing else.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TransitionTrace {
     pub settled: Settled,
     pub joint_floor: bool,
     pub prospect: i64,
-    pub ranked: Vec<RankedCandidate>,
-    pub eliminations: Vec<Elimination>,
     pub decided_stage: DecidedStage,
-    pub runner_up: Option<Candidate>,
     pub notes: Vec<String>,
+    pub ladder: Option<Box<TraceLadder>>,
+}
+
+impl TransitionTrace {
+    /// How this window was decided, or the empty ladder where the engine was not asked to record one.
+    pub fn ladder(&self) -> &TraceLadder {
+        self.ladder.as_deref().unwrap_or(&NO_LADDER)
+    }
 }
 
 /// The closed vocabulary interned against one spec's own string pool, so that every comparison the kernel makes against an authored value is a symbol comparison rather than a string one. [`SpecIndex`] builds exactly one of these per spec and hands it out; the symbols are only meaningful against that spec's interner.

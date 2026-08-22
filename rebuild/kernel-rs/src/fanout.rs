@@ -49,19 +49,48 @@ pub fn timing_line(label: &str, elapsed: Duration) -> String {
     format!("[t] {label} {:.1}s", elapsed.as_secs_f64())
 }
 
-/// One configuration answered into `sink`: its fixpoint, its stream, and the stream written — with the two phases named as `enumerate[<config>]` and `emit[<config>]` when the caller wants them timed. Nothing is prefixed onto either complaint here; see [`Failure`] for why the wording is left to whoever called.
+/// What a run says about itself on stderr beyond its answer: the two phase timings, and the cache census the RAM work reads. Both are off by default, and a run with neither says nothing at all on a clean exit — which the identity harness relies on.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Report {
+    pub timings: bool,
+    pub census: bool,
+}
+
+impl Report {
+    /// The report a run makes when it is only being timed.
+    pub fn timed(timings: bool) -> Self {
+        Self {
+            timings,
+            census: false,
+        }
+    }
+
+    /// Whether this run says anything at all.
+    pub fn silent(self) -> bool {
+        !self.timings && !self.census
+    }
+}
+
+/// One configuration answered into `sink`: its fixpoint, its stream, and the stream written — with the two phases named as `enumerate[<config>]` and `emit[<config>]` when the caller wants them timed, and the census's `[c]` lines ahead of them when it wants those. Nothing is prefixed onto either complaint here; see [`Failure`] for why the wording is left to whoever called.
 pub fn run_config(
     index: &SpecIndex,
     config: &Configuration<'_>,
     modes: EnumerationModes,
     sink: &mut dyn Write,
-    timings: bool,
+    report: Report,
 ) -> Result<Vec<String>, Failure> {
     let token = config.token;
+    let timings = report.timings;
     let mut timed: Vec<String> = Vec::new();
+    let mut census: Vec<String> = Vec::new();
     let started = Instant::now();
-    let product = fixpoint::enumerate_transitions(index, &config.features, modes)
-        .map_err(Failure::Refused)?;
+    let product = if report.census {
+        fixpoint::enumerate_censused(index, &config.features, modes, &mut census)
+    } else {
+        fixpoint::enumerate_transitions(index, &config.features, modes)
+    }
+    .map_err(Failure::Refused)?;
+    timed.append(&mut census);
     if timings {
         timed.push(timing_line(
             &format!("enumerate[{token}]"),
@@ -69,8 +98,10 @@ pub fn run_config(
         ));
     }
     let started = Instant::now();
-    let text = stream::emit_transitions(index, &product).map_err(Failure::Refused)?;
-    sink.write_all(text.as_bytes()).map_err(Failure::Sink)?;
+    stream::write_transitions(index, &product, sink).map_err(|failure| match failure {
+        stream::WriteFailure::Refused(complaint) => Failure::Refused(complaint),
+        stream::WriteFailure::Sink(error) => Failure::Sink(error),
+    })?;
     if timings {
         timed.push(timing_line(&format!("emit[{token}]"), started.elapsed()));
     }
@@ -92,7 +123,7 @@ pub fn run_configs(
     modes: EnumerationModes,
     outdir: &Path,
     workers: usize,
-    timings: bool,
+    report: Report,
 ) -> Result<Vec<Vec<String>>, String> {
     std::fs::create_dir_all(outdir).map_err(|error| format!("{}: {error}", outdir.display()))?;
     sweep_unnamed_streams(outdir, configs)?;
@@ -109,7 +140,7 @@ pub fn run_configs(
                         let Some(config) = configs.get(seat) else {
                             break;
                         };
-                        match into_file(index, config, modes, outdir, timings) {
+                        match into_file(index, config, modes, outdir, report) {
                             Ok(timed) => mine.push((seat, timed)),
                             Err(complaint) => {
                                 stop.store(true, Ordering::Relaxed);
@@ -158,12 +189,12 @@ fn into_file(
     config: &Configuration<'_>,
     modes: EnumerationModes,
     outdir: &Path,
-    timings: bool,
+    report: Report,
 ) -> Result<Vec<String>, String> {
     let path = transitions_path(outdir, config.token);
     let mut file = std::fs::File::create(&path)
         .map_err(|error| format!("{}: {}: {error}", config.token, path.display()))?;
-    run_config(index, config, modes, &mut file, timings).map_err(|failure| match failure {
+    run_config(index, config, modes, &mut file, report).map_err(|failure| match failure {
         Failure::Refused(complaint) => format!("{}: {complaint}", config.token),
         Failure::Sink(error) => format!("{}: {}: {error}", config.token, path.display()),
     })
@@ -236,7 +267,7 @@ mod tests {
     /// The bytes `enumerate` writes for one configuration, which is [`run_config`] into a buffer — the same call the verb makes, differing only in where it points.
     fn enumerated(index: &SpecIndex, config: &Configuration<'_>) -> String {
         let mut sink: Vec<u8> = Vec::new();
-        run_config(index, config, SHIPPING, &mut sink, false)
+        run_config(index, config, SHIPPING, &mut sink, Report::timed(false))
             .expect("the fixture's fixpoint closes and serializes");
         String::from_utf8(sink).expect("a transitions stream is text")
     }
@@ -261,8 +292,15 @@ mod tests {
         let root = scratch("fan-out");
         for workers in [1, 8] {
             let outdir = root.join(format!("at-{workers}")).join("streams");
-            let timed = run_configs(&index, &configs, SHIPPING, &outdir, workers, false)
-                .expect("every configuration answers");
+            let timed = run_configs(
+                &index,
+                &configs,
+                SHIPPING,
+                &outdir,
+                workers,
+                Report::timed(false),
+            )
+            .expect("every configuration answers");
             assert_eq!(timed.len(), configs.len());
             for (config, expected) in configs.iter().zip(&expected) {
                 let written = std::fs::read_to_string(transitions_path(&outdir, config.token))
@@ -285,8 +323,15 @@ mod tests {
         let root = scratch("fan-out-timings");
         for workers in [1, 8] {
             let outdir = root.join(format!("at-{workers}")).join("streams");
-            let timed = run_configs(&index, &configs, SHIPPING, &outdir, workers, true)
-                .expect("every configuration answers");
+            let timed = run_configs(
+                &index,
+                &configs,
+                SHIPPING,
+                &outdir,
+                workers,
+                Report::timed(true),
+            )
+            .expect("every configuration answers");
             let labels: Vec<String> = timed
                 .iter()
                 .flatten()
@@ -316,7 +361,7 @@ mod tests {
         let index = fixtures::mini();
         let configs = configurations(&index);
         let outdir = scratch("fan-out-untimed");
-        let timed = run_configs(&index, &configs, SHIPPING, &outdir, 2, false)
+        let timed = run_configs(&index, &configs, SHIPPING, &outdir, 2, Report::timed(false))
             .expect("every configuration answers");
         assert!(timed.iter().all(Vec::is_empty));
         std::fs::remove_dir_all(&outdir).expect("the scratch directory is removable");
@@ -360,7 +405,7 @@ mod tests {
         let outdir = scratch("fan-out-blocked");
         std::fs::create_dir_all(&outdir).expect("the scratch directory is makeable");
         block(&outdir, TOKENS[0]);
-        let complaint = run_configs(&index, &configs, SHIPPING, &outdir, 1, false)
+        let complaint = run_configs(&index, &configs, SHIPPING, &outdir, 1, Report::timed(false))
             .expect_err("a directory in a stream's place is not writable");
         assert!(
             complaint.starts_with(&format!("{}: ", TOKENS[0])),
@@ -383,8 +428,15 @@ mod tests {
         for token in TOKENS {
             block(&outdir, token);
         }
-        let complaint = run_configs(&index, &configs, SHIPPING, &outdir, configs.len(), false)
-            .expect_err("no seat can write its stream");
+        let complaint = run_configs(
+            &index,
+            &configs,
+            SHIPPING,
+            &outdir,
+            configs.len(),
+            Report::timed(false),
+        )
+        .expect_err("no seat can write its stream");
         assert!(
             complaint.starts_with(&format!("{}: ", TOKENS[0])),
             "the earliest seat is the one reported: {complaint}"
@@ -404,7 +456,7 @@ mod tests {
             .expect("the scratch directory takes a file");
         let bystander = outdir.join("manifest.json");
         std::fs::write(&bystander, "{}\n").expect("and another that is not a stream");
-        run_configs(&index, &configs, SHIPPING, &outdir, 2, false)
+        run_configs(&index, &configs, SHIPPING, &outdir, 2, Report::timed(false))
             .expect("every configuration answers");
         assert!(
             !stale.exists(),
@@ -423,8 +475,8 @@ mod tests {
         let index = fixtures::mini();
         let configs = configurations(&index);
         let outdir = scratch("fan-out-no-workers");
-        let timed =
-            run_configs(&index, &configs, SHIPPING, &outdir, 0, false).expect("the run happens");
+        let timed = run_configs(&index, &configs, SHIPPING, &outdir, 0, Report::timed(false))
+            .expect("the run happens");
         assert_eq!(timed.len(), configs.len());
         for config in &configs {
             assert!(transitions_path(&outdir, config.token).exists());
