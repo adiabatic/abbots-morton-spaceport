@@ -58,15 +58,14 @@ def _redirect_contracts_lane_reads(monkeypatch, tmp_path):
 def _pass_summaries():
     return {
         "pipeline": {"defect_errors": []},
-        "boundary": {"pass": True, "divergences": 0},
-        "manual_pins": {"pass": True, "disagreements": []},
+        "manual_pins": {"pass": True, "disagreements": [], "pins_in_scope": 143, "replayed": 143},
         "oracle": {"unmatched": 8423, "multi_matched": 0},
     }
 
 
 def test_gate_passes_on_clean_summaries():
     s = _pass_summaries()
-    outcome = ac.evaluate_run_m1_gate(s["pipeline"], s["boundary"], s["manual_pins"], s["oracle"])
+    outcome = ac.evaluate_run_m1_gate(s["pipeline"], s["manual_pins"], s["oracle"])
     assert outcome.ok
     assert outcome.failures == []
     assert outcome.unmatched == 8423
@@ -76,23 +75,24 @@ def test_gate_passes_on_clean_summaries():
 def test_gate_fails_on_defect_errors():
     s = _pass_summaries()
     s["pipeline"]["defect_errors"] = ["E-ANCHOR convention:foo: bad"]
-    outcome = ac.evaluate_run_m1_gate(s["pipeline"], s["boundary"], s["manual_pins"], s["oracle"])
+    outcome = ac.evaluate_run_m1_gate(s["pipeline"], s["manual_pins"], s["oracle"])
     assert not outcome.ok
     assert any("defect" in reason for reason in outcome.failures)
 
 
-def test_gate_fails_on_boundary():
+def test_gate_fails_on_a_manual_pin_gate_with_nothing_in_scope():
+    """The vacuous pass the cycle used to accept: `pass` is `not disagreements`, so a gate that replayed no pin reports green. The verdict here is run_m1's own, scope included."""
     s = _pass_summaries()
-    s["boundary"] = {"pass": False, "divergences": 3}
-    outcome = ac.evaluate_run_m1_gate(s["pipeline"], s["boundary"], s["manual_pins"], s["oracle"])
+    s["manual_pins"] = {"pass": True, "disagreements": [], "pins_in_scope": 0, "replayed": 0}
+    outcome = ac.evaluate_run_m1_gate(s["pipeline"], s["manual_pins"], s["oracle"])
     assert not outcome.ok
-    assert any("boundary" in reason for reason in outcome.failures)
+    assert any("no pins in scope" in reason for reason in outcome.failures)
 
 
 def test_gate_fails_on_manual_pins():
     s = _pass_summaries()
     s["manual_pins"] = {"pass": False, "disagreements": ["one", "two"]}
-    outcome = ac.evaluate_run_m1_gate(s["pipeline"], s["boundary"], s["manual_pins"], s["oracle"])
+    outcome = ac.evaluate_run_m1_gate(s["pipeline"], s["manual_pins"], s["oracle"])
     assert not outcome.ok
     assert any("Manual-pin" in reason for reason in outcome.failures)
 
@@ -100,7 +100,7 @@ def test_gate_fails_on_manual_pins():
 def test_gate_fails_on_multi_matched():
     s = _pass_summaries()
     s["oracle"] = {"unmatched": 8423, "multi_matched": 2}
-    outcome = ac.evaluate_run_m1_gate(s["pipeline"], s["boundary"], s["manual_pins"], s["oracle"])
+    outcome = ac.evaluate_run_m1_gate(s["pipeline"], s["manual_pins"], s["oracle"])
     assert not outcome.ok
     assert outcome.multi_matched == 2
     assert any("multi_matched" in reason for reason in outcome.failures)
@@ -109,7 +109,7 @@ def test_gate_fails_on_multi_matched():
 def test_gate_unmatched_alone_is_not_a_failure():
     s = _pass_summaries()
     s["oracle"] = {"unmatched": 999999, "multi_matched": 0}
-    outcome = ac.evaluate_run_m1_gate(s["pipeline"], s["boundary"], s["manual_pins"], s["oracle"])
+    outcome = ac.evaluate_run_m1_gate(s["pipeline"], s["manual_pins"], s["oracle"])
     assert outcome.ok
 
 
@@ -181,7 +181,15 @@ def test_dry_run_plan_default():
     assert plan.carry_out == ac.ROOT / "verdicts-carried-abc1234.json"
 
     by_name = {step.name: step for step in plan.steps}
-    assert by_name["run_m1"].argv == ["uv", "run", "python", "-m", "rebuild.pipeline.run_m1"]
+    assert by_name["run_m1"].argv == [
+        "uv",
+        "run",
+        "python",
+        "-m",
+        "rebuild.pipeline.run_m1",
+        "--kernel-threads",
+        str(plan.kernel_threads),
+    ]
     assert by_name["surface-build"].argv == ["uv", "run", "python", "-m", "rebuild.review.build"]
     assert by_name["carry"].argv == [
         "uv",
@@ -218,6 +226,7 @@ def test_dry_run_plan_default():
         "-q",
         "--tb=no",
         "-rfE",
+        "--durations=25",
     ]
     assert by_name["gate:rebuild-validators"].argv == [
         "uv",
@@ -233,6 +242,7 @@ def test_dry_run_plan_default():
         "-q",
         "--tb=no",
         "-rfE",
+        "--durations=25",
     ]
     assert by_name["gate:make-test"].argv == ["make", "test"]
     assert _argv(by_name["gate:js"])[:2] == ["node", "--test"]
@@ -250,8 +260,8 @@ def test_dry_run_plan_default():
 def test_dry_run_plan_conform_jobs_cap():
     plan = _plan(ncores=12)
     by_name = {step.name: step for step in plan.steps}
-    assert _argv(by_name["gate:conform"])[-2:] == ["--jobs", "8"]
-    assert plan.conform_jobs == 8
+    assert _argv(by_name["gate:conform"])[-2:] == ["--jobs", "6"]
+    assert plan.conform_jobs == 6
 
     small = _plan(ncores=4)
     small_by_name = {step.name: step for step in small.steps}
@@ -633,7 +643,6 @@ def _step(name="x", rc=0, stdout="", stderr=""):
 def _pass_run_m1(report, *, spawn, emit, registry, **_):
     report.unmatched = 1
     report.multi_matched = 0
-    report.boundary_pass = True
     report.pins_pass = True
     return ac.GateOutcome(True, [], 1, 0)
 
@@ -1418,7 +1427,6 @@ def test_summary_exact_under_out_of_order_completion(monkeypatch, capsys):
     def fake_run_m1(report, *, spawn, emit, registry, **_):
         report.unmatched = 7777
         report.multi_matched = 0
-        report.boundary_pass = True
         report.pins_pass = True
         return ac.GateOutcome(True, [], 7777, 0)
 
@@ -1760,18 +1768,24 @@ def test_run_step_measures_the_child_peak_rss(capsys):
     assert len(timing_line) == 1 and "rss_gb=" in timing_line[0]
 
 
-def test_stage_job_budget():
-    assert ac.stage_job_budget(skip_gates=False, ncores=12) == 2
-    assert ac.stage_job_budget(skip_gates=False, ncores=5) == 2
-    assert ac.stage_job_budget(skip_gates=False, ncores=3) == 1
-    assert ac.stage_job_budget(skip_gates=False, ncores=1) == 1
-    assert ac.stage_job_budget(skip_gates=True, ncores=12) == 4
-    assert ac.stage_job_budget(skip_gates=True, ncores=5) == 4
-    assert ac.stage_job_budget(skip_gates=True, ncores=3) == 3
-    assert ac.stage_job_budget(skip_gates=True, ncores=1) == 1
-    assert ac.stage_job_budget(skip_gates=False, skip_make_test=True, ncores=12) == 4
-    assert ac.stage_job_budget(skip_gates=False, skip_make_test=False, ncores=12) == 2
-    assert ac.stage_job_budget(skip_gates=True, skip_make_test=True, ncores=12) == 4
+def test_sweep_job_budget_is_one_process_per_acceptance_configuration():
+    from rebuild.pipeline.conform import ACCEPTANCE_CONFIGS
+
+    assert ac.sweep_job_budget(12) == len(ACCEPTANCE_CONFIGS)
+    assert ac.sweep_job_budget(len(ACCEPTANCE_CONFIGS)) == len(ACCEPTANCE_CONFIGS)
+    assert ac.sweep_job_budget(3) == 3
+    assert ac.sweep_job_budget(1) == 1
+
+
+def test_surface_job_budget_leaves_make_test_its_cores():
+    assert ac.surface_job_budget(skip_gates=False, ncores=12) == 8
+    assert ac.surface_job_budget(skip_gates=False, ncores=10) == 8
+    assert ac.surface_job_budget(skip_gates=False, ncores=6) == 4
+    assert ac.surface_job_budget(skip_gates=False, ncores=1) == 1
+    assert ac.surface_job_budget(skip_gates=True, ncores=12) == 8
+    assert ac.surface_job_budget(skip_gates=True, ncores=6) == 6
+    assert ac.surface_job_budget(skip_gates=True, ncores=1) == 1
+    assert ac.surface_job_budget(skip_gates=False, skip_make_test=True, ncores=6) == 6
 
 
 def test_dry_run_renders_concurrency():
@@ -1805,14 +1819,16 @@ def test_dry_run_renders_concurrency():
         "QUEUED behind gate:rebuild-contracts, whose chain already waits on gate:conform and gate:make-test"
         in text
     )
-    assert "--jobs budget        : 2" in text
+    assert "run_m1 sweeps --jobs             : 6" in text
+    assert "run_m1 --kernel-threads          : " in text
+    assert "surface-build --jobs             : 8" in text
 
     by_name = {step.name: step for step in plan.steps}
-    assert _argv(by_name["run_m1"])[-2:] == ["--jobs", "2"]
-    assert _argv(by_name["surface-build"])[-2:] == ["--jobs", "2"]
+    assert _argv(by_name["run_m1"])[1:6] == ["run", "python", "-m", "rebuild.pipeline.run_m1", "--jobs"]
+    assert _argv(by_name["surface-build"])[-2:] == ["--jobs", "8"]
 
 
-def test_dry_run_skip_gates_appends_jobs_budget():
+def test_dry_run_skip_gates_appends_jobs_budgets():
     plan = ac.build_plan(
         verdicts=None,
         no_carry=True,
@@ -1824,9 +1840,10 @@ def test_dry_run_skip_gates_appends_jobs_budget():
         ncores=12,
     )
     by_name = {step.name: step for step in plan.steps}
-    assert _argv(by_name["run_m1"])[-2:] == ["--jobs", "4"]
-    assert _argv(by_name["surface-build"])[-2:] == ["--jobs", "4"]
-    assert "--jobs budget: 4" in ac.render_plan(plan)
+    assert _argv(by_name["run_m1"])[5:7] == ["--jobs", "6"]
+    assert _argv(by_name["surface-build"])[-2:] == ["--jobs", "8"]
+    assert "run_m1 sweeps --jobs 6" in ac.render_plan(plan)
+    assert "surface-build --jobs 8" in ac.render_plan(plan)
 
     default_plan = ac.build_plan(
         verdicts=Path("v.json"),
@@ -1839,8 +1856,8 @@ def test_dry_run_skip_gates_appends_jobs_budget():
         ncores=12,
     )
     default_by_name = {step.name: step for step in default_plan.steps}
-    assert _argv(default_by_name["run_m1"])[-2:] == ["--jobs", "2"]
-    assert _argv(default_by_name["surface-build"])[-2:] == ["--jobs", "2"]
+    assert _argv(default_by_name["run_m1"])[5:7] == ["--jobs", "6"]
+    assert _argv(default_by_name["surface-build"])[-2:] == ["--jobs", "8"]
 
 
 def test_review_out_rehearsal_plan(monkeypatch, tmp_path):
@@ -2276,24 +2293,25 @@ def test_dry_run_plan_skip_make_test():
     assert "Lane t0   [from t=0, background]  : gate:js" in rendered
 
 
-def test_skip_make_test_frees_the_build_stage_budget():
-    plan = _plan(skip_make_test=True, make_test_note="closure unchanged since its last green run")
-    assert plan.job_budget == 4
+def test_skip_make_test_frees_the_surface_build_budget():
+    """The sweeps' width is the configuration count either way — nothing about make-test bears on it — while the surface build is the stage that gives cores back to a pytest pool that is actually running."""
+    plan = _plan(skip_make_test=True, make_test_note="closure unchanged since its last green run", ncores=10)
+    assert plan.surface_jobs == 8
+    assert plan.sweep_jobs == 6
     by_name = {step.name: step for step in plan.steps}
-    assert _argv(by_name["run_m1"])[-2:] == ["--jobs", "4"]
-    assert _argv(by_name["surface-build"])[-2:] == ["--jobs", "4"]
+    assert _argv(by_name["surface-build"])[-2:] == ["--jobs", "8"]
     rendered = ac.render_plan(plan)
-    assert "--jobs budget        : 4" in rendered
-    assert "gate:make-test skipped, so the build stages fan out" in rendered
+    assert "surface-build --jobs             : 8" in rendered
+    assert "gate:make-test skipped, so the surface build takes the whole box" in rendered
 
-    gated = _plan(skip_make_test=False)
-    assert gated.job_budget == 2
-    gated_by_name = {step.name: step for step in gated.steps}
-    assert _argv(gated_by_name["run_m1"])[-2:] == ["--jobs", "2"]
-    assert (
-        "half the stage ceiling, sharing the box's memory with gate:make-test's pytest pool"
-        in ac.render_plan(gated)
-    )
+    gated = _plan(skip_make_test=False, ncores=10)
+    assert gated.surface_jobs == 8
+    assert gated.sweep_jobs == 6
+    small = _plan(skip_make_test=False, ncores=6)
+    assert small.surface_jobs == 4
+    small_by_name = {step.name: step for step in small.steps}
+    assert _argv(small_by_name["surface-build"])[-2:] == ["--jobs", "4"]
+    assert "two cores left to gate:make-test's pytest pool" in ac.render_plan(small)
 
 
 def test_summary_payload_carries_the_fingerprint_only_while_green(tmp_path):
@@ -2795,14 +2813,13 @@ def test_dry_run_plan_deferred_gates_replace_their_steps():
     )
 
 
-def test_deferring_make_test_frees_the_build_stage_budget():
-    plan = _plan(deferred=frozenset({"make-test"}))
-    assert plan.job_budget == 4
+def test_deferring_make_test_frees_the_surface_build_budget():
+    plan = _plan(deferred=frozenset({"make-test"}), ncores=6)
+    assert plan.surface_jobs == 6
     by_name = {step.name: step for step in plan.steps}
-    assert _argv(by_name["run_m1"])[-2:] == ["--jobs", "4"]
-    assert _argv(by_name["surface-build"])[-2:] == ["--jobs", "4"]
+    assert _argv(by_name["surface-build"])[-2:] == ["--jobs", "6"]
     rendered = ac.render_plan(plan)
-    assert "gate:make-test deferred, so the build stages fan out" in rendered
+    assert "gate:make-test deferred, so the surface build takes the whole box" in rendered
     assert "gate:make-test not running, so no queueing" in rendered
 
 
@@ -2860,7 +2877,7 @@ def test_run_cycle_never_spawns_a_deferred_gate(monkeypatch):
 
 def test_a_deferred_gate_keeps_its_status_when_run_m1_fails(monkeypatch):
     def failing_run_m1(report, *, spawn, emit, registry, **_):
-        return ac.GateOutcome(False, ["boundary gate failed"], 0, 0)
+        return ac.GateOutcome(False, ["Manual-pin gate failed"], 0, 0)
 
     monkeypatch.setattr(ac, "_do_run_m1", failing_run_m1)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
@@ -3119,8 +3136,7 @@ def test_do_run_m1_skip_reads_recorded_summaries(monkeypatch, tmp_path):
     files = {name: tmp_path / f"{name}.json" for name in ac.M1_SUMMARY_FILES}
     monkeypatch.setattr(ac, "M1_SUMMARY_FILES", files)
     files["pipeline"].write_text(json.dumps({"defect_errors": []}))
-    files["boundary"].write_text(json.dumps({"pass": True}))
-    files["manual_pins"].write_text(json.dumps({"pass": True}))
+    files["manual_pins"].write_text(json.dumps({"pass": True, "pins_in_scope": 143, "replayed": 143}))
     files["oracle"].write_text(json.dumps({"unmatched": 7, "multi_matched": 0}))
 
     def no_spawn(*a, **k):
@@ -3149,8 +3165,7 @@ def test_do_run_m1_records_green_only_when_fingerprint_stable(monkeypatch, tmp_p
 
     def write_summaries(*a, **k):
         files["pipeline"].write_text(json.dumps({"defect_errors": []}))
-        files["boundary"].write_text(json.dumps({"pass": True}))
-        files["manual_pins"].write_text(json.dumps({"pass": True}))
+        files["manual_pins"].write_text(json.dumps({"pass": True, "pins_in_scope": 143, "replayed": 143}))
         files["oracle"].write_text(json.dumps({"unmatched": 0, "multi_matched": 0}))
         return _step("run_m1", 0)
 
@@ -3192,8 +3207,7 @@ def test_do_run_m1_red_deletes_matching_green(monkeypatch, tmp_path):
 
     def write_red(*a, **k):
         files["pipeline"].write_text(json.dumps({"defect_errors": ["boom"]}))
-        files["boundary"].write_text(json.dumps({"pass": True}))
-        files["manual_pins"].write_text(json.dumps({"pass": True}))
+        files["manual_pins"].write_text(json.dumps({"pass": True, "pins_in_scope": 143, "replayed": 143}))
         files["oracle"].write_text(json.dumps({"unmatched": 0, "multi_matched": 0}))
         return _step("run_m1", 0)
 
@@ -3499,7 +3513,7 @@ def test_run_m1_failure_still_leaves_both_rebuild_lanes_not_run(monkeypatch, cap
     """The one early return that predates the submissions: nothing was queued, so both gates report why they never ran."""
 
     def failing_run_m1(report, *, spawn, emit, registry, **_):
-        return ac.GateOutcome(False, ["boundary-equals-text-edge gate failed (2 divergences)"], 1, 0)
+        return ac.GateOutcome(False, ["Manual-pin gate failed (2 disagreements)"], 1, 0)
 
     def must_not_run(*args, **kwargs):
         raise AssertionError("no rebuild lane may be submitted when run_m1's gate fails")
@@ -3518,7 +3532,7 @@ def test_run_m1_failure_still_leaves_both_rebuild_lanes_not_run(monkeypatch, cap
     assert rc == 1
     assert report.gate_contracts == "not run (run_m1 gate failed)"
     assert report.gate_validators == "not run (run_m1 gate failed)"
-    assert "boundary-equals-text-edge gate failed" in capsys.readouterr().out
+    assert "Manual-pin gate failed" in capsys.readouterr().out
 
 
 def test_plumbing_skip_fingerprint_moves_with_every_input(tmp_path):
@@ -4264,7 +4278,6 @@ def _spawning_run_m1(report, *, spawn, emit, registry, **_):
     spawn("run_m1", ["uv", "run", "fake-m1"], emit=emit, registry=registry, stream=True)
     report.unmatched = 1
     report.multi_matched = 0
-    report.boundary_pass = True
     report.pins_pass = True
     return ac.GateOutcome(True, [], 1, 0)
 

@@ -33,21 +33,15 @@ fi
 for h in 3 4 5; do
   rm -rf "$HARNESS/run-h$h"
   SWEEP_JSON="$OUT/conform-h$h-cold.json" PYTHONPATH="$REPO" \
-    uv run python "$HARNESS/sweep_horizon.py" "$HARNESS/m1" "$h" "$HARNESS/run-h$h" boundary-green \
+    uv run python "$HARNESS/sweep_horizon.py" "$HARNESS/m1" "$h" "$HARNESS/run-h$h" \
     > "$OUT/conform-h$h-cold.log" 2>&1
 done
 
 # A second horizon-5 pass. It used to price the warm witness caches; the sweep keeps no caches any more
 # (issue #74 moved coverage to read-back), so this now just re-times the same run.
 SWEEP_JSON="$OUT/conform-h5-warm.json" PYTHONPATH="$REPO" \
-  uv run python "$HARNESS/sweep_horizon.py" "$HARNESS/m1" 5 "$HARNESS/run-h5" boundary-green \
+  uv run python "$HARNESS/sweep_horizon.py" "$HARNESS/m1" 5 "$HARNESS/run-h5" \
   > "$OUT/conform-h5-warm.log" 2>&1
-
-# Horizon 5 with the boundary gate's proven horizon withheld: prices proven_boundary_horizon.
-rm -rf "$HARNESS/run-h5-nb"
-SWEEP_JSON="$OUT/conform-h5-noboundary.json" PYTHONPATH="$REPO" \
-  uv run python "$HARNESS/sweep_horizon.py" "$HARNESS/m1" 5 "$HARNESS/run-h5-nb" none \
-  > "$OUT/conform-h5-noboundary.log" 2>&1
 
 PYTHONPATH="$HARNESS:$REPO/test" /usr/bin/time -p uv run pytest \
   "test/test_calt_regressions.py::test_utter_gay_tea_oy_uses_normal_utter" \

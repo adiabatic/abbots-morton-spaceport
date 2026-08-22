@@ -110,7 +110,7 @@ def test_red_leaves_a_record_for_other_content_alone(green_store):
     assert record["fingerprint"] == "fp-other"
 
 
-def _stub_full_run(monkeypatch, *, defect_errors=(), boundary=True, pins=True, oracle_pass=False):
+def _stub_full_run(monkeypatch, *, defect_errors=(), pins=True, pins_in_scope=143, oracle_pass=False):
     monkeypatch.setattr(run_m1.conform, "unaliased_subset_names", lambda subset_dir, alias_path: {})
     monkeypatch.setattr(run_m1.baseline_subset, "ensure_fresh", lambda repo_root: False)
     monkeypatch.setattr(run_m1, "load_default_spec", lambda: object())
@@ -123,8 +123,16 @@ def _stub_full_run(monkeypatch, *, defect_errors=(), boundary=True, pins=True, o
             "notes": [],
         },
     )
-    monkeypatch.setattr(run_m1, "run_boundary_gate", lambda spec, jobs: {"pass": boundary, "divergences": 0})
-    monkeypatch.setattr(run_m1, "run_manual_pin_gate", lambda spec: {"pass": pins, "disagreements": []})
+    monkeypatch.setattr(
+        run_m1,
+        "run_manual_pin_gate",
+        lambda spec: {
+            "pass": pins,
+            "disagreements": [],
+            "pins_in_scope": pins_in_scope,
+            "replayed": pins_in_scope,
+        },
+    )
     monkeypatch.setattr(
         run_m1,
         "run_oracle",
@@ -192,14 +200,27 @@ def test_a_defect_gate_failure_clears_the_record(monkeypatch, tmp_path):
     assert ac.read_green_record(store) is None
 
 
-def test_a_failed_boundary_gate_clears_the_record(monkeypatch, tmp_path):
+def test_a_failed_manual_pin_gate_clears_the_record(monkeypatch, tmp_path):
     store = tmp_path / "run-m1-green.json"
     monkeypatch.setattr(ac, "RUN_M1_GREEN", store)
     monkeypatch.setattr(ac, "run_m1_skip_fingerprint", lambda root=None: "fp-live")
     ac.record_green(store, "fp-live")
-    _stub_full_run(monkeypatch, boundary=False, oracle_pass=True)
+    _stub_full_run(monkeypatch, pins=False, oracle_pass=True)
     with pytest.raises(SystemExit):
         run_m1.main([])
+    assert ac.read_green_record(store) is None
+
+
+def test_a_manual_pin_gate_with_nothing_in_scope_clears_the_record(monkeypatch, tmp_path):
+    """The vacuous pass: `pass` is `not disagreements`, so a gate that replayed no pin at all reports green. run_m1 requires the scope too, so an empty replay fails the build rather than certifying it."""
+    store = tmp_path / "run-m1-green.json"
+    monkeypatch.setattr(ac, "RUN_M1_GREEN", store)
+    monkeypatch.setattr(ac, "run_m1_skip_fingerprint", lambda root=None: "fp-live")
+    ac.record_green(store, "fp-live")
+    _stub_full_run(monkeypatch, pins_in_scope=0, oracle_pass=True)
+    with pytest.raises(SystemExit) as error:
+        run_m1.main([])
+    assert "no pins in scope" in str(error.value)
     assert ac.read_green_record(store) is None
 
 
@@ -244,3 +265,64 @@ def test_the_conform_horizon_default_matches_the_cycle_driver(monkeypatch, tmp_p
     monkeypatch.setattr(run_m1, "run_font_conformance", fake_sweep)
     run_m1.main(["--conform-only"])
     assert swept == [ac.CONFORM_HORIZON_DEFAULT]
+
+
+class TestGatesOnly:
+    """The cheap re-adjudication entry point: the Manual-pin gate and the oracle over the build already on disk. What it must not do is claim a build's green, and what it must refuse is a font the runes have outgrown."""
+
+    def _reuse(self, monkeypatch, tables):
+        monkeypatch.setattr(run_m1, "tables_inputs", lambda: "fp")
+        monkeypatch.setattr(run_m1, "serialized_tables", lambda out_dir, inputs: tables)
+
+    def test_it_refuses_tables_the_runes_have_outgrown(self, monkeypatch, tmp_path):
+        self._reuse(monkeypatch, None)
+        with pytest.raises(SystemExit) as error:
+            run_m1.run_gates_only(out_dir=tmp_path)
+        assert "it does not make one" in str(error.value)
+
+    def test_it_refuses_a_missing_font(self, monkeypatch, tmp_path):
+        self._reuse(monkeypatch, {})
+        with pytest.raises(SystemExit) as error:
+            run_m1.run_gates_only(out_dir=tmp_path)
+        assert "no compiled font" in str(error.value)
+
+    def test_it_runs_both_gates_and_records_no_green(self, monkeypatch, tmp_path, capsys):
+        self._reuse(monkeypatch, {})
+        monkeypatch.setattr(run_m1, "OUT_DIR", tmp_path)
+        (tmp_path / "M1.otf").write_bytes(b"font")
+        monkeypatch.setattr(run_m1, "load_default_spec", lambda: object())
+        ran = []
+        monkeypatch.setattr(
+            run_m1,
+            "run_manual_pin_gate",
+            lambda out_dir, spec: ran.append("pins")
+            or {"pass": True, "disagreements": [], "pins_in_scope": 4, "replayed": 4},
+        )
+        monkeypatch.setattr(
+            run_m1,
+            "run_oracle",
+            lambda out_dir, spec, jobs: ran.append("oracle")
+            or {"pass": True, "unmatched": 0, "multi_matched": 0},
+        )
+        monkeypatch.setattr(
+            run_m1, "_settle_green", lambda *args, **kwargs: pytest.fail("--gates-only recorded a green")
+        )
+        run_m1.main(["--gates-only", "--jobs", "6"])
+        assert ran == ["pins", "oracle"]
+        assert "[t] run_oracle" in capsys.readouterr().out
+
+    def test_a_vacuous_pin_gate_stops_it_before_the_oracle(self, monkeypatch, tmp_path):
+        self._reuse(monkeypatch, {})
+        (tmp_path / "M1.otf").write_bytes(b"font")
+        monkeypatch.setattr(run_m1, "load_default_spec", lambda: object())
+        monkeypatch.setattr(
+            run_m1,
+            "run_manual_pin_gate",
+            lambda out_dir, spec: {"pass": True, "disagreements": [], "pins_in_scope": 4, "replayed": 3},
+        )
+        monkeypatch.setattr(
+            run_m1, "run_oracle", lambda **kwargs: pytest.fail("the oracle ran behind a failed pin gate")
+        )
+        with pytest.raises(SystemExit) as error:
+            run_m1.run_gates_only(out_dir=tmp_path)
+        assert "replayed 3 of 4 pins" in str(error.value)

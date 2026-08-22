@@ -1,6 +1,6 @@
 """Conformance gates (M1-PLAN sections 5 and 6, Group 3): HarfBuzz vs the settlement function, and the settlement function vs the section 13.1 baseline oracle.
 
-`run_conformance` promotes prototype/conform.py: the Shaper (MONOTONE_CHARACTERS cluster level; names via TTFont, never HarfBuzz's truncating API), the exhaustive length-1..horizon enumeration per acceptance configuration (the per-edit belt, horizon 4 by default), the ZWNJ structural checks (zero advance, no ink), split-buffer equivalence, gap-0 pen positions, and the font-vs-settle oracle diff, which takes no ledger: any divergence is a compiler defect by definition. Coverage is deliberately not this sweep's job: read-back (rebuild/pipeline/readback.py) proves per build that the compiled font holds every emitted rule at its planned position, and rebuild/test_rule_witnesses.py remains the font-free dead-rule alarm, so the sweep's remaining unique charter is what only shaping the real binary can test — HarfBuzz's application semantics (lookup interaction across features, backtrack-sees-settled across subtable breaks, default-ignorable skipping, class matching, Extension indirection) and the sufficiency of the 6-slot window abstraction itself, which witness-constructed strings structurally cannot probe because witnesses are built from that abstraction. The deep form of the same sweep runs at horizon 5 or deeper on demand (`make conform-deep`, rebuild/tools/deep_sweep.py), armed by the behavior-class enumeration `emit_gsub.behavior_classes` plus the font-compilation code and the uharfbuzz version, so a rune edit that introduces no novel rule shape never stales it. The sweep inherits the ZWNJ/split-buffer checks within the horizon the boundary gate already proved for the same font bytes (`proven_boundary_horizon`), and settlement rides `_SettledWindowWalk`'s per-config window memo, so redundant windows cost dict probes rather than kernel transitions.
+`run_conformance` promotes prototype/conform.py: the Shaper (MONOTONE_CHARACTERS cluster level; names via TTFont, never HarfBuzz's truncating API), the exhaustive length-1..horizon enumeration per acceptance configuration (the per-edit belt, horizon 4 by default), the ZWNJ structural checks (zero advance, no ink), split-buffer equivalence, gap-0 pen positions, and the font-vs-settle oracle diff, which takes no ledger: any divergence is a compiler defect by definition. Coverage is deliberately not this sweep's job: read-back (rebuild/pipeline/readback.py) proves per build that the compiled font holds every emitted rule at its planned position, and rebuild/test_rule_witnesses.py remains the font-free dead-rule alarm, so the sweep's remaining unique charter is what only shaping the real binary can test — HarfBuzz's application semantics (lookup interaction across features, backtrack-sees-settled across subtable breaks, default-ignorable skipping, class matching, Extension indirection) and the sufficiency of the 6-slot window abstraction itself, which witness-constructed strings structurally cannot probe because witnesses are built from that abstraction. The deep form of the same sweep runs at horizon 5 or deeper on demand (`make conform-deep`, rebuild/tools/deep_sweep.py), armed by the behavior-class enumeration `emit_gsub.behavior_classes` plus the font-compilation code and the uharfbuzz version, so a rune edit that introduces no novel rule shape never stales it. The ZWNJ/split-buffer checks ride the belt itself, on the texts they can say anything about, which is where the standalone horizon-5 boundary gate's charter now lives: proven per build at the belt's horizon and periodically deeper by `make conform-deep`. Settlement rides `_SettledWindowWalk`'s per-config window memo, so redundant windows cost dict probes rather than kernel transitions, and the oracle's rows settle through a walk of their own.
 
 `compare_against_baseline` is the section 6 oracle gate: stream the filtered sub-tables, run `settle` per row, compare ligation (clusters), per-seam classification, and cell identity through the hand-written alias map; every divergent row must match exactly one ledger entry (zero matches fails conformance, two-plus fails the ledger). When a font path is supplied, the gate also compares positions old-vs-new (M1-PLAN section 6 step 3d): each row is shaped against the new font and its per-slot (x_offset, y_offset, x_advance) triples are compared against the baseline's, with sidecar kerns normalized out of the old advances via `KernEvaluator` (the new font emits no kerning). Position equality is enforced on every row whose seam topology and ligation match the baseline and whose cell-grain divergence class (if any) claims ink identity (`ink_identical: true` in the ledger); rows whose matched class legitimately redraws ink (extensions restored or suppressed, withdrawal bindings) are excluded and counted, because their advances move with the ink by design.
 
@@ -10,7 +10,6 @@ Group 2's `settle` and `table` modules are imported lazily inside the entry poin
 from __future__ import annotations
 
 import gzip
-import hashlib
 import itertools
 import json
 import sys
@@ -62,10 +61,6 @@ class ConformReport:
     shaping_runs: int = 0
     divergences: list[Divergence] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
-    # Set only by the boundary gate, whose green other gates lean on: the horizon and configs it proved, pinned to the exact font bytes it shaped. The conformance report leaves them None and its summary unchanged.
-    max_length: int | None = None
-    configs: tuple[str, ...] | None = None
-    font_sha256: str | None = None
 
     @property
     def passed(self) -> bool:
@@ -84,12 +79,6 @@ class ConformReport:
             "pass": self.passed,
             "notes": self.notes,
         }
-        if self.max_length is not None:
-            summary["max_length"] = self.max_length
-        if self.configs is not None:
-            summary["configs"] = list(self.configs)
-        if self.font_sha256 is not None:
-            summary["font_sha256"] = self.font_sha256
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(summary, indent=2) + "\n")
 
@@ -429,139 +418,6 @@ def _formed_labels(spec: ResolvedSpec, formed: list[RightToken], features: froze
             label = f"{label}.noentry"
         labels.append(sys.intern(label))
     return labels
-
-
-def run_boundary_equivalence(
-    font_path: Path,
-    spec: ResolvedSpec,
-    configs: Iterable[str] = ACCEPTANCE_CONFIGS,
-    max_length: int = 5,
-    out_dir: Path | None = None,
-) -> ConformReport:
-    """The boundary-equals-text-edge vetting gate: every length-1..max_length sequence containing at least one run-splitting boundary (space or ZWNJ) must shape slot-for-slot identically (outline, advance, offsets) to its boundary-split segments shaped alone (check_split_buffer), and every ZWNJ slot must be zero-advance and inkless (check_zwnj_structure). Font-internal only — no settlement, no oracle, no ledger — so it runs on every build and any divergence is a defect by definition. This is the permanent, exhaustive form of the rule the transitional boundary-echo ledger class rides on. The namer dot is deliberately outside the invariant: it does not split runs and stays addressable as `is: namer-dot`."""
-    shaper = Shaper(Path(font_path))
-    alphabet = spec_alphabet(spec)
-    splitters = splitting_boundary_chars(spec)
-    configs = tuple(configs)
-    report = ConformReport(
-        font=str(font_path),
-        max_length=max_length,
-        configs=configs,
-        font_sha256=_font_sha256(Path(font_path)),
-    )
-    features_by_config = {config: features_for_config(config) for config in configs}
-    secs_by_config = {config: 0.0 for config in features_by_config}
-    runs_by_config = {config: 0 for config in features_by_config}
-    started = time.perf_counter()
-    for length in range(1, max_length + 1):
-        for combo in itertools.product(alphabet, repeat=length):
-            text = "".join(combo)
-            if not (set(text) & splitters):
-                continue
-            report.sequences += 1
-            for config, features in features_by_config.items():
-                config_started = time.perf_counter()
-                shaped = shaper.shape(text, features)
-                report.shaping_runs += 1
-                runs_by_config[config] += 1
-                check_zwnj_structure(text, config, shaper, shaped, report.divergences)
-                check_split_buffer(text, config, features, shaper, shaped, report.divergences, splitters)
-                secs_by_config[config] += time.perf_counter() - config_started
-    for config in features_by_config:
-        print(
-            f"[t] boundary {config} {secs_by_config[config]:.2f}s shaping_runs={runs_by_config[config]}",
-            file=sys.stderr,
-            flush=True,
-        )
-    print(
-        f"[t] boundary total {time.perf_counter() - started:.2f}s sequences={report.sequences} shaping_runs={report.shaping_runs}",
-        file=sys.stderr,
-        flush=True,
-    )
-    if out_dir is not None:
-        report.write(Path(out_dir) / "boundary_equivalence_summary.json")
-    return report
-
-
-@dataclass
-class BoundaryConfigResult:
-    config: str
-    sequences: int = 0
-    shaping_runs: int = 0
-    divergences: list[Divergence] = field(default_factory=list)
-
-
-def _boundary_config(
-    shaper: Shaper,
-    config: str,
-    features: frozenset[str],
-    alphabet: tuple[str, ...],
-    splitters: frozenset[str],
-    max_length: int,
-) -> BoundaryConfigResult:
-    result = BoundaryConfigResult(config=config)
-    for length in range(1, max_length + 1):
-        for combo in itertools.product(alphabet, repeat=length):
-            text = "".join(combo)
-            if not (set(text) & splitters):
-                continue
-            result.sequences += 1
-            shaped = shaper.shape(text, features)
-            result.shaping_runs += 1
-            check_zwnj_structure(text, config, shaper, shaped, result.divergences)
-            check_split_buffer(text, config, features, shaper, shaped, result.divergences, splitters)
-    return result
-
-
-def boundary_config_worker(
-    spec: ResolvedSpec, font_path: Path, config: str, max_length: int = 5
-) -> BoundaryConfigResult:
-    shaper = Shaper(Path(font_path))
-    alphabet = spec_alphabet(spec)
-    splitters = splitting_boundary_chars(spec)
-    features = features_for_config(config)
-    return _boundary_config(shaper, config, features, alphabet, splitters, max_length)
-
-
-def merge_boundary_results(
-    font_path: Path, results: Iterable[BoundaryConfigResult], max_length: int | None = None
-) -> ConformReport:
-    report = ConformReport(font=str(font_path), max_length=max_length)
-    results = list(results)
-    report.sequences = results[0].sequences if results else 0
-    report.configs = tuple(result.config for result in results)
-    if Path(font_path).is_file():
-        report.font_sha256 = _font_sha256(Path(font_path))
-    for result in results:
-        report.shaping_runs += result.shaping_runs
-        report.divergences.extend(result.divergences)
-    return report
-
-
-def _font_sha256(font_path: Path) -> str:
-    return hashlib.sha256(Path(font_path).read_bytes()).hexdigest()
-
-
-def proven_boundary_horizon(
-    font_path: Path, summary_path: Path, configs: Iterable[str] = ACCEPTANCE_CONFIGS
-) -> int | None:
-    """The exhaustive horizon the boundary gate proved for exactly the font bytes at `font_path`, or None when its summary is missing, red, from another font, or short a requested config. Within this horizon `run_boundary_equivalence` already ran `check_zwnj_structure` and `check_split_buffer` over every sequence containing a run-splitting boundary — and a splitter-free text trivially satisfies both — so a conformance sweep may inherit that green instead of re-proving it text by text. Everything the inheritance leans on is checked here: `pass`, the recorded horizon and configs, and the font hash, so a stale summary (the usual case being a font rebuilt since the boundary gate last ran) simply declines rather than skipping unproven checks."""
-    try:
-        summary = json.loads(Path(summary_path).read_text())
-        font_hash = _font_sha256(Path(font_path))
-    except OSError, ValueError:
-        return None
-    horizon = summary.get("max_length")
-    recorded_configs = summary.get("configs")
-    if (
-        not summary.get("pass")
-        or not isinstance(horizon, int)
-        or not isinstance(recorded_configs, list)
-        or not set(configs) <= set(recorded_configs)
-        or summary.get("font_sha256") != font_hash
-    ):
-        return None
-    return horizon
 
 
 _WINDOW_BOUNDARIES = frozenset({"space", "uni200C", "periodcentered"})
@@ -1183,8 +1039,14 @@ def _assemble_window_witness(spec, prefix, row, decision=None, right3_label=None
     return tuple(tokens)
 
 
+WITNESS_ROW_CAP = 32
+
+
 def _first_match_rows(decision) -> dict[int, list]:
-    """Group the table's transitions by the rule index that first-matches each window, replaying the same first-match-wins semantics assert_outcome_partition proves — the static answer to 'which windows would make rule N fire?'. A deep slot holding a class token is tested through its representative member, exact by the build's union-of-fibers assertion."""
+    """Group the table's transitions by the rule index that first-matches each window, replaying the same first-match-wins semantics assert_outcome_partition proves — the static answer to 'which windows would make rule N fire?'. A deep slot holding a class token is tested through its representative member, exact by the build's union-of-fibers assertion.
+
+    At most `WITNESS_ROW_CAP` rows are kept per rule, because the witness search only ever reads the ten shortest candidates any of them yields and a popular rule first-matches tens of thousands of windows — assembling candidates for all of them was the whole cost of the gate. The bound is on the search, not on the verdict: a rule whose only realizable window sat past the cap would be reported unwitnessed, a false alarm and never a false pass.
+    """
     rules_by_input: dict[str, list[tuple[int, Rule]]] = {}
     for index, rule in enumerate(decision.rules):
         rules_by_input.setdefault(rule.input_glyph, []).append((index, rule))
@@ -1205,7 +1067,9 @@ def _first_match_rows(decision) -> dict[int, list]:
             look4 = getattr(rule, "look4", None)
             if look4 is not None and right4 not in look4:
                 continue
-            rows_by_rule.setdefault(index, []).append(row)
+            rows = rows_by_rule.setdefault(index, [])
+            if len(rows) < WITNESS_ROW_CAP:
+                rows.append(row)
             break
     return rows_by_rule
 
@@ -1292,10 +1156,9 @@ def run_conformance(
     glyphs: Mapping[CellId, GlyphRecord] | None = None,
     max_length: int = 4,
     out_dir: Path | None = None,
-    boundary_horizon: int | None = None,
     summary_name: str = "conform_summary.json",
 ) -> ConformReport:
-    """The serial conformance entry point: one shared Shaper, each config's belt run in turn through `_conformance_config`, results merged by `merge_conformance_results`. The per-config fan-out lives in run_m1.run_font_conformance, which submits `conformance_config_worker` per config instead. No decision table reaches this sweep at all — it shapes the font and settles the same texts through the kernel, and read-back owns the claim that the font holds the planned rules. `boundary_horizon` is the boundary gate's proven horizon for this exact font (resolve it with `proven_boundary_horizon`), under which each config's sweep inherits the structural checks instead of re-running them; `summary_name` is the file written under `out_dir`, which the deep sweep names differently so its own run never overwrites the belt's record."""
+    """The serial conformance entry point: one shared Shaper, each config's belt run in turn through `_conformance_config`, results merged by `merge_conformance_results`. The per-config fan-out lives in run_m1.run_font_conformance, which submits `conformance_config_worker` per config instead. No decision table reaches this sweep at all — it shapes the font and settles the same texts through the kernel, and read-back owns the claim that the font holds the planned rules. `summary_name` is the file written under `out_dir`, which the deep sweep names differently so its own run never overwrites the belt's record."""
     shaper = Shaper(Path(font_path))
     alphabet = spec_alphabet(spec)
     splitters = splitting_boundary_chars(spec)
@@ -1313,7 +1176,6 @@ def run_conformance(
             glyph_names,
             anchors_of,
             max_length,
-            boundary_horizon=boundary_horizon,
         )
         for config in configs
     ]
@@ -1342,9 +1204,8 @@ def _conformance_config(
     glyph_names: Mapping[CellId, str],
     anchors_of: Callable[[str], dict | None] | None,
     max_length: int,
-    boundary_horizon: int | None = None,
 ) -> ConformanceConfigResult:
-    """One config's belt run: every string of length 1..max_length over the alphabet, shaped against the font and diffed against the settled stream, with the ZWNJ structural checks, split-buffer equivalence and gap-0 pen positions riding along. Configs share nothing, so this is the unit both the serial wrapper and the process-pool worker call. Settlement rides `_SettledWindowWalk`'s per-config memo, which is a speed device only — the sweep's verdict does not depend on which windows it has already seen. `boundary_horizon` (the boundary gate's proven horizon for this font, `proven_boundary_horizon`) lets the sweep inherit `check_zwnj_structure` and `check_split_buffer` for texts within it, where that gate already proved them for the same font bytes."""
+    """One config's belt run: every string of length 1..max_length over the alphabet, shaped against the font and diffed against the settled stream, with the ZWNJ structural checks, split-buffer equivalence and gap-0 pen positions riding along. Configs share nothing, so this is the unit both the serial wrapper and the process-pool worker call. Settlement rides `_SettledWindowWalk`'s per-config memo, which is a speed device only — the sweep's verdict does not depend on which windows it has already seen. The two structural checks run here on the texts they can say anything about — a ZWNJ-free text has no ZWNJ slot to weigh and a splitter-free one is trivially identical to its own single segment — which is the whole of their coverage now that the standalone horizon-5 boundary pass has gone; the deep sweep takes them past this horizon on its own arming key."""
     from rebuild.pipeline import settle as settle_module
 
     features = features_for_config(config)
@@ -1358,20 +1219,15 @@ def _conformance_config(
     def sweep_text(text: str) -> None:
         shaped = shaper.shape(text, features)
         result.shaping_runs += 1
-        if boundary_horizon is None or len(text) > boundary_horizon:
+        if ZWNJ in text:
             check_zwnj_structure(text, config, shaper, shaped, result.divergences)
-            if set(text) & splitters:
-                check_split_buffer(text, config, features, shaper, shaped, result.divergences, splitters)
+        if set(text) & splitters:
+            check_split_buffer(text, config, features, shaper, shaped, result.divergences, splitters)
         settled, expected_cells = walker.walk(text)
         expected = isolated_overlay_names(spec, settled) if overlay else expected_cells
         check_oracle(text, config, shaped, expected, result.divergences, modes)
         if anchors_of is not None:
             check_join_gaps(text, config, shaper, shaped, anchors_of, result.divergences)
-
-    if boundary_horizon is not None:
-        modes.add(
-            f"zwnj/split-buffer checks for texts within length {boundary_horizon} inherited from the green boundary gate"
-        )
 
     for length in range(1, max_length + 1):
         for combo in itertools.product(alphabet, repeat=length):
@@ -1388,9 +1244,8 @@ def conformance_config_worker(
     config: str,
     max_length: int = 4,
     glyphs: Mapping[CellId, GlyphRecord] | None = None,
-    boundary_horizon: int | None = None,
 ) -> ConformanceConfigResult:
-    """One config's sweep in its own process, everything it needs rebuilt here from the spec and the font. `boundary_horizon` passes through to `_conformance_config`; the parent resolves it once (`proven_boundary_horizon`) since every config shapes the same font."""
+    """One config's sweep in its own process, everything it needs rebuilt here from the spec and the font."""
     shaper = Shaper(Path(font_path))
     alphabet = spec_alphabet(spec)
     splitters = splitting_boundary_chars(spec)
@@ -1406,7 +1261,6 @@ def conformance_config_worker(
         glyph_names,
         anchors_of,
         max_length,
-        boundary_horizon=boundary_horizon,
     )
 
 
@@ -1507,7 +1361,7 @@ def classify_divergence(row: DivergentRow) -> str | None:
         # Position drift never rides a cell-grain class (the ink-identity claim it would hide is exactly what the position channel tests); position-only rows go through the kern-attribution predicate instead.
         return None
     if {"0020", "200C"} & set(row.codepoints.split(":")):
-        # The ratified boundary-equals-word-boundary rule (design section 3.4): the new font renders every segment of a window containing a run-splitting boundary (space or ZWNJ) identically to that segment standing alone — enforced per build by run_boundary_equivalence — so a boundary row can only diverge from the baseline where the old font was itself inconsistent across the boundary, and every segment-internal divergence resurfaces on the segment's own enumerated row. Boundary rows therefore carry no adjudicable information and are absorbed wholesale, ahead of every other cell/seam-grain class.
+        # The ratified boundary-equals-word-boundary rule (design section 3.4): the new font renders every segment of a window containing a run-splitting boundary (space or ZWNJ) identically to that segment standing alone — enforced per build by the belt's own split-buffer check — so a boundary row can only diverge from the baseline where the old font was itself inconsistent across the boundary, and every segment-internal divergence resurfaces on the segment's own enumerated row. Boundary rows therefore carry no adjudicable information and are absorbed wholesale, ahead of every other cell/seam-grain class.
         return "boundary-echo"
     if "ligation" in phenomena:
         # Under the isolated overlay the new font never forms the ligature at all (the ss10 pre-empt replaces every letter before formation) while the old font keeps drawing its own ligature, so the suppression class outranks the marker-staging one (whose 00B7 arm would otherwise swallow the namer-dot ss10 windows).
@@ -1606,6 +1460,9 @@ def _class_predicate(class_id: str) -> Callable[[DivergentRow], bool]:
     return matches
 
 
+# The ledger entries whose predicate is nothing but "classify_divergence chose this class". `_match_ledger` reads the class id straight out of this map and classifies each row once, where letting every one of these closures re-classify cost the oracle its slowest microsecond per divergent row; the three predicates below, which ask something classification cannot, keep functions of their own.
+CLASS_PREDICATE_IDS: dict[str, str] = {}
+
 for _class_id in (
     "boundary-echo",
     "ss10-ligature-suppressed",
@@ -1631,6 +1488,7 @@ for _class_id in (
     "may-jai-extension-consolidated",
     "jai-entry-contraction-respelled",
 ):
+    CLASS_PREDICATE_IDS[_class_id.replace("-", "_")] = _class_id
     PREDICATES[_class_id.replace("-", "_")] = _class_predicate(_class_id)
 
 
@@ -1806,10 +1664,12 @@ def _compare_config(
     if not table_path.exists():
         result.notes.append(f"{config}: subset table missing at {table_path}")
         return result
+    # The oracle's rows are the same texts the belt sweeps, so they settle through the same per-config window memo rather than from scratch a row at a time. Names go unread here — the row's own cells are what `_compare_row` reads — so the walk gets no glyph inventory and keys its lefts on the generated display names, which are as injective as the minted ones.
+    walker = _SettledWindowWalk(spec, engine, features, {}) if engine is not None else None
     config_started = time.perf_counter()
     for row in iter_rows(table_path):
         result.rows_compared += 1
-        divergent = _compare_row(spec, settle_module, aliases, config, features, row, engine=engine)
+        divergent = _compare_row(spec, settle_module, aliases, config, features, row, walker=walker)
         matches = _match_ledger(ledger, divergent) if divergent is not None else []
         if shaper is not None:
             topology_clean = divergent is None or not ({"ligation", "seam"} & set(divergent.kinds))
@@ -1987,10 +1847,16 @@ def compare_against_baseline(
 
 
 def _compare_row(
-    spec, settle_module, aliases, config: str, features: frozenset[str], row: Row, engine=None
+    spec,
+    settle_module,
+    aliases,
+    config: str,
+    features: frozenset[str],
+    row: Row,
+    walker: "_SettledWindowWalk | None" = None,
 ) -> DivergentRow | None:
-    if engine is not None:
-        settled = settle_module.settle_with_engine(engine, list(row.codepoints))
+    if walker is not None:
+        settled, _names = walker.walk(row.text)
     else:
         settled = settle_module.settle(spec, list(row.codepoints), features)
     if isolated_overlay_active(spec, features):
@@ -2113,6 +1979,8 @@ def _cell_token(cell, item) -> str:
 
 
 def _match_ledger(ledger: list[dict], row: DivergentRow) -> list[str]:
+    """Every ledger entry this row matches, in ledger order — all of them, so the caller can still tell a single match from the two-plus that fail the ledger. The row is classified once here and each class-grain entry compares against that answer (CLASS_PREDICATE_IDS); the entries asking something else keep their own predicate."""
+    classified = classify_divergence(row)
     matches: list[str] = []
     for entry in ledger:
         match = entry.get("match", {})
@@ -2121,9 +1989,14 @@ def _match_ledger(ledger: list[dict], row: DivergentRow) -> list[str]:
             continue
         predicate_name = match.get("predicate")
         if predicate_name is not None:
-            function = PREDICATES.get(predicate_name)
-            if function is None or not function(row):
-                continue
+            class_id = CLASS_PREDICATE_IDS.get(predicate_name)
+            if class_id is not None:
+                if classified != class_id:
+                    continue
+            else:
+                function = PREDICATES.get(predicate_name)
+                if function is None or not function(row):
+                    continue
         else:
             window = match.get("window")
             if window is not None and window not in row.codepoints:
@@ -2136,9 +2009,10 @@ def _match_ledger(ledger: list[dict], row: DivergentRow) -> list[str]:
 
 
 class KernEvaluator:
-    """Read-only evaluation of glyph_data/senior_quikscript_kerning.yaml over old-name glyph pairs, for adding sidecar kerns back before any baseline position diff. Family keys expand by name prefix against the supplied pair, mirroring the sidecar's documented expansion."""
+    """Read-only evaluation of glyph_data/senior_quikscript_kerning.yaml over old-name glyph pairs, for adding sidecar kerns back before any baseline position diff. Family keys expand by name prefix against the supplied pair, mirroring the sidecar's documented expansion. Every answer is a pure function of the pair and the sidecar is read once, so pairs are memoized: the oracle asks about a few thousand distinct pairs across millions of slots, and the uncached scan over every sidecar rule was the bulk of the position channel."""
 
     def __init__(self, sidecar_path: Path):
+        self._values: dict[tuple[str, str], int] = {}
         documents = [
             document
             for document in yaml.safe_load_all(Path(sidecar_path).read_text())
@@ -2164,6 +2038,13 @@ class KernEvaluator:
         return False
 
     def value_for(self, left_glyph: str, right_glyph: str) -> int:
+        cached = self._values.get((left_glyph, right_glyph))
+        if cached is None:
+            cached = self._value_for(left_glyph, right_glyph)
+            self._values[(left_glyph, right_glyph)] = cached
+        return cached
+
+    def _value_for(self, left_glyph: str, right_glyph: str) -> int:
         total = self.global_value
         for rule in self.rules:
             left_ok = (

@@ -4,7 +4,9 @@ Stages: load_default_spec -> per-configuration decision/treaty tables (partition
 
 The glyph-name contract this driver pins: settlement-lookup outcomes are `settle.cell_label` names, so the decision-table rules and the compiled glyph set agree by construction; the raw cmap glyph for each rune is the bare rune name drawn as the isolated cell but carrying no curs anchors; marker, chokepoint, and ss10 twins reuse the bare drawing (under ss10 the pre-empt lookup substitutes every letter's cmap glyph by its anchor-free `.ss10` twin before formation, so no ligature ever forms, nothing settles, each letter keeps its own cluster, and every seam is a break).
 
-Run as: uv run python -m rebuild.pipeline.run_m1
+The ZWNJ-structure and split-buffer checks that once had a standalone horizon-5 gate of their own now ride gate:conform's belt, so they are proven per build at horizon 4 and periodically at 5 or deeper by `make conform-deep` — the same charter the belt already has, over a rule whose closure property makes a horizon-4 proof cover every window the oracle absorbs.
+
+Run as: uv run python -m rebuild.pipeline.run_m1 — or `--conform-only` for the belt alone against the M1.otf on disk, or `--gates-only` for the Manual-pin gate and the oracle against it, which is the cheap way to re-adjudicate a ledger or classifier edit without rebuilding a thing.
 """
 
 from __future__ import annotations
@@ -323,7 +325,7 @@ def run_font_conformance(
     jobs: int = 1,
     summary_name: str = "conform_summary.json",
 ) -> dict:
-    """The exhaustive font-vs-settle sweep — the per-edit belt at `max_length` 4, and the same sweep deeper when rebuild.tools.deep_sweep asks for it under its own `summary_name`. The tables the build stage left under `out_dir` are read back here for one reason only, the glyph inventory `mint_cell_glyphs` needs to name settled cells and read their anchors; the sweep itself takes no table, because what it proves is HarfBuzz's behavior against the kernel's, and read-back already proved the font holds the rules the build planned. A stamp that fails to match is a hard stop rather than a rebuild: the enumeration costs a whole kernel fan-out, and a sweep that quietly built its own inventory would be measuring a font against runes that have since moved. The boundary gate's summary, when green for exactly this M1.otf, hands the sweep its structural checks within the proven horizon."""
+    """The exhaustive font-vs-settle sweep — the per-edit belt at `max_length` 4, and the same sweep deeper when rebuild.tools.deep_sweep asks for it under its own `summary_name`. The tables the build stage left under `out_dir` are read back here for one reason only, the glyph inventory `mint_cell_glyphs` needs to name settled cells and read their anchors; the sweep itself takes no table, because what it proves is HarfBuzz's behavior against the kernel's, and read-back already proved the font holds the rules the build planned. A stamp that fails to match is a hard stop rather than a rebuild: the enumeration costs a whole kernel fan-out, and a sweep that quietly built its own inventory would be measuring a font against runes that have since moved. The ZWNJ and split-buffer structural checks ride this sweep now, on every text that carries a boundary."""
     inputs = tables_inputs()
     spec = load_default_spec()
     start = time.perf_counter()
@@ -335,9 +337,6 @@ def run_font_conformance(
     decisions: Mapping[str, DecisionTable | tuple[DecisionTable, ...]] = serialized
     print(f"[t] load_tables {time.perf_counter() - start:.1f}s", flush=True)
     cell_glyphs = mint_cell_glyphs(spec, decisions)
-    boundary_horizon = conform.proven_boundary_horizon(
-        out_dir / "M1.otf", out_dir / "boundary_equivalence_summary.json"
-    )
     if jobs > 1:
         collected: dict[str, conform.ConformanceConfigResult] = {}
         with _spawn_pool(jobs) as pool:
@@ -349,7 +348,6 @@ def run_font_conformance(
                     config,
                     max_length,
                     cell_glyphs,
-                    boundary_horizon=boundary_horizon,
                 ): config
                 for config in conform.ACCEPTANCE_CONFIGS
             }
@@ -366,7 +364,6 @@ def run_font_conformance(
             glyphs=cell_glyphs,
             max_length=max_length,
             out_dir=out_dir,
-            boundary_horizon=boundary_horizon,
             summary_name=summary_name,
         )
     summary = {
@@ -383,43 +380,6 @@ def run_font_conformance(
     return summary
 
 
-def run_boundary_gate(
-    out_dir: Path = OUT_DIR, max_length: int = 5, spec: ResolvedSpec | None = None, jobs: int = 1
-) -> dict:
-    if spec is None:
-        spec = load_default_spec()
-    if jobs > 1:
-        collected: dict[str, conform.BoundaryConfigResult] = {}
-        with _spawn_pool(jobs) as pool:
-            futures = {
-                pool.submit(
-                    conform.boundary_config_worker, spec, out_dir / "M1.otf", config, max_length
-                ): config
-                for config in conform.ACCEPTANCE_CONFIGS
-            }
-            for future in as_completed(futures):
-                result = future.result()
-                collected[result.config] = result
-        ordered = [collected[config] for config in conform.ACCEPTANCE_CONFIGS]
-        report = conform.merge_boundary_results(out_dir / "M1.otf", ordered, max_length=max_length)
-        report.write(out_dir / "boundary_equivalence_summary.json")
-    else:
-        report = conform.run_boundary_equivalence(
-            out_dir / "M1.otf", spec, max_length=max_length, out_dir=out_dir
-        )
-    summary = {
-        "sequences": report.sequences,
-        "shaping_runs": report.shaping_runs,
-        "divergences": len(report.divergences),
-        "pass": not report.divergences,
-    }
-    for divergence in report.divergences[:20]:
-        summary.setdefault("divergence_exemplars", []).append(
-            f"{divergence.config} {':'.join(f'{ord(ch):04X}' for ch in divergence.text)} position {divergence.position} [{divergence.kind}] expected {divergence.expected} got {divergence.got}"
-        )
-    return summary
-
-
 def run_manual_pin_gate(out_dir: Path = OUT_DIR, spec: ResolvedSpec | None = None) -> dict:
     if spec is None:
         spec = load_default_spec()
@@ -427,6 +387,19 @@ def run_manual_pin_gate(out_dir: Path = OUT_DIR, spec: ResolvedSpec | None = Non
     summary = manual_pins.summarize(report)
     (out_dir / "manual_pins_summary.json").write_text(json.dumps(summary, indent=2) + "\n")
     return summary
+
+
+def manual_pin_gate_failure(summary: Mapping) -> str | None:
+    """Why the Manual-pin gate does not count as passed, or None. `pass` alone is `not disagreements`, which a gate that replayed nothing satisfies vacuously — so the scope is part of the verdict here: the pins have to have been in scope and every one of them actually replayed against the font."""
+    if not summary.get("pass"):
+        return f"Manual-pin gate failed ({len(summary.get('disagreements') or [])} disagreements)"
+    in_scope = summary.get("pins_in_scope") or 0
+    replayed = summary.get("replayed") or 0
+    if in_scope < 1:
+        return "Manual-pin gate passed with no pins in scope, which proves nothing about the font"
+    if replayed != in_scope:
+        return f"Manual-pin gate replayed {replayed} of {in_scope} pins in scope"
+    return None
 
 
 def run_oracle(
@@ -490,6 +463,36 @@ def run_oracle(
     return summary
 
 
+def run_gates_only(out_dir: Path = OUT_DIR, jobs: int = 1) -> None:
+    """The two post-build gates over artifacts already on disk: the Manual-pin replay and the oracle, rewriting their summaries and `divergence-audit.tsv` without recompiling anything. What licenses the reuse is the stamp the build left on its serialized enumerations — it names the sources those tables came from, so a stamp that still matches the runes on disk says the M1.otf beside them is the font those runes describe, and a stamp that does not is a refusal rather than a silent sweep of a stale binary. This writes no green record: run_m1's green covers the whole build, and a pass that recompiled nothing has not earned it."""
+    inputs = tables_inputs()
+    font_path = out_dir / "M1.otf"
+    if serialized_tables(out_dir, inputs) is None:
+        raise SystemExit(
+            f"the stamped window enumerations under {out_dir} are missing, unreadable, or were built from other sources than the ones on disk — run `uv run python -m rebuild.pipeline.run_m1` (or a cycle pass) first; --gates-only re-runs the gates over a build, it does not make one"
+        )
+    if not font_path.is_file():
+        raise SystemExit(
+            f"no compiled font at {font_path} — run `uv run python -m rebuild.pipeline.run_m1` first"
+        )
+    spec = load_default_spec()
+
+    start = time.perf_counter()
+    pin_gate = run_manual_pin_gate(out_dir=out_dir, spec=spec)
+    print(f"[t] run_manual_pin_gate {time.perf_counter() - start:.1f}s", flush=True)
+    print(json.dumps(pin_gate, indent=2))
+    pin_failure = manual_pin_gate_failure(pin_gate)
+    if pin_failure is not None:
+        raise SystemExit(f"{pin_failure}; see manual_pins_summary.json")
+
+    start = time.perf_counter()
+    oracle = run_oracle(out_dir=out_dir, spec=spec, jobs=jobs)
+    print(f"[t] run_oracle {time.perf_counter() - start:.1f}s", flush=True)
+    print(json.dumps(oracle, indent=2))
+    if not oracle["pass"]:
+        raise SystemExit("oracle conformance failed; see oracle_summary.json and divergence-audit.tsv")
+
+
 def _settle_green(
     green_path: Path,
     key: str,
@@ -518,12 +521,17 @@ def main(argv: list[str] | None = None) -> None:
         "--jobs",
         type=int,
         default=1,
-        help="worker budget for the oracle/boundary/conformance shards; 1 = serial",
+        help="worker budget for the oracle and conformance shards, one process per acceptance configuration; 1 = serial. The table build's own width is --kernel-threads.",
     )
     parser.add_argument(
         "--conform-only",
         action="store_true",
         help="run only the font-vs-settle conformance sweep against the existing M1.otf and exit nonzero unless it passes",
+    )
+    parser.add_argument(
+        "--gates-only",
+        action="store_true",
+        help="re-run the Manual-pin gate and the oracle against the M1.otf and tables already on disk, rewriting their summaries and divergence-audit.tsv; refuses when those tables were built from other sources than the ones on disk",
     )
     parser.add_argument(
         "--conform-horizon",
@@ -539,6 +547,10 @@ def main(argv: list[str] | None = None) -> None:
     )
     args = parser.parse_args(argv)
     jobs = args.jobs if args.jobs and args.jobs > 1 else 1
+
+    if args.gates_only:
+        run_gates_only(out_dir=OUT_DIR, jobs=jobs)
+        return
 
     if args.conform_only:
         from rebuild.tools.artifact_cycle import (
@@ -610,17 +622,12 @@ def main(argv: list[str] | None = None) -> None:
         if summary["defect_errors"]:
             raise SystemExit(f"{len(summary['defect_errors'])} defect-gate errors; see pipeline_summary.json")
         start = time.perf_counter()
-        boundary_gate = run_boundary_gate(spec=spec, jobs=jobs)
-        print(f"[t] run_boundary_gate {time.perf_counter() - start:.1f}s", flush=True)
-        print(json.dumps(boundary_gate, indent=2))
-        if not boundary_gate["pass"]:
-            raise SystemExit("boundary-equals-text-edge gate failed; see boundary_equivalence_summary.json")
-        start = time.perf_counter()
         pin_gate = run_manual_pin_gate(spec=spec)
         print(f"[t] run_manual_pin_gate {time.perf_counter() - start:.1f}s", flush=True)
         print(json.dumps(pin_gate, indent=2))
-        if not pin_gate["pass"]:
-            raise SystemExit("Manual-pin gate failed; see manual_pins_summary.json")
+        pin_failure = manual_pin_gate_failure(pin_gate)
+        if pin_failure is not None:
+            raise SystemExit(f"{pin_failure}; see manual_pins_summary.json")
         start = time.perf_counter()
         oracle = run_oracle(spec=spec, jobs=jobs)
         print(f"[t] run_oracle {time.perf_counter() - start:.1f}s", flush=True)
@@ -630,7 +637,7 @@ def main(argv: list[str] | None = None) -> None:
         if isinstance(error, SystemExit):
             raise
         raise SystemExit(str(error))
-    gate = evaluate_run_m1_gate(summary, boundary_gate, pin_gate, oracle)
+    gate = evaluate_run_m1_gate(summary, pin_gate, oracle)
     _settle_green(
         RUN_M1_GREEN, before, gate.ok, run_m1_key, "run_m1", files_of=lambda: run_m1_skip_files(REPO_ROOT)
     )
