@@ -6,6 +6,7 @@ import pytest
 
 from rebuild.pipeline import fixtures, kernel_exec, model, table
 from rebuild.pipeline.kernel_exec import build_tables
+from rebuild.pipeline.settle import is_entry_bearing
 from rebuild.pipeline.table import (
     BOUNDARY_LOOKAHEAD_CLASS,
     BOUNDARYISH,
@@ -57,13 +58,91 @@ def ss03_tables():
     return build_tables(SPEC, frozenset({"ss03"}))
 
 
+def replay_lefts(spec, rows):
+    """The lefts the build's reduced replay covers, asked of the rule fold that decides them rather than restated here — so a test perturbing rules is measured against the same reduction the live build runs."""
+    by_input: dict[str, list] = {}
+    for row in rows:
+        by_input.setdefault(row.input_glyph, []).append(row)
+    lefts = {}
+    for input_glyph, group in by_input.items():
+        never_locked = not is_entry_bearing(spec, input_glyph.split(".")[0])
+        _rules, _guards, lefts[input_glyph] = table._rules_for_input(input_glyph, group, never_locked)
+    return lefts
+
+
 def test_hard_invariants(default_tables):
+    """The whole-table forms, which is what the fixture is for: the live build replays one left per signature block, and here every row of every left is replayed against the same rules, so the block-equality premise that reduction rests on is checked by something other than itself. E-STRANDED is the same story — a second opinion on the crate that only the fixture still pays for."""
     decision, _treaty = default_tables
     decision.assert_outcome_partition()
     decision.assert_e_stranded()
     decision._assert_deep_class_unions()
     assert decision.rules
     assert decision.transitions
+
+
+def test_signature_blocks_are_a_disjoint_cover_grouped_by_signature():
+    """What `assert_outcome_partition` used to re-derive over every row of every configuration and could never catch: `_signature_blocks` groups its values in a dict keyed by signature, so the blocks partition the values and each one is exactly one signature's preimage. Stated here over hand-made signatures, at no cost to a build."""
+    signatures = {
+        "a": frozenset({1}),
+        "b": frozenset({1}),
+        "c": frozenset({2}),
+        "d": frozenset(),
+        "e": frozenset({2}),
+        "f": frozenset({1, 2}),
+    }
+    blocks = table._signature_blocks(sorted(signatures), lambda value: signatures[value])
+    assert blocks == sorted(blocks)
+    assert len(blocks) == len(set(signatures.values()))
+    for block in blocks:
+        assert block == tuple(sorted(block))
+        assert len({signatures[value] for value in block}) == 1
+    members = [value for block in blocks for value in block]
+    assert sorted(members) == sorted(signatures)
+    assert len(members) == len(set(members))
+
+
+def test_the_reduced_replay_catches_what_the_whole_table_replay_catches(default_tables):
+    """The negative control the reduction owes: over ·Utter's rules — an input carrying deep-slot rules and a real reduction, eighteen lefts replayed of seventy-nine — every single-rule drop, every adjacent swap and every widened first-lookahead class that the whole-table replay would notice is noticed by the reduced replay too. Perturbations neither catches are redundant rules, which is a fact about the fold rather than about the reduction. The reduced replay reads a subset of the rows, so the other direction is free."""
+    decision, _treaty = default_tables
+    input_glyph = "qsUtter"
+    rows = [row for row in decision.expanded_transitions() if row.input_glyph == input_glyph]
+    lefts = replay_lefts(SPEC, rows)
+    assert len(lefts[input_glyph]) < len({row.left for row in rows})
+    assert any(rule.look3 is not None for rule in decision.rules if rule.input_glyph == input_glyph)
+
+    def caught(rules, reduced):
+        tampered = dataclasses.replace(decision, rules=rules)
+        try:
+            tampered.assert_outcome_partition(rows, lefts if reduced else None)
+        except table.PartitionError:
+            return True
+        return False
+
+    own = [index for index, rule in enumerate(decision.rules) if rule.input_glyph == input_glyph]
+    perturbations = []
+    for index in own:
+        perturbations.append(decision.rules[:index] + decision.rules[index + 1 :])
+    for index in own[:-1]:
+        swapped = list(decision.rules)
+        swapped[index], swapped[index + 1] = swapped[index + 1], swapped[index]
+        perturbations.append(tuple(swapped))
+    for index in own:
+        rule = decision.rules[index]
+        if rule.look1 is None:
+            continue
+        widened = list(decision.rules)
+        widened[index] = dataclasses.replace(rule, look1=None)
+        perturbations.append(tuple(widened))
+
+    noticed = 0
+    for rules in perturbations:
+        if caught(rules, reduced=True):
+            noticed += 1
+            continue
+        assert not caught(
+            rules, reduced=False
+        ), "a perturbation the whole-table replay catches slipped past the reduced one"
+    assert noticed > len(own)
 
 
 def test_reachable_cells_cover_the_known_settlements(default_tables):

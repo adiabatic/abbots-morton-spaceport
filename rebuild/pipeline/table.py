@@ -4,7 +4,7 @@ The fixpoint that fills these tables runs in the crate under `rebuild/kernel-rs`
 
 The kernel tabulates settlement over every (settled-left state, rune, raw-right-1, raw-right-2) window reachable under settlement for one feature configuration, by fixpoint over reachable left states rather than string enumeration, so the table is exact. Windows that formation makes impossible are excluded — but a ligature pair survives unformed exactly where the section 5.7 late-formation guard fires, so pair windows are enumerated under precisely the guard-firing follower contexts: the lead's window is admitted per guard-firing right2, and the trail's window inherits the matching allowed-right2 set through the worklist, keeping the fixpoint exact. The mirror facet holds for formed-ligature tokens at any slot: a ligature input's window, and any window with a ligature at right1, is admitted only where that ligature's own guard does NOT fire over the raw tokens its post-formation neighbors stand for, existentially over the beyond-window slot. ZWNJ-locked entry-bearing inputs enumerate under the chokepoint twin's glyph name (`model.locked_glyph_name`, the `<raw>.noentry` shape the emitter's chokepoint actually produces), locked before settlement — which keeps each plain input's boundary-left outcomes in a single block, exactly as the prototype encoded it.
 
-Outcome-partition compression is DFA-style per input and per slot: two fillers land in one class iff their full outcome signatures over the other slots are identical. `assert_outcome_partition` re-derives the partitions and replays every reachable transition against the ordered rules under first-match-wins semantics — the hard build invariant of prototype follow-up 1. The fold, the joint-flag pass, the treaty fold, the replay, and every serialized-rules consumer read the expanded label-grain row stream (`DecisionTable.expanded_transitions`): a class-grain enumeration expands each row to its full member product before anything downstream runs, so those consumers are byte-identical to a label-grain build by construction, and `Rule` objects carry label vocabulary only — no class id ever reaches `_rules_for_input`, `write_tsv`, or a serialized rules head. Rule ordering per input follows the proven discipline: boundary-outcome rows with `uni200C` explicit in the class first, three-lookahead-slot rows before two-slot rows before one-slot rows, identity rows omitted, the slot-dropped fallback last, plus ZWNJ backtrack-slot coverage guards for never-locked inputs.
+Outcome-partition compression is DFA-style per input and per slot: two fillers land in one class iff their full outcome signatures over the other slots are identical. `assert_outcome_partition` replays reachable transitions against the ordered rules under first-match-wins semantics — the hard build invariant of prototype follow-up 1 — over every row where a caller can afford it and over one left per signature block where it cannot, which its own docstring argues is the same claim. The fold, the joint-flag pass, the treaty fold, the replay, and every serialized-rules consumer read the expanded label-grain row stream (`DecisionTable.expanded_transitions`): a class-grain enumeration expands each row to its full member product before anything downstream runs, so those consumers are byte-identical to a label-grain build by construction, and `Rule` objects carry label vocabulary only — no class id ever reaches `_rules_for_input`, `write_tsv`, or a serialized rules head. Rule ordering per input follows the proven discipline: boundary-outcome rows with `uni200C` explicit in the class first, three-lookahead-slot rows before two-slot rows before one-slot rows, identity rows omitted, the slot-dropped fallback last, plus ZWNJ backtrack-slot coverage guards for never-locked inputs.
 
 Rows carry a fourth window slot, `right3`, enumerated lazily and only where live: an input the kernel's own census admits — in the pinned candidacy world, exactly the runes carrying a prefer or resolve record whose right condition chains two hops; under the simulated prospect or the shifted vote slots, every rune, because any input's third join-count term can then read the slot through its follower's replayed cascade — gets its windows split by the raw third lookahead, only where both nearer slots are letters, and only where the kernel's liveness verdict still finds the window undecided over them: some own-rune depth-3 chain unknown over (right1, right2), or some candidate shape's simulated follower choice or some follower vote's verdict moved by the third token. A window judged definite settles identically under every third token, so everywhere else the slot stays `#NA`, mirroring the established convention that no record peeks past a boundary. An enumerated window's settled left state is reachable only alongside right2 equal to that window's right3, so the worklist pins the successor's allowed-right2 set to that singleton — the same exactness plumbing the late-formation guard already rides — and the right3 options replay the right2 filters shifted one slot (formation-impossible adjacent pairs, guard-firing follower sets, the formed-ligature guard with the second slot now pinned). The fifth slot, `right4`, repeats the pattern one deeper: only an input whose chain reaches that far (again, every rune under the deep-reading modes) with letters at all three nearer slots, and only where the same verdict finds the window live over those three slots, enumerates it. Where it does enumerate, its options replay the same filters shifted once more, and the worklist pins the successor's right3 to the producing window's right4. Under those deep-reading modes with class grain asked for (`kernel_exec.DEEP_CLASSES_DEFAULT`, and `kernel_exec.class_grain` for the rule that decides it), both deep slots enumerate at class grain (issue 26): the same option lists, their letters split by the kernel's outcome fibers — the liveness verdicts themselves are untouched and the #NA biconditional keeps its exact statement over tokens — one row per (base, fiber pair) holding a content-addressed member set (`deep_classes`, `deep_class_id`), the successor pins carrying the admitted member sets instead of singletons, and `expanded_transitions` restoring the label-grain stream for everything downstream. `_assert_window_arity` ties the Transition/Rule slot count to `model.RIGHT_WINDOW_SLOTS` at import, so the chain cap and the table can only widen together.
 
@@ -20,7 +20,7 @@ import hashlib
 import json
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Iterator, Mapping
+from typing import Iterable, Iterator, Mapping
 
 from rebuild.pipeline.model import (
     RIGHT_WINDOW_SLOTS,
@@ -174,36 +174,22 @@ class DecisionTable:
         expanded.sort(key=lambda r: r.key)
         yield from expanded
 
-    def assert_outcome_partition(self) -> None:
-        """The hard build invariant (prototype follow-up 1): recompute the per-slot signature partitions and verify disjoint cover, then replay every reachable transition against the ordered rules under first-match-wins semantics. The left partition runs over the table's own rows — class tokens are ordinary signature coordinates, and the sparse-signature premise of `_signature_blocks` holds for them because ids are content-addressed, so identical token signatures imply identical member sets — while the replay runs over `expanded_transitions()`, the identical label-grain multiset a label-grain build enumerates, so first-match-wins is checked verbatim, not by analogue."""
-        by_input: dict[str, dict[tuple[str, str, str, str, str], Window]] = {}
-        for row in self.transitions:
-            by_input.setdefault(row.input_glyph, {})[
-                (row.left, row.right1, row.right2, row.right3, row.right4)
-            ] = row
-        for input_glyph, rows in by_input.items():
-            lefts = sorted({left for left, _r1, _r2, _r3, _r4 in rows})
-            signatures: dict[str, set[tuple[tuple[str, str, str, str], str]]] = {}
-            for (left, r1, r2, r3, r4), row in rows.items():
-                signatures.setdefault(left, set()).add(((r1, r2, r3, r4), row.outcome))
-            blocks = _signature_blocks(lefts, lambda left: frozenset(signatures[left]))
-            covered: set[str] = set()
-            for block in blocks:
-                if covered & set(block):
-                    raise PartitionError(
-                        f"{input_glyph}: left-slot classes are not a partition: {block} overlaps {sorted(covered)}"
-                    )
-                covered.update(block)
-            if covered != set(lefts):
-                raise PartitionError(f"{input_glyph}: left-slot classes do not cover all observed labels")
-        self._replay()
+    def assert_outcome_partition(
+        self, rows: Iterable[Window] | None = None, lefts: Mapping[str, frozenset[str]] | None = None
+    ) -> None:
+        """The hard build invariant (prototype follow-up 1): replay reachable transitions against the ordered rules under first-match-wins semantics and require the rules to predict what settlement enumerated. Called bare it replays `expanded_transitions()` whole, which is what a table small enough to afford it — the mini fixture in the contracts lane — is held to; the build hands it the label-grain rows `assemble_tables` already expanded and sorted, so nothing is expanded a second time, together with the lefts `_rules_for_input` says a complete replay needs.
 
-    def _replay(self) -> None:
+        Those lefts are one representative of every committed left block plus every member of the boundary block, and replaying them proves the same statement as replaying all of them. Two lefts share a block exactly when their `{((r1, r2, r3, r4), outcome)}` signature sets are equal, so the rows to check are the same rows; and the rule sequence that can match them is the same sequence, because a committed block's rules carry `backtrack = block` — a left in one block matches its own block's rules and the backtrack-free default rules, never another block's, and never the ZWNJ backtrack guards, whose `uni200C` is boundaryish and so never inside a committed block. Inside the boundary block the sequence is *not* uniform, since `uni200C` alone picks up those guards, which is why every one of its handful of members is replayed rather than a representative. What the reduction gives up is a check on the block equality itself: a `_signature_blocks` that grouped two lefts wrongly would be caught by the whole-table replay and might not be here. That premise is held by a property test on `_signature_blocks` and by the full replay on the mini fixture.
+
+        The disjoint-cover half of this assertion is gone: `_signature_blocks` groups its values in a dict keyed by signature, so its blocks are disjoint and covering by construction and the loop that checked it could never fire, at the price of re-deriving every per-left signature set over the whole expanded table.
+        """
         rules_by_input: dict[str, list[Rule]] = {}
         for rule in self.rules:
             rules_by_input.setdefault(rule.input_glyph, []).append(rule)
         failures = []
-        for row in self.expanded_transitions():
+        for row in self.expanded_transitions() if rows is None else rows:
+            if lefts is not None and row.left not in lefts[row.input_glyph]:
+                continue
             predicted = row.input_glyph
             for rule in rules_by_input.get(row.input_glyph, ()):
                 if rule.backtrack is not None and row.left not in rule.backtrack:
@@ -269,7 +255,7 @@ class DecisionTable:
                             )
 
     def assert_e_stranded(self) -> None:
-        """Every committed exit in the table has at least one transition settling the follower — the fixpoint enqueues every successor and the kernel raises E-STRANDED on a violation, so this re-walk is a belt-and-suspenders assertion. It reads the seam each row committed, so it belongs to the build: a table read back through `read_windows` carries the label view, and was proved before it was written."""
+        """Every committed exit in the table has at least one transition settling the follower. The crate enqueues every successor and raises E-STRANDED on a violation itself, so this re-walk is a second opinion rather than the check — which is why the live build no longer spends a whole extra pass over every configuration's rows on it, and `rebuild/test_table.py` keeps it running on the mini fixture, where it costs nothing. It reads the seam each row committed, so it can only be asked of a freshly folded table: one read back through `read_windows` carries the label view alone."""
         keys = {(row.left, row.input_glyph) for row in self.transitions}
         for row in self.transitions:
             if not isinstance(row, Transition):
@@ -352,7 +338,10 @@ def _rule_of(row: list) -> Rule:
 
 
 def write_windows(decision: DecisionTable, path: Path, inputs: str) -> None:
-    """Serialize one configuration's decision table beside the build's other artifacts: a head line carrying the fingerprint of the sources it was built from, the reachable cells and the ordered rules, then one row per enumerated window. The fixpoint costs tens of seconds per configuration and the font-vs-settle sweep needs exactly this much of it, so the sweep loads this instead of rebuilding what the same inputs already produced. Diff-stable like the TSVs beside it: sorted cells, rules in emission order, and a zeroed gzip stamp, so two builds of one table are byte-identical."""
+    """Serialize one configuration's decision table beside the build's other artifacts: a head line carrying the fingerprint of the sources it was built from, the reachable cells and the ordered rules, then one row per enumerated window. The fixpoint costs tens of seconds per configuration and the font-vs-settle sweep needs exactly this much of it, so the sweep loads this instead of rebuilding what the same inputs already produced. Diff-stable like the TSVs beside it: sorted cells, rules in emission order, and a zeroed gzip stamp, so two builds of one table are byte-identical.
+
+    The compressor runs at level 6 rather than zlib's maximum, which is a wall-clock choice and not a contract one: what anything states identity at is the decompressed bytes — `windows_digest`, `table_digest`, and the round trip through `read_windows` — and nothing in the repo hashes the packed ones. A file packed at one level and a file packed at another are still not byte-comparable, so a before/after check across a level change compares `gzip -dc` output.
+    """
     head = {
         "config": decision.config,
         "inputs": inputs,
@@ -370,7 +359,10 @@ def write_windows(decision: DecisionTable, path: Path, inputs: str) -> None:
         for r in decision.transitions
     )
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("wb") as raw, gzip.GzipFile(filename="", fileobj=raw, mode="wb", mtime=0) as handle:
+    with (
+        path.open("wb") as raw,
+        gzip.GzipFile(filename="", fileobj=raw, mode="wb", mtime=0, compresslevel=6) as handle,
+    ):
         handle.write(f"# {WINDOWS_FORMAT}\t{json.dumps(head, separators=(',', ':'))}\n".encode())
         handle.write(("\t".join(WINDOWS_COLUMNS) + "\n").encode())
         handle.write(body.encode())
@@ -481,9 +473,10 @@ def table_digest(decision: DecisionTable, treaty: TreatyTable) -> str:
     return h.hexdigest()
 
 
-def _entry_extension(settled: Settled) -> int:
+def _entry_extension(cell: CellId) -> int:
+    """How far one settled cell's own adjustments move its entry — the term the treaty fold adds to the left's extension. Stated over the cell rather than the `Settled` around it so the fold can answer it once per reachable cell instead of once per row, of which there are four orders of magnitude more."""
     total = 0
-    for token in settled.cell.adjustments:
+    for token in cell.adjustments:
         op, side, argument = parse_adjustment(token)
         if side == "en" and isinstance(argument, int):
             if op == "ext":
@@ -504,8 +497,13 @@ class FixpointProduct:
     cells: frozenset[CellId]
 
 
-def assemble_tables(spec: ResolvedSpec, product: FixpointProduct) -> tuple[DecisionTable, TreatyTable]:
-    """The Python half of the build, folding one fixpoint product into its two tables: the class-grain stream expanded to label grain, the prospect-divergence flag pass over that expansion with every fired flag backfilled onto the class row covering it, the per-input rule fold, and the treaty fold. It reads the product and one verdict from `spec` (`is_entry_bearing`, for the ZWNJ backtrack-slot guards) — nothing else the engine saw — so a product assembles into exactly the tables the enumeration that produced it would have, whether it came straight off the crate or was parsed back out of a stream on disk. The reachable cells are the product's; re-deriving them from the fold rows is one cheap loud check that the two grains still agree."""
+def assemble_tables(
+    spec: ResolvedSpec, product: FixpointProduct, *, assert_partition: bool = False
+) -> tuple[DecisionTable, TreatyTable]:
+    """The Python half of the build, folding one fixpoint product into its two tables: the class-grain stream expanded to label grain, the prospect-divergence flag pass over that expansion with every fired flag backfilled onto the class row covering it, the per-input rule fold, and the treaty fold. It reads the product and one verdict from `spec` (`is_entry_bearing`, for the ZWNJ backtrack-slot guards) — nothing else the engine saw — so a product assembles into exactly the tables the enumeration that produced it would have, whether it came straight off the crate or was parsed back out of a stream on disk. The reachable cells are the product's; re-deriving them from the fold rows is one cheap loud check that the two grains still agree.
+
+    `assert_partition` runs `assert_outcome_partition` here, before the expanded rows go out of scope, which is how the live build asks for it: the replay wants the label-grain stream this function already expanded and sorted, and the block representatives the rule fold already computed, so asking afterwards would mean paying for both again.
+    """
     enumerated = list(product.transitions)
     config = product.config
     deep_classes_map = product.deep_classes
@@ -534,22 +532,23 @@ def assemble_tables(spec: ResolvedSpec, product: FixpointProduct) -> tuple[Decis
             row if row.joint == class_joint[index] else replace(row, joint=True)
             for index, row in enumerate(enumerated)
         ]
+        del expanded_pairs, class_joint
     else:
         rows = _flag_prospect_joints(enumerated)
         fold_rows = rows
 
     rules: list[Rule] = []
     identity_guards = 0
-    by_input: dict[str, dict[tuple[str, str, str, str, str], Transition]] = {}
+    replay_lefts: dict[str, frozenset[str]] = {}
+    by_input: dict[str, list[Transition]] = {}
     for row in fold_rows:
-        by_input.setdefault(row.input_glyph, {})[
-            (row.left, row.right1, row.right2, row.right3, row.right4)
-        ] = row
+        by_input.setdefault(row.input_glyph, []).append(row)
     for input_glyph in sorted(by_input):
         never_locked = not is_entry_bearing(spec, input_glyph.split(".")[0])
-        input_rules, guards = _rules_for_input(input_glyph, by_input[input_glyph], never_locked)
+        input_rules, guards, lefts = _rules_for_input(input_glyph, by_input[input_glyph], never_locked)
         rules.extend(input_rules)
         identity_guards += guards
+        replay_lefts[input_glyph] = lefts
 
     cells = frozenset(row.settled.cell for row in fold_rows)
     if cells != product.cells:
@@ -566,23 +565,31 @@ def assemble_tables(spec: ResolvedSpec, product: FixpointProduct) -> tuple[Decis
         _cells=product.cells,
     )
 
-    treaty_rows = sorted(
-        {
-            TreatyRow(
-                left=row.left,
-                right=row.outcome,
-                junction=row.left_settled.seam if row.left_settled.seam is not None else "break",
-                extension=(
-                    (row.left_settled.extension + _entry_extension(row.settled))
-                    if row.left_settled.seam is not None
-                    else 0
-                ),
+    # A few million transitions collapse to a few thousand treaty rows, so the fold dedupes on plain tuples and mints a `TreatyRow` per survivor rather than per transition.
+    entry_extensions = {cell: _entry_extension(cell) for cell in product.cells}
+    seen: set[tuple[str, str, str, int]] = set()
+    for row in fold_rows:
+        left_settled = row.left_settled
+        if left_settled is None:
+            continue
+        if left_settled.seam is None:
+            seen.add((row.left, row.outcome, "break", 0))
+        else:
+            seen.add(
+                (
+                    row.left,
+                    row.outcome,
+                    left_settled.seam,
+                    left_settled.extension + entry_extensions[row.settled.cell],
+                )
             )
-            for row in fold_rows
-            if row.left_settled is not None
-        },
-        key=lambda r: (r.left, r.right, r.junction),
-    )
+    treaty_rows = [
+        TreatyRow(left=left, right=right, junction=junction, extension=extension)
+        for left, right, junction, extension in sorted(seen, key=lambda key: key[:3])
+    ]
+
+    if assert_partition:
+        decision.assert_outcome_partition(fold_rows, replay_lefts)
     return decision, TreatyTable(config=config, rows=tuple(treaty_rows))
 
 
@@ -631,18 +638,19 @@ def _signature_blocks(values, signature_of) -> list[tuple[str, ...]]:
 
 
 def _rules_for_input(
-    input_glyph: str, rows: dict[tuple[str, str, str, str, str], Transition], never_locked: bool
-) -> tuple[list[Rule], int]:
-    lefts = sorted({left for left, _r1, _r2, _r3, _r4 in rows})
+    input_glyph: str, rows: list[Transition], never_locked: bool
+) -> tuple[list[Rule], int, frozenset[str]]:
+    """One input's ordered rules, how many of them are identity guards, and the lefts a first-match-wins replay has to cover to cover them all — one representative of each committed left block plus every member of the boundary block, the reduction `DecisionTable.assert_outcome_partition` argues for. Rows arrive as the input's slice of the expanded stream and are grouped by left here, so no five-string key is ever materialized and a block's rows are in hand rather than rescanned out of the whole input for every block."""
+    rows_by_left: dict[str, list[Transition]] = {}
+    for row in rows:
+        rows_by_left.setdefault(row.left, []).append(row)
+    lefts = sorted(rows_by_left)
 
-    def outcome(left: str, r1: str, r2: str, r3: str, r4: str) -> str | None:
-        row = rows.get((left, r1, r2, r3, r4))
-        return row.outcome if row is not None else None
-
-    left_signatures: dict[str, set[tuple[tuple[str, str, str, str], str]]] = {}
-    for (left, r1, r2, r3, r4), row in rows.items():
-        left_signatures.setdefault(left, set()).add(((r1, r2, r3, r4), row.outcome))
-    left_blocks = _signature_blocks(lefts, lambda left: frozenset(left_signatures[left]))
+    left_signatures = {
+        left: frozenset(((row.right1, row.right2, row.right3, row.right4), row.outcome) for row in group)
+        for left, group in rows_by_left.items()
+    }
+    left_blocks = _signature_blocks(lefts, lambda left: left_signatures[left])
     default_blocks = [block for block in left_blocks if set(block) & BOUNDARYISH]
     committed_blocks = [block for block in left_blocks if not set(block) & BOUNDARYISH]
     if len(default_blocks) > 1:
@@ -656,7 +664,7 @@ def _rules_for_input(
         nonlocal identity_guards
         representative = members[0]
         group_rows = {
-            (r1, r2, r3, r4): row for (left, r1, r2, r3, r4), row in rows.items() if left == representative
+            (row.right1, row.right2, row.right3, row.right4): row for row in rows_by_left[representative]
         }
         group_r1s = sorted({r1 for r1, _r2, _r3, _r4 in group_rows})
 
@@ -847,7 +855,7 @@ def _rules_for_input(
                         }
                     )
                     block4_outcomes = {
-                        outcome(representative, r1_block[0], r2_block[0], r3_block[0], r4) for r4 in block_r4s
+                        group_rows[(r1_block[0], r2_block[0], r3_block[0], r4)].outcome for r4 in block_r4s
                     }
                     if len(block4_outcomes) == 1:
                         sample = group_rows[(r1_block[0], r2_block[0], r3_block[0], block_r4s[0])]
@@ -1034,4 +1042,7 @@ def _rules_for_input(
                 False,
             )
         )
-    return zwnj_backtrack_guards + committed_rules + default_rules, identity_guards
+    replay_lefts = frozenset(
+        [block[0] for block in committed_blocks] + [left for block in default_blocks for left in block]
+    )
+    return zwnj_backtrack_guards + committed_rules + default_rules, identity_guards, replay_lefts

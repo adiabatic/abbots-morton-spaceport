@@ -221,6 +221,15 @@ class TestTheTransitionStreamCarriesTheWholeProduct:
         kernel_io.write_transitions(product, again)
         assert again.read_bytes() == path.read_bytes()
 
+    def test_an_open_plain_handle_parses_to_the_same_product(self, stream, config, tmp_path):
+        """The shape the build reads: the crate writes its stream as plain ndjson, and `kernel_exec.read_stream` hands the open file over rather than packing hundreds of megabytes into the gzip a path would be opened as. Same bytes either way, so the same product."""
+        product, path, _tables = stream[config]
+        plain = tmp_path / f"transitions-{config}.ndjson"
+        with gzip.open(path, "rb") as packed:
+            plain.write_bytes(packed.read())
+        with plain.open("rt", encoding="utf-8") as handle:
+            assert kernel_io.read_transitions(handle) == product
+
 
 @pytest.mark.parametrize("config", sorted(CONFIGS))
 class TestAParsedStreamAssemblesTheSameTables:
