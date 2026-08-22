@@ -1,4 +1,7 @@
-"""Tests for the review surface's enrichment: the notation map against doc/glyph-names.md, old seams against the baseline subset rows, new seams against a direct settle() call, divergent positions and pair selection on known units, and highlight x-ranges against hand-computed hmtx sums."""
+"""Tests for the review surface's enrichment: the notation map against doc/glyph-names.md, divergent positions and pair selection on known units, highlight x-ranges against hand-computed hmtx sums, and the secondary-seam home resolver over hand-built stubs.
+
+Every unit these tests reach for is one whose codepoints they name, and they take them from `example_units` — a filtered load of the live audit — rather than from the whole workload. The three whole-corpus sweeps that used to live here have moved into the build, where they cover every shipped unit instead of a re-enrichment of the same corpus: the audit-vs-re-settlement agreement, the before-seam derivations, and the summary's shape.
+"""
 
 import re
 import warnings
@@ -42,8 +45,9 @@ def enricher(spec, live_artifacts):
 
 
 @pytest.fixture(scope="module")
-def units_by_key(workload):
-    return {(unit.codepoints, unit.configs[0]): unit for unit in workload.units}
+def units_by_key(example_units):
+    """The worked-example windows, keyed the way this module has always keyed them. `example_units` is the whole of what these tests ever wanted: each one names the codepoints it is about, and the retired `workload` fixture existed only to look those up in a 451k-unit graph."""
+    return example_units
 
 
 def test_letter_table_matches_glyph_names_doc():
@@ -106,22 +110,9 @@ def test_parse_entry_extension():
     assert parse_entry_extension(()) == 0
 
 
-def test_before_seams_agree_with_subset_rows(enricher, workload):
-    sample = workload.units[::200]
-    checked = 0
-    for unit in sample:
-        enriched = enricher.enrich(unit)
-        row = enricher.subset_row(unit.configs[0], unit.codepoints)
-        assert row is not None
-        assert enriched.before_glyphs == row.glyphs
-        glyph_level = tuple(seam for seam in row.seams if seam != "lig")
-        assert enriched.before_seams == glyph_level
-        checked += 1
-    assert checked > 0
-
-
-def test_after_seams_agree_with_direct_settle(spec, enricher, workload):
-    for unit in workload.units[::250]:
+def test_after_seams_agree_with_direct_settle(spec, enricher, units_by_key):
+    """The review path's own wiring check: `explain_many` through the Rust kernel must reach the same seams a direct Python `settle()` does. That the two engines agree at all is `make kernel-differential`'s subject — an exhaustive guard sweep, seeded fuzz in every mode combination, and a golden corpus — and `gate:conform` re-settles independently through HarfBuzz every cycle; what a review test adds is that this path is wired to them, which the worked examples witness as well as a corpus stride did."""
+    for unit in units_by_key.values():
         config = unit.configs[0]
         if config == "ss10":
             continue
@@ -130,12 +121,7 @@ def test_after_seams_agree_with_direct_settle(spec, enricher, workload):
         expected = tuple(
             "break" if item.seam is None else f"y{spec.registry.y_of(item.seam)}" for item in settled[:-1]
         )
-        assert enriched.after_seams == expected
-
-
-def test_derived_cells_match_the_audit_for_every_unit(enricher, workload):
-    enricher.enrich_many(workload.units)
-    assert enricher.mismatches == []
+        assert enriched.after_seams == expected, unit.codepoints
 
 
 def test_known_halves_extension_unit(enricher, units_by_key):
@@ -261,20 +247,13 @@ def test_summary_for_the_known_extension_unit(enricher, units_by_key):
     assert "decided by" in enriched.summary
 
 
-def test_summary_names_a_join_gain_in_prose(enricher, workload):
-    unit = next(item for item in workload.units if item.class_id == "pea-chain-regularized")
+def test_summary_names_a_join_gain_in_prose(enricher, units_by_key):
+    unit = units_by_key[("E650:E650:E670", "default")]
+    assert unit.class_id == "pea-chain-regularized"
     enriched = enricher.enrich(unit)
     assert "joins" in enriched.summary
     assert "·Pea" in enriched.summary
     assert "qs" not in enriched.summary.split("decided by")[0], "letters appear in rune-name notation"
-
-
-def test_every_sampled_summary_is_one_nonempty_line(enricher, workload):
-    for unit in workload.units[::200]:
-        enriched = enricher.enrich(unit)
-        assert enriched.summary.startswith("New: ")
-        assert "\n" not in enriched.summary
-        assert "decided by" in enriched.summary or "no policy record" in enriched.summary
 
 
 def test_explain_text_keeps_header_and_divergent_positions(enricher, units_by_key):
@@ -423,9 +402,9 @@ def test_secondary_seam_without_any_home_is_emitted_with_home_none():
     }
 
 
-def test_enrich_emits_secondary_seams_with_primary_style_rects(enricher, workload):
+def test_enrich_emits_secondary_seams_with_primary_style_rects(enricher, units_by_key):
     # ·May·No·No: both junctions are ink-visible, so the trailing ·No·No seam gets a marker beyond the primary ·May·No pair. (The former exemplar, ·Pea·Pea·It·It, stopped emitting one when secondary coverage moved to the ink-visible grain — its trailing positions are outline-identical renames.)
-    unit = next(item for item in workload.units if item.codepoints == "E665:E666:E666")
+    unit = units_by_key[("E665:E666:E666", "default")]
     enriched = enricher.enrich(unit)
     assert enriched.pair == (0, 1)
     assert len(enriched.secondary_seams) == 1
@@ -435,12 +414,6 @@ def test_enrich_emits_secondary_seams_with_primary_style_rects(enricher, workloa
         assert set(rect) == {"x_min", "x_max", "advance_total"}
         assert 0 <= rect["x_min"] <= rect["x_max"] <= rect["advance_total"]
     assert seam.highlight_after["x_min"] > enriched.highlight_after["x_min"]
-
-
-def test_subset_rows_load_for_every_config(enricher, workload):
-    configs = {config for unit in workload.units for config in unit.configs}
-    for config in configs:
-        assert enricher.subset_row(config, "E650:E665") is not None
 
 
 def test_subset_tables_iterate(enricher, live_artifacts):

@@ -61,10 +61,22 @@ def pytest_configure(config: pytest.Config) -> None:
         raise pytest.UsageError("pyright type check failed (see output above)")
 
 
-# What `-n auto` resolves to repo-wide. Two, not a core count: the number is sized for the most RAM-constrained box that runs this repo (32 GB, where a full-width pool drove the suite deep into swap), and the per-worker peak-RSS summary below (issue #51) is the standing measurement that justifies it — every run reports what its workers actually cost. Answering this firstresult hook shadows xdist's own, which is where PYTEST_XDIST_AUTO_NUM_WORKERS is normally read, so the variable is read here too and keeps overriding the default a run at a time.
+def _is_font_suite_only(config: pytest.Config) -> bool:
+    """Whether every collected target lies under test/ or site/ — the font suite and its data-expect corpora, and nothing else."""
+    invocation_dir = Path(config.invocation_params.dir)
+    roots = [(ROOT / name).resolve() for name in ("test", "site")]
+    targets = [(invocation_dir / arg.split("::", 1)[0]).resolve() for arg in config.args]
+    return bool(targets) and all(
+        any(target == root or root in target.parents for root in roots) for target in targets
+    )
+
+
+# What `-n auto` resolves to repo-wide, and the one place the answer is not simply the core count. Two is sized for the most RAM-constrained box that runs this repo (32 GB, where a full-width pool of the *rebuild* suite's live fixtures drove it deep into swap), and the per-worker peak-RSS summary below (issue #51) is the standing measurement that justifies it — every run reports what its workers actually cost. That measurement is also why the font suite is exempt: `make test`'s workers peak at 0.11–0.28 GB apiece, so the RAM argument never applied to them, and the whole of its 1,090 s at width 2 was the width. When every collected target is under test/ or site/ this answers the box's core count instead, which is the same rule rebuild/conftest.py applies to its own lanes. Answering this firstresult hook shadows xdist's own, which is where PYTEST_XDIST_AUTO_NUM_WORKERS is normally read, so the variable is read here too and keeps overriding whichever default applies, a run at a time.
 def pytest_xdist_auto_num_workers(config: pytest.Config) -> int:
     override = os.environ.get("PYTEST_XDIST_AUTO_NUM_WORKERS")
-    return max(1, int(override)) if override else 2
+    if override:
+        return max(1, int(override))
+    return (os.cpu_count() or 2) if _is_font_suite_only(config) else 2
 
 
 # Peak RSS per xdist worker (issue #51): each worker reports its own high-water mark at session finish through workeroutput, the controller collects them as nodes shut down, and the terminal summary prints one line — so what `-n auto` actually costs in RAM is measured on every run instead of folklore. Figures are decimal GB via rebuild.tools.peak_rss, the repo-wide yardstick.

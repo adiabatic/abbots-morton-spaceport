@@ -1,4 +1,7 @@
-"""Tests for the persisted per-unit surface cache (issue 20; rebuild/review/unit_cache.py is the contract). The load-bearing claims: an incremental rebuild over an edited audit is byte-identical to a from-scratch build of the same inputs — ids, batches, echo numbering, seam homes, and the store itself included — a no-change rebuild serves every unit, a corrupt or bypassed store degrades to a full build rather than stale bytes, and the serial and parallel paths agree. The mini workload filters the real divergence audit down to a few families so each build costs seconds; the key and cluster byte-contracts are pinned separately over synthetic inputs."""
+"""Tests for the persisted per-unit surface cache (issue 20; rebuild/review/unit_cache.py is the contract). The load-bearing claims: an incremental rebuild over an edited audit is byte-identical to a from-scratch build of the same inputs — ids, batches, echo numbering, seam homes, and the store itself included — a no-change rebuild serves every unit, a corrupt or bypassed store degrades to a full build rather than stale bytes, and the serial and parallel paths agree.
+
+None of that is a property of any glyph, so none of it needs the live build: the workload is the frozen mini-M1 bundle under rebuild/review/fixtures/mini/ — a thousand-odd real windows over four letters, their subset-table slices, and the after-font they were extracted with — and the whole module runs in the contracts lane at full width, each build costing seconds rather than the twelve-and-a-half a live subset-table parse cost before serving a workload that never read it. `fixtures/mini/regenerate.py` is how the bundle is refreshed; the key and cluster byte-contracts below are pinned separately over synthetic inputs.
+"""
 
 import hashlib
 import re
@@ -15,30 +18,27 @@ from rebuild.review.build import SITE_BEFORE_FONT, SITE_JUNIOR_FONT, _cluster_id
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 LEDGER = REPO_ROOT / "rebuild" / "m1-divergences.yaml"
+MINI = REPO_ROOT / "rebuild" / "review" / "fixtures" / "mini"
+MINI_AUDIT = MINI / "audit.tsv"
+MINI_FONT = MINI / "M1.otf"
 
-_LETTERS = {"E650", "E652", "E653", "E668"}
-_BOUNDARIES = {"0020", "200C", "00B7"}
 
-
-@pytest.fixture(scope="module")
-def mini_audit(tmp_path_factory, live_artifacts):
-    lines = live_artifacts.audit.read_text(encoding="utf-8").splitlines()
-    header, rows = lines[0], lines[1:]
-    kept = []
-    for row in rows:
-        parts = set(row.split("\t")[1].split(":"))
-        if parts <= (_LETTERS | _BOUNDARIES) and parts & _LETTERS:
-            kept.append(row)
-    assert len(kept) > 200, "the letter filter no longer selects a meaningful workload"
-    path = tmp_path_factory.mktemp("unit-cache-audit") / "audit.tsv"
-    path.write_text("\n".join([header] + kept) + "\n", encoding="utf-8")
-    return path
+def _build(out, audit_path=MINI_AUDIT, **kwargs):
+    """One mini surface, always over the frozen bundle's subset tables and after-font."""
+    return build_m1(
+        out,
+        audit_path=audit_path,
+        ledger_path=LEDGER,
+        subset_dir=MINI,
+        after_font=MINI_FONT,
+        **kwargs,
+    )
 
 
 @pytest.fixture(scope="module")
-def base_surface(mini_audit, tmp_path_factory):
+def base_surface(tmp_path_factory):
     out = tmp_path_factory.mktemp("unit-cache-base") / "surface"
-    build_m1(out, audit_path=mini_audit, ledger_path=LEDGER, jobs=1)
+    _build(out, jobs=1)
     return out
 
 
@@ -60,73 +60,81 @@ def _copy(base: Path, tmp_path: Path) -> Path:
     return target
 
 
-def test_no_change_rebuild_serves_every_unit_and_is_byte_stable(base_surface, mini_audit, tmp_path, capfd):
+def test_no_change_rebuild_serves_every_unit_and_is_byte_stable(base_surface, tmp_path, capfd):
     surface = _copy(base_surface, tmp_path)
     before = _tree(surface)
-    build_m1(surface, audit_path=mini_audit, ledger_path=LEDGER, jobs=1)
+    _build(surface, jobs=1)
     served, total = _served(capfd)
     assert served == total
     assert _tree(surface) == before
 
 
-def _edited_audit(mini_audit: Path, tmp_path: Path) -> Path:
-    lines = mini_audit.read_text(encoding="utf-8").splitlines()
+RETAG_CLASS = "dangling-anchor-dropped"
+
+
+def _edited_audit(tmp_path: Path) -> Path:
+    """The mini audit with one window dropped and one moved to another ledger class — the two edits that make an incremental rebuild renumber ids, batches, echoes, and seam homes rather than merely patch a unit in place.
+
+    The retag lands on a matched class rather than on UNMATCHED for a data reason: `derive_premerge` refuses an ink-identical window that claims a verdict family, which is true of the live corpus (every UNMATCHED window is a real new join under review) but not of a window a test declares UNMATCHED by editing a TSV. Every row of the window moves together, since two matched classes on one triple is a classification bug the loader raises on.
+    """
+    lines = MINI_AUDIT.read_text(encoding="utf-8").splitlines()
     header, rows = lines[0], lines[1:]
     windows: list[str] = []
+    classes: dict[str, str] = {}
     for row in rows:
-        codepoints = row.split("\t")[1]
-        if codepoints not in windows:
-            windows.append(codepoints)
-    dropped, retagged = windows[3], windows[7]
+        fields = row.split("\t")
+        if fields[1] not in classes:
+            windows.append(fields[1])
+        classes.setdefault(fields[1], fields[3])
+    dropped = windows[3]
+    retagged = next(window for window in windows[4:] if classes[window] != RETAG_CLASS and window != dropped)
     edited = []
     for row in rows:
         fields = row.split("\t")
         if fields[1] == dropped:
             continue
         if fields[1] == retagged:
-            fields[3] = "UNMATCHED"
+            fields[3] = RETAG_CLASS
         edited.append("\t".join(fields))
     path = tmp_path / "audit-edited.tsv"
     path.write_text("\n".join([header] + edited) + "\n", encoding="utf-8")
     return path
 
 
-def test_incremental_rebuild_matches_a_from_scratch_build_after_an_edit(
-    base_surface, mini_audit, tmp_path, capfd
-):
+def test_incremental_rebuild_matches_a_from_scratch_build_after_an_edit(base_surface, tmp_path, capfd):
     """The soundness gate at mini scale: dropping one window renumbers every unit behind it and retagging another moves its class, and the incremental pass — serving nearly everything, re-patching ids, batches, echo numbers, and seam homes — must land byte-for-byte on what a cache-blind build of the same audit writes, the store included."""
     incremental = _copy(base_surface, tmp_path)
-    edited = _edited_audit(mini_audit, tmp_path)
+    edited = _edited_audit(tmp_path)
     capfd.readouterr()
-    build_m1(incremental, audit_path=edited, ledger_path=LEDGER, jobs=1)
+    _build(incremental, audit_path=edited, jobs=1)
     served, total = _served(capfd)
     assert 0 < total - served <= 2
     scratch = tmp_path / "scratch"
-    build_m1(scratch, audit_path=edited, ledger_path=LEDGER, jobs=1)
+    _build(scratch, audit_path=edited, jobs=1)
     assert _tree(incremental) == _tree(scratch)
 
 
-def test_corrupt_store_degrades_to_a_full_build(base_surface, mini_audit, tmp_path, capfd):
+def test_corrupt_store_degrades_to_a_full_build(base_surface, tmp_path, capfd):
     surface = _copy(base_surface, tmp_path)
     unit_cache.store_path(surface).write_bytes(b"not a gzip stream")
-    build_m1(surface, audit_path=mini_audit, ledger_path=LEDGER, jobs=1)
+    _build(surface, jobs=1)
     served, _total = _served(capfd)
     assert served == 0
     assert _tree(surface) == _tree(base_surface)
 
 
-def test_fresh_unit_cache_bypasses_a_warm_store(base_surface, mini_audit, tmp_path, capfd):
+def test_fresh_unit_cache_bypasses_a_warm_store(base_surface, tmp_path, capfd):
     surface = _copy(base_surface, tmp_path)
     before = _tree(surface)
-    build_m1(surface, audit_path=mini_audit, ledger_path=LEDGER, jobs=1, fresh_unit_cache=True)
+    _build(surface, jobs=1, fresh_unit_cache=True)
     served, _total = _served(capfd)
     assert served == 0
     assert _tree(surface) == before
 
 
-def test_serial_and_parallel_builds_are_byte_identical(base_surface, mini_audit, tmp_path):
+def test_serial_and_parallel_builds_are_byte_identical(base_surface, tmp_path):
     parallel = tmp_path / "parallel"
-    build_m1(parallel, audit_path=mini_audit, ledger_path=LEDGER, jobs=2)
+    _build(parallel, jobs=2)
     assert _tree(parallel) == _tree(base_surface)
 
 
@@ -136,34 +144,33 @@ def _signatures(capfd) -> tuple[int, int]:
     return int(match.group(1)), int(match.group(2))
 
 
-def test_no_change_rebuild_serves_every_signature(base_surface, mini_audit, tmp_path, capfd):
+def test_no_change_rebuild_serves_every_signature(base_surface, tmp_path, capfd):
     surface = _copy(base_surface, tmp_path)
-    build_m1(surface, audit_path=mini_audit, ledger_path=LEDGER, jobs=1)
+    _build(surface, jobs=1)
     cached, shaped = _signatures(capfd)
     assert cached > 0
     assert shaped == 0
 
 
-def test_corrupt_signature_store_reshapes_and_degrades_to_the_same_bytes(
-    base_surface, mini_audit, tmp_path, capfd
-):
+def test_corrupt_signature_store_reshapes_and_degrades_to_the_same_bytes(base_surface, tmp_path, capfd):
     surface = _copy(base_surface, tmp_path)
     unit_cache.signature_store_path(surface).write_bytes(b"not a gzip stream")
-    build_m1(surface, audit_path=mini_audit, ledger_path=LEDGER, jobs=1)
+    _build(surface, jobs=1)
     cached, shaped = _signatures(capfd)
     assert cached == 0
     assert shaped > 0
     assert _tree(surface) == _tree(base_surface)
 
 
-def test_unit_store_environment_tracks_each_kernel_settlement_mode(live_artifacts, monkeypatch):
+def test_unit_store_environment_tracks_each_kernel_settlement_mode(monkeypatch):
+    """The stamp a cached store is keyed on has to move when the kernel's settlement mode does, or a store written under one mode would serve units the other never produced. The subset directory is only hashed, never read for content, so the frozen bundle stands in for the live one."""
     spec = fixtures.mini_spec()
 
     def stamp():
         return unit_cache.environment_stamp(
             REPO_ROOT,
             spec,
-            live_artifacts.m1,
+            MINI,
             SITE_BEFORE_FONT,
             SITE_JUNIOR_FONT,
             "after-helpers",

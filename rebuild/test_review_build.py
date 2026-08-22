@@ -1,9 +1,13 @@
-"""Tests for the review-app build CLI: a full M1 build validated by the §7 contract checker (the same checker run over rebuild/review/fixtures/, so fixtures and real output can never drift), the per-config ink_deltas map both at the checker and over every shipped unit, font sha256s, the HTML sanity check, node --check over every shipped script, the export round-trip, byte-identical determinism, and the table-diff build. The built surface comes from `built_review_surface` in rebuild/conftest.py — the artifact cycle's own rebuild/out/review when it is provably fresh, else a cross-process cache built at most once per input state across workers and runs — and every test here treats it as read-only; test_builds_are_byte_identical is the one that still builds fresh, precisely to keep that reuse honest: identical bytes modulo the manifest's two provenance stamps, across differing jobs counts."""
+"""Tests for the review-app build CLI: the §7 contract checker over rebuild/review/fixtures/ (the same checker `build_m1` runs over its own output, so fixtures and real output can never drift), the config-note badge vocabulary, the app shell and its shipped scripts, the export round-trip, and the table-diff build.
+
+What is asserted against the *live* surface is deliberately short, because `build_m1` proves the per-unit and per-shard contracts over every unit it writes and fails the build on any violation — re-walking 1.9 GB of shards here to restate one of them bought nothing but twelve seconds and eight gigabytes apiece. What no build check can make is a claim tying a *persisted* value back to a fresh re-shape of the fonts, so those stay: the shipped ink-delta digests and cluster ids against the comparator recipe (sampled from the smallest shards), the two worked examples of the seam census and the ink-duplicate fold (looked up by codepoint rather than by parsing every shard), and the manifest's own fingerprint, feature descriptions, and sidebar order.
+
+The built surface comes from `built_review_surface` in rebuild/conftest.py — the artifact cycle's own rebuild/out/review, read-only, refused rather than rebuilt when it is stale.
+"""
 
 import copy
 import hashlib
 import json
-import re
 import shutil
 import subprocess
 from html.parser import HTMLParser
@@ -12,13 +16,12 @@ from pathlib import Path
 import pytest
 import yaml
 
-from rebuild.conftest import SURFACE_BUILD_JOBS
 from rebuild.pipeline import fingerprint
-from rebuild.review.audit import ACCEPTANCE_CONFIGS, load_ledger, load_workload
+from rebuild.review.audit import ACCEPTANCE_CONFIGS, load_workload
 from rebuild.review.build import (
     FEATURE_DESCRIPTIONS,
+    STATIC_DIR,
     _prune_orphan_shards,
-    build_m1,
     build_table_diff,
     check_manifest,
     check_output_dir,
@@ -28,16 +31,14 @@ from rebuild.review.build import (
     config_gate,
     config_note,
 )
-from rebuild.review.census import WORKED_EXAMPLE_CODEPOINTS, _encode_note_distribution, load_facts
 from rebuild.review.enrich import LETTERS
-from rebuild.review.export import build_triage, load_units, load_verdicts
+from rebuild.review.export import build_triage, load_verdicts
 from rebuild.review.ink import IDENTITY_DIFF, InkComparator, delta_digest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 FIXTURES = REPO_ROOT / "rebuild" / "review" / "fixtures"
+MINI = FIXTURES / "mini"
 LEDGER_PATH = REPO_ROOT / "rebuild" / "m1-divergences.yaml"
-
-NO_VERDICT_CLASSES = frozenset(entry.id for entry in load_ledger(LEDGER_PATH) if entry.no_verdict)
 
 
 @pytest.fixture(scope="module")
@@ -193,12 +194,6 @@ def test_check_unit_leaves_ink_deltas_out_of_the_table_diff_contract():
     assert check_unit(without, "table-diff") == check_unit(unit, "table-diff")
 
 
-def test_full_build_passes_the_contract_checker(built):
-    out_dir, manifest = built
-    assert check_output_dir(out_dir) == []
-    assert manifest["mode"] == "m1-audit"
-
-
 def test_manifest_carries_the_inputs_fingerprint(built, live_artifacts):
     _out_dir, manifest = built
     inputs = manifest["inputs_fingerprint"]
@@ -240,144 +235,53 @@ def test_check_shards_flags_human_unit_ids_that_do_not_match_batches():
     assert any("human_unit_ids" in error for error in check_shards(manifest, shards))
 
 
-def test_machine_approved_histogram_agrees_with_its_classes(built):
-    """The kern-neutral ink census the rebatching rests on over the live workload, after the ink-duplicate merge folds name-grain sibling units. How many units it approves is the census's to report; what the manifest owes is that its own record hangs together — the histogram sums to the headline count, every class's `machine_approved_count` is that class's entry in it, the approved rows are a real proper share of all rows, and every no_verdict class of the ledger is flagged exempt with no batches. The exempt class set is read off the ledger at collection, so flagging a new class moves no literal here."""
-    out_dir, manifest = built
-    machine = manifest["machine_approved"]
-    assert machine["units"] == sum(machine["by_class"].values())
-    assert 0 < machine["units"] < manifest["totals"]["units"]
-    assert isinstance(machine["rows"], int) and 0 < machine["rows"] < manifest["totals"]["rows"]
-    assert machine["method"]
-    by_id = {meta["id"]: meta for meta in manifest["classes"]}
+def _units_with_codepoints(out_dir, manifest, wanted):
+    """The units of the named windows, gathered without parsing shards that cannot hold one. A shard's codepoints appear verbatim in its JSON text, so a substring test over the raw bytes rules most of the surface out for the price of a read — which matters, because parsing all 33 shards costs twelve seconds and eight gigabytes where a worked example wants two units."""
+    found = {}
     for meta in manifest["classes"]:
-        expected = machine["by_class"].get(meta["id"], 0)
-        assert meta["machine_approved_count"] == expected, meta["id"]
-    for class_id in NO_VERDICT_CLASSES:
-        assert by_id[class_id]["no_verdict"] is True, class_id
-        assert by_id[class_id]["batches"] == [], class_id
-    assert all(
-        meta["no_verdict"] is False for meta in manifest["classes"] if meta["id"] not in NO_VERDICT_CLASSES
-    )
-
-
-def test_secondary_seam_census_describes_the_shipped_seams(built):
-    """The secondary-seam resolution census over the live workload, after the ink-duplicate merge: the units carrying visible markers; the seams that link to the shorter unit where the same behavior is the primary judgment; those genuinely context-dependent at the depth-2 horizon (no substring unit reproduces both outcomes with the seam as its primary) that carry home null and are judged in place; and those resolving to an ink-identical home that are suppressed as invisible. Walking the shards has to reproduce the manifest's own three counts, so the summary the app reads can never describe seams the surface does not ship."""
-    out_dir, manifest = built
-
-    units_by_id = {}
-    for meta in manifest["classes"]:
-        for unit in json.loads((out_dir / meta["shard"]).read_text(encoding="utf-8")):
-            units_by_id[unit["id"]] = unit
-    homed = 0
-    homeless = 0
-    units_with = 0
-    for unit in units_by_id.values():
-        seams = unit.get("secondary_seams")
-        if not seams:
+        raw = (out_dir / meta["shard"]).read_text(encoding="utf-8")
+        if not any(f'"{codepoints}"' in raw for codepoints in wanted):
             continue
-        units_with += 1
-        assert unit["ink_identical"] is False, unit["id"]
-        primary = (unit["pair"]["left"], unit["pair"]["right"])
-        for seam in seams:
-            assert (seam["pair"]["left"], seam["pair"]["right"]) != primary, unit["id"]
-            if seam["home"] is None:
-                homeless += 1
-                continue
-            homed += 1
-            home = units_by_id[seam["home"]]
-            tokens = unit["codepoints"].split(":")
-            home_tokens = home["codepoints"].split(":")
-            assert len(home_tokens) <= len(tokens), unit["id"]
-            assert any(
-                tokens[offset : offset + len(home_tokens)] == home_tokens
-                for offset in range(len(tokens) - len(home_tokens) + 1)
-            ), f"{unit['id']}: home {home['id']} is not a substring"
-            assert home["pair"] is not None, f"{unit['id']}: home {home['id']} has no primary pair"
-            assert home["ink_identical"] is False, f"{unit['id']}: home {home['id']} is machine-approved"
-    seams = manifest["secondary_seams"]
-    assert (units_with, homed, homeless) == (
-        seams["units_with_markers"],
-        seams["seams_homed"],
-        seams["seams_homeless"],
-    )
+        for unit in json.loads(raw):
+            if unit["codepoints"] in wanted:
+                found.setdefault(unit["codepoints"], []).append(unit)
+    return found
+
+
+def _unit_by_id(out_dir, manifest, unit_id):
+    for meta in manifest["classes"]:
+        raw = (out_dir / meta["shard"]).read_text(encoding="utf-8")
+        if f'"{unit_id}"' not in raw:
+            continue
+        for unit in json.loads(raw):
+            if unit["id"] == unit_id:
+                return unit
+    raise AssertionError(f"{unit_id} is in no shard")
+
+
+def _non_ss10_units(units):
+    """A window's units outside its ss10-only sibling: under ss10 every letter keeps its own cluster, so the same codepoints settle into a second, seamless unit that the worked examples below never mean."""
+    return [unit for unit in units if unit["configs"] != ["ss10"]]
 
 
 def test_known_secondary_seam_homes_at_the_shorter_primary(built):
-    """The worked example: ·May·No·No's trailing ·No·No seam is a secondary divergence whose home is the ·No·No unit, where that same join is the primary (amber-band) judgment. (The pre-IT1 example, ·Pea·Pea·It·It homing at ·Pea·It·It, dissolved when ·It stopped joining itself — its seam is now the homeless ·Pea·It one.)"""
+    """The worked example: ·May·No·No's trailing ·No·No seam is a secondary divergence whose home is the ·No·No unit, where that same join is the primary (amber-band) judgment. (The pre-IT1 example, ·Pea·Pea·It·It, dissolved when ·It stopped joining itself — its seam is now the homeless ·Pea·It one.) The window settles into two units — the ss10-only one, where the overlay leaves the seam, and its ink-identical sibling under every other config — and only the seam-bearing one is the example."""
     out_dir, manifest = built
-    units_by_id = {}
-    for meta in manifest["classes"]:
-        for unit in json.loads((out_dir / meta["shard"]).read_text(encoding="utf-8")):
-            units_by_id[unit["id"]] = unit
-    unit = next(
-        item
-        for item in units_by_id.values()
-        if item["codepoints"] == "E665:E666:E666" and item.get("secondary_seams")
-    )
+    units = _units_with_codepoints(out_dir, manifest, {"E665:E666:E666"})["E665:E666:E666"]
+    (unit,) = [candidate for candidate in units if candidate["secondary_seams"]]
     assert unit["pair"] == {"left": 0, "right": 1}
     (seam,) = unit["secondary_seams"]
     assert seam["pair"] == {"left": 1, "right": 2}
-    home = units_by_id[seam["home"]]
+    home = _unit_by_id(out_dir, manifest, seam["home"])
     assert home["codepoints"] == "E666:E666"
     assert home["pair"] == {"left": 0, "right": 1}
     for side in ("before", "after"):
         assert seam[side]["x_min"] <= seam[side]["x_max"] <= seam[side]["advance_total"]
 
 
-def test_batches_cover_the_human_workload_only(built):
-    out_dir, manifest = built
-    human_batches = []
-    for meta in manifest["classes"]:
-        shard = json.loads((out_dir / meta["shard"]).read_text(encoding="utf-8"))
-        for unit in shard:
-            if unit["ink_identical"] or unit["junior_equivalent"] or unit["no_verdict"]:
-                assert unit["batch"] is None, unit["id"]
-            else:
-                human_batches.append((unit["id"], unit["batch"]))
-    # Sort by numeric id: with >9,999 units the ids are mixed-width (u-9999, u-10000), so a lexical sort would interleave them and break the contiguous-batch check.
-    human_batches.sort(key=lambda pair: int(pair[0][2:]))
-    assert len(human_batches) == len(manifest["human_unit_ids"])
-    assert [batch for _unit_id, batch in human_batches] == [
-        index // 300 for index in range(len(human_batches))
-    ]
-    assert manifest["human_unit_ids"] == [unit_id for unit_id, _batch in human_batches]
-    assert manifest["totals"]["batches"] == len({batch for _unit_id, batch in human_batches})
-
-
-def test_every_built_unit_has_one_render_group_and_a_summary(built):
-    """The M1 render-group invariant at the output layer: every shipped unit has exactly one group covering all its configs (the dedupe key guarantees it), and every unit carries the always-visible one-line summary."""
-    out_dir, manifest = built
-    for meta in manifest["classes"]:
-        shard = json.loads((out_dir / meta["shard"]).read_text(encoding="utf-8"))
-        for unit in shard:
-            assert len(unit["render_groups"]) == 1, unit["id"]
-            assert unit["render_groups"][0]["configs"] == unit["configs"], unit["id"]
-            assert unit["summary"].startswith("New: "), unit["id"]
-            assert "decided by" in unit["summary"] or "no policy record" in unit["summary"], unit["id"]
-
-
-def test_every_built_unit_carries_its_per_config_ink_deltas(built):
-    """The persisted delta identity over the whole shipped surface: every unit carries the map, every key names one of that unit's own configs, every value is a well-formed digest, and the map is empty on exactly the ink-identical units. This is what a standing-approval rule matches on, so a missing or malformed entry would quietly put a window out of the rules' reach."""
-    out_dir, manifest = built
-    identical = 0
-    changed = 0
-    for meta in manifest["classes"]:
-        for unit in json.loads((out_dir / meta["shard"]).read_text(encoding="utf-8")):
-            deltas = unit["ink_deltas"]
-            assert isinstance(deltas, dict), unit["id"]
-            assert set(deltas) <= set(unit["configs"]), unit["id"]
-            for digest in deltas.values():
-                assert isinstance(digest, str) and len(digest) == 14, unit["id"]
-                assert digest.startswith("d-"), unit["id"]
-                assert all(character in "0123456789abcdef" for character in digest[2:]), unit["id"]
-            if unit["ink_identical"]:
-                assert deltas == {}, unit["id"]
-                identical += 1
-            else:
-                assert deltas, unit["id"]
-                changed += 1
-    assert identical + changed == manifest["totals"]["units"]
-    assert identical > 0 and changed > 0
+def _smallest_shards_first(manifest):
+    """The classes in ascending unit_count, so a three-unit sample parses tens of megabytes instead of whichever 450 MB shard happens to sort first."""
+    return sorted(manifest["classes"], key=lambda meta: meta["unit_count"])
 
 
 def test_built_ink_deltas_match_the_comparator_recipe(built):
@@ -387,7 +291,7 @@ def test_built_ink_deltas_match_the_comparator_recipe(built):
         out_dir / manifest["fonts"]["before"]["file"], out_dir / manifest["fonts"]["after"]["file"]
     )
     sampled = 0
-    for meta in manifest["classes"]:
+    for meta in _smallest_shards_first(manifest):
         units = json.loads((out_dir / meta["shard"]).read_text(encoding="utf-8"))
         unit = next((entry for entry in units if entry["ink_deltas"]), None)
         if unit is None:
@@ -408,61 +312,13 @@ def test_built_ink_deltas_match_the_comparator_recipe(built):
 def test_ink_duplicate_siblings_fold_in_the_built_output(built):
     """The worked example of the ink-duplicate merge: the old font's ss04 lookups rename word-initial ·It in ·It·Day·Tea·No (E670:E653:E652:E666) without moving any ink, which used to split the window into a default-configs unit and an ss04-only sibling asking the identical visual question twice. The build folds them: one unit, every non-ss10 config, one render group, no config badge."""
     out_dir, manifest = built
-    matches = []
-    for meta in manifest["classes"]:
-        for unit in json.loads((out_dir / meta["shard"]).read_text(encoding="utf-8")):
-            if unit["codepoints"] == "E670:E653:E652:E666":
-                matches.append(unit)
-    assert len(matches) == 1
-    (unit,) = matches
+    (unit,) = _non_ss10_units(
+        _units_with_codepoints(out_dir, manifest, {"E670:E653:E652:E666"})["E670:E653:E652:E666"]
+    )
     assert unit["configs"] == ["default", "ss03", "ss04", "ss05", "ss03+ss05"]
     assert unit["render_groups"] == [{"configs": unit["configs"]}]
     assert unit["config_note"] is None
     assert unit["config_gate"] is None
-
-
-def test_echo_groups_partition_the_human_workload(built):
-    """Echo groups are the one-question-per-change grain: every human unit carries an e-NNNN id, every exempt unit carries null, and a group never mixes classes, config sets, or judged pairs — its members are the same before→after change in different surroundings. The worked example ·It·Day·Tea·No lands in the merged ·Tea ~b~ ·No.alt group: the plain ·X·Tea·No windows plus the third-form ·X·Day·Tea·No windows where the ·Day yields — an annotation-grain rename that draws identical ink, so it rides along without anchoring the judged pair — so one verdict answers every member because the visible change is byte-identical."""
-    out_dir, manifest = built
-    by_echo = {}
-    example = None
-    for meta in manifest["classes"]:
-        for unit in json.loads((out_dir / meta["shard"]).read_text(encoding="utf-8")):
-            if unit["batch"] is None:
-                assert unit["echo"] is None, unit["id"]
-                continue
-            assert isinstance(unit["echo"], str) and unit["echo"].startswith("e-"), unit["id"]
-            by_echo.setdefault(unit["echo"], []).append(unit)
-            if unit["codepoints"] == WORKED_EXAMPLE_CODEPOINTS:
-                example = unit
-    assert len(by_echo) == manifest["totals"]["echo_groups"]
-    for members in by_echo.values():
-        assert len({member["class"] for member in members}) == 1
-        assert len({tuple(member["configs"]) for member in members}) == 1
-    assert example is not None
-    siblings = {member["codepoints"] for member in by_echo[example["echo"]]}
-    assert "E653:E652:E666" in siblings
-    assert "E679:E653:E652:E666" in siblings
-    facts = load_facts(out_dir, manifest)
-    assert len(siblings) == facts["pins"]["volatile"]["built"]["worked_example_echo_siblings"]
-
-
-def test_cluster_signatures_coarsen_the_echo_grain(built):
-    """Cluster signatures are the blank-queue grain the in-app docket view groups by: every human unit carries a c- id, every exempt unit carries null, a cluster never mixes classes or config sets, and every echo group nests inside exactly one cluster — the cluster key is the echo key minus the judged pair, so echo groups can only coarsen, never split."""
-    out_dir, manifest = built
-    by_cluster = {}
-    echo_cluster = {}
-    for meta in manifest["classes"]:
-        for unit in json.loads((out_dir / meta["shard"]).read_text(encoding="utf-8")):
-            if unit["batch"] is None:
-                assert unit["cluster"] is None, unit["id"]
-                continue
-            assert isinstance(unit["cluster"], str) and unit["cluster"].startswith("c-"), unit["id"]
-            by_cluster.setdefault(unit["cluster"], []).append(unit)
-            assert echo_cluster.setdefault(unit["echo"], unit["cluster"]) == unit["cluster"], unit["id"]
-    for members in by_cluster.values():
-        assert len({member["class"] for member in members}) == 1
-        assert len({tuple(member["configs"]) for member in members}) == 1
 
 
 def test_cluster_id_recipe_matches_the_docket_tool(built):
@@ -472,7 +328,7 @@ def test_cluster_id_recipe_matches_the_docket_tool(built):
         out_dir / manifest["fonts"]["before"]["file"], out_dir / manifest["fonts"]["after"]["file"]
     )
     sampled = 0
-    for meta in manifest["classes"]:
+    for meta in _smallest_shards_first(manifest):
         units = json.loads((out_dir / meta["shard"]).read_text(encoding="utf-8"))
         unit = next((entry for entry in units if entry["batch"] is not None), None)
         if unit is None:
@@ -538,31 +394,6 @@ def test_config_gate_clauses_carry_their_own_prose_and_the_note_is_their_join():
     assert config_gate(("ss10",), full) == [{"feature": "ss10", "state": "on", "text": "only under ss10"}]
 
 
-def test_every_built_gate_clause_resolves_to_a_feature_description(built):
-    """Every chip the app draws is glossed with what its stylistic set does. Asserted over config_gate rather than by re-parsing config_note, so the description coverage is checked against the structure the app actually renders."""
-    out_dir, manifest = built
-    descriptions = manifest["feature_descriptions"]
-    seen = set()
-    for meta in manifest["classes"]:
-        for unit in json.loads((out_dir / meta["shard"]).read_text(encoding="utf-8")):
-            for clause in unit["config_gate"] or []:
-                assert descriptions[clause["feature"]]
-                seen.add((clause["feature"], clause["state"]))
-    assert seen, "no config gates in the built output"
-
-
-def test_config_note_distribution_mirrors_the_sidecars_histogram(built):
-    """The facts the badge design rests on: the config-set space collapses to a handful of notes — null for the units covering every non-ss10 config, plus the ss04- and ss03-gated and -excluded minorities, the ss10-only overlay, and a small literal-fallback set. Walking the shipped shards has to reproduce the histogram the same build reduced from its own in-memory fragments, so the census can never describe notes the surface does not carry."""
-    out_dir, manifest = built
-    histogram = {}
-    for meta in manifest["classes"]:
-        for unit in json.loads((out_dir / meta["shard"]).read_text(encoding="utf-8")):
-            histogram[unit["config_note"]] = histogram.get(unit["config_note"], 0) + 1
-    facts = load_facts(out_dir, manifest)
-    built_pins = facts["pins"]["volatile"]["built"]
-    assert _encode_note_distribution(histogram) == built_pins["config_note_distribution"]
-
-
 def test_feature_descriptions_keys_match_the_readme_stylistic_set_list():
     """FEATURE_DESCRIPTIONS is a hand-mirror of README's "Stylistic sets" section (the wording is trimmed for the badge, so only the set of keys is pinned). If the author adds or retires a stylistic set in the README, this fails until the build map is updated, so the glowing badge can never silently lack — or invent — a set."""
     import re
@@ -600,18 +431,6 @@ def test_built_classes_keep_ledger_order_then_families(built):
             assert meta["why"] == families.FAMILY_WHY[meta["id"]]
         else:
             assert meta["why"] == by_id[meta["id"]].get("why", "").strip()
-
-
-def test_font_copies_match_recorded_sha256(built):
-    import hashlib
-
-    out_dir, manifest = built
-    for side in ("before", "after"):
-        record = manifest["fonts"][side]
-        digest = hashlib.sha256((out_dir / record["file"]).read_bytes()).hexdigest()
-        assert digest == record["sha256"]
-        source = hashlib.sha256((REPO_ROOT / record["source"]).read_bytes()).hexdigest()
-        assert digest == source
 
 
 class _HtmlSanity(HTMLParser):
@@ -661,10 +480,10 @@ class _HtmlSanity(HTMLParser):
             self.stack.pop()
 
 
-def test_index_html_sanity(built):
-    out_dir, _manifest = built
+def test_index_html_sanity():
+    """The app shell, checked at its source rather than through a build: `copy_static` copies rebuild/review/static/ verbatim, so the page a reviewer loads is these bytes and the local references it makes resolve within this directory."""
     parser = _HtmlSanity()
-    parser.feed((out_dir / "index.html").read_text(encoding="utf-8"))
+    parser.feed((STATIC_DIR / "index.html").read_text(encoding="utf-8"))
     assert parser.errors == []
     assert parser.stack == []
     assert parser.counts["main"] == 1
@@ -672,16 +491,16 @@ def test_index_html_sanity(built):
     for reference in parser.references:
         if "//" in reference or reference.startswith(("#", "mailto:", "data:")):
             continue
-        target = out_dir / reference.split("#")[0].split("?")[0]
+        target = STATIC_DIR / reference.split("#")[0].split("?")[0]
         assert target.exists(), f"dangling reference {reference}"
 
 
-def test_node_check_passes_on_every_shipped_script(built):
-    out_dir, _manifest = built
+def test_node_check_passes_on_every_shipped_script():
     node = shutil.which("node")
     if node is None:
         pytest.skip("node is not installed on this machine")
-    scripts = sorted(out_dir.rglob("*.js"))
+    scripts = sorted(STATIC_DIR.rglob("*.js"))
+    assert scripts
     for script in scripts:
         result = subprocess.run([node, "--check", str(script)], capture_output=True, text=True)
         assert result.returncode == 0, f"{script.name}: {result.stderr}"
@@ -705,72 +524,31 @@ def test_prune_orphan_shards_no_units_dir_is_noop(tmp_path):
     assert _prune_orphan_shards(tmp_path, {"classes": []}) == []
 
 
-_PROVENANCE_STAMPS = re.compile(r'("(?:generated_at|repo_head)": ?)"[^"]*"')
+def _export_surface():
+    """A hermetic stand-in for a built surface, assembled from the checked-in fixture units so `build_triage` sees every shape it discriminates on. The fixture ships six real units but no exempt one and none without a policy draft, so three more are cloned in: a no-verdict unit whose verdict must be inert history, a reject with no mechanical draft, and one more plain approvable — which is also what makes the four ids the test reaches for past `ids[4:]` exist at all. The manifest is the fixture's with its totals and human-id list recomputed over the enlarged set; the machine-approved block is left alone, because the one machine-approved unit is untouched and `machine_approved_section` re-derives its own copy from the units to be compared against it."""
+    manifest = copy.deepcopy(json.loads((FIXTURES / "manifest.json").read_text(encoding="utf-8")))
+    units = {unit["id"]: unit for unit in _load_fixture_units()}
+    template = units["u-0004"]
+
+    def clone(unit_id, **changes):
+        clone = copy.deepcopy(template)
+        clone["id"] = unit_id
+        clone.update(changes)
+        units[unit_id] = clone
+
+    clone("u-0006", no_verdict=True, batch=None)
+    clone("u-0007", drafts={**copy.deepcopy(template["drafts"]), "policy": None})
+    clone("u-0008")
+    manifest["totals"]["units"] = len(units)
+    manifest["human_unit_ids"] = sorted(
+        (unit["id"] for unit in units.values() if unit["batch"] is not None),
+        key=lambda unit_id: int(unit_id[2:]),
+    )
+    return manifest, units
 
 
-def _mask_provenance(manifest_text: str) -> str:
-    return _PROVENANCE_STAMPS.sub(r'\1"MASKED"', manifest_text)
-
-
-def test_builds_are_byte_identical(built, tmp_path):
-    """A fresh build at yet another jobs count (differing from both the fixture's two jobs and the cycle's budget) reproduces the fixture surface byte for byte — manifest, census-facts sidecar, and every shard — masking only the generated_at/repo_head provenance stamps, mtime- and commit-derived scalars that can move with no content change."""
-    out_dir, _manifest = built
-    second = tmp_path / "again"
-    (second / "units").mkdir(parents=True)
-    (second / "units" / "zzz-orphan.json").write_text("[]", encoding="utf-8")
-    build_m1(second, jobs=SURFACE_BUILD_JOBS + 1)
-    assert not (second / "units" / "zzz-orphan.json").exists()
-    first_manifest = _mask_provenance((out_dir / "manifest.json").read_text(encoding="utf-8"))
-    second_manifest = _mask_provenance((second / "manifest.json").read_text(encoding="utf-8"))
-    assert first_manifest == second_manifest
-    first_facts = _mask_provenance((out_dir / "census-facts.json").read_text(encoding="utf-8"))
-    second_facts = _mask_provenance((second / "census-facts.json").read_text(encoding="utf-8"))
-    assert first_facts == second_facts
-    first_shards = sorted(path.name for path in (out_dir / "units").glob("*.json"))
-    second_shards = sorted(path.name for path in (second / "units").glob("*.json"))
-    assert first_shards == second_shards
-    for name in first_shards:
-        assert (out_dir / "units" / name).read_bytes() == (second / "units" / name).read_bytes()
-
-
-def _join_notation_tokens(tokens):
-    """The frontend's reconstruction rule (render.js tokenSeparators): letters concatenate, boundary tokens — anything that isn't ·-prefixed with more than the dot, including the bare namer dot — get a space on each side."""
-    joined = ""
-    previous_was_letter = False
-    for index, token in enumerate(tokens):
-        letter = len(token) > 1 and token.startswith("·")
-        if index > 0 and not (letter and previous_was_letter):
-            joined += " "
-        joined += token
-        previous_was_letter = letter
-    return joined
-
-
-def test_notation_tokens_round_trip_for_every_unit(built):
-    """The text-line pair-mark contract over the whole workload: every unit's notation_tokens align one-to-one with its codepoint positions, joining them with the spacing rule reproduces unit.notation exactly, and pair_codepoints (when present) is a valid inclusive span into those positions."""
-    out_dir, manifest = built
-    checked = 0
-    marked = 0
-    for meta in manifest["classes"]:
-        for unit in json.loads((out_dir / meta["shard"]).read_text(encoding="utf-8")):
-            tokens = unit["notation_tokens"]
-            assert len(tokens) == len(unit["codepoints"].split(":")), unit["id"]
-            assert _join_notation_tokens(tokens) == unit["notation"], unit["id"]
-            span = unit["pair_codepoints"]
-            if unit["pair"] is not None:
-                assert span is not None, unit["id"]
-            if span is not None:
-                start, end = span
-                assert 0 <= start <= end < len(tokens), unit["id"]
-                marked += 1
-            checked += 1
-    assert checked == manifest["totals"]["units"]
-    assert marked > 0
-
-
-def test_export_round_trip(built, tmp_path):
-    out_dir, manifest = built
-    _manifest, units = load_units(out_dir)
+def test_export_round_trip(tmp_path):
+    manifest, units = _export_surface()
     ids = sorted(uid for uid, unit in units.items() if not unit["no_verdict"])
     exempt_unit = next(uid for uid in sorted(units) if units[uid]["no_verdict"])
     drafted_reject = next(uid for uid in ids[4:] if units[uid]["drafts"]["policy"])
@@ -928,14 +706,15 @@ def test_export_rejects_bad_format(tmp_path):
         load_verdicts(bad)
 
 
-def test_table_diff_build(tmp_path, live_artifacts):
+def test_table_diff_build(tmp_path):
+    """The table-diff mode end to end over the frozen tables under fixtures/mini/: a synthetic one-row edit yields a one-unit surface that passes the contract checker with the edited row's pointer reaching the explain panel. The tables are inputs, not the subject — nothing here is about today's rules — so they are frozen beside the font they were extracted with rather than read live, which is what puts this in the contracts lane."""
     old_dir = tmp_path / "old"
     new_dir = tmp_path / "new"
     old_dir.mkdir()
     new_dir.mkdir()
     for name in ("settlement-default.tsv", "treaties-default.tsv"):
-        shutil.copyfile(live_artifacts.m1 / name, old_dir / name)
-        shutil.copyfile(live_artifacts.m1 / name, new_dir / name)
+        shutil.copyfile(MINI / name, old_dir / name)
+        shutil.copyfile(MINI / name, new_dir / name)
     settlement = (new_dir / "settlement-default.tsv").read_text().splitlines()
     settlement[-1] = settlement[-1].rsplit("\t", 2)[0] + "\tjoint\tsynthetic-pointer"
     (new_dir / "settlement-default.tsv").write_text("\n".join(settlement) + "\n")
@@ -946,7 +725,7 @@ def test_table_diff_build(tmp_path, live_artifacts):
         old_dir,
         new_dir,
         REPO_ROOT / "site" / "AbbotsMortonSpaceportSansSenior-Regular.otf",
-        live_artifacts.font,
+        MINI / "M1.otf",
         with_witnesses=True,
         witness_depth=2,
     )

@@ -1,4 +1,7 @@
-"""Manual-pin gate tests: the corpus pins whose text the migrated alphabet can express must all replay cleanly against the built M1 artifact (the standing conformance guarantee, mirrored as a hard gate in run_m1.main()), the spec-based trait and exact-glyph semantics must resolve through stance declarations rather than glyph-name substrings, and the gate must actually fail on a pin that contradicts the font."""
+"""Manual-pin gate tests: the spec-based trait and exact-glyph semantics must resolve through stance declarations rather than glyph-name substrings, `summarize` must project a report faithfully, and the gate must actually fail on a pin that contradicts the font.
+
+The standing conformance guarantee itself — every corpus pin the migrated alphabet can express replays cleanly, over a gate that really had pins in scope — is `run_m1.main()`'s, which raises on it. Re-running the identical `run_gate` call in a test afterwards proved nothing the build had not already refused to ship without.
+"""
 
 import pytest
 
@@ -16,26 +19,17 @@ def spec():
     return load_default_spec()
 
 
-@pytest.fixture(scope="module")
-def gate_report(spec, live_artifacts):
-    return manual_pins.run_gate(live_artifacts.font, spec)
-
-
 class TestGate:
-    def test_gate_has_scope(self, gate_report):
-        assert gate_report.pins_in_scope > 0
-        assert gate_report.replayed == gate_report.pins_in_scope
-
-    def test_no_disagreements(self, gate_report):
-        details = "\n".join(
-            f"{d.source} [{d.config}] {d.expect!r}: {d.detail}" for d in gate_report.disagreements
-        )
-        assert gate_report.passed, f"{len(gate_report.disagreements)} Manual-pin disagreements:\n{details}"
-
-    def test_summary_shape(self, gate_report):
-        summary = manual_pins.summarize(gate_report)
-        assert summary["pass"] == gate_report.passed
-        assert summary["pins_in_scope"] == gate_report.pins_in_scope
+    def test_summary_shape(self):
+        """`summarize` is a pure projection of a report, so a synthetic one proves its shape without a font in sight. That the live gate passes with pins genuinely in scope is run_m1's own check — it raises on a gate that failed *or* replayed nothing — which is a stronger place for it than a test that re-ran the same call afterwards."""
+        report = manual_pins.ManualPinReport()
+        report.pins_in_scope = 3
+        report.replayed = 3
+        report.blocked_by[0xE665] = 2
+        report.sole_blocker[0xE665] = 1
+        summary = manual_pins.summarize(report)
+        assert summary["pass"] == report.passed
+        assert summary["pins_in_scope"] == 3
         assert all("letter" in entry and "blocks" in entry for entry in summary["top_blocking_letters"])
 
 
