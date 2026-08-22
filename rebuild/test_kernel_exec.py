@@ -80,11 +80,11 @@ class TestTheInvocationSeam:
             stdout = (json.dumps(answer) + "\n").encode()
             stderr = b""
 
-        def run(arguments, **kwargs):
-            calls.append((arguments, kwargs))
+        def run(arguments, verb):
+            calls.append((arguments, verb))
             return Finished()
 
-        monkeypatch.setattr(kernel_exec.subprocess, "run", run)
+        monkeypatch.setattr(kernel_exec, "_run_kernel", run)
         for _flag, module, attribute in kernel_exec.WORLD_FLAGS:
             monkeypatch.setattr(module, attribute, False)
         got = kernel_exec._settle_cases(
@@ -114,7 +114,7 @@ class TestTheInvocationSeam:
             stdout = (json.dumps(changed) + "\n").encode()
             stderr = b""
 
-        monkeypatch.setattr(kernel_exec.subprocess, "run", lambda *args, **kwargs: Finished())
+        monkeypatch.setattr(kernel_exec, "_run_kernel", lambda *args, **kwargs: Finished())
         with pytest.raises(kernel_exec.KernelRunError, match="changed"):
             kernel_exec._settle_cases(
                 tmp_path / "spec.json",
