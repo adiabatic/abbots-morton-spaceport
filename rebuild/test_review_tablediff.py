@@ -8,7 +8,9 @@ from pathlib import Path
 
 import pytest
 
+from rebuild.pipeline import explain
 from rebuild.pipeline.conform import features_for_config
+from rebuild.pipeline.settle import cell_label
 from rebuild.review import tablediff
 from rebuild.review.enrich import load_spec
 
@@ -180,37 +182,37 @@ def witness_index():
 
 
 def test_witness_resettles_to_the_settlement_row(witness_index, live_artifacts):
-    from rebuild.pipeline.settle import settle, cell_label
-
+    """Every witness the index hands back for a live settlement row settles to that row's outcome. The whole stride is gathered first and explained in one `explain_many` call, so the check costs a handful of kernel invocations rather than one per witness."""
     spec, index = witness_index
     rows = tablediff.load_settlement(live_artifacts.m1 / "settlement-default.tsv")
-    checked = 0
+    asked = []
     for key, value in list(rows.items())[::10]:
         witness = index.witness_settlement(key)
-        if witness is None:
-            continue
-        settled = settle(spec, list(witness), features_for_config("default"))
-        labels = [cell_label(spec, item.cell) for item in settled]
+        if witness is not None:
+            asked.append((key, value, witness))
+    assert len(asked) >= 5
+    features = features_for_config("default")
+    reports = explain.explain_many(spec, [(list(witness), features) for _key, _value, witness in asked])
+    for (key, value, _witness), report in zip(asked, reports):
+        labels = [cell_label(spec, item.cell) for item in report.settled]
         assert value.outcome in labels, (key.label(), value.outcome, labels)
-        checked += 1
-    assert checked >= 5
 
 
 def test_witness_resettles_to_the_treaty_pair(witness_index, live_artifacts):
-    from rebuild.pipeline.settle import settle, cell_label
-
+    """Every witness the index hands back for a live treaty row settles to that row's left and right as adjacent cells, batched through one `explain_many` call the same way."""
     spec, index = witness_index
     rows = tablediff.load_treaty(live_artifacts.m1 / "treaties-default.tsv")
-    checked = 0
+    asked = []
     for key in list(rows)[::25]:
         witness = index.witness_treaty(key)
-        if witness is None:
-            continue
-        settled = settle(spec, list(witness), features_for_config("default"))
-        labels = [cell_label(spec, item.cell) for item in settled]
+        if witness is not None:
+            asked.append((key, witness))
+    assert len(asked) >= 5
+    features = features_for_config("default")
+    reports = explain.explain_many(spec, [(list(witness), features) for _key, witness in asked])
+    for (key, _witness), report in zip(asked, reports):
+        labels = [cell_label(spec, item.cell) for item in report.settled]
         assert (key.left, key.right) in set(zip(labels, labels[1:]))
-        checked += 1
-    assert checked >= 5
 
 
 def test_witness_attach_fills_entries(witness_index, table_dirs):

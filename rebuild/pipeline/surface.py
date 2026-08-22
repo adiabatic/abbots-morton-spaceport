@@ -153,7 +153,7 @@ def resolve_cell(spec: ResolvedSpec, cell: CellId) -> CellPlan:
     exit_row = exits.get(cell.exit) if cell.exit is not None else None
 
     bitmap_name: str | None = None
-    # A `withdrawal:` binding applies when the bound exit's base-drawing ink must come off: a live exit at a different height, or a mid-word decline (which settlement records as an `ex-bind-<bitmap>` adjustment). The token-less exit-none cell is the boundary rendering, where the exit was never declined and the base drawing stands, dangling anchor and all (settle.py's run semantics; prototype anchor_kept_at_boundary).
+    # A `withdrawal:` binding applies when the bound exit's base-drawing ink must come off: a live exit at a different height, or a mid-word decline (which settlement records as an `ex-bind-<bitmap>` adjustment). The token-less exit-none cell is the boundary rendering, where the exit was never declined and the base drawing stands, dangling anchor and all (the kernel's run semantics; prototype anchor_kept_at_boundary).
     withdrawn_exit = cell.exit is not None or any(token.startswith("ex-bind-") for token in cell.adjustments)
     if explicit is not None:
         bitmap_name = explicit.bitmap

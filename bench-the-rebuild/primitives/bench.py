@@ -485,11 +485,11 @@ def bench_rank():
             item.append((st, sy, k, (j + k) % 11, cnt % 5))
         lists.append(item)
 
-    # floor_key mirrors settle.py:1259 -- joined first, then seam height, then exit row order
+    # floor_key mirrors rebuild/kernel-rs/src/engine.rs's floor_key -- joined first, then seam height, then exit row order
     def floor_key(c):
         return (1 if c[1] < 0 else 0, 1_000_000 if c[1] < 0 else c[1], c[2])
 
-    # rank_key mirrors settle.py:1278 -- join count desc, then stance order, then exit row order
+    # rank_key mirrors the ladder sort in engine.rs's transition_trace_uncached -- join count desc, then stance order, then exit row order
     def rank_key(c):
         return (-c[4], c[3], c[2])
 

@@ -20,7 +20,7 @@ rebuild/pipeline/
   model.py            shared frozen dataclasses — the contract all three implementation groups code against
   spec_load.py        YAML → ResolvedSpec; schema validation; lints (naming, ductus parity, right.then, dead-reference)
   surface.py          cell enumeration; binding resolution; pairings/unlocks/scopes → CellPlan
-  settle.py           the §6.1 settlement function
+  settle.py           the §6.1 settlement vocabulary — tokens, boundary cells, guarded formation; the settlement function itself is the kernel crate's
   table.py            decision + treaty tables; outcome partition; E-STRANDED; joint flags
   geometry.py         per-cell bitmap/anchor realization; stubs; bindings; extensions; gap arithmetic
   defects.py          E-DANGLE, E-UNREALIZED, E-ANCHOR, off-anchor contact, dead policy
@@ -268,7 +268,7 @@ def settle(spec: ResolvedSpec, codepoints: Sequence[int], features: frozenset[st
     # lead preference; commitment. Boundary semantics: space/ZWNJ split runs, namer-dot does not; word
     # position derived. Extensions and contracts applied per §6.2 most-specific-wins, never summed same-side.
 
-# specificity (inside settle.py or its own small module, Group 2's choice — with the dedicated test class):
+# specificity (rebuild/kernel-rs/src/specificity.rs, where §15.5's paranoia budget is spent):
 def outranks(spec: ResolvedSpec, a: PolicyRecord, b: PolicyRecord) -> Ordering: ...
     # extensional: every constrained axis expands to its concrete match set over the finite registry; A
     # outranks B iff subset on every axis B constrains, one strict. Non-nested overlap with conflicting
@@ -474,7 +474,7 @@ There is no closing report: the milestone’s record is the commit history plus 
 
 ### Semantics
 
-- **`LeftContext` / `RightToken` live in `rebuild/pipeline/settle.py`**, not `model.py`, whose frozen block carries no window frames. `transition` keeps the plan’s exact signature and return type; the richer `transition_trace` (candidate table, eliminations, decided stage, joint flag, prospect) is an additive sibling that `table` and `explain` consume, and `Engine(spec, features)` is the cached form the table builder uses.
+- **`LeftContext` / `RightToken` live in `rebuild/pipeline/settle.py`**, not `model.py`, whose frozen block carries no window frames. The plan’s `transition` is the crate’s verb: a caller poses one window through `kernel_exec.settle_cases` (or `settle_windows` / `settle_sequences` for a batch) and reads the richer trace back — candidate table, eliminations, decided stage, joint flag, prospect — decoded into `settle.TransitionTrace` by `kernel_exec.trace_of`, which is what `table` and `explain` consume.
 - **The withdrawn-exit cell state is encoded inside the frozen adjustments grammar.** `CellId.exit` is `Height | None` with no withdrawn token, so a mid-word declined exit whose row binds a named withdrawal bitmap settles as exit `None` plus an `ex-bind-<bitmap>` adjustment (the explicit `cells:` composition for `(entry-state, height-withdrawn)` overrides the row binding); `withdrawal: safe` rows collapse to the plain exit-none cell, and at a boundary the exit was never declined so no token is emitted. Geometry’s `bind` op applies the same substitution; integration must make sure `surface.resolve_cell`’s own withdrawal-binding resolution and the token are treated as one binding, not stacked.
 - **Boundary-conditioned reachability makes the fixpoint window-exact:** a settled left state is enqueued only against the `right1` that was the producing window’s `right2`, because an entry refusal or unlock conditioned on the follower (qsTea’s half x-height entry refused before qsTea, under ss03) makes other combinations contradictory — the naive prototype enumeration produced unreachable windows that raise `E-STRANDED`. Formation-impossible windows (an adjacent ligature pair surviving unformed) are likewise excluded.
 - **ZWNJ-locked inputs enumerate under a distinct `<rune>.locked` input label** (the chokepoint twin, locked before settlement, prototype-style), which keeps each plain input’s boundary-left outcomes in one block; `locked` rides `CellId.adjustments` in the settled output. The boundary lookahead class is `(uni200C, space, periodcentered)` — the namer dot joins it because it has no join surface, while staying run-transparent for word position.

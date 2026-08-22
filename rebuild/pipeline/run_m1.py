@@ -52,7 +52,6 @@ from rebuild.pipeline.model import (
     relevant_marker_features,
     ss10_twin_name,
 )
-from rebuild.pipeline import settle as settle_module
 from rebuild.pipeline.settle import cell_label
 from rebuild.pipeline.spec_load import load_default_spec
 from rebuild.pipeline.table import DecisionTable
@@ -326,9 +325,9 @@ def serialized_tables(out_dir: Path, inputs: str) -> dict[str, DecisionTable] | 
 def tables_inputs() -> str:
     """The stamp serialized windows carry: `fingerprint.tables_value` plus a token per semantics-mode default that is on (the simulated prospect, the stage-4b shifted vote slots, the issue-26 class-grain deep slots). The environment flags change settlement semantics or enumeration grain without moving any hashed source, so without the tokens a flag-on enumeration would read as fresh to a flag-off process (and the reverse) and the sweep would replay tables the in-process kernel no longer produces."""
     inputs = fingerprint.tables_value(REPO_ROOT)
-    if settle_module.SIMULATED_PROSPECT_DEFAULT:
+    if kernel_exec.SIMULATED_PROSPECT_DEFAULT:
         inputs = f"{inputs}+simulated-prospect"
-    if settle_module.VOTE_SLOTS_DEFAULT:
+    if kernel_exec.VOTE_SLOTS_DEFAULT:
         inputs = f"{inputs}+vote-slots"
     if kernel_exec.class_grain():
         inputs = f"{inputs}+deep-classes"
@@ -418,9 +417,7 @@ def manual_pin_gate_failure(summary: Mapping) -> str | None:
     return None
 
 
-def run_oracle(
-    out_dir: Path = OUT_DIR, spec: ResolvedSpec | None = None, jobs: int = 1, hoist: bool = True
-) -> dict:
+def run_oracle(out_dir: Path = OUT_DIR, spec: ResolvedSpec | None = None, jobs: int = 1) -> dict:
     if spec is None:
         spec = load_default_spec()
     for config in ("ss06", "ss07", "ss06+ss07"):
@@ -457,7 +454,6 @@ def run_oracle(
             out_dir=out_dir,
             font_path=out_dir / "M1.otf",
             kern_sidecar_path=KERN_SIDECAR_YAML,
-            hoist=hoist,
         )
     summary = {
         "rows_compared": report.rows_compared,

@@ -7,12 +7,22 @@ import json
 import os
 import threading
 import time
+from collections import OrderedDict
 
 import pytest
 
 from rebuild.pipeline import conform, fixtures, kernel_exec, run_m1
 from rebuild.pipeline import table as table_module
-from rebuild.pipeline.settle import EDGE, NAMER_DOT, SPACE, UNKNOWN, ZWNJ, RightToken
+from rebuild.pipeline.settle import (
+    EDGE,
+    NAMER_DOT,
+    SPACE,
+    UNKNOWN,
+    ZWNJ,
+    LeftContext,
+    RightToken,
+    SettleError,
+)
 
 SPEC = fixtures.mini_spec()
 STAMP = "kernel-pinned-stamp"
@@ -152,6 +162,114 @@ class TestTheInvocationSeam:
         kernel_exec.ensure_built()
         assert builds == [1]
 
+    def test_a_named_mode_overrides_the_processs_own_world(self, monkeypatch, tmp_path):
+        """A `SettlementModes` is how a caller asks for a world other than its process's — the guard's pinned candidacy grain, a comparison replay, a test that has to state its own semantics — and it wins in both directions: it puts flags on an argv whose module defaults are all on, and leaves them off an argv whose defaults are all off."""
+        question = {"left": {"kind": "edge", "settled": None}, "input": "qsMay", "right": [], "result": None}
+        answer = {**question, "result": {"settled": "trace"}}
+        calls = []
+
+        class Finished:
+            returncode = 0
+            stdout = (json.dumps(answer) + "\n").encode()
+            stderr = b""
+
+        def run(arguments, verb):
+            calls.append(arguments)
+            return Finished()
+
+        monkeypatch.setattr(kernel_exec, "_run_kernel", run)
+        for _flag, module, attribute in kernel_exec.WORLD_FLAGS:
+            monkeypatch.setattr(module, attribute, True)
+        kernel_exec._settle_cases(
+            tmp_path / "spec.json",
+            tmp_path / "cases.ndjson",
+            [question],
+            frozenset(),
+            kernel_exec.SettlementModes(simulated_prospect=False, vote_slots=False),
+        )
+        assert calls[0][4:] == ["--candidacy-prospect", "--vote-slots-off"]
+        for _flag, module, attribute in kernel_exec.WORLD_FLAGS:
+            monkeypatch.setattr(module, attribute, False)
+        kernel_exec._settle_cases(
+            tmp_path / "spec.json",
+            tmp_path / "cases.ndjson",
+            [question],
+            frozenset(),
+            kernel_exec.SettlementModes(simulated_prospect=True, vote_slots=True),
+        )
+        assert calls[1][4:] == []
+
+    def test_a_refused_window_carries_the_crates_bucket_and_sentence(self, monkeypatch):
+        """A window the crate refuses is not a broken boundary, and must not read as one: the answer is `{raise, message}`, and what a caller catches is a `SettleError` carrying the raise identity as its bucket and the crate's own sentence, verbatim, as its message."""
+        question = {"left": {"kind": "edge", "settled": None}, "input": "qsMay", "right": [], "result": None}
+        message = "E-STRANDED: qsPea.half.ex-y5 committed an exit at x-height but qsTea has no acceptor cell"
+        answer = {**question, "result": {"raise": "E-UNREACHABLE", "message": message}}
+
+        class Finished:
+            returncode = 0
+            stdout = (json.dumps(answer) + "\n").encode()
+            stderr = b""
+
+        monkeypatch.setattr(kernel_exec, "_run_kernel", lambda *arguments, **rest: Finished())
+        with pytest.raises(SettleError) as complaint:
+            kernel_exec.settle_windows(SPEC, [question], frozenset())
+        assert complaint.value.bucket == "E-UNREACHABLE"
+        assert str(complaint.value) == message
+        assert not isinstance(complaint.value, kernel_exec.KernelRunError)
+
+    def test_settle_windows_answers_one_settled_per_case_in_the_order_asked(self, monkeypatch):
+        """The walker's verb, whose whole contract is positional: it decodes an answer to a `Settled` and nothing more, and it chunks so a batch of any size costs a bounded pile of case rows — `SETTLE_WINDOW_BATCH` in the shipping form, whatever `batch` says here."""
+        sizes = []
+        original = kernel_exec._settle_cases
+
+        def recording(spec_path, cases_path, cases, features, modes=None, decode=kernel_exec._identity):
+            sizes.append(len(cases))
+            return original(spec_path, cases_path, cases, features, modes, decode)
+
+        monkeypatch.setattr(kernel_exec, "_settle_cases", recording)
+        names = ("qsMay", "qsIt", "qsTea", "qsDay", "qsOy")
+        cases = [
+            kernel_exec.case_row(LeftContext("edge"), RightToken("letter", name), (EDGE,) * 4)
+            for name in names
+        ]
+        settled = kernel_exec.settle_windows(SPEC, cases, frozenset(), batch=2)
+        assert [outcome.cell.rune for outcome in settled] == list(names)
+        assert sizes == [2, 2, 1]
+
+    def test_one_spec_is_dumped_once_however_many_calls_read_it(self, monkeypatch):
+        """The dump is the fixed cost of reaching the kernel, and the sweep, the settlement verbs and every batch under them read the same file: a walker that settles a spec in a hundred batches writes its spec.json once."""
+        dumps = []
+        original = kernel_exec.kernel_io.write_spec
+
+        def counting(spec, path):
+            dumps.append(path)
+            return original(spec, path)
+
+        monkeypatch.setattr(kernel_exec, "_SPEC_DUMPS", OrderedDict())
+        monkeypatch.setattr(kernel_exec, "_GUARD_SWEEPS", OrderedDict())
+        monkeypatch.setattr(kernel_exec.kernel_io, "write_spec", counting)
+        guard = kernel_exec.guard_sweep(SPEC)
+        settled = kernel_exec.settle_codepoints(SPEC, [0xE665, 0xE670], frozenset(), guard)
+        assert [outcome.cell.rune for outcome in settled] == ["qsMay", "qsIt"]
+        assert len(dumps) == 1
+
+    def test_a_second_sweep_of_one_spec_runs_no_second_process(self, monkeypatch):
+        """Formation stages before everything, so an emitter, a surface build and a walker in one process all want the same verdict surface. They get the memo, keyed on spec identity: one invocation per spec, and a spec object that is merely equal to another is still its own."""
+        sweeps = []
+        original = kernel_exec._guard_verdicts
+
+        def counting(spec, spec_path):
+            sweeps.append(spec_path)
+            return original(spec, spec_path)
+
+        monkeypatch.setattr(kernel_exec, "_GUARD_SWEEPS", OrderedDict())
+        monkeypatch.setattr(kernel_exec, "_guard_verdicts", counting)
+        first = kernel_exec.guard_sweep(SPEC)
+        assert kernel_exec.guard_sweep(SPEC) is first
+        assert len(sweeps) == 1
+        assert kernel_exec.guard_sweep(fixtures.mini_spec()) == first
+        assert len(sweeps) == 2
+
     def test_guard_sweep_returns_the_complete_semantic_surface(self):
         verdicts = kernel_exec.guard_sweep(SPEC)
         letters = tuple(RightToken("letter", name) for name in sorted(SPEC.runes))
@@ -178,11 +296,9 @@ class TestTheInvocationSeam:
 )
 def test_the_class_grain_rule_needs_a_fiber_source(monkeypatch, deep, prospect, votes, wanted):
     """Class grain is asked for by the flag and granted only where a deep token can move an outcome at all: in the pinned candidacy world the crate has nothing to probe and enumerates at label grain however the flag reads."""
-    from rebuild.pipeline import settle as settle_module
-
     monkeypatch.setattr(kernel_exec, "DEEP_CLASSES_DEFAULT", deep)
-    monkeypatch.setattr(settle_module, "SIMULATED_PROSPECT_DEFAULT", prospect)
-    monkeypatch.setattr(settle_module, "VOTE_SLOTS_DEFAULT", votes)
+    monkeypatch.setattr(kernel_exec, "SIMULATED_PROSPECT_DEFAULT", prospect)
+    monkeypatch.setattr(kernel_exec, "VOTE_SLOTS_DEFAULT", votes)
     assert kernel_exec.class_grain() is wanted
 
 

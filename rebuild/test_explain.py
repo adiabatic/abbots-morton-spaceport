@@ -1,11 +1,10 @@
 """Tests for the section 6.3a explain CLI: sequence parsing, the Rust-backed per-position candidate table, elimination attribution to file and record, and the rank-comparison line."""
 
-import pytest
-
 from rebuild.pipeline import explain as explain_module
 from rebuild.pipeline import fixtures, kernel_exec
 from rebuild.pipeline.explain import ExplainReport, PositionReport, explain, explain_many, parse_sequence
-from rebuild.pipeline.settle import Engine, settle_traces
+from rebuild.pipeline.model import CellId, Provenance, Settled
+from rebuild.pipeline.settle import Candidate, Elimination, RankedCandidate, TransitionTrace, boundary_settled
 
 SPEC = fixtures.mini_spec()
 
@@ -56,36 +55,90 @@ def test_cli_prints_the_rust_backed_report(monkeypatch, capsys):
     assert "glyph_data/runes/qsMay.yaml:policy.refuse[0]" in output
 
 
-@pytest.mark.parametrize(
-    ("sequence", "features"),
-    [
-        ("qsMay:qsIt", frozenset()),
-        ("qsMay:qsTea", frozenset({"ss03"})),
-        ("qsIt:zwnj:qsTea", frozenset()),
-        ("qsTea:qsOy", frozenset()),
-    ],
-)
-def test_rust_reports_render_byte_identically_to_the_python_oracle(sequence, features):
-    codepoints = parse_sequence(SPEC, sequence)
-    traces = settle_traces(Engine(SPEC, features), codepoints)
-    legacy = ExplainReport(
+def _panel_report() -> ExplainReport:
+    """Every line `render` can emit, assembled by hand: a letter position with a ranked ladder, an elimination carrying a record pointer and one carrying none, a joint floor, a note, and a runner-up; a boundary position that splits the run; and a letter position that was the only candidate."""
+    loop = Candidate("loop", None, "x-height", 0, 0)
+    grounded = Candidate("grounded", None, "baseline", 1, 1)
+    hapax = Candidate("hapax", "x-height", None, 0, 0)
+    first = TransitionTrace(
+        settled=Settled(CellId("qsMay", "loop", None, "x-height", ("ex-ext-1",)), "x-height", 1),
+        joint_floor=True,
+        prospect=1,
+        ranked=(RankedCandidate(loop, 2, 1), RankedCandidate(grounded, 1, 0)),
+        eliminations=(
+            Elimination(
+                "refuse",
+                "qsMay.grounded: exit baseline refused — the grounded tail cannot reach",
+                Provenance("glyph_data/runes/qsMay.yaml", "policy.refuse[0]"),
+            ),
+            Elimination("require", "qsMay.pulled_back: requires a live entry"),
+        ),
+        decided_stage="floor",
+        runner_up=grounded,
+        notes=("prefer applied: glyph_data/runes/qsMay.yaml:policy.prefer[1]",),
+    )
+    boundary = TransitionTrace(boundary_settled("zwnj"), False, 0, (), (), "boundary", None, ())
+    third = TransitionTrace(
+        settled=Settled(CellId("qsIt", "hapax", "x-height", None, ()), None, 0),
+        joint_floor=False,
+        prospect=0,
+        ranked=(RankedCandidate(hapax, 1, 0),),
+        eliminations=(),
+        decided_stage="only-candidate",
+        runner_up=None,
+        notes=(),
+    )
+    return ExplainReport(
         spec=SPEC,
-        codepoints=tuple(codepoints),
-        features=features,
-        positions=tuple(
-            PositionReport(index, trace.settled.cell.rune, trace) for index, trace in enumerate(traces)
+        codepoints=(0xE665, 0x200C, 0xE670),
+        features=frozenset({"ss03"}),
+        positions=(
+            PositionReport(0, "qsMay", first),
+            PositionReport(1, "zwnj", boundary),
+            PositionReport(2, "qsIt", third),
         ),
     )
-    assert explain(SPEC, codepoints, features).render() == legacy.render()
+
+
+PANEL = """\
+sequence E665:200C:E670   config ss03
+settled: qsMay.loop.ex-y5.ex-ext-1 uni200C qsIt.hapax.en-y5
+
+position 0: qsMay
+  candidates (join-count = left seam + own seam + optimistic prospect):
+  -> loop             entry=none       seam=x-height   join-count=2 prospect=1
+     grounded         entry=none       seam=baseline   join-count=1 prospect=0
+  eliminated before ranking:
+    - (refuse) qsMay.grounded: exit baseline refused — the grounded tail cannot reach  [glyph_data/runes/qsMay.yaml:policy.refuse[0]]
+    - (require) qsMay.pulled_back: requires a live entry
+  decided by: floor (over grounded entry=none seam=baseline)
+  joint: the structural floor broke a realization tie — routed to the expensive test tier
+  note: prefer applied: glyph_data/runes/qsMay.yaml:policy.prefer[1]
+  settled: qsMay.loop.ex-y5.ex-ext-1   seam=x-height   extension=1
+
+position 1: zwnj
+  boundary token; splits run
+
+position 2: qsIt
+  candidates (join-count = left seam + own seam + optimistic prospect):
+  -> hapax            entry=x-height   seam=none       join-count=1 prospect=0
+  decided by: only-candidate
+  settled: qsIt.hapax.en-y5   seam=none   extension=0"""
+
+
+def test_a_report_renders_every_line_the_panel_reads():
+    """The rendering is the whole author-facing product of this module, and every line of it is reachable from literal trace values — no kernel, no spec load. Pinning the exact string is what catches a stray space, a reordered field, or a line that quietly stopped being emitted."""
+    assert _panel_report().render() == PANEL
 
 
 def test_explain_many_batches_same_config_sequences_by_position(monkeypatch):
+    """The waves are `kernel_exec.settle_sequences`', and what they cost is one invocation per feature configuration per position — not one per sequence — which is why a surface build explaining thousands of units is affordable at all."""
     calls: list[tuple[frozenset[str], int]] = []
     original = kernel_exec.settle_cases
 
-    def recording(spec, cases, features):
+    def recording(spec, cases, features, *, modes=None):
         calls.append((features, len(cases)))
-        return original(spec, cases, features)
+        return original(spec, cases, features, modes)
 
     monkeypatch.setattr(kernel_exec, "settle_cases", recording)
     requests = [

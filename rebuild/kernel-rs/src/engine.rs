@@ -1,4 +1,4 @@
-//! The settlement engine, `rebuild/pipeline/settle.py`'s `Engine`: the three-valued condition matching, the capability reads that decide what a stance can offer, the refusals, the candidate enumeration, the refusal-aware lookahead closure that makes mutuality definitional, and on top of those the strictly lexicographic ranking — absolute prefers, then the window join count whose third term is the follower's own simulated choice, then yielding prefers, then the runes' declared order, then the structural floor — with the adjustments and the commit that turn the winner into a settled cell.
+//! The settlement engine, and the only implementation of settlement there is: the three-valued condition matching, the capability reads that decide what a stance can offer, the refusals, the candidate enumeration, the refusal-aware lookahead closure that makes mutuality definitional, and on top of those the strictly lexicographic ranking — absolute prefers, then the window join count whose third term is the follower's own simulated choice, then yielding prefers, then the runes' declared order, then the structural floor — with the adjustments and the commit that turn the winner into a settled cell.
 //!
 //! The ranking's stages are lexicographic and each one narrows the survivor list the next reads, so the order they run in is the whole semantics and `decided_stage` names the stage that got the list down to one. Two of them can refuse to decide rather than guess: prefer records that demand different outcomes at non-nested specificity are E-AMBIGUOUS within one rune and E-INCOMPARABLE across two, and the messages those raise are contract down to the paste-ready `resolve:` stub they print, because the author's next move is to copy it into the rune's YAML.
 //!
@@ -134,9 +134,9 @@ pub struct EngineModes {
     pub simulated_prospect: bool,
     /// Whether a follower vote is evaluated over the seat's real shifted slots rather than pinning everything past its own `right1` to `vote_deep_slot`.
     pub vote_slots: bool,
-    /// Whether the engine memoizes whole windows and journals a fired delta per memoized evaluation. Off everywhere but the table fixpoint and the differential replay.
+    /// Whether the engine memoizes whole windows and journals a fired delta per memoized evaluation. Off everywhere but the table fixpoint and the case replay.
     pub trace_memo: bool,
-    /// Whether a trace carries its explain ladder — the ranking, the eliminations with their sentences, and the runner-up. On everywhere a person or the differential reads a trace; off in the table fixpoint, whose rows read the settled triple, the prospect, the joint floor and the notes, and nothing else. Formatting a ladder nobody reads is the enumeration's largest avoidable allocation, so this is where that decision is spelled.
+    /// Whether a trace carries its explain ladder — the ranking, the eliminations with their sentences, and the runner-up. On everywhere a person reads a trace — the explain report, the review surface, the probe; off in the table fixpoint, whose rows read the settled triple, the prospect, the joint floor and the notes, and nothing else. Formatting a ladder nobody reads is the enumeration's largest avoidable allocation, so this is where that decision is spelled.
     pub explain_ladder: bool,
 }
 
@@ -210,7 +210,7 @@ struct TraceKey {
     slots: Slots,
 }
 
-/// The prospect memo's key, in the two shapes `settle.Engine._prospect` builds. An engine's mode is fixed at construction, so only one of them ever occurs on any given engine; Python shares one dictionary between them and the asymmetry is the oracle's — the candidacy key ends in `right2.letter`, because the estimate reads nothing past the follower's own right, while the simulated key carries the whole token and the two slots behind it, because the cascade it runs does.
+/// The prospect memo's key, in the two shapes the two candidacy worlds need. An engine's mode is fixed at construction, so only one of them ever occurs on any given engine, and one map holds both; the asymmetry between them is the terms' own — the candidacy key ends in `right2.letter`, because the estimate reads nothing past the follower's own right, while the simulated key carries the whole token and the two slots behind it, because the cascade it runs does.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 enum ProspectKey {
     Candidacy {
@@ -285,7 +285,7 @@ impl<'i> Engine<'i> {
         Self::with_modes(index, features, EngineModes::default())
     }
 
-    /// An engine with its modes spelled out — what the guard's dedicated engines and the differential replay build.
+    /// An engine with its modes spelled out — what the guard's dedicated engines, the table fixpoint and the case replay build.
     pub fn with_modes(
         index: &'i SpecIndex,
         features: impl IntoIterator<Item = Sym>,
@@ -724,7 +724,7 @@ impl<'i> Engine<'i> {
             if row.scope.is_empty() {
                 return Ok((true, None));
             }
-            // Python's `any(...)` over a generator stops at the first match here, unlike the toward-scope's list comprehension below, so a later from-scope condition that would raise never gets the chance. The two asymmetric loops are the oracle's, not an oversight.
+            // This loop stops at the first match, unlike the toward-scope's below, so a later from-scope condition that would raise never gets the chance. The asymmetry between the two is deliberate, not an oversight.
             let mut admitted = false;
             for cond in &row.scope {
                 if self.cond_matches_left(Some(rune.name), cond, left, Some(height))? {
@@ -2478,7 +2478,7 @@ mod tests {
     use super::*;
     use crate::error::SettleErrorKind;
     use crate::index::fixtures;
-    use crate::types::{EDGE, SPACE};
+    use crate::types::{EDGE, NO_EXIT_INDEX, SPACE};
 
     /// A JSON object over already-built pieces, for the mappings whose keys the fixtures compose rather than spell.
     fn object(entries: &[(String, String)]) -> String {
@@ -3260,7 +3260,7 @@ mod tests {
 
     /// Four conditions hung on refuse records so a test can reach them as parsed `Condition`s, over a spec where `qsPea` offers a horizontal entry and a rising exit and `qsTea`'s only entry row is unselectable.
     ///
-    /// The live alphabet authors no `stroke:` and no `is:` other than `boundary`, so no differential sweep over it can reach these branches however large; they are covered here or nowhere.
+    /// The live alphabet authors no `stroke:` and no `is:` other than `boundary`, so no sweep over it can reach these branches however large; they are covered here or nowhere.
     fn axis_spec() -> SpecIndex {
         let pea = letter(
             "qsPea",
@@ -3541,6 +3541,245 @@ mod tests {
             gate(&plain, 2, None, Slots::pair(UNKNOWN, EDGE)),
             None,
             "word position is undecidable while the slot past us is outside the window"
+        );
+    }
+
+    /// The deep-chain testbed: four refusals spelling the same three- and four-hop family chains twice over, once on a condition's own spine and once inside an `except_` whose entry carries the chain. `qsPea`'s surface is empty because nothing here settles — every test below reads a condition off the policy and matches it against slots it spells by hand.
+    fn deep_chain_spec() -> SpecIndex {
+        let tea = fixtures::names(&["qsTea"]);
+        let may = fixtures::names(&["qsMay"]);
+        let it = fixtures::names(&["qsIt"]);
+        let tea_or_it = fixtures::names(&["qsTea", "qsIt"]);
+        let three_hop = fixtures::condition(&[
+            ("family", tea.as_str()),
+            (
+                "then",
+                &fixtures::condition(&[
+                    ("family", may.as_str()),
+                    ("then", &fixtures::condition(&[("family", it.as_str())])),
+                ]),
+            ),
+        ]);
+        let four_hop = fixtures::condition(&[
+            ("family", tea.as_str()),
+            (
+                "then",
+                &fixtures::condition(&[
+                    ("family", may.as_str()),
+                    (
+                        "then",
+                        &fixtures::condition(&[
+                            ("family", it.as_str()),
+                            ("then", &fixtures::condition(&[("family", tea.as_str())])),
+                        ]),
+                    ),
+                ]),
+            ),
+        ]);
+        let carved = |chain: &str| {
+            fixtures::condition(&[
+                ("family", tea_or_it.as_str()),
+                ("except_", &fixtures::seq(&[chain])),
+            ])
+        };
+        let refusals = fixtures::seq(&[
+            &fixtures::record(&[("when", &fixtures::when(&[("right", three_hop.as_str())]))]),
+            &fixtures::record(&[(
+                "when",
+                &fixtures::when(&[("right", carved(&three_hop).as_str())]),
+            )]),
+            &fixtures::record(&[("when", &fixtures::when(&[("right", four_hop.as_str())]))]),
+            &fixtures::record(&[(
+                "when",
+                &fixtures::when(&[("right", carved(&four_hop).as_str())]),
+            )]),
+        ]);
+        spec_of(&[letter(
+            "qsPea",
+            &[stance("half", &surface("{}", "{}", &[]))],
+            &fixtures::policy(&[("refuse", refusals.as_str())]),
+        )])
+    }
+
+    /// The `when:` one [`deep_chain_spec`] refusal is keyed on.
+    fn chain_when(index: &SpecIndex, seat: usize) -> &When {
+        &index
+            .rune(fixtures::sym(index, "qsPea"))
+            .expect("qsPea is modeled")
+            .policy
+            .refuse[seat]
+            .when
+    }
+
+    /// The right condition of one [`deep_chain_spec`] refusal.
+    fn chain_condition(index: &SpecIndex, seat: usize) -> &Condition {
+        chain_when(index, seat)
+            .right
+            .as_ref()
+            .expect("every deep-chain refusal spells a right condition")
+    }
+
+    #[test]
+    fn a_three_hop_chain_reads_three_raw_slots_and_exhausts_to_unknown() {
+        let index = deep_chain_spec();
+        let engine = Engine::new(&index, no_features());
+        let cond = chain_condition(&index, 0);
+        let tea = letter_token(&index, "qsTea");
+        let may = letter_token(&index, "qsMay");
+        let it = letter_token(&index, "qsIt");
+        assert_eq!(
+            engine.cond_matches_right(None, cond, &[tea, may, it]),
+            Ok(Some(true))
+        );
+        assert_eq!(
+            engine.cond_matches_right(None, cond, &[tea, may, tea]),
+            Ok(Some(false)),
+            "the last hop is refuted inside the window, so the verdict is definite"
+        );
+        assert_eq!(
+            engine.cond_matches_right(None, cond, &[tea, it, it]),
+            Ok(Some(false))
+        );
+        assert_eq!(
+            engine.cond_matches_right(None, cond, &[may, may, it]),
+            Ok(Some(false))
+        );
+        assert_eq!(
+            engine.cond_matches_right(None, cond, &[tea, may, UNKNOWN]),
+            Ok(None)
+        );
+        assert_eq!(
+            engine.cond_matches_right(None, cond, &[tea, may]),
+            Ok(None),
+            "a hop past the supplied slots reads the window's edge, not a mismatch"
+        );
+        assert_eq!(engine.cond_matches_right(None, cond, &[tea]), Ok(None));
+    }
+
+    #[test]
+    fn an_except_entry_carrying_a_chain_walks_the_same_tail() {
+        let index = deep_chain_spec();
+        let engine = Engine::new(&index, no_features());
+        let cond = chain_condition(&index, 1);
+        let tea = letter_token(&index, "qsTea");
+        let may = letter_token(&index, "qsMay");
+        let it = letter_token(&index, "qsIt");
+        assert_eq!(
+            engine.cond_matches_right(None, cond, &[tea, may, it]),
+            Ok(Some(false)),
+            "the carve-out's own chain matches, so the condition it hangs off does not"
+        );
+        assert_eq!(
+            engine.cond_matches_right(None, cond, &[tea, may, tea]),
+            Ok(Some(true))
+        );
+        assert_eq!(
+            engine.cond_matches_right(None, cond, &[tea, tea, it]),
+            Ok(Some(true))
+        );
+        assert_eq!(
+            engine.cond_matches_right(None, cond, &[it, may, it]),
+            Ok(Some(true)),
+            "the carve-out tests its parent's slot too, and qsIt is not the family it names"
+        );
+        assert_eq!(
+            engine.cond_matches_right(None, cond, &[may, may, it]),
+            Ok(Some(false))
+        );
+        assert_eq!(
+            engine.cond_matches_right(None, cond, &[tea, may, UNKNOWN]),
+            Ok(None)
+        );
+        assert_eq!(engine.cond_matches_right(None, cond, &[tea]), Ok(None));
+    }
+
+    #[test]
+    fn a_four_hop_chain_reads_four_raw_slots() {
+        let index = deep_chain_spec();
+        let engine = Engine::new(&index, no_features());
+        let cond = chain_condition(&index, 2);
+        let tea = letter_token(&index, "qsTea");
+        let may = letter_token(&index, "qsMay");
+        let it = letter_token(&index, "qsIt");
+        assert_eq!(
+            engine.cond_matches_right(None, cond, &[tea, may, it, tea]),
+            Ok(Some(true))
+        );
+        assert_eq!(
+            engine.cond_matches_right(None, cond, &[tea, may, it, may]),
+            Ok(Some(false))
+        );
+        assert_eq!(
+            engine.cond_matches_right(None, cond, &[tea, may, tea, tea]),
+            Ok(Some(false)),
+            "a hop refuted mid-chain answers false without reading the slots behind it"
+        );
+        assert_eq!(
+            engine.cond_matches_right(None, cond, &[tea, may, it, UNKNOWN]),
+            Ok(None)
+        );
+        assert_eq!(
+            engine.cond_matches_right(None, cond, &[tea, may, it]),
+            Ok(None)
+        );
+    }
+
+    #[test]
+    fn an_except_entry_carrying_a_four_hop_chain_walks_the_same_tail() {
+        let index = deep_chain_spec();
+        let engine = Engine::new(&index, no_features());
+        let cond = chain_condition(&index, 3);
+        let tea = letter_token(&index, "qsTea");
+        let may = letter_token(&index, "qsMay");
+        let it = letter_token(&index, "qsIt");
+        assert_eq!(
+            engine.cond_matches_right(None, cond, &[tea, may, it, tea]),
+            Ok(Some(false))
+        );
+        assert_eq!(
+            engine.cond_matches_right(None, cond, &[tea, may, it, may]),
+            Ok(Some(true))
+        );
+        assert_eq!(
+            engine.cond_matches_right(None, cond, &[tea, may, tea, tea]),
+            Ok(Some(true))
+        );
+        assert_eq!(
+            engine.cond_matches_right(None, cond, &[may, may, it, tea]),
+            Ok(Some(false))
+        );
+        assert_eq!(
+            engine.cond_matches_right(None, cond, &[tea, may, it, UNKNOWN]),
+            Ok(None)
+        );
+    }
+
+    #[test]
+    fn a_when_gate_carries_a_deep_chains_unknown_out_of_the_window() {
+        let index = deep_chain_spec();
+        let engine = Engine::new(&index, no_features());
+        let edge = LeftContext::boundary(TokenKind::Edge);
+        let tea = letter_token(&index, "qsTea");
+        let may = letter_token(&index, "qsMay");
+        let it = letter_token(&index, "qsIt");
+        let gate = |seat: usize, slots: Slots| {
+            engine
+                .when_matches(None, chain_when(&index, seat), &edge, None, None, slots)
+                .expect("the fixture raises nothing")
+        };
+        assert_eq!(gate(0, Slots::new(tea, may, it, UNKNOWN)), Some(true));
+        assert_eq!(gate(0, Slots::new(tea, may, tea, UNKNOWN)), Some(false));
+        assert_eq!(
+            gate(0, Slots::pair(tea, may)),
+            None,
+            "the third hop reads the deep slot the two-slot window leaves at UNKNOWN"
+        );
+        assert_eq!(gate(2, Slots::new(tea, may, it, tea)), Some(true));
+        assert_eq!(gate(2, Slots::new(tea, may, it, may)), Some(false));
+        assert_eq!(
+            gate(2, Slots::new(tea, may, it, UNKNOWN)),
+            None,
+            "the fourth hop runs past the window's end, and the gate carries that out"
         );
     }
 
@@ -3863,7 +4102,7 @@ mod tests {
         assert!(!Engine::new(&index, no_features()).trace_memo());
     }
 
-    /// The ranking testbed, `test_settle.py`'s `_synthetic_spec` in this crate's four-family vocabulary.
+    /// The ranking testbed, `rebuild/pipeline/fixtures.py`'s `synthetic_spec` in this crate's four-family vocabulary.
     ///
     /// `qsPea` draws `stroke`, which exits at the x-height, and then `flourish`, which offers no surface at all. `qsTea` enters at the x-height and exits at the baseline but forbids pairing the two, so an entered `qsTea` is exitless; `qsMay` enters at the baseline. Every way the qsPea·qsTea seam can go is therefore worth exactly one window join, which is what leaves the stages past the join count something to decide.
     fn ranking_spec(pea_policy: &str, tea_policy: &str) -> SpecIndex {
@@ -4142,6 +4381,157 @@ mod tests {
         );
     }
 
+    /// [`ranking_spec`] carrying the two chained prefers a vote is read through. `qsPea`'s own record speaks for its `stroke` stance where the slots past it spell qsTea·qsMay·qsPea; `qsTea`'s speaks for its `hook` stance where the slots past *it* spell qsMay·qsPea — one hop shallower, because a follower's record is evaluated one position over.
+    fn vote_slot_spec() -> SpecIndex {
+        let pea_chain = fixtures::condition(&[
+            ("family", &fixtures::names(&["qsTea"])),
+            (
+                "then",
+                &fixtures::condition(&[
+                    ("family", &fixtures::names(&["qsMay"])),
+                    (
+                        "then",
+                        &fixtures::condition(&[("family", &fixtures::names(&["qsPea"]))]),
+                    ),
+                ]),
+            ),
+        ]);
+        let tea_chain = fixtures::condition(&[
+            ("family", &fixtures::names(&["qsMay"])),
+            (
+                "then",
+                &fixtures::condition(&[("family", &fixtures::names(&["qsPea"]))]),
+            ),
+        ]);
+        let pea_policy = fixtures::policy(&[(
+            "prefer",
+            &fixtures::seq(&[&pointed_record(
+                "prefer",
+                "qsPea",
+                0,
+                &[
+                    ("stance", "\"stroke\""),
+                    ("when", &fixtures::when(&[("right", pea_chain.as_str())])),
+                ],
+            )]),
+        )]);
+        let tea_policy = fixtures::policy(&[(
+            "prefer",
+            &fixtures::seq(&[&pointed_record(
+                "prefer",
+                "qsTea",
+                0,
+                &[
+                    ("stance", "\"hook\""),
+                    ("when", &fixtures::when(&[("right", tea_chain.as_str())])),
+                ],
+            )]),
+        )]);
+        ranking_spec(&pea_policy, &tea_policy)
+    }
+
+    #[test]
+    fn the_prefer_arms_read_their_own_deep_slots_and_the_vote_reads_them_shifted() {
+        let index = vote_slot_spec();
+        let pea = fixtures::sym(&index, "qsPea");
+        let tea = fixtures::sym(&index, "qsTea");
+        let own = &index.rune(pea).expect("qsPea is modeled").policy.prefer[0];
+        let follower = &index.rune(tea).expect("qsTea is modeled").policy.prefer[0];
+        let candidate = Candidate::joining(
+            fixtures::sym(&index, "stroke"),
+            None,
+            fixtures::sym(&index, "x-height"),
+            0,
+            NO_EXIT_INDEX,
+        );
+        let edge = LeftContext::boundary(TokenKind::Edge);
+        let pea_token = letter_token(&index, "qsPea");
+        let tea_token = letter_token(&index, "qsTea");
+        let may_token = letter_token(&index, "qsMay");
+        let pinned = EngineModes {
+            vote_slots: false,
+            ..EngineModes::default()
+        };
+
+        for modes in [EngineModes::default(), pinned] {
+            let mut engine = Engine::with_modes(&index, no_features(), modes);
+            assert_eq!(
+                engine.prefer_favors(
+                    pea,
+                    own,
+                    pea,
+                    candidate,
+                    &edge,
+                    Slots::new(tea_token, may_token, pea_token, UNKNOWN)
+                ),
+                Ok(Some(true)),
+                "our own rune's record reads the seat's raw deep slots whatever the vote's mode"
+            );
+            assert_eq!(
+                engine.prefer_favors(
+                    pea,
+                    own,
+                    pea,
+                    candidate,
+                    &edge,
+                    Slots::new(tea_token, may_token, may_token, UNKNOWN)
+                ),
+                Ok(None),
+                "the third slot refutes the chain, so the record has nothing to say about this window"
+            );
+        }
+
+        let vote = |engine: &mut Engine<'_>, slots: Slots| {
+            engine
+                .prefer_favors(tea, follower, pea, candidate, &edge, slots)
+                .expect("the fixture raises nothing")
+        };
+        let mut pinned_engine = Engine::with_modes(&index, no_features(), pinned);
+        assert_eq!(
+            vote(&mut pinned_engine, Slots::pair(tea_token, may_token)),
+            Some(true),
+            "everything past the vote's own right1 is pinned, so the chain's tail is unknown and the vote fires optimistically"
+        );
+        assert_eq!(
+            vote(
+                &mut pinned_engine,
+                Slots::new(tea_token, may_token, pea_token, pea_token)
+            ),
+            Some(true)
+        );
+        assert_eq!(
+            vote(
+                &mut pinned_engine,
+                Slots::new(tea_token, may_token, may_token, may_token)
+            ),
+            Some(true),
+            "the pinned vote answers the same whatever the seat's deep slots hold"
+        );
+
+        let mut shifted = Engine::new(&index, no_features());
+        assert_eq!(
+            vote(
+                &mut shifted,
+                Slots::new(tea_token, may_token, pea_token, UNKNOWN)
+            ),
+            Some(true),
+            "shifted once, the vote's chain resolves inside the window and fires"
+        );
+        assert_eq!(
+            vote(
+                &mut shifted,
+                Slots::new(tea_token, may_token, may_token, UNKNOWN)
+            ),
+            None,
+            "the same slots refute it definitively, and an irrelevant record is no vote against"
+        );
+        assert_eq!(
+            vote(&mut shifted, Slots::pair(tea_token, may_token)),
+            Some(true),
+            "where the window really does end, the shifted reading is unknown-optimistic too"
+        );
+    }
+
     /// The crossing the resolve slice exists for: `qsPea` prefers realizing its x-height exit, while `qsTea` votes for whichever `qsPea` cell lets its own baseline exit live — two runes, equal specificity, disjoint demands.
     fn crossing_spec(pea_resolve: &str) -> SpecIndex {
         let pea_policy = fixtures::policy(&[
@@ -4230,9 +4620,9 @@ mod tests {
         fixtures::index_of(&fixtures::dump(&object(&[pea, nameless]), &registry))
     }
 
-    /// Python spells three of this sentence's fields with `or`, so each reads an empty authored string as absent: the example window drops the nameless rune instead of widening itself with a space, the candidate that entered at the empty height prints `entry none`, and the empty `id:` prints the instruction to give the record one. The `when:` clause is the control — it spells its families through an f-string, so the nameless follower lands there as `family: ` and belongs in the expected bytes.
+    /// Three of this sentence's fields are spelled with `or`, so each reads an empty authored string as absent: the example window drops the nameless rune instead of widening itself with a space, the candidate that entered at the empty height prints `entry none`, and the empty `id:` prints the instruction to give the record one. The `when:` clause is the control — it spells its families through an f-string, so the nameless follower lands there as `family: ` and belongs in the expected bytes.
     ///
-    /// Asserted against `settle.Engine._incomparable_message` called directly on the same arguments, which reads nothing off its engine.
+    /// The expected bytes were taken from the Python original's own sentence for the same arguments, which read nothing off its engine; the sentence is this crate's now, and these are the bytes it owes.
     #[test]
     fn the_incomparable_sentence_reads_every_empty_spelling_the_way_python_does() {
         let index = empty_spelling_spec();
@@ -4638,7 +5028,7 @@ mod tests {
         );
     }
 
-    /// The issue-28 signature, `test_settle.py`'s `_prospect_spec`: `qsPea` exits at both heights and prefers the x-height as a yielding tie-break; `qsTea` enters at both, is exitless when entered at the x-height, and yields its own baseline exit before qsMay·qsIt; an entered `qsMay` is exitless, so `qsTea` joining `qsMay` forecloses the qsMay·qsIt join while `qsTea` declining buys it. The optimistic estimate therefore scores `qsPea`'s baseline exit as if the onward join will happen, and the simulated term sees `qsTea` provably yield it one seat later.
+    /// The issue-28 signature, `rebuild/pipeline/fixtures.py`'s `prospect_spec`: `qsPea` exits at both heights and prefers the x-height as a yielding tie-break; `qsTea` enters at both, is exitless when entered at the x-height, and yields its own baseline exit before qsMay·qsIt; an entered `qsMay` is exitless, so `qsTea` joining `qsMay` forecloses the qsMay·qsIt join while `qsTea` declining buys it. The optimistic estimate therefore scores `qsPea`'s baseline exit as if the onward join will happen, and the simulated term sees `qsTea` provably yield it one seat later.
     fn prospect_spec() -> SpecIndex {
         let safe = |height: &str| row(height, &[("withdrawal", "\"safe\"")]);
         let pea = letter(

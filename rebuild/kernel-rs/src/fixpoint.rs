@@ -45,7 +45,7 @@ const SEED_KINDS: [TokenKind; 4] = [
     TokenKind::NamerDot,
 ];
 
-/// The world one enumeration answers, and at which grain. Python reads all three from module-level defaults an environment variable moves — `settle.SIMULATED_PROSPECT_DEFAULT`, `settle.VOTE_SLOTS_DEFAULT` and `kernel_exec.DEEP_CLASSES_DEFAULT` — and this crate has no environment, so the caller passes them and [`Default`] is the shipping configuration.
+/// The world one enumeration answers, and at which grain. Python reads all three from module-level defaults an environment variable moves — `kernel_exec.SIMULATED_PROSPECT_DEFAULT`, `kernel_exec.VOTE_SLOTS_DEFAULT` and `kernel_exec.DEEP_CLASSES_DEFAULT` — and this crate has no environment, so the caller passes them and [`Default`] is the shipping configuration.
 ///
 /// The two engine modes are also the deep-world verdict: either one on widens both deep-slot censuses to every rune and hands the filters their liveness arm. `deep_classes` is the issue-26 flag and is an intersection with that verdict rather than a switch, so in the pinned world it is accepted and does nothing, there being no fiber source there to enumerate at class grain.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

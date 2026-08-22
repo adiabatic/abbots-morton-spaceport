@@ -1,10 +1,10 @@
-//! Corpus-case replay: one `ams-m1-corpus/3` case line in, the same line back out with this kernel's answer where Python's was. `rebuild/tools/export_settlement_corpus.py` is the binding contract for both halves — the case shape is whatever `_case_row` writes and the result shape is whatever `_replay` returns — and byte identity of the whole re-emitted line is the differential's assertion.
+//! Case replay: one `ams-m1-corpus/3` case line in, the same line back out with this kernel's answer in it. The shape is this crate's own on both halves — `rebuild/pipeline/kernel_exec.py`'s `case_row` writes a question and its `trace_of` reads an answer's `result` back into a `settle.TransitionTrace` — and the whole re-emitted line is what lines a batch's answers up with its questions, which `kernel_exec._settle_cases` checks before a caller decodes any of them.
 //!
-//! Re-emitting the *whole* line rather than only the answer is what keeps that assertion whole-line: an output line carries the question it answers, so a line the reader skipped, reordered or answered out of turn cannot pass as agreement. The echo is a re-canonicalization of the input's own bytes rather than a spelling of the parsed model — key order is the input line's and a key this build does not know about rides through in its own place — so what proves the inputs were *understood* is not the echo but the reader's refusals: a name the spec never interned, a slot count that is not four, an adjustments token outside the grammar, and a missing `result` are all refusals rather than answers, so a misread case stops the run instead of diverging on the answer alone.
+//! Re-emitting the *whole* line rather than only the answer is what makes that check possible: an output line carries the question it answers, so a line the reader skipped, reordered or answered out of turn cannot pass as an answer to the question that was asked. The echo is a re-canonicalization of the input's own bytes rather than a spelling of the parsed model — key order is the input line's and a key this build does not know about rides through in its own place — so what proves the inputs were *understood* is not the echo but the reader's refusals: a name the spec never interned, a slot count that is not four, an adjustments token outside the grammar, and a missing `result` are all refusals rather than answers, so a misread case stops the run instead of diverging on the answer alone.
 //!
-//! What the result carries is the whole trace, not only the row-visible record: the settled cell, the prospect, the joint-floor flag, the notes and the fired delta, then the deciding stage, the runner-up, the ranked ladder and the eliminations. The last four are the port's own reason for being compared at this grain — a kernel that lands every window on the right cell by the wrong route agrees on the record and disagrees on the ladder that chose it.
+//! What the result carries is the whole trace, not only the row-visible record: the settled cell, the prospect, the joint-floor flag, the notes and the fired delta, then the deciding stage, the runner-up, the ranked ladder and the eliminations. The last four are the route rather than the outcome, and they are what the explain panel and the review surface's explain view read — a window can land on the right cell by the wrong route, and the ladder is where that shows.
 //!
-//! The fired delta is the field no downstream artifact re-derives: a port that settles onto the right cell by the wrong route builds a table whose dead-policy gate reads live records as dead. It comes from the trace memo's journaled delta for this case's own key, which means a *missing* delta is not an empty one — it says the two sides' memo key shapes have drifted apart, and it is a hard error here exactly as it is a `SystemExit` in the exporter.
+//! The fired delta is the field no downstream artifact re-derives: a port that settles onto the right cell by the wrong route builds a table whose dead-policy gate reads live records as dead. It comes from the trace memo's journaled delta for this case's own key, which means a *missing* delta is not an empty one — it says this replay's key shape and the memo's have drifted apart, and it stops the run rather than answering.
 
 use serde_json::{Map, Value};
 
@@ -35,7 +35,7 @@ pub struct Case {
     raw: Map<String, Value>,
 }
 
-/// Read one case line, `export_settlement_corpus._case_row`'s inverse. A name the spec never interned is a hard error rather than a settlement outcome: the case was cut against some other spec, and answering it would compare two different questions.
+/// Read one case line, `kernel_exec.case_row`'s inverse. A name the spec never interned is a hard error rather than a settlement outcome: the case was cut against some other spec, and answering it would compare two different questions.
 pub fn parse_case(index: &SpecIndex, line: &str) -> Result<Case, String> {
     let value: Value =
         serde_json::from_str(line).map_err(|error| format!("not a case object: {error}"))?;
@@ -76,9 +76,9 @@ pub fn replay_case(engine: &mut Engine<'_>, case: &Case) -> Result<String, Strin
     Ok(out)
 }
 
-/// A whole case file replayed through one engine in file order — the `settle-cases` verb's body. An optional leading `# ` marker line is the corpus head and is skipped rather than parsed: the head's own fields reach this kernel as CLI flags, because a replay that read its modes out of the file it is checking could not be checking them.
+/// A whole case file replayed through one engine in file order — the `settle-cases` verb's body. An optional leading `# ` marker line is the corpus head and is skipped rather than parsed: the modes a file was cut under reach this kernel as CLI flags, so the world a batch is answered in is the caller's word and never the file's.
 ///
-/// The engine is shared across the file exactly as the exporter shares one, which is what runs the differential engine-warm on both sides. That is not a shortcut around a cold comparison: each memoized evaluation replays its journaled delta on every hit precisely so warm and cold owe the same answer.
+/// The engine is shared across the file, so a batch settles warm. That costs the answers nothing: each memoized evaluation replays its journaled delta on every hit, precisely so a warm answer and a cold one agree down to the fired set.
 pub fn replay_cases(engine: &mut Engine<'_>, text: &str) -> Result<Vec<String>, String> {
     let mut lines = Vec::new();
     for (seat, line) in text.lines().enumerate() {
@@ -92,7 +92,7 @@ pub fn replay_cases(engine: &mut Engine<'_>, text: &str) -> Result<Vec<String>, 
     Ok(lines)
 }
 
-/// This case's `result` value, in the shape `export_settlement_corpus._replay` returns: the row-visible record with its fired delta, or the raise bucket with the message that came with it.
+/// This case's `result` value, in the shape `kernel_exec.trace_of` reads: the row-visible record with its fired delta, or the raise bucket with the message that came with it, which `settle.SettleError` carries as its `.bucket` and its own text.
 fn result_text(engine: &mut Engine<'_>, case: &Case) -> Result<String, String> {
     let index = engine.index();
     let trace = match engine.transition_trace(&case.left, case.token, case.slots) {
@@ -119,7 +119,7 @@ fn raise_text(error: &SettleError) -> String {
     )
 }
 
-/// The settled result, in `_replay`'s key order: the row-visible record and its fired delta first, then the four trace fields the corpus/3 bump added.
+/// The settled result, in the key order an answer is read in: the row-visible record and its fired delta first, then the four trace fields the corpus/3 bump added.
 fn settled_text(index: &SpecIndex, trace: &TransitionTrace, fired: &[String]) -> String {
     let ladder = trace.ladder();
     let runner_up = match &ladder.runner_up {
@@ -166,7 +166,7 @@ fn settled_text(index: &SpecIndex, trace: &TransitionTrace, fired: &[String]) ->
     )
 }
 
-/// One candidate as the corpus spells it, `export_settlement_corpus._candidate_row`: the stance, its two heights, and the two indices the ranking and the floor sort on. A non-joining candidate carries the sentinel exit index's own value rather than a null, because what the two sides are comparing is the sort key each of them used.
+/// One candidate as the corpus spells it, and as `kernel_exec._candidate_of` reads it back into a `settle.Candidate`: the stance, its two heights, and the two indices the ranking and the floor sort on. A non-joining candidate carries the sentinel exit index's own value rather than a null, because what a reader wants is the sort key the ranking used — `settle._NO_EXIT_INDEX` is that value's Python spelling.
 fn candidate_json(index: &SpecIndex, candidate: &Candidate) -> String {
     format!(
         "[{},{},{},{},{}]",
@@ -209,7 +209,7 @@ fn strings_json(values: &[String]) -> String {
     format!("[{}]", quoted.join(","))
 }
 
-/// One already-parsed JSON value in the canonical spelling — `json.dumps(value, separators=(",", ":"))`, which for the fields this re-emits means the exporter's own bytes. Only integers occur: the corpus carries extensions, prospects and code points and no floats anywhere, so a number that is not one is a corpus this build does not understand rather than something to round-trip approximately.
+/// One already-parsed JSON value in the canonical spelling — `json.dumps(value, separators=(",", ":"))`, which for the fields this re-emits means the bytes the question arrived in. Only integers occur: the corpus carries extensions, prospects and code points and no floats anywhere, so a number that is not one is a corpus this build does not understand rather than something to round-trip approximately.
 fn emit_value(out: &mut String, value: &Value) -> Result<(), String> {
     match value {
         Value::Null => out.push_str("null"),
@@ -332,7 +332,7 @@ fn parse_settled(index: &SpecIndex, value: &Value) -> Result<Settled, String> {
 
 /// One adjustments token read back into the closed grammar, `model.parse_adjustment`'s refusals included. A left cell's adjustments are load-bearing in exactly one place: the trace memo collapses them away, but a stranded window's E-STRANDED sentence reads the left's whole `cell_label`, which spells every adjustment back out — so a token misread here would surface as a diverging message and nowhere else.
 ///
-/// Three of this reader's refusals are knowingly stricter than Python's, and one normalization is knowingly looser; none of the four is reachable from a corpus either side generates, whose tokens are whatever `_adjustment_tokens` and `_withdrawal_tokens` wrote and are therefore the kernel's own canonical spellings. Python reads the count with `int()`, which accepts underscore grouping (`en-ext-1_0`), surrounding whitespace, and non-ASCII decimal digits, where Rust's `i64` parse takes none of them; `+1` and leading zeros are the same number on both sides, so those are not divergences. Python's `bind` takes its argument as an arbitrary string, including the empty one `ex-bind-` yields, where this reader demands a name the spec interned — the same call the feature flags make, and for the same reason: a token naming a bitmap this spec never mentions is a case cut against another spec. And a count is *parsed* here rather than kept as text, so `en-ext-01` would re-spell as `en-ext-1` in a `cell_label` where Python's tuple of raw token strings prints it back verbatim.
+/// Three of this reader's refusals are knowingly stricter than `model.parse_adjustment`'s, and one normalization is knowingly looser; none of the four is reachable from a case line, whose tokens are whatever this kernel's own adjustment and withdrawal spellings wrote. Python reads the count with `int()`, which accepts underscore grouping (`en-ext-1_0`), surrounding whitespace, and non-ASCII decimal digits, where Rust's `i64` parse takes none of them; `+1` and leading zeros are the same number on both sides, so those are not divergences. Python's `bind` takes its argument as an arbitrary string, including the empty one `ex-bind-` yields, where this reader demands a name the spec interned — the same call the feature flags make, and for the same reason: a token naming a bitmap this spec never mentions is a case cut against another spec. And a count is *parsed* here rather than kept as text, so `en-ext-01` would re-spell as `en-ext-1` in a `cell_label` where Python's tuple of raw token strings prints it back verbatim.
 fn parse_adjustment(index: &SpecIndex, token: &str) -> Result<AdjustmentToken, String> {
     if token == "locked" {
         return Ok(AdjustmentToken::Locked);
@@ -594,7 +594,7 @@ mod tests {
         );
     }
 
-    /// Every spelling below is one Python refuses too; this reader also refuses three that Python accepts, which is why the name claims a direction rather than an equivalence. See [`parse_adjustment`].
+    /// Every spelling below is one `model.parse_adjustment` refuses too; this reader also refuses three that it accepts, which is why the name claims a direction rather than an equivalence. See [`parse_adjustment`].
     #[test]
     fn a_token_outside_the_grammar_is_refused_and_a_well_formed_one_parses() {
         let index = fixtures::mini();

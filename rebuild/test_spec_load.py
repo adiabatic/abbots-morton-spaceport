@@ -729,7 +729,7 @@ def test_builtin_checker_rejects_broken_documents():
 
 
 def test_ligature_transparency_expands_left_facing_family_lists(spec):
-    """A family in an entry from-scope or a when.left admits every registered ligature whose sequence ends in it; toward-scopes, when.right, and except: lists stay literal, and predicate-class membership stays the ligature's own surface geometry."""
+    """A family in an entry from-scope or a when.left admits every registered ligature whose sequence ends in it; toward-scopes, when.right, and except: lists stay literal, and predicate-class membership stays the ligature's own surface geometry. That a literal ligature name still outranks the expanded list it now appears in is the specificity order's claim rather than the loader's, stated over a registry of this shape by `specificity.rs`'s `a_ligature_family_name_ranks_as_an_ordinary_family`."""
     half_from = spec.runes["qsPea"].stances["half"].surface.entries["x-height"].scope
     utter_cond = next(cond for cond in half_from if "qsUtter" in cond.family)
     assert "qsDay_qsUtter" in utter_cond.family
@@ -755,15 +755,104 @@ def test_ligature_transparency_expands_left_facing_family_lists(spec):
     assert "qsTea_qsOy" in classes.get("can-exit-at-baseline", frozenset())
 
 
-def test_ligature_transparency_keeps_literal_names_more_specific(spec):
-    from rebuild.pipeline import specificity
-    from rebuild.pipeline.model import Condition, PolicyRecord, When
+# Real-YAML pins on the right-side chain grammar. The matcher that walks a chain is the crate's, and its deep-chain tests read their hops off synthetic specs; what stays on this side is the authored data those tests stand in for — which live records reach past their own slot, how far each reaches against the window cap, and the exact family scopes the orphaned-·Tea pins in rebuild/test_settle.py ride on. Every assertion below reads PolicyRecord.when straight off the loaded spec.
 
-    literal = PolicyRecord(kind="refuse", when=When(left=Condition(family=("qsSee_qsUtter",))))
-    broad = PolicyRecord(
-        kind="refuse", when=When(left=Condition(family=("qsUtter", "qsDay_qsUtter", "qsSee_qsUtter")))
-    )
-    assert specificity.outranks(spec, literal, broad) is specificity.Ordering.A_OUTRANKS
+
+def _policy_records(spec):
+    for rune_name, rune in spec.runes.items():
+        for kind in ("refuse", "prefer", "extend", "contract", "resolve"):
+            for index, record in enumerate(getattr(rune.policy, kind)):
+                yield f"{rune_name}.{kind}[{index}]", record
+
+
+def _chain_reach(condition, depth: int = 0) -> int:
+    """How many raw slots past its own a right condition reads, by the rule spec_load._right_chain_reach states over the raw YAML: a then: hop advances one slot, and an except: entry tests its parent's slot, so its own hops count from there."""
+    if condition is None:
+        return depth
+    reach = depth
+    for atom in condition.except_:
+        reach = max(reach, _chain_reach(atom, depth))
+    if condition.then is not None:
+        reach = max(reach, _chain_reach(condition.then, depth + 1))
+    return reach
+
+
+def _chain_bearing_excepts(condition, found):
+    """Every (parent, except entry) pair under one right condition where the entry carries a chain of its own."""
+    if condition is None:
+        return found
+    for atom in condition.except_:
+        if atom.then is not None:
+            found.append((condition, atom))
+        _chain_bearing_excepts(atom, found)
+    return _chain_bearing_excepts(condition.then, found)
+
+
+CHAIN_BEARING_EXCEPT_RECORDS = (
+    ("qsDay.prefer[1]", 2),
+    ("qsDay.prefer[5]", 3),
+    ("qsMay.prefer[0]", 1),
+    ("qsNo.prefer[5]", 1),
+    ("qsOy.prefer[0]", 3),
+    ("qsTea_qsOy.prefer[0]", 3),
+)
+
+
+@pytest.mark.parametrize(
+    "record_id,reach",
+    CHAIN_BEARING_EXCEPT_RECORDS,
+    ids=[row[0].replace("[", "").replace("]", "") for row in CHAIN_BEARING_EXCEPT_RECORDS],
+)
+def test_every_chain_bearing_except_walks_its_parents_tail(spec, record_id, reach):
+    """The six live records whose right condition hangs a chain off an except: entry, with the slot each one reaches. An except entry tests its parent's own slot rather than a deeper one, so a chain hung off it walks the tail its parent was already reading and its hops count against the same cap — which is what engine.rs's an_except_entry_carrying_a_chain_walks_the_same_tail and an_except_entry_carrying_a_four_hop_chain_walks_the_same_tail state over synthetic specs, and this is the authored data they stand in for. The census is asserted whole, so a newly authored chain cannot slip past the list."""
+    records = dict(_policy_records(spec))
+    carriers = {name for name, record in records.items() if _chain_bearing_excepts(record.when.right, [])}
+    assert carriers == {row[0] for row in CHAIN_BEARING_EXCEPT_RECORDS}
+    record = records[record_id]
+    assert _chain_reach(record.when.right) == reach
+    assert reach <= model.RIGHT_CHAIN_CAP
+    for parent, atom in _chain_bearing_excepts(record.when.right, []):
+        assert atom.then is not None
+        assert not parent.family or set(atom.family) <= set(parent.family)
+
+
+def test_the_qsday_depth_three_chains_both_hop_through_qsno(spec):
+    """Three live records read a third raw slot off a then: spine, and two of them are qsDay's ·No windows: ·Day withholds its baseline exit before ·Tea·No when a joinable letter follows, and again when the word simply stops there. ·Oy and ·Tea+Oy reach exactly as deep for the same orphaned-·Tea phenomenon, but every hop of theirs hangs off an except: entry, so their spines carry no then: at all."""
+    spines = {
+        name
+        for name, record in _policy_records(spec)
+        if record.when.right is not None
+        and record.when.right.then is not None
+        and record.when.right.then.then is not None
+    }
+    assert spines == {"qsDay.prefer[3]", "qsDay.prefer[4]", "qsUtter.prefer[4]"}
+    tails = []
+    for record in spec.runes["qsDay"].policy.prefer[3:5]:
+        right = record.when.right
+        assert right is not None and right.then is not None and right.then.then is not None
+        assert right.family == ("qsTea",)
+        assert right.then.family == ("qsNo",)
+        tails.append(right.then.then)
+    assert tails[0].family == ("qsTea", "qsMay", "qsLow", "qsAh")
+    assert tails[1].is_token == "boundary"
+    for name in ("qsOy", "qsTea_qsOy"):
+        right = spec.runes[name].policy.prefer[0].when.right
+        assert right is not None and right.then is None
+        assert _chain_reach(right) == model.RIGHT_CHAIN_CAP
+
+
+def test_the_qsday_prefer_right_scopes_are_pinned(spec):
+    """The two qsDay prefers the depth-3 orphaned-·Tea pins in rebuild/test_settle.py ride on: the ·Utter-scoped one, which only speaks for a ·Day nothing entered, and the broad follower list that withholds the exit before ·Tea and any of five joinable letters."""
+    prefer = spec.runes["qsDay"].policy.prefer
+    scoped = prefer[1].when.right
+    assert scoped is not None and scoped.then is not None
+    assert scoped.family == ("qsTea",)
+    assert scoped.then.family == ("qsUtter",)
+    assert prefer[1].when.self_entry == "none"
+    broad = prefer[2].when.right
+    assert broad is not None and broad.then is not None
+    assert broad.family == ("qsTea",)
+    assert broad.then.family == ("qsDay", "qsDay_qsUtter", "qsMay", "qsLow", "qsIt")
 
 
 def test_resolve_record_slice_validation(tmp_path):

@@ -1,4 +1,4 @@
-"""Conformance-module helper tests: normalization, the raw-pipeline replay, alias/ledger plumbing, kern evaluation, the subset-identity assertion, and the memoized settled-window walk's equivalence to the unmemoized settle it replaced. The font-facing sweep itself runs in run_m1 (it needs settle/table and the compiled mini-font)."""
+"""Conformance-module helper tests: normalization, the raw-pipeline replay, alias/ledger plumbing, kern evaluation, the subset-identity assertion, and the memoized settled-window walk's equivalence to settling the same texts unmemoized. The font-facing sweep itself runs in run_m1 (it needs the compiled mini-font). Settlement here is the crate's, so these arms need a built kernel: the guard sweep and the walk both invoke it, once per module for the sweep and in waves for the walk."""
 
 import gzip
 from collections.abc import Sequence
@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from rebuild.pipeline import conform
+from rebuild.pipeline import conform, kernel_exec, settle
 from rebuild.pipeline.fixtures import mini_spec
 from rebuild.pipeline.model import CellId
 
@@ -15,6 +15,12 @@ from rebuild.pipeline.model import CellId
 @pytest.fixture(scope="module")
 def spec():
     return mini_spec()
+
+
+@pytest.fixture(scope="module")
+def guard(spec):
+    """The crate's complete section 5.7 verdict surface for the fixture spec, swept once for the whole module — every formation call below takes it as an argument rather than sweeping for itself."""
+    return kernel_exec.guard_sweep(spec)
 
 
 class TestAlphabet:
@@ -93,22 +99,22 @@ DOT = chr(0x00B7)
 
 
 class TestRawLabels:
-    def test_formation_folds_the_ligature(self, spec):
-        assert conform.raw_labels(spec, TEA + OY, frozenset()) == ["qsTea_qsOy"]
+    def test_formation_folds_the_ligature(self, spec, guard):
+        assert conform.raw_labels(spec, TEA + OY, frozenset(), guard) == ["qsTea_qsOy"]
 
-    def test_zwnj_locks_entry_bearing_followers(self, spec):
-        labels = conform.raw_labels(spec, ZWNJ + TEA + IT, frozenset())
+    def test_zwnj_locks_entry_bearing_followers(self, spec, guard):
+        labels = conform.raw_labels(spec, ZWNJ + TEA + IT, frozenset(), guard)
         assert labels == ["uni200C", "qsTea.noentry", "qsIt"]
 
-    def test_marker_fold_renames_under_features(self, spec):
-        assert conform.raw_labels(spec, MAY + TEA, frozenset({"ss03"})) == ["qsMay", "qsTea.ss03"]
+    def test_marker_fold_renames_under_features(self, spec, guard):
+        assert conform.raw_labels(spec, MAY + TEA, frozenset({"ss03"}), guard) == ["qsMay", "qsTea.ss03"]
 
-    def test_marker_and_lock_compose(self, spec):
-        labels = conform.raw_labels(spec, ZWNJ + TEA, frozenset({"ss02", "ss03"}))
+    def test_marker_and_lock_compose(self, spec, guard):
+        labels = conform.raw_labels(spec, ZWNJ + TEA, frozenset({"ss02", "ss03"}), guard)
         assert labels == ["uni200C", "qsTea.ss02_ss03.noentry"]
 
-    def test_namer_dot_does_not_lock(self, spec):
-        assert conform.raw_labels(spec, DOT + IT, frozenset()) == ["periodcentered", "qsIt"]
+    def test_namer_dot_does_not_lock(self, spec, guard):
+        assert conform.raw_labels(spec, DOT + IT, frozenset(), guard) == ["periodcentered", "qsIt"]
 
 
 class TestAliasAndLedger:
@@ -319,18 +325,17 @@ class TestAliasCompleteness:
             "qsPea.ex-y0": ["default", "ss03"]
         }
 
-    def test_pending_alias_reads_as_unaliased_in_the_comparison(self, spec):
-        from rebuild.pipeline import settle as settle_module
+    def test_pending_alias_reads_as_unaliased_in_the_comparison(self, spec, guard):
         from rebuild.validation.rowmodel import Row
 
         row = Row(codepoints=(0xE652,), glyphs=("qsTea",), clusters=(0,), seams=(), positions=((0, 0, 150),))
-        divergent = conform._compare_row(
-            spec, settle_module, {"qsTea": "pending"}, "default", frozenset(), row
-        )
+        walker = conform._SettledWindowWalk(spec, frozenset(), {}, guard)
+        walker.prefill([row.text])
+        divergent = conform._compare_row(spec, {"qsTea": "pending"}, "default", frozenset(), row, walker)
         assert divergent is not None
         assert "unaliased" in divergent.kinds
         assert "unaliased:qsTea" in divergent.phenomena
-        assert divergent == conform._compare_row(spec, settle_module, {}, "default", frozenset(), row)
+        assert divergent == conform._compare_row(spec, {}, "default", frozenset(), row, walker)
 
 
 class TestPositionChannel:
@@ -539,7 +544,7 @@ class TestBeltEconomics:
 
     HORIZON = 2
 
-    def _run(self, spec):
+    def _run(self, spec, guard):
         shaper = _SilentShaper()
         result = conform._conformance_config(
             shaper,  # pyright: ignore[reportArgumentType]
@@ -550,19 +555,20 @@ class TestBeltEconomics:
             {},
             None,
             self.HORIZON,
+            guard,
         )
         return result, shaper
 
-    def test_the_sweep_shapes_each_enumerated_text_exactly_once(self, spec, monkeypatch):
+    def test_the_sweep_shapes_each_enumerated_text_exactly_once(self, spec, guard, monkeypatch):
         monkeypatch.setattr(conform, "check_split_buffer", lambda *args, **kwargs: None)
-        result, shaper = self._run(spec)
+        result, shaper = self._run(spec, guard)
         alphabet = len(conform.spec_alphabet(spec))
         assert result.sequences == alphabet + alphabet**2
         assert result.shaping_runs == result.sequences
         assert len(shaper.shaped) == len(set(shaper.shaped)) == result.sequences
         assert all(len(text) <= self.HORIZON for text in shaper.shaped)
 
-    def test_the_structural_checks_run_on_the_texts_that_carry_a_boundary(self, spec, monkeypatch):
+    def test_the_structural_checks_run_on_the_texts_that_carry_a_boundary(self, spec, guard, monkeypatch):
         """The retired boundary gate's charter, now the belt's: every ZWNJ-bearing text is weighed for zero-advance inkless slots and every splitter-bearing one against its own segments — and no other text pays for either, since a text with no boundary in it satisfies both by construction."""
         zwnj_checked: list[str] = []
         split_checked: list[str] = []
@@ -572,7 +578,7 @@ class TestBeltEconomics:
         monkeypatch.setattr(
             conform, "check_split_buffer", lambda text, *args, **kwargs: split_checked.append(text)
         )
-        _result, shaper = self._run(spec)
+        _result, shaper = self._run(spec, guard)
         splitters = conform.splitting_boundary_chars(spec)
         assert set(zwnj_checked) == {text for text in shaper.shaped if conform.ZWNJ in text}
         assert set(split_checked) == {text for text in shaper.shaped if set(text) & splitters}
@@ -582,47 +588,65 @@ class TestBeltEconomics:
 class TestRawLabelsLateFormation:
     """raw_labels delegates formation to settle.form_ligatures, so the section 5.7 guard shapes the replayed labels exactly as it shapes the kernel's stream — over the mini fixture spec's qsDay_qsUtter corner, which carries the guard's worked example."""
 
-    def test_guard_keeps_the_pair_unformed_before_low(self, spec):
+    def test_guard_keeps_the_pair_unformed_before_low(self, spec, guard):
         day, utter, low = chr(0xE653), chr(0xE67A), chr(0xE667)
-        assert conform.raw_labels(spec, day + utter + low, frozenset()) == [
+        assert conform.raw_labels(spec, day + utter + low, frozenset(), guard) == [
             "qsDay",
             "qsUtter",
             "qsLow",
         ]
-        assert conform.raw_labels(spec, day + utter, frozenset()) == ["qsDay_qsUtter"]
+        assert conform.raw_labels(spec, day + utter, frozenset(), guard) == ["qsDay_qsUtter"]
 
 
 class TestSettledWindowWalk:
-    """The memo now keys on the raw window — every slot `transition_trace` can read, none of them blanked — so the bar is two things at once: observational identity with the unmemoized settle, and key agreement with `_matched_windows`, which reads the same raw slots. Over-keying was never the risk; under-keying was (a key that blanks a slot the kernel can still read replays a wrong outcome somewhere), and both paths run exhaustively here, the walk reusing its memo from the second text on while the reference path settles every text fresh. The rule replay itself no longer rides the walk — `_matched_windows` and `_DeepTokenIndex` keep it, for the font-free witness gate — so the arms that need rules exercise them there."""
+    """The memo keys on the raw window — every slot one settlement can read, none of them blanked — so the bar is two things at once: observational identity with an unmemoized settlement of the same tokens, and key agreement with `_matched_windows`, which reads the same raw slots. Over-keying was never the risk; under-keying was (a key that blanks a slot the kernel can still read replays a wrong outcome somewhere), and both paths run exhaustively here, the walk reusing its memo from the second text on while the reference path settles every text in a sequence of its own. The rule replay itself no longer rides the walk — `_matched_windows` and `_DeepTokenIndex` keep it, for the font-free witness gate — so the arms that need rules exercise them there."""
+
+    SWEEP_CHUNK = 4096
 
     def _sweep(self, spec, features, alphabet, max_length, rules_by_input=None, deep_index=None):
-        """Sweep every text up to `max_length`: the walk's settled stream and names against the unmemoized settle, and its memo keys against the raw-grain replay both sides share `_window_rights` for. With `rules_by_input` supplied, the replay also runs through `deep_index` and its (window, first-matching rule) pairs come back for the class-grain arms to assert on."""
+        """Sweep every text up to `max_length`: the walk's settled stream and names against an unmemoized settlement of the very same formed tokens, and its memo keys against the raw-grain replay both sides share `_window_rights` for. What the first arm alarms is the memo's keying rather than one engine against another — both sides are the crate now — because the walk answers a window once and replays it wherever the key recurs while the reference settles every text's positions in a sequence of its own, so a key that blanked a slot settlement can still read would show up here as a wrong outcome somewhere. Texts stream through in chunks so the reference's decoded traces stay a bounded pile; the walk keeps its memo across them. With `rules_by_input` supplied, the replay also runs through `deep_index` and its (window, first-matching rule) pairs come back for the class-grain arms to assert on."""
         import itertools
 
-        from rebuild.pipeline import settle as settle_module
-
-        engine = settle_module.Engine(spec, features)
-        walker = conform._SettledWindowWalk(spec, engine, features, {})
-        reference = settle_module.Engine(spec, features)
+        guard = kernel_exec.guard_sweep(spec)
+        walker = conform._SettledWindowWalk(spec, features, {}, guard)
         replayed: list[tuple[tuple[str, ...], int | None]] = []
         for length in range(1, max_length + 1):
-            for combo in itertools.product(alphabet, repeat=length):
-                text = "".join(combo)
-                settled, names = walker.walk(text)
-                expected = settle_module.settle_with_engine(reference, [ord(ch) for ch in text])
-                assert settled == expected, text
-                assert names == conform.settled_names(spec, expected, None), text
-                for _index, window, _matched in conform._matched_windows(
-                    spec, text, features, names, {}, None
-                ):
-                    assert window in walker.windows, (text, window)
-                if rules_by_input is not None:
-                    replayed += [
-                        (window, matched)
-                        for _index, window, matched in conform._matched_windows(
-                            spec, text, features, names, rules_by_input, deep_index
+            stream = itertools.product(alphabet, repeat=length)
+            while True:
+                texts = ["".join(combo) for combo in itertools.islice(stream, self.SWEEP_CHUNK)]
+                if not texts:
+                    break
+                walked = walker.walk_many(texts)
+                reference = kernel_exec.settle_sequences(
+                    spec,
+                    [
+                        (
+                            settle.form_ligatures(
+                                spec,
+                                settle.tokens_from_codepoints(spec, [ord(ch) for ch in text]),
+                                guard,
+                            ),
+                            features,
                         )
-                    ]
+                        for text in texts
+                    ],
+                )
+                for text, (settled, names), traces in zip(texts, walked, reference):
+                    assert traces is not None
+                    expected = [trace.settled for trace in traces]
+                    assert settled == expected, text
+                    assert names == conform.settled_names(spec, expected, None), text
+                    for _index, window, _matched in conform._matched_windows(
+                        spec, text, features, guard, names, {}, None
+                    ):
+                        assert window in walker.windows, (text, window)
+                    if rules_by_input is not None:
+                        replayed += [
+                            (window, matched)
+                            for _index, window, matched in conform._matched_windows(
+                                spec, text, features, guard, names, rules_by_input, deep_index
+                            )
+                        ]
         return walker, replayed
 
     @pytest.mark.parametrize(
@@ -647,14 +671,13 @@ class TestSettledWindowWalk:
         assert any(key[4] != "#NA" for key in walker.windows), "no window opened its third slot"
 
     def test_prospect_live_slots_agree_between_walk_and_replay(self, monkeypatch):
-        """The issue-28 arm of the deep-slot filters, exercised end to end: under the simulated-prospect default, the `_prospect_spec` fixture's A-before-B-C windows carry a live third slot the table enumerates, and the memoized walk and the unmemoized replay must agree on the split — the same observational-identity bar as the chain-arm sweeps above, with the table's own deep-token index carrying the class map into the replay's rule matching."""
-        from rebuild.pipeline import settle as settle_module
+        """The issue-28 arm of the deep-slot filters, exercised end to end: under the simulated-prospect default, `fixtures.prospect_spec`'s A-before-B-C windows carry a live third slot the table enumerates, and the memoized walk and the unmemoized replay must agree on the split — the same observational-identity bar as the chain-arm sweeps above, with the table's own deep-token index carrying the class map into the replay's rule matching."""
+        from rebuild.pipeline import fixtures
         from rebuild.pipeline.emit_gsub import _raw_rename_map
         from rebuild.pipeline.kernel_exec import build_tables
-        from rebuild.test_settle import _prospect_spec
 
-        monkeypatch.setattr(settle_module, "SIMULATED_PROSPECT_DEFAULT", True)
-        spec = _prospect_spec()
+        monkeypatch.setattr(kernel_exec, "SIMULATED_PROSPECT_DEFAULT", True)
+        spec = fixtures.prospect_spec()
         decision = build_tables(spec, frozenset())[0]
         assert any(row.right3 != "#NA" for row in decision.transitions)
         assert any(rule.look3 for rule in decision.rules)
@@ -710,6 +733,60 @@ class TestSettledWindowWalk:
             window[5].startswith("#C") for window, _matched in replayed
         ), "no r4 class token reached the replay"
         assert any(matched is not None for _window, matched in replayed)
+
+    def test_prefill_then_walk_matches_walk_with_misses(self, spec, guard):
+        """`prefill` and `walk` answer alike; what differs is the bill. A walker handed its texts up front answers each of them out of the memo, so `single_settles` stays at zero, while a walker asked one text at a time spends a whole kernel invocation on every miss — which is exactly what the counter exists to make visible to a caller who forgot to prefill."""
+        import itertools
+
+        features = frozenset()
+        alphabet = conform.spec_alphabet(spec)
+        texts = ["".join(pair) for pair in itertools.islice(itertools.product(alphabet, repeat=2), 6)]
+        prefilled = conform._SettledWindowWalk(spec, features, {}, guard)
+        prefilled.prefill(texts)
+        assert prefilled.single_settles == 0
+        lazy = conform._SettledWindowWalk(spec, features, {}, guard)
+        assert [prefilled.walk(text) for text in texts] == [lazy.walk(text) for text in texts]
+        assert prefilled.single_settles == 0
+        assert lazy.single_settles > 0
+
+    def test_one_memo_key_settles_its_distinct_case_rows_alike(self, spec, guard):
+        """The dedupe's own premise, checked rather than argued: `_window_rights`' `#NA` cascade blanks slots the key does not carry, so several distinct raw case rows land on one memo key, and the walk asks the crate about only the first of them. Under `audit_dedupe` every later one is asked too and held to the memoized outcome — the mini alphabet at depth 4 is where those collisions are dense enough to be worth the extra invocations."""
+        import itertools
+
+        features = frozenset()
+        alphabet = conform.spec_alphabet(spec)
+        walker = conform._SettledWindowWalk(spec, features, {}, guard, audit_dedupe=True)
+        walker.walk_many(
+            ["".join(combo) for length in range(1, 5) for combo in itertools.product(alphabet, repeat=length)]
+        )
+        assert walker.audit_multi_keys, "no memo key carried a second distinct raw window"
+        assert walker.audit_extra_rows
+
+    @pytest.mark.slow
+    def test_the_real_alphabet_keys_its_distinct_case_rows_alike(self):
+        """The same audit over the live rune files at depth 3, where the alphabet is the shipping one and the collisions are the ones `gate:conform` actually rides on. Marked slow: it settles every distinct raw window the depth-3 sweep reaches, not merely one per memo key."""
+        import itertools
+        import warnings
+
+        from rebuild.pipeline.spec_load import load_default_spec
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            real_spec = load_default_spec()
+        features = frozenset()
+        alphabet = conform.spec_alphabet(real_spec)
+        walker = conform._SettledWindowWalk(
+            real_spec, features, {}, kernel_exec.guard_sweep(real_spec), audit_dedupe=True
+        )
+        for length in range(1, 4):
+            stream = itertools.product(alphabet, repeat=length)
+            while True:
+                texts = ["".join(combo) for combo in itertools.islice(stream, self.SWEEP_CHUNK)]
+                if not texts:
+                    break
+                walker.walk_many(texts)
+        assert walker.audit_multi_keys
+        assert walker.audit_extra_rows
 
 
 class TestDeepTokenIndex:

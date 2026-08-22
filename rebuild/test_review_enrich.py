@@ -10,8 +10,6 @@ from pathlib import Path
 import pytest
 from fontTools.ttLib import TTFont
 
-from rebuild.pipeline.conform import features_for_config
-from rebuild.pipeline.settle import settle
 from rebuild.review.enrich import (
     LETTERS,
     EnrichedUnit,
@@ -108,20 +106,6 @@ def test_parse_entry_extension():
     assert parse_entry_extension(("en-ext-1",)) == 1
     assert parse_entry_extension(("en-con-2", "locked")) == -2
     assert parse_entry_extension(()) == 0
-
-
-def test_after_seams_agree_with_direct_settle(spec, enricher, units_by_key):
-    """The review path's own wiring check: `explain_many` through the Rust kernel must reach the same seams a direct Python `settle()` does. That the two engines agree at all is `make kernel-differential`'s subject — an exhaustive guard sweep, seeded fuzz in every mode combination, and a golden corpus — and `gate:conform` re-settles independently through HarfBuzz every cycle; what a review test adds is that this path is wired to them, which the worked examples witness as well as a corpus stride did."""
-    for unit in units_by_key.values():
-        config = unit.configs[0]
-        if config == "ss10":
-            continue
-        enriched = enricher.enrich(unit)
-        settled = settle(spec, list(unit.codepoint_values), features_for_config(config))
-        expected = tuple(
-            "break" if item.seam is None else f"y{spec.registry.y_of(item.seam)}" for item in settled[:-1]
-        )
-        assert enriched.after_seams == expected, unit.codepoints
 
 
 def test_known_halves_extension_unit(enricher, units_by_key):
