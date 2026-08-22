@@ -12,7 +12,7 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use std::rc::Rc;
 
 use crate::census::{FourthSlotFilter, ThirdSlotFilter, fourth_slot_inputs, third_slot_inputs};
-use crate::engine::{Engine, EngineModes, Slots};
+use crate::engine::{CacheSize, Engine, EngineModes, Slots};
 use crate::error::SettleError;
 use crate::fiber::DeepFiberDeriver;
 use crate::index::SpecIndex;
@@ -77,7 +77,57 @@ pub fn deep_class_id(members: &[String]) -> String {
 type Allowed = Rc<BTreeSet<RightToken>>;
 
 /// The six labels one window is keyed by, `table.Window.key`: the input glyph, the left, and the four right slots.
-type WindowKey = [String; 6];
+type WindowKey = [Rc<str>; 6];
+
+/// The pool one enumeration interns its window labels through: every distinct spelling allocated once and shared by every row that names it.
+///
+/// A configuration reaches millions of windows over a few tens of thousands of distinct labels, so an owned `String` per slot was both the largest allocation count in the run and a needless copy of the same handful of names in every key. A shared handle still compares, hashes and sorts as the text it is, which is what keeps the product's key order the lexicographic one the stream contracts and leaves every raise message spelled exactly as it was.
+#[derive(Default)]
+struct LabelPool(HashSet<Rc<str>>);
+
+impl LabelPool {
+    /// The pool's handle on this spelling, minting one only where the pool has none.
+    fn intern(&mut self, text: &str) -> Rc<str> {
+        if let Some(found) = self.0.get(text) {
+            return Rc::clone(found);
+        }
+        let shared: Rc<str> = Rc::from(text);
+        self.0.insert(Rc::clone(&shared));
+        shared
+    }
+
+    /// The same for a spelling the caller had to build anyway, so that a miss reuses the buffer rather than copying it a second time.
+    fn intern_owned(&mut self, text: String) -> Rc<str> {
+        if let Some(found) = self.0.get(text.as_str()) {
+            return Rc::clone(found);
+        }
+        let shared: Rc<str> = Rc::from(text);
+        self.0.insert(Rc::clone(&shared));
+        shared
+    }
+
+    /// One right slot's label, interned — [`right_token_label`] without minting the `String` that function returns.
+    fn token(&mut self, index: &SpecIndex, token: RightToken) -> Rc<str> {
+        match token {
+            RightToken::Letter(rune) => {
+                let name = index.resolve(rune);
+                self.intern(name)
+            }
+            other => {
+                let name = boundary_left_label(other.kind());
+                self.intern(name)
+            }
+        }
+    }
+
+    /// A deep slot's label, interned, with an absent slot spelling [`NA_LABEL`].
+    fn slot(&mut self, index: &SpecIndex, token: Option<RightToken>) -> Rc<str> {
+        match token {
+            Some(token) => self.token(index, token),
+            None => self.intern(NA_LABEL),
+        }
+    }
+}
 
 /// One worklist item: the left state, the input rune, the right1 the left was reached alongside, and the two allowed-sets pinning the slots past it. Its equality is the `seen` key exactly — a [`LeftContext`] is a kind and a settled cell and nothing else, so the derived equality compares the pair the key is meant to be.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -91,7 +141,7 @@ struct Item {
 
 /// What a recorded window carries beyond the six labels that key it — `table.Transition`'s remaining fields, kept apart from the key so the labels are stored once rather than in both the map's key and its value.
 struct Row {
-    outcome: String,
+    outcome: Rc<str>,
     settled: Settled,
     left_settled: Option<Settled>,
     joint: bool,
@@ -106,7 +156,7 @@ type Slot3Entry = (Option<RightToken>, Option<usize>, Vec<RightToken>);
 type Slot4Entry = Option<Vec<RightToken>>;
 
 /// What an in-flight class-grain row is keyed by while the worklist runs: the four near labels, the third slot's identity, and the fourth's full member group.
-type PendingKey = (String, String, String, String, Identity3, Slot4Entry);
+type PendingKey = (Rc<str>, Rc<str>, Rc<str>, Rc<str>, Identity3, Slot4Entry);
 
 /// The third slot's identity inside a [`PendingKey`]: the boundary token itself where the entry is a boundary, and the fiber's full member tuple where it is a fiber. Naming the two alternatives is that distinction made checkable rather than left to a coincidence of representation.
 ///
@@ -122,8 +172,8 @@ enum Identity3 {
 /// The r4 members carry no pins and so are full from the first item, which is why they are a plain group here where the third slot's are a set.
 struct PendingDeepRow {
     left_context: LeftContext,
-    left_label: String,
-    input_label: String,
+    left_label: Rc<str>,
+    input_label: Rc<str>,
     token: RightToken,
     right1: RightToken,
     right2: RightToken,
@@ -157,7 +207,19 @@ pub fn enumerate_transitions(
     features: &[Sym],
     modes: EnumerationModes,
 ) -> Result<FixpointProduct, String> {
-    enumerate_seeded(index, features, modes, contract_seeds)
+    enumerate_seeded(index, features, modes, contract_seeds, None)
+}
+
+/// [`enumerate_transitions`] with the `--cache-census` diagnostic switched on: the same product, plus a `[c]` line per collection on the way past the drain saying how many entries it held and in how many buckets, the elimination text the memos were carrying, and the process's resident size sampled either side of the drain and the sort. Nothing here reaches the stream — the lines are the caller's to put on stderr — and nothing is computed unless the caller asked, so the shipping path pays nothing for it.
+///
+/// The instrument exists because every RAM decision this crate faces reduces to entry counts, and a count read off a live alphabet settles in one run what a struct-size argument can only estimate.
+pub fn enumerate_censused(
+    index: &SpecIndex,
+    features: &[Sym],
+    modes: EnumerationModes,
+    census: &mut Vec<String>,
+) -> Result<FixpointProduct, String> {
+    enumerate_seeded(index, features, modes, contract_seeds, Some(census))
 }
 
 /// [`enumerate_transitions`] with the seeding left open, which is how the order-independence of the pinned world is testable at all. Production always passes [`contract_seeds`]; a test passes a permutation and asserts the same product, which is a statement about that world rather than about the discipline, since class grain makes the first visitor of a fiber decide its representative.
@@ -166,6 +228,7 @@ fn enumerate_seeded(
     features: &[Sym],
     modes: EnumerationModes,
     seeds: fn(&WindowOptions<'_>) -> Vec<Item>,
+    mut census: Option<&mut Vec<String>>,
 ) -> Result<FixpointProduct, String> {
     let mut engine = Engine::with_modes(
         index,
@@ -174,6 +237,8 @@ fn enumerate_seeded(
             simulated_prospect: modes.simulated_prospect,
             vote_slots: modes.vote_slots,
             trace_memo: true,
+            // The rows this fixpoint writes read the settled triple, the prospect, the joint floor and the notes; nothing here ever asks a trace how it was decided, and the ladder that would answer costs more than every other explain-only allocation together.
+            explain_ladder: false,
             ..EngineModes::default()
         },
     );
@@ -189,6 +254,7 @@ fn enumerate_seeded(
     let class_grain = modes.deep_classes && deep_world;
     let mut deriver = class_grain.then(DeepFiberDeriver::new);
 
+    let mut labels = LabelPool::default();
     let mut transitions: HashMap<WindowKey, Row> = HashMap::new();
     // The pending class-grain rows, split from the seats their keys hold, so that the echo pass walks them in the order they were created.
     let mut pending_rows: Vec<PendingDeepRow> = Vec::new();
@@ -211,17 +277,17 @@ fn enumerate_seeded(
         let locked = left.kind == TokenKind::Zwnj && index.is_entry_bearing(rune);
         let raw = index.resolve(rune);
         let input_label = if locked {
-            locked_glyph_name(raw)
+            labels.intern_owned(locked_glyph_name(raw))
         } else {
-            raw.to_owned()
+            labels.intern(raw)
         };
         let left_label = if left.kind == TokenKind::Letter {
             let settled = left.settled.as_ref().expect(
                 "a letter left carries the cell it settled into, which the fixpoint asserts on the way in",
             );
-            cell_label(index, &settled.cell)
+            labels.intern_owned(cell_label(index, &settled.cell))
         } else {
-            boundary_left_label(left.kind).to_owned()
+            labels.intern(boundary_left_label(left.kind))
         };
         // The trace reads the raw letter whatever the label says: locking is a fact about the glyph the emitted lookup substitutes, not about what settles.
         let token = RightToken::Letter(rune);
@@ -351,10 +417,10 @@ fn enumerate_seeded(
                             let rep3 = admitted3[0];
                             let rep4 = members4.as_ref().map(|group| group[0]);
                             let pending_key: PendingKey = (
-                                input_label.clone(),
-                                left_label.clone(),
-                                right_token_label(index, right1),
-                                right_token_label(index, right2),
+                                Rc::clone(&input_label),
+                                Rc::clone(&left_label),
+                                labels.token(index, right1),
+                                labels.token(index, right2),
                                 identity3.clone(),
                                 members4.clone(),
                             );
@@ -363,12 +429,12 @@ fn enumerate_seeded(
                                     let record = &mut pending_rows[seat];
                                     if record.left_settled != left.settled {
                                         let display: WindowKey = [
-                                            input_label.clone(),
-                                            left_label.clone(),
-                                            right_token_label(index, right1),
-                                            right_token_label(index, right2),
-                                            right_token_label(index, rep3),
-                                            slot_label(index, rep4),
+                                            Rc::clone(&input_label),
+                                            Rc::clone(&left_label),
+                                            labels.token(index, right1),
+                                            labels.token(index, right2),
+                                            labels.token(index, rep3),
+                                            labels.slot(index, rep4),
                                         ];
                                         return Err(partition_complaint(
                                             index,
@@ -392,8 +458,8 @@ fn enumerate_seeded(
                                     pending_seats.insert(pending_key, pending_rows.len());
                                     pending_rows.push(PendingDeepRow {
                                         left_context: left.clone(),
-                                        left_label: left_label.clone(),
-                                        input_label: input_label.clone(),
+                                        left_label: Rc::clone(&left_label),
+                                        input_label: Rc::clone(&input_label),
                                         token,
                                         right1,
                                         right2,
@@ -472,16 +538,16 @@ fn enumerate_seeded(
 
                     for right4 in right4_slots {
                         let window_key: WindowKey = [
-                            input_label.clone(),
-                            left_label.clone(),
-                            right_token_label(index, right1),
+                            Rc::clone(&input_label),
+                            Rc::clone(&left_label),
+                            labels.token(index, right1),
                             if right1.kind() == TokenKind::Letter {
-                                right_token_label(index, right2)
+                                labels.token(index, right2)
                             } else {
-                                NA_LABEL.to_owned()
+                                labels.intern(NA_LABEL)
                             },
-                            slot_label(index, right3),
-                            slot_label(index, right4),
+                            labels.slot(index, right3),
+                            labels.slot(index, right4),
                         ];
                         // A worklist item with different pins can re-reach a window key already recorded; the recorded row's settled state is what a re-trace would return, because the left label is injective into the trace's inputs, so a hit skips straight to the successor enqueue — whose pins still differ per item. The left-state comparison is that premise made executable, and can only fire if `cell_label` stops being injective over settled lefts.
                         let settled = if let Some(existing) = transitions.get(&window_key) {
@@ -511,7 +577,8 @@ fn enumerate_seeded(
                             transitions.insert(
                                 window_key,
                                 Row {
-                                    outcome: cell_label(index, &trace.settled.cell),
+                                    outcome: labels
+                                        .intern_owned(cell_label(index, &trace.settled.cell)),
                                     settled: trace.settled,
                                     left_settled: left.settled.clone(),
                                     joint: trace.joint_floor,
@@ -557,7 +624,7 @@ fn enumerate_seeded(
     // The section 2.6 echo check, and the class rows' emission with it: for every multi-member row the last admitted member is re-traced at the row's real left — and the last r4 member at the representative third — and its whole row-visible record must equal the representative's. That is the standing real-left, real-entry, real-adjustment guard on the virtual-left collapse the fibers import, two members deep on every build.
     for pending in &pending_rows {
         let (label3, admitted3) = match pending.boundary3 {
-            Some(token) => (right_token_label(index, token), vec![token]),
+            Some(token) => (labels.token(index, token), vec![token]),
             None => {
                 let mut members: Vec<RightToken> = pending.admitted3.iter().copied().collect();
                 members.sort_by(|left, right| {
@@ -570,30 +637,28 @@ fn enumerate_seeded(
                     .map(|member| index.resolve(member.letter()).to_owned())
                     .collect();
                 (
-                    deep_label(&mut deep_classes, &mut named_classes, names),
+                    labels.intern_owned(deep_label(&mut deep_classes, &mut named_classes, names)),
                     members,
                 )
             }
         };
         let label4 = match pending.members4.as_deref() {
-            None => NA_LABEL.to_owned(),
-            Some(group) if group[0].kind() != TokenKind::Letter => {
-                right_token_label(index, group[0])
-            }
-            Some(group) => deep_label(
+            None => labels.intern(NA_LABEL),
+            Some(group) if group[0].kind() != TokenKind::Letter => labels.token(index, group[0]),
+            Some(group) => labels.intern_owned(deep_label(
                 &mut deep_classes,
                 &mut named_classes,
                 group
                     .iter()
                     .map(|member| index.resolve(member.letter()).to_owned())
                     .collect(),
-            ),
+            )),
         };
         let window_key: WindowKey = [
-            pending.input_label.clone(),
-            pending.left_label.clone(),
-            right_token_label(index, pending.right1),
-            right_token_label(index, pending.right2),
+            Rc::clone(&pending.input_label),
+            Rc::clone(&pending.left_label),
+            labels.token(index, pending.right1),
+            labels.token(index, pending.right2),
             label3,
             label4,
         ];
@@ -635,7 +700,7 @@ fn enumerate_seeded(
         transitions.insert(
             window_key,
             Row {
-                outcome: cell_label(index, &pending.settled.cell),
+                outcome: labels.intern_owned(cell_label(index, &pending.settled.cell)),
                 settled: pending.settled.clone(),
                 left_settled: pending.left_settled.clone(),
                 joint: pending.joint,
@@ -643,6 +708,51 @@ fn enumerate_seeded(
                 provenance: pending.provenance.clone(),
             },
         );
+    }
+
+    if let Some(lines) = census.as_mut() {
+        lines.push(
+            CacheSize::of("transitions", transitions.len(), transitions.capacity()).line(&config),
+        );
+        lines.push(CacheSize::of("seen", seen.len(), seen.capacity()).line(&config));
+        lines.push(
+            CacheSize::of("pending_rows", pending_rows.len(), pending_rows.capacity())
+                .line(&config),
+        );
+        lines.push(
+            CacheSize::of(
+                "pending_seats",
+                pending_seats.len(),
+                pending_seats.capacity(),
+            )
+            .line(&config),
+        );
+        for size in engine.cache_census() {
+            lines.push(size.line(&config));
+        }
+        lines.push(format!(
+            "[c] {config} elimination_text bytes={}",
+            engine.elimination_text_bytes()
+        ));
+        lines.push(format!(
+            "[c] {config} resident_before_release kb={}",
+            resident_kb()
+        ));
+    }
+
+    // Snapshotted here rather than past the sort, and before the memos go: what follows is a drain, a sort and an assertion, none of which touches the fired set, and the assertion's own re-tracing is deliberately outside it — anything it were to fire could not reach the stream anyway.
+    let cited_provenance = engine
+        .fired()
+        .iter()
+        .map(|pointer| pointer.text(index))
+        .collect();
+    // The drain and the sort below are the run's other working set, and the memos that answered the worklist are of no further use to them. Releasing here rather than at the end of the function is what keeps the two from coexisting, which is where the enumeration's peak used to sit.
+    engine.release_memos();
+    if let Some(lines) = census.as_mut() {
+        lines.push(format!(
+            "[c] {config} resident_after_release kb={}",
+            resident_kb()
+        ));
     }
 
     let mut rows: Vec<TransitionRow> = transitions
@@ -666,6 +776,12 @@ fn enumerate_seeded(
         })
         .collect();
     rows.sort_by(|left, right| left.key().cmp(&right.key()));
+    if let Some(lines) = census.as_mut() {
+        lines.push(format!(
+            "[c] {config} resident_after_sort kb={}",
+            resident_kb()
+        ));
+    }
     // The product's cells are a set rather than a per-row list; collapsing the repeats here rather than at the emitter keeps one cell per seat out of one clone per row.
     let mut counted: HashSet<&CellId> = HashSet::new();
     let mut cells: Vec<CellId> = Vec::new();
@@ -674,12 +790,6 @@ fn enumerate_seeded(
             cells.push(row.settled.cell.clone());
         }
     }
-    // Snapshotted before the assertion runs, so that anything the assertion were to fire could not reach the stream anyway.
-    let cited_provenance = engine
-        .fired()
-        .iter()
-        .map(|pointer| pointer.text(index))
-        .collect();
     let product = FixpointProduct {
         config,
         transitions: rows,
@@ -752,6 +862,18 @@ fn retain_formed_before(
     Ok(kept)
 }
 
+/// This process's resident size in kibibytes, or `0` where the platform would not say. Asked of `ps` rather than of the C library because the crate takes no dependency and declares no foreign functions for a diagnostic; it runs twice per censused configuration and never on the shipping path.
+fn resident_kb() -> u64 {
+    let pid = std::process::id();
+    std::process::Command::new("/bin/ps")
+        .args(["-o", "rss=", "-p", &pid.to_string()])
+        .output()
+        .ok()
+        .and_then(|out| String::from_utf8(out.stdout).ok())
+        .and_then(|text| text.trim().parse::<u64>().ok())
+        .unwrap_or(0)
+}
+
 /// One token as a pin's allowed-set.
 fn singleton(token: RightToken) -> Allowed {
     Rc::new(BTreeSet::from([token]))
@@ -768,14 +890,6 @@ pub fn right_token_label(index: &SpecIndex, token: RightToken) -> String {
         RightToken::Letter(rune) => index.resolve(rune).to_owned(),
         other => boundary_left_label(other.kind()).to_owned(),
     }
-}
-
-/// A deep slot's label, which is [`right_token_label`] when the window enumerated the slot and [`NA_LABEL`] when it did not.
-fn slot_label(index: &SpecIndex, token: Option<RightToken>) -> String {
-    token.map_or_else(
-        || NA_LABEL.to_owned(),
-        |token| right_token_label(index, token),
-    )
 }
 
 /// The label a boundary carries at either end of a window, `table.BOUNDARY_LEFT_LABELS`: the run edge's own name, and for the other three the glyph the boundary ships as. A letter or an unknown panics here exactly as the Python mapping raises `KeyError` for it.
@@ -974,27 +1088,27 @@ impl DeepPartitionCheck<'_, '_> {
                     .map_err(complaint)?;
             }
             if !live {
-                if row.right3 != NA_LABEL {
+                if &*row.right3 != NA_LABEL {
                     return Err(format!(
                         "{key:?}: right3 enumerated where the filters say dead"
                     ));
                 }
                 continue;
             }
-            if row.right3 == NA_LABEL {
+            if &*row.right3 == NA_LABEL {
                 return Err(format!("{key:?}: right3 #NA where the filters say live"));
             }
             if row.right3.starts_with(DEEP_CLASS_PREFIX) {
-                if !classes.contains_key(row.right3.as_str()) {
+                if !classes.contains_key(&*row.right3) {
                     return Err(format!(
                         "{key:?}: right3 token {} is not in the class map",
                         row.right3
                     ));
                 }
-                used.insert(row.right3.as_str());
+                used.insert(&*row.right3);
             }
             if boundaryish(&row.right3) {
-                if row.right4 != NA_LABEL {
+                if &*row.right4 != NA_LABEL {
                     return Err(format!(
                         "{key:?}: right4 enumerated past a boundary third slot"
                     ));
@@ -1006,23 +1120,18 @@ impl DeepPartitionCheck<'_, '_> {
             let right2 = right2.expect("a live row's right2 is a letter");
             self.ensure_context(family, right1, right2)?;
             let members3 = token_members(&classes, &row.right3);
-            let base = [
-                row.input_glyph.as_str(),
-                row.left.as_str(),
-                row.right1.as_str(),
-                row.right2.as_str(),
-            ];
+            let base = [&*row.input_glyph, &*row.left, &*row.right1, &*row.right2];
             let taken3 = seen3.entry(base).or_default();
             for member in &members3 {
                 if let Some(claimed) = taken3.get(member)
-                    && *claimed != row.right3.as_str()
+                    && *claimed != &*row.right3
                 {
                     return Err(format!(
                         "{key:?}: r3 member {member} belongs to two tokens at one base: {claimed} and {}",
                         row.right3
                     ));
                 }
-                taken3.insert(member, row.right3.as_str());
+                taken3.insert(member, &*row.right3);
             }
             {
                 let partition = &self.contexts[&(family, right1, right2)];
@@ -1079,7 +1188,7 @@ impl DeepPartitionCheck<'_, '_> {
             // The census gate is ANDed in here rather than inside the filter, which is the same split the enumeration makes when it decides whether a fiber's r4 groups become slot-4 entries.
             let fourth =
                 verdicts.into_iter().next().unwrap_or(false) && self.deep4_inputs.contains(&family);
-            if row.right4 == NA_LABEL {
+            if &*row.right4 == NA_LABEL {
                 if fourth {
                     return Err(format!("{key:?}: right4 #NA where the filters say live"));
                 }
@@ -1107,29 +1216,29 @@ impl DeepPartitionCheck<'_, '_> {
                 }
             }
             if row.right4.starts_with(DEEP_CLASS_PREFIX) {
-                if !classes.contains_key(row.right4.as_str()) {
+                if !classes.contains_key(&*row.right4) {
                     return Err(format!(
                         "{key:?}: right4 token {} is not in the class map",
                         row.right4
                     ));
                 }
-                used.insert(row.right4.as_str());
+                used.insert(&*row.right4);
             }
             if boundaryish(&row.right4) {
                 continue;
             }
             let members4 = token_members(&classes, &row.right4);
-            let taken4 = seen4.entry((base, row.right3.as_str())).or_default();
+            let taken4 = seen4.entry((base, &*row.right3)).or_default();
             for member in &members4 {
                 if let Some(claimed) = taken4.get(member)
-                    && *claimed != row.right4.as_str()
+                    && *claimed != &*row.right4
                 {
                     return Err(format!(
                         "{key:?}: r4 member {member} belongs to two tokens at one base: {claimed} and {}",
                         row.right4
                     ));
                 }
-                taken4.insert(member, row.right4.as_str());
+                taken4.insert(member, &*row.right4);
             }
             if let Some(shared) = shared {
                 let missing: Vec<&str> = members4
@@ -1374,13 +1483,13 @@ mod tests {
         product
             .transitions
             .iter()
-            .filter(|row| row.input_glyph == input && row.left == left)
+            .filter(|row| &*row.input_glyph == input && &*row.left == left)
             .map(|row| {
                 [
-                    row.right1.clone(),
-                    row.right2.clone(),
-                    row.right3.clone(),
-                    row.right4.clone(),
+                    row.right1.to_string(),
+                    row.right2.to_string(),
+                    row.right3.to_string(),
+                    row.right4.to_string(),
                 ]
             })
             .collect()
@@ -1390,7 +1499,7 @@ mod tests {
     fn heads(product: &FixpointProduct) -> Vec<(String, String)> {
         let mut pairs: Vec<(String, String)> = Vec::new();
         for row in &product.transitions {
-            let pair = (row.input_glyph.clone(), row.left.clone());
+            let pair = (row.input_glyph.to_string(), row.left.to_string());
             if !pairs.contains(&pair) {
                 pairs.push(pair);
             }
@@ -1490,7 +1599,7 @@ mod tests {
             product
                 .transitions
                 .iter()
-                .all(|row| row.outcome == "qsPea.half")
+                .all(|row| &*row.outcome == "qsPea.half")
         );
         assert_eq!(product.config, "default");
     }
@@ -1520,8 +1629,8 @@ mod tests {
         let locked: Vec<&str> = product
             .transitions
             .iter()
-            .filter(|row| row.left == "uni200C")
-            .map(|row| row.input_glyph.as_str())
+            .filter(|row| &*row.left == "uni200C")
+            .map(|row| &*row.input_glyph)
             .collect();
         assert!(
             locked.contains(&"qsPea.noentry") && locked.contains(&"qsMay"),
@@ -1533,7 +1642,7 @@ mod tests {
             product
                 .transitions
                 .iter()
-                .filter(|row| row.input_glyph == "qsPea.noentry")
+                .filter(|row| &*row.input_glyph == "qsPea.noentry")
                 .all(|row| row.outcome.starts_with("qsPea.half")),
             "the locked twin still settles as qsPea"
         );
@@ -1542,7 +1651,7 @@ mod tests {
             product
                 .transitions
                 .iter()
-                .all(|row| row.left == "uni200C" || !row.input_glyph.ends_with(".noentry"))
+                .all(|row| &*row.left == "uni200C" || !row.input_glyph.ends_with(".noentry"))
         );
     }
 
@@ -1553,8 +1662,8 @@ mod tests {
         let deep: Vec<&str> = product
             .transitions
             .iter()
-            .filter(|row| row.right3 != NA_LABEL)
-            .map(|row| row.input_glyph.as_str())
+            .filter(|row| &*row.right3 != NA_LABEL)
+            .map(|row| &*row.input_glyph)
             .collect();
         assert!(
             !deep.is_empty() && deep.iter().all(|input| *input == "qsPea"),
@@ -1564,8 +1673,8 @@ mod tests {
             product
                 .transitions
                 .iter()
-                .filter(|row| row.right3 != NA_LABEL)
-                .all(|row| row.right1 == "qsTea" && row.right2 == "qsMay"),
+                .filter(|row| &*row.right3 != NA_LABEL)
+                .all(|row| &*row.right1 == "qsTea" && &*row.right2 == "qsMay"),
             "and only where its chain is still unanswered two slots in"
         );
         let split: Vec<String> = slots_at(&product, "qsPea", "#EDGE")
@@ -1597,9 +1706,9 @@ mod tests {
             .transitions
             .iter()
             .filter(|row| {
-                row.input_glyph == "qsPea" && row.left == "#EDGE" && row.right3 == "qsPea"
+                &*row.input_glyph == "qsPea" && &*row.left == "#EDGE" && &*row.right3 == "qsPea"
             })
-            .map(|row| (row.right4.as_str(), row.outcome.as_str()))
+            .map(|row| (&*row.right4, &*row.outcome))
             .collect();
         assert_eq!(
             outcomes,
@@ -1751,7 +1860,7 @@ mod tests {
             seam: None,
             extension: 0,
         };
-        let [input_glyph, left, right1, right2, right3, right4] = labels.map(str::to_owned);
+        let [input_glyph, left, right1, right2, right3, right4] = labels.map(Rc::from);
         TransitionRow {
             input_glyph,
             left,
@@ -1759,7 +1868,7 @@ mod tests {
             right2,
             right3,
             right4,
-            outcome: "qsMay.plain".to_owned(),
+            outcome: Rc::from("qsMay.plain"),
             settled,
             left_settled: None,
             joint: false,
@@ -2077,10 +2186,10 @@ mod tests {
     #[test]
     fn a_permuted_seed_order_reaches_the_same_pinned_world_product() {
         let index = deep_alphabet();
-        let contract =
-            enumerate_seeded(&index, &[], PINNED, contract_seeds).expect("the fixpoint closes");
-        let reversed =
-            enumerate_seeded(&index, &[], PINNED, reversed_seeds).expect("the fixpoint closes");
+        let contract = enumerate_seeded(&index, &[], PINNED, contract_seeds, None)
+            .expect("the fixpoint closes");
+        let reversed = enumerate_seeded(&index, &[], PINNED, reversed_seeds, None)
+            .expect("the fixpoint closes");
         // Compared as the stream rather than as the product, because two of the product's fields are sets whose vector spelling is the emitter's business: `cited_provenance` comes out of a hash set and has no order of its own.
         assert_eq!(
             emit_transitions(&index, &contract),
@@ -2090,7 +2199,7 @@ mod tests {
             contract
                 .transitions
                 .iter()
-                .any(|row| row.right4 != NA_LABEL),
+                .any(|row| &*row.right4 != NA_LABEL),
             "and the product both orders reached is the one carrying the pinned deep windows, not a trivially equal pair"
         );
         // Order-independence here is a fact about this world, not about the discipline: the dedup is by window key, a re-reached window reuses the settled a re-trace would return, and the fired set is a union over a window set no traversal can change. Under class grain the first visitor of a fiber fixes its representative, and the push order becomes output-visible.

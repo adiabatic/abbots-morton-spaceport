@@ -121,11 +121,12 @@ fn raise_text(error: &SettleError) -> String {
 
 /// The settled result, in `_replay`'s key order: the row-visible record and its fired delta first, then the four trace fields the corpus/3 bump added.
 fn settled_text(index: &SpecIndex, trace: &TransitionTrace, fired: &[String]) -> String {
-    let runner_up = match &trace.runner_up {
+    let ladder = trace.ladder();
+    let runner_up = match &ladder.runner_up {
         Some(candidate) => candidate_json(index, candidate),
         None => "null".to_owned(),
     };
-    let ranked: Vec<String> = trace
+    let ranked: Vec<String> = ladder
         .ranked
         .iter()
         .map(|entry| {
@@ -137,7 +138,7 @@ fn settled_text(index: &SpecIndex, trace: &TransitionTrace, fired: &[String]) ->
             )
         })
         .collect();
-    let eliminations: Vec<String> = trace
+    let eliminations: Vec<String> = ladder
         .eliminations
         .iter()
         .map(|elimination| {

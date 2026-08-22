@@ -32,7 +32,8 @@ pub fn json_string(value: &str) -> String {
 
 const HEX: [u8; 16] = *b"0123456789abcdef";
 
-fn escape_into(out: &mut String, value: &str) {
+/// The same escaping appended to a buffer the caller already has, which is how the transitions stream spells a label without minting a `String` for it first.
+pub(crate) fn escape_into(out: &mut String, value: &str) {
     out.push('"');
     for letter in value.chars() {
         match letter {

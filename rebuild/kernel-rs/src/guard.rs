@@ -37,6 +37,7 @@ impl<'i> GuardState<'i> {
             simulated_prospect: false,
             vote_slots: false,
             trace_memo: false,
+            explain_ladder: true,
         };
         let features = capability_features(index);
         let mut engines = Vec::new();

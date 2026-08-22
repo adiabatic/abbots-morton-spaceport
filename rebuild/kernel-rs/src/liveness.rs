@@ -714,8 +714,8 @@ fn seat_outcome(
     token: RightToken,
     slots: Slots,
 ) -> SeatOutcome {
-    match engine.transition_trace(left, token, slots) {
-        Ok(trace) => SeatOutcome::Cell(trace.settled.cell),
+    match engine.with_trace(left, token, slots, |trace| trace.settled.cell.clone()) {
+        Ok(cell) => SeatOutcome::Cell(cell),
         Err(error) => match error.kind() {
             SettleErrorKind::Incomparable | SettleErrorKind::Ambiguous => SeatOutcome::Raised,
             SettleErrorKind::Stranded | SettleErrorKind::Plain => SeatOutcome::Unreachable,
@@ -1507,10 +1507,10 @@ mod tests {
             .iter()
             .map(|(id, members)| (id.as_str(), members))
             .collect();
-        let members = |label: &String| -> Vec<String> {
+        let members = |label: &str| -> Vec<String> {
             classes
-                .get(label.as_str())
-                .map_or_else(|| vec![label.clone()], |members| (*members).clone())
+                .get(label)
+                .map_or_else(|| vec![label.to_owned()], |members| (*members).clone())
         };
         let mut out: Vec<String> = Vec::new();
         for row in &product.transitions {
