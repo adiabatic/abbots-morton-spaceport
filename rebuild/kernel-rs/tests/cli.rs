@@ -248,3 +248,113 @@ fn a_seat_that_cannot_write_fails_the_run_naming_the_earliest_one() {
         "and it is the only one named: {said}"
     );
 }
+
+/// The table build as its caller sees it: three files per configuration under the directory it named, one digest line per configuration on stdout in the order they were named, and the stamp the command line gave riding the windows head where `read_windows` will look for it.
+#[test]
+fn a_table_build_files_three_artifacts_and_answers_one_digest_per_configuration() {
+    let root = scratch("cli-tables");
+    let spec = spec_at(&root);
+    let outdir = root.join("tables");
+    let output = run(&[
+        "build-tables",
+        word(&spec),
+        word(&outdir),
+        "--configs=default,ss03",
+        "--inputs=cli-stamp",
+        "--threads=2",
+    ]);
+    assert!(output.status.success(), "{}", complaint(&output));
+    assert!(output.stderr.is_empty(), "a clean build says nothing");
+    let answers: Vec<String> = String::from_utf8(output.stdout)
+        .expect("the digests are text")
+        .lines()
+        .map(str::to_owned)
+        .collect();
+    assert_eq!(answers.len(), 2);
+    for (answer, (token, _)) in answers.iter().zip(CONFIGS) {
+        assert!(
+            answer.starts_with(&format!("{{\"config\":\"{token}\",\"digest\":\"")),
+            "the answer names its configuration in the order it was asked for: {answer}"
+        );
+        for family in ["settlement", "treaties"] {
+            let path = outdir.join(format!("{family}-{token}.tsv"));
+            let text = std::fs::read_to_string(&path).expect("every family lands");
+            assert!(text.starts_with(&format!(
+                "# {} table, config {token}\n",
+                family_word(family)
+            )));
+        }
+        let windows = std::fs::read_to_string(outdir.join(format!("windows-{token}.tsv")))
+            .expect("and so does the enumeration");
+        let head = windows.lines().next().expect("the head line");
+        assert!(head.starts_with("# ams-m1-windows/2\t"), "{head}");
+        assert!(head.contains("\"inputs\":\"cli-stamp\""), "{head}");
+        assert_eq!(
+            windows.lines().nth(1),
+            Some("input\tleft\tlookahead1\tlookahead2\tlookahead3\tlookahead4\toutcome")
+        );
+    }
+}
+
+/// The word each TSV's own comment line uses for itself.
+fn family_word(family: &str) -> &str {
+    match family {
+        "settlement" => "settlement",
+        _ => "treaty",
+    }
+}
+
+/// The build's own phases, which the cycle reads the same way it reads a stream run's, and which name the fold rather than the emitter now that there is nothing to emit.
+#[test]
+fn a_timed_table_build_names_the_enumerate_and_fold_phases_per_configuration() {
+    let root = scratch("cli-tables-timings");
+    let spec = spec_at(&root);
+    let output = run(&[
+        "build-tables",
+        word(&spec),
+        word(&root.join("tables")),
+        "--configs=default,ss03",
+        "--inputs=cli-stamp",
+        "--threads=2",
+        "--timings",
+    ]);
+    assert!(output.status.success(), "{}", complaint(&output));
+    let stderr = String::from_utf8(output.stderr).expect("the timings are text");
+    let phases: Vec<&str> = stderr.lines().map(timing_phase).collect();
+    assert_eq!(
+        phases,
+        [
+            "spec_parse",
+            "enumerate[default]",
+            "fold[default]",
+            "enumerate[ss03]",
+            "fold[ss03]",
+            "tables_total"
+        ]
+    );
+}
+
+/// The stamp is required rather than defaulted, because a serialized enumeration is trusted or refused on it; the rest of the verb's vocabulary is refused the same way the fan-out's is.
+#[test]
+fn a_table_build_without_a_stamp_is_a_usage_error() {
+    let root = scratch("cli-tables-refusals");
+    let spec = spec_at(&root);
+    let outdir = root.join("tables");
+    for tail in [
+        vec!["--configs=default"],
+        vec!["--configs=default", "--inputs="],
+        vec!["--inputs=stamp"],
+        vec!["--configs=default", "--inputs=a", "--inputs=b"],
+        vec!["--configs=default", "--inputs=a", "--features=ss03"],
+    ] {
+        let mut arguments = vec!["build-tables", word(&spec), word(&outdir)];
+        arguments.extend(&tail);
+        let output = run(&arguments);
+        assert_eq!(
+            output.status.code(),
+            Some(2),
+            "{tail:?} is a usage error: {}",
+            complaint(&output)
+        );
+    }
+}

@@ -2,13 +2,13 @@
 
 The build is `cargo build --release` against the crate's own manifest and nothing else, because release is the only profile anything in this repo runs: the pipeline, the parity harness and the differential all reach for `target/release/ams-m1-kernel`, and a debug binary that answered would answer far too slowly to be the same experiment. A box with no `cargo` is a `KernelBuildError` carrying the remedy rather than a stack trace, since that is the one failure a reader can fix in a minute; `ensure_built` is the memoized form every caller in a process shares, so a suite that builds a hundred tables pays for one build.
 
-`enumerate_configs` is the fan-out verb and the one `run_m1` needs: one process answers every acceptance configuration, writing each one's stream to a file of its own, and the streams are byte-identical to what the same binary emits one configuration at a time at any thread width (sub-issue #46's exit bar). Threads are the caller's to choose because the ceiling is memory rather than CPU — a live configuration holds its whole working set until it has emitted — so sub-issue #46 measured 3 as the solo width on a 32 GB box and `KERNEL_THREADS_DEFAULT` ships one below it, because a cycle runs the fan-out beside a pytest pool and the Python fold rather than alone; `AMS_KERNEL_THREADS` overrides it in either direction, and since the streams are byte-identical at any width that override is purely a memory knob. Callers cap whatever width they are handed at the number of configurations there are to answer and at the CPUs there are to answer them with.
+`build_table_files` is the verb `run_m1` needs: one process enumerates a configuration and folds it in place, writing its settlement TSV, its treaty TSV and its plain window enumeration, and answering with the contract digest of the pair. There is no stream on that path at all — the fold reads the product the worklist still holds — which is what the several hundred megabytes a configuration's transitions used to cost in writing, reading and holding parsed bought back. `enumerate_configs` is the stream fan-out beside it, what the corpus exporter reaches for and nothing on a build's path does: one process answers every named configuration, writing each one's stream to a file of its own, and the streams are byte-identical to what the same binary emits one configuration at a time at any thread width (sub-issue #46's exit bar). Threads are the caller's to choose because the ceiling is memory rather than CPU — a live configuration holds its whole working set until it has emitted — so sub-issue #46 measured 3 as the solo width on a 32 GB box and `KERNEL_THREADS_DEFAULT` ships one below it, because a cycle runs the fan-out beside a pytest pool rather than alone; `AMS_KERNEL_THREADS` overrides it in either direction, and since the streams are byte-identical at any width that override is purely a memory knob. Callers cap whatever width they are handed at the number of configurations there are to answer and at the CPUs there are to answer them with.
 
-`enumerate_transitions` and `build_tables` are the single-configuration forms of the same call, in memory and writing nothing: one spec dumped to a scratch directory, one stream enumerated and read back as the `table.FixpointProduct` the fold consumes. That product is where the two halves of the build meet, so this module is where the seam is invoked from — the crate enumerates, `table.assemble_tables` folds — and a test, a tool or a hand-assembled spec reaches the build through here, while `run_m1.build_tables` is the persisting, whole-cycle form that stamps its artifacts with the sources they came from.
+`build_tables` and `enumerate_transitions` are the single-configuration forms in memory, each writing nothing that outlives the call: one spec dumped to a scratch directory, and then either the two tables — `build-tables` into that directory, read back through `table.read_windows` and `table.read_treaty_tsv` — or the raw product, enumerated as a stream and parsed into a `table.FixpointProduct`. The first is how a test, a tool or a hand-assembled spec reaches a table; the second is how `rebuild/tools/export_settlement_corpus.py` reaches the rows a table drops, and is the only thing left that asks for a stream at all.
 
 `guard_sweep` is one other in-memory form: one spec dump, one crate invocation, and one complete mapping from `(ligature, first raw slot, second raw slot)` to the config-blind formation verdict. `settle_cases` is the author-facing sibling: a file of independent `ams-m1-corpus/3` windows in, the full Rust trace objects out, with count and question echo checked before the caller decodes a report. The CLI spells boundary tokens as `edge`, `space`, `zwnj`, `namer-dot`, and `unknown`; the guard mapping converts them to Python's `RightToken` constants at the boundary so consumers never confuse those model tokens with glyph names such as `uni200C` or `periodcentered`.
 
-The invocation is read strictly, on the CLI contract's own terms: exit 2 is the usage check, which for a well-formed invocation can only mean the verb is absent or the two sides' flag sets have drifted apart; any other nonzero exit is the kernel complaining about its inputs; and stderr on a clean exit is a failure unless timings were asked for, in which case every `[t]` line is forwarded to this process's own stderr verbatim so the cycle journal reads the kernel's per-configuration walls the same way it reads Python's, and anything else on that stream is still a failure. Enumeration answers in files, so bytes on stdout there are a failure; `guard-sweep` answers on stdout and its complete TSV surface is parsed strictly.
+The invocation is read strictly, on the CLI contract's own terms: exit 2 is the usage check, which for a well-formed invocation can only mean the verb is absent or the two sides' flag sets have drifted apart; any other nonzero exit is the kernel complaining about its inputs; and stderr on a clean exit is a failure unless timings were asked for, in which case every `[t]` line is forwarded to this process's own stderr verbatim so the cycle journal reads the kernel's per-configuration walls the same way it reads Python's, and anything else on that stream is still a failure. Enumeration answers in files, so bytes on stdout there are a failure; `build-tables` answers in files too but reports its digests on stdout, one JSON object per line, and the set is checked against the configurations that were asked for; `guard-sweep` answers on stdout and its complete TSV surface is parsed strictly.
 """
 
 from __future__ import annotations
@@ -52,6 +52,8 @@ GUARD_TAIL_TOKENS = {
 FormationGuard = dict[tuple[str, settle.RightToken, settle.RightToken], bool]
 
 _BUILT = False
+# The stamp a window enumeration nobody will keep is written under. `build-tables` always writes the payload — it is where the head a caller reads its rules and cells back out of comes from — and always demands a stamp for its head, but a caller with no fingerprint over the repo's rune files has none to give and deletes the payload unread rather than packing it, so the word it carried never reaches an artifact.
+UNSTAMPED_WINDOWS = "unstamped"
 
 
 class KernelBuildError(RuntimeError):
@@ -194,19 +196,82 @@ def enumerate_configs(
     return streams
 
 
-def _forward_stderr(errors: str, timings: bool, arguments: list[str], tag: str | None = None) -> None:
+def build_table_files(
+    spec_path: Path,
+    out_dir: Path,
+    configs: Sequence[str],
+    *,
+    inputs: str,
+    threads: int,
+    timings: bool = False,
+    timings_tag: str | None = None,
+) -> dict[str, str]:
+    """Every named configuration folded in the crate: its settlement TSV, its treaty TSV, its plain window enumeration stamped `inputs`, and the contract digest of the pair, returned as `{config: digest}`.
+
+    This is `enumerate-configs` plus the fold that used to follow it in Python, and the reason there is no stream between them: the fold runs on the product the worklist still holds, so the several hundred megabytes a configuration's stream cost to write, to read and to hold parsed are never spent. The windows payload lands uncompressed because the compressor stays on this side of the boundary — the crate carries serde_json and nothing else — and `run_m1.build_tables` is what packs it into the `.gz` the artifact is.
+
+    The digests ride stdout as one JSON object per line, in the order the configurations were named, because a digest is a scalar its caller assembles into `table-digests.json` rather than an artifact family of its own. Raises `KernelRunError` for every shape of refusal the CLI contract distinguishes, and for a clean exit whose answer does not name every configuration exactly once.
+    """
+    arguments = [
+        str(BINARY),
+        "build-tables",
+        str(spec_path),
+        str(out_dir),
+        f"--configs={','.join(configs)}",
+        f"--inputs={inputs}",
+        f"--threads={threads}",
+        *world_flags(),
+    ]
+    if timings:
+        arguments.append("--timings")
+    finished = _run_kernel(arguments, "build-tables")
+    errors = finished.stderr.decode(errors="replace").strip()
+    if finished.returncode == 2:
+        raise KernelRunError(
+            f"kernel does not support build-tables yet, or rejected the invocation as a usage error: {errors} ({' '.join(arguments)})"
+        )
+    if finished.returncode != 0:
+        raise KernelRunError(f"the kernel exited {finished.returncode} on build-tables: {errors}")
+    _forward_stderr(errors, timings, arguments, timings_tag, verb="build-tables")
+    try:
+        lines = finished.stdout.decode().splitlines()
+    except UnicodeDecodeError as error:
+        raise KernelRunError(f"the kernel wrote non-UTF-8 build-tables output: {error}") from None
+    digests: dict[str, str] = {}
+    for number, line in enumerate(lines, 1):
+        try:
+            answer = json.loads(line)
+        except json.JSONDecodeError as error:
+            raise KernelRunError(f"build-tables line {number} is not JSON: {error.msg}") from None
+        if not isinstance(answer, dict) or set(answer) != {"config", "digest"}:
+            raise KernelRunError(f"build-tables line {number} is not a {{config, digest}} answer")
+        digests[answer["config"]] = answer["digest"]
+    if sorted(digests) != sorted(configs):
+        raise KernelRunError(
+            f"build-tables answered for {sorted(digests)} where {sorted(configs)} were asked for"
+        )
+    return digests
+
+
+def _forward_stderr(
+    errors: str,
+    timings: bool,
+    arguments: list[str],
+    tag: str | None = None,
+    verb: str = "enumerate-configs",
+) -> None:
     """Pass the kernel's timing lines through to this process's own stderr and refuse everything else. `--timings` is the one thing that writes to a clean exit's stderr, and it writes only `[t] <label> <secs>s` lines, buffered and flushed in `--configs` order; forwarding them verbatim is what puts the kernel's per-configuration walls in the same journal as the Python stage's, since `cycle_timings` reads both off a step's captured output. A `tag` bracket is appended to whichever labels do not carry one already, so a fan-out that spends one process per configuration stays attributable."""
     if not errors:
         return
     lines = errors.split("\n")
     if not timings:
         raise KernelRunError(
-            f"the kernel wrote to stderr on a clean enumerate-configs exit: {errors} ({' '.join(arguments)})"
+            f"the kernel wrote to stderr on a clean {verb} exit: {errors} ({' '.join(arguments)})"
         )
     stray = [line for line in lines if not line.startswith("[t] ")]
     if stray:
         raise KernelRunError(
-            f"the kernel wrote {len(stray)} non-timing lines to stderr on a clean enumerate-configs exit: {stray[0]}"
+            f"the kernel wrote {len(stray)} non-timing lines to stderr on a clean {verb} exit: {stray[0]}"
         )
     for line in lines:
         print(_tagged(line, tag) if tag else line, file=sys.stderr, flush=True)
@@ -374,7 +439,7 @@ def read_stream(stream: Path) -> FixpointProduct:
 
 
 def enumerate_transitions(spec: ResolvedSpec, features: frozenset[str]) -> FixpointProduct:
-    """One configuration's reachable windows, enumerated by the crate and parsed back into the value the Python half folds. This is the seam `table.FixpointProduct` is stated at: the kernel enumerates, `table.assemble_tables` folds, and nothing between them is consulted, so a product that arrived over this boundary assembles into exactly the tables the enumeration that produced it would have. Everything is in memory and nothing survives the call — the spec dump and the stream live in a scratch directory that goes with the frame — which is the form a test, a tool, or a spec someone assembled by hand builds through; `run_m1.build_tables` is the persisting, multi-configuration form, and the only one that stamps what it writes."""
+    """One configuration's reachable windows, enumerated by the crate and parsed back into the value the stream is stated at. `table.FixpointProduct` carries everything the fold reads and nothing else the engine touched, which is why a consumer that wants what a table drops — the settled cells, the seams, the optimistic prospect, the fired provenance per row — asks for the product rather than for the tables. Nothing on a build's path does: `build_tables` beside this one folds in the crate and never writes a stream, and the one caller left is `rebuild/tools/export_settlement_corpus.py`. Everything is in memory and nothing survives the call — the spec dump and the stream live in a scratch directory that goes with the frame."""
     with tempfile.TemporaryDirectory() as scratch:
         directory = Path(scratch)
         spec_path = directory / "spec.json"
@@ -387,5 +452,15 @@ def enumerate_transitions(spec: ResolvedSpec, features: frozenset[str]) -> Fixpo
 
 
 def build_tables(spec: ResolvedSpec, features: frozenset[str]) -> tuple[DecisionTable, TreatyTable]:
-    """One configuration's decision and treaty tables: the crate for the fixpoint, `table.assemble_tables` for the fold. The table-level asserts are deliberately not run here — the live build asks the fold for `assert_outcome_partition` as it folds, and a caller that wants that or `assert_e_stranded` calls it on the table it is handed."""
-    return table.assemble_tables(spec, enumerate_transitions(spec, features))
+    """One configuration's decision and treaty tables, in memory and leaving nothing behind: one `build-tables` process over a scratch spec dump, then the windows payload and the treaty TSV read straight back. The rows come back whole here, unlike the build's own path, because a caller reaching for this wants the table rather than the artifacts — and it is a fixture-sized table, since the live alphabet's is what `run_m1.build_tables` writes. The partition replay, the deep-class union check and E-STRANDED are the crate's own raises as it folds, so a table handed back here has already passed them."""
+    with tempfile.TemporaryDirectory() as scratch:
+        directory = Path(scratch)
+        spec_path = directory / "spec.json"
+        kernel_io.write_spec(spec, spec_path)
+        ensure_built()
+        config = feature_config_token(features)
+        tables = directory / "tables"
+        build_table_files(spec_path, tables, [config], inputs=UNSTAMPED_WINDOWS, threads=1)
+        with (tables / f"windows-{config}.tsv").open("rt", encoding="utf-8") as handle:
+            _stamp, decision = table.read_windows(handle)
+        return decision, table.read_treaty_tsv(tables / f"treaties-{config}.tsv")

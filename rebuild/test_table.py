@@ -1,4 +1,4 @@
-"""Decision-table and treaty-table tests over the real M1 fixture spec, built through the crate (`kernel_exec.build_tables`): the enumeration's shape, the outcome-partition hard invariant, E-STRANDED at table level, rule-ordering discipline, joint flagging, configuration identities, and diff-stable TSV output. The depth-3 class at the bottom runs on the real loaded rune YAML because the frozen fixture spec predates the depth-3 chain records."""
+"""Decision-table and treaty-table tests over the real M1 fixture spec, built through the crate (`kernel_exec.build_tables`): the enumeration's shape, rule-ordering discipline, joint flagging, configuration identities, the deep-class collapse, and diff-stable TSV output. Every table here is the crate's answer and every check is this side's own reading of it — `replay` below is the independent first-match-wins statement the fold's own `assert_outcome_partition` cannot make about itself. The claims that need the enumerated grain the artifacts drop, or a fold to perturb, are the crate's tests: `fold::tests::the_reduced_replay_catches_what_the_whole_table_replay_catches`, `the_prospect_pass_raises_joints_and_clears_none`, `treaty_rows_tying_on_the_triple_are_ordered_by_the_whole_row`, `a_rule_that_splits_a_deep_class_is_refused` and the E-STRANDED and cell-disagreement refusals beside them. The depth-3 class at the bottom runs on the real loaded rune YAML because the frozen fixture spec predates the depth-3 chain records."""
 
 import dataclasses
 
@@ -6,7 +6,6 @@ import pytest
 
 from rebuild.pipeline import fixtures, kernel_exec, model, table
 from rebuild.pipeline.kernel_exec import build_tables
-from rebuild.pipeline.settle import is_entry_bearing
 from rebuild.pipeline.table import (
     BOUNDARY_LOOKAHEAD_CLASS,
     BOUNDARYISH,
@@ -58,91 +57,40 @@ def ss03_tables():
     return build_tables(SPEC, frozenset({"ss03"}))
 
 
-def replay_lefts(spec, rows):
-    """The lefts the build's reduced replay covers, asked of the rule fold that decides them rather than restated here — so a test perturbing rules is measured against the same reduction the live build runs."""
-    by_input: dict[str, list] = {}
-    for row in rows:
-        by_input.setdefault(row.input_glyph, []).append(row)
-    lefts = {}
-    for input_glyph, group in by_input.items():
-        never_locked = not is_entry_bearing(spec, input_glyph.split(".")[0])
-        _rules, _guards, lefts[input_glyph] = table._rules_for_input(input_glyph, group, never_locked)
-    return lefts
+def replay(decision):
+    """First-match-wins over the crate's ordered rules, re-implemented on this side: every row of the enumeration it wrote must settle where its own rules say it does. The crate replays as it folds — one left per signature block, which `fold::assert_outcome_partition` argues is the same claim — so what this adds is independence, since a rule fold that derived its rules and replayed them consistently wrongly would satisfy its own check and fail this one. Whole-table and label-grain, which a fixture can afford and a live configuration cannot."""
+    rules_by_input: dict[str, list] = {}
+    for rule in decision.rules:
+        rules_by_input.setdefault(rule.input_glyph, []).append(rule)
+    failures = []
+    for row in decision.expanded_transitions():
+        predicted = row.input_glyph
+        for rule in rules_by_input.get(row.input_glyph, ()):
+            if rule.backtrack is not None and row.left not in rule.backtrack:
+                continue
+            if rule.look1 is not None and row.right1 not in rule.look1:
+                continue
+            if rule.look2 is not None and row.right2 not in rule.look2:
+                continue
+            if rule.look3 is not None and row.right3 not in rule.look3:
+                continue
+            if rule.look4 is not None and row.right4 not in rule.look4:
+                continue
+            predicted = rule.outcome
+            break
+        if predicted != row.outcome:
+            failures.append((row.key, row.outcome, predicted))
+    assert not failures, "; ".join(
+        f"{key}: settlement says {expected}, rules say {predicted}"
+        for key, expected, predicted in failures[:5]
+    )
 
 
-def test_hard_invariants(default_tables):
-    """The whole-table forms, which is what the fixture is for: the live build replays one left per signature block, and here every row of every left is replayed against the same rules, so the block-equality premise that reduction rests on is checked by something other than itself. E-STRANDED is the same story — a second opinion on the crate that only the fixture still pays for."""
+def test_the_ordered_rules_predict_every_enumerated_row(default_tables):
     decision, _treaty = default_tables
-    decision.assert_outcome_partition()
-    decision.assert_e_stranded()
-    decision._assert_deep_class_unions()
+    replay(decision)
     assert decision.rules
     assert decision.transitions
-
-
-def test_signature_blocks_are_a_disjoint_cover_grouped_by_signature():
-    """What `assert_outcome_partition` used to re-derive over every row of every configuration and could never catch: `_signature_blocks` groups its values in a dict keyed by signature, so the blocks partition the values and each one is exactly one signature's preimage. Stated here over hand-made signatures, at no cost to a build."""
-    signatures = {
-        "a": frozenset({1}),
-        "b": frozenset({1}),
-        "c": frozenset({2}),
-        "d": frozenset(),
-        "e": frozenset({2}),
-        "f": frozenset({1, 2}),
-    }
-    blocks = table._signature_blocks(sorted(signatures), lambda value: signatures[value])
-    assert blocks == sorted(blocks)
-    assert len(blocks) == len(set(signatures.values()))
-    for block in blocks:
-        assert block == tuple(sorted(block))
-        assert len({signatures[value] for value in block}) == 1
-    members = [value for block in blocks for value in block]
-    assert sorted(members) == sorted(signatures)
-    assert len(members) == len(set(members))
-
-
-def test_the_reduced_replay_catches_what_the_whole_table_replay_catches(default_tables):
-    """The negative control the reduction owes: over ·Utter's rules — an input carrying deep-slot rules and a real reduction, eighteen lefts replayed of seventy-nine — every single-rule drop, every adjacent swap and every widened first-lookahead class that the whole-table replay would notice is noticed by the reduced replay too. Perturbations neither catches are redundant rules, which is a fact about the fold rather than about the reduction. The reduced replay reads a subset of the rows, so the other direction is free."""
-    decision, _treaty = default_tables
-    input_glyph = "qsUtter"
-    rows = [row for row in decision.expanded_transitions() if row.input_glyph == input_glyph]
-    lefts = replay_lefts(SPEC, rows)
-    assert len(lefts[input_glyph]) < len({row.left for row in rows})
-    assert any(rule.look3 is not None for rule in decision.rules if rule.input_glyph == input_glyph)
-
-    def caught(rules, reduced):
-        tampered = dataclasses.replace(decision, rules=rules)
-        try:
-            tampered.assert_outcome_partition(rows, lefts if reduced else None)
-        except table.PartitionError:
-            return True
-        return False
-
-    own = [index for index, rule in enumerate(decision.rules) if rule.input_glyph == input_glyph]
-    perturbations = []
-    for index in own:
-        perturbations.append(decision.rules[:index] + decision.rules[index + 1 :])
-    for index in own[:-1]:
-        swapped = list(decision.rules)
-        swapped[index], swapped[index + 1] = swapped[index + 1], swapped[index]
-        perturbations.append(tuple(swapped))
-    for index in own:
-        rule = decision.rules[index]
-        if rule.look1 is None:
-            continue
-        widened = list(decision.rules)
-        widened[index] = dataclasses.replace(rule, look1=None)
-        perturbations.append(tuple(widened))
-
-    noticed = 0
-    for rules in perturbations:
-        if caught(rules, reduced=True):
-            noticed += 1
-            continue
-        assert not caught(
-            rules, reduced=False
-        ), "a perturbation the whole-table replay catches slipped past the reduced one"
-    assert noticed > len(own)
 
 
 def test_reachable_cells_cover_the_known_settlements(default_tables):
@@ -200,8 +148,7 @@ def test_ss04_opens_the_it_pass_through_after_day(default_tables):
     """·It's ss04 unlock is gated `left: qsDay` on the baseline/baseline pairing, so it can only bite in a world that holds a ·Day — which the fixture spec does. Stated over expanded_transitions, so the claim is about semantic rows rather than fiber boundaries: enabling ss04 moves exactly the ·It rows whose left is a ·Day cell onto the same-height pass-through, every row the table gains is one seated behind that new cell, nothing is lost, and the deep-class collapse is untouched."""
     decision, _treaty = default_tables
     ss04_decision, _ss04_treaty = build_tables(SPEC, frozenset({"ss04"}))
-    ss04_decision.assert_outcome_partition()
-    ss04_decision.assert_e_stranded()
+    replay(ss04_decision)
     pass_through = "qsIt.hapax.en-y0.ex-y0.ex-ext-1"
     default_outcomes = {row.outcome for row in decision.transitions}
     assert {row.outcome for row in ss04_decision.transitions} - default_outcomes == {pass_through}
@@ -221,8 +168,7 @@ def test_ss04_opens_the_it_pass_through_after_day(default_tables):
 
 def test_ss03_table_differs_and_validates(ss03_tables):
     decision, _treaty = ss03_tables
-    decision.assert_outcome_partition()
-    decision.assert_e_stranded()
+    replay(decision)
     outcomes = {row.outcome for row in decision.transitions}
     assert "qsTea.half.en-y5" in outcomes
 
@@ -265,38 +211,6 @@ def test_joint_rows_accessor(default_tables):
     assert isinstance(joints, frozenset)
     for index in joints:
         assert decision.rules[index].joint
-
-
-def test_unflagged_rows_have_no_prospect_divergence(default_tables):
-    # Over the expanded label-grain stream: a class row's joint is the OR over its members, so an unflagged row means no member diverges.
-    decision, _treaty = default_tables
-    rows = [row for row in decision.expanded_transitions() if isinstance(row, table.Transition)]
-    index = table.prospect_successor_index(rows)
-    for row in rows:
-        if row.joint:
-            continue
-        for successor in table.prospect_successors(index, row):
-            realized = 1 if successor.settled.seam is not None else 0
-            assert realized == row.prospect, f"{row.key} diverges but is not flagged joint"
-
-
-def test_prospect_divergence_inventory_rows_are_flagged_joint(default_tables, tmp_path):
-    from rebuild.tools import prospect_divergence
-
-    decision, _treaty = default_tables
-    first = tmp_path / "prospect-a.tsv"
-    second = tmp_path / "prospect-b.tsv"
-    prospect_divergence.write_divergences(decision, first)
-    prospect_divergence.write_divergences(decision, second)
-    assert first.read_text() == second.read_text()
-    lines = first.read_text().splitlines()
-    assert lines[0] == f"# prospect divergence, config {decision.config}"
-    assert lines[1] == "\t".join(prospect_divergence.COLUMNS)
-    assert lines[2:] == sorted(lines[2:])
-    joint_by_key = {row.key: row.joint for row in decision.expanded_transitions()}
-    for line in lines[2:]:
-        parts = line.split("\t")
-        assert joint_by_key[tuple(parts[:6])], f"inventory window {parts[:6]} is not flagged joint"
 
 
 def test_cited_provenance_records_demonstrably_firing_policy(default_tables, ss03_tables):
@@ -362,8 +276,7 @@ class TestDepthThreeTables:
         assert saw_enumerated
 
     def test_hard_invariants_hold_with_the_third_slot(self, real_default_decision):
-        real_default_decision.assert_outcome_partition()
-        real_default_decision.assert_e_stranded()
+        replay(real_default_decision)
 
     def test_three_slot_rules_only_for_chain_bearing_inputs(self, real_spec, real_default_decision):
         deep = chain_inputs(real_spec, 2)
@@ -508,8 +421,7 @@ class TestDepthFourTablesSynthetic:
                 assert (row.right1, row.right2, row.right3) == ("qsMay", "qsMay", "qsMay"), row.key
 
     def test_hard_invariants_hold_with_the_fourth_slot(self, synthetic_decision):
-        synthetic_decision.assert_outcome_partition()
-        synthetic_decision.assert_e_stranded()
+        replay(synthetic_decision)
 
     def test_four_slot_rules_only_for_chain_bearing_inputs(self, synthetic_spec, synthetic_decision):
         deep = chain_inputs(synthetic_spec, 3)
@@ -590,8 +502,7 @@ class TestProspectLiveSlots:
 
         monkeypatch.setattr(settle_module, "SIMULATED_PROSPECT_DEFAULT", True)
         decision, _treaty = build_tables(prospect_spec, frozenset())
-        decision.assert_outcome_partition()
-        decision.assert_e_stranded()
+        replay(decision)
         split = {
             row.right3: row.outcome
             for row in decision.transitions
@@ -701,22 +612,26 @@ class TestDeepClasses:
         ids=["prospect", "synthetic-depth4"],
     )
     def test_real_lefts_agree_with_the_fiber_collapse(self, request, deep_world, spec_fixture, expect_r4):
-        """The section 2.2 real-left arm: for every multi-member token in the built table, every member traces identically at the row's actual settled left — full probe record, not just the settled cell. The collapse is the crate's, and the re-trace here is Python settle's, so this stays an independent check rather than the engine confirming itself. Two fixtures, because the prospect spec mints no r4 classes: the synthetic depth-4 arm is what exercises the per-(context, r3 class) r4 partition at real lefts, and its `checked4` assertion is what keeps that branch from going quietly dead again."""
+        """The section 2.2 real-left arm: for every multi-member token in the enumeration, every member traces identically at the row's actual settled left — full probe record, not just the settled cell. The collapse is the crate's, and the re-trace here is Python settle's, so this stays an independent check rather than the engine confirming itself. Asked of the product rather than of the tables, because the settled left a row is re-traced at is exactly what the fold drops on its way to a window row. Two fixtures, because the prospect spec mints no r4 classes: the synthetic depth-4 arm is what exercises the per-(context, r3 class) r4 partition at real lefts, and its `checked4` assertion is what keeps that branch from going quietly dead again."""
         from rebuild.pipeline.settle import EDGE, Engine, LeftContext, RightToken
 
         spec = request.getfixturevalue(spec_fixture)
-        decision, _treaty = build_tables(spec, frozenset())
-        assert decision.deep_classes
+        product = kernel_exec.enumerate_transitions(spec, frozenset())
+        assert product.deep_classes
+
+        def representative(token):
+            members = product.deep_classes.get(token)
+            return members[0] if members else token
+
         engine = Engine(spec, frozenset(), simulated_prospect=True)
         kinds = {"#EDGE": "edge", "space": "space", "uni200C": "zwnj", "periodcentered": "namer-dot"}
         checked3 = 0
         checked4 = 0
-        for row in decision.transitions:
-            members3 = decision.deep_classes.get(row.right3)
-            members4 = decision.deep_classes.get(row.right4)
+        for row in product.transitions:
+            members3 = product.deep_classes.get(row.right3)
+            members4 = product.deep_classes.get(row.right4)
             if members3 is None and members4 is None:
                 continue
-            assert isinstance(row, table.Transition)
             left = (
                 LeftContext("letter", row.left_settled)
                 if row.left_settled is not None
@@ -725,7 +640,7 @@ class TestDeepClasses:
             token = RightToken("letter", row.input_glyph.split(".")[0])
             r1tok = RightToken("letter", row.right1)
             r2tok = RightToken("letter", row.right2)
-            rep4_label = decision.token_representative(row.right4)
+            rep4_label = representative(row.right4)
             if rep4_label == NA_LABEL:
                 rep4 = EDGE
             elif rep4_label in BOUNDARYISH:
@@ -742,29 +657,10 @@ class TestDeepClasses:
                 assert len(records) == 1, (row.key, sorted(records.values()))
                 checked3 += 1
             if members4 is not None:
-                rep3 = RightToken("letter", decision.token_representative(row.right3))
+                rep3 = RightToken("letter", representative(row.right3))
                 records4 = {record(rep3, RightToken("letter", member)): member for member in members4}
                 assert len(records4) == 1, (row.key, sorted(records4.values()))
                 checked4 += 1
         assert checked3
         if expect_r4:
             assert checked4, "the fixture stopped minting r4 classes, so the r4 arm never ran"
-
-    def test_union_of_fibers_negative_control(self, deep_world, prospect_spec):
-        decision, _treaty = build_tables(prospect_spec, frozenset())
-        decision._assert_deep_class_unions()
-        token, members = next(iter(decision.deep_classes.items()))
-        split_rule = table.Rule(
-            input_glyph=next(row.input_glyph for row in decision.transitions if row.right3 == token),
-            backtrack=None,
-            look1=None,
-            look2=None,
-            look3=(members[0],),
-            look4=None,
-            outcome="whatever",
-            provenance=(),
-            joint=False,
-        )
-        tampered = dataclasses.replace(decision, rules=decision.rules + (split_rule,))
-        with pytest.raises(table.PartitionError):
-            tampered._assert_deep_class_unions()

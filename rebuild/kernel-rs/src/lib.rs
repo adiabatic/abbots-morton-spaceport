@@ -4,6 +4,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod artifacts;
 pub mod cases;
 pub mod census;
 pub mod emit;
@@ -12,13 +13,15 @@ pub mod error;
 pub mod fanout;
 pub mod fiber;
 pub mod fixpoint;
+pub mod fold;
 pub mod guard;
 pub mod index;
 pub mod liveness;
 pub mod model;
 pub mod options;
 pub mod parse;
-mod sha256;
+pub mod rulefold;
+pub(crate) mod sha256;
 pub mod specificity;
 pub mod stream;
 pub mod types;

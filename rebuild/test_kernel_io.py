@@ -1,4 +1,4 @@
-"""Both serializations at the kernel boundary. The resolved-spec dump is the leg the Rust settlement kernel will read a spec through — value round trip, canonical fixpoint, the collection order the dump promises to preserve, and the loud refusals that keep a wrong dump from parsing as a partial one; both specs are exercised there, the mini fixture for reach into hand-built corners and the live alphabet because that is the tree the port actually carries. The transition stream is the return leg, and its test is the sub-issue's own proof: write a fixpoint product, parse it back, hand the parsed value to `assemble_tables`, and get the tables a straight-through build produces down to the serialized bytes — the round trip is the format's proof, and it is what licensed the kernel that produces the stream to replace the half that once enumerated it. The stream runs on the mini spec alone, because what it proves is a property of the format rather than of any one alphabet."""
+"""Both serializations at the kernel boundary. The resolved-spec dump is the leg the Rust settlement kernel will read a spec through — value round trip, canonical fixpoint, the collection order the dump promises to preserve, and the loud refusals that keep a wrong dump from parsing as a partial one; both specs are exercised there, the mini fixture for reach into hand-built corners and the live alphabet because that is the tree the port actually carries. The transition stream is the return leg, and its test is the round trip stated over the product's own values: write a fixpoint product, parse it back, and get a value equal to the one written, field for field and row for row, with the wire layout pinned against the raw bytes beside it. It used to be stated one step further on — parse a stream, fold it, and compare the tables — but the fold is the crate's now, so the tables a stream folds into are not something this side can produce, and equality of the product is the stronger half of what that proved anyway. The stream runs on the mini spec alone, because what it proves is a property of the format rather than of any one alphabet."""
 
 import dataclasses
 import gzip
@@ -8,13 +8,11 @@ import pytest
 
 from rebuild.pipeline import fixtures, kernel_io, spec_load
 from rebuild.pipeline import table as table_module
-from rebuild.pipeline.kernel_exec import build_tables, enumerate_transitions
+from rebuild.pipeline.kernel_exec import enumerate_transitions
 from rebuild.pipeline.model import ResolvedSpec, Rune, SurfaceRow
-from rebuild.pipeline.table import assemble_tables
 
 MINI = fixtures.mini_spec()
 CONFIGS = {"default": frozenset(), "ss03": frozenset({"ss03"}), "ss04": frozenset({"ss04"})}
-PINNED_STAMP = "kernel-io-pinned-stamp"
 
 
 @pytest.fixture(scope="module", params=["mini", "live"])
@@ -194,14 +192,14 @@ def stream(tmp_path_factory):
         product = enumerate_transitions(MINI, features)
         path = directory / f"transitions-{name}.gz"
         kernel_io.write_transitions(product, path)
-        written[name] = (product, path, build_tables(MINI, features))
+        written[name] = (product, path)
     return written
 
 
 @pytest.mark.parametrize("config", sorted(CONFIGS))
 class TestTheTransitionStreamCarriesTheWholeProduct:
     def test_a_parsed_stream_is_the_product_that_was_written(self, stream, config):
-        product, path, _tables = stream[config]
+        product, path = stream[config]
         parsed = kernel_io.read_transitions(path)
         assert parsed.config == product.config
         assert parsed.transitions == product.transitions
@@ -211,19 +209,19 @@ class TestTheTransitionStreamCarriesTheWholeProduct:
         assert parsed == product
 
     def test_the_rows_come_back_in_the_order_they_were_written(self, stream, config):
-        product, path, _tables = stream[config]
+        product, path = stream[config]
         parsed = kernel_io.read_transitions(path)
         assert [row.key for row in parsed.transitions] == [row.key for row in product.transitions]
 
     def test_two_writes_of_one_product_are_identical(self, stream, config, tmp_path):
-        product, path, _tables = stream[config]
+        product, path = stream[config]
         again = tmp_path / "again.gz"
         kernel_io.write_transitions(product, again)
         assert again.read_bytes() == path.read_bytes()
 
     def test_an_open_plain_handle_parses_to_the_same_product(self, stream, config, tmp_path):
         """The shape the build reads: the crate writes its stream as plain ndjson, and `kernel_exec.read_stream` hands the open file over rather than packing hundreds of megabytes into the gzip a path would be opened as. Same bytes either way, so the same product."""
-        product, path, _tables = stream[config]
+        product, path = stream[config]
         plain = tmp_path / f"transitions-{config}.ndjson"
         with gzip.open(path, "rb") as packed:
             plain.write_bytes(packed.read())
@@ -231,42 +229,11 @@ class TestTheTransitionStreamCarriesTheWholeProduct:
             assert kernel_io.read_transitions(handle) == product
 
 
-@pytest.mark.parametrize("config", sorted(CONFIGS))
-class TestAParsedStreamAssemblesTheSameTables:
-    def test_the_tables_the_stream_folds_into_are_the_built_ones(self, stream, config):
-        _product, path, (built, built_treaty) = stream[config]
-        seamed, seam_treaty = assemble_tables(MINI, kernel_io.read_transitions(path))
-        assert seamed.config == built.config
-        assert seamed.transitions == built.transitions
-        assert seamed.rules == built.rules
-        assert seamed.identity_guard_rules == built.identity_guard_rules
-        assert seamed.cited_provenance == built.cited_provenance
-        assert seamed.deep_classes == built.deep_classes
-        assert seamed.reachable_cells() == built.reachable_cells()
-        assert seam_treaty.rows == built_treaty.rows
-
-    def test_the_artifacts_the_stream_folds_into_are_byte_identical(self, stream, config, tmp_path):
-        _product, path, (built, built_treaty) = stream[config]
-        seamed, seam_treaty = assemble_tables(MINI, kernel_io.read_transitions(path))
-        for label, left, right in (
-            ("settlement", seamed, built),
-            ("treaties", seam_treaty, built_treaty),
-        ):
-            left_path, right_path = tmp_path / f"{label}-a.tsv", tmp_path / f"{label}-b.tsv"
-            left.write_tsv(left_path)
-            right.write_tsv(right_path)
-            assert left_path.read_bytes() == right_path.read_bytes(), label
-        windows_a, windows_b = tmp_path / "windows-a.tsv.gz", tmp_path / "windows-b.tsv.gz"
-        table_module.write_windows(seamed, windows_a, PINNED_STAMP)
-        table_module.write_windows(built, windows_b, PINNED_STAMP)
-        assert windows_a.read_bytes() == windows_b.read_bytes()
-
-
 class TestTheWireLayoutIsTheDocumentedOne:
     """A symmetric round trip cannot pin a wire format — a writer and a reader that drifted together would keep agreeing with each other while a Rust reader built to `ams-m1-transitions/1` silently mis-parsed — so the layout the module docstring promises is asserted against the raw bytes: the marker line, the head's keys in their order, the head's cell spelling, and all twelve row positions."""
 
     def test_the_stream_spells_the_layout_the_contract_names(self, stream):
-        product, path, _tables = stream["default"]
+        product, path = stream["default"]
         with gzip.open(path, "rt") as handle:
             marker, _, payload = handle.readline().rstrip("\n").partition("\t")
             head = json.loads(payload)
@@ -311,7 +278,7 @@ class TestTheStreamRefusesWhatItCannotCarry:
             kernel_io.read_transitions(tmp_path / "never-written.gz")
 
     def test_a_row_settling_outside_the_products_cells_is_refused(self, stream, tmp_path):
-        product, _path, _tables = stream["default"]
+        product, _path = stream["default"]
         starved = dataclasses.replace(
             product, cells=frozenset(product.cells - {product.transitions[0].settled.cell})
         )
