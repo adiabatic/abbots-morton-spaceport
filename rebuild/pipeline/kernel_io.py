@@ -22,7 +22,7 @@ import types
 import typing
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import IO, Any
 
 from rebuild.pipeline.model import CellId, Provenance, ResolvedSpec, Settled
 from rebuild.pipeline.table import FixpointProduct, PartitionError, Transition, _cell_key
@@ -240,56 +240,65 @@ def write_transitions(product: FixpointProduct, path: Path) -> None:
         handle.write(body.encode())
 
 
-def read_transitions(path: Path) -> FixpointProduct:
-    """The `write_transitions` inverse: a `FixpointProduct` equal to the one written, ready for `table.assemble_tables`. Every label — glyph names, heights, class tokens, provenance pointers — is interned to one instance the way `table.read_windows` interns its rows, and the settled (cell, seam, extension) triples pool the same way, because a stream states the same few hundred names on every one of its rows and a parsed product otherwise costs several times the resident size of the one the fixpoint built. Raises OSError when the file is absent and ValueError when it is not a stream this build understands."""
-    with gzip.open(path, "rt") as handle:
-        marker, _, payload = handle.readline().rstrip("\n").partition("\t")
-        if marker != f"# {TRANSITIONS_FORMAT}":
-            raise ValueError(f"{path}: not a {TRANSITIONS_FORMAT} stream")
-        head = json.loads(payload)
-        pool: dict[str, str] = {}
+def read_transitions(source: Path | IO[str]) -> FixpointProduct:
+    """The `write_transitions` inverse: a `FixpointProduct` equal to the one written, ready for `table.assemble_tables`. Every label — glyph names, heights, class tokens, provenance pointers — is interned to one instance the way `table.read_windows` interns its rows, and the settled (cell, seam, extension) triples pool the same way, because a stream states the same few hundred names on every one of its rows and a parsed product otherwise costs several times the resident size of the one the fixpoint built. Raises OSError when the file is absent and ValueError when it is not a stream this build understands.
 
-        def label(value: str) -> str:
-            return pool.setdefault(value, value)
+    A path is opened as the gzip every artifact under `rebuild/out/` wears; an already-open text stream is read as it stands, which is how a caller holding the crate's plain ndjson — `kernel_exec.read_stream` — reads it without first packing hundreds of megabytes into a shape the reader would only unpack again.
+    """
+    if isinstance(source, Path):
+        with gzip.open(source, "rt") as handle:
+            return _transitions_of(handle, str(source))
+    return _transitions_of(source, str(getattr(source, "name", source)))
 
-        def optional(value: str | None) -> str | None:
-            return None if value is None else label(value)
 
-        cells = [
-            CellId(
-                label(rune),
-                label(stance),
-                optional(entry),
-                optional(exit_),
-                tuple(label(token) for token in adjustments),
+def _transitions_of(handle: IO[str], name: str) -> FixpointProduct:
+    marker, _, payload = handle.readline().rstrip("\n").partition("\t")
+    if marker != f"# {TRANSITIONS_FORMAT}":
+        raise ValueError(f"{name}: not a {TRANSITIONS_FORMAT} stream")
+    head = json.loads(payload)
+    pool: dict[str, str] = {}
+
+    def label(value: str) -> str:
+        return pool.setdefault(value, value)
+
+    def optional(value: str | None) -> str | None:
+        return None if value is None else label(value)
+
+    cells = [
+        CellId(
+            label(rune),
+            label(stance),
+            optional(entry),
+            optional(exit_),
+            tuple(label(token) for token in adjustments),
+        )
+        for rune, stance, entry, exit_, adjustments in head["cells"]
+    ]
+
+    settled_pool: dict[tuple[int, str | None, int], Settled] = {}
+
+    def settled_of(triple: list[Any]) -> Settled:
+        seat, seam, extension = triple
+        key = (seat, seam, extension)
+        settled = settled_pool.get(key)
+        if settled is None:
+            settled = Settled(cells[seat], optional(seam), extension)
+            settled_pool[key] = settled
+        return settled
+
+    transitions = []
+    for line in handle:
+        *window, settled, left_settled, joint, prospect, provenance = json.loads(line)
+        transitions.append(
+            Transition(
+                *(label(slot) for slot in window),
+                settled=settled_of(settled),
+                left_settled=None if left_settled is None else settled_of(left_settled),
+                joint=joint,
+                prospect=prospect,
+                provenance=tuple(label(pointer) for pointer in provenance),
             )
-            for rune, stance, entry, exit_, adjustments in head["cells"]
-        ]
-
-        settled_pool: dict[tuple[int, str | None, int], Settled] = {}
-
-        def settled_of(triple: list[Any]) -> Settled:
-            seat, seam, extension = triple
-            key = (seat, seam, extension)
-            settled = settled_pool.get(key)
-            if settled is None:
-                settled = Settled(cells[seat], optional(seam), extension)
-                settled_pool[key] = settled
-            return settled
-
-        transitions = []
-        for line in handle:
-            *window, settled, left_settled, joint, prospect, provenance = json.loads(line)
-            transitions.append(
-                Transition(
-                    *(label(slot) for slot in window),
-                    settled=settled_of(settled),
-                    left_settled=None if left_settled is None else settled_of(left_settled),
-                    joint=joint,
-                    prospect=prospect,
-                    provenance=tuple(label(pointer) for pointer in provenance),
-                )
-            )
+        )
     return FixpointProduct(
         config=head["config"],
         transitions=tuple(transitions),

@@ -14,10 +14,8 @@ The invocation is read strictly, on the CLI contract's own terms: exit 2 is the 
 from __future__ import annotations
 
 import fcntl
-import gzip
 import json
 import os
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -156,8 +154,12 @@ def enumerate_configs(
     *,
     threads: int,
     timings: bool = False,
+    timings_tag: str | None = None,
 ) -> dict[str, Path]:
-    """Every named configuration's transition stream, enumerated by one kernel process into `out_dir` and returned as `{config: path}`. The files are plain ndjson — the compression the artifacts wear is Python's job, since the crate carries serde_json and nothing else — and which file holds which configuration is the caller's own token, because the crate refuses a token that is not the canonical spelling of the features it names. Raises `KernelRunError` for every shape of refusal the CLI contract distinguishes, and for a run that exits clean having left a stream unwritten."""
+    """Every named configuration's transition stream, enumerated by one kernel process into `out_dir` and returned as `{config: path}`. The files are plain ndjson — the compression the artifacts wear is Python's job, since the crate carries serde_json and nothing else — and which file holds which configuration is the caller's own token, because the crate refuses a token that is not the canonical spelling of the features it names. Raises `KernelRunError` for every shape of refusal the CLI contract distinguishes, and for a run that exits clean having left a stream unwritten.
+
+    `timings_tag` names the configuration a whole invocation stands for, and is what a caller running one process per configuration passes: the crate labels its per-configuration lines `enumerate[<config>]` already, but `spec_parse` and `enumerate_total` name the process rather than any configuration, and six processes' worth of those would be six unattributable pairs in the cycle journal. Tagged, they read `spec_parse[<config>]`.
+    """
     arguments = [
         str(BINARY),
         "enumerate-configs",
@@ -181,7 +183,7 @@ def enumerate_configs(
         raise KernelRunError(
             f"the kernel wrote {len(finished.stdout)} bytes to stdout on a clean enumerate-configs exit, where the answer is the files"
         )
-    _forward_stderr(errors, timings, arguments)
+    _forward_stderr(errors, timings, arguments, timings_tag)
     streams = {config: out_dir / f"transitions-{config}.ndjson" for config in configs}
     missing = [config for config, path in streams.items() if not path.is_file()]
     if missing:
@@ -192,8 +194,8 @@ def enumerate_configs(
     return streams
 
 
-def _forward_stderr(errors: str, timings: bool, arguments: list[str]) -> None:
-    """Pass the kernel's timing lines through to this process's own stderr and refuse everything else. `--timings` is the one thing that writes to a clean exit's stderr, and it writes only `[t] <label> <secs>s` lines, buffered and flushed in `--configs` order; forwarding them verbatim is what puts the kernel's per-configuration walls in the same journal as the Python stage's, since `cycle_timings` reads both off a step's captured output."""
+def _forward_stderr(errors: str, timings: bool, arguments: list[str], tag: str | None = None) -> None:
+    """Pass the kernel's timing lines through to this process's own stderr and refuse everything else. `--timings` is the one thing that writes to a clean exit's stderr, and it writes only `[t] <label> <secs>s` lines, buffered and flushed in `--configs` order; forwarding them verbatim is what puts the kernel's per-configuration walls in the same journal as the Python stage's, since `cycle_timings` reads both off a step's captured output. A `tag` bracket is appended to whichever labels do not carry one already, so a fan-out that spends one process per configuration stays attributable."""
     if not errors:
         return
     lines = errors.split("\n")
@@ -207,7 +209,15 @@ def _forward_stderr(errors: str, timings: bool, arguments: list[str]) -> None:
             f"the kernel wrote {len(stray)} non-timing lines to stderr on a clean enumerate-configs exit: {stray[0]}"
         )
     for line in lines:
-        print(line, file=sys.stderr, flush=True)
+        print(_tagged(line, tag) if tag else line, file=sys.stderr, flush=True)
+
+
+def _tagged(line: str, tag: str) -> str:
+    marker, _, rest = line.partition(" ")
+    label, separator, tail = rest.partition(" ")
+    if not separator or label.endswith("]"):
+        return line
+    return f"{marker} {label}[{tag}] {tail}"
 
 
 def _settle_cases(
@@ -355,18 +365,11 @@ def guard_sweep(spec: ResolvedSpec) -> FormationGuard:
         return _guard_verdicts(spec, spec_path)
 
 
-def read_stream(stream: Path, scratch: Path) -> FixpointProduct:
-    """One kernel stream read back as the product it stands for. `enumerate-configs` writes plain ndjson where `kernel_io.read_transitions` reads the gzip shape every artifact under `rebuild/out/` wears, so the bytes are packed on the way in — at the cheapest compression there is, since this copy is written, read once and unlinked, and what the reader wants from it is the shape rather than the size. Both files go as soon as the product is in hand: a live configuration's stream is hundreds of megabytes and a whole cycle's worth would otherwise sit in the scratch directory for the length of the build."""
-    packed = scratch / f"{stream.stem}.ndjson.gz"
-    with (
-        stream.open("rb") as plain,
-        packed.open("wb") as raw,
-        gzip.GzipFile(filename="", fileobj=raw, mode="wb", mtime=0, compresslevel=1) as handle,
-    ):
-        shutil.copyfileobj(plain, handle)
+def read_stream(stream: Path) -> FixpointProduct:
+    """One kernel stream read back as the product it stands for. `enumerate-configs` writes plain ndjson, which `kernel_io.read_transitions` reads straight off the open handle — the gzip it wraps a path in is what the artifacts under `rebuild/out/` wear, not something a stream on its way into one fold needs. The file goes as soon as the product is in hand: a live configuration's stream is hundreds of megabytes and a whole cycle's worth would otherwise sit in the scratch directory for the length of the build."""
+    with stream.open("rt", encoding="utf-8") as handle:
+        product = kernel_io.read_transitions(handle)
     stream.unlink()
-    product = kernel_io.read_transitions(packed)
-    packed.unlink()
     return product
 
 
@@ -380,9 +383,9 @@ def enumerate_transitions(spec: ResolvedSpec, features: frozenset[str]) -> Fixpo
         streams = enumerate_configs(
             spec_path, directory / "streams", [feature_config_token(features)], threads=1
         )
-        return read_stream(next(iter(streams.values())), directory)
+        return read_stream(next(iter(streams.values())))
 
 
 def build_tables(spec: ResolvedSpec, features: frozenset[str]) -> tuple[DecisionTable, TreatyTable]:
-    """One configuration's decision and treaty tables: the crate for the fixpoint, `table.assemble_tables` for the fold. The table-level asserts are deliberately not run here — the live build's per-configuration fold runs `assert_outcome_partition` and `assert_e_stranded` itself, and a caller that wants them calls them on the table it is handed."""
+    """One configuration's decision and treaty tables: the crate for the fixpoint, `table.assemble_tables` for the fold. The table-level asserts are deliberately not run here — the live build asks the fold for `assert_outcome_partition` as it folds, and a caller that wants that or `assert_e_stranded` calls it on the table it is handed."""
     return table.assemble_tables(spec, enumerate_transitions(spec, features))

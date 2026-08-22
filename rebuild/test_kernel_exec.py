@@ -5,6 +5,8 @@ Nothing skips. A box without `cargo` fails these tests with the remedy `KernelBu
 
 import json
 import os
+import threading
+import time
 
 import pytest
 
@@ -259,22 +261,36 @@ class TestTheKernelInvocation:
             (99, len(conform.ACCEPTANCE_CONFIGS)),
         ],
     )
-    def test_the_thread_width_is_capped_at_the_work_and_the_machine(
+    def test_the_thread_width_is_how_many_configurations_run_at_once(
         self, monkeypatch, tmp_path, asked, wanted
     ):
-        seen = {}
+        """The width is no longer a flag on one invocation: every configuration gets a single-threaded process of its own, tagged so its timing lines stay attributable, and the width is how many of those the build keeps in flight."""
+        live = 0
+        peak = 0
+        seen = []
+        lock = threading.Lock()
 
-        def enumerate_configs(spec_path, out_dir, configs, *, threads, timings=False):
-            seen["threads"] = threads
+        def enumerate_configs(spec_path, out_dir, configs, *, threads, timings=False, timings_tag=None):
+            nonlocal live, peak
+            with lock:
+                live += 1
+                peak = max(peak, live)
+                seen.append((tuple(configs), threads, timings_tag))
+            time.sleep(0.05)
+            with lock:
+                live -= 1
             raise Reached
 
         monkeypatch.setattr(kernel_exec, "ensure_built", lambda: None)
         monkeypatch.setattr(kernel_exec, "enumerate_configs", enumerate_configs)
         with pytest.raises(Reached):
             run_m1.build_tables(SPEC, tmp_path, inputs=STAMP, kernel_threads=asked)
-        assert seen["threads"] == min(wanted, os.process_cpu_count() or 1)
+        assert peak == min(wanted, os.process_cpu_count() or 1)
+        assert sorted(config for (config,), _threads, _tag in seen) == sorted(conform.ACCEPTANCE_CONFIGS)
+        assert {threads for _configs, threads, _tag in seen} == {1}
+        assert all(tag == config for (config,), _threads, tag in seen)
 
-    def test_run_hands_the_thread_width_to_the_table_build(self, monkeypatch, tmp_path):
+    def test_run_hands_both_widths_to_the_table_build(self, monkeypatch, tmp_path):
         seen = {}
 
         def build_tables(spec, out_dir=None, **rest):
@@ -283,11 +299,15 @@ class TestTheKernelInvocation:
 
         monkeypatch.setattr(run_m1, "build_tables", build_tables)
         with pytest.raises(Reached):
-            run_m1.run(out_dir=tmp_path, spec=SPEC, inputs=STAMP, kernel_threads=5)
+            run_m1.run(out_dir=tmp_path, spec=SPEC, inputs=STAMP, kernel_threads=5, fold_jobs=3)
         assert seen["kernel_threads"] == 5
+        assert seen["fold_jobs"] == 3
 
-    @pytest.mark.parametrize("argv, threads", [([], None), (["--kernel-threads", "5"], 5)])
-    def test_the_cli_carries_the_thread_width_into_run(self, monkeypatch, argv, threads):
+    @pytest.mark.parametrize(
+        "argv, threads, folds",
+        [([], None, 1), (["--kernel-threads", "5", "--fold-jobs", "2"], 5, 2)],
+    )
+    def test_the_cli_carries_the_thread_width_into_run(self, monkeypatch, argv, threads, folds):
         from rebuild.tools import artifact_cycle
 
         seen = {}
@@ -305,3 +325,4 @@ class TestTheKernelInvocation:
         with pytest.raises(Reached):
             run_m1.main(argv)
         assert seen["kernel_threads"] == threads
+        assert seen["fold_jobs"] == folds
