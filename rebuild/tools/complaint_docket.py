@@ -85,7 +85,7 @@ def build_groups(complaints):
         if record["verdict"] == "neither":
             neither_pool[pointers].append((unit, record))
             continue
-        policy = (unit.get("drafts") or {}).get("policy")
+        policy = unit.get("policy")
         if policy:
             key = ("policy", (policy["file"], policy["keypath"]))
         elif pointers:
@@ -166,7 +166,7 @@ def finalize_groups(groups, *, threshold, human, records, ruled_ids):
             {
                 _elide_why(policy["suggested_record"])
                 for unit, _record in group["rejects"]
-                if (policy := (unit.get("drafts") or {}).get("policy"))
+                if (policy := unit.get("policy"))
             }
         )
         if group["kind"] == "policy":
@@ -237,7 +237,7 @@ def emit_park(group, marker_target, *, stamp, park_dir, note_text):
     return path
 
 
-def main(argv=None):
+def main(argv=None, *, units=None):
     parser = argparse.ArgumentParser(description=(__doc__ or "").split(":")[0] + ".")
     parser.add_argument(
         "verdicts",
@@ -279,7 +279,7 @@ def main(argv=None):
         return 1
     records = latest_verdicts(verdicts_path)
 
-    units = load_units(surface)
+    units = load_units(surface) if units is None else units
     units_by_id = {unit["id"]: unit for unit in units}
     unknown = sum(1 for unit_id in records if unit_id not in units_by_id)
     if unknown:

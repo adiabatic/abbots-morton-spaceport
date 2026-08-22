@@ -9,18 +9,11 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from rebuild.tools.review_docket import verdicts_agree  # noqa: E402
+from rebuild.tools.review_docket import load_units, verdicts_agree  # noqa: E402
 from rebuild.tools.verdict_notes import cap_markers  # noqa: E402
 
 SURFACE = ROOT / "rebuild/out/review"
 OUT = ROOT / "verdicts-echo-fill.json"
-
-
-def load_units(surface):
-    units = []
-    for path in sorted((surface / "units").glob("*.json")):
-        units.extend(json.loads(path.read_text()))
-    return units
 
 
 def latest_verdicts(path):
@@ -32,12 +25,12 @@ def latest_verdicts(path):
     return best
 
 
-def main():
+def main(argv=None, *, units=None):
     parser = argparse.ArgumentParser(description=(__doc__ or "").split(".")[0] + ".")
     parser.add_argument("verdicts", help="the verdicts file to seed from (an export or the autosave)")
     parser.add_argument("--surface", default=str(SURFACE))
     parser.add_argument("--out", default=str(OUT))
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     surface = pathlib.Path(args.surface)
     manifest = json.loads((surface / "manifest.json").read_text())
@@ -50,7 +43,7 @@ def main():
     records = latest_verdicts(pathlib.Path(args.verdicts))
 
     groups = collections.defaultdict(list)
-    for unit in load_units(surface):
+    for unit in load_units(surface) if units is None else units:
         if unit.get("echo"):
             groups[unit["echo"]].append(unit)
 
@@ -102,6 +95,7 @@ def main():
                     print(f"    {unit['id']:9s} {unit['notation']:30s} (blank)")
     else:
         print("no echo group holds disagreeing verdicts")
+    return 0
 
 
 if __name__ == "__main__":

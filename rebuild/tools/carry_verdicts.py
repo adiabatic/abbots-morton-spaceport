@@ -8,6 +8,7 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
+from rebuild.review import unit_index  # noqa: E402
 from rebuild.review.ink import InkComparator  # noqa: E402
 from rebuild.review.unit_cache import CARRY_PRESENTATION_KEYS, carry_projection  # noqa: E402
 from rebuild.tools.verdict_notes import cap_markers  # noqa: E402
@@ -18,11 +19,20 @@ CURRENT_SURFACE = ROOT / "rebuild/out/review"
 PRESENTATION_KEYS = CARRY_PRESENTATION_KEYS
 
 
+def iter_surface(root):
+    """Every unit on a surface, in the slim shape rebuild.review.unit_index defines: the sidecar the build writes beside the manifest, or — for an archived snapshot, which is every surface older than the sidecar — the shards themselves, a shard at a time. On that fallback the projection also fills in the `content_key` a pre-stamp surface never carried, because it is the one field the whole fragment is needed to compute and the one field the carry cannot proceed without."""
+    if unit_index.index_is_current(root):
+        yield from unit_index.iter_units(root)
+        return
+    for fragment in unit_index.iter_shard_fragments(root):
+        record = unit_index.index_record(fragment)
+        if not record["content_key"]:
+            record["content_key"] = hashlib.sha256(content_key(fragment).encode()).hexdigest()
+        yield record
+
+
 def load_surface(root):
-    units = []
-    for path in sorted((root / "units").glob("*.json")):
-        units.extend(json.loads(path.read_text()))
-    return units
+    return list(iter_surface(root))
 
 
 def content_key(unit):
@@ -72,7 +82,31 @@ def check_source_stamps(root, verdict_file, payload):
         )
 
 
-def main():
+def resolve_prior(sources):
+    """Every source surface's verdicts keyed by the carry identity of the unit they name, newest `at` winning. Each source's units are held only for the length of its own pass — the whole point of the helper is that a prior surface's four hundred thousand records leave memory before the current surface's are read, rather than the two piles coexisting for the sake of the fifty thousand entries that survive into the result."""
+    prior = {}
+    surface_roots = {}
+    for root, verdict_file in sources:
+        payload = json.loads(verdict_file.read_text())
+        check_source_stamps(root, verdict_file, payload)
+        surface_roots[root.name] = root
+        verdicts = latest_verdicts(payload)
+        units_by_id = {u["id"]: u for u in iter_surface(root) if u["id"] in verdicts}
+        used = 0
+        for unit_id, record in verdicts.items():
+            unit = units_by_id.get(unit_id)
+            if unit is None:
+                continue
+            key = content_hash(unit)
+            if key not in prior or record["at"] > prior[key][0]["at"]:
+                prior[key] = (record, root.name, unit)
+            used += 1
+        print(f"{verdict_file.name}: {used} verdicts resolved against {root.name}")
+    return prior, surface_roots
+
+
+def main(argv=None, *, current_units=None):
+    """`current_units` lets a caller that already holds the live surface's index hand it over rather than have this tool read it again; rebuild.tools.verdict_chain is the one caller that does."""
     parser = argparse.ArgumentParser(
         description="Re-resolve prior verdicts against the surfaces they were recorded on and carry them onto the live surface."
     )
@@ -91,29 +125,13 @@ def main():
         default=CURRENT_SURFACE,
         help="the freshly built surface to carry onto (default: the live review surface)",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     sources = [(pathlib.Path(directory), pathlib.Path(verdicts)) for directory, verdicts in args.source]
 
-    prior = {}
-    surface_roots = {}
-    for root, verdict_file in sources:
-        payload = json.loads(verdict_file.read_text())
-        check_source_stamps(root, verdict_file, payload)
-        surface_roots[root.name] = root
-        units_by_id = {u["id"]: u for u in load_surface(root)}
-        used = 0
-        for unit_id, record in latest_verdicts(payload).items():
-            unit = units_by_id.get(unit_id)
-            if unit is None:
-                continue
-            key = content_hash(unit)
-            if key not in prior or record["at"] > prior[key][0]["at"]:
-                prior[key] = (record, root.name, unit)
-            used += 1
-        print(f"{verdict_file.name}: {used} verdicts resolved against {root.name}")
+    prior, surface_roots = resolve_prior(sources)
 
     manifest = json.loads((args.current_surface / "manifest.json").read_text())
-    current = load_surface(args.current_surface)
+    current = current_units if current_units is not None else load_surface(args.current_surface)
     human = [u for u in current if u.get("batch") is not None]
 
     key_by_id = {u["id"]: content_hash(u) for u in current}
@@ -194,6 +212,7 @@ def main():
     print(f"wrote {out.name}: {len(carried)} carried onto manifest {manifest['generated_at']}")
     print(f"kinds: {dict(kinds)}")
     print(f"human queue: {len(human)} -> {len(human) - len(carried)} still needing fresh verdicts")
+    return 0
 
 
 if __name__ == "__main__":

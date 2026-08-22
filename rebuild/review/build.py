@@ -28,7 +28,7 @@ from pathlib import Path
 
 from rebuild.pipeline import fingerprint
 from rebuild.pipeline.baseline_subset import M1_ALPHABET
-from rebuild.review import census, families, tablediff, unit_cache
+from rebuild.review import census, families, tablediff, unit_cache, unit_index
 from rebuild.review.audit import (
     ACCEPTANCE_CONFIGS,
     BATCH_SIZE,
@@ -607,7 +607,7 @@ def _surface_worker(conn, init: dict) -> None:
         oracle = JuniorOracle(init["junior_font"], init["before_font"], init["after_font"], shaper_for)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            spec = load_spec(init["repo_root"])
+            spec = load_spec(init["spec_root"])
         enricher = Enricher(
             spec,
             init["subset_dir"],
@@ -675,6 +675,7 @@ class _FreshRunner:
         junior_font: Path,
         repo_root: Path,
         verify: list | None = None,
+        spec_root: Path | None = None,
     ) -> None:
         self._fresh = fresh
         self._verify = list(verify or ())
@@ -683,12 +684,13 @@ class _FreshRunner:
         self._junior_font = junior_font
         self._subset_dir = subset_dir
         self._repo_root = repo_root
+        self._spec_root = Path(spec_root) if spec_root is not None else Path(repo_root)
         self._retained: dict[str, EnrichedUnit] = {}
         self._local: tuple | None = None
         self._procs: list = []
         self._conns: list = []
         self._slices: list[list] = []
-        # The verification sample is worker work too, and it is the whole of the work when the cache served every unit: a pool sized on the fresh pile alone would leave a no-change rebuild recomputing its sample in the parent, paying one subset-table load per config for it.
+        # The verification sample is worker work too, and it is the whole of the work when the cache served every unit: a pool sized on the fresh pile alone leaves a no-change rebuild recomputing its sample in the parent, which is both slower (200 units serially against eight workers' worth of them: measured 55.6 s against 42.4 s for the units phase of a fully-served build) and much heavier, since the parent that already holds every served fragment then builds an enricher and its per-config subset tables on top (18.9 GB peak against 8.8 GB, where a worker's copy would have been its own process's).
         workload_size = max(len(fresh), len(self._verify))
         if jobs > 1 and workload_size > 1:
             nworkers = min(jobs, workload_size)
@@ -699,6 +701,7 @@ class _FreshRunner:
                 "junior_font": junior_font,
                 "subset_dir": subset_dir,
                 "repo_root": repo_root,
+                "spec_root": self._spec_root,
             }
             ctx = multiprocessing.get_context("spawn")
             for _ in range(nworkers):
@@ -755,7 +758,7 @@ class _FreshRunner:
             oracle = JuniorOracle(self._junior_font, self._before_font, self._after_font, shaper_for)
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
-                spec = load_spec(self._repo_root)
+                spec = load_spec(self._spec_root)
             enricher = Enricher(
                 spec,
                 self._subset_dir,
@@ -895,6 +898,7 @@ def _write_surface(
     if pruned:
         print(f"Pruned {len(pruned)} orphan shard(s): {', '.join(pruned)}", file=sys.stderr)
     copy_static(out_dir, static_dir)
+    unit_index.write_index(out_dir, shards_by_class.items())
     # A unit whose re-settled cells disagree with the audit it was built from is a surface describing a font nobody compiled, which is the one thing this directory exists not to be. It used to print and carry on; the divergence is empty today and a build that makes it non-empty should stop rather than ship.
     errors: list[str] = []
     if mismatches:
@@ -969,7 +973,10 @@ def build_m1(
     static_dir: Path = STATIC_DIR,
     jobs: int = 1,
     fresh_unit_cache: bool = False,
+    spec_root: Path | None = None,
 ) -> dict:
+    # The spec is the one input a frozen workload cannot carry in its tables: the enricher re-settles every window from it, so a bundle of audit rows, subsets and a font describes a rebuild that only still happens while the runes agree with them. `spec_root` lets such a bundle name its own frozen copy (rebuild/review/fixtures/mini/spec) and stay hermetic across rune edits; everything else — the fingerprints, the git head, the relative paths in the manifest, the corpus pins — stays on `repo_root`, because those are facts about this checkout rather than about the workload.
+    spec_root = Path(spec_root) if spec_root is not None else Path(repo_root)
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     missing_subsets = [
@@ -988,8 +995,8 @@ def build_m1(
     workload = load_workload(audit_path, ledger_path, dict(LETTERS))
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        spec = load_spec(repo_root)
-    family_keys, helpers_digest = unit_cache.family_content_keys(repo_root, spec, after_font)
+        spec = load_spec(spec_root)
+    family_keys, helpers_digest = unit_cache.family_content_keys(spec_root, spec, after_font)
     keyer = unit_cache.UnitKeyer(family_keys, dict(LETTERS))
     signatures, signature_entries, signature_environment, signatures_shaped = _resolve_signature_digests(
         signature_rows(workload.units),
@@ -1053,7 +1060,15 @@ def build_m1(
 
     phase = time.perf_counter()
     runner = _FreshRunner(
-        fresh, jobs, subset_dir, before_font, after_font, junior_font, repo_root, verify_units
+        fresh,
+        jobs,
+        subset_dir,
+        before_font,
+        after_font,
+        junior_font,
+        repo_root,
+        verify_units,
+        spec_root=spec_root,
     )
     try:
         projections = runner.phase1()
@@ -1399,6 +1414,7 @@ def build_table_diff(
 
     comparator = InkComparator(before_font, after_font)
     classes_meta: list[dict] = []
+    shards_by_class: dict[str, list[dict]] = {}
     index = 0
     human_index = 0
     human_unit_ids: list[str] = []
@@ -1431,6 +1447,7 @@ def build_table_diff(
             shard.append(_table_diff_unit_json(entry, unit_id, batch, all_configs, ink_identical))
             index += 1
         _write_json(out_dir / "units" / f"{bucket}.json", shard)
+        shards_by_class[bucket] = shard
         machine_units += machine_count
         if machine_count:
             machine_by_class[bucket] = machine_count
@@ -1486,6 +1503,7 @@ def build_table_diff(
     if pruned:
         print(f"Pruned {len(pruned)} orphan shard(s): {', '.join(pruned)}", file=sys.stderr)
     copy_static(out_dir, static_dir)
+    unit_index.write_index(out_dir, shards_by_class.items())
     errors = check_output_dir(out_dir)
     if errors:
         raise SystemExit("contract check failed:\n" + "\n".join(errors[:20]))
@@ -2179,7 +2197,7 @@ def check_shards(
 
 
 def _check_output_files(out_dir: Path, manifest: dict, repo_root: Path | None = None) -> list[str]:
-    """The files beside the manifest: every shard present and non-empty, the index page written, and each copied font matching both the sha the manifest recorded and — when `repo_root` resolves the source it names — the font it was copied from. That second comparison is what catches a surface serving last cycle's letters: the copy is faithful to a manifest written over an M1.otf that has since moved on."""
+    """The files beside the manifest: every shard present and non-empty, the per-unit index present and stamped for this manifest, the index page written, and each copied font matching both the sha the manifest recorded and — when `repo_root` resolves the source it names — the font it was copied from. That second comparison is what catches a surface serving last cycle's letters: the copy is faithful to a manifest written over an M1.otf that has since moved on."""
     errors: list[str] = []
     for meta in manifest.get("classes", ()):
         shard_path = Path(out_dir) / meta.get("shard", "")
@@ -2203,6 +2221,10 @@ def _check_output_files(out_dir: Path, manifest: dict, repo_root: Path | None = 
                 errors.append(f"fonts.{side}: the copy is not {record['source']} as it stands on disk")
     if not (Path(out_dir) / "index.html").exists():
         errors.append("index.html is missing")
+    if not unit_index.index_path(out_dir).is_file():
+        errors.append(f"{unit_index.INDEX_NAME} is missing")
+    elif not unit_index.index_is_current(out_dir):
+        errors.append(f"{unit_index.INDEX_NAME} is unreadable or stamped for another manifest")
     return errors
 
 

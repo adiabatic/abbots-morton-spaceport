@@ -14,7 +14,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from rebuild.review.ink import IDENTITY_DIFF, delta_digest  # noqa: E402
-from rebuild.tools.echo_verdicts import latest_verdicts, load_units  # noqa: E402
+from rebuild.tools.review_docket import latest_verdicts, load_units  # noqa: E402
 
 SURFACE = ROOT / "rebuild/out/review"
 RULES = ROOT / "rebuild/standing-approvals.yaml"
@@ -307,7 +307,7 @@ def _matches(match, unit, *, guard=True):
     return False
 
 
-def main():
+def main(argv=None, *, units=None):
     parser = argparse.ArgumentParser(description=(__doc__ or "").split(":")[0] + ".")
     parser.add_argument(
         "verdicts", help="the verdicts file that defines blankness (an export or the autosave)"
@@ -315,7 +315,7 @@ def main():
     parser.add_argument("--surface", default=str(SURFACE))
     parser.add_argument("--rules", default=str(RULES))
     parser.add_argument("--out", default=str(OUT))
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     surface = pathlib.Path(args.surface)
     manifest = json.loads((surface / "manifest.json").read_text())
@@ -329,11 +329,12 @@ def main():
     records = latest_verdicts(pathlib.Path(args.verdicts))
     units = [
         unit
-        for unit in load_units(surface)
-        if not unit.get("no_verdict") and len(unit.get("render_groups") or []) == 1
+        for unit in (load_units(surface) if units is None else units)
+        if not unit.get("no_verdict") and unit.get("render_groups") == 1
     ]
     wants_deltas = any(SHAPES["ink-delta"].keyed_by in rule["match"]["after"] for rule in rules)
-    if wants_deltas and not any("ink_deltas" in unit for unit in units):
+    # The index record always carries the key, and carries None exactly when the shard had no ink_deltas field at all — which is what "predates the emission" means here.
+    if wants_deltas and not any(unit.get("ink_deltas") is not None for unit in units):
         raise SystemExit(
             "the surface carries no ink_deltas fields, so it predates the ink-delta shape; an ink-delta "
             "rule cannot match anything on it — rebuild the surface (make review-cycle) first"
@@ -378,6 +379,7 @@ def main():
     )
     for line in lines:
         print(line)
+    return 0
 
 
 if __name__ == "__main__":

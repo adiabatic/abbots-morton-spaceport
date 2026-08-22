@@ -11,6 +11,7 @@ import pytest
 
 from rebuild.review import census
 from rebuild.review.audit import UNMATCHED_CLASS, Unit
+from rebuild.review import unit_index
 from rebuild.review.build import (
     _check_output_files,
     _verification_sample,
@@ -251,6 +252,18 @@ def test_a_home_with_nothing_to_see_fails_the_build():
 # --- the files beside the manifest --------------------------------------------------------------
 
 
+def test_a_missing_unit_index_fails_the_build(tmp_path):
+    """The plumbing reads the index and never the shards, so a surface that ships without one, or with one stamped for a manifest it does not describe, is a surface the next carry would resolve off a stale projection."""
+    manifest = {"classes": [], "fonts": {}}
+    (tmp_path / "index.html").write_text("")
+    (tmp_path / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    _complaint(_check_output_files(tmp_path, manifest), "units-index.ndjson.gz is missing")
+    unit_index.write_index(tmp_path, [])
+    assert _check_output_files(tmp_path, manifest) == []
+    (tmp_path / "manifest.json").write_text("{}\n", encoding="utf-8")
+    _complaint(_check_output_files(tmp_path, {"classes": [], "fonts": {}}), "stamped for another manifest")
+
+
 def test_a_missing_or_empty_shard_fails_the_build(tmp_path):
     manifest = json.loads((FIXTURES / "manifest.json").read_text(encoding="utf-8"))
     _complaint(_check_output_files(tmp_path, manifest), "is missing")
@@ -279,6 +292,8 @@ def test_a_font_copy_that_is_not_its_source_fails_the_build(tmp_path):
         },
     }
     (tmp_path / "index.html").write_text("")
+    (tmp_path / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    unit_index.write_index(tmp_path, [])
     assert _check_output_files(tmp_path, manifest) == []
     _complaint(_check_output_files(tmp_path, manifest, REPO_ROOT), "as it stands on disk")
 

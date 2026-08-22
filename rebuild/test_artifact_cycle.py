@@ -191,16 +191,12 @@ def test_dry_run_plan_default():
         str(plan.kernel_threads),
     ]
     assert by_name["surface-build"].argv == ["uv", "run", "python", "-m", "rebuild.review.build"]
-    assert by_name["carry"].argv == [
+    assert _argv(by_name["plumbing"])[:5] == [
         "uv",
         "run",
         "python",
-        str(ac.CARRY_TOOL),
-        "--source",
-        str(ac.ROOT / "tmp" / "review-pre-abc1234"),
-        "verdicts-X.json",
-        "--out",
-        str(ac.ROOT / "verdicts-carried-abc1234.json"),
+        "-m",
+        "rebuild.tools.verdict_chain",
     ]
     assert by_name["census"].argv == [
         "uv",
@@ -293,168 +289,125 @@ def test_dry_run_plan_skip_conform():
     assert by_name["gate:rebuild-validators"].argv is not None
 
 
-def test_dry_run_plan_merge_follows_carry():
+def test_dry_run_plan_runs_the_whole_chain_as_one_step():
     plan = _plan(snapshot_dir=None, short_id="abc1234")
     names = [step.name for step in plan.steps]
-    assert names.index("merge") == names.index("carry") + 1
-    assert names.index("echo-fill") == names.index("merge") + 1
-    assert names.index("echo-merge") == names.index("echo-fill") + 1
-    assert names.index("standing-fill") == names.index("echo-merge") + 1
-    assert names.index("standing-merge") == names.index("standing-fill") + 1
-    assert names.index("census") == names.index("standing-merge") + 1
-    by_name = {step.name: step for step in plan.steps}
-    assert by_name["merge"].argv == [
+    assert names.index("plumbing") == names.index("surface-build") + 1
+    assert names.index("census") == names.index("plumbing") + 1
+    argv = {step.name: step for step in plan.steps}["plumbing"].argv
+    assert argv is not None
+    assert argv[:11] == [
         "uv",
         "run",
         "python",
         "-m",
-        "rebuild.tools.merge_verdicts",
-        str(ac.ROOT / "verdicts-carried-abc1234.json"),
+        "rebuild.tools.verdict_chain",
+        "--surface",
+        str(ac.REVIEW_OUT),
+        "--source",
+        str(ac.ROOT / "tmp" / "review-pre-abc1234"),
+        "v.json",
+        "--carry-out",
     ]
-    assert by_name["echo-fill"].argv == [
-        "uv",
-        "run",
-        "python",
-        str(ac.ECHO_TOOL),
-        str(ac.AUTOSAVE),
-    ]
-    assert by_name["echo-merge"].argv == [
-        "uv",
-        "run",
-        "python",
-        "-m",
-        "rebuild.tools.merge_verdicts",
-        str(ac.ROOT / "verdicts-echo-fill.json"),
-    ]
-    assert by_name["standing-fill"].argv == [
-        "uv",
-        "run",
-        "python",
-        str(ac.STANDING_TOOL),
-        str(ac.AUTOSAVE),
-    ]
-    assert by_name["standing-merge"].argv == [
-        "uv",
-        "run",
-        "python",
-        "-m",
-        "rebuild.tools.merge_verdicts",
-        str(ac.ROOT / "verdicts-standing-fill.json"),
-    ]
+    assert argv[11] == str(ac.ROOT / "verdicts-carried-abc1234.json")
+    assert "--no-merge" not in argv
     assert plan.do_merge is True
 
 
-def test_dry_run_plan_no_merge_skips_the_merge_step():
+def test_dry_run_plan_no_merge_carries_and_stops():
     plan = _plan(no_merge=True)
-    by_name = {step.name: step for step in plan.steps}
-    assert by_name["merge"].argv is None
-    assert by_name["merge"].note == "SKIPPED (--no-merge)"
-    assert by_name["echo-fill"].argv is None
-    assert by_name["echo-fill"].note == "SKIPPED (--no-merge)"
-    assert by_name["echo-merge"].argv is None
-    assert by_name["echo-merge"].note == "SKIPPED (--no-merge)"
-    assert by_name["standing-fill"].argv is None
-    assert by_name["standing-fill"].note == "SKIPPED (--no-merge)"
-    assert by_name["standing-merge"].argv is None
-    assert by_name["standing-merge"].note == "SKIPPED (--no-merge)"
-    assert by_name["carry"].argv is not None
+    step = {step.name: step for step in plan.steps}["plumbing"]
+    assert step.argv is not None
+    assert "--no-merge" in step.argv
+    assert "--source" in step.argv
+    assert "--no-merge" in step.note or "carry only" in step.note
     assert plan.do_merge is False
 
 
 def test_dry_run_plan_rehearsal_never_touches_the_autosave(tmp_path):
     plan = _plan(review_out=tmp_path / "reh")
-    by_name = {step.name: step for step in plan.steps}
-    assert by_name["merge"].argv is None
-    assert "rehearsal" in by_name["merge"].note
-    assert by_name["echo-fill"].argv is None
-    assert "rehearsal" in by_name["echo-fill"].note
-    assert by_name["echo-merge"].argv is None
-    assert "rehearsal" in by_name["echo-merge"].note
-    assert by_name["standing-fill"].argv is None
-    assert "rehearsal" in by_name["standing-fill"].note
-    assert by_name["standing-merge"].argv is None
-    assert "rehearsal" in by_name["standing-merge"].note
+    step = {step.name: step for step in plan.steps}["plumbing"]
+    assert step.argv is not None
+    assert "--no-merge" in step.argv
+    assert "--no-complaints" in step.argv
+    assert step.argv[step.argv.index("--surface") + 1] == str(tmp_path / "reh")
+    assert "rehearsal" in step.note
     assert plan.do_merge is False
 
 
-def test_dry_run_plan_complaints_follows_census_and_reads_the_autosave(tmp_path, monkeypatch):
+def test_dry_run_plan_complaints_rides_inside_the_chain(tmp_path, monkeypatch):
     autosave = tmp_path / "verdicts-autosave.json"
     autosave.write_text("{}")
     monkeypatch.setattr(ac, "AUTOSAVE", autosave)
     plan = _plan()
     names = [step.name for step in plan.steps]
-    assert names.index("complaints") == names.index("census") + 1
-    by_name = {step.name: step for step in plan.steps}
-    assert by_name["complaints"].argv == [
-        "uv",
-        "run",
-        "python",
-        "-m",
-        "rebuild.tools.complaint_docket",
-        str(autosave),
-    ]
-    assert by_name["complaints"].note == "informational, non-gating"
+    assert "complaints" not in names
+    step = {step.name: step for step in plan.steps}["plumbing"]
+    assert step.argv is not None
+    assert "--no-complaints" not in step.argv
+    assert "complaint docket" in step.note
     assert plan.complaints_note == ""
 
 
-def test_dry_run_plan_complaints_skips_on_rehearsal_first_run_and_missing_autosave(tmp_path, monkeypatch):
+def test_the_chain_is_told_to_skip_the_docket_on_rehearsal_first_run_and_a_missing_store(
+    tmp_path, monkeypatch
+):
     autosave = tmp_path / "verdicts-autosave.json"
     autosave.write_text("{}")
     monkeypatch.setattr(ac, "AUTOSAVE", autosave)
     rehearsal = _plan(review_out=tmp_path / "reh")
-    by_name = {step.name: step for step in rehearsal.steps}
-    assert by_name["complaints"].argv is None
-    assert "rehearsal" in by_name["complaints"].note
-    assert rehearsal.complaints_note != ""
+    step = {step.name: step for step in rehearsal.steps}["plumbing"]
+    assert step.argv is not None and "--no-complaints" in step.argv
+    assert "rehearsal" in rehearsal.complaints_note
 
     first = _plan(first_run=True, verdicts=None)
     by_name = {step.name: step for step in first.steps}
-    assert by_name["complaints"].argv is None
-    assert "first run" in by_name["complaints"].note
+    assert by_name["plumbing"].argv is None
+    assert "first run" in by_name["plumbing"].note
+    assert "first run" in first.complaints_note
 
     monkeypatch.setattr(ac, "AUTOSAVE", tmp_path / "missing.json")
     absent = _plan()
-    by_name = {step.name: step for step in absent.steps}
-    assert by_name["complaints"].argv is None
-    assert "no verdicts store" in by_name["complaints"].note
+    step = {step.name: step for step in absent.steps}["plumbing"]
+    assert step.argv is not None and "--no-complaints" in step.argv
+    assert "no verdicts store" in absent.complaints_note
 
 
-def test_do_complaints_scrapes_the_headline_and_never_fails_the_cycle(tmp_path, monkeypatch):
+def test_the_docket_headline_is_scraped_and_never_fails_the_cycle(tmp_path, monkeypatch):
     autosave = tmp_path / "verdicts-autosave.json"
     autosave.write_text("{}")
     monkeypatch.setattr(ac, "AUTOSAVE", autosave)
     plan = _plan()
 
-    def spawn(name, argv, *, emit, registry, stream):
-        return _step(
-            name,
-            0,
-            "wrote /x/tmp/complaints-data.json: 3 open complaints (1 fresh / 2 standing) in 2 groups — 5 park candidates, 4 approved sharers likely churn if fixed\n",
-        )
-
-    report = ac.CycleReport()
-    ac._do_complaints(report, spawn=spawn, emit=ac._Emitter(), registry=ac._ChildRegistry(), plan=plan)
+    report, failures = _run_plumbing(
+        plan,
+        _chain_stdout(
+            (
+                "complaints",
+                [
+                    "wrote /x/tmp/complaints-data.json: 3 open complaints (1 fresh / 2 standing) in 2 "
+                    "groups — 5 park candidates, 4 approved sharers likely churn if fixed"
+                ],
+            )
+        ),
+    )
+    assert failures == []
     assert report.complaints_status.startswith("3 open complaints")
     assert report.complaints_ok is True
 
-    def spawn_empty(name, argv, *, emit, registry, stream):
-        return _step(name, 0, "no open complaints\n")
-
-    report = ac.CycleReport()
-    ac._do_complaints(report, spawn=spawn_empty, emit=ac._Emitter(), registry=ac._ChildRegistry(), plan=plan)
+    report, failures = _run_plumbing(plan, _chain_stdout(("complaints", ["no open complaints"])))
     assert report.complaints_status == "no open complaints"
     assert report.complaints_ok is True
 
-    def spawn_broken(name, argv, *, emit, registry, stream):
-        return _step(name, 2, "boom\n")
-
-    report = ac.CycleReport()
-    ac._do_complaints(report, spawn=spawn_broken, emit=ac._Emitter(), registry=ac._ChildRegistry(), plan=plan)
+    report, failures = _run_plumbing(
+        plan, _chain_stdout(("complaints", ["boom"]), failed="complaints"), returncode=2
+    )
     assert report.complaints_status == "FAILED (exit 2) — informational"
     assert report.complaints_ok is False
+    assert failures == []
 
 
-def test_dry_run_plan_merge_skipped_without_carry():
+def test_dry_run_plan_skips_the_chain_without_a_carry():
     no_carry = ac.build_plan(
         verdicts=None,
         no_carry=True,
@@ -464,12 +417,9 @@ def test_dry_run_plan_merge_skipped_without_carry():
         first_run=False,
         short_id="abc",
     )
-    no_carry_by_name = {step.name: step for step in no_carry.steps}
-    assert no_carry_by_name["merge"].note == "SKIPPED (--no-carry)"
-    assert no_carry_by_name["echo-fill"].note == "SKIPPED (--no-carry)"
-    assert no_carry_by_name["echo-merge"].note == "SKIPPED (--no-carry)"
-    assert no_carry_by_name["standing-fill"].note == "SKIPPED (--no-carry)"
-    assert no_carry_by_name["standing-merge"].note == "SKIPPED (--no-carry)"
+    step = {step.name: step for step in no_carry.steps}["plumbing"]
+    assert step.argv is None
+    assert step.note == "SKIPPED (--no-carry)"
     first = ac.build_plan(
         verdicts=None,
         no_carry=False,
@@ -479,12 +429,9 @@ def test_dry_run_plan_merge_skipped_without_carry():
         first_run=True,
         short_id="abc",
     )
-    first_by_name = {step.name: step for step in first.steps}
-    assert first_by_name["merge"].note == "SKIPPED (first run)"
-    assert first_by_name["echo-fill"].note == "SKIPPED (first run)"
-    assert first_by_name["echo-merge"].note == "SKIPPED (first run)"
-    assert first_by_name["standing-fill"].note == "SKIPPED (first run)"
-    assert first_by_name["standing-merge"].note == "SKIPPED (first run)"
+    step = {step.name: step for step in first.steps}["plumbing"]
+    assert step.argv is None
+    assert step.note == "SKIPPED (first run)"
 
 
 def test_dry_run_plan_no_carry():
@@ -499,7 +446,7 @@ def test_dry_run_plan_no_carry():
     )
     assert plan.carry_out is None
     by_name = {step.name: step for step in plan.steps}
-    assert by_name["carry"].argv is None
+    assert by_name["plumbing"].argv is None
 
 
 def test_dry_run_plan_first_run_skips_snapshot_and_carry():
@@ -514,7 +461,7 @@ def test_dry_run_plan_first_run_skips_snapshot_and_carry():
     )
     by_name = {step.name: step for step in plan.steps}
     assert by_name["snapshot"].argv is None
-    assert by_name["carry"].argv is None
+    assert by_name["plumbing"].argv is None
     assert plan.carry_out is None
 
 
@@ -652,34 +599,86 @@ def _surface_ok(report, *, spawn, emit, registry, review_out, **_):
     return True
 
 
-def _carry_ok(report, *, spawn, emit, registry, plan):
-    return True
+def _chain_stdout(*sections, fixpoint=True, failed=None):
+    """A synthetic verdict_chain stdout: the `[chain] <step>` banners the driver splits on, each step's own lines, and the fixpoint or failure line the driver reads at the end."""
+    lines = []
+    for name, body in sections:
+        lines.append(f"[chain] {name}")
+        lines.extend(body)
+        lines.append(f"[t] {name} 0.1s")
+        if failed == name:
+            lines.append(f"[chain] failed: {name} (exit 1)")
+            break
+    if failed is None and fixpoint:
+        lines.append("[chain] fixpoint: witnessed — a re-run of the fill cascade writes nothing")
+    return "\n".join(lines) + "\n"
 
 
-def _merge_ok(report, *, spawn, emit, registry, plan):
+_FULL_CHAIN = (
+    ("carry", ["wrote verdicts-carried-abc.json: 51946 carried onto manifest S1", "kinds: {'approve': 5}"]),
+    (
+        "merge",
+        [
+            "verdicts-carried-abc.json: 5 added, 0 replaced, 2 kept newer",
+            "merged 1 file(s) into verdicts-autosave.json: 5 added, 0 replaced, 2 kept newer; "
+            "store holds 7 verdicts (7 effective) on manifest S1",
+        ],
+    ),
+    (
+        "echo-fill",
+        [
+            "wrote verdicts-echo-fill.json: 37 echo-fill verdicts onto manifest S1",
+            "no echo group holds disagreeing verdicts",
+        ],
+    ),
+    (
+        "echo-merge",
+        [
+            "merged 1 file(s) into verdicts-autosave.json: 12 added, 0 replaced, 3 kept newer; "
+            "store holds 40 verdicts (40 effective) on manifest S1"
+        ],
+    ),
+    (
+        "standing-fill",
+        [
+            "wrote verdicts-standing-fill.json: 25 standing-approval verdicts onto manifest S1",
+            "  tea-oy-ligature-break: 25 filled, 64 already verdicted, 0 held for review by except_left",
+        ],
+    ),
+    (
+        "standing-merge",
+        ["nothing changed: the autosave already holds all 65 verdicts (65 effective)."],
+    ),
+    ("echo-fill-2", ["wrote verdicts-echo-fill.json: 0 echo-fill verdicts onto manifest S1"]),
+    ("complaints", ["no open complaints"]),
+)
+
+
+def _run_plumbing(plan, stdout, returncode=0, spy=None):
+    def fake_spawn(name, argv, *, emit, registry, stream):
+        if spy is not None:
+            spy.append((name, argv))
+        return _step(name, returncode, stdout=stdout)
+
+    report = ac.CycleReport()
+    failures = ac._do_plumbing(
+        report, spawn=fake_spawn, emit=ac._Emitter(), registry=ac._ChildRegistry(), plan=plan
+    )
+    return report, failures
+
+
+def _plumbing_ok(report, *, spawn, emit, registry, plan):
     report.merge_status = "merged"
-    return True
-
-
-def _echo_fill_ok(report, *, spawn, emit, registry, plan):
     report.echo_fill_status = "filled"
-    return True
-
-
-def _echo_merge_ok(report, *, spawn, emit, registry, plan):
     report.echo_merge_status = "merged"
-    return True
-
-
-def _standing_fill_ok(report, *, spawn, emit, registry, plan):
     report.standing_fill_status = "filled"
-    return True
-
-
-def _standing_merge_ok(report, *, spawn, emit, registry, plan):
     report.standing_merge_status = "merged"
     report.standing_merge_lines = ["nothing changed: the autosave already holds all 3 verdicts"]
-    return True
+    report.plumbing_fixpoint = True
+    report.complaints_status = "no open complaints"
+    report.complaints_ok = True
+    report.carry_out = plan.carry_out
+    return []
 
 
 def _census_clean(report, *, spawn, emit, registry, plan):
@@ -714,24 +713,18 @@ def _patch_gate_fingerprints(monkeypatch):
 
 def _patch_build_chain(monkeypatch):
     monkeypatch.setattr(ac, "_do_surface_build", _surface_ok)
-    monkeypatch.setattr(ac, "_do_carry", _carry_ok)
-    monkeypatch.setattr(ac, "_do_merge", _merge_ok)
-    monkeypatch.setattr(ac, "_do_echo_fill", _echo_fill_ok)
-    monkeypatch.setattr(ac, "_do_echo_merge", _echo_merge_ok)
-    monkeypatch.setattr(ac, "_do_standing_fill", _standing_fill_ok)
-    monkeypatch.setattr(ac, "_do_standing_merge", _standing_merge_ok)
+    monkeypatch.setattr(ac, "_do_plumbing", _plumbing_ok)
     monkeypatch.setattr(ac, "_do_census", _census_clean)
 
 
-def test_merge_failure_fails_the_cycle(monkeypatch, capsys):
-    def failing_merge(report, *, spawn, emit, registry, plan):
+def test_a_failing_merge_fails_the_cycle(monkeypatch, capsys):
+    def failing(report, *, spawn, emit, registry, plan):
         report.merge_status = "FAILED (exit 1)"
-        return False
+        return ["verdict merge failed"]
 
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
     monkeypatch.setattr(ac, "_do_surface_build", _surface_ok)
-    monkeypatch.setattr(ac, "_do_carry", _carry_ok)
-    monkeypatch.setattr(ac, "_do_merge", failing_merge)
+    monkeypatch.setattr(ac, "_do_plumbing", failing)
     monkeypatch.setattr(ac, "_do_census", _census_clean)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
@@ -748,349 +741,137 @@ def test_merge_failure_fails_the_cycle(monkeypatch, capsys):
     assert "verdict merge failed" in capsys.readouterr().out
 
 
-def test_merge_not_run_when_carry_fails(monkeypatch, capsys):
-    called = {"merge": False}
-
-    def failing_carry(report, *, spawn, emit, registry, plan):
-        return False
-
-    def watching_merge(report, *, spawn, emit, registry, plan):
-        called["merge"] = True
-        return True
-
-    monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
-    monkeypatch.setattr(ac, "_do_surface_build", _surface_ok)
-    monkeypatch.setattr(ac, "_do_carry", failing_carry)
-    monkeypatch.setattr(ac, "_do_merge", watching_merge)
-    monkeypatch.setattr(ac, "_do_census", _census_clean)
-    monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
-    monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
-    monkeypatch.setattr(ac, "_gate_contracts_task", _contracts_green)
-    monkeypatch.setattr(ac, "_gate_validators_task", _validators_green)
-    monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
-
-    plan = _plan()
-    report = ac.CycleReport()
-    rc = ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=lambda *a, **k: _step())
-
-    assert rc == 1
-    assert not called["merge"]
+def test_nothing_runs_after_the_carry_fails():
+    """The chain stops at its first failing step, and the driver reads the rest of the summary off what the banners never printed."""
+    report, failures = _run_plumbing(
+        _plan(),
+        _chain_stdout(("carry", ["boom"]), failed="carry"),
+        returncode=1,
+    )
+    assert failures == ["carry_verdicts failed"]
     assert report.merge_status == "not run (carry failed)"
-    assert "carry_verdicts failed" in capsys.readouterr().out
+    assert report.echo_fill_status == "not run (carry failed)"
+    assert report.standing_merge_status == "not run (carry failed)"
 
 
-def test_echo_fill_failure_fails_the_cycle(monkeypatch, capsys):
-    called = {"echo_merge": False}
-
-    def failing_echo_fill(report, *, spawn, emit, registry, plan):
-        report.echo_fill_status = "FAILED (exit 1)"
-        return False
-
-    def watching_echo_merge(report, *, spawn, emit, registry, plan):
-        called["echo_merge"] = True
-        return True
-
-    monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
-    monkeypatch.setattr(ac, "_do_surface_build", _surface_ok)
-    monkeypatch.setattr(ac, "_do_carry", _carry_ok)
-    monkeypatch.setattr(ac, "_do_merge", _merge_ok)
-    monkeypatch.setattr(ac, "_do_echo_fill", failing_echo_fill)
-    monkeypatch.setattr(ac, "_do_echo_merge", watching_echo_merge)
-    monkeypatch.setattr(ac, "_do_census", _census_clean)
-    monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
-    monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
-    monkeypatch.setattr(ac, "_gate_contracts_task", _contracts_green)
-    monkeypatch.setattr(ac, "_gate_validators_task", _validators_green)
-    monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
-
-    plan = _plan()
-    report = ac.CycleReport()
-    rc = ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=lambda *a, **k: _step())
-
-    assert rc == 1
-    assert not called["echo_merge"]
+def test_a_failing_echo_fill_stops_the_cascade():
+    report, failures = _run_plumbing(
+        _plan(),
+        _chain_stdout(*_FULL_CHAIN[:2], ("echo-fill", ["boom"]), failed="echo-fill"),
+        returncode=1,
+    )
+    assert failures == ["echo-fill failed"]
+    assert report.merge_status == "merged"
     assert report.echo_fill_status == "FAILED (exit 1)"
     assert report.echo_merge_status == "not run (echo-fill failed)"
     assert report.standing_fill_status == "not run (echo-fill failed)"
     assert report.standing_merge_status == "not run (echo-fill failed)"
-    assert "echo-fill failed" in capsys.readouterr().out
 
 
-def test_echo_merge_failure_fails_the_cycle(monkeypatch, capsys):
-    def failing_echo_merge(report, *, spawn, emit, registry, plan):
-        report.echo_merge_status = "FAILED (exit 1)"
-        return False
-
-    monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
-    monkeypatch.setattr(ac, "_do_surface_build", _surface_ok)
-    monkeypatch.setattr(ac, "_do_carry", _carry_ok)
-    monkeypatch.setattr(ac, "_do_merge", _merge_ok)
-    monkeypatch.setattr(ac, "_do_echo_fill", _echo_fill_ok)
-    monkeypatch.setattr(ac, "_do_echo_merge", failing_echo_merge)
-    monkeypatch.setattr(ac, "_do_census", _census_clean)
-    monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
-    monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
-    monkeypatch.setattr(ac, "_gate_contracts_task", _contracts_green)
-    monkeypatch.setattr(ac, "_gate_validators_task", _validators_green)
-    monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
-
-    plan = _plan()
-    report = ac.CycleReport()
-    rc = ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=lambda *a, **k: _step())
-
-    assert rc == 1
+def test_a_failing_echo_merge_stops_the_cascade():
+    report, failures = _run_plumbing(
+        _plan(),
+        _chain_stdout(*_FULL_CHAIN[:3], ("echo-merge", ["boom"]), failed="echo-merge"),
+        returncode=1,
+    )
+    assert failures == ["echo-merge failed"]
     assert report.echo_fill_status == "filled"
     assert report.echo_merge_status == "FAILED (exit 1)"
     assert report.standing_fill_status == "not run (echo-merge failed)"
     assert report.standing_merge_status == "not run (echo-merge failed)"
-    assert "echo-merge failed" in capsys.readouterr().out
 
 
-def test_standing_fill_failure_fails_the_cycle(monkeypatch, capsys):
-    called = {"standing_merge": False}
-
-    def failing_standing_fill(report, *, spawn, emit, registry, plan):
-        report.standing_fill_status = "FAILED (exit 1)"
-        return False
-
-    def watching_standing_merge(report, *, spawn, emit, registry, plan):
-        called["standing_merge"] = True
-        return True
-
-    monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
-    monkeypatch.setattr(ac, "_do_surface_build", _surface_ok)
-    monkeypatch.setattr(ac, "_do_carry", _carry_ok)
-    monkeypatch.setattr(ac, "_do_merge", _merge_ok)
-    monkeypatch.setattr(ac, "_do_echo_fill", _echo_fill_ok)
-    monkeypatch.setattr(ac, "_do_echo_merge", _echo_merge_ok)
-    monkeypatch.setattr(ac, "_do_standing_fill", failing_standing_fill)
-    monkeypatch.setattr(ac, "_do_standing_merge", watching_standing_merge)
-    monkeypatch.setattr(ac, "_do_census", _census_clean)
-    monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
-    monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
-    monkeypatch.setattr(ac, "_gate_contracts_task", _contracts_green)
-    monkeypatch.setattr(ac, "_gate_validators_task", _validators_green)
-    monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
-
-    plan = _plan()
-    report = ac.CycleReport()
-    rc = ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=lambda *a, **k: _step())
-
-    assert rc == 1
-    assert not called["standing_merge"]
+def test_a_failing_standing_fill_stops_the_cascade():
+    report, failures = _run_plumbing(
+        _plan(),
+        _chain_stdout(*_FULL_CHAIN[:4], ("standing-fill", ["boom"]), failed="standing-fill"),
+        returncode=1,
+    )
+    assert failures == ["standing-fill failed"]
     assert report.standing_fill_status == "FAILED (exit 1)"
     assert report.standing_merge_status == "not run (standing-fill failed)"
-    assert "standing-fill failed" in capsys.readouterr().out
 
 
-def test_echo_helpers_not_run_when_do_merge_false(monkeypatch):
-    called = {"echo_fill": False, "echo_merge": False}
-
-    def watching_echo_fill(report, *, spawn, emit, registry, plan):
-        called["echo_fill"] = True
-        return True
-
-    def watching_echo_merge(report, *, spawn, emit, registry, plan):
-        called["echo_merge"] = True
-        return True
-
-    monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
-    monkeypatch.setattr(ac, "_do_surface_build", _surface_ok)
-    monkeypatch.setattr(ac, "_do_carry", _carry_ok)
-    monkeypatch.setattr(ac, "_do_merge", _merge_ok)
-    monkeypatch.setattr(ac, "_do_echo_fill", watching_echo_fill)
-    monkeypatch.setattr(ac, "_do_echo_merge", watching_echo_merge)
-    monkeypatch.setattr(ac, "_do_census", _census_clean)
-    monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
-    monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
-    monkeypatch.setattr(ac, "_gate_contracts_task", _contracts_green)
-    monkeypatch.setattr(ac, "_gate_validators_task", _validators_green)
-    monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
-
-    plan = _plan(no_merge=True)
-    report = ac.CycleReport()
-    rc = ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=lambda *a, **k: _step())
-
-    assert rc == 0
-    assert not called["echo_fill"]
-    assert not called["echo_merge"]
+def test_a_carry_only_chain_reports_the_fills_as_never_run():
+    """--no-merge and rehearsal both stop the chain after the carry, so the fills print no banner and the summary says so rather than claiming a fill that never happened."""
+    report, failures = _run_plumbing(_plan(no_merge=True), _chain_stdout(_FULL_CHAIN[0], fixpoint=False))
+    assert failures == []
+    assert report.merge_status == "not run"
     assert report.echo_fill_status == "not run"
     assert report.echo_merge_status == "not run"
+    assert report.standing_fill_status == "not run"
+    assert report.standing_merge_status == "not run"
 
 
-def test_do_merge_parses_the_summary_line():
-    stdout = "\n".join(
-        [
-            "verdicts-carried-abc.json: 5 added, 0 replaced, 2 kept newer",
-            "merged 1 file(s) into verdicts-autosave.json: 5 added, 0 replaced, 2 kept newer; "
-            "store holds 7 verdicts (7 effective) on manifest S1",
-        ]
-    )
+def test_the_driver_reads_a_line_per_step_out_of_one_child(capsys):
+    """One subprocess prints what seven used to, and every line the summary showed still reaches it, scraped out of that step's own section."""
+    spy: list = []
+    report, failures = _run_plumbing(_plan(), _chain_stdout(*_FULL_CHAIN), spy=spy)
+    assert failures == []
+    assert [name for name, _argv in spy] == ["plumbing"]
 
-    def fake_spawn(name, argv, *, emit, registry, stream):
-        assert name == "merge"
-        assert argv[:5] == ["uv", "run", "python", "-m", "rebuild.tools.merge_verdicts"]
-        return _step(name, 0, stdout=stdout)
-
-    report = ac.CycleReport()
-    ok = ac._do_merge(
-        report, spawn=fake_spawn, emit=ac._Emitter(), registry=ac._ChildRegistry(), plan=_plan()
-    )
-    assert ok
     assert report.merge_status == "merged"
     assert any(line.startswith("merged 1 file(s)") for line in report.merge_lines)
-
-
-def test_do_echo_fill_parses_the_summary_line():
-    stdout = "\n".join(
-        [
-            "wrote verdicts-echo-fill.json: 37 echo-fill verdicts onto manifest S1",
-            "no echo group holds disagreeing verdicts",
-        ]
-    )
-
-    def fake_spawn(name, argv, *, emit, registry, stream):
-        assert name == "echo-fill"
-        assert argv == ["uv", "run", "python", str(ac.ECHO_TOOL), str(ac.AUTOSAVE)]
-        return _step(name, 0, stdout=stdout)
-
-    report = ac.CycleReport()
-    ok = ac._do_echo_fill(
-        report, spawn=fake_spawn, emit=ac._Emitter(), registry=ac._ChildRegistry(), plan=_plan()
-    )
-    assert ok
     assert report.echo_fill_status == "filled"
     assert any(
         line.startswith("wrote verdicts-echo-fill.json: 37 echo-fill verdicts")
         for line in report.echo_fill_lines
     )
-
-
-def test_do_echo_fill_passes_through_the_disagreement_audit(capsys):
-    stdout = "\n".join(
-        [
-            "wrote verdicts-echo-fill.json: 0 echo-fill verdicts onto manifest S1",
-            "",
-            "2 echo groups hold disagreeing verdicts — the same change judged differently; worth a re-check:",
-            "  e-123  #units=u-1,u-2",
-            "    u-1       ·Day ~b~ ·Tea                approve   looks right",
-            "    u-2       ·Day ~b~ ·Tea                reject    stub too long",
-        ]
-    )
-
-    def fake_spawn(name, argv, *, emit, registry, stream):
-        return _step(name, 0, stdout=stdout)
-
-    report = ac.CycleReport()
-    ok = ac._do_echo_fill(
-        report, spawn=fake_spawn, emit=ac._Emitter(), registry=ac._ChildRegistry(), plan=_plan()
-    )
-    assert ok
-    out = capsys.readouterr().out
-    assert "2 echo groups hold disagreeing verdicts" in out
-    assert "e-123  #units=u-1,u-2" in out
-
-
-def test_do_echo_merge_parses_the_summary_line():
-    stdout = "\n".join(
-        [
-            "verdicts-echo-fill.json: 12 added, 0 replaced, 3 kept newer",
-            "merged 1 file(s) into verdicts-autosave.json: 12 added, 0 replaced, 3 kept newer; "
-            "store holds 40 verdicts (40 effective) on manifest S1",
-        ]
-    )
-
-    def fake_spawn(name, argv, *, emit, registry, stream):
-        assert name == "echo-merge"
-        assert argv == [
-            "uv",
-            "run",
-            "python",
-            "-m",
-            "rebuild.tools.merge_verdicts",
-            str(ac.ECHO_FILL),
-        ]
-        return _step(name, 0, stdout=stdout)
-
-    report = ac.CycleReport()
-    ok = ac._do_echo_merge(
-        report, spawn=fake_spawn, emit=ac._Emitter(), registry=ac._ChildRegistry(), plan=_plan()
-    )
-    assert ok
     assert report.echo_merge_status == "merged"
     assert any(line.startswith("merged 1 file(s)") for line in report.echo_merge_lines)
-
-
-def test_do_standing_fill_parses_the_summary_lines():
-    stdout = "\n".join(
-        [
-            "wrote verdicts-standing-fill.json: 25 standing-approval verdicts onto manifest S1",
-            "  tea-oy-ligature-break: 25 filled, 64 already verdicted, 0 held for review by except_left",
-        ]
-    )
-
-    def fake_spawn(name, argv, *, emit, registry, stream):
-        assert name == "standing-fill"
-        assert argv == ["uv", "run", "python", str(ac.STANDING_TOOL), str(ac.AUTOSAVE)]
-        return _step(name, 0, stdout=stdout)
-
-    report = ac.CycleReport()
-    ok = ac._do_standing_fill(
-        report, spawn=fake_spawn, emit=ac._Emitter(), registry=ac._ChildRegistry(), plan=_plan()
-    )
-    assert ok
     assert report.standing_fill_status == "filled"
     assert any(
         line.startswith("wrote verdicts-standing-fill.json: 25 standing-approval verdicts")
         for line in report.standing_fill_lines
     )
     assert any(line.endswith("held for review by except_left") for line in report.standing_fill_lines)
-
-
-def test_do_standing_merge_parses_the_summary_line():
-    stdout = "\n".join(
-        [
-            "verdicts-standing-fill.json: 25 added, 0 replaced, 0 kept newer",
-            "merged 1 file(s) into verdicts-autosave.json: 25 added, 0 replaced, 0 kept newer; "
-            "store holds 65 verdicts (65 effective) on manifest S1",
-        ]
-    )
-
-    def fake_spawn(name, argv, *, emit, registry, stream):
-        assert name == "standing-merge"
-        assert argv == [
-            "uv",
-            "run",
-            "python",
-            "-m",
-            "rebuild.tools.merge_verdicts",
-            str(ac.STANDING_FILL),
-        ]
-        return _step(name, 0, stdout=stdout)
-
-    report = ac.CycleReport()
-    ok = ac._do_standing_merge(
-        report, spawn=fake_spawn, emit=ac._Emitter(), registry=ac._ChildRegistry(), plan=_plan()
-    )
-    assert ok
     assert report.standing_merge_status == "merged"
-    assert any(line.startswith("merged 1 file(s)") for line in report.standing_merge_lines)
+    assert any(line.startswith("nothing changed") for line in report.standing_merge_lines)
+    assert any("carried onto manifest" in line for line in report.carry_lines)
+    assert report.complaints_status == "no open complaints"
+    assert report.plumbing_fixpoint is True
+
+
+def test_a_later_echo_round_folds_into_the_first_rounds_lines():
+    """The cascade's second echo pass is the same step run again, so it reports under the same name rather than as a step of its own."""
+    stdout = _chain_stdout(
+        *_FULL_CHAIN[:6],
+        ("echo-fill-2", ["wrote verdicts-echo-fill.json: 3 echo-fill verdicts onto manifest S1"]),
+    )
+    report, _failures = _run_plumbing(_plan(), stdout)
+    assert len(report.echo_fill_lines) == 2
+    assert report.echo_fill_lines[-1].startswith("wrote verdicts-echo-fill.json: 3 echo-fill verdicts")
+
+
+def test_the_disagreement_audit_reaches_the_console(capsys):
+    stdout = _chain_stdout(
+        (
+            "echo-fill",
+            [
+                "wrote verdicts-echo-fill.json: 0 echo-fill verdicts onto manifest S1",
+                "",
+                "2 echo groups hold disagreeing verdicts — the same change judged differently; "
+                "worth a re-check:",
+                "  e-123  #units=u-1,u-2",
+                "    u-1       ·Day ~b~ ·Tea                approve   looks right",
+                "    u-2       ·Day ~b~ ·Tea                reject    stub too long",
+            ],
+        )
+    )
+    _run_plumbing(_plan(), stdout)
+    out = capsys.readouterr().out
+    assert "2 echo groups hold disagreeing verdicts" in out
+    assert "e-123  #units=u-1,u-2" in out
 
 
 def test_the_executor_spawns_the_argv_the_plan_holds():
     """The single authority: build_plan writes each step's command line and the executor runs that one, so rewriting a live step's argv is enough to change what gets spawned — no executor rebuilds its own copy."""
     plan = _plan()
-    sentinel = ["uv", "run", "python", "sentinel-carry", "--only-here"]
-    {step.name: step for step in plan.steps}["carry"].argv = sentinel
-    spawned: list[tuple[str, list[str]]] = []
-
-    def fake_spawn(name, argv, *, emit, registry, stream):
-        spawned.append((name, argv))
-        return _step(name, 0)
-
-    report = ac.CycleReport()
-    assert ac._do_carry(report, spawn=fake_spawn, emit=ac._Emitter(), registry=ac._ChildRegistry(), plan=plan)
-    assert spawned == [("carry", sentinel)]
+    sentinel = ["uv", "run", "python", "sentinel-chain", "--only-here"]
+    {step.name: step for step in plan.steps}["plumbing"].argv = sentinel
+    spy: list = []
+    _run_plumbing(plan, _chain_stdout(*_FULL_CHAIN), spy=spy)
+    assert spy == [("plumbing", sentinel)]
 
 
 def test_gates_launch_before_run_m1_finishes(monkeypatch):
@@ -1455,7 +1236,7 @@ def test_summary_exact_under_out_of_order_completion(monkeypatch, capsys):
 
     monkeypatch.setattr(ac, "_do_run_m1", fake_run_m1)
     monkeypatch.setattr(ac, "_do_surface_build", fake_surface)
-    monkeypatch.setattr(ac, "_do_carry", _carry_ok)
+    monkeypatch.setattr(ac, "_do_plumbing", _plumbing_ok)
     monkeypatch.setattr(ac, "_do_census", _census_clean)
     monkeypatch.setattr(ac, "_gate_js_task", fake_js)
     monkeypatch.setattr(ac, "_gate_make_test_task", fake_make)
@@ -1595,7 +1376,7 @@ def test_failure_funnels_from_concurrent_branch(monkeypatch, capsys):
 
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
     monkeypatch.setattr(ac, "_do_surface_build", fake_surface)
-    monkeypatch.setattr(ac, "_do_carry", _carry_ok)
+    monkeypatch.setattr(ac, "_do_plumbing", _plumbing_ok)
     monkeypatch.setattr(ac, "_do_census", _census_clean)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_gate_make_test_task", fake_make)
@@ -1808,7 +1589,7 @@ def test_dry_run_renders_concurrency():
     assert "Lane conform" in text
     assert "Lane kernel" not in text
     assert (
-        "surface-build -> submit gate:rebuild-contracts, gate:rebuild-validators -> carry -> merge -> census"
+        "surface-build -> submit gate:rebuild-contracts, gate:rebuild-validators -> plumbing -> census"
         in text
     )
     assert "QUEUED behind gate:make-test (queue policy — one heavy pool at a time)" in text
@@ -1876,7 +1657,8 @@ def test_review_out_rehearsal_plan(monkeypatch, tmp_path):
     assert _argv(by_name["surface-build"])[-2:] == ["--out", str(rehearsal_out)]
     assert by_name["census"].argv is None
     assert by_name["census"].note == "SKIPPED (rehearsal: the checked-in pins track the live surface)"
-    assert _argv(by_name["carry"])[-2:] == ["--current-surface", str(rehearsal_out)]
+    argv = _argv(by_name["plumbing"])
+    assert argv[argv.index("--surface") + 1] == str(rehearsal_out)
     assert plan.surface_dir == rehearsal_out
     assert plan.review_out == rehearsal_out
     assert str(ac.REVIEW_OUT) in by_name["snapshot"].note
@@ -2690,7 +2472,7 @@ def test_dry_run_plan_skip_run_m1_and_surface_still_runs_the_census():
     assert "SKIPPED (build inputs unchanged" in by_name["run_m1"].note
     assert by_name["surface-build"].argv is None
     assert _argv(by_name["census"])[-3:] == ["--update", "--surface", str(ac.REVIEW_OUT)]
-    assert by_name["carry"].argv is not None
+    assert by_name["plumbing"].argv is not None
     assert by_name["gate:rebuild-validators"].argv is not None
 
 
@@ -3617,14 +3399,34 @@ def test_dry_run_plan_skip_plumbing_replaces_the_whole_chain():
     plan = _plan(skip_plumbing=True, plumbing_note=ac.PLUMBING_SKIP_NOTE)
     assert plan.carry_out is None
     by_name = {step.name: step for step in plan.steps}
-    for name in ("carry", "merge", "echo-fill", "echo-merge", "standing-fill", "standing-merge"):
-        assert by_name[name].argv is None
-        assert by_name[name].note == f"SKIPPED ({ac.PLUMBING_SKIP_NOTE})"
+    assert by_name["plumbing"].argv is None
+    assert by_name["plumbing"].note == f"SKIPPED ({ac.PLUMBING_SKIP_NOTE})"
     assert by_name["snapshot"].argv is None
     assert by_name["snapshot"].note.startswith(f"SKIPPED ({ac.PLUMBING_SKIP_NOTE})")
-    assert by_name["complaints"].argv is None
-    assert by_name["complaints"].note == f"SKIPPED ({ac.PLUMBING_SKIP_NOTE})"
+    assert plan.complaints_note == ac.PLUMBING_SKIP_NOTE
     assert by_name["census"].argv is not None
+
+
+def test_dry_run_plan_store_only_merges_the_master_and_takes_no_snapshot():
+    """The surface did not move, so the carry would resolve every unit against itself and its re-prefixed notes could never outrank the store. What is left is the one input the store's own hash cannot see — the master — so the chain merges that directly, and there is no snapshot to take."""
+    plan = _plan(store_only=True)
+    by_name = {step.name: step for step in plan.steps}
+    assert plan.carry_out is None
+    assert by_name["snapshot"].argv is None
+    assert "the surface did not move" in by_name["snapshot"].note
+    argv = _argv(by_name["plumbing"])
+    assert "--source" not in argv
+    assert argv[argv.index("--merge-master") + 1] == "v.json"
+    assert "the carry is the identity" in by_name["plumbing"].note
+
+
+def test_the_store_only_report_still_names_the_frontier_carried_file(tmp_path):
+    carried = tmp_path / "verdicts-carried-abc.json"
+    carried.write_text("{}")
+    plan = _plan(store_only=True, plumbing_carry_out=carried)
+    report, failures = _run_plumbing(plan, _chain_stdout(*_FULL_CHAIN[1:]))
+    assert failures == []
+    assert report.carry_out == carried
 
 
 def test_run_cycle_never_spawns_the_plumbing_when_skipped(monkeypatch, tmp_path):
@@ -3639,8 +3441,7 @@ def test_run_cycle_never_spawns_the_plumbing_when_skipped(monkeypatch, tmp_path)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
     _patch_build_chain(monkeypatch)
     _patch_gate_fingerprints(monkeypatch)
-    for name in ("_do_carry", "_do_merge", "_do_echo_fill", "_do_standing_fill", "_do_complaints"):
-        monkeypatch.setattr(ac, name, must_not_run)
+    monkeypatch.setattr(ac, "_do_plumbing", must_not_run)
     monkeypatch.setattr(ac, "PLUMBING_GREEN", tmp_path / "plumbing-green.json")
 
     carried = tmp_path / "verdicts-carried-abc.json"
@@ -3676,11 +3477,6 @@ def test_run_cycle_records_the_plumbing_green_only_after_a_complete_chain(monkey
     monkeypatch.setattr(ac, "PLUMBING_GREEN", green)
     monkeypatch.setattr(ac, "plumbing_skip_fingerprint", lambda root=None, surface=None, master=None: "plu")
 
-    def complaints_ok(report, *, spawn, emit, registry, plan):
-        report.complaints_status = "3 open complaints in 2 groups"
-        report.complaints_ok = True
-
-    monkeypatch.setattr(ac, "_do_complaints", complaints_ok)
     plan = _plan(record_greens=True)
     rc = ac._run_cycle(
         plan, ac.CycleReport(), ac._Emitter(), ac._ChildRegistry(), spawn=lambda *a, **k: _step()
@@ -3695,10 +3491,12 @@ def test_run_cycle_records_the_plumbing_green_only_after_a_complete_chain(monkey
     green.unlink()
 
     def complaints_broken(report, *, spawn, emit, registry, plan):
+        _plumbing_ok(report, spawn=spawn, emit=emit, registry=registry, plan=plan)
         report.complaints_status = "FAILED (exit 2) — informational"
         report.complaints_ok = False
+        return []
 
-    monkeypatch.setattr(ac, "_do_complaints", complaints_broken)
+    monkeypatch.setattr(ac, "_do_plumbing", complaints_broken)
     rc = ac._run_cycle(
         _plan(record_greens=True),
         ac.CycleReport(),
@@ -3711,10 +3509,9 @@ def test_run_cycle_records_the_plumbing_green_only_after_a_complete_chain(monkey
 
     def standing_merge_fails(report, *, spawn, emit, registry, plan):
         report.standing_merge_status = "FAILED (exit 1)"
-        return False
+        return ["standing-merge failed"]
 
-    monkeypatch.setattr(ac, "_do_complaints", complaints_ok)
-    monkeypatch.setattr(ac, "_do_standing_merge", standing_merge_fails)
+    monkeypatch.setattr(ac, "_do_plumbing", standing_merge_fails)
     rc = ac._run_cycle(
         _plan(record_greens=True),
         ac.CycleReport(),
@@ -3726,13 +3523,13 @@ def test_run_cycle_records_the_plumbing_green_only_after_a_complete_chain(monkey
     assert not green.exists()
 
 
-def test_run_cycle_records_no_plumbing_green_when_standing_fills_landed(monkeypatch, tmp_path):
-    """Standing-fill runs last and nothing re-reads it, so a standing fill that lands can leave an echo group unanimous with a blank sibling — work the next pass's echo-fill would take. Only a standing merge that moved nothing witnesses the fixpoint the green claims."""
+def test_run_cycle_records_no_plumbing_green_until_the_chain_witnesses_its_fixpoint(monkeypatch, tmp_path):
+    """The chain runs the echo pass again after the standing merge and says whether that second pass would have written anything. Only that witnessed standstill earns the green — a chain that stopped short of it leaves the next pass to close the cascade."""
 
-    def standing_merge_landed(report, *, spawn, emit, registry, plan):
-        report.standing_merge_status = "merged"
-        report.standing_merge_lines = ["merged 4 verdicts: 4 added, 0 kept newer"]
-        return True
+    def unsettled(report, *, spawn, emit, registry, plan):
+        _plumbing_ok(report, spawn=spawn, emit=emit, registry=registry, plan=plan)
+        report.plumbing_fixpoint = False
+        return []
 
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
@@ -3742,12 +3539,11 @@ def test_run_cycle_records_no_plumbing_green_when_standing_fills_landed(monkeypa
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
     _patch_build_chain(monkeypatch)
     _patch_gate_fingerprints(monkeypatch)
-    monkeypatch.setattr(ac, "_do_complaints", _complaints_ok)
     monkeypatch.setattr(ac, "plumbing_skip_fingerprint", lambda root=None, surface=None, master=None: "plu")
     green = tmp_path / "plumbing-green.json"
     monkeypatch.setattr(ac, "PLUMBING_GREEN", green)
 
-    monkeypatch.setattr(ac, "_do_standing_merge", standing_merge_landed)
+    monkeypatch.setattr(ac, "_do_plumbing", unsettled)
     rc = ac._run_cycle(
         _plan(record_greens=True),
         ac.CycleReport(),
@@ -3758,7 +3554,7 @@ def test_run_cycle_records_no_plumbing_green_when_standing_fills_landed(monkeypa
     assert rc == 0
     assert not green.exists()
 
-    monkeypatch.setattr(ac, "_do_standing_merge", _standing_merge_ok)
+    monkeypatch.setattr(ac, "_do_plumbing", _plumbing_ok)
     rc = ac._run_cycle(
         _plan(record_greens=True),
         ac.CycleReport(),
@@ -3770,14 +3566,12 @@ def test_run_cycle_records_no_plumbing_green_when_standing_fills_landed(monkeypa
     assert green.exists()
 
 
-def test_plumbing_settled_reads_only_the_last_step():
+def test_plumbing_settled_reads_the_chains_own_witness():
     report = ac.CycleReport()
     assert ac._plumbing_settled(report) is False
-    report.standing_merge_lines = ["merged 4 verdicts: 4 added, 0 kept newer"]
+    report, _failures = _run_plumbing(_plan(), _chain_stdout(*_FULL_CHAIN, fixpoint=False))
     assert ac._plumbing_settled(report) is False
-    report.standing_merge_lines = [
-        "nothing changed: the autosave already holds all 3 verdicts (3 effective)."
-    ]
+    report, _failures = _run_plumbing(_plan(), _chain_stdout(*_FULL_CHAIN))
     assert ac._plumbing_settled(report) is True
 
 
@@ -3800,14 +3594,15 @@ def test_main_skips_the_plumbing_on_a_matching_record(tmp_path, monkeypatch, cap
     assert ac.main(["--dry-run"]) == 0
     out = capsys.readouterr().out
     assert "verdict plumbing auto-skipped" in out
-    assert f"carry: SKIPPED ({ac.PLUMBING_SKIP_NOTE})" in out
-    assert f"complaints: SKIPPED ({ac.PLUMBING_SKIP_NOTE})" in out
+    assert f"plumbing: SKIPPED ({ac.PLUMBING_SKIP_NOTE})" in out
 
     ac.record_plumbing_green("moved", carried)
     assert ac.main(["--dry-run"]) == 0
     out = capsys.readouterr().out
     assert "verdict plumbing auto-skipped" not in out
-    assert "carry: uv run python" in out
+    assert "plumbing: uv run python -m rebuild.tools.verdict_chain" in out
+    assert "--merge-master" in out
+    assert "snapshot: SKIPPED (the surface did not move" in out
 
 
 def test_main_runs_the_census_on_the_pass_that_skips_the_plumbing(tmp_path, monkeypatch, capsys):
@@ -4288,22 +4083,11 @@ def _spawning_surface(report, *, spawn, emit, registry, review_out, **_):
     return True
 
 
-def _complaints_ok(report, *, spawn, emit, registry, plan):
-    report.complaints_status = "no open complaints"
-    report.complaints_ok = True
-
-
 def _patch_timing_cycle(monkeypatch):
     monkeypatch.setattr(ac, "_do_run_m1", _spawning_run_m1)
     monkeypatch.setattr(ac, "_do_surface_build", _spawning_surface)
-    monkeypatch.setattr(ac, "_do_carry", _carry_ok)
-    monkeypatch.setattr(ac, "_do_merge", _merge_ok)
-    monkeypatch.setattr(ac, "_do_echo_fill", _echo_fill_ok)
-    monkeypatch.setattr(ac, "_do_echo_merge", _echo_merge_ok)
-    monkeypatch.setattr(ac, "_do_standing_fill", _standing_fill_ok)
-    monkeypatch.setattr(ac, "_do_standing_merge", _standing_merge_ok)
+    monkeypatch.setattr(ac, "_do_plumbing", _plumbing_ok)
     monkeypatch.setattr(ac, "_do_census", _census_clean)
-    monkeypatch.setattr(ac, "_do_complaints", _complaints_ok)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
     monkeypatch.setattr(ac, "_gate_contracts_task", _contracts_green)
@@ -4341,10 +4125,10 @@ def test_green_cycle_journals_steps_then_one_run_line(monkeypatch, tmp_path):
 def test_failing_cycle_still_journals_a_run_line(monkeypatch, tmp_path):
     def failing_merge(report, *, spawn, emit, registry, plan):
         report.merge_status = "FAILED (exit 1)"
-        return False
+        return ["verdict merge failed"]
 
     _patch_timing_cycle(monkeypatch)
-    monkeypatch.setattr(ac, "_do_merge", failing_merge)
+    monkeypatch.setattr(ac, "_do_plumbing", failing_merge)
 
     journal_path = tmp_path / "timings.ndjson"
     plan = _plan()
