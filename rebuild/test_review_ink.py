@@ -3,6 +3,8 @@
 The kern-neutral census over the live workload at the name-grain (pre-merge) dedupe comes from the surface build's census-facts.json sidecar, which reports one ink flag per pre-merge unit. The totals themselves are the census's to report — the artifact cycle diffs them into rebuild/review-census-pins.json — and that the sidecar's own aggregate is what its own flags reduce to is now `derive_premerge`'s to assert, over the same capture it writes. What is left here is the check no reduction can make: the flags are derived rather than re-shaped, so a sample re-shapes them fresh against the fonts — the whole-corpus stride plus a stratum drawn from the sibling windows, the fold-candidate population where a folded unit borrows its survivor's verdict — against `workload_index`, the ordered census-grain list the flag string is indexed into.
 
 Also here: `delta_digest`, the persisted identity of one config's localized delta, whose shape check_unit enforces and whose recipe is a byte-identity contract with the digests recorded in rebuild/standing-approvals.yaml.
+
+And, on inputs this file builds for itself rather than the live artifact, the two pixel-grain readings the standing approvals' slide shape works from: `rectilinear_cells`, which rasterizes one grid-rectilinear outline under nonzero winding — a hole stays empty, two overlapping same-direction contours fill their union, and a curve or an off-grid coordinate answers None rather than a picture — and `named_run`, the shaped run with its glyph names still attached, which keeps the inkless markers its pieces drop and whose nameless projection is `run_ink`.
 """
 
 import hashlib
@@ -21,6 +23,7 @@ from rebuild.review.ink import (
     delta_digest,
     features_for,
     kern_neutral,
+    rectilinear_cells,
     shaper_for,
     signature_digest,
 )
@@ -52,6 +55,137 @@ def test_kern_neutral_always_disables_kern():
     assert kern_neutral({}) == {"kern": False}
     assert kern_neutral({"ss03": True}) == {"ss03": True, "kern": False}
     assert kern_neutral({"kern": True}) == {"kern": False}
+
+
+def _closed(*contours):
+    value = []
+    for contour in contours:
+        value.append(("moveTo", (contour[0],)))
+        value.extend(("lineTo", (point,)) for point in contour[1:])
+        value.append(("closePath", ()))
+    return tuple(value)
+
+
+def test_rectilinear_cells_fills_a_rectangle():
+    """The shape every bitmap-compiled letter is made of: a two-column, three-row block of ink answers exactly its six cells, indexed from the outline's own leftmost, lowest point."""
+    outline = _closed(((0, 0), (100, 0), (100, 150), (0, 150)))
+    assert rectilinear_cells(outline) == frozenset({(0, 0), (1, 0), (0, 1), (1, 1), (0, 2), (1, 2)})
+
+
+def test_rectilinear_cells_follows_an_l_shape():
+    """A single concave contour, which is what a stroke turning a corner compiles to: the cells follow the outline rather than its bounding box."""
+    outline = _closed(((0, 0), (100, 0), (100, 50), (50, 50), (50, 150), (0, 150)))
+    assert rectilinear_cells(outline) == frozenset({(0, 0), (1, 0), (0, 1), (0, 2)})
+
+
+def test_rectilinear_cells_leaves_a_donuts_hole_empty():
+    """Two contours wound opposite ways — the counter every closed loop of stroke draws: the winding number cancels inside the hole, so a picture comparison sees the ring and not the block."""
+    outer = ((0, 0), (200, 0), (200, 200), (0, 200))
+    hole = ((50, 50), (50, 150), (150, 150), (150, 50))
+    ring = {(column, row) for column in range(4) for row in range(4)}
+    ring -= {(1, 1), (2, 1), (1, 2), (2, 2)}
+    assert rectilinear_cells(_closed(outer, hole)) == frozenset(ring)
+
+
+def test_rectilinear_cells_fills_the_union_of_two_overlapping_rectangles():
+    """Same winding direction, so the overlap counts twice and stays filled: a glyph whose strokes cross must not punch a hole where they meet, and the shared column is one cell rather than two."""
+    left = ((0, 0), (100, 0), (100, 100), (0, 100))
+    right = ((50, 0), (150, 0), (150, 100), (50, 100))
+    assert rectilinear_cells(_closed(left, right)) == frozenset(
+        {(0, 0), (1, 0), (2, 0), (0, 1), (1, 1), (2, 1)}
+    )
+
+
+def test_rectilinear_cells_refuses_a_curve():
+    """The contract's edge: anything that is not a straight run of grid edges makes no picture claim at all, and None is what the slide shape reads as "cannot judge this window"."""
+    outline = (("moveTo", ((0, 0),)), ("qCurveTo", ((50, 100), (100, 0))), ("closePath", ()))
+    assert rectilinear_cells(outline) is None
+
+
+def test_rectilinear_cells_refuses_an_off_grid_coordinate():
+    """A rectangle three and a half pixels tall is rectilinear but not on the grid, so cell centers would no longer be exactly inside or outside — refused rather than rounded."""
+    outline = _closed(((0, 0), (100, 0), (100, 175), (0, 175)))
+    assert rectilinear_cells(outline) is None
+
+
+def test_rectilinear_cells_refuses_an_unclosed_contour():
+    """A contour that is never closed is not a picture either: both shipped pens close every contour, so an open one can only mean the outline is not what this rasterizer was written for — refused rather than read as empty."""
+    outline = (("moveTo", ((0, 0),)), ("lineTo", ((100, 0),)), ("lineTo", ((100, 150),)))
+    assert rectilinear_cells(outline) is None
+
+
+MARKER_GLYPHS = {
+    "qsA": ((((0, 0), (100, 0), (100, 150), (0, 150)),), 100),
+    "qsB": ((((50, 0), (150, 0), (150, 150), (50, 150)),), 200),
+    "space": ((), 100),
+}
+MARKER_CMAP = {0xE001: "qsA", 0xE002: "qsB", 0x20: "space"}
+
+
+def _build_marker_font(path):
+    """A tiny TTF for the name-grain readings: two inked rectangles, one of them inset in its own frame so its origin_x is not zero, plus an outline-less `space` to stand in for the surface's inkless markers. Each glyph's left sidebearing is set to its own leftmost point, which is load-bearing rather than tidy — fontTools' TrueType glyph set translates an outline by `lsb - xMin` on the way out, and would otherwise pull the inset glyph back to x=0 and erase the very origin under test."""
+    from fontTools.fontBuilder import FontBuilder
+    from fontTools.pens.ttGlyphPen import TTGlyphPen
+
+    order = [".notdef", *MARKER_GLYPHS]
+    outlines = {}
+    metrics = {}
+    for name in order:
+        contours, advance = MARKER_GLYPHS.get(name, ((), 500))
+        pen = TTGlyphPen(None)
+        for contour in contours:
+            pen.moveTo(contour[0])
+            for point in contour[1:]:
+                pen.lineTo(point)
+            pen.closePath()
+        outlines[name] = pen.glyph()
+        columns = [x for contour in contours for x, _y in contour]
+        metrics[name] = (advance, min(columns) if columns else 0)
+    builder = FontBuilder(1000)
+    builder.setupGlyphOrder(order)
+    builder.setupCharacterMap(MARKER_CMAP)
+    builder.setupGlyf(outlines)
+    builder.setupHorizontalMetrics(metrics)
+    builder.setupHorizontalHeader(ascent=800, descent=-200)
+    builder.setupNameTable({"familyName": "MarkerTest", "styleName": "Regular"})
+    builder.setupOS2()
+    builder.setupPost()
+    builder.font.recalcTimestamp = False
+    builder.font["head"].created = 0  # pyright: ignore[reportAttributeAccessIssue]
+    builder.font["head"].modified = 0
+    builder.save(str(path))
+    return path
+
+
+MARKER_TEXT = " " + chr(0xE001) + chr(0xE002)
+
+
+@pytest.fixture(scope="module")
+def marker_comparator(tmp_path_factory):
+    path = _build_marker_font(tmp_path_factory.mktemp("marker-font") / "marker.ttf")
+    return InkComparator(path, path)
+
+
+def test_named_run_keeps_the_inkless_markers_the_pieces_drop(marker_comparator):
+    """The whole point of the named form: the name tuple is the shaped run entire, markers included, so a caller can hold it against a recorded glyph list — while the pieces are ink only, and carry each glyph's placed position plus the own-frame origin that distinguishes two glyphs drawing the same strokes from different frames."""
+    names, pieces = marker_comparator.named_run("before", MARKER_TEXT, {})
+    assert names == ("space", "qsA", "qsB")
+    assert [piece[0] for piece in pieces] == ["qsA", "qsB"]
+    assert [piece[2:] for piece in pieces] == [(100, 0, 0), (250, 0, 50)]
+
+
+def test_run_ink_is_the_nameless_projection_of_named_run(marker_comparator):
+    """`run_ink` is defined as the names dropped and nothing else, which is what keeps a name out of every piece comparison the delta alignment makes."""
+    _names, pieces = marker_comparator.named_run("before", MARKER_TEXT, {})
+    assert marker_comparator.run_ink("before", MARKER_TEXT, {}) == [piece[1:] for piece in pieces]
+
+
+def test_the_intern_rasterizes_a_shape_in_its_own_canonical_frame(marker_comparator):
+    """A shape's cells are indexed from its own leftmost, lowest point, not from where it was placed — which is what lets one rasterization serve every placement of that shape in both fonts, with the placement added back a column at a time."""
+    _names, pieces = marker_comparator.named_run("before", chr(0xE002), {})
+    [(_name, key, _x, _y, origin_x)] = pieces
+    assert origin_x == 50
+    assert marker_comparator.intern.cells(key) == frozenset({(0, 0), (1, 0), (0, 1), (1, 1), (0, 2), (1, 2)})
 
 
 def test_u_0126_is_ink_identical_only_because_kerning_is_neutralized(comparator):

@@ -12,6 +12,7 @@ from typing import Callable
 from fontTools.pens.recordingPen import DecomposingRecordingPen
 from fontTools.ttLib import TTFont
 
+from rebuild.validation.classify import PIXEL_SIZE
 from rebuild.validation.shaping import Shaper, ShapeResult
 
 # The M1 mini-font carries epoch-zero head timestamps; fontTools logs a "'created' timestamp seems very low" warning for each, which is noise in the build output.
@@ -95,6 +96,40 @@ def translate_outline(value: tuple, dx: int, dy: int) -> tuple:
     )
 
 
+def rectilinear_cells(outline: tuple) -> frozenset[tuple[int, int]] | None:
+    """The PIXEL_SIZE-grid cells a rectilinear outline fills under nonzero winding — the pixel picture of one of this family's bitmap-compiled glyphs — or None when the outline steps off that contract (a curve, or any coordinate off the grid), which a caller reads as no picture claim being possible. Sampling the winding number at cell centers is exact here rather than approximate, because every edge lies on the grid and so no center ever sits on one."""
+    verticals: list[tuple[int, int, int, int]] = []
+    rows: set[int] = set()
+    contour: list[tuple[int, int]] = []
+    for operator, points in outline:
+        if operator == "moveTo":
+            contour = [points[0]]
+        elif operator == "lineTo":
+            contour.append(points[0])
+        elif operator == "closePath":
+            for (x1, y1), (x2, y2) in zip(contour, contour[1:] + contour[:1]):
+                if x1 % PIXEL_SIZE or y1 % PIXEL_SIZE:
+                    return None
+                if x1 == x2 and y1 != y2:
+                    verticals.append((x1, min(y1, y2), max(y1, y2), 1 if y2 > y1 else -1))
+                    rows.update(range(min(y1, y2) // PIXEL_SIZE, max(y1, y2) // PIXEL_SIZE))
+            contour = []
+        else:
+            return None
+    if contour:
+        return None
+    cells: set[tuple[int, int]] = set()
+    for row in sorted(rows):
+        center = row * PIXEL_SIZE + PIXEL_SIZE // 2
+        crossings = sorted((x, direction) for x, low, high, direction in verticals if low < center < high)
+        winding = 0
+        for (x, direction), (next_x, _next_direction) in zip(crossings, crossings[1:]):
+            winding += direction
+            if winding:
+                cells.update((column, row) for column in range(x // PIXEL_SIZE, next_x // PIXEL_SIZE))
+    return frozenset(cells)
+
+
 EMPTY_OUTLINE_KEY = b""
 
 
@@ -115,6 +150,7 @@ class OutlineIntern:
     def __init__(self) -> None:
         self._values: dict[bytes, tuple] = {}
         self._drawn: dict[bytes, bool] = {}
+        self._cells: dict[bytes, frozenset[tuple[int, int]] | None] = {}
 
     def place(self, value: tuple) -> tuple[bytes, int, int]:
         if not value:
@@ -132,6 +168,12 @@ class OutlineIntern:
     def draws(self, key: bytes) -> bool:
         """Whether the shape has any point at all. An outline of bare path operators contributes no x to the delta's normalization, exactly as the point-walking form it replaces contributed none."""
         return self._drawn[key]
+
+    def cells(self, key: bytes) -> frozenset[tuple[int, int]] | None:
+        """The shape's filled grid cells in its own canonical frame (leftmost, lowest point at the origin), rasterized once per shape and shared across every placement and both fonts; None when the shape is not a grid-rectilinear picture."""
+        if key not in self._cells:
+            self._cells[key] = rectilinear_cells(self._values[key])
+        return self._cells[key]
 
 
 class OutlineCache:
@@ -210,8 +252,8 @@ class InkComparator:
         pieces.sort()
         return tuple(pieces)
 
-    def run_ink(self, side: str, text: str, features: dict[str, bool]) -> list:
-        """The placed ink of one shaped run in run order: one (shape key, absolute x, absolute y, own-frame origin x) entry per glyph that carries ink, so config_diff can align the two fonts' runs glyph-by-glyph. The first three place the ink and are all the multiset subtraction reads; the fourth is what distinguishes two glyphs that draw the same strokes from different origins, which the prefix and suffix strips — alignment questions about the run, not about the page — still need to tell apart. Shaping is always kern-neutral."""
+    def named_run(self, side: str, text: str, features: dict[str, bool]) -> tuple[tuple[str, ...], list]:
+        """One shaped run with its glyph names still attached: the full shaped name tuple (inkless markers included, so a caller can hold the run against a recorded glyph list), plus one (glyph name, shape key, absolute x, absolute y, own-frame origin x) entry per glyph that carries ink. The nameless projection of the pieces is `run_ink`, which is what the delta alignment consumes — names never enter a piece comparison, because the two fonts spell the same ink under different names by design. Shaping is always kern-neutral."""
         shaper, outlines = self._sides[side]
         result = shaper.shape(text, kern_neutral(features))
         pieces = []
@@ -219,9 +261,14 @@ class InkComparator:
         for name, (x_offset, y_offset, x_advance) in zip(result.names, result.positions):
             key, origin_x, origin_y = outlines.shape_key(name)
             if key:
-                pieces.append((key, pen_x + x_offset + origin_x, y_offset + origin_y, origin_x))
+                pieces.append((name, key, pen_x + x_offset + origin_x, y_offset + origin_y, origin_x))
             pen_x += x_advance
-        return pieces
+        return result.names, pieces
+
+    def run_ink(self, side: str, text: str, features: dict[str, bool]) -> list:
+        """The placed ink of one shaped run in run order: one (shape key, absolute x, absolute y, own-frame origin x) entry per glyph that carries ink, so config_diff can align the two fonts' runs glyph-by-glyph. The first three place the ink and are all the multiset subtraction reads; the fourth is what distinguishes two glyphs that draw the same strokes from different origins, which the prefix and suffix strips — alignment questions about the run, not about the page — still need to tell apart. Shaping is always kern-neutral."""
+        _names, pieces = self.named_run(side, text, features)
+        return [piece[1:] for piece in pieces]
 
     def config_diff(self, text: str, config: str) -> tuple:
         """The before→after ink delta under one config, localized to the changed region: the two shaped runs are aligned glyph-by-glyph from both ends, stripping the common prefix (same ink at the same position) and the common suffix (same ink rigidly shifted by one uniform dx — followers that merely slid over because the change altered the run's advance), and the remaining middles are multiset-subtracted and jointly translated so the delta's leftmost point sits at x=0. Returns (pieces only the before font draws, pieces only the after font draws, suffix shift); IDENTITY_DIFF — empty middles and no follower shift — means ink-identical, and is the one sentinel `ink_identical`, the surface build's per-unit flag, and the standing approvals' empty-delta digest all read. Two units whose judged pair, class, config set, and per-config deltas all agree show the same pixels appearing and disappearing — the echo-group key — no matter which unchanged letters surround the change."""

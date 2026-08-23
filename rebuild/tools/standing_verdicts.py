@@ -1,4 +1,4 @@
-"""Apply the checked-in standing approvals (rebuild/standing-approvals.yaml) to the live review surface: for every rule, find the blank human units whose before→after delta matches the rule's pattern and emit fill records for them into an importable verdicts file. Three delta shapes are expressible, and a rule declares exactly one of them — which one is keyed by the field its `match.after` carries. The `ligature` shape is a pivot letter whose backward join drops as it ligates with its follower; it holds the seams flanking the delta fixed. The `follower_cells` shape is a pivot letter that gives up a named exit extension: the two sides must line up letter for letter over an identical seam vector, the pivot and the follower must settle into cells the rule names in full — rune, stance, entry, exit and the whole adjustment set — and the unit's own primary judged adjacency must be exactly that pivot–follower seam with no secondary seam anywhere else in the window. That last requirement is the load-bearing one, because an unchanged seam vector is not unchanged ink: a window can hold every seam still and be asking about a different letter's stroke entirely, and only the surface's own judgment fields say which letter the unit is about. The `ink_deltas` shape works from the opposite end and is ink-exact rather than structural: it names the surface's own per-config localized ink-delta digests (rebuild/review/ink.py's `delta_digest`, persisted on every unit), so a unit matches only when the window's entire before→after ink change, under every config it diverges on, is byte-identical to a blessed delta — every structural difference the unit still carries is then name-grain only, and any extra ink anywhere fails the match closed. Each shape's own docstring states exactly what it proves, and none claims to bound the window beyond that. Any rule's `except_left` family, met anywhere in the window, refuses the whole unit rather than the one position, so a guarded context can never ride along beside an unguarded one. This is the zero-touch sibling of echo_verdicts.py: echo fill extends the user's past verdicts to pixel-identical lookalikes, while a standing rule extends a recorded once-and-for-all decision to instances the user has never seen (new left letters minted by later migrations), so those units never queue. The guard list is the point of authoring a guarded rule at all: a rule's except_left families are held for review, so the one context the user does want to see still reaches the docket. Records are stamped with the manifest's generated_at, so any human verdict beats a standing fill on merge, and a parked unit (a skip verdict) is not blank and is never filled. The artifact cycle runs this after the echo fill, with a merge_verdicts pass to land the file."""
+"""Apply the checked-in standing approvals (rebuild/standing-approvals.yaml) to the live review surface: for every rule, find the blank human units whose before→after delta matches the rule's pattern and emit fill records for them into an importable verdicts file. Four delta shapes are expressible, and a rule declares exactly one of them — which one is keyed by the field its `match.after` carries. The `ligature` shape is a pivot letter whose backward join drops as it ligates with its follower; it holds the seams flanking the delta fixed. The `follower_cells` shape is a pivot letter that gives up a named exit extension: the two sides must line up letter for letter over an identical seam vector, the pivot and the follower must settle into cells the rule names in full — rune, stance, entry, exit and the whole adjustment set — and the unit's own primary judged adjacency must be exactly that pivot–follower seam with no secondary seam anywhere else in the window. That last requirement is the load-bearing one, because an unchanged seam vector is not unchanged ink: a window can hold every seam still and be asking about a different letter's stroke entirely, and only the surface's own judgment fields say which letter the unit is about. The `ink_deltas` shape works from the opposite end and is ink-exact rather than structural: it names the surface's own per-config localized ink-delta digests (rebuild/review/ink.py's `delta_digest`, persisted on every unit), so a unit matches only when the window's entire before→after ink change, under every config it diverges on, is byte-identical to a blessed delta — every structural difference the unit still carries is then name-grain only, and any extra ink anywhere fails the match closed. The `slide` shape judges the rendered pixels rather than either grain of names: it re-shapes the window in the surface's own font pair and matches when the whole visible change is its named pivot letter and everything after it sliding by a declared column count — which is what lets it survive a union-invisible name-grain re-spelling riding along in the same window, the composition that mints a fresh whole-window digest and orphans an ink-delta rule. Each shape's own docstring states exactly what it proves, and none claims to bound the window beyond that. Any rule's `except_left` family, met anywhere in the window, refuses the whole unit rather than the one position, so a guarded context can never ride along beside an unguarded one. This is the zero-touch sibling of echo_verdicts.py: echo fill extends the user's past verdicts to pixel-identical lookalikes, while a standing rule extends a recorded once-and-for-all decision to instances the user has never seen (new left letters minted by later migrations), so those units never queue. The guard list is the point of authoring a guarded rule at all: a rule's except_left families are held for review, so the one context the user does want to see still reaches the docket. Records are stamped with the manifest's generated_at, so any human verdict beats a standing fill on merge, and a parked unit (a skip verdict) is not blank and is never filled. The artifact cycle runs this after the echo fill, with a merge_verdicts pass to land the file."""
 
 import argparse
 import json
@@ -13,7 +13,8 @@ import yaml
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from rebuild.review.ink import IDENTITY_DIFF, delta_digest  # noqa: E402
+from rebuild.review.ink import IDENTITY_DIFF, InkComparator, delta_digest, features_for  # noqa: E402
+from rebuild.validation.classify import PIXEL_SIZE  # noqa: E402
 from rebuild.tools.review_docket import latest_verdicts, load_units  # noqa: E402
 
 SURFACE = ROOT / "rebuild/out/review"
@@ -84,7 +85,7 @@ def _letter_for_letter(unit):
     return before == after and sum(before) == len(codepoints.split(":"))
 
 
-def _matches_ligature(match, unit, excluded):
+def _matches_ligature(match, unit, excluded, context=None):
     """A pivot letter whose backward join drops as it ligates with its follower: the pivot sits between the two named seams, the follower is swallowed into the named ligature, and the seams flanking the whole delta are unchanged. Unchanged flanking seams bound the join structure and nothing more — they do not prove the unit's judged question is this pivot's — so this shape is only as safe as the single checked-in rule that uses it, and a second rule in this shape wants the localization refusals the extension shape carries. The follower is read here as the right neighbor's `_joining_family`, where the extension shape reads the whole `_family`; the two can only disagree when that neighbor is itself a ligature, and ligature formation is this shape's whole subject, so it keeps the reading it shipped with."""
     glyphs, seams = unit["before"]["glyphs"], unit["before"]["seams"]
     cells, after_seams = unit["after"]["cells"], unit["after"]["seams"]
@@ -110,7 +111,7 @@ def _matches_ligature(match, unit, excluded):
     return False
 
 
-def _matches_extension(match, unit, excluded):
+def _matches_extension(match, unit, excluded, context=None):
     """A pivot letter that gives up the named exit extension into a seam that holds its named height, with the whole seam vector standing still and the pivot and follower settling into cells the rule names in full. Naming the cells in full is what makes the delta exact: rune, stance, entry and exit pin the bitmap binding on both sides of the seam, and the whole adjustment set pins what the pivot is left carrying, so an extension traded for a shorter one is never read as an extension dropped. Because an unchanged seam vector says nothing about ink elsewhere, localization is taken from the surface's own judgment fields rather than inferred: the unit's primary judged adjacency must be exactly this pivot–follower seam, and any window carrying a secondary seam is visibly asking about somewhere else too and is refused outright. Nothing ligates here — that is enforced, not assumed — which is also why the follower's whole name is the right thing to compare against: a ligature in that slot breaks the letter-for-letter requirement and never reaches this loop. A word-initial pivot has no left neighbor and so nothing for except_left to hold."""
     glyphs, seams = unit["before"]["glyphs"], unit["before"]["seams"]
     cells, after_seams = unit["after"]["cells"], unit["after"]["seams"]
@@ -135,7 +136,7 @@ def _matches_extension(match, unit, excluded):
     return any(unit.get("pair") == {"left": i, "right": i + 1} for i in hits)
 
 
-def _matches_ink_delta(match, unit, excluded):
+def _matches_ink_delta(match, unit, excluded, context=None):
     """A window whose entire before→after ink change is one the user has blessed: the unit's persisted `ink_deltas` — one digest per config with any ink change, computed by the surface build over InkComparator.config_diff — must be a nonempty subset of the rule's named digests. Matching asserts exactly what the digest asserts: once unchanged flanks and rigidly-slid followers are stripped, the pixels that appear and disappear are the blessed ones and nothing else, under every config the unit diverges on — so every other difference the unit carries is name-grain only, and a window showing any unlisted ink change under any config fails closed. No judged-pair localization is needed because the delta is the whole window's ink change by construction. There is no pivot position either, so except_left reads against the whole window: an excluded family joining anywhere in it refuses the unit."""
     deltas = unit.get("ink_deltas")
     if not isinstance(deltas, dict) or not deltas:
@@ -182,16 +183,129 @@ def _validate_extension(rule_id, match) -> None:
             )
 
 
+def _named_pivot(glyph_name, pivots):
+    return any(_is_pivot(glyph_name, pivot) for pivot in pivots)
+
+
+def _split_at(run, indices):
+    """The run cut into spans at the given piece indices: everything before the first pivot, then one span per pivot running from that pivot up to the next. Each pivot leads the span it starts, so its own ink is judged under the same displacement as everything it drags along."""
+    bounds = [0, *indices, len(run)]
+    return [run[start:stop] for start, stop in zip(bounds, bounds[1:])]
+
+
+def _span_cells(intern, span):
+    """The pixel picture one span of placed pieces paints: the union of each shape's rasterized cells translated to its placement, or None when any shape is not a grid-rectilinear picture or any placement is off-grid — which a caller reads as no picture claim being possible."""
+    cells = set()
+    for _name, key, x, y, _origin in span:
+        shape_cells = intern.cells(key)
+        if shape_cells is None or x % PIXEL_SIZE or y % PIXEL_SIZE:
+            return None
+        cells.update((x // PIXEL_SIZE + column, y // PIXEL_SIZE + row) for column, row in shape_cells)
+    return cells
+
+
+def _slide_geometry(match, unit, comparator):
+    """Whether the window's rendered before→after change is exactly the declared slide, re-derived from the fonts: shape the window under one of the unit's configs, cut both ink runs at their pivot positions, and require each corresponding span's pixel picture to be identical once displaced by the cumulative slide — the span before the first pivot by nothing, the span the first pivot leads by the full slide, and one more slide for every further pivot. Each pivot piece must also keep its exact shape at its height with its own-frame origin displaced by exactly the slide, which pins the mechanism to the pivot's sidebearing rather than to any drift that happens to land the same pixels. Anything the contract cannot hold — no pivot on the before side, pivot counts that disagree, a shaped run that contradicts the unit's recorded glyphs, an off-grid placement, a non-rectilinear outline — reads as no match, so the unit queues."""
+    codepoints = unit.get("codepoints") or ""
+    if not codepoints:
+        return False
+    try:
+        text = "".join(chr(int(value, 16)) for value in codepoints.split(":"))
+    except ValueError:
+        return False
+    slide = match["after"]["slide"]
+    features = features_for(unit["configs"][0])
+    before_names, before_run = comparator.named_run("before", text, features)
+    if list(before_names) != unit["before"]["glyphs"]:
+        return False
+    _after_names, after_run = comparator.named_run("after", text, features)
+    before_pivots = [
+        i for i, piece in enumerate(before_run) if _named_pivot(piece[0], match["before"]["pivots"])
+    ]
+    after_pivots = [
+        i for i, piece in enumerate(after_run) if _named_pivot(piece[0], match["after"]["pivots"])
+    ]
+    if not before_pivots or len(before_pivots) != len(after_pivots):
+        return False
+    for before_index, after_index in zip(before_pivots, after_pivots):
+        _bn, before_key, _bx, before_y, before_origin = before_run[before_index]
+        _an, after_key, _ax, after_y, after_origin = after_run[after_index]
+        if before_key != after_key or before_y != after_y:
+            return False
+        if after_origin != before_origin + slide * PIXEL_SIZE:
+            return False
+    intern = comparator.intern
+    spans = zip(_split_at(before_run, before_pivots), _split_at(after_run, after_pivots))
+    for step, (before_span, after_span) in enumerate(spans):
+        before_cells = _span_cells(intern, before_span)
+        after_cells = _span_cells(intern, after_span)
+        if before_cells is None or after_cells is None:
+            return False
+        if {(column + slide * step, row) for column, row in before_cells} != after_cells:
+            return False
+    return True
+
+
+def _matches_slide(match, unit, excluded, context=None):
+    """A letter re-spaced against what precedes it, matched at the rendered-pixel grain: the old-font pivot form gives way to a named new form and the window's whole visible change is the pivot and everything after it sliding by the declared column count — every pixel before the pivot stands still, and everything from the pivot on renders pixel-for-pixel identical once slid. Judging pixels rather than per-glyph pieces is the shape's point: a name-grain re-spelling to the pivot's right that hands ink from one glyph to a neighbor without changing the union (the ·At·J'ai tuck riding under a slid ·See is the founding example) is invisible in the picture and must not orphan the rule the way it orphans a whole-window ink-delta digest — while a change that shows so much as one pixel anywhere in the window fails the match closed. One shaped config speaks for all of them: a unit's glyph runs are constant across its configs by the surface's own dedupe, so its per-config deltas can only agree, and the matcher holds that as a precondition (one distinct persisted digest covering exactly the unit's config set) instead of assuming it. except_left reads as the ink-delta shape's does: no pivot position bounds the window, so an excluded family joining anywhere in it refuses the unit."""
+    deltas = unit.get("ink_deltas")
+    if not isinstance(deltas, dict) or not deltas:
+        return False
+    if len(set(deltas.values())) != 1 or set(deltas) != set(unit.get("configs") or []):
+        return False
+    if not any(_named_pivot(name, match["before"]["pivots"]) for name in unit["before"]["glyphs"]):
+        return False
+    if context is None:
+        raise ValueError("the slide shape re-shapes windows in the surface's fonts and needs a SlideContext")
+    key = (
+        tuple(match["before"]["pivots"]),
+        tuple(match["after"]["pivots"]),
+        match["after"]["slide"],
+        unit["id"],
+    )
+    verdict = context.memo.get(key)
+    if verdict is None:
+        verdict = context.memo[key] = _slide_geometry(match, unit, context.comparator)
+    if not verdict:
+        return False
+    return not any(_joining_family(name) in excluded for name in unit["before"]["glyphs"])
+
+
+def _validate_slide(rule_id, match) -> None:
+    """The slide shape's own coherence, checked once at load: the slide must actually move (zero columns is the identity, which is machine-approved already, so a rule declaring it could only mask a typo), and every pivot form named on either side must belong to one family — a slide rule speaks for one letter's re-spacing, so a second family in the lists could only be a paste error."""
+    if match["after"]["slide"] == 0:
+        _fail(
+            f"rule {rule_id!r}: match.after.slide is 0; an unmoved window is ink-identical and "
+            "machine-approved already"
+        )
+    families = {_family(name) for name in match["before"]["pivots"] + match["after"]["pivots"]}
+    if len(families) != 1:
+        _fail(
+            f"rule {rule_id!r}: the pivot lists span families {sorted(families)}; a slide rule "
+            "speaks for one letter's re-spacing"
+        )
+
+
+class SlideContext:
+    """The font-backed state the slide shape matches with: one InkComparator over the surface's shipped font pair, and a per-run memo of each rule's geometric verdict per unit, so the guarded and unguarded passes over one rule shape a window once."""
+
+    def __init__(self, before_font, after_font) -> None:
+        self.comparator = InkComparator(before_font, after_font)
+        self.memo: dict[tuple, bool] = {}
+
+
 class Shape(NamedTuple):
-    """One expressible delta shape: the match.after field that declares it, the field names match.before and match.after must carry exactly (an empty tuple means the block itself must be absent), which of those fields are lists of cell strings or of delta digests rather than plain scalars, the matcher that reads a unit for it, and its own coherence check."""
+    """One expressible delta shape: the match.after field that declares it, the field names match.before and match.after must carry exactly (an empty tuple means the block itself must be absent), which of those fields are lists of cell strings, of delta digests, or of glyph-name prefixes — or integer column counts — rather than plain scalars, the matcher that reads a unit for it, and its own coherence check."""
 
     keyed_by: str
     before: tuple[str, ...]
     after: tuple[str, ...]
     cell_lists: tuple[str, ...]
-    matcher: Callable[[dict, dict, set[str]], bool]
+    matcher: Callable[[dict, dict, set[str], "SlideContext | None"], bool]
     validate: Callable[[str, dict], None] | None = None
     digest_lists: tuple[str, ...] = ()
+    name_lists: tuple[str, ...] = ()
+    int_fields: tuple[str, ...] = ()
 
 
 SHAPES = {
@@ -218,6 +332,16 @@ SHAPES = {
         matcher=_matches_ink_delta,
         validate=_validate_ink_delta,
         digest_lists=("ink_deltas",),
+    ),
+    "slide": Shape(
+        keyed_by="slide",
+        before=("pivots",),
+        after=("pivots", "slide"),
+        cell_lists=(),
+        matcher=_matches_slide,
+        validate=_validate_slide,
+        name_lists=("pivots",),
+        int_fields=("slide",),
     ),
 }
 
@@ -284,6 +408,20 @@ def load_rules(path) -> list:
                             f"rule {rule_id!r}: match.{block}.{field} must be a nonempty list of "
                             "d- ink-delta digests"
                         )
+                elif field in shape.name_lists:
+                    if (
+                        not isinstance(value, list)
+                        or not value
+                        or not all(isinstance(item, str) and item and "/" not in item for item in value)
+                    ):
+                        _fail(
+                            f"rule {rule_id!r}: match.{block}.{field} must be a nonempty list of "
+                            "glyph-name prefixes (a family or family.modifier name, never a "
+                            "/-separated cell string)"
+                        )
+                elif field in shape.int_fields:
+                    if not isinstance(value, int) or isinstance(value, bool):
+                        _fail(f"rule {rule_id!r}: match.{block}.{field} must be an integer column count")
                 elif not isinstance(value, str) or not value:
                     _fail(f"rule {rule_id!r}: match.{block}.{field} must be a nonempty string")
         if shape.validate is not None:
@@ -296,14 +434,14 @@ def load_rules(path) -> list:
     return rules
 
 
-def _matches(match, unit, *, guard=True):
+def _matches(match, unit, *, guard=True, context=None):
     before, after = unit.get("before"), unit.get("after")
     if not before or not after:
         return False
     excluded = set(match.get("except_left", [])) if guard else set()
     for shape in SHAPES.values():
         if shape.keyed_by in match["after"]:
-            return shape.matcher(match, unit, excluded)
+            return shape.matcher(match, unit, excluded, context)
     return False
 
 
@@ -332,22 +470,35 @@ def main(argv=None, *, units=None):
         for unit in (load_units(surface) if units is None else units)
         if not unit.get("no_verdict") and unit.get("render_groups") == 1
     ]
-    wants_deltas = any(SHAPES["ink-delta"].keyed_by in rule["match"]["after"] for rule in rules)
-    # The index record always carries the key, and carries None exactly when the shard had no ink_deltas field at all — which is what "predates the emission" means here.
+    wants_deltas = any(
+        SHAPES[name].keyed_by in rule["match"]["after"] for rule in rules for name in ("ink-delta", "slide")
+    )
+    # The index record always carries the key, and carries None exactly when the shard had no ink_deltas field at all — which is what "predates the emission" means here. The slide shape shares the dependency: its config-agreement precondition reads the same field, so it refuses the stale surface just as loudly instead of quietly matching nothing.
     if wants_deltas and not any(unit.get("ink_deltas") is not None for unit in units):
         raise SystemExit(
-            "the surface carries no ink_deltas fields, so it predates the ink-delta shape; an ink-delta "
-            "rule cannot match anything on it — rebuild the surface (make review-cycle) first"
+            "the surface carries no ink_deltas fields, so it predates the ink-delta and slide shapes; "
+            "such a rule cannot match anything on it — rebuild the surface (make review-cycle) first"
         )
+    context = None
+    if any(SHAPES["slide"].keyed_by in rule["match"]["after"] for rule in rules):
+        before_font, after_font = surface / "fonts" / "before.otf", surface / "fonts" / "after.otf"
+        if not (before_font.is_file() and after_font.is_file()):
+            raise SystemExit(
+                "a slide rule re-shapes its candidate windows in the surface's own font pair, and this "
+                "surface carries no fonts/before.otf + fonts/after.otf — rebuild the surface "
+                "(make review-cycle) first"
+            )
+        context = SlideContext(before_font, after_font)
 
     fills = []
     lines = []
     for rule in rules:
-        matched = [unit for unit in units if _matches(rule["match"], unit)]
+        matched = [unit for unit in units if _matches(rule["match"], unit, context=context)]
         held = [
             unit
             for unit in units
-            if _matches(rule["match"], unit, guard=False) and not _matches(rule["match"], unit)
+            if _matches(rule["match"], unit, guard=False, context=context)
+            and not _matches(rule["match"], unit, context=context)
         ]
         blanks = [unit for unit in matched if unit["id"] not in records]
         note = f"[standing: {rule['id']}] {rule['note']}"
