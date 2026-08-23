@@ -8,7 +8,7 @@ import shutil
 from pathlib import Path
 
 from rebuild.review import unit_index
-from rebuild.review.build import _check_output_files
+from rebuild.review.build import _check_output_files, _write_shard
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 FIXTURES = REPO_ROOT / "rebuild" / "review" / "fixtures"
@@ -34,6 +34,39 @@ def _write(surface: Path) -> Path:
         for path in sorted((surface / "units").glob("*.json"))
     ]
     return unit_index.write_index(surface, shards)
+
+
+def test_class_shards_reads_either_manifest_format():
+    """A `ams-review-manifest/1` class carries one `shard` string, and both the prior surface the unit cache reads and the archived snapshots under tmp/review-pre-* the carry resolves against are that shape until they are rebuilt — so both spellings have to answer."""
+    assert unit_index.class_shards({"id": "a", "shard": "units/a.json"}) == ["units/a.json"]
+    assert unit_index.class_shards({"id": "a", "shards": ["units/a.000.json", "units/a.001.json"]}) == [
+        "units/a.000.json",
+        "units/a.001.json",
+    ]
+
+
+def test_shard_paths_walks_the_parts_in_the_order_the_index_is_written(tmp_path, monkeypatch):
+    """`shard_paths` and `write_index` order classes by the same key and a class's parts by the manifest's own list, so the index and a shard walk hand a reader the same units in the same order — which is what lets a tool resolve ties by "first seen" either way."""
+    monkeypatch.setattr("rebuild.review.build.SHARD_PART_BYTES", 32)
+    surface = tmp_path / "surface"
+    surface.mkdir()
+    fragments = {"beta": [{"id": "u-0003"}], "alpha": [{"id": f"u-{index:04d}"} for index in range(3)]}
+    classes = [
+        {"id": class_id, "shards": _write_shard(surface, class_id, units)}
+        for class_id, units in fragments.items()
+    ]
+    (surface / "manifest.json").write_text(json.dumps({"classes": classes}), encoding="utf-8")
+    assert len(dict(zip([meta["id"] for meta in classes], classes))["alpha"]["shards"]) > 1
+
+    ordered = sorted(classes, key=lambda meta: unit_index.class_shard_key(meta["id"]))
+    assert unit_index.shard_paths(surface) == [surface / part for meta in ordered for part in meta["shards"]]
+    walked = [unit["id"] for unit in unit_index.iter_shard_fragments(surface)]
+    assert walked == ["u-0000", "u-0001", "u-0002", "u-0003"]
+
+    unit_index.write_index(surface, [(meta["id"], fragments[meta["id"]]) for meta in classes])
+    records = unit_index.load_index(surface)
+    assert records is not None
+    assert [record["id"] for record in records] == walked
 
 
 def test_the_index_is_the_shards_field_for_field(tmp_path):

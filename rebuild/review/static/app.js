@@ -156,8 +156,8 @@ function setStateReplace(patch) {
 async function shardUnits(classId) {
   if (!shardCache.has(classId)) {
     const cls = manifest.classes.find((entry) => entry.id === classId);
-    const promise = fetch(cls.shard)
-      .then((response) => response.json())
+    const promise = Promise.all(cls.shards.map((part) => fetch(part).then((response) => response.json())))
+      .then((parts) => parts.flat())
       .then((units) => {
         for (const unit of units) {
           unitsById.set(unit.id, unit);

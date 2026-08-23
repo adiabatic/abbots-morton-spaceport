@@ -29,7 +29,14 @@ def v(unit_id, verdict, note="", at="2026-07-10T01:00:00Z"):
 def surface_with(tmp_path, units, classes=()):
     surface = tmp_path / "surface"
     (surface / "units").mkdir(parents=True)
-    (surface / "manifest.json").write_text(json.dumps({"generated_at": STAMP, "classes": list(classes)}))
+    (surface / "manifest.json").write_text(
+        json.dumps(
+            {
+                "generated_at": STAMP,
+                "classes": [*classes, {"id": "shard", "status": None, "shards": ["units/shard.json"]}],
+            }
+        )
+    )
     (surface / "units" / "shard.json").write_text(json.dumps(units))
     return surface
 

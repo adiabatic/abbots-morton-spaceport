@@ -58,8 +58,8 @@ def repo(tmp_path):
             {
                 "generated_at": STAMP,
                 "classes": [
-                    {"id": "live-class", "status": "diff"},
-                    {"id": "ruled-class", "status": "intended"},
+                    {"id": "live-class", "status": "diff", "shards": []},
+                    {"id": "ruled-class", "status": "intended", "shards": []},
                 ],
             }
         )
@@ -73,7 +73,17 @@ def repo(tmp_path):
 
 
 def write_surface(repo, units):
-    (repo["surface"] / "units" / "all.json").write_text(json.dumps(units))
+    """One shard per manifest class, the way a real surface ships, so the tools walk the manifest to find them."""
+    surface = repo["surface"]
+    manifest = json.loads((surface / "manifest.json").read_text())
+    by_class = {}
+    for record in units:
+        by_class.setdefault(record["class"], []).append(record)
+    for entry in manifest["classes"]:
+        shard = f"units/{entry['id']}.json"
+        (surface / shard).write_text(json.dumps(by_class.get(entry["id"], [])))
+        entry["shards"] = [shard]
+    (surface / "manifest.json").write_text(json.dumps(manifest))
 
 
 def write_verdicts(repo, verdicts, stamp=STAMP):

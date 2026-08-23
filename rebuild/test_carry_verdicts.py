@@ -64,7 +64,9 @@ def test_content_hash_reads_the_stamp_or_computes_the_same_value():
 
 def _write_surface(root, stamp, units):
     (root / "units").mkdir(parents=True)
-    (root / "manifest.json").write_text(json.dumps({"generated_at": stamp}))
+    (root / "manifest.json").write_text(
+        json.dumps({"generated_at": stamp, "classes": [{"id": "units", "shards": ["units/units.json"]}]})
+    )
     (root / "units" / "units.json").write_text(json.dumps(units))
 
 

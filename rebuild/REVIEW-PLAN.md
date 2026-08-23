@@ -19,10 +19,12 @@ rebuild/out/review/
   index.html            copied from static/
   app.css  app.js  …    the rest of static/, copied verbatim
   manifest.json         generation metadata, class index, font records
-  units/<class-id>.json one shard per nonzero class
+  units/<class-id>.json one shard per nonzero class, split into .000.json, .001.json, … parts when large
   fonts/before.otf      copy of site/AbbotsMortonSpaceportSansSenior-Regular.otf
   fonts/after.otf       copy of rebuild/out/m1/M1.otf
 ```
+
+A shard is capped at `build.SHARD_PART_BYTES` because the app parses each file it fetches as one JavaScript string, and a body past V8’s `String::kMaxLength` (2**29 − 24 bytes under pointer compression) reaches `JSON.parse` as the empty string rather than as an error. A class that fits in one part keeps the bare name; a class that does not is written as contiguous three-digit parts numbered from `000`, with the manifest’s `shards` list naming them in concatenation order.
 
 Both font copies get their source path and sha256 recorded in `manifest.json` (the live site OTF is byte-identical to the oracle’s `font_sha256`, so “before” is faithful). The directory is fully self-contained; deleting it and rebuilding is always safe.
 
@@ -221,7 +223,7 @@ The executable authority is `check_manifest` / `check_unit` / `check_output_dir`
 
 ```json
 {
-  "format": "ams-review-manifest/1",
+  "format": "ams-review-manifest/2",
   "mode": "m1-audit",
   "generated_at": "2026-06-10T17:02:11Z",
   "repo_head": "7fd5966",
@@ -251,7 +253,7 @@ The executable authority is `check_manifest` / `check_unit` / `check_output_dir`
       "unit_count": …,
       "row_count": …,
       "machine_approved_count": …,
-      "shard": "units/dangling-anchor-dropped.json",
+      "shards": ["units/dangling-anchor-dropped.json"],
       "batches": []
     }
   ],
@@ -260,9 +262,9 @@ The executable authority is `check_manifest` / `check_unit` / `check_output_dir`
 }
 ```
 
-Types: all counts are integers; `batches` lists the zero-based global batch indices the class’s **human-workload** units occupy (`totals.batches` counts human batches too); `machine_approved.by_class` lists only classes with a nonzero count, while every class carries `machine_approved_count` (possibly 0); `classes` preserves ledger file order (triage order). In table-diff mode `classes` carries the diff buckets (`added`, `removed`, `regrouped`, `changed`, `provenance-only`) with `status: null` and `why` generated. The class-level `ink_identical` flag is the ledger’s reviewed-classification metadata and is distinct from the per-unit `ink_identical` boolean, which is computed from the fonts at build time.
+Types: `shards` is a nonempty list of the class’s parts in concatenation order, one entry for a class that fits in a single file and `units/<class-id>.000.json`, `units/<class-id>.001.json`, … for one that does not; all counts are integers; `batches` lists the zero-based global batch indices the class’s **human-workload** units occupy (`totals.batches` counts human batches too); `machine_approved.by_class` lists only classes with a nonzero count, while every class carries `machine_approved_count` (possibly 0); `classes` preserves ledger file order (triage order). In table-diff mode `classes` carries the diff buckets (`added`, `removed`, `regrouped`, `changed`, `provenance-only`) with `status: null` and `why` generated. The class-level `ink_identical` flag is the ledger’s reviewed-classification metadata and is distinct from the per-unit `ink_identical` boolean, which is computed from the fonts at build time.
 
-### 7.2 Unit shard (`units/<class-id>.json`) — an array of units in triage order
+### 7.2 Unit shard (the parts the class’s `shards` list names) — an array of units, the parts concatenating in triage order
 
 ```json
 {

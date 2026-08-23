@@ -697,7 +697,9 @@ def test_duplicate_rule_ids_are_refused(tmp_path):
 def _surface(tmp_path, units):
     surface = tmp_path / "review"
     (surface / "units").mkdir(parents=True)
-    (surface / "manifest.json").write_text(json.dumps({"generated_at": STAMP}))
+    (surface / "manifest.json").write_text(
+        json.dumps({"generated_at": STAMP, "classes": [{"id": "all", "shards": ["units/all.json"]}]})
+    )
     (surface / "units" / "all.json").write_text(json.dumps(units))
     return surface
 

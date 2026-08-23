@@ -51,6 +51,7 @@ from typing import TYPE_CHECKING
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
+from rebuild.review import unit_index  # noqa: E402
 from rebuild.tools.peak_rss import reap_peak_rss_bytes, rss_token  # noqa: E402
 
 if TYPE_CHECKING:
@@ -490,8 +491,8 @@ def surface_build_skippable(root: Path = ROOT, review_out: Path | None = None) -
     if recorded != expected:
         return False
     try:
-        shards = [meta["shard"] for meta in manifest["classes"] if meta.get("shard")]
-    except KeyError, TypeError:
+        shards = [part for meta in manifest["classes"] for part in unit_index.class_shards(meta)]
+    except KeyError, TypeError, AttributeError:
         return False
     return all((surface / shard).exists() for shard in shards)
 

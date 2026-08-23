@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 from fontTools.ttLib import TTFont
 
-from rebuild.review import unit_cache
+from rebuild.review import unit_cache, unit_index
 from rebuild.review.build import build_m1
 from rebuild.review.enrich import load_spec
 
@@ -80,8 +80,9 @@ def _content_keys(surface: Path) -> dict[str, str]:
     manifest = json.loads((surface / "manifest.json").read_text(encoding="utf-8"))
     keys: dict[str, str] = {}
     for meta in manifest["classes"]:
-        for unit in json.loads((surface / meta["shard"]).read_text(encoding="utf-8")):
-            keys[unit["codepoints"]] = unit["content_key"]
+        for part in unit_index.class_shards(meta):
+            for unit in json.loads((surface / part).read_text(encoding="utf-8")):
+                keys[unit["codepoints"]] = unit["content_key"]
     return keys
 
 

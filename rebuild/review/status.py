@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 from rebuild.pipeline import fingerprint
+from rebuild.review import unit_index
 from rebuild.review.serve import parse_autosave_payload
 
 SURFACE_REMEDY = "uv run python -m rebuild.review.build"
@@ -113,12 +114,12 @@ def load_human_unit_ids(review_dir) -> frozenset[str]:
         return frozenset(persisted)
     ids: set[str] = set()
     for entry in manifest["classes"]:
-        shard = entry.get("shard")
-        if not shard:
+        if not (entry.get("shards") or entry.get("shard")):
             continue
-        for unit in json.loads((review_dir / shard).read_text()):
-            if unit.get("batch") is not None:
-                ids.add(unit["id"])
+        for shard in unit_index.class_shards(entry):
+            for unit in json.loads((review_dir / shard).read_text()):
+                if unit.get("batch") is not None:
+                    ids.add(unit["id"])
     return frozenset(ids)
 
 

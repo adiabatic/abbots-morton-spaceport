@@ -11,8 +11,9 @@ from __future__ import annotations
 
 import gzip
 import json
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable, Iterator, Mapping
 from pathlib import Path
+from typing import Any
 
 from rebuild.pipeline import fingerprint
 
@@ -22,6 +23,19 @@ INDEX_FORMAT = "ams-review-unit-index/1"
 
 def index_path(surface: Path) -> Path:
     return Path(surface) / INDEX_NAME
+
+
+def class_shard_key(class_id: str) -> str:
+    """The sort key every walk of the surface orders classes by. `write_index` sorts on it too, so the index's records and a shard walk run in the same order — and a class written as numbered parts sorts where its bare form would, because the character after the class id is `.` either way."""
+    return f"{class_id}.json"
+
+
+def class_shards(meta: Mapping[str, Any]) -> list[str]:
+    """One manifest class entry's shard parts, in part order. A `ams-review-manifest/1` entry carries a single `shard` string instead of the `shards` list, and reading either is load-bearing rather than politeness: the unit cache reads the prior surface's shards and the carry reads the archived snapshots under `tmp/review-pre-*`, both of which are the older shape until they are rebuilt."""
+    shards = meta.get("shards")
+    if shards is None:
+        return [str(meta["shard"])]
+    return [str(part) for part in shards]
 
 
 def index_record(fragment: dict) -> dict:
@@ -70,14 +84,21 @@ def manifest_sha256(surface: Path) -> str:
 
 
 def shard_paths(surface: Path) -> list[Path]:
-    """The shards in the order every reader walks them. The index is written in this order too, so a tool that resolves ties by "first seen" answers the same either way."""
-    return sorted((Path(surface) / "units").glob("*.json"))
+    """The shard parts in the order every reader walks them: classes by `class_shard_key`, each class's parts in the order its manifest lists them. The manifest is the authority rather than a glob over `units/`, because only it says which parts belong to a class and in what order they concatenate. The index is written in this order too, so a tool that resolves ties by "first seen" answers the same either way. A surface with no readable manifest has no shards to name."""
+    surface = Path(surface)
+    try:
+        manifest = json.loads((surface / "manifest.json").read_text(encoding="utf-8"))
+        classes = list(manifest["classes"])
+    except OSError, ValueError, KeyError, TypeError:
+        return []
+    ordered = sorted(classes, key=lambda meta: class_shard_key(meta.get("id", "")))
+    return [surface / part for meta in ordered for part in class_shards(meta)]
 
 
 def write_index(surface: Path, shards: Iterable[tuple[str, list[dict]]]) -> Path:
     """Write the index from the fragments a build already holds, stamped with the manifest beside it — so this runs after the manifest is written. `shards` is (class id, fragments) in any order; the file is written in shard-path order. Level 1 and a pinned gzip mtime, like the unit store: written once and read once per cycle, where level 9's seconds cost more than its megabytes save."""
     header = {"format": INDEX_FORMAT, "manifest_sha256": manifest_sha256(surface)}
-    ordered = sorted(shards, key=lambda item: f"{item[0]}.json")
+    ordered = sorted(shards, key=lambda item: class_shard_key(item[0]))
     path = index_path(surface)
     with open(path, "wb") as handle:
         with gzip.GzipFile(fileobj=handle, mode="wb", mtime=0, compresslevel=1) as stream:
@@ -125,7 +146,7 @@ def load_index(surface: Path) -> list[dict] | None:
 
 
 def iter_shard_fragments(surface: Path) -> Iterator[dict]:
-    """The fallback source: the shards' own fragments, a shard at a time so only one is ever resident. That bound is the whole of the improvement here — the corpus is 1.9 GB across a few dozen shards and the largest is 450 MB — and it is what the plumbing used to pay ten gigabytes for by concatenating them all."""
+    """The fallback source: the shards' own fragments, one part at a time so only one is ever resident. That bound is the whole of the improvement here — the corpus runs to gigabytes and no one part is larger than `build.SHARD_PART_BYTES` — and it is what the plumbing used to pay ten gigabytes for by concatenating them all."""
     for path in shard_paths(surface):
         shard = json.loads(path.read_text(encoding="utf-8"))
         yield from shard

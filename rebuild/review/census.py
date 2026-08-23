@@ -29,6 +29,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
+from rebuild.review import unit_index
 from rebuild.review.audit import (
     BATCH_SIZE,
     UNMATCHED_CLASS,
@@ -91,6 +92,12 @@ def invariant_group(manifest: dict, families_census: dict[str, int]) -> dict:
     }
 
 
+def _shard_units(out_dir: Path, meta: dict) -> Iterable[dict]:
+    """One class's units, a shard part at a time so a large class is never resident whole."""
+    for part in unit_index.class_shards(meta):
+        yield from json.loads((out_dir / part).read_text(encoding="utf-8"))
+
+
 def built_group(out_dir: Path, manifest: dict) -> dict:
     """The post-merge facts computed by walking the surface's unit shards — the human-workload size, the config-note histogram, and the worked example's echo-sibling count (the distinct windows one ·It·Day·Tea·No verdict answers), none of which is a manifest key. The echo-sibling count is None when the worked example is not in the human workload: only the live corpus is obliged to carry it, and the sidecar is written by every build — the unit-cache tests' mini surfaces included — so the obligation is enforced where it belongs, by the pins diff replacing an accepted count with a computed None."""
     out_dir = Path(out_dir)
@@ -99,7 +106,7 @@ def built_group(out_dir: Path, manifest: dict) -> dict:
     example_echo: str | None = None
     codepoints_by_echo: dict[str, set[str]] = {}
     for meta in manifest["classes"]:
-        for unit in json.loads((out_dir / meta["shard"]).read_text(encoding="utf-8")):
+        for unit in _shard_units(out_dir, meta):
             if unit["batch"] is not None:
                 human_units += 1
                 codepoints_by_echo.setdefault(unit["echo"], set()).add(unit["codepoints"])

@@ -17,8 +17,8 @@ OTHER_STAMP = "2026-07-10T00:00:00Z"
 FP = {"data": "d", "baselines": "b", "pipeline_code": "p", "review_code": "r", "static": "s", "fonts": "f"}
 
 DEFAULT_CLASSES = [
-    {"id": "class-a", "shard": "units/class-a.json", "status": "reviewed-approved"},
-    {"id": "class-b", "shard": "units/class-b.json", "status": "intended"},
+    {"id": "class-a", "shards": ["units/class-a.json"], "status": "reviewed-approved"},
+    {"id": "class-b", "shards": ["units/class-b.json"], "status": "intended"},
 ]
 CLASS_A_UNITS = [{"id": "u-1", "batch": 1}, {"id": "u-2", "batch": 2}, {"id": "m-1", "batch": None}]
 CLASS_B_UNITS = [{"id": "u-3", "batch": 1}]
@@ -58,7 +58,7 @@ def write_surface(
     human_ids: list[str] | None = HUMAN_ID_LIST,
 ) -> None:
     manifest: dict[str, object] = {
-        "format": "ams-review-manifest/1",
+        "format": "ams-review-manifest/2",
         "generated_at": generated_at,
         "repo_head": repo_head,
         "classes": DEFAULT_CLASSES,

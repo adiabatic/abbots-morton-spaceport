@@ -5,18 +5,20 @@ These predicates used to be tests that swept the live shards once a validators l
 
 import copy
 import json
+import shutil
 from pathlib import Path
 
 import pytest
 
-from rebuild.review import census
+from rebuild.review import census, unit_index
 from rebuild.review.audit import UNMATCHED_CLASS, Unit
-from rebuild.review import unit_index
 from rebuild.review.build import (
     _check_output_files,
     _verification_sample,
+    _write_json,
     build_m1,
     check_manifest,
+    check_output_dir,
     check_shards,
     check_unit,
 )
@@ -30,7 +32,11 @@ SEAM_HOME = "u-0005"
 def _surface() -> tuple[dict, dict[str, list[dict]]]:
     manifest = json.loads((FIXTURES / "manifest.json").read_text(encoding="utf-8"))
     shards = {
-        meta["id"]: json.loads((FIXTURES / meta["shard"]).read_text(encoding="utf-8"))
+        meta["id"]: [
+            unit
+            for part in unit_index.class_shards(meta)
+            for unit in json.loads((FIXTURES / part).read_text(encoding="utf-8"))
+        ]
         for meta in manifest["classes"]
     }
     return copy.deepcopy(manifest), copy.deepcopy(shards)
@@ -269,8 +275,53 @@ def test_a_missing_or_empty_shard_fails_the_build(tmp_path):
     _complaint(_check_output_files(tmp_path, manifest), "is missing")
     (tmp_path / "units").mkdir()
     for meta in manifest["classes"]:
-        (tmp_path / meta["shard"]).write_bytes(b"")
+        for part in unit_index.class_shards(meta):
+            (tmp_path / part).write_bytes(b"")
     _complaint(_check_output_files(tmp_path, manifest), "is empty")
+
+
+def _split_first_class(surface: Path) -> None:
+    """Rewrite the surface's first class as two numbered parts, which is the layout a class past the byte cap ships in."""
+    manifest = json.loads((surface / "manifest.json").read_text(encoding="utf-8"))
+    meta = manifest["classes"][0]
+    (whole,) = unit_index.class_shards(meta)
+    units = json.loads((surface / whole).read_text(encoding="utf-8"))
+    chunks = (units[:1], units[1:])
+    meta["shards"] = [f"units/{meta['id']}.{index:03d}.json" for index in range(len(chunks))]
+    for part, chunk in zip(meta["shards"], chunks, strict=True):
+        _write_json(surface / part, chunk)
+    (surface / whole).unlink()
+    _write_json(surface / "manifest.json", manifest)
+
+
+def test_a_class_written_as_parts_reads_back_as_the_same_class(tmp_path):
+    """Splitting a class is invisible to the contract: `check_output_dir` concatenates the parts in order before it checks anything, so a surface answers the same whether a class is one file or several."""
+    plain = tmp_path / "plain"
+    shutil.copytree(FIXTURES, plain, ignore=shutil.ignore_patterns("mini", "*.md", "*.tsv", "*.yaml"))
+    split = tmp_path / "split"
+    shutil.copytree(plain, split)
+    _split_first_class(split)
+    assert check_output_dir(split) == check_output_dir(plain)
+    assert not any("shard" in error for error in check_output_dir(split))
+
+
+def test_every_part_of_a_split_class_must_be_present_and_non_empty(tmp_path):
+    """A build that wrote part 000 and died before 001 must not read as complete, so the check walks every part rather than the first."""
+    manifest = {
+        "classes": [{"id": "big", "shards": ["units/big.000.json", "units/big.001.json"]}],
+        "fonts": {},
+    }
+    (tmp_path / "index.html").write_text("")
+    (tmp_path / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    unit_index.write_index(tmp_path, [])
+    _complaint(_check_output_files(tmp_path, manifest), "units/big.000.json is missing")
+    (tmp_path / "units").mkdir()
+    (tmp_path / "units" / "big.000.json").write_text("[]", encoding="utf-8")
+    _complaint(_check_output_files(tmp_path, manifest), "units/big.001.json is missing")
+    (tmp_path / "units" / "big.001.json").write_bytes(b"")
+    _complaint(_check_output_files(tmp_path, manifest), "units/big.001.json is empty")
+    (tmp_path / "units" / "big.001.json").write_text("[]", encoding="utf-8")
+    assert _check_output_files(tmp_path, manifest) == []
 
 
 def test_a_font_copy_that_is_not_its_source_fails_the_build(tmp_path):

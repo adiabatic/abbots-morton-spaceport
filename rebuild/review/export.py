@@ -13,6 +13,8 @@ from pathlib import Path
 
 import yaml
 
+from rebuild.review import unit_index
+
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 DEFAULT_REVIEW_DIR = REPO_ROOT / "rebuild" / "out" / "review"
 
@@ -48,14 +50,15 @@ def _triage_projection(unit: dict, shard: str) -> dict:
 
 
 def load_units(review_dir: Path) -> tuple[dict, dict[str, dict]]:
-    """The manifest and every unit on the surface, narrowed to `TRIAGE_KEYS` a shard at a time. The corpus is a couple of gigabytes across a few dozen shards and the largest is 450 MB, of which the triage export reads under a third — `explain` alone is two fifths of it and nothing here opens it — so each shard is released before the next is parsed and only the projection is kept."""
+    """The manifest and every unit on the surface, narrowed to `TRIAGE_KEYS` one shard part at a time. The corpus runs to gigabytes, of which the triage export reads under a third — `explain` alone is two fifths of it and nothing here opens it — so each part is released before the next is parsed and only the projection is kept."""
     manifest = json.loads((review_dir / "manifest.json").read_text(encoding="utf-8"))
     units: dict[str, dict] = {}
     for meta in manifest.get("classes", ()):
-        shard = json.loads((review_dir / meta["shard"]).read_text(encoding="utf-8"))
-        for unit in shard:
-            units[unit["id"]] = _triage_projection(unit, meta["shard"])
-        del shard
+        for part in unit_index.class_shards(meta):
+            shard = json.loads((review_dir / part).read_text(encoding="utf-8"))
+            for unit in shard:
+                units[unit["id"]] = _triage_projection(unit, part)
+            del shard
     return manifest, units
 
 

@@ -2442,7 +2442,7 @@ def test_surface_build_skippable_matches_manifest(tmp_path):
     manifest = {
         "generated_at": "2026-01-01T00:00:00Z",
         "inputs_fingerprint": expected,
-        "classes": [{"id": "c", "shard": "units-000.json"}],
+        "classes": [{"id": "c", "shards": ["units-000.json"]}],
     }
     (surface / "manifest.json").write_text(json.dumps(manifest))
     assert ac.surface_build_skippable(tmp_path, surface)
