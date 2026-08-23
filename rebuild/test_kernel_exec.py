@@ -447,7 +447,7 @@ class TestTheKernelInvocation:
         monkeypatch.setattr(kernel_exec, "build_table_files", build_table_files)
         with pytest.raises(Reached):
             run_m1.build_tables(SPEC, tmp_path, inputs=STAMP, kernel_threads=asked)
-        assert peak == min(wanted, os.process_cpu_count() or 1)
+        assert peak == min(wanted, len(conform.ACCEPTANCE_CONFIGS), os.process_cpu_count() or 1)
         assert sorted(config for (config,), _threads, _tag, _stamp in seen) == sorted(
             conform.ACCEPTANCE_CONFIGS
         )
@@ -503,3 +503,37 @@ class TestTheKernelInvocation:
             run_m1.main(argv)
         assert seen["kernel_threads"] == threads
         assert "fold_jobs" not in seen
+
+
+class TestTheMemoryDerivedThreadDefault:
+    """The width the fan-out falls back to is the box divided by `CONFIG_PEAK_BYTES` (issue #63, sub-issue #86), so what can be asserted about it here is its shape and its branches, never its value — the value is whatever machine is running the suite. Every branch is exercised through `_kernel_threads_default`'s `total_bytes` keyword, which is a pure function over an invented box; `KERNEL_THREADS_DEFAULT` itself is resolved at import and could only be moved by reloading the module, which would reset `_BUILT` and drop the live spec dumps underneath whatever else the session is holding."""
+
+    @pytest.fixture(autouse=True)
+    def _no_inherited_override(self, monkeypatch):
+        """A shell that exported a width of its own must not decide what these assertions mean, so the variable is cleared before each of them and set back only by the tests whose subject it is."""
+        monkeypatch.delenv("AMS_KERNEL_THREADS", raising=False)
+
+    def test_the_shipped_default_is_a_startable_width(self):
+        """Whatever box resolved it, the constant is an integer a pool can start on: `how_many_fit` floors at one, because a build that refuses to start on a small machine is strictly worse than one that runs slowly. It also has to stay a plain module attribute rather than becoming a callable — `TestTheKernelInvocation` parametrizes on it by reference at import, and a function object there would be compared against a thread count on every box."""
+        assert isinstance(kernel_exec.KERNEL_THREADS_DEFAULT, int)
+        assert kernel_exec.KERNEL_THREADS_DEFAULT >= 1
+
+    @pytest.mark.parametrize("stated, wanted", [("1", 1), ("3", 3), ("12", 12), ("0", 1), ("-3", 1)])
+    def test_a_stated_width_short_circuits_ahead_of_the_arithmetic(self, monkeypatch, stated, wanted):
+        """`AMS_KERNEL_THREADS` is read before anything is divided, and what it states is floored at one and clamped no further — the configuration count and the CPU count are not memory facts and are applied by `run_m1.build_tables`. The invented box is a terabyte so the arithmetic would answer far above any width stated here, which is what makes a pass proof that the short-circuit fired rather than a coincidence."""
+        monkeypatch.setenv("AMS_KERNEL_THREADS", stated)
+        assert kernel_exec._kernel_threads_default(total_bytes=1_000_000_000_000) == wanted
+
+    @pytest.mark.parametrize("junk", ["", "   ", "banana", "9GB", "2.5"])
+    def test_a_value_that_is_not_a_width_says_so_rather_than_being_quietly_ignored(self, monkeypatch, junk):
+        """This is the one place the two environment knobs in the derivation disagree, and deliberately: `AMS_TOTAL_MEMORY_BYTES` reproduces a box and swallows a typo, while this one is what someone reaches for to keep a build out of swap, so a value it cannot read is refused with the variable and its spelling named rather than silently replaced by a derived width. A variable declared without a value counts as unreadable, not as unset."""
+        monkeypatch.setenv("AMS_KERNEL_THREADS", junk)
+        with pytest.raises(RuntimeError, match="AMS_KERNEL_THREADS"):
+            kernel_exec._kernel_threads_default(total_bytes=34_359_738_368)
+
+    @pytest.mark.parametrize(
+        "total, wanted", [(4_000_000_000, 1), (34_359_738_368, 2), (32_000_000_000, 2), (64_000_000_000, 4)]
+    )
+    def test_the_width_follows_the_box_and_never_falls_below_one(self, total, wanted):
+        """The whole point of the derivation: a 32 GB box still gets the two sub-issue #46 shipped — in either spelling of 32 GB, so the answer does not rest on a unit convention — a box too small for one configuration gets one anyway, and a roomier box gets what it has room for instead of the constrained box's width."""
+        assert kernel_exec._kernel_threads_default(total_bytes=total) == wanted

@@ -52,7 +52,7 @@ VERIFICATION_SAMPLE_PER_FAMILY = 8
 # The two alias heads that name a boundary glyph rather than a family. Their entries can never reach a verdict — `_compare_row` skips every name in `conform.BOUNDARY_GLYPH_NAMES` before it consults the map — so they ride the whole-store stamp instead of a family key, and `alias_family_digests` refuses any other head that has no rune digest beside it.
 BOUNDARY_ALIAS_HEADS = frozenset({"space", "periodcentered"})
 
-# The closure of what `_compare_row` and `_SettledWindowWalk` read, module by module rather than as the whole of rebuild/pipeline/: the comparison and its settlement, the crate that decides the settlement, the spec loader that resolves what both read, the fingerprints the keys are cut from, and this module. rebuild/test_oracle_code_closure.py walks the import graph from those two entry points on every contracts run and fails when anything reachable is outside this list, so it cannot go stale the way a hand-written roster otherwise would. conform.py is here permanently and issue 81 may not remove it: the classifier this cache re-runs on every row shares a file with the producer it serves.
+# The closure of what `_compare_row` and `_SettledWindowWalk` read, module by module rather than as the whole of rebuild/pipeline/: the comparison and its settlement, the crate that decides the settlement, the spec loader that resolves what both read, the fingerprints the keys are cut from, and this module. rebuild/test_oracle_code_closure.py walks the import graph from those two entry points on every contracts run and fails when anything reachable is outside this list, so it cannot go stale the way a hand-written roster otherwise would. conform.py is here permanently and issue 81 may not remove it: the classifier this cache re-runs on every row shares a file with the producer it serves. The two tools files are here because `kernel_exec` derives its fan-out width from them (issue #63, sub-issue #86), which the comparison never consults and which cannot move a verdict at all — the streams are byte-identical at any width — so they buy the store nothing and cost it a drop whenever either moves. They stay anyway: the walk is at module grain, the sibling test forbids naming a module the comparison cannot reach, and between them the two have a couple of commits against `kernel_exec.py`'s many, so the churn this admits is close to none.
 ORACLE_ROW_CODE_PATHS = (
     "rebuild/pipeline/conform.py",
     "rebuild/pipeline/emit_gsub.py",
@@ -65,6 +65,8 @@ ORACLE_ROW_CODE_PATHS = (
     "rebuild/pipeline/settle.py",
     "rebuild/pipeline/spec_load.py",
     "rebuild/pipeline/table.py",
+    "rebuild/tools/memory_budget.py",
+    "rebuild/tools/peak_rss.py",
     "rebuild/validation/rowmodel.py",
 )
 
