@@ -440,8 +440,24 @@ def copy_static(out_dir: Path, static_dir: Path = STATIC_DIR) -> list[str]:
 
 
 def _write_json(path: Path, payload) -> None:
+    """Stream the payload into the file rather than materializing it, because `json.dumps(payload, indent=1, ensure_ascii=True) + "\\n"` handed to `write_text` stands two full-size copies up at once before a byte reaches disk — the concatenation never resizes the serialized str in place, so the copy and its source are both live, a high-water of twice the shard — and the biggest shards are hundreds of megabytes written at the very end of the build, where the surface-build parent's own peak already sits. A list goes out element by element, each serialized inside a one-element list whose framing is then peeled back off, so json's own C encoder lays the depth-1 indent down itself (on the pinned 3.14 it handles indent for any one-shot dumps) and the bytes are the one-shot dumps' bytes by construction; `JSONEncoder.iterencode` would stream more plainly but drops to the pure-Python generator whenever it is not one-shot, which multiplies the write time severalfold, where this peel adds about a sixth to it — a second or so across the whole units directory, against a surface-build step measured in minutes. Everything else the surface writes — the manifest, an empty shard — is a megabyte at most and goes through dumps untouched. Staging the bytes under a sibling name and renaming last keeps what serializing before opening anything used to give for free: nothing downstream guards against a half-written surface file, so a failed encode or a build killed mid-write has to leave the previous one intact rather than a truncated shard or an empty manifest."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=1, ensure_ascii=True) + "\n", encoding="utf-8")
+    staging = path.with_name(path.name + ".partial")
+    try:
+        with staging.open("w", encoding="utf-8", newline="\n") as handle:
+            if isinstance(payload, list) and payload:
+                handle.write("[")
+                for index, fragment in enumerate(payload):
+                    if index:
+                        handle.write(",")
+                    handle.write(json.dumps([fragment], indent=1, ensure_ascii=True)[1:-2])
+                handle.write("\n]")
+            else:
+                handle.write(json.dumps(payload, indent=1, ensure_ascii=True))
+            handle.write("\n")
+        staging.replace(path)
+    finally:
+        staging.unlink(missing_ok=True)
 
 
 def _prune_orphan_shards(out_dir: Path, manifest: dict) -> list[str]:

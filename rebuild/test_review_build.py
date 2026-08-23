@@ -22,6 +22,7 @@ from rebuild.review.build import (
     FEATURE_DESCRIPTIONS,
     STATIC_DIR,
     _prune_orphan_shards,
+    _write_json,
     build_table_diff,
     check_manifest,
     check_output_dir,
@@ -522,6 +523,50 @@ def test_prune_orphan_shards_removes_only_unreferenced_json(tmp_path):
 
 def test_prune_orphan_shards_no_units_dir_is_noop(tmp_path):
     assert _prune_orphan_shards(tmp_path, {"classes": []}) == []
+
+
+@pytest.mark.parametrize(
+    "payload",
+    (
+        [],
+        {},
+        [{}, [], [{}]],
+        [1, -2, 3.5, True, False, None, "x"],
+        [{"a": {"b": [1, {"c": [[]]}]}}, {"a": []}],
+        [{"letter": "·Pea", "raw": 'line\nbreak\ttab "quote" back\\slash \x1f'}],
+        {"format": 3, "classes": [{"id": "a", "shard": "units/a.json"}], "why": None},
+    ),
+)
+def test_write_json_matches_one_shot_dumps_byte_for_byte(tmp_path, payload):
+    """`_write_json` streams a shard element by element rather than building the whole string, so the framing and the depth-1 indent that used to fall out of one `json.dumps` call are now assembled around per-element calls. The bytes are the contract — the manifest's sha256 is the stamp on units-index.ndjson.gz and the unit store, and the unit cache's incremental-vs-from-scratch check is a file comparison — so pin them against the one-shot form over the shapes a shard and a manifest can hold, empty collections and escaped non-ASCII included, which is where hand-held framing drifts first."""
+    target = tmp_path / "payload.json"
+    _write_json(target, payload)
+    assert target.read_bytes() == (json.dumps(payload, indent=1, ensure_ascii=True) + "\n").encode("utf-8")
+    assert json.loads(target.read_text(encoding="utf-8")) == payload
+
+
+def test_write_json_reproduces_the_checked_in_fixture_shards(tmp_path):
+    """The same pin over real shards and a real manifest instead of hand-made shapes: re-serializing the checked-in fixture files reproduces them byte for byte, which is exactly what a build re-writing an unchanged surface has to do."""
+    sources = (FIXTURES / "manifest.json", *sorted((FIXTURES / "units").glob("*.json")))
+    assert len(sources) > 1
+    for source in sources:
+        target = tmp_path / source.name
+        _write_json(target, json.loads(source.read_text(encoding="utf-8")))
+        assert target.read_bytes() == source.read_bytes(), source.name
+
+
+def test_write_json_leaves_the_previous_file_alone_when_serializing_fails(tmp_path):
+    """Serializing element by element means the encoder can fail partway through a shard it has already started writing, so the write is staged and renamed rather than truncating the target first. Nothing downstream tolerates a half-written surface file — `check_output_dir` and every manifest reader parse straight off disk, and the shards go out before the manifest that stamps them — so a failed write has to leave the last good build in place and no staging file behind."""
+    shard, manifest = tmp_path / "shard.json", tmp_path / "manifest.json"
+    _write_json(shard, [{"id": "u-0000"}])
+    _write_json(manifest, {"at": "old"})
+    intact = {path: path.read_bytes() for path in (shard, manifest)}
+    with pytest.raises(TypeError):
+        _write_json(shard, [{"id": "u-0000"}, {"id": object()}])
+    with pytest.raises(TypeError):
+        _write_json(manifest, {"at": object()})
+    assert {path: path.read_bytes() for path in (shard, manifest)} == intact
+    assert sorted(path.name for path in tmp_path.iterdir()) == ["manifest.json", "shard.json"]
 
 
 def _export_surface():
