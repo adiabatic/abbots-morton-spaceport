@@ -6,6 +6,7 @@ ignores:
   - "node_modules/**"
   - ".uv-cache/**"
   - "tmp/**"
+  - "rebuild/kernel-rs/target/**"
 
 config:
   line-length: false
