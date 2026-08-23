@@ -94,7 +94,11 @@ policy:
   order:
   - rising
   - falling
-  refuse: []
+  refuse:
+  - exit: x-height
+    when:
+      right: {family: qsIt}
+    why: Just like how I don’t want ·It·Et joining (it kind of looks ugly somehow), I don’t want ·At·It joining either
   prefer:
   - stance: falling
     when:
