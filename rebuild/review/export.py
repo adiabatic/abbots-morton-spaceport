@@ -20,13 +20,42 @@ VERDICTS_FORMAT = "ams-review-verdicts/1"
 VERDICT_VALUES = ("approve", "reject", "either", "identical", "neither", "skip")
 
 
+TRIAGE_KEYS = (
+    "id",
+    "class",
+    "batch",
+    "no_verdict",
+    "configs",
+    "ink_identical",
+    "junior_equivalent",
+    "codepoints",
+    "text_entities",
+    "notation",
+    "provenance",
+    "drafts",
+)
+
+
+def _triage_projection(unit: dict, shard: str) -> dict:
+    """One shard unit narrowed to the fields the triage YAML is written from. A key this file reads but the shard does not carry is a build and this reader disagreeing about the unit shape, which as a silent `.get(...) or None` writes a triage YAML that is wrong rather than missing — so it stops here instead, naming the key. `TRIAGE_KEYS` is the export's read-set exactly and not a safe-to-pad allowlist in either direction: a key declared but never read costs a refusal on any surface that legitimately omits it, and a key read but never declared is the null this refusal exists to prevent. `test_load_units_keeps_exactly_the_fields_the_triage_export_reads` names the set independently, and `test_export_round_trip` runs `build_triage` over the projection so the reads and the declaration are held together."""
+    missing = [key for key in TRIAGE_KEYS if key not in unit]
+    if missing:
+        raise SystemExit(
+            f"{shard}: unit {unit.get('id')} carries no {', '.join(missing)}; "
+            "the triage export reads that field, so this surface was built by a version this reader does not understand"
+        )
+    return {key: unit[key] for key in TRIAGE_KEYS}
+
+
 def load_units(review_dir: Path) -> tuple[dict, dict[str, dict]]:
+    """The manifest and every unit on the surface, narrowed to `TRIAGE_KEYS` a shard at a time. The corpus is a couple of gigabytes across a few dozen shards and the largest is 450 MB, of which the triage export reads under a third — `explain` alone is two fifths of it and nothing here opens it — so each shard is released before the next is parsed and only the projection is kept."""
     manifest = json.loads((review_dir / "manifest.json").read_text(encoding="utf-8"))
     units: dict[str, dict] = {}
     for meta in manifest.get("classes", ()):
         shard = json.loads((review_dir / meta["shard"]).read_text(encoding="utf-8"))
         for unit in shard:
-            units[unit["id"]] = unit
+            units[unit["id"]] = _triage_projection(unit, meta["shard"])
+        del shard
     return manifest, units
 
 
