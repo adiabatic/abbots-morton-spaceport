@@ -1,6 +1,6 @@
 # Curated sequence set for the M1 CoreText-vs-HarfBuzz smoke harness (M1-PLAN section 5, coretext_smoke).
 # One sequence per line as whitespace-separated hex codepoints; text after "#" is the label.
-# Codepoints: qsPea E650, qsTea E652, qsDay E653, qsFee E658, qsVie E659, qsSee E65A, qsJai E65D, qsMay E665, qsNo E666, qsLow E667, qsRoe E668, qsIt E670, qsEt E672, qsEight E673, qsI E675, qsAh E676, qsAwe E677, qsOx E678, qsOy E679, qsUtter E67A, qsOut E67B, space 0020, namer dot 00B7, ZWNJ 200C.
+# Codepoints: qsPea E650, qsTea E652, qsDay E653, qsFee E658, qsVie E659, qsSee E65A, qsJai E65D, qsMay E665, qsNo E666, qsLow E667, qsRoe E668, qsIt E670, qsEt E672, qsEight E673, qsAt E674, qsI E675, qsAh E676, qsAwe E677, qsOx E678, qsOy E679, qsUtter E67A, qsOut E67B, space 0020, namer dot 00B7, ZWNJ 200C.
 # The driver runs every line under all eight acceptance configurations.
 #
 # The prototype probe rows, carried forward.
@@ -553,3 +553,58 @@ E652 E673 E652 E679       # Tea Eight Tea+Oy (the bare entry before the entryles
 200C E673                 # ZWNJ Eight (locked twin)
 E673 200C E652            # Eight ZWNJ Tea (exit severed)
 00B7 E673                 # namer dot lowers before Short Eight
+
+# qsAt windows: the Short rising stroke, normally entered at the baseline and exiting at the x-height; before baseline-entered ·May it reverses direction and runs out along the baseline instead.
+E674                      # At in isolation
+E650 E674                 # Pea At (baseline join)
+E652 E674                 # Tea At (baseline join)
+E652 E679 E674            # Tea+Oy At (the ligature's baseline exit)
+E653 E674                 # Day At (baseline join)
+E65A E674                 # See At (At's entry extends by one)
+E65D E674                 # Jai At (baseline join)
+E665 E674                 # May At (the grounded loop's baseline exit)
+E666 E674                 # No At (the flipped stance's baseline exit)
+E668 E674                 # Roe At (the baseline exit)
+E670 E674                 # It At (the baseline exit)
+E672 E674                 # Et At (the baseline exit)
+E673 E674                 # Eight At (the baseline exit)
+E677 E674                 # Awe At (the baseline exit)
+E678 E674                 # Ox At (the baseline exit)
+E679 E674                 # Oy At (the baseline exit)
+E67A E674                 # Utter At (the alternate stance's baseline exit)
+E658 E674                 # Fee At (break)
+E659 E674                 # Vie At (break)
+E667 E674                 # Low At (break)
+E675 E674                 # I At (break)
+E676 E674                 # Ah At (break)
+E67B E674                 # Out At (break)
+E674 E653                 # At Day (x-height join)
+E674 E653 E67A            # At Day+Utter (x-height join into the ligature)
+E674 E65D                 # At Jai (the old exit tuck is re-spelled on Jai's entry)
+E674 E65D E67A            # At Jai+Utter (the same re-spelled tuck into the ligature)
+E65A E674 E65D            # See At Jai (Jai suppresses At's entry extension)
+E674 E665                 # At May (the special baseline exit extends across the letter)
+E674 E666                 # At No (x-height join)
+E674 E666 E67A E665       # At No Utter May (No does not spend its exit on Utter)
+E674 E668                 # At Roe (x-height join)
+E674 E670                 # At It (x-height join)
+E674 E672                 # At Et (x-height join)
+E674 E673                 # At Eight (x-height join)
+E674 E677                 # At Awe (x-height join)
+E674 E678                 # At Ox (x-height join)
+E674 E650                 # At Pea (break)
+E674 E652                 # At Tea (break)
+E674 E658                 # At Fee (break)
+E674 E659                 # At Vie (break)
+E674 E65A                 # At See (break)
+E674 E667                 # At Low (break)
+E674 E674                 # At At (break)
+E674 E675                 # At I (break)
+E674 E676                 # At Ah (break)
+E674 E679                 # At Oy (break)
+E674 E67A                 # At Utter (break)
+E674 E67B                 # At Out (break)
+E650 E674 E665            # Pea At May (At gives up its entry to join May at the baseline)
+200C E674                 # ZWNJ At (locked twin)
+E674 200C E653            # At ZWNJ Day (exit severed)
+00B7 E674                 # namer dot lowers before Short At

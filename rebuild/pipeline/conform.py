@@ -1686,6 +1686,7 @@ def _may_ligature_seam_loosened(row: DivergentRow) -> bool:
 # qsAwe is a member on the qsAh precedent, both sides at once: the old record has no stances, so its x-height entry and baseline exit both ride the base cmap glyph, and bare qsAwe is the only ·Awe glyph the old font emits under ss10 — keeping the y5 joins into it and the y0 joins out of it wherever the neighbor's anchor also survives the overlay.
 # qsOx joined at its own migration on the identical shape: no stances in the old record, so both anchors ride the base cmap glyph and bare qsOx keeps its seams under ss10 (qsMay|qsOx stays y5, qsOx|qsVie stays y0).
 # qsEight joined at its own migration on the same shape: no stances in the old record, so both anchors ride the base cmap glyph and bare qsEight keeps its seams under ss10 (qsMay|qsEight stays y5, qsEight|qsVie stays y0).
+# qsAt joined on direct pair evidence: the old overlay leaves bare qsAt in place, so qsPea|qsAt stays joined at the baseline and qsAt|qsDay stays joined at the x-height; the contextual before-·May and before-·J'ai forms are covered and isolate correctly.
 SS10_UNCOVERED_BY_OLD_FONT = frozenset(
     {
         "qsAh",
@@ -1699,6 +1700,7 @@ SS10_UNCOVERED_BY_OLD_FONT = frozenset(
         "qsAwe",
         "qsOx",
         "qsEight",
+        "qsAt",
     }
 )
 

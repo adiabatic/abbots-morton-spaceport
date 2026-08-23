@@ -1,0 +1,119 @@
+rune: qsAt
+codepoint: 0xE674
+ductus:
+  rising: |
+    Begun at the left along the baseline, the stroke runs in a counterclockwise arc and finishes at the x-height, where it may connect to another letter.
+  falling: |
+    Before ·May, the same stroke is drawn from the upper right down to the baseline at the left, then continues rightward along the baseline into ·May.
+mono:
+  bitmap:
+  - "    #"  #
+  - "    #"
+  - "    #"
+  - "   # "
+  - "  #  "
+  - "##   "  #
+stances:
+  rising:
+    motion: rising
+    traits: []
+    bitmap:
+    - "    #"  #
+    - "    #"
+    - "    #"
+    - "   # "
+    - "  #  "
+    - "##   "  #
+    surface:
+      entries:
+        baseline:
+          x: 0
+          stroke: horizontal
+          from:
+          - family:
+            - qsPea
+            - qsTea
+            - qsTea_qsOy
+            - qsDay
+            - qsSee
+            - qsJai
+            - qsMay
+            - qsNo
+            - qsRoe
+            - qsIt
+            - qsEt
+            - qsEight
+            - qsAwe
+            - qsOx
+            - qsOy
+            - qsUtter
+      exits:
+        x-height:
+          x: 5
+          stroke: vertical
+          withdrawal: safe
+          toward:
+          - family:
+            - qsDay
+            - qsDay_qsUtter
+            - qsJai
+            - qsJai_qsUtter
+            - qsNo
+            - qsRoe
+            - qsIt
+            - qsEt
+            - qsEight
+            - qsAwe
+            - qsOx
+      cells: []
+      unlocks: []
+      require: []
+  falling:
+    motion: falling
+    traits: []
+    bitmap:
+    - "    #"  #
+    - "    #"
+    - "    #"
+    - "   # "
+    - "  #  "
+    - "##   "  #
+    surface:
+      entries: {}
+      exits:
+        baseline:
+          x: 2
+          stroke: horizontal
+          toward:
+          - {family: qsMay}
+      cells: []
+      unlocks: []
+      require:
+      - exit
+policy:
+  order:
+  - rising
+  - falling
+  refuse: []
+  prefer:
+  - stance: falling
+    when:
+      right: {family: qsMay}
+  extend:
+  - stance: rising
+    entry: baseline
+    by: 1
+    when:
+      left: {family: qsSee}
+      right:
+        except:
+        - {family: qsJai}
+        - {family: qsJai_qsUtter}
+  - stance: falling
+    exit: baseline
+    by: 3
+    when:
+      right: {family: qsMay}
+  contract: []
+  resolve: []
+  groups: {}
