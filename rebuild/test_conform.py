@@ -703,6 +703,71 @@ class TestOracleAudit:
         assert len(set(names)) == len(conform.ACCEPTANCE_CONFIGS)
 
 
+class TestOracleUnmatchedTally:
+    """What a configuration sends home about its unmatched rows. Every one of them is already on disk in that configuration's audit shard, and `oracle_summary.json` asks the result object for two things only — how many there were, and twenty of them to quote — so the result carries a count and the first `ORACLE_UNMATCHED_EXEMPLARS` rather than the whole list, which on a live run is a six-figure pile of `DivergentRow` objects pickled across a process pipe to be counted. Pin the count, the cap, the stream order the exemplars have to keep for the summary's quotes to stay the same twenty, and the gate verdict's dependence on the count rather than on the sample."""
+
+    def _tables(self, tmp_path: Path, per_config: dict[str, list[tuple[int, int]]]) -> Path:
+        tables = tmp_path / "tables"
+        tables.mkdir()
+        for config, pairs in per_config.items():
+            with gzip.open(tables / f"baseline-{config}.subset.tsv.gz", "wt", encoding="utf-8") as fh:
+                fh.write(f"# config: {config}\n")
+                for left, right in pairs:
+                    fh.write(
+                        f"{left:04X}:{right:04X}\told{left:04X}|old{right:04X}\t0,1\tbreak"
+                        "\t0,0,150|150,0,150\n"
+                    )
+        return tables
+
+    def test_a_configuration_sends_home_a_count_and_the_first_twenty_rows(self, spec, tmp_path):
+        letters = (0xE650, 0xE652, 0xE653, 0xE65A, 0xE665, 0xE667, 0xE670, 0xE679, 0xE67A)
+        pairs = [(left, right) for left in letters for right in letters]
+        wide = pairs[:25]
+        narrow = pairs[25:28]
+        tables = self._tables(tmp_path, {"default": wide, "ss03": narrow})
+        aliases = tmp_path / "aliases.yaml"
+        aliases.write_text("".join(f"old{code:04X}: pending\n" for code in letters))
+        ledger = tmp_path / "ledger.yaml"
+        ledger.write_text("[]\n")
+        configs = ("default", "ss03")
+
+        serial = tmp_path / "serial"
+        report = conform.compare_against_baseline(
+            spec, tables, aliases, ledger, configs=configs, out_dir=serial
+        )
+        assert report.unmatched_count == 28
+        assert not report.passed
+        assert len(report.unmatched_exemplars) == conform.ORACLE_UNMATCHED_EXEMPLARS + 3
+        quoted = report.unmatched_exemplars[: conform.ORACLE_UNMATCHED_EXEMPLARS]
+        assert [row.codepoints for row in quoted] == [
+            f"{left:04X}:{right:04X}" for left, right in wide[: conform.ORACLE_UNMATCHED_EXEMPLARS]
+        ]
+        assert all(row.phenomena for row in quoted)
+        audit = (serial / "divergence-audit.tsv").read_text(encoding="utf-8").splitlines()
+        assert len(audit) == 29
+        assert sum(line.split("\t")[3] == "UNMATCHED" for line in audit[1:]) == 28
+
+        fanned = tmp_path / "fanned"
+        fanned.mkdir()
+        scratch = conform.oracle_audit_scratch(fanned)
+        merged = conform.merge_oracle_results(
+            conform.oracle_config_worker(spec, tables, aliases, ledger, config, None, None, audit_dir=scratch)
+            for config in configs
+        )
+        conform.discard_oracle_audit_scratch(fanned)
+        assert merged.unmatched_count == report.unmatched_count
+        assert [row.codepoints for row in merged.unmatched_exemplars] == [
+            row.codepoints for row in report.unmatched_exemplars
+        ]
+
+    def test_the_verdict_reads_the_count_and_not_the_sample(self):
+        assert conform.BaselineReport().passed
+        assert not conform.BaselineReport(unmatched_count=1).passed
+        assert not conform.BaselineReport(
+            multi_matched=[(conform.DivergentRow("default", "E650", (), -1, (), (), (), ()), ("x",))]
+        ).passed
+
+
 class TestConformSummary:
     def test_a_conformance_summary_stays_in_its_established_shape(self, tmp_path):
         import json
