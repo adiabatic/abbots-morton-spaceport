@@ -2,9 +2,11 @@
 
 The bundle is what lets `rebuild/test_unit_cache.py` prove the surface cache's contracts — a warm store serves every unit, an incremental rebuild lands byte-identical on a from-scratch one, a corrupt store degrades — in the contracts lane, at full xdist width, without any test reaching `rebuild/out/`. Those are properties of `unit_cache.py` and `build_m1`'s fan-out rather than of any glyph, so a frozen workload witnesses them as well as the live one and costs seconds instead of minutes.
 
-What it holds: `audit.tsv`, the live divergence audit filtered to windows drawn from the four letters below plus the boundary tokens; `baseline-*.subset.tsv.gz`, each live subset table sliced to those same windows; `M1.otf`, a frozen copy of the after-font the slices were extracted against; the default settlement and treaty tables, which `rebuild/test_review_tablediff.py` and the table-diff build test want as a directory of real tables beside a real font rather than as anything about today's rules; `m1-divergences.yaml`, the ledger whose class names the audit rows carry; and `spec/`, a copy of the spec those rows settled under — `glyph_data/runes/*.yaml`, `rebuild/script.yaml` and `rebuild/schema/*.json`, laid out at the paths `enrich.load_spec` expects under a root. All of it moves together, and only together — a slice from one build beside a font from another would have the enricher reporting glyph disagreements that are the bundle's fault rather than the code's.
+What it holds: `audit.tsv`, the live divergence audit filtered to windows drawn from the four letters below plus the boundary tokens; `baseline-*.subset.tsv.gz`, each live subset table sliced to those same windows; `M1.otf`, a frozen copy of the after-font the slices were extracted against; the default settlement and treaty tables, which `rebuild/test_review_tablediff.py` and the table-diff build test want as a directory of real tables beside a real font rather than as anything about today's rules; and `pin.json`, the tree and blob shas of `glyph_data/runes`, `rebuild/schema`, `rebuild/script.yaml` and `rebuild/m1-divergences.yaml` at the commit this ran on (`pin.PINNED_PATHS` is the authority). All of it moves together, and only together — a slice from one build beside a font from another, or a pin from a third, would have the enricher reporting glyph disagreements that are the bundle's fault rather than the code's.
 
-The spec copy is what makes the bundle hermetic. `build_m1` takes a `spec_root`, and the mini-bundle tests pass this directory's `spec/`, so the settlement the enricher re-derives is the one these rows were written under and a rune edit cannot leave the frozen `new` cells describing a rebuild that no longer happens. Everything else in a mini build still comes from the repo root — the fingerprints, the git head, the relative paths in the manifest, the corpus the pin drafts validate against — because those are facts about this checkout rather than about the workload.
+The pin is what makes the bundle hermetic, and it replaces what used to be a checked-in copy of the spec. `build_m1` takes a `spec_root`; the `mini_bundle` fixture in `rebuild/conftest.py` materializes the pinned objects out of git into a session temp directory and every mini-bundle test hands that over, so the settlement the enricher re-derives is the one these rows were written under, a rune edit cannot leave the frozen `new` cells describing a rebuild that no longer happens, and no second copy of the runes sits in the tree waiting to be edited by mistake. Everything else in a mini build still comes from the repo root — the fingerprints, the git head, the relative paths in the manifest, the corpus the pin drafts validate against — because those are facts about this checkout rather than about the workload.
+
+Two guards are what make HEAD trustworthy to pin against. The pinned paths must be clean, so HEAD's bytes are the working tree's bytes; and the live build's recorded `data` fingerprint must equal the one the tree hashes to now, so the rows being frozen really did settle under them. Fail either and the pin would name a spec no build ever ran, which is the one failure a content-addressed pin cannot detect later.
 
 Run it after `run_m1` has left a fresh `rebuild/out/m1`:
 
@@ -19,13 +21,15 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 REPO_ROOT = HERE.parents[3]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+from rebuild.pipeline import fingerprint  # noqa: E402
+from rebuild.review.fixtures.mini import pin  # noqa: E402
+
 LIVE = REPO_ROOT / "rebuild" / "out" / "m1"
 
 LETTERS = {"E650", "E652", "E653", "E668"}
 BOUNDARIES = {"0020", "200C", "00B7"}
-# The spec `enrich.load_spec` reads under a root, at the paths it reads them from, so `spec/` can be handed to build_m1 as a spec_root unchanged.
-SPEC_TREES = ("glyph_data/runes/*.yaml", "rebuild/schema/*.json")
-SPEC_FILES = ("rebuild/script.yaml",)
 
 
 def selected_windows(audit: Path) -> tuple[str, list[str]]:
@@ -39,29 +43,22 @@ def selected_windows(audit: Path) -> tuple[str, list[str]]:
     return header, kept
 
 
-def freeze_spec() -> int:
-    """The spec the frozen rows settled under, copied to `spec/` at the same relative paths it lives at in the repo. Written fresh each time — a stale rune left behind would be a spec no build ever ran."""
-    root = HERE / "spec"
-    shutil.rmtree(root, ignore_errors=True)
-    copied = 0
-    for pattern in SPEC_TREES:
-        for source in sorted(REPO_ROOT.glob(pattern)):
-            target = root / source.relative_to(REPO_ROOT)
-            target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(source, target)
-            copied += 1
-    for name in SPEC_FILES:
-        source = REPO_ROOT / name
-        target = root / name
-        target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(source, target)
-        copied += 1
-    return copied
-
-
 def main() -> int:
     if not (LIVE / "divergence-audit.tsv").exists():
         print(f"no live build output under {LIVE}; run run_m1 first", file=sys.stderr)
+        return 1
+    dirty = pin.dirty_paths()
+    if dirty:
+        print("the pin names committed objects; commit (or stash) these first:", file=sys.stderr)
+        for line in dirty:
+            print(line, file=sys.stderr)
+        return 1
+    recorded = fingerprint.read_stage_a(LIVE)
+    if recorded is None or recorded["data"] != fingerprint.data_value(REPO_ROOT):
+        print(
+            "rebuild/out/m1 was not built from the spec as it stands on disk; run run_m1 first",
+            file=sys.stderr,
+        )
         return 1
     header, kept = selected_windows(LIVE / "divergence-audit.tsv")
     if len(kept) <= 200:
@@ -83,9 +80,11 @@ def main() -> int:
     shutil.copyfile(LIVE / "M1.otf", HERE / "M1.otf")
     for table in ("settlement-default.tsv", "treaties-default.tsv"):
         shutil.copyfile(LIVE / table, HERE / table)
-    shutil.copyfile(REPO_ROOT / "rebuild" / "m1-divergences.yaml", HERE / "m1-divergences.yaml")
-    frozen = freeze_spec()
-    print(f"{len(kept)} audit rows over {len(windows)} windows, {frozen} spec files frozen", flush=True)
+    record = pin.write_pin()
+    print(
+        f"{len(kept)} audit rows over {len(windows)} windows, spec pinned at {record['head'][:12]}",
+        flush=True,
+    )
     return 0
 
 

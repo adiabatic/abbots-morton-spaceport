@@ -18,29 +18,27 @@ from rebuild.review.build import SITE_BEFORE_FONT, SITE_JUNIOR_FONT, _cluster_id
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 MINI = REPO_ROOT / "rebuild" / "review" / "fixtures" / "mini"
-LEDGER = MINI / "m1-divergences.yaml"
 MINI_AUDIT = MINI / "audit.tsv"
 MINI_FONT = MINI / "M1.otf"
-MINI_SPEC = MINI / "spec"
 
 
-def _build(out, audit_path=MINI_AUDIT, **kwargs):
-    """One mini surface, always over the frozen bundle: its subset tables, its after-font, its ledger, and its spec. The spec is what keeps the bundle hermetic — the enricher re-settles every window from it, so reading the repo's live runes would make a rune edit break this module until the bundle was regenerated."""
+def _build(out, bundle, audit_path=MINI_AUDIT, **kwargs):
+    """One mini surface, always over the frozen bundle: its subset tables, its after-font, and the ledger and spec the `mini_bundle` fixture materializes from the bundle's pin. That pinned spec is what keeps the bundle hermetic — the enricher re-settles every window from it, so reading the repo's live runes would make a rune edit break this module until the bundle was regenerated."""
     return build_m1(
         out,
         audit_path=audit_path,
-        ledger_path=LEDGER,
+        ledger_path=bundle.ledger,
         subset_dir=MINI,
         after_font=MINI_FONT,
-        spec_root=MINI_SPEC,
+        spec_root=bundle.spec_root,
         **kwargs,
     )
 
 
 @pytest.fixture(scope="module")
-def base_surface(tmp_path_factory):
+def base_surface(tmp_path_factory, mini_bundle):
     out = tmp_path_factory.mktemp("unit-cache-base") / "surface"
-    _build(out, jobs=1)
+    _build(out, mini_bundle, jobs=1)
     return out
 
 
@@ -62,10 +60,10 @@ def _copy(base: Path, tmp_path: Path) -> Path:
     return target
 
 
-def test_no_change_rebuild_serves_every_unit_and_is_byte_stable(base_surface, tmp_path, capfd):
+def test_no_change_rebuild_serves_every_unit_and_is_byte_stable(base_surface, mini_bundle, tmp_path, capfd):
     surface = _copy(base_surface, tmp_path)
     before = _tree(surface)
-    _build(surface, jobs=1)
+    _build(surface, mini_bundle, jobs=1)
     served, total = _served(capfd)
     assert served == total
     assert _tree(surface) == before
@@ -103,40 +101,42 @@ def _edited_audit(tmp_path: Path) -> Path:
     return path
 
 
-def test_incremental_rebuild_matches_a_from_scratch_build_after_an_edit(base_surface, tmp_path, capfd):
+def test_incremental_rebuild_matches_a_from_scratch_build_after_an_edit(
+    base_surface, mini_bundle, tmp_path, capfd
+):
     """The soundness gate at mini scale: dropping one window renumbers every unit behind it and retagging another moves its class, and the incremental pass — serving nearly everything, re-patching ids, batches, echo numbers, and seam homes — must land byte-for-byte on what a cache-blind build of the same audit writes, the store included."""
     incremental = _copy(base_surface, tmp_path)
     edited = _edited_audit(tmp_path)
     capfd.readouterr()
-    _build(incremental, audit_path=edited, jobs=1)
+    _build(incremental, mini_bundle, audit_path=edited, jobs=1)
     served, total = _served(capfd)
     assert 0 < total - served <= 2
     scratch = tmp_path / "scratch"
-    _build(scratch, audit_path=edited, jobs=1)
+    _build(scratch, mini_bundle, audit_path=edited, jobs=1)
     assert _tree(incremental) == _tree(scratch)
 
 
-def test_corrupt_store_degrades_to_a_full_build(base_surface, tmp_path, capfd):
+def test_corrupt_store_degrades_to_a_full_build(base_surface, mini_bundle, tmp_path, capfd):
     surface = _copy(base_surface, tmp_path)
     unit_cache.store_path(surface).write_bytes(b"not a gzip stream")
-    _build(surface, jobs=1)
+    _build(surface, mini_bundle, jobs=1)
     served, _total = _served(capfd)
     assert served == 0
     assert _tree(surface) == _tree(base_surface)
 
 
-def test_fresh_unit_cache_bypasses_a_warm_store(base_surface, tmp_path, capfd):
+def test_fresh_unit_cache_bypasses_a_warm_store(base_surface, mini_bundle, tmp_path, capfd):
     surface = _copy(base_surface, tmp_path)
     before = _tree(surface)
-    _build(surface, jobs=1, fresh_unit_cache=True)
+    _build(surface, mini_bundle, jobs=1, fresh_unit_cache=True)
     served, _total = _served(capfd)
     assert served == 0
     assert _tree(surface) == before
 
 
-def test_serial_and_parallel_builds_are_byte_identical(base_surface, tmp_path):
+def test_serial_and_parallel_builds_are_byte_identical(base_surface, mini_bundle, tmp_path):
     parallel = tmp_path / "parallel"
-    _build(parallel, jobs=2)
+    _build(parallel, mini_bundle, jobs=2)
     assert _tree(parallel) == _tree(base_surface)
 
 
@@ -146,18 +146,20 @@ def _signatures(capfd) -> tuple[int, int]:
     return int(match.group(1)), int(match.group(2))
 
 
-def test_no_change_rebuild_serves_every_signature(base_surface, tmp_path, capfd):
+def test_no_change_rebuild_serves_every_signature(base_surface, mini_bundle, tmp_path, capfd):
     surface = _copy(base_surface, tmp_path)
-    _build(surface, jobs=1)
+    _build(surface, mini_bundle, jobs=1)
     cached, shaped = _signatures(capfd)
     assert cached > 0
     assert shaped == 0
 
 
-def test_corrupt_signature_store_reshapes_and_degrades_to_the_same_bytes(base_surface, tmp_path, capfd):
+def test_corrupt_signature_store_reshapes_and_degrades_to_the_same_bytes(
+    base_surface, mini_bundle, tmp_path, capfd
+):
     surface = _copy(base_surface, tmp_path)
     unit_cache.signature_store_path(surface).write_bytes(b"not a gzip stream")
-    _build(surface, jobs=1)
+    _build(surface, mini_bundle, jobs=1)
     cached, shaped = _signatures(capfd)
     assert cached == 0
     assert shaped > 0
