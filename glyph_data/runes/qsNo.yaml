@@ -56,19 +56,19 @@ stances:
           - family:
             - qsPea
             - qsTea
+            - qsTea_qsOy
             - qsDay
             - qsVie
             - qsJai
+            - qsNo
+            - qsRoe
             - qsIt
             - qsEt
             - qsEight
             - qsAwe
             - qsOx
             - qsOy
-            - qsNo
-            - qsRoe
             - qsUtter
-            - qsTea_qsOy
       exits:
         baseline:
           x: 5
