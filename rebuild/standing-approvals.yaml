@@ -45,3 +45,10 @@ rules:
       after:
         ink_deltas: [d-fb9cc0e103ca]
       except_left: []
+  - id: see-grounded-left-column-dropped
+    verdict: approve
+    note: "The grounded ·See sits a column closer to whatever precedes it — one blank column on its left where the old font left two, the same tail on its right — and everything after it only slides over; ruled at the ·At sitting, where the ·See→·At placement delta was the parked question"
+    match:
+      after:
+        ink_deltas: [d-10340ad1f142, d-401725d88405]
+      except_left: []
