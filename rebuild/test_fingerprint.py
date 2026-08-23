@@ -1,10 +1,19 @@
-"""Tests for the build-input fingerprint module: content sensitivity, order independence, missing-file tolerance, the stat-based baselines component, the Stage A record round trip, the serve.py exclusion, and the prose-blind rune digest."""
+"""Tests for the build-input fingerprint module: the streamed file digest and the sweep that keeps it the only way rebuild/ hashes a file, content sensitivity, order independence, missing-file tolerance, the stat-based baselines component, the Stage A record round trip, the serve.py exclusion, and the prose-blind rune digest.
 
+The sweep is here rather than in prose because file_sha256 exists to stop a hash costing the file its size in RAM, and that claim only holds while every hash goes through it — which a roster of callers written into a docstring cannot keep, since nothing checks a roster and the next module to grow a file hash falsifies it in silence. The modules that cannot import fingerprint spell the same streamed read out inline instead; those are pinned against the helper by value here, so a copy cannot drift from the original unnoticed either.
+"""
+
+import ast
 import hashlib
 import json
 import textwrap
+from pathlib import Path
 
+from rebuild.baseline import model
 from rebuild.pipeline import fingerprint
+from rebuild.tools import artifact_cycle
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 def _fake_repo(tmp_path):
@@ -39,6 +48,61 @@ def _fake_repo(tmp_path):
     (root / "site" / "AbbotsMortonSpaceportSansSenior-Regular.otf").write_bytes(b"senior-font")
     (root / "site" / "AbbotsMortonSpaceportSansJunior-Regular.otf").write_bytes(b"junior-font")
     return root
+
+
+def test_file_sha256_matches_the_read_whole_digest(tmp_path):
+    payloads = {
+        "empty.bin": b"",
+        "small.yaml": b"family: qsPea\n",
+        "multi-chunk.bin": bytes(range(256)) * 8192,
+    }
+    for name, payload in payloads.items():
+        path = tmp_path / name
+        path.write_bytes(payload)
+        assert fingerprint.file_sha256(path) == hashlib.sha256(payload).hexdigest()
+
+
+def _read_whole_hashes(path):
+    """The line of every `hashlib.<algo>(<expr>.read_bytes())` in one module — the spelling that holds a whole file in memory to hash it."""
+    found = []
+    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+        if not isinstance(node, ast.Call) or not node.args:
+            continue
+        func, first = node.func, node.args[0]
+        if (
+            isinstance(func, ast.Attribute)
+            and isinstance(func.value, ast.Name)
+            and func.value.id == "hashlib"
+            and isinstance(first, ast.Call)
+            and isinstance(first.func, ast.Attribute)
+            and first.func.attr == "read_bytes"
+        ):
+            found.append(node.lineno)
+    return found
+
+
+def test_no_rebuild_module_hashes_a_file_it_read_whole():
+    closure = artifact_cycle.rebuild_gate_closure_files(REPO_ROOT)
+    assert closure is not None, "the rebuild closure needs git, and without it there is nothing to sweep"
+    modules = [
+        rel
+        for rel in closure
+        if rel.endswith(".py") and rel.startswith("rebuild/") and not Path(rel).name.startswith("test_")
+    ]
+    assert "rebuild/pipeline/fingerprint.py" in modules, "the sweep reached nothing; the closure moved"
+    offenders = sorted(f"{rel}:{line}" for rel in modules for line in _read_whole_hashes(REPO_ROOT / rel))
+    assert offenders == [], (
+        "these hash a file they read whole, which costs its size in resident memory; call "
+        f"fingerprint.file_sha256 instead: {', '.join(offenders)}"
+    )
+
+
+def test_the_inline_streamed_reads_answer_what_the_helper_does(tmp_path):
+    sample = tmp_path / "sample.otf"
+    sample.write_bytes(bytes(range(256)) * 4096)
+    expected = fingerprint.file_sha256(sample)
+    assert artifact_cycle._sha256_path(sample) == expected
+    assert model.font_sha256(sample) == expected
 
 
 def test_hash_paths_is_content_sensitive_and_stable(tmp_path):

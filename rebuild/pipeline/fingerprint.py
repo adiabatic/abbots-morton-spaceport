@@ -25,6 +25,12 @@ COMPONENTS = STAGE_A_COMPONENTS + STAGE_B_COMPONENTS
 STAGE_A_FILENAME = "inputs_fingerprint.json"
 
 
+def file_sha256(path: Path) -> str:
+    """The shared file-content hash behind the build's fingerprints, stamps, and green records. Streamed through the digest rather than read whole, so hashing a file never costs its size in resident memory: the same value either way, and most of what passes through is small, but these inputs all grow with the migration and the one that forced the change is already hundreds of megabytes. A module that deliberately keeps rebuild.pipeline out of its import surface spells the same streamed read out inline instead and says why where it does; the roster is not written down here, because rebuild/test_fingerprint.py enforces it and a prose copy could only drift. Missing-file behavior stays with each caller, which is the one thing they disagree about."""
+    with open(path, "rb") as handle:
+        return hashlib.file_digest(handle, "sha256").hexdigest()
+
+
 def rune_paths(repo_root: Path) -> list[Path]:
     return sorted((Path(repo_root) / "glyph_data" / "runes").glob("*.yaml"))
 
@@ -86,11 +92,7 @@ def _label(repo_root: Path, path: Path) -> str:
 
 def path_lines(repo_root: Path, paths: list[Path]) -> list[str]:
     """The per-file `label\\tdigest` lines a path-set hash is built from, sorted — exposed so a green record can store them and a skip miss can name exactly which input moved instead of reporting only that some 64-hex value did."""
-    return sorted(
-        f"{_label(repo_root, path)}\t{hashlib.sha256(path.read_bytes()).hexdigest()}"
-        for path in paths
-        if path.is_file()
-    )
+    return sorted(f"{_label(repo_root, path)}\t{file_sha256(path)}" for path in paths if path.is_file())
 
 
 def hash_paths(repo_root: Path, paths: list[Path]) -> str:
@@ -160,8 +162,7 @@ def data_lines(repo_root: Path) -> list[str]:
     root = Path(repo_root)
     runes = set(rune_paths(root))
     return sorted(
-        f"{_label(root, path)}\t"
-        + (rune_file_digest(path) if path in runes else hashlib.sha256(path.read_bytes()).hexdigest())
+        f"{_label(root, path)}\t" + (rune_file_digest(path) if path in runes else file_sha256(path))
         for path in data_paths(root)
         if path.is_file()
     )
@@ -182,7 +183,7 @@ def tables_environment_value(repo_root: Path) -> str:
     root = Path(repo_root)
     runes = set(rune_paths(root))
     lines = sorted(
-        f"{_label(root, path)}\t{hashlib.sha256(path.read_bytes()).hexdigest()}"
+        f"{_label(root, path)}\t{file_sha256(path)}"
         for path in data_paths(root)
         if path.is_file() and path not in runes
     )

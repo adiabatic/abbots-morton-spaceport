@@ -65,7 +65,7 @@ def store_path(out_dir: Path) -> Path:
 
 def _sha256_file(path: Path) -> str:
     try:
-        return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+        return fingerprint.file_sha256(Path(path))
     except OSError:
         return "missing"
 

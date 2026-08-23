@@ -136,4 +136,6 @@ def current_git_sha() -> str:
 
 @cache
 def font_sha256(font_path: str | Path = FONT_PATH) -> str:
-    return hashlib.sha256(Path(font_path).read_bytes()).hexdigest()
+    """rebuild.baseline is the before side of the comparison and imports nothing from rebuild.pipeline, so the streamed read is spelled out here rather than borrowing fingerprint.file_sha256."""
+    with open(font_path, "rb") as handle:
+        return hashlib.file_digest(handle, "sha256").hexdigest()

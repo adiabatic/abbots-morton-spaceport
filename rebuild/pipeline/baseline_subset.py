@@ -114,8 +114,8 @@ def stamp_key(repo_root: Path = REPO_ROOT) -> str:
     lines = [
         "alphabet\t" + ",".join(f"{codepoint:04X}" for codepoint in sorted(M1_ALPHABET)),
         f"baselines\t{fingerprint.baselines_value(Path(repo_root))}",
-        f"triage\t{hashlib.sha256(triage.read_bytes()).hexdigest() if triage.is_file() else 'absent'}",
-        f"filter_code\t{hashlib.sha256(Path(__file__).read_bytes()).hexdigest()}",
+        f"triage\t{fingerprint.file_sha256(triage) if triage.is_file() else 'absent'}",
+        f"filter_code\t{fingerprint.file_sha256(Path(__file__))}",
     ]
     return hashlib.sha256("\n".join(lines).encode()).hexdigest()
 
@@ -138,14 +138,12 @@ def refresh(repo_root: Path = REPO_ROOT) -> dict[str, str]:
         destination = out_dir / f"baseline-{config}.subset.tsv.gz"
         kept = filter_table(source, destination)
         print(f"{source.name}: kept {kept} rows -> {destination}")
-        outputs[destination.name] = hashlib.sha256(destination.read_bytes()).hexdigest()
+        outputs[destination.name] = fingerprint.file_sha256(destination)
     triage = baseline_dir / "equivalence-triage.tsv"
     if triage.exists():
         kept = filter_triage(triage, out_dir / "triage.subset.tsv")
         print(f"{triage.name}: kept {kept} rows -> {out_dir / 'triage.subset.tsv'}")
-        outputs["triage.subset.tsv"] = hashlib.sha256(
-            (out_dir / "triage.subset.tsv").read_bytes()
-        ).hexdigest()
+        outputs["triage.subset.tsv"] = fingerprint.file_sha256(out_dir / "triage.subset.tsv")
     for name in sorted(_subset_outputs_on_disk(out_dir) - outputs.keys()):
         (out_dir / name).unlink()
         print(f"pruned orphaned {name}")
@@ -172,7 +170,7 @@ def is_fresh(repo_root: Path = REPO_ROOT) -> bool:
         if not isinstance(digest, str):
             return False
         try:
-            if hashlib.sha256((out_dir / name).read_bytes()).hexdigest() != digest:
+            if fingerprint.file_sha256(out_dir / name) != digest:
                 return False
         except OSError:
             return False
