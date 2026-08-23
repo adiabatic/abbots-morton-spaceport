@@ -1773,6 +1773,7 @@ def test_cycle_summary_payload_plan_block_and_argv():
         "carry_out": str(plan.carry_out),
         "do_merge": True,
         "conform_horizon": ac.CONFORM_HORIZON_DEFAULT,
+        "kernel_threads": plan.kernel_threads,
         "pool_policy": ac.REBUILD_POOL_POLICY_DEFAULT,
         "skip_gates": False,
         "skip_conform": False,

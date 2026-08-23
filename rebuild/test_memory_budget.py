@@ -1,4 +1,4 @@
-"""The memory-budget policy's own tests, and the reproduction of the two widths already on record (issue #63, sub-issue #85). Almost everything here is a pure function over an invented box, because `total_bytes`, `floor_bytes` and `fraction` are keywords on every policy function rather than module lookups; only the handful of live-probe tests touch the host, and those assert properties — positive, plausible, at least one core — with the single exception the issue permits, `total_memory_bytes()` against `sysctl -n hw.memsize` behind a Darwin guard. The probes are exercised the way the module split them to be exercised: pure parsers over the checked-in text under `rebuild/fixtures/memory_budget/`, and the two cgroup readers pointed at a sample filesystem root, so every container case is proven on a laptop. The three measured constants below come from the record rather than from solving for an answer — `KERNEL_CONFIG_BYTES` is AGENTS.md's "roughly nine gigabytes" for one kernel configuration in flight, corroborated by `build_tables_total` in the cycle timings journal; `FONT_POOL_BYTES` is ten font-suite workers at the 0.11-0.28 GB apiece the root conftest's `pytest_xdist_auto_num_workers` records; and `ISSUE_RESERVE_FLOOR_BYTES` is the 4 GB floor issue #85 stated its two facts under, passed explicitly because the shipped floor is now 8 GB. That the formula reproduces both facts under the issue's floor and lands on the shipped `KERNEL_THREADS_DEFAULT` under its own is the whole claim: the policy is shown reproducing measurements taken independently of it, not fitted to them. Nothing here reads a live build artifact, so the whole module is contracts-lane — the audit guard in `rebuild/conftest.py` is what keeps it there, by failing any contracts item that reads `rebuild/out/`, `tmp/`, or a root `verdicts-*` store."""
+"""The memory-budget policy's own tests, and the reproduction of the two widths already on record (issue #63, sub-issue #85). Almost everything here is a pure function over an invented box, because `total_bytes`, `floor_bytes` and `fraction` are keywords on every policy function rather than module lookups; only the handful of live-probe tests touch the host, and those assert properties — positive, plausible, at least one core — with the single exception the issue permits, `total_memory_bytes()` against `sysctl -n hw.memsize` behind a Darwin guard. The probes are exercised the way the module split them to be exercised: pure parsers over the checked-in text under `rebuild/fixtures/memory_budget/`, and the two cgroup readers pointed at a sample filesystem root, so every container case is proven on a laptop. The three measured constants below come from the record rather than from solving for an answer — `KERNEL_CONFIG_BYTES` is the frozen reading of what one kernel configuration in flight cost when #46 and #85 were written, kept local and literal on purpose so a reproduction of a recorded width cannot move when the live `kernel_exec.CONFIG_PEAK_BYTES` is re-measured against a fresher cycle-timings journal; `FONT_POOL_BYTES` is ten font-suite workers at the 0.11-0.28 GB apiece the root conftest's `pytest_xdist_auto_num_workers` records; and `ISSUE_RESERVE_FLOOR_BYTES` is the 4 GB floor issue #85 stated its two facts under, passed explicitly because the shipped floor is now 8 GB. That the formula reproduces both facts over an invented 32 GB box is the whole claim: the policy is shown reproducing measurements taken independently of it, not fitted to them. The shipped default stopped being a witness the moment it became derived — it is the running box's width now, so no assertion here may sit it on the right-hand side of an equals sign; what is checked forward instead is that the shipped `CONFIG_PEAK_BYTES` still holds that 32 GB box at the width it shipped, which is the one comparison that can still fail for a reason worth knowing about. Nothing here reads a live build artifact, so the whole module is contracts-lane — the audit guard in `rebuild/conftest.py` is what keeps it there, by failing any contracts item that reads `rebuild/out/`, `tmp/`, or a root `verdicts-*` store."""
 
 import os
 import re
@@ -9,7 +9,7 @@ from types import ModuleType
 
 import pytest
 
-from rebuild.pipeline.kernel_exec import KERNEL_THREADS_DEFAULT
+from rebuild.pipeline.kernel_exec import CONFIG_PEAK_BYTES
 from rebuild.tools import memory_budget
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -41,11 +41,6 @@ CLAUSE = re.compile(
     r"^(?P<count>\d+) at (?P<per_unit>[\d.]+) GB each out of (?P<total>[\d.]+) GB total"
     r", less a reserve of (?P<reserve>[\d.]+) GB"
     r"(?:, less (?P<coresident>[\d.]+) GB co-resident)?"
-)
-
-shipped_kernel_default = pytest.mark.skipif(
-    "AMS_KERNEL_THREADS" in os.environ,
-    reason="AMS_KERNEL_THREADS has moved KERNEL_THREADS_DEFAULT off the shipped width this reproduces",
 )
 
 
@@ -82,10 +77,9 @@ class TestTheWidthsAlreadyOnRecord:
             == 3
         )
 
-    @shipped_kernel_default
     @pytest.mark.parametrize("total", SPELLINGS_OF_32_GB)
-    def test_subtracting_the_font_pool_lands_on_the_shipped_kernel_default(self, total: int):
-        """The second recorded fact: `KERNEL_THREADS_DEFAULT` ships one below #46's solo 3 because a cycle runs the fan-out beside a pytest pool. Say that out loud — subtract the font suite's ten co-resident workers — and the same formula answers the shipped constant rather than the solo width, which is the argument the kernel's docstring makes in prose."""
+    def test_subtracting_the_font_pool_lands_on_the_width_the_32_gb_box_shipped(self, total: int):
+        """The second recorded fact: subtract the font suite's ten co-resident workers, because a cycle runs the fan-out beside a pytest pool rather than alone, and the same formula answers 2 on the same invented 32 GB box rather than #46's solo 3 — which is the argument `kernel_exec`'s docstring makes in prose, and the reason the fan-out still runs two wide wherever the box is that size. The live `KERNEL_THREADS_DEFAULT` is deliberately not asserted here: it is the running box's width now, and a box of another size legitimately answers something else."""
         assert (
             memory_budget.how_many_fit(
                 KERNEL_CONFIG_BYTES,
@@ -93,21 +87,24 @@ class TestTheWidthsAlreadyOnRecord:
                 total_bytes=total,
                 floor_bytes=ISSUE_RESERVE_FLOOR_BYTES,
             )
-            == KERNEL_THREADS_DEFAULT
             == 2
         )
 
-    @shipped_kernel_default
     @pytest.mark.parametrize("total", SPELLINGS_OF_32_GB)
-    def test_the_shipped_eight_gigabyte_floor_yields_the_kernel_default_on_its_own(self, total: int):
-        """The policy this repo actually ships reserves 8 GB rather than the issue's 4, which costs the same 32 GB box a whole configuration: it answers the shipped default with nothing subtracted, and still answers it with the font pool subtracted. So the shipped floor does not contradict `KERNEL_THREADS_DEFAULT` — it only declines to reproduce #46's solo 3, which is why the floor is a parameter and the reproduction above can still pass the issue's."""
-        assert memory_budget.how_many_fit(KERNEL_CONFIG_BYTES, total_bytes=total) == KERNEL_THREADS_DEFAULT
+    def test_the_shipped_eight_gigabyte_floor_yields_the_width_the_32_gb_box_shipped(self, total: int):
+        """The policy this repo actually ships reserves 8 GB rather than the issue's 4, which costs the same invented 32 GB box a whole configuration: with nothing subtracted it answers 2 where the issue's floor answered 3, and it still answers 2 with the font pool subtracted. So the shipped floor does not contradict what #46 measured — it only declines to reproduce that solo 3, which is why the floor is a parameter and the reproduction above can still pass the issue's."""
+        assert memory_budget.how_many_fit(KERNEL_CONFIG_BYTES, total_bytes=total) == 2
         assert (
             memory_budget.how_many_fit(
                 KERNEL_CONFIG_BYTES, coresident_bytes=FONT_POOL_BYTES, total_bytes=total
             )
-            == KERNEL_THREADS_DEFAULT
+            == 2
         )
+
+    @pytest.mark.parametrize("total", SPELLINGS_OF_32_GB)
+    def test_the_shipped_divisor_still_holds_the_32_gb_box_at_the_width_it_shipped(self, total: int):
+        """The forward direction, and the only comparison left that means anything once `KERNEL_THREADS_DEFAULT` is derived: the left side is the divisor this repo actually ships run through the policy this repo actually ships, against a box that is stated rather than probed, and the right side is what #46 recorded. Re-measuring `CONFIG_PEAK_BYTES` is free as long as it does not widen that box — the recorded maximum in the cycle-timings journal sits a fraction of a percent under the 32 GiB edge and would, which is why the shipped seed rounds up past it."""
+        assert memory_budget.how_many_fit(CONFIG_PEAK_BYTES, total_bytes=total) == 2
 
 
 class TestTheFloorAtOne:

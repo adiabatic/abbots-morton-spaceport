@@ -530,6 +530,7 @@ PLUMBING_TOOL_MODULES = (
     "complaint_docket",
     "cycle_timings",
     "echo_verdicts",
+    "memory_budget",
     "merge_verdicts",
     "peak_rss",
     "review_docket",
@@ -750,7 +751,7 @@ def jstest_argv() -> list[str]:
 
 
 def kernel_exec_threads_default() -> int:
-    """The kernel fan-out's own default width, named by the cycle rather than inherited silently, because it is the one width on this box that memory binds: a live configuration holds its whole working set until it emits. AMS_KERNEL_THREADS still sets it — this reads the value that variable resolves to."""
+    """The kernel fan-out's own default width, named by the cycle rather than inherited silently, because it is the one width here that memory binds: a live configuration holds its whole working set until it emits, so the width is the box divided by one of them. `kernel_exec.KERNEL_THREADS_DEFAULT` is the authority and this re-exports it unchanged — the memory derivation, and AMS_KERNEL_THREADS short-circuiting ahead of it, both already happened there — so what comes back is the memory answer before the configuration count and the CPU count narrow it. That narrowing lives in exactly one place, `run_m1.build_tables`'s own `min()`, and is deliberately not repeated here: a second copy on this side would be a second thing to keep in agreement with it, and what not having one costs is only that a box roomier than the configuration count reads a plan line naming a width the run will go on to narrow."""
     from rebuild.pipeline.kernel_exec import KERNEL_THREADS_DEFAULT
 
     return KERNEL_THREADS_DEFAULT
@@ -2270,6 +2271,7 @@ def cycle_summary_payload(report: CycleReport, failures: list[str], plan: Plan, 
             "carry_out": _as_str(plan.carry_out),
             "do_merge": plan.do_merge,
             "conform_horizon": plan.conform_horizon,
+            "kernel_threads": plan.kernel_threads,
             "pool_policy": plan.pool_policy,
             "skip_gates": plan.skip_gates,
             "skip_conform": plan.skip_conform,
