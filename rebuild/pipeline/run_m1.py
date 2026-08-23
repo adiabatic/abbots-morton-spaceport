@@ -428,29 +428,34 @@ def run_oracle(out_dir: Path = OUT_DIR, spec: ResolvedSpec | None = None, jobs: 
         spec = load_default_spec()
     for config in ("ss06", "ss07", "ss06+ss07"):
         conform.assert_subset_identity(out_dir, config)
+    conform.discard_oracle_audit_scratch(out_dir)
     if jobs > 1:
         collected: dict[str, conform.OracleConfigResult] = {}
-        with _spawn_pool(jobs) as pool:
-            futures = {
-                pool.submit(
-                    conform.oracle_config_worker,
-                    spec,
-                    out_dir,
-                    ALIAS_YAML,
-                    DIVERGENCES_YAML,
-                    config,
-                    out_dir / "M1.otf",
-                    KERN_SIDECAR_YAML,
-                ): config
-                for config in conform.ACCEPTANCE_CONFIGS
-            }
-            for future in as_completed(futures):
-                result = future.result()
-                collected[result.config] = result
-        ordered = [collected[config] for config in conform.ACCEPTANCE_CONFIGS]
-        report, audit_lines = conform.merge_oracle_results(ordered)
-        out_dir.mkdir(parents=True, exist_ok=True)
-        (out_dir / "divergence-audit.tsv").write_text("\n".join(audit_lines) + "\n")
+        scratch = conform.oracle_audit_scratch(out_dir)
+        try:
+            with _spawn_pool(jobs) as pool:
+                futures = {
+                    pool.submit(
+                        conform.oracle_config_worker,
+                        spec,
+                        out_dir,
+                        ALIAS_YAML,
+                        DIVERGENCES_YAML,
+                        config,
+                        out_dir / "M1.otf",
+                        KERN_SIDECAR_YAML,
+                        audit_dir=scratch,
+                    ): config
+                    for config in conform.ACCEPTANCE_CONFIGS
+                }
+                for future in as_completed(futures):
+                    result = future.result()
+                    collected[result.config] = result
+            ordered = [collected[config] for config in conform.ACCEPTANCE_CONFIGS]
+            report = conform.merge_oracle_results(ordered)
+            conform.join_oracle_audit(out_dir, scratch, conform.ACCEPTANCE_CONFIGS, report.divergent_rows)
+        finally:
+            conform.discard_oracle_audit_scratch(out_dir)
     else:
         report = conform.compare_against_baseline(
             spec,

@@ -12,11 +12,14 @@ from __future__ import annotations
 import gzip
 import itertools
 import json
+import os
+import shutil
 import sys
 import time
+from contextlib import ExitStack, contextmanager, suppress
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable, Iterable, Mapping, Sequence
+from typing import TYPE_CHECKING, Callable, Iterable, Iterator, Mapping, Sequence, TextIO
 
 import yaml
 
@@ -1789,6 +1792,80 @@ def _position_drift(
 ORACLE_AUDIT_HEADER = "config\tcodepoints\tkinds\tmatched_entry\tbaseline\tnew"
 
 
+def oracle_audit_scratch(out_dir: Path) -> Path:
+    """This oracle run's own directory for the audit's shards and its staging copy, beside the artifact they become. The pid in the name is what lets two runs share an out_dir — a `--gates-only` pass beside a cycle is the shape that happens here — without splicing rows into one another's shards or sweeping them out from under one another's concatenation. Nothing reads a directory in `rebuild/out/m1`, and the name misses `M1_ARTIFACT_NAMES` and every glob over the tables there, so what a killed run leaves behind cannot be mistaken for an artifact."""
+    return Path(out_dir) / f"divergence-audit.parts.{os.getpid()}"
+
+
+def oracle_audit_shard(scratch_dir: Path, config: str) -> Path:
+    """Where one configuration's header-free audit rows go while the oracle runs. The pool is spawned, so a configuration's rows reach the parent as a file rather than as a pickled list: the audit is much the largest thing this build writes and it grows with every migrated letter, so carrying it through the pipe stood the whole of it up in the parent right where the phase's own peak already sat. `+` is already at home in a filename here, beside `baseline-ss02+ss03.subset.tsv.gz`."""
+    return Path(scratch_dir) / f"{config}.part"
+
+
+@contextmanager
+def _staged_oracle_audit(out_dir: Path) -> Iterator[Path]:
+    """Hand out the path this run writes its audit to, and let it become `divergence-audit.tsv` only once the last configuration has been written. A short audit is the failure to design against: it is a fingerprinted artifact its readers parse straight off disk, and a truncated one hashes differently rather than reading as stale, so it comes back as a fresh build with fewer units in it and every gate downstream stays green. Whatever kills an oracle partway — a Ctrl-C, the harness timeout the long builds here collect, a full disk — therefore has to leave the previous complete audit standing rather than a well-formed prefix of this one. The staging copy sits in this run's scratch directory so one sweep takes it and the shards together."""
+    out = Path(out_dir)
+    scratch = oracle_audit_scratch(out)
+    scratch.mkdir(parents=True, exist_ok=True)
+    staging = scratch / "divergence-audit.tsv"
+    try:
+        yield staging
+        staging.replace(out / "divergence-audit.tsv")
+    finally:
+        with suppress(OSError):
+            staging.unlink(missing_ok=True)
+            scratch.rmdir()
+
+
+def join_oracle_audit(out_dir: Path, scratch_dir: Path, configs: Iterable[str], expect_rows: int) -> None:
+    """Stream the shards into `divergence-audit.tsv` behind the header, in the caller's configuration order, and promote nothing the workers' own counts do not vouch for. Shard to target is binary, so nothing is decoded on the way through and the parent's high-water is a copy buffer rather than an audit; the bytes are the ones `_compare_config` writes when it writes the file directly — the header line, then each row's line, each closed by a newline. The two refusals are what keep a partial concatenation from reading as a complete audit: every shard is found before a byte is copied, so a missing one is named rather than skipped, and the rows that land are counted against the `divergent_rows` the same workers reported, which is the only cross-check the parent can make between the counts that came home through the pipe and the bytes that came home on disk. The trade for keeping an audit off the heap is a second copy of it on disk while the join runs. Sweeping the scratch directory back off disk is the caller's job rather than this function's, because the failure worth cleaning up after is usually a worker's rather than this concatenation's."""
+    scratch = Path(scratch_dir)
+    shards = [(config, oracle_audit_shard(scratch, config)) for config in configs]
+    missing = [config for config, path in shards if not path.is_file()]
+    if missing:
+        left = sorted(found.name for found in scratch.glob("*")) if scratch.is_dir() else []
+        raise FileNotFoundError(
+            f"the oracle wrote no audit shard for {', '.join(missing)} — it left {left}, and divergence-audit.tsv is untouched"
+        )
+    rows = 0
+    with _staged_oracle_audit(out_dir) as staging:
+        with staging.open("wb") as target:
+            target.write((ORACLE_AUDIT_HEADER + "\n").encode("utf-8"))
+            for _, path in shards:
+                with path.open("rb") as shard:
+                    while chunk := shard.read(1 << 20):
+                        rows += chunk.count(b"\n")
+                        target.write(chunk)
+        if rows != expect_rows:
+            raise ValueError(
+                f"the oracle's audit shards hold {rows} rows where its workers counted {expect_rows} divergent — divergence-audit.tsv is untouched"
+            )
+
+
+def _oracle_audit_owner_is_running(pid: str) -> bool:
+    """Whether the process that named a scratch directory is still around. A pid this process may not signal, or one too large to be one at all, counts as running: the sweep only ever errs toward leaving another run's directory standing, and it must not raise on a name nobody here wrote."""
+    if not pid.isdigit() or int(pid) < 1:
+        return False
+    try:
+        os.kill(int(pid), 0)
+    except ProcessLookupError:
+        return False
+    except OSError, OverflowError:
+        return True
+    return True
+
+
+def discard_oracle_audit_scratch(out_dir: Path) -> None:
+    """Take this run's scratch directory back off disk whether the oracle finished with it or died holding it, and any earlier run's whose process is gone along with it — between them the shards are a whole audit's worth of disk, and the `finally` that would have swept them is exactly what a kill skips. A directory whose pid is still alive belongs to another oracle and is left standing, which is the same reason the name carries a pid at all. Nothing here raises, so a sweep in a `finally` cannot displace the failure it is cleaning up after."""
+    out = Path(out_dir)
+    shutil.rmtree(oracle_audit_scratch(out), ignore_errors=True)
+    with suppress(OSError):
+        for path in out.glob("divergence-audit.parts.*"):
+            if not _oracle_audit_owner_is_running(path.name.rpartition(".")[2]):
+                shutil.rmtree(path, ignore_errors=True)
+
+
 @dataclass
 class OracleConfigResult:
     config: str
@@ -1800,7 +1877,6 @@ class OracleConfigResult:
     unmatched: list[DivergentRow] = field(default_factory=list)
     multi_matched: list[tuple[DivergentRow, tuple[str, ...]]] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
-    audit_lines: list[str] = field(default_factory=list)
 
 
 def _compare_config(
@@ -1814,6 +1890,7 @@ def _compare_config(
     shaper: "Shaper | None",
     kern: "KernEvaluator | None",
     guard_verdicts: settle.FormationGuard,
+    audit: TextIO | None,
 ) -> OracleConfigResult:
     result = OracleConfigResult(config=config)
     table_path = Path(subset_tables_dir) / f"baseline-{config}.subset.tsv.gz"
@@ -1880,22 +1957,24 @@ def _compare_config(
                 result.unmatched.append(divergent)
             else:
                 result.multi_matched.append((divergent, tuple(matches)))
-            result.audit_lines.append(
-                "\t".join(
-                    (
-                        config,
-                        divergent.codepoints,
-                        ",".join(divergent.kinds),
+            if audit is not None:
+                audit.write(
+                    "\t".join(
                         (
-                            matches[0]
-                            if len(matches) == 1
-                            else ("UNMATCHED" if not matches else "+".join(matches))
-                        ),
-                        "|".join(divergent.baseline_glyphs),
-                        "|".join(divergent.new_cells),
+                            config,
+                            divergent.codepoints,
+                            ",".join(divergent.kinds),
+                            (
+                                matches[0]
+                                if len(matches) == 1
+                                else ("UNMATCHED" if not matches else "+".join(matches))
+                            ),
+                            "|".join(divergent.baseline_glyphs),
+                            "|".join(divergent.new_cells),
+                        )
                     )
+                    + "\n"
                 )
-            )
     print(
         f"[t] oracle {config} {time.perf_counter() - config_started:.2f}s rows={result.rows_compared} positions={result.positions_compared}",
         file=sys.stderr,
@@ -1912,31 +1991,35 @@ def oracle_config_worker(
     config: str,
     font_path: Path | None,
     kern_sidecar_path: Path | None,
+    audit_dir: Path,
 ) -> OracleConfigResult:
-    """One config's oracle compare in its own process. The section 5.7 verdict surface is swept here, once per worker, exactly as the belt's worker sweeps its own."""
+    """One config's oracle compare in its own process, its audit rows written to this configuration's shard under `audit_dir` so only counts ride the result home. The section 5.7 verdict surface is swept here, once per worker, exactly as the belt's worker sweeps its own."""
     aliases = load_alias_map(alias_path)
     ledger = yaml.safe_load(Path(ledger_path).read_text()) or []
     ink_identical_ids = {entry.get("id") for entry in ledger if entry.get("ink_identical")}
     shaper = Shaper(Path(font_path)) if font_path is not None else None
     kern = KernEvaluator(Path(kern_sidecar_path)) if kern_sidecar_path is not None else None
     features = features_for_config(config)
-    return _compare_config(
-        spec,
-        subset_tables_dir,
-        config,
-        features,
-        aliases,
-        ledger,
-        ink_identical_ids,
-        shaper,
-        kern,
-        kernel_exec.guard_sweep(spec),
-    )
+    shard = oracle_audit_shard(audit_dir, config)
+    shard.parent.mkdir(parents=True, exist_ok=True)
+    with shard.open("w", encoding="utf-8", newline="\n") as audit:
+        return _compare_config(
+            spec,
+            subset_tables_dir,
+            config,
+            features,
+            aliases,
+            ledger,
+            ink_identical_ids,
+            shaper,
+            kern,
+            kernel_exec.guard_sweep(spec),
+            audit,
+        )
 
 
-def merge_oracle_results(results: Iterable[OracleConfigResult]) -> tuple[BaselineReport, list[str]]:
+def merge_oracle_results(results: Iterable[OracleConfigResult]) -> BaselineReport:
     report = BaselineReport()
-    audit_lines = [ORACLE_AUDIT_HEADER]
     for result in results:
         report.rows_compared += result.rows_compared
         report.divergent_rows += result.divergent_rows
@@ -1947,8 +2030,7 @@ def merge_oracle_results(results: Iterable[OracleConfigResult]) -> tuple[Baselin
         report.unmatched.extend(result.unmatched)
         report.multi_matched.extend(result.multi_matched)
         report.notes.extend(result.notes)
-        audit_lines.extend(result.audit_lines)
-    return report, audit_lines
+    return report
 
 
 def compare_against_baseline(
@@ -1970,32 +2052,35 @@ def compare_against_baseline(
     started = time.perf_counter()
 
     results: list[OracleConfigResult] = []
-    for config in configs:
-        results.append(
-            _compare_config(
-                spec,
-                subset_tables_dir,
-                config,
-                features_for_config(config),
-                aliases,
-                ledger,
-                ink_identical_ids,
-                shaper,
-                kern,
-                guard_verdicts,
+    with ExitStack() as stack:
+        audit: TextIO | None = None
+        if out_dir is not None:
+            staging = stack.enter_context(_staged_oracle_audit(out_dir))
+            audit = stack.enter_context(staging.open("w", encoding="utf-8", newline="\n"))
+            audit.write(ORACLE_AUDIT_HEADER + "\n")
+        for config in configs:
+            results.append(
+                _compare_config(
+                    spec,
+                    subset_tables_dir,
+                    config,
+                    features_for_config(config),
+                    aliases,
+                    ledger,
+                    ink_identical_ids,
+                    shaper,
+                    kern,
+                    guard_verdicts,
+                    audit,
+                )
             )
-        )
-    report, audit_lines = merge_oracle_results(results)
+    report = merge_oracle_results(results)
 
     print(
         f"[t] oracle total {time.perf_counter() - started:.2f}s rows_compared={report.rows_compared} positions_compared={report.positions_compared}",
         file=sys.stderr,
         flush=True,
     )
-    if out_dir is not None:
-        out = Path(out_dir)
-        out.mkdir(parents=True, exist_ok=True)
-        (out / "divergence-audit.tsv").write_text("\n".join(audit_lines) + "\n")
     return report
 
 

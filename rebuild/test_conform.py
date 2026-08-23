@@ -1,8 +1,12 @@
 """Conformance-module helper tests: normalization, the raw-pipeline replay, alias/ledger plumbing, kern evaluation, the subset-identity assertion, and the memoized settled-window walk's equivalence to settling the same texts unmemoized. The font-facing sweep itself runs in run_m1 (it needs the compiled mini-font). Settlement here is the crate's, so these arms need a built kernel: the guard sweep and the walk both invoke it, once per module for the sweep and in waves for the walk."""
 
 import gzip
+import os
+import subprocess
+import sys
 from collections.abc import Sequence
 from dataclasses import replace
+from fnmatch import fnmatch
 from pathlib import Path
 
 import pytest
@@ -10,6 +14,8 @@ import pytest
 from rebuild.pipeline import conform, kernel_exec, settle
 from rebuild.pipeline.fixtures import mini_spec
 from rebuild.pipeline.model import CellId
+
+MINI = Path(__file__).resolve().parent / "review" / "fixtures" / "mini"
 
 
 @pytest.fixture(scope="module")
@@ -501,6 +507,200 @@ class TestConformanceMerge:
         assert merged.sequences == 0
         assert merged.shaping_runs == 0
         assert merged.passed is True
+
+
+class TestOracleAudit:
+    """`divergence-audit.tsv` is a fingerprinted artifact its readers parse straight off disk — the review surface's unit assembly, the census, the lanes' filtered load — so the file's bytes are the contract, and they no longer come from one `"\n".join` in the parent: each configuration's rows are written where they are produced and the parent concatenates the shards behind the header. Pin the new assembly against the old formula over the shapes the audit can take, an empty configuration and an empty audit included, because those are where a hand-held layout drifts first — and pin the refusals, because the way this goes wrong is a short audit that reads as a complete one."""
+
+    def _shard(self, scratch: Path, config: str, lines: Sequence[str]) -> None:
+        shard = conform.oracle_audit_shard(scratch, config)
+        shard.parent.mkdir(parents=True, exist_ok=True)
+        with shard.open("w", encoding="utf-8", newline="\n") as handle:
+            for line in lines:
+                handle.write(line + "\n")
+
+    @pytest.mark.parametrize(
+        "per_config",
+        (
+            {},
+            {"default": []},
+            {config: [] for config in conform.ACCEPTANCE_CONFIGS},
+            {
+                "default": ["default\tE668:E665\tcell\tmay-utter\tqsRoe|qsMay\tqsRoe.alt|qsMay"],
+                "ss03": [],
+                "ss10": [
+                    "ss10\tE652:E679\tligation,seam\tUNMATCHED\tqsTea_qsOy\tqsTea|qsOy",
+                    "ss10\tE650:0020\tcell\ta+b\tqsPea\tqsPea.half",
+                ],
+            },
+            {
+                "ss04": [
+                    "ss04\tE670:E653\tcell\t·It~b~·Day.half\tqsIt|qsDay\tqsIt|qsDay.half",
+                    "ss04\tE676:E677\tposition\tdrift\tqsAh|qsAwe\tslot 1 (qsAwe): origin want (7, 0)\t\ttrailing",
+                ],
+            },
+        ),
+    )
+    def test_shards_concatenate_to_the_bytes_the_join_used_to_write(self, tmp_path, per_config):
+        scratch = conform.oracle_audit_scratch(tmp_path)
+        for config, lines in per_config.items():
+            self._shard(scratch, config, lines)
+        every = [line for lines in per_config.values() for line in lines]
+        conform.join_oracle_audit(tmp_path, scratch, per_config, len(every))
+        joined = "\n".join([conform.ORACLE_AUDIT_HEADER, *every]) + "\n"
+        assert (tmp_path / "divergence-audit.tsv").read_bytes() == joined.encode("utf-8")
+
+    def test_the_frozen_mini_audit_reassembles_byte_for_byte(self, tmp_path):
+        """The same pin over a real audit instead of hand-made rows: the mini bundle's audit.tsv is a live one filtered to four letters, still written by the old formula in `fixtures/mini/regenerate.py`, and its configuration runs are contiguous and in ACCEPTANCE_CONFIGS order — so splitting it back into shards and concatenating them has to land on the file it came from."""
+        source = MINI / "audit.tsv"
+        rows = source.read_text(encoding="utf-8").splitlines()
+        assert rows[0] == conform.ORACLE_AUDIT_HEADER
+        per_config: dict[str, list[str]] = {config: [] for config in conform.ACCEPTANCE_CONFIGS}
+        for row in rows[1:]:
+            per_config[row.split("\t")[0]].append(row)
+        scratch = conform.oracle_audit_scratch(tmp_path)
+        for config, lines in per_config.items():
+            self._shard(scratch, config, lines)
+        conform.join_oracle_audit(tmp_path, scratch, conform.ACCEPTANCE_CONFIGS, len(rows) - 1)
+        assert (tmp_path / "divergence-audit.tsv").read_bytes() == source.read_bytes()
+
+    def test_the_two_oracle_paths_write_the_same_file(self, spec, tmp_path):
+        """The claim the shards exist to keep true: `--jobs 1` writes the audit as it goes and the pool writes shards the parent concatenates, and the two have to land on the same bytes. Both are run here over the same hand-made subset tables — a pending alias makes every row diverge, an empty ledger leaves every divergence UNMATCHED — so a row reaches the file through each path in turn."""
+        tables = tmp_path / "tables"
+        tables.mkdir()
+        for config, rows in (
+            (
+                "default",
+                ["E652\tqsTea.noentry\t0\t\t0,0,150", "0020:E652\tspace|qsTea\t0,1\tbreak\t0,0,150|0,0,150"],
+            ),
+            ("ss03", ["E652:E652\tqsTea|qsTea\t0,1\tbreak\t0,0,150|0,0,150"]),
+        ):
+            with gzip.open(tables / f"baseline-{config}.subset.tsv.gz", "wt", encoding="utf-8") as fh:
+                fh.write(f"# config: {config}\n")
+                for row in rows:
+                    fh.write(row + "\n")
+        aliases = tmp_path / "aliases.yaml"
+        aliases.write_text("qsTea: pending\nqsTea.noentry: pending\n")
+        ledger = tmp_path / "ledger.yaml"
+        ledger.write_text("[]\n")
+        configs = ("default", "ss03")
+
+        serial = tmp_path / "serial"
+        in_process = conform.compare_against_baseline(
+            spec, tables, aliases, ledger, configs=configs, out_dir=serial
+        )
+        assert in_process.divergent_rows == 3
+        assert [path.name for path in serial.iterdir()] == ["divergence-audit.tsv"]
+
+        fanned = tmp_path / "fanned"
+        fanned.mkdir()
+        scratch = conform.oracle_audit_scratch(fanned)
+        merged = conform.merge_oracle_results(
+            conform.oracle_config_worker(spec, tables, aliases, ledger, config, None, None, audit_dir=scratch)
+            for config in configs
+        )
+        conform.join_oracle_audit(fanned, scratch, configs, merged.divergent_rows)
+        assert merged.divergent_rows == in_process.divergent_rows
+        assert (fanned / "divergence-audit.tsv").read_bytes() == (
+            serial / "divergence-audit.tsv"
+        ).read_bytes()
+        conform.discard_oracle_audit_scratch(fanned)
+        assert [path.name for path in fanned.iterdir()] == ["divergence-audit.tsv"]
+
+    def test_a_serial_oracle_that_dies_partway_leaves_the_audit_it_found_standing(
+        self, monkeypatch, spec, tmp_path
+    ):
+        """The failure that has to stay loud. A truncated audit hashes differently rather than reading as stale, so it comes back to the surface build as a fresh, smaller, entirely self-consistent one — which is why `--jobs 1` writes through a staging copy and promotes it only after the last configuration, and why an oracle that dies on its second leaves the previous run's file exactly where it was."""
+        standing = tmp_path / "divergence-audit.tsv"
+        standing.write_bytes(b"the audit of the last green run\n")
+        aliases = tmp_path / "aliases.yaml"
+        aliases.write_text("qsTea: pending\n")
+        ledger = tmp_path / "ledger.yaml"
+        ledger.write_text("[]\n")
+
+        def compare(spec, tables, config, *rest):
+            audit = rest[-1]
+            assert audit is not None
+            audit.write(f"{config}\tE650\tcell\tpea-half\tqsPea\tqsPea.half\n")
+            if config == "ss03":
+                raise RuntimeError("ss03 fell over")
+            return conform.OracleConfigResult(config=config, divergent_rows=1)
+
+        monkeypatch.setattr(conform, "_compare_config", compare)
+        with pytest.raises(RuntimeError):
+            conform.compare_against_baseline(
+                spec, tmp_path, aliases, ledger, configs=("default", "ss03"), out_dir=tmp_path
+            )
+        assert standing.read_bytes() == b"the audit of the last green run\n"
+        assert sorted(path.name for path in tmp_path.iterdir()) == [
+            "aliases.yaml",
+            "divergence-audit.tsv",
+            "ledger.yaml",
+        ]
+
+    def test_a_missing_shard_is_named_rather_than_quietly_skipped(self, tmp_path):
+        """Every shard is found before a byte is copied, so the concatenation cannot write a short audit out of whatever happened to be on disk — and the audit already there survives the refusal, which matters because the caller sweeps the scratch directory afterward and the shards are then gone too."""
+        standing = tmp_path / "divergence-audit.tsv"
+        standing.write_bytes(b"the audit of the last green run\n")
+        scratch = conform.oracle_audit_scratch(tmp_path)
+        self._shard(scratch, "default", ["default\tE650\tcell\ta\tqsPea\tqsPea.half"])
+        with pytest.raises(FileNotFoundError, match="ss03"):
+            conform.join_oracle_audit(tmp_path, scratch, ("default", "ss03"), 1)
+        assert standing.read_bytes() == b"the audit of the last green run\n"
+
+    def test_an_audit_short_of_the_rows_its_workers_counted_is_not_promoted(self, tmp_path):
+        """The counts come home through the pipe and the bytes come home on disk, so comparing them is the one cross-check the parent can make — and it is what catches a shard that was truncated but still closed clean, which is the shape no amount of stat-ing finds."""
+        standing = tmp_path / "divergence-audit.tsv"
+        standing.write_bytes(b"the audit of the last green run\n")
+        scratch = conform.oracle_audit_scratch(tmp_path)
+        self._shard(scratch, "default", ["default\tE650\tcell\ta\tqsPea\tqsPea.half"])
+        with pytest.raises(ValueError, match="2 divergent"):
+            conform.join_oracle_audit(tmp_path, scratch, ("default",), 2)
+        assert standing.read_bytes() == b"the audit of the last green run\n"
+
+    def test_the_scratch_goes_whether_or_not_the_oracle_got_that_far(self, tmp_path):
+        scratch = conform.oracle_audit_scratch(tmp_path)
+        self._shard(scratch, "default", ["default\tE650\tcell\ta\tqsPea\tqsPea.half"])
+        self._shard(scratch, "ss03+ss05", [])
+        conform.discard_oracle_audit_scratch(tmp_path)
+        assert list(tmp_path.iterdir()) == []
+
+    def test_a_sweep_takes_a_dead_run_s_shards_and_leaves_a_live_one_s(self, tmp_path):
+        """The pid in the scratch name is load-bearing in both directions. A kill skips the `finally`, so a run that never came back would otherwise strand a whole audit's worth of disk until someone noticed; a run still going is another oracle over the same out_dir — a `--gates-only` pass beside a cycle — and sweeping it would pull the shards out from under its concatenation."""
+        finished = subprocess.Popen([sys.executable, "-c", ""])
+        finished.wait()
+        stale = tmp_path / f"divergence-audit.parts.{finished.pid}"
+        stale.mkdir()
+        (stale / "default.part").write_text("")
+        live = tmp_path / f"divergence-audit.parts.{os.getppid()}"
+        live.mkdir()
+        (live / "default.part").write_text("")
+        conform.discard_oracle_audit_scratch(tmp_path)
+        assert not stale.exists()
+        assert (live / "default.part").is_file()
+
+    def test_a_scratch_name_is_not_mistaken_for_an_artifact(self):
+        """The scratch directory sits beside the artifacts in rebuild/out/m1, so its name has to miss everything that reads that directory: the cycle's artifact list, its subset-table glob, and the table readers' own patterns. Configuration names carry `+`, which the baseline tables already prove is safe in a filename here."""
+        from rebuild.tools.artifact_cycle import M1_ARTIFACT_NAMES
+
+        scratch = conform.oracle_audit_scratch(Path("m1"))
+        assert scratch.name not in set(M1_ARTIFACT_NAMES)
+        for name in [scratch.name] + [
+            conform.oracle_audit_shard(scratch, config).name for config in conform.ACCEPTANCE_CONFIGS
+        ]:
+            assert not any(
+                fnmatch(name, pattern)
+                for pattern in (
+                    "baseline-*.subset.tsv.gz",
+                    "settlement-*.tsv",
+                    "treaties-*.tsv",
+                    "windows-*.tsv.gz",
+                    "transitions-*.ndjson",
+                    "*.json",
+                )
+            )
+        names = [conform.oracle_audit_shard(scratch, config).name for config in conform.ACCEPTANCE_CONFIGS]
+        assert len(set(names)) == len(conform.ACCEPTANCE_CONFIGS)
 
 
 class TestConformSummary:
