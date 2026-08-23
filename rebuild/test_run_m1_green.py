@@ -2,7 +2,7 @@
 
 import pytest
 
-from rebuild.pipeline import run_m1
+from rebuild.pipeline import conform, run_m1
 from rebuild.tools import artifact_cycle as ac
 
 
@@ -265,6 +265,91 @@ def test_the_conform_horizon_default_matches_the_cycle_driver(monkeypatch, tmp_p
     monkeypatch.setattr(run_m1, "run_font_conformance", fake_sweep)
     run_m1.main(["--conform-only"])
     assert swept == [ac.CONFORM_HORIZON_DEFAULT]
+
+
+class _FinishedFuture:
+    def __init__(self, value):
+        self._value = value
+
+    def result(self):
+        return self._value
+
+
+class _InlinePool:
+    """A stand-in for the spawn pool that runs each worker where it was submitted, so the oracle's fan-in can be exercised without six processes and without a build to sweep."""
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exception):
+        return False
+
+    def submit(self, function, *args, **kwargs):
+        return _FinishedFuture(function(*args, **kwargs))
+
+
+class TestOracleFanIn:
+    """The workers write their own audit shards now, so the order of `divergence-audit.tsv` lives in the parent's concatenation rather than in the order the futures happened to resolve — and what a run that dies partway must not do is leave a short audit where a complete one was, because a short one hashes differently rather than reading as stale and comes back to the surface build as a fresh, smaller one."""
+
+    def _pool(self, monkeypatch, worker):
+        monkeypatch.setattr(run_m1, "_spawn_pool", lambda jobs: _InlinePool())
+        monkeypatch.setattr(run_m1, "as_completed", lambda futures: reversed(list(futures)))
+        monkeypatch.setattr(conform, "assert_subset_identity", lambda out_dir, config: None)
+        monkeypatch.setattr(conform, "oracle_config_worker", worker)
+        monkeypatch.setattr(run_m1, "load_default_spec", lambda: None)
+
+    def _worker(self, refuse=None, overcount=None):
+        def worker(
+            spec,
+            subset_tables_dir,
+            alias_path,
+            ledger_path,
+            config,
+            font_path,
+            kern_sidecar_path,
+            audit_dir,
+        ):
+            if config == refuse:
+                raise RuntimeError(f"{config} fell over")
+            shard = conform.oracle_audit_shard(audit_dir, config)
+            shard.parent.mkdir(parents=True, exist_ok=True)
+            with shard.open("w", encoding="utf-8", newline="\n") as handle:
+                handle.write(f"{config}\tE650\tcell\tpea-half\tqsPea\tqsPea.half\n")
+            return conform.OracleConfigResult(
+                config=config, rows_compared=1, divergent_rows=2 if config == overcount else 1
+            )
+
+        return worker
+
+    def test_the_audit_follows_acceptance_order_however_the_workers_finish(self, monkeypatch, tmp_path):
+        self._pool(monkeypatch, self._worker())
+        run_m1.run_oracle(out_dir=tmp_path, jobs=6)
+        lines = (tmp_path / "divergence-audit.tsv").read_text(encoding="utf-8").splitlines()
+        assert lines[0] == conform.ORACLE_AUDIT_HEADER
+        assert [line.split("\t")[0] for line in lines[1:]] == list(conform.ACCEPTANCE_CONFIGS)
+        assert sorted(path.name for path in tmp_path.iterdir()) == [
+            "divergence-audit.tsv",
+            "oracle_summary.json",
+        ]
+
+    def test_a_worker_that_falls_over_leaves_the_standing_audit_alone(self, monkeypatch, tmp_path):
+        standing = tmp_path / "divergence-audit.tsv"
+        standing.write_bytes(b"the audit of the last green run\n")
+        self._pool(monkeypatch, self._worker(refuse=conform.ACCEPTANCE_CONFIGS[3]))
+        with pytest.raises(RuntimeError):
+            run_m1.run_oracle(out_dir=tmp_path, jobs=6)
+        assert standing.read_bytes() == b"the audit of the last green run\n"
+        assert [path.name for path in tmp_path.iterdir()] == ["divergence-audit.tsv"]
+
+    def test_an_audit_short_of_the_rows_the_workers_counted_is_refused(self, monkeypatch, tmp_path):
+        """The counts reach the parent through the pipe and the rows reach it on disk, so a shard that was truncated but still closed clean shows up as the two disagreeing — the only way the parent can tell a whole audit from most of one."""
+        standing = tmp_path / "divergence-audit.tsv"
+        standing.write_bytes(b"the audit of the last green run\n")
+        self._pool(monkeypatch, self._worker(overcount=conform.ACCEPTANCE_CONFIGS[2]))
+        with pytest.raises(ValueError, match="7 divergent"):
+            run_m1.run_oracle(out_dir=tmp_path, jobs=6)
+        assert standing.read_bytes() == b"the audit of the last green run\n"
+        assert [path.name for path in tmp_path.iterdir()] == ["divergence-audit.tsv"]
 
 
 class TestGatesOnly:
