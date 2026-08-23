@@ -98,7 +98,9 @@ def test_distance_is_zero_for_identical_features_and_grows_with_difference():
 def repo(tmp_path):
     surface = tmp_path / "surface"
     (surface / "units").mkdir(parents=True)
-    (surface / "manifest.json").write_text(json.dumps({"generated_at": STAMP}))
+    (surface / "manifest.json").write_text(
+        json.dumps({"generated_at": STAMP, "classes": [{"id": "all", "shards": ["units/all.json"]}]})
+    )
     return {"surface": surface, "verdicts": tmp_path / "verdicts.json"}
 
 

@@ -1,5 +1,5 @@
 {
- "format": "ams-review-manifest/1",
+ "format": "ams-review-manifest/2",
  "mode": "m1-audit",
  "generated_at": "2026-06-10T00:00:00Z",
  "repo_head": "fixture",
@@ -78,7 +78,9 @@
    "unit_count": 4,
    "row_count": 9,
    "machine_approved_count": 1,
-   "shard": "units/marker-staging-ligature-formation.json",
+   "shards": [
+    "units/marker-staging-ligature-formation.json"
+   ],
    "batches": [
     0
    ]
@@ -92,7 +94,9 @@
    "unit_count": 2,
    "row_count": 5,
    "machine_approved_count": 0,
-   "shard": "units/dangling-anchor-dropped.json",
+   "shards": [
+    "units/dangling-anchor-dropped.json"
+   ],
    "batches": [
     0,
     1

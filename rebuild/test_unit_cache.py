@@ -4,6 +4,7 @@ None of that is a property of any glyph, so none of it needs the live build: the
 """
 
 import hashlib
+import json
 import re
 import shutil
 from dataclasses import replace
@@ -14,7 +15,13 @@ import pytest
 from rebuild.pipeline import fixtures, kernel_exec
 from rebuild.review import unit_cache
 from rebuild.review.audit import AuditRow, Unit
-from rebuild.review.build import SITE_BEFORE_FONT, SITE_JUNIOR_FONT, _cluster_id, build_m1
+from rebuild.review.build import (
+    SITE_BEFORE_FONT,
+    SITE_JUNIOR_FONT,
+    _cluster_id,
+    _write_shard,
+    build_m1,
+)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 MINI = REPO_ROOT / "rebuild" / "review" / "fixtures" / "mini"
@@ -320,3 +327,34 @@ def test_store_round_trip_and_invalidation(tmp_path):
     assert unit_cache.load_store(tmp_path, "env-b") is None
     (tmp_path / "manifest.json").write_text('{"changed": true}', encoding="utf-8")
     assert unit_cache.load_store(tmp_path, "env-a") is None
+
+
+def _prior_surface(root: Path, classes: list[dict], *, legacy: bool) -> None:
+    key = "shard" if legacy else "shards"
+    entries = [{"id": meta["id"], key: meta["shards"][0] if legacy else meta["shards"]} for meta in classes]
+    (root / "manifest.json").write_text(json.dumps({"classes": entries}), encoding="utf-8")
+
+
+def test_load_prior_fragments_reads_a_class_the_last_build_split(tmp_path, monkeypatch):
+    """The cache asks the prior manifest which files a class was written as, because a class large enough to be split has no single name to guess at. A class the manifest does not list contributes nothing, exactly as a missing file does."""
+    monkeypatch.setattr("rebuild.review.build.SHARD_PART_BYTES", 32)
+    fragments = [{"id": f"u-{index:04d}"} for index in range(6)]
+    parts = _write_shard(tmp_path, "big", fragments)
+    assert len(parts) > 1
+    _prior_surface(tmp_path, [{"id": "big", "shards": parts}], legacy=False)
+    found = unit_cache.load_prior_fragments(tmp_path, {"big": {"u-0001", "u-0005"}, "gone": {"u-0000"}})
+    assert found == {"u-0001": fragments[1], "u-0005": fragments[5]}
+
+
+def test_load_prior_fragments_reads_a_format_1_prior_surface(tmp_path):
+    """The surface on disk the first time this lands is still `ams-review-manifest/1`, one `shard` string per class, and the cache has to serve from it or the next build re-enriches every unit it could have carried."""
+    fragments = [{"id": "u-0000"}, {"id": "u-0001"}]
+    parts = _write_shard(tmp_path, "small", fragments)
+    assert parts == ["units/small.json"]
+    _prior_surface(tmp_path, [{"id": "small", "shards": parts}], legacy=True)
+    assert unit_cache.load_prior_fragments(tmp_path, {"small": {"u-0001"}}) == {"u-0001": fragments[1]}
+
+
+def test_load_prior_fragments_with_no_manifest_contributes_nothing(tmp_path):
+    """A first build, or a prior surface deleted by hand, has no manifest to read — its units fall back to a fresh computation rather than raising."""
+    assert unit_cache.load_prior_fragments(tmp_path, {"small": {"u-0000"}}) == {}

@@ -20,6 +20,7 @@ from typing import Iterable, Mapping
 
 from rebuild.pipeline import fingerprint, kernel_exec, spec_load
 from rebuild.pipeline.model import ResolvedSpec
+from rebuild.review import unit_index
 from rebuild.review.audit import ACCEPTANCE_CONFIGS, AuditRow, Unit, parse_codepoints
 from rebuild.review.drafts import CORPUS_FILES
 
@@ -399,15 +400,28 @@ def load_signature_store(out_dir: Path, environment: str) -> dict[str, str] | No
 
 
 def load_prior_fragments(out_dir: Path, wanted: Mapping[str, set[str]]) -> dict[str, dict]:
-    """The prior shards' emitted fragments for the given {class id: prior unit ids}, keyed by prior id. A missing or unreadable shard simply contributes nothing — its units fall back to a fresh computation."""
+    """The prior shards' emitted fragments for the given {class id: prior unit ids}, keyed by prior id. The prior manifest says which parts a class was written as — a class large enough to be split has no single file to guess at — and a missing or unreadable manifest or part simply contributes nothing, its units falling back to a fresh computation."""
+    out_dir = Path(out_dir)
+    try:
+        manifest = json.loads((out_dir / "manifest.json").read_text(encoding="utf-8"))
+        by_id = {meta.get("id"): meta for meta in manifest["classes"]}
+    except OSError, ValueError, KeyError, TypeError, AttributeError:
+        return {}
     fragments: dict[str, dict] = {}
     for class_id, ids in wanted.items():
-        shard_path = Path(out_dir) / "units" / f"{class_id}.json"
-        try:
-            shard = json.loads(shard_path.read_text(encoding="utf-8"))
-        except OSError, ValueError:
+        meta = by_id.get(class_id)
+        if meta is None:
             continue
-        for fragment in shard:
-            if fragment.get("id") in ids:
-                fragments[fragment["id"]] = fragment
+        try:
+            parts = unit_index.class_shards(meta)
+        except KeyError:
+            continue
+        for part in parts:
+            try:
+                shard = json.loads((out_dir / part).read_text(encoding="utf-8"))
+            except OSError, ValueError:
+                continue
+            for fragment in shard:
+                if fragment.get("id") in ids:
+                    fragments[fragment["id"]] = fragment
     return fragments

@@ -17,12 +17,14 @@ import pytest
 import yaml
 
 from rebuild.pipeline import fingerprint
+from rebuild.review import unit_index
 from rebuild.review.audit import ACCEPTANCE_CONFIGS, load_workload
 from rebuild.review.build import (
     FEATURE_DESCRIPTIONS,
     STATIC_DIR,
     _prune_orphan_shards,
     _write_json,
+    _write_shard,
     build_table_diff,
     check_manifest,
     check_output_dir,
@@ -229,18 +231,28 @@ def test_check_manifest_flags_malformed_human_unit_ids(human_unit_ids):
 def test_check_shards_flags_human_unit_ids_that_do_not_match_batches():
     manifest = json.loads((FIXTURES / "manifest.json").read_text(encoding="utf-8"))
     shards = {
-        meta["id"]: json.loads((FIXTURES / meta["shard"]).read_text(encoding="utf-8"))
+        meta["id"]: [
+            unit
+            for part in unit_index.class_shards(meta)
+            for unit in json.loads((FIXTURES / part).read_text(encoding="utf-8"))
+        ]
         for meta in manifest["classes"]
     }
     manifest["human_unit_ids"].pop()
     assert any("human_unit_ids" in error for error in check_shards(manifest, shards))
 
 
-def _units_with_codepoints(out_dir, manifest, wanted):
-    """The units of the named windows, gathered without parsing shards that cannot hold one. A shard's codepoints appear verbatim in its JSON text, so a substring test over the raw bytes rules most of the surface out for the price of a read — which matters, because parsing all 33 shards costs twelve seconds and eight gigabytes where a worked example wants two units."""
-    found = {}
+def _shard_parts(out_dir, manifest):
     for meta in manifest["classes"]:
-        raw = (out_dir / meta["shard"]).read_text(encoding="utf-8")
+        for part in unit_index.class_shards(meta):
+            yield out_dir / part
+
+
+def _units_with_codepoints(out_dir, manifest, wanted):
+    """The units of the named windows, gathered without parsing shard parts that cannot hold one. A part's codepoints appear verbatim in its JSON text, so a substring test over the raw bytes rules most of the surface out for the price of a read — which matters, because parsing the whole corpus costs twelve seconds and eight gigabytes where a worked example wants two units."""
+    found = {}
+    for path in _shard_parts(out_dir, manifest):
+        raw = path.read_text(encoding="utf-8")
         if not any(f'"{codepoints}"' in raw for codepoints in wanted):
             continue
         for unit in json.loads(raw):
@@ -250,8 +262,8 @@ def _units_with_codepoints(out_dir, manifest, wanted):
 
 
 def _unit_by_id(out_dir, manifest, unit_id):
-    for meta in manifest["classes"]:
-        raw = (out_dir / meta["shard"]).read_text(encoding="utf-8")
+    for path in _shard_parts(out_dir, manifest):
+        raw = path.read_text(encoding="utf-8")
         if f'"{unit_id}"' not in raw:
             continue
         for unit in json.loads(raw):
@@ -281,7 +293,7 @@ def test_known_secondary_seam_homes_at_the_shorter_primary(built):
 
 
 def _smallest_shards_first(manifest):
-    """The classes in ascending unit_count, so a three-unit sample parses tens of megabytes instead of whichever 450 MB shard happens to sort first."""
+    """The classes in ascending unit_count, so a three-unit sample parses tens of megabytes instead of whichever largest shard happens to sort first."""
     return sorted(manifest["classes"], key=lambda meta: meta["unit_count"])
 
 
@@ -293,7 +305,7 @@ def test_built_ink_deltas_match_the_comparator_recipe(built):
     )
     sampled = 0
     for meta in _smallest_shards_first(manifest):
-        units = json.loads((out_dir / meta["shard"]).read_text(encoding="utf-8"))
+        units = json.loads((out_dir / unit_index.class_shards(meta)[0]).read_text(encoding="utf-8"))
         unit = next((entry for entry in units if entry["ink_deltas"]), None)
         if unit is None:
             continue
@@ -330,7 +342,7 @@ def test_cluster_id_recipe_matches_the_docket_tool(built):
     )
     sampled = 0
     for meta in _smallest_shards_first(manifest):
-        units = json.loads((out_dir / meta["shard"]).read_text(encoding="utf-8"))
+        units = json.loads((out_dir / unit_index.class_shards(meta)[0]).read_text(encoding="utf-8"))
         unit = next((entry for entry in units if entry["batch"] is not None), None)
         if unit is None:
             continue
@@ -507,16 +519,79 @@ def test_node_check_passes_on_every_shipped_script():
         assert result.returncode == 0, f"{script.name}: {result.stderr}"
 
 
+def _padded(count: int, filler: int = 0) -> list[dict]:
+    return [{"id": f"u-{index:04d}", "pad": "x" * filler} for index in range(count)]
+
+
+def test_write_shard_keeps_a_class_under_the_cap_in_one_bare_file(tmp_path):
+    """A class small enough to fit keeps `units/<class-id>.json`, so the small classes, the checked-in fixtures, and every archived surface stay exactly where their readers already look — and its bytes are still the one-shot dumps' bytes."""
+    fragments = _padded(4, 40)
+    assert _write_shard(tmp_path, "small", fragments) == ["units/small.json"]
+    path = tmp_path / "units" / "small.json"
+    assert path.read_bytes() == (json.dumps(fragments, indent=1, ensure_ascii=True) + "\n").encode("utf-8")
+    assert sorted(entry.name for entry in (tmp_path / "units").iterdir()) == ["small.json"]
+
+
+def test_write_shard_splits_a_class_that_outgrows_the_cap(tmp_path, monkeypatch):
+    """Past the cap the class is written as contiguous three-digit parts numbered from zero with no bare file beside them, each part within the cap, each part's bytes the bytes one `json.dumps` of that part would have produced, and the parts concatenating to the class in order."""
+    monkeypatch.setattr("rebuild.review.build.SHARD_PART_BYTES", 512)
+    fragments = _padded(24, 60)
+    parts = _write_shard(tmp_path, "big", fragments)
+    assert len(parts) > 1
+    assert parts == [f"units/big.{index:03d}.json" for index in range(len(parts))]
+    assert not (tmp_path / "units" / "big.json").exists()
+    seen: list[dict] = []
+    for part in parts:
+        raw = (tmp_path / part).read_bytes()
+        assert len(raw) <= 512, part
+        units = json.loads(raw)
+        assert raw == (json.dumps(units, indent=1, ensure_ascii=True) + "\n").encode("utf-8"), part
+        seen.extend(units)
+    assert seen == fragments
+
+
+def test_write_shard_gives_an_oversized_fragment_a_part_of_its_own(tmp_path, monkeypatch):
+    """Nothing here can make a single unit smaller, so a fragment past the cap is written alone rather than split — and it does not drag its neighbors over with it."""
+    monkeypatch.setattr("rebuild.review.build.SHARD_PART_BYTES", 128)
+    fragments = [{"id": "u-0000"}, {"id": "u-0001", "pad": "x" * 400}, {"id": "u-0002"}]
+    parts = _write_shard(tmp_path, "big", fragments)
+    assert [json.loads((tmp_path / part).read_text(encoding="utf-8")) for part in parts] == [
+        [fragments[0]],
+        [fragments[1]],
+        [fragments[2]],
+    ]
+
+
+def test_write_shard_writes_an_empty_class_as_one_empty_array(tmp_path):
+    assert _write_shard(tmp_path, "empty", []) == ["units/empty.json"]
+    assert (tmp_path / "units" / "empty.json").read_bytes() == b"[]\n"
+
+
+def test_write_shard_leaves_no_staging_file_behind_when_serializing_fails(tmp_path):
+    """A part is staged and renamed for the reason `_write_json` stages: an encode that fails partway through must leave the previous build's units alone rather than a truncated part or a stray `.partial`."""
+    with pytest.raises(TypeError):
+        _write_shard(tmp_path, "big", [{"id": "u-0000"}, {"id": object()}])
+    assert list((tmp_path / "units").iterdir()) == []
+
+
 def test_prune_orphan_shards_removes_only_unreferenced_json(tmp_path):
+    """Every part the manifest lists survives, and both spellings of a name it no longer lists go: the bare file a class left behind when it grew into parts, and a numbered part a shrinking class no longer fills."""
     units = tmp_path / "units"
     units.mkdir()
-    (units / "a.json").write_text("[]", encoding="utf-8")
-    (units / "b.json").write_text("[]", encoding="utf-8")
+    for name in ("a.json", "b.json", "big.json", "big.000.json", "big.001.json", "big.002.json"):
+        (units / name).write_text("[]", encoding="utf-8")
     (units / "stray.txt").write_text("keep me", encoding="utf-8")
-    manifest = {"classes": [{"shard": "units/a.json"}]}
+    manifest = {
+        "classes": [
+            {"shards": ["units/a.json"]},
+            {"shards": ["units/big.000.json", "units/big.001.json"]},
+        ]
+    }
     removed = _prune_orphan_shards(tmp_path, manifest)
-    assert removed == ["b.json"]
+    assert removed == ["b.json", "big.002.json", "big.json"]
     assert (units / "a.json").exists()
+    assert (units / "big.000.json").exists()
+    assert (units / "big.001.json").exists()
     assert (units / "stray.txt").exists()
     assert not (units / "b.json").exists()
 
@@ -534,7 +609,7 @@ def test_prune_orphan_shards_no_units_dir_is_noop(tmp_path):
         [1, -2, 3.5, True, False, None, "x"],
         [{"a": {"b": [1, {"c": [[]]}]}}, {"a": []}],
         [{"letter": "·Pea", "raw": 'line\nbreak\ttab "quote" back\\slash \x1f'}],
-        {"format": 3, "classes": [{"id": "a", "shard": "units/a.json"}], "why": None},
+        {"format": 3, "classes": [{"id": "a", "shards": ["units/a.json"]}], "why": None},
     ),
 )
 def test_write_json_matches_one_shot_dumps_byte_for_byte(tmp_path, payload):

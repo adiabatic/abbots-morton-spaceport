@@ -225,7 +225,7 @@ def _write_shard(root: Path, records: list[dict]) -> dict:
         "classes": [
             {
                 "id": class_id,
-                "shard": f"units/{class_id}.json",
+                "shards": [f"units/{class_id}.json"],
                 "unit_count": len(records) if position == 0 else 0,
                 "no_verdict": class_id == "boundary-echo",
             }

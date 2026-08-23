@@ -1,5 +1,5 @@
 {
- "format": "ams-review-manifest/1",
+ "format": "ams-review-manifest/2",
  "mode": "m1-audit",
  "generated_at": "2026-06-10T00:00:00Z",
  "repo_head": "fixture",
@@ -98,7 +98,9 @@
    "unit_count": 4,
    "row_count": 20,
    "machine_approved_count": 1,
-   "shard": "units/fixture-intended.json",
+   "shards": [
+    "units/fixture-intended.json"
+   ],
    "batches": [
     0
    ]
@@ -112,7 +114,9 @@
    "unit_count": 2,
    "row_count": 7,
    "machine_approved_count": 0,
-   "shard": "units/fixture-drift.json",
+   "shards": [
+    "units/fixture-drift.json"
+   ],
    "batches": [
     0
    ]

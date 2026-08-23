@@ -1,4 +1,4 @@
-"""The review-app generation CLI (rebuild/REVIEW-PLAN.md §1.3): assemble units, precompute enrichment and all three verdict drafts, and write the self-contained rebuild/out/review/ directory — manifest.json, one unit shard per class, the census-facts.json sidecar the artifact cycle's census refresh copies into the checked-in pins, copied fonts, and the static app files. Also the `snapshot` subcommand for accepted-state baselines.
+"""The review-app generation CLI (rebuild/REVIEW-PLAN.md §1.3): assemble units, precompute enrichment and all three verdict drafts, and write the self-contained rebuild/out/review/ directory — manifest.json, one unit shard per class (in byte-capped parts when a class outgrows one file), the census-facts.json sidecar the artifact cycle's census refresh copies into the checked-in pins, copied fonts, and the static app files. Also the `snapshot` subcommand for accepted-state baselines.
 
 Usage:
     uv run python -m rebuild.review.build
@@ -25,6 +25,7 @@ from dataclasses import dataclass, replace
 from functools import lru_cache
 from itertools import combinations
 from pathlib import Path
+from typing import TextIO
 
 from rebuild.pipeline import fingerprint
 from rebuild.pipeline.baseline_subset import M1_ALPHABET
@@ -72,7 +73,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 DEFAULT_OUT = REPO_ROOT / "rebuild" / "out" / "review"
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
-MANIFEST_FORMAT = "ams-review-manifest/1"
+MANIFEST_FORMAT = "ams-review-manifest/2"
+SHARD_PART_BYTES = 1 << 28
 BUILD_COMMAND = "uv run python -m rebuild.review.build"
 SERVE_COMMAND = "uv run python -m rebuild.review.serve"
 
@@ -92,7 +94,7 @@ _FALLBACK_INDEX = """<!DOCTYPE html>
 <body>
 <main>
 <h1>AMS review surface</h1>
-<p>This is the generator's placeholder page: the static app sources were not present under <code>rebuild/review/static/</code> when this directory was built. The data payload is complete — <a href="manifest.json">manifest.json</a> plus one shard per class under <code>units/</code>, and both fonts under <code>fonts/</code>.</p>
+<p>This is the generator's placeholder page: the static app sources were not present under <code>rebuild/review/static/</code> when this directory was built. The data payload is complete — <a href="manifest.json">manifest.json</a> plus the unit shards under <code>units/</code>, and both fonts under <code>fonts/</code>.</p>
 <p>Rebuild with <code>{build}</code>; serve with <code>{serve}</code>.</p>
 </main>
 </body>
@@ -460,12 +462,66 @@ def _write_json(path: Path, payload) -> None:
         staging.unlink(missing_ok=True)
 
 
+def _write_shard(out_dir: Path, class_id: str, fragments: list[dict]) -> list[str]:
+    """One class's units, written as byte-capped parts, returning the relative paths the manifest lists in part order.
+
+    The cap exists for the browser: the app parses each part as one JSON string, and V8's `String::kMaxLength` under pointer compression is 2**29 - 24 bytes. Blink hands `JSON.parse` an empty string rather than an error when it cannot materialize a body that long, so an oversized shard surfaces as "Unexpected end of JSON input" from a fetch that looked like it succeeded. `SHARD_PART_BYTES` is half that ceiling, and the other half is headroom.
+
+    A class that fits in one part keeps the bare `units/<class-id>.json` name, so the small classes, the checked-in fixtures, and the archived surfaces never churn. A class that does not is written as `units/<class-id>.000.json`, `units/<class-id>.001.json`, … — contiguous from zero, three digits, every part numbered, never a bare name beside numbered ones. Both spellings sort where `unit_index.class_shard_key` puts the class, because the character after the class id is `.` either way.
+
+    The framing is `_write_json`'s, for the reasons its docstring gives: each fragment is serialized inside a one-element list whose framing is peeled back off, so a part's bytes are the one-shot `json.dumps(part, indent=1, ensure_ascii=True) + "\\n"` bytes by construction. Every part lands within the cap except one holding a single fragment that exceeds it alone, which nothing here can make smaller. Each part is staged under a sibling name and renamed, so a failed encode leaves the previous build's units in place rather than a truncated part.
+    """
+    units_dir = Path(out_dir) / "units"
+    units_dir.mkdir(parents=True, exist_ok=True)
+    staged: list[Path] = []
+    handle: TextIO | None = None
+    try:
+        size = 0
+        for fragment in fragments:
+            body = json.dumps([fragment], indent=1, ensure_ascii=True)[1:-2]
+            if handle is not None and size + len(body) + len(",\n]\n") > SHARD_PART_BYTES:
+                handle.write("\n]\n")
+                handle.close()
+                handle = None
+            if handle is None:
+                staged.append(units_dir / f"{class_id}.{len(staged):03d}.json.partial")
+                handle = staged[-1].open("w", encoding="utf-8", newline="\n")
+                handle.write("[")
+                size = 1
+            else:
+                handle.write(",")
+                size += 1
+            handle.write(body)
+            size += len(body)
+        if handle is None:
+            staged.append(units_dir / f"{class_id}.000.json.partial")
+            handle = staged[-1].open("w", encoding="utf-8", newline="\n")
+            handle.write("[]\n")
+        else:
+            handle.write("\n]\n")
+        handle.close()
+        handle = None
+        names = (
+            [f"{class_id}.json"]
+            if len(staged) == 1
+            else [f"{class_id}.{index:03d}.json" for index in range(len(staged))]
+        )
+        for staging, name in zip(staged, names, strict=True):
+            staging.replace(units_dir / name)
+        return [f"units/{name}" for name in names]
+    finally:
+        if handle is not None:
+            handle.close()
+        for staging in staged:
+            staging.unlink(missing_ok=True)
+
+
 def _prune_orphan_shards(out_dir: Path, manifest: dict) -> list[str]:
-    """Delete units/*.json left over from ledger classes the manifest no longer references. Runs only after the manifest is written, so a mid-build crash leaves the orphans in place rather than a manifest pointing at a deleted shard. Touches only *.json directly under units/ — subdirectories, non-JSON files, fonts, static assets, and manifest.json are never considered."""
+    """Delete units/*.json left over from ledger classes and shard parts the manifest no longer references. Runs only after the manifest is written, so a mid-build crash leaves the orphans in place rather than a manifest pointing at a deleted shard. Touches only *.json directly under units/ — subdirectories, non-JSON files, fonts, static assets, and manifest.json are never considered."""
     units_dir = Path(out_dir) / "units"
     if not units_dir.is_dir():
         return []
-    keep = {Path(meta["shard"]).name for meta in manifest["classes"]}
+    keep = {Path(part).name for meta in manifest["classes"] for part in unit_index.class_shards(meta)}
     removed: list[str] = []
     for shard in units_dir.glob("*.json"):
         if shard.is_file() and shard.name not in keep:
@@ -858,7 +914,7 @@ def _write_surface(
         units = by_class[entry.id]
         shard = [fragments[unit.unit_id] for unit in units]
         shards_by_class[entry.id] = shard
-        _write_json(out_dir / "units" / f"{entry.id}.json", shard)
+        parts = _write_shard(out_dir, entry.id, shard)
         classes_meta.append(
             {
                 "id": entry.id,
@@ -871,7 +927,7 @@ def _write_surface(
                 "machine_approved_count": sum(
                     1 for unit in units if unit.ink_identical or unit.junior_equivalent
                 ),
-                "shard": f"units/{entry.id}.json",
+                "shards": parts,
                 "batches": sorted({unit.batch for unit in units if unit.batch is not None}),
             }
         )
@@ -1462,7 +1518,7 @@ def build_table_diff(
                 human_unit_ids.append(unit_id)
             shard.append(_table_diff_unit_json(entry, unit_id, batch, all_configs, ink_identical))
             index += 1
-        _write_json(out_dir / "units" / f"{bucket}.json", shard)
+        parts = _write_shard(out_dir, bucket, shard)
         shards_by_class[bucket] = shard
         machine_units += machine_count
         if machine_count:
@@ -1477,7 +1533,7 @@ def build_table_diff(
                 "unit_count": len(members),
                 "row_count": sum(max(len(entry.paired), 1) for entry in members),
                 "machine_approved_count": machine_count,
-                "shard": f"units/{bucket}.json",
+                "shards": parts,
                 "batches": sorted(batches),
             }
         )
@@ -1643,8 +1699,13 @@ def check_manifest(manifest: dict) -> list[str]:
     need(isinstance(classes, list) and classes, "classes must be a nonempty list")
     for meta in classes or ():
         identifier = meta.get("id", "<missing>")
-        for key in ("id", "shard", "why"):
+        for key in ("id", "why"):
             need(isinstance(meta.get(key), str), f"classes[{identifier}].{key} must be a string")
+        shards = meta.get("shards")
+        need(
+            isinstance(shards, list) and shards and all(isinstance(part, str) for part in shards),
+            f"classes[{identifier}].shards must be a nonempty list of paths",
+        )
         for key in ("unit_count", "row_count", "machine_approved_count"):
             need(isinstance(meta.get(key), int), f"classes[{identifier}].{key} must be an integer")
         need(isinstance(meta.get("batches"), list), f"classes[{identifier}].batches must be a list")
@@ -2213,14 +2274,15 @@ def check_shards(
 
 
 def _check_output_files(out_dir: Path, manifest: dict, repo_root: Path | None = None) -> list[str]:
-    """The files beside the manifest: every shard present and non-empty, the per-unit index present and stamped for this manifest, the index page written, and each copied font matching both the sha the manifest recorded and — when `repo_root` resolves the source it names — the font it was copied from. That second comparison is what catches a surface serving last cycle's letters: the copy is faithful to a manifest written over an M1.otf that has since moved on."""
+    """The files beside the manifest: every part of every shard present and non-empty, the per-unit index present and stamped for this manifest, the index page written, and each copied font matching both the sha the manifest recorded and — when `repo_root` resolves the source it names — the font it was copied from. That second comparison is what catches a surface serving last cycle's letters: the copy is faithful to a manifest written over an M1.otf that has since moved on."""
     errors: list[str] = []
     for meta in manifest.get("classes", ()):
-        shard_path = Path(out_dir) / meta.get("shard", "")
-        if not shard_path.is_file():
-            errors.append(f"shard {meta.get('shard')} is missing")
-        elif shard_path.stat().st_size == 0:
-            errors.append(f"shard {meta.get('shard')} is empty")
+        for part in unit_index.class_shards(meta):
+            shard_path = Path(out_dir) / part
+            if not shard_path.is_file():
+                errors.append(f"shard {part} is missing")
+            elif shard_path.stat().st_size == 0:
+                errors.append(f"shard {part} is empty")
     for side, record in (manifest.get("fonts") or {}).items():
         font_path = Path(out_dir) / record.get("file", "")
         if not font_path.exists():
@@ -2254,10 +2316,14 @@ def check_output_dir(out_dir: Path, repo_root: Path | None = None) -> list[str]:
     errors.extend(check_manifest(manifest))
     shards_by_class: dict[str, list[dict]] = {}
     for meta in manifest.get("classes", ()):
-        shard_path = out_dir / meta.get("shard", "")
-        if not shard_path.exists():
-            continue
-        shards_by_class[meta.get("id", "")] = json.loads(shard_path.read_text(encoding="utf-8"))
+        units: list[dict] = []
+        for part in unit_index.class_shards(meta):
+            shard_path = out_dir / part
+            if not shard_path.exists():
+                break
+            units.extend(json.loads(shard_path.read_text(encoding="utf-8")))
+        else:
+            shards_by_class[meta.get("id", "")] = units
     errors.extend(check_shards(manifest, shards_by_class, repo_root))
     errors.extend(_check_output_files(out_dir, manifest, repo_root))
     return errors
