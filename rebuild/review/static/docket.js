@@ -170,6 +170,17 @@ export function nextDocketDecision(units, recordOf, ruledIds) {
   return null;
 }
 
+// A docket-launched worklist names units by their per-build ids, which renumber whenever the artifact cycle rebuilds the surface — so a tab resuming an old worklist hash would otherwise show whatever units now happen to bear those ids, a plausible-looking screenful that has nothing to do with the docket queue. The stamp pins the worklist to the surface it was stacked for: a mismatch (including the stampless hash of an older tab) means the id list is meaningless and the flow should restack from the live queue, and a current worklist whose every listed unit already carries a real verdict is a finished screenful being resumed, which advances exactly as finishing it live would have. A skip is a record but not a verdict: a skipped-through cluster keeps its docket card, and clicking that card means "show me the deferred reps again", never "teleport to a different decision" — so a worklist holding any skip renders. A current worklist with blanks left renders as-is.
+export function docketResumeAction({ stamp, manifestStamp, unitIds, recordOf }) {
+  if (stamp !== manifestStamp) return 'restack';
+  const judged = (id) => {
+    const record = recordOf(id);
+    return Boolean(record) && record.verdict !== 'skip';
+  };
+  if (unitIds.length === 0 || unitIds.every(judged)) return 'advance';
+  return null;
+}
+
 export function docketTotals(clusters) {
   let blankUnits = 0;
   let echoGroups = 0;
