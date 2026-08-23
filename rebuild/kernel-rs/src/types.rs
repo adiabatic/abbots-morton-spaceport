@@ -144,7 +144,7 @@ impl RightToken {
     }
 }
 
-/// Where in a word a position sits, derived from run-splitting boundaries alone. The closed vocabulary of `specificity.WORD_VALUES`.
+/// Where in a word a position sits, derived from run-splitting boundaries alone. The vocabulary a `word:` condition names is closed to these four.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum WordPosition {
     Initial,

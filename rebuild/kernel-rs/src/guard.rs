@@ -58,7 +58,7 @@ impl<'i> GuardState<'i> {
         self.engines.len()
     }
 
-    /// Whether this ligature yields to its components in this window, `settle.formation_blocked`. A non-letter first slot is free without consulting an engine, and every computed verdict is remembered because the sweep asks for each one many times over.
+    /// Whether this ligature yields to its components in this window. A non-letter first slot is free without consulting an engine, and every computed verdict is remembered because the sweep asks for each one many times over.
     pub fn formation_blocked(
         &mut self,
         liga: Sym,
@@ -111,7 +111,7 @@ impl<'i> GuardState<'i> {
         Ok(None)
     }
 
-    /// One configuration's verdict, `settle._blocked_under`. Three reads in order, each of which can settle the question free: the unformed trail must offer some seam toward the follower, its ranking-grain trace must actually commit one, and the formed ligature must offer none.
+    /// One configuration's verdict. Three reads in order, each of which can settle the question free: the unformed trail must offer some seam toward the follower, its ranking-grain trace must actually commit one, and the formed ligature must offer none.
     fn blocked_under(
         engine: &mut Engine<'i>,
         liga: Sym,

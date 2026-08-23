@@ -13,7 +13,7 @@ use crate::index::SpecIndex;
 use crate::model::{Condition, PolicyRecord, Sym, When};
 use crate::types::provenance_pointer;
 
-/// How two records' match sets sit relative to each other, `specificity.Ordering`.
+/// How two records' match sets sit relative to each other.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Ordering {
     AOutranks,
@@ -56,7 +56,7 @@ pub enum AxisKey {
 /// Every constrained axis of one `when:`, expanded. An absent key means the axis is unconstrained, which is the axis universe and not the empty set — the asymmetry the comparison in [`compare_axes`] turns on.
 pub type AxisSets = HashMap<AxisKey, BTreeSet<Sym>>;
 
-/// Expand every constrained axis of a `when:` to its concrete match set, `specificity.axis_sets`. `owner` is the rune whose local groups a `class:` reference may resolve through.
+/// Expand every constrained axis of a `when:` to its concrete match set. `owner` is the rune whose local groups a `class:` reference may resolve through.
 pub fn axis_sets(
     index: &SpecIndex,
     when: &When,
@@ -127,7 +127,7 @@ fn side_axes(
     side_axes(index, cond.then.as_deref(), owner, side, depth + 1, axes)
 }
 
-/// The family-axis match set, or `None` when the axis is unconstrained. `specificity._family_set`: `family:` and `class:` on one condition are conjunctive, and `except:` entries that constrain only the family axis subtract from the result — a carve-out with any other axis is conservatively ignored, since modeling it would need the window that is not in hand.
+/// The family-axis match set, or `None` when the axis is unconstrained. `family:` and `class:` on one condition are conjunctive, and `except:` entries that constrain only the family axis subtract from the result — a carve-out with any other axis is conservatively ignored, since modeling it would need the window that is not in hand.
 fn family_set(
     index: &SpecIndex,
     cond: &Condition,
@@ -172,7 +172,7 @@ fn condition_constrains_only_family(cond: &Condition) -> bool {
         && cond.except_.is_empty()
 }
 
-/// The `is:` axis's match set, `specificity._is_set`. `boundary` is the one value that expands rather than standing for itself, and it expands to the four boundary kinds — which is what makes `is: boundary` comparable with `is: space`.
+/// The `is:` axis's match set. `boundary` is the one value that expands rather than standing for itself, and it expands to the four boundary kinds — which is what makes `is: boundary` comparable with `is: space`.
 fn is_set(index: &SpecIndex, cond: &Condition) -> Option<BTreeSet<Sym>> {
     let token = cond.is_token?;
     let vocab = index.vocab();
@@ -187,7 +187,7 @@ fn is_set(index: &SpecIndex, cond: &Condition) -> Option<BTreeSet<Sym>> {
     Some(BTreeSet::from([token]))
 }
 
-/// Compare two records' conditions extensionally, `specificity.outranks`.
+/// Compare two records' conditions extensionally.
 pub fn outranks(
     index: &SpecIndex,
     a: &PolicyRecord,
@@ -258,7 +258,7 @@ pub struct Demand {
     pub exit: Option<Sym>,
 }
 
-/// The demand a record makes, `specificity.pick_most_specific`'s default `demand` closure. `ok:` defaults to `[by, by]` per design section 3.3, so a record spelling that band out loud demands exactly what a record leaving it implicit does, and the two collapse instead of colliding.
+/// The demand a record makes — what [`pick_most_specific`] collapses several maximal records by when they all ask for the same thing. `ok:` defaults to `[by, by]` per design section 3.3, so a record spelling that band out loud demands exactly what a record leaving it implicit does, and the two collapse instead of colliding.
 pub fn default_demand(record: &PolicyRecord) -> Demand {
     Demand {
         by: record.by,
@@ -272,7 +272,7 @@ pub fn default_demand(record: &PolicyRecord) -> Demand {
     }
 }
 
-/// Among records that all matched one concrete window, the unique most-specific one — `specificity.pick_most_specific`. Nesting resolves silently, because the narrow record wins by membership; several maximal records demanding the same thing collapse to the first in declaration order; several maximal records demanding different things are E-INCOMPARABLE, and the overlap is a fact rather than a possibility because the records have already co-matched.
+/// Among records that all matched one concrete window, the unique most-specific one. Nesting resolves silently, because the narrow record wins by membership; several maximal records demanding the same thing collapse to the first in declaration order; several maximal records demanding different things are E-INCOMPARABLE, and the overlap is a fact rather than a possibility because the records have already co-matched.
 ///
 /// `records` and `owners` are parallel, and a record is identified by its address, so the same record handed in twice is skipped against itself rather than compared with its twin. An empty `records` panics rather than answering: it is a caller bug, and returning a settlement error instead would hand it to the prospect's fallback, which swallows settlement errors and would therefore hide the bug in a wrong prospect rather than a crash.
 pub fn pick_most_specific<'r>(
