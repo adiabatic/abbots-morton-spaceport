@@ -930,7 +930,7 @@ def _write_surface(
     return manifest
 
 
-@dataclass
+@dataclass(slots=True)
 class _UnitState:
     """One unit's phase-1 products in the parent, served from the cache or returned by the runner, in the one shape the global reduces and the store writer read."""
 

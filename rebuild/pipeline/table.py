@@ -69,7 +69,7 @@ class Window:
         return self.outcome == self.input_glyph
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class Transition(Window):
     """A window plus what the fixpoint alone reads: the settled cells the treaty table is folded from, the optimistic prospect the joint flag is scored against, and the provenance the dead-policy gate counts as firing evidence."""
 
@@ -109,7 +109,7 @@ def _assert_window_arity(expected: int) -> None:
 _assert_window_arity(RIGHT_WINDOW_SLOTS)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class TreatyRow:
     left: str
     right: str

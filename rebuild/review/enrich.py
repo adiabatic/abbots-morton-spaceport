@@ -228,7 +228,7 @@ class TraceReport:
     positions: tuple[TracePosition, ...]
 
 
-@dataclass
+@dataclass(slots=True)
 class EnrichedUnit:
     unit: Unit
     notation: str
