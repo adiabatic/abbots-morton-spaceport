@@ -1,4 +1,4 @@
-"""Tests for the standing-approval fill: all three delta shapes — the two structural pattern matches, being the ligature shape (pivot glyph, seams into and out of it, follower family, post-ligature seam, flank-seam identity) and the extension-dropped shape (pivot glyph carrying the named exit extension, the seam it exits into holding its height, the full after-cell identity of pivot and follower, every other seam standing still, nothing ligating anywhere, and the unit's own judgment fields agreeing that this seam is the question), plus the ink-exact ink-delta shape (the unit's persisted per-config digests being a nonempty subset of the ones the rule blesses, so an ink-identical window matches nothing and one unlisted delta under one config fails the whole unit closed, and a surface predating the field refuses the run outright) — the except_left guard, which reads a ligature's trailing left component and refuses the whole unit rather than the one position, blankness against the verdicts file (parked skip verdicts are not blank), the non-winning manifest stamp on every emitted record, and rules-file validation, which admits exactly one shape per rule and checks that shape's own coherence."""
+"""Tests for the standing-approval fill: all four delta shapes — the two structural pattern matches, being the ligature shape (pivot glyph, seams into and out of it, follower family, post-ligature seam, flank-seam identity) and the extension-dropped shape (pivot glyph carrying the named exit extension, the seam it exits into holding its height, the full after-cell identity of pivot and follower, every other seam standing still, nothing ligating anywhere, and the unit's own judgment fields agreeing that this seam is the question), the ink-exact ink-delta shape (the unit's persisted per-config digests being a nonempty subset of the ones the rule blesses, so an ink-identical window matches nothing and one unlisted delta under one config fails the whole unit closed, and a surface predating the field refuses the run outright), and the rendered-pixel slide shape, whose preconditions are read off the index record before anything is shaped (a nonempty `ink_deltas` holding one distinct digest whose keys are exactly the unit's config set, and a pivot-prefix name among the recorded before glyphs) and whose geometry is then re-derived in a purpose-built font pair, where the pivot keeps its exact ink with its own-frame origin displaced by the declared column count and every span's union of ink slides cumulatively — so a union-invisible name-grain re-spelling to the pivot's right rides along, while one stray pixel anywhere in the window, or a font pair that never settles into the named pivot, fails the match closed — the except_left guard, which reads a ligature's trailing left component and refuses the whole unit rather than the one position, blankness against the verdicts file (parked skip verdicts are not blank), the non-winning manifest stamp on every emitted record, and rules-file validation, which admits exactly one shape per rule and checks that shape's own coherence."""
 
 import json
 import sys
@@ -53,6 +53,19 @@ INK_RULE = {
     },
 }
 
+SLIDE_DELTA = "d-aaaaaaaaaaaa"
+
+SLIDE_RULE = {
+    "id": "see-grounded-left-column-dropped",
+    "verdict": "approve",
+    "note": "the grounded ·See sits a column closer to what precedes it and everything after it slides over",
+    "match": {
+        "before": {"pivots": ["qsSee.ex-y0"]},
+        "after": {"pivots": ["qsSee.straighter"], "slide": -1},
+        "except_left": [],
+    },
+}
+
 
 def unit(
     uid,
@@ -66,6 +79,8 @@ def unit(
     pair=None,
     secondary_seams=None,
     codepoints=None,
+    configs=("ss03",),
+    ink_deltas=None,
 ):
     return {
         "id": uid,
@@ -76,6 +91,8 @@ def unit(
             if codepoints is None
             else codepoints
         ),
+        "configs": list(configs),
+        "ink_deltas": ink_deltas,
         "before": {"glyphs": glyphs, "seams": seams},
         "after": {"cells": cells, "seams": after_seams},
         "pair": pair,
@@ -684,14 +701,315 @@ def test_both_shapes_load_from_one_rules_file(tmp_path):
     assert [rule["id"] for rule in rules] == [RULE["id"], EXT_RULE["id"]]
 
 
-def test_all_three_shapes_load_from_one_rules_file(tmp_path):
-    rules = sv.load_rules(_write_rules(tmp_path / "rules.yaml", [RULE, EXT_RULE, INK_RULE]))
-    assert [rule["id"] for rule in rules] == [RULE["id"], EXT_RULE["id"], INK_RULE["id"]]
+def test_all_four_shapes_load_from_one_rules_file(tmp_path):
+    rules = sv.load_rules(_write_rules(tmp_path / "rules.yaml", [RULE, EXT_RULE, INK_RULE, SLIDE_RULE]))
+    assert [rule["id"] for rule in rules] == [
+        RULE["id"],
+        EXT_RULE["id"],
+        INK_RULE["id"],
+        SLIDE_RULE["id"],
+    ]
 
 
 def test_duplicate_rule_ids_are_refused(tmp_path):
     with pytest.raises(SystemExit):
         sv.load_rules(_write_rules(tmp_path / "rules.yaml", [RULE, RULE]))
+
+
+def _rect(x0, y0, x1, y1):
+    return ((x0, y0), (x1, y0), (x1, y1), (x0, y1))
+
+
+TWO_COLUMNS = (_rect(0, 0, 100, 150),)
+GROUNDED_SEE = (_rect(100, 0, 200, 150),)
+STRAIGHTER_SEE = (_rect(50, 0, 150, 150),)
+TUCKED_FOLLOWER = (_rect(50, 0, 100, 150),)
+TWO_COLUMNS_AND_A_PIXEL = (((0, 0), (100, 0), (100, 150), (50, 150), (50, 200), (0, 200)),)
+TUCKED_FOLLOWER_AND_A_PIXEL = (((50, 0), (150, 0), (150, 50), (100, 50), (100, 150), (50, 150)),)
+
+BEFORE_GLYPHS = {
+    "qsL": (TWO_COLUMNS, 100),
+    "qsSee.ex-y0": (GROUNDED_SEE, 250),
+    "qsF1": (TWO_COLUMNS, 50),
+    "qsF2": (TWO_COLUMNS, 100),
+}
+AFTER_GLYPHS = {
+    "qsL": (TWO_COLUMNS, 100),
+    "qsSee.straighter": (STRAIGHTER_SEE, 200),
+    "qsF1": (TWO_COLUMNS, 50),
+    "qsF2": (TUCKED_FOLLOWER, 100),
+    "qsOther": (TWO_COLUMNS, 100),
+}
+BEFORE_CMAP = {
+    0xE001: "qsL",
+    0xE002: "qsSee.ex-y0",
+    0xE003: "qsF1",
+    0xE004: "qsF2",
+    0xE005: "qsSee.ex-y0",
+}
+AFTER_CMAP = {
+    0xE001: "qsL",
+    0xE002: "qsSee.straighter",
+    0xE003: "qsF1",
+    0xE004: "qsF2",
+    0xE005: "qsOther",
+}
+
+SLIDE_FONTS = {
+    "before": (BEFORE_GLYPHS, BEFORE_CMAP),
+    "after": (AFTER_GLYPHS, AFTER_CMAP),
+    "after-extra-prefix-pixel": ({**AFTER_GLYPHS, "qsL": (TWO_COLUMNS_AND_A_PIXEL, 100)}, AFTER_CMAP),
+    "after-extra-follower-pixel": (
+        {**AFTER_GLYPHS, "qsF2": (TUCKED_FOLLOWER_AND_A_PIXEL, 100)},
+        AFTER_CMAP,
+    ),
+}
+
+FOUNDING_GLYPHS = ["qsL", "qsSee.ex-y0", "qsF1", "qsF2"]
+FOUNDING_CODEPOINTS = "E001:E002:E003:E004"
+
+
+def _build_font(path, glyphs, cmap):
+    """A tiny TTF whose every coordinate and advance is a whole number of PIXEL_SIZE columns: one rectilinear outline per named glyph, the codepoints cmapped straight onto the names the run has to shape into, and each glyph's left sidebearing set to its own leftmost point — which is load-bearing rather than tidy, because fontTools' TrueType glyph set translates an outline by `lsb - xMin` on the way out and would otherwise pull every inset glyph back to x=0, erasing the own-frame origin the slide shape reads."""
+    from fontTools.fontBuilder import FontBuilder
+    from fontTools.pens.ttGlyphPen import TTGlyphPen
+
+    order = [".notdef", *glyphs]
+    outlines = {}
+    metrics = {}
+    for name in order:
+        contours, advance = glyphs.get(name, ((), 500))
+        pen = TTGlyphPen(None)
+        for contour in contours:
+            pen.moveTo(contour[0])
+            for point in contour[1:]:
+                pen.lineTo(point)
+            pen.closePath()
+        outlines[name] = pen.glyph()
+        columns = [x for contour in contours for x, _y in contour]
+        metrics[name] = (advance, min(columns) if columns else 0)
+    builder = FontBuilder(1000)
+    builder.setupGlyphOrder(order)
+    builder.setupCharacterMap(cmap)
+    builder.setupGlyf(outlines)
+    builder.setupHorizontalMetrics(metrics)
+    builder.setupHorizontalHeader(ascent=800, descent=-200)
+    builder.setupNameTable({"familyName": "SlideTest", "styleName": "Regular"})
+    builder.setupOS2()
+    builder.setupPost()
+    builder.font.recalcTimestamp = False
+    builder.font["head"].created = 0  # pyright: ignore[reportAttributeAccessIssue]
+    builder.font["head"].modified = 0
+    builder.save(str(path))
+    return path
+
+
+@pytest.fixture(scope="session")
+def slide_fonts(tmp_path_factory):
+    root = tmp_path_factory.mktemp("slide-fonts")
+    return {
+        name: _build_font(root / f"{name}.ttf", glyphs, cmap) for name, (glyphs, cmap) in SLIDE_FONTS.items()
+    }
+
+
+@pytest.fixture
+def slide_context(slide_fonts):
+    def build(after="after"):
+        return sv.SlideContext(slide_fonts["before"], slide_fonts[after])
+
+    return build
+
+
+def slide_unit(uid, glyphs, codepoints, *, configs=("default",), deltas=None):
+    return unit(
+        uid,
+        list(glyphs),
+        ["y0"] * (len(glyphs) - 1),
+        [f"{sv._family(name)}/full/None/None/" for name in glyphs],
+        ["y0"] * (len(glyphs) - 1),
+        codepoints=codepoints,
+        configs=configs,
+        ink_deltas={config: SLIDE_DELTA for config in configs} if deltas is None else deltas,
+    )
+
+
+def founding_window(uid="s-1"):
+    return slide_unit(uid, FOUNDING_GLYPHS, FOUNDING_CODEPOINTS)
+
+
+def test_a_slide_rule_reads_no_unit_without_ink_deltas():
+    assert not sv._matches(
+        SLIDE_RULE["match"], slide_unit("s-2", FOUNDING_GLYPHS, FOUNDING_CODEPOINTS, deltas={})
+    )
+    bare = founding_window()
+    del bare["ink_deltas"]
+    assert not sv._matches(SLIDE_RULE["match"], bare)
+    listed = slide_unit("s-3", FOUNDING_GLYPHS, FOUNDING_CODEPOINTS, deltas=[SLIDE_DELTA])
+    assert not sv._matches(SLIDE_RULE["match"], listed)
+
+
+def test_a_window_diverging_two_ways_is_refused_before_any_shaping():
+    split = slide_unit(
+        "s-4",
+        FOUNDING_GLYPHS,
+        FOUNDING_CODEPOINTS,
+        configs=("default", "ss03"),
+        deltas={"default": SLIDE_DELTA, "ss03": UNLISTED_DELTA},
+    )
+    assert not sv._matches(SLIDE_RULE["match"], split)
+
+
+def test_delta_keys_that_are_not_the_units_configs_are_refused_before_any_shaping():
+    partial = slide_unit(
+        "s-5",
+        FOUNDING_GLYPHS,
+        FOUNDING_CODEPOINTS,
+        configs=("default", "ss03"),
+        deltas={"default": SLIDE_DELTA},
+    )
+    assert not sv._matches(SLIDE_RULE["match"], partial)
+    elsewhere = slide_unit(
+        "s-6", FOUNDING_GLYPHS, FOUNDING_CODEPOINTS, configs=("ss03",), deltas={"default": SLIDE_DELTA}
+    )
+    assert not sv._matches(SLIDE_RULE["match"], elsewhere)
+
+
+def test_a_window_with_no_pivot_prefix_glyph_is_refused_before_any_shaping():
+    assert not sv._matches(SLIDE_RULE["match"], slide_unit("s-7", ["qsL", "qsF1"], "E001:E003"))
+    lookalike = slide_unit("s-8", ["qsL", "qsSee.ex-y0x", "qsF1"], "E001:E002:E003")
+    assert not sv._matches(SLIDE_RULE["match"], lookalike)
+
+
+def test_a_matchable_window_with_no_context_refuses_to_guess():
+    with pytest.raises(ValueError, match="SlideContext"):
+        sv._matches(SLIDE_RULE["match"], founding_window())
+
+
+def test_a_pure_slide_matches(slide_context):
+    window = slide_unit("s-9", ["qsL", "qsSee.ex-y0", "qsF1"], "E001:E002:E003")
+    assert sv._matches(SLIDE_RULE["match"], window, context=slide_context())
+
+
+def test_a_union_invisible_respelling_rides_along_with_the_slide(slide_context):
+    assert sv._matches(SLIDE_RULE["match"], founding_window(), context=slide_context())
+
+
+def test_one_extra_pixel_before_the_pivot_defeats_the_match(slide_context):
+    context = slide_context("after-extra-prefix-pixel")
+    assert not sv._matches(SLIDE_RULE["match"], founding_window(), context=context)
+
+
+def test_one_extra_pixel_after_the_pivot_defeats_the_match(slide_context):
+    context = slide_context("after-extra-follower-pixel")
+    assert not sv._matches(SLIDE_RULE["match"], founding_window(), context=context)
+
+
+def test_the_wrong_column_count_defeats_the_match(slide_context):
+    two_columns = json.loads(json.dumps(SLIDE_RULE["match"]))
+    two_columns["after"]["slide"] = -2
+    assert not sv._matches(two_columns, founding_window(), context=slide_context())
+
+
+def test_a_window_that_never_settles_into_the_named_pivot_is_refused(slide_context):
+    stranded = slide_unit("s-10", ["qsL", "qsSee.ex-y0"], "E001:E005")
+    assert not sv._matches(SLIDE_RULE["match"], stranded, context=slide_context())
+
+
+def test_recorded_glyphs_disagreeing_with_the_shaped_run_defeat_the_match(slide_context):
+    misrecorded = slide_unit("s-11", ["qsL", "qsSee.ex-y0", "qsF1", "qsF9"], FOUNDING_CODEPOINTS)
+    assert not sv._matches(SLIDE_RULE["match"], misrecorded, context=slide_context())
+
+
+def test_two_pivots_in_one_window_slide_cumulatively(slide_context):
+    context = slide_context()
+    twice = slide_unit(
+        "s-12",
+        ["qsL", "qsSee.ex-y0", "qsF1", "qsSee.ex-y0", "qsF1"],
+        "E001:E002:E003:E002:E003",
+    )
+    assert sv._matches(SLIDE_RULE["match"], twice, context=context)
+    two_columns = json.loads(json.dumps(SLIDE_RULE["match"]))
+    two_columns["after"]["slide"] = -2
+    assert not sv._matches(two_columns, twice, context=context)
+
+
+def test_except_left_holds_the_guarded_family_on_the_slide_shape(slide_context):
+    context = slide_context()
+    held = guarding(SLIDE_RULE, ["qsL"])
+    assert not sv._matches(held, founding_window(), context=context)
+    assert sv._matches(held, founding_window(), guard=False, context=context)
+
+
+def test_the_slide_shape_and_the_other_shapes_do_not_read_each_others_units(slide_context):
+    context = slide_context()
+    assert not sv._matches(SLIDE_RULE["match"], canonical(), context=context)
+    assert not sv._matches(SLIDE_RULE["match"], tea_i(), context=context)
+    assert not sv._matches(RULE["match"], founding_window(), context=context)
+    assert not sv._matches(EXT_RULE["match"], founding_window(), context=context)
+    assert not sv._matches(INK_RULE["match"], founding_window(), context=context)
+
+
+def test_a_slide_rule_loads(tmp_path):
+    [rule] = sv.load_rules(_write_rules(tmp_path / "rules.yaml", [SLIDE_RULE]))
+    assert rule["match"]["before"] == {"pivots": ["qsSee.ex-y0"]}
+    assert rule["match"]["after"] == {"pivots": ["qsSee.straighter"], "slide": -1}
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda rule: rule.update(verdict="reject"),
+        lambda rule: rule.update(note=""),
+        lambda rule: rule["match"]["before"].update(pivots=[]),
+        lambda rule: rule["match"]["before"].update(pivots="qsSee.ex-y0"),
+        lambda rule: rule["match"]["before"].update(pivots=[""]),
+        lambda rule: rule["match"]["before"].update(pivots=["qsSee/grounded/None/baseline/"]),
+        lambda rule: rule["match"]["before"].update(pivot="qsSee.ex-y0"),
+        lambda rule: rule["match"]["after"].update(pivots=[]),
+        lambda rule: rule["match"]["after"].update(pivots=["qsSee/straighter/None/baseline/"]),
+        lambda rule: rule["match"]["after"].update(slide="-1"),
+        lambda rule: rule["match"]["after"].update(slide=True),
+        lambda rule: rule["match"]["after"].update(slide=None),
+        lambda rule: rule["match"].update(except_left="qsL"),
+    ],
+)
+def test_malformed_slide_rules_are_refused(tmp_path, mutate):
+    rule = json.loads(json.dumps(SLIDE_RULE))
+    mutate(rule)
+    with pytest.raises(SystemExit):
+        sv.load_rules(_write_rules(tmp_path / "rules.yaml", [rule]))
+
+
+def test_a_slide_that_moves_nothing_is_refused_at_load(tmp_path):
+    rule = json.loads(json.dumps(SLIDE_RULE))
+    rule["match"]["after"]["slide"] = 0
+    with pytest.raises(SystemExit, match="machine-approved already"):
+        sv.load_rules(_write_rules(tmp_path / "rules.yaml", [rule]))
+
+
+def test_pivot_lists_spanning_two_families_are_refused_at_load(tmp_path):
+    within = json.loads(json.dumps(SLIDE_RULE))
+    within["match"]["after"]["pivots"] = ["qsSee.straighter", "qsZoo.straighter"]
+    with pytest.raises(SystemExit, match="speaks for one letter"):
+        sv.load_rules(_write_rules(tmp_path / "rules.yaml", [within]))
+    across = json.loads(json.dumps(SLIDE_RULE))
+    across["match"]["before"]["pivots"] = ["qsZoo.ex-y0"]
+    with pytest.raises(SystemExit, match="speaks for one letter"):
+        sv.load_rules(_write_rules(tmp_path / "rules.yaml", [across]))
+
+
+def test_a_slide_rule_missing_its_before_block_is_refused_at_load(tmp_path):
+    rule = json.loads(json.dumps(SLIDE_RULE))
+    rule["match"].pop("before")
+    with pytest.raises(SystemExit, match="needs match.before to be exactly"):
+        sv.load_rules(_write_rules(tmp_path / "rules.yaml", [rule]))
+
+
+def test_a_rule_declaring_the_slide_and_ink_delta_shapes_at_once_is_refused(tmp_path):
+    rule = json.loads(json.dumps(SLIDE_RULE))
+    rule["match"]["after"]["ink_deltas"] = [DELTA_A]
+    with pytest.raises(SystemExit, match="exactly one delta shape"):
+        sv.load_rules(_write_rules(tmp_path / "rules.yaml", [rule]))
 
 
 def _surface(tmp_path, units):
@@ -802,7 +1120,7 @@ def test_main_fills_all_three_shapes_from_one_rules_file(tmp_path, monkeypatch):
 
 
 def test_main_refuses_a_surface_that_predates_the_ink_delta_field(tmp_path, monkeypatch):
-    with pytest.raises(SystemExit, match="predates the ink-delta shape"):
+    with pytest.raises(SystemExit, match="predates the ink-delta and slide shapes"):
         _run_main(tmp_path, monkeypatch, [canonical("u-1")], [], rules_list=(RULE, INK_RULE))
 
 
@@ -843,3 +1161,8 @@ def test_main_refuses_a_stale_stamped_verdicts_file(tmp_path, monkeypatch):
     )
     with pytest.raises(SystemExit, match="never be joined across manifests"):
         sv.main()
+
+
+def test_main_refuses_a_surface_that_carries_no_font_pair(tmp_path, monkeypatch):
+    with pytest.raises(SystemExit, match="fonts/before.otf"):
+        _run_main(tmp_path, monkeypatch, [founding_window()], [], rules_list=(SLIDE_RULE,))
