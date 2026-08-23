@@ -80,7 +80,13 @@ policy:
   order:
   - loop
   - flipped
-  refuse: []
+  refuse:
+  - exit: x-height
+    when:
+      left:
+        family: qsAt
+        joined_at: x-height
+      right: {family: qsUtter}
   prefer:
   - stance: flipped
     when:

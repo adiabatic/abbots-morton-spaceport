@@ -153,6 +153,9 @@ policy:
         - qsOut
         - qsOut_qsTea
         - qsOoze
+        except:
+        - family: qsAt
+          then: {family: qsMay}
   extend:
   - stance: straighter
     exit: baseline

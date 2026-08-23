@@ -794,6 +794,7 @@ CHAIN_BEARING_EXCEPT_RECORDS = (
     ("qsMay.prefer[0]", 1),
     ("qsNo.prefer[5]", 1),
     ("qsOy.prefer[0]", 3),
+    ("qsSee.prefer[0]", 1),
     ("qsTea_qsOy.prefer[0]", 3),
 )
 
@@ -804,7 +805,7 @@ CHAIN_BEARING_EXCEPT_RECORDS = (
     ids=[row[0].replace("[", "").replace("]", "") for row in CHAIN_BEARING_EXCEPT_RECORDS],
 )
 def test_every_chain_bearing_except_walks_its_parents_tail(spec, record_id, reach):
-    """The six live records whose right condition hangs a chain off an except: entry, with the slot each one reaches. An except entry tests its parent's own slot rather than a deeper one, so a chain hung off it walks the tail its parent was already reading and its hops count against the same cap — which is what engine.rs's an_except_entry_carrying_a_chain_walks_the_same_tail and an_except_entry_carrying_a_four_hop_chain_walks_the_same_tail state over synthetic specs, and this is the authored data they stand in for. The census is asserted whole, so a newly authored chain cannot slip past the list."""
+    """The seven live records whose right condition hangs a chain off an except: entry, with the slot each one reaches. An except entry tests its parent's own slot rather than a deeper one, so a chain hung off it walks the tail its parent was already reading and its hops count against the same cap — which is what engine.rs's an_except_entry_carrying_a_chain_walks_the_same_tail and an_except_entry_carrying_a_four_hop_chain_walks_the_same_tail state over synthetic specs, and this is the authored data they stand in for. The census is asserted whole, so a newly authored chain cannot slip past the list."""
     records = dict(_policy_records(spec))
     carriers = {name for name, record in records.items() if _chain_bearing_excepts(record.when.right, [])}
     assert carriers == {row[0] for row in CHAIN_BEARING_EXCEPT_RECORDS}

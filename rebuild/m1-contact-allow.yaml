@@ -711,3 +711,93 @@
 - signature: unrealized:qsSee.straighter.ex-y0.locked:qsOut.swept-up.en-y0.ex-y5.en-bind-raked.en-trim-1:baseline
 - signature: unrealized:qsSee.straighter.ex-y0.locked:qsOut.swept-up.en-y0.ex-y5.en-bind-raked.en-trim-1.ex-ext-1:baseline
 - signature: unrealized:qsSee.straighter.ex-y0.locked:qsOut_qsTea.hapax.en-y0.en-bind-raked.en-trim-1:baseline
+
+# ·At's vertical cap meets the receiver's left stroke at y4 on these old-font-proven x-height joins, one row below the y5 seam. Entry, lock, and onward-exit adjustments leave the corner in place.
+- signature: contact:qsAt.rising.en-y0.ex-y5:qsDay.full.en-y5:y4
+  why: ·At·Day pair (baseline row E674:E653) joins at the x-height in the shipped font; the y4 cap-against-stroke corner is unchanged by the named cell adjustments.
+- signature: contact:qsAt.rising.en-y0.ex-y5:qsDay.full.en-y5.ex-y0:y4
+  why: ·At·Day pair with ·Day exiting onward (baseline rows beginning E674:E653) joins at the x-height in the shipped font; the y4 cap-against-stroke corner is unchanged by the named cell adjustments.
+- signature: contact:qsAt.rising.en-y0.ex-y5:qsDay_qsUtter.full.en-y5:y4
+  why: ·At·Day+Utter pair (baseline row E674:E653:E67A) joins at the x-height in the shipped font; the y4 cap-against-stroke corner is unchanged by the named cell adjustments.
+- signature: contact:qsAt.rising.en-y0.ex-y5:qsDay_qsUtter.full.en-y5.ex-y5:y4
+  why: ·At·Day+Utter pair with the ligature exiting onward joins at the x-height in the shipped font; the y4 cap-against-stroke corner is unchanged by the named cell adjustments.
+- signature: contact:qsAt.rising.en-y0.ex-y5:qsDay_qsUtter.full.en-y5.ex-y5.ex-ext-1:y4
+  why: ·At·Day+Utter pair with the ligature's onward exit extended joins at the x-height in the shipped font; the y4 cap-against-stroke corner is unchanged by the named cell adjustments.
+- signature: contact:qsAt.rising.en-y0.ex-y5:qsEt.hapax.en-y5:y4
+  why: ·At·Et pair (baseline row E674:E672) joins at the x-height in the shipped font; the y4 cap-against-stroke corner is unchanged by the named cell adjustments.
+- signature: contact:qsAt.rising.en-y0.ex-y5:qsEt.hapax.en-y5.ex-y0:y4
+  why: ·At·Et pair with ·Et exiting onward joins at the x-height in the shipped font; the y4 cap-against-stroke corner is unchanged by the named cell adjustments.
+- signature: contact:qsAt.rising.en-y0.ex-y5:qsEt.hapax.en-y5.ex-y0.ex-con-1:y4
+  why: ·At·Et pair with ·Et's onward exit contracted joins at the x-height in the shipped font; the y4 cap-against-stroke corner is unchanged by the named cell adjustments.
+- signature: contact:qsAt.rising.en-y0.ex-y5:qsIt.hapax.en-y5:y4
+  why: ·At·It pair (baseline row E674:E670) joins at the x-height in the shipped font; the y4 cap-against-stroke corner is unchanged by the named cell adjustments.
+- signature: contact:qsAt.rising.en-y0.ex-y5:qsIt.hapax.en-y5.ex-y0:y4
+  why: ·At·It pair with ·It exiting onward joins at the x-height in the shipped font; the y4 cap-against-stroke corner is unchanged by the named cell adjustments.
+- signature: contact:qsAt.rising.en-y0.ex-y5:qsIt.hapax.en-y5.ex-y0.ex-ext-1:y4
+  why: ·At·It pair with ·It's onward exit extended joins at the x-height in the shipped font; the y4 cap-against-stroke corner is unchanged by the named cell adjustments.
+- signature: contact:qsAt.rising.en-y0.ex-y5.en-ext-1:qsDay.full.en-y5:y4
+  why: ·At·Day pair (baseline row E674:E653) joins at the x-height in the shipped font; the y4 cap-against-stroke corner is unchanged by the named cell adjustments.
+- signature: contact:qsAt.rising.en-y0.ex-y5.en-ext-1:qsDay.full.en-y5.ex-y0:y4
+  why: ·At·Day pair with ·Day exiting onward (baseline rows beginning E674:E653) joins at the x-height in the shipped font; the y4 cap-against-stroke corner is unchanged by the named cell adjustments.
+- signature: contact:qsAt.rising.en-y0.ex-y5.en-ext-1:qsDay_qsUtter.full.en-y5:y4
+  why: ·At·Day+Utter pair (baseline row E674:E653:E67A) joins at the x-height in the shipped font; the y4 cap-against-stroke corner is unchanged by the named cell adjustments.
+- signature: contact:qsAt.rising.en-y0.ex-y5.en-ext-1:qsDay_qsUtter.full.en-y5.ex-y5:y4
+  why: ·At·Day+Utter pair with the ligature exiting onward joins at the x-height in the shipped font; the y4 cap-against-stroke corner is unchanged by the named cell adjustments.
+- signature: contact:qsAt.rising.en-y0.ex-y5.en-ext-1:qsDay_qsUtter.full.en-y5.ex-y5.ex-ext-1:y4
+  why: ·At·Day+Utter pair with the ligature's onward exit extended joins at the x-height in the shipped font; the y4 cap-against-stroke corner is unchanged by the named cell adjustments.
+- signature: contact:qsAt.rising.en-y0.ex-y5.en-ext-1:qsEt.hapax.en-y5:y4
+  why: ·At·Et pair (baseline row E674:E672) joins at the x-height in the shipped font; the y4 cap-against-stroke corner is unchanged by the named cell adjustments.
+- signature: contact:qsAt.rising.en-y0.ex-y5.en-ext-1:qsEt.hapax.en-y5.ex-y0:y4
+  why: ·At·Et pair with ·Et exiting onward joins at the x-height in the shipped font; the y4 cap-against-stroke corner is unchanged by the named cell adjustments.
+- signature: contact:qsAt.rising.en-y0.ex-y5.en-ext-1:qsEt.hapax.en-y5.ex-y0.ex-con-1:y4
+  why: ·At·Et pair with ·Et's onward exit contracted joins at the x-height in the shipped font; the y4 cap-against-stroke corner is unchanged by the named cell adjustments.
+- signature: contact:qsAt.rising.en-y0.ex-y5.en-ext-1:qsIt.hapax.en-y5:y4
+  why: ·At·It pair (baseline row E674:E670) joins at the x-height in the shipped font; the y4 cap-against-stroke corner is unchanged by the named cell adjustments.
+- signature: contact:qsAt.rising.en-y0.ex-y5.en-ext-1:qsIt.hapax.en-y5.ex-y0:y4
+  why: ·At·It pair with ·It exiting onward joins at the x-height in the shipped font; the y4 cap-against-stroke corner is unchanged by the named cell adjustments.
+- signature: contact:qsAt.rising.en-y0.ex-y5.en-ext-1:qsIt.hapax.en-y5.ex-y0.ex-ext-1:y4
+  why: ·At·It pair with ·It's onward exit extended joins at the x-height in the shipped font; the y4 cap-against-stroke corner is unchanged by the named cell adjustments.
+- signature: contact:qsAt.rising.ex-y5:qsDay.full.en-y5:y4
+  why: ·At·Day pair (baseline row E674:E653) joins at the x-height in the shipped font; the y4 cap-against-stroke corner is unchanged by the named cell adjustments.
+- signature: contact:qsAt.rising.ex-y5:qsDay.full.en-y5.ex-y0:y4
+  why: ·At·Day pair with ·Day exiting onward (baseline rows beginning E674:E653) joins at the x-height in the shipped font; the y4 cap-against-stroke corner is unchanged by the named cell adjustments.
+- signature: contact:qsAt.rising.ex-y5:qsDay_qsUtter.full.en-y5:y4
+  why: ·At·Day+Utter pair (baseline row E674:E653:E67A) joins at the x-height in the shipped font; the y4 cap-against-stroke corner is unchanged by the named cell adjustments.
+- signature: contact:qsAt.rising.ex-y5:qsDay_qsUtter.full.en-y5.ex-y5:y4
+  why: ·At·Day+Utter pair with the ligature exiting onward joins at the x-height in the shipped font; the y4 cap-against-stroke corner is unchanged by the named cell adjustments.
+- signature: contact:qsAt.rising.ex-y5:qsDay_qsUtter.full.en-y5.ex-y5.ex-ext-1:y4
+  why: ·At·Day+Utter pair with the ligature's onward exit extended joins at the x-height in the shipped font; the y4 cap-against-stroke corner is unchanged by the named cell adjustments.
+- signature: contact:qsAt.rising.ex-y5:qsEt.hapax.en-y5:y4
+  why: ·At·Et pair (baseline row E674:E672) joins at the x-height in the shipped font; the y4 cap-against-stroke corner is unchanged by the named cell adjustments.
+- signature: contact:qsAt.rising.ex-y5:qsEt.hapax.en-y5.ex-y0:y4
+  why: ·At·Et pair with ·Et exiting onward joins at the x-height in the shipped font; the y4 cap-against-stroke corner is unchanged by the named cell adjustments.
+- signature: contact:qsAt.rising.ex-y5:qsEt.hapax.en-y5.ex-y0.ex-con-1:y4
+  why: ·At·Et pair with ·Et's onward exit contracted joins at the x-height in the shipped font; the y4 cap-against-stroke corner is unchanged by the named cell adjustments.
+- signature: contact:qsAt.rising.ex-y5:qsIt.hapax.en-y5:y4
+  why: ·At·It pair (baseline row E674:E670) joins at the x-height in the shipped font; the y4 cap-against-stroke corner is unchanged by the named cell adjustments.
+- signature: contact:qsAt.rising.ex-y5:qsIt.hapax.en-y5.ex-y0:y4
+  why: ·At·It pair with ·It exiting onward joins at the x-height in the shipped font; the y4 cap-against-stroke corner is unchanged by the named cell adjustments.
+- signature: contact:qsAt.rising.ex-y5:qsIt.hapax.en-y5.ex-y0.ex-ext-1:y4
+  why: ·At·It pair with ·It's onward exit extended joins at the x-height in the shipped font; the y4 cap-against-stroke corner is unchanged by the named cell adjustments.
+- signature: contact:qsAt.rising.ex-y5.locked:qsDay.full.en-y5:y4
+  why: ·At·Day pair (baseline row E674:E653) joins at the x-height in the shipped font; the y4 cap-against-stroke corner is unchanged by the named cell adjustments.
+- signature: contact:qsAt.rising.ex-y5.locked:qsDay.full.en-y5.ex-y0:y4
+  why: ·At·Day pair with ·Day exiting onward (baseline rows beginning E674:E653) joins at the x-height in the shipped font; the y4 cap-against-stroke corner is unchanged by the named cell adjustments.
+- signature: contact:qsAt.rising.ex-y5.locked:qsDay_qsUtter.full.en-y5:y4
+  why: ·At·Day+Utter pair (baseline row E674:E653:E67A) joins at the x-height in the shipped font; the y4 cap-against-stroke corner is unchanged by the named cell adjustments.
+- signature: contact:qsAt.rising.ex-y5.locked:qsDay_qsUtter.full.en-y5.ex-y5:y4
+  why: ·At·Day+Utter pair with the ligature exiting onward joins at the x-height in the shipped font; the y4 cap-against-stroke corner is unchanged by the named cell adjustments.
+- signature: contact:qsAt.rising.ex-y5.locked:qsDay_qsUtter.full.en-y5.ex-y5.ex-ext-1:y4
+  why: ·At·Day+Utter pair with the ligature's onward exit extended joins at the x-height in the shipped font; the y4 cap-against-stroke corner is unchanged by the named cell adjustments.
+- signature: contact:qsAt.rising.ex-y5.locked:qsEt.hapax.en-y5:y4
+  why: ·At·Et pair (baseline row E674:E672) joins at the x-height in the shipped font; the y4 cap-against-stroke corner is unchanged by the named cell adjustments.
+- signature: contact:qsAt.rising.ex-y5.locked:qsEt.hapax.en-y5.ex-y0:y4
+  why: ·At·Et pair with ·Et exiting onward joins at the x-height in the shipped font; the y4 cap-against-stroke corner is unchanged by the named cell adjustments.
+- signature: contact:qsAt.rising.ex-y5.locked:qsEt.hapax.en-y5.ex-y0.ex-con-1:y4
+  why: ·At·Et pair with ·Et's onward exit contracted joins at the x-height in the shipped font; the y4 cap-against-stroke corner is unchanged by the named cell adjustments.
+- signature: contact:qsAt.rising.ex-y5.locked:qsIt.hapax.en-y5:y4
+  why: ·At·It pair (baseline row E674:E670) joins at the x-height in the shipped font; the y4 cap-against-stroke corner is unchanged by the named cell adjustments.
+- signature: contact:qsAt.rising.ex-y5.locked:qsIt.hapax.en-y5.ex-y0:y4
+  why: ·At·It pair with ·It exiting onward joins at the x-height in the shipped font; the y4 cap-against-stroke corner is unchanged by the named cell adjustments.
+- signature: contact:qsAt.rising.ex-y5.locked:qsIt.hapax.en-y5.ex-y0.ex-ext-1:y4
+  why: ·At·It pair with ·It's onward exit extended joins at the x-height in the shipped font; the y4 cap-against-stroke corner is unchanged by the named cell adjustments.

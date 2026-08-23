@@ -49,6 +49,7 @@ stances:
             - qsLow
             - qsRoe
             - qsIt
+            - qsAt
             - qsI
             - qsAh
             - qsUtter
@@ -70,6 +71,7 @@ stances:
             - qsLow
             - qsRoe
             - qsIt
+            - qsAt
             - qsI
             - qsAh
             - qsOut
@@ -160,6 +162,7 @@ policy:
         family:
         - qsNo
         - qsLow
+        - qsAt
         - qsI
   - entry: x-height
     by: 2
