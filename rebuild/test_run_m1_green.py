@@ -2,7 +2,7 @@
 
 import pytest
 
-from rebuild.pipeline import conform, run_m1
+from rebuild.pipeline import conform, oracle_cache, run_m1
 from rebuild.tools import artifact_cycle as ac
 
 
@@ -136,7 +136,7 @@ def _stub_full_run(monkeypatch, *, defect_errors=(), pins=True, pins_in_scope=14
     monkeypatch.setattr(
         run_m1,
         "run_oracle",
-        lambda spec, jobs: {"pass": oracle_pass, "unmatched": 19837, "multi_matched": 0},
+        lambda spec, jobs, **_cache: {"pass": oracle_pass, "unmatched": 19837, "multi_matched": 0},
     )
 
 
@@ -167,7 +167,8 @@ def test_main_refreshes_the_baseline_subset_before_anything_reads_it(monkeypatch
     monkeypatch.setattr(
         run_m1,
         "run_oracle",
-        lambda spec, jobs: events.append("oracle") or {"pass": True, "unmatched": 0, "multi_matched": 0},
+        lambda spec, jobs, **_cache: events.append("oracle")
+        or {"pass": True, "unmatched": 0, "multi_matched": 0},
     )
     run_m1.main([])
     assert events == ["subset", "run", "oracle"]
@@ -297,8 +298,16 @@ class TestOracleFanIn:
         monkeypatch.setattr(conform, "assert_subset_identity", lambda out_dir, config: None)
         monkeypatch.setattr(conform, "oracle_config_worker", worker)
         monkeypatch.setattr(run_m1, "load_default_spec", lambda: None)
+        monkeypatch.setattr(
+            run_m1,
+            "oracle_row_cache_keys",
+            lambda spec, out_dir: (
+                {},
+                {config: oracle_cache.EnvironmentStamp(lines=()) for config in conform.ACCEPTANCE_CONFIGS},
+            ),
+        )
 
-    def _worker(self, refuse=None, overcount=None):
+    def _worker(self, refuse=None, overcount=None, record=None):
         def worker(
             spec,
             subset_tables_dir,
@@ -308,7 +317,10 @@ class TestOracleFanIn:
             font_path,
             kern_sidecar_path,
             audit_dir,
+            row_cache=None,
         ):
+            if record is not None:
+                record.append(row_cache)
             if config == refuse:
                 raise RuntimeError(f"{config} fell over")
             shard = conform.oracle_audit_shard(audit_dir, config)
@@ -340,6 +352,33 @@ class TestOracleFanIn:
             run_m1.run_oracle(out_dir=tmp_path, jobs=6)
         assert standing.read_bytes() == b"the audit of the last green run\n"
         assert [path.name for path in tmp_path.iterdir()] == ["divergence-audit.tsv"]
+
+    def test_a_key_that_will_not_cut_costs_the_cache_and_not_the_gate(self, monkeypatch, tmp_path, capsys):
+        """`alias_family_digests` refuses an alias head no rune digest stands behind, and a hand-edited alias map arrives one typo from that refusal — but the oracle is the gate that adjudicates the ledger, and whether it can run at all must not turn on a file the comparison never reads. A key that will not cut leaves the pass with no cache and nothing else: every row derived, no store written, the gate doing exactly what it did before there was a cache."""
+        seen: list = []
+        self._pool(monkeypatch, self._worker(record=seen))
+
+        def refuse(spec, out_dir):
+            raise ValueError("qsShe.full buckets to 'qsShe', which has no family key")
+
+        monkeypatch.setattr(run_m1, "oracle_row_cache_keys", refuse)
+        run_m1.run_oracle(out_dir=tmp_path, jobs=6)
+        assert len(seen) == len(conform.ACCEPTANCE_CONFIGS) and set(seen) == {None}
+        assert "oracle row cache: unavailable" in capsys.readouterr().out
+        assert (tmp_path / "divergence-audit.tsv").is_file()
+
+    def test_a_pass_that_may_not_write_a_store_rotates_its_coverage(self, monkeypatch, tmp_path):
+        """Both mechanisms that keep a record from laundering itself advance on the pass ordinal, and the ordinal advances only when a store is written — so `--gates-only`, which may write nothing and which serves every row of the ledger re-adjudication it exists for, would otherwise retire the same twentieth of the table and re-prove the same sample on every run it ever makes. It declares a rotation instead; a writing pass, whose ordinal moves on its own, declares none."""
+        seen: list = []
+        self._pool(monkeypatch, self._worker(record=seen))
+        run_m1.run_oracle(out_dir=tmp_path, jobs=6)
+        assert {cache.rotation for cache in seen} == {0}
+        assert {cache.write_dir is None for cache in seen} == {False}
+
+        seen.clear()
+        run_m1.run_oracle(out_dir=tmp_path, jobs=6, write_cache=False)
+        assert {cache.write_dir for cache in seen} == {None}
+        assert all(cache.rotation > 0 for cache in seen)
 
     def test_an_audit_short_of_the_rows_the_workers_counted_is_refused(self, monkeypatch, tmp_path):
         """The counts reach the parent through the pipe and the rows reach it on disk, so a shard that was truncated but still closed clean shows up as the two disagreeing — the only way the parent can tell a whole audit from most of one."""
@@ -386,7 +425,7 @@ class TestGatesOnly:
         monkeypatch.setattr(
             run_m1,
             "run_oracle",
-            lambda out_dir, spec, jobs: ran.append("oracle")
+            lambda out_dir, spec, jobs, **_cache: ran.append("oracle")
             or {"pass": True, "unmatched": 0, "multi_matched": 0},
         )
         monkeypatch.setattr(

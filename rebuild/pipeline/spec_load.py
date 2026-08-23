@@ -1254,6 +1254,18 @@ def spec_structure_digest(spec: ResolvedSpec) -> str:
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
 
 
+def capability_features(spec: ResolvedSpec) -> list[str]:
+    """Every feature tag any stance unlocks, sorted: the universe of capability routes a settlement can take, which no single rune's digest carries and which a stamp therefore has to hold whole. Lifted here from the review unit cache so the two caches that stamp it read one definition rather than two copies of it."""
+    return sorted(
+        {
+            unlock.feature
+            for rune in spec.runes.values()
+            for stance in rune.stances.values()
+            for unlock in stance.surface.unlocks
+        }
+    )
+
+
 def rune_closure(spec: ResolvedSpec) -> dict[str, frozenset[str]]:
     """For each rune, the runes whose file content its records can read directly: itself, plus the transitive `resolve.against` targets — the one cross-file reference resolved into a rune's policy at load time. Every other cross-rune route rides the resolved spec structure and is stamped whole-store."""
     edges: dict[str, set[str]] = {}

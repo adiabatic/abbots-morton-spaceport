@@ -2330,6 +2330,33 @@ def test_moved_inputs_note_names_changed_new_and_gone():
     assert note.endswith("and 4 more")
 
 
+def test_oracle_cache_note_speaks_the_labels_a_skip_miss_actually_reports():
+    """The note is built from the real trees rather than from literals because the way it fails is by matching nothing and saying nothing, which reads exactly like "the store is fine". `moved_inputs_note` reports repo-relative POSIX labels; a comparison against basenames answers `None` for every real input there is, and only a name nobody would ever be handed gets a note out of it."""
+    from rebuild.pipeline import fingerprint, oracle_cache
+
+    rune = sorted(path.relative_to(ac.ROOT).as_posix() for path in fingerprint.rune_paths(ac.ROOT))[0]
+    code = oracle_cache.ORACLE_ROW_CODE_PATHS[0]
+    assert any(line.startswith(f"{rune}\t") for line in fingerprint.data_lines(ac.ROOT))
+
+    assert (
+        ac.oracle_cache_note(f"{code} (changed)")
+        == f"the oracle row cache drops whole: {code} is inside its stamp"
+    )
+    assert (
+        ac.oracle_cache_note("rebuild/script.yaml (changed)")
+        == "the oracle row cache drops whole: rebuild/script.yaml is inside its stamp"
+    )
+    assert (
+        ac.oracle_cache_note(f"{rune} (changed)")
+        == "the oracle row cache re-derives only the rows reaching those runes"
+    )
+    note = ac.oracle_cache_note(f"{rune} (changed), {code} (changed)")
+    assert note is not None and note.startswith("the oracle row cache drops whole")
+    assert ac.oracle_cache_note("rebuild/m1-divergences.yaml (changed)") is None
+    assert ac.oracle_cache_note(f"{rune} (changed) and 4 more") is None
+    assert ac.oracle_cache_note(None) is None
+
+
 def test_m1_artifacts_present(tmp_path):
     m1 = tmp_path / "rebuild" / "out" / "m1"
     m1.mkdir(parents=True)
