@@ -19,21 +19,19 @@ from rebuild.review.enrich import load_spec
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 MINI = REPO_ROOT / "rebuild" / "review" / "fixtures" / "mini"
-LEDGER = MINI / "m1-divergences.yaml"
 MINI_FONT = MINI / "M1.otf"
-MINI_SPEC = MINI / "spec"
 MOVED_FAMILY = "qsRoe"
 WIDENED_BY = 10
 
 
-def _mini_build(out: Path, after_font: Path, **kwargs) -> dict:
+def _mini_build(out: Path, after_font: Path, bundle, **kwargs) -> dict:
     return build_m1(
         out,
         audit_path=MINI / "audit.tsv",
-        ledger_path=LEDGER,
+        ledger_path=bundle.ledger,
         subset_dir=MINI,
         after_font=after_font,
-        spec_root=MINI_SPEC,
+        spec_root=bundle.spec_root,
         jobs=1,
         **kwargs,
     )
@@ -99,9 +97,9 @@ def spec():
 
 
 @pytest.fixture(scope="module")
-def base_surface(tmp_path_factory):
+def base_surface(tmp_path_factory, mini_bundle):
     out = tmp_path_factory.mktemp("environment-base") / "surface"
-    _mini_build(out, MINI_FONT)
+    _mini_build(out, MINI_FONT, mini_bundle)
     return out
 
 
@@ -131,7 +129,7 @@ def test_a_widened_family_moves_that_family_key_and_leaves_the_environment(tmp_p
 
 
 def test_a_recompiled_font_serves_the_untouched_units_and_lands_on_a_from_scratch_build(
-    base_surface, tmp_path, capfd
+    base_surface, mini_bundle, tmp_path, capfd
 ):
     """The end-to-end claim, at the only scale a test can afford: rebuild the mini surface over a font recompiled the way a rune edit recompiles one, and the store must serve the windows the moved family cannot reach — some, not all, and not none — while the tree it writes stays byte-for-byte what a cache-blind build of the same inputs writes. The content keys are asserted first and on their own, because they are what carry a recorded verdict across the cycle: a served fragment whose key drifted would strand every verdict recorded against it, and `patch_cached_fragment` re-stamps twelve fields over a served fragment without recomputing that key."""
     incremental = tmp_path / "surface"
@@ -139,12 +137,12 @@ def test_a_recompiled_font_serves_the_untouched_units_and_lands_on_a_from_scratc
     recompiled = _recompiled(MINI_FONT, tmp_path / "recompiled.otf")
 
     capfd.readouterr()
-    _mini_build(incremental, recompiled)
+    _mini_build(incremental, recompiled, mini_bundle)
     served, total = _served(capfd)
     assert 0 < served < total, f"served {served} of {total}"
 
     scratch = tmp_path / "scratch"
-    _mini_build(scratch, recompiled, fresh_unit_cache=True)
+    _mini_build(scratch, recompiled, mini_bundle, fresh_unit_cache=True)
 
     assert _content_keys(incremental) == _content_keys(scratch)
     assert _tree(incremental) == _tree(scratch)

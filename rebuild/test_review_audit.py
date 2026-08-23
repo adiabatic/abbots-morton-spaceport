@@ -27,8 +27,6 @@ from rebuild.review.enrich import LETTERS
 REPO_ROOT = Path(__file__).resolve().parent.parent
 MINI = REPO_ROOT / "rebuild" / "review" / "fixtures" / "mini"
 MINI_AUDIT = MINI / "audit.tsv"
-# The bundle's own ledger, not the repo's: the audit rows name its classes, and a class renamed upstream would strand rows this module asserts over.
-LEDGER_PATH = MINI / "m1-divergences.yaml"
 
 FIXTURE_AUDIT = """config\tcodepoints\tkinds\tmatched_entry\tbaseline\tnew
 default\tE650:E665\tcell\tdangling-anchor-dropped\tqsPea|qsMay.en-y0\tqsPea/full/None/baseline/|qsMay/loop/baseline/None/
@@ -54,23 +52,23 @@ def test_load_audit_rejects_wrong_header(tmp_path):
         load_audit(path)
 
 
-def test_fixture_units_dedupe_and_carry_configs(tmp_path):
+def test_fixture_units_dedupe_and_carry_configs(mini_bundle, tmp_path):
     path = tmp_path / "audit.tsv"
     path.write_text(FIXTURE_AUDIT)
-    units = build_units(load_audit(path), load_ledger(LEDGER_PATH), dict(LETTERS))
+    units = build_units(load_audit(path), load_ledger(mini_bundle.ledger), dict(LETTERS))
     assert len(units) == 2
     by_codepoints = {unit.codepoints: unit for unit in units}
     assert by_codepoints["E650:E665"].configs == ("default", "ss02")
     assert by_codepoints["E652:E670"].kinds == ("cell", "seam")
 
 
-def test_conflicting_class_resolves_to_unmatched_with_config_classes():
+def test_conflicting_class_resolves_to_unmatched_with_config_classes(mini_bundle):
     """A triple whose audit rows carry different classes per config is not a build error. When one config leaves it UNMATCHED (the ss03-chain-join-gains windows, blessed under ss03 but novel under default), the unit takes the UNMATCHED sentinel as its class — so the novel default behavior is what gets adjudicated — and records every config's class in config_classes. Two distinct *matched* classes for one triple is still a genuine classification bug and raises."""
     rows = [
         AuditRow("default", "E650:E665", ("cell",), "UNMATCHED", ("a",), ("b",)),
         AuditRow("ss03", "E650:E665", ("cell",), "ss03-chain-join-gains", ("a",), ("b",)),
     ]
-    (unit,) = build_units(rows, load_ledger(LEDGER_PATH), dict(LETTERS))
+    (unit,) = build_units(rows, load_ledger(mini_bundle.ledger), dict(LETTERS))
     assert unit.class_id == "UNMATCHED"
     assert unit.config_classes == {"default": "UNMATCHED", "ss03": "ss03-chain-join-gains"}
 
@@ -79,7 +77,7 @@ def test_conflicting_class_resolves_to_unmatched_with_config_classes():
         AuditRow("ss02", "E650:E665", ("cell",), "class-b", ("a",), ("b",)),
     ]
     with pytest.raises(ValueError, match="multiple matched ledger classes"):
-        build_units(conflicting, load_ledger(LEDGER_PATH), dict(LETTERS))
+        build_units(conflicting, load_ledger(mini_bundle.ledger), dict(LETTERS))
 
 
 def test_render_groups_split_by_rendered_outcome_identity():
@@ -92,9 +90,9 @@ def test_render_groups_split_by_rendered_outcome_identity():
 
 
 @pytest.fixture
-def mini():
-    """The frozen mini-M1 audit under rebuild/review/fixtures/mini/, loaded against the real ledger — a thousand-odd real windows over four letters, which is what these properties want: enough classes to order, enough per-config splits to dedupe, and not one byte of rebuild/out/. Regenerating it is `fixtures/mini/regenerate.py`."""
-    return load_workload(MINI_AUDIT, LEDGER_PATH, dict(LETTERS))
+def mini(mini_bundle):
+    """The frozen mini-M1 audit under rebuild/review/fixtures/mini/, loaded against the bundle's pinned ledger — a thousand-odd real windows over four letters, which is what these properties want: enough classes to order, enough per-config splits to dedupe, and not one byte of rebuild/out/. Regenerating it is `fixtures/mini/regenerate.py`."""
+    return load_workload(MINI_AUDIT, mini_bundle.ledger, dict(LETTERS))
 
 
 def test_every_unit_has_exactly_one_render_group(mini):
@@ -202,8 +200,8 @@ def test_no_verdict_flag_mirrors_the_ledger_class():
     }
 
 
-def test_ordering_is_deterministic(mini):
-    again = load_workload(MINI_AUDIT, LEDGER_PATH, dict(LETTERS))
+def test_ordering_is_deterministic(mini_bundle, mini):
+    again = load_workload(MINI_AUDIT, mini_bundle.ledger, dict(LETTERS))
     assert [unit.unit_id for unit in again.units] == [unit.unit_id for unit in mini.units]
     assert [unit.codepoints for unit in again.units] == [unit.codepoints for unit in mini.units]
 
@@ -219,7 +217,7 @@ def test_parse_codepoints():
     assert parse_codepoints("200C:E652:E679") == (0x200C, 0xE652, 0xE679)
 
 
-def test_ink_duplicate_siblings_fold_to_one_unit():
+def test_ink_duplicate_siblings_fold_to_one_unit(mini_bundle):
     """The name-grain dedupe key splits one visual question in two when a config merely relabels a glyph (the old font's ss04 rename of word-initial ·It). With an ink signature reporting every render of the window identical, the siblings fold: the earliest-config unit survives with the union of configs, rows, kinds, and per-config classes, a single render group, and contiguous renumbered ids."""
     rows = [
         AuditRow("default", "E650:E665", ("cell",), "UNMATCHED", ("qsPea", "qsMay.en-y0"), ("b",)),
@@ -227,7 +225,7 @@ def test_ink_duplicate_siblings_fold_to_one_unit():
         AuditRow("ss04", "E650:E665", ("seam",), "UNMATCHED", ("qsPea.ss04", "qsMay.en-y0"), ("b",)),
         AuditRow("default", "E650:E650", ("cell",), "UNMATCHED", ("qsPea", "qsPea"), ("c",)),
     ]
-    units = build_units(rows, load_ledger(LEDGER_PATH), dict(LETTERS))
+    units = build_units(rows, load_ledger(mini_bundle.ledger), dict(LETTERS))
     assert len(units) == 3
     stats = merge_ink_duplicate_units(units, lambda text, config: text)
     assert stats == {"windows_folded": 1, "units_folded": 1, "kept_split_matched_classes": 0}
@@ -241,14 +239,14 @@ def test_ink_duplicate_siblings_fold_to_one_unit():
     assert merged.config_classes == {"default": "UNMATCHED", "ss03": "UNMATCHED", "ss04": "UNMATCHED"}
 
 
-def test_ink_duplicate_fold_respects_matched_classes_and_exemptions():
+def test_ink_duplicate_fold_respects_matched_classes_and_exemptions(mini_bundle):
     """A fold that would put two distinct matched ledger classes on one unit is skipped (different names legitimately hit different ledger predicates), while a matched class folding with an UNMATCHED sibling resolves UNMATCHED-wins and recomputes the no-verdict flag from the exemption set."""
     conflicting = build_units(
         [
             AuditRow("default", "E650:E665", ("cell",), "class-a", ("a",), ("b",)),
             AuditRow("ss04", "E650:E665", ("cell",), "class-b", ("a2",), ("b",)),
         ],
-        load_ledger(LEDGER_PATH),
+        load_ledger(mini_bundle.ledger),
         dict(LETTERS),
     )
     stats = merge_ink_duplicate_units(conflicting, lambda text, config: text)
@@ -260,7 +258,7 @@ def test_ink_duplicate_fold_respects_matched_classes_and_exemptions():
             AuditRow("default", "E650:E665", ("cell",), "boundary-echo", ("a",), ("b",)),
             AuditRow("ss04", "E650:E665", ("cell",), "UNMATCHED", ("a2",), ("b",)),
         ],
-        load_ledger(LEDGER_PATH),
+        load_ledger(mini_bundle.ledger),
         dict(LETTERS),
     )
     for unit in mixed:
@@ -272,7 +270,7 @@ def test_ink_duplicate_fold_respects_matched_classes_and_exemptions():
     assert merged.config_classes == {"default": "boundary-echo", "ss04": "UNMATCHED"}
 
 
-def test_units_whose_configs_render_differently_never_fold():
+def test_units_whose_configs_render_differently_never_fold(mini_bundle):
     """A unit only folds when every config on both sides yields one ink signature; per-config signatures leave everything standing."""
     units = build_units(
         [
@@ -280,7 +278,7 @@ def test_units_whose_configs_render_differently_never_fold():
             AuditRow("ss02", "E650:E665", ("cell",), "UNMATCHED", ("a",), ("b",)),
             AuditRow("ss04", "E650:E665", ("cell",), "UNMATCHED", ("a2",), ("b",)),
         ],
-        load_ledger(LEDGER_PATH),
+        load_ledger(mini_bundle.ledger),
         dict(LETTERS),
     )
     stats = merge_ink_duplicate_units(units, lambda text, config: (text, config))

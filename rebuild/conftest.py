@@ -20,6 +20,7 @@ from pathlib import Path
 
 import pytest
 
+from rebuild.review.fixtures.mini import pin
 from rebuild.tools import artifact_cycle
 
 REAL_RUN_RETENTION = artifact_cycle.run_retention
@@ -308,6 +309,24 @@ def built_review_surface(live_artifacts: LiveArtifacts):
         )
     manifest = json.loads((REVIEW_OUT / "manifest.json").read_text(encoding="utf-8"))
     return REVIEW_OUT, manifest
+
+
+@dataclass(frozen=True)
+class MiniBundle:
+    """The spec root materialized from the frozen mini-M1 bundle's pin, and that spec root's ledger."""
+
+    spec_root: Path
+    ledger: Path
+
+
+@pytest.fixture(scope="session")
+def mini_bundle(tmp_path_factory) -> MiniBundle:
+    """The mini bundle and the spec its rows settled under, the latter materialized out of git — from the tree and blob shas `rebuild/review/fixtures/mini/pin.json` records — once per session per worker, tens of milliseconds, into pytest's temp root. Hand `spec_root` to `build_m1` or `load_spec` and `ledger` to `load_workload` or `load_ledger`, and the settlement the enricher re-derives is the one the frozen rows were written under, whatever the working tree's runes say today.
+
+    This is a contracts-lane fixture and must stay one: it reads `.git` through git subprocesses and writes only under pytest's temp root, never `rebuild/out` and never the repo's `tmp/`, and it must never request `live_artifacts`.
+    """
+    spec_root = pin.materialize(tmp_path_factory.mktemp("mini-spec"))
+    return MiniBundle(spec_root=spec_root, ledger=spec_root / "rebuild" / "m1-divergences.yaml")
 
 
 # The windows the worked examples name. Every test that used to scan the whole workload for one unit hard-coded its codepoints already; the three that asked for "some unit of class X" are pinned here instead, so an emptied class fails loudly rather than silently sampling something else.
