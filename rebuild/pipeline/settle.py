@@ -51,13 +51,13 @@ UNKNOWN = RightToken("unknown")
 FormationGuard = dict[tuple[str, RightToken, RightToken], bool]
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class LeftContext:
     kind: str  # "edge" | "space" | "zwnj" | "namer-dot" | "letter"
     settled: Settled | None = None
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class Candidate:
     stance: str
     entry: Height | None
@@ -66,21 +66,21 @@ class Candidate:
     exit_index: int = _NO_EXIT_INDEX
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class Elimination:
     stage: str
     description: str
     provenance: Provenance | None = None
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class RankedCandidate:
     candidate: Candidate
     join_count: int
     prospect: int
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class TransitionTrace:
     settled: Settled
     joint_floor: bool

@@ -16,7 +16,7 @@ UNMATCHED_CLASS = "UNMATCHED"
 AUDIT_HEADER = ("config", "codepoints", "kinds", "matched_entry", "baseline", "new")
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class AuditRow:
     config: str
     codepoints: str
@@ -37,7 +37,7 @@ class LedgerClass:
     exemplar_keys: frozenset[tuple[str, str]]  # (config, codepoints)
 
 
-@dataclass
+@dataclass(slots=True)
 class Unit:
     codepoints: str
     baseline: tuple[str, ...]
@@ -74,7 +74,18 @@ def format_codepoints(values: tuple[int, ...]) -> str:
 
 
 def load_audit(path: Path) -> list[AuditRow]:
+    """Every row the divergence audit states, in file order. Each label and each name tuple is pooled to one instance the way `kernel_io.read_transitions` pools its own, because the audit restates one small vocabulary of glyph names and the acceptance configurations on every one of its rows, and the surface build's parent holds the whole list alive through `unit.rows` for its entire length. Pooling the tuples keys on the built tuple rather than on the raw field text, so the split strings the file states are the only thing the reader drops."""
     rows: list[AuditRow] = []
+    labels: dict[str, str] = {}
+    names: dict[tuple[str, ...], tuple[str, ...]] = {}
+
+    def label(value: str) -> str:
+        return labels.setdefault(value, value)
+
+    def name_tuple(value: str, separator: str) -> tuple[str, ...]:
+        built = tuple(labels.setdefault(part, part) for part in value.split(separator))
+        return names.setdefault(built, built)
+
     with open(path, encoding="utf-8") as handle:
         header = next(handle).rstrip("\n").split("\t")
         if tuple(header) != AUDIT_HEADER:
@@ -85,12 +96,12 @@ def load_audit(path: Path) -> list[AuditRow]:
             config, codepoints, kinds, matched_entry, baseline, new = line.rstrip("\n").split("\t")
             rows.append(
                 AuditRow(
-                    config=config,
-                    codepoints=codepoints,
-                    kinds=tuple(kinds.split(",")),
-                    matched_entry=matched_entry,
-                    baseline=tuple(baseline.split("|")),
-                    new=tuple(new.split("|")),
+                    config=label(config),
+                    codepoints=label(codepoints),
+                    kinds=name_tuple(kinds, ","),
+                    matched_entry=label(matched_entry),
+                    baseline=name_tuple(baseline, "|"),
+                    new=name_tuple(new, "|"),
                 )
             )
     return rows

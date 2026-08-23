@@ -21,7 +21,7 @@ RIGHT_CHAIN_CAP = (
 )  # then:/except-carried hops past the immediate right neighbor that spec_load's lint admits — derived, never set independently of the window
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class CellId:
     rune: str  # family name (ligatures are ordinary runes)
     stance: str
@@ -30,7 +30,7 @@ class CellId:
     adjustments: tuple[str, ...] = ()  # ordered, generated: ("en-ext-1",), ("locked",), () — never authored
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class Settled:
     cell: CellId
     seam: Height | None  # the committed seam toward the next position
