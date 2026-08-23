@@ -1,3 +1,5 @@
+import { formatCount } from './render.js';
+
 const FAIL_SCAN = ['surface', 'freshness', 'gates', 'verdict_store'];
 const WARN_SCAN = ['surface', 'freshness', 'gates', 'verdict_store', 'frontier'];
 
@@ -29,6 +31,6 @@ export function bannerModel(status, pageGeneratedAt) {
     }
   }
   const count = checks.blanks?.count ?? null;
-  const text = count === null ? 'Ready' : `Ready — ${count} blanks left`;
+  const text = count === null ? 'Ready' : `Ready — ${formatCount(count)} blanks left`;
   return { level: 'ready', text, remedy: null, command: null };
 }
