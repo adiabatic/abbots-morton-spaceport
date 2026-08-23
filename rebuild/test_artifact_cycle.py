@@ -2371,6 +2371,15 @@ def test_rebuild_gate_closure_none_outside_git(tmp_path):
     assert ac.rebuild_gate_closure_files(tmp_path) is None
 
 
+def test_an_absent_artifact_hashes_to_a_sentinel_rather_than_raising(tmp_path):
+    """Every gate key folds this answer in, and the validators key names three M1 artifacts that do not exist until the first build has run, so an unreadable path has to hash as a value rather than take the cycle down. The autouse fixture above substitutes the sentinel for live paths, which means nothing else here ever reaches the real fallback; a tmp path delegates, so this does."""
+    assert ac._sha256_path(tmp_path / "never-built.otf") == "absent"
+    assert ac._sha256_path(tmp_path) == "absent"
+    built = tmp_path / "built.otf"
+    built.write_bytes(b"OTTO")
+    assert ac._sha256_path(built) != "absent"
+
+
 @pytest.mark.parametrize("lane", ac.REBUILD_LANES)
 def test_both_lane_fingerprints_are_prose_blind_for_runes(lane, tmp_path):
     """Both lanes carry the rune files, because contracts tests load the live spec too — so a geometry edit moves both keys and a prose edit moves neither."""

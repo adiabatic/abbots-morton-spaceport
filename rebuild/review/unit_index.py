@@ -10,10 +10,11 @@ The file is stamped with the manifest's sha256, exactly as the unit store is, so
 from __future__ import annotations
 
 import gzip
-import hashlib
 import json
 from collections.abc import Iterable, Iterator
 from pathlib import Path
+
+from rebuild.pipeline import fingerprint
 
 INDEX_NAME = "units-index.ndjson.gz"
 INDEX_FORMAT = "ams-review-unit-index/1"
@@ -65,7 +66,7 @@ def index_record(fragment: dict) -> dict:
 
 
 def manifest_sha256(surface: Path) -> str:
-    return hashlib.sha256((Path(surface) / "manifest.json").read_bytes()).hexdigest()
+    return fingerprint.file_sha256(Path(surface) / "manifest.json")
 
 
 def shard_paths(surface: Path) -> list[Path]:

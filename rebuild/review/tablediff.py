@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, Self
+
+from rebuild.pipeline import fingerprint
 
 DIFF_BUCKETS = ("added", "removed", "regrouped", "changed", "provenance-only")
 
@@ -402,4 +403,4 @@ def write_snapshot(tables_dir: Path, font: Path, to: Path, repo_root: Path | Non
 
 
 def _sha256(path: Path) -> str:
-    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+    return fingerprint.file_sha256(Path(path))

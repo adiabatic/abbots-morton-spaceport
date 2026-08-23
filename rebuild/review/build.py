@@ -101,7 +101,7 @@ _FALLBACK_INDEX = """<!DOCTYPE html>
 
 
 def _sha256(path: Path) -> str:
-    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+    return fingerprint.file_sha256(Path(path))
 
 
 def _alphabet_meta() -> dict:

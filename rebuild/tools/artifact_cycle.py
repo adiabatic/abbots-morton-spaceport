@@ -172,12 +172,7 @@ def make_test_closure_fingerprint(root: Path = ROOT) -> str | None:
         return None
     digest = hashlib.sha256()
     for rel in files:
-        path = root / rel
-        try:
-            file_hash = hashlib.sha256(path.read_bytes()).hexdigest()
-        except OSError:
-            file_hash = "absent"
-        digest.update(f"{rel}\t{file_hash}\n".encode())
+        digest.update(f"{rel}\t{_sha256_path(root / rel)}\n".encode())
     return digest.hexdigest()
 
 
@@ -256,8 +251,10 @@ REBUILD_GATE_EXEMPT_PREFIXES = (
 
 
 def _sha256_path(path: Path) -> str:
+    """The streamed read matters here more than anywhere: divergence-audit.tsv is hundreds of megabytes and rides the validators-lane key, which a driver pass recomputes three times. Spelled out rather than borrowing fingerprint.file_sha256 because this module defers every rebuild.pipeline import into the function that needs it, and this one is called per file in a loop."""
     try:
-        return hashlib.sha256(path.read_bytes()).hexdigest()
+        with open(path, "rb") as handle:
+            return hashlib.file_digest(handle, "sha256").hexdigest()
     except OSError:
         return "absent"
 

@@ -275,6 +275,14 @@ def test_cluster_id_from_repr_matches_the_tuple_recipe():
         assert _cluster_id(configs, class_id, diffs) == expected
 
 
+def test_an_absent_manifest_hashes_to_a_sentinel_rather_than_raising(tmp_path):
+    """The store's stamp is a hash of the manifest beside it, and the surface it stamps may have none yet — a first build, or a crash between the two writes. The sentinel is what turns that into a stamp mismatch and a full rebuild instead of an exception out of load_store, so it is pinned against both shapes of unreadable rather than left resting on the streamed read happening to raise what the read-whole one did."""
+    assert unit_cache._sha256_file(tmp_path / "manifest.json") == "missing"
+    assert unit_cache._sha256_file(tmp_path) == "missing"
+    (tmp_path / "manifest.json").write_text("{}", encoding="utf-8")
+    assert unit_cache._sha256_file(tmp_path / "manifest.json") != "missing"
+
+
 def test_store_round_trip_and_invalidation(tmp_path):
     (tmp_path / "manifest.json").write_text("{}", encoding="utf-8")
     cached = unit_cache.CachedUnit(
