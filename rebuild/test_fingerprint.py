@@ -190,6 +190,48 @@ def test_data_lines_carry_one_label_per_file_and_hash_to_data_value(tmp_path):
     assert fingerprint.data_value(root) == hashlib.sha256("\n".join(lines).encode()).hexdigest()
 
 
+def test_table_data_lines_drop_exactly_the_comparison_and_defect_inputs(tmp_path):
+    root = _fake_repo(tmp_path)
+    labels = {line.split("\t", 1)[0] for line in fingerprint.data_lines(root)}
+    table_labels = {line.split("\t", 1)[0] for line in fingerprint.table_data_lines(root)}
+    assert labels - table_labels == set(fingerprint.NON_TABLE_DATA_LABELS)
+    assert (
+        fingerprint.table_data_value(root)
+        == hashlib.sha256("\n".join(fingerprint.table_data_lines(root)).encode()).hexdigest()
+    )
+
+
+def test_an_alias_ledger_or_allow_list_edit_moves_the_run_key_but_not_the_tables_stamp(tmp_path):
+    """The whole point of the narrowing, and the line it must not cross. Those three files are read by gates that consume a decision table — the oracle's comparison and the defect gate's allow-list — so a serialized enumeration built before the edit still describes the sources on disk and `--gates-only` may re-adjudicate against it. They stay in `data_value` and so in the artifact cycle's run_m1 key, which is what decides whether the defect gate re-runs at all, so narrowing the stamp cannot skip a gate."""
+    root = _fake_repo(tmp_path)
+    for label in fingerprint.NON_TABLE_DATA_LABELS:
+        before = (
+            fingerprint.data_value(root),
+            fingerprint.tables_value(root),
+            artifact_cycle.run_m1_skip_fingerprint(root),
+        )
+        (root / label).write_text("# edited\n[]\n")
+        assert fingerprint.data_value(root) != before[0]
+        assert fingerprint.tables_value(root) == before[1]
+        assert artifact_cycle.run_m1_skip_fingerprint(root) != before[2]
+
+
+def test_the_tables_stamp_still_tracks_the_runes_and_the_pipeline_code(tmp_path):
+    root = _fake_repo(tmp_path)
+    before = fingerprint.tables_value(root)
+    (root / "glyph_data" / "runes" / "qsPea.yaml").write_text("family: qsPea\nedited: true\n")
+    moved_rune = fingerprint.tables_value(root)
+    assert moved_rune != before
+    (root / "rebuild" / "script.yaml").write_text("alphabet: [edited]\n")
+    moved_data = fingerprint.tables_value(root)
+    assert moved_data != moved_rune
+    (root / "rebuild" / "pipeline" / "table.py").write_text("TABLE = 2\n")
+    moved_code = fingerprint.tables_value(root)
+    assert moved_code != moved_data
+    (root / "rebuild" / "kernel-rs" / "src" / "guard.rs").write_text("const GUARD: bool = false;\n")
+    assert fingerprint.tables_value(root) != moved_code
+
+
 def test_rune_digests_key_by_family_name(tmp_path):
     root = _fake_repo(tmp_path)
     digests = fingerprint.rune_digests(root)

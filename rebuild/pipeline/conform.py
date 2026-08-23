@@ -48,6 +48,8 @@ ACCEPTANCE_CONFIGS = ("default", "ss03", "ss04", "ss05", "ss03+ss05", "ss10")
 TEXT_CHUNK = 65536
 # The same bound on the oracle's side, where the texts arrive as baseline rows rather than as a product.
 ORACLE_ROW_CHUNK = 65536
+# How many unmatched rows a configuration keeps whole. Every one of them is written to its audit shard regardless; this is only how many the summary can quote.
+ORACLE_UNMATCHED_EXEMPLARS = 20
 
 
 @dataclass
@@ -1461,13 +1463,14 @@ class BaselineReport:
         0  # rows skipped by the position channel: seam/ligation divergence, or a matched class that legitimately redraws ink
     )
     counts_by_entry: dict[str, int] = field(default_factory=dict)
-    unmatched: list[DivergentRow] = field(default_factory=list)
+    unmatched_count: int = 0
+    unmatched_exemplars: list[DivergentRow] = field(default_factory=list)
     multi_matched: list[tuple[DivergentRow, tuple[str, ...]]] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
 
     @property
     def passed(self) -> bool:
-        return not self.unmatched and not self.multi_matched
+        return not self.unmatched_count and not self.multi_matched
 
 
 def load_alias_map(path: Path) -> dict[str, CellId | str]:
@@ -1870,13 +1873,16 @@ def discard_oracle_audit_scratch(out_dir: Path) -> None:
 
 @dataclass
 class OracleConfigResult:
+    """One configuration's oracle tally, which travels home from `oracle_config_worker` down a process pipe. The unmatched rows ride as a count plus the first `ORACLE_UNMATCHED_EXEMPLARS` of them rather than as the whole list: `oracle_summary.json` reads a length and quotes twenty exemplars, so pickling every unmatched `DivergentRow` back to the parent spent an audit's worth of objects on a number. Nothing is lost by the cap — the worker has already written every unmatched row to its own audit shard, one line each, and `divergence-audit.tsv` is where they are read."""
+
     config: str
     rows_compared: int = 0
     divergent_rows: int = 0
     positions_compared: int = 0
     positions_excluded: int = 0
     counts_by_entry: dict[str, int] = field(default_factory=dict)
-    unmatched: list[DivergentRow] = field(default_factory=list)
+    unmatched_count: int = 0
+    unmatched_exemplars: list[DivergentRow] = field(default_factory=list)
     multi_matched: list[tuple[DivergentRow, tuple[str, ...]]] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
 
@@ -1956,7 +1962,9 @@ def _compare_config(
                 entry_id = matches[0]
                 result.counts_by_entry[entry_id] = result.counts_by_entry.get(entry_id, 0) + 1
             elif not matches:
-                result.unmatched.append(divergent)
+                result.unmatched_count += 1
+                if len(result.unmatched_exemplars) < ORACLE_UNMATCHED_EXEMPLARS:
+                    result.unmatched_exemplars.append(divergent)
             else:
                 result.multi_matched.append((divergent, tuple(matches)))
             if audit is not None:
@@ -2029,7 +2037,8 @@ def merge_oracle_results(results: Iterable[OracleConfigResult]) -> BaselineRepor
         report.positions_excluded += result.positions_excluded
         for entry_id, count in result.counts_by_entry.items():
             report.counts_by_entry[entry_id] = report.counts_by_entry.get(entry_id, 0) + count
-        report.unmatched.extend(result.unmatched)
+        report.unmatched_count += result.unmatched_count
+        report.unmatched_exemplars.extend(result.unmatched_exemplars)
         report.multi_matched.extend(result.multi_matched)
         report.notes.extend(result.notes)
     return report

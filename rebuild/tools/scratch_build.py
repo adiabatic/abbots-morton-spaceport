@@ -73,7 +73,7 @@ def build_and_oracle(runes_dir: Path, out_dir: Path) -> dict:
         "defect_errors": [f"{d.code} {d.signature}: {d.message}" for d in defect_report.errors],
         "rows_compared": report.rows_compared,
         "divergent_rows": report.divergent_rows,
-        "unmatched": len(report.unmatched),
+        "unmatched": report.unmatched_count,
         "multi_matched": len(report.multi_matched),
         "pass": report.passed,
         "audit": str(out_dir / "divergence-audit.tsv"),

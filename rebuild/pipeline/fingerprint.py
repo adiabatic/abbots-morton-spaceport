@@ -4,7 +4,7 @@ The surface manifest's `generated_at` stamp is mtime-based and exists to key uni
 
 Chain honesty: run_m1 persists the Stage A components (`data`, `baselines`, `pipeline_code`) into rebuild/out/m1/inputs_fingerprint.json at build time, and the review build copies those recorded values into the manifest instead of recomputing them — so a surface rebuilt over stale out/m1 artifacts carries the stale hashes and the checker flags it.
 
-`tables_value` serves the same honesty for a build artifact rather than a manifest: the serialized decision tables carry it, so the conformance sweep can tell a table its own sources produced from one it must rebuild.
+`tables_value` serves the same honesty for a build artifact rather than a manifest: the serialized decision tables carry it, so the conformance sweep can tell a table its own sources produced from one it must rebuild. It is keyed on `table_data_value` rather than `data_value` — the alias map, the divergence ledger, and the contact allow-list are read by gates that consume a built table and by nothing that builds one, so they belong to the whole-run record and not to this stamp.
 
 Rune files are hashed by `rune_file_digest`, a prose-blind digest over the parsed document rather than the raw bytes: YAML comments and formatting, the ductus prose, the notes prose, and the `why` rationale on prefer/extend/contract/resolve/unlock records are all documentation nothing downstream consumes, so editing them must not stale the surface or re-run a cycle. What stays in the digest is exactly what can move an output or a gate: every geometric and policy field, the ductus *keys* (motion names, which the parity and naming lints enforce), the *presence* of every prose field (the schema requires `why` on absolute prefers), and — the one quoted prose — `policy.refuse[].why`, which the kernel crate's engine embeds in the elimination diagnostics the review surface serves in its explain panel.
 """
@@ -173,13 +173,34 @@ def data_value(repo_root: Path) -> str:
     return hashlib.sha256("\n".join(data_lines(repo_root)).encode()).hexdigest()
 
 
+NON_TABLE_DATA_LABELS = (
+    "rebuild/m1-aliases.yaml",
+    "rebuild/m1-contact-allow.yaml",
+    "rebuild/m1-divergences.yaml",
+)
+
+
+def table_data_lines(repo_root: Path) -> list[str]:
+    """`data_lines` minus the three data inputs no table stage reads. `rebuild/m1-contact-allow.yaml` is the defect gate's allow-list, handed to `defects.run_gates` alongside tables the fixpoint has already produced; `rebuild/m1-aliases.yaml` and `rebuild/m1-divergences.yaml` are the baseline oracle's, read to name and classify divergences the fixpoint has already decided. None of the three reaches the kernel crate or any stage that builds a decision table, so folding them into the tables' own stamp only made a ledger or classifier re-adjudication throw away an enumeration that would come back byte for byte.
+
+    Narrower stamp, same coverage: all three stay in `data_lines`, which is what the artifact cycle's run_m1 green record and the Stage A `data` component are keyed on, so editing one still costs a full run and still re-runs the defect gate. What it stops costing is the fixpoint.
+    """
+    excluded = set(NON_TABLE_DATA_LABELS)
+    return [line for line in data_lines(repo_root) if line.split("\t", 1)[0] not in excluded]
+
+
+def table_data_value(repo_root: Path) -> str:
+    """The data half of the stamp a serialized window enumeration carries: `table_data_lines` hashed, which is `data_value` narrowed by exactly the files named there and by nothing else."""
+    return hashlib.sha256("\n".join(table_data_lines(repo_root)).encode()).hexdigest()
+
+
 def rune_digests(repo_root: Path) -> dict[str, str]:
     """Every rune file's prose-blind digest, keyed by family name (the file stem, which spec_load lints to equal the `rune:` field). This is the per-rune grain the trace-memo store invalidates at: an entry survives a cycle exactly when every family it names still carries the digest recorded beside it."""
     return {path.stem: rune_file_digest(path) for path in rune_paths(Path(repo_root)) if path.is_file()}
 
 
 def tables_environment_value(repo_root: Path) -> str:
-    """`tables_value` with the per-rune digests factored out: the non-rune data inputs plus the pipeline code. The trace-memo store stamps itself with this wholesale — any of these moving invalidates every entry — while the rune files invalidate at per-entry grain through `rune_digests`."""
+    """The non-rune data inputs plus the pipeline code, hashed wholesale. The trace-memo store stamps itself with this — any of these moving invalidates every entry — while the rune files invalidate at per-entry grain through `rune_digests`."""
     root = Path(repo_root)
     runes = set(rune_paths(root))
     lines = sorted(
@@ -192,10 +213,10 @@ def tables_environment_value(repo_root: Path) -> str:
 
 
 def tables_value(repo_root: Path) -> str:
-    """The content key over everything the decision-table fixpoint reads: the rune and config data plus the pipeline code. A serialized window enumeration carries this value so it can prove it still describes the sources on disk, and the conformance sweep rebuilds the moment it does not. Deliberately narrower than the Stage A record — the oracle's baselines feed no table, so re-extracting them must not throw the windows away."""
+    """The content key over everything the decision-table fixpoint reads: the rune and config data by `table_data_value`, plus the pipeline code. A serialized window enumeration carries this value so it can prove it still describes the sources on disk, and the conformance sweep refuses the moment it does not. Deliberately narrower than the Stage A record at both ends — the oracle's baselines feed no table, so re-extracting them must not throw the windows away, and neither do the alias map, the divergence ledger, or the contact allow-list, so re-adjudicating one of those must not either."""
     root = Path(repo_root)
     lines = (
-        f"data\t{data_value(root)}",
+        f"table_data\t{table_data_value(root)}",
         f"pipeline_code\t{hash_paths(root, pipeline_code_paths(root))}",
     )
     return hashlib.sha256("\n".join(lines).encode()).hexdigest()

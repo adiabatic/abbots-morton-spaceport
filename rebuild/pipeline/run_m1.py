@@ -6,7 +6,7 @@ The glyph-name contract this driver pins: settlement-lookup outcomes are `settle
 
 The ZWNJ-structure and split-buffer checks that once had a standalone horizon-5 gate of their own now ride gate:conform's belt, so they are proven per build at horizon 4 and periodically at 5 or deeper by `make conform-deep` — the same charter the belt already has, over a rule whose closure property makes a horizon-4 proof cover every window the oracle absorbs.
 
-Run as: uv run python -m rebuild.pipeline.run_m1 — or `--conform-only` for the belt alone against the M1.otf on disk, or `--gates-only` for the Manual-pin gate and the oracle against it, which is the cheap way to re-adjudicate a ledger or classifier edit without rebuilding a thing.
+Run as: uv run python -m rebuild.pipeline.run_m1 — or `--conform-only` for the belt alone against the M1.otf on disk, or `--gates-only` for the Manual-pin gate and the oracle against it, which is the cheap way to re-adjudicate an edit to the divergence ledger or the alias map without rebuilding a thing. An edit to the classifier that reads them is a different matter: `classify_divergence` lives in conform.py and conform.py is pipeline code, so that one moves the stamp and `--gates-only` refuses it until the code component is split at a finer grain than the tree.
 """
 
 from __future__ import annotations
@@ -87,7 +87,7 @@ def build_tables(
 
     `out_dir`, when given, gets the section 8 TSVs and `table-digests.json` — each configuration's `table.table_digest`, taken in the crate while the window rows are still in hand, which is the grain the rest of the rebuild states table identity at. A caller with nowhere to write gets the tables and nothing else. Both the returned mapping and the digest record are rebuilt in `conform.ACCEPTANCE_CONFIGS` order however the configurations finish, so completion order can never reach an artifact.
 
-    `inputs` is `fingerprint.tables_value` over the sources this spec was loaded from. Supplying it alongside `out_dir` keeps each configuration's window enumeration next to the TSVs — where `run_font_conformance` picks it up rather than rebuilding anything — under the stamp that names those sources; omit it and the payload is read for its head and deleted, which is what a caller building a spec of its own must have, since the fingerprint names the repo's rune files and cannot vouch for tables they did not produce.
+    `inputs` is `tables_inputs` over the sources this spec was loaded from. Supplying it alongside `out_dir` keeps each configuration's window enumeration next to the TSVs — where `run_font_conformance` picks it up rather than rebuilding anything — under the stamp that names those sources; omit it and the payload is read for its head and deleted, which is what a caller building a spec of its own must have, since the fingerprint names the repo's rune files and cannot vouch for tables they did not produce.
 
     `kernel_threads` is how many configurations are in flight at once, capped at the configuration count and the CPU count and defaulted low because a configuration holds its whole working set from the first window it reaches to the last artifact it writes. The fold's own width went with the Python fold: it runs inside the enumerating process now, and there is nothing left on this side to widen.
     """
@@ -223,7 +223,7 @@ def run(
     inputs: str | None = None,
     kernel_threads: int | None = None,
 ) -> dict:
-    """`inputs` is `fingerprint.tables_value` over the sources `spec` was loaded from, snapshotted before the load so it can only ever name content the tables are at least as new as. Supplying it serializes the window enumeration under `out_dir` for the conformance sweep; a caller running a spec of its own leaves it out. `kernel_threads` reaches the table build and nothing else."""
+    """`inputs` is `tables_inputs` over the sources `spec` was loaded from, snapshotted before the load so it can only ever name content the tables are at least as new as. Supplying it serializes the window enumeration under `out_dir` for the conformance sweep; a caller running a spec of its own leaves it out. `kernel_threads` reaches the table build and nothing else."""
     out_dir.mkdir(parents=True, exist_ok=True)
     start = time.perf_counter()
     if spec is None:
@@ -323,7 +323,10 @@ def serialized_tables(out_dir: Path, inputs: str) -> dict[str, DecisionTable] | 
 
 
 def tables_inputs() -> str:
-    """The stamp serialized windows carry: `fingerprint.tables_value` plus a token per semantics-mode default that is on (the simulated prospect, the stage-4b shifted vote slots, the issue-26 class-grain deep slots). The environment flags change settlement semantics or enumeration grain without moving any hashed source, so without the tokens a flag-on enumeration would read as fresh to a flag-off process (and the reverse) and the sweep would replay tables the in-process kernel no longer produces."""
+    """The stamp serialized windows carry: `fingerprint.tables_value` plus a token per semantics-mode default that is on (the simulated prospect, the stage-4b shifted vote slots, the issue-26 class-grain deep slots). The environment flags change settlement semantics or enumeration grain without moving any hashed source, so without the tokens a flag-on enumeration would read as fresh to a flag-off process (and the reverse) and the sweep would replay tables the in-process kernel no longer produces.
+
+    The stamp is over what the fixpoint reads, which is why its data half is `fingerprint.table_data_value` and not `fingerprint.data_value`: `rebuild/m1-aliases.yaml` and `rebuild/m1-divergences.yaml` are the baseline oracle's comparison inputs and `rebuild/m1-contact-allow.yaml` is the defect gate's allow-list, all three consumed against tables that are already built. Editing one leaves every enumeration on disk exactly as fresh as it was, which is what lets `--gates-only` re-adjudicate a ledger or alias edit over the tables and font already there instead of refusing it. The classifier those files feed does not come along: `classify_divergence` sits in conform.py, conform.py is in `fingerprint.pipeline_code_paths`, and the stamp's other half is the whole pipeline tree — so a classifier edit still moves it and still refuses, and only a finer grain on the code component could change that. None of that narrows what a full run checks — the three files stay in `fingerprint.data_lines`, so the artifact cycle's run_m1 green record still moves and the defect gate still re-runs.
+    """
     inputs = fingerprint.tables_value(REPO_ROOT)
     if kernel_exec.SIMULATED_PROSPECT_DEFAULT:
         inputs = f"{inputs}+simulated-prospect"
@@ -472,13 +475,13 @@ def run_oracle(out_dir: Path = OUT_DIR, spec: ResolvedSpec | None = None, jobs: 
         "positions_compared": report.positions_compared,
         "positions_excluded": report.positions_excluded,
         "counts_by_entry": dict(sorted(report.counts_by_entry.items())),
-        "unmatched": len(report.unmatched),
+        "unmatched": report.unmatched_count,
         "multi_matched": len(report.multi_matched),
         "subset_identity": ["ss06", "ss07", "ss06+ss07"],
         "pass": report.passed,
         "notes": report.notes,
     }
-    for row in report.unmatched[:20]:
+    for row in report.unmatched_exemplars[: conform.ORACLE_UNMATCHED_EXEMPLARS]:
         summary.setdefault("unmatched_exemplars", []).append(
             f"{row.config} {row.codepoints} {'|'.join(row.baseline_glyphs)} -> {'|'.join(row.new_cells)} {row.phenomena}"
         )
@@ -487,7 +490,7 @@ def run_oracle(out_dir: Path = OUT_DIR, spec: ResolvedSpec | None = None, jobs: 
 
 
 def run_gates_only(out_dir: Path = OUT_DIR, jobs: int = 1) -> None:
-    """The two post-build gates over artifacts already on disk: the Manual-pin replay and the oracle, rewriting their summaries and `divergence-audit.tsv` without recompiling anything. What licenses the reuse is the stamp the build left on its serialized enumerations — it names the sources those tables came from, so a stamp that still matches the runes on disk says the M1.otf beside them is the font those runes describe, and a stamp that does not is a refusal rather than a silent sweep of a stale binary. This writes no green record: run_m1's green covers the whole build, and a pass that recompiled nothing has not earned it."""
+    """The two post-build gates over artifacts already on disk: the Manual-pin replay and the oracle, rewriting their summaries and `divergence-audit.tsv` without recompiling anything. What licenses the reuse is the stamp the build left on its serialized enumerations — it names the sources those tables came from, so a stamp that still matches the runes on disk says the M1.otf beside them is the font those runes describe, and a stamp that does not is a refusal rather than a silent sweep of a stale binary. Because that stamp names only what the fixpoint reads, an edit to the divergence ledger or the alias map passes it and re-adjudicates here rather than being turned away; an edit to the classifier that reads them still moves it, conform.py being pipeline code. This still writes no green record: run_m1's green covers the whole build, a pass that recompiled nothing has not earned it, and the ledger and the alias map both stay in the key that green is taken over."""
     inputs = tables_inputs()
     font_path = out_dir / "M1.otf"
     if serialized_tables(out_dir, inputs) is None:
