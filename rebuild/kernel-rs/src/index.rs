@@ -243,7 +243,7 @@ impl SpecIndex {
         self.rune_index[seat as usize].order_index.len()
     }
 
-    /// The stance's rank in its rune's declared order — the third stage of the ranking, and `settle.Engine._order_index_cache`'s value, resolved at build time.
+    /// The stance's rank in its rune's declared order — the third stage of the ranking, resolved once when the index is built rather than memoized on first ask.
     ///
     /// The arithmetic is load-bearing: the order list is `policy.order` when it is non-empty and declaration order otherwise, then every stance the list omits is appended in declaration order, and each stance's index is its first position in that list. A name in `policy.order` that is not a stance still occupies its seat, so the stances after it rank one lower than a naive enumeration would give them.
     pub fn order_index(&self, id: StanceId) -> usize {
@@ -290,7 +290,7 @@ impl SpecIndex {
         self.sym_of(&format!("{}{WITHDRAWN_SUFFIX}", self.resolve(height)))
     }
 
-    /// Every family the registry knows about, modeled or not — `specificity._family_universe`, the set an `except:` carve subtracts from when the condition it carves has no family axis of its own.
+    /// Every family the registry knows about, modeled or not — the set an `except:` carve subtracts from when the condition it carves has no family axis of its own.
     pub fn families(&self) -> &BTreeSet<Sym> {
         &self.families
     }
@@ -316,7 +316,7 @@ impl SpecIndex {
         self.rune_index[seat as usize].groups.get(&name)
     }
 
-    /// Resolve a `class:` reference to family names, `specificity.class_members`: registry predicate classes first, then the owning rune's local groups, then any rune's groups in rune declaration order — `spec_load` lints cross-rune duplicates, so the last step is unambiguous on a linted spec.
+    /// Resolve a `class:` reference to family names: registry predicate classes first, then the owning rune's local groups, then any rune's groups in rune declaration order — `spec_load` lints cross-rune duplicates, so the last step is unambiguous on a linted spec.
     ///
     /// An unresolvable name is a spec defect rather than a settlement outcome: `spec_load` refuses a dangling class reference, so this cannot fire on a spec the pipeline built. It surfaces as [`SettleError::Plain`] because that is the only shape the kernel's callers already handle.
     pub fn class_members(

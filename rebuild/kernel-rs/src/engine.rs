@@ -122,7 +122,7 @@ impl Slots {
     }
 }
 
-/// The window past the supplied slots, which a `then:` chain exhausts to. `settle.Engine.cond_matches_right`'s `(UNKNOWN,)` tail.
+/// The window past the supplied slots, which a `then:` chain exhausts to: the tail [`Engine::cond_matches_right`] walks once the supplied slots run out.
 const UNKNOWN_TAIL: [RightToken; 1] = [UNKNOWN];
 
 /// The mode pins an engine is built with. Python reads two of these from module-level defaults that an environment variable moves; the crate has no environment to read, so the caller passes them and the [`Default`] spelling is the shipping configuration.
@@ -152,7 +152,7 @@ impl Default for EngineModes {
     }
 }
 
-/// One exit a stance can offer: a declared row at its declaration seat, or a row-less height an active unlock grants at a seat past the declared ones. `settle.Engine._exit_sources`' four-tuple, minus the `Unlock` it carries and no caller reads — the unlock's only observable effect is the provenance the enumeration fires, which the cache already replays.
+/// One exit a stance can offer: a declared row at its declaration seat, or a row-less height an active unlock grants at a seat past the declared ones. The `Unlock` behind such a height is deliberately not carried, because no caller reads it — the unlock's only observable effect is the provenance the enumeration fires, which the cache already replays.
 #[derive(Clone, Copy, Debug)]
 struct ExitSource<'i> {
     height: Sym,
@@ -257,7 +257,7 @@ struct Applicable<'i> {
 /// The window memo and its fired journal in one table: a shadow map on the same 72-byte key would cost the key and its hashbrown slack a second time, for a value that is only ever read alongside the trace it belongs to.
 type TraceMemo = HashMap<TraceKey, (TransitionTrace, Box<[Pointer]>)>;
 
-/// One settlement engine per (spec, feature configuration), `settle.Engine`.
+/// One settlement engine per (spec, feature configuration).
 pub struct Engine<'i> {
     index: &'i SpecIndex,
     features: HashSet<Sym>,
@@ -514,7 +514,7 @@ impl<'i> Engine<'i> {
         index.exit_row(id, seam).and_then(|(_, row)| row.stroke)
     }
 
-    /// Whether a condition matches the resolved left neighbor, `settle.Engine.cond_matches_left`. `seam` is the height of the join being decided between the left and this position — the candidate's entry, or `None` when unentered — which is what `joined_at:` and a from-scope condition read.
+    /// Whether a condition matches the resolved left neighbor. `seam` is the height of the join being decided between the left and this position — the candidate's entry, or `None` when unentered — which is what `joined_at:` and a from-scope condition read.
     pub fn cond_matches_left(
         &self,
         owner: Option<Sym>,
@@ -579,7 +579,7 @@ impl<'i> Engine<'i> {
         Ok(true)
     }
 
-    /// Whether a condition matches the raw slots to the right, `settle.Engine.cond_matches_right`. `tokens[0]` is the slot this condition tests, a `then:` hop recurses on the tail, and an `except:` entry tests the same slot with its own hops walking the same tail, so a chain reads one raw token per hop and exhausts to `UNKNOWN` past the supplied window. `None` is the verdict that depends on a slot outside the evaluated window; refusals, unlocks and the closure all treat it optimistically, which is what makes their reach honest about what the window cannot see.
+    /// Whether a condition matches the raw slots to the right. `tokens[0]` is the slot this condition tests, a `then:` hop recurses on the tail, and an `except:` entry tests the same slot with its own hops walking the same tail, so a chain reads one raw token per hop and exhausts to `UNKNOWN` past the supplied window. `None` is the verdict that depends on a slot outside the evaluated window; refusals, unlocks and the closure all treat it optimistically, which is what makes their reach honest about what the window cannot see.
     pub fn cond_matches_right(
         &self,
         owner: Option<Sym>,
@@ -653,7 +653,7 @@ impl<'i> Engine<'i> {
         Ok(if unknown { None } else { Some(true) })
     }
 
-    /// Whether a `when:` gate holds for this window, `settle.Engine.when_matches`. `None` is the verdict that depends on a slot outside the evaluated window, and it propagates: a definite `false` on any axis wins outright, but an unknown on one axis leaves the whole verdict unknown even when every other axis matched.
+    /// Whether a `when:` gate holds for this window. `None` is the verdict that depends on a slot outside the evaluated window, and it propagates: a definite `false` on any axis wins outright, but an unknown on one axis leaves the whole verdict unknown even when every other axis matched.
     pub fn when_matches(
         &self,
         owner: Option<Sym>,
@@ -704,7 +704,7 @@ impl<'i> Engine<'i> {
 
     // --- capability -------------------------------------------------------------
 
-    /// Whether this stance offers a live entry at `height` against the left, and the note the commit carries when it does — `settle.Engine._entry_available`. A declared selectable row whose from-scope admits the left grants it, and so does any unlock naming the height whose feature is active and whose `when:` does not definitively refuse the window; the optimism there is deliberate and matches the closure's.
+    /// Whether this stance offers a live entry at `height` against the left, and the note the commit carries when it does. A declared selectable row whose from-scope admits the left grants it, and so does any unlock naming the height whose feature is active and whose `when:` does not definitively refuse the window; the optimism there is deliberate and matches the closure's.
     fn entry_available(
         &mut self,
         rune: &'i Rune,
@@ -765,7 +765,7 @@ impl<'i> Engine<'i> {
         Ok((false, None))
     }
 
-    /// Every exit this stance can offer, `settle.Engine._exit_sources`: the declared rows in declaration order at their own seats, then the heights an active unlock grants that no declared row shadows, at seats past the declared ones. The unlocks fire on every consult, cache hit included, because the enumeration that hit the cache is exactly as dependent on them as the one that filled it.
+    /// Every exit this stance can offer: the declared rows in declaration order at their own seats, then the heights an active unlock grants that no declared row shadows, at seats past the declared ones. The unlocks fire on every consult, cache hit included, because the enumeration that hit the cache is exactly as dependent on them as the one that filled it.
     fn exit_sources(&mut self, id: StanceId) -> Vec<ExitSource<'i>> {
         if let Some((sources, fired)) = self.exit_sources_cache.get(&id) {
             let sources = sources.clone();
@@ -820,7 +820,7 @@ impl<'i> Engine<'i> {
         (sources, fired)
     }
 
-    /// The (entry-state, exit-state) pairs an active unlock admits in this window, `settle.Engine._active_pairing_unlocks`. An unlock with no `when:` is unconditional, and one whose `when:` is merely unknown still counts — the same optimism the entry side takes.
+    /// The (entry-state, exit-state) pairs an active unlock admits in this window. An unlock with no `when:` is unconditional, and one whose `when:` is merely unknown still counts — the same optimism the entry side takes.
     fn active_pairing_unlocks(
         &mut self,
         rune: &'i Rune,
@@ -856,7 +856,7 @@ impl<'i> Engine<'i> {
         Ok(active)
     }
 
-    /// Whether a stance admits this (entry-state, exit-state) combination, `settle.Engine._pairing_allowed`: an unlocked pair is admitted outright, a `never:` pair is refused, and an `only:` list closes the set to itself.
+    /// Whether a stance admits this (entry-state, exit-state) combination: an unlocked pair is admitted outright, a `never:` pair is refused, and an `only:` list closes the set to itself.
     fn pairing_allowed(
         &mut self,
         id: StanceId,
@@ -895,7 +895,7 @@ impl<'i> Engine<'i> {
 
     // --- refusals ----------------------------------------------------------------
 
-    /// The first refuse record on this rune that kills the candidate, `settle.Engine._refusal_hit`. The three grains are whole-join (no target fields, which kills only joining candidates), stance, and surface row. Only a definite verdict kills: an unknown one is the optimistic non-fire that keeps a refusal from reaching past the window it can see.
+    /// The first refuse record on this rune that kills the candidate. The three grains are whole-join (no target fields, which kills only joining candidates), stance, and surface row. Only a definite verdict kills: an unknown one is the optimistic non-fire that keeps a refusal from reaching past the window it can see.
     ///
     /// Python returns the record paired with whether the verdict was definite, and every call site reads only the record — the flag is `True` at the one place the function returns at all — so the pair is not reproduced here.
     fn refusal_hit(
@@ -941,7 +941,7 @@ impl<'i> Engine<'i> {
 
     // --- candidate enumeration -----------------------------------------------------
 
-    /// Every pair candidate this rune offers in this window — a cell of the rune together with the seam state it offers toward the next position — with each eliminated candidate's reason appended to `eliminations` when one is asked for. `settle.Engine.candidates`.
+    /// Every pair candidate this rune offers in this window — a cell of the rune together with the seam state it offers toward the next position — with each eliminated candidate's reason appended to `eliminations` when one is asked for.
     ///
     /// The memo only runs in trace-memo mode, faithfully to Python: outside it there is no journal, so a stored entry could carry no delta to replay and a later hit would silently swallow the firings its first evaluation performed.
     pub fn candidates(
@@ -1230,7 +1230,7 @@ impl<'i> Engine<'i> {
         Ok(out)
     }
 
-    /// The left a follower would settle against if this candidate won, `settle.Engine._virtual_left`: the candidate's cell with no adjustments and no extension, which is everything the follower's own enumeration reads.
+    /// The left a follower would settle against if this candidate won: the candidate's cell with no adjustments and no extension, which is everything the follower's own enumeration reads.
     fn virtual_left(&mut self, rune_name: Sym, candidate: Candidate) -> LeftContext {
         if let Some(cached) = self.virtual_left_cache.get(&(rune_name, candidate)) {
             return cached.clone();
@@ -1251,7 +1251,7 @@ impl<'i> Engine<'i> {
         built
     }
 
-    /// Step 2's lookahead closure, `settle.Engine._acceptor_exists`: whether some cell of the follower survives its own pairings, require, unlocks, row scopes and every window-decidable refusal, evaluated with this candidate as the follower's resolved left and the raw slot past it as the follower's right. Mutuality is definitional — an exit with no refusal-aware acceptor is never a candidate — and the slots past the window are optimistic by construction.
+    /// Step 2's lookahead closure: whether some cell of the follower survives its own pairings, require, unlocks, row scopes and every window-decidable refusal, evaluated with this candidate as the follower's resolved left and the raw slot past it as the follower's right. Mutuality is definitional — an exit with no refusal-aware acceptor is never a candidate — and the slots past the window are optimistic by construction.
     fn acceptor_exists(
         &mut self,
         candidate: &Candidate,
@@ -1319,7 +1319,7 @@ impl<'i> Engine<'i> {
 
     // --- the prospect term -----------------------------------------------------------
 
-    /// What the seam past this one is worth given this candidate — the join count's third term, `settle.Engine._prospect`, in both of its meanings.
+    /// What the seam past this one is worth given this candidate — the join count's third term, in both of its meanings.
     ///
     /// With `simulated_prospect` on (issue 28's shipping default) the term is the follower's *actual* simulated transition: the whole cascade run one position over, with this candidate standing as the follower's left and the window shifted right, scoring 1 exactly when the simulated winner carries a seam. The recursion that opens only ever moves rightward with strictly shrinking slots and bottoms out at the window edge, where a non-letter slot answers 0 — today's epistemic state, kept on purpose, so beyond-window text stays exactly as unknowable as it is. With the mode off (the section 5.7 guard's pin and the comparison state) the term is the pre-issue-28 optimistic candidacy estimate: 1 when any seam-bearing follower cell survives enumeration, refusal-aware but blind to the follower's prefers and ordering.
     ///
@@ -1425,7 +1425,7 @@ impl<'i> Engine<'i> {
 
     // --- prefers ---------------------------------------------------------------------
 
-    /// Whether one prefer record speaks for this candidate, `settle.Engine._prefer_favors`. `None` is the verdict "this record has nothing to say about this window at all", which is what keeps an irrelevant record out of the stage rather than counting it as a vote against.
+    /// Whether one prefer record speaks for this candidate. `None` is the verdict "this record has nothing to say about this window at all", which is what keeps an irrelevant record out of the stage rather than counting it as a vote against.
     ///
     /// Our own rune's record targets the candidate's stance or cell directly and reads the seat's raw deep slots as they are. A follower's record instead *votes*: it speaks for the candidates under which its own preferred continuation is admissible, evaluated one position over with `joined_at` bound to the candidate's seam. That reading is the stage-4b flag's whole subject — with `vote_slots` on the vote is handed the seat's slots shifted once, so a chained condition resolves inside the window; with it off everything past the vote's own `right1` is pinned to `vote_deep_slot`, whose unknown verdicts count as firing, which is the older optimism that forced a deep-chained fact to be restated on every possible left rune instead of living once on the rune that owns it.
     fn prefer_favors(
@@ -1534,7 +1534,7 @@ impl<'i> Engine<'i> {
         self.prefer_favors(owner, record, rune_name, candidate, left, slots)
     }
 
-    /// One prefer stage — absolute or yielding — over the records of both seam runes, most-specific first. `settle.Engine._apply_prefers`.
+    /// One prefer stage — absolute or yielding — over the records of both seam runes, most-specific first.
     ///
     /// Records are gathered in declaration order, our own rune's before the follower's, then ranked by how many other applicable records outrank them, so the narrowest applies first and a nested conflict resolves silently by membership. A record whose demand has already been narrowed away is where the stage either finds a `resolve:` naming the collision or refuses: E-AMBIGUOUS when both records belong to one rune, E-INCOMPARABLE when they belong to two.
     fn apply_prefers(
@@ -1683,7 +1683,7 @@ impl<'i> Engine<'i> {
         Ok(current)
     }
 
-    /// The section 5.8 against-a-named-record slice, `settle.Engine._apply_resolution`: a crossing between two runes' prefers resolves without an error when a `resolve:` on either rune names the other record in `against:` and its own `when:` does not definitively refuse this window — unknown deep slots count as matching, the same optimism the refusals and the unlocks take.
+    /// The section 5.8 against-a-named-record slice: a crossing between two runes' prefers resolves without an error when a `resolve:` on either rune names the other record in `against:` and its own `when:` does not definitively refuse this window — unknown deep slots count as matching, the same optimism the refusals and the unlocks take.
     ///
     /// The `pick:` pattern filters the stage's whole survivor set rather than the narrowed list, because the resolve overrides both colliding records and not merely the later one, and its provenance lands in the fired set and the notes so that explain output and the dead-policy gate both see it. `None` is the answer "no resolve speaks to this crossing", which is what turns the collision into E-INCOMPARABLE. Two matching resolves that disagree on the pick, and a pick that admits no survivor, stay hard errors of their own.
     fn apply_resolution(
@@ -1773,7 +1773,7 @@ impl<'i> Engine<'i> {
         Ok(Some(picked))
     }
 
-    /// The E-INCOMPARABLE sentence, `settle.Engine._incomparable_message`: the two records, an example window spelled in rune names, the candidates they conflicted over, and a paste-ready `resolve:` record for the rune that owns the window. Every byte of it is contract, the stub included — the author's next move is to copy it into the rune's YAML, so a record with no `id:` prints the instruction to give it one rather than an empty field.
+    /// The E-INCOMPARABLE sentence: the two records, an example window spelled in rune names, the candidates they conflicted over, and a paste-ready `resolve:` record for the rune that owns the window. Every byte of it is contract, the stub included — the author's next move is to copy it into the rune's YAML, so a record with no `id:` prints the instruction to give it one rather than an empty field.
     ///
     /// Three of its fields fall back on Python's `or`, which reads an *empty* string the way it reads an absent one, and all three empty spellings are authorable in a dump: a rune named `""` drops out of the example window rather than widening it with a space, a height named `""` prints `none` beside a candidate that never joined, and a record whose `id:` is `""` prints the instruction to give it one. See [`text_or`].
     fn incomparable_message(
@@ -1837,7 +1837,7 @@ impl<'i> Engine<'i> {
 
     // --- extensions and the commit -----------------------------------------------------
 
-    /// The extend or contract record that shapes one side of the winning cell, `settle.Engine._pick_adjustment`: the records naming this side's height and nothing on the other side, filtered to the candidate's stance, and only those whose `when:` holds definitively — an adjustment is geometry, so an unknown slot is not enough to move a pixel. Several matches go to the section 6.2 order, where a tie among equals with the same demand collapses and a tie with different demands is E-INCOMPARABLE.
+    /// The extend or contract record that shapes one side of the winning cell: the records naming this side's height and nothing on the other side, filtered to the candidate's stance, and only those whose `when:` holds definitively — an adjustment is geometry, so an unknown slot is not enough to move a pixel. Several matches go to the section 6.2 order, where a tie among equals with the same demand collapses and a tie with different demands is E-INCOMPARABLE.
     ///
     /// Python takes the height as its own parameter; every call site passes the candidate's own height for the side being shaped, so it is derived here instead.
     fn pick_adjustment(
@@ -1894,7 +1894,7 @@ impl<'i> Engine<'i> {
         Ok(Some(chosen))
     }
 
-    /// The withdrawal bindings a declined exit renders with, `settle.Engine._withdrawal_tokens`. A join that does not realize mid-word leaves the exit state none, and where the declined row names a withdrawal bitmap that drawing becomes part of the cell's identity as an `ex-bind-<bitmap>` token; a `withdrawal: safe` row collapses to the plain exit-none cell instead. An explicit `cells:` composition for this (entry-state, withdrawn-height) pair overrides the row's binding, and the *last* such row wins, as Python's un-broken loop leaves it.
+    /// The withdrawal bindings a declined exit renders with. A join that does not realize mid-word leaves the exit state none, and where the declined row names a withdrawal bitmap that drawing becomes part of the cell's identity as an `ex-bind-<bitmap>` token; a `withdrawal: safe` row collapses to the plain exit-none cell instead. An explicit `cells:` composition for this (entry-state, withdrawn-height) pair overrides the row's binding, and the *last* such row wins, because the scan never breaks out early.
     fn withdrawal_tokens(&self, stance: &Stance, entry: Option<Sym>) -> Vec<AdjustmentToken> {
         let index = self.index();
         let vocab = index.vocab();
@@ -1919,7 +1919,7 @@ impl<'i> Engine<'i> {
         tokens
     }
 
-    /// The window join count, `settle.Engine._score`: the seam behind us, the seam we offer, and what the seam past us is worth.
+    /// The window join count: the seam behind us, the seam we offer, and what the seam past us is worth.
     fn score(
         &mut self,
         rune_name: Sym,
@@ -1932,7 +1932,7 @@ impl<'i> Engine<'i> {
         Ok(left_term + own_term + self.prospect(rune_name, candidate, slots)?)
     }
 
-    /// Turn the winning candidate into the cell it settles as, `settle.Engine._commit`: the ZWNJ lock first, then each live side's extend and contract, then the extension the exit side carries in pixels, then — for a declined join mid-word — the withdrawal bindings.
+    /// Turn the winning candidate into the cell it settles as: the ZWNJ lock first, then each live side's extend and contract, then the extension the exit side carries in pixels, then — for a declined join mid-word — the withdrawal bindings.
     ///
     /// The one subtlety is the same-seam non-summing rule (prototype divergence 3): a follower's entry extension is suppressed when the predecessor's exit already carries the seam's connector pixels, because the two would otherwise both draw them. The suppressed record still fired and still notes itself as applied — it did match, and the dead-policy gate should see it — and the suppression appends its own sentence saying so.
     ///
@@ -2055,7 +2055,7 @@ impl<'i> Engine<'i> {
 
     // --- the kernel ---------------------------------------------------------------------
 
-    /// Settle one window, `settle.Engine.transition_trace` — the rich form the table builder and the explain CLI read.
+    /// Settle one window — the rich form the table builder and the explain CLI read.
     ///
     /// In trace-memo mode the result is memoized over the collapsed left key: every left read the kernel makes goes through the kind and the settled cell's rune, stance, seam and extension — condition matching consults the rune and the stance, the stroke axis the committed seam, the scoring the seam's presence, and the same-seam suppression the extension — and never the left cell's entry or its adjustments, so two settled lefts differing only there trace identically and share one entry. Raising windows are never cached: the E-STRANDED sentence reads the left's full label, and the liveness probes that trip settlement errors memoize their own verdicts above this call. Python's two further layers, the persisted store and the cross-configuration share, are deliberately absent — the cutover deleted `trace_memo.py`, so neither survives on either side.
     pub fn transition_trace(
@@ -2104,7 +2104,7 @@ impl<'i> Engine<'i> {
         Ok(trace)
     }
 
-    /// One field or two off a window's trace, read where the trace already sits in the memo rather than through a copy of it. `settle.Engine.transition_trace` answers with a whole owned record, and most of its callers inside this engine want a seam or a cell out of it — so a hit on the memo would otherwise deep-copy a settled cell, its notes and its adjustment list to answer a question about one `Option`.
+    /// One field or two off a window's trace, read where the trace already sits in the memo rather than through a copy of it. [`Engine::transition_trace`] answers with a whole owned record, and most of its callers inside this engine want a seam or a cell out of it — so a hit on the memo would otherwise deep-copy a settled cell, its notes and its adjustment list to answer a question about one `Option`.
     ///
     /// The fired delta is replayed on a hit exactly as [`Engine::transition_trace`] replays it, because that is what makes a warm engine's fired set equal a cold one's, and no reading shortcut may skip it.
     pub(crate) fn with_trace<T>(
@@ -2367,7 +2367,7 @@ fn pattern_value(pattern: &Table<Sym>, key: Sym) -> Option<Sym> {
         .map(|(_, value)| *value)
 }
 
-/// Whether a cell pattern describes this candidate, `settle.Engine._cell_pattern_matches`. The pattern names states rather than live heights, so an absent side is the `none` state and matches a pattern that asks for it.
+/// Whether a cell pattern describes this candidate. The pattern names states rather than live heights, so an absent side is the `none` state and matches a pattern that asks for it.
 fn cell_pattern_matches(vocab: &Vocab, pattern: &Table<Sym>, candidate: &Candidate) -> bool {
     if let Some(wanted) = pattern_value(pattern, vocab.entry)
         && wanted != vocab.height_state(candidate.entry)
@@ -2382,7 +2382,7 @@ fn cell_pattern_matches(vocab: &Vocab, pattern: &Table<Sym>, candidate: &Candida
     true
 }
 
-/// Whether a resolve's `pick:` admits this candidate, `settle.Engine._resolve_pick_matches`: the stance when one is named, and the entry and exit keys read as a cell pattern. A pick that names only a stance imposes no cell pattern at all.
+/// Whether a resolve's `pick:` admits this candidate: the stance when one is named, and the entry and exit keys read as a cell pattern. A pick that names only a stance imposes no cell pattern at all.
 fn resolve_pick_matches(vocab: &Vocab, pick: &Table<Sym>, candidate: &Candidate) -> bool {
     if let Some(wanted) = pattern_value(pick, vocab.stance)
         && candidate.stance != wanted
@@ -2429,7 +2429,7 @@ fn note_applied(index: &SpecIndex, notes: &mut Vec<String>, record: Option<&Poli
     }
 }
 
-/// The adjustment tokens one side's chosen records spell, `settle.Engine._adjustment_tokens`, in the order the grammar writes them: the extension, then the contract's binding, its trim, and — only when it names neither — its plain contraction. An extend of zero pixels spells nothing, while a contract of zero pixels still spells itself, exactly as the Python truthiness and `is not None` tests differ.
+/// The adjustment tokens one side's chosen records spell, in the order the grammar writes them: the extension, then the contract's binding, its trim, and — only when it names neither — its plain contraction. An extend of zero pixels spells nothing, while a contract of zero pixels still spells itself: the extension is read for a nonzero value and the contraction for presence.
 fn adjustment_tokens(
     side: Side,
     extend: Option<&PolicyRecord>,

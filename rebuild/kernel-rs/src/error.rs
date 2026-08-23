@@ -52,9 +52,9 @@ impl std::error::Error for IngestError {}
 /// The four ride one `Result` rather than a type hierarchy, so a call site that must catch all four — the prospect's fallback is the one that does — says so in its own `match` arms instead of in this type. `settle.SettleError` is one class on the Python side for the same reason, with the bucket as a field rather than as a subclass.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SettleError {
-    /// E-INCOMPARABLE: two policy records whose conditions overlap without nesting — neither one's match set contains the other's — while demanding different outcomes, both of them matching the window at hand (`specificity.EIncomparableError`). The overlap is a fact rather than a possibility, so the raise asks for an authored `resolve:` instead of guessing.
+    /// E-INCOMPARABLE: two policy records whose conditions overlap without nesting — neither one's match set contains the other's — while demanding different outcomes, both of them matching the window at hand. The overlap is a fact rather than a possibility, so the raise asks for an authored `resolve:` instead of guessing.
     Incomparable(String),
-    /// E-AMBIGUOUS: a genuine record-vs-record tie — two policy records with equal match sets demanding different outcomes (`specificity.EAmbiguousError`, whose definition this is). The prefer stage raises it a shade wider than that: two records of one rune collide here whether their conditions are equal or merely non-nested, because the `resolve:` that would settle a non-nested crossing names another rune's record and so has nothing to say about a collision inside a single rune.
+    /// E-AMBIGUOUS: a genuine record-vs-record tie — two policy records with equal match sets demanding different outcomes. The prefer stage raises it a shade wider than that: two records of one rune collide here whether their conditions are equal or merely non-nested, because the `resolve:` that would settle a non-nested crossing names another rune's record and so has nothing to say about a collision inside a single rune.
     Ambiguous(String),
     /// E-STRANDED: a window with nothing to settle into, which the liveness probes account for separately.
     Stranded(String),
