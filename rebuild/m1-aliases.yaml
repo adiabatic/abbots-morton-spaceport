@@ -82,6 +82,24 @@ qsSee.noentry: {rune: qsSee, stance: normal, adjustments: [locked]}
 qsSee_qsUtter: {rune: qsSee_qsUtter, stance: hapax}
 qsSee_qsUtter.ex-con-2: {rune: qsSee_qsUtter, stance: hapax, exit: x-height}
 qsSee_qsUtter.ex-ext-1: {rune: qsSee_qsUtter, stance: hapax, exit: x-height, adjustments: [ex-ext-1]}
+qsJai: {rune: qsJai, stance: hapax}
+qsJai.en-y5.ex-y0: {rune: qsJai, stance: hapax, entry: x-height, exit: baseline}
+qsJai.en-y5.ex-y0.en-con-1: {rune: qsJai, stance: hapax, entry: x-height, exit: baseline, adjustments: [en-con-1]}
+qsJai.en-y5.ex-y0.en-ext-2: {rune: qsJai, stance: hapax, entry: x-height, exit: baseline}
+qsJai.en-y5.ex-y0.en-trim-2: {rune: qsJai, stance: hapax, entry: x-height, exit: baseline, adjustments: [en-con-2]}
+qsJai.en-y5.ex-y0.ex-ext-1: {rune: qsJai, stance: hapax, entry: x-height, exit: baseline, adjustments: [ex-ext-1]}
+qsJai.ex-y0: {rune: qsJai, stance: hapax, exit: baseline}
+qsJai.ex-y0.ex-ext-1: {rune: qsJai, stance: hapax, exit: baseline, adjustments: [ex-ext-1]}
+qsJai.noentry: {rune: qsJai, stance: hapax, adjustments: [locked]}
+qsJai_qsUtter: {rune: qsJai_qsUtter, stance: hapax}
+qsJai_qsUtter.en-con-1: {rune: qsJai_qsUtter, stance: hapax, entry: x-height, adjustments: [en-con-1]}
+qsJai_qsUtter.en-con-1.ex-con-2: {rune: qsJai_qsUtter, stance: hapax, entry: x-height, exit: x-height, adjustments: [en-con-1]}
+qsJai_qsUtter.en-ext-2: {rune: qsJai_qsUtter, stance: hapax, entry: x-height}
+qsJai_qsUtter.en-ext-2.ex-con-2: {rune: qsJai_qsUtter, stance: hapax, entry: x-height, exit: x-height}
+qsJai_qsUtter.en-ext-2.ex-ext-1: {rune: qsJai_qsUtter, stance: hapax, entry: x-height, exit: x-height, adjustments: [ex-ext-1]}
+qsJai_qsUtter.ex-con-2: {rune: qsJai_qsUtter, stance: hapax, exit: x-height}
+qsJai_qsUtter.ex-ext-1: {rune: qsJai_qsUtter, stance: hapax, exit: x-height, adjustments: [ex-ext-1]}
+qsJai_qsUtter.ex-ext-1.en-con-1: {rune: qsJai_qsUtter, stance: hapax, entry: x-height, exit: x-height, adjustments: [en-con-1, ex-ext-1]}
 qsMay: {rune: qsMay, stance: loop}
 qsMay.en-y0.ex-y5: {rune: qsMay, stance: loop, entry: baseline, exit: x-height}
 qsMay.en-y5: {rune: qsMay, stance: loop, entry: x-height}
@@ -200,21 +218,3 @@ qsOut.en-y0.ex-y5.noentry.ex-ext-1: {rune: qsOut, stance: swept-up, exit: x-heig
 qsOut.noentry: {rune: qsOut, stance: normal, adjustments: [locked]}
 qsOut_qsTea: {rune: qsOut_qsTea, stance: hapax}
 qsOut_qsTea.after-see: {rune: qsOut_qsTea, stance: hapax, entry: baseline, adjustments: [en-bind-raked]}
-qsJai: {rune: qsJai, stance: hapax}
-qsJai.en-y5.ex-y0: {rune: qsJai, stance: hapax, entry: x-height, exit: baseline}
-qsJai.en-y5.ex-y0.en-con-1: {rune: qsJai, stance: hapax, entry: x-height, exit: baseline, adjustments: [en-con-1]}
-qsJai.en-y5.ex-y0.en-ext-2: {rune: qsJai, stance: hapax, entry: x-height, exit: baseline}
-qsJai.en-y5.ex-y0.en-trim-2: {rune: qsJai, stance: hapax, entry: x-height, exit: baseline, adjustments: [en-con-2]}
-qsJai.en-y5.ex-y0.ex-ext-1: {rune: qsJai, stance: hapax, entry: x-height, exit: baseline, adjustments: [ex-ext-1]}
-qsJai.ex-y0: {rune: qsJai, stance: hapax, exit: baseline}
-qsJai.ex-y0.ex-ext-1: {rune: qsJai, stance: hapax, exit: baseline, adjustments: [ex-ext-1]}
-qsJai.noentry: {rune: qsJai, stance: hapax, adjustments: [locked]}
-qsJai_qsUtter: {rune: qsJai_qsUtter, stance: hapax}
-qsJai_qsUtter.en-con-1: {rune: qsJai_qsUtter, stance: hapax, entry: x-height, adjustments: [en-con-1]}
-qsJai_qsUtter.en-con-1.ex-con-2: {rune: qsJai_qsUtter, stance: hapax, entry: x-height, exit: x-height, adjustments: [en-con-1]}
-qsJai_qsUtter.en-ext-2: {rune: qsJai_qsUtter, stance: hapax, entry: x-height}
-qsJai_qsUtter.en-ext-2.ex-con-2: {rune: qsJai_qsUtter, stance: hapax, entry: x-height, exit: x-height}
-qsJai_qsUtter.en-ext-2.ex-ext-1: {rune: qsJai_qsUtter, stance: hapax, entry: x-height, exit: x-height, adjustments: [ex-ext-1]}
-qsJai_qsUtter.ex-con-2: {rune: qsJai_qsUtter, stance: hapax, exit: x-height}
-qsJai_qsUtter.ex-ext-1: {rune: qsJai_qsUtter, stance: hapax, exit: x-height, adjustments: [ex-ext-1]}
-qsJai_qsUtter.ex-ext-1.en-con-1: {rune: qsJai_qsUtter, stance: hapax, entry: x-height, exit: x-height, adjustments: [en-con-1, ex-ext-1]}
