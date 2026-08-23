@@ -4,7 +4,7 @@
 
 `compare_against_baseline` is the section 6 oracle gate: stream the filtered sub-tables, settle every row through a walk of its own, compare ligation (clusters), per-seam classification, and cell identity through the hand-written alias map; every divergent row must match exactly one ledger entry (zero matches fails conformance, two-plus fails the ledger). When a font path is supplied, the gate also compares positions old-vs-new (M1-PLAN section 6 step 3d): each row is shaped against the new font and its per-slot (x_offset, y_offset, x_advance) triples are compared against the baseline's, with sidecar kerns normalized out of the old advances via `KernEvaluator` (the new font emits no kerning). Position equality is enforced on every row whose seam topology and ligation match the baseline and whose cell-grain divergence class (if any) claims ink identity (`ink_identical: true` in the ledger); rows whose matched class legitimately redraws ink (extensions restored or suppressed, withdrawal bindings) are excluded and counted, because their advances move with the ink by design.
 
-Settlement itself is the crate's, reached through `kernel_exec`: `_SettledWindowWalk` batches whole waves of distinct raw windows into `kernel_exec.settle_windows`, the witness search hoists one `kernel_exec.guard_sweep` and threads its verdict surface through every formation call below it, and nothing here re-derives a settled cell. `table` is still imported lazily inside the entry points that read a decision table, so the shaping half of this module loads without it.
+Settlement itself is the crate's, reached through `kernel_exec`: `_SettledWindowWalk` batches whole waves of distinct raw windows into `kernel_exec.settle_windows`, the witness search hoists one `kernel_exec.guard_sweep` and threads its verdict surface through every formation call below it, and nothing here re-derives a settled cell. The lazy `table` imports inside the entry points that read a decision table no longer keep it out of the shaping half — importing this module imports `kernel_exec`, which imports `table` — and what they still buy is locality: each entry point names the label constants it reads where it reads them.
 """
 
 from __future__ import annotations
@@ -601,10 +601,19 @@ class _WalkState:
     index: int = 0
 
 
+@dataclass(frozen=True)
+class _RefusedWindow:
+    """A window the crate would not settle, memoized where its outcome would have gone. Only a walk built with `on_error="drop"` ever records one, and recording it is what keeps a tolerant prefill going past a window nothing may ever read; the walk that later reaches this key is where the refusal finally surfaces."""
+
+    message: str
+
+
 class _SettledWindowWalk:
     """The memoized settle walk one conformance config runs over every swept text: a left-to-right pass computes each letter slot's raw window key — exactly `_matched_windows`' slots, with the left read from the just-settled stream — and resolves it through `windows`, a window -> (Settled, glyph name) memo; only a miss reaches the crate. The memo is a pure speed device and nothing else: it records no coverage, and the sweep's verdict is the same whether every window misses or every window hits. Sound because every memoized outcome is a pure function of the window as keyed: the left label is the settled cell's glyph name (injective over every CellId field, whether minted by `cell_label` or `geometry.display_name`), and the right slots are the raw tokens a case row carries, all of them and none beyond. That last point is why the walk needs no liveness oracle at all — it once blanked the deep slots wherever the table's relevance filters proved nothing could read them, and paid more for the probes than the blanking ever saved. `windows` is deliberately unbounded; the interned labels plus deduplicated outcome tuples keep the residual cost to the key tuples themselves. The walk-equivalence sweeps in rebuild/test_conform.py are the standing alarm on all of it.
 
     Batching is what makes the crate affordable here. `settle-cases` answers independent windows, but a text's next left is the previous window's answer, so `_run` advances a whole pile of texts in waves: every state runs forward to its first memo miss, the misses contribute one case row each — deduplicated by memo key, since a key that two states reach in the same wave is one question — and one `kernel_exec.settle_windows` invocation answers up to `batch` of them before every state advances again. A wave collects at most `batch` new keys and parks the rest for the next one, so a caller's chunk size bounds its own resident cost rather than the invocation's. `walk` is the same loop over a single text, which means a miss there spends a whole kernel spawn on one window; `single_settles` counts those, so a caller that forgot to `prefill` can see what it is paying.
+
+    A refusal is the one thing the memo can hold that is not an outcome. `on_error="raise"`, the default, lets it out of the batch that met it, as every settlement caller has always done. `on_error="drop"` splits the timing instead: a refusal met during `prefill` is memoized as a `_RefusedWindow`, the text carrying it stops advancing, and the rest of the pile finishes — while `walk` and `walk_many` raise `settle.SettleError` the moment they reach such a key. That pairing is what lets a caller prefill candidate strings it may never read (the witness gate assembles many per rule and reads until the first one witnesses) without a window nobody would have reached aborting the whole gate.
 
     `audit_dedupe` is the standing argument for the dedupe made checkable: with it on, every distinct raw case row a memo key carries beyond the representative is settled too and asserted equal to the memoized outcome, which is the claim `_window_rights`' `#NA` cascade makes — that two raw windows keyed alike settle alike.
     """
@@ -618,6 +627,7 @@ class _SettledWindowWalk:
         *,
         batch: int = kernel_exec.SETTLE_WINDOW_BATCH,
         audit_dedupe: bool = False,
+        on_error: str = "raise",
     ):
         self.spec = spec
         self.features = features
@@ -625,7 +635,8 @@ class _SettledWindowWalk:
         self.guard_verdicts = guard_verdicts
         self.batch = max(1, batch)
         self.audit_dedupe = audit_dedupe
-        self.windows: dict[_Window, tuple[Settled, str]] = {}
+        self.on_error = on_error
+        self.windows: dict[_Window, tuple[Settled, str] | _RefusedWindow] = {}
         self.single_settles = 0
         self.audit_extra_rows = 0
         self.audit_multi_keys: set[_Window] = set()
@@ -648,7 +659,7 @@ class _SettledWindowWalk:
         return self._run(texts, collect=True)
 
     def prefill(self, texts: Sequence[str]) -> None:
-        """Fill the memo from a pile of texts and keep nothing else, so a caller that will walk them one at a time later pays waves rather than spawns."""
+        """Fill the memo from a pile of texts and keep nothing else, so a caller that will walk them one at a time later pays waves rather than spawns. Under `on_error="drop"` this is the tolerant half of the pair: a window the crate refuses is memoized as a refusal and the text carrying it simply stops advancing, so the prefill finishes and the refusal waits for a `walk` that reaches it."""
         self._run(texts, collect=False)
 
     def _state(self, text: str) -> _WalkState:
@@ -690,8 +701,8 @@ class _SettledWindowWalk:
         state.left = settle.LeftContext("letter", item)
         state.index += 1
 
-    def _advance(self, state: _WalkState) -> bool:
-        """Run one state forward until it needs an answer this walk does not have. Boundary positions settle to their model constant here and never reach the kernel. True means the state is parked on a memo miss."""
+    def _advance(self, state: _WalkState, tolerant: bool = False) -> bool:
+        """Run one state forward until it needs an answer this walk does not have. Boundary positions settle to their model constant here and never reach the kernel. True means the state is parked on a memo miss. A memoized refusal raises unless `tolerant`, in which case the state stops where it stands and its partial stream is discarded with it."""
         while state.index < len(state.tokens):
             token = state.tokens[state.index]
             if token.kind != "letter":
@@ -704,19 +715,30 @@ class _SettledWindowWalk:
             outcome = self.windows.get(window)
             if outcome is None:
                 return True
+            if isinstance(outcome, _RefusedWindow):
+                if tolerant:
+                    return False
+                raise settle.SettleError(outcome.message)
             if self.audit_dedupe:
                 self._note_raw(window, state)
             self._commit(state, outcome)
         return False
 
-    def _record(self, window: _Window, item: Settled) -> None:
+    def _record(self, window: _Window, item: Settled | None, text: str) -> None:
+        if item is None:
+            self.windows[window] = _RefusedWindow(
+                f"the kernel refused the window {window!r}, reached in {text!r}"
+            )
+            return
         name = self.glyph_names.get(item.cell) or geometry.display_name(self.spec, item.cell)
         fresh = (item, name)
         self.windows[window] = self._outcomes.setdefault(fresh, fresh)
 
-    def _settle(self, cases: list[dict]) -> list[Settled]:
+    def _settle(self, cases: list[dict]) -> list[Settled | None]:
         self._settle_calls += 1
-        return kernel_exec.settle_windows(self.spec, cases, self.features, batch=self.batch)
+        return kernel_exec.settle_windows(
+            self.spec, cases, self.features, batch=self.batch, on_error=self.on_error
+        )
 
     def _note_raw(self, window: _Window, state: _WalkState) -> None:
         """Queue a raw case row this memo key has not been asked under before. The first such row per key is the representative the wave already asked; every later one is a distinct question the dedupe claims has the same answer, and `_drain_audit` is where that claim is settled."""
@@ -734,14 +756,17 @@ class _SettledWindowWalk:
         for start in range(0, len(pending), self.batch):
             chunk = pending[start : start + self.batch]
             for (window, _case), item in zip(chunk, self._settle([case for _window, case in chunk])):
-                memoized = self.windows[window][0]
-                assert item == memoized, (window, item, memoized)
+                memoized = self.windows[window]
+                assert not isinstance(memoized, _RefusedWindow), (window, memoized)
+                assert item == memoized[0], (window, item, memoized[0])
 
     def _run(self, texts: Sequence[str], collect: bool) -> list[tuple[list[Settled], list[str]]]:
+        tolerant = self.on_error == "drop" and not collect
         states = [self._state(text) for text in texts]
-        pending = [state for state in states if self._advance(state)]
+        pending = [state for state in states if self._advance(state, tolerant)]
         while pending:
             keys: list[_Window] = []
+            reached_in: list[str] = []
             cases: list[dict] = []
             asked: set[_Window] = set()
             for state in pending:
@@ -754,12 +779,13 @@ class _SettledWindowWalk:
                     continue
                 asked.add(window)
                 keys.append(window)
+                reached_in.append(state.text)
                 cases.append(kernel_exec.case_row(state.left, state.tokens[state.index], self._rights(state)))
                 if self.audit_dedupe:
                     self._audit_seen.add((state.left, state.tokens[state.index], self._rights(state)))
-            for window, item in zip(keys, self._settle(cases)):
-                self._record(window, item)
-            pending = [state for state in pending if self._advance(state)]
+            for window, text, item in zip(keys, reached_in, self._settle(cases)):
+                self._record(window, item, text)
+            pending = [state for state in pending if self._advance(state, tolerant)]
             if self._audit_pending:
                 self._drain_audit()
         if self._audit_pending:
@@ -1222,7 +1248,7 @@ class WitnessReport:
 def find_rule_witnesses(spec, features, decision, glyph_names=None, guard_verdicts=None) -> WitnessReport:
     """The font-free half of rule coverage: for every settlement rule, derive a shortest realizing string from the table's windows and verify against the crate's settlement that the rule actually first-matches somewhere in it. A rule left unwitnessed has no realizing string the table can construct — dead code in the emitted FEA — so this is the always-on generator-defect alarm (rebuild/test_rule_witnesses.py), font-free by construction: it asks whether a rule can ever fire, where read-back asks whether the compiled font holds it and the sweep asks whether HarfBuzz applies it the way the kernel says.
 
-    One guard sweep and one walk serve the whole table. Candidate streams are assembled for every rule first, because the assembly is where the section 5.7 guard is read hundreds of thousands of times and a per-call sweep would spawn a kernel for each; then every candidate text prefills the walk in waves, so the lazy first-witness loop below settles nothing — it reads the memo the prefill filled.
+    One guard sweep and one walk serve the whole table. Candidate streams are assembled for every rule first, because the assembly is where the section 5.7 guard is read hundreds of thousands of times and a per-call sweep would spawn a kernel for each; then every candidate text prefills the walk in waves, so the lazy first-witness loop below settles nothing — it reads the memo the prefill filled. The prefill is tolerant (`on_error="drop"`) precisely because it is eager where the loop is lazy: it settles every candidate of every rule, including the ones after the first witness that the loop will never look at, and a window the crate refuses in one of those must not take the gate down. Memoized as a refusal, it surfaces if and only if the loop actually walks that text — which is the semantics the per-candidate settle had before the prefill existed.
     """
     from rebuild.pipeline.emit_gsub import _raw_rename_map
 
@@ -1248,7 +1274,7 @@ def find_rule_witnesses(spec, features, decision, glyph_names=None, guard_verdic
         ]
         for index in range(len(decision.rules))
     ]
-    walker = _SettledWindowWalk(spec, features, glyph_names, guard_verdicts)
+    walker = _SettledWindowWalk(spec, features, glyph_names, guard_verdicts, on_error="drop")
     walker.prefill(sorted({text for texts in candidates for text in texts}))
     report = WitnessReport(config=decision.config, rules=len(decision.rules))
     for index in range(len(decision.rules)):
@@ -1794,7 +1820,7 @@ def _compare_config(
     if not table_path.exists():
         result.notes.append(f"{config}: subset table missing at {table_path}")
         return result
-    # The oracle's rows are the same texts the belt sweeps, so they settle through a window memo of their own rather than from scratch a row at a time, a chunk of rows prefilling the walk in waves before any of them is compared. Names go unread here — the row's own cells are what `_compare_row` reads — so the walk gets no glyph inventory and keys its lefts on the generated display names, which are as injective as the minted ones.
+    # The oracle's rows are the same texts the belt sweeps, so they settle through a window memo of their own rather than from scratch a row at a time: a chunk of rows walks in waves, and each row is compared against the settled stream that walk already handed back rather than being walked a second time. Names go unread here — the row's own cells are what `_compare_row` reads — so the walk gets no glyph inventory and keys its lefts on the generated display names, which are as injective as the minted ones.
     walker = _SettledWindowWalk(spec, features, {}, guard_verdicts)
     config_started = time.perf_counter()
     rows = iter_rows(table_path)
@@ -1802,10 +1828,9 @@ def _compare_config(
         chunk = list(itertools.islice(rows, ORACLE_ROW_CHUNK))
         if not chunk:
             break
-        walker.prefill([row.text for row in chunk])
-        for row in chunk:
+        for row, (settled, _names) in zip(chunk, walker.walk_many([row.text for row in chunk])):
             result.rows_compared += 1
-            divergent = _compare_row(spec, aliases, config, features, row, walker)
+            divergent = _compare_row(spec, aliases, config, features, row, settled)
             matches = _match_ledger(ledger, divergent) if divergent is not None else []
             if shaper is not None:
                 topology_clean = divergent is None or not ({"ligation", "seam"} & set(divergent.kinds))
@@ -1980,9 +2005,9 @@ def _compare_row(
     config: str,
     features: frozenset[str],
     row: Row,
-    walker: "_SettledWindowWalk",
+    settled: Sequence[Settled],
 ) -> DivergentRow | None:
-    settled, _names = walker.walk(row.text)
+    """One baseline row against the settlement its text already produced. `settled` is that stream, handed in by the caller's walk rather than fetched here, so a row is settled exactly once."""
     if isolated_overlay_active(spec, features):
         # The overlay renders the anchor-free isolated drawing at every letter position; in cell terms that is the boundary cell of the default stance (the alias map's bare-name denotation), with every seam visually a break. A ligature-rune cell expands to one such cell per component (the ss10 pre-empt keeps the ligature from ever forming in the buffer), so a window whose pair formed in the old font diverges at ligation grain.
         expanded: list = []

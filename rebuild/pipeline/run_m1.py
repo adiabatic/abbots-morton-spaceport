@@ -340,7 +340,10 @@ def run_font_conformance(
     jobs: int = 1,
     summary_name: str = "conform_summary.json",
 ) -> dict:
-    """The exhaustive font-vs-settle sweep — the per-edit belt at `max_length` 4, and the same sweep deeper when rebuild.tools.deep_sweep asks for it under its own `summary_name`. The tables the build stage left under `out_dir` are read back here for one reason only, the glyph inventory `mint_cell_glyphs` needs to name settled cells and read their anchors; the sweep itself takes no table, because what it proves is HarfBuzz's behavior against the kernel's, and read-back already proved the font holds the rules the build planned. A stamp that fails to match is a hard stop rather than a rebuild: the enumeration costs a whole kernel fan-out, and a sweep that quietly built its own inventory would be measuring a font against runes that have since moved. The ZWNJ and split-buffer structural checks ride this sweep now, on every text that carries a boundary."""
+    """The exhaustive font-vs-settle sweep — the per-edit belt at `max_length` 4, and the same sweep deeper when rebuild.tools.deep_sweep asks for it under its own `summary_name`. The tables the build stage left under `out_dir` are read back here for one reason only, the glyph inventory `mint_cell_glyphs` needs to name settled cells and read their anchors; the sweep itself takes no table, because what it proves is HarfBuzz's behavior against the kernel's, and read-back already proved the font holds the rules the build planned. A stamp that fails to match is a hard stop rather than a rebuild: the enumeration costs a whole kernel fan-out, and a sweep that quietly built its own inventory would be measuring a font against runes that have since moved. The ZWNJ and split-buffer structural checks ride this sweep now, on every text that carries a boundary.
+
+    The fan-out spends the section 5.7 verdict surface once for the whole run rather than once per worker: a spawned worker inherits nothing, so each would otherwise build the crate it found and sweep the spec for itself. The mapping pickles, so it rides the submission; the serial arm sweeps inside `run_conformance` as before.
+    """
     inputs = tables_inputs()
     spec = load_default_spec()
     start = time.perf_counter()
@@ -354,6 +357,8 @@ def run_font_conformance(
     cell_glyphs = mint_cell_glyphs(spec, decisions)
     if jobs > 1:
         collected: dict[str, conform.ConformanceConfigResult] = {}
+        kernel_exec.ensure_built()
+        guard_verdicts = kernel_exec.guard_sweep(spec)
         with _spawn_pool(jobs) as pool:
             futures = {
                 pool.submit(
@@ -363,6 +368,7 @@ def run_font_conformance(
                     config,
                     max_length,
                     cell_glyphs,
+                    guard_verdicts,
                 ): config
                 for config in conform.ACCEPTANCE_CONFIGS
             }

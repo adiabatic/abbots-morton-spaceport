@@ -56,7 +56,7 @@ def test_cli_prints_the_rust_backed_report(monkeypatch, capsys):
 
 
 def _panel_report() -> ExplainReport:
-    """Every line `render` can emit, assembled by hand: a letter position with a ranked ladder, an elimination carrying a record pointer and one carrying none, a joint floor, a note, and a runner-up; a boundary position that splits the run; and a letter position that was the only candidate."""
+    """Every line `render` can emit, assembled by hand: a letter position with a ranked ladder, an elimination carrying a record pointer and one carrying none, a joint floor, a note, and a runner-up; a boundary position that splits the run; a letter position that was the only candidate; and a boundary position that does not."""
     loop = Candidate("loop", None, "x-height", 0, 0)
     grounded = Candidate("grounded", None, "baseline", 1, 1)
     hapax = Candidate("hapax", "x-height", None, 0, 0)
@@ -78,6 +78,7 @@ def _panel_report() -> ExplainReport:
         notes=("prefer applied: glyph_data/runes/qsMay.yaml:policy.prefer[1]",),
     )
     boundary = TransitionTrace(boundary_settled("zwnj"), False, 0, (), (), "boundary", None, ())
+    unsplitting = TransitionTrace(boundary_settled("namer-dot"), False, 0, (), (), "boundary", None, ())
     third = TransitionTrace(
         settled=Settled(CellId("qsIt", "hapax", "x-height", None, ()), None, 0),
         joint_floor=False,
@@ -90,19 +91,20 @@ def _panel_report() -> ExplainReport:
     )
     return ExplainReport(
         spec=SPEC,
-        codepoints=(0xE665, 0x200C, 0xE670),
+        codepoints=(0xE665, 0x200C, 0xE670, 0x00B7),
         features=frozenset({"ss03"}),
         positions=(
             PositionReport(0, "qsMay", first),
             PositionReport(1, "zwnj", boundary),
             PositionReport(2, "qsIt", third),
+            PositionReport(3, "namer-dot", unsplitting),
         ),
     )
 
 
 PANEL = """\
-sequence E665:200C:E670   config ss03
-settled: qsMay.loop.ex-y5.ex-ext-1 uni200C qsIt.hapax.en-y5
+sequence E665:200C:E670:00B7   config ss03
+settled: qsMay.loop.ex-y5.ex-ext-1 uni200C qsIt.hapax.en-y5 periodcentered
 
 position 0: qsMay
   candidates (join-count = left seam + own seam + optimistic prospect):
@@ -123,7 +125,10 @@ position 2: qsIt
   candidates (join-count = left seam + own seam + optimistic prospect):
   -> hapax            entry=x-height   seam=none       join-count=1 prospect=0
   decided by: only-candidate
-  settled: qsIt.hapax.en-y5   seam=none   extension=0"""
+  settled: qsIt.hapax.en-y5   seam=none   extension=0
+
+position 3: namer-dot
+  boundary token; does not split the run"""
 
 
 def test_a_report_renders_every_line_the_panel_reads():

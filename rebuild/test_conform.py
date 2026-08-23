@@ -330,12 +330,12 @@ class TestAliasCompleteness:
 
         row = Row(codepoints=(0xE652,), glyphs=("qsTea",), clusters=(0,), seams=(), positions=((0, 0, 150),))
         walker = conform._SettledWindowWalk(spec, frozenset(), {}, guard)
-        walker.prefill([row.text])
-        divergent = conform._compare_row(spec, {"qsTea": "pending"}, "default", frozenset(), row, walker)
+        ((settled, _names),) = walker.walk_many([row.text])
+        divergent = conform._compare_row(spec, {"qsTea": "pending"}, "default", frozenset(), row, settled)
         assert divergent is not None
         assert "unaliased" in divergent.kinds
         assert "unaliased:qsTea" in divergent.phenomena
-        assert divergent == conform._compare_row(spec, {}, "default", frozenset(), row, walker)
+        assert divergent == conform._compare_row(spec, {}, "default", frozenset(), row, settled)
 
 
 class TestPositionChannel:
@@ -761,6 +761,38 @@ class TestSettledWindowWalk:
         )
         assert walker.audit_multi_keys, "no memo key carried a second distinct raw window"
         assert walker.audit_extra_rows
+
+    def test_a_dropping_walk_prefills_past_a_refusal_and_raises_only_when_it_is_walked(
+        self, spec, guard, monkeypatch
+    ):
+        """The witness gate's pairing, which is why `on_error` exists at all: the prefill is eager over candidates the lazy first-witness loop may never read, so a window the crate refuses in one of them must not take the whole gate down. Under `on_error="drop"` it is memoized as a refusal and the text carrying it stops advancing; the walk that later reaches that key is where the refusal surfaces — the semantics the per-candidate settle had before any prefill existed. The default stays strict, and the same prefill raises there."""
+        refused = "qsTea"
+        clean, refusing_text = chr(0xE665) + chr(0xE670), chr(0xE665) + chr(0xE652)
+        original = kernel_exec.settle_windows
+
+        def injecting(asked_spec, cases, features, **rest):
+            answers = original(asked_spec, cases, features, **rest)
+            hits = [index for index, case in enumerate(cases) if case["input"] == refused]
+            if not hits:
+                return answers
+            if rest.get("on_error") != "drop":
+                raise settle.SettleError(f"{refused}: the injected refusal", "E-INCOMPARABLE")
+            for index in hits:
+                answers[index] = None
+            return answers
+
+        monkeypatch.setattr(kernel_exec, "settle_windows", injecting)
+        walker = conform._SettledWindowWalk(spec, frozenset(), {}, guard, on_error="drop")
+        walker.prefill([clean, refusing_text])
+        settled, _names = walker.walk(clean)
+        assert [item.cell.rune for item in settled] == ["qsMay", "qsIt"]
+        with pytest.raises(settle.SettleError):
+            walker.walk(refusing_text)
+        with pytest.raises(settle.SettleError):
+            walker.walk_many([clean, refusing_text])
+        strict = conform._SettledWindowWalk(spec, frozenset(), {}, guard)
+        with pytest.raises(settle.SettleError):
+            strict.prefill([clean, refusing_text])
 
     @pytest.mark.slow
     def test_the_real_alphabet_keys_its_distinct_case_rows_alike(self):

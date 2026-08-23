@@ -1,4 +1,4 @@
-.PHONY: all test test-rebuild test-slowly test-leaks leak-snapshot typecheck print-job serve explainer check-html-before check-html-after build-kerning-hardcases review test-and-review review-build review-serve review-cycle artifact-cycle verdict-ready cycle-timings complaint-docket novelty-order kernel-build kernel-check kernel-parity kernel-gate conform-deep prettier woff2 clean
+.PHONY: all test test-rebuild test-rebuild-slow test-slowly test-leaks leak-snapshot typecheck print-job serve explainer check-html-before check-html-after build-kerning-hardcases review test-and-review review-build review-serve review-cycle artifact-cycle verdict-ready cycle-timings complaint-docket novelty-order kernel-build kernel-check kernel-parity kernel-gate conform-deep prettier woff2 clean
 
 all:
 	uv run python tools/build_font.py glyph_data/ site/
@@ -34,6 +34,10 @@ test:
 # AMS_RUN_PYRIGHT is what type-checks rebuild/: a rebuild-only edit provably cannot move gate:make-test's fingerprint (MAKE_TEST_EXEMPT_PREFIXES exempts rebuild/), so `make test` can never be its gate. The suite runs under -n auto, so the same pytest_configure hook fires here, but it recognizes a rebuild-only run and skips the font build (unless the site fonts are absent, as after `make clean`) — this suite shapes against the site fonts exactly as its input-closure fingerprint already hashed them — leaving pyright to run alone and still fast-fail before the workers spawn; a pyright failure exits pytest nonzero with no FAILED/ERROR lines, which classify_rebuild_output already buckets as a hard failure. The flag rides into whichever lane spawns first and is stripped from every lane after it, since pyright's answer over one working tree cannot change between them.
 test-rebuild:
 	AMS_RUN_PYRIGHT=1 uv run python -m rebuild.tools.rebuild_gate $(if $(FORCE),--force)
+
+# The rebuild suite's slow-marked tests, which both lanes' gates exclude: today that is the memo-dedupe audit over the live alphabet, which settles every distinct raw window the depth-3 sweep reaches rather than one per memo key. No lane flag — a slow test may sit in either lane, and the selection is the marker.
+test-rebuild-slow:
+	uv run pytest rebuild/ -m slow -n auto --dist worksteal
 
 # Run the test suite on efficiency cores only
 test-slowly:

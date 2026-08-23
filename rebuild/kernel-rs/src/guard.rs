@@ -4,7 +4,7 @@
 //!
 //! [`GuardState`] is ordinary per-spec state, built once and kept: the powerset lives on it rather than in a cache beside it. `settle.form_ligatures` reads its verdicts from the whole swept mapping, which `kernel_exec.guard_sweep` memoizes per spec identity, so one process sweeps one spec once however many texts it forms. The engines are plain ones — no trace memo, so nothing journals and [`Engine::candidates`] runs uncached — because no verdict reads a fired delta.
 //!
-//! One structural note: [`GuardState::follower_formation`] is answered once up front rather than inside the per-engine loop. It reads the spec and the two slots and nothing of the engine, so the answer is the same either way, and hoisting it is what lets the verdict memo and the engines be borrowed apart.
+//! One structural note: `GuardState::follower_formation` is answered once up front rather than inside the per-engine loop. It reads the spec and the two slots and nothing of the engine, so the answer is the same either way, and hoisting it is what lets the verdict memo and the engines be borrowed apart.
 
 use std::collections::{HashMap, HashSet};
 

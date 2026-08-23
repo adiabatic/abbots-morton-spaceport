@@ -319,7 +319,7 @@ Everything below is within shapes the current 30,838-line FEA already proves rea
 | Word position | Fallback-row ordering for word-final defaults; the substitute-then-revert lookup pair kept in reserve for positive `word: final` records |
 | Capability unlocks | `ssNN` marker substitutions staged **after formation and before settlement** (so enabling a set cannot un-form a ligature; ligature runes carry their own markers for unlocks they declare); settlement tables include marker glyphs as raw inputs. Runes with several applicable sets get generated composite markers (union semantics); the conformance matrix includes at least one multi-set configuration (e.g. ss02+ss03+ss05 on ·Tea) in addition to per-set runs |
 | Taste sets / ss10 | Post-`calt` single-substitution overlays over resolved cells (today’s ss06/ss10 shape); ss10 auto-generated as cell → isolated cell |
-| `refuse` / `prefer` / `resolve` | Not compiled at all — they shape the decision table in Python; the FEA only ever sees final substitutions |
+| `refuse` / `prefer` / `resolve` | Not compiled at all — they shape the decision table; the FEA only ever sees final substitutions |
 | Extensions / stubs / trims / bound shapes | Baked into cell glyph bitmaps at mint time where possible; a small settled-pair substitution stage where the adjustment depends on the seam |
 | Kerning | One class-based PairPos format-2 lookup (global row + pair rows) plus GPOS type-8 contextual kerns |
 | Namer dot | The existing final mini-`calt`, unchanged |
