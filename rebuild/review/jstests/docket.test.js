@@ -8,6 +8,7 @@ import {
   echoConflicts,
   verdictsAgree,
   singletonChunks,
+  docketResumeAction,
   docketTotals,
   queueCounts,
   nextDocketDecision,
@@ -403,6 +404,35 @@ test('nextDocketDecision returns null when every blank unit sits in a deferred g
     'u-0003': { unit: 'u-0003', verdict: 'skip', note: '', at: '2026-01-02' },
   };
   assert.equal(nextDocketDecision(units, (id) => records[id], new Set()), null);
+});
+
+test('docketResumeAction restacks a worklist stamped for another surface, stampless hashes included, before trusting any of its ids', () => {
+  const records = { 'u-0001': { unit: 'u-0001', verdict: 'approve', note: '', at: '2026-01-01' } };
+  const recordOf = (id) => records[id];
+  assert.equal(docketResumeAction({ stamp: '2026-01-01T00:00:00Z', manifestStamp: '2026-01-02T00:00:00Z', unitIds: ['u-0001', 'u-0002'], recordOf }), 'restack');
+  assert.equal(docketResumeAction({ stamp: null, manifestStamp: '2026-01-02T00:00:00Z', unitIds: ['u-0001', 'u-0002'], recordOf }), 'restack');
+});
+
+test('docketResumeAction advances a current-surface worklist whose every listed unit carries a real verdict', () => {
+  const records = {
+    'u-0001': { unit: 'u-0001', verdict: 'approve', note: '', at: '2026-01-01' },
+    'u-0002': { unit: 'u-0002', verdict: 'reject', note: 'worse', at: '2026-01-01' },
+  };
+  const recordOf = (id) => records[id];
+  const stamp = '2026-01-02T00:00:00Z';
+  assert.equal(docketResumeAction({ stamp, manifestStamp: stamp, unitIds: ['u-0001', 'u-0002'], recordOf }), 'advance');
+  assert.equal(docketResumeAction({ stamp, manifestStamp: stamp, unitIds: [], recordOf }), 'advance');
+});
+
+test('docketResumeAction renders a current-surface worklist holding a blank or a skip — clicking a skipped-through cluster card must re-show the deferred reps, never teleport', () => {
+  const records = {
+    'u-0001': { unit: 'u-0001', verdict: 'approve', note: '', at: '2026-01-01' },
+    'u-0003': { unit: 'u-0003', verdict: 'skip', note: '', at: '2026-01-01' },
+  };
+  const recordOf = (id) => records[id];
+  const stamp = '2026-01-02T00:00:00Z';
+  assert.equal(docketResumeAction({ stamp, manifestStamp: stamp, unitIds: ['u-0001', 'u-0002'], recordOf }), null);
+  assert.equal(docketResumeAction({ stamp, manifestStamp: stamp, unitIds: ['u-0001', 'u-0003'], recordOf }), null);
 });
 
 test('nextDocketDecision never offers a ruled class, even the largest one', () => {

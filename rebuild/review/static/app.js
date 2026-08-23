@@ -56,6 +56,7 @@ import {
 import {
   SINGLETON_CHUNK,
   buildClusters,
+  docketResumeAction,
   docketTotals,
   echoConflicts,
   nextDocketDecision,
@@ -903,9 +904,9 @@ function worklistHref(unitIds) {
   return `#units=${unitIds.join(',')}`;
 }
 
-// Docket-launched worklists carry the flag that turns worklist exhaustion into an auto-advance to the next docket decision; conflict stacks stay plain because settling one means changing existing verdicts, not filling blanks.
+// Docket-launched worklists carry the flag that turns worklist exhaustion into an auto-advance to the next docket decision, plus the surface stamp that lets a resumed tab notice the ids in its hash were minted for an earlier build (see docketResumeAction); conflict stacks stay plain because settling one means changing existing verdicts, not filling blanks.
 function docketWorklistHref(unitIds) {
-  return `${worklistHref(unitIds)}&docket=1`;
+  return `${worklistHref(unitIds)}&docket=1&stamp=${encodeURIComponent(manifest.generated_at)}`;
 }
 
 function buildEvidenceLine(evidence) {
@@ -1182,7 +1183,7 @@ function syncFilterControls() {
   document.getElementById('show-machine').checked = state.machine === '1';
 }
 
-async function applyHashState() {
+async function applyHashState(resume = false) {
   const token = (renderToken += 1);
   const docketView = state.view === 'docket';
   document.body.classList.toggle('docket-view', docketView);
@@ -1200,6 +1201,22 @@ async function applyHashState() {
     updateTitle();
     updateSidebarHighlights();
     return;
+  }
+  // A docket worklist that arrives finished or stamped for another surface never renders — it restacks from the live queue instead, so a tab resumed after a rebuild (whose hash names ids the new surface reassigned to unrelated units) or reopened on an already-judged screenful lands on the next docket decision, not a dead or misdirected list. Gated on resume (boot and hashchange) so an in-view adjustment — a cursor move, Shift+Enter's deliberate stay, an undo — can never yank a worklist the reviewer is still looking at.
+  if (resume && state.units && state.docket) {
+    const action = docketResumeAction({
+      stamp: state.stamp,
+      manifestStamp: manifest.generated_at,
+      unitIds: unitWorklist(state.units),
+      recordOf: (id) => store.records.get(id),
+    });
+    if (action) {
+      // The cold-boot shard load below can take a while; a navigation that lands meanwhile owns the view, and the restack yields to it instead of clobbering it.
+      await ensureAllShards();
+      if (token !== renderToken) return;
+      await advanceDocket({ stale: action === 'restack' });
+      return;
+    }
   }
   const units = await unitsForView(state.batch, state.class);
   if (token !== renderToken) return;
@@ -1329,13 +1346,14 @@ async function advanceFrom(unitId) {
 }
 
 // The docket flow's analog of the cross-batch advance: when a docket worklist is fully judged, stack the next decision straight away — the queue recomputes from the live store, so "next" is always the docket view's own top card. Replaces (not pushes) history so Back still returns to the docket in one step.
-async function advanceDocket() {
+async function advanceDocket({ stale = false } = {}) {
   await ensureAllShards();
   const recordOf = (id) => store.records.get(id);
   const decision = nextDocketDecision([...unitsById.values()], recordOf, ruledClassIds(manifest.classes));
+  const lead = stale ? 'That worklist was stacked for an earlier surface' : 'Decision done';
   if (!decision) {
-    toast('The docket queue is clear');
-    setState({ units: null, order: null, docket: null, unit: null, view: 'docket' });
+    toast(`${stale ? `${lead}, and the` : 'The'} docket queue is clear`);
+    setState({ units: null, order: null, docket: null, stamp: null, unit: null, view: 'docket' });
     return;
   }
   const queue = queueCounts([...unitsById.values()], recordOf, ruledClassIds(manifest.classes));
@@ -1343,8 +1361,14 @@ async function advanceDocket() {
     decision.kind === 'cluster'
       ? `${formatCount(decision.cluster.size)} lookalike unit${decision.cluster.size === 1 ? '' : 's'} in ${decision.cluster.class}`
       : `${decision.unitIds.length} singletons`;
-  toast(`Decision done — next: ${what} (${formatCount(queue.blankUnits)} blank left)`);
-  setStateReplace({ units: decision.unitIds.join(','), docket: '1', unit: decision.unitIds[0], view: null });
+  toast(`${lead} — next: ${what} (${formatCount(queue.blankUnits)} blank left)`);
+  setStateReplace({
+    units: decision.unitIds.join(','),
+    docket: '1',
+    stamp: manifest.generated_at,
+    unit: decision.unitIds[0],
+    view: null,
+  });
 }
 
 function verdictCursor(verdict) {
@@ -1370,6 +1394,10 @@ async function jumpToFirstUnverdicted() {
   if (state.units) {
     const open = visibleUnits.find((unit) => !store.records.has(unit.id));
     if (!open) {
+      if (state.docket) {
+        await advanceDocket();
+        return;
+      }
       toast('Everything in this worklist is verdicted');
       return;
     }
@@ -2319,7 +2347,7 @@ function wireEvents() {
 
   window.addEventListener('hashchange', () => {
     state = withDefaults(parseHash(location.hash));
-    applyHashState();
+    applyHashState(true);
     refreshStatus();
   });
 
@@ -2405,5 +2433,5 @@ renderSidebar();
 wireEvents();
 await restoreAutosave();
 bootRestoreDone = true;
-applyHashState();
+applyHashState(true);
 refreshStatus();
