@@ -33,7 +33,7 @@ from rebuild.review.build import (
     config_note,
 )
 from rebuild.review.enrich import LETTERS
-from rebuild.review.export import build_triage, load_verdicts
+from rebuild.review.export import _triage_projection, build_triage, load_units, load_verdicts
 from rebuild.review.ink import IDENTITY_DIFF, InkComparator, delta_digest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -570,7 +570,10 @@ def test_write_json_leaves_the_previous_file_alone_when_serializing_fails(tmp_pa
 
 
 def _export_surface():
-    """A hermetic stand-in for a built surface, assembled from the checked-in fixture units so `build_triage` sees every shape it discriminates on. The fixture ships six real units but no exempt one and none without a policy draft, so three more are cloned in: a no-verdict unit whose verdict must be inert history, a reject with no mechanical draft, and one more plain approvable — which is also what makes the four ids the test reaches for past `ids[4:]` exist at all. The manifest is the fixture's with its totals and human-id list recomputed over the enlarged set; the machine-approved block is left alone, because the one machine-approved unit is untouched and `machine_approved_section` re-derives its own copy from the units to be compared against it."""
+    """A hermetic stand-in for a built surface, assembled from the checked-in fixture units so `build_triage` sees every shape it discriminates on. The fixture ships six real units but no exempt one and none without a policy draft, so three more are cloned in: a no-verdict unit whose verdict must be inert history, a reject with no mechanical draft, and one more plain approvable — which is also what makes the four ids the test reaches for past `ids[4:]` exist at all. The manifest is the fixture's with its totals and human-id list recomputed over the enlarged set; the machine-approved block is left alone, because the one machine-approved unit is untouched and `machine_approved_section` re-derives its own copy from the units to be compared against it.
+
+    The units come back projected, because that is the only shape `build_triage` is ever handed in the CLI and handing it whole fixture units here meant nothing tested that the projection is sufficient for what the export reads.
+    """
     manifest = copy.deepcopy(json.loads((FIXTURES / "manifest.json").read_text(encoding="utf-8")))
     units = {unit["id"]: unit for unit in _load_fixture_units()}
     template = units["u-0004"]
@@ -589,7 +592,47 @@ def _export_surface():
         (unit["id"] for unit in units.values() if unit["batch"] is not None),
         key=lambda unit_id: int(unit_id[2:]),
     )
-    return manifest, units
+    return manifest, {
+        unit_id: _triage_projection(unit, "the export fixture") for unit_id, unit in units.items()
+    }
+
+
+def test_load_units_keeps_exactly_the_fields_the_triage_export_reads():
+    """The set is named here rather than derived from `TRIAGE_KEYS`, exactly as `test_the_index_covers_every_field_the_plumbing_reads` names the sidecar's: spelling it against the constant it is meant to police proves only that a dict comprehension keeps the keys it was given, and every field the export reads could be dropped from the projection under a green suite. Named, adding one is a deliberate act and dropping one fails here rather than as a null in a hand-placed triage YAML."""
+    manifest, units = load_units(FIXTURES)
+    fixture_units = {unit["id"]: unit for unit in _load_fixture_units()}
+    assert set(units) == set(fixture_units)
+    assert manifest == json.loads((FIXTURES / "manifest.json").read_text(encoding="utf-8"))
+    for unit_id, projected in units.items():
+        assert set(projected) == {
+            "id",
+            "class",
+            "batch",
+            "no_verdict",
+            "configs",
+            "ink_identical",
+            "junior_equivalent",
+            "codepoints",
+            "text_entities",
+            "notation",
+            "provenance",
+            "drafts",
+        }
+        assert projected == {key: fixture_units[unit_id][key] for key in projected}
+
+
+def test_load_units_refuses_a_shard_missing_a_field_the_export_reads(tmp_path):
+    """A field the triage export reads but the shard does not carry means the surface was built by a version this reader does not know. Read through `.get`, that lands in the YAML as a null the reviewer has no way to tell from a genuine absence — so the loader names the field and stops instead."""
+    shutil.copytree(FIXTURES / "units", tmp_path / "units")
+    shutil.copy(FIXTURES / "manifest.json", tmp_path / "manifest.json")
+    shard = tmp_path / "units" / "fixture-drift.json"
+    units = json.loads(shard.read_text(encoding="utf-8"))
+    del units[0]["drafts"]
+    _write_json(shard, units)
+    with pytest.raises(SystemExit) as error:
+        load_units(tmp_path)
+    assert "drafts" in str(error.value)
+    assert units[0]["id"] in str(error.value)
 
 
 def test_export_round_trip(tmp_path):

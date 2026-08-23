@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -112,19 +113,21 @@ def record_transition(
 
 
 def _iter_entries(journal_path):
+    """The journal's parseable entries, a line at a time off the open handle so only one is ever resident: every reader here walks the file once and keeps a handful of events or one store's worth of records out of it, where slurping the file first cost its whole size again as a str and again as a list of lines before yielding anything. Scanning stops at the first line that will not decode or parse, so a tail torn by a crashed append is never reinterpreted — and reading bytes rather than text is what extends that tolerance to a tail torn mid-character, which the notes' non-ASCII makes reachable and which used to raise out of every reader at once, the restore path included. `compact` splits the file the same way for the same reason, so the two never disagree about where a line begins."""
     try:
-        text = Path(journal_path).read_text(encoding="utf-8")
+        handle = Path(journal_path).open("rb")
     except OSError:
         return
-    for line in text.splitlines():
-        if not line.strip():
-            continue
-        try:
-            entry = json.loads(line)
-        except ValueError:
-            return
-        if isinstance(entry, dict):
-            yield entry
+    with handle:
+        for line in handle:
+            if not line.strip():
+                continue
+            try:
+                entry = json.loads(line.decode("utf-8"))
+            except ValueError:
+                return
+            if isinstance(entry, dict):
+                yield entry
 
 
 def iter_events(journal_path):
@@ -164,42 +167,53 @@ def replay(journal_path, as_of: str | None = None) -> tuple[str | None, dict[str
 
 
 def compact(journal_path, *, cutoff: str) -> dict:
-    """Rewrite the journal to begin at the newest base event whose `at` is lexicographically at or before `cutoff` (an ISO-Z stamp), dropping every earlier line. A base event carries the full store, so replay and --restore-as-of stay exact for every moment from that base onward; every earlier moment becomes unrecoverable, which is why the caller chooses the cutoff, not this function. Kept lines are carried byte-for-byte (scanning stops at the first unparseable line, mirroring replay, so a torn tail is never reinterpreted) and the rewrite is atomic. A journal with no parseable base at or before the cutoff, or one already starting at that base, is left untouched."""
+    """Rewrite the journal to begin at the newest base event whose `at` is lexicographically at or before `cutoff` (an ISO-Z stamp), dropping every earlier line. A base event carries the full store, so replay and --restore-as-of stay exact for every moment from that base onward; every earlier moment becomes unrecoverable, which is why the caller chooses the cutoff, not this function. Kept lines are carried byte-for-byte (scanning stops where `_iter_entries` stops, at the first line that will not decode or parse, so a torn tail is never reinterpreted) and the rewrite is atomic. A journal with no parseable base at or before the cutoff, or one already starting at that base, is left untouched.
+
+    The scan reads bytes and remembers the floor's offset rather than its text, and the rewrite copies from that offset in fixed-size blocks, so nothing here is ever larger than one line plus one block. Holding the file as a str, then as a list of lines, then as the joined tail cost three whole copies of it — spent even on the common case, where the newest base is already the first line and the answer is to do nothing.
+    """
     journal_path = Path(journal_path)
     untouched = {"compacted": False, "floor_at": None, "dropped_lines": 0, "kept_lines": 0}
-    try:
-        text = journal_path.read_text(encoding="utf-8")
-    except OSError:
-        return untouched
-    lines = text.splitlines(keepends=True)
     floor_index = None
     floor_at = None
-    for index, line in enumerate(lines):
-        if not line.strip():
-            continue
-        try:
-            entry = json.loads(line)
-        except ValueError:
-            break
-        if (
-            isinstance(entry, dict)
-            and entry.get("kind") == "event"
-            and entry.get("base")
-            and (entry.get("at") or "") <= cutoff
-        ):
-            floor_index = index
-            floor_at = entry.get("at")
+    floor_offset = 0
+    total_lines = 0
+    offset = 0
+    scanning = True
+    try:
+        with journal_path.open("rb") as handle:
+            for line in handle:
+                if scanning and line.strip():
+                    try:
+                        entry = json.loads(line.decode("utf-8"))
+                    except ValueError:
+                        scanning = False
+                    else:
+                        if (
+                            isinstance(entry, dict)
+                            and entry.get("kind") == "event"
+                            and entry.get("base")
+                            and (entry.get("at") or "") <= cutoff
+                        ):
+                            floor_index = total_lines
+                            floor_at = entry.get("at")
+                            floor_offset = offset
+                offset += len(line)
+                total_lines += 1
+    except OSError:
+        return untouched
     if not floor_index:
-        untouched["kept_lines"] = len(lines)
+        untouched["kept_lines"] = total_lines
         return untouched
     tmp = journal_path.with_name(journal_path.name + ".tmp")
-    tmp.write_text("".join(lines[floor_index:]), encoding="utf-8")
+    with journal_path.open("rb") as source, tmp.open("wb") as target:
+        source.seek(floor_offset)
+        shutil.copyfileobj(source, target)
     os.replace(tmp, journal_path)
     return {
         "compacted": True,
         "floor_at": floor_at,
         "dropped_lines": floor_index,
-        "kept_lines": len(lines) - floor_index,
+        "kept_lines": total_lines - floor_index,
     }
 
 

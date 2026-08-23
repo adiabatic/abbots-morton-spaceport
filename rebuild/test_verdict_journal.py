@@ -174,6 +174,86 @@ def test_replay_tolerates_a_truncated_trailing_line(tmp_path):
     assert set(records) == {"u-1"}
 
 
+def test_replay_tolerates_a_tail_torn_mid_character(tmp_path):
+    """Notes are written with ensure_ascii=False, so the letter names in them are multi-byte and a crash between one write and the next can cut one in half. Decoding the file as a single string turned that into a UnicodeDecodeError out of every reader at once — replay, the event listing, and the restore path that exists for exactly this kind of accident. Decoded a line at a time, it is the torn tail it is, and everything ahead of it still replays."""
+    path = tmp_path / "journal.ndjson"
+    journal.record_transition(
+        path,
+        source="autosave",
+        stamp="S1",
+        old_stamp=None,
+        old_verdicts=[],
+        new_verdicts=[v("u-1")],
+        at="2026-07-10T01:00:00Z",
+    )
+    torn = '{"kind": "set", "unit": "u-2", "note": "·'.encode()[:-1]
+    assert torn[-1:] == b"\xc2"
+    with path.open("ab") as handle:
+        handle.write(torn)
+    stamp, records = journal.replay(path)
+    assert stamp == "S1"
+    assert set(records) == {"u-1"}
+    assert [event["stamp"] for event in journal.iter_events(path)] == ["S1"]
+
+
+def test_replay_reads_past_a_note_carrying_a_unicode_line_separator(tmp_path):
+    """A reviewer's note can hold U+2028 — paste one out of a PDF and it comes along — and json.dumps writes it raw, but str.splitlines counts it as a line break. Splitting the whole file that way tore such a line in two, left the first half unparseable, and dropped every entry after it from the store the journal is supposed to be able to restore. Reading the handle a line at a time breaks on newlines alone, so the note and the rest of the journal both survive."""
+    note = "the seam splits\u2028here"
+    path = tmp_path / "journal.ndjson"
+    journal.record_transition(
+        path,
+        source="autosave",
+        stamp="S1",
+        old_stamp=None,
+        old_verdicts=[],
+        new_verdicts=[v("u-1", note=note)],
+        at="2026-07-10T01:00:00Z",
+    )
+    journal.record_transition(
+        path,
+        source="autosave",
+        stamp="S1",
+        old_stamp="S1",
+        old_verdicts=[v("u-1", note=note)],
+        new_verdicts=[v("u-1", note=note), v("u-2")],
+        at="2026-07-10T02:00:00Z",
+    )
+    stamp, records = journal.replay(path)
+    assert stamp == "S1"
+    assert set(records) == {"u-1", "u-2"}
+    assert records["u-1"]["note"] == note
+
+
+def test_compact_finds_a_floor_past_a_note_carrying_a_unicode_line_separator(tmp_path):
+    """The floor scan breaks the file on newlines for the same reason replay does. Splitting on every Unicode line break instead stopped the scan at the torn half of a U+2028 note, so the newest base behind one was never seen and the journal either kept its stale floor or never compacted at all."""
+    path = tmp_path / "journal.ndjson"
+    journal.record_transition(
+        path,
+        source="autosave",
+        stamp="S1",
+        old_stamp=None,
+        old_verdicts=[],
+        new_verdicts=[v("u-1", note="the seam splits\u2028here")],
+        at="2026-07-10T01:00:00Z",
+    )
+    journal.record_transition(
+        path,
+        source="merge",
+        stamp="S2",
+        old_stamp="S1",
+        old_verdicts=[v("u-1", note="the seam splits\u2028here")],
+        new_verdicts=[v("u-2")],
+        at="2026-07-10T03:00:00Z",
+    )
+    result = journal.compact(path, cutoff="2026-07-10T09:00:00Z")
+    assert result["compacted"] is True
+    assert result["floor_at"] == "2026-07-10T03:00:00Z"
+    assert result["dropped_lines"] == 2
+    assert result["kept_lines"] == 2
+    events = list(journal.iter_events(path))
+    assert [event["stamp"] for event in events] == ["S2"]
+
+
 def test_payload_for_sorts_and_stamps(tmp_path):
     records = {"u-2": v("u-2"), "u-1": v("u-1", verdict="either")}
     payload = journal.payload_for("S1", records, exported_at="2026-07-10T05:00:00Z")
