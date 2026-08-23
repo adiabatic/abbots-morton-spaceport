@@ -199,7 +199,7 @@ impl PendingDeepRow {
     }
 }
 
-/// One configuration's whole fixpoint, and the value [`crate::fold::fold_product`] folds: the rows in their key order, the deep-class map their class tokens resolve through, the cells they settle into, and the provenance the engine fired while tabulating. Serialized it is `table.FixpointProduct`, which `kernel_exec.enumerate_transitions` hands the corpus exporter.
+/// One configuration's whole fixpoint, and the value [`crate::fold::fold_product`] folds: the rows in their key order, the deep-class map their class tokens resolve through, the cells they settle into, and the provenance the engine fired while tabulating. Serialized it is `table.FixpointProduct`, which `kernel_exec.enumerate_transitions` parses back — the enumeration at the grain a table drops on its way to a window row. No build stage and no tool asks for it; the rebuild suite is what keeps that path exercised.
 ///
 /// The engine is built here rather than handed in, out of `modes` — which is also what decides whether the censuses widen, whether the filters carry their liveness arm, and whether the deep slots enumerate at class grain, because none of those three is meaningful without the others.
 pub fn enumerate_transitions(

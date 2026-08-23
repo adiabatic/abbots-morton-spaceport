@@ -1241,7 +1241,7 @@ def load_default_spec() -> ResolvedSpec:
 
 
 def spec_structure_digest(spec: ResolvedSpec) -> str:
-    """The resolved-spec facts a consumer can read without consulting any rune file it names: the alphabet and its ligature sequences (formation pairs, the enumeration set, and `_expand_ligature_lefts`' rewrite of every other rune's left conditions), the registry predicate classes (whose membership every rune's surface contributes to), and the resolved rune-local groups (whose membership can move through class atoms and ligature expansion). Stamp grade: any of these moving invalidates everything stamped with it — the review unit cache's whole-store stamp, the settlement corpus head."""
+    """The resolved-spec facts a consumer can read without consulting any rune file it names: the alphabet and its ligature sequences (formation pairs, the enumeration set, and `_expand_ligature_lefts`' rewrite of every other rune's left conditions), the registry predicate classes (whose membership every rune's surface contributes to), and the resolved rune-local groups (whose membership can move through class atoms and ligature expansion). Stamp grade: any of these moving invalidates everything stamped with it — the review unit cache's whole-store stamp."""
     payload = {
         "runes": {name: list(rune.sequence) if rune.sequence else None for name, rune in spec.runes.items()},
         "classes": {name: sorted(members) for name, members in spec.registry.predicate_classes.items()},

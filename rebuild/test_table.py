@@ -647,12 +647,7 @@ class TestDeepClasses:
                     )
                     asked.append(((index, 4), row.key, member))
 
-        answers = kernel_exec.settle_cases(
-            spec,
-            cases,
-            frozenset(),
-            modes=kernel_exec.SettlementModes(simulated_prospect=True, vote_slots=True),
-        )
+        answers = kernel_exec.settle_cases(spec, cases, frozenset())
         records: dict[tuple[int, int], tuple[tuple, dict[tuple, str]]] = {}
         for (asked_at, key, member), answer in zip(asked, answers):
             trace = kernel_exec.trace_of(answer["result"])

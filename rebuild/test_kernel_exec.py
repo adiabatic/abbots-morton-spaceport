@@ -233,8 +233,61 @@ class TestTheInvocationSeam:
             for name in names
         ]
         settled = kernel_exec.settle_windows(SPEC, cases, frozenset(), batch=2)
-        assert [outcome.cell.rune for outcome in settled] == list(names)
+        assert [None if outcome is None else outcome.cell.rune for outcome in settled] == list(names)
         assert sizes == [2, 2, 1]
+
+    def test_settle_windows_can_answer_none_for_a_refusal_and_keep_the_batch(self, monkeypatch):
+        """`on_error="drop"`: the refusing case's slot answers `None`, every other line decodes as usual, and the answers stay lined up with the questions — which is what lets a caller prefill windows it may never read without one refusal taking the batch down."""
+        names = ("qsMay", "qsIt", "qsTea")
+        cases = [
+            kernel_exec.case_row(LeftContext("edge"), RightToken("letter", name), (EDGE,) * 4)
+            for name in names
+        ]
+        results: list[dict] = [
+            {"settled": {"cell": [name, "full", None, None, []], "seam": None, "extension": 0}}
+            for name in names
+        ]
+        results[1] = {"raise": "E-AMBIGUOUS", "message": "qsIt: two candidates tie at every stage"}
+
+        class Finished:
+            returncode = 0
+            stdout = (
+                "".join(json.dumps({**case, "result": result}) + "\n" for case, result in zip(cases, results))
+            ).encode()
+            stderr = b""
+
+        monkeypatch.setattr(kernel_exec, "_run_kernel", lambda *arguments, **rest: Finished())
+        settled = kernel_exec.settle_windows(SPEC, cases, frozenset(), on_error="drop")
+        assert [None if outcome is None else outcome.cell.rune for outcome in settled] == [
+            "qsMay",
+            None,
+            "qsTea",
+        ]
+        with pytest.raises(SettleError):
+            kernel_exec.settle_windows(SPEC, cases, frozenset())
+
+    def test_settle_sequences_drops_only_the_sequence_that_refused(self, monkeypatch):
+        """A refusal mid-sequence under `on_error="drop"` costs that one sequence and nothing else: its neighbors in the same wave finish every position they had, and the answer stays positional, with `None` standing where the dropped sequence's traces would have been."""
+        requests = [
+            ((RightToken("letter", "qsMay"), RightToken("letter", "qsIt")), frozenset()),
+            ((RightToken("letter", "qsIt"), RightToken("letter", "qsMay")), frozenset()),
+            ((RightToken("letter", "qsMay"), RightToken("letter", "qsTea")), frozenset()),
+        ]
+        original = kernel_exec.trace_of
+        calls = []
+
+        def refusing_at_the_second_wave(result):
+            calls.append(result)
+            if len(calls) == len(requests) + 1:
+                raise SettleError("the second wave's first window will not settle", "E-INCOMPARABLE")
+            return original(result)
+
+        monkeypatch.setattr(kernel_exec, "trace_of", refusing_at_the_second_wave)
+        traces = kernel_exec.settle_sequences(SPEC, requests, on_error="drop")
+        assert traces[0] is None
+        assert [None if answer is None else len(answer) for answer in traces] == [None, 2, 2]
+        monkeypatch.setattr(kernel_exec, "trace_of", original)
+        assert [len(answer or ()) for answer in kernel_exec.settle_sequences(SPEC, requests)] == [2, 2, 2]
 
     def test_one_spec_is_dumped_once_however_many_calls_read_it(self, monkeypatch):
         """The dump is the fixed cost of reaching the kernel, and the sweep, the settlement verbs and every batch under them read the same file: a walker that settles a spec in a hundred batches writes its spec.json once."""

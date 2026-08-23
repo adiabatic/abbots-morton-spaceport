@@ -12,6 +12,7 @@ Run it after `run_m1` has left a fresh `rebuild/out/m1`:
 """
 
 import gzip
+import io
 import shutil
 import sys
 from pathlib import Path
@@ -72,10 +73,13 @@ def main() -> int:
     for table in sorted(LIVE.glob("baseline-*.subset.tsv.gz")):
         out = HERE / table.name
         with gzip.open(table, "rt", encoding="utf-8", newline="") as source:
-            with gzip.open(out, "wt", encoding="utf-8", newline="", compresslevel=9) as sink:
-                for line in source:
-                    if line.startswith("#") or line.split("\t", 1)[0] in windows:
-                        sink.write(line)
+            with open(out, "wb") as raw:
+                # A gzip header stamps the wall clock unless it is told not to, which would leave every regeneration a diff even where the rows did not move. mtime=0 and an empty filename make the container a function of the content alone.
+                with gzip.GzipFile(filename="", fileobj=raw, mode="wb", compresslevel=9, mtime=0) as packed:
+                    with io.TextIOWrapper(packed, encoding="utf-8", newline="") as sink:
+                        for line in source:
+                            if line.startswith("#") or line.split("\t", 1)[0] in windows:
+                                sink.write(line)
     shutil.copyfile(LIVE / "M1.otf", HERE / "M1.otf")
     for table in ("settlement-default.tsv", "treaties-default.tsv"):
         shutil.copyfile(LIVE / table, HERE / table)

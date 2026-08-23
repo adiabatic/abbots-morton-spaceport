@@ -8,7 +8,7 @@ The build is `cargo build --release` against the crate's own manifest and nothin
 
 `build_tables` and `enumerate_transitions` are the single-configuration forms in memory, each writing nothing that outlives the call: one spec dumped to a scratch directory, and then either the two tables — `build-tables` into that directory, read back through `table.read_windows` and `table.read_treaty_tsv` — or the raw product, enumerated as a stream and parsed into a `table.FixpointProduct`. The first is how a test, a tool or a hand-assembled spec reaches a table; the second is the raw product a fold consumes, which no build stage and no tool asks for any more, and `rebuild/test_kernel_exec.py` is what keeps that path exercised.
 
-`guard_sweep` is one other in-memory form: one crate invocation and one complete mapping from `(ligature, first raw slot, second raw slot)` to the config-blind formation verdict, memoized per spec identity so a process sweeps one spec once however many callers ask. The settlement verbs sit beside it and share its spec dump. `settle_cases` is the raw form — a file of independent `ams-m1-corpus/3` windows in, the full Rust trace objects out, with count and question echo checked before anything decodes. `settle_windows` decodes each answer straight to a `Settled`, for the conform walker, which wants outcomes by the tens of thousands rather than traces. `settle_sequences` is what explain, the probe and the review surface reach for: the verb takes independent windows, while a sequence's next left context is the previous window's answer, so a batch of whole sequences advances in waves — all first positions, then all second positions off the first wave's answers — with boundary positions answered locally because they are model constants. `settle_codepoints` is the one-line form over a text. The CLI spells boundary tokens as `edge`, `space`, `zwnj`, `namer-dot`, and `unknown`; the guard mapping converts them to Python's `RightToken` constants at the boundary so consumers never confuse those model tokens with glyph names such as `uni200C` or `periodcentered`.
+`guard_sweep` is one other in-memory form: one crate invocation and one complete mapping from `(ligature, first raw slot, second raw slot)` to the config-blind formation verdict, memoized per spec identity so a process sweeps one spec once however many callers ask. The settlement verbs sit beside it and share its spec dump. `settle_cases` is the raw form — a file of independent `ams-m1-corpus/3` windows in, the full Rust trace objects out, with count and question echo checked before anything decodes. `settle_windows` decodes each answer straight to a `Settled`, for the conform walker, which wants outcomes by the tens of thousands rather than traces; like `settle_sequences` it takes an `on_error`, so a caller prefilling windows it may never read can take `None` for a refusal and leave the rest of the batch standing. `settle_sequences` is what explain, the probe and the review surface reach for: the verb takes independent windows, while a sequence's next left context is the previous window's answer, so a batch of whole sequences advances in waves — all first positions, then all second positions off the first wave's answers — with boundary positions answered locally because they are model constants. `settle_codepoints` is the one-line form over a text. The CLI spells boundary tokens as `edge`, `space`, `zwnj`, `namer-dot`, and `unknown`; the guard mapping converts them to Python's `RightToken` constants at the boundary so consumers never confuse those model tokens with glyph names such as `uni200C` or `periodcentered`.
 
 The codecs between the transport rows and the pipeline's model types live here as well — `case_row` and `settled_row` on the way out, `trace_of` on the way back — because every settlement caller needs them and none of them should be reaching into another consumer's module for one. A window the crate refuses answers `{raise, message}`, and that becomes a `settle.SettleError` carrying the crate's bucket and its sentence verbatim, so a caller can sort refusals without reading prose; an answer malformed in any other way is the boundary itself being wrong and stays a `KernelRunError`.
 
@@ -558,17 +558,30 @@ def _settled_answer(answer: dict) -> Settled:
     return _settled_of(answer["result"])
 
 
+def _tolerated_answer(answer: dict) -> Settled | None:
+    """`_settled_answer` with a refusal answered as `None` rather than raised. Only the crate's own refusal is swallowed: a malformed answer raises `KernelRunError` out of here exactly as it would in the raising mode, because that is the boundary being wrong rather than the window."""
+    try:
+        return _settled_of(answer["result"])
+    except settle.SettleError:
+        return None
+
+
 def settle_windows(
     spec: ResolvedSpec,
     cases: Sequence[Mapping],
     features: frozenset[str],
     batch: int = SETTLE_WINDOW_BATCH,
     modes: SettlementModes | None = None,
-) -> list[Settled]:
-    """One `Settled` per case, in the order the cases were asked, decoded straight off each answer line. This is the conform walker's verb: it settles distinct raw windows by the hundred thousand and keeps only the outcome, so a whole trace decoded into Python objects per window would be two orders of magnitude of memory spent on ladders nothing reads. `batch` bounds how many windows ride one invocation."""
-    out: list[Settled] = []
+    on_error: str = "raise",
+) -> list[Settled | None]:
+    """One `Settled` per case, in the order the cases were asked, decoded straight off each answer line. This is the conform walker's verb: it settles distinct raw windows by the hundred thousand and keeps only the outcome, so a whole trace decoded into Python objects per window would be two orders of magnitude of memory spent on ladders nothing reads. `batch` bounds how many windows ride one invocation.
+
+    `on_error="raise"` lets a refusal out of the batch that met it, which names the offending left and input in the crate's own sentence. `on_error="drop"` answers `None` in that one case's slot instead and decodes every other line as usual — a caller that settles windows it never chose to ask about (the witness gate, which prefills every candidate string it might read) wants the survivors, and wants a refusal to surface only where something actually reads that window. A malformed answer is the boundary being wrong rather than the window and stays a `KernelRunError` in either mode.
+    """
+    decode = _tolerated_answer if on_error == "drop" else _settled_answer
+    out: list[Settled | None] = []
     for start in range(0, len(cases), batch):
-        out.extend(_settle_batch(spec, cases[start : start + batch], features, modes, _settled_answer))
+        out.extend(_settle_batch(spec, cases[start : start + batch], features, modes, decode))
     return out
 
 
