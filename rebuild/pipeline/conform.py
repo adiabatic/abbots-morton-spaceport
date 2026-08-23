@@ -2,7 +2,7 @@
 
 `run_conformance` promotes prototype/conform.py: the Shaper (MONOTONE_CHARACTERS cluster level; names via TTFont, never HarfBuzz's truncating API), the exhaustive length-1..horizon enumeration per acceptance configuration (the per-edit belt, horizon 4 by default), the ZWNJ structural checks (zero advance, no ink), split-buffer equivalence, gap-0 pen positions, and the font-vs-settle oracle diff, which takes no ledger: any divergence is a compiler defect by definition. Coverage is deliberately not this sweep's job: read-back (rebuild/pipeline/readback.py) proves per build that the compiled font holds every emitted rule at its planned position, and rebuild/test_rule_witnesses.py remains the font-free dead-rule alarm, so the sweep's remaining unique charter is what only shaping the real binary can test — HarfBuzz's application semantics (lookup interaction across features, backtrack-sees-settled across subtable breaks, default-ignorable skipping, class matching, Extension indirection) and the sufficiency of the 6-slot window abstraction itself, which witness-constructed strings structurally cannot probe because witnesses are built from that abstraction. The deep form of the same sweep runs at horizon 5 or deeper on demand (`make conform-deep`, rebuild/tools/deep_sweep.py), armed by the behavior-class enumeration `emit_gsub.behavior_classes` plus the font-compilation code and the uharfbuzz version, so a rune edit that introduces no novel rule shape never stales it. The ZWNJ/split-buffer checks ride the belt itself, on the texts they can say anything about, which is where the standalone horizon-5 boundary gate's charter now lives: proven per build at the belt's horizon and periodically deeper by `make conform-deep`. Settlement rides `_SettledWindowWalk`'s per-config window memo, so a distinct raw window costs one batched crate answer and every recurrence across the sweep's texts costs a dict probe, and the oracle's rows settle through a walk of their own.
 
-`compare_against_baseline` is the section 6 oracle gate: stream the filtered sub-tables, settle every row through a walk of its own, compare ligation (clusters), per-seam classification, and cell identity through the hand-written alias map; every divergent row must match exactly one ledger entry (zero matches fails conformance, two-plus fails the ledger). When a font path is supplied, the gate also compares positions old-vs-new (M1-PLAN section 6 step 3d): each row is shaped against the new font and its per-slot (x_offset, y_offset, x_advance) triples are compared against the baseline's, with sidecar kerns normalized out of the old advances via `KernEvaluator` (the new font emits no kerning). Position equality is enforced on every row whose seam topology and ligation match the baseline and whose cell-grain divergence class (if any) claims ink identity (`ink_identical: true` in the ledger); rows whose matched class legitimately redraws ink (extensions restored or suppressed, withdrawal bindings) are excluded and counted, because their advances move with the ink by design.
+`compare_against_baseline` is the section 6 oracle gate: stream the filtered sub-tables, settle every row through a walk of its own (or, when the caller hands down an `OracleRowCache`, take the row's pre-position verdict off the previous pass's store and walk only what an edit can still reach — see rebuild/pipeline/oracle_cache.py for what that key does and does not cover), compare ligation (clusters), per-seam classification, and cell identity through the hand-written alias map; every divergent row must match exactly one ledger entry (zero matches fails conformance, two-plus fails the ledger). When a font path is supplied, the gate also compares positions old-vs-new (M1-PLAN section 6 step 3d): each row is shaped against the new font and its per-slot (x_offset, y_offset, x_advance) triples are compared against the baseline's, with sidecar kerns normalized out of the old advances via `KernEvaluator` (the new font emits no kerning). Position equality is enforced on every row whose seam topology and ligation match the baseline and whose cell-grain divergence class (if any) claims ink identity (`ink_identical: true` in the ledger); rows whose matched class legitimately redraws ink (extensions restored or suppressed, withdrawal bindings) are excluded and counted, because their advances move with the ink by design.
 
 Settlement itself is the crate's, reached through `kernel_exec`: `_SettledWindowWalk` batches whole waves of distinct raw windows into `kernel_exec.settle_windows`, the witness search hoists one `kernel_exec.guard_sweep` and threads its verdict surface through every formation call below it, and nothing here re-derives a settled cell. The lazy `table` imports inside the entry points that read a decision table no longer keep it out of the shaping half — importing this module imports `kernel_exec`, which imports `table` — and what they still buy is locality: each entry point names the label constants it reads where it reads them.
 """
@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING, Callable, Iterable, Iterator, Mapping, Sequenc
 
 import yaml
 
-from rebuild.pipeline import geometry, kernel_exec, settle
+from rebuild.pipeline import geometry, kernel_exec, oracle_cache, settle
 from rebuild.pipeline.model import (
     CellId,
     GlyphRecord,
@@ -34,7 +34,7 @@ from rebuild.pipeline.model import (
     relevant_marker_features,
     ss10_twin_name,
 )
-from rebuild.validation.rowmodel import CONFIGS, Row, iter_rows
+from rebuild.validation.rowmodel import CONFIGS, Row, format_codepoints, iter_rows
 
 if TYPE_CHECKING:
     from rebuild.pipeline.emit_gsub import _FoldedRule
@@ -1887,6 +1887,100 @@ class OracleConfigResult:
     notes: list[str] = field(default_factory=list)
 
 
+@dataclass(frozen=True)
+class OracleRowCache:
+    """What one oracle run hands its six configurations so each can read the previous pass's row verdicts and stage this pass's. The stamps and the family keys are cut once in the parent, before the first row is compared, and travel down the pool pipe: a worker that re-digested the rune tree for itself would be reading files the run has already been holding for minutes, which is the very race `run_oracle` re-checks at promotion. `read_dir` is where a promoted store lives and `write_dir` where a fresh one is staged; either may be absent on its own, and a pass that may read but not write (`--gates-only`, which recompiled nothing and so may not write a build input) simply leaves `write_dir` None. Such a pass also carries a nonzero `rotation`, because everything that keeps a record from laundering itself advances on the pass ordinal and the ordinal advances only when a store is written — see `oracle_cache.RowStore`."""
+
+    environment: Mapping[str, oracle_cache.EnvironmentStamp]
+    family_keys: Mapping[str, str]
+    read_dir: Path | None = None
+    write_dir: Path | None = None
+    rotation: int = 0
+
+
+def open_row_cache(
+    cache: "OracleRowCache | None", spec: ResolvedSpec, config: str
+) -> tuple["oracle_cache.RowStore | None", "oracle_cache.RowWriter | None"]:
+    """This configuration's loaded store and its staged successor, opened by whichever of the two oracle paths is running so the pair stays byte-equal between them. The subset digest is read off the stamp's own `subset` line rather than hashed a second time — the stamp already carries the bytes of the table this configuration is about to stream."""
+    if cache is None:
+        return None, None
+    stamp = cache.environment[config]
+    subset_digest = stamp.labels["subset"]
+    store = None
+    if cache.read_dir is not None:
+        store = oracle_cache.load_store(
+            oracle_cache.store_path(cache.read_dir, config),
+            stamp,
+            subset_digest,
+            spec,
+            cache.family_keys,
+            cache.rotation,
+        )
+    writer = None
+    if cache.write_dir is not None:
+        writer = oracle_cache.RowWriter(
+            oracle_cache.scratch_store_path(cache.write_dir, config),
+            stamp,
+            subset_digest,
+            oracle_cache.next_pass_ordinal(store),
+            cache.family_keys,
+        )
+    return store, writer
+
+
+def _cached_verdict(divergent: DivergentRow | None) -> oracle_cache.CachedRow | None:
+    """A fresh comparison's answer as the store holds it: the five fields the subset table cannot supply, and none of the provenance that would make two equal verdicts compare unequal."""
+    if divergent is None:
+        return None
+    return oracle_cache.CachedRow(
+        kinds=divergent.kinds,
+        position=divergent.position,
+        new_cells=divergent.new_cells,
+        new_seams=divergent.new_seams,
+        phenomena=divergent.phenomena,
+    )
+
+
+def _served_verdict(config: str, row: Row, cached: oracle_cache.CachedRow) -> DivergentRow:
+    """A stored verdict back in the shape everything downstream reads, with `config` and the three baseline fields taken from the table the row was just streamed out of rather than from the store. Everything from `_match_ledger` on cannot tell this row from a freshly compared one, which is the byte-identity claim `rebuild/test_conform.py` pins."""
+    return DivergentRow(
+        config=config,
+        codepoints=format_codepoints(row.codepoints),
+        kinds=cached.kinds,
+        position=cached.position,
+        baseline_glyphs=tuple(row.glyphs),
+        baseline_seams=tuple(row.seams),
+        new_cells=cached.new_cells,
+        new_seams=cached.new_seams,
+        phenomena=cached.phenomena,
+    )
+
+
+def _verify_served_sample(
+    spec: ResolvedSpec,
+    aliases,
+    config: str,
+    features: frozenset[str],
+    walker: "_SettledWindowWalk",
+    table_path: Path,
+    store: "oracle_cache.RowStore",
+    sample: "oracle_cache.VerificationSample",
+) -> None:
+    """Re-derive the pass's stratified sample of served rows and prove each against the record it was served from. Every family that served a row contributes rows here, so a family-wide poisoning — the shape a rune edited mid-run produces — is caught with probability one rather than with probability sample-over-served, and the seed carries the pass ordinal so the covered slice rotates instead of re-proving the same fraction of a percent every pass. The rows are re-read in a second streaming pass over the same table rather than held from the first: the draw is only final once the last row has been offered, and a couple of hundred rows are cheap to find again where tens of thousands of live `Row` objects would not be cheap to keep. A mismatch is a hard stop, not a miss — the store is describing verdicts this build does not produce, and `divergence-audit.tsv` is a fingerprinted artifact whose bytes ride the validators-lane key."""
+    wanted = set(sample.indexes())
+    if not wanted:
+        return
+    picked = [(index, row) for index, row in enumerate(iter_rows(table_path)) if index in wanted]
+    walked = walker.walk_many([row.text for _, row in picked])
+    for (index, row), (settled, _names) in zip(picked, walked):
+        fresh = _cached_verdict(_compare_row(spec, aliases, config, features, row, settled))
+        recorded = store.serve(index, row.codepoints)
+        if fresh != recorded:
+            raise SystemExit(
+                f"the oracle row cache served a stale verdict for {config} {format_codepoints(row.codepoints)}: it holds {recorded}, and comparing the row again gives {fresh} — nothing this store holds can be trusted, so rerun with --fresh-oracle-cache and treat the difference as a staleness bug in the key"
+            )
+
+
 def _compare_config(
     spec: ResolvedSpec,
     subset_tables_dir: Path,
@@ -1899,6 +1993,9 @@ def _compare_config(
     kern: "KernEvaluator | None",
     guard_verdicts: settle.FormationGuard,
     audit: TextIO | None,
+    *,
+    store: "oracle_cache.RowStore | None" = None,
+    writer: "oracle_cache.RowWriter | None" = None,
 ) -> OracleConfigResult:
     result = OracleConfigResult(config=config)
     table_path = Path(subset_tables_dir) / f"baseline-{config}.subset.tsv.gz"
@@ -1909,13 +2006,51 @@ def _compare_config(
     walker = _SettledWindowWalk(spec, features, {}, guard_verdicts)
     config_started = time.perf_counter()
     rows = iter_rows(table_path)
+    # Only the stale rows are walked; a served row's pre-position verdict comes back off the store and enters `_match_ledger` in the same state a fresh one does, and the chunk is re-read in table order afterward so the audit's bytes cannot depend on the partition. The verification sample rides on serving rather than on writing, because a pass that may read the store and not write one (`--gates-only`) is exactly a pass whose verdicts all came out of it.
+    sample = (
+        oracle_cache.VerificationSample(store.environment.value, store.coverage_ordinal)
+        if store is not None
+        else None
+    )
+    first_row = 0
     while True:
         chunk = list(itertools.islice(rows, ORACLE_ROW_CHUNK))
         if not chunk:
             break
-        for row, (settled, _names) in zip(chunk, walker.walk_many([row.text for row in chunk])):
+        served_at: dict[int, oracle_cache.CachedRow | None] = {}
+        fresh_at: list[int] = []
+        for offset, row in enumerate(chunk):
+            index = first_row + offset
+            if store is None or index >= store.rows:
+                fresh_at.append(offset)
+                continue
+            mask = store.mask.mask_of(row.codepoints)
+            if store.stale(index, mask):
+                fresh_at.append(offset)
+                continue
+            reachable = store.mask.families_of(mask)
+            if oracle_cache.unreachable_glyph_heads(row.glyphs, reachable):
+                # The row consulted alias entries belonging to a family no key it cites covers, so no key on this store could report them moved. Nothing in the live subset does this; a row that starts to is walked rather than served.
+                fresh_at.append(offset)
+                continue
+            served_at[offset] = store.serve(index, row.codepoints)
+            if sample is not None:
+                sample.offer(index, reachable)
+        walked = dict(zip(fresh_at, walker.walk_many([chunk[offset].text for offset in fresh_at])))
+        for offset, row in enumerate(chunk):
+            index = first_row + offset
             result.rows_compared += 1
-            divergent = _compare_row(spec, aliases, config, features, row, settled)
+            if offset in served_at:
+                cached = served_at[offset]
+                divergent = None if cached is None else _served_verdict(config, row, cached)
+                derived_at = store.age(index) if store is not None else 0
+            else:
+                settled, _names = walked[offset]
+                divergent = _compare_row(spec, aliases, config, features, row, settled)
+                cached = _cached_verdict(divergent)
+                derived_at = writer.pass_ordinal if writer is not None else 0
+            if writer is not None:
+                writer.append(row.codepoints, cached, derived_at)
             matches = _match_ledger(ledger, divergent) if divergent is not None else []
             if shaper is not None:
                 topology_clean = divergent is None or not ({"ligation", "seam"} & set(divergent.kinds))
@@ -1985,8 +2120,12 @@ def _compare_config(
                     )
                     + "\n"
                 )
+        first_row += len(chunk)
+    served_rows = 0 if store is None else store.served
+    if store is not None and sample is not None:
+        _verify_served_sample(spec, aliases, config, features, walker, table_path, store, sample)
     print(
-        f"[t] oracle {config} {time.perf_counter() - config_started:.2f}s rows={result.rows_compared} positions={result.positions_compared}",
+        f"[t] oracle {config} {time.perf_counter() - config_started:.2f}s rows={result.rows_compared} positions={result.positions_compared} served={served_rows}",
         file=sys.stderr,
         flush=True,
     )
@@ -2002,8 +2141,9 @@ def oracle_config_worker(
     font_path: Path | None,
     kern_sidecar_path: Path | None,
     audit_dir: Path,
+    row_cache: "OracleRowCache | None" = None,
 ) -> OracleConfigResult:
-    """One config's oracle compare in its own process, its audit rows written to this configuration's shard under `audit_dir` so only counts ride the result home. The section 5.7 verdict surface is swept here, once per worker, exactly as the belt's worker sweeps its own."""
+    """One config's oracle compare in its own process, its audit rows written to this configuration's shard under `audit_dir` so only counts ride the result home. The section 5.7 verdict surface is swept here, once per worker, exactly as the belt's worker sweeps its own. The row cache is opened here rather than handed in already open for the same reason the shard is: a spawned worker inherits no file handles, and opening it on this side of the pipe is what keeps this path and the serial one byte-equal."""
     aliases = load_alias_map(alias_path)
     ledger = yaml.safe_load(Path(ledger_path).read_text()) or []
     ink_identical_ids = {entry.get("id") for entry in ledger if entry.get("ink_identical")}
@@ -2012,7 +2152,11 @@ def oracle_config_worker(
     features = features_for_config(config)
     shard = oracle_audit_shard(audit_dir, config)
     shard.parent.mkdir(parents=True, exist_ok=True)
-    with shard.open("w", encoding="utf-8", newline="\n") as audit:
+    store, writer = open_row_cache(row_cache, spec, config)
+    with ExitStack() as stack:
+        audit = stack.enter_context(shard.open("w", encoding="utf-8", newline="\n"))
+        if writer is not None:
+            stack.enter_context(writer)
         return _compare_config(
             spec,
             subset_tables_dir,
@@ -2025,6 +2169,8 @@ def oracle_config_worker(
             kern,
             kernel_exec.guard_sweep(spec),
             audit,
+            store=store,
+            writer=writer,
         )
 
 
@@ -2053,6 +2199,7 @@ def compare_against_baseline(
     out_dir: Path | None = None,
     font_path: Path | None = None,
     kern_sidecar_path: Path | None = None,
+    row_cache: "OracleRowCache | None" = None,
 ) -> BaselineReport:
     aliases = load_alias_map(alias_path)
     ledger = yaml.safe_load(Path(ledger_path).read_text()) or []
@@ -2070,21 +2217,27 @@ def compare_against_baseline(
             audit = stack.enter_context(staging.open("w", encoding="utf-8", newline="\n"))
             audit.write(ORACLE_AUDIT_HEADER + "\n")
         for config in configs:
-            results.append(
-                _compare_config(
-                    spec,
-                    subset_tables_dir,
-                    config,
-                    features_for_config(config),
-                    aliases,
-                    ledger,
-                    ink_identical_ids,
-                    shaper,
-                    kern,
-                    guard_verdicts,
-                    audit,
+            store, writer = open_row_cache(row_cache, spec, config)
+            with ExitStack() as per_config:
+                if writer is not None:
+                    per_config.enter_context(writer)
+                results.append(
+                    _compare_config(
+                        spec,
+                        subset_tables_dir,
+                        config,
+                        features_for_config(config),
+                        aliases,
+                        ledger,
+                        ink_identical_ids,
+                        shaper,
+                        kern,
+                        guard_verdicts,
+                        audit,
+                        store=store,
+                        writer=writer,
+                    )
                 )
-            )
     report = merge_oracle_results(results)
 
     print(

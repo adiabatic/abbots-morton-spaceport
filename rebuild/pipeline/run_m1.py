@@ -6,7 +6,7 @@ The glyph-name contract this driver pins: settlement-lookup outcomes are `settle
 
 The ZWNJ-structure and split-buffer checks that once had a standalone horizon-5 gate of their own now ride gate:conform's belt, so they are proven per build at horizon 4 and periodically at 5 or deeper by `make conform-deep` — the same charter the belt already has, over a rule whose closure property makes a horizon-4 proof cover every window the oracle absorbs.
 
-Run as: uv run python -m rebuild.pipeline.run_m1 — or `--conform-only` for the belt alone against the M1.otf on disk, or `--gates-only` for the Manual-pin gate and the oracle against it, which is the cheap way to re-adjudicate an edit to the divergence ledger or the alias map without rebuilding a thing. An edit to the classifier that reads them is a different matter: `classify_divergence` lives in conform.py and conform.py is pipeline code, so that one moves the stamp and `--gates-only` refuses it until the code component is split at a finer grain than the tree.
+Run as: uv run python -m rebuild.pipeline.run_m1 — or `--conform-only` for the belt alone against the M1.otf on disk, or `--gates-only` for the Manual-pin gate and the oracle against it, which is the cheap way to re-adjudicate an edit to the divergence ledger or the alias map without rebuilding a thing. An edit to the classifier that reads them is a different matter: `classify_divergence` lives in conform.py and conform.py is pipeline code, so that one moves the stamp and `--gates-only` refuses it until the code component is split at a finer grain than the tree. Either way the oracle serves what it can from the per-row verdict stores rebuild/pipeline/oracle_cache.py keeps beside the tables — a ledger or alias edit moves no family key and no stamp line, so every row is served and the whole re-adjudication is the ledger match and the audit; `--fresh-oracle-cache` distrusts them, and `--gates-only` may read them but never write one.
 """
 
 from __future__ import annotations
@@ -40,6 +40,7 @@ from rebuild.pipeline import (
     kernel_exec,
     kernel_io,
     manual_pins,
+    oracle_cache,
     readback,
     surface,
 )
@@ -426,16 +427,132 @@ def manual_pin_gate_failure(summary: Mapping) -> str | None:
     return None
 
 
-def run_oracle(out_dir: Path = OUT_DIR, spec: ResolvedSpec | None = None, jobs: int = 1) -> dict:
+def _promote_oracle_row_cache(
+    spec: ResolvedSpec,
+    out_dir: Path,
+    scratch: Path,
+    keys: Mapping[str, str],
+    stamps: Mapping[str, oracle_cache.EnvironmentStamp],
+) -> None:
+    """Move this run's staged stores into place, but only after re-cutting both keys off the sources as they stand now and finding them where the run left them. A run whose inputs shifted under it built verdicts nothing on disk describes, and a store recorded under the wrong digest is the one failure that reads as green forever rather than failing once — so the answer to any movement is to write nothing and say so, which costs the next pass a cold oracle and nothing else. An alias map edited mid-run into a shape `alias_family_digests` refuses lands here as the same refusal."""
+    try:
+        keys_now, stamps_now = oracle_row_cache_keys(spec, out_dir)
+    except (OSError, ValueError, yaml.YAMLError) as error:
+        print(f"oracle row cache: not written — its inputs would not re-read ({error})", flush=True)
+        return
+    moved = oracle_cache.moved_note(dict(keys), keys_now)
+    if moved is None:
+        for config in conform.ACCEPTANCE_CONFIGS:
+            moved = oracle_cache.moved_note(stamps[config].labels, stamps_now[config].labels)
+            if moved is not None:
+                moved = f"{config} {moved}"
+                break
+    if moved is not None:
+        print(
+            f"oracle row cache: not written — its inputs moved while the oracle ran ({moved}), so nothing it derived describes what is on disk",
+            flush=True,
+        )
+        return
+    promoted = oracle_cache.promote_stores(scratch, out_dir, conform.ACCEPTANCE_CONFIGS)
+    if promoted:
+        print(f"oracle row cache: written for {', '.join(promoted)}", flush=True)
+    else:
+        print("oracle row cache: not written — a configuration staged no store", flush=True)
+
+
+def oracle_row_cache_keys(
+    spec: ResolvedSpec, out_dir: Path
+) -> tuple[dict[str, str], dict[str, oracle_cache.EnvironmentStamp]]:
+    """The oracle row cache's two keys as one read of the sources behind them: a digest per rune family, and a whole-store stamp per acceptance configuration. Cut once here and cut again at promotion, which is the only way the run can tell that what it recorded is what it built from."""
+    keys = oracle_cache.family_keys(REPO_ROOT, spec, ALIAS_YAML)
+    stamps = {
+        config: oracle_cache.environment_stamp(
+            REPO_ROOT,
+            spec,
+            config,
+            conform.features_for_config(config),
+            out_dir / f"baseline-{config}.subset.tsv.gz",
+            ALIAS_YAML,
+            keys.keys(),
+        )
+        for config in conform.ACCEPTANCE_CONFIGS
+    }
+    return keys, stamps
+
+
+def _report_oracle_cache(
+    out_dir: Path, keys: Mapping[str, str], stamps: Mapping[str, oracle_cache.EnvironmentStamp]
+) -> None:
+    """Say, before the fan-out, what the stores on disk will and will not answer — because the hit rate here is bimodal and a whole-store drop looks exactly like a bug when nothing names the line that caused it. A stamp line that moved (a pipeline module, a predicate class gaining a member, the engine's semantics flags) drops every row of every configuration; a family key that moved re-derives only the rows that can reach it, which is the ordinary shape of a rune edit."""
+    recorded = oracle_cache.read_header(oracle_cache.store_path(out_dir, conform.ACCEPTANCE_CONFIGS[0]))
+    if recorded is None:
+        print("oracle row cache: no store on disk — this pass derives every row and writes one", flush=True)
+        return
+    stamp = stamps[conform.ACCEPTANCE_CONFIGS[0]]
+    stored_lines = {
+        label: digest
+        for label, _, digest in (str(line).partition("\t") for line in recorded.get("environment") or ())
+    }
+    moved_stamp = oracle_cache.moved_note(stored_lines, stamp.labels)
+    if moved_stamp is not None:
+        print(f"oracle row cache: dropped — the stamp moved at {moved_stamp}", flush=True)
+        return
+    stored_keys = {str(name): str(value) for name, value in (recorded.get("family_keys") or {}).items()}
+    moved_keys = oracle_cache.moved_note(stored_keys, dict(keys))
+    if moved_keys is None:
+        print("oracle row cache: the stamp and every family key still stand", flush=True)
+    else:
+        print(f"oracle row cache: re-deriving the rows that reach {moved_keys}", flush=True)
+
+
+def run_oracle(
+    out_dir: Path = OUT_DIR,
+    spec: ResolvedSpec | None = None,
+    jobs: int = 1,
+    write_cache: bool = True,
+    fresh_cache: bool = False,
+) -> dict:
+    """The section 6 oracle over the subset tables, six configurations wide, with the row cache read before the first row and written after the last.
+
+    The cache's keys are cut once here, from the same read of the rune tree that produced this `spec`, and handed to the workers — and then cut a second time at promotion, where a store is written only if neither the stamp nor a single family key moved while the run held them. That second cut is the point: `fingerprint.rune_digests` reads the rune files off disk, a full run takes minutes, and the house style is to detach a long run and keep editing — so a rune touched mid-run would otherwise be recorded under a digest the verdicts on disk were never built from, and the next pass would serve pre-edit verdicts as fresh, green, forever. `_settle_green`'s recompute-before-recording and `artifact_cycle`'s green keys are the same discipline for the same reason.
+
+    Cutting those keys is itself allowed to fail without taking the gate down with it. `alias_family_digests` refuses an alias head no rune digest stands behind, and the alias map is exactly the sort of hand-edited file that arrives one typo away from unreadable — so a key that will not cut leaves this pass with no cache at all: every row derived, no store written, the gate doing what it did before there was a cache. Whether a ledger can be re-adjudicated must never turn on whether a file the comparison does not read parses.
+
+    Staging lives inside this run's pid-named audit scratch, so a killed run's stores are swept by `discard_oracle_audit_scratch` exactly as its shards are, and two oracles sharing an `out_dir` — a `--gates-only` pass beside a cycle — can neither read nor promote over one another. Promotion happens only after `join_oracle_audit` has accepted the audit: a store describing an audit that was never written is worse than no store.
+    """
     if spec is None:
         spec = load_default_spec()
     for config in ("ss06", "ss07", "ss06+ss07"):
         conform.assert_subset_identity(out_dir, config)
     conform.discard_oracle_audit_scratch(out_dir)
-    if jobs > 1:
-        collected: dict[str, conform.OracleConfigResult] = {}
-        scratch = conform.oracle_audit_scratch(out_dir)
-        try:
+    if fresh_cache and write_cache:
+        oracle_cache.discard_stores(out_dir, conform.ACCEPTANCE_CONFIGS)
+    scratch = conform.oracle_audit_scratch(out_dir)
+    keys: dict[str, str] | None = None
+    stamps: dict[str, oracle_cache.EnvironmentStamp] | None = None
+    row_cache: conform.OracleRowCache | None = None
+    try:
+        keys, stamps = oracle_row_cache_keys(spec, out_dir)
+    except (OSError, ValueError, yaml.YAMLError) as error:
+        print(
+            f"oracle row cache: unavailable for this pass — its keys would not cut ({error}); every row is derived and no store is written",
+            flush=True,
+        )
+    else:
+        if fresh_cache:
+            print("oracle row cache: distrusted for this pass — every row is derived", flush=True)
+        else:
+            _report_oracle_cache(out_dir, keys, stamps)
+        row_cache = conform.OracleRowCache(
+            environment=stamps,
+            family_keys=keys,
+            read_dir=None if fresh_cache else out_dir,
+            write_dir=scratch if write_cache else None,
+            rotation=0 if write_cache else int(time.time()),
+        )
+    try:
+        if jobs > 1:
+            collected: dict[str, conform.OracleConfigResult] = {}
             with _spawn_pool(jobs) as pool:
                 futures = {
                     pool.submit(
@@ -448,6 +565,7 @@ def run_oracle(out_dir: Path = OUT_DIR, spec: ResolvedSpec | None = None, jobs: 
                         out_dir / "M1.otf",
                         KERN_SIDECAR_YAML,
                         audit_dir=scratch,
+                        row_cache=row_cache,
                     ): config
                     for config in conform.ACCEPTANCE_CONFIGS
                 }
@@ -457,18 +575,21 @@ def run_oracle(out_dir: Path = OUT_DIR, spec: ResolvedSpec | None = None, jobs: 
             ordered = [collected[config] for config in conform.ACCEPTANCE_CONFIGS]
             report = conform.merge_oracle_results(ordered)
             conform.join_oracle_audit(out_dir, scratch, conform.ACCEPTANCE_CONFIGS, report.divergent_rows)
-        finally:
-            conform.discard_oracle_audit_scratch(out_dir)
-    else:
-        report = conform.compare_against_baseline(
-            spec,
-            out_dir,
-            ALIAS_YAML,
-            DIVERGENCES_YAML,
-            out_dir=out_dir,
-            font_path=out_dir / "M1.otf",
-            kern_sidecar_path=KERN_SIDECAR_YAML,
-        )
+        else:
+            report = conform.compare_against_baseline(
+                spec,
+                out_dir,
+                ALIAS_YAML,
+                DIVERGENCES_YAML,
+                out_dir=out_dir,
+                font_path=out_dir / "M1.otf",
+                kern_sidecar_path=KERN_SIDECAR_YAML,
+                row_cache=row_cache,
+            )
+        if write_cache and keys is not None and stamps is not None:
+            _promote_oracle_row_cache(spec, out_dir, scratch, keys, stamps)
+    finally:
+        conform.discard_oracle_audit_scratch(out_dir)
     summary = {
         "rows_compared": report.rows_compared,
         "divergent_rows": report.divergent_rows,
@@ -489,8 +610,8 @@ def run_oracle(out_dir: Path = OUT_DIR, spec: ResolvedSpec | None = None, jobs: 
     return summary
 
 
-def run_gates_only(out_dir: Path = OUT_DIR, jobs: int = 1) -> None:
-    """The two post-build gates over artifacts already on disk: the Manual-pin replay and the oracle, rewriting their summaries and `divergence-audit.tsv` without recompiling anything. What licenses the reuse is the stamp the build left on its serialized enumerations — it names the sources those tables came from, so a stamp that still matches the runes on disk says the M1.otf beside them is the font those runes describe, and a stamp that does not is a refusal rather than a silent sweep of a stale binary. Because that stamp names only what the fixpoint reads, an edit to the divergence ledger or the alias map passes it and re-adjudicates here rather than being turned away; an edit to the classifier that reads them still moves it, conform.py being pipeline code. This still writes no green record: run_m1's green covers the whole build, a pass that recompiled nothing has not earned it, and the ledger and the alias map both stay in the key that green is taken over."""
+def run_gates_only(out_dir: Path = OUT_DIR, jobs: int = 1, fresh_cache: bool = False) -> None:
+    """The two post-build gates over artifacts already on disk: the Manual-pin replay and the oracle, rewriting their summaries and `divergence-audit.tsv` without recompiling anything. What licenses the reuse is the stamp the build left on its serialized enumerations — it names the sources those tables came from, so a stamp that still matches the runes on disk says the M1.otf beside them is the font those runes describe, and a stamp that does not is a refusal rather than a silent sweep of a stale binary. Because that stamp names only what the fixpoint reads, an edit to the divergence ledger or the alias map passes it and re-adjudicates here rather than being turned away; an edit to the classifier that reads them still moves it, conform.py being pipeline code. This still writes no green record: run_m1's green covers the whole build, a pass that recompiled nothing has not earned it, and the ledger and the alias map both stay in the key that green is taken over. For the same reason it opens the oracle row cache read-only — a pass that may not record a green may not record a build input either, and the store one of these passes would write is a store no build ever produced. It reads one gladly, which is the whole point: a ledger edit moves no family key and no stamp line, so every row is served and the re-adjudication costs seconds. Recording no ordinal has one further consequence worth naming: the store's renewal slice and its verification sample both advance on the pass a store records, so these passes rotate them on the clock instead — a re-adjudication loop that re-proved one frozen twentieth of the table every time would be no guard at all. `--fresh-oracle-cache` here declines the read rather than taking the stores off disk, since deleting a build input is a write like any other. What passes the stamp without being re-adjudicated here is `rebuild/m1-contact-allow.yaml`: the defect gate is the only stage that reads it and the defect gate belongs to the build, so an edit to it reaches `defects_summary.json` through a full run and no other way."""
     inputs = tables_inputs()
     font_path = out_dir / "M1.otf"
     if serialized_tables(out_dir, inputs) is None:
@@ -512,7 +633,7 @@ def run_gates_only(out_dir: Path = OUT_DIR, jobs: int = 1) -> None:
         raise SystemExit(f"{pin_failure}; see manual_pins_summary.json")
 
     start = time.perf_counter()
-    oracle = run_oracle(out_dir=out_dir, spec=spec, jobs=jobs)
+    oracle = run_oracle(out_dir=out_dir, spec=spec, jobs=jobs, write_cache=False, fresh_cache=fresh_cache)
     print(f"[t] run_oracle {time.perf_counter() - start:.1f}s", flush=True)
     print(json.dumps(oracle, indent=2))
     if not oracle["pass"]:
@@ -560,6 +681,11 @@ def main(argv: list[str] | None = None) -> None:
         help="re-run the Manual-pin gate and the oracle against the M1.otf and tables already on disk, rewriting their summaries and divergence-audit.tsv; refuses when those tables were built from other sources than the ones on disk",
     )
     parser.add_argument(
+        "--fresh-oracle-cache",
+        action="store_true",
+        help="derive every row rather than serving any from the oracle's per-row verdict stores, and write fresh ones over them; under --gates-only, which may not write a build input, it declines to read the stores and leaves them where they are",
+    )
+    parser.add_argument(
         "--conform-horizon",
         type=int,
         default=4,
@@ -575,7 +701,7 @@ def main(argv: list[str] | None = None) -> None:
     jobs = args.jobs if args.jobs and args.jobs > 1 else 1
 
     if args.gates_only:
-        run_gates_only(out_dir=OUT_DIR, jobs=jobs)
+        run_gates_only(out_dir=OUT_DIR, jobs=jobs, fresh_cache=args.fresh_oracle_cache)
         return
 
     if args.conform_only:
@@ -655,7 +781,7 @@ def main(argv: list[str] | None = None) -> None:
         if pin_failure is not None:
             raise SystemExit(f"{pin_failure}; see manual_pins_summary.json")
         start = time.perf_counter()
-        oracle = run_oracle(spec=spec, jobs=jobs)
+        oracle = run_oracle(spec=spec, jobs=jobs, fresh_cache=args.fresh_oracle_cache)
         print(f"[t] run_oracle {time.perf_counter() - start:.1f}s", flush=True)
         print(json.dumps(oracle, indent=2))
     except (SystemExit, readback.ReadbackError, emit_gsub.EmitError) as error:

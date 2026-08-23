@@ -150,17 +150,6 @@ def after_font_glyph_digests(after_font: Path) -> tuple[dict[str, str], str]:
     return family_digests, helpers
 
 
-def _capability_features(spec: ResolvedSpec) -> list[str]:
-    return sorted(
-        {
-            unlock.feature
-            for rune in spec.runes.values()
-            for stance in rune.stances.values()
-            for unlock in stance.surface.unlocks
-        }
-    )
-
-
 def environment_stamp(
     repo_root: Path,
     spec: ResolvedSpec,
@@ -187,7 +176,7 @@ def environment_stamp(
         "data\t" + hashlib.sha256("\n".join(data_lines).encode()).hexdigest(),
         "settlement_flags\t" + json.dumps(kernel_exec.settlement_flags()),
         f"spec_structure\t{spec_load.spec_structure_digest(spec)}",
-        "capability_features\t" + json.dumps(_capability_features(spec)),
+        "capability_features\t" + json.dumps(spec_load.capability_features(spec)),
         f"before_font\t{_sha256_file(Path(before_font))}",
         f"junior_font\t{_sha256_file(Path(junior_font))}",
         "subsets\t"

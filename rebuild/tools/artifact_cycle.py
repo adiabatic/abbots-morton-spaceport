@@ -326,6 +326,31 @@ def moved_inputs_note(record: dict | None, current: dict[str, str], limit: int =
     return f"{shown} and {len(moved) - limit} more" if len(moved) > limit else shown
 
 
+def oracle_cache_note(moved: str | None, root: Path = ROOT) -> str | None:
+    """What the inputs a run_m1 skip-miss just named will cost the oracle's per-row verdict store, which is the other thing that note is predicting. The store invalidates at two grains and they look nothing alike in the timings: a rune file moves one family key and re-derives only the rows that can reach that letter, while anything in the comparison's own code closure — or any other input the whole-store stamp folds — drops every row of every configuration. Naming the second one is the point, because a zero-served oracle after a legitimate class-membership or pipeline edit is the expected outcome and would otherwise read as a broken cache. Both sides of the comparison are repo-relative labels, the form `moved_inputs_note` reports in: matched against basenames this answers nothing at all, and answers it silently. The rune verdict is withheld when the note was truncated, since the inputs it did not list could be anything."""
+    if not moved:
+        return None
+    from rebuild.pipeline import fingerprint, oracle_cache
+
+    def label(path: Path) -> str:
+        try:
+            return path.resolve().relative_to(Path(root).resolve()).as_posix()
+        except ValueError:
+            return path.name
+
+    stamped = set(oracle_cache.ORACLE_ROW_CODE_PATHS)
+    stamped |= {label(path) for path in oracle_cache.oracle_code_paths(root)}
+    stamped |= {label(path) for path in oracle_cache.stamped_data_paths(root)}
+    runes = {label(path) for path in fingerprint.rune_paths(root)}
+    names = [entry.rsplit(" (", 1)[0] for entry in moved.split(", ")]
+    whole_store = sorted({name for name in names if name in stamped})
+    if whole_store:
+        return f"the oracle row cache drops whole: {', '.join(whole_store)} is inside its stamp"
+    if not moved.endswith(" more") and names and all(name in runes for name in names):
+        return "the oracle row cache re-derives only the rows reaching those runes"
+    return None
+
+
 def m1_artifacts_present(root: Path = ROOT) -> bool:
     """Whether rebuild/out/m1 still holds everything a skipped run_m1 must leave behind: the three gate summaries and the artifacts the surface build consumes."""
     m1 = root / "rebuild" / "out" / "m1"
@@ -895,6 +920,8 @@ def build_plan(
         if sweep_jobs > 1:
             run_m1_argv += ["--jobs", str(sweep_jobs)]
         run_m1_argv += ["--kernel-threads", str(kernel_threads)]
+        if fresh:
+            run_m1_argv += ["--fresh-oracle-cache"]
         plan.steps.append(Step("run_m1", run_m1_argv, lane="build"))
 
     if skip_surface:
@@ -2596,6 +2623,9 @@ def main(argv: list[str] | None = None) -> int:
             note = moved_inputs_note(green, run_m1_skip_files(ROOT))
             if note is not None:
                 print(f"run_m1 will rebuild — inputs moved since its last green: {note}")
+                cache_note = oracle_cache_note(note)
+                if cache_note is not None:
+                    print(f"  {cache_note}")
     if skip_run_m1:
         if args.review_out is None and not first_run and surface_build_skippable(ROOT):
             skip_surface = True
