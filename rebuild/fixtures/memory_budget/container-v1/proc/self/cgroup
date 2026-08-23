@@ -1,0 +1,5 @@
+11:devices:/docker/3a7ecb1f9d2e
+9:memory:/docker/3a7ecb1f9d2e
+4:cpu,cpuacct:/docker/3a7ecb1f9d2e
+2:pids:/docker/3a7ecb1f9d2e
+1:name=systemd:/docker/3a7ecb1f9d2e
