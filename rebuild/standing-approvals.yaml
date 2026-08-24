@@ -55,3 +55,33 @@ rules:
         pivots: [qsSee.straighter, qsSee.straightest]
         slide: -1
       except_left: []
+  - id: jai-exit-extension-dropped
+    verdict: approve
+    note: "·Vie, ·See, ·No and ·Low sit a pixel closer to ·J’ai — the exit extension the old font drew before them came off ·J’ai’s extend record at the qsJai batch, and the tighter seam was approved in every window that reached a sitting"
+    match:
+      before:
+        pivot: qsJai
+        exit_extension: ex-ext-1
+        seam_out: y0
+        follower: [qsVie, qsVie_qsUtter, qsSee, qsNo, qsLow]
+      after:
+        pivot_cells:
+          - qsJai/hapax/None/baseline/
+          - qsJai/hapax/x-height/baseline/
+          - qsJai/hapax/x-height/baseline/en-con-1
+          - qsJai/hapax/x-height/baseline/en-con-2
+        follower_cells:
+          - qsVie/normal/baseline/None/
+          - qsVie/swept-out/baseline/baseline/
+          - qsVie_qsUtter/hapax/baseline/None/
+          - qsVie_qsUtter/hapax/baseline/x-height/
+          - qsVie_qsUtter/hapax/baseline/x-height/ex-ext-1
+          - qsSee/normal/baseline/None/
+          - qsSee/normal/baseline/top/
+          - qsSee/curled-over/baseline/y6/
+          - qsNo/flipped/baseline/None/
+          - qsNo/flipped/baseline/baseline/
+          - qsLow/hapax/baseline/None/
+          - qsLow/hapax/baseline/x-height/
+          - qsLow/hapax/baseline/x-height/ex-ext-1
+      except_left: []

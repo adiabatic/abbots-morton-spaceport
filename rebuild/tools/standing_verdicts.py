@@ -1,4 +1,4 @@
-"""Apply the checked-in standing approvals (rebuild/standing-approvals.yaml) to the live review surface: for every rule, find the blank human units whose before→after delta matches the rule's pattern and emit fill records for them into an importable verdicts file. Four delta shapes are expressible, and a rule declares exactly one of them — which one is keyed by the field its `match.after` carries. The `ligature` shape is a pivot letter whose backward join drops as it ligates with its follower; it holds the seams flanking the delta fixed. The `follower_cells` shape is a pivot letter that gives up a named exit extension: the two sides must line up letter for letter over an identical seam vector, the pivot and the follower must settle into cells the rule names in full — rune, stance, entry, exit and the whole adjustment set — and the unit's own primary judged adjacency must be exactly that pivot–follower seam with no secondary seam anywhere else in the window. That last requirement is the load-bearing one, because an unchanged seam vector is not unchanged ink: a window can hold every seam still and be asking about a different letter's stroke entirely, and only the surface's own judgment fields say which letter the unit is about. The `ink_deltas` shape works from the opposite end and is ink-exact rather than structural: it names the surface's own per-config localized ink-delta digests (rebuild/review/ink.py's `delta_digest`, persisted on every unit), so a unit matches only when the window's entire before→after ink change, under every config it diverges on, is byte-identical to a blessed delta — every structural difference the unit still carries is then name-grain only, and any extra ink anywhere fails the match closed. The `slide` shape judges the rendered pixels rather than either grain of names: it re-shapes the window in the surface's own font pair and matches when the whole visible change is its named pivot letter and everything after it sliding by a declared column count — which is what lets it survive a union-invisible name-grain re-spelling riding along in the same window, the composition that mints a fresh whole-window digest and orphans an ink-delta rule. Each shape's own docstring states exactly what it proves, and none claims to bound the window beyond that. Any rule's `except_left` family, met anywhere in the window, refuses the whole unit rather than the one position, so a guarded context can never ride along beside an unguarded one. This is the zero-touch sibling of echo_verdicts.py: echo fill extends the user's past verdicts to pixel-identical lookalikes, while a standing rule extends a recorded once-and-for-all decision to instances the user has never seen (new left letters minted by later migrations), so those units never queue. The guard list is the point of authoring a guarded rule at all: a rule's except_left families are held for review, so the one context the user does want to see still reaches the docket. Records are stamped with the manifest's generated_at, so any human verdict beats a standing fill on merge, and a parked unit (a skip verdict) is not blank and is never filled. The artifact cycle runs this after the echo fill, with a merge_verdicts pass to land the file."""
+"""Apply the checked-in standing approvals (rebuild/standing-approvals.yaml) to the live review surface: for every rule, find the blank human units whose before→after delta matches the rule's pattern and emit fill records for them into an importable verdicts file. Four delta shapes are expressible, and a rule declares exactly one of them — which one is keyed by the field its `match.after` carries. The `ligature` shape is a pivot letter whose backward join drops as it ligates with its follower; it holds the seams flanking the delta fixed. The `follower_cells` shape is a pivot letter that gives up a named exit extension: the two sides must line up letter for letter over an identical seam vector, the follower must be one of the families the rule names, the pivot and the follower must settle into cells the rule names in full — rune, stance, entry, exit and the whole adjustment set — and the unit's own primary judged adjacency must be exactly that pivot–follower seam with no secondary seam anywhere else in the window. That last requirement is the load-bearing one, because an unchanged seam vector is not unchanged ink: a window can hold every seam still and be asking about a different letter's stroke entirely, and only the surface's own judgment fields say which letter the unit is about. The `ink_deltas` shape works from the opposite end and is ink-exact rather than structural: it names the surface's own per-config localized ink-delta digests (rebuild/review/ink.py's `delta_digest`, persisted on every unit), so a unit matches only when the window's entire before→after ink change, under every config it diverges on, is byte-identical to a blessed delta — every structural difference the unit still carries is then name-grain only, and any extra ink anywhere fails the match closed. The `slide` shape judges the rendered pixels rather than either grain of names: it re-shapes the window in the surface's own font pair and matches when the whole visible change is its named pivot letter and everything after it sliding by a declared column count — which is what lets it survive a union-invisible name-grain re-spelling riding along in the same window, the composition that mints a fresh whole-window digest and orphans an ink-delta rule. Each shape's own docstring states exactly what it proves, and none claims to bound the window beyond that. Any rule's `except_left` family, met anywhere in the window, refuses the whole unit rather than the one position, so a guarded context can never ride along beside an unguarded one. This is the zero-touch sibling of echo_verdicts.py: echo fill extends the user's past verdicts to pixel-identical lookalikes, while a standing rule extends a recorded once-and-for-all decision to instances the user has never seen (new left letters minted by later migrations), so those units never queue. The guard list is the point of authoring a guarded rule at all: a rule's except_left families are held for review, so the one context the user does want to see still reaches the docket. Records are stamped with the manifest's generated_at, so any human verdict beats a standing fill on merge, and a parked unit (a skip verdict) is not blank and is never filled. The artifact cycle runs this after the echo fill, with a merge_verdicts pass to land the file."""
 
 import argparse
 import json
@@ -70,6 +70,11 @@ def _is_cell(token):
     return len(parts) == CELL_FIELDS and all(parts[:4])
 
 
+def _families(value):
+    """A rule field that names families: one family name, or a list of them, read as the list either way."""
+    return list(value) if isinstance(value, list) else [value]
+
+
 def _components(name):
     """How many input codepoints a glyph or cell name covers, counting a ligature's underscore-joined members."""
     return name.count("_") + 1
@@ -112,13 +117,14 @@ def _matches_ligature(match, unit, excluded, context=None):
 
 
 def _matches_extension(match, unit, excluded, context=None):
-    """A pivot letter that gives up the named exit extension into a seam that holds its named height, with the whole seam vector standing still and the pivot and follower settling into cells the rule names in full. Naming the cells in full is what makes the delta exact: rune, stance, entry and exit pin the bitmap binding on both sides of the seam, and the whole adjustment set pins what the pivot is left carrying, so an extension traded for a shorter one is never read as an extension dropped. Because an unchanged seam vector says nothing about ink elsewhere, localization is taken from the surface's own judgment fields rather than inferred: the unit's primary judged adjacency must be exactly this pivot–follower seam, and any window carrying a secondary seam is visibly asking about somewhere else too and is refused outright. Nothing ligates here — that is enforced, not assumed — which is also why the follower's whole name is the right thing to compare against: a ligature in that slot breaks the letter-for-letter requirement and never reaches this loop. A word-initial pivot has no left neighbor and so nothing for except_left to hold."""
+    """A pivot letter that gives up the named exit extension into a seam that holds its named height, with the whole seam vector standing still, the follower drawn from the families the rule names, and the pivot and follower settling into cells the rule names in full. Naming the cells in full is what makes the delta exact: rune, stance, entry and exit pin the bitmap binding on both sides of the seam, and the whole adjustment set pins what the pivot is left carrying, so an extension traded for a shorter one is never read as an extension dropped. Because an unchanged seam vector says nothing about ink elsewhere, localization is taken from the surface's own judgment fields rather than inferred: the unit's primary judged adjacency must be exactly this pivot–follower seam, and any window carrying a secondary seam is visibly asking about somewhere else too and is refused outright. Nothing ligates here — that is enforced, not assumed — which is also why the follower's whole name is the right thing to compare against: a ligature in that slot breaks the letter-for-letter requirement and never reaches this loop. The follower's after cell must be that same family's, so a rule naming several followers can never read one family's cell as standing in for another's. A word-initial pivot has no left neighbor and so nothing for except_left to hold."""
     glyphs, seams = unit["before"]["glyphs"], unit["before"]["seams"]
     cells, after_seams = unit["after"]["cells"], unit["after"]["seams"]
     mb, ma = match["before"], match["after"]
     if seams != after_seams or not _letter_for_letter(unit):
         return False
     extension = mb["exit_extension"]
+    followers = _families(mb["follower"])
     hits = [
         i
         for i in range(len(glyphs) - 1)
@@ -126,8 +132,9 @@ def _matches_extension(match, unit, excluded, context=None):
         and extension in _modifiers(glyphs[i])
         and seams[i] == mb["seam_out"]
         and cells[i] in ma["pivot_cells"]
-        and _family(glyphs[i + 1]) == mb["follower"]
+        and _family(glyphs[i + 1]) in followers
         and cells[i + 1] in ma["follower_cells"]
+        and _cell_rune(cells[i + 1]) == _family(glyphs[i + 1])
     ]
     if any(i and _joining_family(glyphs[i - 1]) in excluded for i in hits):
         return False
@@ -159,7 +166,7 @@ def _validate_ink_delta(rule_id, match) -> None:
 
 
 def _validate_extension(rule_id, match) -> None:
-    """The extension shape's own coherence, checked once at load so a rule can never quietly mean something else: the named extension has to be an exit-side one, since an entry-side token would pin the seam on the far side of the pivot from the `seam_out` the rule names; the cells have to belong to the letters the rule names; and no pivot cell may still carry an exit extension, because this shape speaks for an extension that is gone and never for one traded in for a shorter one."""
+    """The extension shape's own coherence, checked once at load so a rule can never quietly mean something else: the named extension has to be an exit-side one, since an entry-side token would pin the seam on the far side of the pivot from the `seam_out` the rule names; the cells have to belong to the letters the rule names — the pivot's family, and one of the follower families — and no pivot cell may still carry an exit extension, because this shape speaks for an extension that is gone and never for one traded in for a shorter one."""
     extension = match["before"]["exit_extension"]
     if not EXIT_EXTENSION.fullmatch(extension):
         _fail(
@@ -167,13 +174,16 @@ def _validate_extension(rule_id, match) -> None:
             "extension (ex-ext-N); an entry-side token would pin the seam on the other side of the pivot"
         )
     named = (
-        ("pivot_cells", _family(match["before"]["pivot"])),
-        ("follower_cells", match["before"]["follower"]),
+        ("pivot_cells", [_family(match["before"]["pivot"])]),
+        ("follower_cells", _families(match["before"]["follower"])),
     )
-    for field, rune in named:
+    for field, runes in named:
         for cell in match["after"][field]:
-            if _cell_rune(cell) != rune:
-                _fail(f"rule {rule_id!r}: match.after.{field} entry {cell!r} is not a {rune} cell")
+            if _cell_rune(cell) not in runes:
+                _fail(
+                    f"rule {rule_id!r}: match.after.{field} entry {cell!r} is not a cell of "
+                    f"{' or '.join(runes)}"
+                )
     for cell in match["after"]["pivot_cells"]:
         kept = [token for token in _cell_adjustments(cell) if EXIT_EXTENSION.fullmatch(token)]
         if kept:
@@ -295,7 +305,7 @@ class SlideContext:
 
 
 class Shape(NamedTuple):
-    """One expressible delta shape: the match.after field that declares it, the field names match.before and match.after must carry exactly (an empty tuple means the block itself must be absent), which of those fields are lists of cell strings, of delta digests, or of glyph-name prefixes — or integer column counts — rather than plain scalars, the matcher that reads a unit for it, and its own coherence check."""
+    """One expressible delta shape: the match.after field that declares it, the field names match.before and match.after must carry exactly (an empty tuple means the block itself must be absent), which of those fields are lists of cell strings, of delta digests, or of glyph-name prefixes — or integer column counts, or a family name that may also be a list of them — rather than plain scalars, the matcher that reads a unit for it, and its own coherence check."""
 
     keyed_by: str
     before: tuple[str, ...]
@@ -306,6 +316,7 @@ class Shape(NamedTuple):
     digest_lists: tuple[str, ...] = ()
     name_lists: tuple[str, ...] = ()
     int_fields: tuple[str, ...] = ()
+    family_fields: tuple[str, ...] = ()
 
 
 SHAPES = {
@@ -323,6 +334,7 @@ SHAPES = {
         cell_lists=("pivot_cells", "follower_cells"),
         matcher=_matches_extension,
         validate=_validate_extension,
+        family_fields=("follower",),
     ),
     "ink-delta": Shape(
         keyed_by="ink_deltas",
@@ -422,6 +434,17 @@ def load_rules(path) -> list:
                 elif field in shape.int_fields:
                     if not isinstance(value, int) or isinstance(value, bool):
                         _fail(f"rule {rule_id!r}: match.{block}.{field} must be an integer column count")
+                elif field in shape.family_fields:
+                    families = _families(value)
+                    if (
+                        not families
+                        or not all(isinstance(item, str) and item for item in families)
+                        or len(set(families)) != len(families)
+                    ):
+                        _fail(
+                            f"rule {rule_id!r}: match.{block}.{field} must be a family name or a "
+                            "nonempty list of distinct family names"
+                        )
                 elif not isinstance(value, str) or not value:
                     _fail(f"rule {rule_id!r}: match.{block}.{field} must be a nonempty string")
         if shape.validate is not None:

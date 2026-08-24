@@ -327,6 +327,63 @@ def test_a_different_follower_family_does_not_match():
     assert not sv._matches(EXT_RULE["match"], wrong)
 
 
+JAI_RULE = {
+    "id": "jai-exit-extension-dropped",
+    "verdict": "approve",
+    "note": "·Vie, ·See, ·No and ·Low sit a pixel closer to ·J’ai",
+    "match": {
+        "before": {
+            "pivot": "qsJai",
+            "exit_extension": "ex-ext-1",
+            "seam_out": "y0",
+            "follower": ["qsVie", "qsSee", "qsNo"],
+        },
+        "after": {
+            "pivot_cells": ["qsJai/hapax/None/baseline/"],
+            "follower_cells": [
+                "qsVie/normal/baseline/None/",
+                "qsSee/normal/baseline/None/",
+                "qsNo/flipped/baseline/None/",
+            ],
+        },
+        "except_left": [],
+    },
+}
+
+
+def jai_before(uid="u-16", follower="qsVie", follower_cell="qsVie/normal/baseline/None/"):
+    return unit(
+        uid,
+        ["qsOoze", "qsJai.en-y5.ex-y0.ex-ext-1", follower],
+        ["break", "y0"],
+        ["qsOoze/hapax/None/None/", "qsJai/hapax/None/baseline/", follower_cell],
+        ["break", "y0"],
+        pair={"left": 1, "right": 2},
+    )
+
+
+def test_a_follower_list_matches_any_family_it_names():
+    assert sv._matches(JAI_RULE["match"], jai_before())
+    assert sv._matches(
+        JAI_RULE["match"], jai_before(follower="qsSee", follower_cell="qsSee/normal/baseline/None/")
+    )
+    assert sv._matches(
+        JAI_RULE["match"],
+        jai_before(follower="qsNo.alt.en-y0.ex-y0", follower_cell="qsNo/flipped/baseline/None/"),
+    )
+
+
+def test_a_follower_outside_the_list_does_not_match():
+    assert not sv._matches(
+        JAI_RULE["match"], jai_before(follower="qsLow", follower_cell="qsLow/hapax/baseline/None/")
+    )
+
+
+def test_a_follower_cell_of_another_listed_family_does_not_stand_in():
+    crossed = jai_before(follower="qsSee", follower_cell="qsVie/normal/baseline/None/")
+    assert not sv._matches(JAI_RULE["match"], crossed)
+
+
 def test_a_before_side_follower_family_alone_defeats_the_match():
     wrong = tea_i()
     wrong["before"]["glyphs"][1] = "qsIt"
@@ -537,6 +594,25 @@ def test_checked_in_rules_file_loads():
     by_id = {rule["id"]: rule for rule in rules}
     assert by_id["tea-oy-ligature-break"]["match"]["except_left"] == ["qsOut"]
     assert by_id["tea-oy-ligature-break"]["verdict"] == "approve"
+    assert by_id["jai-exit-extension-dropped"]["match"]["before"]["follower"] == [
+        "qsVie",
+        "qsVie_qsUtter",
+        "qsSee",
+        "qsNo",
+        "qsLow",
+    ]
+
+
+def test_the_checked_in_jai_rule_reads_the_narrowed_seam_and_nothing_wider():
+    match = {rule["id"]: rule for rule in sv.load_rules(sv.RULES)}["jai-exit-extension-dropped"]["match"]
+    assert sv._matches(match, jai_before())
+    assert sv._matches(match, jai_before(follower="qsLow", follower_cell="qsLow/hapax/baseline/None/"))
+    kept = jai_before(follower="qsTea.en-y0", follower_cell="qsTea/full/baseline/None/")
+    assert not sv._matches(match, kept)
+    yielded = jai_before()
+    yielded["after"]["cells"][1] = "qsJai/hapax/None/None/"
+    yielded["after"]["seams"] = ["break", "break"]
+    assert not sv._matches(match, yielded)
 
 
 def test_the_checked_in_ligature_rule_reads_exactly_what_it_always_did():
@@ -613,7 +689,28 @@ def test_a_pivot_cell_still_carrying_an_exit_extension_is_refused_at_load(tmp_pa
 def test_a_cell_belonging_to_another_letter_is_refused_at_load(tmp_path):
     rule = json.loads(json.dumps(EXT_RULE))
     rule["match"]["after"]["follower_cells"] = ["qsIt/smaller-loop/baseline/None/"]
-    with pytest.raises(SystemExit, match="is not a qsI cell"):
+    with pytest.raises(SystemExit, match="is not a cell of qsI"):
+        sv.load_rules(_write_rules(tmp_path / "rules.yaml", [rule]))
+
+
+def test_a_follower_list_rule_loads_and_its_cells_are_held_to_the_list(tmp_path):
+    [rule] = sv.load_rules(_write_rules(tmp_path / "rules.yaml", [JAI_RULE]))
+    assert rule["match"]["before"]["follower"] == ["qsVie", "qsSee", "qsNo"]
+    strayed = json.loads(json.dumps(JAI_RULE))
+    strayed["match"]["after"]["follower_cells"].append("qsLow/hapax/baseline/None/")
+    with pytest.raises(SystemExit, match="is not a cell of qsVie or qsSee or qsNo"):
+        sv.load_rules(_write_rules(tmp_path / "rules.yaml", [strayed]))
+
+
+@pytest.mark.parametrize(
+    "follower",
+    [[], [""], ["qsVie", "qsVie"], ["qsVie", None], "", None, {"family": "qsVie"}],
+)
+def test_malformed_follower_lists_are_refused_at_load(tmp_path, follower):
+    rule = json.loads(json.dumps(JAI_RULE))
+    rule["match"]["before"]["follower"] = follower
+    rule["match"]["after"]["follower_cells"] = ["qsVie/normal/baseline/None/"]
+    with pytest.raises(SystemExit):
         sv.load_rules(_write_rules(tmp_path / "rules.yaml", [rule]))
 
 
