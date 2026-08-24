@@ -120,3 +120,13 @@ rules:
           - qsMay/loop/baseline/x-height/ex-ext-1
           - qsMay/loop/baseline/x-height/ex-ext-2
       except_left: []
+  - id: roe-baseline-bar-kept-after-it
+    verdict: approve
+    note: "The bottom of ·Roe sits a pixel closer to ·It — the hapax keeps the baseline bar the old font’s shortened-bottom x-height-entry-extended variant omitted; approved at the qsRoe sitting"
+    match:
+      before:
+        pivots: [qsRoe.en-ext-1-at-5]
+      after:
+        pivots: [qsRoe.hapax]
+        gained: [[1, 0]]
+      except_left: []
