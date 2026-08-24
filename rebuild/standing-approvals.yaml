@@ -101,3 +101,22 @@ rules:
           - qsTea/full/x-height/None/
           - qsTea/full/x-height/baseline/
       except_left: []
+  - id: et-may-exit-contracted
+    verdict: approve
+    note: "·May sits a pixel closer to ·Et — the extra pixel of exit the old font drew came off as a contraction on ·Et’s contract record, and every window that reached a sitting approved the shorter reach"
+    match:
+      before:
+        pivot: qsEt
+        exit_extension: ex-con-1
+        seam_out: y0
+        follower: qsMay
+      after:
+        pivot_cells:
+          - qsEt/hapax/None/baseline/ex-con-1
+          - qsEt/hapax/x-height/baseline/ex-con-1
+          - qsEt/hapax/x-height/baseline/en-ext-1+ex-con-1
+        follower_cells:
+          - qsMay/loop/baseline/None/
+          - qsMay/loop/baseline/x-height/ex-ext-1
+          - qsMay/loop/baseline/x-height/ex-ext-2
+      except_left: []

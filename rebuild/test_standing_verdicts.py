@@ -1,4 +1,4 @@
-"""Tests for the standing-approval fill: all four delta shapes — the two structural pattern matches, being the ligature shape (pivot glyph, seams into and out of it, follower family, post-ligature seam, flank-seam identity) and the extension-dropped shape (pivot glyph carrying the named exit extension, given up in whole or down to a shorter one its named after cell keeps, the seam it exits into holding its height, the full after-cell identity of pivot and follower, every other seam standing still, nothing ligating anywhere, and the unit's own judgment fields agreeing that this seam is the question), the ink-exact ink-delta shape (the unit's persisted per-config digests being a nonempty subset of the ones the rule blesses, so an ink-identical window matches nothing and one unlisted delta under one config fails the whole unit closed, and a surface predating the field refuses the run outright), and the rendered-pixel slide shape, whose preconditions are read off the index record before anything is shaped (a nonempty `ink_deltas` holding one distinct digest whose keys are exactly the unit's config set, and a pivot-prefix name among the recorded before glyphs) and whose geometry is then re-derived in a purpose-built font pair, where the pivot keeps its exact ink with its own-frame origin displaced by the declared column count and every span's union of ink slides cumulatively — so a union-invisible name-grain re-spelling to the pivot's right rides along, while one stray pixel anywhere in the window, or a font pair that never settles into the named pivot, fails the match closed — the composed reading that runs before all four and credits two or more rules for one window — its name-grain pre-gate refusing to shape a window fewer than two rules have a candidate in, its walk carrying a running column displacement across the window so that each span between events must render identically once displaced, its refusal of a redrawn follower, of a pivot contracting off the seam row, of a tail wider than the pivot gave up, and of two rules claiming one position, its judging of a failed candidate as ordinary span ink, its per-shape guard scopes, and its own reporting line, which `main` keeps clear of the per-rule lines — the except_left guard, which reads a ligature's trailing left component and refuses the whole unit rather than the one position, blankness against the verdicts file (parked skip verdicts are not blank), the non-winning manifest stamp on every emitted record, and rules-file validation, which admits exactly one shape per rule and checks that shape's own coherence."""
+"""Tests for the standing-approval fill: all four delta shapes — the two structural pattern matches, being the ligature shape (pivot glyph, seams into and out of it, follower family, post-ligature seam, flank-seam identity) and the extension-dropped shape (pivot glyph giving up a named stretch of exit — an `ex-ext-N` it carried, in whole or down to a shorter one its named after cell keeps, or an `ex-con-N` its named after cell carries when the before glyph never had an exit extension — the seam it exits into holding its height, the full after-cell identity of pivot and follower, every other seam standing still, nothing ligating anywhere, and the unit's own judgment fields agreeing that this seam is the question), the ink-exact ink-delta shape (the unit's persisted per-config digests being a nonempty subset of the ones the rule blesses, so an ink-identical window matches nothing and one unlisted delta under one config fails the whole unit closed, and a surface predating the field refuses the run outright), and the rendered-pixel slide shape, whose preconditions are read off the index record before anything is shaped (a nonempty `ink_deltas` holding one distinct digest whose keys are exactly the unit's config set, and a pivot-prefix name among the recorded before glyphs) and whose geometry is then re-derived in a purpose-built font pair, where the pivot keeps its exact ink with its own-frame origin displaced by the declared column count and every span's union of ink slides cumulatively — so a union-invisible name-grain re-spelling to the pivot's right rides along, while one stray pixel anywhere in the window, or a font pair that never settles into the named pivot, fails the match closed — the composed reading that runs before all four and credits two or more rules for one window — its name-grain pre-gate refusing to shape a window fewer than two rules have a candidate in, its walk carrying a running column displacement across the window so that each span between events must render identically once displaced, its refusal of a redrawn follower, of a pivot contracting off the seam row, of a tail wider than the pivot gave up, and of two rules claiming one position, its judging of a failed candidate as ordinary span ink, its per-shape guard scopes, and its own reporting line, which `main` keeps clear of the per-rule lines — the except_left guard, which reads a ligature's trailing left component and refuses the whole unit rather than the one position, blankness against the verdicts file (parked skip verdicts are not blank), the non-winning manifest stamp on every emitted record, and rules-file validation, which admits exactly one shape per rule and checks that shape's own coherence."""
 
 import json
 import pathlib
@@ -54,6 +54,33 @@ SHORTENED_RULE = {
         "after": {
             "pivot_cells": ["qsFee/loop/None/x-height/ex-ext-1"],
             "follower_cells": ["qsTea/full/x-height/None/", "qsTea/full/x-height/baseline/"],
+        },
+        "except_left": [],
+    },
+}
+
+CONTRACTED_RULE = {
+    "id": "et-may-exit-contracted",
+    "verdict": "approve",
+    "note": "·May sits a pixel closer to ·Et",
+    "match": {
+        "before": {
+            "pivot": "qsEt",
+            "exit_extension": "ex-con-1",
+            "seam_out": "y0",
+            "follower": "qsMay",
+        },
+        "after": {
+            "pivot_cells": [
+                "qsEt/hapax/None/baseline/ex-con-1",
+                "qsEt/hapax/x-height/baseline/ex-con-1",
+                "qsEt/hapax/x-height/baseline/en-ext-1+ex-con-1",
+            ],
+            "follower_cells": [
+                "qsMay/loop/baseline/None/",
+                "qsMay/loop/baseline/x-height/ex-ext-1",
+                "qsMay/loop/baseline/x-height/ex-ext-2",
+            ],
         },
         "except_left": [],
     },
@@ -357,6 +384,12 @@ def test_a_rule_naming_the_shorter_extension_the_pivot_keeps_reads_exactly_that_
     assert not sv._matches(SHORTENED_RULE["match"], kept)
 
 
+def test_a_contraction_rule_does_not_read_a_dropped_extension():
+    assert not sv._matches(CONTRACTED_RULE["match"], tea_i())
+    assert not sv._matches(EXT_RULE["match"], et_may())
+    assert sv._matches(CONTRACTED_RULE["match"], et_may())
+
+
 def test_a_different_follower_family_does_not_match():
     wrong = tea_i()
     wrong["before"]["glyphs"][1] = "qsIt"
@@ -641,6 +674,57 @@ def test_checked_in_rules_file_loads():
     shortened = by_id["fee-tea-ss03-exit-extension-shortened"]["match"]
     assert shortened["before"]["exit_extension"] == "ex-ext-3"
     assert shortened["after"]["pivot_cells"] == ["qsFee/loop/None/x-height/ex-ext-1"]
+    contracted = by_id["et-may-exit-contracted"]["match"]
+    assert contracted["before"]["exit_extension"] == "ex-con-1"
+    assert contracted["before"]["follower"] == "qsMay"
+    assert contracted["after"]["pivot_cells"] == [
+        "qsEt/hapax/None/baseline/ex-con-1",
+        "qsEt/hapax/x-height/baseline/ex-con-1",
+        "qsEt/hapax/x-height/baseline/en-ext-1+ex-con-1",
+    ]
+
+
+def et_may(
+    uid="u-18",
+    pivot="qsEt",
+    pivot_cell="qsEt/hapax/None/baseline/ex-con-1",
+    follower="qsMay.en-y0.ex-y5",
+    follower_cell="qsMay/loop/baseline/None/",
+):
+    return unit(
+        uid,
+        ["qsDay", pivot, follower, "qsDay"],
+        ["break", "y0", "y5"],
+        ["qsDay/full/None/None/", pivot_cell, follower_cell, "qsDay/full/x-height/None/"],
+        ["break", "y0", "y5"],
+        pair={"left": 1, "right": 2},
+    )
+
+
+def test_the_checked_in_et_may_rule_reads_the_contraction_and_nothing_wider():
+    match = {rule["id"]: rule for rule in sv.load_rules(sv.RULES)}["et-may-exit-contracted"]["match"]
+    assert sv._matches(match, et_may())
+    assert sv._matches(match, et_may(follower_cell="qsMay/loop/baseline/x-height/ex-ext-1"))
+    assert sv._matches(match, et_may(follower_cell="qsMay/loop/baseline/x-height/ex-ext-2"))
+    assert sv._matches(
+        match,
+        et_may(
+            pivot="qsEt.en-ext-1",
+            pivot_cell="qsEt/hapax/x-height/baseline/en-ext-1+ex-con-1",
+        ),
+    )
+    regrouped = et_may()
+    regrouped["secondary_seams"] = 1
+    assert not sv._matches(match, regrouped)
+    elsewhere = et_may()
+    elsewhere["pair"] = {"left": 0, "right": 1}
+    assert not sv._matches(match, elsewhere)
+    extended = et_may(pivot="qsEt.ex-ext-1")
+    assert not sv._matches(match, extended)
+    uncontracted = et_may(pivot_cell="qsEt/hapax/None/baseline/")
+    assert not sv._matches(match, uncontracted)
+    other_follower = et_may(follower="qsTea.en-y0", follower_cell="qsTea/full/baseline/None/")
+    assert not sv._matches(match, other_follower)
 
 
 def test_the_checked_in_fee_rule_reads_the_ss03_shortening_and_nothing_wider():
@@ -763,6 +847,23 @@ def test_a_pivot_cell_keeping_a_shorter_extension_loads(tmp_path):
     unshortened["match"]["after"]["pivot_cells"] = ["qsFee/loop/None/x-height/ex-ext-3"]
     with pytest.raises(SystemExit, match="keeps an exit extension of 3 columns against the 3"):
         sv.load_rules(_write_rules(tmp_path / "rules.yaml", [unshortened]))
+
+
+def test_a_contraction_rule_loads(tmp_path):
+    [rule] = sv.load_rules(_write_rules(tmp_path / "rules.yaml", [CONTRACTED_RULE]))
+    assert rule["match"]["before"]["exit_extension"] == "ex-con-1"
+    missing = json.loads(json.dumps(CONTRACTED_RULE))
+    missing["match"]["after"]["pivot_cells"] = ["qsEt/hapax/None/baseline/"]
+    with pytest.raises(SystemExit, match="carries an exit contraction of 0 columns against the 1"):
+        sv.load_rules(_write_rules(tmp_path / "rules.yaml", [missing]))
+    longer = json.loads(json.dumps(CONTRACTED_RULE))
+    longer["match"]["after"]["pivot_cells"] = ["qsEt/hapax/None/baseline/ex-con-2"]
+    with pytest.raises(SystemExit, match="carries an exit contraction of 2 columns against the 1"):
+        sv.load_rules(_write_rules(tmp_path / "rules.yaml", [longer]))
+    mixed = json.loads(json.dumps(CONTRACTED_RULE))
+    mixed["match"]["after"]["pivot_cells"] = ["qsEt/hapax/None/baseline/ex-ext-1+ex-con-1"]
+    with pytest.raises(SystemExit, match="still carries an exit extension"):
+        sv.load_rules(_write_rules(tmp_path / "rules.yaml", [mixed]))
 
 
 def test_a_cell_belonging_to_another_letter_is_refused_at_load(tmp_path):
@@ -924,6 +1025,7 @@ BEFORE_GLYPHS = {
     "qsJ.ex-y0.ex-ext-1.wide": (WIDE_TAIL_PIVOT, 150),
     "qsJ.ex-y0.ex-ext-1.crown": (CROWNED_PIVOT, 100),
     "qsJ.ex-y0.ex-ext-3.long": (LONG_TAIL_PIVOT, 200),
+    "qsEt": (EXTENDED_PIVOT, 100),
     "space": ((), 50),
 }
 AFTER_GLYPHS = {
@@ -938,6 +1040,7 @@ AFTER_GLYPHS = {
     "qsM": (TWO_COLUMNS, 100),
     "qsJ.hapax.ex-y0": (TRIMMED_PIVOT, 50),
     "qsJ.hapax.ex-y0.ex-ext-1": (EXTENDED_PIVOT, 100),
+    "qsEt.hapax": (TRIMMED_PIVOT, 50),
     "qsOther": (TWO_COLUMNS, 100),
     "space": ((), 50),
 }
@@ -958,6 +1061,7 @@ BEFORE_CMAP = {
     0xE00D: "qsSee.ex-y0.spare",
     0xE00E: "qsJ.ex-y0.ex-ext-3.long",
     0xE00F: "qsJ.ex-y0.ex-ext-3.long",
+    0xE010: "qsEt",
 }
 AFTER_CMAP = {
     0x0020: "space",
@@ -976,6 +1080,7 @@ AFTER_CMAP = {
     0xE00D: "qsSee.wandered",
     0xE00E: "qsJ.hapax.ex-y0.ex-ext-1",
     0xE00F: "qsJ.hapax.ex-y0",
+    0xE010: "qsEt.hapax",
 }
 
 SLIDE_FONTS = {
@@ -1707,6 +1812,51 @@ def test_a_slide_and_a_shortened_extension_in_one_window_compose(slide_context):
         SLIDE_RULE["id"]: [1],
         SHORTENED_EXT_RULE["id"]: [3],
     }
+
+
+CONTRACTED_EXT_RULE = {
+    "id": "et-exit-contracted",
+    "verdict": "approve",
+    "note": "the follower sits a pixel closer to ·Et",
+    "match": {
+        "before": {
+            "pivot": "qsEt",
+            "exit_extension": "ex-con-1",
+            "seam_out": "y0",
+            "follower": "qsF3",
+        },
+        "after": {
+            "pivot_cells": ["qsEt/hapax/None/None/ex-con-1"],
+            "follower_cells": ["qsF3/full/None/None/"],
+        },
+        "except_left": [],
+    },
+}
+
+
+def contracted_window(uid="c-con"):
+    window = slide_unit(
+        uid,
+        ["qsL", "qsSee.ex-y0", "qsM", "qsEt", "qsF3", "qsF1"],
+        "E001:E002:E008:E010:E007:E003",
+    )
+    window["after"]["cells"][3] = "qsEt/hapax/None/None/ex-con-1"
+    return window
+
+
+def test_a_slide_and_a_contraction_in_one_window_compose(slide_context):
+    assert sv._candidates(CONTRACTED_EXT_RULE["match"], contracted_window()) == [3]
+    assert sv._composed([SLIDE_RULE, CONTRACTED_EXT_RULE], contracted_window(), slide_context()) == {
+        SLIDE_RULE["id"]: [1],
+        CONTRACTED_EXT_RULE["id"]: [3],
+    }
+
+
+def test_a_contraction_rule_has_no_candidate_in_a_dropped_extension_window():
+    assert sv._candidates(CONTRACTED_EXT_RULE["match"], composed_window()) == []
+    dropped = contracted_window()
+    dropped["before"]["glyphs"][3] = "qsEt.ex-ext-1"
+    assert sv._candidates(CONTRACTED_EXT_RULE["match"], dropped) == []
 
 
 def test_a_rule_naming_a_kept_extension_never_composes_over_a_tail_dropped_whole(slide_context):

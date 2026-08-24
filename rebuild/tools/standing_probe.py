@@ -1,4 +1,4 @@
-"""Explain why a review-surface unit still queues, in the standing approvals' own terms, so the next once-and-for-all rule is written from evidence instead of rediscovered: for each unit named, print its two grains side by side — the recorded before glyphs and after cells with their seams, and the rendered pieces of both fonts with each piece's placement, own-frame origin and cell count, read as "same shape placed N columns over", "redrawn", or "inkless" — then say what every checked-in rule makes of it (matches, held by except_left, or nothing), whether the composed reading credits any rules and whether that credit reaches the two-rule threshold, and how many human units share exactly this unit's ink-delta digests and how they were verdicted, which is where the user's earlier decision usually turns out to be already recorded. `--extension-cells PIVOT TOKEN SEAM` answers the other question a new extension-dropped rule always asks — which pivot and follower cells it has to name in full — by enumerating every window on the surface where a PIVOT glyph carrying TOKEN exits at SEAM on both sides and settles into a cell without it or with a shorter one, with the follower's family, both after cells, and the verdict tally per pair. Read-only: nothing here writes to the surface or the store."""
+"""Explain why a review-surface unit still queues, in the standing approvals' own terms, so the next once-and-for-all rule is written from evidence instead of rediscovered: for each unit named, print its two grains side by side — the recorded before glyphs and after cells with their seams, and the rendered pieces of both fonts with each piece's placement, own-frame origin and cell count, read as "same shape placed N columns over", "redrawn", or "inkless" — then say what every checked-in rule makes of it (matches, held by except_left, or nothing), whether the composed reading credits any rules and whether that credit reaches the two-rule threshold, and how many human units share exactly this unit's ink-delta digests and how they were verdicted, which is where the user's earlier decision usually turns out to be already recorded. `--extension-cells PIVOT TOKEN SEAM` answers the other question a new extension-dropped rule always asks — which pivot and follower cells it has to name in full — by enumerating every window on the surface where a PIVOT glyph carrying TOKEN (an `ex-ext-N` on the before glyph, or an `ex-con-N` on the after cell whose before glyph never carried an exit extension) exits at SEAM on both sides and settles into a cell without the named extension or with a shorter one, or into a cell carrying the named contraction, with the follower's family, both after cells, and the verdict tally per pair. Read-only: nothing here writes to the surface or the store."""
 
 import argparse
 import collections
@@ -128,24 +128,34 @@ def _describe(unit, rules, context, records, families):
 
 def _extension_cells(units, records, pivot, token, seam):
     pairs: dict[tuple, collections.Counter] = collections.defaultdict(collections.Counter)
+    contracted = bool(sv.EXIT_CONTRACTION.fullmatch(token))
+    named = sv._extension_columns(token)
     for unit in units:
         if not sv._letter_for_letter(unit):
             continue
         glyphs, seams = unit["before"]["glyphs"], unit["before"]["seams"]
         cells, after_seams = unit["after"]["cells"], unit["after"]["seams"]
         for index in range(min(len(glyphs), len(cells), len(seams) + 1, len(after_seams) + 1) - 1):
-            if not (sv._is_pivot(glyphs[index], pivot) and token in sv._modifiers(glyphs[index])):
+            if not sv._is_pivot(glyphs[index], pivot):
                 continue
             if seams[index] != seam or after_seams[index] != seam:
                 continue
-            if sv._kept_extension(cells[index]) >= sv._extension_columns(token):
-                continue
+            if contracted:
+                if not sv._carries_named_drop(token, glyphs[index], cells[index]):
+                    continue
+            else:
+                if token not in sv._modifiers(glyphs[index]):
+                    continue
+                if sv._kept_extension(cells[index]) >= named:
+                    continue
             verdict = records[unit["id"]]["verdict"] if unit["id"] in records else "BLANK"
             pairs[(cells[index], sv._family(glyphs[index + 1]), cells[index + 1])][verdict] += 1
-    print(
-        f"windows where a {pivot} glyph carrying {token} exits at {seam} on both sides into a cell without it "
-        "or with a shorter one:"
+    drop = (
+        f"into a cell carrying {token} or a longer contraction"
+        if contracted
+        else "into a cell without it or with a shorter one"
     )
+    print(f"windows where a {pivot} glyph carrying {token} exits at {seam} on both sides {drop}:")
     for (pivot_cell, follower, follower_cell), tally in sorted(
         pairs.items(), key=lambda item: -sum(item[1].values())
     ):
@@ -165,7 +175,7 @@ def main(argv=None):
         "--extension-cells",
         nargs=3,
         metavar=("PIVOT", "TOKEN", "SEAM"),
-        help="enumerate the pivot and follower cells an extension-dropped rule for PIVOT giving up TOKEN at SEAM would have to name",
+        help="enumerate the pivot and follower cells an extension-dropped rule for PIVOT giving up TOKEN (ex-ext-N or ex-con-N) at SEAM would have to name",
     )
     args = parser.parse_args(argv)
     surface = pathlib.Path(args.surface)
