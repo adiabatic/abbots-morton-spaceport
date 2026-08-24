@@ -146,6 +146,29 @@ ENTRY_RULE = {
     },
 }
 
+RETARGET_RULE = {
+    "id": "tea-no-xheight-join-retargeted",
+    "verdict": "approve",
+    "note": "·Tea sits as the full bar joining ·No at the baseline",
+    "match": {
+        "before": {"pivot": "qsTea.half", "seam_out": "y5", "follower": "qsNo"},
+        "after": {
+            "retarget": "y0",
+            "pivot_cells": [
+                "qsTea/full/None/baseline/",
+                "qsTea/full/x-height/baseline/",
+                "qsTea/full/top/baseline/",
+            ],
+            "receiver_cells": [
+                "qsNo/flipped/baseline/None/",
+                "qsNo/flipped/baseline/baseline/",
+            ],
+            "shift": -1,
+        },
+        "except_left": [],
+    },
+}
+
 
 def unit(
     uid,
@@ -725,6 +748,19 @@ def test_checked_in_rules_file_loads():
     entry = by_id["see-low-entry-extension-dropped"]["match"]
     assert entry["before"]["pivots"] == ["qsLow.en-ext-1"]
     assert entry["after"] == {"pivots": ["qsLow.hapax"], "entry_drop": 1}
+    retargeted = by_id["tea-no-xheight-join-retargeted"]["match"]
+    assert retargeted["before"] == {"pivot": "qsTea.half", "seam_out": "y5", "follower": "qsNo"}
+    assert retargeted["after"]["retarget"] == "y0"
+    assert retargeted["after"]["shift"] == -1
+    assert retargeted["after"]["pivot_cells"] == [
+        "qsTea/full/None/baseline/",
+        "qsTea/full/x-height/baseline/",
+        "qsTea/full/top/baseline/",
+    ]
+    assert retargeted["after"]["receiver_cells"] == [
+        "qsNo/flipped/baseline/None/",
+        "qsNo/flipped/baseline/baseline/",
+    ]
 
 
 def et_may(
@@ -1023,11 +1059,11 @@ def test_both_shapes_load_from_one_rules_file(tmp_path):
     assert [rule["id"] for rule in rules] == [RULE["id"], EXT_RULE["id"]]
 
 
-def test_all_seven_shapes_load_from_one_rules_file(tmp_path):
+def test_all_eight_shapes_load_from_one_rules_file(tmp_path):
     rules = sv.load_rules(
         _write_rules(
             tmp_path / "rules.yaml",
-            [RULE, EXT_RULE, INK_RULE, SLIDE_RULE, GAIN_RULE, JOIN_RULE, ENTRY_RULE],
+            [RULE, EXT_RULE, INK_RULE, SLIDE_RULE, GAIN_RULE, JOIN_RULE, ENTRY_RULE, RETARGET_RULE],
         )
     )
     assert [rule["id"] for rule in rules] == [
@@ -1038,6 +1074,7 @@ def test_all_seven_shapes_load_from_one_rules_file(tmp_path):
         GAIN_RULE["id"],
         JOIN_RULE["id"],
         ENTRY_RULE["id"],
+        RETARGET_RULE["id"],
     ]
 
 
@@ -1088,6 +1125,8 @@ BEFORE_GLYPHS = {
     "qsAt": (TWO_COLUMNS, 100),
     "qsIt": (TWO_COLUMNS, 100),
     "qsLow.en-ext-1": (EXTENDED_ENTRY_LOW, 150),
+    "qsTea.half.ex-y5": ((_rect(0, 100, 100, 150),), 100),
+    "qsNo.en-ext-1": (TWO_COLUMNS, 100),
     "space": ((), 50),
 }
 AFTER_GLYPHS = {
@@ -1108,6 +1147,8 @@ AFTER_GLYPHS = {
     "qsAt": (TWO_COLUMNS, 150),
     "qsIt": (TWO_COLUMNS, 100),
     "qsLow.hapax": (TWO_COLUMNS, 100),
+    "qsTea": (TWO_COLUMNS, 100),
+    "qsNo": (TRIMMED_PIVOT, 50),
     "space": ((), 50),
 }
 BEFORE_CMAP = {
@@ -1132,6 +1173,8 @@ BEFORE_CMAP = {
     0xE021: "qsAt",
     0xE022: "qsIt",
     0xE023: "qsLow.en-ext-1",
+    0xE024: "qsTea.half.ex-y5",
+    0xE025: "qsNo.en-ext-1",
 }
 AFTER_CMAP = {
     0x0020: "space",
@@ -1155,6 +1198,8 @@ AFTER_CMAP = {
     0xE021: "qsAt",
     0xE022: "qsIt",
     0xE023: "qsLow.hapax",
+    0xE024: "qsTea",
+    0xE025: "qsNo",
 }
 
 SLIDE_FONTS = {
@@ -1192,6 +1237,11 @@ SLIDE_FONTS = {
     "after-low-unmoved": ({**AFTER_GLYPHS, "qsLow.hapax": (EXTENDED_ENTRY_LOW, 150)}, AFTER_CMAP),
     "after-low-unshifted": ({**AFTER_GLYPHS, "qsLow.hapax": (UNSHIFTED_ENTRY_LOW, 150)}, AFTER_CMAP),
     "after-low-extra-cell": ({**AFTER_GLYPHS, "qsLow.hapax": (EXTRA_CELL_LOW, 100)}, AFTER_CMAP),
+    "after-retarget-unmoved": ({**AFTER_GLYPHS, "qsNo": (TWO_COLUMNS, 100)}, AFTER_CMAP),
+    "after-retarget-moved-origin": (
+        {**AFTER_GLYPHS, "qsTea": (GROUNDED_SEE, 100)},
+        AFTER_CMAP,
+    ),
 }
 
 FOUNDING_GLYPHS = ["qsL", "qsSee.ex-y0", "qsF1", "qsF2"]
@@ -1670,6 +1720,8 @@ def test_the_join_dropped_shape_and_the_other_shapes_do_not_read_each_others_uni
     assert not sv._matches(EXT_RULE["match"], join_window(), context=context)
     assert not sv._matches(INK_RULE["match"], join_window())
     assert not sv._matches(GAIN_RULE["match"], join_window(), context=context)
+    assert not sv._matches(RETARGET_RULE["match"], join_window(), context=context)
+    assert not sv._matches(JOIN_RULE["match"], retarget_window(), context=context)
 
 
 def test_a_join_rule_loads(tmp_path):
@@ -1884,7 +1936,8 @@ def test_main_fills_all_three_shapes_from_one_rules_file(tmp_path, monkeypatch):
 
 def test_main_refuses_a_surface_that_predates_the_ink_delta_field(tmp_path, monkeypatch):
     with pytest.raises(
-        SystemExit, match="predates the ink-delta, slide, ink-gain, join-dropped, and entry-extension-dropped"
+        SystemExit,
+        match="predates the ink-delta, slide, ink-gain, join-dropped, entry-extension-dropped, and join-retargeted",
     ):
         _run_main(tmp_path, monkeypatch, [canonical("u-1")], [], rules_list=(RULE, INK_RULE))
 
@@ -2068,7 +2121,8 @@ def test_the_composed_memo_never_serves_one_rule_sets_ids_to_another(slide_conte
 
 def test_two_composable_rules_refuse_a_surface_that_predates_the_ink_delta_field(tmp_path, monkeypatch):
     with pytest.raises(
-        SystemExit, match="predates the ink-delta, slide, ink-gain, join-dropped, and entry-extension-dropped"
+        SystemExit,
+        match="predates the ink-delta, slide, ink-gain, join-dropped, entry-extension-dropped, and join-retargeted",
     ):
         _run_main(tmp_path, monkeypatch, [tea_i("u-1")], [], rules_list=(EXT_RULE, COMPOSED_EXT_RULE))
 
@@ -2807,6 +2861,8 @@ def test_the_entry_drop_shape_and_the_other_shapes_do_not_read_each_others_units
     assert not sv._matches(SLIDE_RULE["match"], entry_window(), context=context)
     assert not sv._matches(GAIN_RULE["match"], entry_window(), context=context)
     assert not sv._matches(INK_RULE["match"], entry_window())
+    assert not sv._matches(RETARGET_RULE["match"], entry_window(), context=context)
+    assert not sv._matches(ENTRY_RULE["match"], retarget_window(), context=context)
 
 
 def test_an_entry_drop_rule_loads(tmp_path):
@@ -2940,5 +2996,350 @@ def test_main_fills_a_single_entry_window_under_that_shapes_own_line(
     assert f"  {ENTRY_RULE['id']}: 1 filled, 0 already verdicted, 0 held for review by except_left" in lines
     assert (
         f"  {SLIDE_RULE['id']} + {ENTRY_RULE['id']}: 1 filled, 0 already verdicted, "
+        "0 held for review by except_left"
+    ) in lines
+
+
+RETARGET_GLYPHS = ["qsL", "qsTea.half.ex-y5", "qsNo.en-ext-1", "qsF1"]
+RETARGET_CODEPOINTS = "E001:E024:E025:E003"
+COMPOSED_RETARGET_GLYPHS = ["qsL", "qsSee.ex-y0", "qsTea.half.ex-y5", "qsNo.en-ext-1"]
+COMPOSED_RETARGET_CODEPOINTS = "E001:E002:E024:E025"
+COMPOSED_RETARGET_RULES = [SLIDE_RULE, RETARGET_RULE]
+JOIN_RETARGET_GLYPHS = ["qsL", "qsAt", "qsIt", "qsTea.half.ex-y5", "qsNo.en-ext-1"]
+JOIN_RETARGET_CODEPOINTS = "E001:E021:E022:E024:E025"
+JOIN_RETARGET_RULES = [JOIN_RULE, RETARGET_RULE]
+
+
+def retarget_window(uid="r-1"):
+    return unit(
+        uid,
+        list(RETARGET_GLYPHS),
+        ["y0", "y5", "y0"],
+        [
+            "qsL/full/None/None/",
+            "qsTea/full/None/baseline/",
+            "qsNo/flipped/baseline/None/",
+            "qsF1/full/None/None/",
+        ],
+        ["y0", "y0", "y0"],
+        codepoints=RETARGET_CODEPOINTS,
+        configs=("default",),
+        ink_deltas={"default": SLIDE_DELTA},
+        pair={"left": 1, "right": 2},
+    )
+
+
+def composed_retarget_window(uid="cr-1"):
+    return unit(
+        uid,
+        list(COMPOSED_RETARGET_GLYPHS),
+        ["y0", "y0", "y5"],
+        [
+            "qsL/full/None/None/",
+            "qsSee/full/None/None/",
+            "qsTea/full/None/baseline/",
+            "qsNo/flipped/baseline/None/",
+        ],
+        ["y0", "y0", "y0"],
+        codepoints=COMPOSED_RETARGET_CODEPOINTS,
+        configs=("default",),
+        ink_deltas={"default": SLIDE_DELTA},
+        pair={"left": 2, "right": 3},
+    )
+
+
+def join_retarget_window(uid="jr-1"):
+    return unit(
+        uid,
+        list(JOIN_RETARGET_GLYPHS),
+        ["y0", "y5", "y0", "y5"],
+        [
+            "qsL/full/None/None/",
+            "qsAt/full/None/None/",
+            "qsIt/full/None/None/",
+            "qsTea/full/None/baseline/",
+            "qsNo/flipped/baseline/None/",
+        ],
+        ["y0", "break", "y0", "y0"],
+        codepoints=JOIN_RETARGET_CODEPOINTS,
+        configs=("default",),
+        ink_deltas={"default": SLIDE_DELTA},
+        pair={"left": 1, "right": 2},
+    )
+
+
+def test_a_pure_join_retarget_matches(slide_context):
+    assert sv._matches(RETARGET_RULE["match"], retarget_window(), context=slide_context())
+
+
+def test_the_checked_in_tea_no_rule_reads_the_retarget(slide_context):
+    match = {rule["id"]: rule for rule in sv.load_rules(sv.RULES)}["tea-no-xheight-join-retargeted"]["match"]
+    assert sv._matches(match, retarget_window(), context=slide_context())
+    assert not sv._matches(match, founding_window(), context=slide_context())
+
+
+def test_an_unmoved_follower_defeats_the_retarget_match(slide_context):
+    assert not sv._matches(
+        RETARGET_RULE["match"], retarget_window(), context=slide_context("after-retarget-unmoved")
+    )
+
+
+def test_a_moved_origin_defeats_the_retarget_match(slide_context):
+    assert not sv._matches(
+        RETARGET_RULE["match"], retarget_window(), context=slide_context("after-retarget-moved-origin")
+    )
+
+
+def test_one_extra_pixel_before_the_retarget_defeats_the_match(slide_context):
+    assert not sv._matches(
+        RETARGET_RULE["match"], retarget_window(), context=slide_context("after-extra-prefix-pixel")
+    )
+
+
+def test_one_extra_pixel_after_the_retarget_defeats_the_match(slide_context):
+    assert not sv._matches(
+        RETARGET_RULE["match"],
+        retarget_window(),
+        context=slide_context("after-extra-post-follower-pixel"),
+    )
+
+
+def test_a_seam_that_holds_its_height_defeats_the_retarget_match(slide_context):
+    stayed = retarget_window()
+    stayed["after"]["seams"] = ["y0", "y5", "y0"]
+    assert not sv._matches(RETARGET_RULE["match"], stayed, context=slide_context())
+
+
+def test_a_wrong_follower_family_defeats_the_retarget_match(slide_context):
+    other = retarget_window()
+    other["before"]["glyphs"][2] = "qsF1"
+    other["after"]["cells"][2] = "qsF1/full/None/None/"
+    other["codepoints"] = "E001:E024:E003:E003"
+    assert not sv._matches(RETARGET_RULE["match"], other, context=slide_context())
+
+
+def test_an_unnamed_after_cell_defeats_the_retarget_match(slide_context):
+    other = retarget_window()
+    other["after"]["cells"][1] = "qsTea/half/None/x-height/"
+    assert not sv._matches(RETARGET_RULE["match"], other, context=slide_context())
+
+
+def test_a_retarget_rule_reads_no_unit_without_ink_deltas():
+    bare = retarget_window()
+    del bare["ink_deltas"]
+    assert not sv._matches(RETARGET_RULE["match"], bare)
+    empty = retarget_window()
+    empty["ink_deltas"] = {}
+    assert not sv._matches(RETARGET_RULE["match"], empty)
+
+
+def test_a_window_with_no_retarget_pivot_is_refused_before_any_shaping():
+    assert not sv._matches(RETARGET_RULE["match"], slide_unit("r-3", ["qsL", "qsF1"], "E001:E003"))
+
+
+def test_a_matchable_retarget_window_with_no_context_refuses_to_guess():
+    with pytest.raises(ValueError, match="SlideContext"):
+        sv._matches(RETARGET_RULE["match"], retarget_window())
+
+
+def test_except_left_holds_the_guarded_family_on_the_join_retargeted_shape(slide_context):
+    context = slide_context()
+    assert not sv._matches(guarding(RETARGET_RULE, ["qsL"]), retarget_window(), context=context)
+    assert sv._matches(guarding(RETARGET_RULE, ["qsL"]), retarget_window(), guard=False, context=context)
+
+
+def test_the_join_retargeted_shape_and_the_other_shapes_do_not_read_each_others_units(slide_context):
+    context = slide_context()
+    assert not sv._matches(RETARGET_RULE["match"], founding_window(), context=context)
+    assert not sv._matches(RETARGET_RULE["match"], canonical(), context=context)
+    assert not sv._matches(RETARGET_RULE["match"], join_window(), context=context)
+    assert not sv._matches(RETARGET_RULE["match"], gain_window(), context=context)
+    assert not sv._matches(SLIDE_RULE["match"], retarget_window(), context=context)
+    assert not sv._matches(EXT_RULE["match"], retarget_window(), context=context)
+    assert not sv._matches(INK_RULE["match"], retarget_window())
+    assert not sv._matches(GAIN_RULE["match"], retarget_window(), context=context)
+    assert not sv._matches(JOIN_RULE["match"], retarget_window(), context=context)
+    assert not sv._matches(ENTRY_RULE["match"], retarget_window(), context=context)
+
+
+def test_a_retarget_rule_loads(tmp_path):
+    [rule] = sv.load_rules(_write_rules(tmp_path / "rules.yaml", [RETARGET_RULE]))
+    assert rule["match"]["before"] == {"pivot": "qsTea.half", "seam_out": "y5", "follower": "qsNo"}
+    assert rule["match"]["after"]["retarget"] == "y0"
+    assert rule["match"]["after"]["shift"] == -1
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda rule: rule.update(verdict="reject"),
+        lambda rule: rule.update(note=""),
+        lambda rule: rule["match"]["before"].update(pivot=""),
+        lambda rule: rule["match"]["before"].update(seam_out=""),
+        lambda rule: rule["match"]["before"].update(follower=""),
+        lambda rule: rule["match"]["before"].update(follower=[]),
+        lambda rule: rule["match"]["after"].update(retarget=""),
+        lambda rule: rule["match"]["after"].update(shift="-1"),
+        lambda rule: rule["match"]["after"].update(pivot_cells=[]),
+        lambda rule: rule["match"]["after"].update(receiver_cells=[]),
+        lambda rule: rule["match"].update(except_left="qsL"),
+    ],
+)
+def test_malformed_retarget_rules_are_refused(tmp_path, mutate):
+    rule = json.loads(json.dumps(RETARGET_RULE))
+    mutate(rule)
+    with pytest.raises(SystemExit):
+        sv.load_rules(_write_rules(tmp_path / "rules.yaml", [rule]))
+
+
+def test_a_break_retarget_is_refused_at_load(tmp_path):
+    rule = json.loads(json.dumps(RETARGET_RULE))
+    rule["match"]["after"]["retarget"] = "break"
+    with pytest.raises(SystemExit, match="gap shape"):
+        sv.load_rules(_write_rules(tmp_path / "rules.yaml", [rule]))
+
+
+def test_a_break_before_seam_is_refused_at_load_for_retarget(tmp_path):
+    rule = json.loads(json.dumps(RETARGET_RULE))
+    rule["match"]["before"]["seam_out"] = "break"
+    with pytest.raises(SystemExit, match="not a yK height"):
+        sv.load_rules(_write_rules(tmp_path / "rules.yaml", [rule]))
+
+
+def test_a_retarget_that_holds_its_height_is_refused_at_load(tmp_path):
+    rule = json.loads(json.dumps(RETARGET_RULE))
+    rule["match"]["after"]["retarget"] = "y5"
+    with pytest.raises(SystemExit, match="not a retarget"):
+        sv.load_rules(_write_rules(tmp_path / "rules.yaml", [rule]))
+
+
+def test_a_retarget_cell_belonging_to_another_letter_is_refused_at_load(tmp_path):
+    rule = json.loads(json.dumps(RETARGET_RULE))
+    rule["match"]["after"]["pivot_cells"] = ["qsDay/full/None/baseline/"]
+    with pytest.raises(SystemExit, match="is not a cell of"):
+        sv.load_rules(_write_rules(tmp_path / "rules.yaml", [rule]))
+
+
+def test_a_retarget_rule_missing_its_before_block_is_refused_at_load(tmp_path):
+    rule = json.loads(json.dumps(RETARGET_RULE))
+    rule["match"].pop("before")
+    with pytest.raises(SystemExit, match="needs match.before to be exactly"):
+        sv.load_rules(_write_rules(tmp_path / "rules.yaml", [rule]))
+
+
+def test_a_rule_declaring_the_retarget_and_slide_shapes_at_once_is_refused(tmp_path):
+    rule = json.loads(json.dumps(RETARGET_RULE))
+    rule["match"]["after"]["slide"] = -1
+    with pytest.raises(SystemExit, match="exactly one delta shape"):
+        sv.load_rules(_write_rules(tmp_path / "rules.yaml", [rule]))
+
+
+def test_main_fills_only_the_blank_matching_join_retargeted_units(tmp_path, monkeypatch, slide_fonts):
+    units = [retarget_window("r-1"), retarget_window("r-2"), founding_window("s-1")]
+    payload = _run_main(
+        tmp_path,
+        monkeypatch,
+        units,
+        [{"unit": "r-2", "verdict": "approve", "note": "already", "at": STAMP}],
+        rules_list=(RETARGET_RULE,),
+        fonts=slide_fonts,
+    )
+    assert [record["unit"] for record in payload["verdicts"]] == ["r-1"]
+    assert payload["verdicts"][0]["note"] == f"[standing: {RETARGET_RULE['id']}] {RETARGET_RULE['note']}"
+
+
+def test_a_slide_and_a_join_retarget_in_one_window_compose(slide_context):
+    events = sv._composed(COMPOSED_RETARGET_RULES, composed_retarget_window(), slide_context())
+    assert events == {SLIDE_RULE["id"]: [1], RETARGET_RULE["id"]: [2]}
+
+
+def test_a_join_drop_and_a_join_retarget_in_one_window_compose(slide_context):
+    events = sv._composed(JOIN_RETARGET_RULES, join_retarget_window(), slide_context())
+    assert events == {JOIN_RULE["id"]: [1], RETARGET_RULE["id"]: [3]}
+
+
+def test_a_pure_join_retarget_is_not_composed(slide_context):
+    assert sv._composed(COMPOSED_RETARGET_RULES, retarget_window(), slide_context()) is None
+    assert sv._matches(RETARGET_RULE["match"], retarget_window(), context=slide_context())
+
+
+def test_main_writes_one_composed_retarget_record_and_leaves_the_per_rule_lines(
+    tmp_path, monkeypatch, capsys, slide_fonts
+):
+    payload = _run_main(
+        tmp_path,
+        monkeypatch,
+        [composed_retarget_window("cr-1")],
+        [],
+        rules_list=(SLIDE_RULE, RETARGET_RULE),
+        fonts=slide_fonts,
+    )
+    assert [record["unit"] for record in payload["verdicts"]] == ["cr-1"]
+    record = payload["verdicts"][0]
+    assert record["verdict"] == "approve"
+    assert record["note"] == (
+        f"[standing: {SLIDE_RULE['id']} + {RETARGET_RULE['id']}] "
+        f"{SLIDE_RULE['note']}; {RETARGET_RULE['note']}"
+    )
+    lines = capsys.readouterr().out.splitlines()
+    assert f"  {SLIDE_RULE['id']}: 0 filled, 0 already verdicted, 0 held for review by except_left" in lines
+    assert (
+        f"  {RETARGET_RULE['id']}: 0 filled, 0 already verdicted, 0 held for review by except_left"
+    ) in lines
+    assert (
+        f"  {SLIDE_RULE['id']} + {RETARGET_RULE['id']}: 1 filled, 0 already verdicted, "
+        "0 held for review by except_left"
+    ) in lines
+
+
+def test_one_extra_pixel_defeats_the_composed_retarget_reading(slide_context):
+    assert (
+        sv._composed(
+            COMPOSED_RETARGET_RULES, composed_retarget_window(), slide_context("after-extra-prefix-pixel")
+        )
+        is None
+    )
+
+
+def test_the_composed_walk_credits_the_retarget_exactly_where_the_retarget_matcher_does(slide_context):
+    context = slide_context()
+    for window in (retarget_window(), composed_retarget_window(), founding_window()):
+        credited = set(sv._composed_walk([RETARGET_RULE], window, context) or ())
+        assert (credited == {RETARGET_RULE["id"]}) == sv._matches(
+            RETARGET_RULE["match"], window, context=context
+        ), window["id"]
+
+
+def test_the_retarget_guard_holds_the_whole_composed_window(slide_context):
+    events = sv._composed(COMPOSED_RETARGET_RULES, composed_retarget_window(), slide_context())
+    assert sv._composed_held(
+        [guarded_rule(RETARGET_RULE, ["qsL"]), SLIDE_RULE],
+        composed_retarget_window(),
+        events,
+        slide_context(),
+    )
+
+
+def test_main_fills_a_single_retarget_window_under_that_shapes_own_line(
+    tmp_path, monkeypatch, capsys, slide_fonts
+):
+    payload = _run_main(
+        tmp_path,
+        monkeypatch,
+        [retarget_window("r-1"), composed_retarget_window("cr-1")],
+        [],
+        rules_list=(SLIDE_RULE, RETARGET_RULE),
+        fonts=slide_fonts,
+    )
+    by_unit = {record["unit"]: record for record in payload["verdicts"]}
+    assert set(by_unit) == {"r-1", "cr-1"}
+    assert by_unit["r-1"]["note"] == f"[standing: {RETARGET_RULE['id']}] {RETARGET_RULE['note']}"
+    assert by_unit["cr-1"]["note"].startswith(f"[standing: {SLIDE_RULE['id']} + {RETARGET_RULE['id']}]")
+    lines = capsys.readouterr().out.splitlines()
+    assert (
+        f"  {RETARGET_RULE['id']}: 1 filled, 0 already verdicted, 0 held for review by except_left" in lines
+    )
+    assert (
+        f"  {SLIDE_RULE['id']} + {RETARGET_RULE['id']}: 1 filled, 0 already verdicted, "
         "0 held for review by except_left"
     ) in lines

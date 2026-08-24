@@ -166,6 +166,30 @@ def _extension_cells(units, records, pivot, token, seam):
     print("follower cells:", sorted({cell for _pivot, _follower, cell in pairs}))
 
 
+def _retarget_cells(units, records, pivot, before_seam, follower, after_seam):
+    pairs: dict[tuple, collections.Counter] = collections.defaultdict(collections.Counter)
+    for unit in units:
+        if not sv._letter_for_letter(unit):
+            continue
+        glyphs, seams = unit["before"]["glyphs"], unit["before"]["seams"]
+        cells, after_seams = unit["after"]["cells"], unit["after"]["seams"]
+        reach = min(len(glyphs), len(cells), len(seams) + 1, len(after_seams) + 1) - 1
+        for index in range(reach):
+            if not sv._is_pivot(glyphs[index], pivot):
+                continue
+            if sv._family(glyphs[index + 1]) != follower:
+                continue
+            if seams[index] != before_seam or after_seams[index] != after_seam:
+                continue
+            verdict = records[unit["id"]]["verdict"] if unit["id"] in records else "BLANK"
+            pairs[(cells[index], cells[index + 1])][verdict] += 1
+    print(f"windows where a {pivot} glyph's seam into {follower} moves from {before_seam} to {after_seam}:")
+    for (pivot_cell, follower_cell), tally in sorted(pairs.items(), key=lambda item: -sum(item[1].values())):
+        print(f"  {sum(tally.values()):>5}  {pivot_cell}  →  {follower_cell}  {dict(tally)}")
+    print("pivot cells:", sorted({pivot_cell for pivot_cell, _cell in pairs}))
+    print("follower cells:", sorted({cell for _pivot, cell in pairs}))
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=(__doc__ or "").split(":")[0] + ".")
     parser.add_argument("units", nargs="*", help="unit ids to explain (u-NNNNNN)")
@@ -177,6 +201,12 @@ def main(argv=None):
         nargs=3,
         metavar=("PIVOT", "TOKEN", "SEAM"),
         help="enumerate the pivot and follower cells an extension-dropped rule for PIVOT giving up TOKEN (ex-ext-N or ex-con-N) at SEAM would have to name",
+    )
+    parser.add_argument(
+        "--retarget-cells",
+        nargs=4,
+        metavar=("PIVOT", "BEFORE_SEAM", "FOLLOWER", "AFTER_SEAM"),
+        help="enumerate the pivot and follower cells a join-retargeted rule for PIVOT's seam into FOLLOWER moving from BEFORE_SEAM to AFTER_SEAM would have to name",
     )
     args = parser.parse_args(argv)
     surface = pathlib.Path(args.surface)
@@ -193,6 +223,8 @@ def main(argv=None):
     human = _human(load_units(surface))
     if args.extension_cells:
         _extension_cells(human, records, *args.extension_cells)
+    if args.retarget_cells:
+        _retarget_cells(human, records, *args.retarget_cells)
     if not args.units:
         return 0
     wanted = set(args.units)
