@@ -1,4 +1,4 @@
-"""Tests for the standing-approval fill: all six delta shapes — the two structural pattern matches, being the ligature shape (pivot glyph, seams into and out of it, follower family, post-ligature seam, flank-seam identity) and the extension-dropped shape (pivot glyph giving up a named stretch of exit — an `ex-ext-N` it carried, in whole or down to a shorter one its named after cell keeps, or an `ex-con-N` its named after cell carries when the before glyph never had an exit extension — the seam it exits into holding its height, the full after-cell identity of pivot and follower, every other seam standing still, nothing ligating anywhere, and the unit's own judgment fields agreeing that this seam is the question), the ink-exact ink-delta shape (the unit's persisted per-config digests being a nonempty subset of the ones the rule blesses, so an ink-identical window matches nothing and one unlisted delta under one config fails the whole unit closed, and a surface predating the field refuses the run outright), and the rendered-pixel slide shape, whose preconditions are read off the index record before anything is shaped (a nonempty `ink_deltas` holding one distinct digest whose keys are exactly the unit's config set, and a pivot-prefix name among the recorded before glyphs) and whose geometry is then re-derived in a purpose-built font pair, where the pivot keeps its exact ink with its own-frame origin displaced by the declared column count and every span's union of ink slides cumulatively — so a union-invisible name-grain re-spelling to the pivot's right rides along, while one stray pixel anywhere in the window, or a font pair that never settles into the named pivot, fails the match closed — the rendered-pixel ink-gain shape, whose preconditions match the slide shape's and whose geometry is the named pivot keeping its placement, height, and own-frame origin while gaining exactly the named cells, every other pixel standing still — the rendered-pixel join-dropped shape, whose preconditions are a named pivot–follower seam dropping from a yK height to a break plus the slide shape's digest-agreement, and whose geometry is both letters keeping their exact picture and own-frame origin with the follower sitting the declared gap further and everything after it sitting the same extra gap away — the composed reading that runs before all six and credits two or more rules for one window — its name-grain pre-gate refusing to shape a window fewer than two rules have a candidate in, its walk carrying a running column displacement across the window so that each span between events must render identically once displaced, its refusal of a redrawn follower, of a pivot contracting off the seam row, of a tail wider than the pivot gave up, and of two rules claiming one position, its judging of a failed candidate as ordinary span ink, its per-shape guard scopes, and its own reporting line, which `main` keeps clear of the per-rule lines — the except_left guard, which reads a ligature's trailing left component and refuses the whole unit rather than the one position, blankness against the verdicts file (parked skip verdicts are not blank), the non-winning manifest stamp on every emitted record, and rules-file validation, which admits exactly one shape per rule and checks that shape's own coherence."""
+"""Tests for the standing-approval fill: all seven delta shapes — the two structural pattern matches, being the ligature shape (pivot glyph, seams into and out of it, follower family, post-ligature seam, flank-seam identity) and the extension-dropped shape (pivot glyph giving up a named stretch of exit — an `ex-ext-N` it carried, in whole or down to a shorter one its named after cell keeps, or an `ex-con-N` its named after cell carries when the before glyph never had an exit extension — the seam it exits into holding its height, the full after-cell identity of pivot and follower, every other seam standing still, nothing ligating anywhere, and the unit's own judgment fields agreeing that this seam is the question), the ink-exact ink-delta shape (the unit's persisted per-config digests being a nonempty subset of the ones the rule blesses, so an ink-identical window matches nothing and one unlisted delta under one config fails the whole unit closed, and a surface predating the field refuses the run outright), and the rendered-pixel slide shape, whose preconditions are read off the index record before anything is shaped (a nonempty `ink_deltas` holding one distinct digest whose keys are exactly the unit's config set, and a pivot-prefix name among the recorded before glyphs) and whose geometry is then re-derived in a purpose-built font pair, where the pivot keeps its exact ink with its own-frame origin displaced by the declared column count and every span's union of ink slides cumulatively — so a union-invisible name-grain re-spelling to the pivot's right rides along, while one stray pixel anywhere in the window, or a font pair that never settles into the named pivot, fails the match closed — the rendered-pixel ink-gain shape, whose preconditions match the slide shape's and whose geometry is the named pivot keeping its placement, height, and own-frame origin while gaining exactly the named cells, every other pixel standing still — the rendered-pixel join-dropped shape, whose preconditions are a named pivot–follower seam dropping from a yK height to a break plus the slide shape's digest-agreement, and whose geometry is both letters keeping their exact picture and own-frame origin with the follower sitting the declared gap further and everything after it sitting the same extra gap away — the rendered-pixel entry-extension-dropped shape, whose preconditions match the slide shape's and whose geometry is the named pivot keeping its placement, height, and own-frame origin while its after picture is the old one compacted left by the declared column count, everything after the pivot sliding closer by that count — the composed reading that runs before all seven and credits two or more rules for one window — its name-grain pre-gate refusing to shape a window fewer than two rules have a candidate in, its walk carrying a running column displacement across the window so that each span between events must render identically once displaced, its refusal of a redrawn follower, of a pivot contracting off the seam row, of a tail wider than the pivot gave up, and of two rules claiming one position, its judging of a failed candidate as ordinary span ink, its per-shape guard scopes, and its own reporting line, which `main` keeps clear of the per-rule lines — the except_left guard, which reads a ligature's trailing left component and refuses the whole unit rather than the one position, blankness against the verdicts file (parked skip verdicts are not blank), the non-winning manifest stamp on every emitted record, and rules-file validation, which admits exactly one shape per rule and checks that shape's own coherence."""
 
 import json
 import pathlib
@@ -131,6 +131,17 @@ JOIN_RULE = {
     "match": {
         "before": {"pivot": "qsAt", "seam_out": "y5", "follower": "qsIt"},
         "after": {"gap": 1},
+        "except_left": [],
+    },
+}
+
+ENTRY_RULE = {
+    "id": "see-low-entry-extension-dropped",
+    "verdict": "approve",
+    "note": "·Low sits a pixel closer to ·See",
+    "match": {
+        "before": {"pivots": ["qsLow.en-ext-1"]},
+        "after": {"pivots": ["qsLow.hapax"], "entry_drop": 1},
         "except_left": [],
     },
 }
@@ -711,6 +722,9 @@ def test_checked_in_rules_file_loads():
     dropped = by_id["at-it-xheight-join-dropped"]["match"]
     assert dropped["before"] == {"pivot": "qsAt", "seam_out": "y5", "follower": "qsIt"}
     assert dropped["after"] == {"gap": 1}
+    entry = by_id["see-low-entry-extension-dropped"]["match"]
+    assert entry["before"]["pivots"] == ["qsLow.en-ext-1"]
+    assert entry["after"] == {"pivots": ["qsLow.hapax"], "entry_drop": 1}
 
 
 def et_may(
@@ -1009,9 +1023,12 @@ def test_both_shapes_load_from_one_rules_file(tmp_path):
     assert [rule["id"] for rule in rules] == [RULE["id"], EXT_RULE["id"]]
 
 
-def test_all_six_shapes_load_from_one_rules_file(tmp_path):
+def test_all_seven_shapes_load_from_one_rules_file(tmp_path):
     rules = sv.load_rules(
-        _write_rules(tmp_path / "rules.yaml", [RULE, EXT_RULE, INK_RULE, SLIDE_RULE, GAIN_RULE, JOIN_RULE])
+        _write_rules(
+            tmp_path / "rules.yaml",
+            [RULE, EXT_RULE, INK_RULE, SLIDE_RULE, GAIN_RULE, JOIN_RULE, ENTRY_RULE],
+        )
     )
     assert [rule["id"] for rule in rules] == [
         RULE["id"],
@@ -1020,6 +1037,7 @@ def test_all_six_shapes_load_from_one_rules_file(tmp_path):
         SLIDE_RULE["id"],
         GAIN_RULE["id"],
         JOIN_RULE["id"],
+        ENTRY_RULE["id"],
     ]
 
 
@@ -1048,6 +1066,9 @@ LONG_TAIL_PIVOT = (((0, 0), (200, 0), (200, 50), (50, 50), (50, 150), (0, 150)),
 CROWNED_PIVOT = (((0, 0), (100, 0), (100, 50), (50, 50), (50, 100), (100, 100), (100, 150), (0, 150)),)
 TRIMMED_PIVOT = (_rect(0, 0, 50, 150),)
 CONTRACTED_PIVOT = (_rect(0, 0, 50, 100),)
+EXTENDED_ENTRY_LOW = (_rect(0, 0, 50, 50), _rect(50, 0, 150, 150))
+UNSHIFTED_ENTRY_LOW = (_rect(50, 0, 150, 150),)
+EXTRA_CELL_LOW = (_rect(0, 0, 100, 150), _rect(0, 150, 50, 200))
 
 BEFORE_GLYPHS = {
     "qsL": (TWO_COLUMNS, 100),
@@ -1066,6 +1087,7 @@ BEFORE_GLYPHS = {
     "qsRoe.en-ext-1-at-5": (SHORTENED_ROE, 100),
     "qsAt": (TWO_COLUMNS, 100),
     "qsIt": (TWO_COLUMNS, 100),
+    "qsLow.en-ext-1": (EXTENDED_ENTRY_LOW, 150),
     "space": ((), 50),
 }
 AFTER_GLYPHS = {
@@ -1085,6 +1107,7 @@ AFTER_GLYPHS = {
     "qsRoe.hapax.en-y5.en-ext-1": (KEPT_ROE, 100),
     "qsAt": (TWO_COLUMNS, 150),
     "qsIt": (TWO_COLUMNS, 100),
+    "qsLow.hapax": (TWO_COLUMNS, 100),
     "space": ((), 50),
 }
 BEFORE_CMAP = {
@@ -1108,6 +1131,7 @@ BEFORE_CMAP = {
     0xE020: "qsRoe.en-ext-1-at-5",
     0xE021: "qsAt",
     0xE022: "qsIt",
+    0xE023: "qsLow.en-ext-1",
 }
 AFTER_CMAP = {
     0x0020: "space",
@@ -1130,6 +1154,7 @@ AFTER_CMAP = {
     0xE020: "qsRoe.hapax.en-y5.en-ext-1",
     0xE021: "qsAt",
     0xE022: "qsIt",
+    0xE023: "qsLow.hapax",
 }
 
 SLIDE_FONTS = {
@@ -1164,6 +1189,9 @@ SLIDE_FONTS = {
     "after-join-regrouped": ({**AFTER_GLYPHS, "qsIt": (TWO_COLUMNS, 50)}, AFTER_CMAP),
     "after-join-extra-prefix-pixel": ({**AFTER_GLYPHS, "qsL": (TWO_COLUMNS_AND_A_PIXEL, 100)}, AFTER_CMAP),
     "after-join-extra-tail-pixel": ({**AFTER_GLYPHS, "qsF1": (TWO_COLUMNS_AND_A_PIXEL, 50)}, AFTER_CMAP),
+    "after-low-unmoved": ({**AFTER_GLYPHS, "qsLow.hapax": (EXTENDED_ENTRY_LOW, 150)}, AFTER_CMAP),
+    "after-low-unshifted": ({**AFTER_GLYPHS, "qsLow.hapax": (UNSHIFTED_ENTRY_LOW, 150)}, AFTER_CMAP),
+    "after-low-extra-cell": ({**AFTER_GLYPHS, "qsLow.hapax": (EXTRA_CELL_LOW, 100)}, AFTER_CMAP),
 }
 
 FOUNDING_GLYPHS = ["qsL", "qsSee.ex-y0", "qsF1", "qsF2"]
@@ -1855,7 +1883,9 @@ def test_main_fills_all_three_shapes_from_one_rules_file(tmp_path, monkeypatch):
 
 
 def test_main_refuses_a_surface_that_predates_the_ink_delta_field(tmp_path, monkeypatch):
-    with pytest.raises(SystemExit, match="predates the ink-delta, slide, ink-gain, and join-dropped"):
+    with pytest.raises(
+        SystemExit, match="predates the ink-delta, slide, ink-gain, join-dropped, and entry-extension-dropped"
+    ):
         _run_main(tmp_path, monkeypatch, [canonical("u-1")], [], rules_list=(RULE, INK_RULE))
 
 
@@ -2037,7 +2067,9 @@ def test_the_composed_memo_never_serves_one_rule_sets_ids_to_another(slide_conte
 
 
 def test_two_composable_rules_refuse_a_surface_that_predates_the_ink_delta_field(tmp_path, monkeypatch):
-    with pytest.raises(SystemExit, match="predates the ink-delta, slide, ink-gain, and join-dropped"):
+    with pytest.raises(
+        SystemExit, match="predates the ink-delta, slide, ink-gain, join-dropped, and entry-extension-dropped"
+    ):
         _run_main(tmp_path, monkeypatch, [tea_i("u-1")], [], rules_list=(EXT_RULE, COMPOSED_EXT_RULE))
 
 
@@ -2699,5 +2731,214 @@ def test_main_fills_a_single_join_window_under_that_shapes_own_line(
     assert f"  {JOIN_RULE['id']}: 1 filled, 0 already verdicted, 0 held for review by except_left" in lines
     assert (
         f"  {SLIDE_RULE['id']} + {JOIN_RULE['id']}: 1 filled, 0 already verdicted, "
+        "0 held for review by except_left"
+    ) in lines
+
+
+ENTRY_GLYPHS = ["qsL", "qsLow.en-ext-1", "qsF1"]
+ENTRY_CODEPOINTS = "E001:E023:E003"
+COMPOSED_ENTRY_GLYPHS = ["qsL", "qsSee.ex-y0", "qsLow.en-ext-1", "qsF1"]
+COMPOSED_ENTRY_CODEPOINTS = "E001:E002:E023:E003"
+COMPOSED_ENTRY_RULES = [SLIDE_RULE, ENTRY_RULE]
+
+
+def entry_window(uid="e-1"):
+    return slide_unit(uid, ENTRY_GLYPHS, ENTRY_CODEPOINTS)
+
+
+def composed_entry_window(uid="ce-1"):
+    return slide_unit(uid, COMPOSED_ENTRY_GLYPHS, COMPOSED_ENTRY_CODEPOINTS)
+
+
+def test_a_pure_entry_drop_matches(slide_context):
+    assert sv._matches(ENTRY_RULE["match"], entry_window(), context=slide_context())
+
+
+def test_the_checked_in_see_low_rule_reads_the_drop(slide_context):
+    match = {rule["id"]: rule for rule in sv.load_rules(sv.RULES)}["see-low-entry-extension-dropped"]["match"]
+    assert sv._matches(match, entry_window(), context=slide_context())
+    assert not sv._matches(match, founding_window(), context=slide_context())
+
+
+def test_an_unmoved_pivot_defeats_the_entry_drop_match(slide_context):
+    assert not sv._matches(ENTRY_RULE["match"], entry_window(), context=slide_context("after-low-unmoved"))
+
+
+def test_an_unshifted_remainder_defeats_the_entry_drop_match(slide_context):
+    assert not sv._matches(ENTRY_RULE["match"], entry_window(), context=slide_context("after-low-unshifted"))
+
+
+def test_an_unnamed_extra_cell_defeats_the_entry_drop_match(slide_context):
+    assert not sv._matches(ENTRY_RULE["match"], entry_window(), context=slide_context("after-low-extra-cell"))
+
+
+def test_one_extra_pixel_beside_the_entry_drop_defeats_the_match(slide_context):
+    assert not sv._matches(
+        ENTRY_RULE["match"], entry_window(), context=slide_context("after-extra-prefix-pixel")
+    )
+
+
+def test_an_entry_drop_rule_reads_no_unit_without_ink_deltas():
+    assert not sv._matches(ENTRY_RULE["match"], slide_unit("e-2", ENTRY_GLYPHS, ENTRY_CODEPOINTS, deltas={}))
+    bare = entry_window()
+    del bare["ink_deltas"]
+    assert not sv._matches(ENTRY_RULE["match"], bare)
+
+
+def test_a_window_with_no_entry_pivot_prefix_glyph_is_refused_before_any_shaping():
+    assert not sv._matches(ENTRY_RULE["match"], slide_unit("e-3", ["qsL", "qsF1"], "E001:E003"))
+
+
+def test_a_matchable_entry_window_with_no_context_refuses_to_guess():
+    with pytest.raises(ValueError, match="SlideContext"):
+        sv._matches(ENTRY_RULE["match"], entry_window())
+
+
+def test_except_left_holds_the_guarded_family_on_the_entry_drop_shape(slide_context):
+    context = slide_context()
+    assert not sv._matches(guarding(ENTRY_RULE, ["qsL"]), entry_window(), context=context)
+    assert sv._matches(guarding(ENTRY_RULE, ["qsL"]), entry_window(), guard=False, context=context)
+
+
+def test_the_entry_drop_shape_and_the_other_shapes_do_not_read_each_others_units(slide_context):
+    context = slide_context()
+    assert not sv._matches(ENTRY_RULE["match"], founding_window(), context=context)
+    assert not sv._matches(ENTRY_RULE["match"], canonical(), context=context)
+    assert not sv._matches(SLIDE_RULE["match"], entry_window(), context=context)
+    assert not sv._matches(GAIN_RULE["match"], entry_window(), context=context)
+    assert not sv._matches(INK_RULE["match"], entry_window())
+
+
+def test_an_entry_drop_rule_loads(tmp_path):
+    [rule] = sv.load_rules(_write_rules(tmp_path / "rules.yaml", [ENTRY_RULE]))
+    assert rule["match"]["before"] == {"pivots": ["qsLow.en-ext-1"]}
+    assert rule["match"]["after"] == {"pivots": ["qsLow.hapax"], "entry_drop": 1}
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda rule: rule.update(verdict="reject"),
+        lambda rule: rule.update(note=""),
+        lambda rule: rule["match"]["before"].update(pivots=[]),
+        lambda rule: rule["match"]["before"].update(pivots="qsLow.en-ext-1"),
+        lambda rule: rule["match"]["after"].update(entry_drop="1"),
+        lambda rule: rule["match"]["after"].update(pivots=["qsLow/hapax/baseline/None/"]),
+        lambda rule: rule["match"].update(except_left="qsL"),
+    ],
+)
+def test_malformed_entry_drop_rules_are_refused(tmp_path, mutate):
+    rule = json.loads(json.dumps(ENTRY_RULE))
+    mutate(rule)
+    with pytest.raises(SystemExit):
+        sv.load_rules(_write_rules(tmp_path / "rules.yaml", [rule]))
+
+
+def test_an_entry_drop_that_moves_nothing_is_refused_at_load(tmp_path):
+    rule = json.loads(json.dumps(ENTRY_RULE))
+    rule["match"]["after"]["entry_drop"] = 0
+    with pytest.raises(SystemExit, match="machine-approved already"):
+        sv.load_rules(_write_rules(tmp_path / "rules.yaml", [rule]))
+
+
+def test_a_widening_entry_drop_is_refused_at_load(tmp_path):
+    rule = json.loads(json.dumps(ENTRY_RULE))
+    rule["match"]["after"]["entry_drop"] = -1
+    with pytest.raises(SystemExit, match="closer together"):
+        sv.load_rules(_write_rules(tmp_path / "rules.yaml", [rule]))
+
+
+def test_entry_drop_pivot_lists_spanning_two_families_are_refused_at_load(tmp_path):
+    within = json.loads(json.dumps(ENTRY_RULE))
+    within["match"]["after"]["pivots"] = ["qsLow.hapax", "qsSee.hapax"]
+    with pytest.raises(SystemExit, match="speaks for one letter"):
+        sv.load_rules(_write_rules(tmp_path / "rules.yaml", [within]))
+    across = json.loads(json.dumps(ENTRY_RULE))
+    across["match"]["before"]["pivots"] = ["qsSee.en-ext-1"]
+    with pytest.raises(SystemExit, match="speaks for one letter"):
+        sv.load_rules(_write_rules(tmp_path / "rules.yaml", [across]))
+
+
+def test_a_slide_and_an_entry_drop_in_one_window_compose(slide_context):
+    events = sv._composed(COMPOSED_ENTRY_RULES, composed_entry_window(), slide_context())
+    assert events == {SLIDE_RULE["id"]: [1], ENTRY_RULE["id"]: [2]}
+
+
+def test_a_pure_entry_drop_is_not_composed(slide_context):
+    assert sv._composed(COMPOSED_ENTRY_RULES, entry_window(), slide_context()) is None
+    assert sv._matches(ENTRY_RULE["match"], entry_window(), context=slide_context())
+
+
+def test_main_writes_one_composed_entry_record_and_leaves_the_per_rule_lines(
+    tmp_path, monkeypatch, capsys, slide_fonts
+):
+    payload = _run_main(
+        tmp_path,
+        monkeypatch,
+        [composed_entry_window("ce-1")],
+        [],
+        rules_list=(SLIDE_RULE, ENTRY_RULE),
+        fonts=slide_fonts,
+    )
+    assert [record["unit"] for record in payload["verdicts"]] == ["ce-1"]
+    record = payload["verdicts"][0]
+    assert record["verdict"] == "approve"
+    assert record["note"] == (
+        f"[standing: {SLIDE_RULE['id']} + {ENTRY_RULE['id']}] " f"{SLIDE_RULE['note']}; {ENTRY_RULE['note']}"
+    )
+    lines = capsys.readouterr().out.splitlines()
+    assert f"  {SLIDE_RULE['id']}: 0 filled, 0 already verdicted, 0 held for review by except_left" in lines
+    assert (f"  {ENTRY_RULE['id']}: 0 filled, 0 already verdicted, 0 held for review by except_left") in lines
+    assert (
+        f"  {SLIDE_RULE['id']} + {ENTRY_RULE['id']}: 1 filled, 0 already verdicted, "
+        "0 held for review by except_left"
+    ) in lines
+
+
+def test_one_extra_pixel_defeats_the_composed_entry_reading(slide_context):
+    assert (
+        sv._composed(COMPOSED_ENTRY_RULES, composed_entry_window(), slide_context("after-extra-prefix-pixel"))
+        is None
+    )
+
+
+def test_the_composed_walk_credits_the_entry_drop_exactly_where_the_entry_matcher_does(slide_context):
+    context = slide_context()
+    for window in (entry_window(), composed_entry_window(), founding_window()):
+        credited = set(sv._composed_walk([ENTRY_RULE], window, context) or ())
+        assert (credited == {ENTRY_RULE["id"]}) == sv._matches(
+            ENTRY_RULE["match"], window, context=context
+        ), window["id"]
+
+
+def test_the_entry_drop_guard_holds_the_whole_composed_window(slide_context):
+    events = sv._composed(COMPOSED_ENTRY_RULES, composed_entry_window(), slide_context())
+    assert sv._composed_held(
+        [guarded_rule(ENTRY_RULE, ["qsL"]), SLIDE_RULE],
+        composed_entry_window(),
+        events,
+        slide_context(),
+    )
+
+
+def test_main_fills_a_single_entry_window_under_that_shapes_own_line(
+    tmp_path, monkeypatch, capsys, slide_fonts
+):
+    payload = _run_main(
+        tmp_path,
+        monkeypatch,
+        [entry_window("e-1"), composed_entry_window("ce-1")],
+        [],
+        rules_list=(SLIDE_RULE, ENTRY_RULE),
+        fonts=slide_fonts,
+    )
+    by_unit = {record["unit"]: record for record in payload["verdicts"]}
+    assert set(by_unit) == {"e-1", "ce-1"}
+    assert by_unit["e-1"]["note"] == f"[standing: {ENTRY_RULE['id']}] {ENTRY_RULE['note']}"
+    assert by_unit["ce-1"]["note"].startswith(f"[standing: {SLIDE_RULE['id']} + {ENTRY_RULE['id']}]")
+    lines = capsys.readouterr().out.splitlines()
+    assert f"  {ENTRY_RULE['id']}: 1 filled, 0 already verdicted, 0 held for review by except_left" in lines
+    assert (
+        f"  {SLIDE_RULE['id']} + {ENTRY_RULE['id']}: 1 filled, 0 already verdicted, "
         "0 held for review by except_left"
     ) in lines
