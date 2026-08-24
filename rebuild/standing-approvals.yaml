@@ -170,3 +170,22 @@ rules:
           - qsNo/flipped/baseline/baseline/
         shift: -1
       except_left: []
+  - id: it-may-exit-extension-dropped
+    verdict: approve
+    note: "·May sits a pixel closer to an entered ·It — the extra pixel of exit the old font drew came off qsIt's entered baseline-exit extend (·May sits on the except list), the bar meeting the loop the way an unentered ·It already did, and every window that reached a sitting approved the shorter reach"
+    match:
+      before:
+        pivot: qsIt
+        exit_extension: ex-ext-1
+        seam_out: y0
+        follower: qsMay
+      after:
+        pivot_cells:
+          - qsIt/hapax/None/baseline/
+          - qsIt/hapax/baseline/baseline/
+          - qsIt/hapax/x-height/baseline/
+        follower_cells:
+          - qsMay/loop/baseline/None/
+          - qsMay/loop/baseline/x-height/ex-ext-1
+          - qsMay/loop/baseline/x-height/ex-ext-2
+      except_left: []
