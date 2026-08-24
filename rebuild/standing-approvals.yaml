@@ -141,3 +141,13 @@ rules:
       after:
         gap: 1
       except_left: []
+  - id: see-low-entry-extension-dropped
+    verdict: approve
+    note: "·Low sits a pixel closer to ·See — the extra pixel of baseline entry the old font drew after ·See is a composed extension the rebuild does not sum with ·See's two-pixel exit, and every window that reached a sitting approved the shorter reach"
+    match:
+      before:
+        pivots: [qsLow.en-ext-1]
+      after:
+        pivots: [qsLow.hapax]
+        entry_drop: 1
+      except_left: []
