@@ -1,4 +1,4 @@
-"""Apply the checked-in standing approvals (rebuild/standing-approvals.yaml) to the live review surface: for every rule, find the blank human units whose before→after delta matches the rule's pattern and emit fill records for them into an importable verdicts file. Five delta shapes are expressible, and a rule declares exactly one of them — which one is keyed by the field its `match.after` carries. The `ligature` shape is a pivot letter whose backward join drops as it ligates with its follower; it holds the seams flanking the delta fixed. The `follower_cells` shape is a pivot letter that gives up a named stretch of exit — the whole of a named `ex-ext-N` the before glyph carried, or the columns down to a shorter one its after cell keeps, or the columns a named `ex-con-N` on the after cell pulls back from a default that never carried an exit-extension token: the two sides must line up letter for letter over an identical seam vector, the follower must be one of the families the rule names, the pivot and the follower must settle into cells the rule names in full — rune, stance, entry, exit and the whole adjustment set, which is what says how much of the stretch went — and the unit's own primary judged adjacency must be exactly that pivot–follower seam with no secondary seam anywhere else in the window. That last requirement is the load-bearing one, because an unchanged seam vector is not unchanged ink: a window can hold every seam still and be asking about a different letter's stroke entirely, and only the surface's own judgment fields say which letter the unit is about. The `ink_deltas` shape works from the opposite end and is ink-exact rather than structural: it names the surface's own per-config localized ink-delta digests (rebuild/review/ink.py's `delta_digest`, persisted on every unit), so a unit matches only when the window's entire before→after ink change, under every config it diverges on, is byte-identical to a blessed delta — every structural difference the unit still carries is then name-grain only, and any extra ink anywhere fails the match closed. The `slide` shape judges the rendered pixels rather than either grain of names: it re-shapes the window in the surface's own font pair and matches when the whole visible change is its named pivot letter and everything after it sliding by a declared column count — which is what lets it survive a union-invisible name-grain re-spelling riding along in the same window, the composition that mints a fresh whole-window digest and orphans an ink-delta rule. The `gained` shape judges the same rendered pixels for a letterform that keeps cells the old font omitted: the old-font pivot form gives way to a named new form that is the same picture plus a named set of own-frame cells, every other pixel in the window standing still — so a window whose only change is ·Roe keeping the baseline bar the old shortened-bottom form dropped matches, and a window that also carries a blessed slide still needs the composed reading. Each shape's own docstring states exactly what it proves, and none claims to bound the window beyond that. Above the five sits a reading no rule declares — the composed one, which runs first and asks whether two or more rules together account for every rendered pixel of one window. The founding example makes it unavoidable: a window where the grounded ·See slides a column closer to what precedes it *and* ·J'ai gives up its exit extension carries two separately-blessed changes at once, and neither rule can speak for it alone — the slide shape fails closed on the extension pixel, the extension shape is structurally blind to ink outside its judged seam. Only the slide, extension-dropped, and ink-gain shapes compose, because they name a local pixel change the walk can prove — a displacement, or a named set of own-frame cells appearing on the pivot. A name-grain pre-gate keeps the pass cheap: each composable rule's candidate positions come straight off the index record, and a window where fewer than two rules have a candidate is never shaped at all. The walk then re-shapes the window in the surface's font pair and carries a running column displacement across it — a slide event moves it by the declared count with the pivot leading the next span, an extension event drops off the named seam row the tail the pivot gave up — the named extension, less any shorter one its after cell keeps, or the named contraction — and moves it again with the follower leading, an ink-gain event adds the named cells on the pivot, judged piece by piece, and leaves the displacement alone with the next glyph leading the next span, and every stretch between events is a span whose before picture, displaced by whatever has accumulated, must equal its after picture exactly. A candidate whose own contract fails is simply not an event and its ink is judged as ordinary span ink, so adding a rule to this file can never un-explain a window; two rules claiming one position, or an extension whose follower position is itself claimed, is ambiguous and refuses. Two refusals are deliberate rather than incidental: an extension's follower must be a pure translation, so a rule whose follower is redrawn (·I's smaller loop after ·Tea) never composes, and because the pivot is judged piece by piece rather than in a union, a pivot whose after form also drops a cell off the seam row (·J'ai's crown contracting under an ·At tuck) never composes either; an ink-gain whose after form loses a cell or gains one the rule did not name never fires as an event, which leaves that ink to be judged as ordinary span ink. Credit needs two or more rules — a window one rule accounts for alone belongs to that rule's own line — and a composed fill's verdict is the weakest over the credited rules and over every non-composable rule that matches the window too, its note naming the credited ids in rules-file order. Any rule's `except_left` family, met anywhere in the window, refuses the whole unit rather than the one position, so a guarded context can never ride along beside an unguarded one; a composed reading reads each credited rule's guard in that rule's own shape's scope, and any refusal holds the whole unit — counted on the composed line, never filled, and never handed back to the single-rule pass. This is the zero-touch sibling of echo_verdicts.py: echo fill extends the user's past verdicts to pixel-identical lookalikes, while a standing rule extends a recorded once-and-for-all decision to instances the user has never seen (new left letters minted by later migrations), so those units never queue. The guard list is the point of authoring a guarded rule at all: a rule's except_left families are held for review, so the one context the user does want to see still reaches the docket. Records are stamped with the manifest's generated_at, so any human verdict beats a standing fill on merge, and a parked unit (a skip verdict) is not blank and is never filled. The artifact cycle runs this after the echo fill, with a merge_verdicts pass to land the file."""
+"""Apply the checked-in standing approvals (rebuild/standing-approvals.yaml) to the live review surface: for every rule, find the blank human units whose before→after delta matches the rule's pattern and emit fill records for them into an importable verdicts file. Six delta shapes are expressible, and a rule declares exactly one of them — which one is keyed by the field its `match.after` carries. The `ligature` shape is a pivot letter whose backward join drops as it ligates with its follower; it holds the seams flanking the delta fixed. The `follower_cells` shape is a pivot letter that gives up a named stretch of exit — the whole of a named `ex-ext-N` the before glyph carried, or the columns down to a shorter one its after cell keeps, or the columns a named `ex-con-N` on the after cell pulls back from a default that never carried an exit-extension token: the two sides must line up letter for letter over an identical seam vector, the follower must be one of the families the rule names, the pivot and the follower must settle into cells the rule names in full — rune, stance, entry, exit and the whole adjustment set, which is what says how much of the stretch went — and the unit's own primary judged adjacency must be exactly that pivot–follower seam with no secondary seam anywhere else in the window. That last requirement is the load-bearing one, because an unchanged seam vector is not unchanged ink: a window can hold every seam still and be asking about a different letter's stroke entirely, and only the surface's own judgment fields say which letter the unit is about. The `ink_deltas` shape works from the opposite end and is ink-exact rather than structural: it names the surface's own per-config localized ink-delta digests (rebuild/review/ink.py's `delta_digest`, persisted on every unit), so a unit matches only when the window's entire before→after ink change, under every config it diverges on, is byte-identical to a blessed delta — every structural difference the unit still carries is then name-grain only, and any extra ink anywhere fails the match closed. The `slide` shape judges the rendered pixels rather than either grain of names: it re-shapes the window in the surface's own font pair and matches when the whole visible change is its named pivot letter and everything after it sliding by a declared column count — which is what lets it survive a union-invisible name-grain re-spelling riding along in the same window, the composition that mints a fresh whole-window digest and orphans an ink-delta rule. The `gained` shape judges the same rendered pixels for a letterform that keeps cells the old font omitted: the old-font pivot form gives way to a named new form that is the same picture plus a named set of own-frame cells, every other pixel in the window standing still — so a window whose only change is ·Roe keeping the baseline bar the old shortened-bottom form dropped matches, and a window that also carries a blessed slide still needs the composed reading. The `gap` shape judges a named join that is now a break: the pivot keeps its exact picture and own-frame origin, the follower keeps its exact picture and origin and sits a declared number of columns further, and everything after the follower sits the same extra gap away — which is what a cursive attachment going away looks like, as distinct from a sidebearing change (the slide shape, whose origin moves with the letter). Each shape's own docstring states exactly what it proves, and none claims to bound the window beyond that. Above the six sits a reading no rule declares — the composed one, which runs first and asks whether two or more rules together account for every rendered pixel of one window. The founding example makes it unavoidable: a window where the grounded ·See slides a column closer to what precedes it *and* ·J'ai gives up its exit extension carries two separately-blessed changes at once, and neither rule can speak for it alone — the slide shape fails closed on the extension pixel, the extension shape is structurally blind to ink outside its judged seam. Only the slide, extension-dropped, ink-gain, and join-dropped shapes compose, because they name a local pixel change the walk can prove — a displacement, a named set of own-frame cells appearing on the pivot, or a named join becoming a gap. A name-grain pre-gate keeps the pass cheap: each composable rule's candidate positions come straight off the index record, and a window where fewer than two rules have a candidate is never shaped at all. The walk then re-shapes the window in the surface's font pair and carries a running column displacement across it — a slide event moves it by the declared count with the pivot leading the next span, an extension event drops off the named seam row the tail the pivot gave up — the named extension, less any shorter one its after cell keeps, or the named contraction — and moves it again with the follower leading, a join-dropped event leaves the pivot in place under the standing displacement, adds the declared gap, and moves again with the follower leading, an ink-gain event adds the named cells on the pivot, judged piece by piece, and leaves the displacement alone with the next glyph leading the next span, and every stretch between events is a span whose before picture, displaced by whatever has accumulated, must equal its after picture exactly. A candidate whose own contract fails is simply not an event and its ink is judged as ordinary span ink, so adding a rule to this file can never un-explain a window; two rules claiming one position, or an extension or join-dropped event whose follower position is itself claimed, is ambiguous and refuses. Two refusals are deliberate rather than incidental: an extension's follower must be a pure translation, so a rule whose follower is redrawn (·I's smaller loop after ·Tea) never composes, and because the pivot is judged piece by piece rather than in a union, a pivot whose after form also drops a cell off the seam row (·J'ai's crown contracting under an ·At tuck) never composes either; an ink-gain whose after form loses a cell or gains one the rule did not name never fires as an event, which leaves that ink to be judged as ordinary span ink. Credit needs two or more rules — a window one rule accounts for alone belongs to that rule's own line — and a composed fill's verdict is the weakest over the credited rules and over every non-composable rule that matches the window too, its note naming the credited ids in rules-file order. Any rule's `except_left` family, met anywhere in the window, refuses the whole unit rather than the one position, so a guarded context can never ride along beside an unguarded one; a composed reading reads each credited rule's guard in that rule's own shape's scope, and any refusal holds the whole unit — counted on the composed line, never filled, and never handed back to the single-rule pass. This is the zero-touch sibling of echo_verdicts.py: echo fill extends the user's past verdicts to pixel-identical lookalikes, while a standing rule extends a recorded once-and-for-all decision to instances the user has never seen (new left letters minted by later migrations), so those units never queue. The guard list is the point of authoring a guarded rule at all: a rule's except_left families are held for review, so the one context the user does want to see still reaches the docket. Records are stamped with the manifest's generated_at, so any human verdict beats a standing fill on merge, and a parked unit (a skip verdict) is not blank and is never filled. The artifact cycle runs this after the echo fill, with a merge_verdicts pass to land the file."""
 
 import argparse
 import json
@@ -28,7 +28,7 @@ EXIT_CONTRACTION = re.compile(r"ex-con-[1-9][0-9]*")
 DELTA_DIGEST = re.compile(r"d-[0-9a-f]{12}")
 EMPTY_DELTA_DIGEST = delta_digest(IDENTITY_DIFF)
 SEAM_ROW = re.compile(r"y([0-9]+)")
-COMPOSABLE_SHAPES = ("slide", "extension-dropped", "ink-gain")
+COMPOSABLE_SHAPES = ("slide", "extension-dropped", "ink-gain", "join-dropped")
 
 
 def _fail(message) -> NoReturn:
@@ -451,8 +451,136 @@ def _validate_ink_gain(rule_id, match) -> None:
         )
 
 
+def _join_pairs(match, unit):
+    """Glyph indices where the named join dropped: the pivot prefix, the follower's family, and the named height becoming a break, letter for letter, with the follower's after cell still that same family's."""
+    if not _letter_for_letter(unit):
+        return []
+    glyphs, seams = unit["before"]["glyphs"], unit["before"]["seams"]
+    cells, after_seams = unit["after"]["cells"], unit["after"]["seams"]
+    followers = _families(match["before"]["follower"])
+    pivot = match["before"]["pivot"]
+    seam = match["before"]["seam_out"]
+    reach = min(len(glyphs), len(cells), len(seams) + 1, len(after_seams) + 1) - 1
+    return [
+        i
+        for i in range(reach)
+        if _is_pivot(glyphs[i], pivot)
+        and _family(glyphs[i + 1]) in followers
+        and seams[i] == seam
+        and after_seams[i] == "break"
+        and _cell_rune(cells[i]) == _family(glyphs[i])
+        and _cell_rune(cells[i + 1]) == _family(glyphs[i + 1])
+    ]
+
+
+def _join_piece_holds(before, after):
+    """Whether one piece of a dropped join kept its picture: same shape, same height, same own-frame origin, both on the grid. Placement under the running displacement is the walk's job, not this contract's."""
+    if before is None or after is None:
+        return False
+    if before[1] != after[1] or before[3] != after[3] or before[4] != after[4]:
+        return False
+    return before[2] % PIXEL_SIZE == 0 and after[2] % PIXEL_SIZE == 0 and before[3] % PIXEL_SIZE == 0
+
+
+def _join_geometry(match, unit, comparator):
+    """Whether the window's rendered before→after change is exactly the named join becoming a gap, re-derived from the fonts: shape the window under one of the unit's configs, find every pivot–follower pair whose recorded seam dropped from the named height to a break, require both letters to keep their exact shape at their height with their own-frame origin unmoved, and require each span's pixel picture to be identical once displaced by the cumulative gap — the span before the first follower by nothing, the span the first follower leads by the full gap, and one more gap for every further pair. Anything the contract cannot hold — no pair, a shaped run that contradicts the unit's recorded glyphs, a redrawn pivot or follower, an origin shift, an off-grid placement — reads as no match, so the unit queues."""
+    codepoints = unit.get("codepoints") or ""
+    if not codepoints:
+        return False
+    try:
+        text = "".join(chr(int(value, 16)) for value in codepoints.split(":"))
+    except ValueError:
+        return False
+    features = features_for(unit["configs"][0])
+    before_names, before_run = comparator.named_run("before", text, features)
+    if list(before_names) != unit["before"]["glyphs"]:
+        return False
+    after_names, after_run = comparator.named_run("after", text, features)
+    cells = unit["after"]["cells"]
+    if len(after_names) != len(cells):
+        return False
+    before_pieces = _pieces_by_glyph(before_names, before_run)
+    after_pieces = _pieces_by_glyph(after_names, after_run)
+    if before_pieces is None or after_pieces is None:
+        return False
+    pairs = _join_pairs(match, unit)
+    if not pairs:
+        return False
+    for index in pairs:
+        if not _join_piece_holds(before_pieces.get(index), after_pieces.get(index)):
+            return False
+        if not _join_piece_holds(before_pieces.get(index + 1), after_pieces.get(index + 1)):
+            return False
+    intern = comparator.intern
+    gap = match["after"]["gap"]
+    followers = {index + 1 for index in pairs}
+    before_span: list = []
+    after_span: list = []
+    step = 0
+    for index in range(len(before_names)):
+        if index in followers:
+            if not _span_settled(intern, before_span, after_span, gap * step):
+                return False
+            before_span = [before_pieces[index]] if index in before_pieces else []
+            after_span = [after_pieces[index]] if index in after_pieces else []
+            step += 1
+            continue
+        if index in before_pieces:
+            before_span.append(before_pieces[index])
+        if index in after_pieces:
+            after_span.append(after_pieces[index])
+    return _span_settled(intern, before_span, after_span, gap * step)
+
+
+def _matches_join_dropped(match, unit, excluded, context=None):
+    """A named join that is now a break, matched at the rendered-pixel grain: the pivot letter keeps its exact picture and own-frame origin, the follower keeps its exact picture and origin and sits the declared number of columns further, and everything after the follower sits the same extra gap away. Origin unmoved is the shape's point: this is a cursive attachment going away, not a sidebearing change, so a slide of the follower would fail the origin check by design. Any other ink change anywhere in the window fails this match closed — which is where the composed reading picks up, so a window this shape refuses only because a second separately-blessed change moved a pixel it has no vocabulary for may still be explained by both rules together. One shaped config speaks for all of them, on the same digest-agreement precondition the slide shape holds. except_left reads the whole window, as the slide and ink-gain shapes do."""
+    deltas = unit.get("ink_deltas")
+    if not isinstance(deltas, dict) or not deltas:
+        return False
+    if len(set(deltas.values())) != 1 or set(deltas) != set(unit.get("configs") or []):
+        return False
+    if not _join_pairs(match, unit):
+        return False
+    if context is None:
+        raise ValueError(
+            "the join-dropped shape re-shapes windows in the surface's fonts and needs a SlideContext"
+        )
+    key = (
+        match["before"]["pivot"],
+        match["before"]["seam_out"],
+        tuple(_families(match["before"]["follower"])),
+        match["after"]["gap"],
+        unit["id"],
+    )
+    verdict = context.memo.get(key)
+    if verdict is None:
+        verdict = context.memo[key] = _join_geometry(match, unit, context.comparator)
+    if not verdict:
+        return False
+    return not any(_joining_family(name) in excluded for name in unit["before"]["glyphs"])
+
+
+def _validate_join_dropped(rule_id, match) -> None:
+    """The join-dropped shape's own coherence, checked once at load: the gap must actually move (zero columns is the identity, which is machine-approved already, so a rule declaring it could only mask a typo), and it must be a widening (a dropped join sits the letters further apart, never closer), and the named seam must be a yK height — a break has nothing to drop."""
+    if match["after"]["gap"] == 0:
+        _fail(
+            f"rule {rule_id!r}: match.after.gap is 0; an unmoved window is ink-identical and "
+            "machine-approved already"
+        )
+    if match["after"]["gap"] < 0:
+        _fail(
+            f"rule {rule_id!r}: match.after.gap is {match['after']['gap']}; a dropped join sits "
+            "the letters further apart, never closer"
+        )
+    if not SEAM_ROW.fullmatch(match["before"]["seam_out"]):
+        _fail(
+            f"rule {rule_id!r}: match.before.seam_out names {match['before']['seam_out']!r}, "
+            "which is not a yK height; a break has no join to drop"
+        )
+
+
 class Event(NamedTuple):
-    """One position a composable rule was credited at in a composed walk: the rule's id, which shape spoke there (`slide`, `extension`, or `gain`), and the columns the window's running displacement moves by at that position — the declared slide, minus the extension's column count, or zero for an ink-gain, which adds cells without moving the rest of the window."""
+    """One position a composable rule was credited at in a composed walk: the rule's id, which shape spoke there (`slide`, `extension`, `gain`, or `join`), and the columns the window's running displacement moves by at that position — the declared slide, minus the extension's column count, the declared join gap, or zero for an ink-gain, which adds cells without moving the rest of the window."""
 
     rule_id: str
     kind: str
@@ -460,7 +588,7 @@ class Event(NamedTuple):
 
 
 def _is_composable(rule):
-    """Whether a rule's shape can take part in a composed reading. Only the slide, extension-dropped, and ink-gain shapes can: they name a local pixel change the walk can prove — a displacement, or a named set of own-frame cells appearing on the pivot — so a walk across a window can carry them. The ligature shape reads a whole window's name-grain structure and the ink-delta shape reads a whole window's ink change byte for byte; neither says anything about one position, so neither has anything to contribute to a walk."""
+    """Whether a rule's shape can take part in a composed reading. Only the slide, extension-dropped, ink-gain, and join-dropped shapes can: they name a local pixel change the walk can prove — a displacement, a named set of own-frame cells appearing on the pivot, or a named join becoming a gap — so a walk across a window can carry them. The ligature shape reads a whole window's name-grain structure and the ink-delta shape reads a whole window's ink change byte for byte; neither says anything about one position, so neither has anything to contribute to a walk."""
     return any(SHAPES[name].keyed_by in rule["match"]["after"] for name in COMPOSABLE_SHAPES)
 
 
@@ -477,16 +605,22 @@ def _is_gain_match(match):
     return SHAPES["ink-gain"].keyed_by in match["after"]
 
 
+def _is_join_match(match):
+    return SHAPES["join-dropped"].keyed_by in match["after"]
+
+
 def _composable_digest(rules):
     """A hashable identity for a set of composable rules — each one's id with what it matches on — so a composed reading memoized against one rules file is never served to another: the memo lives on the context, a caller may hold two rule sets against one context, and the memoized value names rule ids, so two sets that match alike under different ids must not share an entry either."""
     return tuple((rule["id"], json.dumps(rule["match"], sort_keys=True)) for rule in rules)
 
 
 def _candidates(match, unit):
-    """The window positions one composable rule could speak for, read off the index record before anything is shaped: a slide or ink-gain rule's are the glyphs whose recorded before name carries one of its pivot prefixes; an extension rule's are the positions meeting every per-position precondition the single-rule matcher reads — the named drop (an `ex-ext-N` on the before glyph, or an `ex-con-N` on the after cell whose before glyph never carried an exit extension), the named seam standing still at that position on both sides, the pivot and follower after cells, and the follower's own family answering for its own cell — and none at all unless the named seam is a yK height, since the walk has to know which row a dropped tail sits on. Deliberately name-grain and cheap, because this is the pre-gate that decides whether a window is worth shaping at all: a rule with no candidate here can never be credited, and a window where fewer than two rules have one is never shaped."""
+    """The window positions one composable rule could speak for, read off the index record before anything is shaped: a slide or ink-gain rule's are the glyphs whose recorded before name carries one of its pivot prefixes; a join-dropped rule's are the positions where the named pivot's recorded seam into the named follower dropped from the named height to a break; an extension rule's are the positions meeting every per-position precondition the single-rule matcher reads — the named drop (an `ex-ext-N` on the before glyph, or an `ex-con-N` on the after cell whose before glyph never carried an exit extension), the named seam standing still at that position on both sides, the pivot and follower after cells, and the follower's own family answering for its own cell — and none at all unless the named seam is a yK height, since the walk has to know which row a dropped tail sits on. Deliberately name-grain and cheap, because this is the pre-gate that decides whether a window is worth shaping at all: a rule with no candidate here can never be credited, and a window where fewer than two rules have one is never shaped."""
     glyphs = unit["before"]["glyphs"]
     if _is_slide_match(match) or _is_gain_match(match):
         return [i for i, name in enumerate(glyphs) if _named_pivot(name, match["before"]["pivots"])]
+    if _is_join_match(match):
+        return _join_pairs(match, unit)
     mb, ma = match["before"], match["after"]
     if not SEAM_ROW.fullmatch(mb["seam_out"]):
         return []
@@ -577,6 +711,15 @@ def _extension_event(match, rule_id, index, intern, before_pieces, after_pieces,
     return Event(rule_id, "extension", -columns)
 
 
+def _join_event(match, rule_id, index, before_pieces, after_pieces):
+    """Whether one join-dropped candidate's own contract holds at the rendered grain: both the pivot and the follower keep their exact shape at their exact height with their own-frame origin unmoved, both on the grid. Placement under the running displacement is the walk's job, not this contract's, mirroring `_slide_event` leaving the span equality to the walk. The follower must be a pure translation — the same shape at the same height with the same origin — so a rule whose follower is redrawn rather than moved yields no event at all, which is deliberate: a redrawn follower is a second change in the window and the composed reading has no vocabulary for it. None when any of that fails, which leaves both pieces to be judged as ordinary span ink."""
+    if not _join_piece_holds(before_pieces.get(index), after_pieces.get(index)):
+        return None
+    if not _join_piece_holds(before_pieces.get(index + 1), after_pieces.get(index + 1)):
+        return None
+    return Event(rule_id, "join", match["after"]["gap"])
+
+
 def _span_settled(intern, before_span, after_span, displacement):
     """Whether one span between events renders as the same picture once displaced: the union of the before pieces' cells at their placements, moved by the displacement the walk has accumulated so far, must equal the after pieces' union exactly. A span the walk cannot picture — a non-rectilinear outline, an off-grid placement — refuses, so a window no cell reading can be made of never composes."""
     painted = _span_cells(intern, before_span)
@@ -587,7 +730,7 @@ def _span_settled(intern, before_span, after_span, displacement):
 
 
 def _composed_walk(rules, unit, context):
-    """The composed reading itself, re-derived from the surface's own fonts: shape both sides of the window, hold each shaped run against what the index recorded, evaluate every composable rule's candidates at the rendered grain, and walk the window left to right carrying a running column displacement — each span between events judged as a picture under the displacement standing when it began, each event judged as its own contract plus a placement offset, and each event's pivot (a slide's) or follower (an extension's) leading the next span under the new displacement. A candidate whose own contract fails is simply not an event and its ink is judged as ordinary span ink, so adding a rule to the file can never un-explain a window that was explained without it; two rules claiming one position, or an extension whose follower position is itself claimed, is ambiguous and refuses outright. Returns each credited rule's event positions, or None when no such reading of the window exists. It carries no arity threshold of its own — a one-rule reading is a real reading of a window, and it is `_composed` that requires two — which is what lets it be held directly against each single-shape matcher."""
+    """The composed reading itself, re-derived from the surface's own fonts: shape both sides of the window, hold each shaped run against what the index recorded, evaluate every composable rule's candidates at the rendered grain, and walk the window left to right carrying a running column displacement — each span between events judged as a picture under the displacement standing when it began, each event judged as its own contract plus a placement offset, and each event's pivot (a slide's) or follower (an extension's or a join-dropped's) leading the next span under the new displacement. A candidate whose own contract fails is simply not an event and its ink is judged as ordinary span ink, so adding a rule to the file can never un-explain a window that was explained without it; two rules claiming one position, or an extension whose follower position is itself claimed, is ambiguous and refuses outright. Returns each credited rule's event positions, or None when no such reading of the window exists. It carries no arity threshold of its own — a one-rule reading is a real reading of a window, and it is `_composed` that requires two — which is what lets it be held directly against each single-shape matcher."""
     deltas = unit.get("ink_deltas")
     if not isinstance(deltas, dict) or not deltas:
         return None
@@ -627,6 +770,8 @@ def _composed_walk(rules, unit, context):
                 event = _gain_event(
                     match, rule["id"], index, after_names, intern, before_pieces, after_pieces
                 )
+            elif _is_join_match(match):
+                event = _join_event(match, rule["id"], index, before_pieces, after_pieces)
             else:
                 event = _extension_event(
                     match,
@@ -642,7 +787,7 @@ def _composed_walk(rules, unit, context):
     if any(len(claims) > 1 for claims in found.values()):
         return None
     events = {index: claims[0] for index, claims in found.items()}
-    if any(index + 1 in events for index, event in events.items() if event.kind == "extension"):
+    if any(index + 1 in events for index, event in events.items() if event.kind in ("extension", "join")):
         return None
     credited: dict[str, list[int]] = {}
     before_span: list = []
@@ -709,7 +854,7 @@ def _composed_held(rules, unit, events, context):
             continue
         indices = events.get(rule["id"])
         if indices:
-            if _is_slide_match(match) or _is_gain_match(match):
+            if _is_slide_match(match) or _is_gain_match(match) or _is_join_match(match):
                 if any(_joining_family(name) in excluded for name in glyphs):
                     return True
             elif any(index and _joining_family(glyphs[index - 1]) in excluded for index in indices):
@@ -809,6 +954,16 @@ SHAPES = {
         validate=_validate_ink_gain,
         name_lists=("pivots",),
         point_lists=("gained",),
+    ),
+    "join-dropped": Shape(
+        keyed_by="gap",
+        before=("pivot", "seam_out", "follower"),
+        after=("gap",),
+        cell_lists=(),
+        matcher=_matches_join_dropped,
+        validate=_validate_join_dropped,
+        int_fields=("gap",),
+        family_fields=("follower",),
     ),
 }
 
@@ -969,31 +1124,33 @@ def main(argv=None, *, units=None):
         any(
             SHAPES[name].keyed_by in rule["match"]["after"]
             for rule in rules
-            for name in ("ink-delta", "slide", "ink-gain")
+            for name in ("ink-delta", "slide", "ink-gain", "join-dropped")
         )
         or len(composable) > 1
     )
     # The index record always carries the key, and carries None exactly when the shard had no ink_deltas field at all — which is what "predates the emission" means here. The slide and ink-gain shapes share the dependency: their config-agreement precondition reads the same field, so they refuse the stale surface just as loudly instead of quietly matching nothing.
     if wants_deltas and not any(unit.get("ink_deltas") is not None for unit in units):
         raise SystemExit(
-            "the surface carries no ink_deltas fields, so it predates the ink-delta, slide, and ink-gain "
-            "shapes; such a rule cannot match anything on it — rebuild the surface (make review-cycle) first"
+            "the surface carries no ink_deltas fields, so it predates the ink-delta, slide, ink-gain, "
+            "and join-dropped shapes; such a rule cannot match anything on it — rebuild the surface "
+            "(make review-cycle) first"
         )
     context = None
     if (
         any(
             SHAPES[name].keyed_by in rule["match"]["after"]
             for rule in rules
-            for name in ("slide", "ink-gain")
+            for name in ("slide", "ink-gain", "join-dropped")
         )
         or len(composable) > 1
     ):
         before_font, after_font = surface / "fonts" / "before.otf", surface / "fonts" / "after.otf"
         if not (before_font.is_file() and after_font.is_file()):
             raise SystemExit(
-                "a slide or ink-gain rule, and any composed reading two or more composable rules could "
-                "earn, re-shape their candidate windows in the surface's own font pair, and this surface "
-                "carries no fonts/before.otf + fonts/after.otf — rebuild the surface (make review-cycle) first"
+                "a slide, ink-gain, or join-dropped rule, and any composed reading two or more composable "
+                "rules could earn, re-shape their candidate windows in the surface's own font pair, and "
+                "this surface carries no fonts/before.otf + fonts/after.otf — rebuild the surface "
+                "(make review-cycle) first"
             )
         context = SlideContext(before_font, after_font)
 

@@ -130,3 +130,14 @@ rules:
         pivots: [qsRoe.hapax]
         gained: [[1, 0]]
       except_left: []
+  - id: at-it-xheight-join-dropped
+    verdict: approve
+    note: "·It sits a column further from ·At — they no longer join at the x-height; ·At's x-height-exit refusal before ·It was authored as “Don’t join ·At·It either”, and every window that reached a sitting approved the break"
+    match:
+      before:
+        pivot: qsAt
+        seam_out: y5
+        follower: qsIt
+      after:
+        gap: 1
+      except_left: []
