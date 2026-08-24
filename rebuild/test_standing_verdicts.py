@@ -1,4 +1,4 @@
-"""Tests for the standing-approval fill: all five delta shapes — the two structural pattern matches, being the ligature shape (pivot glyph, seams into and out of it, follower family, post-ligature seam, flank-seam identity) and the extension-dropped shape (pivot glyph giving up a named stretch of exit — an `ex-ext-N` it carried, in whole or down to a shorter one its named after cell keeps, or an `ex-con-N` its named after cell carries when the before glyph never had an exit extension — the seam it exits into holding its height, the full after-cell identity of pivot and follower, every other seam standing still, nothing ligating anywhere, and the unit's own judgment fields agreeing that this seam is the question), the ink-exact ink-delta shape (the unit's persisted per-config digests being a nonempty subset of the ones the rule blesses, so an ink-identical window matches nothing and one unlisted delta under one config fails the whole unit closed, and a surface predating the field refuses the run outright), and the rendered-pixel slide shape, whose preconditions are read off the index record before anything is shaped (a nonempty `ink_deltas` holding one distinct digest whose keys are exactly the unit's config set, and a pivot-prefix name among the recorded before glyphs) and whose geometry is then re-derived in a purpose-built font pair, where the pivot keeps its exact ink with its own-frame origin displaced by the declared column count and every span's union of ink slides cumulatively — so a union-invisible name-grain re-spelling to the pivot's right rides along, while one stray pixel anywhere in the window, or a font pair that never settles into the named pivot, fails the match closed — the rendered-pixel ink-gain shape, whose preconditions match the slide shape's and whose geometry is the named pivot keeping its placement, height, and own-frame origin while gaining exactly the named cells, every other pixel standing still — the composed reading that runs before all five and credits two or more rules for one window — its name-grain pre-gate refusing to shape a window fewer than two rules have a candidate in, its walk carrying a running column displacement across the window so that each span between events must render identically once displaced, its refusal of a redrawn follower, of a pivot contracting off the seam row, of a tail wider than the pivot gave up, and of two rules claiming one position, its judging of a failed candidate as ordinary span ink, its per-shape guard scopes, and its own reporting line, which `main` keeps clear of the per-rule lines — the except_left guard, which reads a ligature's trailing left component and refuses the whole unit rather than the one position, blankness against the verdicts file (parked skip verdicts are not blank), the non-winning manifest stamp on every emitted record, and rules-file validation, which admits exactly one shape per rule and checks that shape's own coherence."""
+"""Tests for the standing-approval fill: all six delta shapes — the two structural pattern matches, being the ligature shape (pivot glyph, seams into and out of it, follower family, post-ligature seam, flank-seam identity) and the extension-dropped shape (pivot glyph giving up a named stretch of exit — an `ex-ext-N` it carried, in whole or down to a shorter one its named after cell keeps, or an `ex-con-N` its named after cell carries when the before glyph never had an exit extension — the seam it exits into holding its height, the full after-cell identity of pivot and follower, every other seam standing still, nothing ligating anywhere, and the unit's own judgment fields agreeing that this seam is the question), the ink-exact ink-delta shape (the unit's persisted per-config digests being a nonempty subset of the ones the rule blesses, so an ink-identical window matches nothing and one unlisted delta under one config fails the whole unit closed, and a surface predating the field refuses the run outright), and the rendered-pixel slide shape, whose preconditions are read off the index record before anything is shaped (a nonempty `ink_deltas` holding one distinct digest whose keys are exactly the unit's config set, and a pivot-prefix name among the recorded before glyphs) and whose geometry is then re-derived in a purpose-built font pair, where the pivot keeps its exact ink with its own-frame origin displaced by the declared column count and every span's union of ink slides cumulatively — so a union-invisible name-grain re-spelling to the pivot's right rides along, while one stray pixel anywhere in the window, or a font pair that never settles into the named pivot, fails the match closed — the rendered-pixel ink-gain shape, whose preconditions match the slide shape's and whose geometry is the named pivot keeping its placement, height, and own-frame origin while gaining exactly the named cells, every other pixel standing still — the rendered-pixel join-dropped shape, whose preconditions are a named pivot–follower seam dropping from a yK height to a break plus the slide shape's digest-agreement, and whose geometry is both letters keeping their exact picture and own-frame origin with the follower sitting the declared gap further and everything after it sitting the same extra gap away — the composed reading that runs before all six and credits two or more rules for one window — its name-grain pre-gate refusing to shape a window fewer than two rules have a candidate in, its walk carrying a running column displacement across the window so that each span between events must render identically once displaced, its refusal of a redrawn follower, of a pivot contracting off the seam row, of a tail wider than the pivot gave up, and of two rules claiming one position, its judging of a failed candidate as ordinary span ink, its per-shape guard scopes, and its own reporting line, which `main` keeps clear of the per-rule lines — the except_left guard, which reads a ligature's trailing left component and refuses the whole unit rather than the one position, blankness against the verdicts file (parked skip verdicts are not blank), the non-winning manifest stamp on every emitted record, and rules-file validation, which admits exactly one shape per rule and checks that shape's own coherence."""
 
 import json
 import pathlib
@@ -120,6 +120,17 @@ GAIN_RULE = {
     "match": {
         "before": {"pivots": ["qsRoe.en-ext-1-at-5"]},
         "after": {"pivots": ["qsRoe.hapax"], "gained": [[1, 0]]},
+        "except_left": [],
+    },
+}
+
+JOIN_RULE = {
+    "id": "at-it-xheight-join-dropped",
+    "verdict": "approve",
+    "note": "·It sits a column further from ·At — they no longer join at the x-height",
+    "match": {
+        "before": {"pivot": "qsAt", "seam_out": "y5", "follower": "qsIt"},
+        "after": {"gap": 1},
         "except_left": [],
     },
 }
@@ -697,6 +708,9 @@ def test_checked_in_rules_file_loads():
     assert gained["before"]["pivots"] == ["qsRoe.en-ext-1-at-5"]
     assert gained["after"]["pivots"] == ["qsRoe.hapax"]
     assert gained["after"]["gained"] == [[1, 0]]
+    dropped = by_id["at-it-xheight-join-dropped"]["match"]
+    assert dropped["before"] == {"pivot": "qsAt", "seam_out": "y5", "follower": "qsIt"}
+    assert dropped["after"] == {"gap": 1}
 
 
 def et_may(
@@ -995,9 +1009,9 @@ def test_both_shapes_load_from_one_rules_file(tmp_path):
     assert [rule["id"] for rule in rules] == [RULE["id"], EXT_RULE["id"]]
 
 
-def test_all_five_shapes_load_from_one_rules_file(tmp_path):
+def test_all_six_shapes_load_from_one_rules_file(tmp_path):
     rules = sv.load_rules(
-        _write_rules(tmp_path / "rules.yaml", [RULE, EXT_RULE, INK_RULE, SLIDE_RULE, GAIN_RULE])
+        _write_rules(tmp_path / "rules.yaml", [RULE, EXT_RULE, INK_RULE, SLIDE_RULE, GAIN_RULE, JOIN_RULE])
     )
     assert [rule["id"] for rule in rules] == [
         RULE["id"],
@@ -1005,6 +1019,7 @@ def test_all_five_shapes_load_from_one_rules_file(tmp_path):
         INK_RULE["id"],
         SLIDE_RULE["id"],
         GAIN_RULE["id"],
+        JOIN_RULE["id"],
     ]
 
 
@@ -1049,6 +1064,8 @@ BEFORE_GLYPHS = {
     "qsJ.ex-y0.ex-ext-3.long": (LONG_TAIL_PIVOT, 200),
     "qsEt": (EXTENDED_PIVOT, 100),
     "qsRoe.en-ext-1-at-5": (SHORTENED_ROE, 100),
+    "qsAt": (TWO_COLUMNS, 100),
+    "qsIt": (TWO_COLUMNS, 100),
     "space": ((), 50),
 }
 AFTER_GLYPHS = {
@@ -1066,6 +1083,8 @@ AFTER_GLYPHS = {
     "qsEt.hapax": (TRIMMED_PIVOT, 50),
     "qsOther": (TWO_COLUMNS, 100),
     "qsRoe.hapax.en-y5.en-ext-1": (KEPT_ROE, 100),
+    "qsAt": (TWO_COLUMNS, 150),
+    "qsIt": (TWO_COLUMNS, 100),
     "space": ((), 50),
 }
 BEFORE_CMAP = {
@@ -1087,6 +1106,8 @@ BEFORE_CMAP = {
     0xE00F: "qsJ.ex-y0.ex-ext-3.long",
     0xE010: "qsEt",
     0xE020: "qsRoe.en-ext-1-at-5",
+    0xE021: "qsAt",
+    0xE022: "qsIt",
 }
 AFTER_CMAP = {
     0x0020: "space",
@@ -1107,6 +1128,8 @@ AFTER_CMAP = {
     0xE00F: "qsJ.hapax.ex-y0",
     0xE010: "qsEt.hapax",
     0xE020: "qsRoe.hapax.en-y5.en-ext-1",
+    0xE021: "qsAt",
+    0xE022: "qsIt",
 }
 
 SLIDE_FONTS = {
@@ -1135,6 +1158,12 @@ SLIDE_FONTS = {
         {**AFTER_GLYPHS, "qsRoe.hapax.en-y5.en-ext-1": (SHORTENED_ROE, 100)},
         AFTER_CMAP,
     ),
+    "after-join-unmoved": ({**AFTER_GLYPHS, "qsAt": (TWO_COLUMNS, 100)}, AFTER_CMAP),
+    "after-join-redrawn-pivot": ({**AFTER_GLYPHS, "qsAt": (TUCKED_FOLLOWER, 150)}, AFTER_CMAP),
+    "after-join-redrawn-follower": ({**AFTER_GLYPHS, "qsIt": (TUCKED_FOLLOWER, 100)}, AFTER_CMAP),
+    "after-join-regrouped": ({**AFTER_GLYPHS, "qsIt": (TWO_COLUMNS, 50)}, AFTER_CMAP),
+    "after-join-extra-prefix-pixel": ({**AFTER_GLYPHS, "qsL": (TWO_COLUMNS_AND_A_PIXEL, 100)}, AFTER_CMAP),
+    "after-join-extra-tail-pixel": ({**AFTER_GLYPHS, "qsF1": (TWO_COLUMNS_AND_A_PIXEL, 50)}, AFTER_CMAP),
 }
 
 FOUNDING_GLYPHS = ["qsL", "qsSee.ex-y0", "qsF1", "qsF2"]
@@ -1506,6 +1535,192 @@ def test_a_rule_declaring_the_gain_and_slide_shapes_at_once_is_refused(tmp_path)
         sv.load_rules(_write_rules(tmp_path / "rules.yaml", [rule]))
 
 
+JOIN_GLYPHS = ["qsL", "qsAt", "qsIt", "qsF1"]
+JOIN_CODEPOINTS = "E001:E021:E022:E003"
+
+
+def join_window(uid="j-1"):
+    return unit(
+        uid,
+        list(JOIN_GLYPHS),
+        ["y0", "y5", "y0"],
+        ["qsL/full/None/None/", "qsAt/full/None/None/", "qsIt/full/None/None/", "qsF1/full/None/None/"],
+        ["y0", "break", "y0"],
+        codepoints=JOIN_CODEPOINTS,
+        configs=("default",),
+        ink_deltas={"default": SLIDE_DELTA},
+        pair={"left": 1, "right": 2},
+    )
+
+
+def test_a_pure_join_drop_matches(slide_context):
+    assert sv._matches(JOIN_RULE["match"], join_window(), context=slide_context())
+
+
+def test_the_checked_in_at_it_rule_reads_the_gap(slide_context):
+    match = {rule["id"]: rule for rule in sv.load_rules(sv.RULES)}["at-it-xheight-join-dropped"]["match"]
+    assert sv._matches(match, join_window(), context=slide_context())
+    assert not sv._matches(match, founding_window(), context=slide_context())
+
+
+def test_an_unmoved_follower_defeats_the_join_match(slide_context):
+    assert not sv._matches(JOIN_RULE["match"], join_window(), context=slide_context("after-join-unmoved"))
+
+
+def test_a_redrawn_pivot_defeats_the_join_match(slide_context):
+    assert not sv._matches(
+        JOIN_RULE["match"], join_window(), context=slide_context("after-join-redrawn-pivot")
+    )
+
+
+def test_a_redrawn_follower_defeats_the_join_match(slide_context):
+    assert not sv._matches(
+        JOIN_RULE["match"], join_window(), context=slide_context("after-join-redrawn-follower")
+    )
+
+
+def test_a_regrouped_follower_defeats_the_join_match(slide_context):
+    assert not sv._matches(JOIN_RULE["match"], join_window(), context=slide_context("after-join-regrouped"))
+
+
+def test_one_extra_pixel_before_the_join_defeats_the_match(slide_context):
+    assert not sv._matches(
+        JOIN_RULE["match"], join_window(), context=slide_context("after-join-extra-prefix-pixel")
+    )
+
+
+def test_one_extra_pixel_after_the_join_defeats_the_match(slide_context):
+    assert not sv._matches(
+        JOIN_RULE["match"], join_window(), context=slide_context("after-join-extra-tail-pixel")
+    )
+
+
+def test_a_seam_that_stays_joined_defeats_the_match(slide_context):
+    stayed = join_window()
+    stayed["after"]["seams"] = ["y0", "y5", "y0"]
+    assert not sv._matches(JOIN_RULE["match"], stayed, context=slide_context())
+
+
+def test_a_wrong_follower_family_defeats_the_join_match(slide_context):
+    other = join_window()
+    other["before"]["glyphs"][2] = "qsF1"
+    other["after"]["cells"][2] = "qsF1/full/None/None/"
+    other["codepoints"] = "E001:E021:E003:E003"
+    assert not sv._matches(JOIN_RULE["match"], other, context=slide_context())
+
+
+def test_a_join_rule_reads_no_unit_without_ink_deltas():
+    bare = join_window()
+    del bare["ink_deltas"]
+    assert not sv._matches(JOIN_RULE["match"], bare)
+    empty = join_window()
+    empty["ink_deltas"] = {}
+    assert not sv._matches(JOIN_RULE["match"], empty)
+
+
+def test_a_window_with_no_join_pivot_is_refused_before_any_shaping():
+    assert not sv._matches(JOIN_RULE["match"], slide_unit("j-3", ["qsL", "qsF1"], "E001:E003"))
+
+
+def test_a_matchable_join_window_with_no_context_refuses_to_guess():
+    with pytest.raises(ValueError, match="SlideContext"):
+        sv._matches(JOIN_RULE["match"], join_window())
+
+
+def test_except_left_holds_the_guarded_family_on_the_join_dropped_shape(slide_context):
+    context = slide_context()
+    assert not sv._matches(guarding(JOIN_RULE, ["qsL"]), join_window(), context=context)
+    assert sv._matches(guarding(JOIN_RULE, ["qsL"]), join_window(), guard=False, context=context)
+
+
+def test_the_join_dropped_shape_and_the_other_shapes_do_not_read_each_others_units(slide_context):
+    context = slide_context()
+    assert not sv._matches(JOIN_RULE["match"], founding_window(), context=context)
+    assert not sv._matches(JOIN_RULE["match"], canonical(), context=context)
+    assert not sv._matches(JOIN_RULE["match"], gain_window(), context=context)
+    assert not sv._matches(SLIDE_RULE["match"], join_window(), context=context)
+    assert not sv._matches(EXT_RULE["match"], join_window(), context=context)
+    assert not sv._matches(INK_RULE["match"], join_window())
+    assert not sv._matches(GAIN_RULE["match"], join_window(), context=context)
+
+
+def test_a_join_rule_loads(tmp_path):
+    [rule] = sv.load_rules(_write_rules(tmp_path / "rules.yaml", [JOIN_RULE]))
+    assert rule["match"]["before"] == {"pivot": "qsAt", "seam_out": "y5", "follower": "qsIt"}
+    assert rule["match"]["after"] == {"gap": 1}
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda rule: rule.update(verdict="reject"),
+        lambda rule: rule.update(note=""),
+        lambda rule: rule["match"]["before"].update(pivot=""),
+        lambda rule: rule["match"]["before"].update(seam_out=""),
+        lambda rule: rule["match"]["before"].update(follower=""),
+        lambda rule: rule["match"]["before"].update(follower=[]),
+        lambda rule: rule["match"]["after"].update(gap="1"),
+        lambda rule: rule["match"]["after"].update(gap=True),
+        lambda rule: rule["match"]["after"].update(gap=None),
+        lambda rule: rule["match"].update(except_left="qsL"),
+    ],
+)
+def test_malformed_join_rules_are_refused(tmp_path, mutate):
+    rule = json.loads(json.dumps(JOIN_RULE))
+    mutate(rule)
+    with pytest.raises(SystemExit):
+        sv.load_rules(_write_rules(tmp_path / "rules.yaml", [rule]))
+
+
+def test_a_gap_that_moves_nothing_is_refused_at_load(tmp_path):
+    rule = json.loads(json.dumps(JOIN_RULE))
+    rule["match"]["after"]["gap"] = 0
+    with pytest.raises(SystemExit, match="machine-approved already"):
+        sv.load_rules(_write_rules(tmp_path / "rules.yaml", [rule]))
+
+
+def test_a_negative_gap_is_refused_at_load(tmp_path):
+    rule = json.loads(json.dumps(JOIN_RULE))
+    rule["match"]["after"]["gap"] = -1
+    with pytest.raises(SystemExit, match="further apart"):
+        sv.load_rules(_write_rules(tmp_path / "rules.yaml", [rule]))
+
+
+def test_a_break_seam_is_refused_at_load(tmp_path):
+    rule = json.loads(json.dumps(JOIN_RULE))
+    rule["match"]["before"]["seam_out"] = "break"
+    with pytest.raises(SystemExit, match="not a yK height"):
+        sv.load_rules(_write_rules(tmp_path / "rules.yaml", [rule]))
+
+
+def test_a_join_rule_missing_its_before_block_is_refused_at_load(tmp_path):
+    rule = json.loads(json.dumps(JOIN_RULE))
+    rule["match"].pop("before")
+    with pytest.raises(SystemExit, match="needs match.before to be exactly"):
+        sv.load_rules(_write_rules(tmp_path / "rules.yaml", [rule]))
+
+
+def test_a_rule_declaring_the_join_and_slide_shapes_at_once_is_refused(tmp_path):
+    rule = json.loads(json.dumps(JOIN_RULE))
+    rule["match"]["after"]["slide"] = -1
+    with pytest.raises(SystemExit, match="exactly one delta shape"):
+        sv.load_rules(_write_rules(tmp_path / "rules.yaml", [rule]))
+
+
+def test_main_fills_only_the_blank_matching_join_dropped_units(tmp_path, monkeypatch, slide_fonts):
+    units = [join_window("j-1"), join_window("j-2"), founding_window("s-1")]
+    payload = _run_main(
+        tmp_path,
+        monkeypatch,
+        units,
+        [{"unit": "j-2", "verdict": "approve", "note": "already", "at": STAMP}],
+        rules_list=(JOIN_RULE,),
+        fonts=slide_fonts,
+    )
+    assert [record["unit"] for record in payload["verdicts"]] == ["j-1"]
+    assert payload["verdicts"][0]["note"] == f"[standing: {JOIN_RULE['id']}] {JOIN_RULE['note']}"
+
+
 def test_main_fills_only_the_blank_matching_ink_gain_units(tmp_path, monkeypatch, slide_fonts):
     units = [gain_window("g-1"), gain_window("g-2"), founding_window("s-1")]
     payload = _run_main(
@@ -1640,7 +1855,7 @@ def test_main_fills_all_three_shapes_from_one_rules_file(tmp_path, monkeypatch):
 
 
 def test_main_refuses_a_surface_that_predates_the_ink_delta_field(tmp_path, monkeypatch):
-    with pytest.raises(SystemExit, match="predates the ink-delta, slide, and ink-gain"):
+    with pytest.raises(SystemExit, match="predates the ink-delta, slide, ink-gain, and join-dropped"):
         _run_main(tmp_path, monkeypatch, [canonical("u-1")], [], rules_list=(RULE, INK_RULE))
 
 
@@ -1822,7 +2037,7 @@ def test_the_composed_memo_never_serves_one_rule_sets_ids_to_another(slide_conte
 
 
 def test_two_composable_rules_refuse_a_surface_that_predates_the_ink_delta_field(tmp_path, monkeypatch):
-    with pytest.raises(SystemExit, match="predates the ink-delta, slide, and ink-gain"):
+    with pytest.raises(SystemExit, match="predates the ink-delta, slide, ink-gain, and join-dropped"):
         _run_main(tmp_path, monkeypatch, [tea_i("u-1")], [], rules_list=(EXT_RULE, COMPOSED_EXT_RULE))
 
 
@@ -2339,5 +2554,150 @@ def test_main_fills_a_single_gain_window_under_that_shapes_own_line(
     assert f"  {GAIN_RULE['id']}: 1 filled, 0 already verdicted, 0 held for review by except_left" in lines
     assert (
         f"  {SLIDE_RULE['id']} + {GAIN_RULE['id']}: 1 filled, 0 already verdicted, "
+        "0 held for review by except_left"
+    ) in lines
+
+
+COMPOSED_JOIN_GLYPHS = ["qsL", "qsSee.ex-y0", "qsAt", "qsIt"]
+COMPOSED_JOIN_CODEPOINTS = "E001:E002:E021:E022"
+COMPOSED_JOIN_RULES = [SLIDE_RULE, JOIN_RULE]
+EXT_JOIN_GLYPHS = ["qsL", "qsJ.ex-y0.ex-ext-1", "qsF3", "qsAt", "qsIt"]
+EXT_JOIN_CODEPOINTS = "E001:E006:E007:E021:E022"
+EXT_JOIN_RULES = [COMPOSED_EXT_RULE, JOIN_RULE]
+
+
+def composed_join_window(uid="cj-1"):
+    return unit(
+        uid,
+        list(COMPOSED_JOIN_GLYPHS),
+        ["y0", "y0", "y5"],
+        [
+            "qsL/full/None/None/",
+            "qsSee/full/None/None/",
+            "qsAt/full/None/None/",
+            "qsIt/full/None/None/",
+        ],
+        ["y0", "y0", "break"],
+        codepoints=COMPOSED_JOIN_CODEPOINTS,
+        configs=("default",),
+        ink_deltas={"default": SLIDE_DELTA},
+        pair={"left": 2, "right": 3},
+    )
+
+
+def extension_join_window(uid="ej-1"):
+    return unit(
+        uid,
+        list(EXT_JOIN_GLYPHS),
+        ["y0", "y0", "y0", "y5"],
+        [
+            "qsL/full/None/None/",
+            "qsJ/full/None/None/",
+            "qsF3/full/None/None/",
+            "qsAt/full/None/None/",
+            "qsIt/full/None/None/",
+        ],
+        ["y0", "y0", "y0", "break"],
+        codepoints=EXT_JOIN_CODEPOINTS,
+        configs=("default",),
+        ink_deltas={"default": SLIDE_DELTA},
+        pair={"left": 3, "right": 4},
+    )
+
+
+def test_a_slide_and_a_join_drop_in_one_window_compose(slide_context):
+    events = sv._composed(COMPOSED_JOIN_RULES, composed_join_window(), slide_context())
+    assert events == {SLIDE_RULE["id"]: [1], JOIN_RULE["id"]: [2]}
+
+
+def test_an_extension_and_a_join_drop_in_one_window_compose(slide_context):
+    events = sv._composed(EXT_JOIN_RULES, extension_join_window(), slide_context())
+    assert events == {COMPOSED_EXT_RULE["id"]: [1], JOIN_RULE["id"]: [3]}
+
+
+def test_a_pure_join_drop_is_not_composed(slide_context):
+    assert sv._composed(COMPOSED_JOIN_RULES, join_window(), slide_context()) is None
+
+
+def test_main_writes_one_composed_join_record_and_leaves_the_per_rule_lines(
+    tmp_path, monkeypatch, capsys, slide_fonts
+):
+    payload = _run_main(
+        tmp_path,
+        monkeypatch,
+        [composed_join_window("cj-1")],
+        [],
+        rules_list=(SLIDE_RULE, JOIN_RULE),
+        fonts=slide_fonts,
+    )
+    assert [record["unit"] for record in payload["verdicts"]] == ["cj-1"]
+    record = payload["verdicts"][0]
+    assert record["verdict"] == "approve"
+    assert record["note"] == (
+        f"[standing: {SLIDE_RULE['id']} + {JOIN_RULE['id']}] " f"{SLIDE_RULE['note']}; {JOIN_RULE['note']}"
+    )
+    lines = capsys.readouterr().out.splitlines()
+    assert f"  {SLIDE_RULE['id']}: 0 filled, 0 already verdicted, 0 held for review by except_left" in lines
+    assert f"  {JOIN_RULE['id']}: 0 filled, 0 already verdicted, 0 held for review by except_left" in lines
+    assert (
+        f"  {SLIDE_RULE['id']} + {JOIN_RULE['id']}: 1 filled, 0 already verdicted, "
+        "0 held for review by except_left"
+    ) in lines
+
+
+def test_one_extra_pixel_defeats_the_composed_join_reading(slide_context):
+    assert (
+        sv._composed(COMPOSED_JOIN_RULES, composed_join_window(), slide_context("after-extra-prefix-pixel"))
+        is None
+    )
+
+
+def test_a_redrawn_join_follower_defeats_the_composed_reading(slide_context):
+    assert (
+        sv._composed(
+            COMPOSED_JOIN_RULES, composed_join_window(), slide_context("after-join-redrawn-follower")
+        )
+        is None
+    )
+
+
+def test_the_composed_walk_credits_the_join_exactly_where_the_join_matcher_does(slide_context):
+    context = slide_context()
+    for window in (join_window(), composed_join_window(), founding_window()):
+        credited = set(sv._composed_walk([JOIN_RULE], window, context) or ())
+        assert (credited == {JOIN_RULE["id"]}) == sv._matches(
+            JOIN_RULE["match"], window, context=context
+        ), window["id"]
+
+
+def test_the_join_guard_holds_the_whole_composed_window(slide_context):
+    events = sv._composed(COMPOSED_JOIN_RULES, composed_join_window(), slide_context())
+    assert sv._composed_held(
+        [guarded_rule(JOIN_RULE, ["qsL"]), SLIDE_RULE],
+        composed_join_window(),
+        events,
+        slide_context(),
+    )
+
+
+def test_main_fills_a_single_join_window_under_that_shapes_own_line(
+    tmp_path, monkeypatch, capsys, slide_fonts
+):
+    payload = _run_main(
+        tmp_path,
+        monkeypatch,
+        [join_window("j-1"), composed_join_window("cj-1")],
+        [],
+        rules_list=(SLIDE_RULE, JOIN_RULE),
+        fonts=slide_fonts,
+    )
+    by_unit = {record["unit"]: record for record in payload["verdicts"]}
+    assert set(by_unit) == {"j-1", "cj-1"}
+    assert by_unit["j-1"]["note"] == f"[standing: {JOIN_RULE['id']}] {JOIN_RULE['note']}"
+    assert by_unit["cj-1"]["note"].startswith(f"[standing: {SLIDE_RULE['id']} + {JOIN_RULE['id']}]")
+    lines = capsys.readouterr().out.splitlines()
+    assert f"  {JOIN_RULE['id']}: 1 filled, 0 already verdicted, 0 held for review by except_left" in lines
+    assert (
+        f"  {SLIDE_RULE['id']} + {JOIN_RULE['id']}: 1 filled, 0 already verdicted, "
         "0 held for review by except_left"
     ) in lines
