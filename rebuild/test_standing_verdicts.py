@@ -761,6 +761,20 @@ def test_checked_in_rules_file_loads():
         "qsNo/flipped/baseline/None/",
         "qsNo/flipped/baseline/baseline/",
     ]
+    it_may_rule = by_id["it-may-exit-extension-dropped"]["match"]
+    assert it_may_rule["before"]["pivot"] == "qsIt"
+    assert it_may_rule["before"]["exit_extension"] == "ex-ext-1"
+    assert it_may_rule["before"]["follower"] == "qsMay"
+    assert it_may_rule["after"]["pivot_cells"] == [
+        "qsIt/hapax/None/baseline/",
+        "qsIt/hapax/baseline/baseline/",
+        "qsIt/hapax/x-height/baseline/",
+    ]
+    assert it_may_rule["after"]["follower_cells"] == [
+        "qsMay/loop/baseline/None/",
+        "qsMay/loop/baseline/x-height/ex-ext-1",
+        "qsMay/loop/baseline/x-height/ex-ext-2",
+    ]
 
 
 def et_may(
@@ -803,6 +817,48 @@ def test_the_checked_in_et_may_rule_reads_the_contraction_and_nothing_wider():
     uncontracted = et_may(pivot_cell="qsEt/hapax/None/baseline/")
     assert not sv._matches(match, uncontracted)
     other_follower = et_may(follower="qsTea.en-y0", follower_cell="qsTea/full/baseline/None/")
+    assert not sv._matches(match, other_follower)
+
+
+def it_may(
+    uid="u-19",
+    pivot="qsIt.en-y5.ex-y0.ex-ext-1",
+    pivot_cell="qsIt/hapax/x-height/baseline/",
+    follower="qsMay.en-y0.ex-y5",
+    follower_cell="qsMay/loop/baseline/None/",
+):
+    return unit(
+        uid,
+        ["qsPea.half.ex-y5", pivot, follower, "qsDay"],
+        ["y5", "y0", "y5"],
+        ["qsPea/half/None/x-height/", pivot_cell, follower_cell, "qsDay/full/x-height/None/"],
+        ["y5", "y0", "y5"],
+        pair={"left": 1, "right": 2},
+    )
+
+
+def test_the_checked_in_it_may_rule_reads_the_narrowed_seam_and_nothing_wider():
+    match = {rule["id"]: rule for rule in sv.load_rules(sv.RULES)}["it-may-exit-extension-dropped"]["match"]
+    assert sv._matches(match, it_may())
+    assert sv._matches(match, it_may(follower_cell="qsMay/loop/baseline/x-height/ex-ext-1"))
+    assert sv._matches(match, it_may(follower_cell="qsMay/loop/baseline/x-height/ex-ext-2"))
+    assert sv._matches(
+        match,
+        it_may(pivot="qsIt.ex-y0.ex-ext-1", pivot_cell="qsIt/hapax/None/baseline/"),
+    )
+    assert sv._matches(
+        match,
+        it_may(pivot="qsIt.en-y0.ex-y0.ex-ext-1", pivot_cell="qsIt/hapax/baseline/baseline/"),
+    )
+    regrouped = it_may()
+    regrouped["secondary_seams"] = 1
+    assert not sv._matches(match, regrouped)
+    elsewhere = it_may()
+    elsewhere["pair"] = {"left": 0, "right": 1}
+    assert not sv._matches(match, elsewhere)
+    kept = it_may(pivot="qsIt.en-y5.ex-y0")
+    assert not sv._matches(match, kept)
+    other_follower = it_may(follower="qsLow.en-y0", follower_cell="qsLow/hapax/baseline/None/")
     assert not sv._matches(match, other_follower)
 
 
