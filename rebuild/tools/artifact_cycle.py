@@ -830,7 +830,7 @@ def build_plan(
     conform_jobs = sweep_jobs
     kernel_threads = kernel_exec_threads_default()
     surface_dir = review_out if review_out is not None else REVIEW_OUT
-    do_merge = do_carry and not no_merge and review_out is None
+    do_merge = (do_carry or store_only) and not no_merge and review_out is None
     do_retention = not keep_history and not first_run and review_out is None
 
     plan = Plan(

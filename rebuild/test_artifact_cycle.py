@@ -3454,7 +3454,16 @@ def test_dry_run_plan_store_only_merges_the_master_and_takes_no_snapshot():
     argv = _argv(by_name["plumbing"])
     assert "--source" not in argv
     assert argv[argv.index("--merge-master") + 1] == "v.json"
+    assert "--no-merge" not in argv
+    assert plan.do_merge
     assert "the carry is the identity" in by_name["plumbing"].note
+
+
+def test_dry_run_plan_store_only_still_honors_no_merge():
+    plan = _plan(store_only=True, no_merge=True)
+    by_name = {step.name: step for step in plan.steps}
+    assert "--no-merge" in _argv(by_name["plumbing"])
+    assert not plan.do_merge
 
 
 def test_the_store_only_report_still_names_the_frontier_carried_file(tmp_path):
