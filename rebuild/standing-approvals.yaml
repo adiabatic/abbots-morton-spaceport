@@ -52,6 +52,6 @@ rules:
       before:
         pivots: [qsSee.ex-y0]
       after:
-        pivots: [qsSee.straighter]
+        pivots: [qsSee.straighter, qsSee.straightest]
         slide: -1
       except_left: []

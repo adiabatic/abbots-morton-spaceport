@@ -47,6 +47,7 @@ stances:
             - qsOx
             - qsOy
             - qsUtter
+            - qsOoze
       exits:
         x-height:
           x: 5

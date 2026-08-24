@@ -1,51 +1,49 @@
-rune: qsOx
-codepoint: 0xE678
+rune: qsOoze
+codepoint: 0xE67E
 ductus:
-  hapax: |
-    Begun at the left along the x-height, the stroke runs rightward and down in a vaguely parabolic arc.
+  hapax: | # DRAFT — pending author sign-off
+    Begun at the bottom left on the baseline, the stroke rises straight up, leans inward to a point at the x-height, and comes back down the other side to a short vertical leg that rests on the baseline at the right, where it may connect to the next letter.
 mono:
   bitmap:
-  - "##   "  #
-  - "  #  "
-  - "   # "
-  - "   # "
-  - "    #"
-  - "    #"  #
+  - "  #  "  #
+  - " # # "
+  - " # # "
+  - "#   #"
+  - "#   #"
+  - "#   #"  #
 stances:
   hapax:
     motion: hapax
     traits: []
     bitmap:
-    - "##   "  #
-    - "  #  "
-    - "   # "
-    - "   # "
-    - "    #"
-    - "    #"  #
+    - "  #  "  #
+    - " # # "
+    - " # # "
+    - "#   #"
+    - "#   #"
+    - "#   #"  #
     surface:
       entries:
-        x-height:
+        baseline:
           x: 0
-          stroke: horizontal
+          stroke: vertical
           from:
           - family:
             - qsPea
             - qsTea
-            - qsDay_qsUtter
-            - qsFee
-            - qsVie_qsUtter
-            - qsSee_qsUtter
-            - qsJai_qsUtter
-            - qsMay
+            - qsTea_qsOy
+            - qsDay
+            - qsSee
+            - qsJai
             - qsNo
-            - qsLow
-            - qsRoe
             - qsIt
-            - qsAt
-            - qsI
-            - qsAh
+            - qsEt
+            - qsEight
+            - qsAwe
+            - qsOx
+            - qsOy
             - qsUtter
-            - qsOut
+            - qsOoze
       exits:
         baseline:
           x: 5
@@ -87,14 +85,7 @@ policy:
         then:
           except:
           - {family: qsPea}
-  extend:
-  - entry: x-height
-    by: 1
-    when:
-      left:
-        family:
-        - qsTea
-        - qsHe
+  extend: []
   contract: []
   resolve: []
   groups: {}

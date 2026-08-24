@@ -67,6 +67,7 @@ stances:
             - qsUtter
             - qsOut
             - qsOut_qsTea
+            - qsOoze
       cells: []
       unlocks: []
       require: []
