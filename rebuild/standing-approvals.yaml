@@ -151,3 +151,22 @@ rules:
         pivots: [qsLow.hapax]
         entry_drop: 1
       except_left: []
+  - id: tea-no-xheight-join-retargeted
+    verdict: approve
+    note: "·Tea sits as the full bar joining ·No at the baseline — the old font drew the half stub joining at the x-height; qsNo's flipped stance takes ·Tea on its baseline from-list, and every window that reached a sitting approved the lowered join"
+    match:
+      before:
+        pivot: qsTea.half
+        seam_out: y5
+        follower: qsNo
+      after:
+        retarget: y0
+        pivot_cells:
+          - qsTea/full/None/baseline/
+          - qsTea/full/x-height/baseline/
+          - qsTea/full/top/baseline/
+        receiver_cells:
+          - qsNo/flipped/baseline/None/
+          - qsNo/flipped/baseline/baseline/
+        shift: -1
+      except_left: []
