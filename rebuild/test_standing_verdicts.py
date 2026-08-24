@@ -1,4 +1,4 @@
-"""Tests for the standing-approval fill: all four delta shapes — the two structural pattern matches, being the ligature shape (pivot glyph, seams into and out of it, follower family, post-ligature seam, flank-seam identity) and the extension-dropped shape (pivot glyph carrying the named exit extension, the seam it exits into holding its height, the full after-cell identity of pivot and follower, every other seam standing still, nothing ligating anywhere, and the unit's own judgment fields agreeing that this seam is the question), the ink-exact ink-delta shape (the unit's persisted per-config digests being a nonempty subset of the ones the rule blesses, so an ink-identical window matches nothing and one unlisted delta under one config fails the whole unit closed, and a surface predating the field refuses the run outright), and the rendered-pixel slide shape, whose preconditions are read off the index record before anything is shaped (a nonempty `ink_deltas` holding one distinct digest whose keys are exactly the unit's config set, and a pivot-prefix name among the recorded before glyphs) and whose geometry is then re-derived in a purpose-built font pair, where the pivot keeps its exact ink with its own-frame origin displaced by the declared column count and every span's union of ink slides cumulatively — so a union-invisible name-grain re-spelling to the pivot's right rides along, while one stray pixel anywhere in the window, or a font pair that never settles into the named pivot, fails the match closed — the composed reading that runs before all four and credits two or more rules for one window — its name-grain pre-gate refusing to shape a window fewer than two rules have a candidate in, its walk carrying a running column displacement across the window so that each span between events must render identically once displaced, its refusal of a redrawn follower, of a pivot contracting off the seam row, of a tail wider than the extension names, and of two rules claiming one position, its judging of a failed candidate as ordinary span ink, its per-shape guard scopes, and its own reporting line, which `main` keeps clear of the per-rule lines — the except_left guard, which reads a ligature's trailing left component and refuses the whole unit rather than the one position, blankness against the verdicts file (parked skip verdicts are not blank), the non-winning manifest stamp on every emitted record, and rules-file validation, which admits exactly one shape per rule and checks that shape's own coherence."""
+"""Tests for the standing-approval fill: all four delta shapes — the two structural pattern matches, being the ligature shape (pivot glyph, seams into and out of it, follower family, post-ligature seam, flank-seam identity) and the extension-dropped shape (pivot glyph carrying the named exit extension, given up in whole or down to a shorter one its named after cell keeps, the seam it exits into holding its height, the full after-cell identity of pivot and follower, every other seam standing still, nothing ligating anywhere, and the unit's own judgment fields agreeing that this seam is the question), the ink-exact ink-delta shape (the unit's persisted per-config digests being a nonempty subset of the ones the rule blesses, so an ink-identical window matches nothing and one unlisted delta under one config fails the whole unit closed, and a surface predating the field refuses the run outright), and the rendered-pixel slide shape, whose preconditions are read off the index record before anything is shaped (a nonempty `ink_deltas` holding one distinct digest whose keys are exactly the unit's config set, and a pivot-prefix name among the recorded before glyphs) and whose geometry is then re-derived in a purpose-built font pair, where the pivot keeps its exact ink with its own-frame origin displaced by the declared column count and every span's union of ink slides cumulatively — so a union-invisible name-grain re-spelling to the pivot's right rides along, while one stray pixel anywhere in the window, or a font pair that never settles into the named pivot, fails the match closed — the composed reading that runs before all four and credits two or more rules for one window — its name-grain pre-gate refusing to shape a window fewer than two rules have a candidate in, its walk carrying a running column displacement across the window so that each span between events must render identically once displaced, its refusal of a redrawn follower, of a pivot contracting off the seam row, of a tail wider than the pivot gave up, and of two rules claiming one position, its judging of a failed candidate as ordinary span ink, its per-shape guard scopes, and its own reporting line, which `main` keeps clear of the per-rule lines — the except_left guard, which reads a ligature's trailing left component and refuses the whole unit rather than the one position, blankness against the verdicts file (parked skip verdicts are not blank), the non-winning manifest stamp on every emitted record, and rules-file validation, which admits exactly one shape per rule and checks that shape's own coherence."""
 
 import json
 import pathlib
@@ -37,6 +37,25 @@ EXT_RULE = {
             "follower_cells": ["qsI/smaller-loop/baseline/None/", "qsI/smaller-loop/baseline/x-height/"],
         },
         "except_left": ["qsMay"],
+    },
+}
+
+SHORTENED_RULE = {
+    "id": "fee-tea-ss03-exit-extension-shortened",
+    "verdict": "approve",
+    "note": "·Fee reaches ·Tea with one pixel of extension where the old font drew three",
+    "match": {
+        "before": {
+            "pivot": "qsFee",
+            "exit_extension": "ex-ext-3",
+            "seam_out": "y5",
+            "follower": "qsTea",
+        },
+        "after": {
+            "pivot_cells": ["qsFee/loop/None/x-height/ex-ext-1"],
+            "follower_cells": ["qsTea/full/x-height/None/", "qsTea/full/x-height/baseline/"],
+        },
+        "except_left": [],
     },
 }
 
@@ -293,6 +312,17 @@ def test_the_after_cells_pin_the_entry_and_exit_the_stance_alone_would_not():
     assert not sv._matches(EXT_RULE["match"], other_follower_exit)
 
 
+def fee_tea(uid="u-12", follower_cell="qsTea/full/x-height/baseline/"):
+    return unit(
+        uid,
+        ["qsFee.ex-y5.before-may.ex-ext-3", "qsTea.en-y5.ex-y0.after-fee"],
+        ["y5"],
+        ["qsFee/loop/None/x-height/ex-ext-1", follower_cell],
+        ["y5"],
+        pair={"left": 0, "right": 1},
+    )
+
+
 def test_an_extension_swapped_for_a_shorter_one_is_not_an_extension_dropped():
     swap_rule = {
         "before": {
@@ -307,18 +337,24 @@ def test_an_extension_swapped_for_a_shorter_one_is_not_an_extension_dropped():
         },
         "except_left": [],
     }
-    swapped = unit(
-        "u-12",
-        ["qsFee.ex-y5.before-may.ex-ext-3", "qsTea.en-y5.ex-y0.after-fee"],
-        ["y5"],
-        ["qsFee/loop/None/x-height/ex-ext-1", "qsTea/full/x-height/baseline/"],
-        ["y5"],
-        pair={"left": 0, "right": 1},
-    )
+    swapped = fee_tea()
     assert not sv._matches(swap_rule, swapped)
     dropped = json.loads(json.dumps(swapped))
     dropped["after"]["cells"][0] = "qsFee/loop/None/x-height/"
     assert sv._matches(swap_rule, dropped)
+
+
+def test_a_rule_naming_the_shorter_extension_the_pivot_keeps_reads_exactly_that_shortening():
+    assert sv._matches(SHORTENED_RULE["match"], fee_tea())
+    dropped = fee_tea()
+    dropped["after"]["cells"][0] = "qsFee/loop/None/x-height/"
+    assert not sv._matches(SHORTENED_RULE["match"], dropped)
+    less_shortened = fee_tea()
+    less_shortened["after"]["cells"][0] = "qsFee/loop/None/x-height/ex-ext-2"
+    assert not sv._matches(SHORTENED_RULE["match"], less_shortened)
+    kept = fee_tea()
+    kept["after"]["cells"][0] = "qsFee/loop/None/x-height/ex-ext-3"
+    assert not sv._matches(SHORTENED_RULE["match"], kept)
 
 
 def test_a_different_follower_family_does_not_match():
@@ -602,6 +638,38 @@ def test_checked_in_rules_file_loads():
         "qsNo",
         "qsLow",
     ]
+    shortened = by_id["fee-tea-ss03-exit-extension-shortened"]["match"]
+    assert shortened["before"]["exit_extension"] == "ex-ext-3"
+    assert shortened["after"]["pivot_cells"] == ["qsFee/loop/None/x-height/ex-ext-1"]
+
+
+def test_the_checked_in_fee_rule_reads_the_ss03_shortening_and_nothing_wider():
+    match = {rule["id"]: rule for rule in sv.load_rules(sv.RULES)}["fee-tea-ss03-exit-extension-shortened"][
+        "match"
+    ]
+    assert sv._matches(match, fee_tea())
+    assert sv._matches(match, fee_tea(follower_cell="qsTea/full/x-height/None/"))
+    regrouped = unit(
+        "u-17",
+        ["qsMay", "qsFee.ex-y5.before-may.ex-ext-3", "qsTea.half.ex-y5", "qsJai.en-y5.ex-y0.en-con-1"],
+        ["break", "break", "y5"],
+        [
+            "qsMay/loop/None/None/",
+            "qsFee/loop/None/x-height/ex-ext-1",
+            "qsTea/full/x-height/None/",
+            "qsJai/hapax/None/None/",
+        ],
+        ["break", "y5", "break"],
+        pair={"left": 1, "right": 2},
+        secondary_seams=1,
+    )
+    assert not sv._matches(match, regrouped)
+    half = fee_tea(follower_cell="qsTea/half/None/x-height/")
+    assert not sv._matches(match, half)
+    before_may = fee_tea()
+    before_may["before"]["glyphs"][1] = "qsMay.en-y5.ex-y0"
+    before_may["after"]["cells"] = ["qsFee/loop/None/x-height/ex-ext-3", "qsMay/loop/x-height/None/"]
+    assert not sv._matches(match, before_may)
 
 
 def test_the_checked_in_jai_rule_reads_the_narrowed_seam_and_nothing_wider():
@@ -680,11 +748,21 @@ def test_an_entry_side_extension_is_refused_at_load(tmp_path):
         sv.load_rules(_write_rules(tmp_path / "rules.yaml", [rule]))
 
 
-def test_a_pivot_cell_still_carrying_an_exit_extension_is_refused_at_load(tmp_path):
+@pytest.mark.parametrize("kept", ["ex-ext-1", "ex-ext-2"])
+def test_a_pivot_cell_keeping_an_extension_as_long_as_the_named_one_is_refused_at_load(tmp_path, kept):
     rule = json.loads(json.dumps(EXT_RULE))
-    rule["match"]["after"]["pivot_cells"] = ["qsTea/full/None/baseline/ex-ext-1"]
+    rule["match"]["after"]["pivot_cells"] = [f"qsTea/full/None/baseline/{kept}"]
     with pytest.raises(SystemExit, match="has given up"):
         sv.load_rules(_write_rules(tmp_path / "rules.yaml", [rule]))
+
+
+def test_a_pivot_cell_keeping_a_shorter_extension_loads(tmp_path):
+    [rule] = sv.load_rules(_write_rules(tmp_path / "rules.yaml", [SHORTENED_RULE]))
+    assert rule["match"]["after"]["pivot_cells"] == ["qsFee/loop/None/x-height/ex-ext-1"]
+    unshortened = json.loads(json.dumps(SHORTENED_RULE))
+    unshortened["match"]["after"]["pivot_cells"] = ["qsFee/loop/None/x-height/ex-ext-3"]
+    with pytest.raises(SystemExit, match="keeps an exit extension of 3 columns against the 3"):
+        sv.load_rules(_write_rules(tmp_path / "rules.yaml", [unshortened]))
 
 
 def test_a_cell_belonging_to_another_letter_is_refused_at_load(tmp_path):
@@ -828,6 +906,7 @@ TWO_COLUMNS_AND_A_PIXEL = (((0, 0), (100, 0), (100, 150), (50, 150), (50, 200), 
 TUCKED_FOLLOWER_AND_A_PIXEL = (((50, 0), (150, 0), (150, 50), (100, 50), (100, 150), (50, 150)),)
 EXTENDED_PIVOT = (((0, 0), (100, 0), (100, 50), (50, 50), (50, 150), (0, 150)),)
 WIDE_TAIL_PIVOT = (((0, 0), (150, 0), (150, 50), (50, 50), (50, 150), (0, 150)),)
+LONG_TAIL_PIVOT = (((0, 0), (200, 0), (200, 50), (50, 50), (50, 150), (0, 150)),)
 CROWNED_PIVOT = (((0, 0), (100, 0), (100, 50), (50, 50), (50, 100), (100, 100), (100, 150), (0, 150)),)
 TRIMMED_PIVOT = (_rect(0, 0, 50, 150),)
 CONTRACTED_PIVOT = (_rect(0, 0, 50, 100),)
@@ -844,6 +923,7 @@ BEFORE_GLYPHS = {
     "qsJ.ex-y0.ex-ext-1": (EXTENDED_PIVOT, 100),
     "qsJ.ex-y0.ex-ext-1.wide": (WIDE_TAIL_PIVOT, 150),
     "qsJ.ex-y0.ex-ext-1.crown": (CROWNED_PIVOT, 100),
+    "qsJ.ex-y0.ex-ext-3.long": (LONG_TAIL_PIVOT, 200),
     "space": ((), 50),
 }
 AFTER_GLYPHS = {
@@ -857,6 +937,7 @@ AFTER_GLYPHS = {
     "qsF3": (TWO_COLUMNS, 100),
     "qsM": (TWO_COLUMNS, 100),
     "qsJ.hapax.ex-y0": (TRIMMED_PIVOT, 50),
+    "qsJ.hapax.ex-y0.ex-ext-1": (EXTENDED_PIVOT, 100),
     "qsOther": (TWO_COLUMNS, 100),
     "space": ((), 50),
 }
@@ -875,6 +956,8 @@ BEFORE_CMAP = {
     0xE00B: "qsSee.ex-y0.blank",
     0xE00C: "qsJ.ex-y0.ex-ext-1.crown",
     0xE00D: "qsSee.ex-y0.spare",
+    0xE00E: "qsJ.ex-y0.ex-ext-3.long",
+    0xE00F: "qsJ.ex-y0.ex-ext-3.long",
 }
 AFTER_CMAP = {
     0x0020: "space",
@@ -891,6 +974,8 @@ AFTER_CMAP = {
     0xE00B: "qsSee.straighter.blank",
     0xE00C: "qsJ.hapax.ex-y0",
     0xE00D: "qsSee.wandered",
+    0xE00E: "qsJ.hapax.ex-y0.ex-ext-1",
+    0xE00F: "qsJ.hapax.ex-y0",
 }
 
 SLIDE_FONTS = {
@@ -1584,6 +1669,56 @@ def test_a_seam_that_names_no_height_yields_no_extension_candidate():
     broken["before"]["seams"] = ["break"] * 4
     broken["after"]["seams"] = ["break"] * 4
     assert sv._candidates(match, broken) == []
+
+
+SHORTENED_EXT_RULE = {
+    "id": "j-exit-extension-shortened",
+    "verdict": "approve",
+    "note": "·J reaches its follower with one column of extension where it drew three",
+    "match": {
+        "before": {
+            "pivot": "qsJ",
+            "exit_extension": "ex-ext-3",
+            "seam_out": "y0",
+            "follower": "qsF3",
+        },
+        "after": {
+            "pivot_cells": ["qsJ/full/None/None/ex-ext-1"],
+            "follower_cells": ["qsF3/full/None/None/"],
+        },
+        "except_left": [],
+    },
+}
+
+
+def shortened_window(uid="c-short", pivot_codepoint="E00E"):
+    window = slide_unit(
+        uid,
+        ["qsL", "qsSee.ex-y0", "qsM", "qsJ.ex-y0.ex-ext-3.long", "qsF3", "qsF1"],
+        f"E001:E002:E008:{pivot_codepoint}:E007:E003",
+    )
+    window["after"]["cells"][3] = "qsJ/full/None/None/ex-ext-1"
+    return window
+
+
+def test_a_slide_and_a_shortened_extension_in_one_window_compose(slide_context):
+    assert sv._candidates(SHORTENED_EXT_RULE["match"], shortened_window()) == [3]
+    assert sv._composed([SLIDE_RULE, SHORTENED_EXT_RULE], shortened_window(), slide_context()) == {
+        SLIDE_RULE["id"]: [1],
+        SHORTENED_EXT_RULE["id"]: [3],
+    }
+
+
+def test_a_rule_naming_a_kept_extension_never_composes_over_a_tail_dropped_whole(slide_context):
+    whole = shortened_window("c-whole", "E00F")
+    assert sv._candidates(SHORTENED_EXT_RULE["match"], whole) == [3]
+    assert sv._composed([SLIDE_RULE, SHORTENED_EXT_RULE], whole, slide_context()) is None
+
+
+def test_a_rule_naming_an_extensionless_pivot_cell_has_no_candidate_in_a_shortened_window():
+    dropped_whole = json.loads(json.dumps(SHORTENED_EXT_RULE["match"]))
+    dropped_whole["after"]["pivot_cells"] = ["qsJ/full/None/None/"]
+    assert sv._candidates(dropped_whole, shortened_window()) == []
 
 
 def test_a_tail_wider_than_the_named_extension_is_refused(slide_context):

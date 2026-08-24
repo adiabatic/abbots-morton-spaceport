@@ -85,3 +85,19 @@ rules:
           - qsLow/hapax/baseline/x-height/
           - qsLow/hapax/baseline/x-height/ex-ext-1
       except_left: []
+  - id: fee-tea-ss03-exit-extension-shortened
+    verdict: approve
+    note: "Under ss03, ·Fee reaches ·Tea with a one-pixel extension where the old font drew the three-pixel one it had made for ·May — the rune extends by 1 per the old derive’s stated intent (the deliberate ss03 ·Fee·Tea divergence, on ·Fee’s extend record since the qsFee batch), and every window that reached a sitting approved the shorter reach"
+    match:
+      before:
+        pivot: qsFee
+        exit_extension: ex-ext-3
+        seam_out: y5
+        follower: qsTea
+      after:
+        pivot_cells:
+          - qsFee/loop/None/x-height/ex-ext-1
+        follower_cells:
+          - qsTea/full/x-height/None/
+          - qsTea/full/x-height/baseline/
+      except_left: []
