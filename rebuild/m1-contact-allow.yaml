@@ -801,3 +801,179 @@
   why: ·At·It pair with ·It exiting onward joins at the x-height in the shipped font; the y4 cap-against-stroke corner is unchanged by the named cell adjustments.
 - signature: contact:qsAt.rising.ex-y5.locked:qsIt.hapax.en-y5.ex-y0.ex-ext-1:y4
   why: ·At·It pair with ·It's onward exit extended joins at the x-height in the shipped font; the y4 cap-against-stroke corner is unchanged by the named cell adjustments.
+
+# ·Ooze's two legs are verticals rising from the baseline at its outer columns, so every baseline-proven ·Ooze join puts a leg one column from the neighbor's own vertical or tail: on the entry side the predecessor's terminal stands beside the left leg (the ·Oy·It tail-against-bar corner with the leg as the bar), and on the exit side the right leg stands beside the follower's left stroke (the ·Ox·Tea corner with the leg as the tail). Today's font draws every one of them (E650:E67E, E652:E67E, E670:E67E, E678:E67E, E679:E67E, E65A:E67E, E67E:E652, E67E:E670, E67E:E67A, E67E:E67B, E67E:E67E all carry a y0 seam).
+# The entry side: each blessed predecessor terminal against ·Ooze's left leg, once against the bare entry cell and once against the entered-and-exiting cell.
+- signature: contact:qsIt.hapax.en-y0.ex-y0:qsOoze.hapax.en-y0.ex-y0:y1
+  why: The same corner with ·Ooze carrying its own baseline exit onward; the left leg does not move.
+- signature: contact:qsIt.hapax.en-y0.ex-y0:qsOoze.hapax.en-y0:y1
+  why: The baseline-entered variant of the blessed ·It·Ooze corner (·Day·It·Ooze under ss04, baseline rows E653:E670:E67E); the entry side leaves the bar where it is.
+- signature: contact:qsIt.hapax.ex-y0.locked:qsOoze.hapax.en-y0.ex-y0:y1
+  why: The ZWNJ-locked twin against the exiting ·Ooze cell; identical drawing.
+- signature: contact:qsIt.hapax.ex-y0.locked:qsOoze.hapax.en-y0:y1
+  why: The ZWNJ-locked twin of the blessed ·It·Ooze corner; identical drawing.
+- signature: contact:qsIt.hapax.ex-y0:qsOoze.hapax.en-y0.ex-y0:y1
+  why: The same corner with ·Ooze carrying its own baseline exit onward; the left leg does not move.
+- signature: contact:qsIt.hapax.ex-y0:qsOoze.hapax.en-y0:y1
+  why: ·It·Ooze joins at the baseline today (baseline row E670:E67E, seam y0); ·It's bar at y1 sits one column left of ·Ooze's left leg — the same two-verticals corner as ·Tea·Ooze.
+- signature: contact:qsOx.hapax.en-y5.ex-y0.en-ext-1:qsOoze.hapax.en-y0.ex-y0:y1
+  why: The same corner with ·Ooze carrying its own baseline exit onward; the left leg does not move.
+- signature: contact:qsOx.hapax.en-y5.ex-y0.en-ext-1:qsOoze.hapax.en-y0:y1
+  why: The entry-extended variant of the blessed ·Ox·Ooze corner (·Tea·Ox·Ooze, baseline rows E652:E678:E67E); the extension adds ink at y5 only.
+- signature: contact:qsOx.hapax.en-y5.ex-y0:qsOoze.hapax.en-y0.ex-y0:y1
+  why: The same corner with ·Ooze carrying its own baseline exit onward; the left leg does not move.
+- signature: contact:qsOx.hapax.en-y5.ex-y0:qsOoze.hapax.en-y0:y1
+  why: The x-height-entered variant of the blessed ·Ox·Ooze corner (·May·Ox·Ooze, baseline rows E665:E678:E67E); the tail is unchanged.
+- signature: contact:qsOx.hapax.ex-y0.locked:qsOoze.hapax.en-y0.ex-y0:y1
+  why: The ZWNJ-locked twin against the exiting ·Ooze cell; identical drawing.
+- signature: contact:qsOx.hapax.ex-y0.locked:qsOoze.hapax.en-y0:y1
+  why: The ZWNJ-locked twin of the blessed ·Ox·Ooze corner; identical drawing.
+- signature: contact:qsOx.hapax.ex-y0:qsOoze.hapax.en-y0.ex-y0:y1
+  why: The same corner with ·Ooze carrying its own baseline exit onward; the left leg does not move.
+- signature: contact:qsOx.hapax.ex-y0:qsOoze.hapax.en-y0:y1
+  why: ·Ox·Ooze joins at the baseline today (baseline row E678:E67E, seam y0); ·Ox's vertical tail at y1 sits one column left of ·Ooze's left leg — the blessed ·Ox·It corner with ·Ooze's leg as the bar.
+- signature: contact:qsOy.hapax.en-y5.ex-y0:qsOoze.hapax.en-y0.ex-y0:y1
+  why: The same corner with ·Ooze carrying its own baseline exit onward; the left leg does not move.
+- signature: contact:qsOy.hapax.en-y5.ex-y0:qsOoze.hapax.en-y0:y1
+  why: The x-height-entered variant of the blessed ·Oy·Ooze corner (·May·Oy·Ooze, baseline rows E665:E679:E67E); the open-on-the-left binding does not move the tail.
+- signature: contact:qsOy.hapax.ex-y0.locked:qsOoze.hapax.en-y0.ex-y0:y1
+  why: The ZWNJ-locked twin against the exiting ·Ooze cell; identical drawing.
+- signature: contact:qsOy.hapax.ex-y0.locked:qsOoze.hapax.en-y0:y1
+  why: The ZWNJ-locked twin of the blessed ·Oy·Ooze corner; identical drawing.
+- signature: contact:qsOy.hapax.ex-y0:qsOoze.hapax.en-y0.ex-y0:y1
+  why: The same corner with ·Ooze carrying its own baseline exit onward; the left leg does not move.
+- signature: contact:qsOy.hapax.ex-y0:qsOoze.hapax.en-y0:y1
+  why: ·Oy·Ooze joins at the baseline today (baseline row E679:E67E, seam y0); ·Oy's diagonal tail at y1 sits one column left of ·Ooze's left leg — the blessed ·Oy·It corner with ·Ooze's leg as the bar.
+- signature: contact:qsPea.full.en-y5.ex-y0:qsOoze.hapax.en-y0.ex-y0:y1
+  why: The same corner with ·Ooze carrying its own baseline exit onward; the left leg does not move.
+- signature: contact:qsPea.full.en-y5.ex-y0:qsOoze.hapax.en-y0:y1
+  why: The x-height-entered variant of the blessed ·Pea·Ooze corner (·May·Pea·Ooze, baseline rows E665:E650:E67E); the entry side does not move the downstroke.
+- signature: contact:qsPea.full.en-y6.ex-y0:qsOoze.hapax.en-y0.ex-y0:y1
+  why: The same corner with ·Ooze carrying its own baseline exit onward; the left leg does not move.
+- signature: contact:qsPea.full.en-y6.ex-y0:qsOoze.hapax.en-y0:y1
+  why: The y6-entered variant of the blessed ·Pea·Ooze corner (the ·Pea·Pea·Ooze chain, baseline rows E650:E650:E67E); the downstroke is unchanged.
+- signature: contact:qsPea.full.ex-y0.locked:qsOoze.hapax.en-y0.ex-y0:y1
+  why: The ZWNJ-locked twin against the exiting ·Ooze cell; identical drawing.
+- signature: contact:qsPea.full.ex-y0.locked:qsOoze.hapax.en-y0:y1
+  why: The ZWNJ-locked twin of the blessed ·Pea·Ooze corner; identical drawing.
+- signature: contact:qsPea.full.ex-y0:qsOoze.hapax.en-y0.ex-y0:y1
+  why: The same corner with ·Ooze carrying its own baseline exit onward; the left leg does not move.
+- signature: contact:qsPea.full.ex-y0:qsOoze.hapax.en-y0:y1
+  why: ·Pea·Ooze joins at the baseline today (baseline row E650:E67E, seam y0); ·Pea's right downstroke at y1 sits one column left of ·Ooze's left leg — the tail-against-bar corner blessed for ·Oy·It, with ·Ooze's leg standing in for the bar.
+- signature: contact:qsSee.straightest.ex-y0.locked:qsOoze.hapax.en-y0.ex-y0:y1
+  why: The ZWNJ-locked twin against the exiting ·Ooze cell; identical drawing.
+- signature: contact:qsSee.straightest.ex-y0.locked:qsOoze.hapax.en-y0:y1
+  why: The ZWNJ-locked twin of the blessed ·See·Ooze corner; identical drawing.
+- signature: contact:qsSee.straightest.ex-y0:qsOoze.hapax.en-y0.ex-y0:y1
+  why: The same corner with ·Ooze carrying its own baseline exit onward; the left leg does not move.
+- signature: contact:qsSee.straightest.ex-y0:qsOoze.hapax.en-y0:y1
+  why: ·See·Ooze joins at the baseline today (baseline row E65A:E67E, seam y0, the old ex-y0-right form); the straightest tail's final vertical at y1 sits one column left of ·Ooze's left leg — the same two-verticals corner as ·Tea·Ooze.
+- signature: contact:qsTea.full.en-y0.ex-y0:qsOoze.hapax.en-y0.ex-y0:y1
+  why: The same corner with ·Ooze carrying its own baseline exit onward; the left leg does not move.
+- signature: contact:qsTea.full.en-y0.ex-y0:qsOoze.hapax.en-y0:y1
+  why: The baseline-entered variant of the blessed ·Tea·Ooze corner (·Day·Tea·Ooze and friends, baseline rows E653:E652:E67E); the entry side leaves the bar where it is.
+- signature: contact:qsTea.full.en-y5.ex-y0:qsOoze.hapax.en-y0.ex-y0:y1
+  why: The same corner with ·Ooze carrying its own baseline exit onward; the left leg does not move.
+- signature: contact:qsTea.full.en-y5.ex-y0:qsOoze.hapax.en-y0:y1
+  why: The x-height-entered variant of the blessed ·Tea·Ooze corner (·May·Tea·Ooze under ss03, baseline rows E665:E652:E67E); the bar is unchanged.
+- signature: contact:qsTea.full.en-y8.ex-y0:qsOoze.hapax.en-y0.ex-y0:y1
+  why: The same corner with ·Ooze carrying its own baseline exit onward; the left leg does not move.
+- signature: contact:qsTea.full.en-y8.ex-y0:qsOoze.hapax.en-y0:y1
+  why: The top-entered variant of the blessed ·Tea·Ooze corner (·See·Tea·Ooze, baseline rows E65A:E652:E67E); the bar is unchanged.
+- signature: contact:qsTea.full.ex-y0.locked:qsOoze.hapax.en-y0.ex-y0:y1
+  why: The ZWNJ-locked twin against the exiting ·Ooze cell; identical drawing.
+- signature: contact:qsTea.full.ex-y0.locked:qsOoze.hapax.en-y0:y1
+  why: The ZWNJ-locked twin of the blessed ·Tea·Ooze corner; identical drawing.
+- signature: contact:qsTea.full.ex-y0:qsOoze.hapax.en-y0.ex-y0:y1
+  why: The same corner with ·Ooze carrying its own baseline exit onward; the left leg does not move.
+- signature: contact:qsTea.full.ex-y0:qsOoze.hapax.en-y0:y1
+  why: ·Tea·Ooze joins at the baseline today (baseline row E652:E67E, seam y0); ·Tea's bar at y1 sits one column left of ·Ooze's left leg — two verticals side by side.
+- signature: contact:qsTea_qsOy.hapax.ex-y0:qsOoze.hapax.en-y0.ex-y0:y1
+  why: The same corner with ·Ooze carrying its own baseline exit onward; the left leg does not move.
+- signature: contact:qsTea_qsOy.hapax.ex-y0:qsOoze.hapax.en-y0:y1
+  why: ·Tea·Oy ligature into ·Ooze joins at the baseline today (baseline row E652:E679:E67E); the ligature's tail is ·Oy's, so the corner is the blessed ·Oy·Ooze one.
+# The exit side: ·Ooze's right leg against each blessed follower, from the bare exit cell, the entered cell, and the ZWNJ-locked twin.
+- signature: contact:qsOoze.hapax.en-y0.ex-y0:qsIt.hapax.en-y0.ex-y0:y1
+  why: The blessed ·Ooze·It corner with ·It carrying its own baseline exit onward; the exit side leaves the bar at y1 where it is. The entered ·Ooze (·X·Ooze·Y, entered at the baseline) draws the same right leg.
+- signature: contact:qsOoze.hapax.en-y0.ex-y0:qsIt.hapax.en-y0.ex-y5.ex-ext-1:y1
+  why: The blessed ·Ooze·It corner with ·It's x-height exit extended toward a following ·J'ai (baseline row E67E:E670:E65D); the extension adds ink at y5 only, so the corner is unchanged. The entered ·Ooze (·X·Ooze·Y, entered at the baseline) draws the same right leg.
+- signature: contact:qsOoze.hapax.en-y0.ex-y0:qsIt.hapax.en-y0.ex-y5:y1
+  why: The blessed ·Ooze·It corner with ·It exiting at the x-height instead; the exit adds ink at y5 only. The entered ·Ooze (·X·Ooze·Y, entered at the baseline) draws the same right leg.
+- signature: contact:qsOoze.hapax.en-y0.ex-y0:qsIt.hapax.en-y0:y1
+  why: ·Ooze·It joins at the baseline today (baseline row E67E:E670); ·Ooze's right leg abuts ·It's bar at y1, the same corner as the blessed ·Ooze·Tea. The entered ·Ooze (·X·Ooze·Y, entered at the baseline) draws the same right leg.
+- signature: contact:qsOoze.hapax.en-y0.ex-y0:qsOoze.hapax.en-y0.ex-y0:y1
+  why: The blessed ·Ooze·Ooze corner with the second ·Ooze carrying its own baseline exit onward; its left leg does not move. The entered ·Ooze (·X·Ooze·Y, entered at the baseline) draws the same right leg.
+- signature: contact:qsOoze.hapax.en-y0.ex-y0:qsOoze.hapax.en-y0:y1
+  why: ·Ooze·Ooze joins at the baseline today (baseline row E67E:E67E, seam y0); the first ·Ooze's right leg abuts the second's left leg at y1 — two verticals side by side, the same corner as the blessed ·Ooze·Tea. The entered ·Ooze (·X·Ooze·Y, entered at the baseline) draws the same right leg.
+- signature: contact:qsOoze.hapax.en-y0.ex-y0:qsOut.normal.en-y0:y1
+  why: ·Ooze·Out joins at the baseline today (baseline row E67E:E67B); ·Ooze's right leg abuts ·Out's left upstroke at y1, the same corner as the blessed ·Ooze·Utter. The entered ·Ooze (·X·Ooze·Y, entered at the baseline) draws the same right leg.
+- signature: contact:qsOoze.hapax.en-y0.ex-y0:qsOut.swept-up.en-y0.ex-y5.ex-ext-1:y1
+  why: The blessed ·Ooze·Out corner with the swept-up exit extended by one toward a following ·Fee; the extension adds ink at y5 only. The entered ·Ooze (·X·Ooze·Y, entered at the baseline) draws the same right leg.
+- signature: contact:qsOoze.hapax.en-y0.ex-y0:qsOut.swept-up.en-y0.ex-y5:y1
+  why: The blessed ·Ooze·Out corner with ·Out in the swept-up motion exiting at the x-height (·Ooze·Out·Day and friends); the sweep changes the right side only. The entered ·Ooze (·X·Ooze·Y, entered at the baseline) draws the same right leg.
+- signature: contact:qsOoze.hapax.en-y0.ex-y0:qsOut_qsTea.hapax.en-y0:y1
+  why: ·Ooze into the ·Out·Tea ligature joins at the baseline today (baseline row E67E:E67B:E652); the ligature's left upstroke is ·Out's, so the corner is the blessed ·Ooze·Out one. The entered ·Ooze (·X·Ooze·Y, entered at the baseline) draws the same right leg.
+- signature: contact:qsOoze.hapax.en-y0.ex-y0:qsTea.full.en-y0:y1
+  why: ·Ooze·Tea joins at the baseline today (baseline row E67E:E652, seam y0); ·Ooze's right leg at y1 sits one column left of ·Tea's bar — the tail-against-bar corner blessed for ·Ox·Tea, with ·Ooze's leg as the tail. The entered ·Ooze (·X·Ooze·Y, entered at the baseline) draws the same right leg.
+- signature: contact:qsOoze.hapax.en-y0.ex-y0:qsUtter.mono.en-y0.ex-y5.ex-ext-1:y1
+  why: The blessed ·Ooze·Utter corner with ·Utter's x-height exit extended by one; the extension touches the crown only. The entered ·Ooze (·X·Ooze·Y, entered at the baseline) draws the same right leg.
+- signature: contact:qsOoze.hapax.en-y0.ex-y0:qsUtter.mono.en-y0.ex-y5:y1
+  why: The blessed ·Ooze·Utter corner with ·Utter exiting at the x-height; the crown's exit does not move its left downstroke. The entered ·Ooze (·X·Ooze·Y, entered at the baseline) draws the same right leg.
+- signature: contact:qsOoze.hapax.en-y0.ex-y0:qsUtter.mono.en-y0:y1
+  why: ·Ooze·Utter joins at the baseline today (baseline row E67E:E67A); ·Ooze's right leg abuts ·Utter's left downstroke at y1, the same corner as the blessed ·Ooze·It. The entered ·Ooze (·X·Ooze·Y, entered at the baseline) draws the same right leg.
+- signature: contact:qsOoze.hapax.ex-y0.locked:qsIt.hapax.en-y0.ex-y0:y1
+  why: The blessed ·Ooze·It corner with ·It carrying its own baseline exit onward; the exit side leaves the bar at y1 where it is. The ZWNJ-locked ·Ooze draws the same right leg.
+- signature: contact:qsOoze.hapax.ex-y0.locked:qsIt.hapax.en-y0.ex-y5.ex-ext-1:y1
+  why: The blessed ·Ooze·It corner with ·It's x-height exit extended toward a following ·J'ai (baseline row E67E:E670:E65D); the extension adds ink at y5 only, so the corner is unchanged. The ZWNJ-locked ·Ooze draws the same right leg.
+- signature: contact:qsOoze.hapax.ex-y0.locked:qsIt.hapax.en-y0.ex-y5:y1
+  why: The blessed ·Ooze·It corner with ·It exiting at the x-height instead; the exit adds ink at y5 only. The ZWNJ-locked ·Ooze draws the same right leg.
+- signature: contact:qsOoze.hapax.ex-y0.locked:qsIt.hapax.en-y0:y1
+  why: ·Ooze·It joins at the baseline today (baseline row E67E:E670); ·Ooze's right leg abuts ·It's bar at y1, the same corner as the blessed ·Ooze·Tea. The ZWNJ-locked ·Ooze draws the same right leg.
+- signature: contact:qsOoze.hapax.ex-y0.locked:qsOoze.hapax.en-y0.ex-y0:y1
+  why: The blessed ·Ooze·Ooze corner with the second ·Ooze carrying its own baseline exit onward; its left leg does not move. The ZWNJ-locked ·Ooze draws the same right leg.
+- signature: contact:qsOoze.hapax.ex-y0.locked:qsOoze.hapax.en-y0:y1
+  why: ·Ooze·Ooze joins at the baseline today (baseline row E67E:E67E, seam y0); the first ·Ooze's right leg abuts the second's left leg at y1 — two verticals side by side, the same corner as the blessed ·Ooze·Tea. The ZWNJ-locked ·Ooze draws the same right leg.
+- signature: contact:qsOoze.hapax.ex-y0.locked:qsOut.normal.en-y0:y1
+  why: ·Ooze·Out joins at the baseline today (baseline row E67E:E67B); ·Ooze's right leg abuts ·Out's left upstroke at y1, the same corner as the blessed ·Ooze·Utter. The ZWNJ-locked ·Ooze draws the same right leg.
+- signature: contact:qsOoze.hapax.ex-y0.locked:qsOut.swept-up.en-y0.ex-y5.ex-ext-1:y1
+  why: The blessed ·Ooze·Out corner with the swept-up exit extended by one toward a following ·Fee; the extension adds ink at y5 only. The ZWNJ-locked ·Ooze draws the same right leg.
+- signature: contact:qsOoze.hapax.ex-y0.locked:qsOut.swept-up.en-y0.ex-y5:y1
+  why: The blessed ·Ooze·Out corner with ·Out in the swept-up motion exiting at the x-height (·Ooze·Out·Day and friends); the sweep changes the right side only. The ZWNJ-locked ·Ooze draws the same right leg.
+- signature: contact:qsOoze.hapax.ex-y0.locked:qsOut_qsTea.hapax.en-y0:y1
+  why: ·Ooze into the ·Out·Tea ligature joins at the baseline today (baseline row E67E:E67B:E652); the ligature's left upstroke is ·Out's, so the corner is the blessed ·Ooze·Out one. The ZWNJ-locked ·Ooze draws the same right leg.
+- signature: contact:qsOoze.hapax.ex-y0.locked:qsTea.full.en-y0:y1
+  why: ·Ooze·Tea joins at the baseline today (baseline row E67E:E652, seam y0); ·Ooze's right leg at y1 sits one column left of ·Tea's bar — the tail-against-bar corner blessed for ·Ox·Tea, with ·Ooze's leg as the tail. The ZWNJ-locked ·Ooze draws the same right leg.
+- signature: contact:qsOoze.hapax.ex-y0.locked:qsUtter.mono.en-y0.ex-y5.ex-ext-1:y1
+  why: The blessed ·Ooze·Utter corner with ·Utter's x-height exit extended by one; the extension touches the crown only. The ZWNJ-locked ·Ooze draws the same right leg.
+- signature: contact:qsOoze.hapax.ex-y0.locked:qsUtter.mono.en-y0.ex-y5:y1
+  why: The blessed ·Ooze·Utter corner with ·Utter exiting at the x-height; the crown's exit does not move its left downstroke. The ZWNJ-locked ·Ooze draws the same right leg.
+- signature: contact:qsOoze.hapax.ex-y0.locked:qsUtter.mono.en-y0:y1
+  why: ·Ooze·Utter joins at the baseline today (baseline row E67E:E67A); ·Ooze's right leg abuts ·Utter's left downstroke at y1, the same corner as the blessed ·Ooze·It. The ZWNJ-locked ·Ooze draws the same right leg.
+- signature: contact:qsOoze.hapax.ex-y0:qsIt.hapax.en-y0.ex-y0:y1
+  why: The blessed ·Ooze·It corner with ·It carrying its own baseline exit onward; the exit side leaves the bar at y1 where it is.
+- signature: contact:qsOoze.hapax.ex-y0:qsIt.hapax.en-y0.ex-y5.ex-ext-1:y1
+  why: The blessed ·Ooze·It corner with ·It's x-height exit extended toward a following ·J'ai (baseline row E67E:E670:E65D); the extension adds ink at y5 only, so the corner is unchanged.
+- signature: contact:qsOoze.hapax.ex-y0:qsIt.hapax.en-y0.ex-y5:y1
+  why: The blessed ·Ooze·It corner with ·It exiting at the x-height instead; the exit adds ink at y5 only.
+- signature: contact:qsOoze.hapax.ex-y0:qsIt.hapax.en-y0:y1
+  why: ·Ooze·It joins at the baseline today (baseline row E67E:E670); ·Ooze's right leg abuts ·It's bar at y1, the same corner as the blessed ·Ooze·Tea.
+- signature: contact:qsOoze.hapax.ex-y0:qsOoze.hapax.en-y0.ex-y0:y1
+  why: The blessed ·Ooze·Ooze corner with the second ·Ooze carrying its own baseline exit onward; its left leg does not move.
+- signature: contact:qsOoze.hapax.ex-y0:qsOoze.hapax.en-y0:y1
+  why: ·Ooze·Ooze joins at the baseline today (baseline row E67E:E67E, seam y0); the first ·Ooze's right leg abuts the second's left leg at y1 — two verticals side by side, the same corner as the blessed ·Ooze·Tea.
+- signature: contact:qsOoze.hapax.ex-y0:qsOut.normal.en-y0:y1
+  why: ·Ooze·Out joins at the baseline today (baseline row E67E:E67B); ·Ooze's right leg abuts ·Out's left upstroke at y1, the same corner as the blessed ·Ooze·Utter.
+- signature: contact:qsOoze.hapax.ex-y0:qsOut.swept-up.en-y0.ex-y5.ex-ext-1:y1
+  why: The blessed ·Ooze·Out corner with the swept-up exit extended by one toward a following ·Fee; the extension adds ink at y5 only.
+- signature: contact:qsOoze.hapax.ex-y0:qsOut.swept-up.en-y0.ex-y5:y1
+  why: The blessed ·Ooze·Out corner with ·Out in the swept-up motion exiting at the x-height (·Ooze·Out·Day and friends); the sweep changes the right side only.
+- signature: contact:qsOoze.hapax.ex-y0:qsOut_qsTea.hapax.en-y0:y1
+  why: ·Ooze into the ·Out·Tea ligature joins at the baseline today (baseline row E67E:E67B:E652); the ligature's left upstroke is ·Out's, so the corner is the blessed ·Ooze·Out one.
+- signature: contact:qsOoze.hapax.ex-y0:qsTea.full.en-y0:y1
+  why: ·Ooze·Tea joins at the baseline today (baseline row E67E:E652, seam y0); ·Ooze's right leg at y1 sits one column left of ·Tea's bar — the tail-against-bar corner blessed for ·Ox·Tea, with ·Ooze's leg as the tail.
+- signature: contact:qsOoze.hapax.ex-y0:qsUtter.mono.en-y0.ex-y5.ex-ext-1:y1
+  why: The blessed ·Ooze·Utter corner with ·Utter's x-height exit extended by one; the extension touches the crown only.
+- signature: contact:qsOoze.hapax.ex-y0:qsUtter.mono.en-y0.ex-y5:y1
+  why: The blessed ·Ooze·Utter corner with ·Utter exiting at the x-height; the crown's exit does not move its left downstroke.
+- signature: contact:qsOoze.hapax.ex-y0:qsUtter.mono.en-y0:y1
+  why: ·Ooze·Utter joins at the baseline today (baseline row E67E:E67A); ·Ooze's right leg abuts ·Utter's left downstroke at y1, the same corner as the blessed ·Ooze·It.

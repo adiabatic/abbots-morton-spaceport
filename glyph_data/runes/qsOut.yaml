@@ -55,6 +55,7 @@ stances:
             - qsOx
             - qsOy
             - qsUtter
+            - qsOoze
       cells: []
       unlocks: []
       require: []
@@ -99,6 +100,7 @@ stances:
             - qsOx
             - qsOy
             - qsUtter
+            - qsOoze
       exits:
         x-height:
           x: 5

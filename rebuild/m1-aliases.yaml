@@ -76,6 +76,7 @@ qsSee: {rune: qsSee, stance: normal}
 qsSee.en-y0.ex-y6: {rune: qsSee, stance: curled-over, entry: baseline, exit: y6}
 qsSee.en-y0.ex-y6.noentry: {rune: qsSee, stance: curled-over, exit: y6, adjustments: [locked]}
 qsSee.ex-y0: {rune: qsSee, stance: straighter, exit: baseline}
+qsSee.ex-y0.ex-y0-right: {rune: qsSee, stance: straightest, exit: baseline}
 qsSee.ex-y0.ex-con-1: {rune: qsSee, stance: straighter, exit: baseline, adjustments: [ex-con-1]}
 qsSee.ex-y0.ex-ext-2: {rune: qsSee, stance: straighter, exit: baseline, adjustments: [ex-ext-2]}
 qsSee.noentry: {rune: qsSee, stance: normal, adjustments: [locked]}
@@ -218,3 +219,5 @@ qsOut.en-y0.ex-y5.noentry.ex-ext-1: {rune: qsOut, stance: swept-up, exit: x-heig
 qsOut.noentry: {rune: qsOut, stance: normal, adjustments: [locked]}
 qsOut_qsTea: {rune: qsOut_qsTea, stance: hapax}
 qsOut_qsTea.after-see: {rune: qsOut_qsTea, stance: hapax, entry: baseline, adjustments: [en-bind-raked]}
+qsOoze: {rune: qsOoze, stance: hapax}
+qsOoze.noentry: {rune: qsOoze, stance: hapax, adjustments: [locked]}
