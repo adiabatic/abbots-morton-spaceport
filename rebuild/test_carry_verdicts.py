@@ -135,3 +135,9 @@ def test_a_change_to_the_judged_window_moves_the_content_key():
         ("ink_identical", not unit["ink_identical"]),
     ):
         assert content_key({**unit, key: replacement}) != content_key(unit), key
+
+
+def test_picture_identity_is_invisible_to_the_content_key_unlike_ink_identity():
+    """`picture_identical` is a pure function of the window and both fonts' placed glyphs, all of which the key already covers, and it arrived after every archived snapshot was stamped — so it is a presentation key, while `ink_identical` stays inside the key only as the byte-identity contract with those snapshots."""
+    unit = _fixture_units()[0]
+    assert content_key({**unit, "picture_identical": not unit["picture_identical"]}) == content_key(unit)

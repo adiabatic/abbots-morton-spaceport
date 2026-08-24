@@ -6,7 +6,7 @@ A hand-written miniature of a `build_m1` surface — small enough to hold in one
 
 - `check_manifest`, `check_unit`, and `check_shards` in `rebuild/review/build.py` — the §7 contract checker, run over this directory by `rebuild/test_review_build.py`, and the same checker that gates a real build.
 - `test_fixture_sources_derive_the_checked_in_shards` in that module: `audit.load_workload` over the two sources must reproduce the shards' windows, classes, kinds, and configs, plus the manifest's per-class and total counts. This is what makes the manifest's `row_count`s and `totals.rows` checkable at all — `check_shards` only compares them against each other, never against rows.
-- Each unit's `content_key`: a byte-identity contract with every prior surface snapshot, checked by `rebuild/test_carry_verdicts.py`, with `carry_content_hash` in `rebuild/review/unit_cache.py` as the authority that computes it.
+- Each unit's `content_key`: a byte-identity contract with every prior surface snapshot, checked by `rebuild/test_carry_verdicts.py`, with `carry_content_hash` in `rebuild/review/unit_cache.py` as the authority that computes it. `picture_identical` is a carry-presentation key (`CARRY_PRESENTATION_KEYS` there), so flipping it on a unit never moves its stamp.
 - `test_fixture_units_exercise_the_contract_branches`, which names the branches these units exist to cover. Keep them covered when the fixture grows.
 
 ## `mini/` — the frozen mini-M1 bundle

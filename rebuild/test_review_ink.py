@@ -122,16 +122,16 @@ MARKER_GLYPHS = {
 MARKER_CMAP = {0xE001: "qsA", 0xE002: "qsB", 0x20: "space"}
 
 
-def _build_marker_font(path):
+def _build_font(path, glyphs=MARKER_GLYPHS, cmap=MARKER_CMAP):
     """A tiny TTF for the name-grain readings: two inked rectangles, one of them inset in its own frame so its origin_x is not zero, plus an outline-less `space` to stand in for the surface's inkless markers. Each glyph's left sidebearing is set to its own leftmost point, which is load-bearing rather than tidy — fontTools' TrueType glyph set translates an outline by `lsb - xMin` on the way out, and would otherwise pull the inset glyph back to x=0 and erase the very origin under test."""
     from fontTools.fontBuilder import FontBuilder
     from fontTools.pens.ttGlyphPen import TTGlyphPen
 
-    order = [".notdef", *MARKER_GLYPHS]
+    order = [".notdef", *glyphs]
     outlines = {}
     metrics = {}
     for name in order:
-        contours, advance = MARKER_GLYPHS.get(name, ((), 500))
+        contours, advance = glyphs.get(name, ((), 500))
         pen = TTGlyphPen(None)
         for contour in contours:
             pen.moveTo(contour[0])
@@ -143,7 +143,7 @@ def _build_marker_font(path):
         metrics[name] = (advance, min(columns) if columns else 0)
     builder = FontBuilder(1000)
     builder.setupGlyphOrder(order)
-    builder.setupCharacterMap(MARKER_CMAP)
+    builder.setupCharacterMap(cmap)
     builder.setupGlyf(outlines)
     builder.setupHorizontalMetrics(metrics)
     builder.setupHorizontalHeader(ascent=800, descent=-200)
@@ -162,7 +162,7 @@ MARKER_TEXT = " " + chr(0xE001) + chr(0xE002)
 
 @pytest.fixture(scope="module")
 def marker_comparator(tmp_path_factory):
-    path = _build_marker_font(tmp_path_factory.mktemp("marker-font") / "marker.ttf")
+    path = _build_font(tmp_path_factory.mktemp("marker-font") / "marker.ttf")
     return InkComparator(path, path)
 
 
@@ -186,6 +186,47 @@ def test_the_intern_rasterizes_a_shape_in_its_own_canonical_frame(marker_compara
     [(_name, key, _x, _y, origin_x)] = pieces
     assert origin_x == 50
     assert marker_comparator.intern.cells(key) == frozenset({(0, 0), (1, 0), (0, 1), (1, 1), (0, 2), (1, 2)})
+
+
+OVERLAP_CMAP = {0xE001: "qsA", 0xE002: "qsB"}
+OVERLAP_TEXT = chr(0xE001) + chr(0xE002)
+COLUMN = (((0, 0), (100, 0), (100, 150), (0, 150)),)
+HALF_COLUMN = (((0, 0), (50, 0), (50, 150), (0, 150)),)
+OVERLAP_BEFORE = {"qsA": (COLUMN, 50), "qsB": (COLUMN, 100)}
+OVERLAP_AFTER = {"qsA": (COLUMN, 100), "qsB": (HALF_COLUMN, 100)}
+
+
+@pytest.fixture(scope="module")
+def overlap_comparator(tmp_path_factory):
+    """The founding picture-identity shape at toy scale: before, ·A's second column is double-drawn by ·B's first; after, ·A keeps the column and ·B gives up its overlapping half — the same three columns of ink, owned differently."""
+    root = tmp_path_factory.mktemp("overlap-fonts")
+    before = _build_font(root / "before.ttf", OVERLAP_BEFORE, OVERLAP_CMAP)
+    after = _build_font(root / "after.ttf", OVERLAP_AFTER, OVERLAP_CMAP)
+    return InkComparator(before, after)
+
+
+def test_picture_identity_sees_through_an_overlap_removal(overlap_comparator):
+    """The piece-grain reading sees a changed ·B and a nonempty delta; the whole-run picture is the same six cells on both sides. The delta alone could not say so — ·A is stripped as common prefix, taking the pixel that still covers ·B's loss with it."""
+    assert overlap_comparator.ink_identical(OVERLAP_TEXT, ("default",)) is False
+    assert overlap_comparator.config_diff(OVERLAP_TEXT, "default") != IDENTITY_DIFF
+    assert overlap_comparator.picture_identical(OVERLAP_TEXT, ("default",)) is True
+    picture = {(column, row) for column in range(3) for row in range(3)}
+    assert overlap_comparator.run_cells("before", OVERLAP_TEXT, {}) == picture
+    assert overlap_comparator.run_cells("after", OVERLAP_TEXT, {}) == picture
+
+
+def test_picture_identity_fails_closed_off_the_grid(tmp_path):
+    """No cell reading can be made of a placement or an outline that is not on the PIXEL_SIZE grid, and the channel refuses rather than guesses: an off-grid advance and an off-grid edge each leave the window to a human."""
+    before = _build_font(tmp_path / "before.ttf", OVERLAP_BEFORE, OVERLAP_CMAP)
+    slid = _build_font(tmp_path / "slid.ttf", {"qsA": (COLUMN, 75), "qsB": (HALF_COLUMN, 100)}, OVERLAP_CMAP)
+    comparator = InkComparator(before, slid)
+    assert comparator.run_cells("after", OVERLAP_TEXT, {}) is None
+    assert comparator.picture_identical(OVERLAP_TEXT, ("default",)) is False
+    ragged = (((0, 0), (25, 0), (25, 150), (0, 150)),)
+    torn = _build_font(tmp_path / "torn.ttf", {"qsA": (COLUMN, 100), "qsB": (ragged, 100)}, OVERLAP_CMAP)
+    comparator = InkComparator(before, torn)
+    assert comparator.run_cells("after", OVERLAP_TEXT, {}) is None
+    assert comparator.picture_identical(OVERLAP_TEXT, ("default",)) is False
 
 
 def test_u_0126_is_ink_identical_only_because_kerning_is_neutralized(comparator):
@@ -227,6 +268,28 @@ def test_config_diff_localizes_the_delta_to_the_changed_region(comparator):
     assert diff_two[0] and diff_two[1]
     assert diff_pair[2] == 0
     assert diff_two[2] == -50
+
+
+def test_the_founding_overlap_removal_window_is_picture_identical(comparator):
+    """·At·J’ai·Day·Tea: the old font double-drew one pixel where ·At's exit meets ·J’ai's entry, and the rebuild contracts ·J’ai's entry instead — a name-grain change under every config, and no visible one."""
+    text = "".join(chr(value) for value in (0xE674, 0xE65D, 0xE653, 0xE652))
+    configs = ("default", "ss03", "ss04", "ss05", "ss03+ss05")
+    assert comparator.ink_identical(text, configs) is False
+    assert comparator.picture_identical(text, configs) is True
+
+
+def test_a_real_one_pixel_change_is_not_picture_identical(comparator):
+    """·Pea·Tea·Eight·Roe differs by a single pixel that no neighbor covers, which is exactly the difference the channel must keep asking about."""
+    text = "".join(chr(value) for value in (0xE650, 0xE652, 0xE673, 0xE668))
+    assert comparator.picture_identical(text, ("default",)) is False
+
+
+def test_piece_identity_implies_picture_identity_over_a_corpus_sample(workload_index, comparator):
+    """The build asks the picture question only where the piece question said no, on the strength of this implication; a stride over the corpus holds it against the shipped fonts, off-grid placements included."""
+    for unit in workload_index.units[::2000]:
+        for config in unit.configs:
+            if comparator.config_diff(_text(unit), config) == IDENTITY_DIFF:
+                assert comparator.picture_equal(_text(unit), config), (unit.codepoints, config)
 
 
 def test_the_retired_sorted_runs_formulation_agrees_over_a_corpus_sample(workload_index, live_artifacts):

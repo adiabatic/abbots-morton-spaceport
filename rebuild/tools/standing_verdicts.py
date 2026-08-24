@@ -468,7 +468,7 @@ def main(argv=None, *, units=None):
     units = [
         unit
         for unit in (load_units(surface) if units is None else units)
-        if not unit.get("no_verdict") and unit.get("render_groups") == 1
+        if not unit.get("no_verdict") and unit.get("batch") is not None and unit.get("render_groups") == 1
     ]
     wants_deltas = any(
         SHAPES[name].keyed_by in rule["match"]["after"] for rule in rules for name in ("ink-delta", "slide")

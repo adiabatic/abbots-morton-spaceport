@@ -33,12 +33,14 @@ from rebuild.review import census, families, tablediff, unit_cache, unit_index
 from rebuild.review.audit import (
     ACCEPTANCE_CONFIGS,
     BATCH_SIZE,
+    MACHINE_CHANNELS,
     UNMATCHED_CLASS,
     AuditRow,
     _config_index,
     assign_batches,
     format_codepoints,
     load_workload,
+    machine_approved,
     merge_ink_duplicate_units,
     parse_codepoints,
     signature_rows,
@@ -49,6 +51,7 @@ from rebuild.review.families import assign_family
 from rebuild.review.ink import (
     IDENTITY_DIFF,
     JUNIOR_VERIFICATION_METHOD,
+    PICTURE_VERIFICATION_METHOD,
     VERIFICATION_METHOD,
     InkComparator,
     JuniorOracle,
@@ -260,10 +263,11 @@ def _config_class_note(unit) -> str | None:
 
 
 def _machine_approved_meta(machine_units, junior_font: Path, repo_root: Path) -> dict:
-    """The manifest's machine_approved record: the totals across both machine channels (ink-identical and junior-equivalent), the audit rows those units cover, the per-class unit counts (classes with zero machine-approved units are omitted), and one sub-record per channel carrying its own counts and verification method one-liner. The junior channel also records which Junior font testified, since that font is an oracle input the fonts block doesn't cover (it is never rendered by the app)."""
+    """The manifest's machine_approved record: the totals across the three machine channels (ink-identical, picture-identical, and junior-equivalent), the audit rows those units cover, the per-class unit counts (classes with zero machine-approved units are omitted), and one sub-record per channel carrying its own counts and verification method one-liner. The junior channel also records which Junior font testified, since that font is an oracle input the fonts block doesn't cover (it is never rendered by the app)."""
     by_class: dict[str, int] = {}
     channels = {
         "ink_identical": {"units": 0, "rows": 0, "method": VERIFICATION_METHOD},
+        "picture_identical": {"units": 0, "rows": 0, "method": PICTURE_VERIFICATION_METHOD},
         "junior_equivalent": {
             "units": 0,
             "rows": 0,
@@ -275,7 +279,7 @@ def _machine_approved_meta(machine_units, junior_font: Path, repo_root: Path) ->
     for unit in machine_units:
         by_class[unit.class_id] = by_class.get(unit.class_id, 0) + 1
         rows += len(unit.rows)
-        channel = channels["ink_identical" if unit.ink_identical else "junior_equivalent"]
+        channel = channels[next(name for name in MACHINE_CHANNELS if getattr(unit, name))]
         channel["units"] += 1
         channel["rows"] += len(unit.rows)
     return {
@@ -291,6 +295,7 @@ _SCAFFOLD_HEAD = (
     "id",
     "batch",
     "ink_identical",
+    "picture_identical",
     "junior_equivalent",
     "ink_deltas",
     "no_verdict",
@@ -319,6 +324,7 @@ def unit_scaffold(unit, full_configs=ACCEPTANCE_CONFIGS) -> dict:
         "id": unit.unit_id,
         "batch": unit.batch,
         "ink_identical": unit.ink_identical,
+        "picture_identical": unit.picture_identical,
         "junior_equivalent": unit.junior_equivalent,
         "ink_deltas": dict(unit.ink_deltas),
         "no_verdict": unit.no_verdict,
@@ -547,6 +553,7 @@ class _UnitProjection:
 
     unit_id: str
     ink_identical: bool
+    picture_identical: bool
     junior_equivalent: bool
     ink_deltas: tuple[tuple[str, str], ...]
     diffs_repr: str
@@ -562,7 +569,10 @@ def _phase1_unit(unit, comparator, oracle, enricher, report=None) -> tuple[_Unit
     text = "".join(chr(value) for value in unit.codepoint_values)
     diffs = tuple(comparator.config_diff(text, config) for config in unit.configs)
     unit.ink_identical = all(diff == IDENTITY_DIFF for diff in diffs)
-    unit.junior_equivalent = not unit.ink_identical and oracle.approves(unit.configs, text)
+    unit.picture_identical = not unit.ink_identical and comparator.picture_identical(text, unit.configs)
+    unit.junior_equivalent = not (unit.ink_identical or unit.picture_identical) and oracle.approves(
+        unit.configs, text
+    )
     unit.ink_deltas = {
         config: delta_digest(diff) for config, diff in zip(unit.configs, diffs) if diff != IDENTITY_DIFF
     }
@@ -573,6 +583,7 @@ def _phase1_unit(unit, comparator, oracle, enricher, report=None) -> tuple[_Unit
     projection = _UnitProjection(
         unit_id=unit.unit_id,
         ink_identical=unit.ink_identical,
+        picture_identical=unit.picture_identical,
         junior_equivalent=unit.junior_equivalent,
         ink_deltas=tuple(unit.ink_deltas.items()),
         diffs_repr=diffs_repr,
@@ -924,9 +935,7 @@ def _write_surface(
                 "why": entry.why,
                 "unit_count": len(units),
                 "row_count": sum(len(unit.rows) for unit in units),
-                "machine_approved_count": sum(
-                    1 for unit in units if unit.ink_identical or unit.junior_equivalent
-                ),
+                "machine_approved_count": sum(1 for unit in units if unit.machine_approved),
                 "shards": parts,
                 "batches": sorted({unit.batch for unit in units if unit.batch is not None}),
             }
@@ -936,7 +945,7 @@ def _write_surface(
         "before": _copy_font(before_font, out_dir, "before.otf", "AMS Review Before", repo_root),
         "after": _copy_font(after_font, out_dir, "after.otf", "AMS Review After", repo_root),
     }
-    machine_units = [unit for unit in workload.units if unit.ink_identical or unit.junior_equivalent]
+    machine_units = [unit for unit in workload.units if unit.machine_approved]
     manifest = {
         "format": MANIFEST_FORMAT,
         "mode": "m1-audit",
@@ -991,6 +1000,7 @@ class _UnitState:
     """One unit's phase-1 products in the parent, served from the cache or returned by the runner, in the one shape the global reduces and the store writer read."""
 
     ink_identical: bool
+    picture_identical: bool
     junior_equivalent: bool
     ink_deltas: dict[str, str]
     diffs_digest: str
@@ -1009,6 +1019,7 @@ def _cached_seam_home(unit, cached: unit_cache.CachedUnit) -> SeamHomeUnit:
         unit_id=unit.unit_id,
         codepoint_values=unit.codepoint_values,
         ink_identical=cached.ink_identical,
+        picture_identical=cached.picture_identical,
         pair=(proj["pair"][0], proj["pair"][1]) if proj["pair"] else None,
         after_spans=tuple((span[0], span[1]) for span in proj["after_spans"]),
         after_cells=tuple(proj["after_cells"]),
@@ -1151,6 +1162,7 @@ def build_m1(
             if cached is not None:
                 states[unit.unit_id] = _UnitState(
                     ink_identical=cached.ink_identical,
+                    picture_identical=cached.picture_identical,
                     junior_equivalent=cached.junior_equivalent,
                     ink_deltas=dict(cached.ink_deltas),
                     diffs_digest=cached.diffs_digest,
@@ -1166,6 +1178,7 @@ def build_m1(
                 projection = projections[unit.unit_id]
                 states[unit.unit_id] = _UnitState(
                     ink_identical=projection.ink_identical,
+                    picture_identical=projection.picture_identical,
                     junior_equivalent=projection.junior_equivalent,
                     ink_deltas=dict(projection.ink_deltas),
                     diffs_digest=projection.diffs_digest,
@@ -1184,6 +1197,7 @@ def build_m1(
         for unit in workload.units:
             state = states[unit.unit_id]
             unit.ink_identical = state.ink_identical
+            unit.picture_identical = state.picture_identical
             unit.junior_equivalent = state.junior_equivalent
             unit.ink_deltas = dict(state.ink_deltas)
         total_batches = assign_batches(workload.units, batch_size)
@@ -1237,7 +1251,7 @@ def build_m1(
             fragments[unit.unit_id] = patch_cached_fragment(
                 prior_fragments[cached.prior_id], unit, cached.seams, assignments[unit.unit_id]
             )
-    # What the cache serves must be what a fresh computation of the same window writes, including the twelve scaffold fields `patch_cached_fragment` re-stamps without recomputing the stamp. The content key is the whole of the claim: it hashes every adjudicable field of the fragment, so one comparison per sampled unit covers the ink flags, the enrichment, the seams, the geometry, and the drafts at once.
+    # What the cache serves must be what a fresh computation of the same window writes, including every scaffold field `unit_scaffold` lists, which `patch_cached_fragment` re-stamps without recomputing the stamp. The content key is the whole of the claim: it hashes every adjudicable field of the fragment, so one comparison per sampled unit covers the ink flags, the enrichment, the seams, the geometry, and the drafts at once.
     stale = sorted(
         unit_id
         for unit_id, key in verified.items()
@@ -1310,6 +1324,7 @@ def build_m1(
                 prior_id=unit.unit_id,
                 prior_class=unit.class_id,
                 ink_identical=unit.ink_identical,
+                picture_identical=unit.picture_identical,
                 junior_equivalent=unit.junior_equivalent,
                 ink_deltas=dict(unit.ink_deltas),
                 diffs_digest=state.diffs_digest,
@@ -1338,7 +1353,12 @@ def _relative(path: Path, repo_root: Path) -> str:
 
 
 def _table_diff_unit_json(
-    entry: tablediff.DiffEntry, unit_id: str, batch: int | None, full_configs, ink_identical: bool
+    entry: tablediff.DiffEntry,
+    unit_id: str,
+    batch: int | None,
+    full_configs,
+    ink_identical: bool,
+    picture_identical: bool,
 ) -> dict:
     witness = entry.witness
     gate, note = config_badge((entry.config,), full_configs)
@@ -1394,6 +1414,7 @@ def _table_diff_unit_json(
         "id": unit_id,
         "batch": batch,
         "ink_identical": ink_identical,
+        "picture_identical": picture_identical,
         "junior_equivalent": False,
         "no_verdict": False,
         "echo": None,
@@ -1501,11 +1522,13 @@ def build_table_diff(
         batches = set()
         machine_count = 0
         for entry in members:
-            # A witnessless entry has no renderable text to shape, so it cannot be proven ink-identical and stays in the human workload.
-            ink_identical = bool(entry.witness) and comparator.ink_identical(
-                "".join(chr(value) for value in entry.witness), (entry.config,)
+            # A witnessless entry has no renderable text to shape, so it cannot be proven ink- or picture-identical and stays in the human workload.
+            text = "".join(chr(value) for value in entry.witness) if entry.witness else ""
+            ink_identical = bool(text) and comparator.ink_identical(text, (entry.config,))
+            picture_identical = (
+                bool(text) and not ink_identical and comparator.picture_identical(text, (entry.config,))
             )
-            if ink_identical:
+            if ink_identical or picture_identical:
                 batch = None
                 machine_count += 1
                 machine_rows += max(len(entry.paired), 1)
@@ -1516,7 +1539,9 @@ def build_table_diff(
             unit_id = f"u-{index:04d}"
             if batch is not None:
                 human_unit_ids.append(unit_id)
-            shard.append(_table_diff_unit_json(entry, unit_id, batch, all_configs, ink_identical))
+            shard.append(
+                _table_diff_unit_json(entry, unit_id, batch, all_configs, ink_identical, picture_identical)
+            )
             index += 1
         parts = _write_shard(out_dir, bucket, shard)
         shards_by_class[bucket] = shard
@@ -1652,8 +1677,8 @@ def check_manifest(manifest: dict) -> list[str]:
         channels = machine.get("channels")
         if channels is not None:
             need(
-                isinstance(channels, dict) and set(channels) == {"ink_identical", "junior_equivalent"},
-                "machine_approved.channels must map the two machine channels",
+                isinstance(channels, dict) and set(channels) == set(MACHINE_CHANNELS),
+                "machine_approved.channels must map the three machine channels",
             )
             if isinstance(channels, dict):
                 for channel, record in channels.items():
@@ -1745,6 +1770,7 @@ def check_unit(unit: dict, mode: str = "m1-audit") -> list[str]:
 
     need(isinstance(unit.get("id"), str) and unit.get("id", "").startswith("u-"), "id must look like u-NNNN")
     need(isinstance(unit.get("ink_identical"), bool), "ink_identical must be a bool")
+    need(isinstance(unit.get("picture_identical"), bool), "picture_identical must be a bool")
     need(isinstance(unit.get("junior_equivalent", False), bool), "junior_equivalent must be a bool")
     if mode == "m1-audit":
         deltas = unit.get("ink_deltas")
@@ -1768,11 +1794,9 @@ def check_unit(unit: dict, mode: str = "m1-audit") -> list[str]:
         )
     need(isinstance(unit.get("no_verdict"), bool), "no_verdict must be a bool")
     # This equivalence is what lets every consumer read batch alone rather than re-deriving the disjunction: render.js's needsNoVerdict, export's human_units_total, complaint_docket, and carry_verdicts all split the workload on batch being null.
-    if (
-        unit.get("ink_identical") is True
-        or unit.get("junior_equivalent") is True
-        or unit.get("no_verdict") is True
-    ):
+    approving = [channel for channel in MACHINE_CHANNELS if unit.get(channel) is True]
+    need(len(approving) <= 1, "at most one machine channel may approve a unit")
+    if approving or unit.get("no_verdict") is True:
         need(unit.get("batch") is None, "machine-approved and no-verdict units must carry batch null")
     else:
         need(isinstance(unit.get("batch"), int), "batch must be an integer on human-workload units")
@@ -1980,7 +2004,10 @@ def check_unit(unit: dict, mode: str = "m1-audit") -> list[str]:
     seams = unit.get("secondary_seams")
     if seams is not None:
         need(isinstance(seams, list) and seams, "secondary_seams must be null or a nonempty list")
-        need(unit.get("ink_identical") is not True, "machine-approved units must not carry secondary_seams")
+        need(
+            unit.get("ink_identical") is not True and unit.get("picture_identical") is not True,
+            "ink-identical and picture-identical units must not carry secondary_seams",
+        )
         for index, seam in enumerate(seams if isinstance(seams, list) else ()):
             label = f"secondary_seams[{index}]"
             if not isinstance(seam, dict) or {"pair", "before", "after", "home"} - set(seam):
@@ -2141,7 +2168,7 @@ def check_shards(
             identity[unit_id] = (
                 unit.get("codepoints"),
                 unit.get("pair") is not None,
-                unit.get("ink_identical") is True,
+                unit.get("ink_identical") is True or unit.get("picture_identical") is True,
             )
             policy = (unit.get("drafts") or {}).get("policy") or {}
             if isinstance(policy.get("file"), str):
@@ -2173,7 +2200,7 @@ def check_shards(
                     f"unit {unit.get('id')}: no_verdict {unit.get('no_verdict')} in a class "
                     f"whose no_verdict is {meta.get('no_verdict')}"
                 )
-            if unit.get("ink_identical") is True or unit.get("junior_equivalent") is True:
+            if machine_approved(unit):
                 machine_count += 1
             elif (
                 mode == "m1-audit"
@@ -2255,9 +2282,9 @@ def check_shards(
             if not identity[home][1]:
                 errors.append(f"unit {unit_id}: secondary seam home {home} has no primary pair")
             if identity[home][2]:
-                errors.append(f"unit {unit_id}: secondary seam home {home} is ink-identical")
+                errors.append(f"unit {unit_id}: secondary seam home {home} shows no visible change")
             if identity[unit_id][2]:
-                errors.append(f"unit {unit_id}: an ink-identical unit carries a secondary seam")
+                errors.append(f"unit {unit_id}: a unit with no visible change carries a secondary seam")
     if isinstance(seam_census, dict):
         for key, observed in (
             ("units_with_markers", seam_units),

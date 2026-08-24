@@ -56,6 +56,7 @@ def index_record(fragment: dict) -> dict:
         "configs": fragment.get("configs") or [],
         "kinds": fragment.get("kinds") or [],
         "ink_identical": fragment.get("ink_identical"),
+        "picture_identical": fragment.get("picture_identical"),
         "junior_equivalent": fragment.get("junior_equivalent"),
         "ink_deltas": fragment.get("ink_deltas"),
         "no_verdict": fragment.get("no_verdict"),

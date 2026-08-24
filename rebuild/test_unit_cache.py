@@ -297,6 +297,7 @@ def test_store_round_trip_and_invalidation(tmp_path):
         prior_id="u-0001",
         prior_class="boundary-echo",
         ink_identical=False,
+        picture_identical=False,
         junior_equivalent=False,
         ink_deltas={"default": "d-0123456789ab"},
         diffs_digest="deadbeef",

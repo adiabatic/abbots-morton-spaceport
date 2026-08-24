@@ -125,6 +125,7 @@ def test_the_index_covers_every_field_the_plumbing_reads(tmp_path):
         "configs",
         "kinds",
         "ink_identical",
+        "picture_identical",
         "junior_equivalent",
         "ink_deltas",
         "no_verdict",

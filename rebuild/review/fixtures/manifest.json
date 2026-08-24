@@ -81,6 +81,11 @@
     "rows": 3,
     "method": "Shaped with uharfbuzz in both fixture fonts under every config in the unit's set; outlines decomposed with fontTools DecomposingRecordingPen, translated by the cumulative x_advance plus each glyph's x_offset/y_offset, sorted, and compared."
    },
+   "picture_identical": {
+    "units": 0,
+    "rows": 0,
+    "method": "Not ink-identical, but both fixture fonts fill exactly the same pixel-grid cells under every config in the unit's set; only which glyph owns each pixel differs."
+   },
    "junior_equivalent": {
     "units": 0,
     "rows": 0,
