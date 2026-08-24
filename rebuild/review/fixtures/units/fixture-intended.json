@@ -3,6 +3,7 @@
   "id": "u-0000",
   "batch": 0,
   "ink_identical": false,
+  "picture_identical": false,
   "junior_equivalent": false,
   "ink_deltas": {
    "ss03": "d-389ebea7ccc7",
@@ -138,6 +139,7 @@
   "id": "u-0001",
   "batch": 0,
   "ink_identical": false,
+  "picture_identical": false,
   "junior_equivalent": false,
   "ink_deltas": {
    "default": "d-e77325b1df50",
@@ -270,6 +272,7 @@
   "id": "u-0002",
   "batch": 0,
   "ink_identical": false,
+  "picture_identical": false,
   "junior_equivalent": false,
   "ink_deltas": {
    "default": "d-e77325b1df50",
@@ -405,6 +408,7 @@
   "id": "u-0003",
   "batch": null,
   "ink_identical": true,
+  "picture_identical": false,
   "junior_equivalent": false,
   "ink_deltas": {},
   "no_verdict": false,

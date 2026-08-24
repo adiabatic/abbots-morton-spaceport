@@ -248,7 +248,9 @@ def test_explain_text_keeps_header_and_divergent_positions(enricher, units_by_ke
     assert "position 0: qsTea" not in enriched.explain_text
 
 
-def _stub_enriched(unit_id, values, cells, seams, pair, *, ink_identical=False, seam_pairs=()):
+def _stub_enriched(
+    unit_id, values, cells, seams, pair, *, ink_identical=False, picture_identical=False, seam_pairs=()
+):
     """A minimal EnrichedUnit for resolver tests: one codepoint per cell, before glyphs derived from the cell tokens, all before seams break."""
     from rebuild.review.audit import Unit, format_codepoints
 
@@ -262,6 +264,7 @@ def _stub_enriched(unit_id, values, cells, seams, pair, *, ink_identical=False, 
             rows=(),
             unit_id=unit_id,
             ink_identical=ink_identical,
+            picture_identical=picture_identical,
         ),
         notation="",
         text_entities="",
@@ -363,6 +366,26 @@ def test_secondary_seam_with_an_ink_identical_home_is_suppressed():
         "seams_homeless": 0,
         "seams_suppressed_invisible": 1,
     }
+
+
+def test_secondary_seam_with_a_picture_identical_home_is_suppressed():
+    """Picture identity is the whole-window reading of the same nothing-to-see, so a home that carries it suppresses the marker exactly as an ink-identical one does."""
+    item = _stub_enriched(
+        "u-0001",
+        (0xE650, 0xE665, 0xE652, 0xE670),
+        ("A", "B", "C", "D"),
+        ("y0", "y5", "break"),
+        pair=(0, 1),
+        seam_pairs=((1, 2),),
+    )
+    invisible = _stub_enriched(
+        "u-0002", (0xE665, 0xE652), ("B", "C"), ("y5",), pair=(0, 1), picture_identical=True
+    )
+    census = resolve_secondary_homes([item, invisible])
+    seam = item.secondary_seams[0]
+    assert seam.suppressed is True
+    assert seam.home is None
+    assert census["seams_suppressed_invisible"] == 1
 
 
 def test_secondary_seam_without_any_home_is_emitted_with_home_none():

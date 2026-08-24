@@ -252,7 +252,19 @@ def test_a_home_with_nothing_to_see_fails_the_build():
     home["echo"] = None
     home["cluster"] = None
     manifest["human_unit_ids"] = [uid for uid in manifest["human_unit_ids"] if uid != SEAM_HOME]
-    _complaint(check_shards(manifest, shards), "is ink-identical")
+    _complaint(check_shards(manifest, shards), "shows no visible change")
+
+
+def test_a_picture_identical_home_fails_the_build_the_same_way():
+    """Picture identity is the same nothing-to-see at the coarser grain: the home keeps the nonempty ink_deltas a name-grain change records, and the resolver's suppression must still have fired."""
+    manifest, shards = _homed_surface()
+    home = _unit(shards, SEAM_HOME)
+    home["picture_identical"] = True
+    home["batch"] = None
+    home["echo"] = None
+    home["cluster"] = None
+    manifest["human_unit_ids"] = [uid for uid in manifest["human_unit_ids"] if uid != SEAM_HOME]
+    _complaint(check_shards(manifest, shards), "shows no visible change")
 
 
 # --- the files beside the manifest --------------------------------------------------------------

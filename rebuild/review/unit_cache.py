@@ -24,12 +24,12 @@ from rebuild.review import unit_index
 from rebuild.review.audit import ACCEPTANCE_CONFIGS, AuditRow, Unit, parse_codepoints
 from rebuild.review.drafts import CORPUS_FILES
 
-STORE_FORMAT = "ams-review-unit-cache/1"
+STORE_FORMAT = "ams-review-unit-cache/2"
 STORE_NAME = "unit-cache.ndjson.gz"
 SIGNATURE_STORE_FORMAT = "ams-review-ink-signatures/1"
 SIGNATURE_STORE_NAME = "ink-signatures.tsv.gz"
 
-# The carry identity's non-participating fields (rebuild/tools/carry_verdicts.py imports this): id, batch, no_verdict, exemplar, echo, and cluster are order- or ledger-derived and churn whenever the surface renumbers; explain, drafts, provenance, and secondary_seams are derived presentation whose adjudicable content is already covered by the window plus both fonts' glyphs, cells, and seams; ink_deltas is the same delta identity persisted per config; content_key is the stamp of this very projection and must not feed itself.
+# The carry identity's non-participating fields (rebuild/tools/carry_verdicts.py imports this): id, batch, no_verdict, exemplar, echo, and cluster are order- or ledger-derived and churn whenever the surface renumbers; explain, drafts, provenance, and secondary_seams are derived presentation whose adjudicable content is already covered by the window plus both fonts' glyphs, cells, and seams; ink_deltas is the same delta identity persisted per config; content_key is the stamp of this very projection and must not feed itself. picture_identical is a pure function of the window and both fonts' placed glyphs, which the projection already covers through codepoints, configs, and both sides' glyphs, cells, and seams, so excluding it changes nothing the key says — while including it would restamp every unit whose flag flips the day the channel lands and strand the verdicts recorded against them; ink_identical is the one derived flag inside the key, kept there only as the byte-identity contract with every prior snapshot.
 CARRY_PRESENTATION_KEYS = frozenset(
     {
         "id",
@@ -43,6 +43,7 @@ CARRY_PRESENTATION_KEYS = frozenset(
         "echo",
         "cluster",
         "ink_deltas",
+        "picture_identical",
         "content_key",
     }
 )
@@ -262,6 +263,7 @@ class CachedUnit:
     prior_id: str
     prior_class: str
     ink_identical: bool
+    picture_identical: bool
     junior_equivalent: bool
     ink_deltas: dict[str, str]
     diffs_digest: str
@@ -278,6 +280,7 @@ class CachedUnit:
             "id": self.prior_id,
             "class": self.prior_class,
             "ink_identical": self.ink_identical,
+            "picture_identical": self.picture_identical,
             "junior_equivalent": self.junior_equivalent,
             "ink_deltas": self.ink_deltas,
             "diffs_digest": self.diffs_digest,
@@ -297,6 +300,7 @@ class CachedUnit:
             prior_id=record["id"],
             prior_class=record["class"],
             ink_identical=record["ink_identical"],
+            picture_identical=record["picture_identical"],
             junior_equivalent=record["junior_equivalent"],
             ink_deltas=dict(record["ink_deltas"]),
             diffs_digest=record["diffs_digest"],

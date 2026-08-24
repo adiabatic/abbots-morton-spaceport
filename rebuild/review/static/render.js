@@ -105,7 +105,7 @@ export function markOffset(x, fontSize, upem) {
 }
 
 export function secondarySeamsOf(unit) {
-  if (unit.ink_identical) return [];
+  if (unit.ink_identical || unit.picture_identical) return [];
   return Array.isArray(unit.secondary_seams) ? unit.secondary_seams : [];
 }
 
@@ -254,8 +254,26 @@ export function machineChannels(manifest) {
   return {
     units: machine.units ?? 0,
     inkIdentical: channels.ink_identical?.units ?? machine.units ?? 0,
+    pictureIdentical: channels.picture_identical?.units ?? 0,
     juniorEquivalent: channels.junior_equivalent?.units ?? 0,
   };
+}
+
+const MACHINE_CHANNEL_ROWS = [
+  ['ink_identical', 'inkIdentical', 'ink-identical'],
+  ['picture_identical', 'pictureIdentical', 'picture-identical'],
+  ['junior_equivalent', 'juniorEquivalent', 'junior-equivalent'],
+];
+
+function machineChannelSplit(manifest) {
+  const counts = machineChannels(manifest);
+  const channels = manifest.machine_approved?.channels ?? {};
+  const split = [];
+  for (const [key, countKey, label] of MACHINE_CHANNEL_ROWS) {
+    const units = counts[countKey];
+    if (units > 0) split.push({ label, units, method: channels[key]?.method ?? '' });
+  }
+  return split;
 }
 
 export function surfaceChipLabel(manifest) {
@@ -280,14 +298,15 @@ const NO_VERDICT_DETAIL_TITLE =
 
 export function surfaceDetailRows(manifest) {
   const rows = [{ label: 'Surface', value: formatCount(manifest.totals.units) }];
-  const { units, inkIdentical, juniorEquivalent } = machineChannels(manifest);
+  const { units } = machineChannels(manifest);
   if (units > 0) {
-    const channels = manifest.machine_approved?.channels ?? {};
-    const label = juniorEquivalent === 0 ? 'ink-identical machine-approved' : 'machine-approved';
+    const split = machineChannelSplit(manifest);
+    const label = split.length === 1 ? `${split[0].label} machine-approved` : 'machine-approved';
     rows.push({ label, value: formatCount(units), title: machineTitle(manifest) });
-    if (juniorEquivalent > 0) {
-      rows.push({ label: 'ink-identical', value: formatCount(inkIdentical), sub: true, title: channels.ink_identical?.method ?? '' });
-      rows.push({ label: 'junior-equivalent', value: formatCount(juniorEquivalent), sub: true, title: channels.junior_equivalent?.method ?? '' });
+    if (split.length > 1) {
+      for (const channel of split) {
+        rows.push({ label: channel.label, value: formatCount(channel.units), sub: true, title: channel.method });
+      }
     }
   }
   const exempt = noVerdictTotal(manifest);
@@ -297,11 +316,12 @@ export function surfaceDetailRows(manifest) {
 }
 
 export function machineTitle(manifest) {
-  const { units, inkIdentical, juniorEquivalent } = machineChannels(manifest);
+  const { units } = machineChannels(manifest);
   const method = manifest.machine_approved?.method ?? '';
-  if (units === 0 || juniorEquivalent === 0) return method;
-  const split = `${formatCount(inkIdentical)} ink-identical + ${formatCount(juniorEquivalent)} junior-equivalent.`;
-  return method ? `${split} ${method}` : split;
+  const split = machineChannelSplit(manifest);
+  if (units === 0 || split.length < 2) return method;
+  const parts = `${split.map((channel) => `${formatCount(channel.units)} ${channel.label}`).join(' + ')}.`;
+  return method ? `${parts} ${method}` : parts;
 }
 
 export function classCountsLine(cls, verdicted = null) {

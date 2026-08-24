@@ -18,7 +18,7 @@ import yaml
 
 from rebuild.pipeline import fingerprint
 from rebuild.review import unit_index
-from rebuild.review.audit import ACCEPTANCE_CONFIGS, load_workload
+from rebuild.review.audit import ACCEPTANCE_CONFIGS, load_workload, machine_approved
 from rebuild.review.build import (
     FEATURE_DESCRIPTIONS,
     STATIC_DIR,
@@ -187,6 +187,34 @@ def test_check_unit_ties_ink_deltas_emptiness_to_ink_identical():
     assert any("nonempty ink_deltas" in error for error in check_unit(changed, "m1-audit"))
     changed["ink_deltas"] = good
     assert check_unit(changed, "m1-audit") == []
+
+
+def test_check_unit_admits_one_machine_channel_at_most():
+    """The channels are tried in precedence order and each is asked only where the earlier ones refused, so a unit carrying two of them was built by nothing this checker knows."""
+    unit = _fixture_unit(ink_identical=True)
+    assert check_unit(unit, "m1-audit") == []
+    unit["picture_identical"] = True
+    assert any("at most one machine channel" in error for error in check_unit(unit, "m1-audit"))
+
+
+def test_check_unit_nulls_batch_on_picture_identical_units():
+    """A picture-identical unit leaves the human workload exactly as an ink-identical one does, while keeping the nonempty ink_deltas its name-grain change records."""
+    unit = _fixture_unit(ink_identical=False)
+    unit["picture_identical"] = True
+    assert any("batch null" in error for error in check_unit(unit, "m1-audit"))
+    unit["batch"] = None
+    unit["echo"] = None
+    unit["cluster"] = None
+    unit["secondary_seams"] = None
+    assert check_unit(unit, "m1-audit") == []
+    assert unit["ink_deltas"]
+
+
+def test_check_manifest_requires_the_three_machine_channels():
+    manifest = json.loads((FIXTURES / "manifest.json").read_text(encoding="utf-8"))
+    assert not any("machine channels" in error for error in check_manifest(manifest))
+    del manifest["machine_approved"]["channels"]["picture_identical"]
+    assert any("three machine channels" in error for error in check_manifest(manifest))
 
 
 def test_check_unit_leaves_ink_deltas_out_of_the_table_diff_contract():
@@ -672,6 +700,31 @@ def _export_surface():
     }
 
 
+def test_export_skips_verdicts_landing_on_picture_identical_units():
+    """The third channel leaves the human workload exactly as the other two do, so a verdict recorded against a unit it approved — the ones judged by hand before the channel existed — is counted as inert history and drafts nothing."""
+    manifest, units = _export_surface()
+    unit_id = manifest["human_unit_ids"][-1]
+    unit = units[unit_id]
+    unit.update(picture_identical=True, batch=None)
+    manifest["human_unit_ids"] = [uid for uid in manifest["human_unit_ids"] if uid != unit_id]
+    manifest["machine_approved"]["units"] += 1
+    by_class = manifest["machine_approved"]["by_class"]
+    by_class[unit["class"]] = by_class.get(unit["class"], 0) + 1
+    verdicts = {
+        "format": "ams-review-verdicts/1",
+        "manifest_generated_at": manifest["generated_at"],
+        "verdicts": [{"unit": unit_id, "verdict": "approve", "note": "", "at": "2026-06-10T18:21:09Z"}],
+    }
+    triage = build_triage(manifest, units, verdicts)
+    counts = triage["review"]["counts"]
+    assert counts["approve"] == 0
+    assert counts["skipped_machine_approved"] == 1
+    assert counts["human_units_total"] == len(manifest["human_unit_ids"])
+    assert triage["pins"] == []
+    assert triage["machine_approved"]["count"] == manifest["machine_approved"]["units"]
+    assert triage["machine_approved"]["by_class"] == by_class
+
+
 def test_load_units_keeps_exactly_the_fields_the_triage_export_reads():
     """The set is named here rather than derived from `TRIAGE_KEYS`, exactly as `test_the_index_covers_every_field_the_plumbing_reads` names the sidecar's: spelling it against the constant it is meant to police proves only that a dict comprehension keeps the keys it was given, and every field the export reads could be dropped from the projection under a green suite. Named, adding one is a deliberate act and dropping one fails here rather than as a null in a hand-placed triage YAML."""
     manifest, units = load_units(FIXTURES)
@@ -686,6 +739,7 @@ def test_load_units_keeps_exactly_the_fields_the_triage_export_reads():
             "no_verdict",
             "configs",
             "ink_identical",
+            "picture_identical",
             "junior_equivalent",
             "codepoints",
             "text_entities",
@@ -717,6 +771,8 @@ def test_export_round_trip(tmp_path):
     drafted_reject = next(uid for uid in ids[4:] if units[uid]["drafts"]["policy"])
     manual_reject = next(uid for uid in ids[4:] if units[uid]["drafts"]["policy"] is None)
     identical_unit = next(uid for uid in ids[4:] if uid not in (drafted_reject, manual_reject))
+    human_skip = next(uid for uid in ids[4:] if uid not in (drafted_reject, manual_reject, identical_unit))
+    machine_unit = next(uid for uid in ids if machine_approved(units[uid]))
     verdicts_path = tmp_path / "verdicts.json"
     payload = {
         "format": "ams-review-verdicts/1",
@@ -741,7 +797,9 @@ def test_export_round_trip(tmp_path):
                 "at": "2026-06-10T18:21:50Z",
             },
             {"unit": ids[2], "verdict": "either", "note": "", "at": "2026-06-10T18:22:00Z"},
-            {"unit": ids[3], "verdict": "skip", "note": "", "at": "2026-06-10T18:22:10Z"},
+            {"unit": human_skip, "verdict": "skip", "note": "", "at": "2026-06-10T18:22:10Z"},
+            # A verdict on a machine-approved unit is the same inert history as one on a no-verdict unit: skipped, counted under its own key, never drafted.
+            {"unit": machine_unit, "verdict": "skip", "note": "", "at": "2026-06-10T18:22:11Z"},
             {
                 "unit": ids[1],
                 "verdict": "neither",
@@ -767,6 +825,7 @@ def test_export_round_trip(tmp_path):
     assert counts["neither"] == 1
     assert counts["skip"] == 1
     assert counts["skipped_no_verdict"] == 1
+    assert counts["skipped_machine_approved"] == 1
     assert counts["units_total"] == manifest["totals"]["units"]
     assert counts["human_units_total"] == len(manifest["human_unit_ids"])
 
@@ -775,7 +834,7 @@ def test_export_round_trip(tmp_path):
     assert machine["by_class"] == manifest["machine_approved"]["by_class"]
     assert machine["method"]
     assert machine["rows_covered"] == sum(
-        len(unit["configs"]) for unit in units.values() if unit["ink_identical"] or unit["junior_equivalent"]
+        len(unit["configs"]) for unit in units.values() if machine_approved(unit)
     )
     expanded = []
     for token in machine["unit_ids"]:
@@ -786,11 +845,11 @@ def test_export_round_trip(tmp_path):
             expanded.append(int(token[2:]))
     assert len(expanded) == manifest["machine_approved"]["units"]
     assert {f"u-{number:04d}" for number in expanded} == {
-        unit_id for unit_id, unit in units.items() if unit["ink_identical"] or unit["junior_equivalent"]
+        unit_id for unit_id, unit in units.items() if machine_approved(unit)
     }
     assert counts["rows_covered"] == sum(
         len(units[uid]["configs"])
-        for uid in (ids[0], drafted_reject, manual_reject, ids[2], ids[3], ids[1], identical_unit)
+        for uid in (ids[0], drafted_reject, manual_reject, ids[2], human_skip, ids[1], identical_unit)
     )
 
     assert len(triage["pins"]) == 1

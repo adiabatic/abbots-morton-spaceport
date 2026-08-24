@@ -204,7 +204,7 @@ def cell_token(cell: CellId) -> str:
 
 @dataclass
 class SecondarySeam:
-    """One divergent adjacency beyond a unit's primary pair: the (left, right) after-cell indices, the same per-side highlight rects the primary band uses, and — after `resolve_secondary_homes` — either the home unit id where this behavior is the primary judgment, None when no home exists, or `suppressed` when the home is ink-identical (nothing visible to judge, so no marker is emitted)."""
+    """One divergent adjacency beyond a unit's primary pair: the (left, right) after-cell indices, the same per-side highlight rects the primary band uses, and — after `resolve_secondary_homes` — either the home unit id where this behavior is the primary judgment, None when no home exists, or `suppressed` when the home is ink- or picture-identical (nothing visible to judge, so no marker is emitted)."""
 
     pair: tuple[int, int]
     highlight_before: dict
@@ -468,7 +468,7 @@ class Enricher:
         highlight_before = _highlight(before_pens, before_spans, cp_start, cp_end)
 
         secondary_seams: list[SecondarySeam] = []
-        if pair is not None and not unit.ink_identical:
+        if pair is not None and not (unit.ink_identical or unit.picture_identical):
             for left, right in _secondary_pairs(
                 pair, divergent_gaps, anchor_positions, after_seams, len(settled)
             ):
@@ -695,6 +695,7 @@ class SeamHomeUnit:
     unit_id: str
     codepoint_values: tuple[int, ...]
     ink_identical: bool
+    picture_identical: bool
     pair: tuple[int, int] | None
     after_spans: tuple[tuple[int, int], ...]
     after_cells: tuple[str, ...]
@@ -710,6 +711,7 @@ def seam_home_projection(enriched: EnrichedUnit) -> SeamHomeUnit:
         unit_id=enriched.unit.unit_id,
         codepoint_values=enriched.unit.codepoint_values,
         ink_identical=enriched.unit.ink_identical,
+        picture_identical=enriched.unit.picture_identical,
         pair=enriched.pair,
         after_spans=enriched.after_spans,
         after_cells=enriched.after_cells,
@@ -788,7 +790,7 @@ def _find_home(
 def resolve_home_assignments(
     projections: list[SeamHomeUnit],
 ) -> tuple[dict[str, list[tuple[str | None, bool]]], dict[str, int]]:
-    """The global secondary-home reduce over slim projections: for every unit, resolve each secondary seam to (home unit id or None, suppressed) in the seam's order, and tally the census. A seam whose home is ink-identical is suppressed (an invisible name-grain rename, no marker); a seam with no home keeps home None and stays visible so it is never silently unmarked. Pure over the projections — no EnrichedUnit is touched — so it runs in the parent from what the workers returned."""
+    """The global secondary-home reduce over slim projections: for every unit, resolve each secondary seam to (home unit id or None, suppressed) in the seam's order, and tally the census. A seam whose home is ink- or picture-identical is suppressed (an invisible name-grain rename, no marker); a seam with no home keeps home None and stays visible so it is never silently unmarked. Pure over the projections — no EnrichedUnit is touched — so it runs in the parent from what the workers returned."""
     by_codepoints: dict[tuple[int, ...], list[SeamHomeUnit]] = {}
     for item in projections:
         by_codepoints.setdefault(item.codepoint_values, []).append(item)
@@ -808,7 +810,7 @@ def resolve_home_assignments(
                 census["seams_homeless"] += 1
                 visible += 1
                 seam_assign.append((None, False))
-            elif home.ink_identical:
+            elif home.ink_identical or home.picture_identical:
                 census["seams_suppressed_invisible"] += 1
                 seam_assign.append((None, True))
             else:
@@ -832,7 +834,7 @@ def apply_home_assignments(
 
 
 def resolve_secondary_homes(enriched_units: list[EnrichedUnit]) -> dict[str, int]:
-    """Resolve every secondary seam's home unit across the whole universe, mutating the seams in place, and return the census. A seam whose home is ink-identical is suppressed (the divergence is an invisible name-grain rename, so no marker is emitted); a seam with no home keeps `home: None` and is still emitted so it is never silently unmarked."""
+    """Resolve every secondary seam's home unit across the whole universe, mutating the seams in place, and return the census. A seam whose home is ink- or picture-identical is suppressed (the divergence is an invisible name-grain rename, so no marker is emitted); a seam with no home keeps `home: None` and is still emitted so it is never silently unmarked."""
     projections = [seam_home_projection(item) for item in enriched_units]
     assignments, census = resolve_home_assignments(projections)
     apply_home_assignments(enriched_units, assignments)

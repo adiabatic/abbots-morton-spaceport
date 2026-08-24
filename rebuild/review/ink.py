@@ -1,4 +1,4 @@
-"""Ink-identity comparison for the review surface: a unit is ink_identical when both shipped fonts put exactly the same ink in the same places under every config in the unit's set — only glyph names (and inkless marker glyphs) differ, so no human judgment is meaningful. The ink is recorded the census reference's way: shape the unit's text with uharfbuzz via rebuild.validation.shaping.Shaper, record each glyph's outline with fontTools' DecomposingRecordingPen, and place it at the cumulative x_advance plus the glyph's x_offset/y_offset. Placement is compared, not built: each glyph's outline is interned once to a shape key and its own-frame origin (see `OutlineIntern`), and a placed piece travels as (shape key, absolute x, absolute y), which compares equal exactly when the translated geometry would — two glyphs drawing identical strokes from different origins included. The translated point tuples are then materialized only for the pieces that survive into a returned delta, which for most windows is none of them. The boolean itself has one implementation: `ink_identical` reads `config_diff`'s identity sentinel (IDENTITY_DIFF — empty middles and no follower shift), the same check the surface build applies to the per-config diffs it computes anyway, so the census and the build can never part company. The sentinel implies the reference comparison — sorted placed pieces equal across fonts — by construction, and the property test in rebuild/test_review_ink.py holds the converse over a corpus sample; the sorted-pieces formulation survives as `ink_pieces`, serving the signature/dedupe channel and the Junior oracle rather than the identity verdict. All review-surface shaping is kern-neutral (`kern_neutral`): the rebuild has no kerning until its own later milestone, so the old font's kern feature is pure noise in before/after comparisons and is disabled on both sides."""
+"""Ink-identity comparison for the review surface: a unit is ink_identical when both shipped fonts put exactly the same ink in the same places under every config in the unit's set — only glyph names (and inkless marker glyphs) differ, so no human judgment is meaningful. The ink is recorded the census reference's way: shape the unit's text with uharfbuzz via rebuild.validation.shaping.Shaper, record each glyph's outline with fontTools' DecomposingRecordingPen, and place it at the cumulative x_advance plus the glyph's x_offset/y_offset. Placement is compared, not built: each glyph's outline is interned once to a shape key and its own-frame origin (see `OutlineIntern`), and a placed piece travels as (shape key, absolute x, absolute y), which compares equal exactly when the translated geometry would — two glyphs drawing identical strokes from different origins included. The translated point tuples are then materialized only for the pieces that survive into a returned delta, which for most windows is none of them. The boolean itself has one implementation: `ink_identical` reads `config_diff`'s identity sentinel (IDENTITY_DIFF — empty middles and no follower shift), the same check the surface build applies to the per-config diffs it computes anyway, so the census and the build can never part company. `picture_identical` is the coarser reading of the same placed pieces — the union of each font's rasterized cells over the whole run, per config, compared as one picture — which the build asks only of units the piece-grain reading refused, because piece identity implies picture identity; it is what admits a window whose only change is which glyph owns a pixel (an overlap removed at a seam, a stroke handed to a neighbor), and it is taken over the whole run rather than the delta on purpose, since `config_diff` strips a covering neighbor as common prefix and a delta's cells alone cannot say whether the pixels it lost are still painted beside it. The sentinel implies the reference comparison — sorted placed pieces equal across fonts — by construction, and the property test in rebuild/test_review_ink.py holds the converse over a corpus sample; the sorted-pieces formulation survives as `ink_pieces`, serving the signature/dedupe channel and the Junior oracle rather than the identity verdict. All review-surface shaping is kern-neutral (`kern_neutral`): the rebuild has no kerning until its own later milestone, so the old font's kern feature is pure noise in before/after comparisons and is disabled on both sides."""
 
 from __future__ import annotations
 
@@ -24,6 +24,15 @@ VERIFICATION_METHOD = (
     "unit's set; outlines decomposed with fontTools DecomposingRecordingPen, translated by the cumulative "
     "x_advance plus each glyph's x_offset/y_offset, sorted, and compared — the placed ink is "
     "identical under every config, so only glyph names differ."
+)
+
+PICTURE_VERIFICATION_METHOD = (
+    "Shaped with uharfbuzz in both shipped fonts, kern-neutral, under every config in the unit's set; "
+    "each placed outline rasterized onto the PIXEL_SIZE grid under nonzero winding and the whole window's "
+    "cells unioned per font — both fonts paint exactly the same pixels under every config, so the only "
+    "change is which glyph owns which pixel (an overlap removed at a seam, a stroke handed to a neighbor), "
+    "which no reviewer can see. Refused, and left for a human, on any curved or off-grid outline or any "
+    "off-grid placement."
 )
 
 JUNIOR_VERIFICATION_METHOD = (
@@ -269,6 +278,29 @@ class InkComparator:
         """The placed ink of one shaped run in run order: one (shape key, absolute x, absolute y, own-frame origin x) entry per glyph that carries ink, so config_diff can align the two fonts' runs glyph-by-glyph. The first three place the ink and are all the multiset subtraction reads; the fourth is what distinguishes two glyphs that draw the same strokes from different origins, which the prefix and suffix strips — alignment questions about the run, not about the page — still need to tell apart. Shaping is always kern-neutral."""
         _names, pieces = self.named_run(side, text, features)
         return [piece[1:] for piece in pieces]
+
+    def run_cells(self, side: str, text: str, features: dict[str, bool]) -> set[tuple[int, int]] | None:
+        """The whole-window pixel picture one font paints: the union of every placed piece's rasterized cells translated to its placement, or None when any piece is not a grid-rectilinear picture or sits off the grid — the same reading the standing approvals' slide spans take, over the run entire. Whole-run rather than delta-only on purpose: `config_diff` strips a covering neighbor as common prefix, so a delta's cells cannot say whether the pixels it lost were still painted by the piece beside it."""
+        intern = self.intern
+        cells: set[tuple[int, int]] = set()
+        for key, x, y, _origin in self.run_ink(side, text, features):
+            if not intern.draws(key):
+                continue
+            shape = intern.cells(key)
+            if shape is None or x % PIXEL_SIZE or y % PIXEL_SIZE:
+                return None
+            column, row = x // PIXEL_SIZE, y // PIXEL_SIZE
+            cells.update((column + dx, row + dy) for dx, dy in shape)
+        return cells
+
+    def picture_equal(self, text: str, config: str) -> bool:
+        features = features_for(config)
+        before = self.run_cells("before", text, features)
+        return before is not None and before == self.run_cells("after", text, features)
+
+    def picture_identical(self, text: str, configs: tuple[str, ...]) -> bool:
+        """The third machine channel's boolean: both fonts paint the same pixels under every config in the set. Implied by `ink_identical` by construction, so the build asks it only of units the piece-grain test refused; it fails closed on any window no cell reading can be made of, which leaves that window to a human."""
+        return all(self.picture_equal(text, config) for config in configs)
 
     def config_diff(self, text: str, config: str) -> tuple:
         """The before→after ink delta under one config, localized to the changed region: the two shaped runs are aligned glyph-by-glyph from both ends, stripping the common prefix (same ink at the same position) and the common suffix (same ink rigidly shifted by one uniform dx — followers that merely slid over because the change altered the run's advance), and the remaining middles are multiset-subtracted and jointly translated so the delta's leftmost point sits at x=0. Returns (pieces only the before font draws, pieces only the after font draws, suffix shift); IDENTITY_DIFF — empty middles and no follower shift — means ink-identical, and is the one sentinel `ink_identical`, the surface build's per-unit flag, and the standing approvals' empty-delta digest all read. Two units whose judged pair, class, config set, and per-config deltas all agree show the same pixels appearing and disappearing — the echo-group key — no matter which unchanged letters surround the change."""

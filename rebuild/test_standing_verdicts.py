@@ -81,9 +81,11 @@ def unit(
     codepoints=None,
     configs=("ss03",),
     ink_deltas=None,
+    batch=0,
 ):
     return {
         "id": uid,
+        "batch": batch,
         "no_verdict": no_verdict,
         "render_groups": [{"configs": ["ss03"]} for _ in range(groups)],
         "codepoints": (
@@ -1070,6 +1072,14 @@ def test_main_fills_only_blank_matching_human_units(tmp_path, monkeypatch):
     assert record["verdict"] == "approve"
     assert record["at"] == STAMP
     assert record["note"].startswith("[standing: tea-oy-ligature-break]")
+
+
+def test_main_never_fills_a_unit_outside_the_human_workload(tmp_path, monkeypatch):
+    """A machine-approved unit carries batch null, and a picture-identical one still carries the nonempty ink_deltas the ink-delta and slide shapes read — so the candidate filter has to read the workload split itself rather than infer it from an empty delta field."""
+    units = [canonical("u-1"), canonical("u-2")]
+    units[1]["batch"] = None
+    payload = _run_main(tmp_path, monkeypatch, units, [])
+    assert {record["unit"] for record in payload["verdicts"]} == {"u-1"}
 
 
 def test_main_fills_both_shapes_from_one_rules_file(tmp_path, monkeypatch):

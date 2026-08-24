@@ -37,6 +37,14 @@ class LedgerClass:
     exemplar_keys: frozenset[tuple[str, str]]  # (config, codepoints)
 
 
+MACHINE_CHANNELS = ("ink_identical", "picture_identical", "junior_equivalent")
+
+
+def machine_approved(fragment) -> bool:
+    """Whether a unit's JSON fragment carries any machine-approval flag, in the one precedence order MACHINE_CHANNELS fixes (ink identity is tried first, picture identity only where ink identity fails, Junior equivalence only where both fail, so at most one is ever true)."""
+    return any(fragment.get(channel) is True for channel in MACHINE_CHANNELS)
+
+
 @dataclass(slots=True)
 class Unit:
     codepoints: str
@@ -52,6 +60,7 @@ class Unit:
     batch: int | None = None
     render_groups: tuple[tuple[str, ...], ...] = ()
     ink_identical: bool = False
+    picture_identical: bool = False
     junior_equivalent: bool = False
     ink_deltas: dict[str, str] = field(default_factory=dict)
     no_verdict: bool = False
@@ -63,6 +72,10 @@ class Unit:
     @property
     def codepoint_values(self) -> tuple[int, ...]:
         return parse_codepoints(self.codepoints)
+
+    @property
+    def machine_approved(self) -> bool:
+        return any(getattr(self, channel) for channel in MACHINE_CHANNELS)
 
 
 def parse_codepoints(codepoints: str) -> tuple[int, ...]:
@@ -298,10 +311,10 @@ def merge_ink_duplicate_units(
 
 
 def assign_batches(units: list[Unit], batch_size: int = BATCH_SIZE) -> int:
-    """Batches cover the human workload only: the remaining units get fixed slices of batch_size in triage order, while machine-approved units (ink-identical or junior-equivalent) and units of no-verdict ledger classes carry batch None — none is ever paged to a human. Returns the batch count."""
+    """Batches cover the human workload only: the remaining units get fixed slices of batch_size in triage order, while machine-approved units (ink-identical, picture-identical, or junior-equivalent) and units of no-verdict ledger classes carry batch None — none is ever paged to a human. Returns the batch count."""
     index = 0
     for unit in units:
-        if unit.ink_identical or unit.junior_equivalent or unit.no_verdict:
+        if unit.machine_approved or unit.no_verdict:
             unit.batch = None
         else:
             unit.batch = index // batch_size

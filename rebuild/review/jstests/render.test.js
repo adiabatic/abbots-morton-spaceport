@@ -545,6 +545,17 @@ test('a no-verdict unit leaves the human queue and appears with the machine togg
   assert.ok(on.machine.some((unit) => unit.id === 'u-8888'));
 });
 
+test('a picture-identical unit leaves the human queue and appears with the machine toggle', () => {
+  const pictureUnit = { ...allUnits.find((unit) => !unit.ink_identical), id: 'u-7777', picture_identical: true, batch: null };
+  const units = [...allUnits, pictureUnit];
+  const off = partitionUnits(units, emptyFilters, noRecords);
+  assert.ok(!off.human.some((unit) => unit.id === 'u-7777'));
+  assert.deepEqual(off.machine, []);
+  const on = partitionUnits(units, { ...emptyFilters, machine: '1' }, noRecords);
+  assert.ok(!on.human.some((unit) => unit.id === 'u-7777'));
+  assert.ok(on.machine.some((unit) => unit.id === 'u-7777'));
+});
+
 test('class and family filters apply to machine units; the status filter does not', () => {
   const machineUnit = allUnits.find((unit) => unit.ink_identical);
   const filters = { ...emptyFilters, machine: '1', status: 'unverdicted' };
@@ -579,15 +590,22 @@ test('formatCount groups thousands', () => {
 });
 
 test('machineChannels splits the machine-approved total and treats a channel-less manifest as all ink-identical', () => {
-  assert.deepEqual(machineChannels(manifest), { units: 1, inkIdentical: 1, juniorEquivalent: 0 });
+  assert.deepEqual(machineChannels(manifest), { units: 1, inkIdentical: 1, pictureIdentical: 0, juniorEquivalent: 0 });
   const channelled = {
     machine_approved: {
       units: 11926,
       channels: { ink_identical: { units: 8350 }, junior_equivalent: { units: 3576 } },
     },
   };
-  assert.deepEqual(machineChannels(channelled), { units: 11926, inkIdentical: 8350, juniorEquivalent: 3576 });
-  assert.deepEqual(machineChannels({}), { units: 0, inkIdentical: 0, juniorEquivalent: 0 });
+  assert.deepEqual(machineChannels(channelled), { units: 11926, inkIdentical: 8350, pictureIdentical: 0, juniorEquivalent: 3576 });
+  const threeWay = {
+    machine_approved: {
+      units: 13126,
+      channels: { ink_identical: { units: 8350 }, picture_identical: { units: 1200 }, junior_equivalent: { units: 3576 } },
+    },
+  };
+  assert.deepEqual(machineChannels(threeWay), { units: 13126, inkIdentical: 8350, pictureIdentical: 1200, juniorEquivalent: 3576 });
+  assert.deepEqual(machineChannels({}), { units: 0, inkIdentical: 0, pictureIdentical: 0, juniorEquivalent: 0 });
 });
 
 test('the collapsed chip carries the surface total and the popover breaks it down to the human workload', () => {
@@ -631,6 +649,71 @@ test('the collapsed chip carries the surface total and the popover breaks it dow
   );
 });
 
+test('a third machine channel takes its own sub row, and a lone channel merges back into the total row', () => {
+  const surface = {
+    totals: { units: 15960 },
+    classes: [
+      { id: 'boundary-echo', no_verdict: true, unit_count: 6256, machine_approved_count: 4940 },
+      { id: 'x', no_verdict: false, unit_count: 9704, machine_approved_count: 6986 },
+    ],
+  };
+  const threeWay = {
+    ...surface,
+    machine_approved: {
+      units: 13126,
+      method: 'Shaped in both fonts and compared.',
+      channels: { ink_identical: { units: 8350 }, picture_identical: { units: 1200 }, junior_equivalent: { units: 3576 } },
+    },
+  };
+  assert.deepEqual(
+    surfaceDetailRows(threeWay).map((row) => [row.label, row.value, row.sub ?? false]),
+    [
+      ['Surface', '15,960', false],
+      ['machine-approved', '13,126', false],
+      ['ink-identical', '8,350', true],
+      ['picture-identical', '1,200', true],
+      ['junior-equivalent', '3,576', true],
+      ['in no-verdict classes', '1,316', false],
+      ['for human review', '2,718', false],
+    ],
+  );
+  const pictureOnly = {
+    ...surface,
+    machine_approved: {
+      units: 3,
+      method: 'Rasterized in both fonts and compared cell by cell.',
+      channels: { ink_identical: { units: 0 }, picture_identical: { units: 3 }, junior_equivalent: { units: 0 } },
+    },
+  };
+  assert.deepEqual(
+    surfaceDetailRows(pictureOnly).map((row) => [row.label, row.value, row.sub ?? false]),
+    [
+      ['Surface', '15,960', false],
+      ['picture-identical machine-approved', '3', false],
+      ['in no-verdict classes', '1,316', false],
+      ['for human review', '2,718', false],
+    ],
+  );
+  const juniorOnly = {
+    ...surface,
+    machine_approved: {
+      units: 3576,
+      method: 'Compared against the Junior font.',
+      channels: { ink_identical: { units: 0 }, picture_identical: { units: 0 }, junior_equivalent: { units: 3576 } },
+    },
+  };
+  assert.deepEqual(
+    surfaceDetailRows(juniorOnly).map((row) => [row.label, row.value, row.sub ?? false]),
+    [
+      ['Surface', '15,960', false],
+      ['junior-equivalent machine-approved', '3,576', false],
+      ['in no-verdict classes', '1,316', false],
+      ['for human review', '2,718', false],
+    ],
+    'a channel with no units gets no row, so the one channel left names the total',
+  );
+});
+
 test('the popover corner says how much of the alphabet has migrated', () => {
   assert.equal(surfaceAlphabetLabel({ alphabet: { migrated: 16, total: 44 } }), '16 of 44 letters');
   assert.equal(surfaceAlphabetLabel({}), null);
@@ -659,6 +742,25 @@ test('the machine-approved tooltip leads with the channel split, then the verifi
   );
   const methodless = { machine_approved: { units: 11926, channels: channelled.machine_approved.channels } };
   assert.equal(machineTitle(methodless), '8,350 ink-identical + 3,576 junior-equivalent.');
+  const threeWay = {
+    machine_approved: {
+      units: 13126,
+      method: 'Shaped in both fonts and compared.',
+      channels: { ink_identical: { units: 8350 }, picture_identical: { units: 1200 }, junior_equivalent: { units: 3576 } },
+    },
+  };
+  assert.equal(
+    machineTitle(threeWay),
+    '8,350 ink-identical + 1,200 picture-identical + 3,576 junior-equivalent. Shaped in both fonts and compared.',
+  );
+  const pictureOnly = {
+    machine_approved: {
+      units: 3,
+      method: 'Rasterized in both fonts and compared cell by cell.',
+      channels: { ink_identical: { units: 0 }, picture_identical: { units: 3 }, junior_equivalent: { units: 0 } },
+    },
+  };
+  assert.equal(machineTitle(pictureOnly), pictureOnly.machine_approved.method, 'a lone channel needs no split line');
   assert.equal(machineTitle(manifest), manifest.machine_approved.method);
   assert.equal(machineTitle({}), '');
 });
@@ -772,6 +874,8 @@ test('secondarySeamsOf returns seams for human units and nothing for machine-app
   assert.deepEqual(secondarySeamsOf(nulled), []);
   const machine = { ink_identical: true, secondary_seams: [{ home: 'u-0003' }] };
   assert.deepEqual(secondarySeamsOf(machine), [], 'machine-approved renderings never show seam markers');
+  const picture = { picture_identical: true, secondary_seams: [{ home: 'u-0003' }] };
+  assert.deepEqual(secondarySeamsOf(picture), [], 'picture identity is a whole-window property, so it hides them too');
 });
 
 test('seamChip labels a homed seam with the home unit id and a home-less seam with "only here"', () => {
@@ -821,6 +925,7 @@ test('onlyHereSeamSpans shifts spans across a formed ligature', () => {
 
 test('onlyHereSeamSpans yields nothing for machine-approved units, missing cells, no pair, or a derivation that disagrees with the build', () => {
   assert.deepEqual(onlyHereSeamSpans({ ...onlyHereUnit, ink_identical: true }), []);
+  assert.deepEqual(onlyHereSeamSpans({ ...onlyHereUnit, picture_identical: true }), []);
   assert.deepEqual(onlyHereSeamSpans({ ...onlyHereUnit, after: {} }), []);
   assert.deepEqual(onlyHereSeamSpans({ ...onlyHereUnit, pair: null }), []);
   assert.deepEqual(onlyHereSeamSpans({ ...onlyHereUnit, pair_codepoints: [0, 2] }), []);
@@ -857,8 +962,11 @@ test('fixture units satisfy the contract fields the frontend relies on', () => {
   for (const unit of [...shardA, ...shardB]) {
     assert.match(unit.id, /^u-\d{4}$/);
     assert.equal(typeof unit.ink_identical, 'boolean');
+    assert.equal(typeof unit.picture_identical, 'boolean');
+    assert.equal(typeof unit.junior_equivalent, 'boolean');
     assert.equal(typeof unit.no_verdict, 'boolean');
-    if (unit.ink_identical || unit.no_verdict) assert.equal(unit.batch, null);
+    const machineApproved = unit.ink_identical || unit.picture_identical || unit.junior_equivalent;
+    if (machineApproved || unit.no_verdict) assert.equal(unit.batch, null);
     else assert.equal(typeof unit.batch, 'number');
     assert.equal(typeof unit.text_entities, 'string');
     assert.doesNotMatch(unit.text_entities, /[\u200C\uE650-\uE67E]/);
@@ -886,6 +994,7 @@ test('fixture units satisfy the contract fields the frontend relies on', () => {
     if (unit.secondary_seams != null) {
       assert.ok(Array.isArray(unit.secondary_seams) && unit.secondary_seams.length >= 1);
       assert.equal(unit.ink_identical, false);
+      assert.notEqual(unit.picture_identical, true);
       for (const seam of unit.secondary_seams) {
         assert.ok(Number.isInteger(seam.pair.left) && Number.isInteger(seam.pair.right));
         assert.ok(seam.pair.left < seam.pair.right);

@@ -98,11 +98,21 @@ const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
 const MACHINE_BADGE = 'ink-identical — machine approved';
 const MACHINE_TITLE =
   'Both fonts render this unit identically under every config in its set; no human input is meaningful.';
+const PICTURE_BADGE = 'picture-identical — machine approved';
+const PICTURE_TITLE =
+  "Both fonts fill exactly the same cells of the pixel grid under every config in this unit's set — only which glyph owns which pixel differs — so no human input is meaningful.";
 const JUNIOR_BADGE = 'junior-equivalent — machine approved';
 const JUNIOR_TITLE =
   "Divergent only under ss10, whose ratified meaning is fully isolated letters, and the rebuild's ss10 rendering is pixel-identical to the Junior font's isolated rendering of the same string (minus Junior's one-pixel letter tracking) — so the new behavior is the spec by construction.";
 const NO_VERDICT_TITLE =
   "This unit's class is adjudicated wholesale at the ledger level (hover its sidebar entry for the rationale); no unit in it ever needs an individual verdict.";
+
+function machineChannelOf(unit) {
+  if (unit.ink_identical) return { badge: MACHINE_BADGE, title: MACHINE_TITLE };
+  if (unit.picture_identical) return { badge: PICTURE_BADGE, title: PICTURE_TITLE };
+  if (unit.junior_equivalent) return { badge: JUNIOR_BADGE, title: JUNIOR_TITLE };
+  return null;
+}
 
 function appendConfigGate(target, unit, { detail = true } = {}) {
   for (const chip of configGateChips(unit, manifest.feature_descriptions)) {
@@ -324,7 +334,8 @@ function buildCodepointsCode(unit) {
 
 function buildRow(unit) {
   const exempt = needsNoVerdict(unit);
-  const exemptTitle = unit.ink_identical ? MACHINE_TITLE : unit.junior_equivalent ? JUNIOR_TITLE : NO_VERDICT_TITLE;
+  const channel = machineChannelOf(unit);
+  const exemptTitle = channel?.title ?? NO_VERDICT_TITLE;
   const row = el('article', exempt ? 'row machine' : 'row');
   row.id = `unit-${unit.id}`;
   row.dataset.unit = unit.id;
@@ -344,13 +355,9 @@ function buildRow(unit) {
   const meta = el('div', 'meta-chips');
   meta.append(el('span', 'unit-id', unit.id));
   if (unit.exemplar) meta.append(el('span', 'exemplar', 'exemplar'));
-  if (unit.ink_identical) {
-    const badge = el('span', 'machine-badge', MACHINE_BADGE);
-    badge.title = MACHINE_TITLE;
-    meta.append(badge);
-  } else if (unit.junior_equivalent) {
-    const badge = el('span', 'machine-badge', JUNIOR_BADGE);
-    badge.title = JUNIOR_TITLE;
+  if (channel) {
+    const badge = el('span', 'machine-badge', channel.badge);
+    badge.title = channel.title;
     meta.append(badge);
   } else if (unit.no_verdict) {
     const badge = el('span', 'machine-badge', NO_VERDICT_BADGE);
@@ -592,7 +599,7 @@ function renderMachineSection(container, machine) {
   if (machine.length === 0) return;
   const heading =
     state.machine === '1'
-      ? `No verdict needed in this view: ${machine.length} units (ink-identical or in a no-verdict class)`
+      ? `No verdict needed in this view: ${machine.length} units (machine-approved or in a no-verdict class)`
       : state.units
         ? `No verdict needed in your worklist: ${machine.length} unit${machine.length === 1 ? '' : 's'} shown below`
         : 'This deep-linked unit needs no verdict — it stays out of your queue and disappears when you move on.';
@@ -607,9 +614,11 @@ function renderMachineSection(container, machine) {
     fold.dataset.machineClass = classId;
     const badge = classUnits.every((unit) => unit.ink_identical)
       ? MACHINE_BADGE
-      : classUnits.every((unit) => unit.ink_identical || unit.junior_equivalent)
-        ? JUNIOR_BADGE
-        : NO_VERDICT_BADGE;
+      : classUnits.every((unit) => unit.ink_identical || unit.picture_identical)
+        ? PICTURE_BADGE
+        : classUnits.every((unit) => unit.ink_identical || unit.picture_identical || unit.junior_equivalent)
+          ? JUNIOR_BADGE
+          : NO_VERDICT_BADGE;
     const summary = el('summary');
     summary.append(el('span', 'group-name', classId));
     summary.append(el('span', 'group-counts', `${classUnits.length} units — ${badge}`));
@@ -1994,12 +2003,11 @@ function renderSearchResults(query) {
     row.append(el('span', 'search-id', unit.id));
     row.append(el('span', 'search-notation', unit.notation));
     row.append(el('span', 'search-class', unit.class));
-    const where =
-      unit.ink_identical || unit.junior_equivalent
-        ? 'machine'
-        : unit.no_verdict
-          ? 'no verdict'
-          : `batch ${unit.batch}`;
+    const where = machineChannelOf(unit)
+      ? 'machine'
+      : unit.no_verdict
+        ? 'no verdict'
+        : `batch ${unit.batch}`;
     row.append(el('span', 'search-where', where));
     results.append(row);
   }

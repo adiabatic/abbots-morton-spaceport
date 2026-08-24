@@ -14,6 +14,7 @@ from pathlib import Path
 import yaml
 
 from rebuild.review import unit_index
+from rebuild.review.audit import machine_approved
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 DEFAULT_REVIEW_DIR = REPO_ROOT / "rebuild" / "out" / "review"
@@ -29,6 +30,7 @@ TRIAGE_KEYS = (
     "no_verdict",
     "configs",
     "ink_identical",
+    "picture_identical",
     "junior_equivalent",
     "codepoints",
     "text_entities",
@@ -112,8 +114,8 @@ def _compact_id_ranges(unit_ids: list[str]) -> list[str]:
 
 
 def machine_approved_section(manifest: dict, units: dict[str, dict]) -> dict:
-    """The triage YAML's machine_approved record: machine-verdicted units (ink-identical or junior-equivalent) are reported as counts, per-class counts, the verification method, and compact unit-id ranges — never as drafted pins, which remain a human-verdict artifact."""
-    machine = [unit for unit in units.values() if unit.get("ink_identical") or unit.get("junior_equivalent")]
+    """The triage YAML's machine_approved record: machine-verdicted units (ink-identical, picture-identical, or junior-equivalent) are reported as counts, per-class counts, the verification method, and compact unit-id ranges — never as drafted pins, which remain a human-verdict artifact."""
+    machine = [unit for unit in units.values() if machine_approved(unit)]
     by_class: dict[str, int] = {}
     for unit in machine:
         by_class[unit["class"]] = by_class.get(unit["class"], 0) + 1
@@ -138,6 +140,7 @@ def build_triage(manifest: dict, units: dict[str, dict], verdicts: dict) -> dict
     identical: list[dict] = []
     missing: list[str] = []
     exempt: list[str] = []
+    machine_exempt: list[str] = []
 
     if verdicts.get("manifest_generated_at") not in (None, manifest.get("generated_at")):
         print(
@@ -153,6 +156,9 @@ def build_triage(manifest: dict, units: dict[str, dict], verdicts: dict) -> dict
             continue
         if unit.get("no_verdict"):
             exempt.append(unit["id"])
+            continue
+        if machine_approved(unit):
+            machine_exempt.append(unit["id"])
             continue
         verdict = record["verdict"]
         counts[verdict] += 1
@@ -257,6 +263,12 @@ def build_triage(manifest: dict, units: dict[str, dict], verdicts: dict) -> dict
             f"warning: {len(exempt)} verdicts land on no-verdict units and are inert history: {exempt[:5]}",
             file=sys.stderr,
         )
+    if machine_exempt:
+        print(
+            f"warning: {len(machine_exempt)} verdicts land on machine-approved units and are inert history: "
+            f"{machine_exempt[:5]}",
+            file=sys.stderr,
+        )
 
     machine = machine_approved_section(manifest, units)
     review = {
@@ -273,6 +285,7 @@ def build_triage(manifest: dict, units: dict[str, dict], verdicts: dict) -> dict
             "units_total": len(units),
             "human_units_total": sum(1 for unit in units.values() if unit.get("batch") is not None),
             "skipped_no_verdict": len(exempt),
+            "skipped_machine_approved": len(machine_exempt),
             "rows_covered": covered,
         },
     }

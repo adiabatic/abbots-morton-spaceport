@@ -318,7 +318,7 @@ def derive_premerge(capture: list[PremergeUnit], live_units: Sequence[Unit]) -> 
 
 
 def ink_group_from_flags(class_rows: Sequence[tuple[str, bool]], flags: str) -> dict:
-    """The ink group rebuilt from one '0'/'1' flag per pre-merge unit plus that unit's (class, no-verdict) pair. This and `ink_histogram` are mirrors and must agree key for key, insertion order of `by_class` included; rebuild/test_census_facts.py holds them equal over synthetic units. Junior equivalence plays no part on either side — the pre-merge census counts the ink verdict alone, and the batch count is the plain slice of whatever is left over."""
+    """The ink group rebuilt from one '0'/'1' flag per pre-merge unit plus that unit's (class, no-verdict) pair. This and `ink_histogram` are mirrors and must agree key for key, insertion order of `by_class` included; rebuild/test_census_facts.py holds them equal over synthetic units. Neither Junior equivalence nor picture identity plays a part on either side — the pre-merge census counts the ink verdict alone, and the batch count is the plain slice of whatever is left over."""
     machine_by_class: dict[str, int] = {}
     exempt = 0
     human = 0
