@@ -1,4 +1,4 @@
-"""Tests for the standing-approval fill: all seven delta shapes — the two structural pattern matches, being the ligature shape (pivot glyph, seams into and out of it, follower family, post-ligature seam, flank-seam identity) and the extension-dropped shape (pivot glyph giving up a named stretch of exit — an `ex-ext-N` it carried, in whole or down to a shorter one its named after cell keeps, or an `ex-con-N` its named after cell carries when the before glyph never had an exit extension — the seam it exits into holding its height, the full after-cell identity of pivot and follower, every other seam standing still, nothing ligating anywhere, and the unit's own judgment fields agreeing that this seam is the question), the ink-exact ink-delta shape (the unit's persisted per-config digests being a nonempty subset of the ones the rule blesses, so an ink-identical window matches nothing and one unlisted delta under one config fails the whole unit closed, and a surface predating the field refuses the run outright), and the rendered-pixel slide shape, whose preconditions are read off the index record before anything is shaped (a nonempty `ink_deltas` holding one distinct digest whose keys are exactly the unit's config set, and a pivot-prefix name among the recorded before glyphs) and whose geometry is then re-derived in a purpose-built font pair, where the pivot keeps its exact ink with its own-frame origin displaced by the declared column count and every span's union of ink slides cumulatively — so a union-invisible name-grain re-spelling to the pivot's right rides along, while one stray pixel anywhere in the window, or a font pair that never settles into the named pivot, fails the match closed — the rendered-pixel ink-gain shape, whose preconditions match the slide shape's and whose geometry is the named pivot keeping its placement, height, and own-frame origin while gaining exactly the named cells, every other pixel standing still — the rendered-pixel join-dropped shape, whose preconditions are a named pivot–follower seam dropping from a yK height to a break plus the slide shape's digest-agreement, and whose geometry is both letters keeping their exact picture and own-frame origin with the follower sitting the declared gap further and everything after it sitting the same extra gap away — the rendered-pixel entry-extension-dropped shape, whose preconditions match the slide shape's and whose geometry is the named pivot keeping its placement, height, and own-frame origin while its after picture is the old one compacted left by the declared column count, everything after the pivot sliding closer by that count — the composed reading that runs before all seven and credits two or more rules for one window — its name-grain pre-gate refusing to shape a window fewer than two rules have a candidate in, its walk carrying a running column displacement across the window so that each span between events must render identically once displaced, its chaining of a join-dropped or extension event whose follower is itself the next event, its skipping of an extension's named follower so a named redraw does not block composition, its refusal of a pivot contracting off the seam row, of a tail wider than the pivot gave up, and of two rules claiming one position, its judging of a failed candidate as ordinary span ink, its per-shape guard scopes, and its own reporting line, which `main` keeps clear of the per-rule lines — the except_left guard, which reads a ligature's trailing left component and refuses the whole unit rather than the one position, blankness against the verdicts file (parked skip verdicts are not blank), the non-winning manifest stamp on every emitted record, and rules-file validation, which admits exactly one shape per rule and checks that shape's own coherence."""
+"""Tests for the standing-approval fill: all seven delta shapes — the two structural pattern matches, being the ligature shape (pivot glyph, seams into and out of it, follower family, post-ligature seam, flank-seam identity) and the extension-dropped shape (pivot glyph giving up a named stretch of exit — an `ex-ext-N` it carried, in whole or down to a shorter one its named after cell keeps, or an `ex-con-N` its named after cell carries when the before glyph never had an exit extension — the seam it exits into holding its height, the full after-cell identity of pivot and follower, every other seam standing still, nothing ligating anywhere, and the unit's own judgment fields agreeing that this seam is the question), the ink-exact ink-delta shape (the unit's persisted per-config digests being a nonempty subset of the ones the rule blesses, so an ink-identical window matches nothing and one unlisted delta under one config fails the whole unit closed, and a surface predating the field refuses the run outright), and the rendered-pixel slide shape, whose preconditions are read off the index record before anything is shaped (a nonempty `ink_deltas` holding one distinct digest whose keys are exactly the unit's config set, and a pivot-prefix name among the recorded before glyphs) and whose geometry is then re-derived in a purpose-built font pair, where the pivot keeps its exact ink with its own-frame origin displaced by the declared column count and every span's union of ink slides cumulatively — so a union-invisible name-grain re-spelling to the pivot's right rides along, while one stray pixel anywhere in the window, or a font pair that never settles into the named pivot, fails the match closed — the rendered-pixel ink-gain shape, whose preconditions match the slide shape's and whose geometry is the named pivot keeping its placement, height, and own-frame origin while gaining exactly the named cells, every other pixel standing still — the rendered-pixel join-dropped shape, whose preconditions are a named pivot–follower seam dropping from a yK height to a break plus the slide shape's digest-agreement, and whose geometry is both letters keeping their exact picture and own-frame origin with the follower sitting the declared gap further and everything after it sitting the same extra gap away — the rendered-pixel entry-extension-dropped shape, whose preconditions match the slide shape's and whose geometry is the named pivot keeping its placement, height, and own-frame origin while its after picture is the old one compacted left by the declared column count, everything after the pivot sliding closer by that count — the rendered-pixel redrawn shape, whose preconditions match the slide shape's and whose geometry is walked position by position because a pivot is a position rather than a name: each position that settles into a named after form is judged as the named cell trade at one common column offset (an entry-extended frame names the same trade one column over), its placement carrying the displacement accumulated so far, every span between pivots rendering identically under it, and the displacement growing by the declared shift at each pivot — so a second same-family letter keeping its old form rides as span ink, and one stray pixel anywhere fails the match closed — the composed reading that runs before all of them and credits two or more rules for one window — its name-grain pre-gate refusing to shape a window fewer than two rules have a candidate in, its walk carrying a running column displacement across the window so that each span between events must render identically once displaced, its chaining of a join-dropped or extension event whose follower is itself the next event, its skipping of an extension's named follower so a named redraw does not block composition, its refusal of a pivot contracting off the seam row, of a tail wider than the pivot gave up, and of two rules claiming one position, its judging of a failed candidate as ordinary span ink, its per-shape guard scopes, and its own reporting line, which `main` keeps clear of the per-rule lines — the except_left guard, which reads a ligature's trailing left component and refuses the whole unit rather than the one position, blankness against the verdicts file (parked skip verdicts are not blank), the non-winning manifest stamp on every emitted record, and rules-file validation, which admits exactly one shape per rule and checks that shape's own coherence."""
 
 import json
 import pathlib
@@ -174,6 +174,38 @@ RETARGET_RULE = {
                 "qsNo/flipped/baseline/None/",
                 "qsNo/flipped/baseline/baseline/",
             ],
+            "shift": -1,
+        },
+        "except_left": [],
+    },
+}
+
+REDRAWN_RULE = {
+    "id": "eight-smaller-loop",
+    "verdict": "approve",
+    "note": "·Eight's bowl pulls in a column and the rest of the window stays put",
+    "match": {
+        "before": {"pivots": ["qsEight"]},
+        "after": {
+            "pivots": ["qsEight.smaller-loop"],
+            "dropped": [[1, 2]],
+            "added": [[1, 1]],
+            "shift": 0,
+        },
+        "except_left": [],
+    },
+}
+
+REDRAWN_EXT_RULE = {
+    "id": "eight-smaller-loop-exit-extension-dropped",
+    "verdict": "approve",
+    "note": "·Eight's bowl pulls in a column, its connector extension goes, and the follower sits a column closer",
+    "match": {
+        "before": {"pivots": ["qsEight.ex-ext-1"]},
+        "after": {
+            "pivots": ["qsEight.smaller-loop"],
+            "dropped": [[1, 2], [2, 0]],
+            "added": [[1, 1]],
             "shift": -1,
         },
         "except_left": [],
@@ -835,6 +867,25 @@ def test_checked_in_rules_file_loads():
         "qsAh/hapax/baseline/x-height/",
         "qsAh/hapax/baseline/x-height/ex-ext-1",
     ]
+    eight = by_id["eight-smaller-loop"]["match"]
+    assert eight["before"]["pivots"] == ["qsEight"]
+    assert eight["after"] == {
+        "pivots": ["qsEight.smaller-loop"],
+        "dropped": [[3, 3], [3, 5], [4, 4]],
+        "added": [[3, 4]],
+        "shift": 0,
+    }
+    eight_ext = by_id["eight-smaller-loop-exit-extension-dropped"]["match"]
+    assert eight_ext["before"]["pivots"] == ["qsEight.ex-ext-1", "qsEight.noentry.ex-ext-1"]
+    assert eight_ext["after"] == {
+        "pivots": ["qsEight.smaller-loop"],
+        "dropped": [[3, 3], [3, 5], [4, 4], [5, 0]],
+        "added": [[3, 4]],
+        "shift": -1,
+    }
+    eight_tea = by_id["eight-tea-entry-extension-dropped"]["match"]
+    assert eight_tea["before"]["pivots"] == ["qsTea.en-y0.en-ext-1"]
+    assert eight_tea["after"] == {"pivots": ["qsTea.full.en-y0"], "entry_drop": 1}
 
 
 def et_may(
@@ -1250,7 +1301,7 @@ def test_both_shapes_load_from_one_rules_file(tmp_path):
     assert [rule["id"] for rule in rules] == [RULE["id"], EXT_RULE["id"]]
 
 
-def test_all_eight_shapes_load_from_one_rules_file(tmp_path):
+def test_all_nine_shapes_load_from_one_rules_file(tmp_path):
     rules = sv.load_rules(
         _write_rules(
             tmp_path / "rules.yaml",
@@ -1264,6 +1315,7 @@ def test_all_eight_shapes_load_from_one_rules_file(tmp_path):
                 ENTRY_RULE,
                 STUB_RULE,
                 RETARGET_RULE,
+                REDRAWN_RULE,
             ],
         )
     )
@@ -1277,6 +1329,7 @@ def test_all_eight_shapes_load_from_one_rules_file(tmp_path):
         ENTRY_RULE["id"],
         STUB_RULE["id"],
         RETARGET_RULE["id"],
+        REDRAWN_RULE["id"],
     ]
 
 
@@ -1308,6 +1361,12 @@ CONTRACTED_PIVOT = (_rect(0, 0, 50, 100),)
 EXTENDED_ENTRY_LOW = (_rect(0, 0, 50, 50), _rect(50, 0, 150, 150))
 UNSHIFTED_ENTRY_LOW = (_rect(50, 0, 150, 150),)
 EXTRA_CELL_LOW = (_rect(0, 0, 100, 150), _rect(0, 150, 50, 200))
+EIGHTISH = (_rect(0, 0, 50, 150), _rect(50, 100, 100, 150))
+EIGHTISH_SMALLER = (_rect(0, 0, 50, 150), _rect(50, 50, 100, 100))
+EIGHTISH_EXTENDED = (_rect(0, 0, 50, 150), _rect(50, 100, 100, 150), _rect(100, 0, 150, 50))
+EIGHTISH_ENTRY_EXTENDED = (_rect(0, 0, 50, 50), _rect(50, 0, 100, 150), _rect(100, 100, 150, 150))
+EIGHTISH_ENTRY_EXTENDED_SMALLER = (_rect(0, 0, 50, 50), _rect(50, 0, 100, 150), _rect(100, 50, 150, 100))
+EIGHTISH_SMALLER_AND_A_PIXEL = (_rect(0, 0, 50, 150), _rect(50, 50, 100, 100), _rect(100, 0, 150, 50))
 
 BEFORE_GLYPHS = {
     "qsL": (TWO_COLUMNS, 100),
@@ -1337,6 +1396,9 @@ BEFORE_GLYPHS = {
     "qsTea.half.ex-y5": ((_rect(0, 100, 100, 150),), 100),
     "qsPea.half.ex-y5": ((_rect(0, 100, 100, 150),), 100),
     "qsNo.en-ext-1": (TWO_COLUMNS, 100),
+    "qsEight": (EIGHTISH, 100),
+    "qsEight.ex-ext-1": (EIGHTISH_EXTENDED, 150),
+    "qsEight.en-ext-1": (EIGHTISH_ENTRY_EXTENDED, 150),
     "space": ((), 50),
 }
 AFTER_GLYPHS = {
@@ -1366,6 +1428,9 @@ AFTER_GLYPHS = {
     "qsTea": (TWO_COLUMNS, 100),
     "qsPea": (TWO_COLUMNS, 100),
     "qsNo": (TRIMMED_PIVOT, 50),
+    "qsEight.smaller-loop": (EIGHTISH_SMALLER, 100),
+    "qsEight.smaller-loop.en-ext-1": (EIGHTISH_ENTRY_EXTENDED_SMALLER, 150),
+    "qsEight.normal-sized-loop": (EIGHTISH, 100),
     "space": ((), 50),
 }
 BEFORE_CMAP = {
@@ -1400,6 +1465,10 @@ BEFORE_CMAP = {
     0xE02B: "qsMay.en-y5",
     0xE02C: "qsIt.ex-y5",
     0xE02D: "qsEt.join",
+    0xE030: "qsEight",
+    0xE031: "qsEight.ex-ext-1",
+    0xE032: "qsEight.en-ext-1",
+    0xE033: "qsEight",
 }
 AFTER_CMAP = {
     0x0020: "space",
@@ -1433,6 +1502,10 @@ AFTER_CMAP = {
     0xE02B: "qsMay.loop",
     0xE02C: "qsIt.hapax",
     0xE02D: "qsEt.join",
+    0xE030: "qsEight.smaller-loop",
+    0xE031: "qsEight.smaller-loop",
+    0xE032: "qsEight.smaller-loop.en-ext-1",
+    0xE033: "qsEight.normal-sized-loop",
 }
 
 SLIDE_FONTS = {
@@ -1473,6 +1546,14 @@ SLIDE_FONTS = {
     "after-retarget-unmoved": ({**AFTER_GLYPHS, "qsNo": (TWO_COLUMNS, 100)}, AFTER_CMAP),
     "after-retarget-moved-origin": (
         {**AFTER_GLYPHS, "qsTea": (GROUNDED_SEE, 100)},
+        AFTER_CMAP,
+    ),
+    "after-redrawn-extra-cell": (
+        {**AFTER_GLYPHS, "qsEight.smaller-loop": (EIGHTISH_SMALLER_AND_A_PIXEL, 100)},
+        AFTER_CMAP,
+    ),
+    "after-redrawn-unmoved-follower": (
+        {**AFTER_GLYPHS, "qsEight.smaller-loop": (EIGHTISH_SMALLER, 150)},
         AFTER_CMAP,
     ),
 }
@@ -2195,7 +2276,7 @@ def test_main_fills_all_three_shapes_from_one_rules_file(tmp_path, monkeypatch):
 def test_main_refuses_a_surface_that_predates_the_ink_delta_field(tmp_path, monkeypatch):
     with pytest.raises(
         SystemExit,
-        match="predates the ink-delta, slide, ink-gain, join-dropped, entry-extension-dropped, and join-retargeted",
+        match="predates the ink-delta, slide, ink-gain, join-dropped, entry-extension-dropped, redrawn, and join-retargeted",
     ):
         _run_main(tmp_path, monkeypatch, [canonical("u-1")], [], rules_list=(RULE, INK_RULE))
 
@@ -2379,7 +2460,7 @@ def test_the_composed_memo_never_serves_one_rule_sets_ids_to_another(slide_conte
 def test_two_composable_rules_refuse_a_surface_that_predates_the_ink_delta_field(tmp_path, monkeypatch):
     with pytest.raises(
         SystemExit,
-        match="predates the ink-delta, slide, ink-gain, join-dropped, entry-extension-dropped, and join-retargeted",
+        match="predates the ink-delta, slide, ink-gain, join-dropped, entry-extension-dropped, redrawn, and join-retargeted",
     ):
         _run_main(tmp_path, monkeypatch, [tea_i("u-1")], [], rules_list=(EXT_RULE, COMPOSED_EXT_RULE))
 
@@ -3787,3 +3868,175 @@ def test_main_fills_a_single_retarget_window_under_that_shapes_own_line(
         f"  {SLIDE_RULE['id']} + {RETARGET_RULE['id']}: 1 filled, 0 already verdicted, "
         "0 held for review by except_left"
     ) in lines
+
+
+REDRAWN_GLYPHS = ["qsL", "qsEight", "qsF3"]
+REDRAWN_CODEPOINTS = "E001:E030:E007"
+REDRAWN_EXT_GLYPHS = ["qsL", "qsEight.ex-ext-1", "qsF3"]
+REDRAWN_EXT_CODEPOINTS = "E001:E031:E007"
+COMPOSED_REDRAWN_RULES = [REDRAWN_RULE, REDRAWN_EXT_RULE, ENTRY_RULE]
+
+
+def redrawn_window(uid="rd-1"):
+    return slide_unit(uid, REDRAWN_GLYPHS, REDRAWN_CODEPOINTS)
+
+
+def redrawn_ext_window(uid="rd-2"):
+    return slide_unit(uid, REDRAWN_EXT_GLYPHS, REDRAWN_EXT_CODEPOINTS)
+
+
+def composed_redrawn_window(uid="rd-3"):
+    return slide_unit(uid, ["qsL", "qsEight.ex-ext-1", "qsLow.en-ext-1", "qsF3"], "E001:E031:E023:E007")
+
+
+def test_a_pure_redrawn_trade_matches(slide_context):
+    assert sv._matches(REDRAWN_RULE["match"], redrawn_window(), context=slide_context())
+
+
+def test_the_extension_frame_reads_its_own_rule_and_not_the_bare_one(slide_context):
+    context = slide_context()
+    assert sv._matches(REDRAWN_EXT_RULE["match"], redrawn_ext_window(), context=context)
+    assert not sv._matches(REDRAWN_RULE["match"], redrawn_ext_window(), context=context)
+    assert not sv._matches(REDRAWN_EXT_RULE["match"], redrawn_window(), context=context)
+
+
+def test_an_entry_extended_frame_names_the_same_trade_one_column_over(slide_context):
+    window = slide_unit("rd-4", ["qsL", "qsEight.en-ext-1", "qsF3"], "E001:E032:E007")
+    assert sv._matches(REDRAWN_RULE["match"], window, context=slide_context())
+
+
+def test_a_second_pivot_family_glyph_keeping_its_form_rides_as_span_ink(slide_context):
+    window = slide_unit("rd-5", ["qsL", "qsEight", "qsF3", "qsEight"], "E001:E030:E007:E033")
+    assert sv._matches(REDRAWN_RULE["match"], window, context=slide_context())
+
+
+def test_an_unnamed_extra_cell_defeats_the_redrawn_match(slide_context):
+    assert not sv._matches(
+        REDRAWN_RULE["match"], redrawn_window(), context=slide_context("after-redrawn-extra-cell")
+    )
+
+
+def test_an_unmoved_follower_defeats_the_shifted_redrawn_match(slide_context):
+    assert not sv._matches(
+        REDRAWN_EXT_RULE["match"],
+        redrawn_ext_window(),
+        context=slide_context("after-redrawn-unmoved-follower"),
+    )
+
+
+def test_a_redrawn_rule_reads_no_unit_without_ink_deltas():
+    assert not sv._matches(
+        REDRAWN_RULE["match"], slide_unit("rd-6", REDRAWN_GLYPHS, REDRAWN_CODEPOINTS, deltas={})
+    )
+    bare = redrawn_window()
+    del bare["ink_deltas"]
+    assert not sv._matches(REDRAWN_RULE["match"], bare)
+
+
+def test_a_window_with_no_redrawn_pivot_prefix_glyph_is_refused_before_any_shaping():
+    assert not sv._matches(REDRAWN_RULE["match"], slide_unit("rd-7", ["qsL", "qsF1"], "E001:E003"))
+
+
+def test_a_matchable_redrawn_window_with_no_context_refuses_to_guess():
+    with pytest.raises(ValueError, match="SlideContext"):
+        sv._matches(REDRAWN_RULE["match"], redrawn_window())
+
+
+def test_except_left_holds_the_guarded_family_on_the_redrawn_shape(slide_context):
+    context = slide_context()
+    assert not sv._matches(guarding(REDRAWN_RULE, ["qsL"]), redrawn_window(), context=context)
+    assert sv._matches(guarding(REDRAWN_RULE, ["qsL"]), redrawn_window(), guard=False, context=context)
+
+
+def test_the_redrawn_shape_and_the_other_shapes_do_not_read_each_others_units(slide_context):
+    context = slide_context()
+    assert not sv._matches(REDRAWN_RULE["match"], founding_window(), context=context)
+    assert not sv._matches(REDRAWN_RULE["match"], canonical(), context=context)
+    assert not sv._matches(SLIDE_RULE["match"], redrawn_window(), context=context)
+    assert not sv._matches(EXT_RULE["match"], redrawn_window(), context=context)
+    assert not sv._matches(INK_RULE["match"], redrawn_window())
+
+
+def test_a_redrawn_trade_and_an_entry_drop_in_one_window_compose(slide_context):
+    events = sv._composed(COMPOSED_REDRAWN_RULES, composed_redrawn_window(), slide_context())
+    assert events == {REDRAWN_EXT_RULE["id"]: [1], ENTRY_RULE["id"]: [2]}
+
+
+def test_a_pure_redrawn_window_is_not_composed(slide_context):
+    context = slide_context()
+    assert sv._composed(COMPOSED_REDRAWN_RULES, redrawn_window(), context) is None
+    assert sv._matches(REDRAWN_RULE["match"], redrawn_window(), context=context)
+
+
+def test_the_composed_walk_credits_the_redrawn_trade_exactly_where_the_matcher_does(slide_context):
+    context = slide_context()
+    for window in (redrawn_window(), redrawn_ext_window(), composed_redrawn_window()):
+        for rule in (REDRAWN_RULE, REDRAWN_EXT_RULE):
+            credited = set(sv._composed_walk([rule], window, context) or ())
+            assert (credited == {rule["id"]}) == sv._matches(rule["match"], window, context=context), (
+                window["id"],
+                rule["id"],
+            )
+
+
+def test_a_redrawn_rule_loads(tmp_path):
+    [rule] = sv.load_rules(_write_rules(tmp_path / "rules.yaml", [REDRAWN_RULE]))
+    assert rule["match"]["before"] == {"pivots": ["qsEight"]}
+    assert rule["match"]["after"] == {
+        "pivots": ["qsEight.smaller-loop"],
+        "dropped": [[1, 2]],
+        "added": [[1, 1]],
+        "shift": 0,
+    }
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda rule: rule.update(verdict="reject"),
+        lambda rule: rule["match"]["before"].update(pivots=[]),
+        lambda rule: rule["match"]["before"].update(pivots="qsEight"),
+        lambda rule: rule["match"]["after"].update(dropped=[]),
+        lambda rule: rule["match"]["after"].update(dropped=[[1, 2], [1, 2]]),
+        lambda rule: rule["match"]["after"].update(dropped=[[1]]),
+        lambda rule: rule["match"]["after"].update(added=[[1, True]]),
+        lambda rule: rule["match"]["after"].update(added="1,1"),
+        lambda rule: rule["match"]["after"].update(shift="closer"),
+        lambda rule: rule["match"]["after"].update(shift=True),
+        lambda rule: rule["match"]["after"].update(pivots=["qsEight/smaller-loop/None/baseline/"]),
+        lambda rule: rule["match"].update(except_left="qsL"),
+    ],
+)
+def test_malformed_redrawn_rules_are_refused(tmp_path, mutate):
+    rule = json.loads(json.dumps(REDRAWN_RULE))
+    mutate(rule)
+    with pytest.raises(SystemExit):
+        sv.load_rules(_write_rules(tmp_path / "rules.yaml", [rule]))
+
+
+def test_redrawn_pivot_lists_spanning_two_families_are_refused_at_load(tmp_path):
+    rule = json.loads(json.dumps(REDRAWN_RULE))
+    rule["match"]["after"]["pivots"] = ["qsI.smaller-loop"]
+    with pytest.raises(SystemExit, match="speaks for one letter"):
+        sv.load_rules(_write_rules(tmp_path / "rules.yaml", [rule]))
+
+
+def test_a_cell_shared_between_dropped_and_added_is_refused_at_load(tmp_path):
+    rule = json.loads(json.dumps(REDRAWN_RULE))
+    rule["match"]["after"]["added"] = [[1, 2]]
+    with pytest.raises(SystemExit, match="traded for itself"):
+        sv.load_rules(_write_rules(tmp_path / "rules.yaml", [rule]))
+
+
+def test_a_redrawn_rule_missing_its_before_block_is_refused_at_load(tmp_path):
+    rule = json.loads(json.dumps(REDRAWN_RULE))
+    rule["match"].pop("before")
+    with pytest.raises(SystemExit, match="needs match.before to be exactly"):
+        sv.load_rules(_write_rules(tmp_path / "rules.yaml", [rule]))
+
+
+def test_a_rule_declaring_the_redrawn_and_gain_shapes_at_once_is_refused(tmp_path):
+    rule = json.loads(json.dumps(REDRAWN_RULE))
+    rule["match"]["after"]["gained"] = [[1, 1]]
+    with pytest.raises(SystemExit, match="exactly one delta shape"):
+        sv.load_rules(_write_rules(tmp_path / "rules.yaml", [rule]))
