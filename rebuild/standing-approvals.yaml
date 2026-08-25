@@ -260,18 +260,20 @@ rules:
       except_left: []
   - id: it-ah-exit-extension-dropped
     verdict: approve
-    note: "·Ah sits a pixel closer to ·It — the extra pixel of exit the old font drew came off once ·It lost the live x-height entry qsIt's baseline-exit extend requires, and every window that reached a sitting approved the shorter reach"
+    note: "·At and ·Ah sit a pixel closer to ·It — the extra pixel of exit the old font drew came off once ·It lost the live x-height entry qsIt's baseline-exit extend requires, and every window that reached a sitting approved the shorter reach"
     match:
       before:
         pivot: qsIt
         exit_extension: ex-ext-1
         seam_out: y0
-        follower: qsAh
+        follower: [qsAt, qsAh]
       after:
         pivot_cells:
           - qsIt/hapax/None/baseline/
           - qsIt/hapax/baseline/baseline/
         follower_cells:
+          - qsAt/rising/baseline/None/
+          - qsAt/rising/baseline/x-height/
           - qsAh/hapax/baseline/None/
           - qsAh/hapax/baseline/x-height/
           - qsAh/hapax/baseline/x-height/ex-ext-1

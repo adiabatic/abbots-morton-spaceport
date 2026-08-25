@@ -823,12 +823,14 @@ def test_checked_in_rules_file_loads():
     it_ah_rule = by_id["it-ah-exit-extension-dropped"]["match"]
     assert it_ah_rule["before"]["pivot"] == "qsIt"
     assert it_ah_rule["before"]["exit_extension"] == "ex-ext-1"
-    assert it_ah_rule["before"]["follower"] == "qsAh"
+    assert it_ah_rule["before"]["follower"] == ["qsAt", "qsAh"]
     assert it_ah_rule["after"]["pivot_cells"] == [
         "qsIt/hapax/None/baseline/",
         "qsIt/hapax/baseline/baseline/",
     ]
     assert it_ah_rule["after"]["follower_cells"] == [
+        "qsAt/rising/baseline/None/",
+        "qsAt/rising/baseline/x-height/",
         "qsAh/hapax/baseline/None/",
         "qsAh/hapax/baseline/x-height/",
         "qsAh/hapax/baseline/x-height/ex-ext-1",
@@ -972,6 +974,14 @@ def test_the_checked_in_it_ah_rule_reads_the_narrowed_seam_and_nothing_wider():
     assert sv._matches(
         match,
         it_ah(pivot="qsIt.en-y0.ex-y0.ex-ext-1", pivot_cell="qsIt/hapax/baseline/baseline/"),
+    )
+    assert sv._matches(
+        match,
+        it_ah(follower="qsAt.en-y0", follower_cell="qsAt/rising/baseline/None/"),
+    )
+    assert sv._matches(
+        match,
+        it_ah(follower="qsAt.en-y0.ex-y5", follower_cell="qsAt/rising/baseline/x-height/"),
     )
     regrouped = it_ah()
     regrouped["secondary_seams"] = 1
