@@ -191,19 +191,22 @@ rules:
       except_left: []
   - id: it-may-exit-extension-dropped
     verdict: approve
-    note: "·May and ·Utter sit a pixel closer to an entered ·It — the extra pixel of exit the old font drew came off qsIt's entered baseline-exit extend (both sit on the except list), the bar meeting the loop and the foot the way an unentered ·It already did, and every window that reached a sitting approved the shorter reach"
+    note: "·Vie, ·May and ·Utter sit a pixel closer to an entered ·It — the extra pixel of exit the old font drew came off qsIt's entered baseline-exit extend (they sit on the except list; ·It·Vie was ditched outright), and every window that reached a sitting approved the shorter reach"
     match:
       before:
         pivot: qsIt
         exit_extension: ex-ext-1
         seam_out: y0
-        follower: [qsMay, qsUtter]
+        follower: [qsVie, qsVie_qsUtter, qsMay, qsUtter]
       after:
         pivot_cells:
           - qsIt/hapax/None/baseline/
           - qsIt/hapax/baseline/baseline/
           - qsIt/hapax/x-height/baseline/
         follower_cells:
+          - qsVie/normal/baseline/None/
+          - qsVie/swept-out/baseline/baseline/
+          - qsVie_qsUtter/hapax/baseline/None/
           - qsMay/loop/baseline/None/
           - qsMay/loop/baseline/x-height/ex-ext-1
           - qsMay/loop/baseline/x-height/ex-ext-2
