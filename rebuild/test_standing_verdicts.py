@@ -754,6 +754,9 @@ def test_checked_in_rules_file_loads():
     vie_utter_entry = by_id["vie-utter-entry-extension-dropped"]["match"]
     assert vie_utter_entry["before"]["pivots"] == ["qsVie_qsUtter.en-ext-1"]
     assert vie_utter_entry["after"] == {"pivots": ["qsVie_qsUtter.hapax"], "entry_drop": 1}
+    may_entry = by_id["may-entry-extension-dropped"]["match"]
+    assert may_entry["before"]["pivots"] == ["qsMay.en-y0.ex-y5.en-ext-1"]
+    assert may_entry["after"] == {"pivots": ["qsMay.loop", "qsMay.grounded-loop"], "entry_drop": 1}
     retargeted = by_id["tea-no-xheight-join-retargeted"]["match"]
     assert retargeted["before"] == {"pivot": "qsTea.half", "seam_out": "y5", "follower": "qsNo"}
     assert retargeted["after"]["retarget"] == "y0"
@@ -1288,6 +1291,7 @@ BEFORE_GLYPHS = {
     "qsLow.en-ext-1": (EXTENDED_ENTRY_LOW, 150),
     "qsVie.en-ext-1": (EXTENDED_ENTRY_LOW, 150),
     "qsVie_qsUtter.en-ext-1": (EXTENDED_ENTRY_LOW, 150),
+    "qsMay.en-y0.ex-y5.en-ext-1": (EXTENDED_ENTRY_LOW, 150),
     "qsTea.half.ex-y5": ((_rect(0, 100, 100, 150),), 100),
     "qsPea.half.ex-y5": ((_rect(0, 100, 100, 150),), 100),
     "qsNo.en-ext-1": (TWO_COLUMNS, 100),
@@ -1313,6 +1317,7 @@ AFTER_GLYPHS = {
     "qsLow.hapax": (TWO_COLUMNS, 100),
     "qsVie.normal": (TWO_COLUMNS, 100),
     "qsVie_qsUtter.hapax": (TWO_COLUMNS, 100),
+    "qsMay.loop": (TWO_COLUMNS, 100),
     "qsTea": (TWO_COLUMNS, 100),
     "qsPea": (TWO_COLUMNS, 100),
     "qsNo": (TRIMMED_PIVOT, 50),
@@ -1345,6 +1350,7 @@ BEFORE_CMAP = {
     0xE026: "qsPea.half.ex-y5",
     0xE027: "qsVie.en-ext-1",
     0xE028: "qsVie_qsUtter.en-ext-1",
+    0xE029: "qsMay.en-y0.ex-y5.en-ext-1",
 }
 AFTER_CMAP = {
     0x0020: "space",
@@ -1373,6 +1379,7 @@ AFTER_CMAP = {
     0xE026: "qsPea",
     0xE027: "qsVie.normal",
     0xE028: "qsVie_qsUtter.hapax",
+    0xE029: "qsMay.loop",
 }
 
 SLIDE_FONTS = {
@@ -3050,6 +3057,22 @@ def test_the_checked_in_vie_rule_reads_the_drop_and_nothing_wider(slide_context)
     assert sv._matches(match, vie_window(), context=slide_context())
     assert not sv._matches(match, entry_window(), context=slide_context())
     assert not sv._matches(match, vie_utter_window(), context=slide_context())
+    assert not sv._matches(match, founding_window(), context=slide_context())
+
+
+MAY_GLYPHS = ["qsL", "qsMay.en-y0.ex-y5.en-ext-1", "qsF1"]
+MAY_CODEPOINTS = "E001:E029:E003"
+
+
+def may_window(uid="m-1"):
+    return slide_unit(uid, MAY_GLYPHS, MAY_CODEPOINTS)
+
+
+def test_the_checked_in_may_rule_reads_the_drop_and_nothing_wider(slide_context):
+    match = {rule["id"]: rule for rule in sv.load_rules(sv.RULES)}["may-entry-extension-dropped"]["match"]
+    assert sv._matches(match, may_window(), context=slide_context())
+    assert not sv._matches(match, vie_window(), context=slide_context())
+    assert not sv._matches(match, entry_window(), context=slide_context())
     assert not sv._matches(match, founding_window(), context=slide_context())
 
 
