@@ -35,6 +35,7 @@ COMPOSABLE_SHAPES = (
     "ink-gain",
     "join-dropped",
     "entry-extension-dropped",
+    "stub-dropped",
     "join-retargeted",
 )
 
@@ -678,6 +679,91 @@ def _matches_entry_drop(match, unit, excluded, context=None):
     return not any(_joining_family(name) in excluded for name in unit["before"]["glyphs"])
 
 
+def _stub_geometry(match, unit, comparator):
+    """Whether the window's rendered before→after change is exactly the named left-side stub coming off the named pivot with the remaining ink sitting still: same own-frame compact as an entry drop, but the after form's placement moves right by the declared column count (the left edge catching up to the remaining ink) and every span strictly between the pivots renders identically with no displacement — so a window whose only change is ·May losing the leftover left pixel after ·Ah matches, and a window that also carries a blessed join-drop still needs the composed reading."""
+    codepoints = unit.get("codepoints") or ""
+    if not codepoints:
+        return False
+    try:
+        text = "".join(chr(int(value, 16)) for value in codepoints.split(":"))
+    except ValueError:
+        return False
+    features = features_for(unit["configs"][0])
+    before_names, before_run = comparator.named_run("before", text, features)
+    if list(before_names) != unit["before"]["glyphs"]:
+        return False
+    _after_names, after_run = comparator.named_run("after", text, features)
+    before_pivots = [
+        i for i, piece in enumerate(before_run) if _named_pivot(piece[0], match["before"]["pivots"])
+    ]
+    after_pivots = [
+        i for i, piece in enumerate(after_run) if _named_pivot(piece[0], match["after"]["pivots"])
+    ]
+    if not before_pivots or len(before_pivots) != len(after_pivots):
+        return False
+    intern = comparator.intern
+    columns = match["after"]["stub_drop"]
+    for before_index, after_index in zip(before_pivots, after_pivots):
+        before, after = before_run[before_index], after_run[after_index]
+        if after[2] != before[2] + columns * PIXEL_SIZE or not _entry_drop_holds(
+            {"after": {"entry_drop": columns}}, before, after, intern
+        ):
+            return False
+    for before_span, after_span in zip(
+        _split_around(before_run, before_pivots), _split_around(after_run, after_pivots)
+    ):
+        if not _span_settled(intern, before_span, after_span, 0):
+            return False
+    return True
+
+
+def _matches_stub_drop(match, unit, excluded, context=None):
+    """A letter that gives up a named left-side stub while its remaining ink stays put, matched at the rendered-pixel grain: the old-font pivot form gives way to a named new form whose own-frame picture is the old one compacted left by the declared column count, origin standing still, placement moving right by that count, everything else in the window unmoved. Placement moving with the compact is what distinguishes this from an entry drop (whose remaining ink slides closer and whose placement stands still). Any other ink change anywhere in the window fails this match closed — which is where the composed reading picks up. One shaped config speaks for all of them, on the same digest-agreement precondition the slide shape holds. except_left reads the whole window, as the slide and ink-gain shapes do."""
+    deltas = unit.get("ink_deltas")
+    if not isinstance(deltas, dict) or not deltas:
+        return False
+    if len(set(deltas.values())) != 1 or set(deltas) != set(unit.get("configs") or []):
+        return False
+    if not any(_named_pivot(name, match["before"]["pivots"]) for name in unit["before"]["glyphs"]):
+        return False
+    if context is None:
+        raise ValueError(
+            "the stub-dropped shape re-shapes windows in the surface's fonts and needs a SlideContext"
+        )
+    key = (
+        tuple(match["before"]["pivots"]),
+        tuple(match["after"]["pivots"]),
+        match["after"]["stub_drop"],
+        unit["id"],
+    )
+    verdict = context.memo.get(key)
+    if verdict is None:
+        verdict = context.memo[key] = _stub_geometry(match, unit, context.comparator)
+    if not verdict:
+        return False
+    return not any(_joining_family(name) in excluded for name in unit["before"]["glyphs"])
+
+
+def _validate_stub_drop(rule_id, match) -> None:
+    """The stub-dropped shape's own coherence, checked once at load: the drop must actually move, it must be a shortening, and every pivot form named on either side must belong to one family — a stub-drop rule speaks for one letter's lost left-side pixel, so a second family in the lists could only be a paste error."""
+    if match["after"]["stub_drop"] == 0:
+        _fail(
+            f"rule {rule_id!r}: match.after.stub_drop is 0; an unmoved window is ink-identical and "
+            "machine-approved already"
+        )
+    if match["after"]["stub_drop"] < 0:
+        _fail(
+            f"rule {rule_id!r}: match.after.stub_drop is {match['after']['stub_drop']}; a stub drop "
+            "sits the remaining ink still, never further left"
+        )
+    families = {_family(name) for name in match["before"]["pivots"] + match["after"]["pivots"]}
+    if len(families) != 1:
+        _fail(
+            f"rule {rule_id!r}: the pivot lists span families {sorted(families)}; a stub-drop rule "
+            "speaks for one letter's lost left-side pixel"
+        )
+
+
 def _validate_entry_drop(rule_id, match) -> None:
     """The entry-extension-dropped shape's own coherence, checked once at load: the drop must actually move (zero columns is the identity, which is machine-approved already, so a rule declaring it could only mask a typo), it must be a shortening (the lost stretch sits the letters closer, never further), and every pivot form named on either side must belong to one family — an entry-drop rule speaks for one letter's lost left-side stretch, so a second family in the lists could only be a paste error."""
     if match["after"]["entry_drop"] == 0:
@@ -849,7 +935,7 @@ def _validate_join_retarget(rule_id, match) -> None:
 
 
 class Event(NamedTuple):
-    """One position a composable rule was credited at in a composed walk: the rule's id, which shape spoke there (`slide`, `extension`, `gain`, `join`, `entry`, or `retarget`), and the columns the window's running displacement moves by at that position — the declared slide, minus the extension's column count, the declared join gap, minus the entry-drop's column count, the declared retarget shift, or zero for an ink-gain, which adds cells without moving the rest of the window."""
+    """One position a composable rule was credited at in a composed walk: the rule's id, which shape spoke there (`slide`, `extension`, `gain`, `join`, `entry`, `stub`, or `retarget`), and the columns the window's running displacement moves by at that position — the declared slide, minus the extension's column count, the declared join gap, minus the entry-drop's column count, the declared retarget shift, the stub-drop's placement bump (followers unmoved), or zero for an ink-gain, which adds cells without moving the rest of the window."""
 
     rule_id: str
     kind: str
@@ -857,7 +943,7 @@ class Event(NamedTuple):
 
 
 def _is_composable(rule):
-    """Whether a rule's shape can take part in a composed reading. Only the slide, extension-dropped, ink-gain, join-dropped, entry-extension-dropped, and join-retargeted shapes can: they name a local pixel change the walk can prove — a displacement, a named set of own-frame cells appearing on the pivot, a named join becoming a gap, a named left-side entry stretch the pivot gives up, or a named join changing height — so a walk across a window can carry them. The ligature shape reads a whole window's name-grain structure and the ink-delta shape reads a whole window's ink change byte for byte; neither says anything about one position, so neither has anything to contribute to a walk."""
+    """Whether a rule's shape can take part in a composed reading. Only the slide, extension-dropped, ink-gain, join-dropped, entry-extension-dropped, stub-dropped, and join-retargeted shapes can: they name a local pixel change the walk can prove — a displacement, a named set of own-frame cells appearing on the pivot, a named join becoming a gap, a named left-side entry stretch the pivot gives up, a named left-side stub the remaining ink sits still after, or a named join changing height — so a walk across a window can carry them. The ligature shape reads a whole window's name-grain structure and the ink-delta shape reads a whole window's ink change byte for byte; neither says anything about one position, so neither has anything to contribute to a walk."""
     return any(SHAPES[name].keyed_by in rule["match"]["after"] for name in COMPOSABLE_SHAPES)
 
 
@@ -882,6 +968,10 @@ def _is_entry_match(match):
     return SHAPES["entry-extension-dropped"].keyed_by in match["after"]
 
 
+def _is_stub_match(match):
+    return SHAPES["stub-dropped"].keyed_by in match["after"]
+
+
 def _is_retarget_match(match):
     return SHAPES["join-retargeted"].keyed_by in match["after"]
 
@@ -894,7 +984,7 @@ def _composable_digest(rules):
 def _candidates(match, unit):
     """The window positions one composable rule could speak for, read off the index record before anything is shaped: a slide, ink-gain, or entry-drop rule's are the glyphs whose recorded before name carries one of its pivot prefixes; a join-dropped rule's are the positions where the named pivot's recorded seam into the named follower dropped from the named height to a break; a join-retargeted rule's are the positions where the named pivot's recorded seam into the named follower moved from the named height to the named new height and both after cells the rule names; an extension rule's are the positions meeting every per-position precondition the single-rule matcher reads — the named drop (an `ex-ext-N` on the before glyph, or an `ex-con-N` on the after cell whose before glyph never carried an exit extension), the named seam standing still at that position on both sides, the pivot and follower after cells, and the follower's own family answering for its own cell — and none at all unless the named seam is a yK height, since the walk has to know which row a dropped tail sits on. Deliberately name-grain and cheap, because this is the pre-gate that decides whether a window is worth shaping at all: a rule with no candidate here can never be credited, and a window where fewer than two rules have one is never shaped."""
     glyphs = unit["before"]["glyphs"]
-    if _is_slide_match(match) or _is_gain_match(match) or _is_entry_match(match):
+    if _is_slide_match(match) or _is_gain_match(match) or _is_entry_match(match) or _is_stub_match(match):
         return [i for i, name in enumerate(glyphs) if _named_pivot(name, match["before"]["pivots"])]
     if _is_join_match(match):
         return _join_pairs(match, unit)
@@ -969,6 +1059,19 @@ def _entry_event(match, rule_id, index, after_names, intern, before_pieces, afte
     if not _entry_drop_holds(match, before, after, intern):
         return None
     return Event(rule_id, "entry", -match["after"]["entry_drop"])
+
+
+def _stub_event(match, rule_id, index, after_names, intern, before_pieces, after_pieces):
+    """Whether one stub-drop candidate's own contract holds at the rendered grain, one position at a time: the after side settles into one of the rule's named after forms, and the pivot keeps its height and own-frame origin while its after picture is its before picture compacted left by the declared column count. Placement under the running displacement is the walk's job, not this contract's. None when any of that fails, which leaves the piece to be judged as ordinary span ink."""
+    before, after = before_pieces.get(index), after_pieces.get(index)
+    if before is None or after is None:
+        return None
+    if not _named_pivot(after_names[index], match["after"]["pivots"]):
+        return None
+    columns = match["after"]["stub_drop"]
+    if not _entry_drop_holds({"after": {"entry_drop": columns}}, before, after, intern):
+        return None
+    return Event(rule_id, "stub", columns)
 
 
 def _extension_event(match, rule_id, index, intern, before_pieces, after_pieces, cell):
@@ -1100,6 +1203,10 @@ def _composed_walk(rules, unit, context):
                 event = _entry_event(
                     match, rule["id"], index, after_names, intern, before_pieces, after_pieces
                 )
+            elif _is_stub_match(match):
+                event = _stub_event(
+                    match, rule["id"], index, after_names, intern, before_pieces, after_pieces
+                )
             elif _is_join_match(match):
                 event = _join_event(match, rule["id"], index, before_pieces, after_pieces)
             elif _is_retarget_match(match):
@@ -1151,6 +1258,11 @@ def _composed_walk(rules, unit, context):
             if after_pieces[index][2] != before_pieces[index][2] + displacement * PIXEL_SIZE:
                 return None
             displacement += event.shift
+            before_span, after_span = [], []
+            index += 1
+        elif event.kind == "stub":
+            if after_pieces[index][2] != before_pieces[index][2] + (displacement + event.shift) * PIXEL_SIZE:
+                return None
             before_span, after_span = [], []
             index += 1
         elif event.kind == "retarget":
@@ -1336,6 +1448,16 @@ SHAPES = {
         validate=_validate_entry_drop,
         name_lists=("pivots",),
         int_fields=("entry_drop",),
+    ),
+    "stub-dropped": Shape(
+        keyed_by="stub_drop",
+        before=("pivots",),
+        after=("pivots", "stub_drop"),
+        cell_lists=(),
+        matcher=_matches_stub_drop,
+        validate=_validate_stub_drop,
+        name_lists=("pivots",),
+        int_fields=("stub_drop",),
     ),
     "join-retargeted": Shape(
         keyed_by="retarget",

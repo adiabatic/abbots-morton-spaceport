@@ -35,8 +35,11 @@ rules:
     verdict: approve
     note: "Only differs from the old font because the ·May doesn't have a stub pixel on the left side of it anymore — already judged an OK change (the 1px attachment drift accepted at the qsAh and qsI sittings)"
     match:
+      before:
+        pivots: [qsMay.en-y5]
       after:
-        ink_deltas: [d-14c0f8d9cc8c]
+        pivots: [qsMay.loop]
+        stub_drop: 1
       except_left: []
   - id: i-smaller-loop-after-baseline-entry
     verdict: approve

@@ -146,6 +146,17 @@ ENTRY_RULE = {
     },
 }
 
+STUB_RULE = {
+    "id": "may-left-stub-dropped",
+    "verdict": "approve",
+    "note": "the ·May has lost its left-side stub pixel and the rest of the window stays put",
+    "match": {
+        "before": {"pivots": ["qsMay.en-y5"]},
+        "after": {"pivots": ["qsMay.loop"], "stub_drop": 1},
+        "except_left": [],
+    },
+}
+
 RETARGET_RULE = {
     "id": "tea-no-xheight-join-retargeted",
     "verdict": "approve",
@@ -754,6 +765,9 @@ def test_checked_in_rules_file_loads():
     vie_utter_entry = by_id["vie-utter-entry-extension-dropped"]["match"]
     assert vie_utter_entry["before"]["pivots"] == ["qsVie_qsUtter.en-ext-1"]
     assert vie_utter_entry["after"] == {"pivots": ["qsVie_qsUtter.hapax"], "entry_drop": 1}
+    stub = by_id["may-entry-stub-dropped"]["match"]
+    assert stub["before"]["pivots"] == ["qsMay.en-y5"]
+    assert stub["after"] == {"pivots": ["qsMay.loop"], "stub_drop": 1}
     may_entry = by_id["may-entry-extension-dropped"]["match"]
     assert may_entry["before"]["pivots"] == ["qsMay.en-y0.ex-y5.en-ext-1"]
     assert may_entry["after"] == {"pivots": ["qsMay.loop", "qsMay.grounded-loop"], "entry_drop": 1}
@@ -1227,7 +1241,17 @@ def test_all_eight_shapes_load_from_one_rules_file(tmp_path):
     rules = sv.load_rules(
         _write_rules(
             tmp_path / "rules.yaml",
-            [RULE, EXT_RULE, INK_RULE, SLIDE_RULE, GAIN_RULE, JOIN_RULE, ENTRY_RULE, RETARGET_RULE],
+            [
+                RULE,
+                EXT_RULE,
+                INK_RULE,
+                SLIDE_RULE,
+                GAIN_RULE,
+                JOIN_RULE,
+                ENTRY_RULE,
+                STUB_RULE,
+                RETARGET_RULE,
+            ],
         )
     )
     assert [rule["id"] for rule in rules] == [
@@ -1238,6 +1262,7 @@ def test_all_eight_shapes_load_from_one_rules_file(tmp_path):
         GAIN_RULE["id"],
         JOIN_RULE["id"],
         ENTRY_RULE["id"],
+        STUB_RULE["id"],
         RETARGET_RULE["id"],
     ]
 
@@ -1292,6 +1317,8 @@ BEFORE_GLYPHS = {
     "qsVie.en-ext-1": (EXTENDED_ENTRY_LOW, 150),
     "qsVie_qsUtter.en-ext-1": (EXTENDED_ENTRY_LOW, 150),
     "qsMay.en-y0.ex-y5.en-ext-1": (EXTENDED_ENTRY_LOW, 150),
+    "qsMay.en-y5": (EXTENDED_ENTRY_LOW, 150),
+    "qsK": (TWO_COLUMNS, 100),
     "qsTea.half.ex-y5": ((_rect(0, 100, 100, 150),), 100),
     "qsPea.half.ex-y5": ((_rect(0, 100, 100, 150),), 100),
     "qsNo.en-ext-1": (TWO_COLUMNS, 100),
@@ -1318,6 +1345,7 @@ AFTER_GLYPHS = {
     "qsVie.normal": (TWO_COLUMNS, 100),
     "qsVie_qsUtter.hapax": (TWO_COLUMNS, 100),
     "qsMay.loop": (TWO_COLUMNS, 100),
+    "qsK": (TWO_COLUMNS, 150),
     "qsTea": (TWO_COLUMNS, 100),
     "qsPea": (TWO_COLUMNS, 100),
     "qsNo": (TRIMMED_PIVOT, 50),
@@ -1351,6 +1379,8 @@ BEFORE_CMAP = {
     0xE027: "qsVie.en-ext-1",
     0xE028: "qsVie_qsUtter.en-ext-1",
     0xE029: "qsMay.en-y0.ex-y5.en-ext-1",
+    0xE02A: "qsK",
+    0xE02B: "qsMay.en-y5",
 }
 AFTER_CMAP = {
     0x0020: "space",
@@ -1380,6 +1410,8 @@ AFTER_CMAP = {
     0xE027: "qsVie.normal",
     0xE028: "qsVie_qsUtter.hapax",
     0xE029: "qsMay.loop",
+    0xE02A: "qsK",
+    0xE02B: "qsMay.loop",
 }
 
 SLIDE_FONTS = {
@@ -3076,6 +3108,45 @@ def test_the_checked_in_may_rule_reads_the_drop_and_nothing_wider(slide_context)
     assert not sv._matches(match, founding_window(), context=slide_context())
 
 
+STUB_GLYPHS = ["qsK", "qsMay.en-y5", "qsF1"]
+STUB_CODEPOINTS = "E02A:E02B:E003"
+
+
+def stub_window(uid="st-1"):
+    return slide_unit(uid, STUB_GLYPHS, STUB_CODEPOINTS)
+
+
+def test_a_pure_stub_drop_matches(slide_context):
+    assert sv._matches(STUB_RULE["match"], stub_window(), context=slide_context())
+
+
+def test_the_checked_in_may_stub_rule_reads_the_drop_and_nothing_wider(slide_context):
+    match = {rule["id"]: rule for rule in sv.load_rules(sv.RULES)}["may-entry-stub-dropped"]["match"]
+    assert sv._matches(match, stub_window(), context=slide_context())
+    assert not sv._matches(match, may_window(), context=slide_context())
+    assert not sv._matches(match, entry_window(), context=slide_context())
+    assert not sv._matches(match, founding_window(), context=slide_context())
+
+
+def test_an_entry_drop_is_not_a_stub_drop(slide_context):
+    assert not sv._matches(STUB_RULE["match"], entry_window(), context=slide_context())
+    assert not sv._matches(ENTRY_RULE["match"], stub_window(), context=slide_context())
+
+
+COMPOSED_STUB_GLYPHS = ["qsRoe.en-ext-1-at-5", "qsK", "qsMay.en-y5"]
+COMPOSED_STUB_CODEPOINTS = "E020:E02A:E02B"
+COMPOSED_STUB_RULES = [GAIN_RULE, STUB_RULE]
+
+
+def composed_stub_window(uid="cs-1"):
+    return slide_unit(uid, COMPOSED_STUB_GLYPHS, COMPOSED_STUB_CODEPOINTS)
+
+
+def test_a_gain_and_a_stub_drop_in_one_window_compose(slide_context):
+    events = sv._composed(COMPOSED_STUB_RULES, composed_stub_window(), slide_context())
+    assert events == {GAIN_RULE["id"]: [0], STUB_RULE["id"]: [2]}
+
+
 def test_the_checked_in_vie_utter_rule_reads_the_drop_and_nothing_wider(slide_context):
     match = {rule["id"]: rule for rule in sv.load_rules(sv.RULES)}["vie-utter-entry-extension-dropped"][
         "match"
@@ -3140,6 +3211,24 @@ def test_an_entry_drop_rule_loads(tmp_path):
     [rule] = sv.load_rules(_write_rules(tmp_path / "rules.yaml", [ENTRY_RULE]))
     assert rule["match"]["before"] == {"pivots": ["qsLow.en-ext-1"]}
     assert rule["match"]["after"] == {"pivots": ["qsLow.hapax"], "entry_drop": 1}
+
+
+def test_a_stub_drop_rule_loads(tmp_path):
+    [rule] = sv.load_rules(_write_rules(tmp_path / "rules.yaml", [STUB_RULE]))
+    assert rule["match"]["before"] == {"pivots": ["qsMay.en-y5"]}
+    assert rule["match"]["after"] == {"pivots": ["qsMay.loop"], "stub_drop": 1}
+
+
+def test_a_matchable_stub_window_with_no_context_refuses_to_guess():
+    with pytest.raises(ValueError, match="SlideContext"):
+        sv._matches(STUB_RULE["match"], stub_window())
+
+
+def test_a_stub_drop_rule_reads_no_unit_without_ink_deltas():
+    assert not sv._matches(STUB_RULE["match"], slide_unit("st-2", STUB_GLYPHS, STUB_CODEPOINTS, deltas={}))
+    bare = stub_window()
+    del bare["ink_deltas"]
+    assert not sv._matches(STUB_RULE["match"], bare)
 
 
 @pytest.mark.parametrize(
