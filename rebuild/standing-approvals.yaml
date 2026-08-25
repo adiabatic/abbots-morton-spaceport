@@ -144,6 +144,17 @@ rules:
       after:
         gap: 1
       except_left: []
+  - id: it-et-xheight-join-dropped
+    verdict: approve
+    note: "·Et sits a column further from ·It — they no longer join at the x-height; qsIt's x-height-exit refusal before ·Et was authored as “Don't join ·It·Et (it looks kind of ugly)”, and every window that reached a sitting approved the break"
+    match:
+      before:
+        pivot: qsIt
+        seam_out: y5
+        follower: qsEt
+      after:
+        gap: 1
+      except_left: []
   - id: see-low-entry-extension-dropped
     verdict: approve
     note: "·Low sits a pixel closer to ·See — the extra pixel of baseline entry the old font drew after ·See is a composed extension the rebuild does not sum with ·See's two-pixel exit, and every window that reached a sitting approved the shorter reach"

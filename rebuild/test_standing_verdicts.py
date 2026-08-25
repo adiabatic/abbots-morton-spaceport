@@ -756,6 +756,9 @@ def test_checked_in_rules_file_loads():
     dropped = by_id["at-it-xheight-join-dropped"]["match"]
     assert dropped["before"] == {"pivot": "qsAt", "seam_out": "y5", "follower": "qsIt"}
     assert dropped["after"] == {"gap": 1}
+    it_et = by_id["it-et-xheight-join-dropped"]["match"]
+    assert it_et["before"] == {"pivot": "qsIt", "seam_out": "y5", "follower": "qsEt"}
+    assert it_et["after"] == {"gap": 1}
     entry = by_id["see-low-entry-extension-dropped"]["match"]
     assert entry["before"]["pivots"] == ["qsLow.en-ext-1"]
     assert entry["after"] == {"pivots": ["qsLow.hapax"], "entry_drop": 1}
@@ -1313,6 +1316,8 @@ BEFORE_GLYPHS = {
     "qsRoe.en-ext-1-at-5": (SHORTENED_ROE, 100),
     "qsAt": (TWO_COLUMNS, 100),
     "qsIt": (TWO_COLUMNS, 100),
+    "qsIt.ex-y5": (TWO_COLUMNS, 100),
+    "qsEt.join": (TWO_COLUMNS, 100),
     "qsLow.en-ext-1": (EXTENDED_ENTRY_LOW, 150),
     "qsVie.en-ext-1": (EXTENDED_ENTRY_LOW, 150),
     "qsVie_qsUtter.en-ext-1": (EXTENDED_ENTRY_LOW, 150),
@@ -1341,6 +1346,8 @@ AFTER_GLYPHS = {
     "qsRoe.hapax.en-y5.en-ext-1": (KEPT_ROE, 100),
     "qsAt": (TWO_COLUMNS, 150),
     "qsIt": (TWO_COLUMNS, 100),
+    "qsIt.hapax": (TWO_COLUMNS, 150),
+    "qsEt.join": (TWO_COLUMNS, 100),
     "qsLow.hapax": (TWO_COLUMNS, 100),
     "qsVie.normal": (TWO_COLUMNS, 100),
     "qsVie_qsUtter.hapax": (TWO_COLUMNS, 100),
@@ -1381,6 +1388,8 @@ BEFORE_CMAP = {
     0xE029: "qsMay.en-y0.ex-y5.en-ext-1",
     0xE02A: "qsK",
     0xE02B: "qsMay.en-y5",
+    0xE02C: "qsIt.ex-y5",
+    0xE02D: "qsEt.join",
 }
 AFTER_CMAP = {
     0x0020: "space",
@@ -1412,6 +1421,8 @@ AFTER_CMAP = {
     0xE029: "qsMay.loop",
     0xE02A: "qsK",
     0xE02B: "qsMay.loop",
+    0xE02C: "qsIt.hapax",
+    0xE02D: "qsEt.join",
 }
 
 SLIDE_FONTS = {
@@ -1850,6 +1861,31 @@ def test_a_pure_join_drop_matches(slide_context):
 def test_the_checked_in_at_it_rule_reads_the_gap(slide_context):
     match = {rule["id"]: rule for rule in sv.load_rules(sv.RULES)}["at-it-xheight-join-dropped"]["match"]
     assert sv._matches(match, join_window(), context=slide_context())
+    assert not sv._matches(match, founding_window(), context=slide_context())
+
+
+IT_ET_JOIN_GLYPHS = ["qsL", "qsIt.ex-y5", "qsEt.join", "qsF1"]
+IT_ET_JOIN_CODEPOINTS = "E001:E02C:E02D:E003"
+
+
+def it_et_join_window(uid="je-1"):
+    return unit(
+        uid,
+        list(IT_ET_JOIN_GLYPHS),
+        ["y0", "y5", "y0"],
+        ["qsL/full/None/None/", "qsIt/hapax/None/None/", "qsEt/hapax/None/None/", "qsF1/full/None/None/"],
+        ["y0", "break", "y0"],
+        codepoints=IT_ET_JOIN_CODEPOINTS,
+        configs=("default",),
+        ink_deltas={"default": SLIDE_DELTA},
+        pair={"left": 1, "right": 2},
+    )
+
+
+def test_the_checked_in_it_et_rule_reads_the_gap_and_nothing_wider(slide_context):
+    match = {rule["id"]: rule for rule in sv.load_rules(sv.RULES)}["it-et-xheight-join-dropped"]["match"]
+    assert sv._matches(match, it_et_join_window(), context=slide_context())
+    assert not sv._matches(match, join_window(), context=slide_context())
     assert not sv._matches(match, founding_window(), context=slide_context())
 
 
