@@ -278,3 +278,37 @@ rules:
           - qsAh/hapax/baseline/x-height/
           - qsAh/hapax/baseline/x-height/ex-ext-1
       except_left: []
+  - id: eight-smaller-loop
+    verdict: approve
+    note: "·Eight's bowl pulls in one column where its baseline exit joins ·Tea or ·It, so the bowl no longer rubs the riser — the smaller-loop stance mirrors ·I's, authored as “Give ·Eight a smaller loop before ·Tea and ·It, mirroring ·I's”, and every window that reached a sitting approved the tighter bowl"
+    match:
+      before:
+        pivots: [qsEight]
+      after:
+        pivots: [qsEight.smaller-loop]
+        dropped: [[3, 3], [3, 5], [4, 4]]
+        added: [[3, 4]]
+        shift: 0
+      except_left: []
+  - id: eight-smaller-loop-exit-extension-dropped
+    verdict: approve
+    note: "·It sits a pixel closer to ·Eight's smaller loop — the old +1 connector extension at the baseline seam went away in the same stroke as the bowl, which keeps the gap under ·Eight's rightmost pixel just below the x-height, and every window that reached a sitting approved the shorter reach"
+    match:
+      before:
+        pivots: [qsEight.ex-ext-1, qsEight.noentry.ex-ext-1]
+      after:
+        pivots: [qsEight.smaller-loop]
+        dropped: [[3, 3], [3, 5], [4, 4], [5, 0]]
+        added: [[3, 4]]
+        shift: -1
+      except_left: []
+  - id: eight-tea-entry-extension-dropped
+    verdict: approve
+    note: "·Tea sits a pixel closer to ·Eight — the extra pixel of baseline entry the old font drew after ·Eight came off qsTea's extend record in the same stroke as ·Eight's smaller loop, and every window that reached a sitting approved the shorter reach"
+    match:
+      before:
+        pivots: [qsTea.en-y0.en-ext-1]
+      after:
+        pivots: [qsTea.full.en-y0]
+        entry_drop: 1
+      except_left: []

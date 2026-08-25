@@ -55,9 +55,13 @@ def _reading(intern, before, after):
     painted, kept = intern.cells(before[1]), intern.cells(after[1])
     if painted is None or kept is None:
         return f"redrawn (curved or off-grid), {moved}"
-    return (
-        f"redrawn {len(painted)}→{len(kept)} cells (−{len(painted - kept)} +{len(kept - painted)}), {moved}"
-    )
+    gone, gained = painted - kept, kept - painted
+    trade = ""
+    if len(gone) <= 6 and len(gained) <= 6:
+        dropped = " ".join(f"[{column}, {row}]" for column, row in sorted(gone)) or "nothing"
+        added = " ".join(f"[{column}, {row}]" for column, row in sorted(gained)) or "nothing"
+        trade = f" [dropped {dropped}; added {added}]"
+    return f"redrawn {len(painted)}→{len(kept)} cells (−{len(gone)} +{len(gained)}), {moved}{trade}"
 
 
 def _describe(unit, rules, context, records, families):
