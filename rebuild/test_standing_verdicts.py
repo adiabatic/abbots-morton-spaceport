@@ -820,7 +820,7 @@ def test_the_checked_in_it_may_rule_reads_the_narrowed_seam_and_nothing_wider():
     assert not sv._matches(match, elsewhere)
     kept = it_may(pivot="qsIt.en-y5.ex-y0")
     assert not sv._matches(match, kept)
-    other_follower = it_may(follower="qsLow.en-y0", follower_cell="qsLow/hapax/baseline/None/")
+    other_follower = it_may(follower="qsSee.en-y0", follower_cell="qsSee/normal/baseline/None/")
     assert not sv._matches(match, other_follower)
 
 
