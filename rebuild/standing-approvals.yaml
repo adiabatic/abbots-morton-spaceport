@@ -346,3 +346,15 @@ rules:
         pivots: [qsRoe.hapax.en-y0.en-ext-1]
         gained: [[1, 5]]
       except_left: []
+  - id: roe-baseline-bar-kept-entry-extension-dropped
+    verdict: approve
+    note: "·Roe sits a pixel closer to ·May and keeps its baseline bar in the same stroke — the rebuild does not sum ·Roe's x-height entry extension onto ·May's own already-extended exit, and the hapax it settles into keeps the bar the old font's shortened-bottom variant cut back, and every window that reached a sitting approved the tighter seam and the fuller bar"
+    match:
+      before:
+        pivots: [qsRoe.en-ext-1-at-5]
+      after:
+        pivots: [qsRoe.hapax.en-y5]
+        dropped: [[3, 0], [3, 5], [4, 1], [4, 4], [5, 2], [5, 3]]
+        added: [[0, 0], [1, 0], [3, 1], [3, 4], [4, 2], [4, 3]]
+        shift: -1
+      except_left: []
