@@ -312,3 +312,27 @@ rules:
         pivots: [qsTea.full.en-y0]
         entry_drop: 1
       except_left: []
+  - id: i-smaller-loop
+    verdict: approve
+    note: "·I loops more tightly after a baseline join — the smaller-loop prefer on qsI carries the recorded why (the tighter bowl doesn't rub the letter it follows), and every window that reached a sitting approved it"
+    match:
+      before:
+        pivots: [qsI]
+      after:
+        pivots: [qsI.smaller-loop]
+        dropped: [[0, 4], [1, 3], [1, 5]]
+        added: [[1, 4]]
+        shift: 0
+      except_left: []
+  - id: i-regular-loop-after-roe
+    verdict: approve
+    note: "·I opens back up to its regular loop after ·Roe — the old font's smaller loop was rejected there by verdict (Give ·I its regular loop again after ·Roe, carried as a comment on qsI's prefer), and every window that reached a sitting approved the regular bowl"
+    match:
+      before:
+        pivots: [qsI.en-y0.ex-y5.smaller-loop]
+      after:
+        pivots: [qsI.loop]
+        dropped: [[1, 4]]
+        added: [[0, 4], [1, 3], [1, 5]]
+        shift: 0
+      except_left: []
