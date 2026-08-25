@@ -170,6 +170,25 @@ rules:
           - qsNo/flipped/baseline/baseline/
         shift: -1
       except_left: []
+  - id: pea-no-xheight-join-retargeted
+    verdict: approve
+    note: "·Pea sits as the full bar joining ·No at the baseline — the old font drew the half stub joining at the x-height; qsNo's flipped stance takes ·Pea on its baseline from-list, and every window that reached a sitting approved the lowered join"
+    match:
+      before:
+        pivot: qsPea.half
+        seam_out: y5
+        follower: qsNo
+      after:
+        retarget: y0
+        pivot_cells:
+          - qsPea/full/None/baseline/
+          - qsPea/full/x-height/baseline/
+          - qsPea/full/y6/baseline/
+        receiver_cells:
+          - qsNo/flipped/baseline/None/
+          - qsNo/flipped/baseline/baseline/
+        shift: -1
+      except_left: []
   - id: it-may-exit-extension-dropped
     verdict: approve
     note: "·May sits a pixel closer to an entered ·It — the extra pixel of exit the old font drew came off qsIt's entered baseline-exit extend (·May sits on the except list), the bar meeting the loop the way an unentered ·It already did, and every window that reached a sitting approved the shorter reach"

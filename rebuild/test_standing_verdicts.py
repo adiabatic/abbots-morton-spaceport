@@ -761,6 +761,19 @@ def test_checked_in_rules_file_loads():
         "qsNo/flipped/baseline/None/",
         "qsNo/flipped/baseline/baseline/",
     ]
+    pea_retargeted = by_id["pea-no-xheight-join-retargeted"]["match"]
+    assert pea_retargeted["before"] == {"pivot": "qsPea.half", "seam_out": "y5", "follower": "qsNo"}
+    assert pea_retargeted["after"]["retarget"] == "y0"
+    assert pea_retargeted["after"]["shift"] == -1
+    assert pea_retargeted["after"]["pivot_cells"] == [
+        "qsPea/full/None/baseline/",
+        "qsPea/full/x-height/baseline/",
+        "qsPea/full/y6/baseline/",
+    ]
+    assert pea_retargeted["after"]["receiver_cells"] == [
+        "qsNo/flipped/baseline/None/",
+        "qsNo/flipped/baseline/baseline/",
+    ]
     it_may_rule = by_id["it-may-exit-extension-dropped"]["match"]
     assert it_may_rule["before"]["pivot"] == "qsIt"
     assert it_may_rule["before"]["exit_extension"] == "ex-ext-1"
@@ -1182,6 +1195,7 @@ BEFORE_GLYPHS = {
     "qsIt": (TWO_COLUMNS, 100),
     "qsLow.en-ext-1": (EXTENDED_ENTRY_LOW, 150),
     "qsTea.half.ex-y5": ((_rect(0, 100, 100, 150),), 100),
+    "qsPea.half.ex-y5": ((_rect(0, 100, 100, 150),), 100),
     "qsNo.en-ext-1": (TWO_COLUMNS, 100),
     "space": ((), 50),
 }
@@ -1204,6 +1218,7 @@ AFTER_GLYPHS = {
     "qsIt": (TWO_COLUMNS, 100),
     "qsLow.hapax": (TWO_COLUMNS, 100),
     "qsTea": (TWO_COLUMNS, 100),
+    "qsPea": (TWO_COLUMNS, 100),
     "qsNo": (TRIMMED_PIVOT, 50),
     "space": ((), 50),
 }
@@ -1231,6 +1246,7 @@ BEFORE_CMAP = {
     0xE023: "qsLow.en-ext-1",
     0xE024: "qsTea.half.ex-y5",
     0xE025: "qsNo.en-ext-1",
+    0xE026: "qsPea.half.ex-y5",
 }
 AFTER_CMAP = {
     0x0020: "space",
@@ -1256,6 +1272,7 @@ AFTER_CMAP = {
     0xE023: "qsLow.hapax",
     0xE024: "qsTea",
     0xE025: "qsNo",
+    0xE026: "qsPea",
 }
 
 SLIDE_FONTS = {
@@ -3172,10 +3189,48 @@ def test_a_pure_join_retarget_matches(slide_context):
     assert sv._matches(RETARGET_RULE["match"], retarget_window(), context=slide_context())
 
 
+def pea_retarget_window(uid="pr-1"):
+    return unit(
+        uid,
+        ["qsL", "qsPea.half.ex-y5", "qsNo.en-ext-1", "qsF1"],
+        ["y0", "y5", "y0"],
+        [
+            "qsL/full/None/None/",
+            "qsPea/full/None/baseline/",
+            "qsNo/flipped/baseline/None/",
+            "qsF1/full/None/None/",
+        ],
+        ["y0", "y0", "y0"],
+        codepoints="E001:E026:E025:E003",
+        configs=("default",),
+        ink_deltas={"default": SLIDE_DELTA},
+        pair={"left": 1, "right": 2},
+    )
+
+
 def test_the_checked_in_tea_no_rule_reads_the_retarget(slide_context):
     match = {rule["id"]: rule for rule in sv.load_rules(sv.RULES)}["tea-no-xheight-join-retargeted"]["match"]
     assert sv._matches(match, retarget_window(), context=slide_context())
     assert not sv._matches(match, founding_window(), context=slide_context())
+
+
+def test_the_checked_in_pea_no_rule_reads_the_retarget(slide_context):
+    match = {rule["id"]: rule for rule in sv.load_rules(sv.RULES)}["pea-no-xheight-join-retargeted"]["match"]
+    context = slide_context()
+    assert sv._matches(match, pea_retarget_window(), context=context)
+    for cell in match["after"]["pivot_cells"]:
+        window = pea_retarget_window()
+        window["after"]["cells"][1] = cell
+        assert sv._matches(match, window, context=context)
+    for cell in match["after"]["receiver_cells"]:
+        window = pea_retarget_window()
+        window["after"]["cells"][2] = cell
+        assert sv._matches(match, window, context=context)
+    assert not sv._matches(match, retarget_window(), context=context)
+    assert not sv._matches(match, founding_window(), context=context)
+    unnamed = pea_retarget_window()
+    unnamed["after"]["cells"][1] = "qsPea/half/None/x-height/"
+    assert not sv._matches(match, unnamed, context=context)
 
 
 def test_an_unmoved_follower_defeats_the_retarget_match(slide_context):
