@@ -748,6 +748,12 @@ def test_checked_in_rules_file_loads():
     entry = by_id["see-low-entry-extension-dropped"]["match"]
     assert entry["before"]["pivots"] == ["qsLow.en-ext-1"]
     assert entry["after"] == {"pivots": ["qsLow.hapax"], "entry_drop": 1}
+    vie_entry = by_id["vie-entry-extension-dropped"]["match"]
+    assert vie_entry["before"]["pivots"] == ["qsVie.en-ext-1", "qsVie.en-y0.ex-y0.en-ext-1"]
+    assert vie_entry["after"] == {"pivots": ["qsVie.normal", "qsVie.swept-out"], "entry_drop": 1}
+    vie_utter_entry = by_id["vie-utter-entry-extension-dropped"]["match"]
+    assert vie_utter_entry["before"]["pivots"] == ["qsVie_qsUtter.en-ext-1"]
+    assert vie_utter_entry["after"] == {"pivots": ["qsVie_qsUtter.hapax"], "entry_drop": 1}
     retargeted = by_id["tea-no-xheight-join-retargeted"]["match"]
     assert retargeted["before"] == {"pivot": "qsTea.half", "seam_out": "y5", "follower": "qsNo"}
     assert retargeted["after"]["retarget"] == "y0"
@@ -1280,6 +1286,8 @@ BEFORE_GLYPHS = {
     "qsAt": (TWO_COLUMNS, 100),
     "qsIt": (TWO_COLUMNS, 100),
     "qsLow.en-ext-1": (EXTENDED_ENTRY_LOW, 150),
+    "qsVie.en-ext-1": (EXTENDED_ENTRY_LOW, 150),
+    "qsVie_qsUtter.en-ext-1": (EXTENDED_ENTRY_LOW, 150),
     "qsTea.half.ex-y5": ((_rect(0, 100, 100, 150),), 100),
     "qsPea.half.ex-y5": ((_rect(0, 100, 100, 150),), 100),
     "qsNo.en-ext-1": (TWO_COLUMNS, 100),
@@ -1303,6 +1311,8 @@ AFTER_GLYPHS = {
     "qsAt": (TWO_COLUMNS, 150),
     "qsIt": (TWO_COLUMNS, 100),
     "qsLow.hapax": (TWO_COLUMNS, 100),
+    "qsVie.normal": (TWO_COLUMNS, 100),
+    "qsVie_qsUtter.hapax": (TWO_COLUMNS, 100),
     "qsTea": (TWO_COLUMNS, 100),
     "qsPea": (TWO_COLUMNS, 100),
     "qsNo": (TRIMMED_PIVOT, 50),
@@ -1333,6 +1343,8 @@ BEFORE_CMAP = {
     0xE024: "qsTea.half.ex-y5",
     0xE025: "qsNo.en-ext-1",
     0xE026: "qsPea.half.ex-y5",
+    0xE027: "qsVie.en-ext-1",
+    0xE028: "qsVie_qsUtter.en-ext-1",
 }
 AFTER_CMAP = {
     0x0020: "space",
@@ -1359,6 +1371,8 @@ AFTER_CMAP = {
     0xE024: "qsTea",
     0xE025: "qsNo",
     0xE026: "qsPea",
+    0xE027: "qsVie.normal",
+    0xE028: "qsVie_qsUtter.hapax",
 }
 
 SLIDE_FONTS = {
@@ -3015,6 +3029,37 @@ def test_the_checked_in_see_low_rule_reads_the_drop(slide_context):
     match = {rule["id"]: rule for rule in sv.load_rules(sv.RULES)}["see-low-entry-extension-dropped"]["match"]
     assert sv._matches(match, entry_window(), context=slide_context())
     assert not sv._matches(match, founding_window(), context=slide_context())
+
+
+VIE_GLYPHS = ["qsL", "qsVie.en-ext-1", "qsF1"]
+VIE_CODEPOINTS = "E001:E027:E003"
+VIE_UTTER_GLYPHS = ["qsL", "qsVie_qsUtter.en-ext-1", "qsF1"]
+VIE_UTTER_CODEPOINTS = "E001:E028:E003"
+
+
+def vie_window(uid="v-1"):
+    return slide_unit(uid, VIE_GLYPHS, VIE_CODEPOINTS)
+
+
+def vie_utter_window(uid="vu-1"):
+    return slide_unit(uid, VIE_UTTER_GLYPHS, VIE_UTTER_CODEPOINTS)
+
+
+def test_the_checked_in_vie_rule_reads_the_drop_and_nothing_wider(slide_context):
+    match = {rule["id"]: rule for rule in sv.load_rules(sv.RULES)}["vie-entry-extension-dropped"]["match"]
+    assert sv._matches(match, vie_window(), context=slide_context())
+    assert not sv._matches(match, entry_window(), context=slide_context())
+    assert not sv._matches(match, vie_utter_window(), context=slide_context())
+    assert not sv._matches(match, founding_window(), context=slide_context())
+
+
+def test_the_checked_in_vie_utter_rule_reads_the_drop_and_nothing_wider(slide_context):
+    match = {rule["id"]: rule for rule in sv.load_rules(sv.RULES)}["vie-utter-entry-extension-dropped"][
+        "match"
+    ]
+    assert sv._matches(match, vie_utter_window(), context=slide_context())
+    assert not sv._matches(match, vie_window(), context=slide_context())
+    assert not sv._matches(match, entry_window(), context=slide_context())
 
 
 def test_an_unmoved_pivot_defeats_the_entry_drop_match(slide_context):

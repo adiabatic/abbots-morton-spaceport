@@ -151,6 +151,26 @@ rules:
         pivots: [qsLow.hapax]
         entry_drop: 1
       except_left: []
+  - id: vie-entry-extension-dropped
+    verdict: approve
+    note: "·Vie sits a pixel closer after ·Pea, ·Tea and ·It — the extra pixel of baseline entry the old font drew came off qsVie's extend record (ditched for ·It, then ·Tea, then ·Pea), and every window that reached a sitting approved the shorter reach"
+    match:
+      before:
+        pivots: [qsVie.en-ext-1, qsVie.en-y0.ex-y0.en-ext-1]
+      after:
+        pivots: [qsVie.normal, qsVie.swept-out]
+        entry_drop: 1
+      except_left: []
+  - id: vie-utter-entry-extension-dropped
+    verdict: approve
+    note: "·Vie+Utter sits a pixel closer after ·Pea, ·Tea and ·It — the extra pixel of baseline entry the old font drew came off the ligature's extend record in the same three ditches as bare ·Vie, and every window that reached a sitting approved the shorter reach"
+    match:
+      before:
+        pivots: [qsVie_qsUtter.en-ext-1]
+      after:
+        pivots: [qsVie_qsUtter.hapax]
+        entry_drop: 1
+      except_left: []
   - id: tea-no-xheight-join-retargeted
     verdict: approve
     note: "·Tea sits as the full bar joining ·No at the baseline — the old font drew the half stub joining at the x-height; qsNo's flipped stance takes ·Tea on its baseline from-list, and every window that reached a sitting approved the lowered join"
