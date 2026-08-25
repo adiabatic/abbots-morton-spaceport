@@ -171,6 +171,16 @@ rules:
         pivots: [qsVie_qsUtter.hapax]
         entry_drop: 1
       except_left: []
+  - id: may-entry-extension-dropped
+    verdict: approve
+    note: "·May sits a pixel closer after ·Pea — the extra pixel of baseline entry the old font drew came off qsMay's extend record (Never lengthen ·May's baseline-entry join), and every window that reached a sitting approved the shorter reach"
+    match:
+      before:
+        pivots: [qsMay.en-y0.ex-y5.en-ext-1]
+      after:
+        pivots: [qsMay.loop, qsMay.grounded-loop]
+        entry_drop: 1
+      except_left: []
   - id: tea-no-xheight-join-retargeted
     verdict: approve
     note: "·Tea sits as the full bar joining ·No at the baseline — the old font drew the half stub joining at the x-height; qsNo's flipped stance takes ·Tea on its baseline from-list, and every window that reached a sitting approved the lowered join"
