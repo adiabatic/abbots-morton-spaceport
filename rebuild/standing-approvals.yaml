@@ -336,3 +336,13 @@ rules:
         added: [[0, 4], [1, 3], [1, 5]]
         shift: 0
       except_left: []
+  - id: roe-xheight-arm-kept-after-eight
+    verdict: approve
+    note: "The top of ·Roe reaches a pixel further toward ·Eight — the hapax keeps the x-height arm the old font's shortened-top variant cut back whenever it extended the baseline entry, mirroring the baseline bar roe-baseline-bar-kept-after-it restores at the other tip, and every window that reached a sitting approved the longer arm"
+    match:
+      before:
+        pivots: [qsRoe.en-ext-1-at-0]
+      after:
+        pivots: [qsRoe.hapax.en-y0.en-ext-1]
+        gained: [[1, 5]]
+      except_left: []
