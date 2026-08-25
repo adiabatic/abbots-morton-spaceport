@@ -777,13 +777,16 @@ def test_checked_in_rules_file_loads():
     it_may_rule = by_id["it-may-exit-extension-dropped"]["match"]
     assert it_may_rule["before"]["pivot"] == "qsIt"
     assert it_may_rule["before"]["exit_extension"] == "ex-ext-1"
-    assert it_may_rule["before"]["follower"] == ["qsMay", "qsUtter"]
+    assert it_may_rule["before"]["follower"] == ["qsVie", "qsVie_qsUtter", "qsMay", "qsUtter"]
     assert it_may_rule["after"]["pivot_cells"] == [
         "qsIt/hapax/None/baseline/",
         "qsIt/hapax/baseline/baseline/",
         "qsIt/hapax/x-height/baseline/",
     ]
     assert it_may_rule["after"]["follower_cells"] == [
+        "qsVie/normal/baseline/None/",
+        "qsVie/swept-out/baseline/baseline/",
+        "qsVie_qsUtter/hapax/baseline/None/",
         "qsMay/loop/baseline/None/",
         "qsMay/loop/baseline/x-height/ex-ext-1",
         "qsMay/loop/baseline/x-height/ex-ext-2",
@@ -893,6 +896,18 @@ def test_the_checked_in_it_may_rule_reads_the_narrowed_seam_and_nothing_wider():
             follower="qsUtter.ex-y5.ex-ext-1",
             follower_cell="qsUtter/mono/baseline/x-height/ex-ext-1",
         ),
+    )
+    assert sv._matches(
+        match,
+        it_may(follower="qsVie.en-ext-1", follower_cell="qsVie/normal/baseline/None/"),
+    )
+    assert sv._matches(
+        match,
+        it_may(follower="qsVie.en-y0.ex-y0", follower_cell="qsVie/swept-out/baseline/baseline/"),
+    )
+    assert sv._matches(
+        match,
+        it_may(follower="qsVie_qsUtter.en-ext-1", follower_cell="qsVie_qsUtter/hapax/baseline/None/"),
     )
     regrouped = it_may()
     regrouped["secondary_seams"] = 1
