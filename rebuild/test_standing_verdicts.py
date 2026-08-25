@@ -886,6 +886,22 @@ def test_checked_in_rules_file_loads():
     eight_tea = by_id["eight-tea-entry-extension-dropped"]["match"]
     assert eight_tea["before"]["pivots"] == ["qsTea.en-y0.en-ext-1"]
     assert eight_tea["after"] == {"pivots": ["qsTea.full.en-y0"], "entry_drop": 1}
+    i_smaller = by_id["i-smaller-loop"]["match"]
+    assert i_smaller["before"]["pivots"] == ["qsI"]
+    assert i_smaller["after"] == {
+        "pivots": ["qsI.smaller-loop"],
+        "dropped": [[0, 4], [1, 3], [1, 5]],
+        "added": [[1, 4]],
+        "shift": 0,
+    }
+    i_regular = by_id["i-regular-loop-after-roe"]["match"]
+    assert i_regular["before"]["pivots"] == ["qsI.en-y0.ex-y5.smaller-loop"]
+    assert i_regular["after"] == {
+        "pivots": ["qsI.loop"],
+        "dropped": [[1, 4]],
+        "added": [[0, 4], [1, 3], [1, 5]],
+        "shift": 0,
+    }
 
 
 def et_may(
@@ -1399,6 +1415,7 @@ BEFORE_GLYPHS = {
     "qsEight": (EIGHTISH, 100),
     "qsEight.ex-ext-1": (EIGHTISH_EXTENDED, 150),
     "qsEight.en-ext-1": (EIGHTISH_ENTRY_EXTENDED, 150),
+    "qsEight.smaller-loop": (EIGHTISH_SMALLER, 100),
     "space": ((), 50),
 }
 AFTER_GLYPHS = {
@@ -1469,6 +1486,7 @@ BEFORE_CMAP = {
     0xE031: "qsEight.ex-ext-1",
     0xE032: "qsEight.en-ext-1",
     0xE033: "qsEight",
+    0xE034: "qsEight.smaller-loop",
 }
 AFTER_CMAP = {
     0x0020: "space",
@@ -1506,6 +1524,7 @@ AFTER_CMAP = {
     0xE031: "qsEight.smaller-loop",
     0xE032: "qsEight.smaller-loop.en-ext-1",
     0xE033: "qsEight.normal-sized-loop",
+    0xE034: "qsEight.normal-sized-loop",
 }
 
 SLIDE_FONTS = {
@@ -3889,8 +3908,33 @@ def composed_redrawn_window(uid="rd-3"):
     return slide_unit(uid, ["qsL", "qsEight.ex-ext-1", "qsLow.en-ext-1", "qsF3"], "E001:E031:E023:E007")
 
 
+REDRAWN_REVERSE_RULE = {
+    "id": "eight-regular-loop",
+    "verdict": "approve",
+    "note": "·Eight's bowl opens back up and the rest of the window stays put",
+    "match": {
+        "before": {"pivots": ["qsEight.smaller-loop"]},
+        "after": {
+            "pivots": ["qsEight.normal-sized-loop"],
+            "dropped": [[1, 1]],
+            "added": [[1, 2]],
+            "shift": 0,
+        },
+        "except_left": [],
+    },
+}
+
+
 def test_a_pure_redrawn_trade_matches(slide_context):
     assert sv._matches(REDRAWN_RULE["match"], redrawn_window(), context=slide_context())
+
+
+def test_a_trade_that_adds_more_than_it_drops_matches_its_own_direction_only(slide_context):
+    context = slide_context()
+    window = slide_unit("rd-8", ["qsL", "qsEight.smaller-loop", "qsF3"], "E001:E034:E007")
+    assert sv._matches(REDRAWN_REVERSE_RULE["match"], window, context=context)
+    assert not sv._matches(REDRAWN_RULE["match"], window, context=context)
+    assert not sv._matches(REDRAWN_REVERSE_RULE["match"], redrawn_window(), context=context)
 
 
 def test_the_extension_frame_reads_its_own_rule_and_not_the_bare_one(slide_context):
