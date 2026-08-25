@@ -777,7 +777,7 @@ def test_checked_in_rules_file_loads():
     it_may_rule = by_id["it-may-exit-extension-dropped"]["match"]
     assert it_may_rule["before"]["pivot"] == "qsIt"
     assert it_may_rule["before"]["exit_extension"] == "ex-ext-1"
-    assert it_may_rule["before"]["follower"] == "qsMay"
+    assert it_may_rule["before"]["follower"] == ["qsMay", "qsUtter"]
     assert it_may_rule["after"]["pivot_cells"] == [
         "qsIt/hapax/None/baseline/",
         "qsIt/hapax/baseline/baseline/",
@@ -787,6 +787,22 @@ def test_checked_in_rules_file_loads():
         "qsMay/loop/baseline/None/",
         "qsMay/loop/baseline/x-height/ex-ext-1",
         "qsMay/loop/baseline/x-height/ex-ext-2",
+        "qsUtter/mono/baseline/None/",
+        "qsUtter/mono/baseline/x-height/",
+        "qsUtter/mono/baseline/x-height/ex-ext-1",
+    ]
+    it_ah_rule = by_id["it-ah-exit-extension-dropped"]["match"]
+    assert it_ah_rule["before"]["pivot"] == "qsIt"
+    assert it_ah_rule["before"]["exit_extension"] == "ex-ext-1"
+    assert it_ah_rule["before"]["follower"] == "qsAh"
+    assert it_ah_rule["after"]["pivot_cells"] == [
+        "qsIt/hapax/None/baseline/",
+        "qsIt/hapax/baseline/baseline/",
+    ]
+    assert it_ah_rule["after"]["follower_cells"] == [
+        "qsAh/hapax/baseline/None/",
+        "qsAh/hapax/baseline/x-height/",
+        "qsAh/hapax/baseline/x-height/ex-ext-1",
     ]
 
 
@@ -863,6 +879,21 @@ def test_the_checked_in_it_may_rule_reads_the_narrowed_seam_and_nothing_wider():
         match,
         it_may(pivot="qsIt.en-y0.ex-y0.ex-ext-1", pivot_cell="qsIt/hapax/baseline/baseline/"),
     )
+    assert sv._matches(
+        match,
+        it_may(follower="qsUtter", follower_cell="qsUtter/mono/baseline/None/"),
+    )
+    assert sv._matches(
+        match,
+        it_may(follower="qsUtter.ex-y5", follower_cell="qsUtter/mono/baseline/x-height/"),
+    )
+    assert sv._matches(
+        match,
+        it_may(
+            follower="qsUtter.ex-y5.ex-ext-1",
+            follower_cell="qsUtter/mono/baseline/x-height/ex-ext-1",
+        ),
+    )
     regrouped = it_may()
     regrouped["secondary_seams"] = 1
     assert not sv._matches(match, regrouped)
@@ -872,6 +903,46 @@ def test_the_checked_in_it_may_rule_reads_the_narrowed_seam_and_nothing_wider():
     kept = it_may(pivot="qsIt.en-y5.ex-y0")
     assert not sv._matches(match, kept)
     other_follower = it_may(follower="qsLow.en-y0", follower_cell="qsLow/hapax/baseline/None/")
+    assert not sv._matches(match, other_follower)
+
+
+def it_ah(
+    uid="u-20",
+    pivot="qsIt.en-y5.ex-y0.ex-ext-1",
+    pivot_cell="qsIt/hapax/None/baseline/",
+    follower="qsAh.en-y0",
+    follower_cell="qsAh/hapax/baseline/None/",
+):
+    return unit(
+        uid,
+        ["qsPea.half.ex-y5", pivot, follower, "qsDay"],
+        ["y5", "y0", "y5"],
+        ["qsPea/half/None/x-height/", pivot_cell, follower_cell, "qsDay/full/x-height/None/"],
+        ["y5", "y0", "y5"],
+        pair={"left": 1, "right": 2},
+    )
+
+
+def test_the_checked_in_it_ah_rule_reads_the_narrowed_seam_and_nothing_wider():
+    match = {rule["id"]: rule for rule in sv.load_rules(sv.RULES)}["it-ah-exit-extension-dropped"]["match"]
+    assert sv._matches(match, it_ah())
+    assert sv._matches(match, it_ah(follower_cell="qsAh/hapax/baseline/x-height/"))
+    assert sv._matches(match, it_ah(follower_cell="qsAh/hapax/baseline/x-height/ex-ext-1"))
+    assert sv._matches(
+        match,
+        it_ah(pivot="qsIt.en-y0.ex-y0.ex-ext-1", pivot_cell="qsIt/hapax/baseline/baseline/"),
+    )
+    regrouped = it_ah()
+    regrouped["secondary_seams"] = 1
+    assert not sv._matches(match, regrouped)
+    elsewhere = it_ah()
+    elsewhere["pair"] = {"left": 0, "right": 1}
+    assert not sv._matches(match, elsewhere)
+    kept = it_ah(pivot="qsIt.en-y5.ex-y0")
+    assert not sv._matches(match, kept)
+    entered = it_ah(pivot_cell="qsIt/hapax/x-height/baseline/")
+    assert not sv._matches(match, entered)
+    other_follower = it_ah(follower="qsMay.en-y0", follower_cell="qsMay/loop/baseline/None/")
     assert not sv._matches(match, other_follower)
 
 
