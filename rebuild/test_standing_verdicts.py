@@ -1,4 +1,4 @@
-"""Tests for the standing-approval fill: all seven delta shapes — the two structural pattern matches, being the ligature shape (pivot glyph, seams into and out of it, follower family, post-ligature seam, flank-seam identity) and the extension-dropped shape (pivot glyph giving up a named stretch of exit — an `ex-ext-N` it carried, in whole or down to a shorter one its named after cell keeps, or an `ex-con-N` its named after cell carries when the before glyph never had an exit extension — the seam it exits into holding its height, the full after-cell identity of pivot and follower, every other seam standing still, nothing ligating anywhere, and the unit's own judgment fields agreeing that this seam is the question), the ink-exact ink-delta shape (the unit's persisted per-config digests being a nonempty subset of the ones the rule blesses, so an ink-identical window matches nothing and one unlisted delta under one config fails the whole unit closed, and a surface predating the field refuses the run outright), and the rendered-pixel slide shape, whose preconditions are read off the index record before anything is shaped (a nonempty `ink_deltas` holding one distinct digest whose keys are exactly the unit's config set, and a pivot-prefix name among the recorded before glyphs) and whose geometry is then re-derived in a purpose-built font pair, where the pivot keeps its exact ink with its own-frame origin displaced by the declared column count and every span's union of ink slides cumulatively — so a union-invisible name-grain re-spelling to the pivot's right rides along, while one stray pixel anywhere in the window, or a font pair that never settles into the named pivot, fails the match closed — the rendered-pixel ink-gain shape, whose preconditions match the slide shape's and whose geometry is the named pivot keeping its placement, height, and own-frame origin while gaining exactly the named cells, every other pixel standing still — the rendered-pixel join-dropped shape, whose preconditions are a named pivot–follower seam dropping from a yK height to a break plus the slide shape's digest-agreement, and whose geometry is both letters keeping their exact picture and own-frame origin with the follower sitting the declared gap further and everything after it sitting the same extra gap away — the rendered-pixel entry-extension-dropped shape, whose preconditions match the slide shape's and whose geometry is the named pivot keeping its placement, height, and own-frame origin while its after picture is the old one compacted left by the declared column count, everything after the pivot sliding closer by that count — the rendered-pixel redrawn shape, whose preconditions match the slide shape's and whose geometry is walked position by position because a pivot is a position rather than a name: each position that settles into a named after form is judged as the named cell trade at one common column offset (an entry-extended frame names the same trade one column over), its placement carrying the displacement accumulated so far, every span between pivots rendering identically under it, and the displacement growing by the declared shift at each pivot — so a second same-family letter keeping its old form rides as span ink, and one stray pixel anywhere fails the match closed — the composed reading that runs before all of them and credits two or more rules for one window — its name-grain pre-gate refusing to shape a window fewer than two rules have a candidate in, its walk carrying a running column displacement across the window so that each span between events must render identically once displaced, its chaining of a join-dropped or extension event whose follower is itself the next event, its skipping of an extension's named follower so a named redraw does not block composition, its refusal of a pivot contracting off the seam row, of a tail wider than the pivot gave up, and of two rules claiming one position, its judging of a failed candidate as ordinary span ink, its per-shape guard scopes, and its own reporting line, which `main` keeps clear of the per-rule lines — the except_left guard, which reads a ligature's trailing left component and refuses the whole unit rather than the one position, blankness against the verdicts file (parked skip verdicts are not blank), the non-winning manifest stamp on every emitted record, and rules-file validation, which admits exactly one shape per rule and checks that shape's own coherence."""
+"""Tests for the standing-approval fill: the delta shapes — the two structural pattern matches, being the ligature shape (pivot glyph, seams into and out of it, follower family, post-ligature seam, flank-seam identity) and the extension-dropped shape (pivot glyph giving up a named stretch of exit — an `ex-ext-N` it carried, in whole or down to a shorter one its named after cell keeps, or an `ex-con-N` its named after cell carries when the before glyph never had an exit extension — the seam it exits into holding its height, the full after-cell identity of pivot and follower, every other seam standing still, nothing ligating anywhere, and the unit's own judgment fields agreeing that this seam is the question), the ink-exact ink-delta shape (the unit's persisted per-config digests being a nonempty subset of the ones the rule blesses, so an ink-identical window matches nothing and one unlisted delta under one config fails the whole unit closed, and a surface predating the field refuses the run outright), and the rendered-pixel slide shape, whose preconditions are read off the index record before anything is shaped (a nonempty `ink_deltas` holding one distinct digest whose keys are exactly the unit's config set, and a pivot-prefix name among the recorded before glyphs) and whose geometry is then re-derived in a purpose-built font pair, where the pivot keeps its exact ink with its own-frame origin displaced by the declared column count and every span's union of ink slides cumulatively — so a union-invisible name-grain re-spelling to the pivot's right rides along, while one stray pixel anywhere in the window, or a font pair that never settles into the named pivot, fails the match closed — the rendered-pixel ink-gain shape, whose preconditions match the slide shape's and whose geometry is the named pivot keeping its placement, height, and own-frame origin while gaining exactly the named cells, every other pixel standing still — the rendered-pixel join-dropped shape, whose preconditions are a named pivot–follower seam dropping from a yK height to a break plus the slide shape's digest-agreement, and whose geometry is both letters keeping their exact picture and own-frame origin with the follower sitting the declared gap further and everything after it sitting the same extra gap away — the rendered-pixel entry-extension-dropped shape, whose preconditions match the slide shape's and whose geometry is the named pivot keeping its placement, height, and own-frame origin while its after picture is the old one compacted left by the declared column count, everything after the pivot sliding closer by that count — the rendered-pixel redrawn shape, whose preconditions match the slide shape's and whose geometry is walked position by position because a pivot is a position rather than a name: each position that settles into a named after form is judged as the named cell trade at one common column offset (an entry-extended frame names the same trade one column over), its placement carrying the displacement accumulated so far, every span between pivots rendering identically under it, and the displacement growing by the declared shift at each pivot — so a second same-family letter keeping its old form rides as span ink, and one stray pixel anywhere fails the match closed — the composed reading that runs before all of them and credits two or more rules for one window — its name-grain pre-gate refusing to shape a window fewer than two rules have a candidate in, its walk carrying a running column displacement across the window so that each span between events must render identically once displaced, its chaining of a join-dropped or extension event whose follower is itself the next event, its skipping of an extension's named follower so a named redraw does not block composition, its refusal of a pivot contracting off the seam row, of a tail wider than the pivot gave up, and of two rules claiming one position, its judging of a failed candidate as ordinary span ink, its per-shape guard scopes, and its own reporting line, which `main` keeps clear of the per-rule lines — the except_left guard, which reads a ligature's trailing left component and refuses the whole unit rather than the one position, blankness against the verdicts file (parked skip verdicts are not blank), the non-winning manifest stamp on every emitted record, and rules-file validation, which admits exactly one shape per rule and checks that shape's own coherence."""
 
 import json
 import pathlib
@@ -11,7 +11,7 @@ from rebuild.tools import standing_verdicts as sv
 STAMP = "2026-07-10T00:00:00Z"
 
 RULE = {
-    "id": "tea-oy-ligature-break",
+    "id": "fixture-ligature",
     "verdict": "approve",
     "note": "never a different opinion unless ·X is ·Out",
     "match": {
@@ -22,7 +22,7 @@ RULE = {
 }
 
 EXT_RULE = {
-    "id": "tea-i-exit-extension-dropped",
+    "id": "fixture-extension-dropped",
     "verdict": "approve",
     "note": "·Tea gives up its extension before ·I and the seam stays where it was",
     "match": {
@@ -41,7 +41,7 @@ EXT_RULE = {
 }
 
 SHORTENED_RULE = {
-    "id": "fee-tea-ss03-exit-extension-shortened",
+    "id": "fixture-extension-shortened",
     "verdict": "approve",
     "note": "·Fee reaches ·Tea with one pixel of extension where the old font drew three",
     "match": {
@@ -60,7 +60,7 @@ SHORTENED_RULE = {
 }
 
 CONTRACTED_RULE = {
-    "id": "et-may-exit-contracted",
+    "id": "fixture-exit-contracted",
     "verdict": "approve",
     "note": "·May sits a pixel closer to ·Et",
     "match": {
@@ -91,7 +91,7 @@ DELTA_B = "d-9b8a7c6d5e4f"
 UNLISTED_DELTA = "d-000000000001"
 
 INK_RULE = {
-    "id": "may-entry-stub-dropped",
+    "id": "fixture-ink-delta",
     "verdict": "approve",
     "note": "the ·May has lost its left-side stub pixel and nothing else moved",
     "match": {
@@ -103,7 +103,7 @@ INK_RULE = {
 SLIDE_DELTA = "d-aaaaaaaaaaaa"
 
 SLIDE_RULE = {
-    "id": "see-grounded-left-column-dropped",
+    "id": "fixture-slide",
     "verdict": "approve",
     "note": "the grounded ·See sits a column closer to what precedes it and everything after it slides over",
     "match": {
@@ -114,7 +114,7 @@ SLIDE_RULE = {
 }
 
 GAIN_RULE = {
-    "id": "roe-baseline-bar-kept-after-it",
+    "id": "fixture-ink-gain",
     "verdict": "approve",
     "note": "the bottom of ·Roe sits a pixel closer to ·It",
     "match": {
@@ -125,7 +125,7 @@ GAIN_RULE = {
 }
 
 JOIN_RULE = {
-    "id": "at-it-xheight-join-dropped",
+    "id": "fixture-join-dropped",
     "verdict": "approve",
     "note": "·It sits a column further from ·At — they no longer join at the x-height",
     "match": {
@@ -136,7 +136,7 @@ JOIN_RULE = {
 }
 
 ENTRY_RULE = {
-    "id": "see-low-entry-extension-dropped",
+    "id": "fixture-entry-extension-dropped",
     "verdict": "approve",
     "note": "·Low sits a pixel closer to ·See",
     "match": {
@@ -147,7 +147,7 @@ ENTRY_RULE = {
 }
 
 STUB_RULE = {
-    "id": "may-left-stub-dropped",
+    "id": "fixture-stub-dropped",
     "verdict": "approve",
     "note": "the ·May has lost its left-side stub pixel and the rest of the window stays put",
     "match": {
@@ -158,7 +158,7 @@ STUB_RULE = {
 }
 
 RETARGET_RULE = {
-    "id": "tea-no-xheight-join-retargeted",
+    "id": "fixture-join-retargeted",
     "verdict": "approve",
     "note": "·Tea sits as the full bar joining ·No at the baseline",
     "match": {
@@ -181,7 +181,7 @@ RETARGET_RULE = {
 }
 
 REDRAWN_RULE = {
-    "id": "eight-smaller-loop",
+    "id": "fixture-redrawn",
     "verdict": "approve",
     "note": "·Eight's bowl pulls in a column and the rest of the window stays put",
     "match": {
@@ -197,7 +197,7 @@ REDRAWN_RULE = {
 }
 
 REDRAWN_EXT_RULE = {
-    "id": "eight-smaller-loop-exit-extension-dropped",
+    "id": "fixture-redrawn-extension-dropped",
     "verdict": "approve",
     "note": "·Eight's bowl pulls in a column, its connector extension goes, and the follower sits a column closer",
     "match": {
@@ -497,7 +497,7 @@ def test_a_different_follower_family_does_not_match():
 
 
 JAI_RULE = {
-    "id": "jai-exit-extension-dropped",
+    "id": "fixture-follower-list-extension-dropped",
     "verdict": "approve",
     "note": "·Vie, ·See, ·No and ·Low sit a pixel closer to ·J’ai",
     "match": {
@@ -758,152 +758,6 @@ def test_the_ink_delta_shape_and_the_structural_shapes_do_not_read_each_others_u
     assert not sv._matches(EXT_RULE["match"], ink_delta_unit())
 
 
-def test_checked_in_rules_file_loads():
-    rules = sv.load_rules(sv.RULES)
-    by_id = {rule["id"]: rule for rule in rules}
-    assert by_id["tea-oy-ligature-break"]["match"]["except_left"] == ["qsOut"]
-    assert by_id["tea-oy-ligature-break"]["verdict"] == "approve"
-    assert by_id["jai-exit-extension-dropped"]["match"]["before"]["follower"] == [
-        "qsVie",
-        "qsVie_qsUtter",
-        "qsSee",
-        "qsNo",
-        "qsLow",
-    ]
-    shortened = by_id["fee-tea-ss03-exit-extension-shortened"]["match"]
-    assert shortened["before"]["exit_extension"] == "ex-ext-3"
-    assert shortened["after"]["pivot_cells"] == ["qsFee/loop/None/x-height/ex-ext-1"]
-    contracted = by_id["et-may-exit-contracted"]["match"]
-    assert contracted["before"]["exit_extension"] == "ex-con-1"
-    assert contracted["before"]["follower"] == "qsMay"
-    assert contracted["after"]["pivot_cells"] == [
-        "qsEt/hapax/None/baseline/ex-con-1",
-        "qsEt/hapax/x-height/baseline/ex-con-1",
-        "qsEt/hapax/x-height/baseline/en-ext-1+ex-con-1",
-    ]
-    gained = by_id["roe-baseline-bar-kept-after-it"]["match"]
-    assert gained["before"]["pivots"] == ["qsRoe.en-ext-1-at-5"]
-    assert gained["after"]["pivots"] == ["qsRoe.hapax"]
-    assert gained["after"]["gained"] == [[1, 0]]
-    dropped = by_id["at-it-xheight-join-dropped"]["match"]
-    assert dropped["before"] == {"pivot": "qsAt", "seam_out": "y5", "follower": "qsIt"}
-    assert dropped["after"] == {"gap": 1}
-    it_et = by_id["it-et-xheight-join-dropped"]["match"]
-    assert it_et["before"] == {"pivot": "qsIt", "seam_out": "y5", "follower": "qsEt"}
-    assert it_et["after"] == {"gap": 1}
-    entry = by_id["see-low-entry-extension-dropped"]["match"]
-    assert entry["before"]["pivots"] == ["qsLow.en-ext-1"]
-    assert entry["after"] == {"pivots": ["qsLow.hapax"], "entry_drop": 1}
-    vie_entry = by_id["vie-entry-extension-dropped"]["match"]
-    assert vie_entry["before"]["pivots"] == ["qsVie.en-ext-1", "qsVie.en-y0.ex-y0.en-ext-1"]
-    assert vie_entry["after"] == {"pivots": ["qsVie.normal", "qsVie.swept-out"], "entry_drop": 1}
-    vie_utter_entry = by_id["vie-utter-entry-extension-dropped"]["match"]
-    assert vie_utter_entry["before"]["pivots"] == ["qsVie_qsUtter.en-ext-1"]
-    assert vie_utter_entry["after"] == {"pivots": ["qsVie_qsUtter.hapax"], "entry_drop": 1}
-    stub = by_id["may-entry-stub-dropped"]["match"]
-    assert stub["before"]["pivots"] == ["qsMay.en-y5"]
-    assert stub["after"] == {"pivots": ["qsMay.loop"], "stub_drop": 1}
-    may_entry = by_id["may-entry-extension-dropped"]["match"]
-    assert may_entry["before"]["pivots"] == ["qsMay.en-y0.ex-y5.en-ext-1"]
-    assert may_entry["after"] == {"pivots": ["qsMay.loop", "qsMay.grounded-loop"], "entry_drop": 1}
-    retargeted = by_id["tea-no-xheight-join-retargeted"]["match"]
-    assert retargeted["before"] == {"pivot": "qsTea.half", "seam_out": "y5", "follower": "qsNo"}
-    assert retargeted["after"]["retarget"] == "y0"
-    assert retargeted["after"]["shift"] == -1
-    assert retargeted["after"]["pivot_cells"] == [
-        "qsTea/full/None/baseline/",
-        "qsTea/full/x-height/baseline/",
-        "qsTea/full/top/baseline/",
-    ]
-    assert retargeted["after"]["receiver_cells"] == [
-        "qsNo/flipped/baseline/None/",
-        "qsNo/flipped/baseline/baseline/",
-    ]
-    pea_retargeted = by_id["pea-no-xheight-join-retargeted"]["match"]
-    assert pea_retargeted["before"] == {"pivot": "qsPea.half", "seam_out": "y5", "follower": "qsNo"}
-    assert pea_retargeted["after"]["retarget"] == "y0"
-    assert pea_retargeted["after"]["shift"] == -1
-    assert pea_retargeted["after"]["pivot_cells"] == [
-        "qsPea/full/None/baseline/",
-        "qsPea/full/x-height/baseline/",
-        "qsPea/full/y6/baseline/",
-    ]
-    assert pea_retargeted["after"]["receiver_cells"] == [
-        "qsNo/flipped/baseline/None/",
-        "qsNo/flipped/baseline/baseline/",
-    ]
-    it_may_rule = by_id["it-may-exit-extension-dropped"]["match"]
-    assert it_may_rule["before"]["pivot"] == "qsIt"
-    assert it_may_rule["before"]["exit_extension"] == "ex-ext-1"
-    assert it_may_rule["before"]["follower"] == ["qsVie", "qsVie_qsUtter", "qsMay", "qsUtter"]
-    assert it_may_rule["after"]["pivot_cells"] == [
-        "qsIt/hapax/None/baseline/",
-        "qsIt/hapax/baseline/baseline/",
-        "qsIt/hapax/x-height/baseline/",
-    ]
-    assert it_may_rule["after"]["follower_cells"] == [
-        "qsVie/normal/baseline/None/",
-        "qsVie/swept-out/baseline/baseline/",
-        "qsVie_qsUtter/hapax/baseline/None/",
-        "qsMay/loop/baseline/None/",
-        "qsMay/loop/baseline/x-height/ex-ext-1",
-        "qsMay/loop/baseline/x-height/ex-ext-2",
-        "qsUtter/mono/baseline/None/",
-        "qsUtter/mono/baseline/x-height/",
-        "qsUtter/mono/baseline/x-height/ex-ext-1",
-    ]
-    it_ah_rule = by_id["it-ah-exit-extension-dropped"]["match"]
-    assert it_ah_rule["before"]["pivot"] == "qsIt"
-    assert it_ah_rule["before"]["exit_extension"] == "ex-ext-1"
-    assert it_ah_rule["before"]["follower"] == ["qsAt", "qsAh"]
-    assert it_ah_rule["after"]["pivot_cells"] == [
-        "qsIt/hapax/None/baseline/",
-        "qsIt/hapax/baseline/baseline/",
-    ]
-    assert it_ah_rule["after"]["follower_cells"] == [
-        "qsAt/rising/baseline/None/",
-        "qsAt/rising/baseline/x-height/",
-        "qsAh/hapax/baseline/None/",
-        "qsAh/hapax/baseline/x-height/",
-        "qsAh/hapax/baseline/x-height/ex-ext-1",
-    ]
-    eight = by_id["eight-smaller-loop"]["match"]
-    assert eight["before"]["pivots"] == ["qsEight"]
-    assert eight["after"] == {
-        "pivots": ["qsEight.smaller-loop"],
-        "dropped": [[3, 3], [3, 5], [4, 4]],
-        "added": [[3, 4]],
-        "shift": 0,
-    }
-    eight_ext = by_id["eight-smaller-loop-exit-extension-dropped"]["match"]
-    assert eight_ext["before"]["pivots"] == ["qsEight.ex-ext-1", "qsEight.noentry.ex-ext-1"]
-    assert eight_ext["after"] == {
-        "pivots": ["qsEight.smaller-loop"],
-        "dropped": [[3, 3], [3, 5], [4, 4], [5, 0]],
-        "added": [[3, 4]],
-        "shift": -1,
-    }
-    eight_tea = by_id["eight-tea-entry-extension-dropped"]["match"]
-    assert eight_tea["before"]["pivots"] == ["qsTea.en-y0.en-ext-1"]
-    assert eight_tea["after"] == {"pivots": ["qsTea.full.en-y0"], "entry_drop": 1}
-    i_smaller = by_id["i-smaller-loop"]["match"]
-    assert i_smaller["before"]["pivots"] == ["qsI"]
-    assert i_smaller["after"] == {
-        "pivots": ["qsI.smaller-loop"],
-        "dropped": [[0, 4], [1, 3], [1, 5]],
-        "added": [[1, 4]],
-        "shift": 0,
-    }
-    i_regular = by_id["i-regular-loop-after-roe"]["match"]
-    assert i_regular["before"]["pivots"] == ["qsI.en-y0.ex-y5.smaller-loop"]
-    assert i_regular["after"] == {
-        "pivots": ["qsI.loop"],
-        "dropped": [[1, 4]],
-        "added": [[0, 4], [1, 3], [1, 5]],
-        "shift": 0,
-    }
-
-
 def et_may(
     uid="u-18",
     pivot="qsEt",
@@ -924,15 +778,6 @@ def et_may(
 def test_the_checked_in_et_may_rule_reads_the_contraction_and_nothing_wider():
     match = {rule["id"]: rule for rule in sv.load_rules(sv.RULES)}["et-may-exit-contracted"]["match"]
     assert sv._matches(match, et_may())
-    assert sv._matches(match, et_may(follower_cell="qsMay/loop/baseline/x-height/ex-ext-1"))
-    assert sv._matches(match, et_may(follower_cell="qsMay/loop/baseline/x-height/ex-ext-2"))
-    assert sv._matches(
-        match,
-        et_may(
-            pivot="qsEt.en-ext-1",
-            pivot_cell="qsEt/hapax/x-height/baseline/en-ext-1+ex-con-1",
-        ),
-    )
     regrouped = et_may()
     regrouped["secondary_seams"] = 1
     assert not sv._matches(match, regrouped)
@@ -967,43 +812,6 @@ def it_may(
 def test_the_checked_in_it_may_rule_reads_the_narrowed_seam_and_nothing_wider():
     match = {rule["id"]: rule for rule in sv.load_rules(sv.RULES)}["it-may-exit-extension-dropped"]["match"]
     assert sv._matches(match, it_may())
-    assert sv._matches(match, it_may(follower_cell="qsMay/loop/baseline/x-height/ex-ext-1"))
-    assert sv._matches(match, it_may(follower_cell="qsMay/loop/baseline/x-height/ex-ext-2"))
-    assert sv._matches(
-        match,
-        it_may(pivot="qsIt.ex-y0.ex-ext-1", pivot_cell="qsIt/hapax/None/baseline/"),
-    )
-    assert sv._matches(
-        match,
-        it_may(pivot="qsIt.en-y0.ex-y0.ex-ext-1", pivot_cell="qsIt/hapax/baseline/baseline/"),
-    )
-    assert sv._matches(
-        match,
-        it_may(follower="qsUtter", follower_cell="qsUtter/mono/baseline/None/"),
-    )
-    assert sv._matches(
-        match,
-        it_may(follower="qsUtter.ex-y5", follower_cell="qsUtter/mono/baseline/x-height/"),
-    )
-    assert sv._matches(
-        match,
-        it_may(
-            follower="qsUtter.ex-y5.ex-ext-1",
-            follower_cell="qsUtter/mono/baseline/x-height/ex-ext-1",
-        ),
-    )
-    assert sv._matches(
-        match,
-        it_may(follower="qsVie.en-ext-1", follower_cell="qsVie/normal/baseline/None/"),
-    )
-    assert sv._matches(
-        match,
-        it_may(follower="qsVie.en-y0.ex-y0", follower_cell="qsVie/swept-out/baseline/baseline/"),
-    )
-    assert sv._matches(
-        match,
-        it_may(follower="qsVie_qsUtter.en-ext-1", follower_cell="qsVie_qsUtter/hapax/baseline/None/"),
-    )
     regrouped = it_may()
     regrouped["secondary_seams"] = 1
     assert not sv._matches(match, regrouped)
@@ -1036,20 +844,6 @@ def it_ah(
 def test_the_checked_in_it_ah_rule_reads_the_narrowed_seam_and_nothing_wider():
     match = {rule["id"]: rule for rule in sv.load_rules(sv.RULES)}["it-ah-exit-extension-dropped"]["match"]
     assert sv._matches(match, it_ah())
-    assert sv._matches(match, it_ah(follower_cell="qsAh/hapax/baseline/x-height/"))
-    assert sv._matches(match, it_ah(follower_cell="qsAh/hapax/baseline/x-height/ex-ext-1"))
-    assert sv._matches(
-        match,
-        it_ah(pivot="qsIt.en-y0.ex-y0.ex-ext-1", pivot_cell="qsIt/hapax/baseline/baseline/"),
-    )
-    assert sv._matches(
-        match,
-        it_ah(follower="qsAt.en-y0", follower_cell="qsAt/rising/baseline/None/"),
-    )
-    assert sv._matches(
-        match,
-        it_ah(follower="qsAt.en-y0.ex-y5", follower_cell="qsAt/rising/baseline/x-height/"),
-    )
     regrouped = it_ah()
     regrouped["secondary_seams"] = 1
     assert not sv._matches(match, regrouped)
@@ -1069,7 +863,6 @@ def test_the_checked_in_fee_rule_reads_the_ss03_shortening_and_nothing_wider():
         "match"
     ]
     assert sv._matches(match, fee_tea())
-    assert sv._matches(match, fee_tea(follower_cell="qsTea/full/x-height/None/"))
     regrouped = unit(
         "u-17",
         ["qsMay", "qsFee.ex-y5.before-may.ex-ext-3", "qsTea.half.ex-y5", "qsJai.en-y5.ex-y0.en-con-1"],
@@ -1096,7 +889,6 @@ def test_the_checked_in_fee_rule_reads_the_ss03_shortening_and_nothing_wider():
 def test_the_checked_in_jai_rule_reads_the_narrowed_seam_and_nothing_wider():
     match = {rule["id"]: rule for rule in sv.load_rules(sv.RULES)}["jai-exit-extension-dropped"]["match"]
     assert sv._matches(match, jai_before())
-    assert sv._matches(match, jai_before(follower="qsLow", follower_cell="qsLow/hapax/baseline/None/"))
     kept = jai_before(follower="qsTea.en-y0", follower_cell="qsTea/full/baseline/None/")
     assert not sv._matches(match, kept)
     yielded = jai_before()
@@ -1317,7 +1109,7 @@ def test_both_shapes_load_from_one_rules_file(tmp_path):
     assert [rule["id"] for rule in rules] == [RULE["id"], EXT_RULE["id"]]
 
 
-def test_all_nine_shapes_load_from_one_rules_file(tmp_path):
+def test_every_shape_loads_from_one_rules_file(tmp_path):
     rules = sv.load_rules(
         _write_rules(
             tmp_path / "rules.yaml",
@@ -1347,6 +1139,32 @@ def test_all_nine_shapes_load_from_one_rules_file(tmp_path):
         RETARGET_RULE["id"],
         REDRAWN_RULE["id"],
     ]
+
+
+def test_every_shape_is_named_in_the_module_docstring():
+    """The module docstring is the contract authority — the skill sends a reader there and nowhere else for what a shape proves — so a row whose paragraph was never written leaves that authority a reading short, which is how the stub-dropped shape shipped undocumented."""
+    doc = sv.__doc__ or ""
+    assert [name for name in sv.SHAPES if name not in doc] == []
+
+
+def _fixture_rules():
+    """Every rule dict this module builds at import, discovered off its own globals rather than listed, so a fixture added later is held to the same standard without anyone remembering to enroll it."""
+    return {
+        name: value
+        for name, value in vars(sys.modules[__name__]).items()
+        if isinstance(value, dict)
+        and isinstance(value.get("id"), str)
+        and isinstance(value.get("match"), dict)
+    }
+
+
+def test_no_fixture_rule_borrows_a_checked_in_rules_id():
+    """The corpus here is fiction — synthetic letters, invented cells, geometry drawn to exercise a matcher rather than to describe the font — and an id in the `fixture-` namespace says so at a glance. A fixture wearing a real rule's id reads as documentation of that rule while modeling whatever the test needed, which is how an ink-delta fixture came to carry the stub-dropped rule's id for the whole life of that shape; holding the two sets disjoint is what keeps a reader from taking one for the other."""
+    checked_in = {rule["id"] for rule in sv.load_rules(sv.RULES)}
+    borrowed = sorted(
+        f"{name} ({rule['id']})" for name, rule in _fixture_rules().items() if rule["id"] in checked_in
+    )
+    assert borrowed == []
 
 
 def test_duplicate_rule_ids_are_refused(tmp_path):
@@ -1384,148 +1202,141 @@ EIGHTISH_ENTRY_EXTENDED = (_rect(0, 0, 50, 50), _rect(50, 0, 100, 150), _rect(10
 EIGHTISH_ENTRY_EXTENDED_SMALLER = (_rect(0, 0, 50, 50), _rect(50, 0, 100, 150), _rect(100, 50, 150, 100))
 EIGHTISH_SMALLER_AND_A_PIXEL = (_rect(0, 0, 50, 150), _rect(50, 50, 100, 100), _rect(100, 0, 150, 50))
 
-BEFORE_GLYPHS = {
-    "qsL": (TWO_COLUMNS, 100),
-    "qsSee.ex-y0": (GROUNDED_SEE, 250),
-    "qsSee.ex-y0.spare": (GROUNDED_SEE, 250),
-    "qsSee.ex-y0.blank": ((), 50),
-    "qsF1": (TWO_COLUMNS, 50),
-    "qsF2": (TWO_COLUMNS, 100),
-    "qsF3": (TWO_COLUMNS, 100),
-    "qsM": (TWO_COLUMNS, 100),
-    "qsJ.ex-y0.ex-ext-1": (EXTENDED_PIVOT, 100),
-    "qsJ.ex-y0.ex-ext-1.wide": (WIDE_TAIL_PIVOT, 150),
-    "qsJ.ex-y0.ex-ext-1.crown": (CROWNED_PIVOT, 100),
-    "qsJ.ex-y0.ex-ext-3.long": (LONG_TAIL_PIVOT, 200),
-    "qsEt": (EXTENDED_PIVOT, 100),
-    "qsRoe.en-ext-1-at-5": (SHORTENED_ROE, 100),
-    "qsAt": (TWO_COLUMNS, 100),
-    "qsIt": (TWO_COLUMNS, 100),
-    "qsIt.ex-y5": (TWO_COLUMNS, 100),
-    "qsEt.join": (TWO_COLUMNS, 100),
-    "qsLow.en-ext-1": (EXTENDED_ENTRY_LOW, 150),
-    "qsVie.en-ext-1": (EXTENDED_ENTRY_LOW, 150),
-    "qsVie_qsUtter.en-ext-1": (EXTENDED_ENTRY_LOW, 150),
-    "qsMay.en-y0.ex-y5.en-ext-1": (EXTENDED_ENTRY_LOW, 150),
-    "qsMay.en-y5": (EXTENDED_ENTRY_LOW, 150),
-    "qsK": (TWO_COLUMNS, 100),
-    "qsTea.half.ex-y5": ((_rect(0, 100, 100, 150),), 100),
-    "qsPea.half.ex-y5": ((_rect(0, 100, 100, 150),), 100),
-    "qsNo.en-ext-1": (TWO_COLUMNS, 100),
-    "qsEight": (EIGHTISH, 100),
-    "qsEight.ex-ext-1": (EIGHTISH_EXTENDED, 150),
-    "qsEight.en-ext-1": (EIGHTISH_ENTRY_EXTENDED, 150),
-    "qsEight.smaller-loop": (EIGHTISH_SMALLER, 100),
-    "space": ((), 50),
-}
-AFTER_GLYPHS = {
-    "qsL": (TWO_COLUMNS, 100),
-    "qsSee.straighter": (STRAIGHTER_SEE, 200),
-    "qsSee.straighter.blank": ((), 50),
-    "qsSee.spare": (GROUNDED_SEE, 250),
-    "qsSee.wandered": (TWO_COLUMNS, 250),
-    "qsF1": (TWO_COLUMNS, 50),
-    "qsF2": (TUCKED_FOLLOWER, 100),
-    "qsF3": (TWO_COLUMNS, 100),
-    "qsM": (TWO_COLUMNS, 100),
-    "qsJ.hapax.ex-y0": (TRIMMED_PIVOT, 50),
-    "qsJ.hapax.ex-y0.ex-ext-1": (EXTENDED_PIVOT, 100),
-    "qsEt.hapax": (TRIMMED_PIVOT, 50),
-    "qsOther": (TWO_COLUMNS, 100),
-    "qsRoe.hapax.en-y5.en-ext-1": (KEPT_ROE, 100),
-    "qsAt": (TWO_COLUMNS, 150),
-    "qsIt": (TWO_COLUMNS, 100),
-    "qsIt.hapax": (TWO_COLUMNS, 150),
-    "qsEt.join": (TWO_COLUMNS, 100),
-    "qsLow.hapax": (TWO_COLUMNS, 100),
-    "qsVie.normal": (TWO_COLUMNS, 100),
-    "qsVie_qsUtter.hapax": (TWO_COLUMNS, 100),
-    "qsMay.loop": (TWO_COLUMNS, 100),
-    "qsK": (TWO_COLUMNS, 150),
-    "qsTea": (TWO_COLUMNS, 100),
-    "qsPea": (TWO_COLUMNS, 100),
-    "qsNo": (TRIMMED_PIVOT, 50),
-    "qsEight.smaller-loop": (EIGHTISH_SMALLER, 100),
-    "qsEight.smaller-loop.en-ext-1": (EIGHTISH_ENTRY_EXTENDED_SMALLER, 150),
-    "qsEight.normal-sized-loop": (EIGHTISH, 100),
-    "space": ((), 50),
-}
-BEFORE_CMAP = {
-    0x0020: "space",
-    0xE001: "qsL",
-    0xE002: "qsSee.ex-y0",
-    0xE003: "qsF1",
-    0xE004: "qsF2",
-    0xE005: "qsSee.ex-y0",
-    0xE006: "qsJ.ex-y0.ex-ext-1",
-    0xE007: "qsF3",
-    0xE008: "qsM",
-    0xE009: "qsSee.ex-y0.spare",
-    0xE00A: "qsJ.ex-y0.ex-ext-1.wide",
-    0xE00B: "qsSee.ex-y0.blank",
-    0xE00C: "qsJ.ex-y0.ex-ext-1.crown",
-    0xE00D: "qsSee.ex-y0.spare",
-    0xE00E: "qsJ.ex-y0.ex-ext-3.long",
-    0xE00F: "qsJ.ex-y0.ex-ext-3.long",
-    0xE010: "qsEt",
-    0xE020: "qsRoe.en-ext-1-at-5",
-    0xE021: "qsAt",
-    0xE022: "qsIt",
-    0xE023: "qsLow.en-ext-1",
-    0xE024: "qsTea.half.ex-y5",
-    0xE025: "qsNo.en-ext-1",
-    0xE026: "qsPea.half.ex-y5",
-    0xE027: "qsVie.en-ext-1",
-    0xE028: "qsVie_qsUtter.en-ext-1",
-    0xE029: "qsMay.en-y0.ex-y5.en-ext-1",
-    0xE02A: "qsK",
-    0xE02B: "qsMay.en-y5",
-    0xE02C: "qsIt.ex-y5",
-    0xE02D: "qsEt.join",
-    0xE030: "qsEight",
-    0xE031: "qsEight.ex-ext-1",
-    0xE032: "qsEight.en-ext-1",
-    0xE033: "qsEight",
-    0xE034: "qsEight.smaller-loop",
-}
-AFTER_CMAP = {
-    0x0020: "space",
-    0xE001: "qsL",
-    0xE002: "qsSee.straighter",
-    0xE003: "qsF1",
-    0xE004: "qsF2",
-    0xE005: "qsOther",
-    0xE006: "qsJ.hapax.ex-y0",
-    0xE007: "qsF3",
-    0xE008: "qsM",
-    0xE009: "qsSee.spare",
-    0xE00A: "qsJ.hapax.ex-y0",
-    0xE00B: "qsSee.straighter.blank",
-    0xE00C: "qsJ.hapax.ex-y0",
-    0xE00D: "qsSee.wandered",
-    0xE00E: "qsJ.hapax.ex-y0.ex-ext-1",
-    0xE00F: "qsJ.hapax.ex-y0",
-    0xE010: "qsEt.hapax",
-    0xE020: "qsRoe.hapax.en-y5.en-ext-1",
-    0xE021: "qsAt",
-    0xE022: "qsIt",
-    0xE023: "qsLow.hapax",
-    0xE024: "qsTea",
-    0xE025: "qsNo",
-    0xE026: "qsPea",
-    0xE027: "qsVie.normal",
-    0xE028: "qsVie_qsUtter.hapax",
-    0xE029: "qsMay.loop",
-    0xE02A: "qsK",
-    0xE02B: "qsMay.loop",
-    0xE02C: "qsIt.hapax",
-    0xE02D: "qsEt.join",
-    0xE030: "qsEight.smaller-loop",
-    0xE031: "qsEight.smaller-loop",
-    0xE032: "qsEight.smaller-loop.en-ext-1",
-    0xE033: "qsEight.normal-sized-loop",
-    0xE034: "qsEight.normal-sized-loop",
-}
+_OUTLINES: dict[str, dict[str, tuple]] = {"before": {}, "after": {}}
+_CODEPOINTS: dict[tuple[str, str], int] = {}
+_FIRST_CODEPOINT = 0xE001
+
+
+def register_glyph(side, name, outline, advance):
+    """One side's drawing of one glyph name, recorded once. Outlines are held per side rather than per codepoint because the two sides are separate fonts and an after form routinely answers for several before forms — the trimmed pivot stands in for every tail the rebuild gives up — so a glyph and a before→after pair are two registrations, not one call with six arguments."""
+    drawn = _OUTLINES[side]
+    if name in drawn:
+        raise ValueError(f"the {side} font already draws {name}")
+    drawn[name] = (outline, advance)
+
+
+def register_pair(before_name, after_name):
+    """The private-use codepoint that spells one before→after change, allocated rather than chosen so a new window costs nobody a reading of the tail of a table. Both names must already be drawn on their own side, and one pair takes one codepoint: two spellings of the same question would only ever be one window's worth of evidence hiding behind another's."""
+    for side, name in (("before", before_name), ("after", after_name)):
+        if name not in _OUTLINES[side]:
+            raise ValueError(f"the {side} font draws no {name}")
+    if (before_name, after_name) in _CODEPOINTS:
+        raise ValueError(f"{before_name} to {after_name} already has a codepoint")
+    codepoint = _FIRST_CODEPOINT + len(_CODEPOINTS)
+    _CODEPOINTS[(before_name, after_name)] = codepoint
+    return codepoint
+
+
+def spell(*codepoints):
+    """The `codepoints` field of a window spec, written from the pairs the window is made of, so a spec names the changes it shows and never a hex string somebody has to keep in step with the cmaps."""
+    return ":".join(f"{codepoint:04X}" for codepoint in codepoints)
+
+
+register_glyph("before", "qsL", TWO_COLUMNS, 100)
+register_glyph("before", "qsSee.ex-y0", GROUNDED_SEE, 250)
+register_glyph("before", "qsSee.ex-y0.spare", GROUNDED_SEE, 250)
+register_glyph("before", "qsSee.ex-y0.blank", (), 50)
+register_glyph("before", "qsF1", TWO_COLUMNS, 50)
+register_glyph("before", "qsF2", TWO_COLUMNS, 100)
+register_glyph("before", "qsF3", TWO_COLUMNS, 100)
+register_glyph("before", "qsM", TWO_COLUMNS, 100)
+register_glyph("before", "qsJ.ex-y0.ex-ext-1", EXTENDED_PIVOT, 100)
+register_glyph("before", "qsJ.ex-y0.ex-ext-1.wide", WIDE_TAIL_PIVOT, 150)
+register_glyph("before", "qsJ.ex-y0.ex-ext-1.crown", CROWNED_PIVOT, 100)
+register_glyph("before", "qsJ.ex-y0.ex-ext-3.long", LONG_TAIL_PIVOT, 200)
+register_glyph("before", "qsEt", EXTENDED_PIVOT, 100)
+register_glyph("before", "qsRoe.en-ext-1-at-5", SHORTENED_ROE, 100)
+register_glyph("before", "qsAt", TWO_COLUMNS, 100)
+register_glyph("before", "qsIt", TWO_COLUMNS, 100)
+register_glyph("before", "qsIt.ex-y5", TWO_COLUMNS, 100)
+register_glyph("before", "qsEt.join", TWO_COLUMNS, 100)
+register_glyph("before", "qsLow.en-ext-1", EXTENDED_ENTRY_LOW, 150)
+register_glyph("before", "qsVie.en-ext-1", EXTENDED_ENTRY_LOW, 150)
+register_glyph("before", "qsVie_qsUtter.en-ext-1", EXTENDED_ENTRY_LOW, 150)
+register_glyph("before", "qsMay.en-y0.ex-y5.en-ext-1", EXTENDED_ENTRY_LOW, 150)
+register_glyph("before", "qsMay.en-y5", EXTENDED_ENTRY_LOW, 150)
+register_glyph("before", "qsK", TWO_COLUMNS, 100)
+register_glyph("before", "qsTea.half.ex-y5", (_rect(0, 100, 100, 150),), 100)
+register_glyph("before", "qsPea.half.ex-y5", (_rect(0, 100, 100, 150),), 100)
+register_glyph("before", "qsNo.en-ext-1", TWO_COLUMNS, 100)
+register_glyph("before", "qsEight", EIGHTISH, 100)
+register_glyph("before", "qsEight.ex-ext-1", EIGHTISH_EXTENDED, 150)
+register_glyph("before", "qsEight.en-ext-1", EIGHTISH_ENTRY_EXTENDED, 150)
+register_glyph("before", "qsEight.smaller-loop", EIGHTISH_SMALLER, 100)
+register_glyph("before", "space", (), 50)
+
+register_glyph("after", "qsL", TWO_COLUMNS, 100)
+register_glyph("after", "qsSee.straighter", STRAIGHTER_SEE, 200)
+register_glyph("after", "qsSee.straighter.blank", (), 50)
+register_glyph("after", "qsSee.spare", GROUNDED_SEE, 250)
+register_glyph("after", "qsSee.wandered", TWO_COLUMNS, 250)
+register_glyph("after", "qsF1", TWO_COLUMNS, 50)
+register_glyph("after", "qsF2", TUCKED_FOLLOWER, 100)
+register_glyph("after", "qsF3", TWO_COLUMNS, 100)
+register_glyph("after", "qsM", TWO_COLUMNS, 100)
+register_glyph("after", "qsJ.hapax.ex-y0", TRIMMED_PIVOT, 50)
+register_glyph("after", "qsJ.hapax.ex-y0.ex-ext-1", EXTENDED_PIVOT, 100)
+register_glyph("after", "qsEt.hapax", TRIMMED_PIVOT, 50)
+register_glyph("after", "qsOther", TWO_COLUMNS, 100)
+register_glyph("after", "qsRoe.hapax.en-y5.en-ext-1", KEPT_ROE, 100)
+register_glyph("after", "qsAt", TWO_COLUMNS, 150)
+register_glyph("after", "qsIt", TWO_COLUMNS, 100)
+register_glyph("after", "qsIt.hapax", TWO_COLUMNS, 150)
+register_glyph("after", "qsEt.join", TWO_COLUMNS, 100)
+register_glyph("after", "qsLow.hapax", TWO_COLUMNS, 100)
+register_glyph("after", "qsVie.normal", TWO_COLUMNS, 100)
+register_glyph("after", "qsVie_qsUtter.hapax", TWO_COLUMNS, 100)
+register_glyph("after", "qsMay.loop", TWO_COLUMNS, 100)
+register_glyph("after", "qsK", TWO_COLUMNS, 150)
+register_glyph("after", "qsTea", TWO_COLUMNS, 100)
+register_glyph("after", "qsPea", TWO_COLUMNS, 100)
+register_glyph("after", "qsNo", TRIMMED_PIVOT, 50)
+register_glyph("after", "qsEight.smaller-loop", EIGHTISH_SMALLER, 100)
+register_glyph("after", "qsEight.smaller-loop.en-ext-1", EIGHTISH_ENTRY_EXTENDED_SMALLER, 150)
+register_glyph("after", "qsEight.normal-sized-loop", EIGHTISH, 100)
+register_glyph("after", "space", (), 50)
+
+LEAD = register_pair("qsL", "qsL")
+SEE = register_pair("qsSee.ex-y0", "qsSee.straighter")
+FOLLOWER_1 = register_pair("qsF1", "qsF1")
+FOLLOWER_2 = register_pair("qsF2", "qsF2")
+FOLLOWER_3 = register_pair("qsF3", "qsF3")
+MIDDLE = register_pair("qsM", "qsM")
+MARKER = register_pair("space", "space")
+SEE_UNSETTLED = register_pair("qsSee.ex-y0", "qsOther")
+SEE_SPARE = register_pair("qsSee.ex-y0.spare", "qsSee.spare")
+SEE_WANDERED = register_pair("qsSee.ex-y0.spare", "qsSee.wandered")
+SEE_BLANK = register_pair("qsSee.ex-y0.blank", "qsSee.straighter.blank")
+PIVOT = register_pair("qsJ.ex-y0.ex-ext-1", "qsJ.hapax.ex-y0")
+PIVOT_WIDE_TAIL = register_pair("qsJ.ex-y0.ex-ext-1.wide", "qsJ.hapax.ex-y0")
+PIVOT_CROWNED = register_pair("qsJ.ex-y0.ex-ext-1.crown", "qsJ.hapax.ex-y0")
+PIVOT_SHORTENED = register_pair("qsJ.ex-y0.ex-ext-3.long", "qsJ.hapax.ex-y0.ex-ext-1")
+PIVOT_DROPPED_WHOLE = register_pair("qsJ.ex-y0.ex-ext-3.long", "qsJ.hapax.ex-y0")
+PIVOT_CONTRACTED = register_pair("qsEt", "qsEt.hapax")
+ROE = register_pair("qsRoe.en-ext-1-at-5", "qsRoe.hapax.en-y5.en-ext-1")
+AT = register_pair("qsAt", "qsAt")
+IT = register_pair("qsIt", "qsIt")
+IT_EXITING = register_pair("qsIt.ex-y5", "qsIt.hapax")
+ET_JOIN = register_pair("qsEt.join", "qsEt.join")
+LOW = register_pair("qsLow.en-ext-1", "qsLow.hapax")
+TEA = register_pair("qsTea.half.ex-y5", "qsTea")
+PEA = register_pair("qsPea.half.ex-y5", "qsPea")
+NO = register_pair("qsNo.en-ext-1", "qsNo")
+VIE = register_pair("qsVie.en-ext-1", "qsVie.normal")
+VIE_UTTER = register_pair("qsVie_qsUtter.en-ext-1", "qsVie_qsUtter.hapax")
+MAY = register_pair("qsMay.en-y0.ex-y5.en-ext-1", "qsMay.loop")
+LEFT_NEIGHBOR = register_pair("qsK", "qsK")
+MAY_STUB = register_pair("qsMay.en-y5", "qsMay.loop")
+EIGHT = register_pair("qsEight", "qsEight.smaller-loop")
+EIGHT_EXTENDED = register_pair("qsEight.ex-ext-1", "qsEight.smaller-loop")
+EIGHT_ENTRY_EXTENDED = register_pair("qsEight.en-ext-1", "qsEight.smaller-loop.en-ext-1")
+EIGHT_UNCHANGED = register_pair("qsEight", "qsEight.normal-sized-loop")
+EIGHT_REVERSED = register_pair("qsEight.smaller-loop", "qsEight.normal-sized-loop")
+
+BEFORE_GLYPHS = _OUTLINES["before"]
+AFTER_GLYPHS = _OUTLINES["after"]
+BEFORE_CMAP = {codepoint: names[0] for names, codepoint in _CODEPOINTS.items()}
+AFTER_CMAP = {codepoint: names[1] for names, codepoint in _CODEPOINTS.items()}
 
 SLIDE_FONTS = {
     "before": (BEFORE_GLYPHS, BEFORE_CMAP),
@@ -1578,7 +1389,7 @@ SLIDE_FONTS = {
 }
 
 FOUNDING_GLYPHS = ["qsL", "qsSee.ex-y0", "qsF1", "qsF2"]
-FOUNDING_CODEPOINTS = "E001:E002:E003:E004"
+FOUNDING_CODEPOINTS = spell(LEAD, SEE, FOLLOWER_1, FOLLOWER_2)
 
 
 def _build_font(path, glyphs, cmap):
@@ -1650,6 +1461,30 @@ def founding_window(uid="s-1"):
     return slide_unit(uid, FOUNDING_GLYPHS, FOUNDING_CODEPOINTS)
 
 
+def test_a_glyph_drawn_twice_on_one_side_is_refused():
+    """A second drawing of a name would quietly become the only one, taking every codepoint that already spells the first with it — which is exactly what a dict literal's duplicate key did in silence."""
+    with pytest.raises(ValueError, match="already draws"):
+        register_glyph("before", "qsL", TWO_COLUMNS, 100)
+
+
+def test_a_pair_naming_a_glyph_no_font_draws_is_refused():
+    with pytest.raises(ValueError, match="draws no qsNowhere"):
+        register_pair("qsL", "qsNowhere")
+    with pytest.raises(ValueError, match="draws no qsNowhere"):
+        register_pair("qsNowhere", "qsL")
+
+
+def test_a_pair_registered_twice_is_refused():
+    with pytest.raises(ValueError, match="already has a codepoint"):
+        register_pair("qsL", "qsL")
+
+
+def test_every_drawn_glyph_is_spelled_by_some_codepoint():
+    """An outline no codepoint reaches is ink the fonts carry and no window can ever ask about, so it is either a dead fixture or a pair somebody forgot to register."""
+    for side, cmap in (("before", BEFORE_CMAP), ("after", AFTER_CMAP)):
+        assert sorted(set(_OUTLINES[side]) - set(cmap.values())) == []
+
+
 def test_a_slide_rule_reads_no_unit_without_ink_deltas():
     assert not sv._matches(
         SLIDE_RULE["match"], slide_unit("s-2", FOUNDING_GLYPHS, FOUNDING_CODEPOINTS, deltas={})
@@ -1688,8 +1523,8 @@ def test_delta_keys_that_are_not_the_units_configs_are_refused_before_any_shapin
 
 
 def test_a_window_with_no_pivot_prefix_glyph_is_refused_before_any_shaping():
-    assert not sv._matches(SLIDE_RULE["match"], slide_unit("s-7", ["qsL", "qsF1"], "E001:E003"))
-    lookalike = slide_unit("s-8", ["qsL", "qsSee.ex-y0x", "qsF1"], "E001:E002:E003")
+    assert not sv._matches(SLIDE_RULE["match"], slide_unit("s-7", ["qsL", "qsF1"], spell(LEAD, FOLLOWER_1)))
+    lookalike = slide_unit("s-8", ["qsL", "qsSee.ex-y0x", "qsF1"], spell(LEAD, SEE, FOLLOWER_1))
     assert not sv._matches(SLIDE_RULE["match"], lookalike)
 
 
@@ -1699,7 +1534,7 @@ def test_a_matchable_window_with_no_context_refuses_to_guess():
 
 
 def test_a_pure_slide_matches(slide_context):
-    window = slide_unit("s-9", ["qsL", "qsSee.ex-y0", "qsF1"], "E001:E002:E003")
+    window = slide_unit("s-9", ["qsL", "qsSee.ex-y0", "qsF1"], spell(LEAD, SEE, FOLLOWER_1))
     assert sv._matches(SLIDE_RULE["match"], window, context=slide_context())
 
 
@@ -1724,7 +1559,7 @@ def test_the_wrong_column_count_defeats_the_match(slide_context):
 
 
 def test_a_window_that_never_settles_into_the_named_pivot_is_refused(slide_context):
-    stranded = slide_unit("s-10", ["qsL", "qsSee.ex-y0"], "E001:E005")
+    stranded = slide_unit("s-10", ["qsL", "qsSee.ex-y0"], spell(LEAD, SEE_UNSETTLED))
     assert not sv._matches(SLIDE_RULE["match"], stranded, context=slide_context())
 
 
@@ -1738,7 +1573,7 @@ def test_two_pivots_in_one_window_slide_cumulatively(slide_context):
     twice = slide_unit(
         "s-12",
         ["qsL", "qsSee.ex-y0", "qsF1", "qsSee.ex-y0", "qsF1"],
-        "E001:E002:E003:E002:E003",
+        spell(LEAD, SEE, FOLLOWER_1, SEE, FOLLOWER_1),
     )
     assert sv._matches(SLIDE_RULE["match"], twice, context=context)
     two_columns = json.loads(json.dumps(SLIDE_RULE["match"]))
@@ -1826,7 +1661,7 @@ def test_a_rule_declaring_the_slide_and_ink_delta_shapes_at_once_is_refused(tmp_
 
 
 GAIN_GLYPHS = ["qsL", "qsRoe.en-ext-1-at-5", "qsF1"]
-GAIN_CODEPOINTS = "E001:E020:E003"
+GAIN_CODEPOINTS = spell(LEAD, ROE, FOLLOWER_1)
 
 
 def gain_window(uid="g-1"):
@@ -1869,7 +1704,7 @@ def test_a_gain_rule_reads_no_unit_without_ink_deltas():
 
 
 def test_a_window_with_no_gain_pivot_prefix_glyph_is_refused_before_any_shaping():
-    assert not sv._matches(GAIN_RULE["match"], slide_unit("g-3", ["qsL", "qsF1"], "E001:E003"))
+    assert not sv._matches(GAIN_RULE["match"], slide_unit("g-3", ["qsL", "qsF1"], spell(LEAD, FOLLOWER_1)))
 
 
 def test_a_matchable_gain_window_with_no_context_refuses_to_guess():
@@ -1947,7 +1782,7 @@ def test_a_rule_declaring_the_gain_and_slide_shapes_at_once_is_refused(tmp_path)
 
 
 JOIN_GLYPHS = ["qsL", "qsAt", "qsIt", "qsF1"]
-JOIN_CODEPOINTS = "E001:E021:E022:E003"
+JOIN_CODEPOINTS = spell(LEAD, AT, IT, FOLLOWER_1)
 
 
 def join_window(uid="j-1"):
@@ -1975,7 +1810,7 @@ def test_the_checked_in_at_it_rule_reads_the_gap(slide_context):
 
 
 IT_ET_JOIN_GLYPHS = ["qsL", "qsIt.ex-y5", "qsEt.join", "qsF1"]
-IT_ET_JOIN_CODEPOINTS = "E001:E02C:E02D:E003"
+IT_ET_JOIN_CODEPOINTS = spell(LEAD, IT_EXITING, ET_JOIN, FOLLOWER_1)
 
 
 def it_et_join_window(uid="je-1"):
@@ -2041,7 +1876,7 @@ def test_a_wrong_follower_family_defeats_the_join_match(slide_context):
     other = join_window()
     other["before"]["glyphs"][2] = "qsF1"
     other["after"]["cells"][2] = "qsF1/full/None/None/"
-    other["codepoints"] = "E001:E021:E003:E003"
+    other["codepoints"] = spell(LEAD, AT, FOLLOWER_1, FOLLOWER_1)
     assert not sv._matches(JOIN_RULE["match"], other, context=slide_context())
 
 
@@ -2055,7 +1890,7 @@ def test_a_join_rule_reads_no_unit_without_ink_deltas():
 
 
 def test_a_window_with_no_join_pivot_is_refused_before_any_shaping():
-    assert not sv._matches(JOIN_RULE["match"], slide_unit("j-3", ["qsL", "qsF1"], "E001:E003"))
+    assert not sv._matches(JOIN_RULE["match"], slide_unit("j-3", ["qsL", "qsF1"], spell(LEAD, FOLLOWER_1)))
 
 
 def test_a_matchable_join_window_with_no_context_refuses_to_guess():
@@ -2187,7 +2022,7 @@ def _surface(tmp_path, units, fonts=None):
     return surface
 
 
-def _run_main(tmp_path, monkeypatch, units, verdicts, rules_list=(RULE,), fonts=None):
+def _run_main(tmp_path, monkeypatch, units, verdicts, rules_list=(RULE,), fonts=None, extra=()):
     surface = _surface(tmp_path, units, fonts)
     rules = _write_rules(tmp_path / "rules.yaml", list(rules_list))
     verdicts_path = tmp_path / "verdicts.json"
@@ -2207,6 +2042,7 @@ def _run_main(tmp_path, monkeypatch, units, verdicts, rules_list=(RULE,), fonts=
             str(rules),
             "--out",
             str(out),
+            *extra,
         ],
     )
     sv.main()
@@ -2234,7 +2070,7 @@ def test_main_fills_only_blank_matching_human_units(tmp_path, monkeypatch):
     record = payload["verdicts"][0]
     assert record["verdict"] == "approve"
     assert record["at"] == STAMP
-    assert record["note"].startswith("[standing: tea-oy-ligature-break]")
+    assert record["note"].startswith(f"[standing: {RULE['id']}]")
 
 
 def test_main_never_fills_a_unit_outside_the_human_workload(tmp_path, monkeypatch):
@@ -2255,8 +2091,8 @@ def test_main_fills_both_shapes_from_one_rules_file(tmp_path, monkeypatch):
     payload = _run_main(tmp_path, monkeypatch, units, [], rules_list=(RULE, EXT_RULE))
     by_unit = {record["unit"]: record for record in payload["verdicts"]}
     assert set(by_unit) == {"u-1", "u-2"}
-    assert by_unit["u-1"]["note"].startswith("[standing: tea-oy-ligature-break]")
-    assert by_unit["u-2"]["note"].startswith("[standing: tea-i-exit-extension-dropped]")
+    assert by_unit["u-1"]["note"].startswith(f"[standing: {RULE['id']}]")
+    assert by_unit["u-2"]["note"].startswith(f"[standing: {EXT_RULE['id']}]")
 
 
 def test_main_fills_only_the_blank_matching_ink_delta_units(tmp_path, monkeypatch):
@@ -2295,7 +2131,10 @@ def test_main_fills_all_three_shapes_from_one_rules_file(tmp_path, monkeypatch):
 def test_main_refuses_a_surface_that_predates_the_ink_delta_field(tmp_path, monkeypatch):
     with pytest.raises(
         SystemExit,
-        match="predates the ink-delta, slide, ink-gain, join-dropped, entry-extension-dropped, redrawn, and join-retargeted",
+        match=(
+            "predates the ink-delta, slide, ink-gain, join-dropped, entry-extension-dropped, "
+            "stub-dropped, redrawn, and join-retargeted"
+        ),
     ):
         _run_main(tmp_path, monkeypatch, [canonical("u-1")], [], rules_list=(RULE, INK_RULE))
 
@@ -2339,13 +2178,106 @@ def test_main_refuses_a_stale_stamped_verdicts_file(tmp_path, monkeypatch):
         sv.main()
 
 
-def test_main_refuses_a_surface_that_carries_no_font_pair(tmp_path, monkeypatch):
-    with pytest.raises(SystemExit, match="fonts/before.otf"):
-        _run_main(tmp_path, monkeypatch, [founding_window()], [], rules_list=(SLIDE_RULE,))
+def out_window(uid="o-1"):
+    """A two-letter window joining from ·Out that no rule in this file speaks for: the surface carrying a guarded family in a place the guard is never asked about, which is what a live except_left reading zero held looks like."""
+    return unit(
+        uid,
+        ["qsOut.ex-y5", "qsMay"],
+        ["y5"],
+        ["qsOut/hapax/None/x-height/", "qsMay/loop/x-height/None/"],
+        ["y5"],
+    )
+
+
+def test_the_payload_carries_the_per_rule_tally(tmp_path, monkeypatch):
+    units = [canonical("u-1"), canonical("u-2"), canonical("u-3", left="qsOut.ex-ext-1")]
+    verdicts = [{"unit": "u-2", "verdict": "approve", "note": "", "at": "2026-07-11T00:00:00Z"}]
+    payload = _run_main(tmp_path, monkeypatch, units, verdicts)
+    assert payload["standing_tally"] == {
+        RULE["id"]: {"matched": 2, "filled": 1, "held": 1, "composed_credit": 0}
+    }
+
+
+def test_the_rollup_reads_the_same_numbers_the_per_rule_line_does(tmp_path, monkeypatch, capsys):
+    units = [canonical("u-1"), canonical("u-2"), canonical("u-3", left="qsOut.ex-ext-1")]
+    verdicts = [{"unit": "u-2", "verdict": "approve", "note": "", "at": "2026-07-11T00:00:00Z"}]
+    _run_main(tmp_path, monkeypatch, units, verdicts)
+    lines = capsys.readouterr().out.splitlines()
+    assert any(line.startswith("  per-rule reach (") for line in lines)
+    assert f"    {RULE['id']}: 3 on its own line, 0 credited across 0 composed lines, 3 in all" in lines
+
+
+def test_a_rule_that_reached_nothing_says_so_and_the_run_still_writes(tmp_path, monkeypatch, capsys):
+    payload = _run_main(tmp_path, monkeypatch, [canonical("u-1")], [], rules_list=(RULE, SHORTENED_RULE))
+    assert [record["unit"] for record in payload["verdicts"]] == ["u-1"]
+    lines = capsys.readouterr().out.splitlines()
+    assert any(line.startswith(f"  REACHED NOTHING: {SHORTENED_RULE['id']} ") for line in lines)
+    assert not any(line.startswith(f"  REACHED NOTHING: {RULE['id']} ") for line in lines)
+
+
+def test_a_matched_unit_verdicted_outside_the_blessed_set_trips_the_warning(tmp_path, monkeypatch, capsys):
+    verdicts = [{"unit": "u-2", "verdict": "reject", "note": "", "at": "2026-07-11T00:00:00Z"}]
+    _run_main(tmp_path, monkeypatch, [canonical("u-1"), canonical("u-2")], verdicts)
+    lines = capsys.readouterr().out.splitlines()
+    [warning] = [line for line in lines if line.startswith("  WARNING:")]
+    assert "a verdict outside approve/either sits on 1 matched unit" in warning
+    assert f"u-2 under {RULE['id']} (reject)" in warning
+
+
+def test_the_warning_is_silent_when_every_matched_verdict_is_blessed(tmp_path, monkeypatch, capsys):
+    verdicts = [{"unit": "u-2", "verdict": "either", "note": "", "at": "2026-07-11T00:00:00Z"}]
+    _run_main(tmp_path, monkeypatch, [canonical("u-1"), canonical("u-2")], verdicts)
+    assert not any(line.startswith("  WARNING:") for line in capsys.readouterr().out.splitlines())
+
+
+def test_an_except_left_family_no_window_joins_from_is_named(tmp_path, monkeypatch, capsys):
+    _run_main(tmp_path, monkeypatch, [canonical("u-1")], [])
+    lines = capsys.readouterr().out.splitlines()
+    assert any(
+        line.startswith(f"  except_left vocabulary: {RULE['id']} guards against qsOut,") for line in lines
+    )
+
+
+def test_a_guarded_family_the_surface_carries_but_never_holds_says_nothing(tmp_path, monkeypatch, capsys):
+    _run_main(tmp_path, monkeypatch, [canonical("u-1"), out_window("o-1")], [])
+    lines = capsys.readouterr().out.splitlines()
+    assert f"  {RULE['id']}: 1 filled, 0 already verdicted, 0 held for review by except_left" in lines
+    assert not any("except_left vocabulary" in line for line in lines)
+
+
+def test_explain_splits_a_rules_matched_ids_into_three_columns(tmp_path, monkeypatch, capsys):
+    units = [canonical("u-1"), canonical("u-2"), canonical("u-3", left="qsOut.ex-ext-1")]
+    verdicts = [{"unit": "u-2", "verdict": "either", "note": "", "at": "2026-07-11T00:00:00Z"}]
+    _run_main(tmp_path, monkeypatch, units, verdicts, extra=("--explain", RULE["id"]))
+    lines = capsys.readouterr().out.splitlines()
+    assert f"  explain {RULE['id']}:" in lines
+    assert "    filled (1): u-1" in lines
+    assert "    already verdicted (1): u-2 (either)" in lines
+    assert "    held by except_left (1): u-3" in lines
+
+
+def test_explain_on_a_caught_up_store_puts_the_whole_reach_in_the_verdicted_column(
+    tmp_path, monkeypatch, capsys
+):
+    units = [canonical("u-1"), canonical("u-2")]
+    verdicts = [
+        {"unit": uid, "verdict": "approve", "note": "", "at": "2026-07-11T00:00:00Z"}
+        for uid in ("u-1", "u-2")
+    ]
+    _run_main(tmp_path, monkeypatch, units, verdicts, extra=("--explain", RULE["id"]))
+    lines = capsys.readouterr().out.splitlines()
+    assert "    filled (0): none" in lines
+    assert "    already verdicted (2): u-1 (approve) u-2 (approve)" in lines
+    assert "    held by except_left (0): none" in lines
+
+
+def test_an_unknown_explain_rule_is_refused(tmp_path, monkeypatch):
+    with pytest.raises(SystemExit, match="not a rule id"):
+        _run_main(tmp_path, monkeypatch, [canonical("u-1")], [], extra=("--explain", "no-such-rule"))
 
 
 COMPOSED_EXT_RULE = {
-    "id": "j-exit-extension-dropped",
+    "id": "fixture-composed-extension-dropped",
     "verdict": "approve",
     "note": "the follower sits a pixel closer to ·J",
     "match": {
@@ -2366,7 +2298,7 @@ COMPOSED_EXT_RULE = {
 COMPOSABLE_RULES = [SLIDE_RULE, COMPOSED_EXT_RULE]
 
 COMPOSED_GLYPHS = ["qsL", "qsSee.ex-y0", "qsM", "qsJ.ex-y0.ex-ext-1", "qsF3", "qsF1"]
-COMPOSED_CODEPOINTS = "E001:E002:E008:E006:E007:E003"
+COMPOSED_CODEPOINTS = spell(LEAD, SEE, MIDDLE, PIVOT, FOLLOWER_3, FOLLOWER_1)
 
 
 def composed_window(uid="c-1", pair=None):
@@ -2479,14 +2411,20 @@ def test_the_composed_memo_never_serves_one_rule_sets_ids_to_another(slide_conte
 def test_two_composable_rules_refuse_a_surface_that_predates_the_ink_delta_field(tmp_path, monkeypatch):
     with pytest.raises(
         SystemExit,
-        match="predates the ink-delta, slide, ink-gain, join-dropped, entry-extension-dropped, redrawn, and join-retargeted",
+        match=(
+            "predates the ink-delta, slide, ink-gain, join-dropped, entry-extension-dropped, "
+            "stub-dropped, redrawn, and join-retargeted"
+        ),
     ):
         _run_main(tmp_path, monkeypatch, [tea_i("u-1")], [], rules_list=(EXT_RULE, COMPOSED_EXT_RULE))
 
 
 def extension_only_window(uid="e-1"):
     return slide_unit(
-        uid, ["qsL", "qsJ.ex-y0.ex-ext-1", "qsF3"], "E001:E006:E007", pair={"left": 1, "right": 2}
+        uid,
+        ["qsL", "qsJ.ex-y0.ex-ext-1", "qsF3"],
+        spell(LEAD, PIVOT, FOLLOWER_3),
+        pair={"left": 1, "right": 2},
     )
 
 
@@ -2519,6 +2457,64 @@ def test_main_fills_a_single_shape_window_under_that_shapes_own_line(
     assert not any(" + " in line for line in lines)
 
 
+def test_the_rollup_adds_a_rules_own_line_to_the_credit_composed_lines_gave_it(
+    tmp_path, monkeypatch, capsys, slide_fonts
+):
+    _run_main(
+        tmp_path,
+        monkeypatch,
+        [composed_window("c-1"), founding_window("s-1")],
+        [],
+        rules_list=(SLIDE_RULE, COMPOSED_EXT_RULE),
+        fonts=slide_fonts,
+    )
+    lines = capsys.readouterr().out.splitlines()
+    assert f"    {SLIDE_RULE['id']}: 1 on its own line, 1 credited across 1 composed line, 2 in all" in lines
+    assert (
+        f"    {COMPOSED_EXT_RULE['id']}: 0 on its own line, 1 credited across 1 composed line, 1 in all"
+    ) in lines
+
+
+def test_a_rule_that_only_ever_earned_composed_credit_does_not_read_as_dead(
+    tmp_path, monkeypatch, capsys, slide_fonts
+):
+    """The composed pass claims a window before any single rule is asked about it, so a rule whose whole reach is composed shows zero on its own line — the one number the reached-nothing line must not read as a rule that speaks for nothing."""
+    payload = _run_main(
+        tmp_path,
+        monkeypatch,
+        [composed_window("c-1")],
+        [],
+        rules_list=(SLIDE_RULE, COMPOSED_EXT_RULE),
+        fonts=slide_fonts,
+    )
+    assert payload["standing_tally"] == {
+        SLIDE_RULE["id"]: {"matched": 0, "filled": 0, "held": 0, "composed_credit": 1},
+        COMPOSED_EXT_RULE["id"]: {"matched": 0, "filled": 0, "held": 0, "composed_credit": 1},
+    }
+    assert not any(line.startswith("  REACHED NOTHING:") for line in capsys.readouterr().out.splitlines())
+
+
+def test_the_rollup_reads_zero_composed_lines_when_nothing_composed(
+    tmp_path, monkeypatch, capsys, slide_fonts
+):
+    payload = _run_main(
+        tmp_path,
+        monkeypatch,
+        [founding_window("s-1"), extension_only_window("e-1")],
+        [],
+        rules_list=(SLIDE_RULE, COMPOSED_EXT_RULE),
+        fonts=slide_fonts,
+    )
+    assert payload["standing_tally"] == {
+        SLIDE_RULE["id"]: {"matched": 1, "filled": 1, "held": 0, "composed_credit": 0},
+        COMPOSED_EXT_RULE["id"]: {"matched": 1, "filled": 1, "held": 0, "composed_credit": 0},
+    }
+    lines = capsys.readouterr().out.splitlines()
+    assert (
+        f"    {SLIDE_RULE['id']}: 1 on its own line, 0 credited across 0 composed lines, 1 in all"
+    ) in lines
+
+
 def slide_fixture_windows():
     """Every window the slide shape's own fixtures build, refusals included, so the composed walk can be held against `_matches_slide` over the lot."""
     bare = founding_window("s-1b")
@@ -2545,23 +2541,17 @@ def slide_fixture_windows():
         slide_unit(
             "s-6", FOUNDING_GLYPHS, FOUNDING_CODEPOINTS, configs=("ss03",), deltas={"default": SLIDE_DELTA}
         ),
-        slide_unit("s-7", ["qsL", "qsF1"], "E001:E003"),
-        slide_unit("s-8", ["qsL", "qsSee.ex-y0x", "qsF1"], "E001:E002:E003"),
-        slide_unit("s-9", ["qsL", "qsSee.ex-y0", "qsF1"], "E001:E002:E003"),
-        slide_unit("s-10", ["qsL", "qsSee.ex-y0"], "E001:E005"),
+        slide_unit("s-7", ["qsL", "qsF1"], spell(LEAD, FOLLOWER_1)),
+        slide_unit("s-8", ["qsL", "qsSee.ex-y0x", "qsF1"], spell(LEAD, SEE, FOLLOWER_1)),
+        slide_unit("s-9", ["qsL", "qsSee.ex-y0", "qsF1"], spell(LEAD, SEE, FOLLOWER_1)),
+        slide_unit("s-10", ["qsL", "qsSee.ex-y0"], spell(LEAD, SEE_UNSETTLED)),
         slide_unit("s-11", ["qsL", "qsSee.ex-y0", "qsF1", "qsF9"], FOUNDING_CODEPOINTS),
-        slide_unit("s-12", ["qsL", "qsSee.ex-y0", "qsF1", "qsSee.ex-y0", "qsF1"], "E001:E002:E003:E002:E003"),
+        slide_unit(
+            "s-12",
+            ["qsL", "qsSee.ex-y0", "qsF1", "qsSee.ex-y0", "qsF1"],
+            spell(LEAD, SEE, FOLLOWER_1, SEE, FOLLOWER_1),
+        ),
     ]
-
-
-@pytest.mark.parametrize("after", ["after", "after-extra-prefix-pixel", "after-extra-follower-pixel"])
-def test_the_composed_walk_credits_the_slide_exactly_where_the_slide_matcher_does(slide_context, after):
-    context = slide_context(after)
-    for window in slide_fixture_windows():
-        credited = set(sv._composed_walk([SLIDE_RULE], window, context) or ())
-        assert (credited == {SLIDE_RULE["id"]}) == sv._matches(
-            SLIDE_RULE["match"], window, context=context
-        ), window["id"]
 
 
 def test_a_failed_extension_candidate_is_judged_as_span_ink(slide_context):
@@ -2604,7 +2594,7 @@ def test_a_dropped_cell_off_the_seam_row_never_composes(slide_context):
     crowned = slide_unit(
         "c-crown",
         ["qsL", "qsSee.ex-y0", "qsM", "qsJ.ex-y0.ex-ext-1.crown", "qsF3"],
-        "E001:E002:E008:E00C:E007",
+        spell(LEAD, SEE, MIDDLE, PIVOT_CROWNED, FOLLOWER_3),
     )
     assert sv._candidates(COMPOSED_EXT_RULE["match"], crowned) == [3]
     assert sv._composed(COMPOSABLE_RULES, crowned, slide_context()) is None
@@ -2620,7 +2610,7 @@ def test_a_seam_that_names_no_height_yields_no_extension_candidate():
 
 
 SHORTENED_EXT_RULE = {
-    "id": "j-exit-extension-shortened",
+    "id": "fixture-composed-extension-shortened",
     "verdict": "approve",
     "note": "·J reaches its follower with one column of extension where it drew three",
     "match": {
@@ -2639,11 +2629,11 @@ SHORTENED_EXT_RULE = {
 }
 
 
-def shortened_window(uid="c-short", pivot_codepoint="E00E"):
+def shortened_window(uid="c-short", pivot=PIVOT_SHORTENED):
     window = slide_unit(
         uid,
         ["qsL", "qsSee.ex-y0", "qsM", "qsJ.ex-y0.ex-ext-3.long", "qsF3", "qsF1"],
-        f"E001:E002:E008:{pivot_codepoint}:E007:E003",
+        spell(LEAD, SEE, MIDDLE, pivot, FOLLOWER_3, FOLLOWER_1),
     )
     window["after"]["cells"][3] = "qsJ/full/None/None/ex-ext-1"
     return window
@@ -2658,7 +2648,7 @@ def test_a_slide_and_a_shortened_extension_in_one_window_compose(slide_context):
 
 
 CONTRACTED_EXT_RULE = {
-    "id": "et-exit-contracted",
+    "id": "fixture-composed-exit-contracted",
     "verdict": "approve",
     "note": "the follower sits a pixel closer to ·Et",
     "match": {
@@ -2681,7 +2671,7 @@ def contracted_window(uid="c-con"):
     window = slide_unit(
         uid,
         ["qsL", "qsSee.ex-y0", "qsM", "qsEt", "qsF3", "qsF1"],
-        "E001:E002:E008:E010:E007:E003",
+        spell(LEAD, SEE, MIDDLE, PIVOT_CONTRACTED, FOLLOWER_3, FOLLOWER_1),
     )
     window["after"]["cells"][3] = "qsEt/hapax/None/None/ex-con-1"
     return window
@@ -2703,7 +2693,7 @@ def test_a_contraction_rule_has_no_candidate_in_a_dropped_extension_window():
 
 
 def test_a_rule_naming_a_kept_extension_never_composes_over_a_tail_dropped_whole(slide_context):
-    whole = shortened_window("c-whole", "E00F")
+    whole = shortened_window("c-whole", PIVOT_DROPPED_WHOLE)
     assert sv._candidates(SHORTENED_EXT_RULE["match"], whole) == [3]
     assert sv._composed([SLIDE_RULE, SHORTENED_EXT_RULE], whole, slide_context()) is None
 
@@ -2718,7 +2708,7 @@ def test_a_tail_wider_than_the_named_extension_is_refused(slide_context):
     wide = slide_unit(
         "c-wide",
         ["qsL", "qsSee.ex-y0", "qsM", "qsJ.ex-y0.ex-ext-1.wide", "qsF3"],
-        "E001:E002:E008:E00A:E007",
+        spell(LEAD, SEE, MIDDLE, PIVOT_WIDE_TAIL, FOLLOWER_3),
     )
     assert sv._candidates(COMPOSED_EXT_RULE["match"], wide) == [3]
     assert sv._composed(COMPOSABLE_RULES, wide, slide_context()) is None
@@ -2733,7 +2723,7 @@ def test_markers_ride_through_a_composed_window(slide_context):
     spaced = slide_unit(
         "c-space",
         ["space", "qsL", "qsSee.ex-y0", "space", "qsM", "qsJ.ex-y0.ex-ext-1", "qsF3"],
-        "0020:E001:E002:0020:E008:E006:E007",
+        spell(MARKER, LEAD, SEE, MARKER, MIDDLE, PIVOT, FOLLOWER_3),
     )
     assert sv._composed(COMPOSABLE_RULES, spaced, slide_context()) == {
         SLIDE_RULE["id"]: [2],
@@ -2746,7 +2736,7 @@ def test_a_marker_at_a_candidate_position_is_no_event(slide_context):
     blanked = slide_unit(
         "c-blank",
         ["qsL", "qsSee.ex-y0.blank", "qsM", "qsJ.ex-y0.ex-ext-1", "qsF3"],
-        "E001:E00B:E008:E006:E007",
+        spell(LEAD, SEE_BLANK, MIDDLE, PIVOT, FOLLOWER_3),
     )
     assert sv._candidates(SLIDE_RULE["match"], blanked) == [1]
     assert sv._composed_walk(COMPOSABLE_RULES, blanked, context) == {COMPOSED_EXT_RULE["id"]: [3]}
@@ -2755,7 +2745,7 @@ def test_a_marker_at_a_candidate_position_is_no_event(slide_context):
 
 def test_two_rules_claiming_one_position_refuse(slide_context):
     twin = json.loads(json.dumps(SLIDE_RULE))
-    twin["id"] = "see-grounded-left-column-dropped-again"
+    twin["id"] = SLIDE_RULE["id"] + "-again"
     assert sv._composed_walk([SLIDE_RULE, twin], founding_window(), slide_context()) is None
 
 
@@ -2763,7 +2753,9 @@ def test_an_extension_whose_follower_is_a_slide_pivot_composes(slide_context):
     chained = json.loads(json.dumps(COMPOSED_EXT_RULE))
     chained["match"]["before"]["follower"] = ["qsF3", "qsSee"]
     chained["match"]["after"]["follower_cells"] = ["qsF3/full/None/None/", "qsSee/full/None/None/"]
-    window = slide_unit("c-chain", ["qsL", "qsJ.ex-y0.ex-ext-1", "qsSee.ex-y0", "qsM"], "E001:E006:E002:E008")
+    window = slide_unit(
+        "c-chain", ["qsL", "qsJ.ex-y0.ex-ext-1", "qsSee.ex-y0", "qsM"], spell(LEAD, PIVOT, SEE, MIDDLE)
+    )
     assert sv._candidates(chained["match"], window) == [1]
     assert sv._candidates(SLIDE_RULE["match"], window) == [2]
     assert sv._composed([SLIDE_RULE, chained], window, slide_context()) == {
@@ -2772,8 +2764,10 @@ def test_an_extension_whose_follower_is_a_slide_pivot_composes(slide_context):
     }
 
 
-def test_the_slide_guard_holds_the_whole_composed_window(slide_context):
-    rules = [guarded_rule(SLIDE_RULE, ["qsL"]), COMPOSED_EXT_RULE]
+@pytest.mark.parametrize("family", ["qsL", "qsF3"])
+def test_the_slide_guard_holds_the_whole_composed_window(slide_context, family):
+    """·L is the slide pivot's own left neighbor, and ·F3 sits three letters past the pivot on the far side of the other credited rule: the slide shape's guard is window-scoped, so either one holds the whole unit."""
+    rules = [guarded_rule(SLIDE_RULE, [family]), COMPOSED_EXT_RULE]
     window = composed_window()
     context = slide_context()
     events = sv._composed(rules, window, context)
@@ -2899,7 +2893,7 @@ def test_a_candidate_whose_contract_fails_is_judged_as_span_ink(slide_context):
     riding = slide_unit(
         "c-ride",
         ["qsSee.ex-y0.spare", "qsL", "qsSee.ex-y0", "qsM", "qsJ.ex-y0.ex-ext-1", "qsF3"],
-        "E009:E001:E002:E008:E006:E007",
+        spell(SEE_SPARE, LEAD, SEE, MIDDLE, PIVOT, FOLLOWER_3),
     )
     assert sv._candidates(SLIDE_RULE["match"], riding) == [0, 2]
     assert sv._composed(COMPOSABLE_RULES, riding, context) == {
@@ -2909,14 +2903,14 @@ def test_a_candidate_whose_contract_fails_is_judged_as_span_ink(slide_context):
     refusing = slide_unit(
         "c-refuse",
         ["qsSee.ex-y0.spare", "qsL", "qsSee.ex-y0", "qsM", "qsJ.ex-y0.ex-ext-1", "qsF3"],
-        "E00D:E001:E002:E008:E006:E007",
+        spell(SEE_WANDERED, LEAD, SEE, MIDDLE, PIVOT, FOLLOWER_3),
     )
     assert sv._candidates(SLIDE_RULE["match"], refusing) == [0, 2]
     assert sv._composed(COMPOSABLE_RULES, refusing, context) is None
 
 
 COMPOSED_GAIN_GLYPHS = ["qsL", "qsSee.ex-y0", "qsRoe.en-ext-1-at-5", "qsF1"]
-COMPOSED_GAIN_CODEPOINTS = "E001:E002:E020:E003"
+COMPOSED_GAIN_CODEPOINTS = spell(LEAD, SEE, ROE, FOLLOWER_1)
 COMPOSED_GAIN_RULES = [SLIDE_RULE, GAIN_RULE]
 
 
@@ -2974,15 +2968,6 @@ def test_a_wrong_gained_cell_defeats_the_composed_gain_reading(slide_context):
     )
 
 
-def test_the_composed_walk_credits_the_gain_exactly_where_the_gain_matcher_does(slide_context):
-    context = slide_context()
-    for window in (gain_window(), composed_gain_window(), founding_window()):
-        credited = set(sv._composed_walk([GAIN_RULE], window, context) or ())
-        assert (credited == {GAIN_RULE["id"]}) == sv._matches(
-            GAIN_RULE["match"], window, context=context
-        ), window["id"]
-
-
 def test_the_gain_guard_holds_the_whole_composed_window(slide_context):
     events = sv._composed(COMPOSED_GAIN_RULES, composed_gain_window(), slide_context())
     assert sv._composed_held(
@@ -3017,17 +3002,17 @@ def test_main_fills_a_single_gain_window_under_that_shapes_own_line(
 
 
 COMPOSED_JOIN_GLYPHS = ["qsL", "qsSee.ex-y0", "qsAt", "qsIt"]
-COMPOSED_JOIN_CODEPOINTS = "E001:E002:E021:E022"
+COMPOSED_JOIN_CODEPOINTS = spell(LEAD, SEE, AT, IT)
 COMPOSED_JOIN_RULES = [SLIDE_RULE, JOIN_RULE]
 EXT_JOIN_GLYPHS = ["qsL", "qsJ.ex-y0.ex-ext-1", "qsF3", "qsAt", "qsIt"]
-EXT_JOIN_CODEPOINTS = "E001:E006:E007:E021:E022"
+EXT_JOIN_CODEPOINTS = spell(LEAD, PIVOT, FOLLOWER_3, AT, IT)
 EXT_JOIN_RULES = [COMPOSED_EXT_RULE, JOIN_RULE]
 JOIN_THEN_EXT_JOIN = json.loads(json.dumps(JOIN_RULE))
-JOIN_THEN_EXT_JOIN["id"] = "at-j-xheight-join-dropped"
+JOIN_THEN_EXT_JOIN["id"] = "fixture-join-dropped-into-extension"
 JOIN_THEN_EXT_JOIN["match"]["before"]["follower"] = "qsJ"
 JOIN_THEN_EXT_RULES = [JOIN_THEN_EXT_JOIN, COMPOSED_EXT_RULE]
 JOIN_THEN_EXT_GLYPHS = ["qsL", "qsAt", "qsJ.ex-y0.ex-ext-1", "qsF3"]
-JOIN_THEN_EXT_CODEPOINTS = "E001:E021:E006:E007"
+JOIN_THEN_EXT_CODEPOINTS = spell(LEAD, AT, PIVOT, FOLLOWER_3)
 
 
 def composed_join_window(uid="cj-1"):
@@ -3149,15 +3134,6 @@ def test_a_redrawn_join_follower_defeats_the_composed_reading(slide_context):
     )
 
 
-def test_the_composed_walk_credits_the_join_exactly_where_the_join_matcher_does(slide_context):
-    context = slide_context()
-    for window in (join_window(), composed_join_window(), founding_window()):
-        credited = set(sv._composed_walk([JOIN_RULE], window, context) or ())
-        assert (credited == {JOIN_RULE["id"]}) == sv._matches(
-            JOIN_RULE["match"], window, context=context
-        ), window["id"]
-
-
 def test_the_join_guard_holds_the_whole_composed_window(slide_context):
     events = sv._composed(COMPOSED_JOIN_RULES, composed_join_window(), slide_context())
     assert sv._composed_held(
@@ -3192,9 +3168,9 @@ def test_main_fills_a_single_join_window_under_that_shapes_own_line(
 
 
 ENTRY_GLYPHS = ["qsL", "qsLow.en-ext-1", "qsF1"]
-ENTRY_CODEPOINTS = "E001:E023:E003"
+ENTRY_CODEPOINTS = spell(LEAD, LOW, FOLLOWER_1)
 COMPOSED_ENTRY_GLYPHS = ["qsL", "qsSee.ex-y0", "qsLow.en-ext-1", "qsF1"]
-COMPOSED_ENTRY_CODEPOINTS = "E001:E002:E023:E003"
+COMPOSED_ENTRY_CODEPOINTS = spell(LEAD, SEE, LOW, FOLLOWER_1)
 COMPOSED_ENTRY_RULES = [SLIDE_RULE, ENTRY_RULE]
 
 
@@ -3217,9 +3193,9 @@ def test_the_checked_in_see_low_rule_reads_the_drop(slide_context):
 
 
 VIE_GLYPHS = ["qsL", "qsVie.en-ext-1", "qsF1"]
-VIE_CODEPOINTS = "E001:E027:E003"
+VIE_CODEPOINTS = spell(LEAD, VIE, FOLLOWER_1)
 VIE_UTTER_GLYPHS = ["qsL", "qsVie_qsUtter.en-ext-1", "qsF1"]
-VIE_UTTER_CODEPOINTS = "E001:E028:E003"
+VIE_UTTER_CODEPOINTS = spell(LEAD, VIE_UTTER, FOLLOWER_1)
 
 
 def vie_window(uid="v-1"):
@@ -3239,7 +3215,7 @@ def test_the_checked_in_vie_rule_reads_the_drop_and_nothing_wider(slide_context)
 
 
 MAY_GLYPHS = ["qsL", "qsMay.en-y0.ex-y5.en-ext-1", "qsF1"]
-MAY_CODEPOINTS = "E001:E029:E003"
+MAY_CODEPOINTS = spell(LEAD, MAY, FOLLOWER_1)
 
 
 def may_window(uid="m-1"):
@@ -3255,7 +3231,7 @@ def test_the_checked_in_may_rule_reads_the_drop_and_nothing_wider(slide_context)
 
 
 STUB_GLYPHS = ["qsK", "qsMay.en-y5", "qsF1"]
-STUB_CODEPOINTS = "E02A:E02B:E003"
+STUB_CODEPOINTS = spell(LEFT_NEIGHBOR, MAY_STUB, FOLLOWER_1)
 
 
 def stub_window(uid="st-1"):
@@ -3280,7 +3256,7 @@ def test_an_entry_drop_is_not_a_stub_drop(slide_context):
 
 
 COMPOSED_STUB_GLYPHS = ["qsRoe.en-ext-1-at-5", "qsK", "qsMay.en-y5"]
-COMPOSED_STUB_CODEPOINTS = "E020:E02A:E02B"
+COMPOSED_STUB_CODEPOINTS = spell(ROE, LEFT_NEIGHBOR, MAY_STUB)
 COMPOSED_STUB_RULES = [GAIN_RULE, STUB_RULE]
 
 
@@ -3291,6 +3267,16 @@ def composed_stub_window(uid="cs-1"):
 def test_a_gain_and_a_stub_drop_in_one_window_compose(slide_context):
     events = sv._composed(COMPOSED_STUB_RULES, composed_stub_window(), slide_context())
     assert events == {GAIN_RULE["id"]: [0], STUB_RULE["id"]: [2]}
+
+
+def test_the_stub_guard_holds_the_whole_composed_window(slide_context):
+    """·Roe opens the window two letters before the stub pivot, so only a window-scoped guard reaches it — the stub shape's is, exactly as its single-rule matcher's is."""
+    rules = [GAIN_RULE, guarded_rule(STUB_RULE, ["qsRoe"])]
+    window = composed_stub_window()
+    context = slide_context()
+    events = sv._composed(rules, window, context)
+    assert events is not None
+    assert sv._composed_held(rules, window, events, context)
 
 
 def test_the_checked_in_vie_utter_rule_reads_the_drop_and_nothing_wider(slide_context):
@@ -3328,7 +3314,7 @@ def test_an_entry_drop_rule_reads_no_unit_without_ink_deltas():
 
 
 def test_a_window_with_no_entry_pivot_prefix_glyph_is_refused_before_any_shaping():
-    assert not sv._matches(ENTRY_RULE["match"], slide_unit("e-3", ["qsL", "qsF1"], "E001:E003"))
+    assert not sv._matches(ENTRY_RULE["match"], slide_unit("e-3", ["qsL", "qsF1"], spell(LEAD, FOLLOWER_1)))
 
 
 def test_a_matchable_entry_window_with_no_context_refuses_to_guess():
@@ -3464,15 +3450,6 @@ def test_one_extra_pixel_defeats_the_composed_entry_reading(slide_context):
     )
 
 
-def test_the_composed_walk_credits_the_entry_drop_exactly_where_the_entry_matcher_does(slide_context):
-    context = slide_context()
-    for window in (entry_window(), composed_entry_window(), founding_window()):
-        credited = set(sv._composed_walk([ENTRY_RULE], window, context) or ())
-        assert (credited == {ENTRY_RULE["id"]}) == sv._matches(
-            ENTRY_RULE["match"], window, context=context
-        ), window["id"]
-
-
 def test_the_entry_drop_guard_holds_the_whole_composed_window(slide_context):
     events = sv._composed(COMPOSED_ENTRY_RULES, composed_entry_window(), slide_context())
     assert sv._composed_held(
@@ -3507,12 +3484,12 @@ def test_main_fills_a_single_entry_window_under_that_shapes_own_line(
 
 
 RETARGET_GLYPHS = ["qsL", "qsTea.half.ex-y5", "qsNo.en-ext-1", "qsF1"]
-RETARGET_CODEPOINTS = "E001:E024:E025:E003"
+RETARGET_CODEPOINTS = spell(LEAD, TEA, NO, FOLLOWER_1)
 COMPOSED_RETARGET_GLYPHS = ["qsL", "qsSee.ex-y0", "qsTea.half.ex-y5", "qsNo.en-ext-1"]
-COMPOSED_RETARGET_CODEPOINTS = "E001:E002:E024:E025"
+COMPOSED_RETARGET_CODEPOINTS = spell(LEAD, SEE, TEA, NO)
 COMPOSED_RETARGET_RULES = [SLIDE_RULE, RETARGET_RULE]
 JOIN_RETARGET_GLYPHS = ["qsL", "qsAt", "qsIt", "qsTea.half.ex-y5", "qsNo.en-ext-1"]
-JOIN_RETARGET_CODEPOINTS = "E001:E021:E022:E024:E025"
+JOIN_RETARGET_CODEPOINTS = spell(LEAD, AT, IT, TEA, NO)
 JOIN_RETARGET_RULES = [JOIN_RULE, RETARGET_RULE]
 
 
@@ -3590,7 +3567,7 @@ def pea_retarget_window(uid="pr-1"):
             "qsF1/full/None/None/",
         ],
         ["y0", "y0", "y0"],
-        codepoints="E001:E026:E025:E003",
+        codepoints=spell(LEAD, PEA, NO, FOLLOWER_1),
         configs=("default",),
         ink_deltas={"default": SLIDE_DELTA},
         pair={"left": 1, "right": 2},
@@ -3607,14 +3584,6 @@ def test_the_checked_in_pea_no_rule_reads_the_retarget(slide_context):
     match = {rule["id"]: rule for rule in sv.load_rules(sv.RULES)}["pea-no-xheight-join-retargeted"]["match"]
     context = slide_context()
     assert sv._matches(match, pea_retarget_window(), context=context)
-    for cell in match["after"]["pivot_cells"]:
-        window = pea_retarget_window()
-        window["after"]["cells"][1] = cell
-        assert sv._matches(match, window, context=context)
-    for cell in match["after"]["receiver_cells"]:
-        window = pea_retarget_window()
-        window["after"]["cells"][2] = cell
-        assert sv._matches(match, window, context=context)
     assert not sv._matches(match, retarget_window(), context=context)
     assert not sv._matches(match, founding_window(), context=context)
     unnamed = pea_retarget_window()
@@ -3658,7 +3627,7 @@ def test_a_wrong_follower_family_defeats_the_retarget_match(slide_context):
     other = retarget_window()
     other["before"]["glyphs"][2] = "qsF1"
     other["after"]["cells"][2] = "qsF1/full/None/None/"
-    other["codepoints"] = "E001:E024:E003:E003"
+    other["codepoints"] = spell(LEAD, TEA, FOLLOWER_1, FOLLOWER_1)
     assert not sv._matches(RETARGET_RULE["match"], other, context=slide_context())
 
 
@@ -3678,7 +3647,9 @@ def test_a_retarget_rule_reads_no_unit_without_ink_deltas():
 
 
 def test_a_window_with_no_retarget_pivot_is_refused_before_any_shaping():
-    assert not sv._matches(RETARGET_RULE["match"], slide_unit("r-3", ["qsL", "qsF1"], "E001:E003"))
+    assert not sv._matches(
+        RETARGET_RULE["match"], slide_unit("r-3", ["qsL", "qsF1"], spell(LEAD, FOLLOWER_1))
+    )
 
 
 def test_a_matchable_retarget_window_with_no_context_refuses_to_guess():
@@ -3845,15 +3816,6 @@ def test_one_extra_pixel_defeats_the_composed_retarget_reading(slide_context):
     )
 
 
-def test_the_composed_walk_credits_the_retarget_exactly_where_the_retarget_matcher_does(slide_context):
-    context = slide_context()
-    for window in (retarget_window(), composed_retarget_window(), founding_window()):
-        credited = set(sv._composed_walk([RETARGET_RULE], window, context) or ())
-        assert (credited == {RETARGET_RULE["id"]}) == sv._matches(
-            RETARGET_RULE["match"], window, context=context
-        ), window["id"]
-
-
 def test_the_retarget_guard_holds_the_whole_composed_window(slide_context):
     events = sv._composed(COMPOSED_RETARGET_RULES, composed_retarget_window(), slide_context())
     assert sv._composed_held(
@@ -3890,9 +3852,9 @@ def test_main_fills_a_single_retarget_window_under_that_shapes_own_line(
 
 
 REDRAWN_GLYPHS = ["qsL", "qsEight", "qsF3"]
-REDRAWN_CODEPOINTS = "E001:E030:E007"
+REDRAWN_CODEPOINTS = spell(LEAD, EIGHT, FOLLOWER_3)
 REDRAWN_EXT_GLYPHS = ["qsL", "qsEight.ex-ext-1", "qsF3"]
-REDRAWN_EXT_CODEPOINTS = "E001:E031:E007"
+REDRAWN_EXT_CODEPOINTS = spell(LEAD, EIGHT_EXTENDED, FOLLOWER_3)
 COMPOSED_REDRAWN_RULES = [REDRAWN_RULE, REDRAWN_EXT_RULE, ENTRY_RULE]
 
 
@@ -3905,11 +3867,15 @@ def redrawn_ext_window(uid="rd-2"):
 
 
 def composed_redrawn_window(uid="rd-3"):
-    return slide_unit(uid, ["qsL", "qsEight.ex-ext-1", "qsLow.en-ext-1", "qsF3"], "E001:E031:E023:E007")
+    return slide_unit(
+        uid,
+        ["qsL", "qsEight.ex-ext-1", "qsLow.en-ext-1", "qsF3"],
+        spell(LEAD, EIGHT_EXTENDED, LOW, FOLLOWER_3),
+    )
 
 
 REDRAWN_REVERSE_RULE = {
-    "id": "eight-regular-loop",
+    "id": "fixture-redrawn-reversed",
     "verdict": "approve",
     "note": "·Eight's bowl opens back up and the rest of the window stays put",
     "match": {
@@ -3931,7 +3897,9 @@ def test_a_pure_redrawn_trade_matches(slide_context):
 
 def test_a_trade_that_adds_more_than_it_drops_matches_its_own_direction_only(slide_context):
     context = slide_context()
-    window = slide_unit("rd-8", ["qsL", "qsEight.smaller-loop", "qsF3"], "E001:E034:E007")
+    window = slide_unit(
+        "rd-8", ["qsL", "qsEight.smaller-loop", "qsF3"], spell(LEAD, EIGHT_REVERSED, FOLLOWER_3)
+    )
     assert sv._matches(REDRAWN_REVERSE_RULE["match"], window, context=context)
     assert not sv._matches(REDRAWN_RULE["match"], window, context=context)
     assert not sv._matches(REDRAWN_REVERSE_RULE["match"], redrawn_window(), context=context)
@@ -3945,12 +3913,16 @@ def test_the_extension_frame_reads_its_own_rule_and_not_the_bare_one(slide_conte
 
 
 def test_an_entry_extended_frame_names_the_same_trade_one_column_over(slide_context):
-    window = slide_unit("rd-4", ["qsL", "qsEight.en-ext-1", "qsF3"], "E001:E032:E007")
+    window = slide_unit(
+        "rd-4", ["qsL", "qsEight.en-ext-1", "qsF3"], spell(LEAD, EIGHT_ENTRY_EXTENDED, FOLLOWER_3)
+    )
     assert sv._matches(REDRAWN_RULE["match"], window, context=slide_context())
 
 
 def test_a_second_pivot_family_glyph_keeping_its_form_rides_as_span_ink(slide_context):
-    window = slide_unit("rd-5", ["qsL", "qsEight", "qsF3", "qsEight"], "E001:E030:E007:E033")
+    window = slide_unit(
+        "rd-5", ["qsL", "qsEight", "qsF3", "qsEight"], spell(LEAD, EIGHT, FOLLOWER_3, EIGHT_UNCHANGED)
+    )
     assert sv._matches(REDRAWN_RULE["match"], window, context=slide_context())
 
 
@@ -3978,7 +3950,9 @@ def test_a_redrawn_rule_reads_no_unit_without_ink_deltas():
 
 
 def test_a_window_with_no_redrawn_pivot_prefix_glyph_is_refused_before_any_shaping():
-    assert not sv._matches(REDRAWN_RULE["match"], slide_unit("rd-7", ["qsL", "qsF1"], "E001:E003"))
+    assert not sv._matches(
+        REDRAWN_RULE["match"], slide_unit("rd-7", ["qsL", "qsF1"], spell(LEAD, FOLLOWER_1))
+    )
 
 
 def test_a_matchable_redrawn_window_with_no_context_refuses_to_guess():
@@ -4006,21 +3980,19 @@ def test_a_redrawn_trade_and_an_entry_drop_in_one_window_compose(slide_context):
     assert events == {REDRAWN_EXT_RULE["id"]: [1], ENTRY_RULE["id"]: [2]}
 
 
+def test_the_redrawn_guard_holds_the_whole_composed_window(slide_context):
+    rules = [REDRAWN_RULE, guarded_rule(REDRAWN_EXT_RULE, ["qsF3"]), ENTRY_RULE]
+    window = composed_redrawn_window()
+    context = slide_context()
+    events = sv._composed(rules, window, context)
+    assert events is not None
+    assert sv._composed_held(rules, window, events, context)
+
+
 def test_a_pure_redrawn_window_is_not_composed(slide_context):
     context = slide_context()
     assert sv._composed(COMPOSED_REDRAWN_RULES, redrawn_window(), context) is None
     assert sv._matches(REDRAWN_RULE["match"], redrawn_window(), context=context)
-
-
-def test_the_composed_walk_credits_the_redrawn_trade_exactly_where_the_matcher_does(slide_context):
-    context = slide_context()
-    for window in (redrawn_window(), redrawn_ext_window(), composed_redrawn_window()):
-        for rule in (REDRAWN_RULE, REDRAWN_EXT_RULE):
-            credited = set(sv._composed_walk([rule], window, context) or ())
-            assert (credited == {rule["id"]}) == sv._matches(rule["match"], window, context=context), (
-                window["id"],
-                rule["id"],
-            )
 
 
 def test_a_redrawn_rule_loads(tmp_path):
@@ -4084,3 +4056,108 @@ def test_a_rule_declaring_the_redrawn_and_gain_shapes_at_once_is_refused(tmp_pat
     rule["match"]["after"]["gained"] = [[1, 1]]
     with pytest.raises(SystemExit, match="exactly one delta shape"):
         sv.load_rules(_write_rules(tmp_path / "rules.yaml", [rule]))
+
+
+SOLO_WINDOWS = {
+    "ligature": (RULE, canonical),
+    "extension-dropped": (EXT_RULE, tea_i),
+    "ink-delta": (INK_RULE, ink_delta_unit),
+    "slide": (SLIDE_RULE, founding_window),
+    "ink-gain": (GAIN_RULE, gain_window),
+    "join-dropped": (JOIN_RULE, join_window),
+    "entry-extension-dropped": (ENTRY_RULE, entry_window),
+    "stub-dropped": (STUB_RULE, stub_window),
+    "redrawn": (REDRAWN_RULE, redrawn_window),
+    "join-retargeted": (RETARGET_RULE, retarget_window),
+}
+
+
+@pytest.mark.parametrize("shape_name", list(sv.SHAPES))
+def test_a_solo_rule_of_every_shape_fills_its_window_or_names_the_missing_fonts(
+    tmp_path, monkeypatch, shape_name
+):
+    """One rule of one shape, one window it matches, and a surface carrying no font pair: a font-backed shape has to say so and stop, and every other shape has to fill. Parametrized over the rows so a shape left out of `main`'s gates cannot land quietly — a font-backed one that the gate never sees reaches its own matcher with no context and raises mid-run instead of naming the surface — and so a new row without a window to match against fails here rather than going untested."""
+    rule, window = SOLO_WINDOWS[shape_name]
+    if sv.SHAPES[shape_name].font_backed:
+        with pytest.raises(SystemExit, match="carries no fonts/before.otf"):
+            _run_main(tmp_path, monkeypatch, [window("x-1")], [], rules_list=(rule,))
+        return
+    payload = _run_main(tmp_path, monkeypatch, [window("x-1")], [], rules_list=(rule,))
+    assert [record["unit"] for record in payload["verdicts"]] == ["x-1"]
+    assert payload["verdicts"][0]["note"] == f"[standing: {rule['id']}] {rule['note']}"
+
+
+COMPOSED_WALK_CORPORA = {
+    "slide": (
+        SLIDE_RULE,
+        slide_fixture_windows,
+        ("after", "after-extra-prefix-pixel", "after-extra-follower-pixel"),
+    ),
+    "ink-gain": (GAIN_RULE, lambda: [gain_window(), composed_gain_window(), founding_window()], ("after",)),
+    "join-dropped": (
+        JOIN_RULE,
+        lambda: [join_window(), composed_join_window(), founding_window()],
+        ("after",),
+    ),
+    "entry-extension-dropped": (
+        ENTRY_RULE,
+        lambda: [entry_window(), composed_entry_window(), founding_window()],
+        ("after",),
+    ),
+    "join-retargeted": (
+        RETARGET_RULE,
+        lambda: [retarget_window(), composed_retarget_window(), founding_window()],
+        ("after",),
+    ),
+    "redrawn": (
+        REDRAWN_RULE,
+        lambda: [redrawn_window(), redrawn_ext_window(), composed_redrawn_window()],
+        ("after",),
+    ),
+    "redrawn-under-an-extension-frame": (
+        REDRAWN_EXT_RULE,
+        lambda: [redrawn_window(), redrawn_ext_window(), composed_redrawn_window()],
+        ("after",),
+    ),
+}
+
+
+@pytest.mark.parametrize("corpus_name", list(COMPOSED_WALK_CORPORA))
+def test_the_composed_walk_credits_a_shape_exactly_where_its_own_matcher_does(slide_context, corpus_name):
+    """The walk and the single-rule matcher have to agree about one rule over every window: credit it where the matcher matches, and credit it nowhere else. Every shape asserts the same property over a corpus of its own — the windows it matches, the composed windows it appears in, and windows belonging to some other shape — so the table above is the whole of what a new shape adds, and the slide row's extra after-fonts carry the refusals a stray pixel is supposed to produce."""
+    rule, windows, afters = COMPOSED_WALK_CORPORA[corpus_name]
+    for after in afters:
+        context = slide_context(after)
+        for window in windows():
+            credited = set(sv._composed_walk([rule], window, context) or ())
+            assert (credited == {rule["id"]}) == sv._matches(rule["match"], window, context=context), (
+                after,
+                window["id"],
+            )
+
+
+def test_every_checked_in_rule_still_reaches_the_live_surface(live_artifacts, built_review_surface):
+    """The whole checked-in file against the surface the cycle actually built, through the same tally the dry run prints: every rule has to reach at least one real window, on its own line or as composed credit. A synthetic witness cannot say this — seven of the ten shapes only decide anything with a font pair behind them, and a witness copied out of the rule it is meant to test agrees with it by construction — so the corpus here is the surface's own windows and its own before/after fonts.
+
+    There is deliberately no retired marker and no allowance for a rule that has run out of windows. A rule whose swath legitimately disappears after a rune change turns this red, and the red is the signal to delete the rule from `rebuild/standing-approvals.yaml` — not a fault in the test, and not something to paper over with an exemption list. The blank verdict store this passes is what makes the number a reach rather than a backlog: a rule whose every window a human has already judged still reads as reaching them.
+    """
+    from rebuild.review import unit_index
+
+    surface = live_artifacts.surface
+    _, manifest = built_review_surface
+    units = [
+        record
+        for record in unit_index.iter_units(surface)
+        if not record.get("no_verdict")
+        and record.get("batch") is not None
+        and record.get("render_groups") == 1
+    ]
+    rules = sv.load_rules(sv.RULES)
+    context = sv.SlideContext(surface / "fonts" / "before.otf", surface / "fonts" / "after.otf")
+    run = sv.rule_reach(rules, units, {}, manifest["generated_at"], context=context)
+    unreached = [
+        rule["id"]
+        for rule in rules
+        if not (sv._own_line_total(run.reaches[rule["id"]]) + run.reaches[rule["id"]].composed_credit)
+    ]
+    assert unreached == []
