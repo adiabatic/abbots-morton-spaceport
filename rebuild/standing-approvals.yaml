@@ -389,6 +389,16 @@ rules:
         added: [[0, 0], [1, 0], [3, 1], [3, 4], [4, 2], [4, 3]]
         shift: -1
       except_left: []
+  - id: roe-baseline-exit-entry-extension-dropped
+    verdict: approve
+    note: "·Roe sits a pixel closer to ·May when it carries a baseline exit of its own — the same refusal to sum ·Roe's x-height entry extension onto ·May's already-extended exit that roe-baseline-bar-kept-entry-extension-dropped records for the exitless form (“Stop bothering me about ·Roe’s new shape after ·May”), except that the exit-bearing form already draws the full baseline bar, so the entry column coming off is the whole change, and every window that reached a sitting approved the tighter seam"
+    match:
+      before:
+        pivots: [qsRoe.ex-y0.en-ext-1-at-5]
+      after:
+        pivots: [qsRoe.hapax.en-y5.ex-y0]
+        entry_drop: 1
+      except_left: []
   - id: tea-full-bar-after-xheight-stroke-ss03
     verdict: approve
     note: "·Tea keeps the full-height bar after a flat x-height stroke under ss03, including after ·May — the standing decision is recorded by qsTea's ss03 unlock and “Always draw ·Tea's full bar after a flat x-height stroke under ss03”"
