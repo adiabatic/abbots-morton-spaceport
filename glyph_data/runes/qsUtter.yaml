@@ -110,6 +110,10 @@ policy:
         family: qsNo
         joined_at: none
       right: {family: qsMay}
+  - exit: x-height
+    when:
+      left: {family: qsKey}
+      right: {family: qsMay}
   prefer:
   - cell: {exit: none}
     over: {exit: x-height}
