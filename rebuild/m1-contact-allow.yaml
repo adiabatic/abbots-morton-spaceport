@@ -476,6 +476,8 @@
   why: ·May's loop x-height terminal (top-right nub at y5), drawn unconditionally in the shipped font; the declined exit keeps it. (·May's entry-side receiving stub is unaffected and still retracts.)
 - signature: dangle:qsMay.loop.en-y0:exit:x-height
   why: ·May entered at the baseline keeps the same loop x-height terminal on a declined exit.
+- signature: dangle:qsMay.loop.en-y0.en-con-1:exit:x-height
+  why: The contracted-entry variant of ·May's loop keeps the same x-height terminal; the baseline contraction does not move the exit nub.
 - signature: dangle:qsMay.loop.en-y0.en-ext-1:exit:x-height
   why: The extended-entry variant of ·May's loop x-height terminal entered at the baseline; the entry extension does not move the exit nub.
 - signature: dangle:qsMay.loop.en-y5:exit:x-height
