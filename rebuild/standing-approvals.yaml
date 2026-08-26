@@ -104,6 +104,23 @@ rules:
           - qsTea/full/x-height/None/
           - qsTea/full/x-height/baseline/
       except_left: []
+  - id: fee-tea-ss03-join-restored
+    verdict: approve
+    note: "Under ss03, ·Fee ~x~ ·Tea replaces the old pipeline's break after qsFee.ex-y5.before-may.ex-ext-3, using the same one-pixel reach already approved by fee-tea-ss03-exit-extension-shortened; qsFee policy.prefer[0] records the intended forward join"
+    match:
+      before:
+        pivot: qsFee.ex-y5.before-may.ex-ext-3
+        seam_out: break
+        follower: qsTea
+      after:
+        joined: y5
+        pivot_cells:
+          - qsFee/loop/None/x-height/ex-ext-1
+        receiver_cells:
+          - qsTea/full/x-height/None/
+          - qsTea/full/x-height/baseline/
+        shift: -3
+      except_left: []
   - id: et-may-exit-contracted
     verdict: approve
     note: "·May sits a pixel closer to ·Et — the extra pixel of exit the old font drew came off as a contraction on ·Et’s contract record, and every window that reached a sitting approved the shorter reach"

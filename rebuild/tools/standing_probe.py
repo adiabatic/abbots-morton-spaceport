@@ -1,4 +1,4 @@
-"""Explain why a review-surface unit still queues, in the standing approvals' own terms, so the next once-and-for-all rule is written from evidence instead of rediscovered: for each unit named, print its two grains side by side — the recorded before glyphs and after cells with their seams, and the rendered pieces of both fonts with each piece's placement, own-frame origin and cell count, read as "same shape placed N columns over", "redrawn", or "inkless" — then say what every checked-in rule makes of it (matches, held by except_left, or nothing), whether the composed reading credits any rules and whether that credit reaches the two-rule threshold, and how many human units share exactly this unit's ink-delta digests and how they were verdicted, which is where the user's earlier decision usually turns out to be already recorded. `--extension-cells PIVOT TOKEN SEAM` answers the other question a new extension-dropped rule always asks — which pivot and follower cells it has to name in full — by enumerating every window on the surface where a PIVOT glyph carrying TOKEN (an `ex-ext-N` on the before glyph, or an `ex-con-N` on the after cell whose before glyph never carried an exit extension) exits at SEAM on both sides and settles into a cell without the named extension or with a shorter one, or into a cell carrying the named contraction, with the follower's family, both after cells, and the verdict tally per pair. `--retarget-cells PIVOT BEFORE_SEAM FOLLOWER AFTER_SEAM` is the same survey for a join-retargeted rule, over every window where a PIVOT glyph's seam into FOLLOWER moves from BEFORE_SEAM to AFTER_SEAM. `--coverage RULE_ID` turns either survey back on a rule that already exists: it re-runs whichever enumeration the rule's shape has, from the rule's own before-side fields and relaxed of everything the rule names, and reports the pivot forms, follower families and follower cells the enumeration reaches that the rule does not yet name, each with its verdict tally — a docket of candidates rather than a widening instruction, since a follower joins the list only once its own recorded decision has been found. `--find TEXT` is the way back from a notation to unit ids: a plain substring match over every human unit's notation, blanks first and capped, because one letter pair matches thousands of records; `--blank-only` and `--limit N` narrow it, and the notation's grammar is `parse_expect`'s in test/test_shaping.py, never re-read here. `--shapes` prints the symptom-to-shape menu, walked off the standing approvals' own SHAPES table so a new shape enters the menu the moment it enters the table, and a run that resolves no unit id prints it too. All the lists it prints — pivot cells, followers, follower cells — come out in code-point order, which is the order the rules file and the skill are written in. Read-only: nothing here writes to the surface or the store."""
+"""Explain why a review-surface unit still queues, in the standing approvals' own terms, so the next once-and-for-all rule is written from evidence instead of rediscovered: for each unit named, print its two grains side by side — the recorded before glyphs and after cells with their seams, and the rendered pieces of both fonts with each piece's placement, own-frame origin and cell count, read as "same shape placed N columns over", "redrawn", or "inkless" — then say what every checked-in rule makes of it (matches, held by except_left, or nothing), whether the composed reading credits any rules and whether that credit reaches the two-rule threshold, and how many human units share exactly this unit's ink-delta digests and how they were verdicted, which is where the user's earlier decision usually turns out to be already recorded. `--extension-cells PIVOT TOKEN SEAM` answers the other question a new extension-dropped rule always asks — which pivot and follower cells it has to name in full — by enumerating every window on the surface where a PIVOT glyph carrying TOKEN (an `ex-ext-N` on the before glyph, or an `ex-con-N` on the after cell whose before glyph never carried an exit extension) exits at SEAM on both sides and settles into a cell without the named extension or with a shorter one, or into a cell carrying the named contraction, with the follower's family, both after cells, and the verdict tally per pair. `--retarget-cells PIVOT BEFORE_SEAM FOLLOWER AFTER_SEAM` is the same survey for a join-retargeted or join-created rule, over every window where a PIVOT glyph's seam into FOLLOWER moves from BEFORE_SEAM to AFTER_SEAM. `--coverage RULE_ID` turns either survey back on a rule that already exists: it re-runs whichever enumeration the rule's shape has, from the rule's own before-side fields and relaxed of everything the rule names, and reports the pivot forms, follower families and follower cells the enumeration reaches that the rule does not yet name, each with its verdict tally — a docket of candidates rather than a widening instruction, since a follower joins the list only once its own recorded decision has been found. `--find TEXT` is the way back from a notation to unit ids: a plain substring match over every human unit's notation, blanks first and capped, because one letter pair matches thousands of records; `--blank-only` and `--limit N` narrow it, and the notation's grammar is `parse_expect`'s in test/test_shaping.py, never re-read here. `--shapes` prints the symptom-to-shape menu, walked off the standing approvals' own SHAPES table so a new shape enters the menu the moment it enters the table, and a run that resolves no unit id prints it too. All the lists it prints — pivot cells, followers, follower cells — come out in code-point order, which is the order the rules file and the skill are written in. Read-only: nothing here writes to the surface or the store."""
 
 import argparse
 import collections
@@ -299,6 +299,7 @@ def _shapes():
 COVERAGE_SHAPES = {
     "extension-dropped": ("--extension-cells", "pivot_cells", "follower_cells"),
     "join-retargeted": ("--retarget-cells", "pivot_cells", "receiver_cells"),
+    "join-created": ("--retarget-cells", "pivot_cells", "receiver_cells"),
 }
 
 
@@ -308,13 +309,14 @@ def _coverage_pairs(units, blankness, shape, match):
         return _extension_pairs(
             units, blankness, before["pivot"], before["exit_extension"], before["seam_out"]
         )
+    target = "retarget" if shape == "join-retargeted" else "joined"
     return _retarget_pairs(
         units,
         blankness,
         match["before"]["pivot"],
         match["before"]["seam_out"],
         None,
-        match["after"]["retarget"],
+        match["after"][target],
     )
 
 
@@ -371,7 +373,7 @@ def main(argv=None):
         "--retarget-cells",
         nargs=4,
         metavar=("PIVOT", "BEFORE_SEAM", "FOLLOWER", "AFTER_SEAM"),
-        help="enumerate the pivot and follower cells a join-retargeted rule for PIVOT's seam into FOLLOWER moving from BEFORE_SEAM to AFTER_SEAM would have to name",
+        help="enumerate the pivot and follower cells a join-retargeted or join-created rule for PIVOT's seam into FOLLOWER moving from BEFORE_SEAM to AFTER_SEAM would have to name",
     )
     parser.add_argument(
         "--coverage",

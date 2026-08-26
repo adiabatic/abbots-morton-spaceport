@@ -208,6 +208,22 @@ RETARGET_RULE = {
     },
 }
 
+CREATED_JOIN_RULE = {
+    "id": "fixture-join-created",
+    "verdict": "approve",
+    "note": "·J joins ·F3 where the old font left a break",
+    "match": {
+        "before": {"pivot": "qsJ", "seam_out": "break", "follower": "qsF3"},
+        "after": {
+            "joined": "y0",
+            "pivot_cells": ["qsJ/hapax/None/baseline/ex-ext-1"],
+            "receiver_cells": ["qsF3/full/None/None/"],
+            "shift": -2,
+        },
+        "except_left": [],
+    },
+}
+
 REDRAWN_RULE = {
     "id": "fixture-redrawn",
     "verdict": "approve",
@@ -1151,6 +1167,7 @@ def test_every_shape_loads_from_one_rules_file(tmp_path):
                 ENTRY_RULE,
                 STUB_RULE,
                 RETARGET_RULE,
+                CREATED_JOIN_RULE,
                 REDRAWN_RULE,
             ],
         )
@@ -1165,6 +1182,7 @@ def test_every_shape_loads_from_one_rules_file(tmp_path):
         ENTRY_RULE["id"],
         STUB_RULE["id"],
         RETARGET_RULE["id"],
+        CREATED_JOIN_RULE["id"],
         REDRAWN_RULE["id"],
     ]
 
@@ -1433,6 +1451,10 @@ SLIDE_FONTS = {
     "after-retarget-unmoved": ({**AFTER_GLYPHS, "qsNo": (TWO_COLUMNS, 100)}, AFTER_CMAP),
     "after-retarget-moved-origin": (
         {**AFTER_GLYPHS, "qsTea": (GROUNDED_SEE, 100)},
+        AFTER_CMAP,
+    ),
+    "after-created-join-unmoved": (
+        {**AFTER_GLYPHS, "qsJ.hapax.ex-y0.ex-ext-1": (EXTENDED_PIVOT, 200)},
         AFTER_CMAP,
     ),
     "after-redrawn-extra-cell": (
@@ -2210,7 +2232,7 @@ def test_main_refuses_a_surface_that_predates_the_ink_delta_field(tmp_path, monk
         SystemExit,
         match=(
             "predates the ink-delta, slide, ink-gain, join-dropped, entry-extension-dropped, "
-            "entry-contracted, stub-dropped, redrawn, and join-retargeted"
+            "entry-contracted, stub-dropped, redrawn, join-retargeted, and join-created"
         ),
     ):
         _run_main(tmp_path, monkeypatch, [canonical("u-1")], [], rules_list=(RULE, INK_RULE))
@@ -2490,7 +2512,7 @@ def test_two_composable_rules_refuse_a_surface_that_predates_the_ink_delta_field
         SystemExit,
         match=(
             "predates the ink-delta, slide, ink-gain, join-dropped, entry-extension-dropped, "
-            "entry-contracted, stub-dropped, redrawn, and join-retargeted"
+            "entry-contracted, stub-dropped, redrawn, join-retargeted, and join-created"
         ),
     ):
         _run_main(tmp_path, monkeypatch, [tea_i("u-1")], [], rules_list=(EXT_RULE, COMPOSED_EXT_RULE))
@@ -3694,6 +3716,11 @@ RETARGET_CODEPOINTS = spell(LEAD, TEA, NO, FOLLOWER_1)
 COMPOSED_RETARGET_GLYPHS = ["qsL", "qsSee.ex-y0", "qsTea.half.ex-y5", "qsNo.en-ext-1"]
 COMPOSED_RETARGET_CODEPOINTS = spell(LEAD, SEE, TEA, NO)
 COMPOSED_RETARGET_RULES = [SLIDE_RULE, RETARGET_RULE]
+CREATED_JOIN_GLYPHS = ["qsL", "qsJ.ex-y0.ex-ext-3.long", "qsF3"]
+CREATED_JOIN_CODEPOINTS = spell(LEAD, PIVOT_SHORTENED, FOLLOWER_3)
+COMPOSED_CREATED_JOIN_GLYPHS = ["qsL", "qsSee.ex-y0", "qsJ.ex-y0.ex-ext-3.long", "qsF3"]
+COMPOSED_CREATED_JOIN_CODEPOINTS = spell(LEAD, SEE, PIVOT_SHORTENED, FOLLOWER_3)
+COMPOSED_CREATED_JOIN_RULES = [SLIDE_RULE, CREATED_JOIN_RULE]
 JOIN_RETARGET_GLYPHS = ["qsL", "qsAt", "qsIt", "qsTea.half.ex-y5", "qsNo.en-ext-1"]
 JOIN_RETARGET_CODEPOINTS = spell(LEAD, AT, IT, TEA, NO)
 JOIN_RETARGET_RULES = [JOIN_RULE, RETARGET_RULE]
@@ -3737,6 +3764,43 @@ def composed_retarget_window(uid="cr-1"):
     )
 
 
+def created_join_window(uid="cj-1"):
+    return unit(
+        uid,
+        list(CREATED_JOIN_GLYPHS),
+        ["y0", "break"],
+        [
+            "qsL/full/None/None/",
+            "qsJ/hapax/None/baseline/ex-ext-1",
+            "qsF3/full/None/None/",
+        ],
+        ["y0", "y0"],
+        codepoints=CREATED_JOIN_CODEPOINTS,
+        configs=("default",),
+        ink_deltas={"default": SLIDE_DELTA},
+        pair={"left": 1, "right": 2},
+    )
+
+
+def composed_created_join_window(uid="ccj-1"):
+    return unit(
+        uid,
+        list(COMPOSED_CREATED_JOIN_GLYPHS),
+        ["y0", "y0", "break"],
+        [
+            "qsL/full/None/None/",
+            "qsSee/full/None/None/",
+            "qsJ/hapax/None/baseline/ex-ext-1",
+            "qsF3/full/None/None/",
+        ],
+        ["y0", "y0", "y0"],
+        codepoints=COMPOSED_CREATED_JOIN_CODEPOINTS,
+        configs=("default",),
+        ink_deltas={"default": SLIDE_DELTA},
+        pair={"left": 2, "right": 3},
+    )
+
+
 def join_retarget_window(uid="jr-1"):
     return unit(
         uid,
@@ -3759,6 +3823,24 @@ def join_retarget_window(uid="jr-1"):
 
 def test_a_pure_join_retarget_matches(slide_context):
     assert sv._matches(RETARGET_RULE["match"], retarget_window(), context=slide_context())
+
+
+def test_a_new_join_matches(slide_context):
+    assert sv._matches(CREATED_JOIN_RULE["match"], created_join_window(), context=slide_context())
+
+
+def test_a_pair_that_remains_broken_does_not_match_a_created_join(slide_context):
+    broken = created_join_window()
+    broken["after"]["seams"][1] = "break"
+    assert not sv._matches(CREATED_JOIN_RULE["match"], broken, context=slide_context())
+
+
+def test_a_created_join_whose_receiver_does_not_move_by_the_declared_shift_is_refused(slide_context):
+    assert not sv._matches(
+        CREATED_JOIN_RULE["match"],
+        created_join_window(),
+        context=slide_context("after-created-join-unmoved"),
+    )
 
 
 def pea_retarget_window(uid="pr-1"):
@@ -3927,6 +4009,12 @@ def test_a_break_before_seam_is_refused_at_load_for_retarget(tmp_path):
         sv.load_rules(_write_rules(tmp_path / "rules.yaml", [rule]))
 
 
+def test_a_created_join_rule_loads_with_a_break_before_seam(tmp_path):
+    [rule] = sv.load_rules(_write_rules(tmp_path / "rules.yaml", [CREATED_JOIN_RULE]))
+    assert rule["match"]["before"]["seam_out"] == "break"
+    assert rule["match"]["after"]["joined"] == "y0"
+
+
 def test_a_retarget_that_holds_its_height_is_refused_at_load(tmp_path):
     rule = json.loads(json.dumps(RETARGET_RULE))
     rule["match"]["after"]["retarget"] = "y5"
@@ -3972,6 +4060,11 @@ def test_main_fills_only_the_blank_matching_join_retargeted_units(tmp_path, monk
 def test_a_slide_and_a_join_retarget_in_one_window_compose(slide_context):
     events = sv._composed(COMPOSED_RETARGET_RULES, composed_retarget_window(), slide_context())
     assert events == {SLIDE_RULE["id"]: [1], RETARGET_RULE["id"]: [2]}
+
+
+def test_a_slide_and_a_created_join_in_one_window_compose(slide_context):
+    events = sv._composed(COMPOSED_CREATED_JOIN_RULES, composed_created_join_window(), slide_context())
+    assert events == {SLIDE_RULE["id"]: [1], CREATED_JOIN_RULE["id"]: [2]}
 
 
 def test_a_join_drop_and_a_join_retarget_in_one_window_compose(slide_context):
@@ -4276,6 +4369,7 @@ SOLO_WINDOWS = {
     "stub-dropped": (STUB_RULE, stub_window),
     "redrawn": (REDRAWN_RULE, redrawn_window),
     "join-retargeted": (RETARGET_RULE, retarget_window),
+    "join-created": (CREATED_JOIN_RULE, created_join_window),
 }
 
 
@@ -4326,6 +4420,11 @@ COMPOSED_WALK_CORPORA = {
         RETARGET_RULE,
         lambda: [retarget_window(), composed_retarget_window(), founding_window()],
         ("after",),
+    ),
+    "join-created": (
+        CREATED_JOIN_RULE,
+        lambda: [created_join_window(), composed_created_join_window(), founding_window()],
+        ("after", "after-created-join-unmoved"),
     ),
     "redrawn": (
         REDRAWN_RULE,
