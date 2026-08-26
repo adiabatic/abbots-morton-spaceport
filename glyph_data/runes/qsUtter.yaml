@@ -142,7 +142,21 @@ policy:
   - cell: {exit: baseline}
     over: {entry: baseline}
     when:
-      right: {family: qsLow}
+      right:
+        family:
+        - qsVie
+        - qsVie_qsUtter
+        - qsSee
+        - qsLow
+        except:
+        - family: qsSee
+          then:
+            family:
+            - qsLow
+            - qsAt
+            - qsOut
+            - qsOut_qsTea
+            - qsOoze
     why: 'Claude figured that this would be the best (least disruptive) way to have `·Day | ·Utter.alt ~b~ ·Low` happen; The Manual requires this'
   - stance: mono
     mode: absolute

@@ -55,6 +55,7 @@ stances:
           from:
           - family:
             - qsPea
+            - qsBay
             - qsTea
             - qsTea_qsOy
             - qsDay

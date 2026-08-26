@@ -1,55 +1,49 @@
-rune: qsOoze
-codepoint: 0xE67E
+rune: qsBay
+codepoint: 0xE651
 ductus:
-  hapax: | # DRAFT — pending author sign-off
-    Begun at the bottom left on the baseline, the stroke rises straight up, leans inward to a point at the x-height, and comes back down the other side to a short vertical leg that rests on the baseline at the right, where it may connect to the next letter.
+  hapax: |
+    Begun at the x-height, the stroke falls straight down past the baseline, loops counterclockwise below it — leftward along the bottom, then up the left side — and closes rightward along the baseline, where it may connect to the next letter.
 mono:
   bitmap:
-  - "  #  "  #
-  - " # # "
-  - " # # "
-  - "#   #"
-  - "#   #"
-  - "#   #"  #
+  - "   # "  #
+  - "   # "
+  - "   # "
+  - "   # "
+  - "   # "
+  - " ####"  #
+  - "#  # "
+  - "#  # "
+  - " ##  "
+  y_offset: -3
 stances:
   hapax:
     motion: hapax
     traits: []
     bitmap:
-    - "  #  "  #
-    - " # # "
-    - " # # "
-    - "#   #"
-    - "#   #"
-    - "#   #"  #
+    - "   # "  #
+    - "   # "
+    - "   # "
+    - "   # "
+    - "   # "
+    - " ####"  #
+    - "#  # "
+    - "#  # "
+    - " ##  "
+    y_offset: -3
     surface:
       entries:
-        baseline:
-          x: 0
+        x-height:
+          x: 3
           stroke: vertical
           from:
           - family:
-            - qsPea
-            - qsBay
-            - qsTea
-            - qsTea_qsOy
-            - qsDay
-            - qsSee
-            - qsJai
-            - qsNo
-            - qsIt
-            - qsEt
-            - qsEight
-            - qsAwe
-            - qsOx
-            - qsOy
+            - qsI
+            - qsAh
             - qsUtter
-            - qsOoze
       exits:
         baseline:
           x: 5
-          stroke: vertical
-          withdrawal: safe
+          stroke: horizontal
           toward:
           - family:
             - qsTea

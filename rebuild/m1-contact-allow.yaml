@@ -977,3 +977,11 @@
   why: The blessed ·Ooze·Utter corner with ·Utter exiting at the x-height; the crown's exit does not move its left downstroke.
 - signature: contact:qsOoze.hapax.ex-y0:qsUtter.mono.en-y0:y1
   why: ·Ooze·Utter joins at the baseline today (baseline row E67E:E67A); ·Ooze's right leg abuts ·Utter's left downstroke at y1, the same corner as the blessed ·Ooze·It.
+
+# ·Bay's baseline closing bar is unconditional letterform ink on the ·Awe precedent, the same shape whether or not the exit joins: the shipped font draws bare qsBay with the full below-baseline loop and its closing bar at every word edge and before every non-joining follower, and no withdrawn form exists in quikscript.yaml. The bar's last pixel is the loop's top-right corner with no ink above it, so it cannot earn the automatic `withdrawal: safe` proof. One signature per entry/lock variant the gate inspects separately; all are the same terminal.
+- signature: dangle:qsBay.hapax:exit:baseline
+  why: ·Bay's closing-bar terminal, drawn unconditionally in the shipped font; the declined exit keeps it.
+- signature: dangle:qsBay.hapax.en-y5:exit:baseline
+  why: ·Bay entered at the x-height keeps the same closing-bar terminal on a declined exit.
+- signature: dangle:qsBay.hapax.locked:exit:baseline
+  why: The ZWNJ-locked twin of ·Bay's closing-bar terminal; identical drawing.
