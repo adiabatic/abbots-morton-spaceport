@@ -670,8 +670,8 @@ def _entry_drop_holds(match, before, after, intern):
     } == set(range(edge + 1, edge + 1 - extension_delta))
 
 
-def _entry_geometry(match, unit, comparator):
-    """Whether the window's rendered before→after change is exactly the named left-side entry shortening on the named pivot, re-derived from the fonts: shape the window under one of the unit's configs, judge each pivot piece by `_entry_drop_holds` at the same placement, and require every span strictly between the pivots to render identically once displaced by the cumulative drop — the span before the first pivot by nothing, the span after the first pivot by the full drop, and one more drop for every further pivot. Anything the contract cannot hold — no pivot on the before side, pivot counts that disagree, a shaped run that contradicts the unit's recorded glyphs, an off-grid placement, a non-rectilinear outline, a dropped cell outside the named columns, an unnamed extra cell — reads as no match, so the unit queues."""
+def _entry_geometry(match, unit, comparator, pivot_positions=None):
+    """Whether the window's rendered before→after change is exactly the named left-side entry shortening on the named pivot, re-derived from the fonts: shape the window under one of the unit's configs, judge each pivot piece by `_entry_drop_holds` at the same placement, and require every span strictly between the pivots to render identically once displaced by the cumulative drop — the span before the first pivot by nothing, the span after the first pivot by the full drop, and one more drop for every further pivot. A pair-specific caller passes the positions already scoped by its named left family; the general entry-drop shape leaves them unset and judges every named pivot. Anything the contract cannot hold — no pivot on the before side, pivot counts that disagree, a shaped run that contradicts the unit's recorded glyphs, an off-grid placement, a non-rectilinear outline, a dropped cell outside the named columns, an unnamed extra cell — reads as no match, so the unit queues."""
     codepoints = unit.get("codepoints") or ""
     if not codepoints:
         return False
@@ -684,12 +684,24 @@ def _entry_geometry(match, unit, comparator):
     if list(before_names) != unit["before"]["glyphs"]:
         return False
     _after_names, after_run = comparator.named_run("after", text, features)
-    before_pivots = [
-        i for i, piece in enumerate(before_run) if _named_pivot(piece[0], match["before"]["pivots"])
-    ]
-    after_pivots = [
-        i for i, piece in enumerate(after_run) if _named_pivot(piece[0], match["after"]["pivots"])
-    ]
+    if pivot_positions is None:
+        before_pivots = [
+            i for i, piece in enumerate(before_run) if _named_pivot(piece[0], match["before"]["pivots"])
+        ]
+        after_pivots = [
+            i for i, piece in enumerate(after_run) if _named_pivot(piece[0], match["after"]["pivots"])
+        ]
+    else:
+        before_pivots = list(pivot_positions)
+        after_pivots = list(pivot_positions)
+        if any(
+            index >= len(before_run)
+            or index >= len(after_run)
+            or not _named_pivot(before_run[index][0], match["before"]["pivots"])
+            or not _named_pivot(after_run[index][0], match["after"]["pivots"])
+            for index in before_pivots
+        ):
+            return False
     if not before_pivots or len(before_pivots) != len(after_pivots):
         return False
     intern = comparator.intern
@@ -757,7 +769,8 @@ def _matches_entry_contracted(match, unit, excluded, context=None):
         return False
     if len(set(deltas.values())) != 1 or set(deltas) != set(unit.get("configs") or []):
         return False
-    if not _contracted_entry_candidates(match, unit):
+    candidates = _contracted_entry_candidates(match, unit)
+    if not candidates:
         return False
     if context is None:
         raise ValueError(
@@ -772,7 +785,9 @@ def _matches_entry_contracted(match, unit, excluded, context=None):
     )
     verdict = context.memo.get(key)
     if verdict is None:
-        verdict = context.memo[key] = _entry_geometry(match, unit, context.comparator)
+        verdict = context.memo[key] = _entry_geometry(
+            match, unit, context.comparator, pivot_positions=candidates
+        )
     if not verdict:
         return False
     return not any(_joining_family(name) in excluded for name in unit["before"]["glyphs"])
