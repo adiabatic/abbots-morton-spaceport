@@ -1,0 +1,87 @@
+rune: qsKey
+codepoint: 0xE654
+ductus:
+  hapax: |
+    Begun at the top left, the stroke slants down and inward to a point at the middle, falls straight down past the x-height, slants back out to the left, drops to the baseline, and turns rightward into a foot, where it may connect to the next letter.
+mono:
+  bitmap:
+  - "#    "
+  - " #   "
+  - "  #  "
+  - "  #  "  #
+  - "  #  "
+  - " #   "
+  - "#    "
+  - "#    "
+  - " ### "  #
+stances:
+  hapax:
+    motion: hapax
+    traits: []
+    bitmap:
+    - "#   "
+    - " #  "
+    - "  # "
+    - "  # "  #
+    - "  # "
+    - " #  "
+    - "#   "
+    - "#   "
+    - " ###"  #
+    surface:
+      entries:
+        top:
+          x: 0
+          stroke: diagonal
+          from:
+          - {family: qsSee}
+      exits:
+        baseline:
+          x: 4
+          stroke: horizontal
+          toward:
+          - family:
+            - qsTea
+            - qsDay
+            - qsDay_qsUtter
+            - qsVie
+            - qsVie_qsUtter
+            - qsSee
+            - qsMay
+            - qsNo
+            - qsLow
+            - qsRoe
+            - qsIt
+            - qsAt
+            - qsI
+            - qsAh
+            - qsUtter
+            - qsOut
+            - qsOut_qsTea
+            - qsOoze
+      cells: []
+      unlocks: []
+      require: []
+policy:
+  order:
+  - hapax
+  refuse: []
+  prefer:
+  - cell: {exit: none}
+    over: {exit: baseline}
+    when:
+      right:
+        family: qsTea
+        then:
+          except:
+          - {family: qsPea}
+  - cell: {exit: none}
+    over: {exit: baseline}
+    when:
+      right:
+        family: qsUtter
+        then: {family: qsMay}
+  extend: []
+  contract: []
+  resolve: []
+  groups: {}

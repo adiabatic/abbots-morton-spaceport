@@ -1692,6 +1692,7 @@ def _may_ligature_seam_loosened(row: DivergentRow) -> bool:
 # qsAt joined on direct pair evidence: the old overlay leaves bare qsAt in place, so qsPea|qsAt stays joined at the baseline and qsAt|qsDay stays joined at the x-height; the contextual before-·May and before-·J'ai forms are covered and isolate correctly.
 # qsOoze joined at its own migration on the qsAwe shape: no stances in the old record, so its baseline entry and baseline exit both ride the base cmap glyph and bare qsOoze keeps its seams under ss10 (qsPea|qsOoze stays y0, qsOoze|qsVie stays y0).
 # qsBay joined on direct pair evidence, the qsAt shape: the old overlay leaves bare qsBay's baseline exit live (qsBay|qsVie stays y0, likewise qsSee/qsLow/qsRoe/qsAt/qsAh/qsOut/qsOoze), while the contextual en-y5 entry form is substituted away correctly, so every entry into qsBay isolates (qsI|qsBay breaks under ss10).
+# qsKey joined at its own migration on the qsAwe shape: no stances in the old record, so its top entry and baseline exit both ride the base cmap glyph and bare qsKey keeps its seams under ss10 (qsSee|qsKey stays y8, qsKey|qsVie stays y0), while the receivers the old font serves through contextual forms (qsTea.en-y0.en-ext-1, qsDay.half, qsMay.en-y0.ex-y5, qsNo.alt) are substituted away and isolate correctly.
 SS10_UNCOVERED_BY_OLD_FONT = frozenset(
     {
         "qsAh",
@@ -1708,6 +1709,7 @@ SS10_UNCOVERED_BY_OLD_FONT = frozenset(
         "qsAt",
         "qsOoze",
         "qsBay",
+        "qsKey",
     }
 )
 

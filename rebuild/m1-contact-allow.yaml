@@ -987,3 +987,22 @@
   why: ·Bay entered at the x-height keeps the same closing-bar terminal on a declined exit.
 - signature: dangle:qsBay.hapax.locked:exit:baseline
   why: The ZWNJ-locked twin of ·Bay's closing-bar terminal; identical drawing.
+
+# ·Key's baseline foot is unconditional letterform ink on the ·Awe precedent, the same shape whether or not the exit joins: the shipped font draws bare qsKey with the full angle and its foot at every word edge and before every non-joining follower, and no withdrawn form exists in quikscript.yaml. The foot's last pixel has no ink above it, so it cannot earn the automatic `withdrawal: safe` proof. One signature per entry/lock variant the gate inspects separately; all are the same terminal.
+- signature: dangle:qsKey.hapax:exit:baseline
+  why: ·Key's foot terminal, drawn unconditionally in the shipped font; the declined exit keeps it.
+- signature: dangle:qsKey.hapax.en-y8:exit:baseline
+  why: ·Key entered at the top keeps the same foot terminal on a declined exit.
+- signature: dangle:qsKey.hapax.locked:exit:baseline
+  why: The ZWNJ-locked twin of ·Key's foot terminal; identical drawing.
+
+# The after-·Key entry extension reaches ·It's ss04 pass-through cell: en-ext-1 lengthens the ·Key connector on ·It's left at y0 and leaves ·It's bar — and so the right-side corner against each follower — exactly where the blessed un-extended pass-through twin draws it. A y2 signature where the twin's says y1 is the checker naming a different row of the same multi-row bar adjacency, not a moved corner.
+- signature: contact:qsIt.hapax.en-y0.ex-y0.en-ext-1:qsOoze.hapax.en-y0:y2
+- signature: contact:qsIt.hapax.en-y0.ex-y0.en-ext-1:qsOoze.hapax.en-y0.ex-y0:y2
+- signature: contact:qsIt.hapax.en-y0.ex-y0.en-ext-1:qsOut.normal.en-y0:y1
+- signature: contact:qsIt.hapax.en-y0.ex-y0.en-ext-1:qsOut.swept-up.en-y0.ex-y5:y2
+- signature: contact:qsIt.hapax.en-y0.ex-y0.en-ext-1:qsOut.swept-up.en-y0.ex-y5.ex-ext-1:y2
+- signature: contact:qsIt.hapax.en-y0.ex-y0.en-ext-1:qsOut_qsTea.hapax.en-y0:y2
+- signature: contact:qsIt.hapax.en-y0.ex-y0.en-ext-1:qsUtter.mono.en-y0:y1
+- signature: contact:qsIt.hapax.en-y0.ex-y0.en-ext-1:qsUtter.mono.en-y0.ex-y5:y1
+- signature: contact:qsIt.hapax.en-y0.ex-y0.en-ext-1:qsUtter.mono.en-y0.ex-y5.ex-ext-1:y1

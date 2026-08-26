@@ -45,6 +45,8 @@ qsDay: {rune: qsDay, stance: full}
 qsDay.half.en-y0.ex-y0: {rune: qsDay, stance: half, entry: baseline, exit: baseline}
 qsDay.half.en-y0.ex-y0.en-ext-1: {rune: qsDay, stance: half, entry: baseline, exit: baseline, adjustments: [en-ext-1]}
 qsDay.noentry: {rune: qsDay, stance: full, adjustments: [locked]}
+qsKey: {rune: qsKey, stance: hapax}
+qsKey.noentry: {rune: qsKey, stance: hapax, adjustments: [locked]}
 qsDay_qsUtter: {rune: qsDay_qsUtter, stance: full}
 qsDay_qsUtter.ex-con-2: {rune: qsDay_qsUtter, stance: full, exit: x-height}
 qsDay_qsUtter.ex-ext-1: {rune: qsDay_qsUtter, stance: full, exit: x-height, adjustments: [ex-ext-1]}
@@ -150,6 +152,7 @@ qsRoe.ex-y0.noentry.ex-ext-1: {rune: qsRoe, stance: hapax, exit: baseline, adjus
 qsRoe.noentry: {rune: qsRoe, stance: hapax, adjustments: [locked]}
 qsIt: {rune: qsIt, stance: hapax}
 qsIt.en-y0.ex-y5: {rune: qsIt, stance: hapax, entry: baseline, exit: x-height}
+qsIt.en-y0.ex-y5.en-ext-1: {rune: qsIt, stance: hapax, entry: baseline, exit: x-height, adjustments: [en-ext-1]}
 qsIt.en-y0.ex-y5.ex-ext-1: {rune: qsIt, stance: hapax, entry: baseline, exit: x-height, adjustments: [ex-ext-1]}
 qsIt.en-y0.ex-y5.noentry.ex-ext-1: {rune: qsIt, stance: hapax, exit: x-height, adjustments: [locked, ex-ext-1]}
 qsIt.en-y5.ex-y0: {rune: qsIt, stance: hapax, entry: x-height, exit: baseline}
