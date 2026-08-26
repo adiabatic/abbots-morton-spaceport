@@ -41,7 +41,10 @@ policy:
   - exit: x-height
     by: 1
     when:
-      right: {family: qsFee}
+      right:
+        family:
+        - qsBay
+        - qsFee
   - exit: x-height
     by: 1
     when:

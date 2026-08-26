@@ -791,11 +791,13 @@ def _chain_bearing_excepts(condition, found):
 CHAIN_BEARING_EXCEPT_RECORDS = (
     ("qsDay.prefer[1]", 2),
     ("qsDay.prefer[5]", 3),
+    ("qsIt.prefer[1]", 1),
     ("qsMay.prefer[0]", 1),
     ("qsNo.prefer[5]", 1),
     ("qsOy.prefer[0]", 3),
     ("qsSee.prefer[0]", 1),
     ("qsTea_qsOy.prefer[0]", 3),
+    ("qsUtter.prefer[2]", 1),
 )
 
 

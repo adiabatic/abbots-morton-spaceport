@@ -18,6 +18,9 @@ qsPea.half.en-y6.ex-y6.noentry: {rune: qsPea, stance: half, exit: y6, adjustment
 qsPea.half.ex-y5: {rune: qsPea, stance: half, exit: x-height}
 qsPea.half.ex-y5.ex-dips: {rune: qsPea, stance: half, exit: x-height}
 qsPea.noentry: {rune: qsPea, stance: full, adjustments: [locked]}
+qsBay: {rune: qsBay, stance: hapax}
+qsBay.en-y5.ex-y0: {rune: qsBay, stance: hapax, entry: x-height, exit: baseline}
+qsBay.noentry: {rune: qsBay, stance: hapax, adjustments: [locked]}
 qsTea: {rune: qsTea, stance: full}
 qsTea.en-y0: {rune: qsTea, stance: full, entry: baseline}
 qsTea.en-y0.en-ext-1: {rune: qsTea, stance: full, entry: baseline, adjustments: [en-ext-1]}
