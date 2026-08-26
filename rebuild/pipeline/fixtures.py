@@ -94,7 +94,6 @@ _DAY_HALF = Bitmap(("    ", "    ", "    ", "    ", "    ", "#  #", "# # ", "## 
 _UTTER_MONO = Bitmap(("   ##", "  #  ", " #   ", " #   ", "#    ", "#    "))
 _UTTER_ALTERNATE = Bitmap(("  ## ", " #   ", "#    ", "#    ", " #   ", "  ###"))
 _UTTER_REACHES_WAY_BACK = Bitmap(("##### ", "  #   ", " #    ", " #    ", "  #   ", "   ###"))
-_UTTER_REACHES_WAY_BACK_WITHDRAWN = Bitmap(("##### ", "  #   ", " #    ", " #    ", "  #   ", "   ## "))
 _LOW_HAPAX = Bitmap(("    #", "    #", "   # ", " ##  ", "   # ", "###  "))
 _SEE_NORMAL = Bitmap(("   ##", "  #  ", " #   ", " #   ", "  #  ", "  #  ", "   # ", "   # ", "###  "))
 _SEE_CURLED_OVER = Bitmap(
@@ -749,10 +748,7 @@ def _utter() -> Rune:
         motion="alternate",
         traits=("alt",),
         bitmap=_UTTER_ALTERNATE,
-        bitmaps={
-            "reaches-way-back": _UTTER_REACHES_WAY_BACK,
-            "reaches-way-back-withdrawn": _UTTER_REACHES_WAY_BACK_WITHDRAWN,
-        },
+        bitmaps={"reaches-way-back": _UTTER_REACHES_WAY_BACK},
         surface=Surface(
             entries={
                 "x-height": SurfaceRow(
@@ -771,12 +767,6 @@ def _utter() -> Rune:
                     bitmap="reaches-way-back",
                     exit_x=6,
                     provenance=_prov(_UTTER_FILE, "stances.alternate.surface.cells[0]"),
-                ),
-                CellBinding(
-                    entry="x-height",
-                    exit="baseline-withdrawn",
-                    bitmap="reaches-way-back-withdrawn",
-                    provenance=_prov(_UTTER_FILE, "stances.alternate.surface.cells[1]"),
                 ),
             ),
             require=("exit",),

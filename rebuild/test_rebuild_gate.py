@@ -7,7 +7,6 @@ import pytest
 from rebuild.tools import artifact_cycle as ac
 from rebuild.tools import rebuild_gate as rg
 
-BASELINE_STDOUT = "\n".join(f"FAILED {test_id}" for test_id in sorted(ac.BASELINE_REBUILD_FAILURES))
 HARD_STDOUT = "FAILED rebuild/test_settle.py::test_x"
 
 
@@ -86,16 +85,6 @@ def test_only_the_stale_lane_runs(green_store, monkeypatch):
     spawned = _suite_stub(monkeypatch, {"validators": (0, "")})
     assert rg.main([]) == 0
     assert _lanes(spawned) == ["validators"]
-
-
-def test_documented_baseline_failures_still_read_green_and_record(green_store, monkeypatch, capsys):
-    _fingerprints(monkeypatch, {"contracts": ["c-1"] * 2, "validators": ["v-1"] * 2})
-    _suite_stub(monkeypatch, {"contracts": (1, BASELINE_STDOUT), "validators": (0, "")})
-    assert rg.main([]) == 0
-    record = ac.read_green_record(green_store["contracts"])
-    assert record is not None
-    assert record["fingerprint"] == "c-1"
-    assert "documented baseline" in capsys.readouterr().out
 
 
 def test_a_contracts_hard_failure_never_starts_the_validators_lane(green_store, monkeypatch, capsys):

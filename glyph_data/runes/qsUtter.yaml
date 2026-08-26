@@ -56,14 +56,6 @@ stances:
         - " #    "
         - "  #   "
         - "   ###"  #
-      reaches-way-back-withdrawn:
-        bitmap:
-        - "##### "  #
-        - "  #   "
-        - " #    "
-        - " #    "
-        - "  #   "
-        - "   ## "  #
     surface:
       entries:
         x-height:
@@ -85,9 +77,6 @@ stances:
         exit: baseline
         bitmap: reaches-way-back
         exit_x: 6
-      - entry: x-height
-        exit: baseline-withdrawn
-        bitmap: reaches-way-back-withdrawn
       unlocks: []
       require:
       - exit

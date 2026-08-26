@@ -137,16 +137,6 @@ def test_conform_gate_fails_on_bare_false_pass():
     assert failures == ["conform gate: pass is false"]
 
 
-def test_classify_baseline():
-    for test_id in ac.BASELINE_REBUILD_FAILURES:
-        assert ac.classify_rebuild_failure(test_id) == "baseline"
-
-
-def test_classify_hard_for_unknown():
-    assert ac.classify_rebuild_failure("rebuild/test_something_else.py::test_x") == "hard"
-    assert ac.classify_rebuild_failure("rebuild/test_review_autosave.py::test_y") == "hard"
-
-
 def test_classify_review_module_failures_are_hard():
     """The review modules were once forgiven as census hints, on the theory that a rune edit stales the pins under them. The pins are now the cycle's own output rather than an assertion the suite reads, so a review-module failure is a real failure like any other."""
     stdout = "\n".join(
@@ -1228,7 +1218,7 @@ def test_summary_exact_under_out_of_order_completion(monkeypatch, capsys):
 
     def fake_contracts(pool_policy, conform_fut, make_fut, spawn, emit, registry, argv):
         ev_contracts.wait()
-        return ac.RebuildOutcome("green (1 documented baseline)", [], [])
+        return ac.RebuildOutcome("green (annotated)", [], [])
 
     def fake_validators(pool_policy, conform_fut, contracts_fut, make_fut, spawn, emit, registry, argv):
         ev_validators.wait()
@@ -1267,14 +1257,14 @@ def test_summary_exact_under_out_of_order_completion(monkeypatch, capsys):
     assert report.unmatched == 7777
     assert report.gate_js == "green"
     assert report.gate_make_test == "green"
-    assert report.gate_contracts == "green (1 documented baseline)"
+    assert report.gate_contracts == "green (annotated)"
     assert report.gate_validators == "green"
     assert report.gate_conform == "green"
     out = capsys.readouterr().out
     assert out.count("ARTIFACT CYCLE SUMMARY") == 1
     assert "15903" in out
     assert "81894" in out
-    assert "green (1 documented baseline)" in out
+    assert "green (annotated)" in out
 
 
 _CHILD_SCRIPT = (
@@ -1316,7 +1306,6 @@ def test_a_rebuild_lane_stays_captured_and_parses_failures(lane, capsys):
         [
             "FAILED rebuild/test_unknown_thing.py::test_x - boom",
             "ERROR rebuild/test_boom.py::test_y",
-            "FAILED rebuild/test_surface.py::test_real_cell_bindings_all_match - x",
             "FAILED rebuild/test_review_build.py::test_totals_pinned - x",
         ]
     )
@@ -1337,7 +1326,6 @@ def test_a_rebuild_lane_stays_captured_and_parses_failures(lane, capsys):
 
     assert seen["name"] == f"gate:rebuild-{lane}"
     assert seen["stream"] is False
-    assert outcome.baseline_ids == ["rebuild/test_surface.py::test_real_cell_bindings_all_match"]
     assert len(outcome.hard_ids) == 3
     assert outcome.status == "FAILED (3 unexplained)"
 
@@ -1356,14 +1344,11 @@ def test_a_rebuild_lane_stays_captured_and_parses_failures(lane, capsys):
 
 
 def test_classify_rebuild_reads_colored_pytest_output():
-    """Under FORCE_COLOR (as set by the agent harness) pytest wraps its FAILED lines in ANSI escapes; the classifier must still recognize the documented baseline instead of reporting an unexplained failure."""
-    colored = "\n".join(
-        f"\x1b[31mFAILED\x1b[0m {file}::\x1b[1m{name}\x1b[0m - x"
-        for file, _, name in (test_id.partition("::") for test_id in sorted(ac.BASELINE_REBUILD_FAILURES))
-    )
+    """Under FORCE_COLOR (as set by the agent harness) pytest wraps its FAILED lines in ANSI escapes; the classifier must still parse the failing ids out of them instead of reporting only the exit-code placeholder."""
+    colored = "\x1b[31mFAILED\x1b[0m rebuild/test_settle.py::\x1b[1mtest_x\x1b[0m - x"
     outcome = ac.classify_rebuild_output(colored, 1)
-    assert outcome.hard_ids == []
-    assert outcome.status == f"green ({len(ac.BASELINE_REBUILD_FAILURES)} documented baseline)"
+    assert outcome.hard_ids == ["rebuild/test_settle.py::test_x"]
+    assert outcome.status == "FAILED (1 unexplained)"
 
 
 def test_failure_funnels_from_concurrent_branch(monkeypatch, capsys):
@@ -1704,10 +1689,10 @@ def test_cycle_summary_payload_all_green_exit_ok():
 def test_cycle_summary_payload_green_follows_the_boolean_not_the_status_prose():
     """The payload's `green` is the judgment the gate recorded, so an annotated green stays green and prose that merely reads green cannot make it so."""
     report = _green_report()
-    report.gate_contracts = "green (4 documented baseline)"
+    report.gate_contracts = "green (annotated)"
     payload = ac.cycle_summary_payload(report, [], _plan(), "ok")
     assert payload["gates"]["rebuild_contracts"]["green"] is True
-    assert payload["gates"]["rebuild_contracts"]["status"] == "green (4 documented baseline)"
+    assert payload["gates"]["rebuild_contracts"]["status"] == "green (annotated)"
 
     report.gate_conform_green = False
     payload = ac.cycle_summary_payload(report, [], _plan(), "ok")
@@ -3106,7 +3091,7 @@ def test_record_gate_greens_records_refuses_and_clears(monkeypatch, tmp_path):
     report = ac.CycleReport()
     report.gate_conform = "green"
     report.gate_conform_green = True
-    report.gate_contracts = "green (4 documented baseline)"
+    report.gate_contracts = "green (annotated)"
     report.gate_contracts_green = True
     report.contracts_recordable = True
     report.gate_validators = "green"
@@ -3155,14 +3140,10 @@ def test_record_gate_greens_records_refuses_and_clears(monkeypatch, tmp_path):
 
 
 def test_classify_rebuild_recordable_whenever_it_is_green():
-    """The documented baseline is a property of the content the key already hashes, so a baseline-only green records like a clean one; only a hard failure withholds the record."""
+    """A green run is always recordable; only a failure withholds the record."""
     clean = ac.classify_rebuild_output("", 0)
     assert clean.status == "green"
     assert clean.recordable
-    baseline_ids = "\n".join(f"FAILED {test_id}" for test_id in sorted(ac.BASELINE_REBUILD_FAILURES))
-    documented = ac.classify_rebuild_output(baseline_ids, 1)
-    assert documented.status == f"green ({len(ac.BASELINE_REBUILD_FAILURES)} documented baseline)"
-    assert documented.recordable
     hard = ac.classify_rebuild_output("FAILED rebuild/test_settle.py::test_x", 1)
     assert not hard.recordable
 
