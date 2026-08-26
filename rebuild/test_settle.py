@@ -355,6 +355,13 @@ def test_round1_greedy_may_chain_pairing(real_labels, length, expected):
     assert real_labels[(" ".join(["qsMay"] * length), ())] == expected
 
 
+def test_bay_may_contracts_mays_baseline_entry(real_labels):
+    assert real_labels[("qsBay qsMay", ())] == (
+        "qsBay.hapax.ex-y0",
+        "qsMay.loop.en-y0.en-con-1",
+    )
+
+
 # The section 5.7 late-formation guard over the real loaded rune YAML. The Manual pin `·Day | ·Utter.alt ·Low` (site/the-manual.html) is the live counterexample to unconditional formation: the ligature exits only at the x-height, ·Low enters only at the baseline, and the unformed alternate ·Utter carries the baseline seam the ligature would destroy. The guard yields formation exactly there, and qsUtter.policy.prefer[2] (the section 5.9 follower one-liner) makes ·Day withhold its exit so the alternate is free to reach.
 
 MAY_TEA_JAI_LEADS = ("qsI", "qsAh")
@@ -584,6 +591,7 @@ REAL_WINDOWS = tuple(
             ("qsDay qsUtter qsTea", ("ss03",)),
             *((names, ()) for names, _expected in LIGATURE_TRANSPARENT_PEA_ROWS),
             ("qsTea qsOy qsIt qsNo qsAh", ()),
+            ("qsBay qsMay", ()),
         )
     )
 )

@@ -201,7 +201,11 @@ policy:
         except:
         - {family: qsJai}
         - {family: qsJai_qsUtter}
-  contract: []
+  contract:
+  - entry: baseline
+    by: 1
+    when:
+      left: {family: qsBay}
   resolve: []
   groups:
     x-height-arrivers:
