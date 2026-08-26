@@ -105,8 +105,6 @@ M1_SUMMARY_FILES = {
 }
 CONFORM_SUMMARY = M1_OUT / "conform_summary.json"
 
-BASELINE_REBUILD_FAILURES = frozenset({"rebuild/test_surface.py::test_real_cell_bindings_all_match"})
-
 REBUILD_LANES = ("contracts", "validators")
 
 
@@ -671,11 +669,6 @@ def conform_gate_argv(jobs: int, horizon: int = CONFORM_HORIZON_DEFAULT) -> list
     if horizon != CONFORM_HORIZON_DEFAULT:
         argv += ["--conform-horizon", str(horizon)]
     return argv
-
-
-def classify_rebuild_failure(test_id: str) -> str:
-    """Bucket a failing rebuild-suite test id: 'baseline' (the documented always-expected failures in BASELINE_REBUILD_FAILURES) or 'hard' (anything unexplained — fails the cycle). Nothing the suite asserts is pinned to a census the cycle rewrites underneath it, so there is no third, forgivable bucket."""
-    return "baseline" if test_id in BASELINE_REBUILD_FAILURES else "hard"
 
 
 @dataclass
@@ -1482,42 +1475,30 @@ class RebuildOutcome:
     failures: list[str]
     hard_ids: list[str]
     recordable: bool = False
-    baseline_ids: list[str] = field(default_factory=list)
 
 
 _ANSI_SGR = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 
 
-def _rebuild_verdict(baseline: list[str], hard: list[str]) -> RebuildOutcome:
+def _rebuild_verdict(hard: list[str]) -> RebuildOutcome:
     failures: list[str] = []
     if hard:
         status = f"FAILED ({len(hard)} unexplained)"
         failures.append(f"rebuild suite: {len(hard)} unexplained failure(s)")
-    elif baseline:
-        status = f"green ({len(baseline)} documented baseline)"
     else:
         status = "green"
-    return RebuildOutcome(
-        status=status,
-        failures=failures,
-        hard_ids=list(hard),
-        recordable=not hard,
-        baseline_ids=list(baseline),
-    )
+    return RebuildOutcome(status=status, failures=failures, hard_ids=list(hard), recordable=not hard)
 
 
 def classify_rebuild_output(stdout: str, returncode: int) -> RebuildOutcome:
-    """Bucket the rebuild suite's FAILED/ERROR summary lines into baseline / hard and turn them into a gate verdict — the one judgment of the suite's output, lane-blind and so shared by both of the cycle's rebuild gates and by the interactive wrapper (rebuild.tools.rebuild_gate). pytest emits ANSI color whenever FORCE_COLOR is set (as it is under the agent harness), wrapping each summary line in escape codes, so strip those first — otherwise no line begins with a literal "FAILED "/"ERROR ", the documented baseline can't be subtracted, and every colored run reads as an unexplained hard failure. Every green is recordable: the only forgivable failures are the documented baseline, which is a property of the content the key already hashes."""
+    """Turn the rebuild suite's FAILED/ERROR summary lines into a gate verdict — the one judgment of the suite's output, lane-blind and so shared by both of the cycle's rebuild gates and by the interactive wrapper (rebuild.tools.rebuild_gate). pytest emits ANSI color whenever FORCE_COLOR is set (as it is under the agent harness), wrapping each summary line in escape codes, so strip those first — otherwise no line begins with a literal "FAILED "/"ERROR " and a colored run reports the exit-code placeholder instead of naming its failures. Every failure is unexplained by definition — the suite carries no documented-baseline amnesty — and every green is recordable."""
     lines = [_ANSI_SGR.sub("", line) for line in stdout.splitlines()]
     failed_ids = [line.split(None, 2)[1] for line in lines if line.startswith("FAILED ")]
     error_ids = [line.split(None, 2)[1] for line in lines if line.startswith("ERROR ")]
-    buckets: dict[str, list[str]] = {"baseline": [], "hard": []}
-    for test_id in failed_ids:
-        buckets[classify_rebuild_failure(test_id)].append(test_id)
-    buckets["hard"].extend(error_ids)
-    if returncode != 0 and not failed_ids and not error_ids:
-        buckets["hard"].append(f"pytest exited {returncode} with no parsed FAILED/ERROR lines")
-    return _rebuild_verdict(buckets["baseline"], buckets["hard"])
+    hard = failed_ids + error_ids
+    if returncode != 0 and not hard:
+        hard.append(f"pytest exited {returncode} with no parsed FAILED/ERROR lines")
+    return _rebuild_verdict(hard)
 
 
 def _do_run_m1(
@@ -1857,7 +1838,7 @@ def _join_rebuild_lane(
     lane: str,
     emit: _Emitter,
 ) -> None:
-    """Fold one lane's outcome into the report. The classifier is lane-blind — the documented baseline is a property of the content, not of which pool ran it — so the only per-lane thing here is which three fields the verdict lands in."""
+    """Fold one lane's outcome into the report. The classifier is lane-blind, so the only per-lane thing here is which three fields the verdict lands in."""
     outcome = _gate_result(fut, f"gate:rebuild-{lane}", failures)
     if outcome is None:
         status, green, recordable = "FAILED (exception)", False, False
