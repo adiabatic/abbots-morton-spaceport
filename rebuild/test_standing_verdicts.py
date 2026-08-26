@@ -146,6 +146,20 @@ ENTRY_RULE = {
     },
 }
 
+CONTRACTED_ENTRY_RULE = {
+    "id": "fixture-entry-contracted",
+    "verdict": "approve",
+    "note": "·May sits a pixel closer after ·Bay",
+    "match": {
+        "before": {"left": "qsBay", "pivots": ["qsMay.en-y0.ex-y5"]},
+        "after": {
+            "pivots": ["qsMay.loop.en-y0.en-con-1", "qsMay.loop.en-y0.ex-y5.en-con-1"],
+            "entry_contraction": 1,
+        },
+        "except_left": [],
+    },
+}
+
 STUB_RULE = {
     "id": "fixture-stub-dropped",
     "verdict": "approve",
@@ -1193,6 +1207,8 @@ CROWNED_PIVOT = (((0, 0), (100, 0), (100, 50), (50, 50), (50, 100), (100, 100), 
 TRIMMED_PIVOT = (_rect(0, 0, 50, 150),)
 CONTRACTED_PIVOT = (_rect(0, 0, 50, 100),)
 EXTENDED_ENTRY_LOW = (_rect(0, 0, 50, 50), _rect(50, 0, 150, 150))
+CONTRACTED_ENTRY_MAY = (_rect(50, 0, 150, 150),)
+CONTRACTED_ENTRY_MAY_EXTRA = (_rect(50, 0, 150, 150), _rect(150, 150, 200, 200))
 UNSHIFTED_ENTRY_LOW = (_rect(50, 0, 150, 150),)
 EXTRA_CELL_LOW = (_rect(0, 0, 100, 150), _rect(0, 150, 50, 200))
 EIGHTISH = (_rect(0, 0, 50, 150), _rect(50, 100, 100, 150))
@@ -1254,6 +1270,8 @@ register_glyph("before", "qsLow.en-ext-1", EXTENDED_ENTRY_LOW, 150)
 register_glyph("before", "qsVie.en-ext-1", EXTENDED_ENTRY_LOW, 150)
 register_glyph("before", "qsVie_qsUtter.en-ext-1", EXTENDED_ENTRY_LOW, 150)
 register_glyph("before", "qsMay.en-y0.ex-y5.en-ext-1", EXTENDED_ENTRY_LOW, 150)
+register_glyph("before", "qsMay.en-y0.ex-y5.contract-fixture", EXTENDED_ENTRY_LOW, 150)
+register_glyph("before", "qsBay.contract-lead", TWO_COLUMNS, 100)
 register_glyph("before", "qsMay.en-y5", EXTENDED_ENTRY_LOW, 150)
 register_glyph("before", "qsK", TWO_COLUMNS, 100)
 register_glyph("before", "qsTea.half.ex-y5", (_rect(0, 100, 100, 150),), 100)
@@ -1287,6 +1305,8 @@ register_glyph("after", "qsLow.hapax", TWO_COLUMNS, 100)
 register_glyph("after", "qsVie.normal", TWO_COLUMNS, 100)
 register_glyph("after", "qsVie_qsUtter.hapax", TWO_COLUMNS, 100)
 register_glyph("after", "qsMay.loop", TWO_COLUMNS, 100)
+register_glyph("after", "qsMay.loop.en-y0.en-con-1", CONTRACTED_ENTRY_MAY, 150)
+register_glyph("after", "qsBay.contract-lead", TWO_COLUMNS, 50)
 register_glyph("after", "qsK", TWO_COLUMNS, 150)
 register_glyph("after", "qsTea", TWO_COLUMNS, 100)
 register_glyph("after", "qsPea", TWO_COLUMNS, 100)
@@ -1325,6 +1345,8 @@ NO = register_pair("qsNo.en-ext-1", "qsNo")
 VIE = register_pair("qsVie.en-ext-1", "qsVie.normal")
 VIE_UTTER = register_pair("qsVie_qsUtter.en-ext-1", "qsVie_qsUtter.hapax")
 MAY = register_pair("qsMay.en-y0.ex-y5.en-ext-1", "qsMay.loop")
+CONTRACTED_MAY = register_pair("qsMay.en-y0.ex-y5.contract-fixture", "qsMay.loop.en-y0.en-con-1")
+CONTRACTION_LEAD = register_pair("qsBay.contract-lead", "qsBay.contract-lead")
 LEFT_NEIGHBOR = register_pair("qsK", "qsK")
 MAY_STUB = register_pair("qsMay.en-y5", "qsMay.loop")
 EIGHT = register_pair("qsEight", "qsEight.smaller-loop")
@@ -1373,6 +1395,14 @@ SLIDE_FONTS = {
     "after-low-unmoved": ({**AFTER_GLYPHS, "qsLow.hapax": (EXTENDED_ENTRY_LOW, 150)}, AFTER_CMAP),
     "after-low-unshifted": ({**AFTER_GLYPHS, "qsLow.hapax": (UNSHIFTED_ENTRY_LOW, 150)}, AFTER_CMAP),
     "after-low-extra-cell": ({**AFTER_GLYPHS, "qsLow.hapax": (EXTRA_CELL_LOW, 100)}, AFTER_CMAP),
+    "after-contracted-entry-extra-cell": (
+        {**AFTER_GLYPHS, "qsMay.loop.en-y0.en-con-1": (CONTRACTED_ENTRY_MAY_EXTRA, 150)},
+        AFTER_CMAP,
+    ),
+    "after-contracted-entry-unmoved-follower": (
+        {**AFTER_GLYPHS, "qsMay.loop.en-y0.en-con-1": (CONTRACTED_ENTRY_MAY, 200)},
+        AFTER_CMAP,
+    ),
     "after-retarget-unmoved": ({**AFTER_GLYPHS, "qsNo": (TWO_COLUMNS, 100)}, AFTER_CMAP),
     "after-retarget-moved-origin": (
         {**AFTER_GLYPHS, "qsTea": (GROUNDED_SEE, 100)},
@@ -2133,7 +2163,7 @@ def test_main_refuses_a_surface_that_predates_the_ink_delta_field(tmp_path, monk
         SystemExit,
         match=(
             "predates the ink-delta, slide, ink-gain, join-dropped, entry-extension-dropped, "
-            "stub-dropped, redrawn, and join-retargeted"
+            "entry-contracted, stub-dropped, redrawn, and join-retargeted"
         ),
     ):
         _run_main(tmp_path, monkeypatch, [canonical("u-1")], [], rules_list=(RULE, INK_RULE))
@@ -2413,7 +2443,7 @@ def test_two_composable_rules_refuse_a_surface_that_predates_the_ink_delta_field
         SystemExit,
         match=(
             "predates the ink-delta, slide, ink-gain, join-dropped, entry-extension-dropped, "
-            "stub-dropped, redrawn, and join-retargeted"
+            "entry-contracted, stub-dropped, redrawn, and join-retargeted"
         ),
     ):
         _run_main(tmp_path, monkeypatch, [tea_i("u-1")], [], rules_list=(EXT_RULE, COMPOSED_EXT_RULE))
@@ -3172,6 +3202,17 @@ ENTRY_CODEPOINTS = spell(LEAD, LOW, FOLLOWER_1)
 COMPOSED_ENTRY_GLYPHS = ["qsL", "qsSee.ex-y0", "qsLow.en-ext-1", "qsF1"]
 COMPOSED_ENTRY_CODEPOINTS = spell(LEAD, SEE, LOW, FOLLOWER_1)
 COMPOSED_ENTRY_RULES = [SLIDE_RULE, ENTRY_RULE]
+CONTRACTED_ENTRY_GLYPHS = ["qsBay.contract-lead", "qsMay.en-y0.ex-y5.contract-fixture", "qsF1"]
+CONTRACTED_ENTRY_CODEPOINTS = spell(CONTRACTION_LEAD, CONTRACTED_MAY, FOLLOWER_1)
+COMPOSED_CONTRACTED_ENTRY_GLYPHS = [
+    "qsL",
+    "qsSee.ex-y0",
+    "qsBay.contract-lead",
+    "qsMay.en-y0.ex-y5.contract-fixture",
+    "qsF1",
+]
+COMPOSED_CONTRACTED_ENTRY_CODEPOINTS = spell(LEAD, SEE, CONTRACTION_LEAD, CONTRACTED_MAY, FOLLOWER_1)
+COMPOSED_CONTRACTED_ENTRY_RULES = [SLIDE_RULE, CONTRACTED_ENTRY_RULE]
 
 
 def entry_window(uid="e-1"):
@@ -3182,8 +3223,59 @@ def composed_entry_window(uid="ce-1"):
     return slide_unit(uid, COMPOSED_ENTRY_GLYPHS, COMPOSED_ENTRY_CODEPOINTS)
 
 
+def contracted_entry_window(uid="ec-1"):
+    window = slide_unit(uid, CONTRACTED_ENTRY_GLYPHS, CONTRACTED_ENTRY_CODEPOINTS)
+    window["after"]["cells"][1] = "qsMay/loop/baseline/None/en-con-1"
+    return window
+
+
+def composed_contracted_entry_window(uid="cec-1"):
+    window = slide_unit(
+        uid,
+        COMPOSED_CONTRACTED_ENTRY_GLYPHS,
+        COMPOSED_CONTRACTED_ENTRY_CODEPOINTS,
+    )
+    window["after"]["cells"][3] = "qsMay/loop/baseline/None/en-con-1"
+    return window
+
+
 def test_a_pure_entry_drop_matches(slide_context):
     assert sv._matches(ENTRY_RULE["match"], entry_window(), context=slide_context())
+
+
+def test_a_pure_entry_contraction_matches(slide_context):
+    assert sv._matches(CONTRACTED_ENTRY_RULE["match"], contracted_entry_window(), context=slide_context())
+
+
+def test_the_checked_in_bay_may_rule_reads_the_contraction(slide_context):
+    match = {rule["id"]: rule for rule in sv.load_rules(sv.RULES)}["bay-may-entry-contracted"]["match"]
+    assert sv._matches(match, contracted_entry_window(), context=slide_context())
+    assert not sv._matches(match, entry_window(), context=slide_context())
+
+
+def test_an_extra_pixel_defeats_the_entry_contraction(slide_context):
+    assert not sv._matches(
+        CONTRACTED_ENTRY_RULE["match"],
+        contracted_entry_window(),
+        context=slide_context("after-contracted-entry-extra-cell"),
+    )
+
+
+def test_an_unmoved_follower_defeats_the_entry_contraction(slide_context):
+    assert not sv._matches(
+        CONTRACTED_ENTRY_RULE["match"],
+        contracted_entry_window(),
+        context=slide_context("after-contracted-entry-unmoved-follower"),
+    )
+
+
+def test_a_slide_and_an_entry_contraction_in_one_window_compose(slide_context):
+    events = sv._composed(
+        COMPOSED_CONTRACTED_ENTRY_RULES,
+        composed_contracted_entry_window(),
+        slide_context(),
+    )
+    assert events == {SLIDE_RULE["id"]: [1], CONTRACTED_ENTRY_RULE["id"]: [3]}
 
 
 def test_the_checked_in_see_low_rule_reads_the_drop(slide_context):
@@ -4066,6 +4158,7 @@ SOLO_WINDOWS = {
     "ink-gain": (GAIN_RULE, gain_window),
     "join-dropped": (JOIN_RULE, join_window),
     "entry-extension-dropped": (ENTRY_RULE, entry_window),
+    "entry-contracted": (CONTRACTED_ENTRY_RULE, contracted_entry_window),
     "stub-dropped": (STUB_RULE, stub_window),
     "redrawn": (REDRAWN_RULE, redrawn_window),
     "join-retargeted": (RETARGET_RULE, retarget_window),
@@ -4103,6 +4196,15 @@ COMPOSED_WALK_CORPORA = {
         ENTRY_RULE,
         lambda: [entry_window(), composed_entry_window(), founding_window()],
         ("after",),
+    ),
+    "entry-contracted": (
+        CONTRACTED_ENTRY_RULE,
+        lambda: [
+            contracted_entry_window(),
+            composed_contracted_entry_window(),
+            founding_window(),
+        ],
+        ("after", "after-contracted-entry-extra-cell", "after-contracted-entry-unmoved-follower"),
     ),
     "join-retargeted": (
         RETARGET_RULE,
