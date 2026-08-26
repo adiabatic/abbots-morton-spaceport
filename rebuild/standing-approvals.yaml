@@ -195,6 +195,17 @@ rules:
         pivots: [qsMay.loop, qsMay.grounded-loop]
         entry_drop: 1
       except_left: []
+  - id: bay-may-entry-contracted
+    verdict: approve
+    note: "·May sits a pixel closer after ·Bay — its baseline entry contracts by one column under the ·Bay-specific contract record introduced by “Have only one pixel of separation in ·Bay·May, not two”"
+    match:
+      before:
+        left: qsBay
+        pivots: [qsMay.en-y0.ex-y5]
+      after:
+        pivots: [qsMay.loop.en-y0.en-con-1, qsMay.loop.en-y0.ex-y5.en-con-1]
+        entry_contraction: 1
+      except_left: []
   - id: tea-no-xheight-join-retargeted
     verdict: approve
     note: "·Tea sits as the full bar joining ·No at the baseline — the old font drew the half stub joining at the x-height; qsNo's flipped stance takes ·Tea on its baseline from-list, and every window that reached a sitting approved the lowered join"
