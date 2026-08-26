@@ -124,6 +124,20 @@ GAIN_RULE = {
     },
 }
 
+VERTICAL_GAIN_RULE = {
+    "id": "fixture-vertical-ink-gain",
+    "verdict": "approve",
+    "note": "·Tea keeps the full bar under ss03",
+    "match": {
+        "before": {"pivots": ["qsTea.half.en-y5.after-xheight-exit"]},
+        "after": {
+            "pivots": ["qsTea.full"],
+            "gained": [[0, 0], [0, 1], [0, 2], [0, 3], [0, 4]],
+        },
+        "except_left": [],
+    },
+}
+
 JOIN_RULE = {
     "id": "fixture-join-dropped",
     "verdict": "approve",
@@ -1217,6 +1231,9 @@ EIGHTISH_EXTENDED = (_rect(0, 0, 50, 150), _rect(50, 100, 100, 150), _rect(100, 
 EIGHTISH_ENTRY_EXTENDED = (_rect(0, 0, 50, 50), _rect(50, 0, 100, 150), _rect(100, 100, 150, 150))
 EIGHTISH_ENTRY_EXTENDED_SMALLER = (_rect(0, 0, 50, 50), _rect(50, 0, 100, 150), _rect(100, 50, 150, 100))
 EIGHTISH_SMALLER_AND_A_PIXEL = (_rect(0, 0, 50, 150), _rect(50, 50, 100, 100), _rect(100, 0, 150, 50))
+HALF_TEA_BAR = (_rect(0, 250, 50, 450),)
+FULL_TEA_BAR = (_rect(0, 0, 50, 450),)
+MISALIGNED_FULL_TEA_BAR = (_rect(0, 50, 50, 500),)
 
 _OUTLINES: dict[str, dict[str, tuple]] = {"before": {}, "after": {}}
 _CODEPOINTS: dict[tuple[str, str], int] = {}
@@ -1281,6 +1298,7 @@ register_glyph("before", "qsEight", EIGHTISH, 100)
 register_glyph("before", "qsEight.ex-ext-1", EIGHTISH_EXTENDED, 150)
 register_glyph("before", "qsEight.en-ext-1", EIGHTISH_ENTRY_EXTENDED, 150)
 register_glyph("before", "qsEight.smaller-loop", EIGHTISH_SMALLER, 100)
+register_glyph("before", "qsTea.half.en-y5.after-xheight-exit", HALF_TEA_BAR, 50)
 register_glyph("before", "space", (), 50)
 
 register_glyph("after", "qsL", TWO_COLUMNS, 100)
@@ -1314,6 +1332,8 @@ register_glyph("after", "qsNo", TRIMMED_PIVOT, 50)
 register_glyph("after", "qsEight.smaller-loop", EIGHTISH_SMALLER, 100)
 register_glyph("after", "qsEight.smaller-loop.en-ext-1", EIGHTISH_ENTRY_EXTENDED_SMALLER, 150)
 register_glyph("after", "qsEight.normal-sized-loop", EIGHTISH, 100)
+register_glyph("after", "qsTea.full.en-y5", FULL_TEA_BAR, 50)
+register_glyph("after", "qsTea.full.en-y5.misaligned", MISALIGNED_FULL_TEA_BAR, 50)
 register_glyph("after", "space", (), 50)
 
 LEAD = register_pair("qsL", "qsL")
@@ -1354,6 +1374,10 @@ EIGHT_EXTENDED = register_pair("qsEight.ex-ext-1", "qsEight.smaller-loop")
 EIGHT_ENTRY_EXTENDED = register_pair("qsEight.en-ext-1", "qsEight.smaller-loop.en-ext-1")
 EIGHT_UNCHANGED = register_pair("qsEight", "qsEight.normal-sized-loop")
 EIGHT_REVERSED = register_pair("qsEight.smaller-loop", "qsEight.normal-sized-loop")
+TEA_VERTICAL_GAIN = register_pair("qsTea.half.en-y5.after-xheight-exit", "qsTea.full.en-y5")
+TEA_VERTICAL_GAIN_MISALIGNED = register_pair(
+    "qsTea.half.en-y5.after-xheight-exit", "qsTea.full.en-y5.misaligned"
+)
 
 BEFORE_GLYPHS = _OUTLINES["before"]
 AFTER_GLYPHS = _OUTLINES["after"]
@@ -1692,14 +1716,34 @@ def test_a_rule_declaring_the_slide_and_ink_delta_shapes_at_once_is_refused(tmp_
 
 GAIN_GLYPHS = ["qsL", "qsRoe.en-ext-1-at-5", "qsF1"]
 GAIN_CODEPOINTS = spell(LEAD, ROE, FOLLOWER_1)
+VERTICAL_GAIN_GLYPHS = ["qsL", "qsTea.half.en-y5.after-xheight-exit", "qsF1"]
+VERTICAL_GAIN_CODEPOINTS = spell(LEAD, TEA_VERTICAL_GAIN, FOLLOWER_1)
+MISALIGNED_VERTICAL_GAIN_CODEPOINTS = spell(LEAD, TEA_VERTICAL_GAIN_MISALIGNED, FOLLOWER_1)
 
 
 def gain_window(uid="g-1"):
     return slide_unit(uid, GAIN_GLYPHS, GAIN_CODEPOINTS)
 
 
+def vertical_gain_window(uid="vg-1", *, misaligned=False):
+    codepoints = MISALIGNED_VERTICAL_GAIN_CODEPOINTS if misaligned else VERTICAL_GAIN_CODEPOINTS
+    return slide_unit(uid, VERTICAL_GAIN_GLYPHS, codepoints)
+
+
 def test_a_pure_gain_matches(slide_context):
     assert sv._matches(GAIN_RULE["match"], gain_window(), context=slide_context())
+
+
+def test_a_vertical_frame_extension_that_keeps_the_old_pixels_matches(slide_context):
+    assert sv._matches(VERTICAL_GAIN_RULE["match"], vertical_gain_window(), context=slide_context())
+
+
+def test_a_vertical_frame_extension_that_moves_an_old_pixel_is_refused(slide_context):
+    assert not sv._matches(
+        VERTICAL_GAIN_RULE["match"],
+        vertical_gain_window(misaligned=True),
+        context=slide_context(),
+    )
 
 
 def test_the_checked_in_roe_rule_reads_the_named_cells(slide_context):
@@ -3213,6 +3257,13 @@ COMPOSED_CONTRACTED_ENTRY_GLYPHS = [
 ]
 COMPOSED_CONTRACTED_ENTRY_CODEPOINTS = spell(LEAD, SEE, CONTRACTION_LEAD, CONTRACTED_MAY, FOLLOWER_1)
 COMPOSED_CONTRACTED_ENTRY_RULES = [SLIDE_RULE, CONTRACTED_ENTRY_RULE]
+VERTICAL_GAIN_CONTRACTED_ENTRY_GLYPHS = [
+    "qsTea.half.en-y5.after-xheight-exit",
+    "qsBay.contract-lead",
+    "qsMay.en-y0.ex-y5.contract-fixture",
+]
+VERTICAL_GAIN_CONTRACTED_ENTRY_CODEPOINTS = spell(TEA_VERTICAL_GAIN, CONTRACTION_LEAD, CONTRACTED_MAY)
+VERTICAL_GAIN_CONTRACTED_ENTRY_RULES = [VERTICAL_GAIN_RULE, CONTRACTED_ENTRY_RULE]
 
 
 def entry_window(uid="e-1"):
@@ -3236,6 +3287,16 @@ def composed_contracted_entry_window(uid="cec-1"):
         COMPOSED_CONTRACTED_ENTRY_CODEPOINTS,
     )
     window["after"]["cells"][3] = "qsMay/loop/baseline/None/en-con-1"
+    return window
+
+
+def vertical_gain_contracted_entry_window(uid="vgec-1"):
+    window = slide_unit(
+        uid,
+        VERTICAL_GAIN_CONTRACTED_ENTRY_GLYPHS,
+        VERTICAL_GAIN_CONTRACTED_ENTRY_CODEPOINTS,
+    )
+    window["after"]["cells"][2] = "qsMay/loop/baseline/None/en-con-1"
     return window
 
 
@@ -3276,6 +3337,15 @@ def test_a_slide_and_an_entry_contraction_in_one_window_compose(slide_context):
         slide_context(),
     )
     assert events == {SLIDE_RULE["id"]: [1], CONTRACTED_ENTRY_RULE["id"]: [3]}
+
+
+def test_a_vertical_gain_and_an_entry_contraction_in_one_window_compose(slide_context):
+    events = sv._composed(
+        VERTICAL_GAIN_CONTRACTED_ENTRY_RULES,
+        vertical_gain_contracted_entry_window(),
+        slide_context(),
+    )
+    assert events == {VERTICAL_GAIN_RULE["id"]: [0], CONTRACTED_ENTRY_RULE["id"]: [2]}
 
 
 def test_the_checked_in_see_low_rule_reads_the_drop(slide_context):
