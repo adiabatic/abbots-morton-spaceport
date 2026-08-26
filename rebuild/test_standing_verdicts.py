@@ -1288,6 +1288,7 @@ register_glyph("before", "qsVie.en-ext-1", EXTENDED_ENTRY_LOW, 150)
 register_glyph("before", "qsVie_qsUtter.en-ext-1", EXTENDED_ENTRY_LOW, 150)
 register_glyph("before", "qsMay.en-y0.ex-y5.en-ext-1", EXTENDED_ENTRY_LOW, 150)
 register_glyph("before", "qsMay.en-y0.ex-y5.contract-fixture", EXTENDED_ENTRY_LOW, 150)
+register_glyph("before", "qsMay.en-y0.ex-y5.unchanged-fixture", TWO_COLUMNS, 100)
 register_glyph("before", "qsBay.contract-lead", TWO_COLUMNS, 100)
 register_glyph("before", "qsMay.en-y5", EXTENDED_ENTRY_LOW, 150)
 register_glyph("before", "qsK", TWO_COLUMNS, 100)
@@ -1324,6 +1325,7 @@ register_glyph("after", "qsVie.normal", TWO_COLUMNS, 100)
 register_glyph("after", "qsVie_qsUtter.hapax", TWO_COLUMNS, 100)
 register_glyph("after", "qsMay.loop", TWO_COLUMNS, 100)
 register_glyph("after", "qsMay.loop.en-y0.en-con-1", CONTRACTED_ENTRY_MAY, 150)
+register_glyph("after", "qsMay.loop.unchanged-fixture", TWO_COLUMNS, 100)
 register_glyph("after", "qsBay.contract-lead", TWO_COLUMNS, 50)
 register_glyph("after", "qsK", TWO_COLUMNS, 150)
 register_glyph("after", "qsTea", TWO_COLUMNS, 100)
@@ -1366,6 +1368,7 @@ VIE = register_pair("qsVie.en-ext-1", "qsVie.normal")
 VIE_UTTER = register_pair("qsVie_qsUtter.en-ext-1", "qsVie_qsUtter.hapax")
 MAY = register_pair("qsMay.en-y0.ex-y5.en-ext-1", "qsMay.loop")
 CONTRACTED_MAY = register_pair("qsMay.en-y0.ex-y5.contract-fixture", "qsMay.loop.en-y0.en-con-1")
+UNCHANGED_MAY = register_pair("qsMay.en-y0.ex-y5.unchanged-fixture", "qsMay.loop.unchanged-fixture")
 CONTRACTION_LEAD = register_pair("qsBay.contract-lead", "qsBay.contract-lead")
 LEFT_NEIGHBOR = register_pair("qsK", "qsK")
 MAY_STUB = register_pair("qsMay.en-y5", "qsMay.loop")
@@ -3264,6 +3267,22 @@ VERTICAL_GAIN_CONTRACTED_ENTRY_GLYPHS = [
 ]
 VERTICAL_GAIN_CONTRACTED_ENTRY_CODEPOINTS = spell(TEA_VERTICAL_GAIN, CONTRACTION_LEAD, CONTRACTED_MAY)
 VERTICAL_GAIN_CONTRACTED_ENTRY_RULES = [VERTICAL_GAIN_RULE, CONTRACTED_ENTRY_RULE]
+DUPLICATE_MAY_BEFORE_GLYPHS = [
+    "qsL",
+    "qsMay.en-y0.ex-y5.unchanged-fixture",
+    "qsBay.contract-lead",
+    "qsMay.en-y0.ex-y5.contract-fixture",
+    "qsF1",
+]
+DUPLICATE_MAY_BEFORE_CODEPOINTS = spell(LEAD, UNCHANGED_MAY, CONTRACTION_LEAD, CONTRACTED_MAY, FOLLOWER_1)
+DUPLICATE_MAY_AFTER_GLYPHS = [
+    "qsBay.contract-lead",
+    "qsMay.en-y0.ex-y5.contract-fixture",
+    "qsL",
+    "qsMay.en-y0.ex-y5.unchanged-fixture",
+    "qsF1",
+]
+DUPLICATE_MAY_AFTER_CODEPOINTS = spell(CONTRACTION_LEAD, CONTRACTED_MAY, LEAD, UNCHANGED_MAY, FOLLOWER_1)
 
 
 def entry_window(uid="e-1"):
@@ -3300,6 +3319,18 @@ def vertical_gain_contracted_entry_window(uid="vgec-1"):
     return window
 
 
+def duplicate_may_before_window(uid="ec-before-1"):
+    window = slide_unit(uid, DUPLICATE_MAY_BEFORE_GLYPHS, DUPLICATE_MAY_BEFORE_CODEPOINTS)
+    window["after"]["cells"][3] = "qsMay/loop/baseline/None/en-con-1"
+    return window
+
+
+def duplicate_may_after_window(uid="ec-after-1"):
+    window = slide_unit(uid, DUPLICATE_MAY_AFTER_GLYPHS, DUPLICATE_MAY_AFTER_CODEPOINTS)
+    window["after"]["cells"][1] = "qsMay/loop/baseline/None/en-con-1"
+    return window
+
+
 def test_a_pure_entry_drop_matches(slide_context):
     assert sv._matches(ENTRY_RULE["match"], entry_window(), context=slide_context())
 
@@ -3312,6 +3343,19 @@ def test_the_checked_in_bay_may_rule_reads_the_contraction(slide_context):
     match = {rule["id"]: rule for rule in sv.load_rules(sv.RULES)}["bay-may-entry-contracted"]["match"]
     assert sv._matches(match, contracted_entry_window(), context=slide_context())
     assert not sv._matches(match, entry_window(), context=slide_context())
+
+
+@pytest.mark.parametrize("window", [duplicate_may_before_window, duplicate_may_after_window])
+def test_the_bay_may_contraction_ignores_an_unchanged_may_elsewhere(slide_context, window):
+    assert sv._matches(CONTRACTED_ENTRY_RULE["match"], window(), context=slide_context())
+
+
+def test_an_unrelated_change_beside_the_unchanged_may_still_refuses(slide_context):
+    assert not sv._matches(
+        CONTRACTED_ENTRY_RULE["match"],
+        duplicate_may_before_window(),
+        context=slide_context("after-extra-prefix-pixel"),
+    )
 
 
 def test_an_extra_pixel_defeats_the_entry_contraction(slide_context):
@@ -4272,6 +4316,8 @@ COMPOSED_WALK_CORPORA = {
         lambda: [
             contracted_entry_window(),
             composed_contracted_entry_window(),
+            duplicate_may_before_window(),
+            duplicate_may_after_window(),
             founding_window(),
         ],
         ("after", "after-contracted-entry-extra-cell", "after-contracted-entry-unmoved-follower"),
