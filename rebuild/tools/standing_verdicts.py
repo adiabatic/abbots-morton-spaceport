@@ -396,19 +396,21 @@ def _split_around(run, indices):
 
 
 def _gain_holds(match, before, after, intern):
-    """Whether one pivot piece is the named ink-gain: same height, same own-frame origin, both on the grid, and the after picture is the before picture plus exactly the named cells."""
-    if before[3] != after[3] or before[4] != after[4]:
+    """Whether one pivot piece is the named ink-gain: same own-frame origin, both sides on the grid, and the placed before picture standing still inside the after frame plus exactly the named cells. The after frame may extend vertically around the old picture, so the before cells are translated into the after frame by the pieces' vertical placement difference before the exact comparison."""
+    if before[4] != after[4]:
         return False
-    if before[2] % PIXEL_SIZE or after[2] % PIXEL_SIZE or before[3] % PIXEL_SIZE:
+    if before[2] % PIXEL_SIZE or after[2] % PIXEL_SIZE or before[3] % PIXEL_SIZE or after[3] % PIXEL_SIZE:
         return False
     painted, kept = intern.cells(before[1]), intern.cells(after[1])
     if painted is None or kept is None:
         return False
-    return kept - painted == _gained_cells(match) and not (painted - kept)
+    row_shift = (before[3] - after[3]) // PIXEL_SIZE
+    aligned = {(column, row + row_shift) for column, row in painted}
+    return kept - aligned == _gained_cells(match) and not (aligned - kept)
 
 
 def _gain_geometry(match, unit, comparator):
-    """Whether the window's rendered before→after change is exactly the named cells appearing on the named pivot, re-derived from the fonts: shape the window under one of the unit's configs, judge each pivot piece as the same picture plus those cells at the same placement, height, and own-frame origin, and require every span strictly between the pivots to render identically with no displacement. Anything the contract cannot hold — no pivot on the before side, pivot counts that disagree, a shaped run that contradicts the unit's recorded glyphs, an off-grid placement, a non-rectilinear outline, a lost cell, an unnamed extra cell — reads as no match, so the unit queues."""
+    """Whether the window's rendered before→after change is exactly the named cells appearing on the named pivot, re-derived from the fonts: shape the window under one of the unit's configs, judge each pivot piece as the placed old picture standing still inside the new frame plus those cells at the same horizontal placement and own-frame origin, and require every span strictly between the pivots to render identically with no displacement. The new frame may extend vertically around the old picture; `_gain_holds` aligns the two frames from their placed Y coordinates before comparing them. Anything the contract cannot hold — no pivot on the before side, pivot counts that disagree, a shaped run that contradicts the unit's recorded glyphs, an off-grid placement, a non-rectilinear outline, a lost cell, an unnamed extra cell — reads as no match, so the unit queues."""
     codepoints = unit.get("codepoints") or ""
     if not codepoints:
         return False
@@ -443,7 +445,7 @@ def _gain_geometry(match, unit, comparator):
 
 
 def _matches_ink_gain(match, unit, excluded, context=None):
-    """A letterform that keeps a named set of own-frame cells the old font omitted, matched at the rendered-pixel grain: the old-font pivot form gives way to a named new form that is the same picture plus those cells, every other pixel in the window standing still. Same origin and placement pin the extra ink to the letterform rather than to a slide or a sidebearing change, and any other ink change anywhere in the window fails this match closed — which is where the composed reading picks up, so a window this shape refuses only because a second separately-blessed change moved a pixel it has no vocabulary for may still be explained by both rules together. One shaped config speaks for all of them, on the same digest-agreement precondition the slide shape holds. except_left reads the whole window, as the slide and ink-delta shapes do."""
+    """A letterform that keeps a named set of cells the old font omitted, matched at the rendered-pixel grain: the old-font pivot form gives way to a named new form whose placed old pixels stand still inside the new own frame plus those cells, every other pixel in the window standing still. The new frame may extend vertically around the old picture; same horizontal placement and own-frame origin pin the extra ink to the letterform rather than to a slide or a sidebearing change, and any other ink change anywhere in the window fails this match closed — which is where the composed reading picks up, so a window this shape refuses only because a second separately-blessed change moved a pixel it has no vocabulary for may still be explained by both rules together. One shaped config speaks for all of them, on the same digest-agreement precondition the slide shape holds. except_left reads the whole window, as the slide and ink-delta shapes do."""
     deltas = unit.get("ink_deltas")
     if not isinstance(deltas, dict) or not deltas:
         return False
@@ -1296,7 +1298,7 @@ def _slide_event(match, rule_id, index, after_names, before_pieces, after_pieces
 
 
 def _gain_event(match, rule_id, index, after_names, intern, before_pieces, after_pieces):
-    """Whether one ink-gain candidate's own contract holds at the rendered grain, one position at a time: the after side settles into one of the rule's named after forms, the pivot keeps its height and own-frame origin, and its after picture is its before picture plus exactly the named cells — no cell lost, no unnamed cell gained. Placement under the running displacement is the walk's job, not this contract's, mirroring `_slide_event` leaving the span equality to the walk. None when any of that fails, which leaves the piece to be judged as ordinary span ink."""
+    """Whether one ink-gain candidate's own contract holds at the rendered grain, one position at a time: the after side settles into one of the rule's named after forms, the pivot keeps its horizontal own-frame origin, and its placed old picture stands still inside the after frame plus exactly the named cells — no cell lost, no unnamed cell gained, though the frame may extend vertically around it. Horizontal placement under the running displacement is the walk's job, not this contract's, mirroring `_slide_event` leaving the span equality to the walk. None when any of that fails, which leaves the piece to be judged as ordinary span ink."""
     before, after = before_pieces.get(index), after_pieces.get(index)
     if before is None or after is None:
         return None
