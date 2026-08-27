@@ -16,7 +16,7 @@
 //! - `ams-m1-kernel build-tables <spec> <outdir> --configs=a,b,… --inputs=<stamp> [--threads=N] [--candidacy-prospect] [--vote-slots-off] [--deep-classes-off] [--timings] [--cache-census]` runs the same fixpoints and then folds each one in place, writing `<outdir>/settlement-<config>.tsv`, `<outdir>/treaties-<config>.tsv` and the uncompressed `<outdir>/windows-<config>.tsv` under the fingerprint `--inputs` names, and writing one `{"config":…,"digest":…}` line per configuration to stdout in the order the command line named them. No stream is written and none is read: the fold runs on the product the worklist still holds, which is what a Python fold reading several hundred megabytes back off disk used to cost. The harness gzips the windows payload, as it gzips the stream, for the same reason. The directory is created and nothing in it is swept — a build writes into its own artifact directory beside a dozen other families. `--inputs=` is required, because a serialized enumeration is trusted or refused on the stamp it carries.
 //! - `ams-m1-kernel liveness-cases <spec> <keys> [--features=a,b,…] [--candidacy-prospect] [--vote-slots-off]` answers one deep-slot question per key line: `3<tab><input><tab><r1><tab><r2>` and `4<tab><input><tab><r1><tab><r2><tab><r3>` answer `live` or `dead` — the full filter verdict, chain arm and liveness arm together — and `fibers<tab><input><tab><r1><tab><r2>` answers with the context's fiber partition as compact JSON. Every name is a rune family name; a key naming anything else stops the run. Each output line is the key line, a tab, and the answer, in file order.
 //!
-//! Concurrency reaches exactly as far as the configuration and no further: `enumerate-configs` runs at most `--threads` configurations at once, by default one per configuration and capped by the machine's parallelism. [`ams_m1_kernel::fanout`] carries both halves of why that is the whole of it — what makes the bytes a function of the plan rather than of the schedule, and why the worklist inside one configuration stays sequential. Peak memory rises roughly linearly with that width, since each configuration in flight holds its whole working set until its stream has been emitted, so `--threads` is the lever a machine with less memory than parallelism reaches for.
+//! Concurrency reaches exactly as far as the configuration and no further: `enumerate-configs` runs at most `--threads` configurations at once — serially when nobody said, and never wider than the machine's parallelism or the configuration count. [`ams_m1_kernel::fanout`] carries both halves of why that is the whole of it — what makes the bytes a function of the plan rather than of the schedule, and why the worklist inside one configuration stays sequential. Peak memory rises roughly linearly with that width, since each configuration in flight holds its whole working set until its stream has been emitted, so `--threads` is the lever a machine with less memory than parallelism reaches for.
 //!
 //! `--cache-census` rides the same two verbs and writes `[c] <config> <collection> len=<n> cap=<m>` lines to stderr, one per memo, plus the elimination text the memos were holding and the process's resident size sampled either side of the memo release and past the sort. It is the instrument every memory decision about this crate is made with, because the arithmetic on a struct definition can only estimate what one censused run states — and it is a diagnostic rather than an answer, so it costs nothing when it is not asked for and never touches the stream. The lines ride the same buffered stderr `--timings` uses and are written in `--configs` order; the two flags are independent, so a census can be taken without a clock and the other way round.
 //!
@@ -533,10 +533,11 @@ fn enumerate_configs(plan: &ConfigsPlan<'_>) -> Result<(), String> {
         vote_slots: plan.vote_slots,
         deep_classes: plan.deep_classes,
     };
-    // The cap binds a count the command line named as well as the default: a worker past the last configuration would have nothing to claim.
+    // Absent `--threads` resolves serial, because only the caller knows what else is resident. The caps bind a count the command line named as well as that default: a worker past the machine's parallelism buys no throughput while its configuration holds a whole working set, and one past the last configuration would have nothing to claim.
     let workers = plan
         .threads
-        .unwrap_or_else(fanout::available_threads)
+        .unwrap_or(1)
+        .min(fanout::available_threads())
         .min(resolved.len());
     for timed in fanout::run_configs(
         &index,
@@ -578,7 +579,8 @@ fn build_tables(plan: &TablesPlan<'_>) -> Result<(), String> {
     };
     let workers = plan
         .threads
-        .unwrap_or_else(fanout::available_threads)
+        .unwrap_or(1)
+        .min(fanout::available_threads())
         .min(resolved.len());
     let answers = fanout::run_configs_tables(
         &index,

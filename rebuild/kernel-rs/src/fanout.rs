@@ -41,7 +41,7 @@ pub fn transitions_path(outdir: &Path, token: &str) -> PathBuf {
     outdir.join(format!("{STREAM_PREFIX}{token}{STREAM_SUFFIX}"))
 }
 
-/// How many configurations a run answers at once when nobody said — the machine's own answer, or one where it has none to give.
+/// The ceiling on a caller-named `--threads` — the machine's own parallelism, or one where it has none to give. It is QoS-blind: verified answering the full logical core count while confined to efficiency cores under `taskpolicy -b`, which is exactly the situation `make test-slowly` creates.
 pub fn available_threads() -> usize {
     std::thread::available_parallelism().map_or(1, std::num::NonZero::get)
 }
