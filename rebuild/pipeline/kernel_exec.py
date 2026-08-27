@@ -41,8 +41,11 @@ MANIFEST = REPO_ROOT / "rebuild" / "kernel-rs" / "Cargo.toml"
 CONFIG_PEAK_BYTES = 12_000_000_000
 
 
-def _kernel_threads_default(*, total_bytes: int | None = None) -> int:
-    """How many configurations this box has room for at once: `AMS_KERNEL_THREADS` wherever it is set at all, else `CONFIG_PEAK_BYTES` divided into the box by `memory_budget.how_many_fit`, which takes off the reserve that policy states and floors at one. A stated width is floored at one and clamped no further, because the configuration count and the CPU count are not memory facts and belong to `run_m1.build_tables`'s own `min()`. A value that is not a bare count — a typo, a `GB` suffix, a variable declared without one — raises rather than falling quietly through to the arithmetic, which is where this knob parts company with `AMS_TOTAL_MEMORY_BYTES`: that one reproduces a box and ignoring a typo in it costs a reproduction, while this one is what someone reaches for to keep a build out of swap, so handing them a width they did not ask for is the failure they set it to prevent. `total_bytes` is a keyword so an assertion about another box is a pure function over an invented one; the alternative is `importlib.reload`, which re-runs module scope, resets `_BUILT`, and drops the live `_SPEC_DUMPS` entries' temporary directories under a caller still holding a `spec_path`."""
+def kernel_threads_default(*, coresident_bytes: float = 0, total_bytes: int | None = None) -> int:
+    """How many configurations this box has room for at once: `AMS_KERNEL_THREADS` wherever it is set at all, else `CONFIG_PEAK_BYTES` divided into the box by `memory_budget.how_many_fit`, which takes off the reserve that policy states and floors at one. A stated width is floored at one and clamped no further, because the configuration count and the CPU count are not memory facts and belong to `run_m1.build_tables`'s own `min()`. A value that is not a bare count — a typo, a `GB` suffix, a variable declared without one — raises rather than falling quietly through to the arithmetic, which is where this knob parts company with `AMS_TOTAL_MEMORY_BYTES`: that one reproduces a box and ignoring a typo in it costs a reproduction, while this one is what someone reaches for to keep a build out of swap, so handing them a width they did not ask for is the failure they set it to prevent. `total_bytes` is a keyword so an assertion about another box is a pure function over an invented one; the alternative is `importlib.reload`, which re-runs module scope, resets `_BUILT`, and drops the live `_SPEC_DUMPS` entries' temporary directories under a caller still holding a `spec_path`.
+
+    `coresident_bytes` is for the caller that runs the fan-out beside something else rather than alone — the artifact cycle, whose pytest pool is hot from t=0 and stays hot across the whole table build — and it is what makes that sentence arithmetic instead of prose: the pool's bytes come off the box before the division, so the width answers for the machine the fan-out will actually run on. It sits below `AMS_KERNEL_THREADS` deliberately, since a stated width is the operator's whole answer and nothing derived here may narrow it, and it is public rather than a second module attribute because what is co-resident is the caller's fact, not this module's — a bare `run_m1` has nothing beside it and takes the default `0`. This function is the whole of that arithmetic's home: a caller reaching `how_many_fit` itself would have to restate the override branch above, and a second copy of it is exactly the thing that can fall out of agreement with the knob's contract.
+    """
     stated = os.environ.get("AMS_KERNEL_THREADS")
     if stated is not None:
         try:
@@ -51,11 +54,13 @@ def _kernel_threads_default(*, total_bytes: int | None = None) -> int:
             raise RuntimeError(
                 f"AMS_KERNEL_THREADS={stated!r} is not a width: it takes a bare decimal count of configurations to hold in flight, and leaving it unset is what asks for the width this box's own memory derives."
             ) from None
-    return memory_budget.how_many_fit(CONFIG_PEAK_BYTES, total_bytes=total_bytes)
+    return memory_budget.how_many_fit(
+        CONFIG_PEAK_BYTES, coresident_bytes=coresident_bytes, total_bytes=total_bytes
+    )
 
 
-# Resolved once at import rather than asked again per build, which is what lets a parametrized test name it and what keeps the cycle's printed plan and the child's argv one number rather than two readings of the same box. The consequence is that `AMS_TOTAL_MEMORY_BYTES` reaches it only from the environment the interpreter started in, never from a fixture.
-KERNEL_THREADS_DEFAULT = _kernel_threads_default()
+# Resolved once at import rather than asked again per build, which is what lets a parametrized test name it and what keeps the cycle's printed plan and the child's argv one number rather than two readings of the same box. The consequence is that `AMS_TOTAL_MEMORY_BYTES` reaches it only from the environment the interpreter started in, never from a fixture. This one is the solo width — nothing co-resident — which is what a bare `run_m1` wants; the cycle names its own through `artifact_cycle.kernel_threads_budget` instead.
+KERNEL_THREADS_DEFAULT = kernel_threads_default()
 TIMEOUT = 1800
 # Every `cargo build` re-uplifts the binary into target/release — removes it, then hard-links the fresh one in — even when nothing recompiled, so a build in one process can make another process's exec miss the file for an instant. One lock in the target directory orders the two: a build holds it exclusively for the uplift, an invocation holds it shared for exactly the spawn, and never for the run.
 LOCK_PATH = MANIFEST.parent / "target" / ".ams-kernel-uplift.lock"
