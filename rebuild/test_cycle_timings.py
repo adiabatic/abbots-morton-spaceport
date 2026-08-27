@@ -4,6 +4,7 @@ import re
 from types import SimpleNamespace
 
 from rebuild.tools import cycle_timings as ct
+from rebuild.tools import memory_budget
 
 
 def _result(name="run_m1", rc=0, stdout="", stderr="", elapsed=1.0):
@@ -160,6 +161,7 @@ def test_finish_copies_the_summary_blocks(tmp_path):
     assert entry["run"] == timings.run_id
     assert entry["host"] == timings.host
     assert entry["cpu_count"] == os.cpu_count()
+    assert entry["mem_total_bytes"] == memory_budget.total_memory_bytes()
     assert entry["started_at"] == timings.started_at
     assert entry["wall_s"] >= 0.0
     for key in ("exit", "interrupted", "failures", "gates", "plan", "argv"):
@@ -180,6 +182,117 @@ def test_append_warns_once_and_never_raises(tmp_path, capsys):
     timings = ct.CycleTimings(blocker / "j.ndjson")
     timings.record_step(_result(), [])
     timings.finish({})
+    err = capsys.readouterr().err
+    assert err.count("warning: failed to append") == 1
+
+
+def _mixed_journal(path):
+    """A journal holding both kinds of writer: one cycle's step and run lines, and two pool lines from pytest controllers that know nothing about that cycle."""
+    timings = ct.CycleTimings(path)
+    ct.record_pool(
+        "rebuild-contracts",
+        width=8,
+        worker_peaks={"gw0": 1_900_000_000},
+        controller_peak_bytes=300_000_000,
+        path=path,
+    )
+    timings.record_step(_result(), ["uv", "run", "fake"])
+    ct.record_pool(
+        "rebuild-validators",
+        width=4,
+        worker_peaks={"gw0": 5_560_000_000, "gw1": 4_980_000_000},
+        controller_peak_bytes=412_000_000,
+        path=path,
+    )
+    timings.finish({})
+    return timings.run_id
+
+
+def test_record_pool_writes_one_pool_line(tmp_path):
+    path = tmp_path / "j.ndjson"
+    ct.record_pool(
+        "rebuild-validators",
+        width=3,
+        worker_peaks={"gw10": 4_980_000_000, "gw2": 5_210_000_000, "gw0": 5_560_000_000},
+        controller_peak_bytes=412_000_000,
+        path=path,
+    )
+    (entry,) = _lines(path)
+    assert entry["format"] == ct.FORMAT
+    assert entry["kind"] == "pool"
+    assert entry["unit"] == "rebuild-validators"
+    assert entry["width"] == 3
+    assert entry["controller_peak_rss_bytes"] == 412_000_000
+    assert entry["worker_peak_rss_bytes"] == {
+        "gw0": 5_560_000_000,
+        "gw2": 5_210_000_000,
+        "gw10": 4_980_000_000,
+    }
+    assert list(entry["worker_peak_rss_bytes"]) == ["gw0", "gw2", "gw10"]
+    assert entry["host"]
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", entry["finished_at"])
+
+
+def test_a_pool_record_carries_no_run_id(tmp_path):
+    """The deliberate omission: a suite invocation is not a cycle run, and the controller would have to invent or inherit an id to claim one."""
+    path = tmp_path / "j.ndjson"
+    ct.record_pool("font-suite", width=2, worker_peaks={"gw0": 1}, controller_peak_bytes=1, path=path)
+    (entry,) = _lines(path)
+    assert "run" not in entry
+
+
+def test_record_pool_round_trips_through_load_pool_records(tmp_path):
+    path = tmp_path / "j.ndjson"
+    _mixed_journal(path)
+    records = ct.load_pool_records(path)
+    assert [record["unit"] for record in records] == ["rebuild-contracts", "rebuild-validators"]
+    assert records[0]["worker_peak_rss_bytes"] == {"gw0": 1_900_000_000}
+    assert records[1]["worker_peak_rss_bytes"] == {"gw0": 5_560_000_000, "gw1": 4_980_000_000}
+    assert (records[0]["width"], records[1]["width"]) == (8, 4)
+
+
+def test_load_journal_never_sees_a_pool_record(tmp_path):
+    path = tmp_path / "j.ndjson"
+    run_id = _mixed_journal(path)
+    runs, steps, order = ct.load_journal(path)
+    assert order == [run_id]
+    assert set(runs) == {run_id}
+    assert [step["name"] for step in steps[run_id]] == ["run_m1"]
+
+
+def test_load_pool_records_skips_a_torn_line(tmp_path):
+    path = tmp_path / "j.ndjson"
+    torn = json.dumps({"kind": "pool", "unit": "torn", "worker_peak_rss_bytes": {"gw0": 3}})[:24]
+    path.write_text(
+        "\n".join(
+            [
+                json.dumps({"kind": "pool", "unit": "first"}),
+                torn,
+                json.dumps({"kind": "pool", "unit": "second"}),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    assert [record["unit"] for record in ct.load_pool_records(path)] == ["first", "second"]
+
+
+def test_load_pool_records_reads_a_missing_journal_as_no_records(tmp_path):
+    assert ct.load_pool_records(tmp_path / "absent.ndjson") == []
+
+
+def test_record_pool_warns_once_when_the_journal_cannot_be_written(tmp_path, capsys, monkeypatch):
+    monkeypatch.setattr(ct, "_pool_warn_state", [False])
+    blocker = tmp_path / "notadir"
+    blocker.write_text("")
+    for _ in range(2):
+        ct.record_pool(
+            "font-suite",
+            width=2,
+            worker_peaks={"gw0": 1},
+            controller_peak_bytes=1,
+            path=blocker / "j.ndjson",
+        )
     err = capsys.readouterr().err
     assert err.count("warning: failed to append") == 1
 
@@ -240,6 +353,7 @@ def _view_journal(tmp_path):
                 "run": "r1",
                 "host": "h1",
                 "cpu_count": 8,
+                "mem_total_bytes": 51_539_607_552,
                 "started_at": "2026-01-01T00:00:00Z",
                 "wall_s": 10.5,
                 "exit": "ok",
@@ -257,6 +371,7 @@ def test_main_default_view_lists_steps_slowest_first(tmp_path, capsys):
     assert "1 runs recorded" in out
     assert "host=h1" in out
     assert "cpus=8" in out
+    assert "ram=51.54GB" in out
     assert "wall=10.5s" in out
     assert "exit=ok" in out
     assert "deferred=conform" in out
@@ -264,6 +379,29 @@ def test_main_default_view_lists_steps_slowest_first(tmp_path, capsys):
     assert "(rc 1)" in out
     assert "rss=8.94GB" in out
     assert "phase-a" not in out
+
+
+def test_main_default_view_omits_ram_for_a_run_record_that_predates_it(tmp_path, capsys):
+    """A record written before the box became a field is older, not a record whose probe failed — so it renders with no ram= clause at all, where cpus=? would be the honest reading for a key that has always been written."""
+    path = tmp_path / "j.ndjson"
+    _write_journal(
+        path,
+        [
+            {
+                "kind": "run",
+                "run": "r1",
+                "host": "h1",
+                "cpu_count": 8,
+                "started_at": "2026-01-01T00:00:00Z",
+                "wall_s": 10.5,
+                "exit": "ok",
+            }
+        ],
+    )
+    assert ct.main(["--journal", str(path)]) == 0
+    out = capsys.readouterr().out
+    assert "cpus=8" in out
+    assert "ram=" not in out
 
 
 def test_main_inner_flag_expands_phase_lines(tmp_path, capsys):

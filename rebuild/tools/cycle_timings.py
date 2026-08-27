@@ -1,8 +1,12 @@
 """Append-only wall-time telemetry for the artifact cycle, and the reporter that reads it back.
 
-Every artifact-cycle run appends to rebuild/out/cycle-timings.ndjson (gitignored with the rest of rebuild/out, never touched by the retention pass, so each machine accumulates its own history): one "step" line per subprocess the driver actually spawned, and one "run" line when the cycle finishes, interrupted finishes included. A step line carries the driver's step name (run_m1, gate:conform, merge, ...), the argv, the return code, the wall seconds, the step's peak RSS in bytes (measured by the driver as it reaps the child, so it covers the child's whole process tree — see peak_rss.reap_peak_rss_bytes), and — parsed out of the child's captured stdout/stderr — any inner "[t] <label> <secs>s" phase lines the child printed, which is how the per-config conform sweeps and run_m1's phase breakdown survive even for gates whose output is never streamed to the console. An inner line may carry its own peak-RSS figure as a trailing "rss_gb=<n>" token (peak_rss.rss_token is the writer; decimal GB, like every figure here), which rides into the journal beside the label's seconds. A run line carries the run's identity (hostname, cpu count), start/finish stamps, total wall seconds, and the cycle summary's exit/gates/plan blocks, so a slow step can be read in context: which machine, which skips were in effect, what was deferred.
+Every artifact-cycle run appends to rebuild/out/cycle-timings.ndjson (gitignored with the rest of rebuild/out, never touched by the retention pass, so each machine accumulates its own history): one "step" line per subprocess the driver actually spawned, and one "run" line when the cycle finishes, interrupted finishes included. A step line carries the driver's step name (run_m1, gate:conform, merge, ...), the argv, the return code, the wall seconds, the step's peak RSS in bytes (measured by the driver as it reaps the child, so it covers the child's whole process tree — see peak_rss.reap_peak_rss_bytes), and — parsed out of the child's captured stdout/stderr — any inner "[t] <label> <secs>s" phase lines the child printed, which is how the per-config conform sweeps and run_m1's phase breakdown survive even for gates whose output is never streamed to the console. An inner line may carry its own peak-RSS figure as a trailing "rss_gb=<n>" token (peak_rss.rss_token is the writer; decimal GB, like every figure here), which rides into the journal beside the label's seconds. A run line carries the run's identity — hostname, cpu count, and the size of the box it ran on — start/finish stamps, total wall seconds, and the cycle summary's exit/gates/plan blocks, so a slow step can be read in context: which machine, which skips were in effect, what was deferred.
+
+The box is worth its own field because a per-step peak read months later means nothing without the machine's size beside it: whether a step that held 9 GB was comfortable or was most of the box is a fact about the box, not about the step, and the journal is the only place the two are ever written down together. `make job-costs` divides that same figure by a checked-in per-unit peak to state the width that constant implies here, which is the second reason it is recorded rather than probed at read time — a figure probed on the reader's box would answer for the wrong machine.
 
 Skipped stages never spawn and so never produce a step line; whether a stage was skipped, deferred, or genuinely absent is read from the run line's plan and gates blocks, not from the step list.
+
+A third kind of line, "pool", is written by something that is not the cycle at all: any pytest run whose pool has a unit name to declare — AMS_POOL_UNIT (POOL_UNIT_ENV), set on the child's own environment by the two gate wrappers and by the cycle's rebuild-lane spawns — has its xdist controller append one line at terminal summary naming the unit, the width the pool resolved to, the controller's own peak, and every worker's. That line deliberately carries no run id, because a suite invocation is not a cycle run and an interactive `make test` has no run to belong to; the consequence is wanted, since load_journal files everything under a run id and so never sees a pool line, leaving `make cycle-timings`' two views exactly as they were. load_pool_records is the reader, and `make job-costs` is what finally holds those measurements against the checked-in per-worker constants they are supposed to price.
 
 The reporter is `make cycle-timings` (`uv run python -m rebuild.tools.cycle_timings`): recent runs with steps slowest-first by default, --inner to expand the phase lines, --by-step to aggregate count/median/max/latest per step and host — the host column is what makes a laptop and a desktop directly comparable. Journals from two machines can be concatenated and read with --journal.
 """
@@ -22,18 +26,78 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
+from rebuild.tools import memory_budget
 from rebuild.tools.peak_rss import format_gb
 
 ROOT = Path(__file__).resolve().parents[2]
 JOURNAL = ROOT / "rebuild" / "out" / "cycle-timings.ndjson"
 FORMAT = "ams-cycle-timings/1"
+# The one spelling of the variable a pytest controller reads to learn what its pool is called. Both gate wrappers and the root conftest reach it from here rather than typing the string, so the journal's `unit` field, the units `make job-costs` calibrates, and whoever sets the variable can never disagree about a name.
+POOL_UNIT_ENV = "AMS_POOL_UNIT"
 
 _INNER_LINE = re.compile(r"^\[t\] (.+?) (\d+(?:\.\d+)?)s(?:[ \t](.*))?$", re.MULTILINE)
 _RSS_TOKEN = re.compile(r"\brss_gb=(\d+(?:\.\d+)?)")
 
+_JOURNAL_LOCK = threading.Lock()
+_pool_warn_state: list[bool] = [False]
+
 
 def _utc_stamp() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _append_entry(path: Path, entry: dict) -> str | None:
+    """Append one JSON line under the module-wide lock, answering None on success and the failure's repr when the journal could not be written. The lock is module-wide rather than per-instance because two writers now share this file inside one process — the cycle's step and run lines from its gate-pool threads, and a pool line from whichever pytest controller this process happens to be — and a per-instance lock would serialize each of them against itself while leaving them free to interleave with each other. Failure comes back as a string rather than as a raise because a journal that cannot be written is never an error a caller has to handle, only one worth saying once, and each caller owns its own warn-once flag."""
+    line = json.dumps(entry)
+    try:
+        with _JOURNAL_LOCK:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open("a", encoding="utf-8") as handle:
+                handle.write(line + "\n")
+    except OSError as exc:
+        return repr(exc)
+    return None
+
+
+def gateway_order(item: tuple[str, int]) -> tuple[int, str]:
+    """Sort key for a (gateway id, peak) pair: gw2 before gw10, and anything without a number first. Public because the root conftest's terminal line sorts its workers with it too — the printed line and the pool record are supposed to list the same workers in the same order, and one sort key shared between them makes that true by construction rather than by two copies of four lines staying in step."""
+    digits = "".join(ch for ch in item[0] if ch.isdigit())
+    return (int(digits) if digits else -1, item[0])
+
+
+def record_pool(
+    unit: str,
+    *,
+    width: int,
+    worker_peaks: dict[str, int],
+    controller_peak_bytes: int,
+    path: Path | None = None,
+) -> None:
+    """Append one kind:"pool" line for a finished xdist pool: which unit it was a pool of, how wide it ran, and what the controller and each worker held at their peaks. It is a module function rather than a CycleTimings method because there is no run and no instance behind it — the writer is a pytest controller, which knows nothing about a cycle and may not be inside one at all.
+
+    The record carries no run id, deliberately. A standalone `make test` or `make test-rebuild` has no cycle run to belong to, and the controller could only invent one or inherit one through a second environment variable whose only job would be to make the record look like it belongs to a cycle it may not belong to. So the pool line is filed under nothing, load_journal drops it along with every other run-less entry, and load_pool_records is how a reader finds it.
+
+    `width` is the width the pool was asked for — the resolved `numprocesses`, not the length of `worker_peaks` — because the two are different facts and both are worth having: a node that dies without handing back its workeroutput leaves the peaks dict short by one, so the dict's own length says how many workers answered while `width` says how many ran. Averaging them into a single number would lose the discrepancy that is the interesting part.
+
+    Peaks are ordered by gateway number, matching the order the controller's own terminal line prints them in, so the record and the line a human just read agree — the same `gateway_order` key does both, so the two can never drift apart. `path` is resolved when the call is made rather than bound as a default, so a test that redirects the module's JOURNAL is redirected here too instead of quietly appending to the live one. Nothing here raises: this is called from a terminal-summary hook, where a raise would disfigure the report of a suite that passed, so an unwritable journal warns once per process and is thereafter silent.
+    """
+    journal = JOURNAL if path is None else path
+    entry = {
+        "format": FORMAT,
+        "kind": "pool",
+        "host": socket.gethostname(),
+        "unit": unit,
+        "finished_at": _utc_stamp(),
+        "width": int(width),
+        "controller_peak_rss_bytes": int(controller_peak_bytes),
+        "worker_peak_rss_bytes": {
+            ident: int(peak) for ident, peak in sorted(worker_peaks.items(), key=gateway_order)
+        },
+    }
+    failure = _append_entry(journal, entry)
+    if failure is not None and not _pool_warn_state[0]:
+        _pool_warn_state[0] = True
+        print(f"warning: failed to append to {journal}: {failure}", file=sys.stderr)
 
 
 def parse_inner_timings(text: str) -> list[dict]:
@@ -56,7 +120,6 @@ class CycleTimings:
         self.host = socket.gethostname()
         self.started_at = _utc_stamp()
         self._t0 = time.perf_counter()
-        self._lock = threading.Lock()
         self._warned = False
 
     def wrap_spawn(self, spawn):
@@ -96,6 +159,7 @@ class CycleTimings:
                 "run": self.run_id,
                 "host": self.host,
                 "cpu_count": os.cpu_count(),
+                "mem_total_bytes": memory_budget.total_memory_bytes(),
                 "started_at": self.started_at,
                 "finished_at": _utc_stamp(),
                 "wall_s": round(time.perf_counter() - self._t0, 1),
@@ -109,16 +173,10 @@ class CycleTimings:
         )
 
     def _append(self, entry: dict) -> None:
-        line = json.dumps(entry)
-        try:
-            with self._lock:
-                self.path.parent.mkdir(parents=True, exist_ok=True)
-                with self.path.open("a", encoding="utf-8") as handle:
-                    handle.write(line + "\n")
-        except OSError as exc:
-            if not self._warned:
-                self._warned = True
-                print(f"warning: failed to append to {self.path}: {exc!r}", file=sys.stderr)
+        failure = _append_entry(self.path, entry)
+        if failure is not None and not self._warned:
+            self._warned = True
+            print(f"warning: failed to append to {self.path}: {failure}", file=sys.stderr)
 
 
 def load_journal(path: Path) -> tuple[dict[str, dict], dict[str, list[dict]], list[str]]:
@@ -147,6 +205,24 @@ def load_journal(path: Path) -> tuple[dict[str, dict], dict[str, list[dict]], li
         elif entry.get("kind") == "step":
             steps[run_id].append(entry)
     return runs, steps, order
+
+
+def load_pool_records(path: Path) -> list[dict]:
+    """Every kind:"pool" line in the journal, in file order. A separate loader from load_journal because a pool record carries no run id and so cannot be filed under one: the pool a pytest controller measured belongs to a suite invocation, which a standalone `make test` has and a cycle run does not uniquely own — a single pass spawns several of them. Malformed lines are skipped for the same reason load_journal skips them, since the journal is appended to by concurrent threads across processes and one torn line must not make the whole history unreadable, and a journal that does not exist reads as no records rather than as an error, because a box that has never run a pool has nothing to say and that is not a failure."""
+    records: list[dict] = []
+    if not path.exists():
+        return records
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            entry = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(entry, dict) and entry.get("kind") == "pool":
+            records.append(entry)
+    return records
 
 
 def _seconds(value) -> float:
@@ -178,6 +254,12 @@ def render_runs(
                 str(run.get("started_at", "?")),
                 f"host={run.get('host', '?')}",
                 f"cpus={run.get('cpu_count', '?')}",
+            ]
+            # `cpus=?` is defensible where the count is missing, because that key has always been written and its absence therefore means a probe that failed. The box's size postdates most of this journal, so a record without it is simply older than the field — say nothing rather than `ram=?`, which would read as a probe that failed on a run where nothing was ever asked.
+            mem = run.get("mem_total_bytes")
+            if isinstance(mem, int | float):
+                bits.append(f"ram={format_gb(mem)}GB")
+            bits += [
                 f"wall={_seconds(run.get('wall_s')):.1f}s",
                 f"exit={run.get('exit', '?')}",
             ]

@@ -5,6 +5,8 @@ The suite splits into two lanes, and rebuild/conftest.py is the authority on whi
 Contracts runs first, and a hard failure there returns immediately without starting validators — running the cheap lane first is what buys that fail-fast, since a code error surfaces in minutes instead of after the long lane has finished. Each lane that actually runs is judged through the cycle's own failure classifier, which parses the FAILED/ERROR summary lines so a failure is named rather than just counted; every green is recordable. A green run during which that lane's closure moved records nothing, because the tested content is no longer on disk; a red run whose closure still matches its record deletes it, since the green it claims is contradicted; and without git there is no closure to key on, so the lane runs unconditionally and records nothing. `make test-rebuild FORCE=1` (--force) runs both lanes regardless.
 
 AMS_RUN_PYRIGHT rides the environment into whichever lane actually spawns first and is stripped from every lane after it: pyright checks the whole tree from `[tool.pyright] include` and its answer cannot change between two pytest invocations of the same working tree, so type-checking twice would only cost a second copy of the same verdict.
+
+AMS_POOL_UNIT goes the other way — each lane names its own pool (POOL_UNIT_BY_LANE), which is what has that lane's xdist controller append a kind:"pool" line to the cycle-timings journal recording every worker's peak, the measurement `make job-costs` holds VALIDATORS_WORKER_BYTES against. The name is written into a per-lane copy of the environment and never into the shared one, because the shared dict outlives the lane: writing it there would leave lane two spawning under lane one's name and file the validators pool as contracts.
 """
 
 from __future__ import annotations
@@ -29,8 +31,10 @@ from rebuild.tools.artifact_cycle import (
     rebuild_lane_green,
     record_green,
 )
+from rebuild.tools.cycle_timings import POOL_UNIT_ENV
 
 PYRIGHT_ENV = "AMS_RUN_PYRIGHT"
+POOL_UNIT_BY_LANE = {"contracts": "rebuild-contracts", "validators": "rebuild-validators"}
 
 
 def _run_suite(argv: list[str], env: dict[str, str]) -> tuple[int, str]:
@@ -56,7 +60,8 @@ def _run_lane(lane: str, env: dict[str, str], force: bool) -> tuple[int, bool]:
         )
         return 0, False
 
-    returncode, stdout = _run_suite(rebuild_lane_argv(lane), env)
+    lane_env = {**env, POOL_UNIT_ENV: POOL_UNIT_BY_LANE[lane]}
+    returncode, stdout = _run_suite(rebuild_lane_argv(lane), lane_env)
     outcome = classify_rebuild_output(stdout, returncode)
     for test_id in outcome.hard_ids:
         print(f"  hard rebuild failure ({lane}): {test_id}")

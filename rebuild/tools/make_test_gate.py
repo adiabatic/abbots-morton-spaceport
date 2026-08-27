@@ -1,11 +1,14 @@
 """`make test`'s entry point: run the font suite only when its input closure has changed since the last green run.
 
 The closure and its fingerprint are artifact_cycle's — every tracked or untracked-unignored file outside the exempt trees (MAKE_TEST_EXEMPT_PREFIXES, plus Markdown; make_test_exempt is the authority), i.e. everything the suite (make all, typst, pyright, pytest test/ site/) can read. When the fingerprint matches the shared green record (rebuild/out/make-test-green.json), the recorded green already describes this exact closure content, so re-running the ≈15 CPU-minute suite would verify nothing; the wrapper prints the skip and exits 0. Otherwise it runs the real suite and, on green, rewrites the record — so interactive runs and the artifact cycle's gate:make-test each skip on the other's greens. `make test FORCE=1` (--force) runs the suite regardless; a forced red run whose closure still matches the record deletes it, since the green it claims is contradicted. A green run during which the closure moved records nothing, because the tested content is no longer on disk.
+
+The suite child is told what its pool is called (POOL_UNIT, in AMS_POOL_UNIT), which is what has its controller append a kind:"pool" line to the cycle-timings journal naming every worker's peak — the measurement `make job-costs` holds FONT_SUITE_WORKER_BYTES against, so the constant that prices this pool cannot go stale in silence. The name goes on the child's own environment dict and never on this process's, so nothing spawned later inherits it and files its pool under the font suite's name. This covers both spellings of the same run, since the cycle's gate:make-test is literally `make test` and so comes through here too.
 """
 
 from __future__ import annotations
 
 import argparse
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -21,8 +24,10 @@ from rebuild.tools.artifact_cycle import (
     read_make_test_green,
     record_make_test_green,
 )
+from rebuild.tools.cycle_timings import POOL_UNIT_ENV
 
 PYTEST_ARGV = ["uv", "run", "pytest", "test/", "site/", "-n", "auto", "--dist", "worksteal"]
+POOL_UNIT = "font-suite"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -46,7 +51,9 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 0
 
-    returncode = subprocess.run(PYTEST_ARGV, cwd=ROOT).returncode
+    returncode = subprocess.run(
+        PYTEST_ARGV, cwd=ROOT, env={**os.environ, POOL_UNIT_ENV: POOL_UNIT}
+    ).returncode
     if returncode != 0:
         if recorded is not None and before is not None and before == recorded["fingerprint"]:
             MAKE_TEST_GREEN.unlink(missing_ok=True)
