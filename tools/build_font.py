@@ -50,7 +50,14 @@ from quikscript_ir import (
     heal_glyph_name,
 )
 
-_DEPARTURE_MONO_OTF = Path(__file__).resolve().parent.parent / "reference" / "DepartureMono-Regular.otf"
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+# `memory_budget` reaches `peak_rss` by package path, so the repo root is what has to go on `sys.path`; `rebuild/tools/` is not enough.
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+from rebuild.tools.memory_budget import usable_cores  # noqa: E402
+
+_DEPARTURE_MONO_OTF = _REPO_ROOT / "reference" / "DepartureMono-Regular.otf"
 _SAFE_LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
 
 
@@ -1346,7 +1353,7 @@ def main() -> None:
             job_senior_fea = shared_senior_fea if variant == "senior" else None
             jobs.append((str(input_path), str(output_path), variant, bold, job_senior_fea))
 
-    with ProcessPoolExecutor(max_workers=len(jobs)) as executor:
+    with ProcessPoolExecutor(max_workers=min(len(jobs), usable_cores())) as executor:
         futures = [executor.submit(_build_one_font, *job) for job in jobs]
         for future in futures:
             future.result()
