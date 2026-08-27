@@ -48,7 +48,7 @@ def parse_inner_timings(text: str) -> list[dict]:
 
 
 class CycleTimings:
-    """One instance per cycle run. wrap_spawn decorates the driver's spawn callable so every real subprocess records a step line as it completes; finish records the run line from the already-built cycle summary payload. Appends are lock-serialized (the gate tasks spawn from pool threads) and a journal that cannot be written warns once and never fails the cycle."""
+    """One instance per cycle run. wrap_spawn decorates the driver's spawn callable so every real subprocess records a step line as it completes; finish records the run line from the already-built cycle summary payload. Appends are lock-serialized (the gate tasks spawn from pool threads) and a journal that cannot be written warns once and never fails the cycle. What a caller adds to a spawn beyond the four arguments timing cares about — a per-child environment, say — passes straight through, because this decorator's business is the clock and not the child's terms."""
 
     def __init__(self, path: Path) -> None:
         self.path = path
@@ -60,8 +60,8 @@ class CycleTimings:
         self._warned = False
 
     def wrap_spawn(self, spawn):
-        def timed(name, argv, *, emit, registry, stream):
-            result = spawn(name, argv, emit=emit, registry=registry, stream=stream)
+        def timed(name, argv, *, emit, registry, stream, **passthrough):
+            result = spawn(name, argv, emit=emit, registry=registry, stream=stream, **passthrough)
             if not (result.returncode == 130 and result.elapsed == 0.0):
                 self.record_step(result, argv)
             return result

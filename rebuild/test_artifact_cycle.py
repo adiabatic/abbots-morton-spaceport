@@ -18,6 +18,15 @@ from rebuild.tools import artifact_cycle as ac
 from rebuild.tools.cycle_timings import CycleTimings
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+# The box every plan here is resolved against. A width asserted in this file has to be a fact about an invented machine rather than about whichever one is running the suite, and 44 GB is chosen for what it separates: the fan-out fits three configurations there alone and two beside gate:make-test's pytest pool, so a reservation that stopped happening would show up as a changed number rather than as the same one twice. Both spellings of 32 GB sit on an edge that answers 2 and 2 or 2 and 1 depending on the unit convention, which is a worse box to reason about.
+BOX_44_GB = 44_000_000_000
+
+
+@pytest.fixture(autouse=True)
+def _no_stated_widths(monkeypatch):
+    """Both knobs that outrank every derived width in the tree, cleared for the whole file. Every plan built here carries a kernel width and a pytest-pool width now, and a developer who has exported either variable would otherwise watch these assertions pass or fail for a reason that has nothing to do with the arrangement the test set up. That the knobs do outrank the arithmetic is asserted by the tests that set them deliberately."""
+    monkeypatch.delenv("PYTEST_XDIST_AUTO_NUM_WORKERS", raising=False)
+    monkeypatch.delenv("AMS_KERNEL_THREADS", raising=False)
 
 
 @pytest.fixture(autouse=True)
@@ -166,6 +175,7 @@ def test_dry_run_plan_default():
         first_run=False,
         short_id="abc1234",
         ncores=1,
+        total_bytes=BOX_44_GB,
     )
     assert plan.snapshot_dir == ac.ROOT / "tmp" / "review-pre-abc1234"
     assert plan.carry_out == ac.ROOT / "verdicts-carried-abc1234.json"
@@ -559,6 +569,7 @@ def _argv(step: ac.Step) -> list[str]:
 
 
 def _plan(**overrides: Any) -> ac.Plan:
+    """A resolved plan over an invented machine: `ncores` decides every CPU-derived width and `total_bytes` the one width memory derives, so a plan's numbers are the same wherever the suite runs. Either is overridable per test the way every other keyword here is."""
     kw: dict[str, Any] = dict(
         verdicts=Path("v.json"),
         no_carry=False,
@@ -568,6 +579,7 @@ def _plan(**overrides: Any) -> ac.Plan:
         first_run=False,
         short_id="testid",
         ncores=4,
+        total_bytes=BOX_44_GB,
     )
     kw.update(overrides)
     return ac.build_plan(**kw)
@@ -1534,6 +1546,21 @@ def test_run_step_measures_the_child_peak_rss(capsys):
     assert len(timing_line) == 1 and "rss_gb=" in timing_line[0]
 
 
+def test_a_step_environment_is_an_overlay_and_not_a_replacement():
+    """What a step states is added to this process's environment for that child alone: the child sees the stated variable and everything else it would have inherited, and this process never sees the stated one at all."""
+    probe = "import os; print(os.environ.get('AMS_PROBE_WIDTH'), 'PATH' in os.environ)"
+    result = ac._run_step(
+        "probe",
+        [sys.executable, "-c", probe],
+        emit=ac._Emitter(),
+        registry=ac._ChildRegistry(),
+        stream=False,
+        env={"AMS_PROBE_WIDTH": "3"},
+    )
+    assert result.stdout.strip() == "3 True"
+    assert "AMS_PROBE_WIDTH" not in os.environ
+
+
 def test_sweep_job_budget_is_one_process_per_acceptance_configuration():
     from rebuild.pipeline.conform import ACCEPTANCE_CONFIGS
 
@@ -1554,6 +1581,44 @@ def test_surface_job_budget_leaves_make_test_its_cores():
     assert ac.surface_job_budget(skip_gates=False, skip_make_test=True, ncores=6) == 6
 
 
+def test_make_test_pool_width_is_the_width_the_surface_budget_leaves_it():
+    """The pool the cycle starts is the pool the cycle reserved for: surface_job_budget hands two cores away, so two workers is what gate:make-test is handed back, and a box too small for that floors the two together at one rather than letting the pool outgrow the reservation."""
+    assert ac.make_test_pool_width(ncores=12) == ac.MAKE_TEST_POOL_WORKERS
+    assert ac.make_test_pool_width(ncores=6) == ac.MAKE_TEST_POOL_WORKERS
+    assert ac.make_test_pool_width(ncores=1) == 1
+
+
+def test_a_stated_pool_width_is_the_width_the_cycle_reserves_by(monkeypatch):
+    """PYTEST_XDIST_AUTO_NUM_WORKERS is not something the cycle may narrow — the child inherits this process's environment, so a width already stated here is what that pool is going to take whatever the cycle would have preferred. Reserving by it is the only way the two stay one number."""
+    monkeypatch.setenv("PYTEST_XDIST_AUTO_NUM_WORKERS", "9")
+    assert ac.make_test_pool_width(ncores=1) == 9
+    assert ac.kernel_threads_budget(ncores=12, total_bytes=BOX_44_GB) == 2
+    monkeypatch.setenv("PYTEST_XDIST_AUTO_NUM_WORKERS", "64")
+    assert ac.kernel_threads_budget(ncores=12, total_bytes=BOX_44_GB) == 1
+
+
+def test_kernel_threads_budget_takes_the_pytest_pool_off_the_box_first():
+    """The fan-out's width answers for the machine it will actually run on: a cycle runs it beside gate:make-test's pool rather than alone, so that pool's bytes come off this box before it is divided by a configuration, and the width lands one below the solo one. Both numbers move together if CONFIG_PEAK_BYTES is ever re-measured — the pair is the assertion, not either figure."""
+    solo = ac.kernel_threads_budget(skip_make_test=True, ncores=8, total_bytes=BOX_44_GB)
+    beside = ac.kernel_threads_budget(ncores=8, total_bytes=BOX_44_GB)
+    assert (solo, beside) == (3, 2)
+
+
+def test_kernel_threads_budget_never_narrows_a_stated_kernel_width(monkeypatch):
+    """AMS_KERNEL_THREADS is what someone reaches for to keep a build out of swap, so it outranks every derivation here, this reservation included."""
+    monkeypatch.setenv("AMS_KERNEL_THREADS", "5")
+    assert ac.kernel_threads_budget(ncores=8, total_bytes=BOX_44_GB) == 5
+    assert ac.kernel_threads_budget(skip_make_test=True, ncores=8, total_bytes=BOX_44_GB) == 5
+
+
+def test_a_plan_reserves_for_the_pytest_pool_only_when_that_gate_runs():
+    """Skipped, deferred, and --skip-gates are all the same fact — no pool is going to be co-resident — so the fan-out gets the whole box back rather than paying for a pool that never starts."""
+    assert _plan(ncores=8).kernel_threads == 2
+    assert _plan(ncores=8, skip_make_test=True, make_test_note="closure unchanged").kernel_threads == 3
+    assert _plan(ncores=8, deferred=frozenset({"make-test"})).kernel_threads == 3
+    assert _plan(ncores=8, skip_gates=True).kernel_threads == 3
+
+
 def test_dry_run_renders_concurrency():
     plan = ac.build_plan(
         verdicts=Path("v.json"),
@@ -1564,6 +1629,7 @@ def test_dry_run_renders_concurrency():
         first_run=False,
         short_id="abc1234",
         ncores=12,
+        total_bytes=BOX_44_GB,
     )
     text = ac.render_plan(plan)
     assert "pool policy: queue" in text
@@ -1604,6 +1670,7 @@ def test_dry_run_skip_gates_appends_jobs_budgets():
         first_run=False,
         short_id="abc1234",
         ncores=12,
+        total_bytes=BOX_44_GB,
     )
     by_name = {step.name: step for step in plan.steps}
     assert _argv(by_name["run_m1"])[5:7] == ["--jobs", "6"]
@@ -1620,6 +1687,7 @@ def test_dry_run_skip_gates_appends_jobs_budgets():
         first_run=False,
         short_id="abc1234",
         ncores=12,
+        total_bytes=BOX_44_GB,
     )
     default_by_name = {step.name: step for step in default_plan.steps}
     assert _argv(default_by_name["run_m1"])[5:7] == ["--jobs", "6"]
@@ -2079,7 +2147,10 @@ def test_skip_make_test_frees_the_surface_build_budget():
     assert small.surface_jobs == 4
     small_by_name = {step.name: step for step in small.steps}
     assert _argv(small_by_name["surface-build"])[-2:] == ["--jobs", "4"]
-    assert "two cores left to gate:make-test's pytest pool" in ac.render_plan(small)
+    assert (
+        "surface-build --jobs             : 4  (gate:make-test's pytest pool held to 2 workers — its cores reserved here, its bytes in --kernel-threads)"
+        in ac.render_plan(small)
+    )
 
 
 def test_summary_payload_carries_the_fingerprint_only_while_green(tmp_path):
@@ -2136,6 +2207,59 @@ def test_run_cycle_never_spawns_make_test_when_skipped(monkeypatch):
     assert report.gate_contracts == "green"
     assert report.gate_validators == "green"
     assert report.gate_conform == "green"
+
+
+def test_the_pool_width_is_handed_to_the_make_test_child_and_to_no_other(monkeypatch):
+    """The width the plan reserved for reaches the pool it reserved for, and reaches nothing else. It rides on that one child's environment because run_m1, the surface build and both rebuild lanes are spawned from this same process: a width set on os.environ would pin their `-n auto` pools too, and neither lane's is make-test's to choose."""
+    seen: dict[str, dict[str, str] | None] = {}
+
+    def fake_spawn(name, argv, *, emit, registry, stream, env=None):
+        seen[name] = env
+        return _step(name, 0)
+
+    monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
+    monkeypatch.setattr(ac, "_gate_contracts_task", _contracts_green)
+    monkeypatch.setattr(ac, "_gate_validators_task", _validators_green)
+    monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
+    _patch_build_chain(monkeypatch)
+
+    plan = _plan(ncores=8)
+    rc = ac._run_cycle(plan, ac.CycleReport(), ac._Emitter(), ac._ChildRegistry(), spawn=fake_spawn)
+
+    assert rc == 0
+    assert plan.make_test_workers == ac.MAKE_TEST_POOL_WORKERS
+    assert seen["gate:make-test"] == {"PYTEST_XDIST_AUTO_NUM_WORKERS": str(plan.make_test_workers)}
+    assert seen["gate:js"] is None
+    assert "PYTEST_XDIST_AUTO_NUM_WORKERS" not in os.environ
+
+
+def test_a_timed_spawn_carries_a_child_its_environment(monkeypatch, tmp_path):
+    """The timing decorator wraps every spawn, so anything a caller adds to one has to survive it — the width would otherwise be dropped on exactly the runs that are real, since a cycle is only untimed in this suite."""
+    seen: dict[str, dict[str, str] | None] = {}
+
+    def fake_spawn(name, argv, *, emit, registry, stream, env=None):
+        seen[name] = env
+        return _step(name, 0)
+
+    monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
+    monkeypatch.setattr(ac, "_gate_contracts_task", _contracts_green)
+    monkeypatch.setattr(ac, "_gate_validators_task", _validators_green)
+    monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
+    _patch_build_chain(monkeypatch)
+
+    plan = _plan(ncores=8)
+    rc = ac._run_cycle(
+        plan,
+        ac.CycleReport(),
+        ac._Emitter(),
+        ac._ChildRegistry(),
+        spawn=fake_spawn,
+        timings=CycleTimings(tmp_path / "timings.ndjson"),
+    )
+
+    assert rc == 0
+    assert seen["gate:make-test"] == {"PYTEST_XDIST_AUTO_NUM_WORKERS": str(plan.make_test_workers)}
+    assert seen["gate:js"] is None
 
 
 def test_green_record_roundtrip(tmp_path):

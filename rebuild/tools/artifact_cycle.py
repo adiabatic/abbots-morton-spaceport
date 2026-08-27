@@ -32,6 +32,8 @@ Run as: uv run python rebuild/tools/artifact_cycle.py — the carry source is au
 from __future__ import annotations
 
 import argparse
+import ast
+import functools
 import hashlib
 import json
 import os
@@ -88,6 +90,8 @@ SERVER_STOP_PATTERN = r"rebuild\.review\.serve"
 SERVER_STOP_TIMEOUT = 15.0
 _GATE_POOL_WORKERS = 7
 SURFACE_JOBS_CAP = 8
+# How wide gate:make-test's pytest pool is allowed to be under a cycle, and the one number that makes the reservation beside it honest: surface_job_budget hands two cores to that pool, so two workers is what the cycle hands the pool back. Left to itself the pool takes `-n auto`, which the root conftest.py answers for the font suite with the whole box — a pool sized as though nothing else were running, beside a build sized as though it were.
+MAKE_TEST_POOL_WORKERS = 2
 CONFORM_HORIZON_DEFAULT = 4
 DEEP_SWEEP_HORIZON_DEFAULT = 5
 COMPILE_CODE_FILES = (
@@ -715,6 +719,7 @@ class Plan:
     surface_jobs: int = 1
     sweep_jobs: int = 1
     kernel_threads: int = 1
+    make_test_workers: int = 1
     conform_jobs: int = 1
     conform_horizon: int = CONFORM_HORIZON_DEFAULT
     review_out: Path | None = None
@@ -743,11 +748,41 @@ def jstest_argv() -> list[str]:
     return ["node", "--test", *files]
 
 
-def kernel_exec_threads_default() -> int:
-    """The kernel fan-out's own default width, named by the cycle rather than inherited silently, because it is the one width here that memory binds: a live configuration holds its whole working set until it emits, so the width is the box divided by one of them. `kernel_exec.KERNEL_THREADS_DEFAULT` is the authority and this re-exports it unchanged — the memory derivation, and AMS_KERNEL_THREADS short-circuiting ahead of it, both already happened there — so what comes back is the memory answer before the configuration count and the CPU count narrow it. That narrowing lives in exactly one place, `run_m1.build_tables`'s own `min()`, and is deliberately not repeated here: a second copy on this side would be a second thing to keep in agreement with it, and what not having one costs is only that a box roomier than the configuration count reads a plan line naming a width the run will go on to narrow."""
-    from rebuild.pipeline.kernel_exec import KERNEL_THREADS_DEFAULT
+@functools.cache
+def _font_suite_worker_bytes() -> int:
+    """What one of gate:make-test's pytest workers holds at its peak: the root conftest.py's FONT_SUITE_WORKER_BYTES, read out of that file's source rather than imported. There is no importable handle on it from here — pytest loads every conftest under the plain name `conftest`, so in any run collected under rebuild/, which is every run of the suite that tests this module, `sys.modules["conftest"]` is rebuild/conftest.py and a plain `import conftest` answers the wrong file, while `import rebuild.conftest` would execute a second copy of one pytest has already loaded and armed its lane-audit hook in. `ast` answers the question without executing anything, which also keeps a build tool from importing pytest and from inheriting that file's sys.path edits. The constant stays where it was put, beside the branch that prices it, and a rename of it fails loudly here rather than quietly costing the cycle its reservation. The path is this file's own tree rather than the module's ROOT, because what is wanted is the pytest that ships beside this code — a test pointing the cycle at an invented root is naming where a cycle's artifacts go, never whose test suite the gate would run."""
+    tree = ast.parse((Path(__file__).resolve().parents[2] / "conftest.py").read_text(encoding="utf-8"))
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and any(
+            isinstance(target, ast.Name) and target.id == "FONT_SUITE_WORKER_BYTES" for target in node.targets
+        ):
+            return int(ast.literal_eval(node.value))
+    raise RuntimeError(
+        "the root conftest.py defines no FONT_SUITE_WORKER_BYTES: the cycle prices gate:make-test's pytest pool from that constant, and it cannot reserve for a pool it cannot cost."
+    )
 
-    return KERNEL_THREADS_DEFAULT
+
+def make_test_pool_width(*, ncores: int | None = None) -> int:
+    """How wide gate:make-test's pytest pool will actually be — the number the cycle hands that child and the number it reserves for, derived once so the two cannot drift apart. Left alone the pool is `-n auto` and the root conftest.py answers it with the whole box, which is a pool sized as though nothing else were running beside a build sized as though it were; the cycle states MAKE_TEST_POOL_WORKERS instead, held down to the cores this process may actually run on — `memory_budget.usable_cores`' answer, the same count the root hook itself holds the pool to — so a one-core box states a pool of one. PYTEST_XDIST_AUTO_NUM_WORKERS wins ahead of all of that, and not as a courtesy: the child inherits this process's environment, so a width already stated here is the width that pool is going to take, and reserving by anything else would be reserving for a pool that is not the one about to start. It is read the way the root hook reads it, an unparseable value included — that value is fatal there too, and failing while the plan resolves costs a second, where failing inside the gate costs everything the cycle ran ahead of it."""
+    from rebuild.tools import memory_budget
+
+    stated = os.environ.get("PYTEST_XDIST_AUTO_NUM_WORKERS")
+    if stated:
+        return max(1, int(stated))
+    return max(1, min(MAKE_TEST_POOL_WORKERS, ncores or memory_budget.usable_cores()))
+
+
+def kernel_threads_budget(
+    *, skip_make_test: bool = False, ncores: int | None = None, total_bytes: int | None = None
+) -> int:
+    """The kernel fan-out's width for this cycle, named by the cycle rather than inherited silently, because it is the one width here that memory binds: a live configuration holds its whole working set until it emits, so the width is the box divided by one of them. What makes it the cycle's own rather than a re-export of `kernel_exec.KERNEL_THREADS_DEFAULT` is that a cycle is not a box to itself — gate:make-test's pytest pool is hot from t=0 and stays hot right across the table build — so that pool comes off the box before the division: FONT_SUITE_WORKER_BYTES apiece for as many workers as `make_test_pool_width` says it will have, which is the same figure the cycle hands the child, so what is reserved and what runs are one number by construction rather than two that happen to agree. A pass whose gate is skipped or deferred subtracts nothing, there being no pool to subtract, and --skip-gates is that same case with the caller saying so.
+
+    The arithmetic underneath stays `kernel_exec.kernel_threads_default`'s: the reserve policy applied exactly once, and AMS_KERNEL_THREADS short-circuiting ahead of all of it, so a stated width wins here exactly as it does for a bare run_m1 and this reservation can never narrow one. What comes back is the memory answer before the configuration count and the CPU count narrow it. That narrowing lives in exactly one place, `run_m1.build_tables`'s own `min()`, and is deliberately not repeated here: a second copy on this side would be a second thing to keep in agreement with it, and what not having one costs is only that a box roomier than the configuration count reads a plan line naming a width the run will go on to narrow. `ncores` and `total_bytes` are keywords for the reason every budget here takes its box as one — an assertion about a machine the suite is not running on has to be a pure function over an invented one.
+    """
+    from rebuild.pipeline.kernel_exec import kernel_threads_default
+
+    coresident = 0 if skip_make_test else _font_suite_worker_bytes() * make_test_pool_width(ncores=ncores)
+    return kernel_threads_default(coresident_bytes=coresident, total_bytes=total_bytes)
 
 
 def sweep_job_budget(ncores: int | None = None) -> int:
@@ -783,6 +818,7 @@ def build_plan(
     pool_policy: str = REBUILD_POOL_POLICY_DEFAULT,
     review_out: Path | None = None,
     ncores: int | None = None,
+    total_bytes: int | None = None,
     skip_run_m1: bool = False,
     run_m1_note: str = "",
     run_m1_fingerprint: str | None = None,
@@ -814,6 +850,7 @@ def build_plan(
             carry_out if carry_out is not None else ROOT / f"verdicts-carried-{short_id}.json"
         )
 
+    no_make_test = skip_gates or skip_make_test or "make-test" in deferred
     surface_jobs = surface_job_budget(
         skip_gates=skip_gates,
         skip_make_test=skip_make_test or "make-test" in deferred,
@@ -821,7 +858,10 @@ def build_plan(
     )
     sweep_jobs = sweep_job_budget(ncores)
     conform_jobs = sweep_jobs
-    kernel_threads = kernel_exec_threads_default()
+    make_test_workers = make_test_pool_width(ncores=ncores)
+    kernel_threads = kernel_threads_budget(
+        skip_make_test=no_make_test, ncores=ncores, total_bytes=total_bytes
+    )
     surface_dir = review_out if review_out is not None else REVIEW_OUT
     do_merge = (do_carry or store_only) and not no_merge and review_out is None
     do_retention = not keep_history and not first_run and review_out is None
@@ -862,6 +902,7 @@ def build_plan(
         surface_jobs=surface_jobs,
         sweep_jobs=sweep_jobs,
         kernel_threads=kernel_threads,
+        make_test_workers=make_test_workers,
         conform_jobs=conform_jobs,
         conform_horizon=conform_horizon,
         review_out=review_out,
@@ -1243,18 +1284,21 @@ def _render_concurrency(plan: Plan) -> list[str]:
             )
         else:
             lines.append("                                       no other heavy pool running, so no queueing")
+    workers = f"{plan.make_test_workers} worker" + ("" if plan.make_test_workers == 1 else "s")
     if plan.skip_make_test:
         surface_reason = "gate:make-test skipped, so the surface build takes the whole box"
     elif defer_make_test:
         surface_reason = "gate:make-test deferred, so the surface build takes the whole box"
     else:
-        surface_reason = "two cores left to gate:make-test's pytest pool"
+        surface_reason = f"gate:make-test's pytest pool held to {workers} — its cores reserved here, its bytes in --kernel-threads"
+    if no_make_test:
+        kernel_reason = "the table build's memory ceiling, the one width RAM binds"
+    else:
+        kernel_reason = f"the table build's memory ceiling, less gate:make-test's {workers}"
     lines.append(
         f"    run_m1 sweeps --jobs             : {plan.sweep_jobs}  (one process per acceptance configuration)"
     )
-    lines.append(
-        f"    run_m1 --kernel-threads          : {plan.kernel_threads}  (the table build's memory ceiling, the one width RAM binds)"
-    )
+    lines.append(f"    run_m1 --kernel-threads          : {plan.kernel_threads}  ({kernel_reason})")
     lines.append(f"    surface-build --jobs             : {plan.surface_jobs}  ({surface_reason})")
     pending = ["gate:" + name for name in sorted(plan.deferred)]
     if pending:
@@ -1419,14 +1463,27 @@ def _terminate_child(proc: subprocess.Popen) -> None:
 
 
 def _run_step(
-    name: str, argv: list[str], *, emit: _Emitter, registry: _ChildRegistry, stream: bool
+    name: str,
+    argv: list[str],
+    *,
+    emit: _Emitter,
+    registry: _ChildRegistry,
+    stream: bool,
+    env: dict[str, str] | None = None,
 ) -> _StepResult:
+    """One child, run to completion with both pipes drained. `env` is what this process's environment is overlaid with for this child alone, and its default of None is the inheritance every other step wants; a step that states one gets that copy and nothing else in the cycle sees it."""
     if registry.closed:
         return _StepResult(name, 130, "", "", 0.0)
     emit.emit(f"\n$ {' '.join(argv)}")
     start = time.perf_counter()
     proc = subprocess.Popen(
-        argv, cwd=ROOT, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=1
+        argv,
+        cwd=ROOT,
+        env=None if env is None else {**os.environ, **env},
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        bufsize=1,
     )
     if not registry.add(proc):
         _terminate_child(proc)
@@ -1754,6 +1811,15 @@ def _gate_make_test_task(argv: list[str], spawn, emit: _Emitter, registry: _Chil
     return spawn("gate:make-test", argv, emit=emit, registry=registry, stream=True)
 
 
+def _spawn_with_env(spawn, env: dict[str, str]):
+    """One child's environment, carried on that child's own spawn callable rather than added to the argument list every gate task shares. The alternative is os.environ, and it is the wrong one: run_m1, the surface build and both rebuild lanes spawn from this same process, so a width set there for gate:make-test would pin their `-n auto` pools to it too — the contracts lane wants the whole box and the validators lane its own narrower answer. Wrapping instead of widening the protocol also leaves the task signature alone, which is what keeps the plan the only writer of what a child runs: this adds to the child's environment, never to its argv."""
+
+    def spawn_with_env(name, argv, *, emit, registry, stream):
+        return spawn(name, argv, emit=emit, registry=registry, stream=stream, env=env)
+
+    return spawn_with_env
+
+
 def _gate_conform_task(
     pool_policy: str,
     make_fut: Future | None,
@@ -1963,7 +2029,13 @@ def _run_cycle(
         make_fut = (
             None
             if plan.skip_gates or plan.skip_make_test or defer_make_test
-            else pool.submit(_gate_make_test_task, plan.argv("gate:make-test"), spawn, emit, registry)
+            else pool.submit(
+                _gate_make_test_task,
+                plan.argv("gate:make-test"),
+                _spawn_with_env(spawn, {"PYTEST_XDIST_AUTO_NUM_WORKERS": str(plan.make_test_workers)}),
+                emit,
+                registry,
+            )
         )
         contracts_fut: Future | None = None
         validators_fut: Future | None = None
