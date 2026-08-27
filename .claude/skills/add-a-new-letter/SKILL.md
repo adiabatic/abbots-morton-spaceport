@@ -56,7 +56,7 @@ The batch recipe, in order (each open batch file carries the same shape):
 
 ```zsh
 uv run pytest rebuild/test_spec_load.py -n auto --dist worksteal
-uv run python -m rebuild.pipeline.run_m1 --jobs 6
+uv run python -m rebuild.pipeline.run_m1
 PYTHONPATH=. uv run python rebuild/tools/probe.py E6XX:E6XX
 make test-rebuild
 make test
@@ -64,7 +64,7 @@ make artifact-cycle
 make verdict-ready
 ```
 
-- Size `--jobs` to the box (the 32 GB box swaps past 6). Detach `make artifact-cycle`.
+- `--jobs` defaults to the `sweep_job_budget()` width the artifact cycle already passes, so a bare run sizes itself to the box. Detach `make artifact-cycle`.
 - The probe battery is one window per invocation: every joining pair in both directions, the yield chains, and must-not-move neighbors — every divergence from the old font must be one the user designed.
 - Green looks like: defects 0/0, conform exact, budget yellow (its steady state), Manual pins clean; the oracle-unmatched delta is the score — new rows either disappear with your records or land under existing ledger classes as designed divergences.
 - `make prettier` after any Python edit. Review `git diff -- rebuild/review-census-pins.json` at commit time — anything moving in its `invariant` block wants real attention.
