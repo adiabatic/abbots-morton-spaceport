@@ -143,9 +143,9 @@ kernel-gate: kernel-check kernel-parity
 conform-deep:
 	uv run python -m rebuild.tools.deep_sweep $(ARGS)
 
-# Compress the built OTFs in site/ into WOFF2 alongside them.
+# Compress the built OTFs in site/ into WOFF2 alongside them. Each compression reads one OTF and writes the .woff2 beside it, sharing nothing, so they run at the box's cores rather than one at a time — and the count is a bare integer from `usable_cores` rather than xargs's own `-P 0`, which means "as many processes as possible" and is exactly the unbounded shape the clamp exists to avoid. `usable_cores` is the repo's one core reader, and it sees an affinity mask and a cgroup CPU quota where `getconf` and `sysctl` read straight past them; the `uv run` that asks it costs nothing here, since this target depends on `all`, whose own first line is a `uv run` seconds earlier.
 woff2: all
-	find site -maxdepth 1 -name '*.otf' -print0 | xargs -0 -n1 woff2_compress
+	find site -maxdepth 1 -name '*.otf' -print0 | xargs -0 -n1 -P "$$(uv run python -c 'from rebuild.tools.memory_budget import usable_cores; print(usable_cores())')" woff2_compress
 
 # Delete generated artifacts (the gitignored build output and Python caches). Leaves .uv-cache/ and .venv/ alone — those are deliberately-kept caches, not junk.
 clean:
