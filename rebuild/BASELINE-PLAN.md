@@ -49,8 +49,8 @@ The settlement model’s window is `[resolved-left, self, raw-right, raw-right²
 ## 2. Runtime and size strategy
 
 - Shaping is cheap against the §13.1 ≤20 min per-configuration budget even single-threaded; classification, serialization, and gzip are the same order again.
-- **Multiprocessing anyway**: `multiprocessing` with **10 worker processes** (leave two cores for the writer and the OS), mirroring the pytest-xdist subprocess pattern — each worker builds its own `hb.Font`, `TTFont`, and one reused `hb.Buffer`, materializing `glyph_infos`/`glyph_positions` before the next shape. Work is sharded by first symbol (47 shards per configuration, matching the `test_join_ink.py` parametrization pattern). The §6 equivalence pass adds four shapes per eligible string.
-- **Determinism under parallelism**: workers write per-shard temporary files; the writer concatenates shards in shard-index order, and rows within a shard are generated in the canonical row order (§3), so output bytes are independent of scheduling. Two runs on the same font must produce byte-identical uncompressed streams; the digest file makes that checkable.
+- **Multiprocessing anyway**: `multiprocessing` at the width `extract.SHARD_WORKERS_DEFAULT` derives for the box in hand — the cores this process may actually run on, a core clamp rather than a memory division because what one of these workers holds has never been measured, and that measurement is owed before the width can be divided out of a box. `--workers` overrides it. The pattern mirrors pytest-xdist’s subprocesses: each worker builds its own `hb.Font`, `TTFont`, and one reused `hb.Buffer`, materializing `glyph_infos`/`glyph_positions` before the next shape. Work is sharded by first symbol (47 shards per configuration, matching the `test_join_ink.py` parametrization pattern). The §6 equivalence pass adds four shapes per eligible string.
+- **Determinism under parallelism**: workers write per-shard temporary files; the writer concatenates shards in shard-index order, and rows within a shard are generated in the canonical row order (§3), so output bytes are independent of scheduling and of the width — which is what lets the default follow the box instead of being pinned. Two runs on the same font must produce byte-identical uncompressed streams; the digest file makes that checkable.
 - **Sizes**: a configuration’s uncompressed table runs to hundreds of megabytes, far over the ≈50 MB threshold, so every bulk table is written gzipped (`.tsv.gz`, `mtime=0` so gzip output is also deterministic). The gzip members are for storage only; SHA-256 digests are computed over the uncompressed stream.
 - **`rebuild/out/` is gitignored.** The committed-shape artifact is the digest summary: `rebuild/out/SUMMARY.md` plus `rebuild/out/digests.tsv` — per configuration: row count, SHA-256 of the uncompressed stream, seam-classification histogram (counts per `y0/y5/y6/y8/lig/break`), resolved-glyph-name frequency table (top section plus total distinct), and equivalence-divergence counts. The summary is small (a few KB), regenerable, and is the piece a future re-extraction diffs meaningfully against without the bulk files.
 
@@ -208,22 +208,24 @@ Public interfaces:
 - `model.Row` — frozen dataclass: `codepoints: tuple[int, ...]`, `glyphs: tuple[str, ...]`, `clusters: tuple[int, ...]`, `seams: tuple[str, ...]`, `positions: tuple[tuple[int, int, int], ...]`; `Row.to_tsv() -> str`, `Row.from_tsv(line) -> Row`, `row_sort_key(row)`; `CONFIGS: dict[str, dict[str, bool]]` (the §5 list, ordered).
 - `shaper.Shaper` — `Shaper(font_path)`, `shape(text: str, features: dict[str, bool]) -> ShapeResult` (names via TTFont, clusters, positions), `shape_split(text, split_offsets, features)`.
 - `classify.SeamClassifier` — `SeamClassifier(font_path)`, `heights() -> tuple[int, ...]`, `classify(left_glyph: str, right_glyph: str) -> str`.
-- `extract.extract_config(config_token: str, out_dir: Path, workers: int) -> Digest` and `extract.run_all(out_dir, workers)`.
+- `extract.extract_config(config_token: str, out_dir: Path, workers: int = SHARD_WORKERS_DEFAULT) -> Digest` and `extract.run_all(out_dir, workers)`.
 - `validation.equivalence.run(baseline_path, out_fh, workers=…) -> Counter` and `validation.split_check.run(...)` with the same signature; `validation.pins` exposes `collect_pin_runs`, `check_pin`, `check_against_baseline`, and `ReplayReport`. All of them consume `validation.rowmodel.Row.from_tsv`, so the validation suite and the extractor cannot drift apart on the row format.
 
 CLI (all via `uv run`):
 
 ```sh
-uv run python -m rebuild.baseline.cli extract --config default --out rebuild/out --workers 10
-uv run python -m rebuild.baseline.cli extract --all --out rebuild/out --workers 10
+uv run python -m rebuild.baseline.cli extract --config default --out rebuild/out
+uv run python -m rebuild.baseline.cli extract --all --out rebuild/out
 uv run python -m rebuild.baseline.cli summarize --out rebuild/out
 ```
 
 The equivalence and replay checks live under `validation/`, not `baseline/`; drive those, the split-buffer check, and the determinism check from the top-level scripts:
 
 ```sh
-uv run python rebuild/run_equivalence.py --baseline rebuild/out/baseline-default.tsv.gz --workers 10
-uv run python rebuild/run_split_check.py --baseline rebuild/out/baseline-default.tsv.gz --workers 10
+uv run python rebuild/run_equivalence.py --baseline rebuild/out/baseline-default.tsv.gz
+uv run python rebuild/run_split_check.py --baseline rebuild/out/baseline-default.tsv.gz
 uv run python rebuild/validate_pins.py --baseline rebuild/out/baseline-default.tsv.gz
 uv run python rebuild/check_determinism.py --config default --lengths 1,2
 ```
+
+No invocation in either block states a `--workers`, and that is the point: the extractor and both validation CLIs default to the cores the running process may actually use, so a documented invocation no longer hands every box the width one box happened to want. Pass `--workers` only to say something the default cannot — a narrow width to leave the box free for other work, or `--workers 1` for an unscrambled traceback.
