@@ -1,7 +1,7 @@
 #!/bin/zsh
 # Price the CUT-THE-WORK levers: gate:conform's --conform-horizon, and max_chars_after in the calt sweep.
 #
-# Everything runs against an isolated (spec@HEAD, six decision tables, M1.otf) triple under
+# Everything runs against an isolated (spec@HEAD, per-configuration decision tables, M1.otf) triple under
 # $HARNESS/m1. Nothing under rebuild/out is read as input or written. No verdict store, journal,
 # review surface, or tracked file is touched.
 #

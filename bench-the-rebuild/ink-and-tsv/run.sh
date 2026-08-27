@@ -7,6 +7,8 @@
 # hashlib gets from OpenSSL (without it Rust's sha256 runs at 538 MB/s against 2,500 with it, which
 # would have made the repr-versus-hash split meaningless). Go: plain `go build`, no flags.
 #
+# Widths. K3 and K5 take their thread count as an argument, and the parallel arms below are invoked at a fixed eight beside one-thread arms of the same programs. That width is deliberate and is not the box's to derive: what these rows compare is Rust against Go against Python at one stated width, which combine.py restates as the `threads` field on the labeled rust-parallel and go-parallel rows — one fact written twice, so move the two together — and that is what keeps a pass run on a wider machine comparable with every figure already recorded. Sizing the arms to the hardware instead would make each pass a measurement of a different thing.
+#
 # Contention. Each measurement program already reports the min over internal reps, but a neighbour
 # saturating the box inflates a whole pass by 25-50%. So the harness runs PASSES complete passes and
 # reports the least contended one, chosen by the Python K3 baseline's own wall time — a long,

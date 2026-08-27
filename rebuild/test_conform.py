@@ -708,7 +708,7 @@ class TestOracleAudit:
 
 
 class TestOracleUnmatchedTally:
-    """What a configuration sends home about its unmatched rows. Every one of them is already on disk in that configuration's audit shard, and `oracle_summary.json` asks the result object for two things only — how many there were, and twenty of them to quote — so the result carries a count and the first `ORACLE_UNMATCHED_EXEMPLARS` rather than the whole list, which on a live run is a six-figure pile of `DivergentRow` objects pickled across a process pipe to be counted. Pin the count, the cap, the stream order the exemplars have to keep for the summary's quotes to stay the same twenty, and the gate verdict's dependence on the count rather than on the sample."""
+    """What a configuration sends home about its unmatched rows. Every one of them is already on disk in that configuration's audit shard, and `oracle_summary.json` asks the result object for two things only — how many there were, and `ORACLE_UNMATCHED_EXEMPLARS` of them to quote — so the result carries a count and that first slice rather than the whole list, which on a live run is a six-figure pile of `DivergentRow` objects pickled across a process pipe to be counted. Pin the count, the cap, the stream order the exemplars have to keep for the summary to quote the same ones, and the gate verdict's dependence on the count rather than on the sample."""
 
     def _tables(self, tmp_path: Path, per_config: dict[str, list[tuple[int, int]]]) -> Path:
         tables = tmp_path / "tables"
