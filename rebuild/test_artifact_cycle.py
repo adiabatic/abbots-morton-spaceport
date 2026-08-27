@@ -15,6 +15,8 @@ import pytest
 from rebuild.conftest import is_live_artifact_path
 from rebuild.review import journal
 from rebuild.tools import artifact_cycle as ac
+from rebuild.tools import calibrate_budgets as cb
+from rebuild.tools import cycle_timings as ct
 from rebuild.tools.cycle_timings import CycleTimings
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -687,6 +689,11 @@ def _census_clean(report, *, spawn, emit, registry, plan):
     report.census_status = "updated (matches the last accepted census)"
 
 
+def _job_costs_clean(report, *, spawn, emit, registry, plan):
+    report.job_costs_status = "checked (every measured unit's peak fits its checked-in constant)"
+    report.job_costs_ok = True
+
+
 def _js_ok(argv, spawn, emit, registry):
     return _step("gate:js", 0)
 
@@ -717,6 +724,7 @@ def _patch_build_chain(monkeypatch):
     monkeypatch.setattr(ac, "_do_surface_build", _surface_ok)
     monkeypatch.setattr(ac, "_do_plumbing", _plumbing_ok)
     monkeypatch.setattr(ac, "_do_census", _census_clean)
+    monkeypatch.setattr(ac, "_do_job_costs", _job_costs_clean)
 
 
 def test_a_failing_merge_fails_the_cycle(monkeypatch, capsys):
@@ -1001,7 +1009,7 @@ def test_pool_queue_serializes_the_contracts_lane_after_make_test(monkeypatch):
         record["make_finish"] = time.monotonic()
         return _step("gate:make-test", 0)
 
-    def fake_spawn(name, argv, *, emit, registry, stream):
+    def fake_spawn(name, argv, *, emit, registry, stream, env=None):
         if name == "gate:rebuild-contracts":
             record["contracts_start"] = time.monotonic()
         return _step(name, 0)
@@ -1042,7 +1050,7 @@ def test_pool_overlap_starts_the_contracts_lane_before_make_test_done(monkeypatc
         record["make_finish"] = time.monotonic()
         return _step("gate:make-test", 0)
 
-    def fake_spawn(name, argv, *, emit, registry, stream):
+    def fake_spawn(name, argv, *, emit, registry, stream, env=None):
         if name == "gate:rebuild-contracts":
             record["contracts_start"] = time.monotonic()
             contracts_started.set()
@@ -1094,7 +1102,7 @@ def test_pool_queue_runs_make_test_then_conform_then_contracts_then_validators(m
         record["conform_finish"] = time.monotonic()
         return "green", []
 
-    def fake_spawn(name, argv, *, emit, registry, stream):
+    def fake_spawn(name, argv, *, emit, registry, stream, env=None):
         if name == "gate:rebuild-contracts":
             record["contracts_start"] = time.monotonic()
             record["contracts_argv"] = argv
@@ -1156,7 +1164,7 @@ def test_pool_queue_contracts_falls_back_to_make_test_when_conform_skipped(monke
         record["make_finish"] = time.monotonic()
         return _step("gate:make-test", 0)
 
-    def fake_spawn(name, argv, *, emit, registry, stream):
+    def fake_spawn(name, argv, *, emit, registry, stream, env=None):
         if name == "gate:rebuild-contracts":
             record["contracts_start"] = time.monotonic()
             contracts_started.set()
@@ -2231,6 +2239,35 @@ def test_the_pool_width_is_handed_to_the_make_test_child_and_to_no_other(monkeyp
     assert seen["gate:make-test"] == {"PYTEST_XDIST_AUTO_NUM_WORKERS": str(plan.make_test_workers)}
     assert seen["gate:js"] is None
     assert "PYTEST_XDIST_AUTO_NUM_WORKERS" not in os.environ
+
+
+def test_each_rebuild_lane_names_its_pool_to_its_own_child(monkeypatch):
+    """Each lane's pytest controller stamps its per-worker peaks into the timings journal under the name of the pool it ran, which is the join key `make job-costs` holds a checked-in constant against. The cycle spawns both lanes as bare pytest rather than through rebuild_gate.py, so the name has to be added here — on each lane's own child, never on os.environ, or the second lane would inherit the first lane's name and every measurement would be filed under the wrong constant."""
+    # Deleted first because this very suite runs inside a lane that named its own pool whenever the cycle's contracts gate is what spawned it: what is being pinned is that the drive writes only the children's env dicts, so the check on os.environ below has to start from a known absence.
+    monkeypatch.delenv("AMS_POOL_UNIT", raising=False)
+    seen: dict[str, dict[str, str] | None] = {}
+
+    def fake_spawn(name, argv, *, emit, registry, stream, env=None):
+        seen[name] = env
+        return _step(name, 0)
+
+    monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
+    monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
+    monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
+    monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
+    _patch_build_chain(monkeypatch)
+
+    plan = _plan()
+    rc = ac._run_cycle(plan, ac.CycleReport(), ac._Emitter(), ac._ChildRegistry(), spawn=fake_spawn)
+
+    assert rc == 0
+    assert seen["gate:rebuild-contracts"] == {"AMS_POOL_UNIT": "rebuild-contracts"}
+    assert seen["gate:rebuild-validators"] == {"AMS_POOL_UNIT": "rebuild-validators"}
+    assert "AMS_POOL_UNIT" not in os.environ
+    # Both the variable and the two unit names are spelled literally here, matching the neighboring width variable rather than importing one word — so the drift that spelling invites is what this pins instead. A name this side writes that the registry does not read is a pool filed under nothing: no row claims it, the unit it was meant to price reports itself unmeasured here, and that reads exactly like a box that has simply not run the lane yet.
+    known = {name for unit in cb.UNITS for name in unit.pool_units}
+    assert {"rebuild-contracts", "rebuild-validators"} <= known
+    assert ct.POOL_UNIT_ENV == "AMS_POOL_UNIT"
 
 
 def test_a_timed_spawn_carries_a_child_its_environment(monkeypatch, tmp_path):
@@ -3360,12 +3397,166 @@ def test_a_rehearsal_never_runs_the_census(monkeypatch, tmp_path):
     assert report.census_status == "skipped (rehearsal: the checked-in pins track the live surface)"
 
 
+def test_do_job_costs_reports_a_clean_check():
+    """Nothing to show and nothing to accept: every measured unit still fits the constant that divides the box by it, so the step is one file read and the summary says so in a line."""
+    calls: list[str] = []
+
+    def spawn(name, argv, *, emit, registry, stream):
+        calls.append(name)
+        return _step(name, 0)
+
+    report = ac.CycleReport()
+    ac._do_job_costs(report, spawn=spawn, emit=ac._Emitter(), registry=ac._ChildRegistry(), plan=_plan())
+    assert calls == ["job-costs"]
+    assert report.job_costs_status == "checked (every measured unit's peak fits its checked-in constant)"
+    assert report.job_costs_ok is True
+
+
+def test_do_job_costs_diffs_the_constants_when_the_check_trips():
+    """A trip asks one further question — has the constant already been re-seeded here, so the commit in hand is already the acceptance? — and the diff answers it. It is conditional where the census's is not: these three files hold a great deal besides their constants, so an unconditional diff would print unrelated work every pass."""
+    calls: list[str] = []
+    seen: dict[str, list[str]] = {}
+
+    def spawn(name, argv, *, emit, registry, stream):
+        calls.append(name)
+        seen[name] = argv
+        if name == "job-costs":
+            return _step(name, 1, stdout="  OVERRUN   : max 13.10 GB exceeds the constant by 9%")
+        return _step(
+            name, 0, stdout="-CONFIG_PEAK_BYTES = 5_500_000_000\n+CONFIG_PEAK_BYTES = 6_500_000_000\n"
+        )
+
+    report = ac.CycleReport()
+    ac._do_job_costs(report, spawn=spawn, emit=ac._Emitter(), registry=ac._ChildRegistry(), plan=_plan())
+    assert calls == ["job-costs", "job-costs-diff"]
+    assert seen["job-costs-diff"] == [
+        "git",
+        "diff",
+        "--",
+        "conftest.py",
+        "rebuild/conftest.py",
+        "rebuild/pipeline/kernel_exec.py",
+    ]
+    assert report.job_costs_status.startswith("OVERRUN")
+    assert "a constant has already moved in the working tree" in report.job_costs_status
+    assert report.job_costs_ok is False
+
+
+def test_a_tripped_check_over_an_unmoved_tree_says_only_that_it_tripped():
+    """The already-moved clause is a fact about the working tree, not about the trip: with the constants untouched there is nothing to claim, and the status must not imply the acceptance is already drafted."""
+
+    def spawn(name, argv, *, emit, registry, stream):
+        return _step(name, 1 if name == "job-costs" else 0)
+
+    report = ac.CycleReport()
+    ac._do_job_costs(report, spawn=spawn, emit=ac._Emitter(), registry=ac._ChildRegistry(), plan=_plan())
+    assert report.job_costs_status.startswith("OVERRUN")
+    assert "working tree" not in report.job_costs_status
+    assert report.job_costs_ok is False
+
+
+def test_do_job_costs_reports_a_broken_check_without_diffing():
+    """Exit 1 is the tool's verdict; anything else is the tool failing to reach one. There is then nothing to have already accepted, so nothing to diff — and the judgment stays None, which is neither green nor an overrun."""
+    calls: list[str] = []
+
+    def spawn(name, argv, *, emit, registry, stream):
+        calls.append(name)
+        return _step(name, 2, stderr="Traceback (most recent call last):")
+
+    report = ac.CycleReport()
+    ac._do_job_costs(report, spawn=spawn, emit=ac._Emitter(), registry=ac._ChildRegistry(), plan=_plan())
+    assert calls == ["job-costs"]
+    assert report.job_costs_status == "check FAILED (exit 2) — informational"
+    assert report.job_costs_ok is None
+
+
+def test_a_tripped_job_costs_check_never_fails_the_cycle(monkeypatch):
+    """A stale divisor makes a pool the wrong width; it does not make an artifact wrong. So the trip is loud in the summary and in the payload, and contributes nothing to the failure list of a pass whose artifacts are green."""
+
+    def job_costs_trips(report, *, spawn, emit, registry, plan):
+        report.job_costs_status = "OVERRUN (a measured peak outruns its checked-in constant)"
+        report.job_costs_ok = False
+
+    monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
+    monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
+    monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
+    monkeypatch.setattr(ac, "_gate_contracts_task", _contracts_green)
+    monkeypatch.setattr(ac, "_gate_validators_task", _validators_green)
+    monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
+    _patch_build_chain(monkeypatch)
+    monkeypatch.setattr(ac, "_do_job_costs", job_costs_trips)
+
+    plan = _plan()
+    report = ac.CycleReport()
+    rc = ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=lambda *a, **k: _step())
+
+    assert rc == 0
+    summary = json.loads(ac.CYCLE_SUMMARY.read_text())
+    assert summary["failures"] == []
+    assert summary["job_costs_status"].startswith("OVERRUN")
+    assert summary["job_costs_ok"] is False
+    assert "job_costs" not in summary["gates"]
+
+
+def test_the_job_costs_check_runs_in_a_rehearsal_too(monkeypatch, tmp_path):
+    """The census's rehearsal skip is not a reason this step can borrow: the pins track the live surface, which a rehearsal never writes, while the timings journal is appended to by every pass alike. A rehearsal's pools cost what they cost, so their measurements are as good as any."""
+    ran: list[str] = []
+
+    def job_costs_ran(report, *, spawn, emit, registry, plan):
+        ran.append(plan.argv("job-costs")[-1])
+        report.job_costs_status = "checked (every measured unit's peak fits its checked-in constant)"
+        report.job_costs_ok = True
+
+    monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
+    monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
+    monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
+    monkeypatch.setattr(ac, "_gate_contracts_task", _contracts_green)
+    monkeypatch.setattr(ac, "_gate_validators_task", _validators_green)
+    monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
+    _patch_build_chain(monkeypatch)
+    monkeypatch.setattr(ac, "_do_job_costs", job_costs_ran)
+
+    plan = _plan(review_out=tmp_path / "reh")
+    report = ac.CycleReport()
+    rc = ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=lambda *a, **k: _step())
+
+    assert rc == 0
+    assert plan.runs("job-costs") is True
+    assert ran == ["--check"]
+    assert report.job_costs_ok is True
+
+
+def test_the_plan_checks_job_costs_after_the_gates():
+    """The check reads a journal this pass's own pools append to at their terminal summaries, so it can only be honest about this pass once the gates have joined — placed beside the census it would be reporting the previous pass's measurements."""
+    plan = _plan()
+    names = [step.name for step in plan.steps]
+    by_name = {step.name: step for step in plan.steps}
+    assert names.index("job-costs") > names.index("gate:rebuild-validators")
+    assert names.index("job-costs") > names.index("census")
+    # Retention is a step of the plan but not a spawn: it runs inside _finish, after this check has already been made. The plan is what the cycle prints, so the two have to be printed in the order they happen or the printout describes a pass nobody ran.
+    assert names.index("job-costs") < names.index("retention")
+    assert _argv(by_name["job-costs"]) == [
+        "uv",
+        "run",
+        "python",
+        "-m",
+        "rebuild.tools.calibrate_budgets",
+        "--check",
+    ]
+
+
+def test_the_plan_checks_job_costs_even_when_the_gates_are_skipped():
+    """The step is never deferrable and never skipped, because deferral is a closed enumeration of four gate names and this is not one of them — exactly as the census is not."""
+    for plan in (_plan(skip_gates=True), _plan(deferred=frozenset(ac.DEFERRABLE_GATES))):
+        assert plan.runs("job-costs") is True
+
+
 def test_both_rebuild_lanes_are_submitted_once_the_surface_build_settles(monkeypatch):
     """The submission window is the same for both lanes: after the surface build and before everything else in the build lane. Validators waits for the surface because its session fixture reads the live surface whenever it is provably fresh, and a lane started mid-rewrite would see the manifest without the sidecar review.build writes after it; contracts reads no artifact but must not put a full-width pool beside the build either. Neither waits for anything further, because the carry, the merge and the census are not inputs to the suite."""
     spawned = {"gate:rebuild-contracts": threading.Event(), "gate:rebuild-validators": threading.Event()}
     order: list[str] = []
 
-    def fake_spawn(name, argv, *, emit, registry, stream):
+    def fake_spawn(name, argv, *, emit, registry, stream, env=None):
         if name in spawned:
             spawned[name].set()
         return _step(name, 0)
@@ -4247,6 +4438,7 @@ def _patch_timing_cycle(monkeypatch):
 
 
 def test_green_cycle_journals_steps_then_one_run_line(monkeypatch, tmp_path):
+    """job-costs is in the step list for the same reason the two stubbed stages are not: it spawns a child, so the wrapper times it and the journal carries a line naming it — which is how a summary claiming the check ran can be corroborated against a run that actually spawned it."""
     _patch_timing_cycle(monkeypatch)
 
     journal_path = tmp_path / "timings.ndjson"
@@ -4265,7 +4457,7 @@ def test_green_cycle_journals_steps_then_one_run_line(monkeypatch, tmp_path):
     entries = [json.loads(line) for line in journal_path.read_text(encoding="utf-8").splitlines()]
     steps = [entry for entry in entries if entry["kind"] == "step"]
     runs = [entry for entry in entries if entry["kind"] == "run"]
-    assert [entry["name"] for entry in steps] == ["run_m1", "surface"]
+    assert [entry["name"] for entry in steps] == ["run_m1", "surface", "job-costs"]
     assert len(runs) == 1
     assert entries[-1]["kind"] == "run"
     assert entries[-1]["exit"] == "ok"
