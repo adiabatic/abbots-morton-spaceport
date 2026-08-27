@@ -115,7 +115,7 @@ class TestTheWidthsAlreadyOnRecord:
 
     @pytest.mark.parametrize("total", SPELLINGS_OF_32_GB)
     def test_subtracting_the_font_pool_lands_on_the_width_the_32_gb_box_shipped(self, total: int):
-        """The second recorded fact: subtract the font suite's ten co-resident workers, because a cycle runs the fan-out beside a pytest pool rather than alone, and the same formula answers 2 on the same invented 32 GB box rather than #46's solo 3 — which is the argument `kernel_exec`'s docstring makes in prose, and the reason the fan-out still runs two wide wherever the box is that size. The live `KERNEL_THREADS_DEFAULT` is deliberately not asserted here: it is the running box's width now, and a box of another size legitimately answers something else."""
+        """The second recorded fact: subtract the font suite's ten co-resident workers, because a cycle runs the fan-out beside a pytest pool rather than alone, and the same formula answers 2 on the same invented 32 GB box rather than #46's solo 3. Since #90 that argument is arithmetic rather than prose — `kernel_threads_budget` in `rebuild/tools/artifact_cycle.py` makes the subtraction itself, pricing the pool at the two workers a cycle now holds gate:make-test to rather than this measurement's ten — so what this test keeps is the recorded fact, priced by its own constants, not the shipped reservation. The live `KERNEL_THREADS_DEFAULT` is deliberately not asserted here: it is the running box's solo width now, and a box of another size legitimately answers something else."""
         assert (
             memory_budget.how_many_fit(
                 KERNEL_CONFIG_BYTES,
