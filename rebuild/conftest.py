@@ -21,7 +21,7 @@ from pathlib import Path
 import pytest
 
 from rebuild.review.fixtures.mini import pin
-from rebuild.tools import artifact_cycle, memory_budget
+from rebuild.tools import artifact_cycle, cycle_timings, memory_budget
 
 REAL_RUN_RETENTION = artifact_cycle.run_retention
 LIVE_DELETION_TARGETS = (
@@ -285,6 +285,8 @@ def _redirect_cycle_writes(monkeypatch, tmp_path):
 
     The writes are the green records and the cycle summary, each a module constant this can point under tmp_path. Left live, a test driving _run_cycle over mocked stages leaves a record in rebuild/out that the next real cycle reads as proof that content it never tested had passed.
 
+    The timings journal is redirected on the same argument and reaches further than the cycle does, because it has a writer that is not the cycle at all: a pooled surface build files its per-worker peaks there, so any test that runs `build_m1` at more than one job appends to the live journal — and what it would append is a mini-bundle worker's footprint filed as an observation of the constant that prices a real one, which `make job-costs` would then read as headroom nobody has. `record_pool` resolves this constant when the call is made rather than binding it as a default, so redirecting it here reaches every writer. The lane's own pool record is unaffected: the controller files it from `pytest_terminal_summary`, long after any fixture has been torn down.
+
     The deletes are the three stages that clear stale artifacts before rebuilding them: run_m1's four gate summaries and the summary gate:conform writes, each unlinked just before its subprocess spawns so the verdict can only come from this cycle, and the retention pass. Redirecting a constant is enough for the first two; retention takes none — it resolves every target from ROOT at call time — so it is stubbed out instead. Any test reaching a green finish with record_greens set would otherwise sweep the repo: every tmp/review-pre-* snapshot, the root's verdicts-carried-*.json exports, the autosave stashes, and a compaction of the verdict journal. That is destructive against a cycle running in another terminal — it deleted a live pass's only snapshot out from under its carry, stranding the pass's verdicts — and doubly so now that the rebuild gate is meant to run beside a live review server. A test that wants the real retention takes the `real_run_retention` fixture and points ROOT somewhere disposable; a test asserting that _finish reaches retention patches run_retention itself.
     """
     monkeypatch.setattr(artifact_cycle, "CYCLE_SUMMARY", tmp_path / "cycle_summary.json")
@@ -297,6 +299,7 @@ def _redirect_cycle_writes(monkeypatch, tmp_path):
     )
     monkeypatch.setattr(artifact_cycle, "CONFORM_SUMMARY", tmp_path / artifact_cycle.CONFORM_SUMMARY.name)
     monkeypatch.setattr(artifact_cycle, "run_retention", lambda plan: None)
+    monkeypatch.setattr(cycle_timings, "JOURNAL", tmp_path / "cycle-timings.ndjson")
 
 
 @pytest.fixture

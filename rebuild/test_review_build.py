@@ -8,6 +8,7 @@ The built surface comes from `built_review_surface` in rebuild/conftest.py — t
 import copy
 import hashlib
 import json
+import multiprocessing
 import shutil
 import subprocess
 from html.parser import HTMLParser
@@ -17,6 +18,7 @@ import pytest
 import yaml
 
 from rebuild.pipeline import fingerprint
+from rebuild.review import build as review_build
 from rebuild.review import unit_index
 from rebuild.review.audit import ACCEPTANCE_CONFIGS, load_workload, machine_approved
 from rebuild.review.build import (
@@ -626,6 +628,66 @@ def test_prune_orphan_shards_removes_only_unreferenced_json(tmp_path):
 
 def test_prune_orphan_shards_no_units_dir_is_noop(tmp_path):
     assert _prune_orphan_shards(tmp_path, {"classes": []}) == []
+
+
+def test_a_pooled_surface_build_files_its_per_worker_peaks(tmp_path, monkeypatch):
+    """SURFACE_WORKER_BYTES is the divisor the surface build's fan-out width comes out of, and the only thing that can price it is a worker that ran: a step peak maxes over the process tree instead of summing it, so it reads the parent and never the pool. So a pooled build files the same kind:"pool" record an xdist controller files, under a unit name of its own, and `make job-costs` reads it beside the constant. The journal is redirected here because `record_pool` resolves its path at call time for exactly that purpose."""
+    journal = tmp_path / "cycle-timings.ndjson"
+    monkeypatch.setattr("rebuild.tools.cycle_timings.JOURNAL", journal)
+    review_build._record_surface_pool(2, {"w0": 1_000_000, "w1": 2_000_000})
+    lines = journal.read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 1
+    record = json.loads(lines[0])
+    assert (record["kind"], record["unit"], record["width"]) == ("pool", "surface", 2)
+    assert list(record["worker_peak_rss_bytes"]) == ["w0", "w1"]
+    assert record["worker_peak_rss_bytes"]["w1"] == 2_000_000
+
+
+def test_a_serial_surface_build_files_no_pool_record(tmp_path, monkeypatch):
+    """At width one there is no worker to price, so there is nothing to file — and a record claiming a pool of zero workers would be an observation of nothing that `make job-costs` would then have to learn to ignore."""
+    journal = tmp_path / "cycle-timings.ndjson"
+    monkeypatch.setattr("rebuild.tools.cycle_timings.JOURNAL", journal)
+    review_build._record_surface_pool(0, {})
+    assert not journal.exists()
+
+
+def test_close_finds_the_peak_behind_an_unconsumed_phase_reply(tmp_path, monkeypatch):
+    """`close()` runs from a `finally`, so its hardest caller is a build that is already failing: a phase raises from inside its own recv loop, and every conn after the failing one still holds that phase's `("ok", …)` reply. The shutdown reply therefore carries its own `peak` tag and `close()` drains past whatever is queued ahead of it — reading a phase's payload as a peak would raise out of the `finally`, displace the worker traceback the caller came to see, and leave the join loop below unrun with spawn workers still alive."""
+    journal = tmp_path / "cycle-timings.ndjson"
+    monkeypatch.setattr("rebuild.tools.cycle_timings.JOURNAL", journal)
+
+    class _StubProc:
+        def __init__(self) -> None:
+            self.joined = False
+
+        def join(self, timeout=None) -> None:
+            self.joined = True
+
+        def is_alive(self) -> bool:
+            return False
+
+    runner = review_build._FreshRunner(
+        [],
+        1,
+        tmp_path,
+        tmp_path / "before.otf",
+        tmp_path / "after.otf",
+        tmp_path / "junior.otf",
+        tmp_path,
+    )
+    parent, child = multiprocessing.Pipe()
+    child.send(("ok", ["projection-a", "projection-b"]))
+    child.send(("peak", 1_500_000))
+    proc = _StubProc()
+    runner._conns = [parent]
+    runner._procs = [proc]
+    try:
+        runner.close()
+    finally:
+        child.close()
+    assert proc.joined
+    record = json.loads(journal.read_text(encoding="utf-8").splitlines()[0])
+    assert record["worker_peak_rss_bytes"] == {"w0": 1_500_000}
 
 
 @pytest.mark.parametrize(

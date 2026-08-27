@@ -1,8 +1,8 @@
 """Hold the checked-in per-unit memory peaks against what this box actually measured — `make job-costs`, the instrument for issue #92.
 
-Several widths in this tree are a box divided by a measured per-unit peak: what one pytest worker of a suite holds, what one kernel configuration holds while it is live. Each of those peaks is a checked-in constant — `FONT_SUITE_WORKER_BYTES` and `HEAVIEST_WORKER_BYTES` in the root `conftest.py`, `VALIDATORS_WORKER_BYTES` in `rebuild/conftest.py`, `CONFIG_PEAK_BYTES` in `rebuild/pipeline/kernel_exec.py` — and every one of them is a reading of a working set that a memory-saver or a heavier fixture can move out from under. The measurements that would catch such a move are already being taken on every run, by two instruments that were never introduced to each other: each xdist controller's per-worker peaks, and the peak RSS the cycle stamps on every step it spawns. So a divisor could go stale silently, and a stale one announces itself not as a red test but as a box in swap — or, in the other direction, as a pool held to a quarter of the width it had room for. This module is the introduction, and it is a file read: no build, no import of the code it prices.
+Several widths in this tree are a box divided by a measured per-unit peak: what one pytest worker of a suite holds, what one kernel configuration holds while it is live. Each of those peaks is a checked-in constant — `FONT_SUITE_WORKER_BYTES` and `HEAVIEST_WORKER_BYTES` in the root `conftest.py`, `VALIDATORS_WORKER_BYTES` in `rebuild/conftest.py`, `CONFIG_PEAK_BYTES` in `rebuild/pipeline/kernel_exec.py`, `SURFACE_PARENT_BYTES` and `SURFACE_WORKER_BYTES` in `rebuild/tools/artifact_cycle.py` — and every one of them is a reading of a working set that a memory-saver or a heavier fixture can move out from under. The measurements that would catch such a move are already being taken on every run, by two instruments that were never introduced to each other: each xdist controller's per-worker peaks, and the peak RSS the cycle stamps on every step it spawns. So a divisor could go stale silently, and a stale one announces itself not as a red test but as a box in swap — or, in the other direction, as a pool held to a quarter of the width it had room for. This module is the introduction, and it is a file read: no build, no import of the code it prices.
 
-What it reads is the cycle-timings journal and nothing else. `kind:"pool"` records supply one observation per worker, because the unit being priced is one worker and a pool of eight is therefore eight measurements of it. Named `kind:"step"` records supply their `peak_rss_bytes`, but only where that figure genuinely is one unit, and that caveat wants stating rather than hinting: `peak_rss.reap_peak_rss_bytes` maxes over a child's whole process tree instead of summing it, so a step peak is the widest single process under that step. That is one unit exactly where the step's tree is a pytest controller over its workers (`gate:rebuild-validators`) or a parent holding heads over one-thread children (`run_m1`), and it is emphatically not one unit for `gate:make-test`, whose tree carries `make all` and `uv run pyright` beside the pool. The `UNITS` registry below states, per unit, which sources are honest for it, and each entry carries the argument in its own words.
+What it reads is the cycle-timings journal and nothing else. `kind:"pool"` records supply one observation per worker, because the unit being priced is one worker and a pool of eight is therefore eight measurements of it. Named `kind:"step"` records supply their `peak_rss_bytes`, but only where that figure genuinely is one unit, and that caveat wants stating rather than hinting: `peak_rss.reap_peak_rss_bytes` maxes over a child's whole process tree instead of summing it, so a step peak is the widest single process under that step. That is one unit exactly where the step's tree is a pytest controller over its workers (`gate:rebuild-validators`) or a parent holding heads over one-thread children (`run_m1`), or a parent holding the whole corpus over workers holding slices of it (`surface-build`), where the max reads the parent and the parent is what that row prices, and it is emphatically not one unit for `gate:make-test`, whose tree carries `make all` and `uv run pyright` beside the pool. The `UNITS` registry below states, per unit, which sources are honest for it, and each entry carries the argument in its own words.
 
 What an observation is held against is that unit's constant, read out of its source file by `ast` and never imported. pytest loads every conftest under the plain name `conftest`, so from anywhere under `rebuild/` a plain `import conftest` answers the wrong file while `import rebuild.conftest` would execute a second copy of one pytest has already loaded and armed its lane-audit hook in; `ast` answers without executing anything, and it keeps a build tool out of the business of importing pytest and inheriting that file's `sys.path` edits. It is `artifact_cycle._font_suite_worker_bytes`' argument, made a third time here. The same mechanism settles one detail the width clauses need: the validators row reads `VALIDATORS_LANE_CAP` beside its peak, so the width it prints is the one that lane will actually take rather than an uncapped division nothing in the repo uses. `rebuild/conftest.py`'s `_validators_workers` stays the authority on that width; this only quotes its two inputs, and a rename of either fails loudly here rather than quietly printing a number for a pool that does not exist. The kernel row cannot be settled the same way — what narrows that fan-out is the configuration count and the cores at `run_m1.build_tables`' own call site, neither of them a constant to read — so it prints the memory arithmetic and says in words what narrows it afterwards.
 
@@ -30,6 +30,10 @@ ROOT = Path(__file__).resolve().parents[2]
 
 VALIDATORS_SOURCE = "rebuild/conftest.py"
 VALIDATORS_CAP_NAME = "VALIDATORS_LANE_CAP"
+SURFACE_SOURCE = "rebuild/tools/artifact_cycle.py"
+SURFACE_CAP_NAME = "SURFACE_JOBS_CAP"
+SURFACE_PARENT_NAME = "SURFACE_PARENT_BYTES"
+SURFACE_WORKER_NAME = "SURFACE_WORKER_BYTES"
 
 
 @dataclass(frozen=True)
@@ -81,6 +85,24 @@ UNITS: tuple[Unit, ...] = (
         step_names=("run_m1",),
         step_caveat="run_m1's peak is the widest single process in its tree, and that is one configuration child — the parent holds only heads, and every child is handed threads=1 — so the step peak reads one configuration however wide the fan-out was. The approximation runs in one direction that matters: it is the widest configuration of the ones that ran, and a solo direct measurement has been observed higher than the journal's rows, which is why the constant carries headroom past them.",
         note="The direct measurement is bench-the-rebuild/levers/kernel_all_configs.py plus the crate's --cache-census, which is what to reach for before re-seeding; this row is the cheap standing watch beside it rather than a replacement for it.",
+    ),
+    Unit(
+        name="surface-parent",
+        constant="SURFACE_PARENT_BYTES",
+        source=SURFACE_SOURCE,
+        pool_units=(),
+        step_names=("surface-build",),
+        step_caveat="reap_peak_rss_bytes maxes over the child's whole tree rather than summing it, and under this step that tree is one parent holding the whole corpus beside workers each holding a slice of it, so the max reads the parent — which is this unit exactly. What the same reading cannot see is the sum: parent plus every worker is the build's real footprint, and no step peak has ever been able to report it, which is why the divisor beside this row is measured by the surface pool records instead of here.",
+        note="The one row here whose constant is subtracted from the box rather than divided into it: the parent's pile is flat in the width, so it is surface_job_budget's co-resident term. It is also the fastest-drifting figure in the registry, at roughly 14 KB per surface unit — every migrated letter moves it — so expect to re-seed it per batch until the streaming-phase-2 lever WHATNEXT records lands.",
+    ),
+    Unit(
+        name="surface-worker",
+        constant="SURFACE_WORKER_BYTES",
+        source=SURFACE_SOURCE,
+        pool_units=("surface",),
+        step_names=(),
+        step_caveat="",
+        note="These pool records come from rebuild/review/build.py's own runner rather than from a pytest controller — cycle_timings.record_pool is deliberately not a pytest entry point — and each supplies one observation per worker that answered. The row is legitimately quiet on a box the arithmetic has already narrowed to a single worker, because a serial build starts no pool to measure; a deliberate `--jobs N` hand run is what puts an observation on the record there, and the row's unverified-here line is the honest reading until one does.",
     ),
 )
 
@@ -268,7 +290,7 @@ def _sources_line(row: UnitRow) -> str | None:
 
 
 def _width_clause(unit: Unit, constant_bytes: int, *, total_bytes: int, cores: int, root: Path) -> str:
-    """The width this constant implies on the box in hand, said the way the call site that owns it says it. Three units, three shapes: the font suite's pool takes the cores flat and prices this constant as a co-resident rather than dividing by it, so a bare `describe_fit` there would state a width the repo never asks for; the validators lane divides and then caps, so its cap is read from the same file as its peak; and the kernel fan-out divides with no memory cap at all and is narrowed afterwards by the configuration count and the cores at run_m1.build_tables' own `min()`, neither of which is a constant to read, so that narrowing is stated in words. The cap comes out of `root` rather than out of this module's own tree for the reason the constants do: a report is a pure function of a stated box and a stated tree, and a tree hard-coded here would have a test that invented both quietly reading the live repo for half its answer."""
+    """The width this constant implies on the box in hand, said the way the call site that owns it says it. Five units, five shapes: the font suite's pool takes the cores flat and prices this constant as a co-resident rather than dividing by it, so a bare `describe_fit` there would state a width the repo never asks for; the validators lane divides and then caps, so its cap is read from the same file as its peak; the kernel fan-out divides with no memory cap at all and is narrowed afterwards by the configuration count and the cores at run_m1.build_tables' own `min()`, neither of which is a constant to read, so that narrowing is stated in words; and the surface build names two constants rather than one, because its flat half is as large as its divided half — the parent row states what is subtracted from the box and the worker row what the remainder is divided by, so neither is the whole width on its own and each prints the other's figure to reach one. Both surface rows print the unreserved arm and say so, the gated cycle's further subtraction being a fact about a pass rather than about a box. The cap comes out of `root` rather than out of this module's own tree for the reason the constants do: a report is a pure function of a stated box and a stated tree, and a tree hard-coded here would have a test that invented both quietly reading the live repo for half its answer."""
     if unit.name == "font-suite":
         allowed = memory_budget.describe_fit(constant_bytes, total_bytes=total_bytes)
         return f"the font suite takes the cores this process may run on ({cores}), not the division; memory would allow {allowed}"
@@ -278,6 +300,20 @@ def _width_clause(unit: Unit, constant_bytes: int, *, total_bytes: int, cores: i
     if unit.name == "kernel-config":
         fit = memory_budget.describe_fit(constant_bytes, total_bytes=total_bytes)
         return f"{fit}; run_m1.build_tables then narrows that by the configurations there are to answer and the cores there are to answer them with"
+    if unit.name == "surface-parent":
+        worker = _int_constant(root / SURFACE_SOURCE, SURFACE_WORKER_NAME)
+        cap = min(_int_constant(root / SURFACE_SOURCE, SURFACE_CAP_NAME), cores)
+        allowed = memory_budget.describe_fit(
+            worker, coresident_bytes=constant_bytes, cap=cap, total_bytes=total_bytes
+        )
+        return f"the surface build's parent is subtracted from the box rather than divided into it; with it off, {allowed}"
+    if unit.name == "surface-worker":
+        parent = _int_constant(root / SURFACE_SOURCE, SURFACE_PARENT_NAME)
+        cap = min(_int_constant(root / SURFACE_SOURCE, SURFACE_CAP_NAME), cores)
+        fit = memory_budget.describe_fit(
+            constant_bytes, coresident_bytes=parent, cap=cap, total_bytes=total_bytes
+        )
+        return f"{fit}; under a gated cycle gate:make-test's pool comes off the box before this division too, and two cores off the cap"
     return memory_budget.describe_fit(constant_bytes, total_bytes=total_bytes)
 
 
@@ -367,7 +403,7 @@ def _report(args: argparse.Namespace) -> int:
 def main(argv: list[str] | None = None) -> int:
     """Print the report and answer with the verdict: 0 for a report or a green check, 1 for a check that a measured peak tripped, 2 for this tool failing to reach a verdict at all.
 
-    The third code is what keeps the second honest. `_int_constant` raises on purpose when a constant has been renamed out from under the registry, because a calibration silently not performed is the failure this whole module exists to prevent — but an uncaught raise exits 1, and the artifact cycle reads 1 as "a peak outran its constant", diffs the three constant-bearing files, and writes an OVERRUN into the cycle summary. That would be a measurement nobody took, announced as loudly as a real one and pointing a reader at a re-seeding that nothing asked for. So the failure is caught and spelled 2, which every caller already reads as informational.
+    The third code is what keeps the second honest. `_int_constant` raises on purpose when a constant has been renamed out from under the registry, because a calibration silently not performed is the failure this whole module exists to prevent — but an uncaught raise exits 1, and the artifact cycle reads 1 as "a peak outran its constant", diffs the four constant-bearing files, and writes an OVERRUN into the cycle summary. That would be a measurement nobody took, announced as loudly as a real one and pointing a reader at a re-seeding that nothing asked for. So the failure is caught and spelled 2, which every caller already reads as informational.
     """
     parser = argparse.ArgumentParser(
         description="Hold the checked-in per-unit memory peaks against what this box measured, and state the width each one implies here."
