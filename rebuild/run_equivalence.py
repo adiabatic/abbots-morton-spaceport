@@ -1,7 +1,7 @@
 """Equivalence-triage CLI (rebuild/BASELINE-PLAN.md §6).
 
 Usage:
-    uv run python rebuild/run_equivalence.py --baseline rebuild/out/baseline-default.tsv.gz [--baseline ...] [--workers 10] [--limit N]
+    uv run python rebuild/run_equivalence.py --baseline rebuild/out/baseline-default.tsv.gz [--baseline ...] [--workers N] [--limit N]
 
 Runs the four §6 boundary checks over every eligible row of each baseline table and writes divergences to rebuild/out/equivalence-triage.tsv (one combined file; tables are processed in the order given, rows in baseline order, so output is deterministic).
 """
@@ -13,7 +13,11 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
 
+from rebuild.tools.memory_budget import usable_cores
 from validation import equivalence
 from validation.pins import REPO_ROOT
 from validation.shaping import SENIOR_FONT
@@ -24,7 +28,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--baseline", action="append", required=True, type=Path)
     parser.add_argument("--font", type=Path, default=SENIOR_FONT)
     parser.add_argument("--out", type=Path, default=REPO_ROOT / "rebuild" / "out" / "equivalence-triage.tsv")
-    parser.add_argument("--workers", type=int, default=1)
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=usable_cores(),
+        help="shaping worker processes (default: %(default)s, the cores this process may actually run on); this pool's per-worker footprint is unmeasured, so the default is a core clamp rather than a memory-derived width, and a measurement is owed before it can become one",
+    )
     parser.add_argument("--limit", type=int, default=None)
     args = parser.parse_args(argv)
 
