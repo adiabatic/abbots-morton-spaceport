@@ -142,6 +142,14 @@ class TestTheWidthsAlreadyOnRecord:
         """The forward direction, and the only comparison left that means anything once `KERNEL_THREADS_DEFAULT` is derived: the left side is the divisor this repo actually ships run through the policy this repo actually ships, against a box that is stated rather than probed, and the right side is what #46 recorded. Re-measuring `CONFIG_PEAK_BYTES` is free as long as it does not widen that box — the recorded maximum in the cycle-timings journal sits a fraction of a percent under the 32 GiB edge and would, which is why the shipped seed rounds up past it."""
         assert memory_budget.how_many_fit(CONFIG_PEAK_BYTES, total_bytes=total) == 2
 
+    def test_the_shipped_surface_divisor_narrows_the_32_gib_box_below_its_core_clamp(self):
+        """The forward direction for the third width, against the box that reported it. The ten-core 32 GiB Mac that ran the 2026-08-27 full-fresh surface build got eight workers out of the core clamp this replaced — ten cores less gate:make-test's two, which met `SURFACE_JOBS_CAP` exactly — and the only reading anyone had of that build's footprint was a step peak, which maxes over the process tree instead of summing it and so could see the parent alone. Deriving the width instead is what puts the workers in the number. The assertion is an inequality because both surface constants are readings to keep current: re-seeding either is free as long as it does not hand this box back its eight."""
+        import rebuild.tools.artifact_cycle as ac
+
+        assert (
+            ac.surface_job_budget(skip_gates=False, ncores=10, total_bytes=BOX_32_GIB) < ac.SURFACE_JOBS_CAP
+        )
+
 
 class TestTheValidatorsLaneWidth:
     """The second width this policy decides, checked over invented boxes the way the first one is. Both bounds get an assertion, because which of them binds is the whole design: the cap is what holds a short lane narrow on a box with room to spare, and the divisor is what protects the box that has none."""

@@ -88,6 +88,16 @@ def test_the_controllers_own_peak_is_never_one_of_the_workers_observations():
     assert [item.peak_bytes for item in observed] == [1_000_000]
 
 
+def test_a_surface_pool_record_prices_the_worker_constant():
+    """The surface build files its own pool records rather than a pytest controller's, and they land on the divisor's row alone: the parent is measured by a step peak and would be nonsense as a worker observation, so the two surface rows never read each other's evidence."""
+    record = _pool("surface", [6_000_000_000, 7_000_000_000])
+    observed, _ = cb.observations(_unit("surface-worker"), [record], {}, host=HOST, recent=20)
+    assert [item.peak_bytes for item in observed] == [6_000_000_000, 7_000_000_000]
+    assert {item.source for item in observed} == {"pool"}
+    parent, _ = cb.observations(_unit("surface-parent"), [record], {}, host=HOST, recent=20)
+    assert parent == []
+
+
 def test_a_named_step_peak_supplies_an_observation():
     steps = {"r1": [_step("run_m1", 9_000_000_000)]}
     observed, _ = cb.observations(_unit("kernel-config"), [], steps, host=HOST, recent=20)
@@ -246,13 +256,19 @@ def test_the_report_states_the_width_each_constant_implies_here(tmp_path, capsys
 def test_the_width_clauses_answer_for_the_box_and_the_tree_they_are_given(tmp_path, capsys):
     """A report about a machine this suite is not running on, read out of a tree it is not checked out of: both are keywords precisely so the arithmetic can be asserted against a box and a cap someone stated rather than against whichever ones the runner happens to have."""
     tree = tmp_path / "tree"
-    (tree / "rebuild").mkdir(parents=True)
+    (tree / "rebuild" / "tools").mkdir(parents=True)
     (tree / "rebuild" / "conftest.py").write_text(f"{cb.VALIDATORS_CAP_NAME} = 2\n", encoding="utf-8")
+    (tree / "rebuild" / "tools" / "artifact_cycle.py").write_text(
+        f"{cb.SURFACE_CAP_NAME} = 3\n{cb.SURFACE_PARENT_NAME} = 10_000_000_000\n{cb.SURFACE_WORKER_NAME} = 5_000_000_000\n",
+        encoding="utf-8",
+    )
     rows = cb.build_rows([], {}, constants=CONSTANTS, host=HOST, recent=20, tolerance=0.0)
     out = "\n".join(cb.render_rows(rows, host=HOST, total_bytes=48_000_000_000, cores=12, root=tree))
     assert "48.00 GB total" in out
     assert "capped at 2" in out
+    assert "capped at 3" in out
     assert "the font suite takes the cores this process may run on (12), not the division" in out
+    assert "the surface build's parent is subtracted from the box rather than divided into it" in out
 
 
 def test_a_check_that_cannot_run_exits_apart_from_one_that_tripped(tmp_path, capsys, monkeypatch):

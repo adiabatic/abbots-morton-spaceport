@@ -22,6 +22,9 @@ from rebuild.tools.cycle_timings import CycleTimings
 REPO_ROOT = Path(__file__).resolve().parents[1]
 # The box every plan here is resolved against. A width asserted in this file has to be a fact about an invented machine rather than about whichever one is running the suite, and 44 GB is chosen for what it separates: the fan-out fits three configurations there alone and two beside gate:make-test's pytest pool, so a reservation that stopped happening would show up as a changed number rather than as the same one twice. Both spellings of 32 GB sit on an edge that answers 2 and 2 or 2 and 1 depending on the unit convention, which is a worse box to reason about.
 BOX_44_GB = 44_000_000_000
+# Two more invented boxes, for the one width whose divisor is large enough that 44 GB cannot separate its arms. 66 GB is where the surface build's memory term is interesting — it answers four workers alone and three beside gate:make-test's pool, so a reservation that stopped happening shows up as a changed number — and 34_359_738_368 is the 32 GiB Mac that reported this width's overrun, kept here so the regression it exists for is asserted against the machine that found it rather than against whichever one runs the suite.
+BOX_66_GB = 66_000_000_000
+BOX_32_GIB = 34_359_738_368
 
 
 @pytest.fixture(autouse=True)
@@ -192,7 +195,15 @@ def test_dry_run_plan_default():
         "--kernel-threads",
         str(plan.kernel_threads),
     ]
-    assert by_name["surface-build"].argv == ["uv", "run", "python", "-m", "rebuild.review.build"]
+    assert by_name["surface-build"].argv == [
+        "uv",
+        "run",
+        "python",
+        "-m",
+        "rebuild.review.build",
+        "--jobs",
+        str(plan.surface_jobs),
+    ]
     assert _argv(by_name["plumbing"])[:5] == [
         "uv",
         "run",
@@ -1578,19 +1589,53 @@ def test_sweep_job_budget_is_one_process_per_acceptance_configuration():
     assert ac.sweep_job_budget(1) == 1
 
 
-def test_surface_job_budget_leaves_make_test_its_cores():
-    assert ac.surface_job_budget(skip_gates=False, ncores=12) == 8
-    assert ac.surface_job_budget(skip_gates=False, ncores=10) == 8
-    assert ac.surface_job_budget(skip_gates=False, ncores=6) == 4
-    assert ac.surface_job_budget(skip_gates=False, ncores=1) == 1
-    assert ac.surface_job_budget(skip_gates=True, ncores=12) == 8
-    assert ac.surface_job_budget(skip_gates=True, ncores=6) == 6
-    assert ac.surface_job_budget(skip_gates=True, ncores=1) == 1
-    assert ac.surface_job_budget(skip_gates=False, skip_make_test=True, ncores=6) == 6
+class TestTheSurfaceBuildWidth:
+    """Both bounds get an assertion, because which of them binds is the whole design: the cap is what holds the fan-out where widening stops paying on a box with room to spare, and the division is what protects the box that has none."""
+
+    def test_the_cap_binds_where_the_box_has_room_to_spare(self):
+        """A box that could hold dozens of these workers is given eight, because the argument against the ninth is not memory at all — past that width the build stops scaling and a further worker buys a duplicated subset table and nothing else."""
+        assert (
+            ac.surface_job_budget(skip_gates=True, ncores=12, total_bytes=1_000_000_000_000)
+            == ac.SURFACE_JOBS_CAP
+        )
+
+    def test_a_box_with_fewer_cores_than_the_cap_gets_its_cores(self):
+        """The cap and the core count sit in one `min()` because neither is a memory fact, and the two cores gate:make-test's pool holds come out of the same place: a five-core box runs five workers alone and three beside that pool, on a box neither arm can run out of memory on."""
+        assert ac.surface_job_budget(skip_gates=True, ncores=5, total_bytes=1_000_000_000_000) == 5
+        assert ac.surface_job_budget(skip_gates=False, ncores=5, total_bytes=1_000_000_000_000) == 3
+
+    def test_memory_binds_before_the_cap_once_the_box_is_small_enough(self):
+        """The direction that makes deriving this width worth doing: a 66 GB box has twelve cores' worth of permission and room for four workers once the parent's own pile is off it, so it gets four rather than the eight a core clamp handed every box alike."""
+        assert ac.surface_job_budget(skip_gates=True, ncores=12, total_bytes=BOX_66_GB) == 4
+        assert ac.surface_job_budget(skip_gates=True, ncores=12, total_bytes=BOX_66_GB) < ac.SURFACE_JOBS_CAP
+
+    def test_the_pytest_pool_comes_off_the_box_before_the_division(self):
+        """A cycle runs this build beside gate:make-test's pool rather than alone, so that pool's bytes come off the box before it is divided by a worker and the width lands one below the solo one. Both numbers move together if either surface constant is ever re-measured — the pair is the assertion, not either figure."""
+        solo = ac.surface_job_budget(skip_gates=True, ncores=12, total_bytes=BOX_66_GB)
+        beside = ac.surface_job_budget(skip_gates=False, ncores=12, total_bytes=BOX_66_GB)
+        assert (solo, beside) == (4, 3)
+
+    def test_the_floor_answers_one_on_a_box_that_cannot_hold_a_worker(self):
+        """A box with no budget left after its reserve floors at one in both arms, and that is the serial build rather than a refusal: at width one there is no pool, every fragment exists once instead of twice, and the build is the cheapest it can be on a box that has outgrown the pooled shape."""
+        assert ac.surface_job_budget(skip_gates=True, ncores=12, total_bytes=8_000_000_000) == 1
+        assert ac.surface_job_budget(skip_gates=False, ncores=12, total_bytes=8_000_000_000) == 1
+
+    def test_this_box_no_longer_takes_eight_surface_workers(self):
+        """The regression this width was rewritten for. On the ten-core 32 GiB Mac that ran the 2026-08-27 full-fresh pass the old core clamp answered eight — ten cores less the pool's two, which met the cap exactly — and that pass read 17.76 GB as the widest single process under the step, a figure that could only ever see the parent and never the eight workers beside it. Both bounds are asserted as inequalities rather than as today's figure, because both surface constants are readings to keep current and re-seeding either must not have to come back here."""
+        width = ac.surface_job_budget(skip_gates=False, ncores=10, total_bytes=BOX_32_GIB)
+        assert width < ac.SURFACE_JOBS_CAP
+        assert width < 10 - 2
+
+    def test_the_printed_derivation_is_the_one_that_produced_the_width(self):
+        """The plan line and the `--jobs` help quote a sentence, and a sentence that disagreed with the number beside it would be worse than none: both come from one resolution of the same three terms, so the clause opens with the width it explains."""
+        for skip_gates in (False, True):
+            width = ac.surface_job_budget(skip_gates=skip_gates, ncores=10, total_bytes=BOX_66_GB)
+            derivation = ac.surface_job_derivation(skip_gates=skip_gates, ncores=10, total_bytes=BOX_66_GB)
+            assert derivation.startswith(f"{width} at ")
 
 
 def test_make_test_pool_width_is_the_width_the_surface_budget_leaves_it():
-    """The pool the cycle starts is the pool the cycle reserved for: surface_job_budget hands two cores away, so two workers is what gate:make-test is handed back, and a box too small for that floors the two together at one rather than letting the pool outgrow the reservation."""
+    """The pool the cycle starts is the pool the cycle reserved for: surface_job_budget hands two cores away and prices the same pool's bytes as a co-resident term in the one budget, so two workers is what gate:make-test is handed back, and a box too small for that floors the two together at one rather than letting the pool outgrow the reservation."""
     assert ac.make_test_pool_width(ncores=12) == ac.MAKE_TEST_POOL_WORKERS
     assert ac.make_test_pool_width(ncores=6) == ac.MAKE_TEST_POOL_WORKERS
     assert ac.make_test_pool_width(ncores=1) == 1
@@ -1661,11 +1706,13 @@ def test_dry_run_renders_concurrency():
     )
     assert "run_m1 sweeps --jobs             : 6" in text
     assert "run_m1 --kernel-threads          : " in text
-    assert "surface-build --jobs             : 8" in text
+    assert "surface-build --jobs             : 1" in text
+    assert "less 20.60 GB co-resident" in text
 
     by_name = {step.name: step for step in plan.steps}
     assert _argv(by_name["run_m1"])[1:6] == ["run", "python", "-m", "rebuild.pipeline.run_m1", "--jobs"]
-    assert _argv(by_name["surface-build"])[-2:] == ["--jobs", "8"]
+    # A width of one is stated on the command line like any other. It used to be the one width that emitted no flag, which handed the child its own default — the unreserved arm of the same budget, a different number wherever the pool subtraction changes the answer — and the memory term makes one a width the arithmetic actually reaches.
+    assert _argv(by_name["surface-build"])[-2:] == ["--jobs", "1"]
 
 
 def test_dry_run_skip_gates_appends_jobs_budgets():
@@ -1682,9 +1729,9 @@ def test_dry_run_skip_gates_appends_jobs_budgets():
     )
     by_name = {step.name: step for step in plan.steps}
     assert _argv(by_name["run_m1"])[5:7] == ["--jobs", "6"]
-    assert _argv(by_name["surface-build"])[-2:] == ["--jobs", "8"]
+    assert _argv(by_name["surface-build"])[-2:] == ["--jobs", "1"]
     assert "run_m1 sweeps --jobs 6" in ac.render_plan(plan)
-    assert "surface-build --jobs 8" in ac.render_plan(plan)
+    assert "surface-build --jobs 1" in ac.render_plan(plan)
 
     default_plan = ac.build_plan(
         verdicts=Path("v.json"),
@@ -1699,7 +1746,7 @@ def test_dry_run_skip_gates_appends_jobs_budgets():
     )
     default_by_name = {step.name: step for step in default_plan.steps}
     assert _argv(default_by_name["run_m1"])[5:7] == ["--jobs", "6"]
-    assert _argv(default_by_name["surface-build"])[-2:] == ["--jobs", "8"]
+    assert _argv(default_by_name["surface-build"])[-2:] == ["--jobs", "1"]
 
 
 def test_review_out_rehearsal_plan(monkeypatch, tmp_path):
@@ -2138,26 +2185,29 @@ def test_dry_run_plan_skip_make_test():
 
 
 def test_skip_make_test_frees_the_surface_build_budget():
-    """The sweeps' width is the configuration count either way — nothing about make-test bears on it — while the surface build is the stage that gives cores back to a pytest pool that is actually running."""
-    plan = _plan(skip_make_test=True, make_test_note="closure unchanged since its last green run", ncores=10)
-    assert plan.surface_jobs == 8
+    """The sweeps' width is the configuration count either way — nothing about make-test bears on it — while the surface build is the stage that gives both cores and bytes back to a pytest pool that is actually running. The box is 66 GB rather than this file's usual 44 because 44 answers one in both arms, and a pair of widths that agree cannot say whether the reservation happened."""
+    plan = _plan(
+        skip_make_test=True,
+        make_test_note="closure unchanged since its last green run",
+        ncores=10,
+        total_bytes=BOX_66_GB,
+    )
+    assert plan.surface_jobs == 4
     assert plan.sweep_jobs == 6
     by_name = {step.name: step for step in plan.steps}
-    assert _argv(by_name["surface-build"])[-2:] == ["--jobs", "8"]
+    assert _argv(by_name["surface-build"])[-2:] == ["--jobs", "4"]
     rendered = ac.render_plan(plan)
-    assert "surface-build --jobs             : 8" in rendered
+    assert "surface-build --jobs             : 4" in rendered
     assert "gate:make-test skipped, so the surface build takes the whole box" in rendered
 
-    gated = _plan(skip_make_test=False, ncores=10)
-    assert gated.surface_jobs == 8
+    gated = _plan(skip_make_test=False, ncores=10, total_bytes=BOX_66_GB)
+    assert gated.surface_jobs == 3
     assert gated.sweep_jobs == 6
-    small = _plan(skip_make_test=False, ncores=6)
-    assert small.surface_jobs == 4
-    small_by_name = {step.name: step for step in small.steps}
-    assert _argv(small_by_name["surface-build"])[-2:] == ["--jobs", "4"]
+    gated_by_name = {step.name: step for step in gated.steps}
+    assert _argv(gated_by_name["surface-build"])[-2:] == ["--jobs", "3"]
     assert (
-        "surface-build --jobs             : 4  (gate:make-test's pytest pool held to 2 workers — its cores reserved here, its bytes in --kernel-threads)"
-        in ac.render_plan(small)
+        "surface-build --jobs             : 3  (gate:make-test's pytest pool held to 2 workers — its cores reserved here and its bytes off the box beside the build's own parent; 3 at 9.00 GB each out of 66.00 GB total, less a reserve of 9.90 GB, less 20.60 GB co-resident, capped at 8)"
+        in ac.render_plan(gated)
     )
 
 
@@ -2779,10 +2829,10 @@ def test_dry_run_plan_deferred_gates_replace_their_steps():
 
 
 def test_deferring_make_test_frees_the_surface_build_budget():
-    plan = _plan(deferred=frozenset({"make-test"}), ncores=6)
-    assert plan.surface_jobs == 6
+    plan = _plan(deferred=frozenset({"make-test"}), ncores=6, total_bytes=BOX_66_GB)
+    assert plan.surface_jobs == 4
     by_name = {step.name: step for step in plan.steps}
-    assert _argv(by_name["surface-build"])[-2:] == ["--jobs", "6"]
+    assert _argv(by_name["surface-build"])[-2:] == ["--jobs", "4"]
     rendered = ac.render_plan(plan)
     assert "gate:make-test deferred, so the surface build takes the whole box" in rendered
     assert "gate:make-test not running, so no queueing" in rendered
@@ -3413,7 +3463,7 @@ def test_do_job_costs_reports_a_clean_check():
 
 
 def test_do_job_costs_diffs_the_constants_when_the_check_trips():
-    """A trip asks one further question — has the constant already been re-seeded here, so the commit in hand is already the acceptance? — and the diff answers it. It is conditional where the census's is not: these three files hold a great deal besides their constants, so an unconditional diff would print unrelated work every pass."""
+    """A trip asks one further question — has the constant already been re-seeded here, so the commit in hand is already the acceptance? — and the diff answers it. It is conditional where the census's is not: these four files hold a great deal besides their constants, so an unconditional diff would print unrelated work every pass."""
     calls: list[str] = []
     seen: dict[str, list[str]] = {}
 
@@ -3436,6 +3486,7 @@ def test_do_job_costs_diffs_the_constants_when_the_check_trips():
         "conftest.py",
         "rebuild/conftest.py",
         "rebuild/pipeline/kernel_exec.py",
+        "rebuild/tools/artifact_cycle.py",
     ]
     assert report.job_costs_status.startswith("OVERRUN")
     assert "a constant has already moved in the working tree" in report.job_costs_status

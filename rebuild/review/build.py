@@ -71,6 +71,8 @@ from rebuild.review.enrich import (
     seam_home_projection,
     text_entities,
 )
+from rebuild.tools.cycle_timings import record_pool
+from rebuild.tools.peak_rss import peak_rss_self_bytes
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 DEFAULT_OUT = REPO_ROOT / "rebuild" / "out" / "review"
@@ -704,6 +706,7 @@ def _surface_worker(conn, init: dict) -> None:
         while True:
             message = conn.recv()
             if message[0] == "stop":
+                conn.send(("peak", peak_rss_self_bytes()))
                 return
             if message[0] == "phase1":
                 results: list[_UnitProjection] = []
@@ -731,6 +734,13 @@ def _surface_worker(conn, init: dict) -> None:
             pass
     finally:
         conn.close()
+
+
+def _record_surface_pool(width: int, peaks: dict[str, int]) -> None:
+    """File one kind:"pool" record for a finished surface pool, so `make job-costs` can hold SURFACE_WORKER_BYTES against workers that actually ran. It is the same record an xdist controller writes — cycle_timings.record_pool is deliberately not a pytest-only entry point — under a unit name of this pool's own, and it never raises: a journal that cannot be written is not a reason for a surface build to fail. A build with no pool files nothing, because at width one there is no worker to price; the parent's own figure is the `surface-build` step peak the cycle already stamps."""
+    if not peaks:
+        return
+    record_pool("surface", width=width, worker_peaks=peaks, controller_peak_bytes=peak_rss_self_bytes())
 
 
 def _partition(items: list, parts: int) -> list[list]:
@@ -883,10 +893,17 @@ class _FreshRunner:
         return keys
 
     def close(self) -> None:
-        for conn in self._conns:
+        """Stop every worker, collect the peak each one answers with, and join the processes — reached from a `finally`, so the path that matters most is the failing one. A phase raises from inside its own recv loop, which leaves the conns after the failing one still holding that phase's `("ok", …)` reply, so the shutdown reply carries its own `peak` tag and this drains whatever is queued ahead of it: reading a phase's payload as a peak would raise out of the `finally`, displace the worker's traceback, and abandon the join below with spawn workers still running."""
+        peaks: dict[str, int] = {}
+        for index, conn in enumerate(self._conns):
             try:
                 conn.send(("stop",))
-            except OSError:
+                while conn.poll(5):
+                    reply = conn.recv()
+                    if reply[0] == "peak":
+                        peaks[f"w{index}"] = int(reply[1])
+                        break
+            except OSError, EOFError:
                 pass
             try:
                 conn.close()
@@ -896,6 +913,7 @@ class _FreshRunner:
             proc.join(timeout=5)
             if proc.is_alive():
                 proc.terminate()
+        _record_surface_pool(len(self._procs), peaks)
 
 
 def _write_surface(
@@ -2373,7 +2391,7 @@ def main(argv: list[str] | None = None) -> None:
         print(f"Wrote {args.to}", file=sys.stderr)
         return
 
-    from rebuild.tools.artifact_cycle import surface_job_budget
+    from rebuild.tools.artifact_cycle import surface_job_budget, surface_job_derivation
 
     surface_jobs = surface_job_budget(skip_gates=True)
     parser = argparse.ArgumentParser(description=__doc__)
@@ -2389,7 +2407,7 @@ def main(argv: list[str] | None = None) -> None:
         "--jobs",
         type=int,
         default=surface_jobs,
-        help=f"per-unit worker budget for the surface build; the default is the same `surface_job_budget()` width the artifact cycle already passes rather than a checked-in one, taken at its unreserved arm because a hand run has no co-resident `make test` pool to leave cores to — {surface_jobs} on this box, a core clamp rather than a memory division for the reasons that budget's own docstring argues — so a bare run no longer walks its units one at a time. `--jobs 1` is serial.",
+        help=f"per-unit worker budget for the surface build; the default is the same `surface_job_budget()` width the artifact cycle passes rather than a checked-in one, taken at its unreserved arm because a hand run has no co-resident `make test` pool to leave cores or bytes to — on this box {surface_job_derivation(skip_gates=True)}, where the per-unit figure is one worker's own peak and the co-resident one is the parent that holds the whole corpus beside it. `--jobs 1` is serial, and it is what a box floors at when the pooled shape does not fit; a deliberate `--jobs N` is also how a wider run gets measured, since a pooled build files its per-worker peaks for `make job-costs`.",
     )
     parser.add_argument(
         "--fresh-unit-cache",

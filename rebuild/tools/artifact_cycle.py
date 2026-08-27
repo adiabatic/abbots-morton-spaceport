@@ -92,8 +92,13 @@ SERVER_STOP_PATTERN = r"rebuild\.review\.serve"
 SERVER_STOP_TIMEOUT = 15.0
 # The gate pool's seats, sized to the tasks the chain submits rather than to the box or to the work actually in flight: under the queue policy a parked task holds its worker for the whole wait — conform on make-test, contracts on both, validators on all three — so every gate task has to be seatable at once, with slack on top of that. A seat short of the task count would serialize a wait behind an unrelated task's completion, which is the queueing this pool exists not to do, and a width taken from the cores in hand would put a small box exactly there. `test_the_gate_pool_seats_every_gate_task_at_once` in rebuild/test_artifact_cycle.py is what holds this and the chain's task list in step.
 _GATE_POOL_WORKERS = 7
+# What one surface worker holds at its peak, and so the divisor a box divides itself by to reach this build's fan-out width. A worker is a persistent spawn process that enriches a contiguous slice of the corpus and retains every EnrichedUnit across phase 1 so that phase 2 can emit shard JSON from it, so what it holds is its own interpreter and shapers, one baseline subset table for every configuration its slice reaches — 0.95 GB apiece, and a slice of three units in a rare configuration pulls in a whole one — and then the slice's own retained units and fragments. Measured term by term against the 2026-08-27 full-fresh build (844,512 units at eight workers: a fixed base of 0.05 GB, four to six tables, 0.87 GB retained, 1.49 GB of fragments, a 0.43 GB pickle buffer in flight), which puts a typical worker near 7 GB and the heaviest slice near 8.5; this rounds up past that for the same reason kernel_exec.CONFIG_PEAK_BYTES rounds up past its own measurement, since a per-unit cost that errs low is what puts a box into swap while one that errs high only narrows a pool. `make job-costs`' surface-worker row is where it stays honest: rebuild/review/build.py files one kind:"pool" record per pooled build, so the constant is priced against the workers that actually ran. It is a reading to keep current, never a contract.
+SURFACE_WORKER_BYTES = 9_000_000_000
+# What the surface build's parent holds while that pool is live, and so what comes off the box before the division rather than into it: the parent holds the whole workload, every unit's projection and state, and — from the moment phase 2 starts returning — every unit's shard fragment, none of it released before manifest+check. It is flat in the width, which is exactly what makes it a co-resident term and not a divisor. The measurement is the `surface-build` step peak the cycle already stamps on every pass, which is honest for this term and only this one: peak_rss.reap_peak_rss_bytes maxes over the tree instead of summing it, and the widest single process under this step is the parent, the workers holding near-even slices of a corpus the parent holds whole. It read 17.76 GB on the 2026-08-27 full-fresh build and this rounds up past that. The pile is corpus-shaped at roughly 14 KB per surface unit, so it is the fastest-drifting constant in this tree — expect to re-seed it as the alphabet migrates, off the surface-parent row of `make job-costs`, and expect the streaming-phase-2 lever WHATNEXT records to be what finally moves it down.
+SURFACE_PARENT_BYTES = 20_000_000_000
+# The non-memory bound on the same width, and the half of this build's argument that arithmetic cannot supply: past eight workers the build stops scaling, so widening buys duplicated subset tables and nothing else.
 SURFACE_JOBS_CAP = 8
-# How wide gate:make-test's pytest pool is allowed to be under a cycle, and the one number that makes the reservation beside it honest: surface_job_budget hands two cores to that pool, so two workers is what the cycle hands the pool back. Left to itself the pool takes `-n auto`, which the root conftest.py answers for the font suite with the whole box — a pool sized as though nothing else were running, beside a build sized as though it were.
+# How wide gate:make-test's pytest pool is allowed to be under a cycle, and the one number that makes the reservation beside it honest: surface_job_budget hands two cores to that pool and takes its bytes off the box beside them, so two workers is what the cycle hands the pool back. Left to itself the pool takes `-n auto`, which the root conftest.py answers for the font suite with the whole box — a pool sized as though nothing else were running, beside a build sized as though it were.
 MAKE_TEST_POOL_WORKERS = 2
 CONFORM_HORIZON_DEFAULT = 4
 DEEP_SWEEP_HORIZON_DEFAULT = 5
@@ -720,6 +725,7 @@ class Plan:
     record_greens: bool = False
     pool_policy: str = REBUILD_POOL_POLICY_DEFAULT
     surface_jobs: int = 1
+    surface_reason: str = ""
     sweep_jobs: int = 1
     kernel_threads: int = 1
     make_test_workers: int = 1
@@ -795,12 +801,55 @@ def sweep_job_budget(ncores: int | None = None) -> int:
     return max(1, min(len(ACCEPTANCE_CONFIGS), ncores or (os.cpu_count() or 1)))
 
 
-def surface_job_budget(*, skip_gates: bool, skip_make_test: bool = False, ncores: int | None = None) -> int:
-    """The --jobs budget for the review-surface build, the one stage whose fan-out is worth spending cores on: its peak RSS is the enriched universe it holds whole and barely moves with the width (measured 13.25 GB at ten jobs against 13.77 GB at two), so what bounds it is the box's cores, capped at SURFACE_JOBS_CAP where the build stops scaling. Under a gated cycle `make test`'s pytest pool is hot from t=0, so two cores are left to it; --skip-gates, the closure-unchanged auto-skip and deferral all give them back. gate:js runs from t=0 in every case, but it is a single node process, not a pool."""
-    n = ncores or (os.cpu_count() or 1)
+def _surface_fit_terms(*, skip_gates: bool, skip_make_test: bool, ncores: int | None) -> tuple[int, int, int]:
+    """The three arguments this width's arithmetic takes — the per-worker divisor, what comes off the box before the division, and the non-memory cap — derived once, so the width and the clause that explains it are two readings of one derivation rather than two derivations that happen to agree. `surface_job_budget` is `how_many_fit` over exactly this tuple and `surface_job_derivation` is `describe_fit` over it."""
+    from rebuild.tools import memory_budget
+
+    cores = ncores or memory_budget.usable_cores()
+    coresident = SURFACE_PARENT_BYTES
     if not (skip_gates or skip_make_test):
-        n -= 2
-    return max(1, min(n, SURFACE_JOBS_CAP))
+        cores -= 2
+        coresident += _font_suite_worker_bytes() * make_test_pool_width(ncores=ncores)
+    return SURFACE_WORKER_BYTES, coresident, min(cores, SURFACE_JOBS_CAP)
+
+
+def surface_job_budget(
+    *,
+    skip_gates: bool,
+    skip_make_test: bool = False,
+    ncores: int | None = None,
+    total_bytes: int | None = None,
+) -> int:
+    """The --jobs budget for the review-surface build, and the third memory-derived fan-out in this tree: the box less its reserve less what the build holds flat, divided by what one more worker costs, under a cap that is the box's cores and SURFACE_JOBS_CAP together. The two halves are separate constants because this build's flat half is as large as its divided half — SURFACE_PARENT_BYTES is the parent, which holds the whole workload, every projection and state, and every unit's fragment from the moment phase 2 starts returning, none of it released before manifest+check, and which is there at any width — so it is subtracted before the division exactly as gate:make-test's pool is, rather than smeared through a divisor. SURFACE_WORKER_BYTES is the divisor: a worker's own interpreter and shapers, a baseline subset table for every configuration its slice reaches, and the slice's own retained units and fragments. The same number also sizes the signature pool `_resolve_signature_digests` starts, whose workers are one comparator apiece and an order of magnitude cheaper, so the surface worker is the binding unit and the one this prices.
+
+    What the core clamp this replaces got wrong is worth writing down, because the evidence for it is still in the journal and still reads the same way. That argument was that the peak "barely moves with the width", from two `surface-build` step peaks — 13.25 GB at ten jobs against 13.77 GB at two. Both figures are true and neither is the build's footprint: `peak_rss.reap_peak_rss_bytes` maxes over a child's process tree instead of summing it, so a step peak is the widest single process under that step, and under this step that is the parent. A reading that can only ever see one process was flat in the width because the process it saw is flat in the width, and the pool beside it was never in the number at all. The 2026-08-27 full-fresh pass is where the gap became visible — 17.76 GB read at eight workers, against a per-term measurement of the same tree that put parent and workers together at roughly twice a 34 GB box — and this arithmetic is the shape those terms actually decompose into.
+
+    One approximation is left, and it is stated rather than hidden: a worker's slice-shaped piles shrink as the pool widens, so a divisor seeded at eight workers is too steep at the wide end and too shallow at the narrow one. What it gets right is the choice at both ends, because the flat cost is carried by the co-resident term rather than by the divisor — a box with room for eight answers eight, and a box the pooled shape does not fit at all floors at one, which is not a refusal but the serial shape: at width one there is no pool, every fragment exists once instead of twice, and the build is the cheapest it can be on a box that has outgrown it. The lever that buys the width back is streaming phase 2 into shards instead of materializing every fragment in the parent, which WHATNEXT records; it is priced in SURFACE_PARENT_BYTES rather than in a width, so taking it widens this fan-out on every box at once.
+
+    Under a gated cycle `make test`'s pytest pool is hot from t=0, so it comes off the box twice over: two cores out of the cap, as it always has, and FONT_SUITE_WORKER_BYTES apiece for as many workers as `make_test_pool_width` says it will have — the same figure the cycle hands that child, so what is reserved and what runs are one number by construction, the way `kernel_threads_budget` already does it. --skip-gates, the closure-unchanged auto-skip and deferral all give both back. gate:js runs from t=0 in every case, but it is a single node process, not a pool. `ncores` and `total_bytes` are keywords for the reason every budget here takes its box as one — an assertion about a machine the suite is not running on has to be a pure function over an invented one — and the cores come from `memory_budget.usable_cores()` rather than `os.cpu_count()`, so an affinity mask or a cgroup quota narrows this width the way it narrows every other one.
+    """
+    from rebuild.tools import memory_budget
+
+    per_unit, coresident, cap = _surface_fit_terms(
+        skip_gates=skip_gates, skip_make_test=skip_make_test, ncores=ncores
+    )
+    return memory_budget.how_many_fit(per_unit, coresident_bytes=coresident, cap=cap, total_bytes=total_bytes)
+
+
+def surface_job_derivation(
+    *,
+    skip_gates: bool,
+    skip_make_test: bool = False,
+    ncores: int | None = None,
+    total_bytes: int | None = None,
+) -> str:
+    """The same width said out loud, for the plan line and for the `--jobs` help — `memory_budget.describe_fit` over the terms `surface_job_budget` divides, so a reader surprised by a width can audit its derivation instead of trusting it."""
+    from rebuild.tools import memory_budget
+
+    per_unit, coresident, cap = _surface_fit_terms(
+        skip_gates=skip_gates, skip_make_test=skip_make_test, ncores=ncores
+    )
+    return memory_budget.describe_fit(per_unit, coresident_bytes=coresident, cap=cap, total_bytes=total_bytes)
 
 
 def build_plan(
@@ -854,14 +903,25 @@ def build_plan(
         )
 
     no_make_test = skip_gates or skip_make_test or "make-test" in deferred
+    surface_no_pool = skip_make_test or "make-test" in deferred
+    make_test_workers = make_test_pool_width(ncores=ncores)
     surface_jobs = surface_job_budget(
-        skip_gates=skip_gates,
-        skip_make_test=skip_make_test or "make-test" in deferred,
-        ncores=ncores,
+        skip_gates=skip_gates, skip_make_test=surface_no_pool, ncores=ncores, total_bytes=total_bytes
+    )
+    workers = f"{make_test_workers} worker" + ("" if make_test_workers == 1 else "s")
+    if skip_gates:
+        surface_head = "--skip-gates, so the surface build takes the whole box"
+    elif skip_make_test:
+        surface_head = "gate:make-test skipped, so the surface build takes the whole box"
+    elif "make-test" in deferred:
+        surface_head = "gate:make-test deferred, so the surface build takes the whole box"
+    else:
+        surface_head = f"gate:make-test's pytest pool held to {workers} — its cores reserved here and its bytes off the box beside the build's own parent"
+    surface_reason = f"{surface_head}; " + surface_job_derivation(
+        skip_gates=skip_gates, skip_make_test=surface_no_pool, ncores=ncores, total_bytes=total_bytes
     )
     sweep_jobs = sweep_job_budget(ncores)
     conform_jobs = sweep_jobs
-    make_test_workers = make_test_pool_width(ncores=ncores)
     kernel_threads = kernel_threads_budget(
         skip_make_test=no_make_test, ncores=ncores, total_bytes=total_bytes
     )
@@ -903,6 +963,7 @@ def build_plan(
         retention=do_retention,
         pool_policy=pool_policy,
         surface_jobs=surface_jobs,
+        surface_reason=surface_reason,
         sweep_jobs=sweep_jobs,
         kernel_threads=kernel_threads,
         make_test_workers=make_test_workers,
@@ -965,9 +1026,7 @@ def build_plan(
     if skip_surface:
         plan.steps.append(Step("surface-build", None, f"SKIPPED ({surface_note})", lane="build"))
     else:
-        surface_argv = ["uv", "run", "python", "-m", "rebuild.review.build"]
-        if surface_jobs > 1:
-            surface_argv += ["--jobs", str(surface_jobs)]
+        surface_argv = ["uv", "run", "python", "-m", "rebuild.review.build", "--jobs", str(surface_jobs)]
         if review_out is not None:
             surface_argv += ["--out", str(review_out)]
         if fresh:
@@ -1215,7 +1274,7 @@ def _render_concurrency(plan: Plan) -> list[str]:
         return [
             "",
             "  Concurrency (--skip-gates):",
-            f"    Lane build only; no gates; run_m1 sweeps --jobs {plan.sweep_jobs} at --kernel-threads {plan.kernel_threads}, surface-build --jobs {plan.surface_jobs}",
+            f"    Lane build only; no gates; run_m1 sweeps --jobs {plan.sweep_jobs} at --kernel-threads {plan.kernel_threads}, surface-build --jobs {plan.surface_jobs} ({plan.surface_reason})",
         ]
     defer_contracts = "rebuild-contracts" in plan.deferred
     defer_validators = "rebuild-validators" in plan.deferred
@@ -1296,12 +1355,6 @@ def _render_concurrency(plan: Plan) -> list[str]:
         else:
             lines.append("                                       no other heavy pool running, so no queueing")
     workers = f"{plan.make_test_workers} worker" + ("" if plan.make_test_workers == 1 else "s")
-    if plan.skip_make_test:
-        surface_reason = "gate:make-test skipped, so the surface build takes the whole box"
-    elif defer_make_test:
-        surface_reason = "gate:make-test deferred, so the surface build takes the whole box"
-    else:
-        surface_reason = f"gate:make-test's pytest pool held to {workers} — its cores reserved here, its bytes in --kernel-threads"
     if no_make_test:
         kernel_reason = "the table build's memory ceiling, the one width RAM binds"
     else:
@@ -1310,7 +1363,7 @@ def _render_concurrency(plan: Plan) -> list[str]:
         f"    run_m1 sweeps --jobs             : {plan.sweep_jobs}  (one process per acceptance configuration)"
     )
     lines.append(f"    run_m1 --kernel-threads          : {plan.kernel_threads}  ({kernel_reason})")
-    lines.append(f"    surface-build --jobs             : {plan.surface_jobs}  ({surface_reason})")
+    lines.append(f"    surface-build --jobs             : {plan.surface_jobs}  ({plan.surface_reason})")
     pending = ["gate:" + name for name in sorted(plan.deferred)]
     if pending:
         lines.append(f"    deferred to the next pass        : {', '.join(pending)}")
@@ -1811,7 +1864,7 @@ def _do_job_costs(
 
     Nothing here gates, and that is deliberate rather than an oversight: a divisor that has gone stale makes a pool the wrong width, which costs wall time or swap, but it cannot make an artifact wrong — so it must never red a pass whose artifacts are green. The loudness is the summary line and `job_costs_ok`, and the acceptance is a human's commit of the re-seeded constant, exactly as the census pins are accepted by committing their diff. A tool that cannot run at all is reported as informational too: a broken check is the check's problem, and the cycle has nothing to say about the constants either way.
 
-    The diff is conditional where the census's is unconditional, because the two files are nothing alike. rebuild/review-census-pins.json exists only to hold the census, so its whole diff is the acceptance and printing it every pass costs a reader nothing. The three files that hold these constants hold a great deal besides them, so an unconditional diff would print unrelated work on every pass and train a reader to skip the one pass where it mattered. When the check trips it answers the single question worth asking then: has the constant already been re-seeded in this working tree, so the commit in hand is already the acceptance?
+    The diff is conditional where the census's is unconditional, because the two files are nothing alike. rebuild/review-census-pins.json exists only to hold the census, so its whole diff is the acceptance and printing it every pass costs a reader nothing. The four files that hold these constants hold a great deal besides them, so an unconditional diff would print unrelated work on every pass and train a reader to skip the one pass where it mattered. When the check trips it answers the single question worth asking then: has the constant already been re-seeded in this working tree, so the commit in hand is already the acceptance?
     """
     check = spawn("job-costs", plan.argv("job-costs"), emit=emit, registry=registry, stream=False)
     _dump_captured(emit, check)
@@ -1825,7 +1878,15 @@ def _do_job_costs(
         return
     diff = spawn(
         "job-costs-diff",
-        ["git", "diff", "--", "conftest.py", "rebuild/conftest.py", "rebuild/pipeline/kernel_exec.py"],
+        [
+            "git",
+            "diff",
+            "--",
+            "conftest.py",
+            "rebuild/conftest.py",
+            "rebuild/pipeline/kernel_exec.py",
+            "rebuild/tools/artifact_cycle.py",
+        ],
         emit=emit,
         registry=registry,
         stream=False,
