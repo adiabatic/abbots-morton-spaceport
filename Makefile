@@ -1,4 +1,4 @@
-.PHONY: all test test-rebuild test-rebuild-slow test-slowly test-leaks leak-snapshot typecheck print-job serve explainer check-html-before check-html-after build-kerning-hardcases review test-and-review review-build review-serve review-cycle artifact-cycle verdict-ready cycle-timings complaint-docket novelty-order kernel-build kernel-check kernel-parity kernel-gate conform-deep prettier woff2 clean
+.PHONY: all test test-rebuild test-rebuild-slow test-slowly test-leaks leak-snapshot typecheck print-job serve explainer check-html-before check-html-after build-kerning-hardcases review test-and-review review-build review-serve review-cycle artifact-cycle verdict-ready cycle-timings job-costs complaint-docket novelty-order kernel-build kernel-check kernel-parity kernel-gate conform-deep prettier woff2 clean
 
 all:
 	uv run python tools/build_font.py glyph_data/ site/
@@ -113,6 +113,10 @@ verdict-ready:
 # Answer "what is the cycle spending its time on, on this machine?": every artifact cycle appends per-step wall times and peak RSS (host-tagged, with each child's inner [t] phase lines) to rebuild/out/cycle-timings.ndjson — append-only, gitignored with the rest of rebuild/out, never pruned by retention, so each machine accumulates its own history. Default view: recent runs, steps slowest-first. ARGS='--by-step' aggregates count/median/max/latest seconds plus max recorded RSS per step and host; ARGS='--inner' expands the phase lines; ARGS='--journal <path>' reads a concatenation of journals from several machines.
 cycle-timings:
 	uv run python -m rebuild.tools.cycle_timings $(ARGS)
+
+# Answer "are the checked-in per-worker peaks still true on this box?": several widths in this tree are the box divided by a measured per-unit peak — FONT_SUITE_WORKER_BYTES and HEAVIEST_WORKER_BYTES in conftest.py, VALIDATORS_WORKER_BYTES in rebuild/conftest.py, CONFIG_PEAK_BYTES in rebuild/pipeline/kernel_exec.py — and a peak that moved makes every width derived from it wrong without anything going red. This reads the cycle-timings journal (the pool records each xdist controller appends, plus the per-step peaks the cycle already stamps), filters to this host, and prints per unit the checked-in constant beside what was actually measured and the width each implies here. ARGS='--check' exits nonzero when an observed peak outruns its constant; re-seeding that constant and committing it is the acceptance, exactly as rebuild/review-census-pins.json is the acceptance for the census. The artifact cycle runs the --check form every pass. ARGS='--host all' surveys every machine in the journal; ARGS='--recent 0' drops the recency bound.
+job-costs:
+	uv run python -m rebuild.tools.calibrate_budgets $(ARGS)
 
 # Cluster the open complaints (reject/neither verdicts) by the rune records that decided them, with park candidates for the still-blank lookalikes; writes tmp/complaints-data.json. Reads the live autosave unless ARGS names a verdicts file; ARGS='--park g-XXXXXXXX' emits a verdicts-park-*.json for the app's Import dialog.
 complaint-docket:
