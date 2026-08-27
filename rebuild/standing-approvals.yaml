@@ -409,3 +409,15 @@ rules:
         pivots: [qsTea.full]
         gained: [[0, 0], [0, 1], [0, 2], [0, 3], [0, 4]]
       except_left: []
+  - id: key-exit-contracted
+    verdict: approve
+    note: "·May, ·No and ·It sit a pixel closer to ·Key — the extra pixel of exit the old font drew came off as a contraction on ·Key’s contract record, authored as “Contract by a pixel between ·Key·{May,No,It}”, and every window that reached a sitting approved the shorter reach"
+    match:
+      before:
+        pivots: [qsKey]
+      after:
+        pivots: [qsKey.hapax.ex-y0.ex-con-1, qsKey.hapax.en-y8.ex-y0.ex-con-1]
+        dropped: [[3, 0]]
+        added: []
+        shift: -1
+      except_left: []
