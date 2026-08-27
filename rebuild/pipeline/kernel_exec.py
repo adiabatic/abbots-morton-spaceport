@@ -249,7 +249,7 @@ def enumerate_configs(
 ) -> dict[str, Path]:
     """Every named configuration's transition stream, enumerated by one kernel process into `out_dir` and returned as `{config: path}`. The files are plain ndjson — the compression the artifacts wear is Python's job, since the crate carries serde_json and nothing else — and which file holds which configuration is the caller's own token, because the crate refuses a token that is not the canonical spelling of the features it names. Raises `KernelRunError` for every shape of refusal the CLI contract distinguishes, and for a run that exits clean having left a stream unwritten.
 
-    `timings_tag` names the configuration a whole invocation stands for, and is what a caller running one process per configuration passes: the crate labels its per-configuration lines `enumerate[<config>]` already, but `spec_parse` and `enumerate_total` name the process rather than any configuration, and six processes' worth of those would be six unattributable pairs in the cycle journal. Tagged, they read `spec_parse[<config>]`.
+    `timings_tag` names the configuration a whole invocation stands for, and is what a caller running one process per configuration passes: the crate labels its per-configuration lines `enumerate[<config>]` already, but `spec_parse` and `enumerate_total` name the process rather than any configuration, and a fan-out of one process per acceptance configuration would leave an unattributable pair per configuration in the cycle journal. Tagged, they read `spec_parse[<config>]`.
     """
     arguments = [
         str(BINARY),

@@ -2,7 +2,7 @@
 
 Compiles the Swift harness once per session (swiftc -O), shapes the curated M1 sequence set (rebuild/pipeline/smoke_sequences_m1.txt) through CoreText via the binary and through uharfbuzz directly, and diffs GID-for-GID and position-for-position. CoreText reports cumulative pen positions in points at 100 pt; positions are compared after converting to font units (× upem / 100, rounded). Glyph names come from fontTools, never HarfBuzz's truncating API. ZWNJ slots are never compared by GID — only by the structural contract (zero advance on both sides, no ink).
 
-Every sequence runs under each of the eight acceptance configurations.
+Every sequence runs under each of the acceptance configurations FEATURE_CONFIGURATIONS lists.
 
 Run as: uv run python -m rebuild.pipeline.coretext_smoke --font rebuild/out/m1/M1.otf
 """

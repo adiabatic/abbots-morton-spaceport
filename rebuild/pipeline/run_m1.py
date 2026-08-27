@@ -513,7 +513,7 @@ def run_oracle(
     write_cache: bool = True,
     fresh_cache: bool = False,
 ) -> dict:
-    """The section 6 oracle over the subset tables, six configurations wide, with the row cache read before the first row and written after the last.
+    """The section 6 oracle over the subset tables, one worker per `conform.ACCEPTANCE_CONFIGS` entry when `jobs` allows, with the row cache read before the first row and written after the last.
 
     The cache's keys are cut once here, from the same read of the rune tree that produced this `spec`, and handed to the workers — and then cut a second time at promotion, where a store is written only if neither the stamp nor a single family key moved while the run held them. That second cut is the point: `fingerprint.rune_digests` reads the rune files off disk, a full run takes minutes, and the house style is to detach a long run and keep editing — so a rune touched mid-run would otherwise be recorded under a digest the verdicts on disk were never built from, and the next pass would serve pre-edit verdicts as fresh, green, forever. `_settle_green`'s recompute-before-recording and `artifact_cycle`'s green keys are the same discipline for the same reason.
 

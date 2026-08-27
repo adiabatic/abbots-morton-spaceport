@@ -1,4 +1,4 @@
-"""Time gate:conform's six-config sweep at a given --conform-horizon, against an isolated, self-consistent (spec, tables, M1.otf) triple.
+"""Time gate:conform's sweep over every `conform.ACCEPTANCE_CONFIGS` entry at a given --conform-horizon, against an isolated, self-consistent (spec, tables, M1.otf) triple.
 
 Faithful to run_m1.run_font_conformance: the same `conform.conformance_config_worker` per config in a spawn pool, the same glyph inventory minted from the serialized window enumeration, the same structural checks riding along on every boundary-bearing text. One deliberate difference, reported: the out dir is a scratch copy, so nothing in rebuild/out is read as input or written.
 

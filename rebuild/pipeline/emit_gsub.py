@@ -536,7 +536,7 @@ def fold_settle_rules(spec: ResolvedSpec, tables_by_config: Mapping) -> tuple[Se
 
 
 def _assert_fold_sources(rules: Iterable, tables_by_config: Mapping) -> None:
-    """The fold's accounting, held at build time rather than re-derived by a test afterwards: every emitted row names at least one table rule it folded from, every table rule of every configuration handed in sources exactly one row, and the configurations the rows name are exactly the ones with rules to contribute (which is what the record beside the build writes down as its `configs`). Together that is what makes the shipped lookup — not the six tables behind it — the unit coverage is counted over: a row with no source could ship unwitnessed, and a rule that sourced no row would be a table rule the font never got."""
+    """The fold's accounting, held at build time rather than re-derived by a test afterwards: every emitted row names at least one table rule it folded from, every table rule of every configuration handed in sources exactly one row, and the configurations the rows name are exactly the ones with rules to contribute (which is what the record beside the build writes down as its `configs`). Together that is what makes the shipped lookup — not the per-configuration tables behind it — the unit coverage is counted over: a row with no source could ship unwitnessed, and a rule that sourced no row would be a table rule the font never got."""
     rules = list(rules)
     unsourced = [rule for rule in rules if not getattr(rule, "sources", ())]
     if unsourced:

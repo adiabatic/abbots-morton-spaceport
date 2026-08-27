@@ -277,7 +277,7 @@ class _FinishedFuture:
 
 
 class _InlinePool:
-    """A stand-in for the spawn pool that runs each worker where it was submitted, so the oracle's fan-in can be exercised without six processes and without a build to sweep."""
+    """A stand-in for the spawn pool that runs each worker where it was submitted, so the oracle's fan-in can be exercised without a process per acceptance configuration and without a build to sweep."""
 
     def __enter__(self):
         return self

@@ -147,7 +147,7 @@ class TestTheValidatorsLaneWidth:
     """The second width this policy decides, checked over invented boxes the way the first one is. Both bounds get an assertion, because which of them binds is the whole design: the cap is what holds a short lane narrow on a box with room to spare, and the divisor is what protects the box that has none."""
 
     def test_the_lane_cap_binds_where_the_box_has_room_to_spare(self):
-        """A 64 GB box fits seven of these workers and is given four, because the argument against the other three is not memory at all — it is a lane short enough that per-worker interpreter and collection cost shows, whose tail four slots already drain."""
+        """A 64 GB box has room for more of these workers than the lane is ever given, and `VALIDATORS_LANE_CAP` is what holds it there, because the argument against the rest is not memory at all — it is a lane short enough that per-worker interpreter and collection cost shows, and whose tail the cap's own slots already drain."""
         assert _validators_workers(total_bytes=BOX_64_GB, cores=12) == VALIDATORS_LANE_CAP
 
     @pytest.mark.parametrize("total", SPELLINGS_OF_32_GB)
@@ -156,7 +156,7 @@ class TestTheValidatorsLaneWidth:
         assert _validators_workers(total_bytes=total, cores=12) == 3
 
     def test_a_box_with_fewer_cores_than_the_cap_gets_its_cores(self):
-        """The cap and the core count sit in one `min()` because neither is a memory fact: a two-core box, or a container with a two-core CPU quota, starts two workers rather than four idle ones."""
+        """The cap and the core count sit in one `min()` because neither is a memory fact: a two-core box, or a container with a two-core CPU quota, starts two workers rather than `VALIDATORS_LANE_CAP`'s worth of idle ones."""
         assert _validators_workers(total_bytes=BOX_64_GB, cores=2) == 2
 
 

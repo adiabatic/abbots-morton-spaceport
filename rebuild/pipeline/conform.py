@@ -1188,7 +1188,7 @@ WITNESS_ROW_CAP = 32
 def _first_match_rows(decision) -> dict[int, list]:
     """Group the table's transitions by the rule index that first-matches each window, replaying the same first-match-wins semantics assert_outcome_partition proves — the static answer to 'which windows would make rule N fire?'. A deep slot holding a class token is tested through its representative member, exact by the build's union-of-fibers assertion.
 
-    At most `WITNESS_ROW_CAP` rows are kept per rule, because the witness search only ever reads the ten shortest candidates any of them yields and a popular rule first-matches tens of thousands of windows — assembling candidates for all of them was the whole cost of the gate. The bound is on the search, not on the verdict: a rule whose only realizable window sat past the cap would be reported unwitnessed, a false alarm and never a false pass.
+    At most `WITNESS_ROW_CAP` rows are kept per rule, because the witness search only ever reads the shortest candidates any of them yields, as many as `_candidate_witness_tokens`'s own `limit` keeps, and a popular rule first-matches tens of thousands of windows — assembling candidates for all of them was the whole cost of the gate. The bound is on the search, not on the verdict: a rule whose only realizable window sat past the cap would be reported unwitnessed, a false alarm and never a false pass.
     """
     rules_by_input: dict[str, list[tuple[int, Rule]]] = {}
     for index, rule in enumerate(decision.rules):
@@ -1879,7 +1879,7 @@ def discard_oracle_audit_scratch(out_dir: Path) -> None:
 
 @dataclass
 class OracleConfigResult:
-    """One configuration's oracle tally, which travels home from `oracle_config_worker` down a process pipe. The unmatched rows ride as a count plus the first `ORACLE_UNMATCHED_EXEMPLARS` of them rather than as the whole list: `oracle_summary.json` reads a length and quotes twenty exemplars, so pickling every unmatched `DivergentRow` back to the parent spent an audit's worth of objects on a number. Nothing is lost by the cap — the worker has already written every unmatched row to its own audit shard, one line each, and `divergence-audit.tsv` is where they are read."""
+    """One configuration's oracle tally, which travels home from `oracle_config_worker` down a process pipe. The unmatched rows ride as a count plus the first `ORACLE_UNMATCHED_EXEMPLARS` of them rather than as the whole list: `oracle_summary.json` reads a length and quotes that many exemplars, so pickling every unmatched `DivergentRow` back to the parent spent an audit's worth of objects on a number. Nothing is lost by the cap — the worker has already written every unmatched row to its own audit shard, one line each, and `divergence-audit.tsv` is where they are read."""
 
     config: str
     rows_compared: int = 0
@@ -1895,7 +1895,7 @@ class OracleConfigResult:
 
 @dataclass(frozen=True)
 class OracleRowCache:
-    """What one oracle run hands its six configurations so each can read the previous pass's row verdicts and stage this pass's. The stamps and the family keys are cut once in the parent, before the first row is compared, and travel down the pool pipe: a worker that re-digested the rune tree for itself would be reading files the run has already been holding for minutes, which is the very race `run_oracle` re-checks at promotion. `read_dir` is where a promoted store lives and `write_dir` where a fresh one is staged; either may be absent on its own, and a pass that may read but not write (`--gates-only`, which recompiled nothing and so may not write a build input) simply leaves `write_dir` None. Such a pass also carries a nonzero `rotation`, because everything that keeps a record from laundering itself advances on the pass ordinal and the ordinal advances only when a store is written — see `oracle_cache.RowStore`."""
+    """What one oracle run hands each of its configurations — `ACCEPTANCE_CONFIGS`, unless the caller narrows them — so each can read the previous pass's row verdicts and stage this pass's. The stamps and the family keys are cut once in the parent, before the first row is compared, and travel down the pool pipe: a worker that re-digested the rune tree for itself would be reading files the run has already been holding for minutes, which is the very race `run_oracle` re-checks at promotion. `read_dir` is where a promoted store lives and `write_dir` where a fresh one is staged; either may be absent on its own, and a pass that may read but not write (`--gates-only`, which recompiled nothing and so may not write a build input) simply leaves `write_dir` None. Such a pass also carries a nonzero `rotation`, because everything that keeps a record from laundering itself advances on the pass ordinal and the ordinal advances only when a store is written — see `oracle_cache.RowStore`."""
 
     environment: Mapping[str, oracle_cache.EnvironmentStamp]
     family_keys: Mapping[str, str]

@@ -39,7 +39,7 @@ test-rebuild:
 test-rebuild-slow:
 	uv run pytest rebuild/ -m slow -n 2 --dist worksteal
 
-# Run the test suite on efficiency cores only
+# Run the test suite on efficiency cores only, leaving the performance cores to whatever else the box is doing. The width is the running box's efficiency-core count rather than the answer `-n auto` derives, and the reason is scheduling rather than footprint: `taskpolicy -b` puts the whole process tree at background priority, which confines it to the efficiency cores, so anything wider would only oversubscribe the cores this run is allowed on. Don't re-derive it from a memory budget — the font suite's per-worker peak was never what binds here, and `-n auto` would answer with every core the process may run on, a set that on Darwin cannot see the confinement taskpolicy has just imposed.
 test-slowly:
 	AMS_RUN_PYRIGHT=1 taskpolicy -b uv run pytest test/ site/ -n $$(sysctl -n hw.perflevel1.logicalcpu) --dist worksteal
 
@@ -54,6 +54,7 @@ leak-snapshot: all
 review:
 	uv run python tools/review_scoped_anchor_selectors.py --output site/scoped-anchor-review/index.html
 
+# Both halves at once, and `-j2` is exactly that: the width is the number of targets on the line rather than anything the box decides, so it neither grows with the cores nor wants a memory budget. Each half sizes its own parallelism from inside — `make test` through the pool the root conftest's `-n auto` hook answers for, the review tool through its `--jobs`.
 test-and-review:
 	@$(MAKE) -j2 test review
 

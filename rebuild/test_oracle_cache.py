@@ -170,7 +170,7 @@ def test_the_stamp_moves_with_each_spec_global_route(route, repo, monkeypatch):
 
 
 def test_the_stamp_carries_the_configuration_and_its_features(repo):
-    """The six stores are written side by side under one run's keys, so nothing but these two lines keeps a configuration's records from being served to another. Both are here rather than left to the subset digest, which would be the only other thing separating them and which is a property of a file the run does not control."""
+    """The stores — one per acceptance configuration — are written side by side under one run's keys, so nothing but these two lines keeps a configuration's records from being served to another. Both are here rather than left to the subset digest, which would be the only other thing separating them and which is a property of a file the run does not control."""
     spec = fixtures.mini_spec()
     stamps = {config: _stamp(repo, spec, config) for config in conform.ACCEPTANCE_CONFIGS}
     assert len({stamp.value for stamp in stamps.values()}) == len(conform.ACCEPTANCE_CONFIGS)
