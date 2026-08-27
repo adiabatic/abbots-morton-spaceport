@@ -169,6 +169,16 @@ def test_a_stale_record_format_never_matches(green_store, monkeypatch):
     assert record["fingerprint"] == "c-1"
 
 
+def test_each_lane_names_its_own_pool_without_leaking_into_the_next(green_store, monkeypatch):
+    """Each lane's controller files its per-worker peaks under that lane's name, which only holds while the unit rides a per-lane copy of the environment: written into the shared dict instead, lane one's name would still be there when lane two spawned and the validators pool would be recorded as contracts."""
+    _fingerprints(monkeypatch, {"contracts": ["c-1"] * 2, "validators": ["v-1"] * 2})
+    spawned = _suite_stub(monkeypatch, {"contracts": (0, ""), "validators": (0, "")})
+    assert rg.main([]) == 0
+    assert _lanes(spawned) == ["contracts", "validators"]
+    assert spawned[0][2][rg.POOL_UNIT_ENV] == "rebuild-contracts"
+    assert spawned[1][2][rg.POOL_UNIT_ENV] == "rebuild-validators"
+
+
 def test_pyright_runs_in_the_first_spawned_lane_only(green_store, monkeypatch):
     """Pyright checks the whole tree from pyproject's include list, so its answer cannot change between two invocations of one working tree — the flag rides into whichever lane spawns first and is stripped from every lane after it."""
     monkeypatch.setenv(rg.PYRIGHT_ENV, "1")

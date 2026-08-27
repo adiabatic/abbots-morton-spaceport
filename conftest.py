@@ -110,20 +110,29 @@ def pytest_testnodedown(node, error) -> None:
 def pytest_terminal_summary(terminalreporter, exitstatus, config: pytest.Config) -> None:
     if hasattr(config, "workerinput"):
         return
+    from rebuild.tools.cycle_timings import POOL_UNIT_ENV, gateway_order, record_pool
     from rebuild.tools.peak_rss import format_gb, peak_rss_self_bytes
 
-    def _worker_order(item: tuple[str, int]) -> tuple[int, str]:
-        digits = "".join(ch for ch in item[0] if ch.isdigit())
-        return (int(digits) if digits else -1, item[0])
-
-    line = f"peak RSS (GB): controller {format_gb(peak_rss_self_bytes())}"
+    controller_peak = peak_rss_self_bytes()
+    line = f"peak RSS (GB): controller {format_gb(controller_peak)}"
     if _worker_peak_rss:
         workers = ", ".join(
             f"{ident} {format_gb(peak)}"
-            for ident, peak in sorted(_worker_peak_rss.items(), key=_worker_order)
+            for ident, peak in sorted(_worker_peak_rss.items(), key=gateway_order)
         )
         line += f"; workers {workers}"
     terminalreporter.write_line(line)
+
+    # The line above is for whoever is watching this one run finish; the record below keeps the same measurement so it can be read against a checked-in constant later. Several widths in this tree are the box divided by a per-worker peak that was measured once and then written down — FONT_SUITE_WORKER_BYTES and HEAVIEST_WORKER_BYTES above, VALIDATORS_WORKER_BYTES in rebuild/conftest.py — and until this record existed a memory-saver that moved one of those peaks left the constant quietly stale, with a box in swap as the first symptom rather than anything red. A pool only names itself when a caller told it what it is a pool of, so an unlabeled `uv run pytest` writes nothing. The width comes from the resolved numprocesses rather than from len(_worker_peak_rss): xdist resolves "auto" through the hook above during pytest_cmdline_main, long before this point, so the option holds the width the pool actually ran at, while the peaks dict is only the reporting width and is short by one whenever a node dies without handing back its workeroutput. cycle_timings is imported inside the hook rather than at module scope for the reason the hook above reaches memory_budget that way: this file is loaded by every pytest run in the repo and by things that are not pytest at all, while only a controller ever reaches this line, every worker having returned at the top of the hook. The same import supplies the sort the printed line above uses, so the workers a human just read and the workers the record keeps are ordered by one key rather than by two copies of it that can drift. The variable is only ever read here and is only ever set on a child's own environment dict, never on os.environ, so a nested pytest cannot inherit a stale unit name and file its pool under somebody else's.
+    unit = os.environ.get(POOL_UNIT_ENV, "").strip()
+    width = getattr(config.option, "numprocesses", None)
+    if unit and _worker_peak_rss and isinstance(width, int) and width >= 1:
+        record_pool(
+            unit,
+            width=width,
+            worker_peaks=dict(_worker_peak_rss),
+            controller_peak_bytes=controller_peak,
+        )
 
 
 def _ensure_shaping_cache() -> dict[str, Any]:
