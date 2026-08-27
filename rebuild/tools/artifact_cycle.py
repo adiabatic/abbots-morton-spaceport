@@ -1,6 +1,8 @@
 """The one-command driver for the commit-time artifact cycle.
 
-It mechanizes the commit-time sequence: snapshot the current review surface (the only recovery copy, since everything under rebuild/out is gitignored), recompile M1.otf and vet it, rebuild the review surface in place, run the verdict plumbing over it, refresh the census pins from the surface's census sidecar and print their git diff (the checked-in pins are the last accepted census, so reviewing that diff at commit time is what accepts a new one), and run the five gates — always printing a summary table at the end, even on failure.
+It mechanizes the commit-time sequence: snapshot the current review surface (the only recovery copy, since everything under rebuild/out is gitignored), recompile M1.otf and vet it, rebuild the review surface in place, run the verdict plumbing over it, refresh the census pins from the surface's census sidecar and print their git diff (the checked-in pins are the last accepted census, so reviewing that diff at commit time is what accepts a new one), run the five gates, and — once they have joined and their pytest controllers have stamped this pass's own per-worker peaks into the timings journal — hold the checked-in per-unit peaks against what this box actually measured (rebuild.tools.calibrate_budgets --check). Always printing a summary table at the end, even on failure.
+
+That last step gates nothing, by the same argument the census pins are not a gate: a divisor that has gone stale makes a pool the wrong width, which is a cost rather than a defect, so it is reported loudly and never fails a pass whose artifacts are green. Committing the re-seeded constant is the acceptance, and when the check trips the driver diffs the three files that hold those constants so a working tree where one has already moved says so.
 
 The plumbing is one step and one child process, rebuild.tools.verdict_chain: carry prior verdicts forward onto the fresh manifest, merge the carried file into the live autosave (so the app needs no manual import; --no-merge opts out), land echo-prefill verdicts for the blanks in unanimously-judged echo groups, land standing-approval verdicts matching the checked-in rules in rebuild/standing-approvals.yaml, merge each fill as it lands, run the echo pass again to witness that the cascade has closed, and cluster the open complaints. It was seven children until each of them separately parsed 1.9 GB of unit shards to reach a few slim fields per unit; they read the build's per-unit index sidecar now, and one process holds one copy of it for the whole chain. The chain prints a `[chain] <step>` banner around each step and a `[t] <step>` line after it, so the summary below and the cycle-timings journal still read a line per step.
 
@@ -1113,6 +1115,14 @@ def build_plan(
         else:
             plan.steps.append(Step("gate:make-test", ["make", "test"], lane="t0"))
 
+    plan.steps.append(
+        Step(
+            "job-costs",
+            ["uv", "run", "python", "-m", "rebuild.tools.calibrate_budgets", "--check"],
+            "the checked-in per-unit peaks against what this box measured, once the gates have joined and this pass's own pool records are in the journal — a file read; committing a re-seeded constant is the acceptance, exactly as the census pins work",
+        )
+    )
+
     if do_retention:
         plan.steps.append(
             Step(
@@ -1356,6 +1366,8 @@ class CycleReport:
     standing_merge_lines: list[str] = field(default_factory=list)
     plumbing_fixpoint: bool = False
     census_status: str = "not run"
+    job_costs_status: str = "not run"
+    job_costs_ok: bool | None = None
     complaints_status: str = "not run"
     complaints_ok: bool | None = None
     gate_js: str = "not run"
@@ -1791,6 +1803,43 @@ def _do_census(report: CycleReport, *, spawn, emit: _Emitter, registry: _ChildRe
         report.census_status = "updated (matches the last accepted census)"
 
 
+def _do_job_costs(
+    report: CycleReport, *, spawn, emit: _Emitter, registry: _ChildRegistry, plan: Plan
+) -> None:
+    """Hold the checked-in per-unit peaks against what this box has actually measured. Several widths in this tree are the box divided by one of those constants, and the constants are only ever as true as the last measurement anybody compared them to — so the cycle compares them, on a journal this pass's own pools have just appended to, which is why the step sits after the gate join rather than beside the census.
+
+    Nothing here gates, and that is deliberate rather than an oversight: a divisor that has gone stale makes a pool the wrong width, which costs wall time or swap, but it cannot make an artifact wrong — so it must never red a pass whose artifacts are green. The loudness is the summary line and `job_costs_ok`, and the acceptance is a human's commit of the re-seeded constant, exactly as the census pins are accepted by committing their diff. A tool that cannot run at all is reported as informational too: a broken check is the check's problem, and the cycle has nothing to say about the constants either way.
+
+    The diff is conditional where the census's is unconditional, because the two files are nothing alike. rebuild/review-census-pins.json exists only to hold the census, so its whole diff is the acceptance and printing it every pass costs a reader nothing. The three files that hold these constants hold a great deal besides them, so an unconditional diff would print unrelated work on every pass and train a reader to skip the one pass where it mattered. When the check trips it answers the single question worth asking then: has the constant already been re-seeded in this working tree, so the commit in hand is already the acceptance?
+    """
+    check = spawn("job-costs", plan.argv("job-costs"), emit=emit, registry=registry, stream=False)
+    _dump_captured(emit, check)
+    if check.returncode == 0:
+        report.job_costs_status = "checked (every measured unit's peak fits its checked-in constant)"
+        report.job_costs_ok = True
+        return
+    if check.returncode != 1:
+        report.job_costs_status = f"check FAILED (exit {check.returncode}) — informational"
+        report.job_costs_ok = None
+        return
+    diff = spawn(
+        "job-costs-diff",
+        ["git", "diff", "--", "conftest.py", "rebuild/conftest.py", "rebuild/pipeline/kernel_exec.py"],
+        emit=emit,
+        registry=registry,
+        stream=False,
+    )
+    _dump_captured(emit, diff)
+    status = (
+        "OVERRUN (a measured peak outruns its checked-in constant — see above; re-seed the constant and "
+        "commit it, and that commit is the acceptance)"
+    )
+    if diff.stdout.strip():
+        status += " — a constant has already moved in the working tree"
+    report.job_costs_status = status
+    report.job_costs_ok = False
+
+
 def _skip_plumbing(report: CycleReport, plan: Plan, emit: _Emitter) -> None:
     """The verdict plumbing's skip path. Nothing ran, so the summary says so for every step of the chain — and the carried file the recorded pass wrote is still the stamp-aligned frontier (the surface it was carried onto has not moved), so the report keeps naming it rather than reading as a pass with no carry at all."""
     emit.emit(f"\nverdict plumbing: SKIPPED — {plan.plumbing_note}.")
@@ -2120,7 +2169,7 @@ def _run_cycle(
                 plan.pool_policy,
                 conform_fut,
                 make_fut,
-                spawn,
+                _spawn_with_env(spawn, {"AMS_POOL_UNIT": "rebuild-contracts"}),
                 emit,
                 registry,
                 plan.argv("gate:rebuild-contracts"),
@@ -2134,7 +2183,7 @@ def _run_cycle(
                 conform_fut,
                 contracts_fut,
                 make_fut,
-                spawn,
+                _spawn_with_env(spawn, {"AMS_POOL_UNIT": "rebuild-validators"}),
                 emit,
                 registry,
                 plan.argv("gate:rebuild-validators"),
@@ -2159,6 +2208,7 @@ def _run_cycle(
 
         _join_gates(report, failures, js_fut, contracts_fut, validators_fut, conform_fut, make_fut, emit)
         _record_gate_greens(report, plan, gate_keys, emit)
+        _do_job_costs(report, spawn=spawn, emit=emit, registry=registry, plan=plan)
         return _finish(report, failures, plan, timings)
     except KeyboardInterrupt:
         registry.terminate_all()
@@ -2211,6 +2261,7 @@ def _print_summary(report: CycleReport) -> None:
     for line in report.standing_merge_lines:
         print(f"      {line}")
     print(f"  census pins             : {report.census_status}")
+    print(f"  job costs               : {report.job_costs_status}")
     print(f"  complaint groups        : {report.complaints_status}")
     print(f"  gate: JS suite          : {report.gate_js}")
     print(f"  gate: rebuild contracts : {report.gate_contracts}")
@@ -2316,6 +2367,8 @@ def cycle_summary_payload(report: CycleReport, failures: list[str], plan: Plan, 
         "standing_merge_status": report.standing_merge_status,
         "standing_merge_lines": list(report.standing_merge_lines),
         "census_status": report.census_status,
+        "job_costs_status": report.job_costs_status,
+        "job_costs_ok": report.job_costs_ok,
         "complaints_status": report.complaints_status,
         "snapshot_dir": _as_str(report.snapshot_dir),
         "interrupted": report.interrupted,
