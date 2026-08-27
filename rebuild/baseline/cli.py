@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 from . import extract
+from .extract import SHARD_WORKERS_DEFAULT
 from .model import CONFIGS, DEFAULT_OUT_DIR
 
 
@@ -30,7 +31,12 @@ def main(argv: list[str] | None = None) -> None:
     extract_parser.add_argument("--config", choices=list(CONFIGS))
     extract_parser.add_argument("--all", action="store_true")
     _add_out(extract_parser)
-    extract_parser.add_argument("--workers", type=int, default=10)
+    extract_parser.add_argument(
+        "--workers",
+        type=int,
+        default=SHARD_WORKERS_DEFAULT,
+        help="how many shard workers to fan out to; the default is the cores this process may actually run on (%(default)s here), and the extracted bytes are identical at every width",
+    )
     subset_group = extract_parser.add_mutually_exclusive_group()
     subset_group.add_argument(
         "--limit", type=int, help="smoke run: only the first N basis strings in canonical order"
