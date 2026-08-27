@@ -2373,6 +2373,9 @@ def main(argv: list[str] | None = None) -> None:
         print(f"Wrote {args.to}", file=sys.stderr)
         return
 
+    from rebuild.tools.artifact_cycle import surface_job_budget
+
+    surface_jobs = surface_job_budget(skip_gates=True)
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--mode", choices=("m1-audit", "table-diff"), default="m1-audit")
     parser.add_argument("--out", type=Path, default=DEFAULT_OUT)
@@ -2383,7 +2386,10 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--after-font", type=Path, default=M1_AFTER_FONT)
     parser.add_argument("--junior-font", type=Path, default=SITE_JUNIOR_FONT)
     parser.add_argument(
-        "--jobs", type=int, default=1, help="per-unit worker budget for the surface build; 1 = serial"
+        "--jobs",
+        type=int,
+        default=surface_jobs,
+        help=f"per-unit worker budget for the surface build; the default is the same `surface_job_budget()` width the artifact cycle already passes rather than a checked-in one, taken at its unreserved arm because a hand run has no co-resident `make test` pool to leave cores to — {surface_jobs} on this box, a core clamp rather than a memory division for the reasons that budget's own docstring argues — so a bare run no longer walks its units one at a time. `--jobs 1` is serial.",
     )
     parser.add_argument(
         "--fresh-unit-cache",
