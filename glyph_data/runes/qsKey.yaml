@@ -82,6 +82,14 @@ policy:
         family: qsUtter
         then: {family: qsMay}
   extend: []
-  contract: []
+  contract:
+  - exit: baseline
+    by: 1
+    when:
+      right:
+        family:
+        - qsMay
+        - qsNo
+        - qsIt
   resolve: []
   groups: {}
