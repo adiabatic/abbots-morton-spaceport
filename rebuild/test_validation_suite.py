@@ -210,6 +210,31 @@ def test_equivalence_run_on_fixture(tmp_path: Path, shaper: Shaper, classifier: 
     assert not any(f.split("\t")[2] == "0020:E665" and f.split("\t")[1].endswith("vs-edge") for f in lines)
 
 
+def test_equivalence_pool_arm_matches_serial(
+    tmp_path: Path, shaper: Shaper, classifier: SeamClassifier, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(equivalence, "CHUNK_SIZE", 1)
+    texts = [QS["Pea"], QS["May"], QS["May"] + QS["Tea"], " " + QS["May"]]
+    rows = [row_for(shaper, classifier, t) for t in texts]
+    table = tmp_path / "baseline-default.tsv.gz"
+    _write_fixture_table(table, rows, "default")
+
+    serial_out = io.StringIO()
+    serial_counts = equivalence.run(table, serial_out, workers=1)
+    pooled_out = io.StringIO()
+    pooled_counts = equivalence.run(table, pooled_out, workers=2)
+
+    assert pooled_counts == serial_counts
+    assert pooled_out.getvalue() == serial_out.getvalue()
+    assert serial_counts["rows"] == len(rows)
+    assert serial_counts[("zwnj-vs-edge", "glyph")] == 3
+    assert [line.split("\t")[2] for line in serial_out.getvalue().splitlines()] == [
+        "E650",
+        "E665",
+        "E665:E652",
+    ]
+
+
 def test_split_sampler_is_deterministic_and_near_one_percent() -> None:
     population = list(itertools.islice(itertools.product(ALPHABET, repeat=3), 100_000))
     first = [cps for cps in population if split_check.sampled(cps)]
@@ -244,6 +269,37 @@ def test_split_check_reports_zwnj_leak(tmp_path: Path, shaper: Shaper, classifie
     fields = out.getvalue().splitlines()[0].split("\t")
     assert fields[2] == "0"
     assert "right-name" in fields[5]
+
+
+def test_split_check_pool_arm_matches_serial(
+    tmp_path: Path, shaper: Shaper, classifier: SeamClassifier, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(split_check, "CHUNK_SIZE", 1)
+    rows = [
+        row_for(shaper, classifier, QS["Bay"] + QS["Foot"]),
+        row_for(shaper, classifier, ZWNJ + QS["Pea"]),
+        row_for(shaper, classifier, ZWNJ + QS["May"]),
+        row_for(shaper, classifier, ZWNJ + QS["Tea"]),
+    ]
+    table = tmp_path / "baseline-default.tsv.gz"
+    _write_fixture_table(table, rows, "default")
+
+    serial_out = io.StringIO()
+    serial_counts = split_check.run(table, serial_out, workers=1)
+    pooled_out = io.StringIO()
+    pooled_counts = split_check.run(table, pooled_out, workers=2)
+
+    assert pooled_counts == serial_counts
+    assert pooled_out.getvalue() == serial_out.getvalue()
+    assert serial_counts["rows"] == len(rows)
+    assert serial_counts["seams_checked"] == 4
+    assert serial_counts["kern_only"] == 1
+    assert serial_counts["disagreements"] == 3
+    assert [line.split("\t")[1] for line in serial_out.getvalue().splitlines()] == [
+        "200C:E650",
+        "200C:E652",
+        "200C:E665",
+    ]
 
 
 def _synthetic_pin(expect: str, text: str) -> PinRun:
