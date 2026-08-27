@@ -1,6 +1,6 @@
 """Shared fixtures for the rebuild suite, and the two-lane split that decides how wide it may run.
 
-The suite divides into two lanes, and lane membership is *derived*, never hand-listed: `live_artifacts` is the one fixture that names the build's live output, so a test that requests it — directly, or through any fixture that requests it — is a **validators** test, and everything else is a **contracts** test. Contracts tests read only checked-in inputs and what they build themselves, so nothing in that lane reaches a live artifact at all and the lane may run at full xdist width; the validators lane now holds only assertions about the live artifact that no build check makes, each materializing what it needs and nothing more, so it takes a measured width of its own rather than the repo-wide default. `--lane contracts` / `--lane validators` selects one (the default `all` runs both, which is what a bare `uv run pytest rebuild/` still does), and `pytest_xdist_auto_num_workers` here answers `-n auto` for both lanes, deferring to the root conftest — and to `PYTEST_XDIST_AUTO_NUM_WORKERS` ahead of it — in every other case.
+The suite divides into two lanes, and lane membership is *derived*, never hand-listed: `live_artifacts` is the one fixture that names the build's live output, so a test that requests it — directly, or through any fixture that requests it — is a **validators** test, and everything else is a **contracts** test. Contracts tests read only checked-in inputs and what they build themselves, so nothing in that lane reaches a live artifact at all and the lane may run at full xdist width; the validators lane now holds only assertions about the live artifact that no build check makes, each materializing what it needs and nothing more, so it takes a width divided out of the box in hand by what one of its own workers costs rather than every core there is. `--lane contracts` / `--lane validators` selects one (the default `all` runs both, which is what a bare `uv run pytest rebuild/` still does), and `pytest_xdist_auto_num_workers` here answers `-n auto` for both lanes, deferring to the root conftest — and to `PYTEST_XDIST_AUTO_NUM_WORKERS` ahead of it — in every other case.
 
 A derived rule needs a check that the derivation is honest, so a `sys.addaudithook` guard makes lane membership structural rather than aspirational. It is installed once per process, sits inactive, and is switched on only for the setup, call, and teardown of a contracts-lane item; while active, any read or write whose path falls under the live-artifact trees (`rebuild/out/`, the whole of `tmp/`, the gate's own exempt prefixes, the root `verdicts-*` stores) raises `ContractsLaneViolation` naming the test and the path, and a phase that swallows that exception still fails through `pytest_runtest_makereport`. What the guard does not cover is documented at the hook: subprocess children run unaudited, and `Path.exists()`/stat never reach it — it is the content reads that are caught, which is the leak that matters.
 
@@ -21,7 +21,7 @@ from pathlib import Path
 import pytest
 
 from rebuild.review.fixtures.mini import pin
-from rebuild.tools import artifact_cycle
+from rebuild.tools import artifact_cycle, memory_budget
 
 REAL_RUN_RETENTION = artifact_cycle.run_retention
 LIVE_DELETION_TARGETS = (
@@ -41,8 +41,24 @@ GREEN_RECORDS = (
 
 REBUILD_DIR = Path(__file__).resolve().parent
 LANES = ("contracts", "validators")
-VALIDATORS_WORKERS = 4
 LIVE_FIXTURE = "live_artifacts"
+# What one validators worker holds at its peak, and so the divisor a box divides itself by to reach this lane's width. With the in-process surface build refused and the whole-workload fixtures retired, most of what a worker holds is a filtered Workload, a couple of subset tables, or a font; the one item still measured in gigabytes is `workload_index`, whose transient while `load_workload` builds the graph it projects is what puts one worker of a run several gigabytes clear of its siblings. Two instruments report that peak and agree on its scale: the `peak RSS (GB): ... workers ...` line the root conftest prints at the end of every run, and the `peak_rss_bytes` the cycle-timings journal stamps on every `gate:rebuild-validators` step, which is the widest single process in that lane's tree. This seed rounds up past the top of what they have recorded since those fixtures went, for the same reason `kernel_exec.CONFIG_PEAK_BYTES` rounds up past its own measurement: a per-unit cost that errs low is what puts a box into swap, while one that errs high only narrows a pool. So it is a reading to keep current rather than a contract — re-seed it off a validators run's own line whenever a fixture's working set moves, and expect the root conftest's restatement of it to move in the same commit.
+VALIDATORS_WORKER_BYTES = 7_000_000_000
+# The non-memory bound on the same width, and the half of this lane's argument that arithmetic cannot supply: the lane is short enough that a worker's own interpreter and collection cost shows against its total, and its tail is the per-configuration rule-witness arms at the top of every run's `--durations` list, which four slots already drain in a couple of waves. Deliberately not tied to the acceptance-configuration count those arms are parametrized over, which would read as tighter and behave as looser — a matrix that grew by one would silently widen a pool nobody re-measured, and the arms are not the whole of what the lane runs. So it stays a stated bound with a stated reason, and what should move it is the arms getting cheaper (WHATNEXT records that lever), never the box getting bigger; a bigger box is what the divisor above is for.
+VALIDATORS_LANE_CAP = 4
+
+
+def _validators_workers(*, total_bytes: int | None = None, cores: int | None = None) -> int:
+    """How many validators workers this box has room for: `VALIDATORS_WORKER_BYTES` divided into it by `memory_budget.how_many_fit`, which takes off the reserve that policy states and floors at one, under a cap that is `VALIDATORS_LANE_CAP` and the cores this process may actually run on together. Both belong in the one `min()` because neither is a memory fact — four is the lane's own short-run bound, and `usable_cores()` is there so a two-core box or a CPU-quota-limited container starts two workers rather than four idle ones, since it reads the affinity mask and the cgroup quota that `os.cpu_count()` reads straight past. Both keywords are injection points rather than lookups, so an assertion about another box is a pure function over an invented one."""
+    return memory_budget.how_many_fit(
+        VALIDATORS_WORKER_BYTES,
+        total_bytes=total_bytes,
+        cap=min(VALIDATORS_LANE_CAP, memory_budget.usable_cores() if cores is None else cores),
+    )
+
+
+# Resolved once at import rather than asked again per run, exactly as `kernel_exec.KERNEL_THREADS_DEFAULT` is and for the analogous reason: the name a test imports, the name WHATNEXT cites and the number the hook answers are then one reading of this box rather than three, which is what lets `VALIDATORS_WORKERS` survive as a name now that it has stopped being a literal. The consequence is the one `kernel_exec` documents too — `AMS_TOTAL_MEMORY_BYTES` reaches it only from the environment the interpreter started in, never from a fixture.
+VALIDATORS_WORKERS = _validators_workers()
 
 # The live trees, derived rather than listed: rebuild/out/ (everything the build and the cycle write), the whole of tmp/, the root-level verdicts-* stores, and whatever the rebuild gate exempts from its input closure. That last list is derived rather than copied so it tracks the gate, but it needs one subtraction, because its three entries are exempt for two different reasons: rebuild/evidence/ and the census pins are regenerated state the gate refuses to hash, while rebuild/review/jstests/ is checked-in JavaScript that is merely outside a Python closure — source, which a contracts test is free to read, and which the cycle's own plan step globs while enumerating the JS suite. tmp/ is forbidden whole rather than by the cycle snapshots that happen to sit in it: the tree is entirely outside the suite's input closure, and the write standard below already bars every test from writing under the live repo, so nothing a contracts test may legitimately read can be there. A test that wants a scratch directory takes `tmp_path`.
 _FORBIDDEN = tuple(
@@ -164,7 +180,7 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         action="store",
         default="all",
         choices=[*LANES, "all"],
-        help="Run only one lane of the rebuild suite: contracts (no live build artifacts, full xdist width) or validators (reads rebuild/out, stays at the checked-in worker count).",
+        help="Run only one lane of the rebuild suite: contracts (no live build artifacts, every core this process may run on) or validators (reads rebuild/out, at the narrower width one of its own workers' measured cost leaves room for).",
     )
 
 
@@ -204,19 +220,21 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
 
 @pytest.hookimpl(tryfirst=True)
 def pytest_xdist_auto_num_workers(config: pytest.Config) -> int | None:
-    """What `-n auto` resolves to for each lane of this suite. Both answers are measured rather than inherited: the root conftest's repo-wide 2 was sized for validators workers that peaked at 14–17 GB, and neither lane looks like that any more.
+    """What `-n auto` resolves to for each lane of this suite, both answers derived from what a worker in that lane actually costs rather than inherited from a repo-wide floor. The 2 that floor stood at was sized for validators workers that peaked at 14–17 GB, and neither lane has looked like that for a long time.
 
-    Contracts takes every core — no test in it reaches a live artifact, so nothing there holds a working set worth bounding. Validators takes VALIDATORS_WORKERS, and the `peak RSS (GB): ... workers ...` line the root conftest prints at the end of every run is both its justification and its standing check. With the in-process surface build refused and the whole-workload fixtures retired, most of what a worker holds is a filtered Workload, a couple of subset tables, or a font; the one item still measured in gigabytes is `workload_index`, whose transient peak while `load_workload` builds the graph it projects put a worker at ≈2.5 GB. Four of those fit on the most RAM-constrained box that runs this repo with room to spare, and going wider buys little: the lane is short enough that per-worker interpreter and collection cost starts to show, and its tail is the six per-config witness arms, which four slots already cover.
+    Contracts takes every core this process may actually run on — no test in it reaches a live artifact, so nothing there holds a working set worth bounding, and `usable_cores` rather than `os.cpu_count` is what makes that true inside a container with a CPU quota as well as on a laptop. Validators takes VALIDATORS_WORKERS, whose divisor and cap each carry their own argument where they are defined: on a roomy box the cap decides, because what stops this lane going wider is its shape rather than its footprint, and on a small one the division decides and the lane narrows to what that box has room for instead of to a width someone measured elsewhere. The box this lane's timings were recorded on resolves to the cap, exactly as it did when the width was a literal — what changed is that every other box now gets its own answer.
 
-    `PYTEST_XDIST_AUTO_NUM_WORKERS` still comes first for both, by returning None so the root conftest reads it: that stays the one way to widen any pool here a run at a time.
+    A run that names no lane answers None here and falls through to the root conftest on purpose. `--lane all` is what a bare `uv run pytest rebuild/`, a single rebuild test file and a mixed `pytest rebuild/ test/` all are, and none of them is this lane: each holds both lanes at once, so its memory bound is a validators worker while its CPU bound is the contracts majority, which is exactly the pair of facts the root fallback divides and caps by. Answering them at this lane's cap instead would slow the ordinary whole-suite run several-fold in order to bound a footprint the arithmetic there already bounds — and it would leave `pytest .`, which reaches these tests without ever loading this file, answered differently from `pytest rebuild/`, which collects strictly less.
+
+    `PYTEST_XDIST_AUTO_NUM_WORKERS` still comes first for all of them, by returning None so the root conftest reads it: that stays the one way to widen any pool here a run at a time.
     """
     if os.environ.get("PYTEST_XDIST_AUTO_NUM_WORKERS"):
         return None
     lane = config.getoption("lane", default=None)
     if lane == "contracts":
-        return os.cpu_count() or 2
+        return memory_budget.usable_cores()
     if lane == "validators":
-        return min(VALIDATORS_WORKERS, os.cpu_count() or VALIDATORS_WORKERS)
+        return VALIDATORS_WORKERS
     return None
 
 
