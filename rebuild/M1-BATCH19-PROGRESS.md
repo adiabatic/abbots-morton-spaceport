@@ -23,7 +23,7 @@ Scratch for the ·Key migration. Delete when the batch closes, lifting any survi
 
 ```zsh
 uv run pytest rebuild/test_spec_load.py -n auto --dist worksteal
-uv run python -m rebuild.pipeline.run_m1 --jobs 6
+uv run python -m rebuild.pipeline.run_m1
 PYTHONPATH=. uv run python rebuild/tools/probe.py E65A:E654
 PYTHONPATH=. uv run python rebuild/tools/probe.py E650:E65A:E654
 PYTHONPATH=. uv run python rebuild/tools/probe.py E654:E652:E653

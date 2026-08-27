@@ -664,12 +664,15 @@ def _settle_green(
 
 
 def main(argv: list[str] | None = None) -> None:
+    from rebuild.tools.artifact_cycle import sweep_job_budget
+
+    sweep_jobs = sweep_job_budget()
     parser = argparse.ArgumentParser(description="Run the M1 integration pipeline and its Phase-2 gates.")
     parser.add_argument(
         "--jobs",
         type=int,
-        default=1,
-        help="worker budget for the oracle and conformance shards, one process per acceptance configuration; 1 = serial. The table build's own width is --kernel-threads.",
+        default=sweep_jobs,
+        help=f"worker budget for the oracle and conformance shards, one process per acceptance configuration and no more, since that is all `_spawn_pool` will start; the default is the same `sweep_job_budget()` width the artifact cycle already passes rather than a checked-in one — {sweep_jobs} on this box, a CPU ceiling rather than a memory one for the reasons that budget's own docstring argues — so a hand run no longer walks the two belts a configuration at a time. `--jobs 1` is serial. The table build's own width, which is the memory-bound one, is --kernel-threads.",
     )
     parser.add_argument(
         "--conform-only",
