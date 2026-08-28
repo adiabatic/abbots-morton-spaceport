@@ -4,7 +4,7 @@ Scratch for the ·Key migration. Delete when the batch closes, lifting any survi
 
 ## Parked
 
-- The drafted `ductus` awaits the author's vet; the `# DRAFT` marker is the worklist.
+Empty, and the heading stays: the ·Key sitting is still open, so the next reject or neither verdict that needs a ruling belongs here rather than in a new section. Every design question the batch has raised so far has been ruled on — the two that used to sit here are recorded below, one as an override and one as a pointer to its issue.
 
 ## Recorded design overrides
 
