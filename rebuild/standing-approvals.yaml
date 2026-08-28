@@ -421,3 +421,21 @@ rules:
         added: []
         shift: -1
       except_left: []
+  - id: et-pea-baseline-join-created
+    verdict: approve
+    note: "·Pea takes the full bar on a baseline entry and closes four columns onto ·Et, where the old font left a break — qsPea's full stance has carried ·Et on its baseline entry from-list since the rune migration, and the join went live when ·Et joined the alphabet (“Declare ·Roe done and add ·Et”); every window that reached a sitting approved it"
+    match:
+      before:
+        pivot: qsEt
+        seam_out: break
+        follower: qsPea
+      after:
+        joined: y0
+        pivot_cells:
+          - qsEt/hapax/None/baseline/
+          - qsEt/hapax/x-height/baseline/
+          - qsEt/hapax/x-height/baseline/en-ext-1
+        receiver_cells:
+          - qsPea/full/baseline/None/
+        shift: -4
+      except_left: []
