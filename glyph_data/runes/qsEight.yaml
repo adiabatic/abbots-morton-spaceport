@@ -1,8 +1,8 @@
 rune: qsEight
 codepoint: 0xE673
 ductus:
-  hapax: | # DRAFT — pending author sign-off
-    Begun at the left along the x-height, the stroke dips down and around in a small counter-clockwise bowl under the x-height, closing on itself, then falls from the bowl's underside in a straight diagonal to the baseline at the right.
+  hapax: |
+    Begun at the left along the x-height, the stroke dips down and around in a small counter-clockwise loop under the x-height, closing on itself, then falls from the loop’s underside to the baseline at the right.
 mono:
   bitmap:
   - "# ## "  #
