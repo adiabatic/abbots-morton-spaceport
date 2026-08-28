@@ -1,8 +1,8 @@
 rune: qsOoze
 codepoint: 0xE67E
 ductus:
-  hapax: | # DRAFT — pending author sign-off
-    Begun at the bottom left on the baseline, the stroke rises straight up, leans inward to a point at the x-height, and comes back down the other side to a short vertical leg that rests on the baseline at the right, where it may connect to the next letter.
+  hapax: |
+    Begun at the bottom left on the baseline, the stroke rises up and then curves back downward in a slightly-pointier-than-parabolic arc that rests on the baseline at the right, where it may connect to the next letter.
 mono:
   bitmap:
   - "  #  "  #
