@@ -52,6 +52,10 @@ policy:
   - exit: baseline
     by: 1
     when:
+      right: {family: qsGay}
+  - exit: baseline
+    by: 1
+    when:
       right: {family: qsMay}
   resolve: []
   groups: {}
