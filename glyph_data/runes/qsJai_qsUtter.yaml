@@ -91,10 +91,6 @@ policy:
     when:
       right: {family: qsTea}
       feature: ss03
-  - entry: x-height
-    by: 2
-    when:
-      left: {family: qsGay}
   contract:
   - entry: x-height
     by: 1
