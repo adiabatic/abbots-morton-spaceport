@@ -76,15 +76,20 @@ def alias_keys() -> set[str]:
     return keys
 
 
-def subset_default_rows() -> int | None:
+def subset_default_rows(hexcp: str) -> tuple[int, int] | None:
+    """(total non-comment rows, rows already involving hexcp). The second number is nonzero when a stale artifact from an earlier alphabet experiment already carries the letter — without subtracting it, the growth prediction would double-count."""
     if not SUBSET_DEFAULT.exists():
         return None
     count = 0
+    already = 0
     with gzip.open(SUBSET_DEFAULT, "rt", encoding="utf-8") as handle:
         for line in handle:
-            if not line.startswith("#"):
-                count += 1
-    return count
+            if line.startswith("#"):
+                continue
+            count += 1
+            if hexcp in line.split("\t", 1)[0].split(":"):
+                already += 1
+    return count, already
 
 
 def scan(hexcp: str, alphabet_hex: frozenset[str]) -> tuple[
@@ -234,17 +239,25 @@ def main(argv: list[str] | None = None) -> None:
     print("\n--- default-config subset growth ---")
     added = sum(kept_default_lengths.values())
     by_length = ", ".join(f"len {k}: {v}" for k, v in sorted(kept_default_lengths.items()))
-    current = subset_default_rows()
+    counted = subset_default_rows(hexcp)
     print(f"  rows involving {qs_name} that belong in the subset: {added} ({by_length})")
-    if current is None:
+    if counted is None:
         print(
             "  (no baseline-default.subset.tsv.gz on disk yet — run run_m1 or rebuild.pipeline.baseline_subset)"
         )
     elif migrated:
+        current, _ = counted
         print(f"  current subset total: {current} — rebuild/test_review_enrich.py pins this number")
     else:
-        print(f"  current subset total: {current}; after migration expect {current + added}")
-        print(f"  rebuild/test_review_enrich.py's subset-table row count must become {current + added}")
+        current, already = counted
+        if already:
+            print(
+                f"  (the on-disk subset already carries {already} rows involving {qs_name} — a stale artifact built with the letter in the alphabet; predicting from the {current - already} rows without it)"
+            )
+        print(f"  current subset total: {current}; after migration expect {current - already + added}")
+        print(
+            f"  rebuild/test_review_enrich.py's subset-table row count must become {current - already + added}"
+        )
 
 
 if __name__ == "__main__":

@@ -1566,7 +1566,7 @@ def classify_divergence(row: DivergentRow) -> str | None:
         return None
     if "+en-ext-1" in phenomena:
         return "halves-entry-extension-restored"
-    if "-en-ext-1:same-seam" in phenomena:
+    if phenomena & {"-en-ext-1:same-seam", "-en-ext-2:same-seam"}:
         return "same-seam-extension-non-summing"
     if "-en-ext-1:qsMay" in phenomena:
         return "may-baseline-entry-extension-dropped"
@@ -1585,10 +1585,10 @@ def classify_divergence(row: DivergentRow) -> str | None:
         return "see-out-fusion-respelled"
     if (
         "+ex-ext-2" in phenomena
-        and phenomena <= {"+ex-ext-2", "-ex-ext-1", "exit-dropped"}
+        and phenomena <= {"+ex-ext-2", "-ex-ext-1", "-en-ext-2", "exit-dropped"}
         and "E665:E65D" in row.codepoints
     ):
-        # The ·May·J'ai seam replaces the old split extension with qsMay's single by-2 exit record in every follower context; the rune's why records the binding one-pixel spacing choice. The subset guard keeps any row where unrelated ink moved elsewhere out of the class.
+        # The ·May·J'ai seam replaces the old split extension with qsMay's single by-2 exit record in every follower context; the rune's why records the binding one-pixel spacing choice. The -en-ext-2 token is the ·J'ai side of the same consolidation now that its alias spells the old name faithfully. The subset guard keeps any row where unrelated ink moved elsewhere out of the class.
         return "may-jai-extension-consolidated"
     if phenomena and phenomena <= {"+en-con-1", "+en-con-2"} and "E65D" in row.codepoints:
         # The old pipeline's exit contractions before ·J'ai are tucks — the left keeps its ink and only the anchor moves in, overlapping the follower — which M1 re-spells as ·J'ai's own entry contraction: the crown gives up the overlapped columns and abuts instead, so the placed composite, every origin, and every advance are unchanged and only ·J'ai's cell name gains the con token. The subset guard keeps any row where real ink moved elsewhere out of the class.
@@ -2365,12 +2365,15 @@ def _cell_deltas(alias: CellId, cell: CellId, old_glyphs, index: int) -> set[str
     for token in new_tokens - old_tokens:
         out.add(f"+{token}")
     for token in old_tokens - new_tokens:
-        if token != "en-ext-1":
-            out.add(f"-{token}")
-        elif index > 0 and "ex-ext-1" in old_glyphs[index - 1]:
-            out.add("-en-ext-1:same-seam")
+        if token == "en-ext-1":
+            if index > 0 and "ex-ext-1" in old_glyphs[index - 1]:
+                out.add("-en-ext-1:same-seam")
+            else:
+                out.add(f"-en-ext-1:{cell.rune}")
+        elif token == "en-ext-2" and index > 0 and "ex-ext-2" in old_glyphs[index - 1]:
+            out.add("-en-ext-2:same-seam")
         else:
-            out.add(f"-en-ext-1:{cell.rune}")
+            out.add(f"-{token}")
     if ".noentry" in old_glyphs[index]:
         out.add("old-noentry")
     return out

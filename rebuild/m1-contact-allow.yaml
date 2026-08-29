@@ -1006,3 +1006,50 @@
 - signature: contact:qsIt.hapax.en-y0.ex-y0.en-ext-1:qsUtter.mono.en-y0:y1
 - signature: contact:qsIt.hapax.en-y0.ex-y0.en-ext-1:qsUtter.mono.en-y0.ex-y5:y1
 - signature: contact:qsIt.hapax.en-y0.ex-y0.en-ext-1:qsUtter.mono.en-y0.ex-y5.ex-ext-1:y1
+
+# ·Gay's crown bar is unconditional letterform ink on the ·Awe precedent, the same shape whether or not the exit joins: the shipped font draws bare qsGay with the full crown at every word edge and before every non-joining follower, and no withdrawn form exists in quikscript.yaml. The crown's terminal pixel has no ink above or below it, so it cannot earn the automatic `withdrawal: safe` proof (·Gay's baseline foot does earn it — its terminal continues down into the loop). One signature per entry/exit/lock variant the gate inspects separately; all are the same terminal.
+- signature: dangle:qsGay.hapax:exit:x-height
+  why: ·Gay's crown terminal, drawn unconditionally in the shipped font; the declined exit keeps it.
+- signature: dangle:qsGay.hapax.en-y0:exit:x-height
+  why: ·Gay entered at the baseline keeps the same crown terminal while its x-height exit goes unserved.
+- signature: dangle:qsGay.hapax.en-y5:exit:x-height
+  why: ·Gay entered at the x-height can never offer this exit (the crossover pairing); the crown ink stays.
+- signature: dangle:qsGay.hapax.en-y5.ex-y0:exit:x-height
+  why: ·Gay entered at the x-height and exiting at the baseline; the crown ink stays.
+- signature: dangle:qsGay.hapax.ex-y0:exit:x-height
+  why: ·Gay exiting at the baseline keeps the same crown terminal on the declined x-height side.
+- signature: dangle:qsGay.hapax.ex-y0.ex-ext-1:exit:x-height
+  why: The extended baseline exit moves no crown ink; the same terminal.
+- signature: dangle:qsGay.hapax.ex-y0.locked:exit:x-height
+  why: The ZWNJ-locked twin of the baseline-exiting form; identical drawing.
+- signature: dangle:qsGay.hapax.ex-y0.locked.ex-ext-1:exit:x-height
+  why: The ZWNJ-locked twin of the extended baseline-exiting form; identical drawing.
+- signature: dangle:qsGay.hapax.locked:exit:x-height
+  why: The ZWNJ-locked twin of ·Gay's crown terminal; identical drawing.
+
+# The doubly-extended ·Gay ~x~ ·J'ai seam (·Gay's ex-ext-2 meeting ·J'ai's en-ext-2, both transcribed from the old font's derive pair) stands the two Deep descenders side by side: ·Gay's loop's right side abuts ·J'ai's descender curl at y=-2, the corner the shipped font draws in every such window (baseline rows E655:E65D and E655:E65D:E67A carry the same advances). Off-anchor because the seam is at y=5; one signature per entry/exit/lock variant on either side, all the same corner.
+- signature: contact:qsGay.hapax.en-y0.ex-y5.ex-ext-2:qsJai.hapax.en-y5:y-2
+- signature: contact:qsGay.hapax.en-y0.ex-y5.ex-ext-2:qsJai.hapax.en-y5.ex-y0:y-2
+- signature: contact:qsGay.hapax.en-y0.ex-y5.ex-ext-2:qsJai.hapax.en-y5.ex-y0.ex-ext-1:y-2
+- signature: contact:qsGay.hapax.en-y0.ex-y5.ex-ext-2:qsJai_qsUtter.hapax.en-y5:y-2
+- signature: contact:qsGay.hapax.en-y0.ex-y5.ex-ext-2:qsJai_qsUtter.hapax.en-y5.ex-y5:y-2
+- signature: contact:qsGay.hapax.en-y0.ex-y5.ex-ext-2:qsJai_qsUtter.hapax.en-y5.ex-y5.ex-ext-1:y-2
+- signature: contact:qsGay.hapax.ex-y5.ex-ext-2:qsJai.hapax.en-y5:y-2
+- signature: contact:qsGay.hapax.ex-y5.ex-ext-2:qsJai.hapax.en-y5.ex-y0:y-2
+- signature: contact:qsGay.hapax.ex-y5.ex-ext-2:qsJai.hapax.en-y5.ex-y0.ex-ext-1:y-2
+- signature: contact:qsGay.hapax.ex-y5.ex-ext-2:qsJai_qsUtter.hapax.en-y5:y-2
+- signature: contact:qsGay.hapax.ex-y5.ex-ext-2:qsJai_qsUtter.hapax.en-y5.ex-y5:y-2
+- signature: contact:qsGay.hapax.ex-y5.ex-ext-2:qsJai_qsUtter.hapax.en-y5.ex-y5.ex-ext-1:y-2
+- signature: contact:qsGay.hapax.ex-y5.locked.ex-ext-2:qsJai.hapax.en-y5:y-2
+- signature: contact:qsGay.hapax.ex-y5.locked.ex-ext-2:qsJai.hapax.en-y5.ex-y0:y-2
+- signature: contact:qsGay.hapax.ex-y5.locked.ex-ext-2:qsJai.hapax.en-y5.ex-y0.ex-ext-1:y-2
+- signature: contact:qsGay.hapax.ex-y5.locked.ex-ext-2:qsJai_qsUtter.hapax.en-y5:y-2
+- signature: contact:qsGay.hapax.ex-y5.locked.ex-ext-2:qsJai_qsUtter.hapax.en-y5.ex-y5:y-2
+- signature: contact:qsGay.hapax.ex-y5.locked.ex-ext-2:qsJai_qsUtter.hapax.en-y5.ex-y5.ex-ext-1:y-2
+
+# ·Utter's x-height hand-off leaves ·Gay entered at the crown and exiting at the baseline into half-·Day or the half ·Day+Utter ligature; both letters are Deep, and ·Gay's loop abuts the ·Day foot's rising hook at y=-2 — the corner the shipped font draws in every ·Utter·Gay·Day window (baseline row E67A:E655:E653). Off-anchor because the seam is at y=0; one signature per follower variant, all the same corner.
+- signature: contact:qsGay.hapax.en-y5.ex-y0:qsDay.half.en-y0:y-2
+- signature: contact:qsGay.hapax.en-y5.ex-y0:qsDay.half.en-y0.ex-y0:y-2
+- signature: contact:qsGay.hapax.en-y5.ex-y0:qsDay_qsUtter.half.en-y0:y-2
+- signature: contact:qsGay.hapax.en-y5.ex-y0:qsDay_qsUtter.half.en-y0.ex-y5:y-2
+- signature: contact:qsGay.hapax.en-y5.ex-y0:qsDay_qsUtter.half.en-y0.ex-y5.ex-ext-1:y-2

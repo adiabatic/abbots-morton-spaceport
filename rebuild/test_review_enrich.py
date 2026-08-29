@@ -425,4 +425,4 @@ def test_enrich_emits_secondary_seams_with_primary_style_rects(enricher, units_b
 
 def test_subset_tables_iterate(enricher, live_artifacts):
     rows = list(iter_rows(live_artifacts.m1 / "baseline-default.subset.tsv.gz"))
-    assert len(rows) == 637420
+    assert len(rows) == 732540

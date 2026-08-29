@@ -75,6 +75,7 @@ policy:
       right:
         family:
         - qsBay
+        - qsGay
         - qsFee
   - stance: full
     exit: x-height
@@ -109,6 +110,7 @@ policy:
       right:
         family:
         - qsBay
+        - qsGay
         - qsFee
   - stance: half
     exit: x-height

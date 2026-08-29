@@ -1,0 +1,197 @@
+rune: qsGay
+codepoint: 0xE655
+ductus:
+  hapax: |
+    - Begun at the crown at the x-height, where a previous letter may connect coming from the left. The stroke dips down and to the left, bends back down and to the right to reach the baseline, and closes in a loop below the baseline — down the right side, leftward along the bottom, and back up the left to rejoin the baseline — where it may connect to the next letter.
+    - Or the same path in reverse, begun on the baseline at the left, where a previous letter may connect: first the loop below the baseline, then the climb — up and to the left, bending back up and to the right — ending at the crown at the x-height, where it may connect to the next letter.
+mono:
+  bitmap:
+  - "  ## "  #
+  - " #   "
+  - " #   "
+  - "  #  "
+  - "   # "
+  - "  ###"  #
+  - " #  #"
+  - " #  #"
+  - "  ## "
+  y_offset: -3
+stances:
+  hapax:
+    motion: hapax
+    traits: []
+    bitmap:
+    - "  ## "  #
+    - " #   "
+    - " #   "
+    - "  #  "
+    - "   # "
+    - "  ###"  #
+    - " #  #"
+    - " #  #"
+    - "  ## "
+    y_offset: -3
+    bitmaps:
+      reachable-at-the-baseline:
+        bitmap:
+        - "  ## "  #
+        - " #   "
+        - " #   "
+        - "  #  "
+        - "   # "
+        - "### #"  #
+        - " #  #"
+        - " #  #"
+        - "  ## "
+        y_offset: -3
+    surface:
+      entries:
+        baseline:
+          x: 2
+          stroke: horizontal
+          joined: reachable-at-the-baseline
+          joined_x: 0
+          from:
+          - family:
+            - qsBay
+            - qsDay
+            - qsKey
+            - qsGay
+            - qsJai
+            - qsMay
+            - qsNo
+            - qsEt
+            - qsAwe
+        x-height:
+          x: 2
+          stroke: diagonal
+          stub:
+            cols:
+            - 3
+            inks_when: withdrawn
+          from:
+          - {family: qsUtter}
+      exits:
+        baseline:
+          x: 5
+          stroke: horizontal
+          withdrawal: safe
+          toward:
+          - family:
+            - qsTea
+            - qsDay
+            - qsDay_qsUtter
+            - qsGay
+            - qsVie
+            - qsVie_qsUtter
+            - qsSee
+            - qsMay
+            - qsNo
+            - qsLow
+            - qsRoe
+            - qsIt
+            - qsAt
+            - qsI
+            - qsAh
+            - qsUtter
+            - qsOut
+            - qsOut_qsTea
+            - qsOoze
+        x-height:
+          x: 4
+          stroke: horizontal
+          toward:
+          - family:
+            - qsJai
+            - qsJai_qsUtter
+            - qsEight
+            - qsAwe
+            - qsOx
+            - qsOy
+      pairings:
+        never:
+        - entry: baseline
+          exit: baseline
+        - entry: x-height
+          exit: x-height
+      cells: []
+      unlocks: []
+      require: []
+policy:
+  order:
+  - hapax
+  refuse:
+  - exit: baseline
+    when:
+      self: {entry: none}
+      right: {family: qsOoze}
+  prefer:
+  - cell:
+      entry: none
+      exit: baseline
+    over:
+      entry: baseline
+      exit: none
+    when:
+      right:
+        family:
+        - qsTea
+        - qsDay
+        - qsDay_qsUtter
+        - qsRoe
+        - qsIt
+        - qsI
+        - qsOut_qsTea
+        except:
+        - family: qsIt
+          then:
+            family:
+            - qsDay
+            - qsDay_qsUtter
+            - qsUtter
+  - cell: {exit: none}
+    over: {exit: baseline}
+    when:
+      right:
+        family: qsGay
+        then:
+          family:
+          - qsTea
+          - qsDay
+          - qsDay_qsUtter
+          - qsRoe
+          - qsIt
+          - qsI
+          - qsOut_qsTea
+  - cell: {exit: none}
+    over: {exit: baseline}
+    when:
+      right:
+        family: qsTea
+        then:
+          except:
+          - {family: qsPea}
+  extend:
+  - exit: baseline
+    by: 1
+    when:
+      self: {entry: none}
+      right:
+        family:
+        - qsTea
+        - qsDay
+        - qsDay_qsUtter
+        - qsRoe
+        - qsIt
+        - qsI
+        - qsOut_qsTea
+  - exit: x-height
+    by: 2
+    when:
+      right:
+        family:
+        - qsJai
+        - qsJai_qsUtter
+  contract: []
+  resolve: []
+  groups: {}
