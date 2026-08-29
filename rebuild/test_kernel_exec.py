@@ -4,7 +4,6 @@ Nothing skips. A box without `cargo` fails these tests with the remedy `KernelBu
 """
 
 import json
-import os
 import threading
 import time
 from collections import OrderedDict
@@ -413,18 +412,8 @@ class TestTheKernelInvocation:
         assert all(decision.rules and treaty.rows for decision, treaty in tables.values())
         assert not sorted(tmp_path.iterdir())
 
-    @pytest.mark.parametrize(
-        "asked, wanted",
-        [
-            (None, kernel_exec.KERNEL_THREADS_DEFAULT),
-            (2, 2),
-            (99, len(conform.ACCEPTANCE_CONFIGS)),
-        ],
-    )
-    def test_the_thread_width_is_how_many_configurations_run_at_once(
-        self, monkeypatch, tmp_path, asked, wanted
-    ):
-        """The width is not a flag on one invocation: every configuration gets a single-threaded process of its own that enumerates and folds it, tagged so its timing lines stay attributable, and the width is how many of those the build keeps in flight."""
+    def _observe_fan_out(self, monkeypatch, tmp_path, asked):
+        """Everything `build_tables` asks of the kernel, and the most it ever has in flight at once. The stub holds its slot open long enough that any sibling admitted beside it is counted there, then raises, so a run ends as soon as the fan-out has been observed."""
         live = 0
         peak = 0
         seen = []
@@ -447,13 +436,35 @@ class TestTheKernelInvocation:
         monkeypatch.setattr(kernel_exec, "build_table_files", build_table_files)
         with pytest.raises(Reached):
             run_m1.build_tables(SPEC, tmp_path, inputs=STAMP, kernel_threads=asked)
-        assert peak == min(wanted, len(conform.ACCEPTANCE_CONFIGS), os.process_cpu_count() or 1)
+        return peak, seen
+
+    @pytest.mark.parametrize(
+        "asked, wanted",
+        [
+            (None, kernel_exec.KERNEL_THREADS_DEFAULT),
+            (2, 2),
+            (99, len(conform.ACCEPTANCE_CONFIGS)),
+        ],
+    )
+    def test_the_thread_width_is_how_many_configurations_run_at_once(
+        self, monkeypatch, tmp_path, asked, wanted
+    ):
+        """The width is not a flag on one invocation: every configuration gets a single-threaded process of its own that enumerates and folds it, tagged so its timing lines stay attributable, and the width is how many of those the build keeps in flight."""
+        peak, seen = self._observe_fan_out(monkeypatch, tmp_path, asked)
+        assert peak == min(wanted, len(conform.ACCEPTANCE_CONFIGS), run_m1.usable_cores())
         assert sorted(config for (config,), _threads, _tag, _stamp in seen) == sorted(
             conform.ACCEPTANCE_CONFIGS
         )
         assert {threads for _configs, threads, _tag, _stamp in seen} == {1}
         assert all(tag == config for (config,), _threads, tag, _stamp in seen)
         assert {stamp for _configs, _threads, _tag, stamp in seen} == {STAMP}
+
+    def test_a_narrowed_cpu_allowance_narrows_the_fan_out(self, monkeypatch, tmp_path):
+        """The third term is the cores this process may actually run on rather than the cores the box has, so a container held to a slice of its host keeps its width down to the slice however much memory the default was divided out of. The allowance is invented because the box running the suite is whatever it is — asking for every configuration against an allowance narrower than that is what makes a pass proof the term fired at all."""
+        allowance = 2
+        monkeypatch.setattr(run_m1, "usable_cores", lambda: allowance)
+        peak, _seen = self._observe_fan_out(monkeypatch, tmp_path, len(conform.ACCEPTANCE_CONFIGS))
+        assert peak == min(len(conform.ACCEPTANCE_CONFIGS), allowance)
 
     def test_an_unstamped_build_names_a_stamp_the_kernel_will_accept(self, monkeypatch, tmp_path):
         """The verb requires a stamp, and a build with none still has to name one: the payload it writes is where the head comes from, and it is deleted unread rather than kept, so the word it carried never reaches an artifact."""
@@ -520,7 +531,7 @@ class TestTheMemoryDerivedThreadDefault:
 
     @pytest.mark.parametrize("stated, wanted", [("1", 1), ("3", 3), ("12", 12), ("0", 1), ("-3", 1)])
     def test_a_stated_width_short_circuits_ahead_of_the_arithmetic(self, monkeypatch, stated, wanted):
-        """`AMS_KERNEL_THREADS` is read before anything is divided, and what it states is floored at one and clamped no further — the configuration count and the CPU count are not memory facts and are applied by `run_m1.build_tables`. The invented box is a terabyte so the arithmetic would answer far above any width stated here, which is what makes a pass proof that the short-circuit fired rather than a coincidence."""
+        """`AMS_KERNEL_THREADS` is read before anything is divided, and what it states is floored at one and clamped no further — the configuration count and the cores this process may actually run on are not memory facts and are applied by `run_m1.build_tables`. The invented box is a terabyte so the arithmetic would answer far above any width stated here, which is what makes a pass proof that the short-circuit fired rather than a coincidence."""
         monkeypatch.setenv("AMS_KERNEL_THREADS", stated)
         assert kernel_exec.kernel_threads_default(total_bytes=1_000_000_000_000) == wanted
 
