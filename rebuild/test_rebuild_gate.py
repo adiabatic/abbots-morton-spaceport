@@ -1,13 +1,19 @@
-"""The rebuild suite's self-skipping wrapper, now two lanes deep: each lane skips on its own matching green record, the cheap contracts lane runs first so a hard failure there never pays for the long validators lane, and only the recordable flag writes a record."""
+"""The rebuild suite's self-skipping wrapper, now two lanes deep: each lane skips on its own matching green record, the cheap contracts lane runs first so a hard failure there never pays for the long validators lane, only the recordable flag writes a record, and every lane that reaches a judgment — a skip included — files it in the timings journal under its own name."""
 
 import json
 
 import pytest
 
 from rebuild.tools import artifact_cycle as ac
+from rebuild.tools import cycle_timings as ct
 from rebuild.tools import rebuild_gate as rg
 
 HARD_STDOUT = "FAILED rebuild/test_settle.py::test_x"
+
+
+def _checks():
+    """The check lines this run filed. The journal constant is read here rather than captured, because rebuild/conftest.py's autouse redirect is what points it under tmp_path and record_check resolves it at call time for exactly that reason."""
+    return ct.load_checks(ct.JOURNAL)
 
 
 @pytest.fixture
@@ -187,6 +193,50 @@ def test_pyright_runs_in_the_first_spawned_lane_only(green_store, monkeypatch):
     assert rg.main([]) == 0
     assert spawned[0][2].get(rg.PYRIGHT_ENV) == "1"
     assert rg.PYRIGHT_ENV not in spawned[1][2]
+
+
+def test_each_lane_files_its_verdict_under_its_own_check_name(green_store, monkeypatch):
+    """One check line per lane, named the way that lane's pool line is named, carrying the argv that was spawned and the seconds it took — and no run, because nothing spawns this wrapper but a person."""
+    _fingerprints(monkeypatch, {"contracts": ["c-1"] * 2, "validators": ["v-1"] * 2})
+    _suite_stub(monkeypatch, {"contracts": (0, ""), "validators": (0, "")})
+    assert rg.main([]) == 0
+    checks = _checks()
+    assert [check["check"] for check in checks] == ["rebuild-contracts", "rebuild-validators"]
+    for check, lane in zip(checks, ac.REBUILD_LANES):
+        assert check["verdict"] == "green"
+        assert check["status"] == "green"
+        assert check["failed_ids"] == []
+        assert check["argv"] == ac.rebuild_lane_argv(lane)
+        assert isinstance(check["elapsed_s"], int | float)
+        assert "run" not in check
+
+
+def test_a_skipped_lane_files_a_skipped_check_with_no_timing(green_store, monkeypatch):
+    """A closure judged unchanged is a judgment worth counting, so the skip is on the record — but with no argv and no seconds, since nothing ran and a zero would land in the timing rows as a suite that finished instantly."""
+    for lane, store in green_store.items():
+        ac.record_green(store, f"fp-{lane}")
+    _fingerprints(monkeypatch, {"contracts": ["fp-contracts"], "validators": ["fp-validators"]})
+    _suite_stub(monkeypatch, {})
+    assert rg.main([]) == 0
+    checks = _checks()
+    assert [check["check"] for check in checks] == ["rebuild-contracts", "rebuild-validators"]
+    for check in checks:
+        assert check["verdict"] == "skipped"
+        assert "argv" not in check
+        assert "elapsed_s" not in check
+
+
+def test_a_hard_failure_files_the_ids_it_failed_on(green_store, monkeypatch):
+    """The ids are the point of the record: a red lane files what failed, and the lane it stopped never files anything, because a check nobody asked for is not a skipped check."""
+    _fingerprints(monkeypatch, {"contracts": ["c-1"], "validators": ["v-1"]})
+    _suite_stub(monkeypatch, {"contracts": (3, HARD_STDOUT)})
+    assert rg.main([]) == 3
+    checks = _checks()
+    assert len(checks) == 1
+    assert checks[0]["check"] == "rebuild-contracts"
+    assert checks[0]["verdict"] == "red"
+    assert checks[0]["failed_ids"] == ["rebuild/test_settle.py::test_x"]
+    assert checks[0]["argv"] == ac.rebuild_lane_argv("contracts")
 
 
 def test_pyright_rides_into_the_validators_lane_when_contracts_skipped(green_store, monkeypatch):

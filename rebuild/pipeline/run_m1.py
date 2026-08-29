@@ -56,6 +56,7 @@ from rebuild.pipeline.model import (
 from rebuild.pipeline.settle import cell_label
 from rebuild.pipeline.spec_load import load_default_spec
 from rebuild.pipeline.table import DecisionTable
+from rebuild.tools.cycle_timings import CYCLE_RUN_ENV, CheckVerdict, record_check
 from rebuild.tools.memory_budget import describe_fit, usable_cores
 from rebuild.tools.peak_rss import process_peak_rss_bytes, rss_token
 
@@ -611,8 +612,37 @@ def run_oracle(
     return summary
 
 
+def _record_cli_check(verdict: CheckVerdict, started: float) -> None:
+    """File this invocation's verdict in the timings journal, unless a cycle is already recording on its behalf. The line is worth writing here for the reason the artifact cycle exists to defuse: this entry point's exit status is not its verdict, since it exits nonzero on the documented steady state of unmatched oracle rows, so a history keyed on the process's return code would read every mid-migration build as a failure. What is recorded is what the judge decided, and it is recorded before the trailing SystemExit so that exit can never rewrite it. CYCLE_RUN_ENV in the environment means the artifact cycle spawned this run and files the same judgment under its own run id, and one invocation is worth exactly one line — so this one stands down rather than writing a second."""
+    if CYCLE_RUN_ENV in os.environ:
+        return
+    record_check(
+        verdict,
+        argv=sys.argv,
+        elapsed_s=time.perf_counter() - started,
+        peak_rss_bytes=process_peak_rss_bytes(),
+    )
+
+
+def _failed_check(check: str, message: str) -> CheckVerdict:
+    """The verdict for a run that never reached its judge — a defect gate that stopped the build, a pin gate that refused it, a read-back or emit error. The message it died with is the whole of what is known, so it is the failure prose, and there are no failed ids because nothing here enumerated a case."""
+    return CheckVerdict(check=check, verdict="red", status="FAILED", failures=[message], failed_ids=[])
+
+
+def _gates_only_verdict(out_dir: Path, pin_gate: dict, oracle: dict) -> CheckVerdict:
+    """The run_m1 verdict for a --gates-only pass, taken from the same judge the artifact cycle runs over a build it reused rather than from the exit status this pass is about to take. It has to be that judge and not the exit status, because a pass whose oracle holds unmatched rows exits nonzero and is nonetheless green: unmatched rows are the mid-migration steady state, and a --gates-only loop over a ledger edit would otherwise file a red on every iteration. Two of the gate's three inputs are what this pass just re-ran; the third is the build's own defect gate, which belongs to a build this pass did not make and is read from the summary beside the tables whose stamp it already checked. An unreadable one contributes nothing rather than a guess — a build that failed its defect gate never compiled the font the stamp check just found."""
+    from rebuild.tools.artifact_cycle import evaluate_run_m1_gate
+
+    try:
+        pipeline = json.loads((out_dir / "pipeline_summary.json").read_text())
+    except OSError, ValueError:
+        pipeline = {}
+    return evaluate_run_m1_gate(pipeline, pin_gate, oracle)
+
+
 def run_gates_only(out_dir: Path = OUT_DIR, jobs: int = 1, fresh_cache: bool = False) -> None:
-    """The two post-build gates over artifacts already on disk: the Manual-pin replay and the oracle, rewriting their summaries and `divergence-audit.tsv` without recompiling anything. What licenses the reuse is the stamp the build left on its serialized enumerations — it names the sources those tables came from, so a stamp that still matches the runes on disk says the M1.otf beside them is the font those runes describe, and a stamp that does not is a refusal rather than a silent sweep of a stale binary. Because that stamp names only what the fixpoint reads, an edit to the divergence ledger or the alias map passes it and re-adjudicates here rather than being turned away; an edit to the classifier that reads them still moves it, conform.py being pipeline code. This still writes no green record: run_m1's green covers the whole build, a pass that recompiled nothing has not earned it, and the ledger and the alias map both stay in the key that green is taken over. For the same reason it opens the oracle row cache read-only — a pass that may not record a green may not record a build input either, and the store one of these passes would write is a store no build ever produced. It reads one gladly, which is the whole point: a ledger edit moves no family key and no stamp line, so every row is served and the re-adjudication costs seconds. Recording no ordinal has one further consequence worth naming: the store's renewal slice and its verification sample both advance on the pass a store records, so these passes rotate them on the clock instead — a re-adjudication loop that re-proved one frozen twentieth of the table every time would be no guard at all. `--fresh-oracle-cache` here declines the read rather than taking the stores off disk, since deleting a build input is a write like any other. What passes the stamp without being re-adjudicated here is `rebuild/m1-contact-allow.yaml`: the defect gate is the only stage that reads it and the defect gate belongs to the build, so an edit to it reaches `defects_summary.json` through a full run and no other way."""
+    """The two post-build gates over artifacts already on disk: the Manual-pin replay and the oracle, rewriting their summaries and `divergence-audit.tsv` without recompiling anything. What licenses the reuse is the stamp the build left on its serialized enumerations — it names the sources those tables came from, so a stamp that still matches the runes on disk says the M1.otf beside them is the font those runes describe, and a stamp that does not is a refusal rather than a silent sweep of a stale binary. Because that stamp names only what the fixpoint reads, an edit to the divergence ledger or the alias map passes it and re-adjudicates here rather than being turned away; an edit to the classifier that reads them still moves it, conform.py being pipeline code. This still writes no green record: run_m1's green covers the whole build, a pass that recompiled nothing has not earned it, and the ledger and the alias map both stay in the key that green is taken over. It does file a check line, which is a different claim and a compatible one — a green record licenses a later pass to skip work, while a check line only says how one invocation came out, and how a re-adjudication came out is exactly what a ledger edit wants on the record. For the same reason it opens the oracle row cache read-only — a pass that may not record a green may not record a build input either, and the store one of these passes would write is a store no build ever produced. It reads one gladly, which is the whole point: a ledger edit moves no family key and no stamp line, so every row is served and the re-adjudication costs seconds. Recording no ordinal has one further consequence worth naming: the store's renewal slice and its verification sample both advance on the pass a store records, so these passes rotate them on the clock instead — a re-adjudication loop that re-proved one frozen twentieth of the table every time would be no guard at all. `--fresh-oracle-cache` here declines the read rather than taking the stores off disk, since deleting a build input is a write like any other. What passes the stamp without being re-adjudicated here is `rebuild/m1-contact-allow.yaml`: the defect gate is the only stage that reads it and the defect gate belongs to the build, so an edit to it reaches `defects_summary.json` through a full run and no other way."""
+    started = time.perf_counter()
     inputs = tables_inputs()
     font_path = out_dir / "M1.otf"
     if serialized_tables(out_dir, inputs) is None:
@@ -631,12 +661,14 @@ def run_gates_only(out_dir: Path = OUT_DIR, jobs: int = 1, fresh_cache: bool = F
     print(json.dumps(pin_gate, indent=2))
     pin_failure = manual_pin_gate_failure(pin_gate)
     if pin_failure is not None:
+        _record_cli_check(_failed_check("run_m1", pin_failure), started)
         raise SystemExit(f"{pin_failure}; see manual_pins_summary.json")
 
     start = time.perf_counter()
     oracle = run_oracle(out_dir=out_dir, spec=spec, jobs=jobs, write_cache=False, fresh_cache=fresh_cache)
     print(f"[t] run_oracle {time.perf_counter() - start:.1f}s", flush=True)
     print(json.dumps(oracle, indent=2))
+    _record_cli_check(_gates_only_verdict(out_dir, pin_gate, oracle), started)
     if not oracle["pass"]:
         raise SystemExit("oracle conformance failed; see oracle_summary.json and divergence-audit.tsv")
 
@@ -706,6 +738,7 @@ def main(argv: list[str] | None = None) -> None:
     )
     args = parser.parse_args(argv)
     jobs = args.jobs if args.jobs and args.jobs > 1 else 1
+    started = time.perf_counter()
 
     if args.gates_only:
         run_gates_only(out_dir=OUT_DIR, jobs=jobs, fresh_cache=args.fresh_oracle_cache)
@@ -730,15 +763,16 @@ def main(argv: list[str] | None = None) -> None:
             flush=True,
         )
         print(json.dumps(conformance, indent=2))
-        _, conform_failures = evaluate_conform_gate(conformance)
+        verdict = evaluate_conform_gate(conformance)
         _settle_green(
             CONFORM_GREEN,
             before,
-            not conform_failures,
+            verdict.ok,
             conform_key,
             "gate:conform",
             files_of=lambda: conform_skip_files(REPO_ROOT, args.conform_horizon),
         )
+        _record_cli_check(verdict, started)
         if not conformance["pass"]:
             raise SystemExit("font conformance failed; see conform_summary.json")
         return
@@ -793,6 +827,7 @@ def main(argv: list[str] | None = None) -> None:
         print(json.dumps(oracle, indent=2))
     except (SystemExit, readback.ReadbackError, emit_gsub.EmitError) as error:
         _settle_green(RUN_M1_GREEN, before, False, run_m1_key, "run_m1")
+        _record_cli_check(_failed_check("run_m1", str(error)), started)
         if isinstance(error, SystemExit):
             raise
         raise SystemExit(str(error))
@@ -800,6 +835,7 @@ def main(argv: list[str] | None = None) -> None:
     _settle_green(
         RUN_M1_GREEN, before, gate.ok, run_m1_key, "run_m1", files_of=lambda: run_m1_skip_files(REPO_ROOT)
     )
+    _record_cli_check(gate, started)
     if not oracle["pass"]:
         raise SystemExit("oracle conformance failed; see oracle_summary.json and divergence-audit.tsv")
 

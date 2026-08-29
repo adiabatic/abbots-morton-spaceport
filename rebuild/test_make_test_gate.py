@@ -1,4 +1,4 @@
-"""The `make test` self-skip wrapper: skip on a matching green record, run and record otherwise, and never leave a record a red or moved closure has contradicted."""
+"""The `make test` self-skip wrapper: skip on a matching green record, run and record otherwise, never leave a record a red or moved closure has contradicted, and file the run's verdict in the timings journal unless a cycle is already filing one for the same invocation."""
 
 import json
 import os
@@ -17,6 +17,11 @@ def green_store(tmp_path, monkeypatch):
     monkeypatch.setattr(ac, "MAKE_TEST_GREEN", store)
     monkeypatch.setattr(mtg, "MAKE_TEST_GREEN", store)
     return store
+
+
+def _checks():
+    """The check lines this run filed. The journal constant is read here rather than captured, because rebuild/conftest.py's autouse redirect is what points it under tmp_path and record_check resolves it at call time for exactly that reason — the same fixture that takes the cycle's run id off the environment, without which a run of this suite inside a real cycle would see this wrapper stand down in every test below."""
+    return ct.load_checks(ct.JOURNAL)
 
 
 def _fingerprints(monkeypatch, values):
@@ -121,6 +126,56 @@ def test_the_font_suite_pool_names_itself_in_the_childs_environment(green_store,
     assert envs[0][ct.POOL_UNIT_ENV] == "font-suite"
     assert "PATH" in envs[0]
     assert ct.POOL_UNIT_ENV not in os.environ
+
+
+def test_a_green_run_files_a_green_check(green_store, monkeypatch):
+    """The invocation lands in the journal under the name the cycle's own step uses for it, carrying the argv it spawned and the seconds it took, and with no run — nobody drove this one."""
+    _fingerprints(monkeypatch, ["fp-2", "fp-2"])
+    _pytest_stub(monkeypatch, returncode=0)
+    assert mtg.main([]) == 0
+    checks = _checks()
+    assert len(checks) == 1
+    assert checks[0]["check"] == "make-test"
+    assert checks[0]["verdict"] == "green"
+    assert checks[0]["status"] == "green"
+    assert checks[0]["argv"] == mtg.PYTEST_ARGV
+    assert isinstance(checks[0]["elapsed_s"], int | float)
+    assert "run" not in checks[0]
+
+
+def test_a_red_run_files_the_exit_code_as_its_status(green_store, monkeypatch):
+    """rc is the whole judgment for this suite, so the status is the cycle's own label for a nonzero one. failed_ids stays empty because the child keeps its TTY and its output was never captured — the ids are on the terminal, not in this process."""
+    _fingerprints(monkeypatch, ["fp-2"])
+    _pytest_stub(monkeypatch, returncode=3)
+    assert mtg.main([]) == 3
+    checks = _checks()
+    assert len(checks) == 1
+    assert checks[0]["verdict"] == "red"
+    assert checks[0]["status"] == "FAILED (exit 3)"
+    assert checks[0]["failed_ids"] == []
+
+
+def test_the_skip_path_files_a_skipped_check_with_no_timing(green_store, monkeypatch):
+    ac.record_make_test_green("fp-1", green_store)
+    _fingerprints(monkeypatch, ["fp-1"])
+    spawned, _ = _pytest_stub(monkeypatch, returncode=0)
+    assert mtg.main([]) == 0
+    assert spawned == []
+    checks = _checks()
+    assert len(checks) == 1
+    assert checks[0]["verdict"] == "skipped"
+    assert "argv" not in checks[0]
+    assert "elapsed_s" not in checks[0]
+
+
+def test_a_cycle_spawned_run_files_nothing(green_store, monkeypatch):
+    """The cycle spawns this wrapper as gate:make-test and records that check itself, so the child stands down on the run id it inherited: one writer per invocation is what keeps --by-outcome counting checks rather than processes with an opinion."""
+    monkeypatch.setenv(ct.CYCLE_RUN_ENV, "cafef00d1234")
+    _fingerprints(monkeypatch, ["fp-2", "fp-2"])
+    spawned, _ = _pytest_stub(monkeypatch, returncode=0)
+    assert mtg.main([]) == 0
+    assert spawned == [mtg.PYTEST_ARGV]
+    assert _checks() == []
 
 
 def test_stale_record_format_never_matches(green_store, monkeypatch):
