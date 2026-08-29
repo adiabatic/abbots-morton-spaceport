@@ -40,6 +40,7 @@ policy:
       right:
         family:
         - qsBay
+        - qsGay
         - qsFee
   - exit: x-height
     by: 1

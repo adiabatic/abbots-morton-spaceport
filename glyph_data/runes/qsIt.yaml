@@ -208,6 +208,28 @@ policy:
             - qsSee
             - qsMay
             - qsLow
+  - cell:
+      entry: none
+      exit: baseline
+    over:
+      entry: baseline
+      exit: none
+    when:
+      left: {family: qsGay}
+      right:
+        family:
+        - qsDay
+        - qsDay_qsUtter
+        - qsUtter
+        except:
+        - family: qsUtter
+          then:
+            family:
+            - qsVie
+            - qsVie_qsUtter
+            - qsSee
+            - qsMay
+            - qsLow
   extend:
   - entry: baseline
     by: 1

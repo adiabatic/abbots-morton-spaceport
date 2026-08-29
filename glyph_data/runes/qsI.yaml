@@ -52,6 +52,7 @@ stances:
           from:
           - {family: qsPea}
           - {family: qsTea}
+          - {family: qsGay}
           - {family: qsMay}
           - {family: qsIt}
       exits:

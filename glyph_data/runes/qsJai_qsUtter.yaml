@@ -30,6 +30,7 @@ stances:
             - qsPea
             - qsTea
             - qsDay_qsUtter
+            - qsGay
             - qsFee
             - qsVie_qsUtter
             - qsSee_qsUtter
@@ -55,6 +56,7 @@ stances:
             - qsTea
             - qsDay
             - qsDay_qsUtter
+            - qsGay
             - qsFee
             - qsJai
             - qsJai_qsUtter
@@ -82,6 +84,7 @@ policy:
       right:
         family:
         - qsBay
+        - qsGay
         - qsFee
   - exit: x-height
     by: 1

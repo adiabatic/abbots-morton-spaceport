@@ -39,60 +39,60 @@
   "volatile": {
     "manifest": {
       "totals": {
-        "units": 844511,
-        "rows": 2851798,
-        "batches": 319,
-        "echo_groups": 6380
+        "units": 951628,
+        "rows": 3274888,
+        "batches": 356,
+        "echo_groups": 7040
       },
       "machine_approved": {
-        "units": 725576,
+        "units": 819871,
         "by_class": {
-          "boundary-echo": 129047,
-          "halves-entry-extension-restored": 202,
-          "dangling-anchor-dropped": 117621,
-          "bare-name-live-join": 216257,
-          "may-jai-extension-consolidated": 507,
+          "boundary-echo": 141510,
+          "halves-entry-extension-restored": 210,
+          "dangling-anchor-dropped": 145232,
+          "bare-name-live-join": 246998,
+          "may-jai-extension-consolidated": 590,
           "deferred-ss04": 3,
-          "jai-entry-contraction-respelled": 84,
-          "ss10-isolation-completed": 211806,
-          "ss10-ligature-suppressed": 5765,
-          "kern-channel-out-of-scope": 6931,
-          "deferred-ss10": 36628,
-          "extension-non-summing": 724,
+          "jai-entry-contraction-respelled": 89,
+          "ss10-isolation-completed": 231423,
+          "ss10-ligature-suppressed": 6230,
+          "kern-channel-out-of-scope": 7231,
+          "deferred-ss10": 39591,
+          "extension-non-summing": 763,
           "deferred-ss03": 1
         }
       },
       "class_unit_count": {
-        "boundary-echo": 144912,
-        "dangling-anchor-dropped": 120982,
-        "bare-name-live-join": 225237
+        "boundary-echo": 158450,
+        "dangling-anchor-dropped": 148951,
+        "bare-name-live-join": 256729
       },
       "secondary_seams": {
-        "units_with_markers": 90142,
-        "seams_homed": 71131,
-        "seams_homeless": 26669,
-        "seams_suppressed_invisible": 747
+        "units_with_markers": 95152,
+        "seams_homed": 73132,
+        "seams_homeless": 29959,
+        "seams_suppressed_invisible": 853
       }
     },
     "built": {
-      "human_units": 95529,
-      "worked_example_echo_siblings": 438,
+      "human_units": 106727,
+      "worked_example_echo_siblings": 473,
       "config_note_distribution": [
         [
           null,
-          482178
+          559485
         ],
         [
           "only under ss10",
-          307962
+          333159
         ],
         [
           "only when ss03 is off",
-          12217
+          13143
         ],
         [
           "only when ss03 is off and ss04 is off",
-          148
+          156
         ],
         [
           "only when ss03 is off and ss05 is off",
@@ -100,7 +100,7 @@
         ],
         [
           "only when ss03 is on",
-          17039
+          18258
         ],
         [
           "only when ss03 is on and ss05 is off",
@@ -112,7 +112,7 @@
         ],
         [
           "only when ss04 is off",
-          10405
+          11496
         ],
         [
           "only when ss04 is off and ss05 is off",
@@ -120,15 +120,15 @@
         ],
         [
           "only when ss04 is on",
-          10672
+          11778
         ],
         [
           "only when ss05 is off",
-          1885
+          2015
         ],
         [
           "only when ss05 is on",
-          1951
+          2084
         ],
         [
           "only when ss05 is on and ss03 is off",
@@ -137,35 +137,35 @@
       ]
     },
     "audit": {
-      "row_count": 2851798,
-      "units": 848676
+      "row_count": 3274888,
+      "units": 956118
     },
     "ink": {
-      "machine_total": 401472,
-      "non_identical": 447204,
+      "machine_total": 469293,
+      "non_identical": 486825,
       "by_class": {
-        "boundary-echo": 80599,
-        "dangling-anchor-dropped": 107905,
-        "bare-name-live-join": 212968
+        "boundary-echo": 91144,
+        "dangling-anchor-dropped": 134607,
+        "bare-name-live-join": 243542
       },
-      "boundary_echo_exempt": 73192,
-      "human_units": 374012,
-      "batches": 1247
+      "boundary_echo_exempt": 76787,
+      "human_units": 410038,
+      "batches": 1367
     },
     "families": {
       "census": {
-        "no-chain-gains": 1101,
-        "tea-it-xheight": 122,
-        "oy-it-baseline": 43,
-        "may-utter-gains": 744,
-        "seam-loss-withdrawal": 8154,
-        "extension-non-summing": 34693,
-        "unmatched-misc": 4233,
-        "deferred-ss04": 5500,
-        "deferred-ss10": 36628,
-        "deferred-ss03": 3141
+        "no-chain-gains": 1286,
+        "tea-it-xheight": 125,
+        "oy-it-baseline": 44,
+        "may-utter-gains": 792,
+        "seam-loss-withdrawal": 9267,
+        "extension-non-summing": 37411,
+        "unmatched-misc": 4927,
+        "deferred-ss04": 5756,
+        "deferred-ss10": 39591,
+        "deferred-ss03": 3372
       },
-      "total": 94359
+      "total": 102571
     }
   }
 }

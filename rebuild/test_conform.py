@@ -201,6 +201,8 @@ class TestAliasAndLedger:
             (("exit-added",), "bare-name-live-join"),
             (("+en-ext-1", "exit-dropped"), "halves-entry-extension-restored"),
             (("-en-ext-1:same-seam",), "same-seam-extension-non-summing"),
+            (("-en-ext-2:same-seam",), "same-seam-extension-non-summing"),
+            (("-en-ext-2",), None),
             (("-en-ext-1:qsMay", "exit-dropped"), "may-baseline-entry-extension-dropped"),
             (("-en-ext-1:qsDay",), "day-baseline-entry-extension-dropped"),
             (("-en-ext-1:qsDay", "exit-dropped"), "day-baseline-entry-extension-dropped"),

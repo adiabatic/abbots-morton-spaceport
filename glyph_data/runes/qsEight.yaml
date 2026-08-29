@@ -32,6 +32,7 @@ stances:
             - qsPea
             - qsTea
             - qsDay_qsUtter
+            - qsGay
             - qsFee
             - qsVie_qsUtter
             - qsSee_qsUtter
@@ -91,6 +92,7 @@ stances:
             - qsPea
             - qsTea
             - qsDay_qsUtter
+            - qsGay
             - qsFee
             - qsVie_qsUtter
             - qsSee_qsUtter

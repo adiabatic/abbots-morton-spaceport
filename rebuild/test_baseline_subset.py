@@ -19,9 +19,9 @@ class TestFilterTable:
         source = tmp_path / "baseline-default.tsv.gz"
         rows = [
             "E670\tqsIt\t0\t\t0,0,150",
-            "E655\tqsGay\t0\t\t0,0,250",
+            "E656\tqsThaw\t0\t\t0,0,250",
             "E652:E670\tqsTea.half.ex-y5|qsIt.en-y5.ex-y0\t0,1\ty5\t0,0,100|0,0,100",
-            "E652:E655\tqsTea|qsGay\t0,1\tbreak\t0,0,100|0,0,250",
+            "E652:E656\tqsTea|qsThaw\t0,1\tbreak\t0,0,100|0,0,250",
         ]
         _write_table(source, rows)
         destination = tmp_path / "out" / "baseline-default.subset.tsv.gz"
@@ -32,7 +32,7 @@ class TestFilterTable:
         assert content.startswith("# baseline-extractor v1\n# config: default\n")
         assert "E670\t" in content
         assert "E652:E670\t" in content
-        assert "E655" not in content
+        assert "E656" not in content
 
     def test_canonical_order_preserved(self, tmp_path):
         source = tmp_path / "baseline-ss03.tsv.gz"
@@ -57,7 +57,7 @@ class TestFilterTable:
 def _seed_repo(tmp_path):
     out = tmp_path / "rebuild" / "out"
     out.mkdir(parents=True)
-    _write_table(out / "baseline-default.tsv.gz", ["E670\tqsIt\t0\t\t0,0,150", "E655\tqsGay\t0\t\t0,0,250"])
+    _write_table(out / "baseline-default.tsv.gz", ["E670\tqsIt\t0\t\t0,0,150", "E656\tqsThaw\t0\t\t0,0,250"])
     (out / "digests.tsv").write_text("config\trows\tsha256_uncompressed\ndefault\t2\tabc\n")
     return tmp_path
 
@@ -79,7 +79,7 @@ class TestEnsureFresh:
         baseline_subset.ensure_fresh(root)
         _write_table(
             root / "rebuild" / "out" / "baseline-default.tsv.gz",
-            ["E670\tqsIt\t0\t\t0,0,150", "E655\tqsGay\t0\t\t0,0,250", "E672\tqsEt\t0\t\t0,0,200"],
+            ["E670\tqsIt\t0\t\t0,0,150", "E656\tqsThaw\t0\t\t0,0,250", "E672\tqsEt\t0\t\t0,0,200"],
         )
         assert baseline_subset.is_fresh(root) is False
         assert baseline_subset.ensure_fresh(root) is True
@@ -182,7 +182,7 @@ class TestFilterTriage:
         source.write_text(
             "config\tcheck\tcodepoints\tbaseline_glyphs\tboundary_glyphs\tfirst\tbs\tns\tkind\n"
             "default\tzwnj-vs-edge\t200C:E650\ta\tb\t0\tx\ty\tname\n"
-            "default\tzwnj-vs-edge\t200C:E655\ta\tb\t0\tx\ty\tname\n"
+            "default\tzwnj-vs-edge\t200C:E656\ta\tb\t0\tx\ty\tname\n"
         )
         destination = tmp_path / "triage.subset.tsv"
         kept = baseline_subset.filter_triage(source, destination)
@@ -190,4 +190,4 @@ class TestFilterTriage:
         content = destination.read_text()
         assert content.startswith("config\t")
         assert "200C:E650" in content
-        assert "E655" not in content
+        assert "E656" not in content
