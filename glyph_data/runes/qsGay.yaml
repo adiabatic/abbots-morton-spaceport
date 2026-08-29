@@ -104,6 +104,9 @@ stances:
           - family:
             - qsJai
             - qsJai_qsUtter
+            - qsNo
+            # ·Gay·Et should stay connected — there's no reason for them to not connect
+            - qsEt
             - qsEight
             - qsAwe
             - qsOx
@@ -125,6 +128,10 @@ policy:
     when:
       self: {entry: none}
       right: {family: qsOoze}
+  - exit: x-height
+    when:
+      self: {entry: none}
+      right: {family: qsEt}
   prefer:
   - cell:
       entry: none
@@ -192,6 +199,11 @@ policy:
         family:
         - qsJai
         - qsJai_qsUtter
+  - exit: x-height
+    by: 1
+    when:
+      right: {family: qsNo}
+    why: Add a pixel of extension for `·Gay ~x~ ·No` and make them join — I can't see why they can't join
   contract: []
   resolve: []
   groups: {}

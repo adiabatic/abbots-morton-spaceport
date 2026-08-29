@@ -849,7 +849,7 @@ E654 E652 E679            # Key Tea+Oy (break: the ligature takes no entry)
 E654 200C E652            # Key ZWNJ Tea (exit severed)
 00B7 E654                 # namer dot before Tall Key (stays)
 
-# qsGay windows: the Deep crown-and-loop — a short crown bar at the x-height, a zigzag descent to the baseline, and a loop closing below it. Entered at the baseline by nine lefts (onto the reaching drawing) or at the x-height by ·Utter and the ·Utter ligatures (the crown's right pixel retracts); an entry at one height always pairs with the exit at the other. The baseline exit reaches eighteen entryless receivers plus ·Ooze when entered, extending by one toward the seven it reaches for; the x-height exit serves ·J'ai (by two), ·Eight, ·Awe, ·Ox, and ·Oy; and the backward baseline join yields whenever a reach-for follower comes next.
+# qsGay windows: the Deep crown-and-loop — a short crown bar at the x-height, a zigzag descent to the baseline, and a loop closing below it. Entered at the baseline by nine lefts (onto the reaching drawing) or at the x-height by ·Utter and the ·Utter ligatures (the crown's right pixel retracts); an entry at one height always pairs with the exit at the other. The baseline exit reaches eighteen entryless receivers plus ·Ooze when entered, extending by one toward the seven it reaches for; the x-height exit serves ·J'ai (by two), ·No (by one), ·Eight, ·Awe, ·Ox, and ·Oy, and reaches ·Et only from an entered ·Gay; and the backward baseline join yields whenever a reach-for follower comes next.
 E655                      # Gay in isolation
 E651 E655                 # Bay Gay (the baseline entry)
 E653 E655                 # Day Gay (the baseline entry)
