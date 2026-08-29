@@ -56,7 +56,7 @@ from rebuild.pipeline.model import (
 from rebuild.pipeline.settle import cell_label
 from rebuild.pipeline.spec_load import load_default_spec
 from rebuild.pipeline.table import DecisionTable
-from rebuild.tools.memory_budget import describe_fit
+from rebuild.tools.memory_budget import describe_fit, usable_cores
 from rebuild.tools.peak_rss import process_peak_rss_bytes, rss_token
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -91,12 +91,12 @@ def build_tables(
 
     `inputs` is `tables_inputs` over the sources this spec was loaded from. Supplying it alongside `out_dir` keeps each configuration's window enumeration next to the TSVs — where `run_font_conformance` picks it up rather than rebuilding anything — under the stamp that names those sources; omit it and the payload is read for its head and deleted, which is what a caller building a spec of its own must have, since the fingerprint names the repo's rune files and cannot vouch for tables they did not produce.
 
-    `kernel_threads` is how many configurations are in flight at once, capped here at the configuration count and the CPU count — neither of which is a memory bound — while the default it falls back to is the memory one: `kernel_exec.KERNEL_THREADS_DEFAULT` is this box's own memory divided by what a configuration costs while it holds its whole working set, from the first window it reaches to the last artifact it writes. So this `min()` only ever narrows a memory-derived width and never widens one, and nothing about memory belongs inside it. The fold's own width went with the Python fold: it runs inside the enumerating process now, and there is nothing left on this side to widen.
+    `kernel_threads` is how many configurations are in flight at once, capped here at the configuration count and the cores this process may actually run on — neither of which is a memory bound — while the default it falls back to is the memory one: `kernel_exec.KERNEL_THREADS_DEFAULT` is this box's own memory divided by what a configuration costs while it holds its whole working set, from the first window it reaches to the last artifact it writes. So this `min()` only ever narrows a memory-derived width and never widens one, and nothing about memory belongs inside it. The fold's own width went with the Python fold: it runs inside the enumerating process now, and there is nothing left on this side to widen.
     """
     configs = conform.ACCEPTANCE_CONFIGS
     threads = max(
         1,
-        min(kernel_threads or kernel_exec.KERNEL_THREADS_DEFAULT, len(configs), os.process_cpu_count() or 1),
+        min(kernel_threads or kernel_exec.KERNEL_THREADS_DEFAULT, len(configs), usable_cores()),
     )
     kernel_exec.ensure_built()
     built: dict[str, tuple] = {}
@@ -700,7 +700,7 @@ def main(argv: list[str] | None = None) -> None:
         type=int,
         default=None,
         help=(
-            "how many configurations the kernel enumerates and folds at once, capped at the configuration count and the CPU count; the ceiling is memory rather than CPU, so the default is derived from the box in hand rather than checked in — on this one "
+            "how many configurations the kernel enumerates and folds at once, capped at the configuration count and the cores this process may actually run on; the ceiling is memory rather than CPU, so the default is derived from the box in hand rather than checked in — on this one "
             f"{describe_fit(kernel_exec.CONFIG_PEAK_BYTES)} — which AMS_KERNEL_THREADS short-circuits and this flag beats in turn"
         ),
     )

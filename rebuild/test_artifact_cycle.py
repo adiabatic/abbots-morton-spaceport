@@ -1,4 +1,5 @@
 import argparse
+import functools
 import json
 import os
 import re
@@ -1632,6 +1633,26 @@ class TestTheSurfaceBuildWidth:
             width = ac.surface_job_budget(skip_gates=skip_gates, ncores=10, total_bytes=BOX_66_GB)
             derivation = ac.surface_job_derivation(skip_gates=skip_gates, ncores=10, total_bytes=BOX_66_GB)
             assert derivation.startswith(f"{width} at ")
+
+
+def test_both_job_budgets_answer_the_cgroup_allowance_rather_than_the_hosts_core_count(monkeypatch):
+    """A CPU quota is invisible to `os.cpu_count()`, so a two-core allowance on a many-core host used to get a sweep process per acceptance configuration and a surface build at the cap — every one of them a core the process may not run on. Both budgets probe through `usable_cores` now, and what stands in for the box here is the real probe over an invented cgroup root, so the allowance is a fixture rather than a stub: two cores sits under both caps, so each budget answers the allowance itself. The surface budget also divides an invented terabyte box, so its memory arithmetic never binds and the core clamp is the whole assertion. A stated `ncores` still outranks the probe, which is what keeps `build_plan`'s explicit threading its own."""
+    from rebuild.pipeline.conform import ACCEPTANCE_CONFIGS
+    from rebuild.tools import memory_budget
+
+    host = os.process_cpu_count() or os.cpu_count() or 1
+    probe = memory_budget.usable_cores
+    root = REPO_ROOT / "rebuild" / "fixtures" / "memory_budget" / "container-v2"
+    allowed = probe(root)
+    monkeypatch.setattr(memory_budget, "usable_cores", functools.partial(probe, root))
+    assert allowed == min(host, 2) < min(len(ACCEPTANCE_CONFIGS), ac.SURFACE_JOBS_CAP)
+    assert ac.sweep_job_budget() == allowed
+    assert ac.surface_job_budget(skip_gates=True, total_bytes=1_000_000_000_000) == allowed
+    assert ac.sweep_job_budget(12) == len(ACCEPTANCE_CONFIGS)
+    assert (
+        ac.surface_job_budget(skip_gates=True, ncores=12, total_bytes=1_000_000_000_000)
+        == ac.SURFACE_JOBS_CAP
+    )
 
 
 def test_make_test_pool_width_is_the_width_the_surface_budget_leaves_it():
