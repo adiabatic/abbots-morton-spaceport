@@ -1,14 +1,20 @@
-"""Interactive run_m1 and --conform-only record the same last-green files the artifact cycle skips on, so a fix verified by hand is not re-verified by the next cycle. The gate verdicts come from artifact_cycle's own evaluators, never from run_m1's exit code, which is nonzero whenever the oracle carries UNMATCHED rows — the normal mid-migration state."""
+"""Interactive run_m1 and --conform-only record the same last-green files the artifact cycle skips on, so a fix verified by hand is not re-verified by the next cycle, and each of them files what it decided as a check line in the timings journal. The gate verdicts come from artifact_cycle's own evaluators, never from run_m1's exit code, which is nonzero whenever the oracle carries UNMATCHED rows — the normal mid-migration state — and that is the fact the check lines here exist to pin: the same run that exits 1 files a green."""
 
 import pytest
 
 from rebuild.pipeline import conform, oracle_cache, run_m1
 from rebuild.tools import artifact_cycle as ac
+from rebuild.tools import cycle_timings as ct
 
 
 @pytest.fixture
 def green_store(tmp_path):
     return tmp_path / "run-m1-green.json"
+
+
+def _checks():
+    """The check lines this run filed. The journal constant is read here rather than captured, because rebuild/conftest.py's autouse redirect is what points it under tmp_path and record_check resolves it at call time for exactly that reason — the same fixture that takes the cycle's run id off the environment, without which a run of this suite inside a real cycle would see every one of these entry points stand down."""
+    return ct.load_checks(ct.JOURNAL)
 
 
 def _keys(values):
@@ -190,6 +196,41 @@ def test_unmatched_oracle_rows_still_record_a_green(monkeypatch, tmp_path):
     assert record["fingerprint"] == "fp-live"
 
 
+def test_an_interactive_run_files_the_gates_verdict_and_not_its_exit_code(monkeypatch):
+    """The whole reason a check line exists rather than a return code: this run exits 1 on the unmatched rows that are the mid-migration steady state, and what lands on the record is the green its own gate reached. The line carries no run, because nobody drove this one."""
+    monkeypatch.setattr(ac, "run_m1_skip_fingerprint", lambda root=None: "fp-live")
+    _stub_full_run(monkeypatch, oracle_pass=False)
+    with pytest.raises(SystemExit):
+        run_m1.main([])
+    checks = _checks()
+    assert len(checks) == 1
+    assert checks[0]["check"] == "run_m1"
+    assert checks[0]["verdict"] == "green"
+    assert "run" not in checks[0]
+
+
+def test_a_run_that_never_reached_its_judge_files_the_message_it_died_with(monkeypatch):
+    """A defect gate that stops the build leaves nothing to judge, so the red carries the sentence it raised and no failed ids — nothing here enumerated a case."""
+    monkeypatch.setattr(ac, "run_m1_skip_fingerprint", lambda root=None: "fp-live")
+    _stub_full_run(monkeypatch, defect_errors=["qsAh: contact"], oracle_pass=True)
+    with pytest.raises(SystemExit):
+        run_m1.main([])
+    checks = _checks()
+    assert len(checks) == 1
+    assert checks[0]["verdict"] == "red"
+    assert checks[0]["failures"] == ["1 defect-gate errors; see pipeline_summary.json"]
+    assert checks[0]["failed_ids"] == []
+
+
+def test_a_cycle_spawned_run_files_nothing(monkeypatch):
+    """The artifact cycle judges run_m1 itself and tags the line with its own run, so the child it spawned stands down on the run id it inherited: one invocation is worth one line, whoever did the work."""
+    monkeypatch.setenv(ct.CYCLE_RUN_ENV, "cafef00d1234")
+    monkeypatch.setattr(ac, "run_m1_skip_fingerprint", lambda root=None: "fp-live")
+    _stub_full_run(monkeypatch, oracle_pass=True)
+    run_m1.main([])
+    assert _checks() == []
+
+
 def test_a_defect_gate_failure_clears_the_record(monkeypatch, tmp_path):
     store = tmp_path / "run-m1-green.json"
     monkeypatch.setattr(ac, "RUN_M1_GREEN", store)
@@ -249,6 +290,24 @@ def test_conform_only_divergences_record_no_green(monkeypatch, tmp_path):
     with pytest.raises(SystemExit):
         run_m1.main(["--conform-only"])
     assert ac.read_green_record(store) is None
+
+
+def test_conform_only_files_its_own_check(monkeypatch):
+    """The sweep is its own check, named the way the cycle's gate:conform names it, and it files the judge's status rather than a second spelling invented here. A divergence is a red with the same label the cycle summary prints."""
+    monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, horizon=4: "fp-conform")
+    monkeypatch.setattr(ac, "conform_skip_files", lambda root=None, horizon=4: {})
+    monkeypatch.setattr(
+        run_m1, "run_font_conformance", lambda max_length, jobs: {"pass": True, "divergences": 0}
+    )
+    run_m1.main(["--conform-only"])
+    assert [(check["check"], check["status"]) for check in _checks()] == [("conform", "green")]
+
+    monkeypatch.setattr(
+        run_m1, "run_font_conformance", lambda max_length, jobs: {"pass": False, "divergences": 3}
+    )
+    with pytest.raises(SystemExit):
+        run_m1.main(["--conform-only"])
+    assert [(check["check"], check["status"]) for check in _checks()][-1] == ("conform", "FAILED")
 
 
 def test_the_conform_horizon_default_matches_the_cycle_driver(monkeypatch, tmp_path):
@@ -434,6 +493,58 @@ class TestGatesOnly:
         run_m1.main(["--gates-only", "--jobs", "6"])
         assert ran == ["pins", "oracle"]
         assert "[t] run_oracle" in capsys.readouterr().out
+
+    def test_it_files_the_re_adjudications_verdict_rather_than_its_exit_status(self, monkeypatch, tmp_path):
+        """A ledger edit is re-adjudicated in a loop, and every iteration of that loop exits nonzero while the unmatched rows remain — so a record keyed on the exit status would read a whole afternoon's work as an afternoon of failures. The pass is judged by the same evaluator the cycle runs over a build it reused, and files that."""
+        self._reuse(monkeypatch, {})
+        monkeypatch.setattr(run_m1, "OUT_DIR", tmp_path)
+        (tmp_path / "M1.otf").write_bytes(b"font")
+        monkeypatch.setattr(run_m1, "load_default_spec", lambda: object())
+        monkeypatch.setattr(
+            run_m1,
+            "run_manual_pin_gate",
+            lambda out_dir, spec: {"pass": True, "disagreements": [], "pins_in_scope": 4, "replayed": 4},
+        )
+        monkeypatch.setattr(
+            run_m1,
+            "run_oracle",
+            lambda out_dir, spec, jobs, **_cache: {"pass": False, "unmatched": 19837, "multi_matched": 0},
+        )
+        with pytest.raises(SystemExit):
+            run_m1.main(["--gates-only"])
+        checks = _checks()
+        assert len(checks) == 1
+        assert checks[0]["check"] == "run_m1"
+        assert checks[0]["verdict"] == "green"
+        assert "run" not in checks[0]
+
+    def test_a_pin_gate_that_refuses_the_build_files_a_red(self, monkeypatch, tmp_path):
+        """The one refusal here that is a judgment rather than a pre-flight: the pins replayed and disagreed, so the record says so and carries the sentence the pass died with."""
+        self._reuse(monkeypatch, {})
+        monkeypatch.setattr(run_m1, "OUT_DIR", tmp_path)
+        (tmp_path / "M1.otf").write_bytes(b"font")
+        monkeypatch.setattr(run_m1, "load_default_spec", lambda: object())
+        monkeypatch.setattr(
+            run_m1,
+            "run_manual_pin_gate",
+            lambda out_dir, spec: {"pass": True, "disagreements": [], "pins_in_scope": 4, "replayed": 3},
+        )
+        monkeypatch.setattr(
+            run_m1, "run_oracle", lambda **kwargs: pytest.fail("the oracle ran behind a failed pin gate")
+        )
+        with pytest.raises(SystemExit):
+            run_m1.main(["--gates-only"])
+        checks = _checks()
+        assert len(checks) == 1
+        assert checks[0]["verdict"] == "red"
+        assert "replayed 3 of 4 pins" in checks[0]["failures"][0]
+
+    def test_a_pre_flight_refusal_judges_nothing_and_files_nothing(self, monkeypatch, tmp_path):
+        """A stamp that no longer matches the runes turns the pass away before any gate runs. Nothing was judged, so nothing belongs on a record of judgments — a red here would put a failure on run_m1's history that no run of run_m1 ever reached."""
+        self._reuse(monkeypatch, None)
+        with pytest.raises(SystemExit):
+            run_m1.run_gates_only(out_dir=tmp_path)
+        assert _checks() == []
 
     def test_a_vacuous_pin_gate_stops_it_before_the_oracle(self, monkeypatch, tmp_path):
         self._reuse(monkeypatch, {})

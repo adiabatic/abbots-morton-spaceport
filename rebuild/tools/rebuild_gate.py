@@ -2,7 +2,7 @@
 
 The suite splits into two lanes, and rebuild/conftest.py is the authority on which test is which: a test whose fixture closure names `live_artifacts` reads live build output and belongs to **validators**, everything else to **contracts**. That split is what makes two gates worth having. Contracts holds most of the suite and reads no artifact, so it runs at the box's full xdist width and its closure — the rebuild/ and glyph_data/ sources (minus Markdown, the carried-verdict evidence, the JS-only jstests, and the census pins the suite no longer reads) plus conftest.py, pyproject.toml, uv.lock, and the site fonts it shapes against — contains no build output at all, which is what lets an artifact-only cycle skip it. Validators adds exactly what its readers touch on top: the out/m1 artifacts, the oracle's subset tables, and the baselines. Each lane keeps its own green record (rebuild/out/rebuild-contracts-green.json, rebuild/out/rebuild-validators-green.json), shared with the artifact cycle's gate:rebuild-contracts and gate:rebuild-validators, so interactive greens and cycle greens count for each other in both directions.
 
-Contracts runs first, and a hard failure there returns immediately without starting validators — running the cheap lane first is what buys that fail-fast, since a code error surfaces in minutes instead of after the long lane has finished. Each lane that actually runs is judged through the cycle's own failure classifier, which parses the FAILED/ERROR summary lines so a failure is named rather than just counted; every green is recordable. A green run during which that lane's closure moved records nothing, because the tested content is no longer on disk; a red run whose closure still matches its record deletes it, since the green it claims is contradicted; and without git there is no closure to key on, so the lane runs unconditionally and records nothing. `make test-rebuild FORCE=1` (--force) runs both lanes regardless.
+Contracts runs first, and a hard failure there returns immediately without starting validators — running the cheap lane first is what buys that fail-fast, since a code error surfaces in minutes instead of after the long lane has finished. Each lane that actually runs is judged through the cycle's own failure classifier, which parses the FAILED/ERROR summary lines so a failure is named rather than just counted; every green is recordable. That verdict is also filed, as a kind:"check" line in the timings journal under the lane's own name — rebuild-contracts or rebuild-validators, the same spelling its pool line already uses — carrying the ids the lane failed on, so `make cycle-timings --by-outcome` can say which test has ever caught anything across every run rather than only across the ones a cycle happened to drive. This wrapper files that line unconditionally, because no cycle ever spawns it: `make test-rebuild` is always someone at a terminal, so there is never a second writer to stand down for the way the `make test` gate stands down for its parent. A lane that skips files a check too, judged skipped and carrying no seconds — a closure judged unchanged is still a judgment and worth counting, while a lane that never ran has no duration to report and a zero would drag the timing rows toward a suite that never happened. The green record is a separate ledger on separate rules: a green run during which that lane's closure moved records nothing, because the tested content is no longer on disk; a red run whose closure still matches its record deletes it, since the green it claims is contradicted; and without git there is no closure to key on, so the lane runs unconditionally and records nothing. `make test-rebuild FORCE=1` (--force) runs both lanes regardless.
 
 AMS_RUN_PYRIGHT rides the environment into whichever lane actually spawns first and is stripped from every lane after it: pyright checks the whole tree from `[tool.pyright] include` and its answer cannot change between two pytest invocations of the same working tree, so type-checking twice would only cost a second copy of the same verdict.
 
@@ -15,6 +15,7 @@ import argparse
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -31,7 +32,7 @@ from rebuild.tools.artifact_cycle import (
     rebuild_lane_green,
     record_green,
 )
-from rebuild.tools.cycle_timings import POOL_UNIT_ENV
+from rebuild.tools.cycle_timings import POOL_UNIT_ENV, CheckVerdict, record_check
 
 PYRIGHT_ENV = "AMS_RUN_PYRIGHT"
 POOL_UNIT_BY_LANE = {"contracts": "rebuild-contracts", "validators": "rebuild-validators"}
@@ -49,7 +50,11 @@ def _run_suite(argv: list[str], env: dict[str, str]) -> tuple[int, str]:
 
 
 def _run_lane(lane: str, env: dict[str, str], force: bool) -> tuple[int, bool]:
-    """Run (or validly skip) one lane, returning its exit code and whether it actually spawned a suite. A nonzero code is a hard failure and stops the run; every other outcome — a skip, a clean green, a green whose closure drifted — is a zero the caller carries on from."""
+    """Run (or validly skip) one lane, returning its exit code and whether it actually spawned a suite. A nonzero code is a hard failure and stops the run; every other outcome — a skip, a clean green, a green whose closure drifted — is a zero the caller carries on from.
+
+    Every path through here files exactly one check line, the skip included. The judgment is filed before the green-record branching below rather than inside it, because those branches are four things to do with a green record and not four verdicts: a lane whose green went unrecorded — no git to key on, or a closure that moved while the suite ran — is still a lane that passed, and the journal is asked what the suite decided, not what the record keeper could do about it. The seconds are the suite's own, measured around the spawn rather than around this function, since the fingerprint passes on either side of it are the wrapper's overhead and not the check's cost.
+    """
+    check = POOL_UNIT_BY_LANE[lane]
     record_path = rebuild_lane_green(lane)
     before = rebuild_lane_fingerprint(ROOT, lane)
     recorded = read_green_record(record_path)
@@ -58,14 +63,21 @@ def _run_lane(lane: str, env: dict[str, str], force: bool) -> tuple[int, bool]:
             f"make test-rebuild: {lane} lane SKIPPED — its input closure is unchanged since its last green run ({recorded.get('finished_at')}). "
             "Run `make test-rebuild FORCE=1` to run it anyway."
         )
+        record_check(
+            CheckVerdict(check=check, verdict="skipped", status="skipped", failures=[], failed_ids=[])
+        )
         return 0, False
 
-    lane_env = {**env, POOL_UNIT_ENV: POOL_UNIT_BY_LANE[lane]}
-    returncode, stdout = _run_suite(rebuild_lane_argv(lane), lane_env)
-    outcome = classify_rebuild_output(stdout, returncode)
-    for test_id in outcome.hard_ids:
+    argv = rebuild_lane_argv(lane)
+    lane_env = {**env, POOL_UNIT_ENV: check}
+    started = time.perf_counter()
+    returncode, stdout = _run_suite(argv, lane_env)
+    elapsed = time.perf_counter() - started
+    outcome = classify_rebuild_output(stdout, returncode, check)
+    record_check(outcome, argv=argv, elapsed_s=elapsed)
+    for test_id in outcome.failed_ids:
         print(f"  hard rebuild failure ({lane}): {test_id}")
-    if outcome.hard_ids:
+    if not outcome.ok:
         clear_contradicted_green(record_path, before)
         print(f"make test-rebuild: {lane} lane {outcome.status}")
         return (returncode if returncode != 0 else 1), True
