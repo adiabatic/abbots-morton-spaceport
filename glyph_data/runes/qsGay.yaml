@@ -195,27 +195,11 @@ policy:
   - exit: x-height
     by: 3
     when:
-      right: {family: qsJai_qsUtter}
-  - exit: x-height
-    by: 3
-    when:
       right:
-        family: qsJai
-        then:
-          except:
-          - {family: qsTea}
-          - {family: qsVie}
-          - {family: qsSee}
-          - {family: qsNo}
-          - {family: qsLow}
-          - {family: qsRoe}
-          - {family: qsIt}
-          - {family: qsI}
-    why: I want another pixel of extension between ·Gay and ·J'ai here
-  - exit: x-height
-    by: 2
-    when:
-      right: {family: qsJai}
+        family:
+        - qsJai
+        - qsJai_qsUtter
+    why: I want another pixel of extension between ·Gay and ·J'ai
   - exit: x-height
     by: 1
     when:
