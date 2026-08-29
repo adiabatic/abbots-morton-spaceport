@@ -1733,7 +1733,7 @@ def test_dry_run_renders_concurrency():
     assert "run_m1 sweeps --jobs             : 6" in text
     assert "run_m1 --kernel-threads          : " in text
     assert "surface-build --jobs             : 1" in text
-    assert "less 20.60 GB co-resident" in text
+    assert "less 23.60 GB co-resident" in text
 
     by_name = {step.name: step for step in plan.steps}
     assert _argv(by_name["run_m1"])[1:6] == ["run", "python", "-m", "rebuild.pipeline.run_m1", "--jobs"]
@@ -2224,7 +2224,7 @@ def test_skip_make_test_frees_the_surface_build_budget():
     assert _argv(by_name["surface-build"])[-2:] == ["--jobs", "1"]
     rendered = ac.render_plan(plan)
     assert "surface-build --jobs             : 1" in rendered
-    assert "less 20.00 GB co-resident" in rendered
+    assert "less 23.00 GB co-resident" in rendered
     assert "gate:make-test skipped, so the surface build takes the whole box" in rendered
 
     gated = _plan(skip_make_test=False, ncores=10, total_bytes=BOX_48_GIB)
@@ -2233,7 +2233,7 @@ def test_skip_make_test_frees_the_surface_build_budget():
     gated_by_name = {step.name: step for step in gated.steps}
     assert _argv(gated_by_name["surface-build"])[-2:] == ["--jobs", "1"]
     assert (
-        "surface-build --jobs             : 1  (gate:make-test's pytest pool held to 2 workers — its cores reserved here and its bytes off the box beside the build's own parent; 1 at 16.00 GB each out of 51.54 GB total, less a reserve of 8.00 GB, less 20.60 GB co-resident, capped at 8)"
+        "surface-build --jobs             : 1  (gate:make-test's pytest pool held to 2 workers — its cores reserved here and its bytes off the box beside the build's own parent; 1 at 16.00 GB each out of 51.54 GB total, less a reserve of 8.00 GB, less 23.60 GB co-resident, capped at 8)"
         in ac.render_plan(gated)
     )
 
