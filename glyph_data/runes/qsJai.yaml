@@ -109,25 +109,6 @@ policy:
         - qsExam
         - qsIt
         - qsI
-  - entry: x-height
-    by: 2
-    when:
-      left: {family: qsGay}
-      right:
-        except:
-        - {family: qsTea}
-        - {family: qsThaw}
-        - {family: qsVie}
-        - {family: qsVie_qsUtter}
-        - {family: qsSee}
-        - {family: qsYe}
-        - {family: qsIng}
-        - {family: qsNo}
-        - {family: qsLow}
-        - {family: qsRoe}
-        - {family: qsExam}
-        - {family: qsIt}
-        - {family: qsI}
   contract:
   - entry: x-height
     by: 1
