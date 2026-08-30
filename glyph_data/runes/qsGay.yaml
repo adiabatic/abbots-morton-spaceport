@@ -205,6 +205,10 @@ policy:
     when:
       right: {family: qsNo}
     why: Add a pixel of extension for `·Gay ~x~ ·No` and make them join — I can't see why they can't join
-  contract: []
+  contract:
+  - entry: baseline
+    by: 1
+    when:
+      left: {family: qsNo}
   resolve: []
   groups: {}
