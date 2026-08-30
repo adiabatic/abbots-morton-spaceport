@@ -319,6 +319,13 @@ def test_dry_run_plan_conform_jobs_cap():
     assert _argv(single_by_name["gate:conform"])[-1] == "--conform-only"
 
 
+def test_dry_run_plan_states_a_surface_width_of_one_in_the_argv():
+    plan = _plan(ncores=2)
+    by_name = {step.name: step for step in plan.steps}
+    assert _argv(by_name["surface-build"])[-2:] == ["--jobs", "1"]
+    assert plan.surface_jobs == 1
+
+
 def test_dry_run_plan_conform_horizon():
     plan = _plan(conform_horizon=3)
     by_name = {step.name: step for step in plan.steps}
