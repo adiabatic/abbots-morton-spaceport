@@ -34,7 +34,7 @@ Row-count arithmetic, per configuration:
 | 4      | 47⁴ = 4,879,681 |
 | Total  | **4,985,760**   |
 
-Across the 11 configurations of §5: **54,843,360 rows**.
+Across the §5 configurations: **4,985,760 × |`rowmodel.CONFIGS`| rows**.
 
 ### Why this realizes the §6.1 windows
 
@@ -56,7 +56,7 @@ The settlement model’s window is `[resolved-left, self, raw-right, raw-right²
 
 ## 3. The table schema
 
-One file per configuration: `rebuild/out/baseline-<config>.tsv.gz` where `<config>` is `default`, `ss02` … `ss10`, `ss02+ss03`, `ss06+ss07`, `ss02+ss03+ss05`. One row per input string (no dedup, §1). Tab-separated, UTF-8, `\n` line endings.
+One file per configuration: `rebuild/out/baseline-<config>.tsv.gz` where `<config>` ranges over the tokens `rebuild/validation/rowmodel.CONFIGS` names. One row per input string (no dedup, §1). Tab-separated, UTF-8, `\n` line endings.
 
 Header lines (each beginning with `#` and a space), in fixed order:
 
@@ -101,23 +101,24 @@ For each sampled break seam, shape the string split at the seam and compare the 
 
 ## 5. Configurations
 
-Eleven, per §10 tier 3 (“each set alone, every configuration the Manual’s pins use, and at least one declared multi-set combination”) and the font’s feature census (ss02–ss07 and ss10 exist; no ss01/ss08/ss09; every Manual pin is a single set, so the singles superset the Manual’s configurations):
+The tokens `rebuild/validation/rowmodel.CONFIGS` names — eleven declared here per §10 tier 3 (“each set alone, every configuration the Manual’s pins use, and at least one declared multi-set combination”) and the font’s feature census (ss02–ss07 and ss10 exist; no ss01/ss08/ss09; every Manual pin is a single set, so the singles superset the Manual’s configurations), plus one added later from the M1 side:
 
-| #   | Config token     | Feature dict     | Why                                                                                                                                    |
-| --- | ---------------- | ---------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | `default`        | (empty)          | The font as shipped; the primary oracle.                                                                                               |
-| 2   | `ss02`           | ss02             | Single set; the Manual pins it on `·May ~b~ ·I ~x~ ·Tea.!half` and two siblings.                                                       |
-| 3   | `ss03`           | ss03             | Single set; the Manual pins `·At \| ·Fee ~x~ ·Tea ~b~ ·Utter ~x~ ·Roe`.                                                                |
-| 4   | `ss04`           | ss04             | Single set; the Manual pins `·He ~b~ ·At ~x~ ·No ~x~ ·Day ~b~ ·It ~b~ ·Utter ~x~ ·Roe`.                                                |
-| 5   | `ss05`           | ss05             | Single set; the Manual pins `·Bay \| ·Et ~b~ ·Tea ~b~ ·Utter ~x~ ·Roe`.                                                                |
-| 6   | `ss06`           | ss06             | Single set; gapped ·Owe (the Manual’s ss06 div is CSS-visual only — no shaped pin exists, so the baseline is its first shaped record). |
-| 7   | `ss07`           | ss07             | Single set; the Manual pins `·At ~x~ ·No ~x~ ·Owe ~x~ ·Day`.                                                                           |
-| 8   | `ss10`           | ss10             | Single set; the Manual pins it on an inner span of the `·At ~x~ ·No \| ·Tea ~x~ ·It …` run.                                            |
-| 9   | `ss02+ss03`      | ss02, ss03       | Declared multi-set combination: both gate qsTea entry stances, so interaction is plausible.                                            |
-| 10  | `ss06+ss07`      | ss06, ss07       | Declared multi-set combination: both reshape qsOwe.                                                                                    |
-| 11  | `ss02+ss03+ss05` | ss02, ss03, ss05 | The §7 conformance-matrix example (“e.g. ss02+ss03+ss05 on ·Tea”); all three touch qsTea’s capability matrix.                          |
+| #  | Config token     | Feature dict     | Why                                                                                                                                                                                  |
+| -- | ---------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1  | `default`        | (empty)          | The font as shipped; the primary oracle.                                                                                                                                             |
+| 2  | `ss02`           | ss02             | Single set; the Manual pins it on `·May ~b~ ·I ~x~ ·Tea.!half` and two siblings.                                                                                                     |
+| 3  | `ss03`           | ss03             | Single set; the Manual pins `·At \| ·Fee ~x~ ·Tea ~b~ ·Utter ~x~ ·Roe`.                                                                                                              |
+| 4  | `ss04`           | ss04             | Single set; the Manual pins `·He ~b~ ·At ~x~ ·No ~x~ ·Day ~b~ ·It ~b~ ·Utter ~x~ ·Roe`.                                                                                              |
+| 5  | `ss05`           | ss05             | Single set; the Manual pins `·Bay \| ·Et ~b~ ·Tea ~b~ ·Utter ~x~ ·Roe`.                                                                                                              |
+| 6  | `ss06`           | ss06             | Single set; gapped ·Owe (the Manual’s ss06 div is CSS-visual only — no shaped pin exists, so the baseline is its first shaped record).                                               |
+| 7  | `ss07`           | ss07             | Single set; the Manual pins `·At ~x~ ·No ~x~ ·Owe ~x~ ·Day`.                                                                                                                         |
+| 8  | `ss10`           | ss10             | Single set; the Manual pins it on an inner span of the `·At ~x~ ·No \| ·Tea ~x~ ·It …` run.                                                                                          |
+| 9  | `ss02+ss03`      | ss02, ss03       | Declared multi-set combination: both gate qsTea entry stances, so interaction is plausible.                                                                                          |
+| 10 | `ss06+ss07`      | ss06, ss07       | Declared multi-set combination: both reshape qsOwe.                                                                                                                                  |
+| 11 | `ss02+ss03+ss05` | ss02, ss03, ss05 | The §7 conformance-matrix example (“e.g. ss02+ss03+ss05 on ·Tea”); all three touch qsTea’s capability matrix.                                                                        |
+| 12 | `ss03+ss05`      | ss03, ss05       | Added post-plan when ·I·Tea moved off ss02 (M1 side): the acceptance matrix’s surviving multi-set combination, extracted so the shipped-font baseline has the arm to oracle against. |
 
-No combination is declared in the corpus today; rows 9–11 are this plan’s declarations, recorded here so the future conformance gate inherits them.
+No combination is declared in the corpus today; rows 9–11 are this plan’s declarations, recorded here so the future conformance gate inherits them, and row 12 arrived post-plan from the M1 side, as its Why records.
 
 ## 6. The equivalence triage
 
