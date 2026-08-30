@@ -1012,6 +1012,8 @@
   why: ·Gay's crown terminal, drawn unconditionally in the shipped font; the declined exit keeps it.
 - signature: dangle:qsGay.hapax.en-y0:exit:x-height
   why: ·Gay entered at the baseline keeps the same crown terminal while its x-height exit goes unserved.
+- signature: dangle:qsGay.hapax.en-y0.en-con-1:exit:x-height
+  why: The contracted baseline-entry twin moves no crown ink; the same terminal stays.
 - signature: dangle:qsGay.hapax.en-y5:exit:x-height
   why: ·Gay entered at the x-height can never offer this exit (the crossover pairing); the crown ink stays.
 - signature: dangle:qsGay.hapax.en-y5.ex-y0:exit:x-height
