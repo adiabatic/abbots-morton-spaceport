@@ -10,7 +10,7 @@ Each expressible delta shape is a row in SHAPES, and a rule declares exactly one
 
 - The `slide` shape judges the rendered pixels rather than either grain of names: it re-shapes the window in the surface's own font pair and matches when the whole visible change is its named pivot letter and everything after it sliding by a declared column count — which is what lets it survive a union-invisible name-grain re-spelling riding along in the same window, the composition that mints a fresh whole-window digest and orphans an ink-delta rule.
 
-- The `gained` shape judges the same rendered pixels for a letterform that keeps cells the old font omitted: the old-font pivot form gives way to a named new form that is the same picture plus a named set of own-frame cells, every other pixel in the window standing still — so a window whose only change is ·Roe keeping the baseline bar the old shortened-bottom form dropped matches, and a window that also carries a blessed slide still needs the composed reading.
+- The `gained` shape judges the same rendered pixels for a letterform that keeps cells the old font omitted: the old-font pivot form gives way to a named new form that is the same picture plus a named set of own-frame cells, and everything after the pivot moves by the declared column count — zero when the fuller form keeps its advance, positive when the added ink lengthens it. So a window whose only change is ·Roe keeping the baseline bar the old shortened-bottom form dropped matches at zero, ·Gay's extra exit cell carrying ·No one column right matches at one, and a window that also carries a blessed slide still needs the composed reading.
 
 - The `gap` shape judges a named join that is now a break: the pivot keeps its exact picture and own-frame origin, the follower keeps its exact picture and origin and sits a declared number of columns further, and everything after the follower sits the same extra gap away — which is what a cursive attachment going away looks like, as distinct from a sidebearing change (the slide shape, whose origin moves with the letter).
 
@@ -39,7 +39,7 @@ The walk then re-shapes the window in the surface's font pair and carries a runn
 - a slide event moves it by the declared count with the pivot leading the next span
 - an extension event drops off the named seam row the tail the pivot gave up — the named extension, less any shorter one its after cell keeps, or the named contraction — and moves again with the named follower leading — that span a translation, or the same picture compacted left by a dropped entry extension, or the named follower skipped when it redrew some other way
 - a join-dropped event leaves the pivot in place under the standing displacement, adds the declared gap, and moves again with the follower leading
-- an ink-gain event adds the named cells on the pivot, judged piece by piece, and leaves the displacement alone with the next glyph leading the next span
+- an ink-gain event adds the named cells on the pivot, judged piece by piece, and moves by the declared count with the next glyph leading the next span
 - an entry-drop event leaves the pivot in place under the standing displacement, compacting its remaining ink left by the named columns, and moves the displacement closer with the next glyph leading the next span
 - a redrawn event trades the named cells on the pivot under the standing displacement and moves the displacement by its declared count with the next glyph leading the next span
 - a join-created event leaves the pivot under the standing displacement while its follower leads the declared shift
@@ -472,7 +472,7 @@ def _gain_holds(match, before, after, intern):
 
 
 def _gain_geometry(match, unit, comparator):
-    """Whether the window's rendered before→after change is exactly the named cells appearing on the named pivot, re-derived from the fonts: shape the window under one of the unit's configs, judge each pivot piece as the placed old picture standing still inside the new frame plus those cells at the same horizontal placement and own-frame origin, and require every span strictly between the pivots to render identically with no displacement. The new frame may extend vertically around the old picture; `_gain_holds` aligns the two frames from their placed Y coordinates before comparing them. Anything the contract cannot hold — no pivot on the before side, pivot counts that disagree, a shaped run that contradicts the unit's recorded glyphs, an off-grid placement, a non-rectilinear outline, a lost cell, an unnamed extra cell — reads as no match, so the unit queues."""
+    """Whether the window's rendered before→after change is exactly the named cells appearing on the named pivot, re-derived from the fonts: shape the window under one of the unit's configs, judge each pivot piece as the placed old picture standing still inside the new frame plus those cells at the same horizontal placement and own-frame origin, and require every span strictly between the pivots to render identically under the cumulative declared shift. The new frame may extend vertically around the old picture; `_gain_holds` aligns the two frames from their placed Y coordinates before comparing them. Anything the contract cannot hold — no pivot on the before side, pivot counts that disagree, a shaped run that contradicts the unit's recorded glyphs, an off-grid placement, a non-rectilinear outline, a lost cell, an unnamed extra cell, or following ink that moves by another amount — reads as no match, so the unit queues."""
     codepoints = unit.get("codepoints") or ""
     if not codepoints:
         return False
@@ -494,20 +494,25 @@ def _gain_geometry(match, unit, comparator):
     if not before_pivots or len(before_pivots) != len(after_pivots):
         return False
     intern = comparator.intern
-    for before_index, after_index in zip(before_pivots, after_pivots):
-        before, after = before_run[before_index], after_run[after_index]
-        if before[2] != after[2] or not _gain_holds(match, before, after, intern):
+    shift = match["after"]["shift"]
+    displacement = 0
+    before_spans = _split_around(before_run, before_pivots)
+    after_spans = _split_around(after_run, after_pivots)
+    for step, (before_span, after_span) in enumerate(zip(before_spans, after_spans)):
+        if not _span_settled(intern, before_span, after_span, displacement):
             return False
-    for before_span, after_span in zip(
-        _split_around(before_run, before_pivots), _split_around(after_run, after_pivots)
-    ):
-        if not _span_settled(intern, before_span, after_span, 0):
+        if step == len(before_pivots):
+            continue
+        before = before_run[before_pivots[step]]
+        after = after_run[after_pivots[step]]
+        if after[2] != before[2] + displacement * PIXEL_SIZE or not _gain_holds(match, before, after, intern):
             return False
+        displacement += shift
     return True
 
 
 def _matches_ink_gain(match, unit, excluded, context=None):
-    """A letterform that keeps a named set of cells the old font omitted, matched at the rendered-pixel grain: the old-font pivot form gives way to a named new form whose placed old pixels stand still inside the new own frame plus those cells, every other pixel in the window standing still. The new frame may extend vertically around the old picture; same horizontal placement and own-frame origin pin the extra ink to the letterform rather than to a slide or a sidebearing change, and any other ink change anywhere in the window fails this match closed — which is where the composed reading picks up, so a window this shape refuses only because a second separately-blessed change moved a pixel it has no vocabulary for may still be explained by both rules together. One shaped config speaks for all of them, on the same digest-agreement precondition the slide shape holds. except_left reads the whole window, as the slide and ink-delta shapes do."""
+    """A letterform that keeps a named set of cells the old font omitted, matched at the rendered-pixel grain: the old-font pivot form gives way to a named new form whose placed old pixels stand still inside the new own frame plus those cells, and everything after the pivot moves by the declared column count. The new frame may extend vertically around the old picture; same horizontal placement and own-frame origin pin the extra ink to the letterform rather than to a slide or a sidebearing change, and any other ink change anywhere in the window fails this match closed — which is where the composed reading picks up, so a window this shape refuses only because a second separately-blessed change moved a pixel it has no vocabulary for may still be explained by both rules together. One shaped config speaks for all of them, on the same digest-agreement precondition the slide shape holds. except_left reads the whole window, as the slide and ink-delta shapes do."""
     deltas = unit.get("ink_deltas")
     if not isinstance(deltas, dict) or not deltas:
         return False
@@ -523,6 +528,7 @@ def _matches_ink_gain(match, unit, excluded, context=None):
         tuple(match["before"]["pivots"]),
         tuple(match["after"]["pivots"]),
         tuple(tuple(point) for point in match["after"]["gained"]),
+        match["after"]["shift"],
         unit["id"],
     )
     verdict = context.memo.get(key)
@@ -534,7 +540,7 @@ def _matches_ink_gain(match, unit, excluded, context=None):
 
 
 def _validate_ink_gain(rule_id, match) -> None:
-    """The ink-gain shape's own coherence, checked once at load: every pivot form named on either side must belong to one family — a gain rule speaks for one letter's extra cells, so a second family in the lists could only be a paste error — and it has to name at least one of them, since the gain is the whole change this shape blesses."""
+    """The ink-gain shape's own coherence, checked once at load: every pivot form named on either side must belong to one family — a gain rule speaks for one letter's extra cells, so a second family in the lists could only be a paste error — and it has to name at least one of them, since the gain is the whole change this shape blesses. The required shift may be zero because a fuller form can keep its advance."""
     families = {_family(name) for name in match["before"]["pivots"] + match["after"]["pivots"]}
     if len(families) != 1:
         _fail(
@@ -1314,7 +1320,7 @@ def _validate_join_created(rule_id, match) -> None:
 
 
 class Event(NamedTuple):
-    """One position a composable rule was credited at in a composed walk: the rule's id, which shape spoke there (`slide`, `extension`, `gain`, `join`, `entry`, `stub`, `redrawn`, `retarget`, or `joined`), and the columns the window's running displacement moves by at that position — the declared slide, minus the extension's column count, the declared join gap, an entry shortening combined with any exit-extension delta on that pivot, the declared retarget or created-join shift, the stub-drop's placement bump (followers unmoved), the redrawn trade's declared shift, or zero for an ink-gain, which adds cells without moving the rest of the window."""
+    """One position a composable rule was credited at in a composed walk: the rule's id, which shape spoke there (`slide`, `extension`, `gain`, `join`, `entry`, `stub`, `redrawn`, `retarget`, or `joined`), and the columns the window's running displacement moves by at that position — the declared slide, minus the extension's column count, the declared join gap, an entry shortening combined with any exit-extension delta on that pivot, the declared retarget or created-join shift, the stub-drop's placement bump (followers unmoved), or the declared ink-gain or redrawn shift."""
 
     rule_id: str
     kind: str
@@ -1454,7 +1460,7 @@ def _gain_event(match, rule_id, index, after_names, intern, before_pieces, after
         return None
     if not _gain_holds(match, before, after, intern):
         return None
-    return Event(rule_id, "gain", 0)
+    return Event(rule_id, "gain", match["after"]["shift"])
 
 
 def _entry_event(match, rule_id, index, after_names, intern, before_pieces, after_pieces):
@@ -1875,11 +1881,12 @@ SHAPES = {
     "ink-gain": Shape(
         keyed_by="gained",
         before=("pivots",),
-        after=("pivots", "gained"),
+        after=("pivots", "gained", "shift"),
         cell_lists=(),
         matcher=_matches_ink_gain,
         validate=_validate_ink_gain,
         name_lists=("pivots",),
+        int_fields=("shift",),
         point_lists=("gained",),
         composable=True,
         font_backed=True,

@@ -149,6 +149,7 @@ rules:
       after:
         pivots: [qsRoe.hapax]
         gained: [[1, 0]]
+        shift: 0
       except_left: []
   - id: at-it-xheight-join-dropped
     verdict: approve
@@ -376,6 +377,7 @@ rules:
       after:
         pivots: [qsRoe.hapax.en-y0.en-ext-1]
         gained: [[1, 5]]
+        shift: 0
       except_left: []
   - id: roe-baseline-bar-kept-entry-extension-dropped
     verdict: approve
@@ -408,6 +410,7 @@ rules:
       after:
         pivots: [qsTea.full]
         gained: [[0, 0], [0, 1], [0, 2], [0, 3], [0, 4]]
+        shift: 0
       except_left: []
   - id: key-exit-contracted
     verdict: approve
@@ -438,4 +441,15 @@ rules:
         receiver_cells:
           - qsPea/full/baseline/None/
         shift: -4
+      except_left: []
+  - id: gay-no-xheight-extension-added
+    verdict: approve
+    note: "·Gay gains one pixel of x-height exit into ·No and carries ·No one column right — qsGay's extend record says “Add a pixel of extension for `·Gay ~x~ ·No` and make them join — I can't see why they can't join”, landed in “Join ·Gay ~x~ ·Et and ·Gay ~x~ ·No”"
+    match:
+      before:
+        pivots: [qsGay.ex-y5, qsGay.en-y0.ex-y5]
+      after:
+        pivots: [qsGay.hapax]
+        gained: [[4, 8]]
+        shift: 1
       except_left: []
