@@ -1,0 +1,65 @@
+rune: qsThaw
+codepoint: 0xE656
+ductus:
+  hapax: | # DRAFT — pending author sign-off
+    - Begun at the tip below the hook's left end, the stroke arcs up and over to the right, falls straight down the right side to below the x-height, then slants down and to the left, coming to rest on the baseline at the foot, where a previous letter may connect.
+    - Or the same path in reverse, begun on the baseline at the foot, where a previous letter may connect: the stroke climbs up and to the right, rises straight up the right side, and arcs up and over to the left, ending at the tip below the hook's left end.
+mono:
+  bitmap:
+  - " ### "
+  - "#   #"
+  - "    #"
+  - "    #"  #
+  - "    #"
+  - "    #"
+  - "   # "
+  - "   # "
+  - "  #  "  #
+stances:
+  hapax:
+    motion: hapax
+    traits: []
+    bitmap:
+    - " ### "
+    - "#   #"
+    - "    #"
+    - "    #"  #
+    - "    #"
+    - "    #"
+    - "   # "
+    - "   # "
+    - "  #  "  #
+    surface:
+      entries:
+        baseline:
+          x: 2
+          stroke: diagonal
+          from:
+          - family:
+            - qsBay
+            - qsDay
+            - qsGay
+            - qsJai
+            - qsMay
+            - qsNo
+            - qsRoe
+            - qsIt
+            - qsEt
+            - qsEight
+            - qsAwe
+            - qsOx
+            - qsOy
+            - qsUtter
+            - qsOoze
+      cells: []
+      unlocks: []
+      require: []
+policy:
+  order:
+  - hapax
+  refuse: []
+  prefer: []
+  extend: []
+  contract: []
+  resolve: []
+  groups: {}

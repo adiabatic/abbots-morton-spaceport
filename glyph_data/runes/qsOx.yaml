@@ -57,6 +57,7 @@ stances:
             - qsTea
             - qsDay
             - qsDay_qsUtter
+            - qsThaw
             - qsVie
             - qsVie_qsUtter
             - qsSee
