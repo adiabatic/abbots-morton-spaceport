@@ -1770,9 +1770,9 @@ def _composed_held(rules, unit, events, context):
     glyphs = unit["before"]["glyphs"]
     for rule in rules:
         match = rule["match"]
-        excluded = set(match.get("except_left", []))
-        if not excluded:
+        if _guard_is_inert(match):
             continue
+        excluded = set(match["except_left"])
         indices = events.get(rule["id"])
         if indices:
             shape = _shape_of(match)
@@ -2116,6 +2116,11 @@ def load_rules(path) -> list:
     return rules
 
 
+def _guard_is_inert(match):
+    """Whether a rule's except_left guard can refuse anything at all. `guard` reaches `_matches` through exactly one expression — the `excluded` set — so a match naming no except_left families makes the guarded and unguarded passes the same pure function of the same arguments, and a held set defined as matching unguarded while refusing guarded is empty by construction. Every caller that skips a guard pass rests on that identity, which is why the predicate lives here beside `_matches` rather than inline at any one call site: a future shape that lets `guard` reach anything beyond `excluded` has one place to falsify."""
+    return not match.get("except_left")
+
+
 def _matches(match, unit, *, guard=True, context=None):
     before, after = unit.get("before"), unit.get("after")
     if not before or not after:
@@ -2176,12 +2181,16 @@ def rule_reach(rules, units, records, stamp, context=None) -> Run:
     reaches: dict[str, Reach] = {}
     for rule in rules:
         matched = [unit for unit in open_units if _matches(rule["match"], unit, context=context)]
-        held = [
-            unit
-            for unit in open_units
-            if _matches(rule["match"], unit, guard=False, context=context)
-            and not _matches(rule["match"], unit, context=context)
-        ]
+        if _guard_is_inert(rule["match"]):
+            held = []
+        else:
+            matched_ids = {unit["id"] for unit in matched}
+            held = [
+                unit
+                for unit in open_units
+                if unit["id"] not in matched_ids
+                and _matches(rule["match"], unit, guard=False, context=context)
+            ]
         blanks = [unit for unit in matched if unit["id"] not in records]
         note = f"[standing: {rule['id']}] {rule['note']}"
         for unit in blanks:

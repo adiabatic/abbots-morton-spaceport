@@ -329,6 +329,25 @@ def test_out_left_is_held_by_the_guard():
     assert sv._matches(RULE["match"], held, guard=False)
 
 
+def test_a_rule_with_an_inert_guard_holds_nothing_by_construction():
+    bare = dict(RULE, match=guarding(RULE, []))
+    units = [canonical("u-1"), canonical("u-2", left="qsOut.ex-ext-1")]
+    run = sv.rule_reach([bare], units, {}, STAMP)
+    assert run.reaches[bare["id"]].held == []
+    assert not any(
+        sv._matches(bare["match"], unit, guard=False) and not sv._matches(bare["match"], unit)
+        for unit in units
+    )
+    assert sorted(run.reaches[bare["id"]].filled) == ["u-1", "u-2"]
+
+
+def test_a_guarded_rules_held_pass_still_runs_and_names_the_held_unit():
+    units = [canonical("u-1"), canonical("u-2", left="qsOut.ex-ext-1")]
+    run = sv.rule_reach([RULE], units, {}, STAMP)
+    assert run.reaches[RULE["id"]].held == ["u-2"]
+    assert run.reaches[RULE["id"]].filled == ["u-1"]
+
+
 def test_ligature_left_matches_on_its_trailing_component():
     joined = unit(
         "u-2",

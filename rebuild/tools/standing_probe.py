@@ -149,7 +149,9 @@ def _describe(unit, rules, context, blankness, families):
     for rule in rules:
         if sv._matches(rule["match"], unit, context=context):
             print(f"  rule {rule['id']}: matches")
-        elif sv._matches(rule["match"], unit, guard=False, context=context):
+        elif not sv._guard_is_inert(rule["match"]) and sv._matches(
+            rule["match"], unit, guard=False, context=context
+        ):
             print(f"  rule {rule['id']}: held by except_left")
     composable = sv._composable(rules)
     if context is not None and len(composable) > 1:
