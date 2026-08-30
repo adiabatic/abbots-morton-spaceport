@@ -167,6 +167,7 @@ policy:
         - family: qsUtter
           then:
             family:
+            - qsThaw
             - qsVie
             - qsVie_qsUtter
             - qsSee
@@ -184,6 +185,7 @@ policy:
         family:
         - qsDay
         - qsDay_qsUtter
+        - qsThaw
         - qsVie
         - qsVie_qsUtter
         - qsSee
@@ -203,6 +205,7 @@ policy:
         - family: qsUtter
           then:
             family:
+            - qsThaw
             - qsVie
             - qsVie_qsUtter
             - qsSee
@@ -225,6 +228,7 @@ policy:
         - family: qsUtter
           then:
             family:
+            - qsThaw
             - qsVie
             - qsVie_qsUtter
             - qsSee

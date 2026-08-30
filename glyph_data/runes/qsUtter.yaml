@@ -137,6 +137,7 @@ policy:
     when:
       right:
         family:
+        - qsThaw
         - qsVie
         - qsVie_qsUtter
         - qsSee

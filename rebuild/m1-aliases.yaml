@@ -58,6 +58,9 @@ qsGay.ex-y0.ex-ext-1: {rune: qsGay, stance: hapax, exit: baseline, adjustments: 
 qsGay.ex-y5: {rune: qsGay, stance: hapax, exit: x-height}
 qsGay.ex-y5.ex-ext-2: {rune: qsGay, stance: hapax, exit: x-height, adjustments: [ex-ext-2]}
 qsGay.noentry: {rune: qsGay, stance: hapax, adjustments: [locked]}
+qsThaw: {rune: qsThaw, stance: hapax}
+qsThaw.after-tall: {rune: qsThaw, stance: hapax}
+qsThaw.noentry: {rune: qsThaw, stance: hapax, adjustments: [locked]}
 qsDay_qsUtter: {rune: qsDay_qsUtter, stance: full}
 qsDay_qsUtter.ex-con-2: {rune: qsDay_qsUtter, stance: full, exit: x-height}
 qsDay_qsUtter.ex-ext-1: {rune: qsDay_qsUtter, stance: full, exit: x-height, adjustments: [ex-ext-1]}
