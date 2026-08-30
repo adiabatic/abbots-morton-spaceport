@@ -235,7 +235,7 @@ The executable authority is `check_manifest` / `check_unit` / `check_output_dir`
     "before": {"file": "fonts/before.otf", "family": "AMS Review Before", "source": "site/AbbotsMortonSpaceportSansSenior-Regular.otf", "sha256": "3211a7a7…", "upem": 550},
     "after": {"file": "fonts/after.otf", "family": "AMS Review After", "source": "rebuild/out/m1/M1.otf", "sha256": "…", "upem": 550}
   },
-  "configs": ["default", "ss02", "ss03", "ss04", "ss05", "ss02+ss03", "ss02+ss03+ss05", "ss10"],
+  "configs": ["default", … the rest of `conform.ACCEPTANCE_CONFIGS`, the membership authority …],
   "batch_size": 300,
   "totals": {"units": …, "rows": …, "batches": …},
   "machine_approved": {
