@@ -23,7 +23,7 @@ def _config_tokens(args: argparse.Namespace) -> list[str]:
     return [args.config]
 
 
-def main(argv: list[str] | None = None) -> None:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="rebuild.baseline.cli")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -49,8 +49,11 @@ def main(argv: list[str] | None = None) -> None:
 
     summarize_parser = subparsers.add_parser("summarize", help="write digests.tsv and SUMMARY.md")
     _add_out(summarize_parser)
+    return parser
 
-    args = parser.parse_args(argv)
+
+def main(argv: list[str] | None = None) -> None:
+    args = build_parser().parse_args(argv)
 
     if args.command == "extract":
         for token in _config_tokens(args):

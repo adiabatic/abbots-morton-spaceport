@@ -1,10 +1,12 @@
-"""The memory-budget policy's own tests, and the reproduction of the two widths already on record (issue #63, sub-issue #85). Almost everything here is a pure function over an invented box, because `total_bytes`, `floor_bytes` and `fraction` are keywords on every policy function rather than module lookups; only the handful of live-probe tests touch the host, and those assert properties — positive, plausible, at least one core — with the single exception the issue permits, `total_memory_bytes()` against `sysctl -n hw.memsize` behind a Darwin guard. The probes are exercised the way the module split them to be exercised: pure parsers over the checked-in text under `rebuild/fixtures/memory_budget/`, and the two cgroup readers pointed at a sample filesystem root, so every container case is proven on a laptop. The three measured constants below come from the record rather than from solving for an answer — `KERNEL_CONFIG_BYTES` is the frozen reading of what one kernel configuration in flight cost when #46 and #85 were written, kept local and literal on purpose so a reproduction of a recorded width cannot move when the live `kernel_exec.CONFIG_PEAK_BYTES` is re-measured against a fresher cycle-timings journal; `FONT_POOL_BYTES` is ten font-suite workers at the 0.11-0.28 GB apiece the root conftest records beside its `pytest_xdist_auto_num_workers` hook, and keeps the top of that record rather than tracking the shipped `FONT_SUITE_WORKER_BYTES` that rounds up past it, for the same reason `KERNEL_CONFIG_BYTES` stays put; and `ISSUE_RESERVE_FLOOR_BYTES` is the 4 GB floor issue #85 stated its two facts under, passed explicitly because the shipped floor is now 8 GB. That the formula reproduces both facts over an invented 32 GB box is the whole claim: the policy is shown reproducing measurements taken independently of it, not fitted to them. The shipped default stopped being a witness the moment it became derived — it is the running box's width now, so no assertion here may sit it on the right-hand side of an equals sign; what is checked forward instead is that the shipped `CONFIG_PEAK_BYTES` still holds that 32 GB box at the width it shipped, which is the one comparison that can still fail for a reason worth knowing about. Three things checked here are not about the policy at all but about the call sites the policy could not reach on its own. The validators lane's derived width, asserted over invented boxes at each of the two bounds that can decide it. What the repo's two `pytest_xdist_auto_num_workers` hooks actually answer, which nothing else in the tree asserts at all: the hooks are taken off the live plugin objects pytest loaded rather than off a second import of either file, driven with stub configs that carry only the argv and the lane they read, and walked across the bounds that decide them with `AMS_TOTAL_MEMORY_BYTES` — so a lane losing its deliberate fall-through, or the fallback losing either its division or its core cap, fails here instead of quietly changing what `-n auto` means. And the root conftest's restatement of the validators lane's per-worker figure, which cannot be imported — pytest loads every conftest under the plain name `conftest`, and in any run collected under rebuild/ that name is `rebuild/conftest.py` — so it is read out of the source with `ast` and held equal here rather than trusted. Nothing here reads a live build artifact, so the whole module is contracts-lane — the audit guard in `rebuild/conftest.py` is what keeps it there, by failing any contracts item that reads `rebuild/out/`, `tmp/`, or a root `verdicts-*` store."""
+"""The memory-budget policy's own tests, and the reproduction of the two widths already on record (issue #63, sub-issue #85). Almost everything here is a pure function over an invented box, because `total_bytes`, `floor_bytes` and `fraction` are keywords on every policy function rather than module lookups; only the handful of live-probe tests touch the host, and those assert properties — positive, plausible, at least one core — with the single exception the issue permits, `total_memory_bytes()` against `sysctl -n hw.memsize` behind a Darwin guard. The probes are exercised the way the module split them to be exercised: pure parsers over the checked-in text under `rebuild/fixtures/memory_budget/`, and the two cgroup readers pointed at a sample filesystem root, so every container case is proven on a laptop. The three measured constants below come from the record rather than from solving for an answer — `KERNEL_CONFIG_BYTES` is the frozen reading of what one kernel configuration in flight cost when #46 and #85 were written, kept local and literal on purpose so a reproduction of a recorded width cannot move when the live `kernel_exec.CONFIG_PEAK_BYTES` is re-measured against a fresher cycle-timings journal; `FONT_POOL_BYTES` is ten font-suite workers at the 0.11-0.28 GB apiece the root conftest records beside its `pytest_xdist_auto_num_workers` hook, and keeps the top of that record rather than tracking the shipped `FONT_SUITE_WORKER_BYTES` that rounds up past it, for the same reason `KERNEL_CONFIG_BYTES` stays put; and `ISSUE_RESERVE_FLOOR_BYTES` is the 4 GB floor issue #85 stated its two facts under, passed explicitly because the shipped floor is now 8 GB. That the formula reproduces both facts over an invented 32 GB box is the whole claim: the policy is shown reproducing measurements taken independently of it, not fitted to them. The shipped default stopped being a witness the moment it became derived — it is the running box's width now, so no assertion here may sit it on the right-hand side of an equals sign; what is checked forward instead is that the shipped `CONFIG_PEAK_BYTES` still holds that 32 GB box at the width it shipped, which is the one comparison that can still fail for a reason worth knowing about. Four things checked here are not about the policy at all but about the call sites the policy could not reach on its own. The validators lane's derived width, asserted over invented boxes at each of the two bounds that can decide it. What the repo's two `pytest_xdist_auto_num_workers` hooks actually answer, which nothing else in the tree asserts at all: the hooks are taken off the live plugin objects pytest loaded rather than off a second import of either file, driven with stub configs that carry only the argv and the lane they read, and walked across the bounds that decide them with `AMS_TOTAL_MEMORY_BYTES` — so a lane losing its deliberate fall-through, or the fallback losing either its division or its core cap, fails here instead of quietly changing what `-n auto` means. The five defaults a hand run gets when it names no width (issue #101), each asserted at the shape it resolves to rather than at a number, for the reason nothing else here names one either — the answer is this box's, and another box's is legitimately different — so what is pinned is that a default is still derived at all, and a silent revert of one to the serial 1 it was before #89 fails here instead of waiting for someone to time a hand run and wonder. Three of the five hand their parser over from a `build_parser()` hoisted out of their own `main`; the two whose files sit inside a fingerprint closure are read off the parser their `main` built, through a spy on `parse_args`, because a hoist there would stale a stamped artifact and buy a rebuild of it. And the root conftest's restatement of the validators lane's per-worker figure, which cannot be imported — pytest loads every conftest under the plain name `conftest`, and in any run collected under rebuild/ that name is `rebuild/conftest.py` — so it is read out of the source with `ast` and held equal here rather than trusted. Nothing here reads a live build artifact, so the whole module is contracts-lane — the audit guard in `rebuild/conftest.py` is what keeps it there, by failing any contracts item that reads `rebuild/out/`, `tmp/`, or a root `verdicts-*` store."""
 
+import argparse
 import ast
 import os
 import re
 import subprocess
 import sys
+from collections.abc import Callable
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
@@ -100,6 +102,25 @@ class _StubConfig:
     def getoption(self, name: str, default: object = None) -> object:
         assert name == "lane", f"a width hook asked for an option this stub does not carry: {name}"
         return self._lane
+
+
+class _ParserBuilt(Exception):
+    """Raised out of the spy below to stop a tool's own `main` the instant its parser is complete and before it does any of the work that parser was going to direct."""
+
+
+def _parser_built_by(main: Callable[[list[str]], object]) -> argparse.ArgumentParser:
+    """The parser a tool's own `main` built, taken by letting `main` run until it calls `parse_args` and no further — so what is read is the argv-facing object the tool actually ships, never a second one assembled here that could agree with it by accident. Reaching for a default this way rather than hoisting a `build_parser()` out of the two tools it is used on is a deliberate trade about stamps rather than about taste: `rebuild/pipeline/run_m1.py` sits inside `fingerprint.pipeline_code_paths`, whose hash stamps every serialized window enumeration on disk, and `rebuild/review/build.py` inside `review_code_paths`, whose hash the review surface's manifest carries — so a one-line hoist in either would stale a stamped artifact and cost a rebuild of it to get this suite green again, while proving nothing about the default that reading it here does not. The three tools whose files sit under no stamp are hoisted instead, and this is not used on them."""
+    captured: list[argparse.ArgumentParser] = []
+
+    def spy(parser: argparse.ArgumentParser, args=None, namespace=None) -> None:
+        captured.append(parser)
+        raise _ParserBuilt
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(argparse.ArgumentParser, "parse_args", spy)
+        with pytest.raises(_ParserBuilt):
+            main([])
+    return captured[-1]
 
 
 class TestTheWidthsAlreadyOnRecord:
@@ -233,6 +254,60 @@ class TestWhatDashNAutoResolvesTo:
         assert lane_hook.pytest_xdist_auto_num_workers(_StubConfig("rebuild/", lane=lane)) is None
         assert root_hook.pytest_xdist_auto_num_workers(_StubConfig("rebuild/")) == 3
         assert root_hook.pytest_xdist_auto_num_workers(_StubConfig("test/", "site/")) == 3
+
+
+class TestTheHandRunDefaults:
+    """The widths a hand run gets when it names none, asserted at the shape each resolves to and never at a number, because the answer is this box's and another box's is legitimately different. What they guard against is the failure issue #101 names: a bad merge or a refactor that drops a `default=` puts one of these back to the serial 1 it was before #89, and nothing at all goes red — it reads as nobody's regression right up until someone times a hand run. The autouse fixture above is what makes each equality a single reading of one box rather than two: both sides are computed inside the test, with the probe override and the xdist override cleared."""
+
+    def test_the_equivalence_runner_shapes_at_every_core_it_may_run_on(self):
+        """`equivalence.run`'s pool has never been measured — a shaper and a classifier apiece and nothing reported anywhere — so under the tracking issue's rule for an unmeasured unit the default is a core clamp and not a memory division, and `usable_cores` rather than `os.cpu_count` is what makes that clamp right inside a container with a CPU quota as well as on a laptop."""
+        from rebuild import run_equivalence
+
+        parsed = run_equivalence.build_parser().parse_args(["--baseline", "baseline-default.tsv.gz"])
+        assert parsed.workers == memory_budget.usable_cores()
+
+    def test_the_split_check_runner_shapes_at_every_core_it_may_run_on(self):
+        """The near-duplicate runner, asserted on its own rather than parametrized across the pair: they are two files that stay in step only by being edited twice, and a pin apiece keeps each file's guard readable — and greppable — at its own test name."""
+        from rebuild import run_split_check
+
+        parsed = run_split_check.build_parser().parse_args(["--baseline", "baseline-default.tsv.gz"])
+        assert parsed.workers == memory_budget.usable_cores()
+
+    def test_the_extraction_fans_out_to_the_width_its_own_module_resolved(self):
+        """`SHARD_WORKERS_DEFAULT` is resolved once at import, exactly as `KERNEL_THREADS_DEFAULT` and `VALIDATORS_WORKERS` are, and the chain pins both links: the CLI hands that name through instead of a literal sitting beside it, and the name itself still derives from `usable_cores` rather than having been reverted to a checked-in width in place. The second equality is what catches the revert the first would wave through — both sides of `parsed.workers == SHARD_WORKERS_DEFAULT` move together when the constant is edited. Why a whole box's worth of these workers is safe is `_shard_workers_default`'s own docstring's argument."""
+        from rebuild.baseline import cli, extract
+
+        parsed = cli.build_parser().parse_args(["extract", "--all"])
+        assert parsed.workers == extract.SHARD_WORKERS_DEFAULT == memory_budget.usable_cores()
+
+    def test_the_shard_width_narrows_inside_a_cpu_quota_the_way_every_width_here_does(self):
+        """The other half of that width's claim, and what the injection keyword buys: the default is `usable_cores` and therefore answers a cgroup CPU quota, which is provable on a laptop only once the function takes the filesystem root to read that quota under. Walked over the checked-in sample trees rather than over a container, so the container case is proven where the suite actually runs."""
+        from rebuild.baseline import extract
+
+        host = os.process_cpu_count() or os.cpu_count() or 1
+        assert extract._shard_workers_default(cgroup_root=SAMPLES / "container-v2") == min(host, 2)
+        assert extract._shard_workers_default(cgroup_root=SAMPLES / "container-v1") == min(host, 2)
+        assert extract._shard_workers_default(cgroup_root=SAMPLES / "no-such-box") == host
+
+    def test_the_m1_driver_sweeps_at_the_budget_the_artifact_cycle_would_pass(self):
+        """run_m1's `--jobs` is the post-build sweeps' width, and the default is the same `sweep_job_budget()` the cycle already passes rather than a checked-in one, so a hand run walks the Manual-pin and oracle belts at the cycle's width instead of a configuration at a time. A CPU budget rather than a memory one, which is why nothing is subtracted from a box here; run_m1's memory ceiling is `--kernel-threads` and these jobs never reach it."""
+        import rebuild.tools.artifact_cycle as ac
+        from rebuild.pipeline import run_m1
+
+        assert _parser_built_by(run_m1.main).parse_args([]).jobs == ac.sweep_job_budget()
+
+    def test_the_surface_build_takes_the_unreserved_arm_of_its_own_budget(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        """A hand run has no co-resident `make test` pool to leave cores or bytes to, which is the whole content of the `skip_gates=True` arm, so that arm is what the default is taken at. The second assertion is not decoration: this budget floors at one on the box that wrote these lines, where a revert to a checked-in 1 would pass the first assertion while saying nothing, so the box is moved to one with room and the answer is held at the other bound — the cap, which is where a roomy box stops. Both bounds get an assertion for the reason the validators lane's two do: which one binds is the design."""
+        import rebuild.tools.artifact_cycle as ac
+        from rebuild.review import build
+
+        assert _parser_built_by(build.main).parse_args([]).jobs == ac.surface_job_budget(skip_gates=True)
+        monkeypatch.setenv("AMS_TOTAL_MEMORY_BYTES", str(BOX_1_TB))
+        widened = _parser_built_by(build.main).parse_args([]).jobs
+        assert widened == ac.surface_job_budget(skip_gates=True)
+        assert widened == min(memory_budget.usable_cores(), ac.SURFACE_JOBS_CAP)
 
 
 class TestTheFloorAtOne:
