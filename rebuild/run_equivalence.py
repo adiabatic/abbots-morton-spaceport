@@ -23,7 +23,7 @@ from validation.pins import REPO_ROOT
 from validation.shaping import SENIOR_FONT
 
 
-def main(argv: list[str] | None = None) -> int:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--baseline", action="append", required=True, type=Path)
     parser.add_argument("--font", type=Path, default=SENIOR_FONT)
@@ -35,7 +35,11 @@ def main(argv: list[str] | None = None) -> int:
         help="shaping worker processes (default: %(default)s, the cores this process may actually run on); this pool's per-worker footprint is unmeasured, so the default is a core clamp rather than a memory-derived width, and a measurement is owed before it can become one",
     )
     parser.add_argument("--limit", type=int, default=None)
-    args = parser.parse_args(argv)
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
     with open(args.out, "w", encoding="utf-8", newline="") as fh:
