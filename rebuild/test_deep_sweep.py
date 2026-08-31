@@ -10,7 +10,7 @@ from rebuild.tools import deep_sweep
 
 @pytest.fixture
 def bench(tmp_path, monkeypatch):
-    """A repo root the tool believes in: a behavior-class sidecar to arm on, a matching run_m1 green, and every green record redirected into tmp_path so nothing touches rebuild/out."""
+    """A repo root the tool believes in: a behavior-class sidecar to arm on, a tables stamp treated as current, and every green record redirected into tmp_path so nothing touches rebuild/out."""
     from rebuild.pipeline.emit_gsub import BEHAVIOR_CLASSES_FORMAT
 
     m1 = tmp_path / "rebuild" / "out" / "m1"
@@ -27,12 +27,7 @@ def bench(tmp_path, monkeypatch):
     monkeypatch.setattr(deep_sweep, "DEEP_SWEEP_GREEN", tmp_path / "deep-sweep-green.json")
     monkeypatch.setattr(ac, "CONFORM_GREEN", tmp_path / "conform-green.json")
     monkeypatch.setattr(deep_sweep, "CONFORM_GREEN", tmp_path / "conform-green.json")
-    run_m1_green = tmp_path / "run-m1-green.json"
-    monkeypatch.setattr(ac, "RUN_M1_GREEN", run_m1_green)
-    monkeypatch.setattr(deep_sweep, "RUN_M1_GREEN", run_m1_green)
-    monkeypatch.setattr(ac, "run_m1_skip_fingerprint", lambda root=None: "fp-run-m1")
-    monkeypatch.setattr(deep_sweep, "run_m1_skip_fingerprint", lambda root=None: "fp-run-m1")
-    ac.record_green(run_m1_green, "fp-run-m1")
+    monkeypatch.setattr(deep_sweep, "tables_stamped", lambda: True)
     return tmp_path
 
 
@@ -52,14 +47,26 @@ def test_a_root_without_a_behavior_class_sidecar_is_refused(bench, monkeypatch):
         deep_sweep.main([])
 
 
-def test_an_absent_or_stale_run_m1_green_is_refused(bench, monkeypatch):
+def test_a_stale_tables_stamp_is_refused(bench, monkeypatch):
+    """The precondition is artifact identity — the serialized enumeration stamped from exactly the sources on disk — never a green receipt: a --gates-only pass writes no green yet leaves a perfectly sweepable font, and a red interactive run deletes the receipt without changing a byte of the artifacts."""
     _stub_sweep(monkeypatch, {"pass": True, "divergences": 0})
-    (bench / "run-m1-green.json").unlink()
+    monkeypatch.setattr(deep_sweep, "tables_stamped", lambda: False)
     with pytest.raises(SystemExit, match="stale relative to the runes"):
         deep_sweep.main([])
-    ac.record_green(bench / "run-m1-green.json", "fp-something-else")
-    with pytest.raises(SystemExit, match="stale relative to the runes"):
-        deep_sweep.main([])
+
+
+def test_tables_stamped_asks_the_enumerations_own_stamp(monkeypatch):
+    calls: list = []
+    monkeypatch.setattr(deep_sweep.run_m1, "tables_inputs", lambda: "stamp")
+    monkeypatch.setattr(
+        deep_sweep.run_m1,
+        "serialized_tables",
+        lambda out_dir, inputs: calls.append((out_dir, inputs)),
+    )
+    assert deep_sweep.tables_stamped() is False
+    assert calls == [(deep_sweep.run_m1.OUT_DIR, "stamp")]
+    monkeypatch.setattr(deep_sweep.run_m1, "serialized_tables", lambda out_dir, inputs: {})
+    assert deep_sweep.tables_stamped() is True
 
 
 def test_a_horizon_below_the_belt_is_refused(bench, monkeypatch):
