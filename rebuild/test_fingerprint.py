@@ -142,11 +142,14 @@ def test_baselines_value_tracks_digests_content(tmp_path):
     assert fingerprint.baselines_value(root) != before
 
 
-def test_review_code_excludes_serve(tmp_path):
+def test_review_code_excludes_the_non_build_modules(tmp_path):
+    """serve.py, status.py, journal.py, and export.py never run in the surface build, so editing one must not stale the surface, drop the per-unit caches, or fail the validators lane — the plumbing key hashes the ones the verdict chain runs."""
     root = _fake_repo(tmp_path)
-    assert root / "rebuild" / "review" / "serve.py" not in fingerprint.review_code_paths(root)
+    for name in sorted(fingerprint.REVIEW_NON_BUILD_MODULES):
+        assert root / "rebuild" / "review" / name not in fingerprint.review_code_paths(root)
     before = fingerprint.hash_paths(root, fingerprint.review_code_paths(root))
-    (root / "rebuild" / "review" / "serve.py").write_text("SERVE = 2\n")
+    for name in sorted(fingerprint.REVIEW_NON_BUILD_MODULES):
+        (root / "rebuild" / "review" / name).write_text(f"# edited {name}\n")
     assert fingerprint.hash_paths(root, fingerprint.review_code_paths(root)) == before
 
 
@@ -237,18 +240,6 @@ def test_rune_digests_key_by_family_name(tmp_path):
     digests = fingerprint.rune_digests(root)
     assert set(digests) == {"qsPea", "qsBay"}
     assert digests["qsPea"] == fingerprint.rune_file_digest(root / "glyph_data" / "runes" / "qsPea.yaml")
-
-
-def test_tables_environment_value_is_rune_blind_but_tracks_the_rest(tmp_path):
-    root = _fake_repo(tmp_path)
-    before = fingerprint.tables_environment_value(root)
-    (root / "glyph_data" / "runes" / "qsPea.yaml").write_text("family: qsPea\nedited: true\n")
-    assert fingerprint.tables_environment_value(root) == before
-    (root / "rebuild" / "script.yaml").write_text("alphabet: [edited]\n")
-    moved_data = fingerprint.tables_environment_value(root)
-    assert moved_data != before
-    (root / "rebuild" / "pipeline" / "table.py").write_text("TABLE = 2\n")
-    assert fingerprint.tables_environment_value(root) != moved_data
 
 
 def test_pipeline_code_covers_validation_and_the_kernel_and_isolates_edits(tmp_path):

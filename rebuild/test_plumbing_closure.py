@@ -53,6 +53,8 @@ def _covered(root: Path) -> set[Path]:
     covered.update(fingerprint.review_code_paths(root))
     covered.update(fingerprint.pipeline_code_paths(root))
     covered.add(root / "rebuild" / "review" / "serve.py")
+    covered.add(root / "rebuild" / "review" / "status.py")
+    covered.add(root / "rebuild" / "review" / "journal.py")
     return covered
 
 

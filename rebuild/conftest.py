@@ -320,13 +320,13 @@ def live_deletion_targets():
 
 @pytest.fixture(scope="session")
 def built_review_surface(live_artifacts: LiveArtifacts):
-    """Yields (surface_dir, manifest) for the cycle's own rebuild/out/review — read-only, never built here. `surface_build_skippable` is the proof: the manifest's recorded inputs fingerprint equals the one a build would stamp now, which is the same standard the artifact cycle skips its own surface step on, and in a cycle that step settles before any gate is submitted, so this is the taken branch every time the gate runs.
+    """Yields (surface_dir, manifest) for the cycle's own rebuild/out/review — read-only, never built here. `surface_build_skippable` is the proof: the manifest's recorded inputs fingerprint equals the one a build would stamp now, which is the same standard the artifact cycle skips its own surface step on, and in a cycle that step settles before any gate is submitted, so this is the taken branch every time the gate runs. One component is exempted: `static`, the copied review UI assets, because every consumer of this fixture reads the manifest, the shards, and the census sidecar — never the app shell, which the one test that inspects it reads at its source — so a CSS tweak must not fail the whole validators lane over bytes none of it asserts about. That is the same hard/warn line status._freshness_check draws for `make verdict-ready`; the cycle's own skip call stays byte-strict.
 
     When it cannot be proven, the fixture fails naming the command that fixes it instead of building a surface of its own. A build inside a pytest worker is a fifteen-gigabyte, several-hundred-second job that re-derives what the cycle already produced, and worksteal will happily land it on a worker that is holding something else; the cost of refusing is that a bare `make test-rebuild` after a rune edit fails fast rather than grinding, which is the trade `stamped_decision` in test_rule_witnesses already makes for the stamped tables.
     """
     from rebuild.tools.artifact_cycle import REVIEW_OUT, surface_build_skippable
 
-    if not surface_build_skippable(REPO_ROOT):
+    if not surface_build_skippable(REPO_ROOT, ignore=("static",)):
         pytest.fail(
             f"no review surface under {REVIEW_OUT} is stamped with the current inputs — a stale or missing "
             "surface fails this gate instead of building one in-process; run `make review-cycle` (or "

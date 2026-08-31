@@ -62,10 +62,15 @@ def pipeline_code_paths(repo_root: Path) -> list[Path]:
     )
 
 
+REVIEW_NON_BUILD_MODULES = frozenset({"serve.py", "status.py", "journal.py", "export.py"})
+
+
 def review_code_paths(repo_root: Path) -> list[Path]:
-    """serve.py is excluded: it is the dev server, not build code, and editing it must not flag the surface stale."""
+    """The surface build's own code: rebuild/review/ minus the modules the build never imports, because a stamp component that moves on an edit the build cannot execute costs a full surface rebuild and drops both per-unit caches while proving nothing. serve.py is the dev server; status.py, journal.py, and export.py belong to the verdict plumbing, whose own key hashes what it runs (plumbing_skip_fingerprint). rebuild/test_review_code_closure.py walks build.py's import graph both ways so this exclusion list cannot drift from the real closure."""
     return sorted(
-        path for path in (Path(repo_root) / "rebuild" / "review").glob("*.py") if path.name != "serve.py"
+        path
+        for path in (Path(repo_root) / "rebuild" / "review").glob("*.py")
+        if path.name not in REVIEW_NON_BUILD_MODULES
     )
 
 
@@ -195,21 +200,8 @@ def table_data_value(repo_root: Path) -> str:
 
 
 def rune_digests(repo_root: Path) -> dict[str, str]:
-    """Every rune file's prose-blind digest, keyed by family name (the file stem, which spec_load lints to equal the `rune:` field). This is the per-rune grain the trace-memo store invalidates at: an entry survives a cycle exactly when every family it names still carries the digest recorded beside it."""
+    """Every rune file's prose-blind digest, keyed by family name (the file stem, which spec_load lints to equal the `rune:` field). This is the per-rune grain the caches invalidate at: the oracle row cache's per-family content keys (`oracle_cache.family_content_keys`) and the review unit cache's are both built from these, so an entry survives a cycle exactly when every family it names still carries the digest recorded beside it."""
     return {path.stem: rune_file_digest(path) for path in rune_paths(Path(repo_root)) if path.is_file()}
-
-
-def tables_environment_value(repo_root: Path) -> str:
-    """The non-rune data inputs plus the pipeline code, hashed wholesale. The trace-memo store stamps itself with this — any of these moving invalidates every entry — while the rune files invalidate at per-entry grain through `rune_digests`."""
-    root = Path(repo_root)
-    runes = set(rune_paths(root))
-    lines = sorted(
-        f"{_label(root, path)}\t{file_sha256(path)}"
-        for path in data_paths(root)
-        if path.is_file() and path not in runes
-    )
-    lines.append(f"pipeline_code\t{hash_paths(root, pipeline_code_paths(root))}")
-    return hashlib.sha256("\n".join(lines).encode()).hexdigest()
 
 
 def tables_value(repo_root: Path) -> str:
