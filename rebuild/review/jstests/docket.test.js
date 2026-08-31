@@ -167,6 +167,27 @@ test('buildClusters is order-independent and sorts members by numeric id so u-10
   assert.deepEqual(forward[0].reps, ['u-0001']);
 });
 
+// The precomputed sort key must stay numeric: ids are not fixed-width, so any lexicographic shortcut would put u-10 ahead of u-9 and hand the cluster a different exemplar, a different rep, and a different evidence sample.
+test('buildClusters orders ids of differing widths by number, not by text', () => {
+  const ids = ['u-9', 'u-10', 'u-100', 'u-2', 'u-1078641', 'u-21'];
+  const units = ids.map((id) => makeUnit(id, { echo: 'e-0001' }));
+  const [cluster] = buildClusters([...units].reverse(), blank);
+  assert.deepEqual(cluster.memberIds, ['u-2', 'u-9', 'u-10', 'u-21', 'u-100', 'u-1078641']);
+  assert.equal(cluster.exemplar.id, 'u-2');
+  assert.deepEqual(cluster.reps, ['u-2']);
+});
+
+test('echoConflicts orders a group of differing id widths by number too', () => {
+  const ids = ['u-9', 'u-10', 'u-2'];
+  const members = ['u-10', 'u-2', 'u-9'];
+  const echoIndex = new Map([['e-0001', members]]);
+  const records = { 'u-2': { verdict: 'approve' }, 'u-9': { verdict: 'reject' } };
+  const unitsById = new Map(ids.map((id) => [id, { id, class: 'cls-a' }]));
+  const [conflict] = echoConflicts(echoIndex, unitsById, (id) => records[id]);
+  assert.deepEqual(conflict.unitIds, ['u-2', 'u-9', 'u-10']);
+  assert.deepEqual(members, ['u-10', 'u-2', 'u-9'], 'the echo index itself is never reordered under the app');
+});
+
 test('ruledClassIds picks exactly the intended and reviewed statuses and tolerates undefined input', () => {
   const ids = ruledClassIds([
     { id: 'a', status: 'intended' },

@@ -23,6 +23,8 @@ import {
   partitionUnits,
   humanClassCount,
   humanTotal,
+  machineFoldChannel,
+  machineFoldTotal,
   noVerdictTotal,
   formatCount,
   machineChannels,
@@ -534,6 +536,38 @@ test('needsNoVerdict reads the batch assignment', () => {
   assert.equal(needsNoVerdict({}), false, 'a unit without the field stays human');
 });
 
+// The app index drops the four machine-channel flags because a unit carrying a batch is provably not machine-approved and not exempt; these pin that the readers behave the same over a row that lacks them as over a whole shard record that carries them false.
+const slimRow = (unit) => {
+  const row = { ...unit };
+  for (const field of ['ink_identical', 'picture_identical', 'junior_equivalent', 'no_verdict', 'explain', 'drafts', 'provenance']) {
+    delete row[field];
+  }
+  return row;
+};
+
+test('a slim row missing the machine flags reads as human wherever a whole record does', () => {
+  const human = allUnits.filter((unit) => unit.batch !== null);
+  assert.ok(human.length >= 2);
+  for (const unit of human) {
+    const row = slimRow(unit);
+    assert.equal(needsNoVerdict(row), needsNoVerdict(unit), unit.id);
+    assert.deepEqual(secondarySeamsOf(row), secondarySeamsOf(unit), unit.id);
+    assert.deepEqual(onlyHereSeamSpans(row), onlyHereSeamSpans(unit), unit.id);
+    assert.equal(unitMatchesFilters(row, emptyFilters, undefined), unitMatchesFilters(unit, emptyFilters, undefined), unit.id);
+    assert.equal(searchHaystack(row), searchHaystack(unit), unit.id);
+    assert.equal(copyPreamble(row), copyPreamble(unit), unit.id);
+  }
+});
+
+test('partitionUnits over slim rows queues exactly the units it queues over whole records', () => {
+  const human = allUnits.filter((unit) => unit.batch !== null);
+  const overRows = partitionUnits(human.map(slimRow), { ...emptyFilters, machine: '1' }, noRecords);
+  const overRecords = partitionUnits(human, { ...emptyFilters, machine: '1' }, noRecords);
+  assert.deepEqual(overRows.human.map((unit) => unit.id), overRecords.human.map((unit) => unit.id));
+  assert.deepEqual(overRows.machine, []);
+  assert.deepEqual(overRecords.machine, []);
+});
+
 test('a no-verdict unit leaves the human queue and appears with the machine toggle', () => {
   const exemptUnit = { ...allUnits.find((unit) => !unit.ink_identical), id: 'u-8888', no_verdict: true, batch: null };
   const units = [...allUnits, exemptUnit];
@@ -572,6 +606,48 @@ test('human and machine counts come from the manifest class metadata', () => {
   assert.equal(humanClassCount(dangling), dangling.unit_count);
   assert.equal(humanTotal(manifest), manifest.totals.units - manifest.machine_approved.units);
   assert.equal(noVerdictTotal(manifest), 0);
+});
+
+test('machineFoldTotal counts what a class fold will hold before the class is fetched', () => {
+  const marker = manifest.classes.find((cls) => cls.id === 'marker-staging-ligature-formation');
+  const dangling = manifest.classes.find((cls) => cls.id === 'dangling-anchor-dropped');
+  assert.equal(machineFoldTotal(marker), 1);
+  assert.equal(machineFoldTotal(dangling), 0, 'a class with nothing machine-approved folds nothing');
+  assert.equal(machineFoldTotal({ no_verdict: true, unit_count: 6344, machine_approved_count: 4465 }), 6344);
+  assert.equal(machineFoldTotal({ no_verdict: false, unit_count: 9 }), 0, 'a countless class folds nothing');
+});
+
+test('machineFoldChannel reproduces the badge cascade the app used to run over the loaded class', () => {
+  const cls = (over) => ({ no_verdict: false, unit_count: 10, machine_approved_count: 10, ...over });
+  assert.equal(
+    machineFoldChannel(cls({ machine_channels: { ink_identical: 10, picture_identical: 0, junior_equivalent: 0 } })),
+    'ink_identical',
+  );
+  assert.equal(
+    machineFoldChannel(cls({ machine_channels: { ink_identical: 6, picture_identical: 4, junior_equivalent: 0 } })),
+    'picture_identical',
+  );
+  assert.equal(
+    machineFoldChannel(cls({ machine_channels: { ink_identical: 6, picture_identical: 1, junior_equivalent: 3 } })),
+    'junior_equivalent',
+  );
+  assert.equal(
+    machineFoldChannel({
+      no_verdict: true,
+      unit_count: 10,
+      machine_approved_count: 4,
+      machine_channels: { ink_identical: 4, picture_identical: 0, junior_equivalent: 0 },
+    }),
+    'no_verdict',
+    'a no-verdict class folds its exempt units too, so no machine channel accounts for all of them',
+  );
+});
+
+test('machineFoldChannel falls back to the no-verdict badge for a class carrying no channel split', () => {
+  assert.equal(machineFoldChannel({ no_verdict: false, unit_count: 10, machine_approved_count: 10 }), 'no_verdict');
+  assert.equal(machineFoldChannel({ no_verdict: false, unit_count: 10, machine_approved_count: 0 }), 'no_verdict');
+  const marker = manifest.classes.find((cls) => cls.id === 'marker-staging-ligature-formation');
+  assert.equal(machineFoldChannel(marker), 'ink_identical');
 });
 
 test('a no-verdict class contributes nothing to the human workload and everything non-identical to the exempt total', () => {
@@ -931,6 +1007,20 @@ test('onlyHereSeamSpans yields nothing for machine-approved units, missing cells
   assert.deepEqual(onlyHereSeamSpans({ ...onlyHereUnit, pair_codepoints: [0, 2] }), []);
 });
 
+// Why the app index may ship `after: null` on a row whose secondary seams all have a home: with the cells present the walk computes the spans and then continues past every homed seam, so the two answers are the same [] and the row need not carry the cells at all.
+test('onlyHereSeamSpans reads a homed-only row the same with cells present and with after nulled', () => {
+  const homedOnly = {
+    ...onlyHereUnit,
+    secondary_seams: [{ pair: { left: 1, right: 2 }, home: 'u-0001' }],
+  };
+  assert.deepEqual(onlyHereSeamSpans(homedOnly), []);
+  assert.deepEqual(onlyHereSeamSpans({ ...homedOnly, after: null }), []);
+  const seamless = { ...onlyHereUnit, secondary_seams: null };
+  assert.deepEqual(onlyHereSeamSpans(seamless), []);
+  assert.deepEqual(onlyHereSeamSpans({ ...seamless, after: null }), []);
+  assert.deepEqual(onlyHereSeamSpans({ ...onlyHereUnit, after: null }), [], 'a home-less seam needs its cells to underline');
+});
+
 test('the only-here fixture unit underlines its seam tokens', () => {
   const unit = shardB.find((entry) => entry.id === 'u-0006');
   assert.deepEqual(onlyHereSeamSpans(unit), [[1, 2]]);
@@ -1030,6 +1120,17 @@ test('searchHaystack folds id, notation, codepoints, class, group, echo, cluster
   assert.ok(haystack.includes('ligation'));
   assert.ok(haystack.includes('e-0001'), 'the echo group id is searchable');
   assert.ok(haystack.includes('c-3a570001'), 'the cluster signature id is searchable');
+});
+
+test('searchHaystack is memoized per unit, so a keystroke folds each row at most once', () => {
+  // Rows are immutable once parsed; mutating one here is only a probe for whether the second call refolded it.
+  const unit = { ...shardA[0] };
+  const first = searchHaystack(unit);
+  unit.notation = '·Nope';
+  assert.equal(searchHaystack(unit), first, 'the second call is answered from the cache');
+  const twin = { ...shardA[0], notation: '·Nope' };
+  assert.notEqual(searchHaystack(twin), first, 'a row the cache has not seen folds on its own');
+  assert.ok(searchHaystack(twin).includes('·nope'));
 });
 
 test('searchUnits finds units by echo group id and by cluster id', () => {

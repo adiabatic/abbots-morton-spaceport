@@ -6,9 +6,11 @@ The built surface comes from `built_review_surface` in rebuild/conftest.py — t
 """
 
 import copy
+import gzip
 import hashlib
 import json
 import multiprocessing
+import random
 import shutil
 import subprocess
 from html.parser import HTMLParser
@@ -18,6 +20,7 @@ import pytest
 import yaml
 
 from rebuild.pipeline import fingerprint
+from rebuild.review import app_index
 from rebuild.review import build as review_build
 from rebuild.review import unit_index
 from rebuild.review.audit import ACCEPTANCE_CONFIGS, load_workload, machine_approved
@@ -386,6 +389,64 @@ def test_cluster_id_recipe_matches_the_docket_tool(built):
     assert sampled == 3
 
 
+SIDECAR_SAMPLE = 40
+
+
+def _sidecar_sample(surface: Path, name: str, seed: str, count: int) -> tuple[list[str], list[dict]]:
+    """Every row id in one of the app's sidecars, plus a deterministic reservoir sample of whole rows, in one streaming pass — the app index runs to a hundred megabytes and nothing here may hold it."""
+    rng = random.Random(seed)
+    ids: list[str] = []
+    kept: list[dict] = []
+    with gzip.open(app_index.artifact_path(surface, name), "rt", encoding="utf-8") as stream:
+        next(stream)
+        for index, line in enumerate(stream):
+            row = json.loads(line)
+            ids.append(row["id"])
+            if len(kept) < count:
+                kept.append(row)
+            elif rng.random() < count / (index + 1):
+                kept[rng.randrange(count)] = row
+    return ids, kept
+
+
+def _addressed_fragment(surface: Path, manifest: dict, row: dict) -> dict:
+    """The shard record a sidecar row addresses, read the way the app's explain panel reads it: the named part, that byte range of it, parsed on its own."""
+    meta = next(entry for entry in manifest["classes"] if entry["id"] == row["class"])
+    part = unit_index.class_shards(meta)[row["shard_part"]]
+    with open(surface / part, "rb") as handle:
+        handle.seek(row["byte_start"])
+        raw = handle.read(row["byte_length"])
+    return json.loads(raw)
+
+
+def test_the_shipped_app_sidecars_address_the_shards_they_were_projected_from(built):
+    """The persisted-value-against-its-source claim no build check makes: the app boots from a projection and Range-fetches the rest, so what has to hold on the shipped surface is that each row's span really slices its own record out of the shard on disk and that the row really is that record's projection. The id sets are checked whole — the app index is the manifest's human workload and the locator is exactly the rest — and the byte agreement on a deterministic sample, because reading every span would re-read the corpus this module deliberately does not. (Their order is the shard walk's, which `rebuild/test_app_index.py` pins over a build it can hold.)"""
+    out_dir, manifest = built
+    for name, fmt in app_index.ARTIFACTS:
+        assert app_index.artifact_is_current(out_dir, name, fmt), name
+
+    human_ids, human_rows = _sidecar_sample(
+        out_dir, app_index.APP_INDEX_NAME, manifest["generated_at"], SIDECAR_SAMPLE
+    )
+    assert len(human_ids) == len(manifest["human_unit_ids"])
+    assert set(human_ids) == set(manifest["human_unit_ids"])
+    for row in human_rows:
+        fragment = _addressed_fragment(out_dir, manifest, row)
+        assert fragment["id"] == row["id"]
+        assert row == app_index.app_row(fragment, row["shard_part"], row["byte_start"], row["byte_length"])
+
+    machine_ids, machine_rows = _sidecar_sample(
+        out_dir, app_index.LOCATOR_NAME, manifest["generated_at"], SIDECAR_SAMPLE
+    )
+    assert len(machine_ids) == manifest["totals"]["units"] - len(manifest["human_unit_ids"])
+    assert set(machine_ids).isdisjoint(manifest["human_unit_ids"])
+    for row in machine_rows:
+        fragment = _addressed_fragment(out_dir, manifest, row)
+        assert row == app_index.locator_row(
+            fragment, row["shard_part"], row["byte_start"], row["byte_length"]
+        )
+
+
 def test_config_note_covers_the_general_gated_excluded_overlay_and_fallback_cases():
     full = ACCEPTANCE_CONFIGS
     non_ss10 = tuple(config for config in full if config != "ss10")
@@ -556,7 +617,7 @@ def _padded(count: int, filler: int = 0) -> list[dict]:
 def test_write_shard_keeps_a_class_under_the_cap_in_one_bare_file(tmp_path):
     """A class small enough to fit keeps `units/<class-id>.json`, so the small classes, the checked-in fixtures, and every archived surface stay exactly where their readers already look — and its bytes are still the one-shot dumps' bytes."""
     fragments = _padded(4, 40)
-    assert _write_shard(tmp_path, "small", fragments) == ["units/small.json"]
+    assert _write_shard(tmp_path, "small", fragments)[0] == ["units/small.json"]
     path = tmp_path / "units" / "small.json"
     assert path.read_bytes() == (json.dumps(fragments, indent=1, ensure_ascii=True) + "\n").encode("utf-8")
     assert sorted(entry.name for entry in (tmp_path / "units").iterdir()) == ["small.json"]
@@ -566,7 +627,7 @@ def test_write_shard_splits_a_class_that_outgrows_the_cap(tmp_path, monkeypatch)
     """Past the cap the class is written as contiguous three-digit parts numbered from zero with no bare file beside them, each part within the cap, each part's bytes the bytes one `json.dumps` of that part would have produced, and the parts concatenating to the class in order."""
     monkeypatch.setattr("rebuild.review.build.SHARD_PART_BYTES", 512)
     fragments = _padded(24, 60)
-    parts = _write_shard(tmp_path, "big", fragments)
+    parts, _spans = _write_shard(tmp_path, "big", fragments)
     assert len(parts) > 1
     assert parts == [f"units/big.{index:03d}.json" for index in range(len(parts))]
     assert not (tmp_path / "units" / "big.json").exists()
@@ -584,7 +645,7 @@ def test_write_shard_gives_an_oversized_fragment_a_part_of_its_own(tmp_path, mon
     """Nothing here can make a single unit smaller, so a fragment past the cap is written alone rather than split — and it does not drag its neighbors over with it."""
     monkeypatch.setattr("rebuild.review.build.SHARD_PART_BYTES", 128)
     fragments = [{"id": "u-0000"}, {"id": "u-0001", "pad": "x" * 400}, {"id": "u-0002"}]
-    parts = _write_shard(tmp_path, "big", fragments)
+    parts, _spans = _write_shard(tmp_path, "big", fragments)
     assert [json.loads((tmp_path / part).read_text(encoding="utf-8")) for part in parts] == [
         [fragments[0]],
         [fragments[1]],
@@ -593,7 +654,7 @@ def test_write_shard_gives_an_oversized_fragment_a_part_of_its_own(tmp_path, mon
 
 
 def test_write_shard_writes_an_empty_class_as_one_empty_array(tmp_path):
-    assert _write_shard(tmp_path, "empty", []) == ["units/empty.json"]
+    assert _write_shard(tmp_path, "empty", []) == (["units/empty.json"], [])
     assert (tmp_path / "units" / "empty.json").read_bytes() == b"[]\n"
 
 

@@ -13,12 +13,15 @@ function unitNumber(unitId) {
 }
 
 export function buildClusters(units, recordOf) {
-  const human = [];
+  // Triage order: within a class (and every cluster is single-class) the docket tool's shard order is ascending unit number, and exemplars, representatives, and evidence samples are all "first in that order". The number is parsed once per unit rather than twice per comparison, which is the difference between one pass over the queue and an n log n pile of temporary strings.
+  const keyed = [];
   for (const unit of units) {
-    if (unit.batch !== null && unit.batch !== undefined && typeof unit.cluster === 'string') human.push(unit);
+    if (unit.batch !== null && unit.batch !== undefined && typeof unit.cluster === 'string') {
+      keyed.push({ number: unitNumber(unit.id), unit });
+    }
   }
-  // Triage order: within a class (and every cluster is single-class) the docket tool's shard order is ascending unit number, and exemplars, representatives, and evidence samples are all "first in that order".
-  human.sort((a, b) => unitNumber(a.id) - unitNumber(b.id));
+  keyed.sort((a, b) => a.number - b.number);
+  const human = keyed.map((entry) => entry.unit);
 
   const membersByCluster = new Map();
   const judgedByCluster = new Map();
@@ -109,7 +112,11 @@ export function verdictsAgree(verdicts) {
 export function echoConflicts(echoIndex, unitsById, recordOf) {
   const conflicts = [];
   for (const echo of [...echoIndex.keys()].sort()) {
-    const unitIds = [...echoIndex.get(echo)].sort((a, b) => unitNumber(a) - unitNumber(b));
+    const unitIds = echoIndex
+      .get(echo)
+      .map((id) => ({ id, number: unitNumber(id) }))
+      .sort((a, b) => a.number - b.number)
+      .map((entry) => entry.id);
     const records = new Map();
     for (const id of unitIds) {
       const record = recordOf(id);
