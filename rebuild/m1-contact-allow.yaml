@@ -491,6 +491,8 @@
   why: ·Ah's x-height terminal (top-right nub at y5), drawn unconditionally in the shipped font; the declined exit keeps it.
 - signature: dangle:qsAh.hapax.en-y0:exit:x-height
   why: ·Ah entered at the baseline keeps the same x-height terminal on a declined exit.
+- signature: dangle:qsAh.hapax.en-y0.en-con-1:exit:x-height
+  why: The contracted-entry variant of ·Ah keeps the same x-height terminal; the baseline contraction does not move the exit nub.
 - signature: dangle:qsAh.hapax.locked:exit:x-height
   why: The ZWNJ-locked twin of ·Ah's x-height terminal; identical drawing.
 
