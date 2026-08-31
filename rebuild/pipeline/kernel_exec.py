@@ -299,7 +299,7 @@ def build_table_files(
 
     This is `enumerate-configs` plus the fold that used to follow it in Python, and the reason there is no stream between them: the fold runs on the product the worklist still holds, so the several hundred megabytes a configuration's stream cost to write, to read and to hold parsed are never spent. The windows payload lands uncompressed because the compressor stays on this side of the boundary — the crate carries serde_json and nothing else — and `run_m1.build_tables` is what packs it into the `.gz` the artifact is.
 
-    The digests ride stdout as one JSON object per line, in the order the configurations were named, because a digest is a scalar its caller assembles into `table-digests.json` rather than an artifact family of its own. Raises `KernelRunError` for every shape of refusal the CLI contract distinguishes, and for a clean exit whose answer does not name every configuration exactly once.
+    The digests ride stdout as one JSON object per line, in the order the configurations were named, because a digest is a scalar its caller holds and reports rather than an artifact family of its own. Raises `KernelRunError` for every shape of refusal the CLI contract distinguishes, and for a clean exit whose answer does not name every configuration exactly once.
     """
     arguments = [
         str(BINARY),

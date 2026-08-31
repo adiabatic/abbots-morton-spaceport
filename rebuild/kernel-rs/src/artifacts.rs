@@ -2,7 +2,7 @@
 //!
 //! The windows payload is written **uncompressed**. `run_m1._pack_windows` gzips it into `windows-<config>.tsv.gz` with a zeroed stamp, which keeps the compressor on the side of the boundary that already owns it — this crate carries serde_json and nothing else, as the transitions stream's own note says — and keeps the artifact's identity claim on the decompressed bytes.
 //!
-//! The digest is not a file. It is one scalar per configuration, and the caller assembles `table-digests.json` from the whole set in acceptance order, so the verb reports it on stdout rather than inventing a second per-configuration artifact family that nothing else reads and that a stale copy could poison.
+//! The digest is not a file. It is one scalar per configuration, reported on stdout for the caller to hold in acceptance order, rather than a second per-configuration artifact family that nothing else reads and that a stale copy could poison.
 
 use std::collections::HashSet;
 use std::fmt::Write as _;

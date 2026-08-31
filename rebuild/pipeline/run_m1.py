@@ -70,8 +70,6 @@ KERN_SIDECAR_YAML = REPO_ROOT / "glyph_data" / "senior_quikscript_kerning.yaml"
 
 RAW_STANCE = "cmap"
 
-TABLE_DIGESTS_FORMAT = "ams-m1-table-digests/2"
-
 
 def _spawn_pool(jobs: int) -> ProcessPoolExecutor:
     workers = min(jobs, len(conform.ACCEPTANCE_CONFIGS))
@@ -83,12 +81,12 @@ def build_tables(
     out_dir: Path | None = None,
     inputs: str | None = None,
     kernel_threads: int | None = None,
-) -> dict[str, tuple]:
+) -> tuple[dict[str, tuple], dict[str, str]]:
     """Every acceptance configuration's decision and treaty tables: the resolved spec dumped once, then one `build-tables` process per configuration, each of which enumerates its fixpoint and folds it in place. There is no stream and no fold on this side at all — the crate writes the settlement TSV, the treaty TSV and the window enumeration itself, so the several hundred megabytes a configuration's transitions cost to write, to read and to hold parsed are never spent.
 
     What Python does per configuration is small and is what only Python can do: pack the plain window payload into the `.gz` the artifact is (the compressor never crossed the boundary), read the head back for the rules, the reachable cells and the fired provenance every downstream stage needs, and parse the treaty TSV back for the defect gates.
 
-    `out_dir`, when given, gets the section 8 TSVs and `table-digests.json` — each configuration's `table.table_digest`, taken in the crate while the window rows are still in hand, which is the grain the rest of the rebuild states table identity at. A caller with nowhere to write gets the tables and nothing else. Both the returned mapping and the digest record are rebuilt in `conform.ACCEPTANCE_CONFIGS` order however the configurations finish, so completion order can never reach an artifact.
+    `out_dir`, when given, gets the section 8 TSVs. The second returned mapping is each configuration's `table.table_digest` as the crate reported it — taken in the crate while the window rows are still in hand, which is the grain the rest of the rebuild states table identity at and the only moment it can be taken without re-costing the fixpoint; the crate also prints it on stdout, which is where `bench-the-rebuild/scaling/scaling.py` reads it. Both returned mappings are rebuilt in `conform.ACCEPTANCE_CONFIGS` order however the configurations finish, so completion order can never reach an artifact.
 
     `inputs` is `tables_inputs` over the sources this spec was loaded from. Supplying it alongside `out_dir` keeps each configuration's window enumeration next to the TSVs — where `run_font_conformance` picks it up rather than rebuilding anything — under the stamp that names those sources; omit it and the payload is read for its head and deleted, which is what a caller building a spec of its own must have, since the fingerprint names the repo's rune files and cannot vouch for tables they did not produce.
 
@@ -137,9 +135,7 @@ def build_tables(
                 config, tables, digest = finished.result()
                 built[config] = tables
                 digests[config] = digest
-    if out_dir is not None:
-        _write_table_digests(out_dir, inputs, {config: digests[config] for config in configs})
-    return {config: built[config] for config in configs}
+    return {config: built[config] for config in configs}, {config: digests[config] for config in configs}
 
 
 def _pack_windows(payload: Path, path: Path) -> None:
@@ -150,12 +146,6 @@ def _pack_windows(payload: Path, path: Path) -> None:
         gzip.GzipFile(filename="", fileobj=raw, mode="wb", mtime=0, compresslevel=6) as packed,
     ):
         shutil.copyfileobj(source, packed, length=1 << 20)
-
-
-def _write_table_digests(out_dir: Path, inputs: str | None, digests: dict[str, str]) -> None:
-    """The per-configuration contract digests a build leaves beside its tables, in acceptance order under the same stamp the windows heads carry. `table.table_digest` is the grain the rest of the rebuild states table identity at — the ordered rules with their provenance, every enumerated window row, the treaty rows, the reachable cells, the cited provenance and the identity guards — so a comparison of two builds is made against these rather than against the TSVs alone, which drop most of that. It has to be taken at build time: the digest covers the window rows, which only the process that enumerated them ever holds, and recovering one afterwards would cost the fixpoint that produced it."""
-    payload = {"format": TABLE_DIGESTS_FORMAT, "inputs": inputs, "digests": digests}
-    (out_dir / "table-digests.json").write_text(json.dumps(payload, indent=2) + "\n")
 
 
 def mint_cell_glyphs(
@@ -234,7 +224,7 @@ def run(
     print(f"[t] spec_load {time.perf_counter() - start:.1f}s", flush=True)
 
     start = time.perf_counter()
-    tables = build_tables(spec, out_dir, inputs=inputs, kernel_threads=kernel_threads)
+    tables, _digests = build_tables(spec, out_dir, inputs=inputs, kernel_threads=kernel_threads)
     print(
         f"[t] build_tables_total {time.perf_counter() - start:.1f}s {rss_token(process_peak_rss_bytes())}",
         flush=True,

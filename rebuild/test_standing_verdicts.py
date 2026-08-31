@@ -2372,13 +2372,12 @@ def out_window(uid="o-1"):
     )
 
 
-def test_the_payload_carries_the_per_rule_tally(tmp_path, monkeypatch):
+def test_the_per_rule_line_carries_the_tally(tmp_path, monkeypatch, capsys):
     units = [canonical("u-1"), canonical("u-2"), canonical("u-3", left="qsOut.ex-ext-1")]
     verdicts = [{"unit": "u-2", "verdict": "approve", "note": "", "at": "2026-07-11T00:00:00Z"}]
-    payload = _run_main(tmp_path, monkeypatch, units, verdicts)
-    assert payload["standing_tally"] == {
-        RULE["id"]: {"matched": 2, "filled": 1, "held": 1, "composed_credit": 0}
-    }
+    _run_main(tmp_path, monkeypatch, units, verdicts)
+    lines = capsys.readouterr().out.splitlines()
+    assert f"  {RULE['id']}: 1 filled, 1 already verdicted, 1 held for review by except_left" in lines
 
 
 def test_the_rollup_reads_the_same_numbers_the_per_rule_line_does(tmp_path, monkeypatch, capsys):
@@ -2662,7 +2661,7 @@ def test_a_rule_that_only_ever_earned_composed_credit_does_not_read_as_dead(
     tmp_path, monkeypatch, capsys, slide_fonts
 ):
     """The composed pass claims a window before any single rule is asked about it, so a rule whose whole reach is composed shows zero on its own line — the one number the reached-nothing line must not read as a rule that speaks for nothing."""
-    payload = _run_main(
+    _run_main(
         tmp_path,
         monkeypatch,
         [composed_window("c-1")],
@@ -2670,17 +2669,18 @@ def test_a_rule_that_only_ever_earned_composed_credit_does_not_read_as_dead(
         rules_list=(SLIDE_RULE, COMPOSED_EXT_RULE),
         fonts=slide_fonts,
     )
-    assert payload["standing_tally"] == {
-        SLIDE_RULE["id"]: {"matched": 0, "filled": 0, "held": 0, "composed_credit": 1},
-        COMPOSED_EXT_RULE["id"]: {"matched": 0, "filled": 0, "held": 0, "composed_credit": 1},
-    }
-    assert not any(line.startswith("  REACHED NOTHING:") for line in capsys.readouterr().out.splitlines())
+    lines = capsys.readouterr().out.splitlines()
+    assert f"    {SLIDE_RULE['id']}: 0 on its own line, 1 credited across 1 composed line, 1 in all" in lines
+    assert (
+        f"    {COMPOSED_EXT_RULE['id']}: 0 on its own line, 1 credited across 1 composed line, 1 in all"
+    ) in lines
+    assert not any(line.startswith("  REACHED NOTHING:") for line in lines)
 
 
 def test_the_rollup_reads_zero_composed_lines_when_nothing_composed(
     tmp_path, monkeypatch, capsys, slide_fonts
 ):
-    payload = _run_main(
+    _run_main(
         tmp_path,
         monkeypatch,
         [founding_window("s-1"), extension_only_window("e-1")],
@@ -2688,11 +2688,11 @@ def test_the_rollup_reads_zero_composed_lines_when_nothing_composed(
         rules_list=(SLIDE_RULE, COMPOSED_EXT_RULE),
         fonts=slide_fonts,
     )
-    assert payload["standing_tally"] == {
-        SLIDE_RULE["id"]: {"matched": 1, "filled": 1, "held": 0, "composed_credit": 0},
-        COMPOSED_EXT_RULE["id"]: {"matched": 1, "filled": 1, "held": 0, "composed_credit": 0},
-    }
     lines = capsys.readouterr().out.splitlines()
+    assert f"  {SLIDE_RULE['id']}: 1 filled, 0 already verdicted, 0 held for review by except_left" in lines
+    assert (
+        f"  {COMPOSED_EXT_RULE['id']}: 1 filled, 0 already verdicted, 0 held for review by except_left"
+    ) in lines
     assert (
         f"    {SLIDE_RULE['id']}: 1 on its own line, 0 credited across 0 composed lines, 1 in all"
     ) in lines

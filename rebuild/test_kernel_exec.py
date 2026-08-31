@@ -37,18 +37,6 @@ def products():
     return {name: kernel_exec.enumerate_transitions(SPEC, features) for name, features in CONFIGS.items()}
 
 
-@pytest.fixture(scope="module")
-def stamped_build(tmp_path_factory):
-    out_dir = tmp_path_factory.mktemp("stamped")
-    tables = run_m1.build_tables(SPEC, out_dir, inputs=STAMP)
-    assert list(tables) == list(conform.ACCEPTANCE_CONFIGS)
-    return out_dir
-
-
-def _digest_record(out_dir):
-    return json.loads((out_dir / "table-digests.json").read_text())
-
-
 class TestTheInvocationSeam:
     def test_the_world_flags_reflect_the_python_side_defaults(self, monkeypatch):
         for _flag, module, attribute in kernel_exec.WORLD_FLAGS:
@@ -379,36 +367,13 @@ def test_the_default_configuration_enumerates_at_class_grain(products):
         assert len(members) > 1
 
 
-class TestTheDigestRecord:
-    def test_it_carries_one_digest_per_config_under_the_windows_stamp(self, stamped_build):
-        record = _digest_record(stamped_build)
-        assert record["format"] == run_m1.TABLE_DIGESTS_FORMAT
-        assert record["inputs"] == STAMP
-        assert list(record["digests"]) == list(conform.ACCEPTANCE_CONFIGS)
-
-    def test_the_record_names_no_engine(self, stamped_build):
-        """There is one engine, so the record no longer says which one — the format marker is what a reader of an older file trips over."""
-        assert "engine" not in _digest_record(stamped_build)
-
-    def test_the_recorded_digest_is_the_configs_own_table_digest(self, stamped_build):
-        decision, treaty = kernel_exec.build_tables(SPEC, conform.features_for_config("ss04"))
-        assert _digest_record(stamped_build)["digests"]["ss04"] == table_module.table_digest(decision, treaty)
-
-    def test_a_build_with_no_stamp_records_its_digests_under_a_null_one(self, tmp_path):
-        run_m1.build_tables(SPEC, tmp_path)
-        record = _digest_record(tmp_path)
-        assert record["inputs"] is None
-        assert list(record["digests"]) == list(conform.ACCEPTANCE_CONFIGS)
-        assert not sorted(tmp_path.glob("windows-*"))
-        assert sorted(path.name for path in tmp_path.glob("settlement-*"))
-
-
 class TestTheKernelInvocation:
     def test_a_caller_with_nowhere_to_write_still_gets_its_tables(self, tmp_path, monkeypatch):
         """A caller with no `out_dir` gets the tables and leaves nothing behind: the kernel's artifacts land in a scratch directory that goes with the frame, and what comes back is the head every downstream stage reads plus the treaty rows the defect gates want."""
         monkeypatch.chdir(tmp_path)
-        tables = run_m1.build_tables(SPEC)
+        tables, digests = run_m1.build_tables(SPEC)
         assert list(tables) == list(conform.ACCEPTANCE_CONFIGS)
+        assert list(digests) == list(conform.ACCEPTANCE_CONFIGS)
         assert all(decision.rules and treaty.rows for decision, treaty in tables.values())
         assert not sorted(tmp_path.iterdir())
 
