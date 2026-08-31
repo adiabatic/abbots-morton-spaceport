@@ -75,6 +75,10 @@ policy:
         - qsThey
         - qsFee
         - qsMay
-  contract: []
+  contract:
+  - entry: baseline
+    by: 1
+    when:
+      left: {family: qsJai}
   resolve: []
   groups: {}
