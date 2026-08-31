@@ -71,9 +71,7 @@ policy:
     when:
       right:
         family:
-        - qsBay
         - qsThey
-        - qsFee
         - qsMay
   contract:
   - entry: baseline
