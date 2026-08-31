@@ -75,11 +75,6 @@ policy:
         - qsThey
         - qsFee
         - qsMay
-  - exit: x-height
-    by: 1
-    when:
-      right: {family: qsTea}
-      feature: ss03
   contract: []
   resolve: []
   groups: {}
