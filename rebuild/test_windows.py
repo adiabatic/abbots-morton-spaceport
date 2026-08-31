@@ -14,7 +14,8 @@ SPEC = fixtures.mini_spec()
 @pytest.fixture(scope="module")
 def build_a(tmp_path_factory):
     out_dir = tmp_path_factory.mktemp("windows-a")
-    return out_dir, run_m1.build_tables(SPEC, out_dir, inputs="fp-sources")
+    tables, digests = run_m1.build_tables(SPEC, out_dir, inputs="fp-sources")
+    return out_dir, tables, digests
 
 
 @pytest.fixture(scope="module")
@@ -32,7 +33,7 @@ def built():
 
 @pytest.fixture
 def written(build_a):
-    out_dir, _tables = build_a
+    out_dir, _tables, _digests = build_a
     return table_module.windows_path(out_dir, "default")
 
 
@@ -76,7 +77,7 @@ class TestRoundTrip:
 
     def test_two_builds_of_one_spec_write_the_same_bytes(self, build_a, build_b):
         """Diff-stability where it is actually stated — over two whole builds rather than over two calls to one writer — since the settlement and treaty TSVs are the crate's bytes and the enumeration is the crate's payload under this side's zeroed gzip stamp."""
-        first, _tables = build_a
+        first, _tables, _digests = build_a
         for config in conform.ACCEPTANCE_CONFIGS:
             for name in (f"settlement-{config}.tsv", f"treaties-{config}.tsv"):
                 assert (first / name).read_bytes() == (build_b / name).read_bytes(), name
@@ -135,7 +136,7 @@ def test_the_deep_classes_stamp_rides_tables_inputs(monkeypatch):
 class TestFingerprintGuard:
     @pytest.fixture
     def stamped(self, build_a, tmp_path):
-        source, _tables = build_a
+        source, _tables, _digests = build_a
 
         def write(inputs, configs=conform.ACCEPTANCE_CONFIGS):
             for config in configs:
@@ -177,8 +178,9 @@ class TestBuildStageHandoff:
     """What the build stage hands its parent since the fold moved into the crate: the head of each configuration's enumeration and its treaty rows, with the enumeration itself on disk under the stamp that names its sources. The rows never cross into the parent at all — a million per configuration is a resident peak nothing after the build spends — so what the parent holds is what `read_windows(windows=False)` answers."""
 
     def test_a_stamped_build_serializes_every_configuration_and_keeps_none(self, build_a):
-        out_dir, tables = build_a
-        assert sorted(tables) == sorted(conform.ACCEPTANCE_CONFIGS)
+        out_dir, tables, digests = build_a
+        assert list(tables) == list(conform.ACCEPTANCE_CONFIGS)
+        assert list(digests) == list(conform.ACCEPTANCE_CONFIGS)
         for config, (decision, treaty) in tables.items():
             assert decision.transitions == ()
             assert decision.rules
@@ -191,15 +193,15 @@ class TestBuildStageHandoff:
     def test_an_unstamped_build_leaves_no_enumeration_behind(self, tmp_path):
         run_m1.build_tables(SPEC, tmp_path)
         assert not list(tmp_path.glob("windows-*"))
+        assert sorted(path.name for path in tmp_path.glob("settlement-*"))
 
     def test_the_crates_artifacts_are_what_this_sides_writers_write_back(self, build_a, tmp_path):
-        """Both TSVs are the crate's bytes now, so what keeps this side's copies of those writers and of `table_digest` honest is that they reproduce them: read the enumeration and the treaty rows back, write them out again here, and require the same bytes and the same recorded digest. A rule-ordering divergence between the two sides shows in the settlement TSV, which is the shipped GSUB order."""
-        out_dir, _tables = build_a
+        """Both TSVs are the crate's bytes now, so what keeps this side's copies of those writers and of `table_digest` honest is that they reproduce them: read the enumeration and the treaty rows back, write them out again here, and require the same bytes and the same digest the crate reported at build time. A rule-ordering divergence between the two sides shows in the settlement TSV, which is the shipped GSUB order."""
+        out_dir, _tables, digests = build_a
         _inputs, decision = table_module.read_windows(table_module.windows_path(out_dir, "default"))
         treaty = table_module.read_treaty_tsv(out_dir / "treaties-default.tsv")
         decision.write_tsv(tmp_path / "settlement-default.tsv")
         treaty.write_tsv(tmp_path / "treaties-default.tsv")
         for name in ("settlement-default.tsv", "treaties-default.tsv"):
             assert (tmp_path / name).read_bytes() == (out_dir / name).read_bytes(), name
-        record = json.loads((out_dir / "table-digests.json").read_text())
-        assert record["digests"]["default"] == table_module.table_digest(decision, treaty)
+        assert digests["default"] == table_module.table_digest(decision, treaty)

@@ -36,7 +36,7 @@ def build_and_oracle(runes_dir: Path, out_dir: Path) -> dict:
         if not target.exists():
             target.write_bytes(gz.read_bytes())
     spec = load_spec(runes_dir, DEFAULT_REGISTRY_PATH, DEFAULT_SCHEMA_DIR)
-    tables = run_m1.build_tables(spec, out_dir)
+    tables, _digests = run_m1.build_tables(spec, out_dir)
 
     cell_glyphs = run_m1.mint_cell_glyphs(spec, tables)
     bare, twins, ss10_twins = run_m1.mint_raw_glyphs(spec)

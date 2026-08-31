@@ -2365,15 +2365,6 @@ def main(argv=None, *, units=None):
         "manifest_generated_at": manifest["generated_at"],
         "exported_at": manifest["generated_at"],
         "verdicts": run.fills,
-        "standing_tally": {
-            rule["id"]: {
-                "matched": len(reach.filled) + len(reach.verdicted),
-                "filled": len(reach.filled),
-                "held": len(reach.held),
-                "composed_credit": reach.composed_credit,
-            }
-            for rule, reach in ((rule, run.reaches[rule["id"]]) for rule in rules)
-        },
     }
     out = pathlib.Path(args.out)
     out.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n")

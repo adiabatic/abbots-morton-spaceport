@@ -555,7 +555,7 @@ fn enumerate_configs(plan: &ConfigsPlan<'_>) -> Result<(), String> {
     Ok(())
 }
 
-/// A whole named set of configurations folded into their tables under the directory the plan named, at most `--threads` of them at once. Each configuration's settlement TSV, treaty TSV and window enumeration are the files it leaves; its contract digest is one JSON line on stdout, in the order the plan named its configurations, because a digest is a scalar its caller assembles into `table-digests.json` rather than an artifact family of its own.
+/// A whole named set of configurations folded into their tables under the directory the plan named, at most `--threads` of them at once. Each configuration's settlement TSV, treaty TSV and window enumeration are the files it leaves; its contract digest is one JSON line on stdout, in the order the plan named its configurations, because a digest is a scalar its caller holds and reports rather than an artifact family of its own.
 fn build_tables(plan: &TablesPlan<'_>) -> Result<(), String> {
     let report = fanout::Report {
         timings: plan.timings,
