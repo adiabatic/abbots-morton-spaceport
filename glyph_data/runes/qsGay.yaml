@@ -212,6 +212,7 @@ policy:
     when:
       left:
         family:
+        - qsBay
         - qsKey
         - qsNo
         - qsEt
