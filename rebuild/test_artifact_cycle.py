@@ -930,6 +930,17 @@ def test_the_driver_reads_a_line_per_step_out_of_one_child(capsys):
     assert report.plumbing_fixpoint is True
 
 
+def test_standing_fill_news_keeps_rules_and_drops_steady_state_composed_pairs():
+    """Per-rule lines survive whatever their counts — a just-landed rule gets quoted from the summary even at 0 filled — while a composed pair earns its summary line only by filling or holding something, so the quadratic steady-state roll call stays out of both the console block and cycle_summary.json."""
+    news = ac._standing_fill_news
+    assert news("wrote verdicts-standing-fill.json: 25 standing-approval verdicts onto manifest S1")
+    assert news("quiet-rule: 0 filled, 12 already verdicted, 0 held for review by except_left")
+    assert news("rule-a + rule-b: 2 filled, 0 already verdicted, 0 held for review by except_left")
+    assert news("rule-a + rule-b: 0 filled, 3 already verdicted, 1 held for review by except_left")
+    assert not news("rule-a + rule-b: 0 filled, 9 already verdicted, 0 held for review by except_left")
+    assert not news("per-rule reach (3 rules):")
+
+
 def test_a_later_echo_round_folds_into_the_first_rounds_lines():
     """The cascade's second echo pass is the same step run again, so it reports under the same name rather than as a step of its own."""
     stdout = _chain_stdout(
@@ -2248,32 +2259,20 @@ def test_closure_fingerprint_moves_when_a_tracked_file_is_deleted(tmp_path):
     assert ac.make_test_closure_fingerprint(root) != first
 
 
-def test_prior_make_test_fingerprint_reads_the_summary(tmp_path):
-    summary = tmp_path / "cycle_summary.json"
+def test_prior_make_test_fingerprint_reads_only_the_green_record(tmp_path):
+    """The cycle summary keeps a display copy of the fingerprint, but the skip decision must never read it: after clear_contradicted_green deletes the record, a summary copy would resurrect a green whose last observed run was red."""
     green = tmp_path / "make-test-green.json"
-    assert ac.prior_make_test_fingerprint(summary, green) is None
-    summary.write_text(json.dumps({"make_test_fingerprint": "abc123"}))
-    assert ac.prior_make_test_fingerprint(summary, green) == "abc123"
-    summary.write_text(json.dumps({"make_test_fingerprint": None}))
-    assert ac.prior_make_test_fingerprint(summary, green) is None
-    summary.write_text("not json")
-    assert ac.prior_make_test_fingerprint(summary, green) is None
-
-
-def test_prior_make_test_fingerprint_prefers_the_green_record(tmp_path):
-    summary = tmp_path / "cycle_summary.json"
-    green = tmp_path / "make-test-green.json"
-    summary.write_text(json.dumps({"make_test_fingerprint": "from-summary"}))
+    assert ac.prior_make_test_fingerprint(green) is None
     ac.record_make_test_green("from-green", green)
-    assert ac.prior_make_test_fingerprint(summary, green) == "from-green"
+    assert ac.prior_make_test_fingerprint(green) == "from-green"
     record = ac.read_make_test_green(green)
     assert record is not None
     assert record["fingerprint"] == "from-green"
     assert isinstance(record.get("finished_at"), str)
     green.write_text("not json")
-    assert ac.prior_make_test_fingerprint(summary, green) == "from-summary"
+    assert ac.prior_make_test_fingerprint(green) is None
     green.write_text(json.dumps({"fingerprint": None}))
-    assert ac.prior_make_test_fingerprint(summary, green) == "from-summary"
+    assert ac.prior_make_test_fingerprint(green) is None
 
 
 def test_dry_run_plan_skip_make_test():
@@ -2780,6 +2779,14 @@ def test_surface_build_skippable_matches_manifest(tmp_path):
     manifest["inputs_fingerprint"] = {**expected, "data": "changed"}
     (surface / "manifest.json").write_text(json.dumps(manifest))
     assert not ac.surface_build_skippable(tmp_path, surface)
+
+    manifest["inputs_fingerprint"] = {**expected, "static": "moved"}
+    (surface / "manifest.json").write_text(json.dumps(manifest))
+    assert not ac.surface_build_skippable(tmp_path, surface)
+    assert ac.surface_build_skippable(tmp_path, surface, ignore=("static",))
+    del manifest["inputs_fingerprint"]["static"]
+    (surface / "manifest.json").write_text(json.dumps(manifest))
+    assert not ac.surface_build_skippable(tmp_path, surface, ignore=("static",))
 
 
 def test_the_census_pins_are_outside_the_rebuild_closure(tmp_path):
@@ -3917,13 +3924,44 @@ def test_dry_run_plan_store_only_still_honors_no_merge():
     assert not plan.do_merge
 
 
-def test_the_store_only_report_still_names_the_frontier_carried_file(tmp_path):
+def test_the_store_only_report_still_names_the_frontier_carried_file(tmp_path, monkeypatch):
     carried = tmp_path / "verdicts-carried-abc.json"
     carried.write_text("{}")
-    plan = _plan(store_only=True, plumbing_carry_out=carried)
+    monkeypatch.setattr(ac, "frontier_carry_out", lambda: carried)
+    plan = _plan(store_only=True)
     report, failures = _run_plumbing(plan, _chain_stdout(*_FULL_CHAIN[1:]))
     assert failures == []
     assert report.carry_out == carried
+
+
+def test_frontier_carry_out_derives_the_stamp_aligned_frontier_from_disk(tmp_path, monkeypatch):
+    """The summary's frontier name is derived the way its consumers derive it, never remembered in the plumbing green record — a later export with more effective verdicts outranks the file the last recorded pass happened to write."""
+    review = tmp_path / "rebuild" / "out" / "review"
+    review.mkdir(parents=True)
+    (review / "manifest.json").write_text(json.dumps({"generated_at": "S1"}))
+
+    def verdicts_file(path, stamp, units):
+        path.write_text(
+            json.dumps(
+                {
+                    "format": "ams-review-verdicts/1",
+                    "manifest_generated_at": stamp,
+                    "verdicts": [
+                        {"unit": unit, "verdict": "approve", "note": "", "at": "2026-07-11T00:00:00Z"}
+                        for unit in units
+                    ],
+                }
+            )
+        )
+
+    verdicts_file(tmp_path / "verdicts-old.json", "S0", ["u-1", "u-2", "u-3"])
+    verdicts_file(tmp_path / "verdicts-carried-abc.json", "S1", ["u-1"])
+    verdicts_file(tmp_path / "verdicts-export.json", "S1", ["u-1", "u-2"])
+    monkeypatch.setattr(ac, "ROOT", tmp_path)
+    monkeypatch.setattr(ac, "REVIEW_OUT", review)
+    assert ac.frontier_carry_out() == tmp_path / "verdicts-export.json"
+    (review / "manifest.json").write_text("not json")
+    assert ac.frontier_carry_out() is None
 
 
 def test_run_cycle_never_spawns_the_plumbing_when_skipped(monkeypatch, tmp_path):
@@ -3943,10 +3981,10 @@ def test_run_cycle_never_spawns_the_plumbing_when_skipped(monkeypatch, tmp_path)
 
     carried = tmp_path / "verdicts-carried-abc.json"
     carried.write_text("{}")
+    monkeypatch.setattr(ac, "frontier_carry_out", lambda: carried)
     plan = _plan(
         skip_plumbing=True,
         plumbing_note=ac.PLUMBING_SKIP_NOTE,
-        plumbing_carry_out=carried,
         record_greens=True,
     )
     report = ac.CycleReport()
@@ -3982,7 +4020,6 @@ def test_run_cycle_records_the_plumbing_green_only_after_a_complete_chain(monkey
     record = ac.read_green_record(green)
     assert record is not None
     assert record["fingerprint"] == "plu"
-    assert record["carry_out"] == str(plan.carry_out)
     assert record["format"] == "ams-plumbing-green/1"
 
     green.unlink()
@@ -4085,15 +4122,13 @@ def _settled_repo(tmp_path, monkeypatch):
 
 def test_main_skips_the_plumbing_on_a_matching_record(tmp_path, monkeypatch, capsys):
     _settled_repo(tmp_path, monkeypatch)
-    carried = tmp_path / "verdicts-carried-abc.json"
-    carried.write_text("{}")
-    ac.record_plumbing_green("plu", carried)
+    ac.record_plumbing_green("plu")
     assert ac.main(["--dry-run"]) == 0
     out = capsys.readouterr().out
     assert "verdict plumbing auto-skipped" in out
     assert f"plumbing: SKIPPED ({ac.PLUMBING_SKIP_NOTE})" in out
 
-    ac.record_plumbing_green("moved", carried)
+    ac.record_plumbing_green("moved")
     assert ac.main(["--dry-run"]) == 0
     out = capsys.readouterr().out
     assert "verdict plumbing auto-skipped" not in out
@@ -4105,7 +4140,7 @@ def test_main_skips_the_plumbing_on_a_matching_record(tmp_path, monkeypatch, cap
 def test_main_runs_the_census_on_the_pass_that_skips_the_plumbing(tmp_path, monkeypatch, capsys):
     """The census is never skipped or deferred: even the pass that skips the whole verdict chain refreshes the pins, because reading the sidecar and rewriting one small file costs nothing."""
     _settled_repo(tmp_path, monkeypatch)
-    ac.record_plumbing_green("plu", None)
+    ac.record_plumbing_green("plu")
     assert ac.main(["--dry-run", "--defer-gates"]) == 0
     out = capsys.readouterr().out
     assert "verdict plumbing auto-skipped" in out
@@ -4117,7 +4152,7 @@ def test_main_never_skips_the_plumbing_on_a_pass_that_writes_the_surface(tmp_pat
     _defer_repo(tmp_path, monkeypatch)
     monkeypatch.setattr(ac, "PLUMBING_GREEN", tmp_path / "rebuild" / "out" / "plumbing-green.json")
     monkeypatch.setattr(ac, "plumbing_skip_fingerprint", lambda root=None, surface=None, master=None: "plu")
-    ac.record_plumbing_green("plu", None)
+    ac.record_plumbing_green("plu")
     assert ac.main(["--dry-run"]) == 0
     assert "verdict plumbing auto-skipped" not in capsys.readouterr().out
 
@@ -4125,7 +4160,7 @@ def test_main_never_skips_the_plumbing_on_a_pass_that_writes_the_surface(tmp_pat
 def test_main_never_skips_the_plumbing_under_fresh_or_a_partial_chain(tmp_path, monkeypatch, capsys):
     """--carry-out and --snapshot-dir join the list because the skip writes neither file: honoring the flag and skipping the step cannot both happen, so the flag wins."""
     _settled_repo(tmp_path, monkeypatch)
-    ac.record_plumbing_green("plu", None)
+    ac.record_plumbing_green("plu")
     for argv in (
         ["--dry-run", "--fresh"],
         ["--dry-run", "--no-merge"],
@@ -4141,7 +4176,7 @@ def test_main_never_skips_the_plumbing_under_fresh_or_a_partial_chain(tmp_path, 
 def test_main_skipping_the_plumbing_takes_the_snapshot_with_it(tmp_path, monkeypatch):
     """No carry reads the snapshot and no surface write threatens the live copy, so the pass takes none — and retention says so instead of naming a directory that was never made."""
     _settled_repo(tmp_path, monkeypatch)
-    ac.record_plumbing_green("plu", None)
+    ac.record_plumbing_green("plu")
     calls: list[tuple] = []
     monkeypatch.setattr(ac, "snapshot_surface", lambda src, dst: calls.append((src, dst)) or "cloned")
     monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: False)
@@ -4151,10 +4186,11 @@ def test_main_skipping_the_plumbing_takes_the_snapshot_with_it(tmp_path, monkeyp
 
 
 def test_server_may_stay_up_only_when_the_pass_writes_neither_of_the_apps_files():
-    assert ac.server_may_stay_up(skip_surface=True, skip_plumbing=True) is True
-    assert ac.server_may_stay_up(skip_surface=True, skip_plumbing=False) is False
-    assert ac.server_may_stay_up(skip_surface=False, skip_plumbing=True) is False
-    assert ac.server_may_stay_up(skip_surface=False, skip_plumbing=False) is False
+    """The predicate answers from the plan's writes, so a --no-carry pass and a --no-merge carry over an unmoved surface (skip_surface, no store merge) leave the server up, while any store-writing pass — store_only included — and any surface rewrite still take the port."""
+    assert ac.server_may_stay_up(skip_surface=True, writes_store=False) is True
+    assert ac.server_may_stay_up(skip_surface=True, writes_store=True) is False
+    assert ac.server_may_stay_up(skip_surface=False, writes_store=False) is False
+    assert ac.server_may_stay_up(skip_surface=False, writes_store=True) is False
 
 
 def _preflight_args(**overrides):
@@ -4221,7 +4257,7 @@ def test_stop_review_server_waits_for_the_port_to_come_free(monkeypatch):
 def test_main_leaves_the_server_up_on_the_settled_pass(tmp_path, monkeypatch, capsys):
     """End to end through the resolver: the pass that skips the surface and the plumbing is the one that keeps serving, and it never reaches for the port."""
     _settled_repo(tmp_path, monkeypatch)
-    ac.record_plumbing_green("plu", None)
+    ac.record_plumbing_green("plu")
     monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: True)
     monkeypatch.setattr(
         ac, "stop_review_server", lambda timeout=ac.SERVER_STOP_TIMEOUT: pytest.fail("stopped")
@@ -4780,7 +4816,7 @@ def test_a_cycle_without_timings_still_judges_every_gate(monkeypatch):
 def test_main_hands_its_run_id_to_every_child_through_the_environment(tmp_path, monkeypatch):
     """The suppression the one-writer rule rests on: gate:make-test's wrapper and run_m1's CLI both judge a check of their own, and what tells them a cycle is already recording it is this variable in the environment they inherited. It is set on this process rather than added to a child's argv because it has to survive a Make recipe, which is also why the autouse redirect in rebuild/conftest.py takes it back off afterwards — a run id this test left behind would silence every check-recording test its worker picked up next."""
     _settled_repo(tmp_path, monkeypatch)
-    ac.record_plumbing_green("plu", None)
+    ac.record_plumbing_green("plu")
     monkeypatch.setenv(ct.CYCLE_RUN_ENV, "a-stale-run-id")
     monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: False)
     seen = {}
