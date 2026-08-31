@@ -141,6 +141,7 @@ def test_second_run_is_a_no_op(repo, tmp_path, capsys):
 
 def test_merge_refuses_while_the_server_is_up(repo, tmp_path, monkeypatch, capsys):
     carried = write_doc(tmp_path / "carried.json", "S2", [v("u-1")])
+    monkeypatch.setattr(mv, "AUTOSAVE", repo["autosave"])
     monkeypatch.setattr(mv, "_server_listening", lambda: True)
     assert run(repo, str(carried)) == 1
     assert "listening on port 7294" in capsys.readouterr().out
@@ -149,6 +150,15 @@ def test_merge_refuses_while_the_server_is_up(repo, tmp_path, monkeypatch, capsy
     assert run(repo, "--dry-run", str(carried)) == 0
     assert not repo["autosave"].exists()
     assert run(repo, "--yes", str(carried)) == 0
+    assert set(store_records(repo)) == {"u-1"}
+
+
+def test_merge_to_a_scratch_store_proceeds_while_the_server_is_up(repo, tmp_path, monkeypatch, capsys):
+    """The refusal's hazard — an open tab flushing its store back over the merge — exists only for the one file the server serves, so a merge aimed anywhere else runs without demanding --yes (which would train the gesture that disarms the guard where it matters)."""
+    carried = write_doc(tmp_path / "carried.json", "S2", [v("u-1")])
+    monkeypatch.setattr(mv, "AUTOSAVE", tmp_path / "elsewhere" / "verdicts-autosave.json")
+    monkeypatch.setattr(mv, "_server_listening", lambda: True)
+    assert run(repo, str(carried)) == 0
     assert set(store_records(repo)) == {"u-1"}
 
 
@@ -220,6 +230,7 @@ def test_restore_apply_replaces_and_stashes_the_autosave(repo, monkeypatch):
 
 def test_restore_apply_refuses_while_the_server_is_up(repo, monkeypatch, capsys):
     seed_journal(repo)
+    monkeypatch.setattr(mv, "AUTOSAVE", repo["autosave"])
     monkeypatch.setattr(mv, "_server_listening", lambda: True)
     assert run(repo, "--restore-as-of", "2026-07-10T01:30", "--apply") == 1
     assert "Stop the server" in capsys.readouterr().out
