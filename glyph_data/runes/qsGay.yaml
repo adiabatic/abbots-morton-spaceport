@@ -210,6 +210,9 @@ policy:
   - entry: baseline
     by: 1
     when:
-      left: {family: qsNo}
+      left:
+        family:
+        - qsKey
+        - qsNo
   resolve: []
   groups: {}
