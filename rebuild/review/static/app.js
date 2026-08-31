@@ -54,6 +54,22 @@ import {
   searchUnits,
 } from './render.js';
 import {
+  APP_INDEX_FORMAT,
+  APP_INDEX_NAME,
+  LOCATOR_FORMAT,
+  LOCATOR_NAME,
+  checkIndexHeader,
+  createLineSplitter,
+  createRecordCache,
+  finishLines,
+  hasExplainSource,
+  looksGzipped,
+  machineFoldPlan,
+  rangeHeader,
+  shardPartPath,
+  splitLines,
+} from './slim.js';
+import {
   SINGLETON_CHUNK,
   buildClusters,
   docketResumeAction,
@@ -90,9 +106,17 @@ const NEITHER_MENU_CHOICES = [
 
 const manifest = await (await fetch('manifest.json')).json();
 const store = createStore();
-const shardCache = new Map();
-const unitsById = new Map();
+// The only corpus-scaled retention in the tab: one slim row per unit awaiting a verdict. Machine-approved and no-verdict units are never resident — their full records arrive a class at a time for the show-machine folds (machineClass, single-slot), a worklist at a time while that worklist is the view (worklist.records), or one at a time for a deep link (fullRecords, bounded).
+const humanRows = new Map();
+const humanList = [];
+const rowsByClass = new Map();
 const echoIndex = new Map();
+const fullRecords = createRecordCache();
+let familyOptions = [];
+let machineClass = null;
+let worklist = null;
+let indexReady = null;
+let indexLoaded = false;
 const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
 
 const MACHINE_BADGE = 'ink-identical — machine approved';
@@ -136,8 +160,13 @@ let renderedKey = null;
 let renderToken = 0;
 const machineFoldBuilders = new Map();
 
-let allShardsPromise = null;
-let allShardsLoaded = false;
+const MACHINE_CHANNEL_BADGES = {
+  ink_identical: MACHINE_BADGE,
+  picture_identical: PICTURE_BADGE,
+  junior_equivalent: JUNIOR_BADGE,
+  no_verdict: NO_VERDICT_BADGE,
+};
+
 let searchActive = -1;
 let blurTimer = null;
 const SEARCH_LIMIT = 50;
@@ -164,78 +193,241 @@ function setStateReplace(patch) {
   applyHashState();
 }
 
-async function shardUnits(classId) {
-  if (!shardCache.has(classId)) {
-    const cls = manifest.classes.find((entry) => entry.id === classId);
-    const promise = Promise.all(cls.shards.map((part) => fetch(part).then((response) => response.json())))
-      .then((parts) => parts.flat())
-      .then((units) => {
-        for (const unit of units) {
-          unitsById.set(unit.id, unit);
-          if (unit.echo) {
-            if (!echoIndex.has(unit.echo)) echoIndex.set(unit.echo, []);
-            echoIndex.get(unit.echo).push(unit.id);
-          }
-        }
-        return units;
-      });
-    shardCache.set(classId, promise);
-  }
-  return shardCache.get(classId);
+function restream(source, first) {
+  return new ReadableStream({
+    start(controller) {
+      if (first !== undefined) controller.enqueue(first);
+    },
+    async pull(controller) {
+      const { value, done } = await source.read();
+      if (done) controller.close();
+      else controller.enqueue(value);
+    },
+    cancel(reason) {
+      return source.cancel(reason);
+    },
+  });
 }
 
-function ensureAllShards() {
-  if (!allShardsPromise) {
-    allShardsPromise = Promise.all(manifest.classes.map((cls) => shardUnits(cls.id))).then(() => {
-      allShardsLoaded = true;
-      populateFilterOptions();
-      updateClassCounts();
-    });
+async function* streamNdjson(name) {
+  const response = await fetch(name);
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  const source = response.body.getReader();
+  const { value: first } = await source.read();
+  let body = restream(source, first);
+  // Through rebuild.review.serve the sidecar arrives already decoded, because that handler declares Content-Encoding: gzip; through anything else — an archived surface under a plain static file server — it arrives as the gzip bytes sitting on disk. The magic number is what says which happened, so the surface reads the same either way.
+  if (looksGzipped(first) && typeof DecompressionStream === 'function') {
+    body = body.pipeThrough(new DecompressionStream('gzip'));
   }
-  return allShardsPromise;
+  const reader = body.pipeThrough(new TextDecoderStream()).getReader();
+  const splitter = createLineSplitter();
+  try {
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      for (const line of splitLines(splitter, value)) if (line) yield line;
+    }
+    for (const line of finishLines(splitter)) if (line) yield line;
+  } finally {
+    reader.cancel().catch(() => {});
+  }
+}
+
+function parseHeaderLine(line) {
+  try {
+    return JSON.parse(line);
+  } catch {
+    throw new Error('its first line is not JSON, so the server handed it over without decompressing it');
+  }
+}
+
+// The whole boot load: one streaming pass over the slim index, parsed a line at a time so the tab never holds the source text and the rows at once. Everything downstream — docket, search, worklists, progress, filters, echo chips — reads these rows and nothing else.
+async function loadHumanIndex() {
+  const families = new Set();
+  try {
+    let header = null;
+    for await (const line of streamNdjson(APP_INDEX_NAME)) {
+      if (header === null) {
+        header = parseHeaderLine(line);
+        const check = checkIndexHeader(header, manifest, APP_INDEX_FORMAT);
+        if (!check.ok) throw new Error(check.reason);
+        continue;
+      }
+      const row = JSON.parse(line);
+      humanRows.set(row.id, row);
+      humanList.push(row);
+      if (!rowsByClass.has(row.class)) rowsByClass.set(row.class, []);
+      rowsByClass.get(row.class).push(row);
+      if (row.echo) {
+        if (!echoIndex.has(row.echo)) echoIndex.set(row.echo, []);
+        echoIndex.get(row.echo).push(row.id);
+      }
+      for (const family of familiesOfGroup(row.group)) families.add(family);
+    }
+    // A truncated index yields no lines at all, so the header check above never runs. Refusing it here is what keeps an interrupted build from booting as a clean, fully-verdicted-looking corpus.
+    if (header === null) throw new Error('it carries no lines at all, so the build that wrote it did not finish');
+    indexLoaded = true;
+  } catch (error) {
+    console.warn('review index load failed', error);
+    toast(`Could not load the review index (${APP_INDEX_NAME}): ${error.message}.`);
+  }
+  familyOptions = [...families].sort();
+  populateFilterOptions();
+  updateClassCounts();
+}
+
+function unitFor(unitId) {
+  return (
+    humanRows.get(unitId) ??
+    worklist?.records.get(unitId) ??
+    machineClass?.units.get(unitId) ??
+    fullRecords.get(unitId) ??
+    null
+  );
+}
+
+// One class of machine-approved / no-verdict records at a time. Asking for a second class drops the first outright, which is what keeps the show-machine folds a transient cost rather than a cumulative one.
+function machineUnitsOf(classId) {
+  if (!machineClass || machineClass.id !== classId) {
+    const units = new Map();
+    const cls = manifest.classes.find((entry) => entry.id === classId);
+    const slot = { id: classId, units, promise: null };
+    slot.promise = Promise.all((cls?.shards ?? []).map((part) => fetch(part).then((response) => response.json())))
+      .then((parts) => {
+        for (const shard of parts) {
+          for (const unit of shard) if (needsNoVerdict(unit)) units.set(unit.id, unit);
+        }
+        return units;
+      })
+      .catch((error) => {
+        console.warn('machine class load failed', error);
+        toast(`Could not load the ${classId} shards.`);
+        return units;
+      });
+    machineClass = slot;
+  }
+  return machineClass.promise;
+}
+
+// The locator names every unit the slim index leaves out, so a deep link to a machine-approved unit still resolves. It is streamed and discarded rather than retained: a lookup keeps the rows it asked for and nothing else, which bounds the rarest path in the app instead of paying for it forever.
+async function resolveMachineIds(unitIds) {
+  const wanted = new Set(unitIds);
+  const found = new Map();
+  if (wanted.size === 0) return found;
+  try {
+    let header = null;
+    for await (const line of streamNdjson(LOCATOR_NAME)) {
+      if (header === null) {
+        header = parseHeaderLine(line);
+        const check = checkIndexHeader(header, manifest, LOCATOR_FORMAT);
+        if (!check.ok) throw new Error(check.reason);
+        continue;
+      }
+      const row = JSON.parse(line);
+      if (!wanted.has(row.id)) continue;
+      found.set(row.id, row);
+      if (found.size === wanted.size) break;
+    }
+  } catch (error) {
+    console.warn('machine locator lookup failed', error);
+  }
+  return found;
+}
+
+async function fetchFullRecord(locator) {
+  const cached = fullRecords.get(locator.id);
+  if (cached) return cached;
+  const path = shardPartPath(manifest, locator);
+  if (!path) return null;
+  let text = null;
+  try {
+    const response = await fetch(path, { headers: { Range: rangeHeader(locator) } });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    if (response.status !== 206 && Number(response.headers.get('Content-Length')) > locator.byte_length) {
+      throw new Error('the server ignored the byte range');
+    }
+    text = await response.text();
+  } catch (error) {
+    console.warn('record fetch failed', error);
+    toast(`Could not read ${locator.id} out of ${path}: ${error.message}`);
+    return null;
+  }
+  let record = null;
+  try {
+    record = JSON.parse(text);
+  } catch {
+    record = null;
+  }
+  // A surface rebuilt under this tab renumbers its units, so a stale span can land on a neighboring record rather than on nothing; the id is what says which happened.
+  if (!record || record.id !== locator.id) {
+    toast(`${locator.id} is not where this page was told it would be — the surface was rebuilt; reload.`);
+    return null;
+  }
+  fullRecords.set(record.id, record);
+  return record;
+}
+
+async function resolveWorklist(key, records) {
+  const ids = [];
+  const seen = new Set();
+  for (const id of unitWorklist(key)) {
+    if (seen.has(id)) continue;
+    seen.add(id);
+    ids.push(id);
+  }
+  const missing = [];
+  for (const id of ids) {
+    if (humanRows.has(id)) continue;
+    const known = unitFor(id);
+    if (known) records.set(id, known);
+    else missing.push(id);
+  }
+  if (missing.length > 0) {
+    const located = await resolveMachineIds(missing);
+    const fetched = await Promise.all([...located.values()].map((row) => fetchFullRecord(row)));
+    for (const record of fetched) if (record) records.set(record.id, record);
+  }
+  const units = [];
+  for (const id of ids) {
+    const unit = humanRows.get(id) ?? records.get(id) ?? null;
+    if (unit) units.push(unit);
+  }
+  return units;
+}
+
+// A worklist resolves once and stays resolved for as long as it is the view. The locator is a corpus-scaled file and an id that names no unit in this build can never end its scan early, so re-deriving the list per call would put a whole-file stream behind every cursor move and every verdict — applyHashState runs on all of them. Pinning the records it found does the second job too: a worklist longer than the record cache's cap would otherwise evict its own earlier units, and a machine unit the app cannot look up is one it can neither cursor to nor copy.
+function worklistFor(key) {
+  if (!worklist || worklist.key !== key) {
+    const records = new Map();
+    const slot = { key, records, promise: null };
+    slot.promise = resolveWorklist(key, records);
+    worklist = slot;
+  }
+  return worklist.promise;
 }
 
 async function unitsForView(batch, classFilter) {
-  if (state.units) {
-    await ensureAllShards();
-    const seen = new Set();
-    const units = [];
-    for (const id of unitWorklist(state.units)) {
-      const unit = unitsById.get(id);
-      if (unit && !seen.has(id)) {
-        seen.add(id);
-        units.push(unit);
-      }
-    }
-    return orderWorklist(units, state.order);
-  }
-  const classes = [];
+  await indexReady;
+  if (state.units) return orderWorklist(await worklistFor(state.units), state.order);
+  worklist = null;
+  // Manifest-class order, not index order: the batch's rows arrive grouped exactly as they did when each class's shard was concatenated in turn, so the group folds and the default cursor land where they always did. The class selection is the same one too, which is what keeps a walk over the batches from touching every class's rows on every step.
+  const units = [];
   for (const cls of manifest.classes) {
     if (classFilter) {
-      if (cls.id === classFilter) classes.push(cls);
-      continue;
-    }
-    if (cls.batches.includes(batch)) classes.push(cls);
-    else if (cls.batches.length === 0 && batch === 0 && state.machine === '1') classes.push(cls);
-  }
-  const lists = await Promise.all(classes.map((cls) => shardUnits(cls.id)));
-  const units = [];
-  for (const list of lists) {
-    for (const unit of list) {
-      if (needsNoVerdict(unit) || unit.batch === batch) units.push(unit);
-    }
+      if (cls.id !== classFilter) continue;
+    } else if (!cls.batches.includes(batch)) continue;
+    for (const row of rowsByClass.get(cls.id) ?? []) if (row.batch === batch) units.push(row);
   }
   return units;
 }
 
 async function findUnitAnywhere(unitId) {
-  if (unitsById.has(unitId)) return unitsById.get(unitId);
-  for (const cls of manifest.classes) {
-    if (state.class && cls.id !== state.class) continue;
-    await shardUnits(cls.id);
-    if (unitsById.has(unitId)) return unitsById.get(unitId);
-  }
-  return null;
+  const known = unitFor(unitId);
+  if (known) return known;
+  const located = await resolveMachineIds([unitId]);
+  const row = located.get(unitId);
+  if (!row) return null;
+  return fetchFullRecord(row);
 }
 
 function el(tag, className, text) {
@@ -439,6 +631,13 @@ function buildRow(unit) {
   summary.append(why);
   row.append(summary);
 
+  row.append(buildExplainPanel(unit));
+
+  syncRowVerdict(unit.id, row);
+  return row;
+}
+
+function buildExplainPanel(unit) {
   const panel = el('div', 'explain-panel');
   panel.hidden = true;
   panel.append(
@@ -450,6 +649,13 @@ function buildRow(unit) {
         '"decided by" names the stage that separated it from the runner-up.',
     ),
   );
+  if (hasExplainSource(unit)) fillExplainPanel(panel, unit);
+  return panel;
+}
+
+function fillExplainPanel(panel, unit) {
+  panel.dataset.filled = '1';
+  for (const pending of panel.querySelectorAll('.explain-pending')) pending.remove();
   if (unit.explain) {
     panel.append(el('h4', null, 'Explain'));
     const dump = el('pre');
@@ -512,10 +718,6 @@ function buildRow(unit) {
     }
     panel.append(list);
   }
-  row.append(panel);
-
-  syncRowVerdict(unit.id, row);
-  return row;
 }
 
 function buildDocketContext(units) {
@@ -527,9 +729,7 @@ function buildDocketContext(units) {
   for (const unit of units) if (typeof unit.cluster === 'string') clusterIds.add(unit.cluster);
   if (clusterIds.size === 1) {
     const clusterId = [...clusterIds][0];
-    const cluster = buildClusters([...unitsById.values()], (id) => store.records.get(id)).find(
-      (entry) => entry.id === clusterId,
-    );
+    const cluster = buildClusters(humanList, (id) => store.records.get(id)).find((entry) => entry.id === clusterId);
     if (cluster) {
       const line = el('p', 'docket-context-line');
       line.append(el('strong', null, 'Docket decision'));
@@ -559,15 +759,20 @@ function buildDocketContext(units) {
   return strip;
 }
 
-function renderBatch(units, machine) {
+function renderBatch(units, machine, plan) {
   closeRejectMenu();
   closeNeitherMenu();
   const container = document.getElementById('batch');
   container.textContent = '';
   machineFoldBuilders.clear();
-  if (units.length === 0 && machine.length === 0) {
+  if (machineClass && !plan.some((fold) => fold.classId === machineClass.id)) machineClass = null;
+  if (units.length === 0 && machine.length === 0 && plan.length === 0) {
     container.append(el('p', 'empty', 'No units match the current batch and filters.'));
     return;
+  }
+  // A provisional plan cannot say whether its folds hold anything under this filter, so the queue answers for itself rather than leaving a filter that matched nothing looking like a view full of units.
+  if (units.length === 0 && machine.length === 0 && plan.some((fold) => fold.provisional)) {
+    container.append(el('p', 'empty', 'No units awaiting a verdict match the current batch and filters.'));
   }
   if (state.units && state.docket) container.append(buildDocketContext(units));
   let currentGroup = null;
@@ -591,27 +796,43 @@ function renderBatch(units, machine) {
     }
     groupNode.append(buildRow(unit));
   }
-  renderMachineSection(container, machine);
+  renderMachineSection(container, machine, plan);
   updateGroupCounts();
 }
 
-function renderMachineSection(container, machine) {
-  if (machine.length === 0) return;
+function renderMachineSection(container, machine, plan) {
+  const planned = new Set(plan.map((fold) => fold.classId));
+  const loose = new Map();
+  for (const unit of machine) {
+    if (planned.has(unit.class)) continue;
+    if (!loose.has(unit.class)) loose.set(unit.class, []);
+    loose.get(unit.class).push(unit);
+  }
+  if (plan.length === 0 && loose.size === 0) return;
+  let total = 0;
+  for (const fold of plan) total += fold.total;
+  for (const classUnits of loose.values()) total += classUnits.length;
+  const provisional = plan.some((fold) => fold.provisional);
   const heading =
     state.machine === '1'
-      ? `No verdict needed in this view: ${machine.length} units (machine-approved or in a no-verdict class)`
+      ? provisional
+        ? `No verdict needed in this view: up to ${total} units (machine-approved or in a no-verdict class) — open a fold for the count under this filter`
+        : `No verdict needed in this view: ${total} units (machine-approved or in a no-verdict class)`
       : state.units
         ? `No verdict needed in your worklist: ${machine.length} unit${machine.length === 1 ? '' : 's'} shown below`
         : 'This deep-linked unit needs no verdict — it stays out of your queue and disappears when you move on.';
   container.append(el('h2', 'machine-heading', heading));
-  const byClass = new Map();
-  for (const unit of machine) {
-    if (!byClass.has(unit.class)) byClass.set(unit.class, []);
-    byClass.get(unit.class).push(unit);
+  // The filters a fold applies once it is opened, frozen at render time the way partitionUnits froze them; the status filter never reaches a unit that takes no verdict.
+  const foldFilters = { ...state, status: null };
+  for (const fold of plan) {
+    const pinned = machine.filter((unit) => unit.class === fold.classId);
+    container.append(
+      buildMachineFold(fold.classId, fold.total, MACHINE_CHANNEL_BADGES[fold.channel], null, pinned, foldFilters, {
+        provisional: fold.provisional,
+      }),
+    );
   }
-  for (const [classId, classUnits] of byClass) {
-    const fold = el('details', 'group machine-group');
-    fold.dataset.machineClass = classId;
+  for (const [classId, classUnits] of loose) {
     const badge = classUnits.every((unit) => unit.ink_identical)
       ? MACHINE_BADGE
       : classUnits.every((unit) => unit.ink_identical || unit.picture_identical)
@@ -619,34 +840,55 @@ function renderMachineSection(container, machine) {
         : classUnits.every((unit) => unit.ink_identical || unit.picture_identical || unit.junior_equivalent)
           ? JUNIOR_BADGE
           : NO_VERDICT_BADGE;
-    const summary = el('summary');
-    summary.append(el('span', 'group-name', classId));
-    summary.append(el('span', 'group-counts', `${classUnits.length} units — ${badge}`));
-    fold.append(summary);
-    const build = () => {
-      if (!machineFoldBuilders.has(fold)) return;
-      machineFoldBuilders.delete(fold);
-      for (const unit of classUnits) fold.append(buildRow(unit));
-    };
-    machineFoldBuilders.set(fold, build);
-    fold.addEventListener('toggle', () => {
-      if (fold.open) build();
-    });
-    if (state.units) {
-      fold.open = true;
-      build();
-    }
-    container.append(fold);
+    container.append(buildMachineFold(classId, classUnits.length, badge, classUnits, [], foldFilters));
   }
 }
 
-function revealMachineUnit(unitId) {
-  const unit = unitsById.get(unitId);
+function buildMachineFold(classId, total, badge, records, pinned, foldFilters, { provisional = false } = {}) {
+  const fold = el('details', 'group machine-group');
+  fold.dataset.machineClass = classId;
+  const summary = el('summary');
+  summary.append(el('span', 'group-name', classId));
+  const counts = el('span', 'group-counts', provisional ? `up to ${total} units — ${badge}` : `${total} units — ${badge}`);
+  summary.append(counts);
+  fold.append(summary);
+  const fill = async () => {
+    let units = records;
+    if (units === null) {
+      const resident = await machineUnitsOf(classId);
+      const pinnedIds = new Set(pinned.map((unit) => unit.id));
+      units = [];
+      for (const unit of resident.values()) {
+        if (pinnedIds.has(unit.id) || unitMatchesFilters(unit, foldFilters, undefined)) units.push(unit);
+      }
+      for (const unit of pinned) if (!resident.has(unit.id)) units.push(unit);
+    }
+    for (const unit of units) fold.append(buildRow(unit));
+    if (provisional || units.length !== total) setText(counts, `${units.length} of ${total} units — ${badge}`);
+  };
+  let building = null;
+  const build = () => {
+    if (!building) building = fill();
+    return building;
+  };
+  machineFoldBuilders.set(fold, build);
+  fold.addEventListener('toggle', () => {
+    if (fold.open) build();
+  });
+  if (state.units) {
+    fold.open = true;
+    build();
+  }
+  return fold;
+}
+
+async function revealMachineUnit(unitId) {
+  const unit = unitFor(unitId);
   if (!unit || !needsNoVerdict(unit)) return false;
   const fold = document.querySelector(`details.machine-group[data-machine-class="${unit.class}"]`);
   if (!fold) return false;
   const build = machineFoldBuilders.get(fold);
-  if (build) build();
+  if (build) await build();
   fold.open = true;
   const row = rowFor(unitId);
   if (!row) return false;
@@ -747,11 +989,11 @@ function updateUnexportedNudge() {
   setText(nudge, `${store.unexported.size} unexported${autosaveHealthy() ? ' (autosaved)' : ''}`);
 }
 
-// One walk of the loaded units, not one per class button: the sidebar tally and the selected-class line ask the same question of the same map, and answering it separately for each of the two dozen classes made every store mutation quadratic in the loaded surface.
+// One walk of the queue, not one per class button: the sidebar tally and the selected-class line ask the same question of the same rows, and answering it separately for each of the two dozen classes made every store mutation quadratic in the queue.
 function verdictedByClass() {
   const counts = new Map();
-  for (const [unitId, unit] of unitsById) {
-    if (store.records.has(unitId)) counts.set(unit.class, (counts.get(unit.class) ?? 0) + 1);
+  for (const row of humanList) {
+    if (store.records.has(row.id)) counts.set(row.class, (counts.get(row.class) ?? 0) + 1);
   }
   return counts;
 }
@@ -774,7 +1016,7 @@ function updateProgress() {
     for (const unit of visibleUnits) if (store.records.has(unit.id)) batchVerdicted += 1;
     let line;
     if (state.units && state.docket) {
-      const queue = queueCounts([...unitsById.values()], (id) => store.records.get(id), ruledClassIds(manifest.classes));
+      const queue = queueCounts(humanList, (id) => store.records.get(id), ruledClassIds(manifest.classes));
       line =
         `Docket decision: ${batchVerdicted}/${visibleUnits.length} · ` +
         `queue: ${formatCount(queue.blankUnits)} blank in ${formatCount(queue.clusters)} clusters`;
@@ -794,7 +1036,7 @@ function updateClassProgress(byClass = verdictedByClass()) {
   const line = document.getElementById('class-progress');
   const cls = state.class ? manifest.classes.find((entry) => entry.id === state.class) : null;
   const human = cls ? humanClassCount(cls) : 0;
-  if (!cls || human === 0 || !shardCache.has(cls.id)) {
+  if (!cls || human === 0 || !indexLoaded) {
     line.hidden = true;
     return;
   }
@@ -841,7 +1083,7 @@ function renderSidebar() {
 function updateClassCounts(byClass = verdictedByClass()) {
   for (const button of document.querySelectorAll('.class-button')) {
     const cls = manifest.classes.find((entry) => entry.id === button.dataset.class);
-    const verdicted = cls.no_verdict || !shardCache.has(cls.id) ? null : (byClass.get(cls.id) ?? 0);
+    const verdicted = cls.no_verdict || !indexLoaded ? null : (byClass.get(cls.id) ?? 0);
     setText(button.querySelector('.class-counts'), classCountsLine(cls, verdicted));
     button.setAttribute('aria-pressed', String(state.class === cls.id));
   }
@@ -849,7 +1091,7 @@ function updateClassCounts(byClass = verdictedByClass()) {
 
 function updateSidebarHighlights() {
   const cursorId = cursorUnitId() ?? state.unit;
-  const currentClass = cursorId ? (unitsById.get(cursorId)?.class ?? null) : null;
+  const currentClass = cursorId ? (unitFor(cursorId)?.class ?? null) : null;
   let batchClasses;
   if (state.units) {
     batchClasses = new Set();
@@ -1054,7 +1296,7 @@ function buildConflictSection(conflicts) {
       const link = el('td');
       link.append(unitLinkEl(id));
       row.append(link);
-      row.append(el('td', null, unitsById.get(id)?.notation ?? ''));
+      row.append(el('td', null, humanRows.get(id)?.notation ?? ''));
       const verdictCell = el('td');
       const record = conflict.records.get(id);
       if (record) verdictCell.append(verdictChipEl(record.verdict));
@@ -1077,8 +1319,8 @@ function renderDocket({ anchor = null } = {}) {
   const scrollY = window.scrollY;
   container.textContent = '';
   let clustered = false;
-  for (const unit of unitsById.values()) {
-    if (unit.batch !== null && typeof unit.cluster === 'string') {
+  for (const row of humanList) {
+    if (row.batch !== null && typeof row.cluster === 'string') {
       clustered = true;
       break;
     }
@@ -1094,10 +1336,10 @@ function renderDocket({ anchor = null } = {}) {
     return;
   }
   const recordOf = (id) => store.records.get(id);
-  const clusters = buildClusters([...unitsById.values()], recordOf);
+  const clusters = buildClusters(humanList, recordOf);
   const ruledIds = ruledClassIds(manifest.classes);
   const { tranche, later, singletons, ruledBlankUnits } = partitionClusters(clusters, ruledIds);
-  const conflicts = echoConflicts(echoIndex, unitsById, recordOf);
+  const conflicts = echoConflicts(echoIndex, humanRows, recordOf);
   // The headline counts cover the workable queue — the note below already presents the ledger-ruled blanks as excluded from it.
   const totals = docketTotals(clusters.filter((cluster) => !ruledIds.has(cluster.class)));
 
@@ -1157,13 +1399,9 @@ function renderDocket({ anchor = null } = {}) {
 
 function populateFilterOptions() {
   const familySelect = document.getElementById('filter-family');
-  const families = new Set();
-  for (const unit of unitsById.values()) {
-    for (const family of familiesOfGroup(unit.group)) families.add(family);
-  }
   const existing = new Set();
   for (const option of familySelect.options) existing.add(option.value);
-  for (const family of [...families].sort()) {
+  for (const family of familyOptions) {
     if (existing.has(family)) continue;
     const option = el('option', null, family);
     option.value = family;
@@ -1198,12 +1436,13 @@ async function applyHashState(resume = false) {
   document.body.classList.toggle('docket-view', docketView);
   document.getElementById('docket').hidden = !docketView;
   if (docketView) {
-    await ensureAllShards();
+    await indexReady;
     if (token !== renderToken) return;
     closeRejectMenu();
     closeNeitherMenu();
     visibleUnits = [];
     machineUnits = [];
+    machineClass = null;
     renderedKey = null;
     renderDocket();
     updateProgress();
@@ -1220,8 +1459,8 @@ async function applyHashState(resume = false) {
       recordOf: (id) => store.records.get(id),
     });
     if (action) {
-      // The cold-boot shard load below can take a while; a navigation that lands meanwhile owns the view, and the restack yields to it instead of clobbering it.
-      await ensureAllShards();
+      // The cold-boot index load can take a while; a navigation that lands meanwhile owns the view, and the restack yields to it instead of clobbering it.
+      await indexReady;
       if (token !== renderToken) return;
       await advanceDocket({ stale: action === 'restack' });
       return;
@@ -1230,9 +1469,10 @@ async function applyHashState(resume = false) {
   const units = await unitsForView(state.batch, state.class);
   if (token !== renderToken) return;
   const { human, machine } = partitionUnits(units, state, (unitId) => store.records.get(unitId));
+  const plan = machineFoldPlan(manifest, state);
   if (transientMachineUnitId && state.unit !== transientMachineUnitId) transientMachineUnitId = null;
   if (transientMachineUnitId && !machine.some((unit) => unit.id === transientMachineUnitId)) {
-    const transient = unitsById.get(transientMachineUnitId);
+    const transient = unitFor(transientMachineUnitId);
     if (transient) machine.push(transient);
   }
   visibleUnits = human;
@@ -1250,7 +1490,7 @@ async function applyHashState(resume = false) {
     transientMachineUnitId,
   ]);
   if (key !== renderedKey) {
-    renderBatch(human, machine);
+    renderBatch(human, machine, plan);
     renderedKey = key;
     if (state.units) {
       const listed = new Set(unitWorklist(state.units)).size;
@@ -1258,11 +1498,13 @@ async function applyHashState(resume = false) {
       if (shown < listed) toast(`${listed - shown} of ${listed} listed units aren't in this build — showing the ${shown} that are.`);
     }
   }
-  populateFilterOptions();
   syncFilterControls();
   if (!(await ensureCursor())) return;
   updateCursorDom();
-  if (state.unit) revealMachineUnit(state.unit);
+  if (state.unit) {
+    await revealMachineUnit(state.unit);
+    if (token !== renderToken) return;
+  }
   updateProgress();
   updateTitle();
   updateBatchNav();
@@ -1299,7 +1541,7 @@ function applyVerdict(unitId, verdict, { toggle = true, note = null } = {}) {
     recordVerdict(store, unitId, null);
   } else {
     // A verdict fills the unverdicted rest of the unit's echo group (same change, same judged pair — one question); skip is a per-unit deferral and never echoes, and already-verdicted members are never overwritten.
-    const unit = unitsById.get(unitId);
+    const unit = unitFor(unitId);
     const echoes =
       verdict === 'skip' || !unit
         ? []
@@ -1356,16 +1598,16 @@ async function advanceFrom(unitId) {
 
 // The docket flow's analog of the cross-batch advance: when a docket worklist is fully judged, stack the next decision straight away — the queue recomputes from the live store, so "next" is always the docket view's own top card. Replaces (not pushes) history so Back still returns to the docket in one step.
 async function advanceDocket({ stale = false } = {}) {
-  await ensureAllShards();
+  await indexReady;
   const recordOf = (id) => store.records.get(id);
-  const decision = nextDocketDecision([...unitsById.values()], recordOf, ruledClassIds(manifest.classes));
+  const decision = nextDocketDecision(humanList, recordOf, ruledClassIds(manifest.classes));
   const lead = stale ? 'That worklist was stacked for an earlier surface' : 'Decision done';
   if (!decision) {
     toast(`${stale ? `${lead}, and the` : 'The'} docket queue is clear`);
     setState({ units: null, order: null, docket: null, stamp: null, unit: null, view: 'docket' });
     return;
   }
-  const queue = queueCounts([...unitsById.values()], recordOf, ruledClassIds(manifest.classes));
+  const queue = queueCounts(humanList, recordOf, ruledClassIds(manifest.classes));
   const what =
     decision.kind === 'cluster'
       ? `${formatCount(decision.cluster.size)} lookalike unit${decision.cluster.size === 1 ? '' : 's'} in ${decision.cluster.class}`
@@ -1636,7 +1878,7 @@ function shiftClass(delta) {
 }
 
 function approveGroupOf(unitId) {
-  const unit = unitsById.get(unitId);
+  const unit = unitFor(unitId);
   if (!unit) return;
   const ids = [];
   for (const candidate of visibleUnits) {
@@ -1645,7 +1887,7 @@ function approveGroupOf(unitId) {
   // Each approval echoes to the rest of its echo group, wherever those windows live; groupApprove skips anything already verdicted, so duplicates in the list are harmless.
   const expanded = [...ids];
   for (const id of ids) {
-    const member = unitsById.get(id);
+    const member = humanRows.get(id);
     if (member?.echo) expanded.push(...(echoIndex.get(member.echo) ?? []));
   }
   const applied = groupApprove(store, expanded);
@@ -1672,12 +1914,29 @@ function undoLast() {
   toast(`Undid ${result.units.length === 1 ? result.cursor : `${result.units.length} verdicts`}`);
 }
 
-function toggleExplain(unitId) {
+// A slim row carries no explain material, so opening the panel is where its shard record gets read back — one Range request against the class shard, cached so a second open is instant. Machine rows are built from their whole record and open with the panel already filled, as they always did.
+async function toggleExplain(unitId) {
   const row = rowFor(unitId);
   if (!row) return;
   const panel = row.querySelector('.explain-panel');
   panel.hidden = !panel.hidden;
   row.querySelector('.explain-toggle').setAttribute('aria-expanded', String(!panel.hidden));
+  if (panel.hidden || panel.dataset.filled === '1' || panel.dataset.loading === '1') return;
+  const locator = humanRows.get(unitId);
+  if (!locator) return;
+  panel.dataset.loading = '1';
+  // A read that failed left its line behind for the reader to see; this open replaces it rather than stacking another one under it.
+  for (const stale of panel.querySelectorAll('.explain-pending')) stale.remove();
+  const pending = el('p', 'explain-pending', 'Reading this unit’s explain table out of its shard…');
+  panel.append(pending);
+  const record = await fetchFullRecord(locator);
+  delete panel.dataset.loading;
+  if (!panel.isConnected) return;
+  if (!record) {
+    pending.textContent = 'Could not read this unit’s explain table.';
+    return;
+  }
+  fillExplainPanel(panel, record);
 }
 
 function copyToClipboard(text, button) {
@@ -1969,7 +2228,7 @@ function setSearchActive(index) {
 
 function renderSearchResults(query) {
   const results = document.getElementById('search-results');
-  const { matches, total } = searchUnits([...unitsById.values()], query, SEARCH_LIMIT);
+  const { matches, total } = searchUnits(humanList, query, SEARCH_LIMIT);
   results.textContent = '';
   results.hidden = false;
   const input = document.getElementById('unit-search');
@@ -2048,12 +2307,12 @@ async function runSearch() {
     closeSearch();
     return;
   }
-  if (!allShardsLoaded) {
+  if (!indexLoaded) {
     const results = document.getElementById('search-results');
     results.textContent = '';
     results.hidden = false;
-    results.append(presentational(el('p', 'search-empty', 'Loading every class…')));
-    await ensureAllShards();
+    results.append(presentational(el('p', 'search-empty', 'Loading the review index…')));
+    await indexReady;
     if (input.value !== query || document.activeElement !== input) return;
   }
   renderSearchResults(query);
@@ -2245,7 +2504,10 @@ function wireEvents() {
     }
     const copy = event.target.closest('.copy-unit');
     if (copy && row) {
-      copyToClipboard(copyPreamble(unitsById.get(row.dataset.unit)), copy);
+      // Only one machine class stays resident, so a row left on screen from a fold opened before another one has no record behind it any more; re-opening its fold brings it back.
+      const unit = unitFor(row.dataset.unit);
+      if (unit) copyToClipboard(copyPreamble(unit), copy);
+      else toast(`${row.dataset.unit} is no longer loaded — re-open its fold and copy again.`);
       return;
     }
     const explain = event.target.closest('.explain-toggle');
@@ -2303,12 +2565,11 @@ function wireEvents() {
   const searchResults = document.getElementById('search-results');
   searchInput.addEventListener('focus', () => {
     cancelBlurClose();
-    ensureAllShards();
     if (searchInput.value.trim()) runSearch();
   });
   searchInput.addEventListener('input', runSearch);
   searchInput.addEventListener('keydown', (event) => {
-    // Only intercept navigation when real result rows exist — during the all-shards load only the placeholder is shown, so let the browser keep native caret movement.
+    // Only intercept navigation when real result rows exist — during the index load only the placeholder is shown, so let the browser keep native caret movement.
     if (searchResults.hidden || !searchResults.querySelector('.search-result')) return;
     if (event.key === 'ArrowDown') {
       event.preventDefault();
@@ -2439,7 +2700,9 @@ function renderChrome() {
 renderChrome();
 renderSidebar();
 wireEvents();
+indexReady = loadHumanIndex();
 await restoreAutosave();
 bootRestoreDone = true;
+await indexReady;
 applyHashState(true);
 refreshStatus();

@@ -226,6 +226,25 @@ export function humanClassCount(cls) {
   return cls.unit_count - (cls.machine_approved_count ?? 0);
 }
 
+// A class's units that need no verdict: everything in a no-verdict class, the machine-approved ones anywhere else. The app reads it from the manifest so a show-machine fold can state its size without fetching the class.
+export function machineFoldTotal(cls) {
+  return cls.no_verdict ? cls.unit_count : (cls.machine_approved_count ?? 0);
+}
+
+// The badge that fold wears, from the same cascade the app used to run over the class's loaded units: the narrowest channel that accounts for every one of them, and the no-verdict badge when none does.
+export function machineFoldChannel(cls) {
+  const total = machineFoldTotal(cls);
+  const channels = cls.machine_channels ?? {};
+  const ink = channels.ink_identical ?? 0;
+  const picture = channels.picture_identical ?? 0;
+  const junior = channels.junior_equivalent ?? 0;
+  if (total === 0) return 'no_verdict';
+  if (ink === total) return 'ink_identical';
+  if (ink + picture === total) return 'picture_identical';
+  if (ink + picture + junior === total) return 'junior_equivalent';
+  return 'no_verdict';
+}
+
 export function humanTotal(manifest) {
   let total = 0;
   for (const cls of manifest.classes) total += humanClassCount(cls);
@@ -382,7 +401,12 @@ export function copyPreamble(unit) {
   return `I'm looking at rebuild/out/review/ unit ${unit.id} — ${unit.codepoints} (${unit.notation}). `;
 }
 
+// Keyed on the unit object, which is immutable once parsed, so the cache can never go stale and collects with the rows it describes; without it a keystroke rebuilds and lowercases one array per unit in the whole queue.
+const haystacks = new WeakMap();
+
 export function searchHaystack(unit) {
+  const cached = haystacks.get(unit);
+  if (cached !== undefined) return cached;
   const codepoints = unit.codepoints ?? '';
   const parts = [
     unit.id,
@@ -396,7 +420,9 @@ export function searchHaystack(unit) {
     unit.cluster ?? '',
     ...(unit.kinds ?? []),
   ];
-  return parts.join(' ').toLowerCase();
+  const haystack = parts.join(' ').toLowerCase();
+  haystacks.set(unit, haystack);
+  return haystack;
 }
 
 function searchScore(unit, tokens, query) {

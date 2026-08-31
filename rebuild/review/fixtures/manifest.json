@@ -103,6 +103,11 @@
    "unit_count": 4,
    "row_count": 20,
    "machine_approved_count": 1,
+   "machine_channels": {
+    "ink_identical": 1,
+    "picture_identical": 0,
+    "junior_equivalent": 0
+   },
    "shards": [
     "units/fixture-intended.json"
    ],
@@ -119,6 +124,11 @@
    "unit_count": 2,
    "row_count": 7,
    "machine_approved_count": 0,
+   "machine_channels": {
+    "ink_identical": 0,
+    "picture_identical": 0,
+    "junior_equivalent": 0
+   },
    "shards": [
     "units/fixture-drift.json"
    ],

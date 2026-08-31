@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from rebuild.review import census, unit_index
+from rebuild.review import app_index, census, unit_index
 from rebuild.review.audit import UNMATCHED_CLASS, Unit
 from rebuild.review.build import (
     _check_output_files,
@@ -53,6 +53,12 @@ def _one(unit_id: str = "u-0000") -> dict:
 
 def _complaint(errors: list[str], needle: str) -> None:
     assert any(needle in error for error in errors), errors
+
+
+def _sidecars(surface: Path) -> None:
+    """Every stamped file the output check wants beside a manifest — the plumbing's unit index and the app's two — so a test about one missing file is not also a test about the other three."""
+    unit_index.write_index(surface, [])
+    app_index.write_app_artifacts(surface, {}, {})
 
 
 def test_the_fixture_surface_passes_every_predicate():
@@ -276,7 +282,7 @@ def test_a_missing_unit_index_fails_the_build(tmp_path):
     (tmp_path / "index.html").write_text("")
     (tmp_path / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
     _complaint(_check_output_files(tmp_path, manifest), "units-index.ndjson.gz is missing")
-    unit_index.write_index(tmp_path, [])
+    _sidecars(tmp_path)
     assert _check_output_files(tmp_path, manifest) == []
     (tmp_path / "manifest.json").write_text("{}\n", encoding="utf-8")
     _complaint(_check_output_files(tmp_path, {"classes": [], "fonts": {}}), "stamped for another manifest")
@@ -325,7 +331,7 @@ def test_every_part_of_a_split_class_must_be_present_and_non_empty(tmp_path):
     }
     (tmp_path / "index.html").write_text("")
     (tmp_path / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
-    unit_index.write_index(tmp_path, [])
+    _sidecars(tmp_path)
     _complaint(_check_output_files(tmp_path, manifest), "units/big.000.json is missing")
     (tmp_path / "units").mkdir()
     (tmp_path / "units" / "big.000.json").write_text("[]", encoding="utf-8")
@@ -356,7 +362,7 @@ def test_a_font_copy_that_is_not_its_source_fails_the_build(tmp_path):
     }
     (tmp_path / "index.html").write_text("")
     (tmp_path / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
-    unit_index.write_index(tmp_path, [])
+    _sidecars(tmp_path)
     assert _check_output_files(tmp_path, manifest) == []
     _complaint(_check_output_files(tmp_path, manifest, REPO_ROOT), "as it stands on disk")
 

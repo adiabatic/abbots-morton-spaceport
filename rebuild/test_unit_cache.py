@@ -340,7 +340,7 @@ def test_load_prior_fragments_reads_a_class_the_last_build_split(tmp_path, monke
     """The cache asks the prior manifest which files a class was written as, because a class large enough to be split has no single name to guess at. A class the manifest does not list contributes nothing, exactly as a missing file does."""
     monkeypatch.setattr("rebuild.review.build.SHARD_PART_BYTES", 32)
     fragments = [{"id": f"u-{index:04d}"} for index in range(6)]
-    parts = _write_shard(tmp_path, "big", fragments)
+    parts, _spans = _write_shard(tmp_path, "big", fragments)
     assert len(parts) > 1
     _prior_surface(tmp_path, [{"id": "big", "shards": parts}], legacy=False)
     found = unit_cache.load_prior_fragments(tmp_path, {"big": {"u-0001", "u-0005"}, "gone": {"u-0000"}})
@@ -350,7 +350,7 @@ def test_load_prior_fragments_reads_a_class_the_last_build_split(tmp_path, monke
 def test_load_prior_fragments_reads_a_format_1_prior_surface(tmp_path):
     """The surface on disk the first time this lands is still `ams-review-manifest/1`, one `shard` string per class, and the cache has to serve from it or the next build re-enriches every unit it could have carried."""
     fragments = [{"id": "u-0000"}, {"id": "u-0001"}]
-    parts = _write_shard(tmp_path, "small", fragments)
+    parts, _spans = _write_shard(tmp_path, "small", fragments)
     assert parts == ["units/small.json"]
     _prior_surface(tmp_path, [{"id": "small", "shards": parts}], legacy=True)
     assert unit_cache.load_prior_fragments(tmp_path, {"small": {"u-0001"}}) == {"u-0001": fragments[1]}

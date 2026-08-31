@@ -7,7 +7,7 @@ import json
 import shutil
 from pathlib import Path
 
-from rebuild.review import unit_index
+from rebuild.review import app_index, unit_index
 from rebuild.review.build import _check_output_files, _write_shard
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -52,7 +52,7 @@ def test_shard_paths_walks_the_parts_in_the_order_the_index_is_written(tmp_path,
     surface.mkdir()
     fragments = {"beta": [{"id": "u-0003"}], "alpha": [{"id": f"u-{index:04d}"} for index in range(3)]}
     classes = [
-        {"id": class_id, "shards": _write_shard(surface, class_id, units)}
+        {"id": class_id, "shards": _write_shard(surface, class_id, units)[0]}
         for class_id, units in fragments.items()
     ]
     (surface / "manifest.json").write_text(json.dumps({"classes": classes}), encoding="utf-8")
@@ -201,6 +201,7 @@ def _output_manifest(surface: Path) -> dict:
 def test_the_contract_check_requires_the_sidecar(tmp_path):
     surface = _fixture_surface(tmp_path)
     (surface / "index.html").write_text("<html></html>", encoding="utf-8")
+    app_index.write_app_artifacts(surface, {}, {})
     manifest = _output_manifest(surface)
     assert any("units-index" in line for line in _check_output_files(surface, manifest))
     _write(surface)
@@ -213,4 +214,4 @@ def test_the_contract_check_refuses_a_sidecar_stamped_for_another_manifest(tmp_p
     _write(surface)
     (surface / "manifest.json").write_text("{}\n", encoding="utf-8")
     complaints = _check_output_files(surface, _output_manifest(surface))
-    assert any("stamped for another manifest" in line for line in complaints)
+    assert any(f"{unit_index.INDEX_NAME} is unreadable or stamped" in line for line in complaints)

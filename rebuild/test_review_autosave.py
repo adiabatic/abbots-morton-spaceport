@@ -1,9 +1,15 @@
-"""Tests for the review server's /autosave receiving logic: payload validation, atomic overwrite, the stash-aside of an existing autosave whose manifest generation is older than the incoming one (a stale-manifest autosave may be the only copy of un-exported work from before a surface rebuild, and its unit ids must never be silently joined to the new surface), the 409 refusal of the reverse direction (a stale tab must not clobber a newer store), and the delta journal appended on every accepted save."""
+"""Tests for the review server's own logic, both halves of it: the /autosave receiver — payload validation, atomic overwrite, the stash-aside of an existing autosave whose manifest generation is older than the incoming one (a stale-manifest autosave may be the only copy of un-exported work from before a surface rebuild, and its unit ids must never be silently joined to the new surface), the 409 refusal of the reverse direction (a stale tab must not clobber a newer store), and the delta journal appended on every accepted save — and the header policy every static file goes out under, which is a pure function precisely so it can be checked without standing a server up."""
 
 import json
 
-from rebuild.review import journal
-from rebuild.review.serve import EXPORT_FORMAT, parse_autosave_payload, receive_autosave, stash_path_for
+from rebuild.review import app_index, journal
+from rebuild.review.serve import (
+    EXPORT_FORMAT,
+    parse_autosave_payload,
+    receive_autosave,
+    stash_path_for,
+    static_headers_for,
+)
 
 
 def payload(stamp, verdicts=(), fmt=EXPORT_FORMAT):
@@ -147,6 +153,21 @@ def test_journal_seeds_from_a_store_that_predates_it(tmp_path):
     assert [event["source"] for event in events] == ["seed", "autosave"]
     _, records = journal.replay(journal_path)
     assert set(records) == {"u-1", "u-2", "u-3"}
+
+
+def test_the_precompressed_sidecars_go_out_gzip_encoded():
+    """The app fetches these as NDJSON and lets the browser decompress them, so the encoding has to be declared — a file served as `application/gzip` arrives as bytes the streaming parser cannot read, and the failure is opaque."""
+    for name, _fmt in app_index.ARTIFACTS:
+        headers = static_headers_for(f"/{name}")
+        assert headers["Content-Encoding"] == "gzip"
+        assert headers["Content-Type"] == "application/x-ndjson"
+        assert headers["Cache-Control"] == "no-store"
+
+
+def test_everything_else_is_served_uncompressed_and_uncached():
+    """The shards especially: the explain panel addresses one record inside a part by byte range, which only means anything while the part is served identity-encoded. And `no-store` stays on everything, because a rebuild reuses every name."""
+    for path in ("index.html", "app.js", "manifest.json", "units/boundary-echo.000.json", "fonts/after.otf"):
+        assert static_headers_for(path) == {"Cache-Control": "no-store"}
 
 
 def test_stash_is_recorded_in_the_journal_event(tmp_path):

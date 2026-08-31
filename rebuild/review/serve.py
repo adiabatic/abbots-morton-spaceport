@@ -18,7 +18,17 @@ CYCLE_SUMMARY_PATH = REPO_ROOT / "rebuild" / "out" / "cycle_summary.json"
 AUTOSAVE_PATH = REPO_ROOT / "verdicts-autosave.json"
 JOURNAL_PATH = REPO_ROOT / journal.JOURNAL_NAME
 EXPORT_FORMAT = "ams-review-verdicts/1"
+NDJSON_SUFFIX = ".ndjson.gz"
 PORT = 7294
+
+
+def static_headers_for(path: str) -> dict[str, str]:
+    """The headers every static file goes out with. `Cache-Control: no-store` on everything, because a rebuild reuses every name; and the precompressed NDJSON sidecars beside the manifest go out as gzip-encoded `application/x-ndjson`, so the browser decompresses them on arrival while the file on disk keeps an honest name. The shards are deliberately not in that set: the explain panel addresses them by byte range, which only means anything while they are served identity-encoded."""
+    headers = {"Cache-Control": "no-store"}
+    if path.endswith(NDJSON_SUFFIX):
+        headers["Content-Type"] = "application/x-ndjson"
+        headers["Content-Encoding"] = "gzip"
+    return headers
 
 
 def parse_autosave_payload(raw: bytes) -> dict | None:
@@ -109,7 +119,16 @@ def main() -> None:
 
     class NoCacheStaticHandler(StaticFileHandler):
         def set_extra_headers(self, path: str) -> None:
-            self.set_header("Cache-Control", "no-store")
+            for name, value in static_headers_for(path).items():
+                self.set_header(name, value)
+
+        def compute_etag(self) -> str | None:
+            """No etag at all. Tornado's default hashes the whole file to compute one — a quarter-gigabyte shard sha512'd on the first Range request the explain panel makes, memoized in a class dict that no rebuild invalidates — and `Cache-Control: no-store` already means nothing would use the answer."""
+            return None
+
+        def should_return_304(self) -> bool:
+            """A conditional Range request that satisfied `If-Modified-Since` would otherwise come back 304 with no body, and the app would have nothing to parse."""
+            return False
 
     class StatusHandler(RequestHandler):
         def set_default_headers(self) -> None:

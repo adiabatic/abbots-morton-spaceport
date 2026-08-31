@@ -1109,7 +1109,8 @@ details.group {
     border-top: 1px dashed var(--hairline);
     padding-top: 0.6rem;
 
-    .explain-intro {
+    .explain-intro,
+    .explain-pending {
       margin: 0.2rem 0 0.4rem;
       font-size: 12px;
       color: var(--muted);

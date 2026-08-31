@@ -29,7 +29,7 @@ from typing import TextIO
 
 from rebuild.pipeline import fingerprint
 from rebuild.pipeline.baseline_subset import M1_ALPHABET
-from rebuild.review import census, families, tablediff, unit_cache, unit_index
+from rebuild.review import app_index, census, families, tablediff, unit_cache, unit_index
 from rebuild.review.audit import (
     ACCEPTANCE_CONFIGS,
     BATCH_SIZE,
@@ -470,18 +470,23 @@ def _write_json(path: Path, payload) -> None:
         staging.unlink(missing_ok=True)
 
 
-def _write_shard(out_dir: Path, class_id: str, fragments: list[dict]) -> list[str]:
-    """One class's units, written as byte-capped parts, returning the relative paths the manifest lists in part order.
+def _write_shard(
+    out_dir: Path, class_id: str, fragments: list[dict]
+) -> tuple[list[str], list[tuple[int, int, int]]]:
+    """One class's units, written as byte-capped parts, returning the relative paths the manifest lists in part order and, aligned index-for-index with `fragments`, each fragment's (part index, byte start, byte length).
 
     The cap exists for the browser: the app parses each part as one JSON string, and V8's `String::kMaxLength` under pointer compression is 2**29 - 24 bytes. Blink hands `JSON.parse` an empty string rather than an error when it cannot materialize a body that long, so an oversized shard surfaces as "Unexpected end of JSON input" from a fetch that looked like it succeeded. `SHARD_PART_BYTES` is half that ceiling, and the other half is headroom.
 
     A class that fits in one part keeps the bare `units/<class-id>.json` name, so the small classes, the checked-in fixtures, and the archived surfaces never churn. A class that does not is written as `units/<class-id>.000.json`, `units/<class-id>.001.json`, … — contiguous from zero, three digits, every part numbered, never a bare name beside numbered ones. Both spellings sort where `unit_index.class_shard_key` puts the class, because the character after the class id is `.` either way.
 
     The framing is `_write_json`'s, for the reasons its docstring gives: each fragment is serialized inside a one-element list whose framing is peeled back off, so a part's bytes are the one-shot `json.dumps(part, indent=1, ensure_ascii=True) + "\\n"` bytes by construction. Every part lands within the cap except one holding a single fragment that exceeds it alone, which nothing here can make smaller. Each part is staged under a sibling name and renamed, so a failed encode leaves the previous build's units in place rather than a truncated part.
+
+    That framing is a byte-addressing contract as well as a serialization one, and the spans returned here are what the review app's explain panel Range-fetches against: no punctuation is interleaved with a fragment's own bytes, and `ensure_ascii=True` under a utf-8 handle makes the running character count the byte offset, so `bytes[start:start + length]` is a standalone JSON element. A change to the `indent`, `ensure_ascii` or `separators` of the dump below breaks that silently — `rebuild/test_app_index.py` slices every fragment back out to catch it.
     """
     units_dir = Path(out_dir) / "units"
     units_dir.mkdir(parents=True, exist_ok=True)
     staged: list[Path] = []
+    spans: list[tuple[int, int, int]] = []
     handle: TextIO | None = None
     try:
         size = 0
@@ -499,6 +504,7 @@ def _write_shard(out_dir: Path, class_id: str, fragments: list[dict]) -> list[st
             else:
                 handle.write(",")
                 size += 1
+            spans.append((len(staged) - 1, size, len(body)))
             handle.write(body)
             size += len(body)
         if handle is None:
@@ -516,7 +522,7 @@ def _write_shard(out_dir: Path, class_id: str, fragments: list[dict]) -> list[st
         )
         for staging, name in zip(staged, names, strict=True):
             staging.replace(units_dir / name)
-        return [f"units/{name}" for name in names]
+        return [f"units/{name}" for name in names], spans
     finally:
         if handle is not None:
             handle.close()
@@ -939,11 +945,12 @@ def _write_surface(
     """Reassemble the per-unit JSON fragments into shards (per class, triage order), copy fonts, and write the manifest with its parent-once `generated_at`/`repo_head` stamps. The contract check runs over the in-memory shards and manifest it just assembled — the same dicts the writer serialized — instead of re-parsing the hundreds of megabytes it just wrote."""
     classes_meta: list[dict] = []
     shards_by_class: dict[str, list[dict]] = {}
+    spans_by_class: dict[str, list[tuple[int, int, int]]] = {}
     for entry in classes:
         units = by_class[entry.id]
         shard = [fragments[unit.unit_id] for unit in units]
         shards_by_class[entry.id] = shard
-        parts = _write_shard(out_dir, entry.id, shard)
+        parts, spans_by_class[entry.id] = _write_shard(out_dir, entry.id, shard)
         classes_meta.append(
             {
                 "id": entry.id,
@@ -954,6 +961,11 @@ def _write_surface(
                 "unit_count": len(units),
                 "row_count": sum(len(unit.rows) for unit in units),
                 "machine_approved_count": sum(1 for unit in units if unit.machine_approved),
+                # The app draws a class's machine fold — its count and its badge — before opening it, and under the slim app index those units are not resident to be counted. So the split the badge cascades over is recorded here rather than re-derived from records the tab no longer holds.
+                "machine_channels": {
+                    channel: sum(1 for unit in units if getattr(unit, channel))
+                    for channel in MACHINE_CHANNELS
+                },
                 "shards": parts,
                 "batches": sorted({unit.batch for unit in units if unit.batch is not None}),
             }
@@ -998,6 +1010,7 @@ def _write_surface(
         print(f"Pruned {len(pruned)} orphan shard(s): {', '.join(pruned)}", file=sys.stderr)
     copy_static(out_dir, static_dir)
     unit_index.write_index(out_dir, shards_by_class.items())
+    app_index.write_app_artifacts(out_dir, shards_by_class, spans_by_class)
     # A unit whose re-settled cells disagree with the audit it was built from is a surface describing a font nobody compiled, which is the one thing this directory exists not to be. It used to print and carry on; the divergence is empty today and a build that makes it non-empty should stop rather than ship.
     errors: list[str] = []
     if mismatches:
@@ -1526,6 +1539,7 @@ def build_table_diff(
     comparator = InkComparator(before_font, after_font)
     classes_meta: list[dict] = []
     shards_by_class: dict[str, list[dict]] = {}
+    spans_by_class: dict[str, list[tuple[int, int, int]]] = {}
     index = 0
     human_index = 0
     human_unit_ids: list[str] = []
@@ -1539,6 +1553,7 @@ def build_table_diff(
         shard = []
         batches = set()
         machine_count = 0
+        channel_counts = {channel: 0 for channel in MACHINE_CHANNELS}
         for entry in members:
             # A witnessless entry has no renderable text to shape, so it cannot be proven ink- or picture-identical and stays in the human workload.
             text = "".join(chr(value) for value in entry.witness) if entry.witness else ""
@@ -1549,6 +1564,7 @@ def build_table_diff(
             if ink_identical or picture_identical:
                 batch = None
                 machine_count += 1
+                channel_counts["ink_identical" if ink_identical else "picture_identical"] += 1
                 machine_rows += max(len(entry.paired), 1)
             else:
                 batch = human_index // batch_size
@@ -1561,7 +1577,7 @@ def build_table_diff(
                 _table_diff_unit_json(entry, unit_id, batch, all_configs, ink_identical, picture_identical)
             )
             index += 1
-        parts = _write_shard(out_dir, bucket, shard)
+        parts, spans_by_class[bucket] = _write_shard(out_dir, bucket, shard)
         shards_by_class[bucket] = shard
         machine_units += machine_count
         if machine_count:
@@ -1576,6 +1592,7 @@ def build_table_diff(
                 "unit_count": len(members),
                 "row_count": sum(max(len(entry.paired), 1) for entry in members),
                 "machine_approved_count": machine_count,
+                "machine_channels": channel_counts,
                 "shards": parts,
                 "batches": sorted(batches),
             }
@@ -1619,6 +1636,7 @@ def build_table_diff(
         print(f"Pruned {len(pruned)} orphan shard(s): {', '.join(pruned)}", file=sys.stderr)
     copy_static(out_dir, static_dir)
     unit_index.write_index(out_dir, shards_by_class.items())
+    app_index.write_app_artifacts(out_dir, shards_by_class, spans_by_class)
     errors = check_output_dir(out_dir)
     if errors:
         raise SystemExit("contract check failed:\n" + "\n".join(errors[:20]))
@@ -1751,6 +1769,21 @@ def check_manifest(manifest: dict) -> list[str]:
         )
         for key in ("unit_count", "row_count", "machine_approved_count"):
             need(isinstance(meta.get(key), int), f"classes[{identifier}].{key} must be an integer")
+        channels = meta.get("machine_channels")
+        well_formed = (
+            isinstance(channels, dict)
+            and set(channels) == set(MACHINE_CHANNELS)
+            and all(isinstance(count, int) for count in channels.values())
+        )
+        need(
+            well_formed,
+            f"classes[{identifier}].machine_channels must count the three machine channels",
+        )
+        if well_formed and isinstance(meta.get("machine_approved_count"), int):
+            need(
+                sum(channels.values()) == meta["machine_approved_count"],
+                f"classes[{identifier}].machine_channels must sum to machine_approved_count",
+            )
         need(isinstance(meta.get("batches"), list), f"classes[{identifier}].batches must be a list")
         need("status" in meta, f"classes[{identifier}].status must be present")
         need(
@@ -2180,6 +2213,7 @@ def check_shards(
         if meta.get("no_verdict") and meta.get("batches"):
             errors.append(f"class {meta.get('id')}: a no-verdict class must carry no batches")
         machine_count = 0
+        channel_counts = {channel: 0 for channel in MACHINE_CHANNELS}
         for unit in shard:
             errors.extend(check_unit(unit, mode))
             unit_id = unit.get("id")
@@ -2220,6 +2254,9 @@ def check_shards(
                 )
             if machine_approved(unit):
                 machine_count += 1
+                for channel in MACHINE_CHANNELS:
+                    if unit.get(channel) is True:
+                        channel_counts[channel] += 1
             elif (
                 mode == "m1-audit"
                 and unit.get("no_verdict") is not True
@@ -2240,6 +2277,13 @@ def check_shards(
             errors.append(
                 f"class {meta.get('id')}: {machine_count} machine-approved units, "
                 f"manifest says {meta.get('machine_approved_count')}"
+            )
+        # The app renders a machine fold's badge from this record alone, so a stale count would mislabel a fold no reader can check against the units it summarizes.
+        declared_channels = meta.get("machine_channels")
+        if isinstance(declared_channels, dict) and dict(declared_channels) != channel_counts:
+            errors.append(
+                f"class {meta.get('id')}: machine_channels {dict(declared_channels)} != "
+                f"{channel_counts} in the shards"
             )
         if machine_count:
             seen_machine_by_class[meta["id"]] = machine_count
@@ -2319,7 +2363,7 @@ def check_shards(
 
 
 def _check_output_files(out_dir: Path, manifest: dict, repo_root: Path | None = None) -> list[str]:
-    """The files beside the manifest: every part of every shard present and non-empty, the per-unit index present and stamped for this manifest, the index page written, and each copied font matching both the sha the manifest recorded and — when `repo_root` resolves the source it names — the font it was copied from. That second comparison is what catches a surface serving last cycle's letters: the copy is faithful to a manifest written over an M1.otf that has since moved on."""
+    """The files beside the manifest: every part of every shard present and non-empty, the per-unit index and the app's two sidecars present and stamped for this manifest, the index page written, and each copied font matching both the sha the manifest recorded and — when `repo_root` resolves the source it names — the font it was copied from. That second comparison is what catches a surface serving last cycle's letters: the copy is faithful to a manifest written over an M1.otf that has since moved on."""
     errors: list[str] = []
     for meta in manifest.get("classes", ()):
         for part in unit_index.class_shards(meta):
@@ -2348,6 +2392,11 @@ def _check_output_files(out_dir: Path, manifest: dict, repo_root: Path | None = 
         errors.append(f"{unit_index.INDEX_NAME} is missing")
     elif not unit_index.index_is_current(out_dir):
         errors.append(f"{unit_index.INDEX_NAME} is unreadable or stamped for another manifest")
+    for name, fmt in app_index.ARTIFACTS:
+        if not app_index.artifact_path(out_dir, name).is_file():
+            errors.append(f"{name} is missing")
+        elif not app_index.artifact_is_current(out_dir, name, fmt):
+            errors.append(f"{name} is unreadable or stamped for another manifest")
     return errors
 
 
