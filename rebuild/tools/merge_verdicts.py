@@ -181,7 +181,7 @@ def run_merge(
         )
         return 0
 
-    if _server_listening() and not yes:
+    if autosave.resolve() == AUTOSAVE.resolve() and _server_listening() and not yes:
         print(
             "ERROR: the review server is listening on port 7294. An open tab would merge its own store right "
             "back over this merge on its next focus. Stop the server first (make review-cycle runs the merge "
@@ -237,7 +237,7 @@ def run_restore(
             "stashed first)."
         )
         return 0
-    if _server_listening() and not yes:
+    if autosave.resolve() == AUTOSAVE.resolve() and _server_listening() and not yes:
         print(
             "ERROR: the review server is listening on port 7294. An open tab would merge its own store right "
             "back over the restore on its next focus. Stop the server first, or pass --yes to apply anyway."
