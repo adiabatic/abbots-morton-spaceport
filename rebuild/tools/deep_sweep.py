@@ -26,32 +26,33 @@ from rebuild.tools.artifact_cycle import (
     CONFORM_HORIZON_DEFAULT,
     DEEP_SWEEP_GREEN,
     DEEP_SWEEP_HORIZON_DEFAULT,
-    RUN_M1_GREEN,
     clear_contradicted_green,
     conform_skip_files,
     conform_skip_fingerprint,
     deep_sweep_skip_files,
     deep_sweep_skip_fingerprint,
     deep_sweep_status,
-    read_green_record,
     record_deep_sweep_green,
     record_green,
-    run_m1_skip_fingerprint,
     sweep_job_budget,
 )
 
 SUMMARY_NAME = "deep_sweep_summary.json"
 
 
+def tables_stamped() -> bool:
+    """Whether the serialized enumeration under rebuild/out/m1 was produced from exactly the sources on disk — the same tables_inputs() stamp run_font_conformance itself refuses on. Artifact identity, never a receipt of a past run: a --gates-only re-adjudication (which writes no green) and a build handed over from another box both arm the sweep exactly as a locally-green build does."""
+    return run_m1.serialized_tables(run_m1.OUT_DIR, run_m1.tables_inputs()) is not None
+
+
 def arming_key() -> str:
-    """This build's arming key, after the two preconditions for the sweep to mean anything. Without a behavior-class sidecar there is no key at all, so a green could not be recorded against anything; and with the run_m1 green absent or stale the M1.otf on disk is not the font the runes on disk describe, so a deep sweep of it would prove something about a build nobody is going to ship."""
+    """This build's arming key, after the two preconditions for the sweep to mean anything. Without a behavior-class sidecar there is no key at all, so a green could not be recorded against anything; and with the tables' stamp stale the M1.otf on disk is not the font the runes on disk describe, so a deep sweep of it would prove something about a build nobody is going to ship."""
     fingerprint = deep_sweep_skip_fingerprint(ROOT)
     if fingerprint is None:
         raise SystemExit(
             "no behavior-class sidecar under rebuild/out/m1 — run `make artifact-cycle` first so a build can leave one to arm this sweep"
         )
-    record = read_green_record(RUN_M1_GREEN)
-    if record is None or record["fingerprint"] != run_m1_skip_fingerprint(ROOT):
+    if not tables_stamped():
         raise SystemExit(
             "the M1 artifacts are stale relative to the runes on disk — run `make artifact-cycle` (or `make review-cycle`) first, so the deep sweep never shapes a font the sources have outgrown"
         )
