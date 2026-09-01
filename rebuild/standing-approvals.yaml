@@ -453,3 +453,16 @@ rules:
         gained: [[4, 8]]
         shift: 1
       except_left: []
+  - id: gay-entry-contracted-after-bay-key-no
+    verdict: approve
+    note: "·Gay's baseline entry pulls in one pixel after ·Bay, ·Key and ·No — the three rulings are recorded by the qsGay contract as “Contract ·Bay ~b~ ·Gay by a pixel”, “Contract ·Key ~b~ ·Gay by a pixel” and “Contract `·No.alt ~b~ ·Gay` by a pixel”"
+    match:
+      before:
+        left: [qsBay, qsKey, qsNo]
+        pivots: [qsGay.en-y0.ex-y5]
+      after:
+        pivots:
+          - qsGay.hapax.en-y0.en-con-1
+          - qsGay.hapax.en-y0.ex-y5.en-con-1
+        entry_contraction: 1
+      except_left: []

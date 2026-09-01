@@ -3463,6 +3463,26 @@ def test_a_pure_entry_contraction_matches(slide_context):
     assert sv._matches(CONTRACTED_ENTRY_RULE["match"], contracted_entry_window(), context=slide_context())
 
 
+def test_an_entry_contraction_can_name_multiple_left_families(slide_context):
+    rule = json.loads(json.dumps(CONTRACTED_ENTRY_RULE))
+    rule["match"]["before"]["left"] = ["qsKey", "qsBay"]
+    assert sv._matches(rule["match"], contracted_entry_window(), context=slide_context())
+
+    rule["match"]["before"]["left"] = ["qsKey", "qsNo"]
+    assert not sv._matches(rule["match"], contracted_entry_window(), context=slide_context())
+
+
+def test_a_multi_left_entry_contraction_composes(slide_context):
+    rule = json.loads(json.dumps(CONTRACTED_ENTRY_RULE))
+    rule["match"]["before"]["left"] = ["qsKey", "qsBay"]
+    events = sv._composed(
+        [SLIDE_RULE, rule],
+        composed_contracted_entry_window(),
+        slide_context(),
+    )
+    assert events == {SLIDE_RULE["id"]: [1], rule["id"]: [3]}
+
+
 def test_the_checked_in_bay_may_rule_reads_the_contraction(slide_context):
     match = {rule["id"]: rule for rule in sv.load_rules(sv.RULES)}["bay-may-entry-contracted"]["match"]
     assert sv._matches(match, contracted_entry_window(), context=slide_context())
@@ -3673,6 +3693,21 @@ def test_an_entry_drop_rule_loads(tmp_path):
     [rule] = sv.load_rules(_write_rules(tmp_path / "rules.yaml", [ENTRY_RULE]))
     assert rule["match"]["before"] == {"pivots": ["qsLow.en-ext-1"]}
     assert rule["match"]["after"] == {"pivots": ["qsLow.hapax"], "entry_drop": 1}
+
+
+def test_an_entry_contraction_rule_loads_multiple_left_families(tmp_path):
+    rule = json.loads(json.dumps(CONTRACTED_ENTRY_RULE))
+    rule["match"]["before"]["left"] = ["qsBay", "qsKey"]
+    [loaded] = sv.load_rules(_write_rules(tmp_path / "rules.yaml", [rule]))
+    assert loaded["match"]["before"]["left"] == ["qsBay", "qsKey"]
+
+
+@pytest.mark.parametrize("left", [["qsBay", "qsKey.alt"], ["qsBay", "qsKey/hapax/None/None/"]])
+def test_an_entry_contraction_rule_refuses_nonfamily_left_names(tmp_path, left):
+    rule = json.loads(json.dumps(CONTRACTED_ENTRY_RULE))
+    rule["match"]["before"]["left"] = left
+    with pytest.raises(SystemExit, match="bare Quikscript family"):
+        sv.load_rules(_write_rules(tmp_path / "rules.yaml", [rule]))
 
 
 def test_a_stub_drop_rule_loads(tmp_path):
