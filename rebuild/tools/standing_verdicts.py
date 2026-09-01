@@ -18,7 +18,7 @@ Each expressible delta shape is a row in SHAPES, and a rule declares exactly one
 
 - The `entry-contracted` shape judges the same rendered pixels for one or more named left–pivot pairs whose pivot pulls its entry inward by a declared number of columns: the placed pivot ink stands still while its own-frame origin moves right by that count, the left-side loss stays inside the contracted columns, any far-right tail change is exactly the difference between the exit extensions named by the before and after glyphs, and everything after the pivot moves by the contraction combined with that exact exit-extension delta. A name-grain respelling in the suffix may ride along when the pivot still paints every cell it appears to lose, so the visible pivot-plus-suffix union remains exact; any visible ink change fails closed for the composed reading.
 
-- The `stub_drop` shape judges the same rendered pixels for a letter that gives up a named left-side stub while the ink it keeps stays where it was: the old-font pivot form gives way to a named new form whose own-frame picture is the old one compacted left by that many columns, its own-frame origin standing still while its placement moves right by the same count — the left edge catching up to the ink that remains — and every other pixel in the window unmoved, which is what tells stub-dropped from entry-extension-dropped, whose remaining ink slides closer while its placement stands still: a window whose only change is ·May losing the leftover left pixel after ·Ah matches, and a window that also carries a blessed join-drop still needs the composed reading.
+- The `stub_drop` shape judges the same rendered pixels for a letter that gives up a named left-side stub while the ink it keeps stays where it was: the old-font pivot form gives way to a named new form whose own-frame picture is the old one compacted left by that many columns, its own-frame origin standing still while its placement moves right by the same count — the left edge catching up to the ink that remains — and every other pixel in the window unmoved, which is what tells stub-dropped from entry-extension-dropped, whose remaining ink slides closer while its placement stands still: a window whose only change is ·May losing the leftover left pixel after ·Ah matches, and a window that also carries a blessed join-drop still needs the composed reading. A pivot here is a position, not a name: a second ·May keeping its old loop beside the one that lost the stub rides as span ink, because only the before side's named form says which of the two after loops is the drop.
 
 - The `redrawn` shape judges the same rendered pixels for a letter redrawn in place to a named new form: the old-font pivot form gives way to a named new form whose own-frame picture is the old one with the named cells gone and the named cells added — both sets read at one common column offset, because an entry extension inserts a column at the pivot's left edge and carries the whole frame right with it, so an entry-extended variant shows the same trade one column over — origin and placement standing still, and everything after the pivot sliding by the declared count, which may be zero when the new form keeps the pivot's advance: ·Eight's bowl pulling in one column before ·Tea and ·It, beside the dropped connector extension that slides ·It closer, is the founding example, and a window that also carries a second blessed change still needs the composed reading. Its added set may be empty, which is a form that only gives ink up — ·Key's foot dropping its terminal pixel before ·May, ·No and ·It, its follower coming a column closer — and that is the shape an exit contraction wants whenever the survey's windows carry anything else at all, because the `follower_cells` shape reads only names and would bless whatever else the window did.
 
@@ -874,7 +874,7 @@ def _matches_entry_contracted(match, unit, excluded, context=None):
 
 
 def _stub_geometry(match, unit, comparator):
-    """Whether the window's rendered before→after change is exactly the named left-side stub coming off the named pivot with the remaining ink sitting still: same own-frame compact as an entry drop, but the after form's placement moves right by the declared column count (the left edge catching up to the remaining ink) and every span strictly between the pivots renders identically with no displacement — so a window whose only change is ·May losing the leftover left pixel after ·Ah matches, and a window that also carries a blessed join-drop still needs the composed reading."""
+    """Whether the window's rendered before→after change is exactly the named left-side stub coming off the named pivot with the remaining ink sitting still: same own-frame compact as an entry drop, but the after form's placement moves right by the declared column count (the left edge catching up to the remaining ink) and every span strictly between the pivots renders identically with no displacement. Walked position by position the way the composed walk does, because a pivot here is a position, not a name — the same after form can stand at one position as the stub-dropped letter and at another as an untouched same-family letter (a second ·May keeping its old loop beside the one that lost its leftover left pixel), and only the before side's named form says which is which. A pivot position is one whose before name carries a before prefix and whose after name carries an after prefix; it is judged as the compact with its placement moved by the declared count and its origin standing still, and every span between pivots must render identically with no displacement. Anything the contract cannot hold — no pivot position at all, a shaped run that contradicts the unit's recorded glyphs, sides that spell different letters, an off-grid placement, a non-rectilinear outline, a dropped cell outside the named columns — reads as no match, so the unit queues."""
     codepoints = unit.get("codepoints") or ""
     if not codepoints:
         return False
@@ -886,29 +886,43 @@ def _stub_geometry(match, unit, comparator):
     before_names, before_run = comparator.named_run("before", text, features)
     if list(before_names) != unit["before"]["glyphs"]:
         return False
-    _after_names, after_run = comparator.named_run("after", text, features)
-    before_pivots = [
-        i for i, piece in enumerate(before_run) if _named_pivot(piece[0], match["before"]["pivots"])
-    ]
-    after_pivots = [
-        i for i, piece in enumerate(after_run) if _named_pivot(piece[0], match["after"]["pivots"])
-    ]
-    if not before_pivots or len(before_pivots) != len(after_pivots):
+    after_names, after_run = comparator.named_run("after", text, features)
+    if len(after_names) != len(before_names):
+        return False
+    before_pieces = _pieces_by_glyph(before_names, before_run)
+    after_pieces = _pieces_by_glyph(after_names, after_run)
+    if before_pieces is None or after_pieces is None:
+        return False
+    pivots = {
+        index
+        for index in range(len(before_names))
+        if _named_pivot(before_names[index], match["before"]["pivots"])
+        and _named_pivot(after_names[index], match["after"]["pivots"])
+    }
+    if not pivots:
         return False
     intern = comparator.intern
     columns = match["after"]["stub_drop"]
-    for before_index, after_index in zip(before_pivots, after_pivots):
-        before, after = before_run[before_index], after_run[after_index]
+    before_span: list = []
+    after_span: list = []
+    for index in range(len(before_names)):
+        if index not in pivots:
+            if index in before_pieces:
+                before_span.append(before_pieces[index])
+            if index in after_pieces:
+                after_span.append(after_pieces[index])
+            continue
+        if not _span_settled(intern, before_span, after_span, 0):
+            return False
+        before, after = before_pieces.get(index), after_pieces.get(index)
+        if before is None or after is None:
+            return False
         if after[2] != before[2] + columns * PIXEL_SIZE or not _entry_drop_holds(
             {"after": {"entry_drop": columns}}, before, after, intern
         ):
             return False
-    for before_span, after_span in zip(
-        _split_around(before_run, before_pivots), _split_around(after_run, after_pivots)
-    ):
-        if not _span_settled(intern, before_span, after_span, 0):
-            return False
-    return True
+        before_span, after_span = [], []
+    return _span_settled(intern, before_span, after_span, 0)
 
 
 def _matches_stub_drop(match, unit, excluded, context=None):
