@@ -453,16 +453,66 @@ rules:
         gained: [[4, 8]]
         shift: 1
       except_left: []
-  - id: gay-entry-contracted-after-bay-key-no
+  - id: gay-entry-contracted
     verdict: approve
-    note: "·Gay's baseline entry pulls in one pixel after ·Bay, ·Key and ·No — the three rulings are recorded by the qsGay contract as “Contract ·Bay ~b~ ·Gay by a pixel”, “Contract ·Key ~b~ ·Gay by a pixel” and “Contract `·No.alt ~b~ ·Gay` by a pixel”"
+    note: "·Gay's baseline entry pulls in one pixel after ·Bay, ·Key, ·No and ·Et — the four pair rulings are recorded by qsGay's contract under their matching “Contract … by a pixel” commits"
     match:
       before:
-        left: [qsBay, qsKey, qsNo]
+        left: [qsBay, qsKey, qsNo, qsEt]
         pivots: [qsGay.en-y0.ex-y5]
       after:
         pivots:
           - qsGay.hapax.en-y0.en-con-1
           - qsGay.hapax.en-y0.ex-y5.en-con-1
         entry_contraction: 1
+      except_left: []
+  - id: et-gay-exit-contracted
+    verdict: approve
+    note: "·Gay sits a pixel closer to ·Et from ·Et's side — qsEt's baseline exit contracts by one under its ·Gay-specific contract record; qsGay's paired entry contraction supplies the second pixel"
+    match:
+      before:
+        pivot: qsEt
+        exit_extension: ex-con-1
+        seam_out: y0
+        follower: qsGay
+      after:
+        pivot_cells:
+          - qsEt/hapax/None/baseline/ex-con-1
+          - qsEt/hapax/x-height/baseline/en-ext-1+ex-con-1
+          - qsEt/hapax/x-height/baseline/ex-con-1
+        follower_cells:
+          - qsGay/hapax/baseline/None/en-con-1
+          - qsGay/hapax/baseline/x-height/en-con-1
+          - qsGay/hapax/baseline/x-height/en-con-1+ex-ext-3
+      except_left: []
+  - id: ah-entry-contracted-after-jai
+    verdict: approve
+    note: "·Ah's baseline entry pulls in one pixel after ·J’ai — qsAh's contract record was authored as “Contract ·J’ai ~b~ ·Ah by a pixel”"
+    match:
+      before:
+        left: qsJai
+        pivots: [qsAh]
+      after:
+        pivots:
+          - qsAh.hapax.en-y0.en-con-1
+          - qsAh.hapax.en-y0.ex-y5.en-con-1
+        entry_contraction: 1
+      except_left: []
+  - id: ah-bay-exit-extension-dropped
+    verdict: approve
+    note: "·Bay sits a pixel closer to ·Ah — the extra pixel of x-height exit came off qsAh's extend record in “Stop extending ·Ah ~x~ ·{Bay,Fee} by a pixel”"
+    match:
+      before:
+        pivot: qsAh
+        exit_extension: ex-ext-1
+        seam_out: y5
+        follower: qsBay
+      after:
+        pivot_cells:
+          - qsAh/hapax/None/x-height/
+          - qsAh/hapax/baseline/x-height/
+          - qsAh/hapax/baseline/x-height/en-con-1
+        follower_cells:
+          - qsBay/hapax/x-height/None/
+          - qsBay/hapax/x-height/baseline/
       except_left: []
