@@ -1277,6 +1277,7 @@ CONTRACTED_PIVOT = (_rect(0, 0, 50, 100),)
 EXTENDED_ENTRY_LOW = (_rect(0, 0, 50, 50), _rect(50, 0, 150, 150))
 CONTRACTED_ENTRY_MAY = (_rect(50, 0, 150, 150),)
 CONTRACTED_ENTRY_MAY_EXTRA = (_rect(50, 0, 150, 150), _rect(150, 150, 200, 200))
+OVERHANGING_FOLLOWER = (_rect(-50, 0, 100, 150),)
 UNSHIFTED_ENTRY_LOW = (_rect(50, 0, 150, 150),)
 EXTRA_CELL_LOW = (_rect(0, 0, 100, 150), _rect(0, 150, 50, 200))
 EIGHTISH = (_rect(0, 0, 50, 150), _rect(50, 100, 100, 150))
@@ -1347,6 +1348,7 @@ register_glyph("before", "qsMay.en-y0.ex-y5.en-ext-1", EXTENDED_ENTRY_LOW, 150)
 register_glyph("before", "qsMay.en-y0.ex-y5.contract-fixture", EXTENDED_ENTRY_LOW, 150)
 register_glyph("before", "qsMay.en-y0.ex-y5.unchanged-fixture", TWO_COLUMNS, 100)
 register_glyph("before", "qsBay.contract-lead", TWO_COLUMNS, 100)
+register_glyph("before", "qsFcovered.en-ext-1", OVERHANGING_FOLLOWER, 100)
 register_glyph("before", "qsMay.en-y5", EXTENDED_ENTRY_LOW, 150)
 register_glyph("before", "qsK", TWO_COLUMNS, 100)
 register_glyph("before", "qsTea.half.ex-y5", (_rect(0, 100, 100, 150),), 100)
@@ -1386,6 +1388,7 @@ register_glyph("after", "qsMay.loop", TWO_COLUMNS, 100)
 register_glyph("after", "qsMay.loop.en-y0.en-con-1", CONTRACTED_ENTRY_MAY, 150)
 register_glyph("after", "qsMay.loop.unchanged-fixture", TWO_COLUMNS, 100)
 register_glyph("after", "qsBay.contract-lead", TWO_COLUMNS, 50)
+register_glyph("after", "qsFcovered.hapax", TWO_COLUMNS, 100)
 register_glyph("after", "qsK", TWO_COLUMNS, 150)
 register_glyph("after", "qsTea", TWO_COLUMNS, 100)
 register_glyph("after", "qsPea", TWO_COLUMNS, 100)
@@ -1431,6 +1434,7 @@ MAY = register_pair("qsMay.en-y0.ex-y5.en-ext-1", "qsMay.loop")
 CONTRACTED_MAY = register_pair("qsMay.en-y0.ex-y5.contract-fixture", "qsMay.loop.en-y0.en-con-1")
 UNCHANGED_MAY = register_pair("qsMay.en-y0.ex-y5.unchanged-fixture", "qsMay.loop.unchanged-fixture")
 CONTRACTION_LEAD = register_pair("qsBay.contract-lead", "qsBay.contract-lead")
+COVERED_FOLLOWER = register_pair("qsFcovered.en-ext-1", "qsFcovered.hapax")
 LEFT_NEIGHBOR = register_pair("qsK", "qsK")
 MAY_STUB = register_pair("qsMay.en-y5", "qsMay.loop")
 EIGHT = register_pair("qsEight", "qsEight.smaller-loop")
@@ -1490,6 +1494,10 @@ SLIDE_FONTS = {
     ),
     "after-contracted-entry-unmoved-follower": (
         {**AFTER_GLYPHS, "qsMay.loop.en-y0.en-con-1": (CONTRACTED_ENTRY_MAY, 200)},
+        AFTER_CMAP,
+    ),
+    "after-contracted-entry-visible-follower-loss": (
+        {**AFTER_GLYPHS, "qsFcovered.hapax": (TUCKED_FOLLOWER, 100)},
         AFTER_CMAP,
     ),
     "after-retarget-unmoved": ({**AFTER_GLYPHS, "qsNo": (TWO_COLUMNS, 100)}, AFTER_CMAP),
@@ -3375,6 +3383,12 @@ COMPOSED_ENTRY_CODEPOINTS = spell(LEAD, SEE, LOW, FOLLOWER_1)
 COMPOSED_ENTRY_RULES = [SLIDE_RULE, ENTRY_RULE]
 CONTRACTED_ENTRY_GLYPHS = ["qsBay.contract-lead", "qsMay.en-y0.ex-y5.contract-fixture", "qsF1"]
 CONTRACTED_ENTRY_CODEPOINTS = spell(CONTRACTION_LEAD, CONTRACTED_MAY, FOLLOWER_1)
+CONTRACTED_ENTRY_COVERED_GLYPHS = [
+    "qsBay.contract-lead",
+    "qsMay.en-y0.ex-y5.contract-fixture",
+    "qsFcovered.en-ext-1",
+]
+CONTRACTED_ENTRY_COVERED_CODEPOINTS = spell(CONTRACTION_LEAD, CONTRACTED_MAY, COVERED_FOLLOWER)
 COMPOSED_CONTRACTED_ENTRY_GLYPHS = [
     "qsL",
     "qsSee.ex-y0",
@@ -3383,6 +3397,20 @@ COMPOSED_CONTRACTED_ENTRY_GLYPHS = [
     "qsF1",
 ]
 COMPOSED_CONTRACTED_ENTRY_CODEPOINTS = spell(LEAD, SEE, CONTRACTION_LEAD, CONTRACTED_MAY, FOLLOWER_1)
+COMPOSED_CONTRACTED_ENTRY_COVERED_GLYPHS = [
+    "qsL",
+    "qsSee.ex-y0",
+    "qsBay.contract-lead",
+    "qsMay.en-y0.ex-y5.contract-fixture",
+    "qsFcovered.en-ext-1",
+]
+COMPOSED_CONTRACTED_ENTRY_COVERED_CODEPOINTS = spell(
+    LEAD,
+    SEE,
+    CONTRACTION_LEAD,
+    CONTRACTED_MAY,
+    COVERED_FOLLOWER,
+)
 COMPOSED_CONTRACTED_ENTRY_RULES = [SLIDE_RULE, CONTRACTED_ENTRY_RULE]
 VERTICAL_GAIN_CONTRACTED_ENTRY_GLYPHS = [
     "qsTea.half.en-y5.after-xheight-exit",
@@ -3423,11 +3451,27 @@ def contracted_entry_window(uid="ec-1"):
     return window
 
 
+def contracted_entry_covered_window(uid="ec-covered-1"):
+    window = slide_unit(uid, CONTRACTED_ENTRY_COVERED_GLYPHS, CONTRACTED_ENTRY_COVERED_CODEPOINTS)
+    window["after"]["cells"][1] = "qsMay/loop/baseline/None/en-con-1"
+    return window
+
+
 def composed_contracted_entry_window(uid="cec-1"):
     window = slide_unit(
         uid,
         COMPOSED_CONTRACTED_ENTRY_GLYPHS,
         COMPOSED_CONTRACTED_ENTRY_CODEPOINTS,
+    )
+    window["after"]["cells"][3] = "qsMay/loop/baseline/None/en-con-1"
+    return window
+
+
+def composed_contracted_entry_covered_window(uid="cec-covered-1"):
+    window = slide_unit(
+        uid,
+        COMPOSED_CONTRACTED_ENTRY_COVERED_GLYPHS,
+        COMPOSED_CONTRACTED_ENTRY_COVERED_CODEPOINTS,
     )
     window["after"]["cells"][3] = "qsMay/loop/baseline/None/en-con-1"
     return window
@@ -3461,6 +3505,22 @@ def test_a_pure_entry_drop_matches(slide_context):
 
 def test_a_pure_entry_contraction_matches(slide_context):
     assert sv._matches(CONTRACTED_ENTRY_RULE["match"], contracted_entry_window(), context=slide_context())
+
+
+def test_a_union_invisible_suffix_respelling_rides_with_an_entry_contraction(slide_context):
+    assert sv._matches(
+        CONTRACTED_ENTRY_RULE["match"],
+        contracted_entry_covered_window(),
+        context=slide_context(),
+    )
+
+
+def test_a_visible_suffix_loss_still_defeats_an_entry_contraction(slide_context):
+    assert not sv._matches(
+        CONTRACTED_ENTRY_RULE["match"],
+        contracted_entry_covered_window(),
+        context=slide_context("after-contracted-entry-visible-follower-loss"),
+    )
 
 
 def test_an_entry_contraction_can_name_multiple_left_families(slide_context):
@@ -3522,6 +3582,15 @@ def test_a_slide_and_an_entry_contraction_in_one_window_compose(slide_context):
     events = sv._composed(
         COMPOSED_CONTRACTED_ENTRY_RULES,
         composed_contracted_entry_window(),
+        slide_context(),
+    )
+    assert events == {SLIDE_RULE["id"]: [1], CONTRACTED_ENTRY_RULE["id"]: [3]}
+
+
+def test_a_union_invisible_suffix_respelling_rides_in_a_composed_entry_contraction(slide_context):
+    events = sv._composed(
+        COMPOSED_CONTRACTED_ENTRY_RULES,
+        composed_contracted_entry_covered_window(),
         slide_context(),
     )
     assert events == {SLIDE_RULE["id"]: [1], CONTRACTED_ENTRY_RULE["id"]: [3]}
@@ -4592,6 +4661,8 @@ COMPOSED_WALK_CORPORA = {
             composed_contracted_entry_window(),
             duplicate_may_before_window(),
             duplicate_may_after_window(),
+            contracted_entry_covered_window(),
+            composed_contracted_entry_covered_window(),
             founding_window(),
         ],
         ("after", "after-contracted-entry-extra-cell", "after-contracted-entry-unmoved-follower"),

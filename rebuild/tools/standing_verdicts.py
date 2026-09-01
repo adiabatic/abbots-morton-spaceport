@@ -16,7 +16,7 @@ Each expressible delta shape is a row in SHAPES, and a rule declares exactly one
 
 - The `entry_drop` shape judges the same rendered pixels for a letter that gives up a named stretch of left-side entry: the old-font pivot form gives way to a named new form whose own-frame picture is the old one compacted left by that many columns — every dropped cell sitting in the columns that came off, the remaining cells shifting left by the same count, origin and placement standing still — and everything after the pivot sliding closer by that count, so a window whose only change is ·Low losing the extra baseline pixel the old font drew after ·See matches, and a window that also carries a blessed slide still needs the composed reading.
 
-- The `entry-contracted` shape judges the same rendered pixels for one or more named left–pivot pairs whose pivot pulls its entry inward by a declared number of columns: the placed pivot ink stands still while its own-frame origin moves right by that count, the left-side loss stays inside the contracted columns, any far-right tail change is exactly the difference between the exit extensions named by the before and after glyphs, and everything after the pivot moves by the contraction combined with that exact exit-extension delta; any other ink change fails closed for the composed reading.
+- The `entry-contracted` shape judges the same rendered pixels for one or more named left–pivot pairs whose pivot pulls its entry inward by a declared number of columns: the placed pivot ink stands still while its own-frame origin moves right by that count, the left-side loss stays inside the contracted columns, any far-right tail change is exactly the difference between the exit extensions named by the before and after glyphs, and everything after the pivot moves by the contraction combined with that exact exit-extension delta. A name-grain respelling in the suffix may ride along when the pivot still paints every cell it appears to lose, so the visible pivot-plus-suffix union remains exact; any visible ink change fails closed for the composed reading.
 
 - The `stub_drop` shape judges the same rendered pixels for a letter that gives up a named left-side stub while the ink it keeps stays where it was: the old-font pivot form gives way to a named new form whose own-frame picture is the old one compacted left by that many columns, its own-frame origin standing still while its placement moves right by the same count — the left edge catching up to the ink that remains — and every other pixel in the window unmoved, which is what tells stub-dropped from entry-extension-dropped, whose remaining ink slides closer while its placement stands still: a window whose only change is ·May losing the leftover left pixel after ·Ah matches, and a window that also carries a blessed join-drop still needs the composed reading.
 
@@ -744,7 +744,7 @@ def _entry_drop_holds(match, before, after, intern):
 
 
 def _entry_geometry(match, unit, comparator, pivot_positions=None):
-    """Whether the window's rendered before→after change is exactly the named left-side entry shortening on the named pivot, re-derived from the fonts: shape the window under one of the unit's configs, judge each pivot piece by `_entry_drop_holds` at the same placement, and require every span strictly between the pivots to render identically once displaced by the cumulative drop — the span before the first pivot by nothing, the span after the first pivot by the full drop, and one more drop for every further pivot. A pair-specific caller passes the positions already scoped by its named left family; the general entry-drop shape leaves them unset and judges every named pivot. Anything the contract cannot hold — no pivot on the before side, pivot counts that disagree, a shaped run that contradicts the unit's recorded glyphs, an off-grid placement, a non-rectilinear outline, a dropped cell outside the named columns, an unnamed extra cell — reads as no match, so the unit queues."""
+    """Whether the window's rendered before→after change is exactly the named left-side entry shortening on the named pivot, re-derived from the fonts: shape the window under one of the unit's configs, judge each pivot piece by `_entry_drop_holds` at the same placement, and require every span strictly between the pivots to render identically once displaced by the cumulative drop — the span before the first pivot by nothing, the span after the first pivot by the full drop, and one more drop for every further pivot. Each post-pivot span is compared together with that pivot's already-validated after picture, so a suffix glyph may give up cells the pivot still paints without turning an invisible ownership handoff into another visual question. A pair-specific caller passes the positions already scoped by its named left family; the general entry-drop shape leaves them unset and judges every named pivot. Anything the contract cannot hold — no pivot on the before side, pivot counts that disagree, a shaped run that contradicts the unit's recorded glyphs, an off-grid placement, a non-rectilinear outline, a dropped cell outside the named columns, an unnamed visible cell — reads as no match, so the unit queues."""
     codepoints = unit.get("codepoints") or ""
     if not codepoints:
         return False
@@ -780,12 +780,10 @@ def _entry_geometry(match, unit, comparator, pivot_positions=None):
     intern = comparator.intern
     before_spans = _split_around(before_run, before_pivots)
     after_spans = _split_around(after_run, after_pivots)
+    if not _span_settled(intern, before_spans[0], after_spans[0], 0):
+        return False
     displacement = 0
-    for step, (before_span, after_span) in enumerate(zip(before_spans, after_spans)):
-        if not _span_settled(intern, before_span, after_span, displacement):
-            return False
-        if step == len(before_pivots):
-            continue
+    for step in range(len(before_pivots)):
         before = before_run[before_pivots[step]]
         after = after_run[after_pivots[step]]
         if after[2] != before[2] + displacement * PIXEL_SIZE:
@@ -793,6 +791,14 @@ def _entry_geometry(match, unit, comparator, pivot_positions=None):
         if not _entry_drop_holds(match, before, after, intern):
             return False
         displacement += _entry_shift(match, before[0], after[0])
+        if not _span_settled(
+            intern,
+            before_spans[step + 1],
+            after_spans[step + 1],
+            displacement,
+            after_anchor=after,
+        ):
+            return False
     return True
 
 
@@ -1561,13 +1567,15 @@ def _created_join_event(match, rule_id, index, before_pieces, after_pieces):
     return Event(rule_id, "joined", match["after"]["shift"])
 
 
-def _span_settled(intern, before_span, after_span, displacement):
-    """Whether one span between events renders as the same picture once displaced: the union of the before pieces' cells at their placements, moved by the displacement the walk has accumulated so far, must equal the after pieces' union exactly. A span the walk cannot picture — a non-rectilinear outline, an off-grid placement — refuses, so a window no cell reading can be made of never composes."""
+def _span_settled(intern, before_span, after_span, displacement, after_anchor=None):
+    """Whether one span between events renders as the same picture once displaced: the union of the before pieces' cells at their placements, moved by the displacement the walk has accumulated so far, must equal the after pieces' union exactly. When an already-validated after piece anchors both unions, cells handed invisibly between it and the span do not become a second change. A span or anchor the walk cannot picture — a non-rectilinear outline, an off-grid placement — refuses, so a window no cell reading can be made of never composes."""
     painted = _span_cells(intern, before_span)
     rendered = _span_cells(intern, after_span)
-    if painted is None or rendered is None:
+    anchored = set() if after_anchor is None else _span_cells(intern, [after_anchor])
+    if painted is None or rendered is None or anchored is None:
         return False
-    return {(column + displacement, row) for column, row in painted} == rendered
+    displaced = {(column + displacement, row) for column, row in painted}
+    return displaced | anchored == rendered | anchored
 
 
 def _span_compacted(intern, before_span, after_span, displacement, columns):
@@ -1587,10 +1595,14 @@ def _span_compacted(intern, before_span, after_span, displacement, columns):
     return all(column < edge + columns for column, _row in dropped)
 
 
-def _span_explained(intern, before_span, after_span, displacement, compact=0, skippable=False):
-    """Whether one span is accounted for: a pure translation under the standing displacement, or that picture compacted left by a dropped entry extension, or — for an extension's named follower — the span without that follower as a translation, which is the named-cell blessing when the follower redrew in some other way."""
-    if _span_settled(intern, before_span, after_span, displacement):
+def _span_explained(
+    intern, before_span, after_span, displacement, compact=0, skippable=False, after_anchor=None
+):
+    """Whether one span is accounted for: a pure translation under the standing displacement, optionally unioned on both sides with an already-validated after piece; or that picture compacted left by a dropped entry extension; or — for an extension's named follower — the span without that follower as a translation, which is the named-cell blessing when the follower redrew in some other way."""
+    if _span_settled(intern, before_span, after_span, displacement, after_anchor=after_anchor):
         return True
+    if after_anchor is not None:
+        return False
     if compact and _span_compacted(intern, before_span, after_span, displacement, compact):
         return True
     if skippable and before_span:
@@ -1684,6 +1696,7 @@ def _composed_walk(rules, unit, context):
     displacement = 0
     compact = 0
     skippable = False
+    after_anchor = None
     glyphs = unit["before"]["glyphs"]
     index = 0
     while index < len(before_names):
@@ -1695,10 +1708,19 @@ def _composed_walk(rules, unit, context):
                 after_span.append(after_pieces[index])
             index += 1
             continue
-        if not _span_explained(intern, before_span, after_span, displacement, compact, skippable):
+        if not _span_explained(
+            intern,
+            before_span,
+            after_span,
+            displacement,
+            compact,
+            skippable,
+            after_anchor,
+        ):
             return None
         compact = 0
         skippable = False
+        after_anchor = None
         position = index
         if event.kind == "slide":
             before_span, after_span = [before_pieces[index]], [after_pieces[index]]
@@ -1709,6 +1731,8 @@ def _composed_walk(rules, unit, context):
                 return None
             displacement += event.shift
             before_span, after_span = [], []
+            if event.kind == "entry":
+                after_anchor = after_pieces[index]
             index += 1
         elif event.kind == "stub":
             if after_pieces[index][2] != before_pieces[index][2] + (displacement + event.shift) * PIXEL_SIZE:
@@ -1752,7 +1776,15 @@ def _composed_walk(rules, unit, context):
                     skippable = True
                 index += 2
         credited.setdefault(event.rule_id, []).append(position)
-    if not _span_explained(intern, before_span, after_span, displacement, compact, skippable):
+    if not _span_explained(
+        intern,
+        before_span,
+        after_span,
+        displacement,
+        compact,
+        skippable,
+        after_anchor,
+    ):
         return None
     return credited
 
