@@ -516,3 +516,27 @@ rules:
           - qsBay/hapax/x-height/None/
           - qsBay/hapax/x-height/baseline/
       except_left: []
+  - id: jai-entry-contracted-exit-extension-dropped
+    verdict: approve
+    note: "·J’ai’s crown pulls in a pixel after ·Pea, ·Tea, ·No, ·Low, ·At and ·I while the pixel of baseline exit the old font drew before ·Vie, ·See, ·No and ·Low comes off the same stroke — the tighter crown is qsJai’s contract record (landed with the letter, widened to ·At in “Add ·At” and to ·Pea and ·Tea in “Don’t have so much space between ·{Pea,Tea}.half·J’ai”), the shorter reach is the extend narrowing of “Bring ·Vie, ·See, ·No, and ·Low closer to ·J’ai” that jai-exit-extension-dropped already records, and every window that reached a sitting approved both. The two land on the one ·J’ai, so no pair of rules can speak for the window between them and the trade is named here in full"
+    match:
+      before:
+        pivots: [qsJai.en-y5.ex-y0.ex-ext-1]
+      after:
+        pivots: [qsJai.hapax.en-y5.ex-y0.en-con-1]
+        dropped: [[1, 8], [6, 3]]
+        added: []
+        shift: -1
+      except_left: []
+  - id: jai-entry-contracted-by-two-exit-extension-dropped
+    verdict: approve
+    note: "The same crown-and-reach stroke as jai-entry-contracted-exit-extension-dropped, two columns of crown deep, which is what qsJai’s contract record has asked for after ·Ah and ·Utter since the letter landed; every window that reached a sitting approved it"
+    match:
+      before:
+        pivots: [qsJai.en-y5.ex-y0.ex-ext-1]
+      after:
+        pivots: [qsJai.hapax.en-y5.ex-y0.en-con-2]
+        dropped: [[1, 8], [2, 8], [6, 3]]
+        added: []
+        shift: -1
+      except_left: []
