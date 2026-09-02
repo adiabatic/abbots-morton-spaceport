@@ -122,6 +122,8 @@ No combination is declared in the corpus today; rows 9–11 are this plan’s de
 
 ## 6. The equivalence triage
 
+This triage ran once, at extraction: its decisions landed in `rebuild/m1-divergences.yaml` (the boundary-equals-word-boundary class) and its per-build descendant is gate:conform's split-buffer check over M1 (`rebuild/pipeline/conform.py`). The triage runner and the split-buffer cross-check over the old font (`run_equivalence.py`, `run_split_check.py`, `validation/equivalence.py`, `validation/split_check.py`) are retired; the section below records the design they implemented.
+
 §3.4 defines `word: initial` ⇔ the left context is an edge, a space, or a ZWNJ — so in the new model, post-ZWNJ ≡ word-initial **and** post-space ≡ word-initial hold by definition, and symmetrically pre-boundary ≡ word-final via run-splitting. Today those alignments are maintained by hand and known-incomplete (the font fires `.noentry` rules against literal `uni200C`; `qsExcite` guards on space/ZWNJ/namer-dot). §13.1 requires checking them against the baseline so divergences surface as triage rows, never silent changes.
 
 Four checks, run for **every configuration** over every basis string `w`:
@@ -191,26 +193,22 @@ rebuild/
     rowmodel.py                    the §3 row contract as the validation suite implements it, plus table reading and chunking
     shaping.py                     hb.Font + TTFont name recovery, one reused buffer, per-row seam extraction
     classify.py                    the §4 black-box seam classifier
-    equivalence.py                 the four §6 boundary checks and the equivalence-triage writer
-    split_check.py                 the §4 split-buffer cross-check
     pins.py                        read-only import of test/ collector + parser; the §7 replay against library shaping and baseline rows
   check_determinism.py             the §2 and §8 diff-stability driver
-  run_equivalence.py               §6 CLI
-  run_split_check.py               §4 CLI
   validate_pins.py                 §7 CLI
   test_extractor.py                extractor unit tests
   test_validation_suite.py         the §7 validation-suite tests
   test_baseline_subset.py          baseline_subset filter tests
-  out/                             generated, gitignored: baseline-<config>.tsv.gz, digests.tsv, SUMMARY.md, equivalence-triage.tsv, split-check-disagreements.tsv
+  out/                             generated, gitignored: baseline-<config>.tsv.gz, digests.tsv, SUMMARY.md
 ```
 
 Public interfaces:
 
 - `model.Row` — frozen dataclass: `codepoints: tuple[int, ...]`, `glyphs: tuple[str, ...]`, `clusters: tuple[int, ...]`, `seams: tuple[str, ...]`, `positions: tuple[tuple[int, int, int], ...]`; `Row.to_tsv() -> str`, `Row.from_tsv(line) -> Row`, `row_sort_key(row)`; `CONFIGS: dict[str, dict[str, bool]]` (the §5 list, ordered).
-- `shaper.Shaper` — `Shaper(font_path)`, `shape(text: str, features: dict[str, bool]) -> ShapeResult` (names via TTFont, clusters, positions), `shape_split(text, split_offsets, features)`.
+- `shaper.Shaper` — `Shaper(font_path)`, `shape(text: str, features: dict[str, bool]) -> ShapeResult` (names via TTFont, clusters, positions).
 - `classify.SeamClassifier` — `SeamClassifier(font_path)`, `heights() -> tuple[int, ...]`, `classify(left_glyph: str, right_glyph: str) -> str`.
 - `extract.extract_config(config_token: str, out_dir: Path, workers: int = SHARD_WORKERS_DEFAULT) -> Digest` and `extract.run_all(out_dir, workers)`.
-- `validation.equivalence.run(baseline_path, out_fh, workers=…) -> Counter` and `validation.split_check.run(...)` with the same signature; `validation.pins` exposes `collect_pin_runs`, `check_pin`, `check_against_baseline`, and `ReplayReport`. All of them consume `validation.rowmodel.Row.from_tsv`, so the validation suite and the extractor cannot drift apart on the row format.
+- `validation.pins` exposes `collect_pin_runs`, `check_pin`, `check_against_baseline`, and `ReplayReport`. It consumes `validation.rowmodel.Row.from_tsv`, so the validation suite and the extractor cannot drift apart on the row format.
 
 CLI (all via `uv run`):
 
@@ -220,11 +218,9 @@ uv run python -m rebuild.baseline.cli extract --all --out rebuild/out
 uv run python -m rebuild.baseline.cli summarize --out rebuild/out
 ```
 
-The equivalence and replay checks live under `validation/`, not `baseline/`; drive those, the split-buffer check, and the determinism check from the top-level scripts:
+The replay check lives under `validation/`, not `baseline/`; drive it and the determinism check from the top-level scripts:
 
 ```sh
-uv run python rebuild/run_equivalence.py --baseline rebuild/out/baseline-default.tsv.gz
-uv run python rebuild/run_split_check.py --baseline rebuild/out/baseline-default.tsv.gz
 uv run python rebuild/validate_pins.py --baseline rebuild/out/baseline-default.tsv.gz
 uv run python rebuild/check_determinism.py --config default --lengths 1,2
 ```

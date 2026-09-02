@@ -1,4 +1,4 @@
-"""Argparse front end for the baseline extraction: `extract` writes the per-configuration baseline tables, `summarize` digests them. The boundary-equivalence checks live in rebuild/validation/equivalence.py and the validation suite drives them directly."""
+"""Argparse front end for the baseline extraction: `extract` writes the per-configuration baseline tables, `summarize` digests them."""
 
 from __future__ import annotations
 

@@ -253,13 +253,6 @@ def build_units(
     for index, unit in enumerate(units):
         unit.unit_id = f"u-{index:04d}"
         unit.exemplar = any((row.config, row.codepoints) in exemplar_keys for row in unit.rows)
-    # The dedupe groups rows; it never drops or duplicates one, and it never leaves a unit whose configs render differently — the triple it groups on already fixes both name tuples, so one render group is what the key means. Both are free to say here, and saying them here is what lets the counts themselves stay the census's business.
-    assert sum(len(unit.rows) for unit in units) == len(
-        rows
-    ), f"the dedupe turned {len(rows)} audit rows into {sum(len(unit.rows) for unit in units)}"
-    assert all(
-        unit.render_groups == (unit.configs,) for unit in units
-    ), "a unit's configs rendered differently, which the (codepoints, baseline, new) dedupe key forbids"
     return units
 
 

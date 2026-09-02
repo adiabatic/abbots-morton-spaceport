@@ -53,22 +53,6 @@ class Shaper:
             raise AssertionError(f"non-monotonic clusters shaping {text!r}: {clusters}")
         return ShapeResult(names, clusters, tuple(positions))
 
-    def shape_split(
-        self, text: str, split_offsets: list[int], features: dict[str, bool] | None = None
-    ) -> ShapeResult:
-        bounds = [0, *sorted(split_offsets), len(text)]
-        names: list[str] = []
-        clusters: list[int] = []
-        positions: list[tuple[int, int, int]] = []
-        for start, end in zip(bounds, bounds[1:]):
-            if start >= end:
-                continue
-            segment = self.shape(text[start:end], features)
-            names.extend(segment.names)
-            clusters.extend(c + start for c in segment.clusters)
-            positions.extend(segment.positions)
-        return ShapeResult(tuple(names), tuple(clusters), tuple(positions))
-
 
 def last_glyph_covering(clusters: tuple[int, ...], position: int) -> int:
     covering = -1

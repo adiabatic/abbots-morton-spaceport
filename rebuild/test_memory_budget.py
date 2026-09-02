@@ -259,20 +259,6 @@ class TestWhatDashNAutoResolvesTo:
 class TestTheHandRunDefaults:
     """The widths a hand run gets when it names none, asserted at the shape each resolves to and never at a number, because the answer is this box's and another box's is legitimately different. What they guard against is the failure issue #101 names: a bad merge or a refactor that drops a `default=` puts one of these back to the serial 1 it was before #89, and nothing at all goes red — it reads as nobody's regression right up until someone times a hand run. The autouse fixture above is what makes each equality a single reading of one box rather than two: both sides are computed inside the test, with the probe override and the xdist override cleared."""
 
-    def test_the_equivalence_runner_shapes_at_every_core_it_may_run_on(self):
-        """`equivalence.run`'s pool has never been measured — a shaper and a classifier apiece and nothing reported anywhere — so under the tracking issue's rule for an unmeasured unit the default is a core clamp and not a memory division, and `usable_cores` rather than `os.cpu_count` is what makes that clamp right inside a container with a CPU quota as well as on a laptop."""
-        from rebuild import run_equivalence
-
-        parsed = run_equivalence.build_parser().parse_args(["--baseline", "baseline-default.tsv.gz"])
-        assert parsed.workers == memory_budget.usable_cores()
-
-    def test_the_split_check_runner_shapes_at_every_core_it_may_run_on(self):
-        """The near-duplicate runner, asserted on its own rather than parametrized across the pair: they are two files that stay in step only by being edited twice, and a pin apiece keeps each file's guard readable — and greppable — at its own test name."""
-        from rebuild import run_split_check
-
-        parsed = run_split_check.build_parser().parse_args(["--baseline", "baseline-default.tsv.gz"])
-        assert parsed.workers == memory_budget.usable_cores()
-
     def test_the_extraction_fans_out_to_the_width_its_own_module_resolved(self):
         """`SHARD_WORKERS_DEFAULT` is resolved once at import, exactly as `KERNEL_THREADS_DEFAULT` and `VALIDATORS_WORKERS` are, and the chain pins both links: the CLI hands that name through instead of a literal sitting beside it, and the name itself still derives from `usable_cores` rather than having been reverted to a checked-in width in place. The second equality is what catches the revert the first would wave through — both sides of `parsed.workers == SHARD_WORKERS_DEFAULT` move together when the constant is edited. Why a whole box's worth of these workers is safe is `_shard_workers_default`'s own docstring's argument."""
         from rebuild.baseline import cli, extract

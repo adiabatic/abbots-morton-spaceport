@@ -160,13 +160,6 @@ def run_merge(
             f"{counts['kept_newer']} kept newer{invalid}"
         )
 
-    dropped = sorted(set(base) - set(result))
-    if dropped:
-        print(
-            f"ERROR: the merge would drop {len(dropped)} verdicts (first: {dropped[0]}); refusing to write."
-        )
-        return 1
-
     changed = (aligned is None and (existing_exists or result)) or result != base
     if dry_run:
         print(

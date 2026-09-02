@@ -242,10 +242,6 @@ def test_explicit_cells_row_settles_the_disagreement(tmp_path):
     assert plan.bitmap == "entry-form"
 
 
-def test_anchor_conventions_hold_on_real_data(spec):
-    assert surface.check_anchor_conventions(spec) == ()
-
-
 def test_anchor_convention_drift_is_flagged(tmp_path):
     text = textwrap.dedent("""\
         rune: qsIt

@@ -116,7 +116,7 @@ def test_red_leaves_a_record_for_other_content_alone(green_store):
     assert record["fingerprint"] == "fp-other"
 
 
-def _stub_full_run(monkeypatch, *, defect_errors=(), pins=True, pins_in_scope=143, oracle_pass=False):
+def _stub_full_run(monkeypatch, *, defect_errors=(), pins=True, pins_in_scope=143, multi_matched=0):
     monkeypatch.setattr(run_m1.oracle, "unaliased_subset_names", lambda subset_dir, alias_path: {})
     monkeypatch.setattr(run_m1.baseline_subset, "ensure_fresh", lambda repo_root: False)
     monkeypatch.setattr(run_m1, "load_default_spec", lambda: object())
@@ -142,7 +142,7 @@ def _stub_full_run(monkeypatch, *, defect_errors=(), pins=True, pins_in_scope=14
     monkeypatch.setattr(
         run_m1,
         "run_oracle",
-        lambda spec, jobs, **_cache: {"pass": oracle_pass, "unmatched": 19837, "multi_matched": 0},
+        lambda spec, jobs, **_cache: {"unmatched": 19837, "multi_matched": multi_matched},
     )
 
 
@@ -156,7 +156,7 @@ def test_main_refreshes_the_baseline_subset_before_anything_reads_it(monkeypatch
         "run_m1_skip_fingerprint",
         lambda root=None: "fp-post-refilter" if state["ensured"] else "fp-pre-refilter",
     )
-    _stub_full_run(monkeypatch, oracle_pass=True)
+    _stub_full_run(monkeypatch)
     events = []
 
     def ensure(repo_root):
@@ -173,8 +173,7 @@ def test_main_refreshes_the_baseline_subset_before_anything_reads_it(monkeypatch
     monkeypatch.setattr(
         run_m1,
         "run_oracle",
-        lambda spec, jobs, **_cache: events.append("oracle")
-        or {"pass": True, "unmatched": 0, "multi_matched": 0},
+        lambda spec, jobs, **_cache: events.append("oracle") or {"unmatched": 0, "multi_matched": 0},
     )
     run_m1.main([])
     assert events == ["subset", "run", "oracle"]
@@ -184,24 +183,37 @@ def test_main_refreshes_the_baseline_subset_before_anything_reads_it(monkeypatch
     assert record["fingerprint"] == "fp-post-refilter"
 
 
-def test_unmatched_oracle_rows_still_record_a_green(monkeypatch, tmp_path):
+def test_unmatched_oracle_rows_record_a_green_and_exit_zero(monkeypatch, tmp_path):
+    """Unmatched oracle rows are the mid-migration steady state: they are verdict-gated on the review surface, never a failure of the build, so a run that holds them records its green and exits the way its gate judged."""
     store = tmp_path / "run-m1-green.json"
     monkeypatch.setattr(ac, "RUN_M1_GREEN", store)
     monkeypatch.setattr(ac, "run_m1_skip_fingerprint", lambda root=None: "fp-live")
-    _stub_full_run(monkeypatch, oracle_pass=False)
-    with pytest.raises(SystemExit):
-        run_m1.main([])
+    _stub_full_run(monkeypatch)
+    run_m1.main([])
     record = ac.read_green_record(store)
     assert record is not None
     assert record["fingerprint"] == "fp-live"
 
 
-def test_an_interactive_run_files_the_gates_verdict_and_not_its_exit_code(monkeypatch):
-    """The whole reason a check line exists rather than a return code: this run exits 1 on the unmatched rows that are the mid-migration steady state, and what lands on the record is the green its own gate reached. The line carries no run, because nobody drove this one."""
+def test_a_multi_matched_oracle_row_fails_the_run_and_clears_the_record(monkeypatch, tmp_path):
+    """The oracle's one gate: a row matching two ledger entries is a ledger defect, and the exit status is the judge's verdict."""
+    store = tmp_path / "run-m1-green.json"
+    monkeypatch.setattr(ac, "RUN_M1_GREEN", store)
     monkeypatch.setattr(ac, "run_m1_skip_fingerprint", lambda root=None: "fp-live")
-    _stub_full_run(monkeypatch, oracle_pass=False)
-    with pytest.raises(SystemExit):
+    ac.record_green(store, "fp-live")
+    _stub_full_run(monkeypatch, multi_matched=2)
+    with pytest.raises(SystemExit) as error:
         run_m1.main([])
+    assert "multi_matched = 2" in str(error.value)
+    assert ac.read_green_record(store) is None
+    assert _checks()[0]["verdict"] == "red"
+
+
+def test_an_interactive_run_files_the_gates_verdict(monkeypatch):
+    """What lands on the record is the green the run's own gate reached, unmatched rows notwithstanding. The line carries no run, because nobody drove this one."""
+    monkeypatch.setattr(ac, "run_m1_skip_fingerprint", lambda root=None: "fp-live")
+    _stub_full_run(monkeypatch)
+    run_m1.main([])
     checks = _checks()
     assert len(checks) == 1
     assert checks[0]["check"] == "run_m1"
@@ -212,7 +224,7 @@ def test_an_interactive_run_files_the_gates_verdict_and_not_its_exit_code(monkey
 def test_a_run_that_never_reached_its_judge_files_the_message_it_died_with(monkeypatch):
     """A defect gate that stops the build leaves nothing to judge, so the red carries the sentence it raised and no failed ids — nothing here enumerated a case."""
     monkeypatch.setattr(ac, "run_m1_skip_fingerprint", lambda root=None: "fp-live")
-    _stub_full_run(monkeypatch, defect_errors=["qsAh: contact"], oracle_pass=True)
+    _stub_full_run(monkeypatch, defect_errors=["qsAh: contact"])
     with pytest.raises(SystemExit):
         run_m1.main([])
     checks = _checks()
@@ -226,7 +238,7 @@ def test_a_cycle_spawned_run_files_nothing(monkeypatch):
     """The artifact cycle judges run_m1 itself and tags the line with its own run, so the child it spawned stands down on the run id it inherited: one invocation is worth one line, whoever did the work."""
     monkeypatch.setenv(ct.CYCLE_RUN_ENV, "cafef00d1234")
     monkeypatch.setattr(ac, "run_m1_skip_fingerprint", lambda root=None: "fp-live")
-    _stub_full_run(monkeypatch, oracle_pass=True)
+    _stub_full_run(monkeypatch)
     run_m1.main([])
     assert _checks() == []
 
@@ -236,7 +248,7 @@ def test_a_defect_gate_failure_clears_the_record(monkeypatch, tmp_path):
     monkeypatch.setattr(ac, "RUN_M1_GREEN", store)
     monkeypatch.setattr(ac, "run_m1_skip_fingerprint", lambda root=None: "fp-live")
     ac.record_green(store, "fp-live")
-    _stub_full_run(monkeypatch, defect_errors=["qsAh: contact"], oracle_pass=True)
+    _stub_full_run(monkeypatch, defect_errors=["qsAh: contact"])
     with pytest.raises(SystemExit):
         run_m1.main([])
     assert ac.read_green_record(store) is None
@@ -247,7 +259,7 @@ def test_a_failed_manual_pin_gate_clears_the_record(monkeypatch, tmp_path):
     monkeypatch.setattr(ac, "RUN_M1_GREEN", store)
     monkeypatch.setattr(ac, "run_m1_skip_fingerprint", lambda root=None: "fp-live")
     ac.record_green(store, "fp-live")
-    _stub_full_run(monkeypatch, pins=False, oracle_pass=True)
+    _stub_full_run(monkeypatch, pins=False)
     with pytest.raises(SystemExit):
         run_m1.main([])
     assert ac.read_green_record(store) is None
@@ -259,7 +271,7 @@ def test_a_manual_pin_gate_with_nothing_in_scope_clears_the_record(monkeypatch, 
     monkeypatch.setattr(ac, "RUN_M1_GREEN", store)
     monkeypatch.setattr(ac, "run_m1_skip_fingerprint", lambda root=None: "fp-live")
     ac.record_green(store, "fp-live")
-    _stub_full_run(monkeypatch, pins_in_scope=0, oracle_pass=True)
+    _stub_full_run(monkeypatch, pins_in_scope=0)
     with pytest.raises(SystemExit) as error:
         run_m1.main([])
     assert "no pins in scope" in str(error.value)
@@ -485,7 +497,7 @@ class TestGatesOnly:
             run_m1,
             "run_oracle",
             lambda out_dir, spec, jobs, **_cache: ran.append("oracle")
-            or {"pass": True, "unmatched": 0, "multi_matched": 0},
+            or {"unmatched": 0, "multi_matched": 0},
         )
         monkeypatch.setattr(
             run_m1, "_settle_green", lambda *args, **kwargs: pytest.fail("--gates-only recorded a green")
@@ -494,8 +506,8 @@ class TestGatesOnly:
         assert ran == ["pins", "oracle"]
         assert "[t] run_oracle" in capsys.readouterr().out
 
-    def test_it_files_the_re_adjudications_verdict_rather_than_its_exit_status(self, monkeypatch, tmp_path):
-        """A ledger edit is re-adjudicated in a loop, and every iteration of that loop exits nonzero while the unmatched rows remain — so a record keyed on the exit status would read a whole afternoon's work as an afternoon of failures. The pass is judged by the same evaluator the cycle runs over a build it reused, and files that."""
+    def test_it_files_the_re_adjudications_verdict(self, monkeypatch, tmp_path):
+        """A ledger edit is re-adjudicated in a loop while the unmatched rows remain; the pass is judged by the same evaluator the cycle runs over a build it reused, files that, and exits the way it judged."""
         self._reuse(monkeypatch, {})
         monkeypatch.setattr(run_m1, "OUT_DIR", tmp_path)
         (tmp_path / "M1.otf").write_bytes(b"font")
@@ -508,10 +520,9 @@ class TestGatesOnly:
         monkeypatch.setattr(
             run_m1,
             "run_oracle",
-            lambda out_dir, spec, jobs, **_cache: {"pass": False, "unmatched": 19837, "multi_matched": 0},
+            lambda out_dir, spec, jobs, **_cache: {"unmatched": 19837, "multi_matched": 0},
         )
-        with pytest.raises(SystemExit):
-            run_m1.main(["--gates-only"])
+        run_m1.main(["--gates-only"])
         checks = _checks()
         assert len(checks) == 1
         assert checks[0]["check"] == "run_m1"

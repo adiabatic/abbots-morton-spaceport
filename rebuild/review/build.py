@@ -20,7 +20,6 @@ import sys
 import time
 import traceback
 import warnings
-from collections import Counter
 from dataclasses import dataclass, replace
 from functools import lru_cache
 from itertools import combinations
@@ -550,7 +549,7 @@ def _prune_orphan_shards(out_dir: Path, manifest: dict) -> list[str]:
 
 
 def _cluster_id_from_repr(configs, class_id, diffs_repr: str) -> str:
-    """`_cluster_id` over a pre-rendered ink-diff repr, so the unit cache can carry the diffs across builds as the repr string instead of the (large, tuple-shaped) diffs themselves. The composed string is byte-for-byte `repr((tuple(configs), class_id, diffs))` — CPython renders a 3-tuple as exactly this join — which `test_cluster_id_repr_composition` pins against the tuple form."""
+    """`_cluster_id` over a pre-rendered ink-diff repr, so the unit cache can carry the diffs across builds as the repr string instead of the (large, tuple-shaped) diffs themselves. The composed string is byte-for-byte `repr((tuple(configs), class_id, diffs))` — CPython renders a 3-tuple as exactly this join — which `rebuild/test_unit_cache.py::test_cluster_id_from_repr_matches_the_tuple_recipe` pins against the tuple form."""
     key = f"({tuple(configs)!r}, {class_id!r}, {diffs_repr})"
     return "c-" + hashlib.sha1(key.encode()).hexdigest()[:8]
 
@@ -1154,12 +1153,8 @@ def build_m1(
     served: dict[str, unit_cache.CachedUnit] = {}
     prior_fragments: dict[str, dict] = {}
     if store:
-        # A key shared by two current units would hand both the same prior fragment object, and the in-place patch would corrupt one of them; distinct units always carry distinct rows today, so a collision means something upstream broke — recompute both rather than serve either.
-        key_counts = Counter(keys.values())
         candidates = {
-            unit.unit_id: store[keys[unit.unit_id]]
-            for unit in workload.units
-            if keys[unit.unit_id] in store and key_counts[keys[unit.unit_id]] == 1
+            unit.unit_id: store[keys[unit.unit_id]] for unit in workload.units if keys[unit.unit_id] in store
         }
         wanted: dict[str, set[str]] = {}
         for cached in candidates.values():

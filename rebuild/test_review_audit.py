@@ -102,7 +102,7 @@ def test_every_unit_has_exactly_one_render_group(mini):
 
 
 def test_the_dedupe_loses_no_rows(mini):
-    """Every audit row ends up under exactly one unit: the dedupe groups rows, it never drops or duplicates one. How many there are is the census's business, so only the accounting is asserted — plus that both sides are nonempty, since an empty audit would satisfy the sum vacuously. Over the live corpus this is `build_units`' own assertion, which is why it need not be swept here."""
+    """Every audit row ends up under exactly one unit: the dedupe groups rows, it never drops or duplicates one. How many there are is the census's business, so only the accounting is asserted — plus that both sides are nonempty, since an empty audit would satisfy the sum vacuously. Over the live corpus `check_shards` re-proves the same conservation on every build through the shard totals, which is why it need not be swept here."""
     assert mini.row_count > 0
     assert len(mini.units) > 0
     assert sum(len(unit.rows) for unit in mini.units) == mini.row_count

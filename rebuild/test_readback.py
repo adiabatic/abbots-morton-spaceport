@@ -1,7 +1,5 @@
 """Read-back tests over a real mini-world build: the fixture drives the whole emit → compile path on the fixture spec, so the font under test carries every stage the shipped one does — the ss10 pre-empt, the guarded and plain formation lookups, four marker lookups, the chokepoint, a packed settlement lookup, and the namer dot. A clean build must verify with zero divergences; each corruption below is a lie the compiled font could tell about the plan, and must be caught and named."""
 
-import json
-
 import pytest
 
 from rebuild.pipeline import (
@@ -103,57 +101,6 @@ class TestReadback:
         assert readback.verify_font(font_path, plan, cursive) == readback.verify_font(
             font_path, plan, cursive
         )
-
-
-class TestSettleFold:
-    """The record the build leaves beside its read-back summary: the settlement rows as the emitters planned them and this stage just held the font to, with the per-configuration sources the witness gate counts coverage over."""
-
-    def test_the_settle_fold_round_trips(self, built, tmp_path):
-        font_path, plan, _cursive, _twins = built
-        path = readback.settle_fold_path(tmp_path)
-        readback.write_settle_fold(path, plan, "fp-sources", True, font=font_path)
-        fold = readback.read_settle_fold(path)
-        assert fold.inputs == "fp-sources"
-        assert fold.readback_pass is True
-        assert fold.font == str(font_path)
-        assert fold.rules == plan.settle_rules
-        assert all(rule.sources for rule in fold.rules)
-        assert fold.configs == tuple(
-            dict.fromkeys(name for rule in plan.settle_rules for name, _index in rule.sources)
-        )
-        assert set(fold.configs) == set(CONFIGS)
-        lines = path.read_text().splitlines()
-        assert json.loads(lines[0])["rules"] == len(lines) - 1 == len(fold.rules)
-
-    def test_a_failed_readback_is_recorded_as_one(self, built, tmp_path):
-        _font_path, plan, _cursive, _twins = built
-        path = readback.settle_fold_path(tmp_path)
-        readback.write_settle_fold(path, plan, "fp-sources", False)
-        fold = readback.read_settle_fold(path)
-        assert fold.readback_pass is False
-        assert fold.font is None
-        assert fold.rules == plan.settle_rules
-
-    def test_a_settle_fold_is_byte_identical_across_writes(self, built, tmp_path):
-        _font_path, plan, _cursive, _twins = built
-        first, second = tmp_path / "first.ndjson", tmp_path / "second.ndjson"
-        readback.write_settle_fold(first, plan, "fp-sources", True)
-        readback.write_settle_fold(second, plan, "fp-sources", True)
-        assert first.read_bytes() == second.read_bytes()
-
-    def test_a_truncated_settle_fold_refuses_to_load(self, built, tmp_path):
-        _font_path, plan, _cursive, _twins = built
-        truncated = tmp_path / "truncated.ndjson"
-        readback.write_settle_fold(truncated, plan, "fp-sources", True)
-        truncated.write_text("\n".join(truncated.read_text().splitlines()[:-1]) + "\n")
-        with pytest.raises(ValueError):
-            readback.read_settle_fold(truncated)
-        headless = tmp_path / "headless.ndjson"
-        headless.write_text('{"format":"ams-m1-settle-fold/0","rules":0}\n')
-        with pytest.raises(ValueError):
-            readback.read_settle_fold(headless)
-        with pytest.raises(OSError):
-            readback.read_settle_fold(tmp_path / "absent.ndjson")
 
 
 class TestCorruptions:

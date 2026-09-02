@@ -315,17 +315,6 @@ def write_digests_tsv(out_dir: Path) -> Path:
     return path
 
 
-def _count_triage_rows(path: Path) -> dict[tuple[str, str], int]:
-    counts: dict[tuple[str, str], int] = {}
-    for line in path.read_text(encoding="utf-8").splitlines():
-        if not line or line.startswith("#") or line.startswith("config\t"):
-            continue
-        parts = line.split("\t")
-        key = (parts[0], parts[1])
-        counts[key] = counts.get(key, 0) + 1
-    return counts
-
-
 def write_summary(out_dir: Path, top_glyphs: int = 20) -> Path:
     out_dir = Path(out_dir)
     lines: list[str] = ["# Baseline extraction summary", ""]
@@ -381,36 +370,6 @@ def write_summary(out_dir: Path, top_glyphs: int = 20) -> Path:
     else:
         lines.append("No digests found; run the extraction first.")
         lines.append("")
-    triage_path = out_dir / "equivalence-triage.tsv"
-    lines.append("## Equivalence divergences")
-    lines.append("")
-    if triage_path.exists():
-        counts = _count_triage_rows(triage_path)
-        if counts:
-            lines.append("| Config | Check | Divergences |")
-            lines.append("| ------ | ----- | ----------- |")
-            for (config, check), count in sorted(counts.items()):
-                lines.append(f"| {config} | {check} | {count} |")
-        else:
-            lines.append("No divergences recorded.")
-    else:
-        lines.append("Not run yet (`equivalence-triage.tsv` absent).")
-    lines.append("")
-    split_path = out_dir / "split-check-disagreements.tsv"
-    lines.append("## Split-buffer cross-check")
-    lines.append("")
-    if split_path.exists():
-        disagreement_rows = [
-            line
-            for line in split_path.read_text(encoding="utf-8").splitlines()
-            if line and not line.startswith("#") and not line.startswith("config\t")
-        ]
-        lines.append(
-            f"{len(disagreement_rows)} disagreement rows recorded in `split-check-disagreements.tsv`."
-        )
-    else:
-        lines.append("Not run yet (`split-check-disagreements.tsv` absent).")
-    lines.append("")
     replay_path = out_dir / "replay-report.json"
     lines.append("## Corpus pin replay")
     lines.append("")

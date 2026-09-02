@@ -42,7 +42,7 @@ Do not add `self:` / `then:` / `feature:` guards unless the user scoped the chan
 
 just-verdicted-now-what's steps 6–7. `make test` self-skips (`glyph_data/runes/` is exempt). Don't rebuild the review surface — the user runs `make review-cycle` after the commit; the validators lane will ERROR on the sitting surface until then, which is not a defect.
 
-`run_m1` exits 1 on UNMATCHED rows; that is the mid-migration steady state, not a red gate. Green is defects 0/0, Manual pins clean, `multi_matched` 0. New unmatched exemplars for this pair (`+en-con-1`, `+ex-ext-N`, position-drift) are the designed divergence. A new `E-CONTACT` / dangle in `defect_errors` needs a signature in `rebuild/m1-contact-allow.yaml` in that file's idiom; a cell variant that already has one (the `qsGay.hapax.en-y0.en-con-1` dangle from ·No) is reused, not copied.
+UNMATCHED rows are the mid-migration steady state, not a red gate; `run_m1` exits the way its gate judges. Green is defects 0/0, Manual pins clean, `multi_matched` 0. New unmatched exemplars for this pair (`+en-con-1`, `+ex-ext-N`, position-drift) are the designed divergence. A new `E-CONTACT` / dangle in `defect_errors` needs a signature in `rebuild/m1-contact-allow.yaml` in that file's idiom; a cell variant that already has one (the `qsGay.hapax.en-y0.en-con-1` dangle from ·No) is reused, not copied.
 
 Do not author a standing approval unless the user wants the docket to stop asking — that is dont-bug-me-about-this-ever-again.
 

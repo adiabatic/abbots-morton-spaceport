@@ -174,20 +174,3 @@ class TestEnsureFresh:
         ):
             stamp.write_text(payload)
             assert baseline_subset.is_fresh(root) is False
-
-
-class TestFilterTriage:
-    def test_filters_on_the_codepoints_column(self, tmp_path):
-        source = tmp_path / "equivalence-triage.tsv"
-        source.write_text(
-            "config\tcheck\tcodepoints\tbaseline_glyphs\tboundary_glyphs\tfirst\tbs\tns\tkind\n"
-            "default\tzwnj-vs-edge\t200C:E650\ta\tb\t0\tx\ty\tname\n"
-            "default\tzwnj-vs-edge\t200C:E657\ta\tb\t0\tx\ty\tname\n"
-        )
-        destination = tmp_path / "triage.subset.tsv"
-        kept = baseline_subset.filter_triage(source, destination)
-        assert kept == 1
-        content = destination.read_text()
-        assert content.startswith("config\t")
-        assert "200C:E650" in content
-        assert "E657" not in content

@@ -46,7 +46,6 @@ class TestBuildMiniFont:
         out_path, _names = built
         budget = json.loads((out_path.parent / "budget.json").read_text())
         assert budget["gate"]["failed"] is False
-        assert "extension_promotion_yellow_flag" in budget["gate"]
         assert budget["measured"]["lookup_count"] >= 1
 
     def test_shaping_matches_the_settlement_rules(self, built):

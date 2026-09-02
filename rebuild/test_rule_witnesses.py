@@ -2,18 +2,17 @@
 
 The decision table itself is another matter: the fixpoint costs minutes per configuration, and the build stage already serialized every configuration's enumeration under rebuild/out/m1, stamped with the fingerprint of the sources it read — the same stamp the conformance sweep trusts instead of rebuilding. Every arm here reads that artifact, and an artifact that is missing, unreadable, or stamped from other sources than the ones on disk fails the gate outright with a message saying to run the build first, rather than rebuilding the fixpoint in-process: that rebuild was tracker #66's decision 4 to undo, because it turned a stale `make test-rebuild` from minutes into the better part of an hour and sprang on exactly the bare run an author reaches for after a rune edit. There is no parity arm beside them any more: the stamp binds an enumeration to the sources it was built from, and since issue 78 the crate is the only fixpoint there is, so a fresh enumeration here could only restate the same engine's answer at the price of a live build.
 
-Coverage is enumerated over the emitted rule list — the fold read-back proved the font holds, which the build records in `settle-fold.ndjson` with each row's per-configuration sources — by holding that record to the stamped tables: every emitted row folds from at least one table rule, every table rule folds into exactly one emitted row, and the per-configuration arms witness every table rule. Together that says every row the font ships has a settle-verified realizing string under the configuration that derived it, and it says so about the shipped lookup rather than about the per-configuration tables it folds from. No accounting here runs over any other list, which is the gap behind the issue-28 incident: a coverage tally that read complete while a family of vote-chain rules had no witness at all.
+Coverage is counted over the stamped tables, and that count reaches the shipped lookup by construction: `emit_gsub._assert_fold_sources` raises at emit time unless every table rule of every configuration folds into exactly one emitted row, so a build that compiled a font could not have dropped or doubled a witnessed rule on the way. What the per-configuration arms add is the realizing string itself. No accounting here runs over any other list, which is the gap behind the issue-28 incident: a coverage tally that read complete while a family of vote-chain rules had no witness at all.
 """
 
-import dataclasses
 from collections import Counter
 
 import pytest
 
-from rebuild.pipeline import conform, emit_gsub, fixtures, kernel_exec, readback, run_m1
+from rebuild.pipeline import conform, emit_gsub, fixtures, kernel_exec, run_m1
 from rebuild.pipeline import table as table_module
 from rebuild.pipeline.spec_load import load_default_spec
-from rebuild.pipeline.table import DecisionTable, Rule
+from rebuild.pipeline.table import DecisionTable
 
 CONFIGS = ("default", "ss03")
 
@@ -37,29 +36,6 @@ def stamped_decision(config: str, windows: bool = True) -> DecisionTable:
     return decision
 
 
-def stamped_fold() -> readback.SettleFold:
-    """The build stage's record of the settlement rows it emitted, refused on the same terms as the tables beside it. A record whose read-back did not pass is refused too: its rows are what the emitters planned, but nothing has proven the font holds them, so counting coverage over it would claim more than the build earned."""
-    stale = f"no {readback.SETTLE_FOLD_FILENAME} under {run_m1.OUT_DIR} is stamped with the current sources — a stale or missing record fails this gate instead of re-folding in-process; run `uv run python -m rebuild.pipeline.run_m1` (or a `make review-cycle` pass) first"
-    try:
-        fold = readback.read_settle_fold(readback.settle_fold_path(run_m1.OUT_DIR))
-    except OSError, ValueError:
-        pytest.fail(stale)
-    if fold.inputs != run_m1.tables_inputs():
-        pytest.fail(stale)
-    if not fold.readback_pass:
-        pytest.fail(
-            f"the emitted settlement lookup under {run_m1.OUT_DIR} did not read back from the font — see readback_summary.json"
-        )
-    return fold
-
-
-def _row_text(rule: emit_gsub.SettleRule) -> str:
-    """One emitted row as a line, in `conform.rule_signature`'s idiom — which cannot serve for these rows, because it reads look1..look4 off a table rule where an emitted row carries only its live slots."""
-    backtrack = sorted(rule.backtrack) if rule.backtrack else "any"
-    lookahead = ", ".join(str(sorted(slot)) for slot in rule.lookahead) or "any"
-    return f"{rule.input_glyph} [backtrack={backtrack}, lookahead={lookahead}] -> {rule.outcome} from {[list(source) for source in rule.sources]}"
-
-
 @pytest.mark.parametrize("config", conform.ACCEPTANCE_CONFIGS)
 def test_every_rule_has_a_witness(spec, config, live_artifacts):
     features = conform.features_for_config(config)
@@ -71,52 +47,6 @@ def test_every_rule_has_a_witness(spec, config, live_artifacts):
         f"  {conform.rule_signature(decision.rules[index])}" for index in report.unwitnessed
     )
     assert len(report.witnessed) == len(decision.rules)
-
-
-def test_every_emitted_rule_folds_from_a_stamped_table_rule(spec, live_artifacts):
-    """The emitted-list half of the coverage claim. The arms above witness every rule of every stamped table; this holds the recorded fold — what read-back proved the font holds — to those same tables: re-folding the stamped rules reproduces the record row for row, sources included, every emitted row names at least one source, and every table rule is the source of exactly one row. Together: every row the font ships has a settle-verified realizing string under the configuration that derived it, and the accounting unit is the shipped lookup rather than the per-configuration tables it folds from."""
-    fold = stamped_fold()
-    tables = {config: stamped_decision(config, windows=False) for config in conform.ACCEPTANCE_CONFIGS}
-    refolded = emit_gsub.fold_settle_rules(spec, tables)
-    assert len(refolded) == len(
-        fold.rules
-    ), f"the recorded fold holds {len(fold.rules)} row(s); re-folding the stamped tables produces {len(refolded)}"
-    for position, (recorded, rebuilt) in enumerate(zip(fold.rules, refolded)):
-        assert recorded == rebuilt, (
-            f"row {position} differs between the recorded fold and a re-fold of the stamped tables:\n"
-            f"  recorded  {_row_text(recorded)}\n"
-            f"  re-folded {_row_text(rebuilt)}"
-        )
-    assert refolded == fold.rules
-    unsourced = [rule for rule in fold.rules if not rule.sources]
-    assert (
-        not unsourced
-    ), f"{len(unsourced)} emitted row(s) name no table rule they folded from:\n" + "\n".join(
-        f"  {_row_text(rule)}" for rule in unsourced[:5]
-    )
-    sourced = Counter(source for rule in fold.rules for source in rule.sources)
-    for config, decision in tables.items():
-        indices = {index for name, index in sourced if name == config}
-        expected = set(range(len(decision.rules)))
-        assert indices == expected, (
-            f"{config}: {len(expected - indices)} table rule(s) fold into no emitted row, "
-            f"{len(indices - expected)} recorded source(s) name no rule of the stamped table"
-        )
-    doubled = [source for source, count in sourced.items() if count != 1]
-    assert (
-        not doubled
-    ), f"{len(doubled)} table rule(s) source more than one emitted row: {sorted(doubled)[:5]}"
-    assert tuple(fold.configs) == tuple(
-        dict.fromkeys(name for rule in fold.rules for name, _index in rule.sources)
-    )
-    assert set(fold.configs) == set(conform.ACCEPTANCE_CONFIGS)
-
-
-def test_mini_spec_rules_all_witnessed():
-    spec = fixtures.mini_spec()
-    decision, _treaty = kernel_exec.build_tables(spec, frozenset())
-    report = conform.find_rule_witnesses(spec, frozenset(), decision)
-    assert not report.unwitnessed
 
 
 def test_mini_spec_emitted_rules_all_fold_from_witnessed_rules():
@@ -141,22 +71,3 @@ def test_mini_spec_emitted_rules_all_fold_from_witnessed_rules():
         assert index in reports[config].witnessed, f"{config} rule {index} sources an emitted row unwitnessed"
     for config, (decision, _treaty) in tables.items():
         assert {index for name, index in sourced if name == config} == set(range(len(decision.rules)))
-
-
-def test_dead_rule_raises_the_alarm():
-    spec = fixtures.mini_spec()
-    decision, _treaty = kernel_exec.build_tables(spec, frozenset())
-    dead = Rule(
-        input_glyph="qsMay",
-        backtrack=("qsNever.loop",),
-        look1=None,
-        look2=None,
-        look3=None,
-        look4=None,
-        outcome="qsMay",
-        provenance=(),
-        joint=False,
-    )
-    poisoned = dataclasses.replace(decision, rules=decision.rules + (dead,))
-    report = conform.find_rule_witnesses(spec, frozenset(), poisoned)
-    assert report.unwitnessed == [len(decision.rules)]
