@@ -169,7 +169,7 @@ def test_finish_copies_the_summary_blocks(tmp_path):
         "interrupted": False,
         "failures": [],
         "gates": {"js": {"status": "green"}},
-        "plan": {"short_id": "abc", "deferred": []},
+        "plan": {"short_id": "abc"},
         "argv": ["prog", "--fresh"],
         "census_status": "clean",
     }
@@ -546,7 +546,7 @@ def _view_journal(tmp_path):
                 "started_at": "2026-01-01T00:00:00Z",
                 "wall_s": 10.5,
                 "exit": "ok",
-                "plan": {"deferred": ["conform"]},
+                "plan": {"short_id": "abc"},
             },
         ],
     )
@@ -563,7 +563,6 @@ def test_main_default_view_lists_steps_slowest_first(tmp_path, capsys):
     assert "ram=51.54GB" in out
     assert "wall=10.5s" in out
     assert "exit=ok" in out
-    assert "deferred=conform" in out
     assert out.index("slow") < out.index("fast")
     assert "(rc 1)" in out
     assert "rss=8.94GB" in out
