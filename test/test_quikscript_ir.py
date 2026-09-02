@@ -18,6 +18,8 @@ from quikscript_fea import (
     _format_post_liga_cleanup_rules,
     _select_rule_neighbors,
     emit_quikscript_senior_features,
+    expand_hoisted_classes,
+    hoist_repeated_classes,
 )
 from quikscript_ir import (
     GlyphData,
@@ -65,11 +67,13 @@ def _real_senior_compiled():
     return compile_glyph_set(_real_glyph_data(), "senior")
 
 
+_SENIOR_FEA_PATH = ROOT / "site" / "AbbotsMortonSpaceportSansSenior-Regular.fea"
+
+
 @cache
 def _real_senior_fea() -> str:
-    fea = emit_quikscript_senior_features(_real_senior_join_glyphs(), 50, 50)
-    assert fea is not None
-    return fea
+    """The Senior feature file the build last wrote, with every hoisted class spelled back inline so an assertion can read a rule's neighbor lists off the rule's own line. The suite builds the fonts before any test runs (see the root conftest), so this is the current emitter output; reading it keeps the emitter's own memory peak out of whichever worker draws one of these tests."""
+    return expand_hoisted_classes(_SENIOR_FEA_PATH.read_text())
 
 
 def test_widen_right_at_edge_widens_by_count():
@@ -807,6 +811,46 @@ def test_contract_entry_after_by_two_trims_receivers_left_ink_at_entry_row():
     assert contracted.transform_kind == "en-con-2"
 
 
+def test_hoist_repeated_classes_names_repeated_bodies_after_the_emitter_definitions():
+    fea = "\n".join(
+        [
+            "feature calt {",
+            "    @exit_y0 = [a b];",
+            "",
+            "    lookup one {",
+            "        sub [a b] c' [d e] by c.alt;",
+            "        ignore sub [a b] f' [g];",
+            "        sub @exit_y0 f' [d e] by f.alt;",
+            "        sub [@exit_y0 h] i' by i.alt;",
+            "        sub [@exit_y0 h] j' by j.alt;",
+            "    } one;",
+            "} calt;",
+            "",
+            "feature ss03 {",
+            "    sub [a b] by [d e];",
+            "    sub [a b] by [d e];",
+            "} ss03;",
+        ]
+    )
+    hoisted = hoist_repeated_classes(fea)
+    lines = hoisted.split("\n")
+
+    assert lines[1:4] == ["    @exit_y0 = [a b];", "    @ams0001 = [a b];", "    @ams0002 = [d e];"]
+    assert "        sub @ams0001 c' @ams0002 by c.alt;" in lines
+    assert "        ignore sub @ams0001 f' [g];" in lines
+    assert "        sub @exit_y0 f' @ams0002 by f.alt;" in lines
+    assert "        sub [@exit_y0 h] i' by i.alt;" in lines
+    assert hoisted.endswith("feature ss03 {\n    sub [a b] by [d e];\n    sub [a b] by [d e];\n} ss03;")
+    assert expand_hoisted_classes(hoisted) == fea
+
+
+def test_the_built_senior_fea_round_trips_through_the_class_hoist():
+    built = _SENIOR_FEA_PATH.read_text()
+
+    assert "    @ams0001 = [" in built
+    assert hoist_repeated_classes(_real_senior_fea()) == built
+
+
 def test_senior_feature_emitter_includes_join_and_gate_features():
     fea = _real_senior_fea()
 
@@ -1030,6 +1074,7 @@ def test_senior_feature_emitter_derives_mid_entry_strip_guards():
 
     fea = emit_quikscript_senior_features(join_glyphs, 50, 50)
     assert fea is not None
+    fea = expand_hoisted_classes(fea)
 
     assert "ignore sub qsLeft' [qsMid qsMid.ex-y0] qsRight;" in fea
     assert "ignore sub qsLeft.noentry' [qsMid qsMid.ex-y0] qsRight;" in fea
