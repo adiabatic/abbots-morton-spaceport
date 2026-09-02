@@ -165,6 +165,9 @@ def test_the_build_entry_never_names_the_comparison_side():
     ), f"{BUILD_DRIVER.name} binds no comparison-side name, so this check would be vacuous; the driver stopped importing the gates it runs"
     reached, mentioned = _build_entry_reach(tree)
     assert "build_tables" in reached, "the walk from `run` never reached build_tables; the build entry moved"
+    assert (
+        "_run_defect_gates" in reached
+    ), "the walk from `run` never reached _run_defect_gates; the defect gate the gates-only route shares with the build has to stay inside this walk, or a helper both entry points call could reach the comparison side unchecked"
     offenders = sorted(name for name in mentioned if name.split(".")[0] in bindings)
     assert offenders == [], (
         f"the build entry `{BUILD_ENTRY}` reaches the comparison side through {', '.join(offenders)} (via "

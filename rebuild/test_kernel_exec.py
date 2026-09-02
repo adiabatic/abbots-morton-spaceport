@@ -342,6 +342,31 @@ def test_the_class_grain_rule_needs_a_fiber_source(monkeypatch, deep, prospect, 
     assert kernel_exec.class_grain() is wanted
 
 
+@pytest.mark.parametrize(
+    ("prospect", "votes", "deep", "wanted"),
+    [
+        (True, True, True, ["simulated-prospect", "vote-slots", "deep-classes"]),
+        (True, False, True, ["simulated-prospect", "deep-classes"]),
+        (False, True, True, ["vote-slots", "deep-classes"]),
+        (True, True, False, ["simulated-prospect", "vote-slots"]),
+        (False, False, True, []),
+        (False, False, False, []),
+    ],
+)
+def test_the_enumeration_tokens_name_every_flag_that_is_on(monkeypatch, prospect, votes, deep, wanted):
+    """Each of these flags changes settlement semantics or enumeration grain without moving a single hashed source, so a key taken over the sources alone would read a flag-on enumeration as fresh to a flag-off process and the reverse. The order is the order a stamp appends them, and the class-grain token obeys `class_grain` rather than its own flag: the pinned candidacy world grants it to nobody, so a stamp that carried it there would name a grain the crate never enumerated at."""
+    monkeypatch.setattr(kernel_exec, "SIMULATED_PROSPECT_DEFAULT", prospect)
+    monkeypatch.setattr(kernel_exec, "VOTE_SLOTS_DEFAULT", votes)
+    monkeypatch.setattr(kernel_exec, "DEEP_CLASSES_DEFAULT", deep)
+    assert kernel_exec.enumeration_tokens() == wanted
+
+
+def test_the_tables_stamp_appends_exactly_the_enumeration_tokens(monkeypatch):
+    """Two keys spell the semantics half of the engine's identity — the tables' own stamp and gate:conform's sweep key — and both now ask one function for it, so what is left to hold is that the stamp appends what that function answers and nothing beside it. A fourth flag added to the engine then reaches both keys in the same commit rather than one of them."""
+    monkeypatch.setattr(run_m1.fingerprint, "tables_value", lambda repo_root: "sources")
+    assert run_m1.tables_inputs() == "+".join(["sources", *kernel_exec.enumeration_tokens()])
+
+
 @pytest.mark.parametrize("config", sorted(CONFIGS))
 class TestTheProductStandsAlone:
     """What a stream carries has to stand on its own, because nothing folds it here any more: the rows in the key order `fold::assert_key_sorted` refuses a product for losing, and every cell they name present in the product that named them. The joint flags those rows carry are the trace's floor alone — what the prospect-divergence pass then makes of them is the crate's `fold::tests::the_prospect_pass_raises_joints_and_clears_none`, which can see the rows on both sides of the pass where this side sees only the artifacts."""

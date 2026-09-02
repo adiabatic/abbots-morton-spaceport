@@ -219,6 +219,18 @@ def class_grain() -> bool:
     return DEEP_CLASSES_DEFAULT and (SIMULATED_PROSPECT_DEFAULT or VOTE_SLOTS_DEFAULT)
 
 
+def enumeration_tokens() -> list[str]:
+    """The semantics tokens any stamp over this process's enumeration has to carry, in the order a stamp appends them: the simulated prospect, the stage-4b shifted vote slots, and the issue-26 class-grain deep slots, each present only while it is on. Every one of them changes settlement semantics or enumeration grain without moving a hashed source, so a key over the sources alone would read a flag-on enumeration as fresh to a flag-off process and the reverse. `run_m1.tables_inputs` appends these to the tables' stamp and `artifact_cycle.conform_skip_lines` folds the same list into the sweep's key; deriving both from one function is what keeps the two from ever disagreeing about which engine produced what."""
+    tokens: list[str] = []
+    if SIMULATED_PROSPECT_DEFAULT:
+        tokens.append("simulated-prospect")
+    if VOTE_SLOTS_DEFAULT:
+        tokens.append("vote-slots")
+    if class_grain():
+        tokens.append("deep-classes")
+    return tokens
+
+
 def _spec_dump(spec: ResolvedSpec) -> Path:
     """The path of this spec's `spec.json`, dumped once per spec identity per process. Every settlement verb and the guard sweep read the same file: the dump is the fixed cost of reaching the kernel at all, and a walker that settles a hundred batches of one spec should pay it once rather than a hundred times. The entry holds the spec strongly, so its `id` cannot be recycled while the dump stands for it, and holds the `TemporaryDirectory` so eviction is what removes the file rather than a garbage collection nobody scheduled."""
     key = id(spec)

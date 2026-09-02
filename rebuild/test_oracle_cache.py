@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from rebuild.pipeline import conform, fixtures, kernel_exec, oracle_cache, run_m1
+from rebuild.pipeline import conform, fingerprint, fixtures, kernel_exec, oracle_cache, run_m1
 from rebuild.tools import artifact_cycle
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -176,6 +176,38 @@ def test_the_stamp_carries_the_configuration_and_its_features(repo):
     assert len({stamp.value for stamp in stamps.values()}) == len(conform.ACCEPTANCE_CONFIGS)
     default, ss03 = stamps["default"].labels, stamps["ss03"].labels
     assert oracle_cache.moved_note(default, ss03) == "config (changed), features (changed)"
+
+
+def test_the_stamp_folds_none_of_the_inputs_the_comparison_re_reads_every_pass(repo):
+    """The other half of the stamp's honesty, and the half a value comparison cannot see: an input the comparison re-reads over every row on every pass can move without staling one record, so folding it in only collapses the store for nothing. The alias map rides per-family keys and its own boundary line, the divergence ledger is re-read by classification, the kern sidecar is re-read by the position channel — and each is asserted to be a data input the exclusion actually reaches, not merely a path the fold happens to miss."""
+    spec = fixtures.mini_spec()
+    base = _stamp(repo, spec)
+    (repo / "glyph_data" / "senior_quikscript_kerning.yaml").write_text("pairs: []\n", encoding="utf-8")
+    stamped = set(oracle_cache.stamped_data_paths(repo))
+    assert _script(repo) in stamped
+    for name in (
+        "glyph_data/senior_quikscript_kerning.yaml",
+        "rebuild/m1-aliases.yaml",
+        "rebuild/m1-divergences.yaml",
+    ):
+        path = repo / name
+        assert path in fingerprint.data_paths(repo), f"{name} is no longer a data input at all"
+        assert path not in stamped
+    assert not stamped & set(fingerprint.rune_paths(repo))
+    assert _stamp(repo, spec).lines == base.lines
+
+
+def test_blessing_a_contact_signature_leaves_the_whole_store_stamp_untouched(repo):
+    """The allow-list is the input this stamp used to pay the most for and read the least: no oracle stage opens it — it is the defect gate's — and it moves often enough that stamping it collapsed the whole store on a two-line bless. It needs no exclusion here any more, because it left `fingerprint.data_paths` outright, which is asserted rather than assumed: an exclusion list naming a path the fold can no longer reach would go on reading as protection long after the fold had grown a second door."""
+    spec = fixtures.mini_spec()
+    allow = repo / fingerprint.CONTACT_ALLOW_LABEL
+    allow.write_text("- {signature: 'contact:qsPea.full.ex-y0:qsTea.full.en-y0:y1'}\n", encoding="utf-8")
+    base = _stamp(repo, spec)
+    assert allow not in fingerprint.data_paths(repo)
+    assert allow not in set(oracle_cache.stamped_data_paths(repo))
+    allow.write_text("- {signature: 'contact:qsPea.full.ex-y0:qsTea.full.en-y0:y2'}\n", encoding="utf-8")
+    assert _stamp(repo, spec).lines == base.lines
+    assert oracle_cache.moved_note(base.labels, _stamp(repo, spec).labels) is None
 
 
 # --- the family key's grain --------------------------------------------------------------

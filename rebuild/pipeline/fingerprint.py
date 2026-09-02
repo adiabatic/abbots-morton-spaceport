@@ -4,7 +4,9 @@ The surface manifest's `generated_at` stamp is mtime-based and exists to key uni
 
 Chain honesty: run_m1 persists the Stage A components (`data`, `baselines`, `pipeline_code`) into rebuild/out/m1/inputs_fingerprint.json at build time, and the review build copies those recorded values into the manifest instead of recomputing them — so a surface rebuilt over stale out/m1 artifacts carries the stale hashes and the checker flags it.
 
-`tables_value` serves the same honesty for a build artifact rather than a manifest: the serialized decision tables carry it, so the conformance sweep can tell a table its own sources produced from one it must rebuild. It is keyed on `table_data_value` rather than `data_value` — the alias map, the divergence ledger, and the contact allow-list are read by gates that consume a built table and by nothing that builds one, so they belong to the whole-run record and not to this stamp. Its code half is `table_code_paths` rather than `pipeline_code_paths` for the same reason: the oracle's own module (`COMPARISON_CODE_MODULES`) runs against tables and a font already built, so an edit to the classifier or the ledger match re-adjudicates over the enumeration on disk instead of throwing it away, and rebuild/test_build_code_closure.py is what proves the build never reaches it.
+`tables_value` serves the same honesty for a build artifact rather than a manifest: the serialized decision tables carry it, so the conformance sweep can tell a table its own sources produced from one it must rebuild. It is keyed on `table_data_value` rather than `data_value` — the alias map, the divergence ledger, and the kern sidecar are read by gates that consume a built table and by nothing that builds one, so they belong to the whole-run record and not to this stamp. Its code half is `table_code_paths` rather than `pipeline_code_paths` for the same reason: the oracle's own module (`COMPARISON_CODE_MODULES`) runs against tables and a font already built, so an edit to the classifier or the ledger match re-adjudicates over the enumeration on disk instead of throwing it away, and rebuild/test_build_code_closure.py is what proves the build never reaches it.
+
+The contact allow-list is in no component here at all, `data` included. The defect gate is the only stage that reads it, so a two-line bless has no business dropping the review unit cache and re-stamping the whole surface — which is what its old place in `data_paths` cost, through `unit_cache.environment_stamp` and `oracle_cache.stamped_data_paths` alike. It rides the artifact cycle's run_m1 skip key alone, under `CONTACT_ALLOW_LABEL`, hashed by `contact_allow_digest`: prose-blind in the same way a rune is, since a signature's `why:` is the reviewer's recorded rationale and can move no gate.
 
 Rune files are hashed by `rune_file_digest`, a prose-blind digest over the parsed document rather than the raw bytes: YAML comments and formatting, the ductus prose, the notes prose, and the `why` rationale on prefer/extend/contract/resolve/unlock records are all documentation nothing downstream consumes, so editing them must not stale the surface or re-run a cycle. What stays in the digest is exactly what can move an output or a gate: every geometric and policy field, the ductus *keys* (motion names, which the parity and naming lints enforce), the *presence* of every prose field (the schema requires `why` on absolute prefers), and — the one quoted prose — `policy.refuse[].why`, which the kernel crate's engine embeds in the elimination diagnostics the review surface serves in its explain panel.
 """
@@ -14,6 +16,7 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
+from typing import Callable
 
 import yaml
 
@@ -42,7 +45,6 @@ def data_paths(repo_root: Path) -> list[Path]:
     paths += [
         root / "rebuild" / "script.yaml",
         root / "glyph_data" / "punctuation.yaml",
-        root / "rebuild" / "m1-contact-allow.yaml",
         root / "rebuild" / "m1-aliases.yaml",
         root / "rebuild" / "m1-divergences.yaml",
         root / "glyph_data" / "senior_quikscript_kerning.yaml",
@@ -154,16 +156,34 @@ def _projected_rune(document: object) -> object:
     return projected
 
 
-def rune_file_digest(path: Path) -> str:
-    """Content digest of one rune file over its prose-blind projection, so documentation edits, comments, and reformatting leave it unmoved. Falls back to the raw byte hash when the file does not parse or serialize — a malformed rune is a build-stopping change, and the fallback keeps it visible."""
+def _projected_digest(path: Path, project: Callable[[object], object]) -> str:
+    """Content digest of one YAML file over a prose-blind projection of what it parses to, so documentation edits, comments, and reformatting leave it unmoved. Falls back to the raw byte hash when the file does not parse or serialize — a malformed input is a stopping change wherever one of these digests is read, and the fallback keeps it visible rather than hashing a guess."""
     raw = path.read_bytes()
     try:
-        payload = json.dumps(
-            _projected_rune(yaml.load(raw.decode(), Loader=_SAFE_LOADER)), ensure_ascii=False
-        )
+        payload = json.dumps(project(yaml.load(raw.decode(), Loader=_SAFE_LOADER)), ensure_ascii=False)
     except yaml.YAMLError, UnicodeDecodeError, TypeError, ValueError:
         return hashlib.sha256(raw).hexdigest()
     return hashlib.sha256(payload.encode()).hexdigest()
+
+
+def rune_file_digest(path: Path) -> str:
+    """One rune file's prose-blind content digest (the module docstring holds the contract for what the projection drops)."""
+    return _projected_digest(path, _projected_rune)
+
+
+CONTACT_ALLOW_LABEL = "rebuild/m1-contact-allow.yaml"
+
+
+def _projected_allow_list(document: object) -> object:
+    """The prose-blind view of the parsed contact allow-list: every entry keeps its signature and loses its `why`, which is the reviewer's rationale for blessing that corner and reaches no gate. A document shaped in a way `defects.run_gates` would reject passes through unprojected, so the load failure it causes stays visible in the digest."""
+    if not isinstance(document, list):
+        return document
+    return [_without_why(entry) for entry in document]
+
+
+def contact_allow_digest(path: Path) -> str:
+    """The contact allow-list's prose-blind content digest — the one line the allow list contributes to any key here, and it contributes it to the artifact cycle's run_m1 skip key alone (`CONTACT_ALLOW_LABEL`). Blessing a signature moves it; wording the bless does not."""
+    return _projected_digest(path, _projected_allow_list)
 
 
 def data_lines(repo_root: Path) -> list[str]:
@@ -183,23 +203,23 @@ def data_value(repo_root: Path) -> str:
 
 
 NON_TABLE_DATA_LABELS = (
+    "glyph_data/senior_quikscript_kerning.yaml",
     "rebuild/m1-aliases.yaml",
-    "rebuild/m1-contact-allow.yaml",
     "rebuild/m1-divergences.yaml",
 )
 
 
 def table_data_lines(repo_root: Path) -> list[str]:
-    """`data_lines` minus the three data inputs no table stage reads. `rebuild/m1-contact-allow.yaml` is the defect gate's allow-list, handed to `defects.run_gates` alongside tables the fixpoint has already produced; `rebuild/m1-aliases.yaml` and `rebuild/m1-divergences.yaml` are the baseline oracle's, read to name and classify divergences the fixpoint has already decided. None of the three reaches the kernel crate or any stage that builds a decision table, so folding them into the tables' own stamp only made a ledger or classifier re-adjudication throw away an enumeration that would come back byte for byte.
+    """`data_lines` minus the three data inputs no table stage reads. `rebuild/m1-aliases.yaml` and `rebuild/m1-divergences.yaml` are the baseline oracle's, read to name and classify divergences the fixpoint has already decided; `glyph_data/senior_quikscript_kerning.yaml` is the position channel's, read by `oracle.KernEvaluator` alone to add the sidecar's kerns back before a baseline position diff — the font compile hands the builder its own empty kerning map and never opens the file. None of the three reaches the kernel crate or any stage that builds a decision table, so folding them into the tables' own stamp only made a ledger, classifier, or kern re-adjudication throw away an enumeration that would come back byte for byte.
 
-    Narrower stamp, same coverage: all three stay in `data_lines`, which is what the artifact cycle's run_m1 green record and the Stage A `data` component are keyed on, so editing one still costs a full run and still re-runs the defect gate. What it stops costing is the fixpoint.
+    Narrower stamp, same coverage: all three stay in `data_lines`, which is what the artifact cycle's run_m1 green record and the Stage A `data` component are keyed on, so editing one still moves that key — and what the cycle spends against it is a re-adjudication over the tables and font already on disk (`artifact_cycle.comparison_side_label`), not a fixpoint.
     """
     excluded = set(NON_TABLE_DATA_LABELS)
     return [line for line in data_lines(repo_root) if line.split("\t", 1)[0] not in excluded]
 
 
 def table_data_value(repo_root: Path) -> str:
-    """The data half of the stamp a serialized window enumeration carries: `table_data_lines` hashed, which is `data_value` narrowed by exactly the files named there and by nothing else."""
+    """The data half of the stamp a serialized window enumeration carries: `table_data_lines` hashed, which is `data_value` narrowed by exactly the comparison-side labels in `NON_TABLE_DATA_LABELS` and by nothing else."""
     return hashlib.sha256("\n".join(table_data_lines(repo_root)).encode()).hexdigest()
 
 
@@ -220,7 +240,7 @@ def table_code_paths(repo_root: Path) -> list[Path]:
 
 
 def tables_value(repo_root: Path) -> str:
-    """The content key over everything the decision-table fixpoint and the font compile read: the rune and config data by `table_data_value`, plus the build side of the pipeline code by `table_code_paths`. A serialized window enumeration carries this value so it can prove it still describes the sources on disk, and the conformance sweep refuses the moment it does not. Deliberately narrower than the Stage A record at both ends — the oracle's baselines feed no table, so re-extracting them must not throw the windows away, and neither do the alias map, the divergence ledger, the contact allow-list, or the oracle's own code, so re-adjudicating one of those must not either."""
+    """The content key over everything the decision-table fixpoint and the font compile read: the rune and config data by `table_data_value`, plus the build side of the pipeline code by `table_code_paths`. A serialized window enumeration carries this value so it can prove it still describes the sources on disk, and the conformance sweep refuses the moment it does not. Deliberately narrower than the Stage A record at both ends — the oracle's baselines feed no table, so re-extracting them must not throw the windows away, and neither do the alias map, the divergence ledger, the kern sidecar, or the oracle's own code, so re-adjudicating one of those must not either. The contact allow-list is narrower still: it is in no component of the Stage A record either, and an edit to it moves this stamp exactly as little."""
     root = Path(repo_root)
     lines = (
         f"table_data\t{table_data_value(root)}",

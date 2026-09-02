@@ -721,7 +721,7 @@ def test_main_by_step_counts_neither_a_parented_check_nor_a_skipped_one(tmp_path
 
 
 def test_main_by_step_keeps_the_run_m1_check_out_of_the_run_m1_build_row(tmp_path, capsys):
-    """The one name a check and a step spell identically: the cycle spawns the M1 build as the step `run_m1` and its judge files the check `run_m1`, and a seconds-long `--gates-only` re-adjudication files that same check. Merged, it would inflate the build row's count and hand `latest` the re-adjudication as the most recent cost of a full build."""
+    """The one name a check and a step spell identically: the cycle spawns the M1 build as the step `run_m1` and its judge files the check `run_m1`, and an interactive `--gates-only` re-adjudication files that same check with no step of its own. Merged, it would inflate the build row's count and hand `latest` the re-adjudication as the most recent cost of a full build."""
     path = tmp_path / "j.ndjson"
     _write_journal(
         path,

@@ -60,14 +60,15 @@ def _validators_workers(*, total_bytes: int | None = None, cores: int | None = N
 # Resolved once at import rather than asked again per run, exactly as `kernel_exec.KERNEL_THREADS_DEFAULT` is and for the analogous reason: the name a test imports, the name WHATNEXT cites and the number the hook answers are then one reading of this box rather than three, which is what lets `VALIDATORS_WORKERS` survive as a name now that it has stopped being a literal. The consequence is the one `kernel_exec` documents too — `AMS_TOTAL_MEMORY_BYTES` reaches it only from the environment the interpreter started in, never from a fixture.
 VALIDATORS_WORKERS = _validators_workers()
 
-# The live trees, derived rather than listed: rebuild/out/ (everything the build and the cycle write), the whole of tmp/, the root-level verdicts-* stores, and whatever the rebuild gate exempts from its input closure. That last list is derived rather than copied so it tracks the gate, but it needs one subtraction, because its three entries are exempt for two different reasons: rebuild/evidence/ and the census pins are regenerated state the gate refuses to hash, while rebuild/review/jstests/ is checked-in JavaScript that is merely outside a Python closure — source, which a contracts test is free to read, and which the cycle's own plan step globs while enumerating the JS suite. tmp/ is forbidden whole rather than by the cycle snapshots that happen to sit in it: the tree is entirely outside the suite's input closure, and the write standard below already bars every test from writing under the live repo, so nothing a contracts test may legitimately read can be there. A test that wants a scratch directory takes `tmp_path`.
+# The live trees, derived rather than listed: rebuild/out/ (everything the build and the cycle write), the whole of tmp/, the root-level verdicts-* stores, and whatever the rebuild gate exempts from its input closure. That last list is derived rather than copied so it tracks the gate, but it needs a subtraction, because its entries are exempt for two different reasons: rebuild/evidence/ and the census pins are regenerated state the gate refuses to hash, while rebuild/review/jstests/ and rebuild/m1-contact-allow.yaml are checked-in source that the gate merely has no reason to hash — the JS suite the cycle's own plan step globs, and the human-reviewed allow-list whose only reader is the defect gate — and source is what a contracts test is free to read. tmp/ is forbidden whole rather than by the cycle snapshots that happen to sit in it: the tree is entirely outside the suite's input closure, and the write standard below already bars every test from writing under the live repo, so nothing a contracts test may legitimately read can be there. A test that wants a scratch directory takes `tmp_path`.
+_EXEMPT_SOURCE = ("rebuild/review/jstests/", "rebuild/m1-contact-allow.yaml")
 _FORBIDDEN = tuple(
     os.path.join(str(REPO_ROOT), rel)
     for rel in (
         "rebuild/out/",
         "tmp/",
         "verdicts-",
-        *(rel for rel in artifact_cycle.REBUILD_GATE_EXEMPT_PREFIXES if rel != "rebuild/review/jstests/"),
+        *(rel for rel in artifact_cycle.REBUILD_GATE_EXEMPT_PREFIXES if rel not in _EXEMPT_SOURCE),
     )
 )
 _FORBIDDEN_TREES = frozenset(prefix.rstrip(os.sep) for prefix in _FORBIDDEN if prefix.endswith(os.sep))
