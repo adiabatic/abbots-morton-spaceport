@@ -495,38 +495,10 @@
    }
   },
   "boundary_marks": [],
-  "explain": "sequence E650:E665   config ss02\nsettled: qsPea qsMay.loop.en-y0.en-ext-1\n\nposition 0: qsPea\n  decided by: join-count",
+  "explain": "sequence E650:E665   config ss02\nsettled: qsPea qsMay.loop.en-y0.en-ext-1",
   "summary": "New: \u00b7Pea\u00b7May settles differently from the baseline \u2014 decided by fixture data (open the explain panel for the candidate table).",
   "provenance": [],
-  "drafts": {
-   "pin": {
-    "expect": "\u00b7Pea ~b~ \u00b7May",
-    "attribute": "data-expect-noncanonically",
-    "stylistic_set": "02",
-    "syntax": "pass",
-    "semantics_after_font": "pass",
-    "duplicate_of": null,
-    "suggested_home": "site/the-manual.html"
-   },
-   "policy": {
-    "file": "glyph_data/runes/qsPea.yaml",
-    "keypath": "policy.prefer[+]",
-    "suggested_record": "{cell: {exit: baseline}, when: {right: {family: [qsMay]}}, why: 'Reviewer rejected the M1 outcome for E650:E665 (\u00b7Pea\u00b7May)'}",
-    "names_provenance": [],
-    "decided_stage": "join-count",
-    "schema_valid": true,
-    "why_stub": "Reviewer rejected the M1 outcome for E650:E665 (\u00b7Pea\u00b7May)"
-   },
-   "any_of": {
-    "text": "qsPea qsMay",
-    "features": {
-     "ss02": true
-    },
-    "candidates": [
-     "\u00b7Pea ~b~ \u00b7May"
-    ]
-   }
-  },
+  "drafts": null,
   "content_key": "9863258626bb229ef4c4aa2a0bfadad15a385ac9f099840a1cb438dffd7eff6c"
  }
 ]

@@ -682,6 +682,15 @@ function fillExplainPanel(panel, unit) {
     }
     panel.append(list);
   }
+  if (unit.drafts === null) {
+    panel.append(
+      el(
+        'p',
+        'explain-intro',
+        'Machine-approved on the ink-identical or Junior-equivalent channel: the build kept the settled names above and wrote no drafts, since nothing here is for a reviewer to act on.',
+      ),
+    );
+  }
   if (unit.drafts) {
     panel.append(el('h4', null, 'Drafts'));
     const list = el('ul');

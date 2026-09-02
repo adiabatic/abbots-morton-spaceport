@@ -3,6 +3,7 @@
 Every unit these tests reach for is one whose codepoints they name, and they take them from `example_units` — a filtered load of the live audit — rather than from the whole workload. The three whole-corpus sweeps that used to live here have moved into the build, where they cover every shipped unit instead of a re-enrichment of the same corpus: the audit-vs-re-settlement agreement, the before-seam derivations, and the summary's shape.
 """
 
+import dataclasses
 import re
 import warnings
 from pathlib import Path
@@ -246,6 +247,20 @@ def test_explain_text_keeps_header_and_divergent_positions(enricher, units_by_ke
     assert enriched.explain_text.startswith("sequence E652:E670")
     assert "position 1: qsIt" in enriched.explain_text
     assert "position 0: qsTea" not in enriched.explain_text
+
+
+@pytest.mark.parametrize("channel", ("ink_identical", "junior_equivalent"))
+def test_a_slim_unit_keeps_the_explain_header_only(enricher, units_by_key, channel):
+    unit = dataclasses.replace(units_by_key[("E652:E670", "default")], **{channel: True})
+    enriched = enricher.enrich(unit)
+    assert enriched.explain_text.startswith("sequence E652:E670")
+    assert "\nsettled: " in enriched.explain_text
+    assert "position " not in enriched.explain_text
+
+
+def test_a_picture_identical_unit_keeps_its_candidate_table(enricher, units_by_key):
+    unit = dataclasses.replace(units_by_key[("E652:E670", "default")], picture_identical=True)
+    assert "position 1: qsIt" in enricher.enrich(unit).explain_text
 
 
 def _stub_enriched(

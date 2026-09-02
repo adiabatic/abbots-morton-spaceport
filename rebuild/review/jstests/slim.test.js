@@ -113,6 +113,7 @@ test('hasExplainSource separates a slim row from a whole shard record', () => {
   delete slim.drafts;
   assert.equal(hasExplainSource(slim), false);
   assert.equal(hasExplainSource({ explain: null }), true, 'a record whose explain is empty is still a whole record');
+  assert.equal(hasExplainSource({ explain: 'sequence E650:E665   config ss02', provenance: [], drafts: null }), true, 'a slim machine record fills its own panel');
   assert.equal(hasExplainSource(null), false);
 });
 

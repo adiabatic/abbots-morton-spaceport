@@ -45,6 +45,15 @@ def machine_approved(fragment) -> bool:
     return any(fragment.get(channel) is True for channel in MACHINE_CHANNELS)
 
 
+# The two channels whose units the build writes slim — `drafts: null`, and an explain cut to its header (the settled names per position, which on an ink-identical window is the whole of what changed). Nothing on them is ever paged to a human, so the drafts a reviewer would act on and the candidate table behind them were bytes nobody opened, over half of every shard. Picture identity is not here: its units are the machine-approved ones whose ink actually moved, the occasional human look is at exactly them, and its flag sits outside the content key (`CARRY_PRESENTATION_KEYS` in unit_cache.py) — both slim channels sit inside it, which is what lets a cache-served fragment be slim exactly when a fresh emission would be.
+SLIM_CHANNELS = ("ink_identical", "junior_equivalent")
+
+
+def slim_detail(fragment) -> bool:
+    """Whether a unit's JSON fragment is written slim: `drafts: null` and a header-only explain, the shape `build.check_unit` demands on every SLIM_CHANNELS unit and forbids on every other."""
+    return any(fragment.get(channel) is True for channel in SLIM_CHANNELS)
+
+
 @dataclass(slots=True)
 class Unit:
     codepoints: str
@@ -76,6 +85,10 @@ class Unit:
     @property
     def machine_approved(self) -> bool:
         return any(getattr(self, channel) for channel in MACHINE_CHANNELS)
+
+    @property
+    def slim_detail(self) -> bool:
+        return any(getattr(self, channel) for channel in SLIM_CHANNELS)
 
 
 def parse_codepoints(codepoints: str) -> tuple[int, ...]:

@@ -499,7 +499,7 @@ class Enricher:
             and not is_boundary_settled(report.positions[index].trace.settled)
         )
         provenance = _collect_provenance(diff_traces)
-        explain_text = _filter_explain(report.render(), diff_positions)
+        explain_text = _filter_explain(report.render(), diff_positions, header_only=unit.slim_detail)
         summary = _summarize(
             settled=settled,
             after_spans=after_spans,
@@ -947,11 +947,11 @@ def _collect_provenance(traces) -> tuple[str, ...]:
     return tuple(pointers)
 
 
-def _filter_explain(rendered: str, diff_positions: tuple[int, ...]) -> str:
-    """Keep the header lines and only the divergent positions' blocks of an ExplainReport.render()."""
+def _filter_explain(rendered: str, diff_positions: tuple[int, ...], header_only: bool = False) -> str:
+    """Keep the header lines and only the divergent positions' blocks of an ExplainReport.render() — or, for a slim unit (`audit.slim_detail`), the header alone: the sequence, the config, and the settled names, which on a window whose ink never moved is the whole of what a reader could want to see."""
     blocks = rendered.split("\n\nposition ")
-    if len(blocks) == 1:
-        return rendered
+    if header_only or len(blocks) == 1:
+        return blocks[0]
     wanted = set(diff_positions)
     kept = [blocks[0]]
     for block in blocks[1:]:

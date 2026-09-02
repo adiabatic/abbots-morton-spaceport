@@ -119,6 +119,38 @@ def test_an_any_of_candidate_that_does_not_parse_fails_the_build():
     _complaint(check_unit(unit), "does not parse")
 
 
+# --- the slim machine-approved shape ------------------------------------------------------------
+
+SLIM_UNIT = "u-0003"
+
+
+def test_a_slim_unit_carrying_drafts_fails_the_build():
+    unit = _one(SLIM_UNIT)
+    unit["drafts"] = _one()["drafts"]
+    _complaint(check_unit(unit), "carry drafts null")
+
+
+def test_a_slim_unit_carrying_a_candidate_table_fails_the_build():
+    unit = _one(SLIM_UNIT)
+    unit["explain"] += "\n\nposition 0: qsPea\n  decided by: join-count"
+    _complaint(check_unit(unit), "explain header only")
+
+
+def test_a_human_unit_without_drafts_fails_the_build():
+    unit = _one()
+    unit["drafts"] = None
+    _complaint(check_unit(unit), "drafts must carry pin/policy/any_of")
+
+
+def test_a_picture_identical_unit_keeps_its_drafts_and_candidate_table():
+    """Picture identity is machine approval too, but its units are the ones whose ink moved and the ones a human occasionally opens, so the checker wants them whole — the slim shape is a property of the two channels alone."""
+    unit = _one()
+    unit.update(picture_identical=True, batch=None, echo=None, cluster=None)
+    assert check_unit(unit) == []
+    unit["drafts"] = None
+    _complaint(check_unit(unit), "drafts must carry pin/policy/any_of")
+
+
 # --- the fields the app draws ------------------------------------------------------------------
 
 
