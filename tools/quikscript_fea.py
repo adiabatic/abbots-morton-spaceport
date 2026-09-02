@@ -1,6 +1,6 @@
 import re
 import warnings
-from collections import defaultdict, deque
+from collections import Counter, defaultdict, deque
 from dataclasses import dataclass, field
 from itertools import product
 from pathlib import Path
@@ -2273,6 +2273,69 @@ def _format_post_liga_left_cleanup_rules(
             lig_target_list = " ".join(unique_lig_targets)
             lines.append(f"        sub {candidate}' [{lig_target_list}] by {replacement};")
     return lines
+
+
+_HOISTED_CLASS_PREFIX = "@ams"
+_INLINE_CLASS_RE = re.compile(r"\[[^\[\]]*\]")
+_CLASS_DEFINITION_RE = re.compile(r"^\s*@\S+ = \[")
+_HOISTED_DEFINITION_RE = re.compile(r"^\s*(@ams\d+) = (\[[^\[\]]*\]);$")
+_HOISTED_REFERENCE_RE = re.compile(r"@ams\d+")
+
+
+def hoist_repeated_classes(fea: str) -> str:
+    """Name every inline `[...]` class body the calt block spells out more than once: each is defined once as `@amsNNNN` at the head of the block, after the emitter's own `@exit_y*` / `@entry_y*` definitions, and every later spelling becomes the name. feaLib compiles a named class and an inline one to the same coverage, so the tables come out byte-identical while the text shrinks by most of its bulk — the rules restate the same few hundred neighbor lists thousands of times over, which is where the classic build's feature-file size and feaLib's parse memory both went (issue #61). Names are numbered by first appearance, so the output is as deterministic as the input. A body that references another class stays inline, and class definitions are never rewritten, so no name ever depends on a definition emitted after it; feature blocks other than calt are left alone, since a class defined inside one block is local to it. `expand_hoisted_classes` is the exact inverse."""
+    start = fea.find("feature calt {\n")
+    if start < 0:
+        return fea
+    end = fea.find("\n} calt;", start)
+    if end < 0:
+        return fea
+    head, block, tail = fea[:start], fea[start:end], fea[end:]
+    lines = block.split("\n")
+    counts: Counter[str] = Counter()
+    for line in lines[1:]:
+        if not _CLASS_DEFINITION_RE.match(line):
+            counts.update(_INLINE_CLASS_RE.findall(line))
+    names: dict[str, str] = {}
+    for body, count in counts.items():
+        if count > 1 and "@" not in body:
+            names[body] = f"{_HOISTED_CLASS_PREFIX}{len(names) + 1:04d}"
+    if not names:
+        return fea
+
+    def _name(match: re.Match[str]) -> str:
+        return names.get(match.group(0), match.group(0))
+
+    out = [lines[0]]
+    defined = False
+    for line in lines[1:]:
+        if _CLASS_DEFINITION_RE.match(line):
+            out.append(line)
+            continue
+        if not defined:
+            out.extend(f"    {name} = {body};" for body, name in names.items())
+            defined = True
+        out.append(_INLINE_CLASS_RE.sub(_name, line))
+    return head + "\n".join(out) + tail
+
+
+def expand_hoisted_classes(fea: str) -> str:
+    """Spell every `@amsNNNN` class `hoist_repeated_classes` named back out inline and drop its definition, recovering the text the emitter wrote before the hoist. Readers that want to see a rule's neighbor lists on the rule's own line — the test suite, mostly — take the built feature file through this rather than re-running the emitter."""
+    bodies: dict[str, str] = {}
+    kept: list[str] = []
+    for line in fea.split("\n"):
+        match = _HOISTED_DEFINITION_RE.match(line)
+        if match:
+            bodies[match.group(1)] = match.group(2)
+        else:
+            kept.append(line)
+    if not bodies:
+        return fea
+
+    def _body(match: re.Match[str]) -> str:
+        return bodies.get(match.group(0), match.group(0))
+
+    return "\n".join(_HOISTED_REFERENCE_RE.sub(_body, line) for line in kept)
 
 
 def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
@@ -6508,7 +6571,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         _active_contract_recorder.flush()
         _active_contract_recorder = None
 
-    return "\n".join(lines)
+    return hoist_repeated_classes("\n".join(lines))
 
 
 def _emit_quikscript_curs(
@@ -6914,4 +6977,10 @@ def emit_namer_dot_calt(
     return "\n".join(lines)
 
 
-__all__ = ["emit_namer_dot_calt", "emit_quikscript_senior_features", "emit_quikscript_ss"]
+__all__ = [
+    "emit_namer_dot_calt",
+    "emit_quikscript_senior_features",
+    "emit_quikscript_ss",
+    "expand_hoisted_classes",
+    "hoist_repeated_classes",
+]
