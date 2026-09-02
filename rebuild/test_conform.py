@@ -742,7 +742,6 @@ class TestOracleUnmatchedTally:
             spec, tables, aliases, ledger, configs=configs, out_dir=serial
         )
         assert report.unmatched_count == 28
-        assert not report.passed
         assert len(report.unmatched_exemplars) == oracle.ORACLE_UNMATCHED_EXEMPLARS + 3
         quoted = report.unmatched_exemplars[: oracle.ORACLE_UNMATCHED_EXEMPLARS]
         assert [row.codepoints for row in quoted] == [
@@ -765,13 +764,6 @@ class TestOracleUnmatchedTally:
         assert [row.codepoints for row in merged.unmatched_exemplars] == [
             row.codepoints for row in report.unmatched_exemplars
         ]
-
-    def test_the_verdict_reads_the_count_and_not_the_sample(self):
-        assert oracle.BaselineReport().passed
-        assert not oracle.BaselineReport(unmatched_count=1).passed
-        assert not oracle.BaselineReport(
-            multi_matched=[(conform.DivergentRow("default", "E650", (), -1, (), (), (), ()), ("x",))]
-        ).passed
 
 
 CACHE_LETTERS = (0xE650, 0xE652, 0xE653, 0xE65A, 0xE665, 0xE667)

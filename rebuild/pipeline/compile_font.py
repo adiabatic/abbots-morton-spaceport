@@ -1,6 +1,6 @@
 """Mini-font compilation via the prototype's verified read-only recipe, plus the budget gate (M1-PLAN section 5, Group 3).
 
-`build_mini_font` hands `tools/build_font.build_font` a synthetic glyph-data dict containing only legacy `glyphs:` records (qs-named glyphs keyed `<name>.prop` so the senior variant compiler picks them), an empty `glyph_families` so the old IR emitter never runs, and the hand-built FEA threaded through `senior_fea=`. The build is asked for the unsaved TTFont (`output_path=None`) and this module writes the OTF and `.fea` sidecar itself, because the packing must happen before the first serialization: `pack_gsub.pack_font` repacks the settlement lookup's per-rule format-3 chained-context subtables into shared-ClassDef format-2 groups on the in-memory font (see that module for why and for the built-in round-trip proof), unconditionally on every build so there is one code path for conform to gate — and since the stage-4b vote world the per-rule form can outgrow the Lookup's own uint16 subtable-offset array (≈6,400 merged rules), so saving the unpacked font first is not merely wasteful but impossible (fontTools' overflow resolution has no move for a lookup-level array overflow). The budget gate then runs `_report_gsub_budget` plus a direct table parse and writes `budget.json` next to the font — its numbers describe the packed reality, with the packing stats under `measured.packing`: it FAILS (BudgetError) when per-rule format-3 chained-context subtables remain and the uint16 subtable-offset headroom is below the 16,384-byte floor (the outcome-partition consequence, prototype follow-up 1), and YELLOW-FLAGS any GSUB type 7 Extension promotion (non-fatal at M1 scale, prototype follow-up 2).
+`build_mini_font` hands `tools/build_font.build_font` a synthetic glyph-data dict containing only legacy `glyphs:` records (qs-named glyphs keyed `<name>.prop` so the senior variant compiler picks them), an empty `glyph_families` so the old IR emitter never runs, and the hand-built FEA threaded through `senior_fea=`. The build is asked for the unsaved TTFont (`output_path=None`) and this module writes the OTF and `.fea` sidecar itself, because the packing must happen before the first serialization: `pack_gsub.pack_font` repacks the settlement lookup's per-rule format-3 chained-context subtables into shared-ClassDef format-2 groups on the in-memory font (see that module for why and for the built-in round-trip proof), unconditionally on every build so there is one code path for conform to gate — and since the stage-4b vote world the per-rule form can outgrow the Lookup's own uint16 subtable-offset array (≈6,400 merged rules), so saving the unpacked font first is not merely wasteful but impossible (fontTools' overflow resolution has no move for a lookup-level array overflow). The budget gate then runs `_report_gsub_budget` plus a direct table parse and writes `budget.json` next to the font — its numbers describe the packed reality, with the packing stats under `measured.packing`: it FAILS (BudgetError) when per-rule format-3 chained-context subtables remain and the uint16 subtable-offset headroom is below the 16,384-byte floor (the outcome-partition consequence, prototype follow-up 1).
 """
 
 from __future__ import annotations
@@ -155,7 +155,6 @@ def build_mini_font(glyphs: Mapping, fea: str, out_path: Path) -> Path:
     metrics = _table_metrics(out_path)
     parsed = _parse_budget_report(budget_report)
     headroom = parsed.get("subtable_offset_headroom")
-    extension_promoted = bool(metrics["extension_promoted_lookups"])
     format3 = metrics["format3_chained_subtables"]
 
     budget = {
@@ -168,7 +167,6 @@ def build_mini_font(glyphs: Mapping, fea: str, out_path: Path) -> Path:
         "gate": {
             "headroom_floor": K2_HEADROOM_FLOOR,
             "format3_chained_subtables": format3,
-            "extension_promotion_yellow_flag": extension_promoted,
             "failed": bool(format3 and headroom is not None and headroom < K2_HEADROOM_FLOOR),
         },
     }

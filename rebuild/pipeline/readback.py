@@ -4,7 +4,7 @@ The build stage before this one hands feaLib a block of FEA text and gets an OTF
 
 It is deliberately a transcription round-trip and nothing more — the `pack_gsub.pack_lookup` precedent, one stage further out. It predicts no cascade: it never asks what a buffer would do, never composes stages, never resolves which of two competing rules wins. Ordered rules are compared at the grain first-match-wins actually runs on (per input glyph for settlement, per lead glyph for formation), because rules that cannot share an input cannot compete and feaLib is free to regroup them — it picks whichever of the three chained-context subtable formats compiles smallest, so the guarded formation rides format 1 in a small font and format 3 in the shipped one, and the settlement lookup arrives packed into a format-2/format-3 mix. Shaping behavior stays gate:conform's.
 
-The failure contract matches the budget gate's: `verify_font` never raises for a divergence, it accumulates human-readable strings and reports `pass`; `run_m1` writes the whole report to `readback_summary.json` and only then raises `ReadbackError`, so the evidence outlives the failure. Beside that summary `run_m1` also records the emitted settlement fold (`settle-fold.ndjson`), divergence or not, so the witness gate can enumerate its coverage over the very rows this stage held the font to.
+The failure contract matches the budget gate's: `verify_font` never raises for a divergence, it accumulates human-readable strings and reports `pass`; `run_m1` writes the whole report to `readback_summary.json` and only then raises `ReadbackError`, so the evidence outlives the failure.
 """
 
 from __future__ import annotations
@@ -20,8 +20,6 @@ from rebuild.pipeline.emit_gsub import GsubPlan, SettleRule
 
 MAX_DIVERGENCES = 50
 NO_REQUIRED_FEATURE = 0xFFFF
-SETTLE_FOLD_FORMAT = "ams-m1-settle-fold/1"
-SETTLE_FOLD_FILENAME = "settle-fold.ndjson"
 
 Row = tuple[tuple[str, ...], tuple[frozenset[str], ...], str | None]
 
@@ -625,78 +623,3 @@ def verify_font(
         "checked": checked,
         "divergences": reported,
     }
-
-
-def settle_fold_path(out_dir: Path) -> Path:
-    return Path(out_dir) / SETTLE_FOLD_FILENAME
-
-
-@dataclass(frozen=True)
-class SettleFold:
-    """One build's emitted settlement lookup as it was recorded: the fingerprint of the sources the tables came from, the font the rows were proven against, whether that proof passed, the configurations whose tables contributed, and the rows themselves in emitted order with their sources."""
-
-    inputs: str | None
-    font: str | None
-    readback_pass: bool
-    configs: tuple[str, ...]
-    rules: tuple[SettleRule, ...]
-
-
-def write_settle_fold(
-    path: Path, plan: GsubPlan, inputs: str | None, readback_pass: bool, font: Path | None = None
-) -> None:
-    """Record the emitted settlement lookup — the rows the emitters planned and this stage just held the font to — with each row's per-configuration sources, stamped with the fingerprint of the sources the tables were built from, so the witness gate can enumerate its coverage over what ships instead of over the six tables the rows fold from. Written whether or not read-back passed, with the verdict in the head, because a failing build's fold is exactly what a reader needs to see. Diff-stable like the window enumerations: a head line then one JSON row per emitted rule, sorted slot members and no incidental ordering, so two builds of one fold are byte-identical."""
-    configs = tuple(dict.fromkeys(name for rule in plan.settle_rules for name, _index in rule.sources))
-    head = {
-        "format": SETTLE_FOLD_FORMAT,
-        "inputs": inputs,
-        "font": None if font is None else str(font),
-        "readback_pass": bool(readback_pass),
-        "configs": list(configs),
-        "rules": len(plan.settle_rules),
-    }
-    lines = [json.dumps(head, separators=(",", ":"))]
-    for rule in plan.settle_rules:
-        row = [
-            rule.input_glyph,
-            sorted(rule.backtrack) if rule.backtrack else None,
-            [sorted(slot) for slot in rule.lookahead],
-            rule.outcome,
-            [[name, index] for name, index in rule.sources],
-        ]
-        lines.append(json.dumps(row, separators=(",", ":")))
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("\n".join(lines) + "\n")
-
-
-def read_settle_fold(path: Path) -> SettleFold:
-    """The `write_settle_fold` inverse. Raises OSError when the record is absent and ValueError when it is not a fold this build understands or when the head's row count and the rows on disk disagree — a truncated file must not read as a shorter fold, which would understate what ships. It judges the stamp no more than `table.read_windows` does: a caller deciding whether to trust the record compares the returned fingerprint itself."""
-    lines = path.read_text().splitlines()
-    try:
-        head = json.loads(lines[0]) if lines else None
-    except ValueError:
-        head = None
-    if not isinstance(head, dict) or head.get("format") != SETTLE_FOLD_FORMAT:
-        raise ValueError(f"{path}: not a {SETTLE_FOLD_FORMAT} record")
-    rows = lines[1:]
-    if head.get("rules") != len(rows):
-        raise ValueError(f"{path}: the head names {head.get('rules')} rows, the file holds {len(rows)}")
-    rules = []
-    for line in rows:
-        input_glyph, backtrack, lookahead, outcome, sources = json.loads(line)
-        rules.append(
-            SettleRule(
-                input_glyph=input_glyph,
-                backtrack=None if backtrack is None else frozenset(backtrack),
-                lookahead=tuple(frozenset(slot) for slot in lookahead),
-                outcome=outcome,
-                sources=tuple((name, index) for name, index in sources),
-            )
-        )
-    return SettleFold(
-        inputs=head.get("inputs"),
-        font=head.get("font"),
-        readback_pass=bool(head.get("readback_pass")),
-        configs=tuple(head.get("configs") or ()),
-        rules=tuple(rules),
-    )

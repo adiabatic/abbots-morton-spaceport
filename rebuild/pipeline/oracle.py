@@ -59,10 +59,6 @@ class BaselineReport:
     multi_matched: list[tuple[DivergentRow, tuple[str, ...]]] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
 
-    @property
-    def passed(self) -> bool:
-        return not self.unmatched_count and not self.multi_matched
-
 
 @dataclass
 class OracleConfigResult:

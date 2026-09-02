@@ -35,7 +35,7 @@ CHECK = "make-test"
 
 
 def judge_make_test(returncode: int) -> CheckVerdict:
-    """The font suite's whole judgment, which is its return code — and unusually, that is honest. The rebuild lanes need their output parsed because pyright can exit them nonzero with no summary line to name, and run_m1 exits nonzero on a documented steady state its gate calls green; this suite has neither, so a nonzero exit here means a test failed and nothing else does.
+    """The font suite's whole judgment, which is its return code — and unusually, that is honest. The rebuild lanes need their output parsed because pyright can exit them nonzero with no summary line to name, and this suite has no summary of its own, so a nonzero exit here means a test failed and nothing else does.
 
     That is what lets the child keep its TTY: nothing has to be captured to reach a verdict, so the suite prints its live progress line, its colors, and any traceback straight to the terminal a human is watching. The price is `failed_ids`, which stays empty — the ids are on that terminal and not in this process — and it is the right price, since the cycle's own gate:make-test spawns the same uncaptured child and could not populate them either. The status strings are the cycle's, so the label on a check line and the label in a cycle summary are one string with one spelling.
     """

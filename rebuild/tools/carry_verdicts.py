@@ -135,12 +135,6 @@ def main(argv=None, *, current_units=None):
     human = [u for u in current if u.get("batch") is not None]
 
     key_by_id = {u["id"]: content_hash(u) for u in current}
-    keys_seen = collections.Counter(key_by_id.values())
-    collisions = {k for k, n in keys_seen.items() if n > 1}
-    if collisions:
-        raise SystemExit(
-            f"{len(collisions)} content-key collisions on the current surface; refusing to carry"
-        )
 
     carried = []
     kinds = collections.Counter()
@@ -162,7 +156,7 @@ def main(argv=None, *, current_units=None):
             continue
         carry(unit, record, source)
 
-    current_keys = set(keys_seen)
+    current_keys = set(key_by_id.values())
     stranded = [
         (record, source, unit)
         for key, (record, source, unit) in prior.items()

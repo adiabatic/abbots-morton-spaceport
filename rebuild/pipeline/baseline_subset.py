@@ -92,45 +92,23 @@ def filter_table(source: Path, destination: Path, alphabet: frozenset[int] = M1_
     return kept
 
 
-def filter_triage(source: Path, destination: Path, alphabet: frozenset[int] = M1_ALPHABET) -> int:
-    """Filter the equivalence-triage TSV (codepoints in the third column); returns the kept-row count."""
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    kept = 0
-    with open_table(source) as reader, open(destination, "w", encoding="utf-8", newline="") as writer:
-        for index, line in enumerate(reader):
-            if index == 0 or line.startswith("#"):
-                writer.write(line)
-                continue
-            fields = line.split("\t")
-            if len(fields) > 2 and _codepoints_in_alphabet(fields[2], alphabet):
-                writer.write(line)
-                kept += 1
-    return kept
-
-
 def _dirs(repo_root: Path) -> tuple[Path, Path]:
     baseline_dir = Path(repo_root) / "rebuild" / "out"
     return baseline_dir, baseline_dir / "m1"
 
 
 def stamp_key(repo_root: Path = REPO_ROOT) -> str:
-    """The content key the stamp records: everything the subset tables are a pure function of — the alphabet, the source tables (by the same size-plus-digests proxy as fingerprint.baselines_value, so no 42MB table is ever read to answer a freshness check), the triage source when present, and this module's own bytes, so a filter-logic change refilters rather than trusting output the old code wrote."""
-    baseline_dir, _ = _dirs(repo_root)
-    triage = baseline_dir / "equivalence-triage.tsv"
+    """The content key the stamp records: everything the subset tables are a pure function of — the alphabet, the source tables (by the same size-plus-digests proxy as fingerprint.baselines_value, so no 42MB table is ever read to answer a freshness check), and this module's own bytes, so a filter-logic change refilters rather than trusting output the old code wrote."""
     lines = [
         "alphabet\t" + ",".join(f"{codepoint:04X}" for codepoint in sorted(M1_ALPHABET)),
         f"baselines\t{fingerprint.baselines_value(Path(repo_root))}",
-        f"triage\t{fingerprint.file_sha256(triage) if triage.is_file() else 'absent'}",
         f"filter_code\t{fingerprint.file_sha256(Path(__file__))}",
     ]
     return hashlib.sha256("\n".join(lines).encode()).hexdigest()
 
 
 def _subset_outputs_on_disk(out_dir: Path) -> set[str]:
-    names = {path.name for path in out_dir.glob("baseline-*.subset.tsv.gz")}
-    if (out_dir / "triage.subset.tsv").exists():
-        names.add("triage.subset.tsv")
-    return names
+    return {path.name for path in out_dir.glob("baseline-*.subset.tsv.gz")}
 
 
 def refresh(repo_root: Path = REPO_ROOT) -> dict[str, str]:
@@ -145,11 +123,6 @@ def refresh(repo_root: Path = REPO_ROOT) -> dict[str, str]:
         kept = filter_table(source, destination)
         print(f"{source.name}: kept {kept} rows -> {destination}")
         outputs[destination.name] = fingerprint.file_sha256(destination)
-    triage = baseline_dir / "equivalence-triage.tsv"
-    if triage.exists():
-        kept = filter_triage(triage, out_dir / "triage.subset.tsv")
-        print(f"{triage.name}: kept {kept} rows -> {out_dir / 'triage.subset.tsv'}")
-        outputs["triage.subset.tsv"] = fingerprint.file_sha256(out_dir / "triage.subset.tsv")
     for name in sorted(_subset_outputs_on_disk(out_dir) - outputs.keys()):
         (out_dir / name).unlink()
         print(f"pruned orphaned {name}")

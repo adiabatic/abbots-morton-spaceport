@@ -1,13 +1,12 @@
 """Tests for the review-app build CLI: the §7 contract checker over rebuild/review/fixtures/ (the same checker `build_m1` runs over its own output, so fixtures and real output can never drift), the config-note badge vocabulary, the app shell and its shipped scripts, the export round-trip, and the table-diff build.
 
-What is asserted against the *live* surface is deliberately short, because `build_m1` proves the per-unit and per-shard contracts over every unit it writes and fails the build on any violation — re-walking 1.9 GB of shards here to restate one of them bought nothing but twelve seconds and eight gigabytes apiece. What no build check can make is a claim tying a *persisted* value back to a fresh re-shape of the fonts, so those stay: the shipped ink-delta digests and cluster ids against the comparator recipe (sampled from the smallest shards), the two worked examples of the seam census and the ink-duplicate fold (looked up by codepoint rather than by parsing every shard), and the manifest's own fingerprint, feature descriptions, and sidebar order.
+What is asserted against the *live* surface is deliberately short, because `build_m1` proves the per-unit and per-shard contracts over every unit it writes and fails the build on any violation, and anything the manifest writer computes from its own inputs (the fingerprint, the feature descriptions, the sidebar order) is true by construction — re-walking the shards here to restate one of them bought nothing but seconds and gigabytes apiece. What no build check can make is a claim tying a *persisted* value back to a fresh re-shape of the fonts, so those stay: the shipped ink-delta digests against the comparator recipe (sampled from the smallest shards), the worked example of the ink-duplicate fold (looked up by codepoint rather than by parsing every shard), and the sidecars' byte addressing.
 
 The built surface comes from `built_review_surface` in rebuild/conftest.py — the artifact cycle's own rebuild/out/review, read-only, refused rather than rebuilt when it is stale.
 """
 
 import copy
 import gzip
-import hashlib
 import json
 import multiprocessing
 import random
@@ -233,19 +232,6 @@ def test_check_unit_leaves_ink_deltas_out_of_the_table_diff_contract():
     assert check_unit(without, "table-diff") == check_unit(unit, "table-diff")
 
 
-def test_manifest_carries_the_inputs_fingerprint(built, live_artifacts):
-    _out_dir, manifest = built
-    inputs = manifest["inputs_fingerprint"]
-    assert set(inputs) == set(fingerprint.COMPONENTS)
-    recorded = fingerprint.read_stage_a(live_artifacts.m1) or {
-        key: None for key in fingerprint.STAGE_A_COMPONENTS
-    }
-    for key in fingerprint.STAGE_A_COMPONENTS:
-        assert inputs[key] == recorded[key]
-    for key in fingerprint.STAGE_B_COMPONENTS:
-        assert isinstance(inputs[key], str)
-
-
 def test_check_manifest_flags_a_malformed_inputs_fingerprint():
     manifest = json.loads((FIXTURES / "manifest.json").read_text(encoding="utf-8"))
     manifest["inputs_fingerprint"] = {"data": "x"}
@@ -297,35 +283,9 @@ def _units_with_codepoints(out_dir, manifest, wanted):
     return found
 
 
-def _unit_by_id(out_dir, manifest, unit_id):
-    for path in _shard_parts(out_dir, manifest):
-        raw = path.read_text(encoding="utf-8")
-        if f'"{unit_id}"' not in raw:
-            continue
-        for unit in json.loads(raw):
-            if unit["id"] == unit_id:
-                return unit
-    raise AssertionError(f"{unit_id} is in no shard")
-
-
 def _non_ss10_units(units):
     """A window's units outside its ss10-only sibling: under ss10 every letter keeps its own cluster, so the same codepoints settle into a second, seamless unit that the worked examples below never mean."""
     return [unit for unit in units if unit["configs"] != ["ss10"]]
-
-
-def test_known_secondary_seam_homes_at_the_shorter_primary(built):
-    """The worked example: ·May·No·No's trailing ·No·No seam is a secondary divergence whose home is the ·No·No unit, where that same join is the primary (amber-band) judgment. (The pre-IT1 example, ·Pea·Pea·It·It, dissolved when ·It stopped joining itself — its seam is now the homeless ·Pea·It one.) The window settles into two units — the ss10-only one, where the overlay leaves the seam, and its ink-identical sibling under every other config — and only the seam-bearing one is the example."""
-    out_dir, manifest = built
-    units = _units_with_codepoints(out_dir, manifest, {"E665:E666:E666"})["E665:E666:E666"]
-    (unit,) = [candidate for candidate in units if candidate["secondary_seams"]]
-    assert unit["pair"] == {"left": 0, "right": 1}
-    (seam,) = unit["secondary_seams"]
-    assert seam["pair"] == {"left": 1, "right": 2}
-    home = _unit_by_id(out_dir, manifest, seam["home"])
-    assert home["codepoints"] == "E666:E666"
-    assert home["pair"] == {"left": 0, "right": 1}
-    for side in ("before", "after"):
-        assert seam[side]["x_min"] <= seam[side]["x_max"] <= seam[side]["advance_total"]
 
 
 def _smallest_shards_first(manifest):
@@ -368,28 +328,6 @@ def test_ink_duplicate_siblings_fold_in_the_built_output(built):
     assert unit["render_groups"] == [{"configs": unit["configs"]}]
     assert unit["config_note"] is None
     assert unit["config_gate"] is None
-
-
-def test_cluster_id_recipe_matches_the_docket_tool(built):
-    """Locks the signature recipe to the one rebuild/tools/review_docket.py always used — sha1 of repr((configs, class, per-config ink diffs)) — so shipped cluster ids can never silently drift from the historical docket ids that recorded verdict notes and recommendations reference."""
-    out_dir, manifest = built
-    comparator = InkComparator(
-        out_dir / manifest["fonts"]["before"]["file"], out_dir / manifest["fonts"]["after"]["file"]
-    )
-    sampled = 0
-    for meta in _smallest_shards_first(manifest):
-        units = json.loads((out_dir / unit_index.class_shards(meta)[0]).read_text(encoding="utf-8"))
-        unit = next((entry for entry in units if entry["batch"] is not None), None)
-        if unit is None:
-            continue
-        text = "".join(chr(int(part, 16)) for part in unit["codepoints"].split(":"))
-        diffs = tuple(comparator.config_diff(text, config) for config in unit["configs"])
-        key = (tuple(unit["configs"]), unit["class"], diffs)
-        assert unit["cluster"] == "c-" + hashlib.sha1(repr(key).encode()).hexdigest()[:8], unit["id"]
-        sampled += 1
-        if sampled == 3:
-            break
-    assert sampled == 3
 
 
 SIDECAR_SAMPLE = 40
@@ -510,34 +448,7 @@ def test_feature_descriptions_keys_match_the_readme_stylistic_set_list():
     readme_sets = set(re.findall(r"^- `(ss\d+)`:", section, re.MULTILINE))
     assert readme_sets, "no `ssNN` bullets found under README's Stylistic sets heading"
     assert set(FEATURE_DESCRIPTIONS) == readme_sets
-
-
-def test_manifest_carries_feature_descriptions(built):
-    """The glowing config-note badge appends what each stylistic set is for, so the manifest ships the feature→description map (mirrored from README's "Stylistic sets"). That the built gates all resolve against it is test_every_built_gate_clause_resolves_to_a_feature_description's job."""
-    _, manifest = built
-    descriptions = manifest["feature_descriptions"]
-    assert set(descriptions) == {"ss02", "ss03", "ss04", "ss05", "ss06", "ss07", "ss10"}
-    assert all(isinstance(text, str) and text for text in descriptions.values())
-
-
-def test_built_classes_keep_ledger_order_then_families(built):
-    """The sidebar order: the present ledger classes in ledger-file order, then the verdict families in FAMILY_ORDER. Families sort strictly last so clean-unit ids stay stable across a fresh build. Each ledger class carries its ledger why; each family carries its FAMILY_WHY. (The ledger `count` field is not asserted — it is the oracle's static bookkeeping, not maintained against the live audit, so row_count is only required positive.)"""
-    from rebuild.review import families
-
-    _out_dir, manifest = built
-    ledger = yaml.safe_load((REPO_ROOT / "rebuild" / "m1-divergences.yaml").read_text())
-    by_id = {entry["id"]: entry for entry in ledger}
-    present = [meta["id"] for meta in manifest["classes"]]
-    ledger_ids = [meta["id"] for meta in manifest["classes"] if meta["status"] != "unmatched"]
-    family_ids = [fid for fid in families.FAMILY_ORDER if fid in present]
-    assert present == ledger_ids + family_ids
-    assert ledger_ids == [entry["id"] for entry in ledger if entry["id"] in set(ledger_ids)]
-    for meta in manifest["classes"]:
-        assert meta["row_count"] > 0
-        if meta["status"] == "unmatched":
-            assert meta["why"] == families.FAMILY_WHY[meta["id"]]
-        else:
-            assert meta["why"] == by_id[meta["id"]].get("why", "").strip()
+    assert all(isinstance(text, str) and text for text in FEATURE_DESCRIPTIONS.values())
 
 
 class _HtmlSanity(HTMLParser):

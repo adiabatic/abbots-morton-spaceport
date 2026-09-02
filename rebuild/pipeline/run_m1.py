@@ -273,9 +273,6 @@ def run(
         font_path, gsub_plan, emit_gpos.cursive_registrations(curs_glyphs, spec=spec)
     )
     (out_dir / "readback_summary.json").write_text(json.dumps(readback_report, indent=2) + "\n")
-    readback.write_settle_fold(
-        readback.settle_fold_path(out_dir), gsub_plan, inputs, readback_report["pass"], font=font_path
-    )
     print(f"[t] readback {time.perf_counter() - start:.1f}s", flush=True)
     if not readback_report["pass"]:
         raise readback.ReadbackError(
@@ -592,7 +589,6 @@ def run_oracle(
         "unmatched": report.unmatched_count,
         "multi_matched": len(report.multi_matched),
         "subset_identity": ["ss06", "ss07", "ss06+ss07"],
-        "pass": report.passed,
         "notes": report.notes,
     }
     for row in report.unmatched_exemplars[: oracle.ORACLE_UNMATCHED_EXEMPLARS]:
@@ -604,7 +600,7 @@ def run_oracle(
 
 
 def _record_cli_check(verdict: CheckVerdict, started: float) -> None:
-    """File this invocation's verdict in the timings journal, unless a cycle is already recording on its behalf. The line is worth writing here for the reason the artifact cycle exists to defuse: this entry point's exit status is not its verdict, since it exits nonzero on the documented steady state of unmatched oracle rows, so a history keyed on the process's return code would read every mid-migration build as a failure. What is recorded is what the judge decided, and it is recorded before the trailing SystemExit so that exit can never rewrite it. CYCLE_RUN_ENV in the environment means the artifact cycle spawned this run and files the same judgment under its own run id, and one invocation is worth exactly one line — so this one stands down rather than writing a second."""
+    """File this invocation's verdict in the timings journal, unless a cycle is already recording on its behalf. What is recorded is what the judge decided, and it is recorded before the trailing SystemExit so that exit can never rewrite it. CYCLE_RUN_ENV in the environment means the artifact cycle spawned this run and files the same judgment under its own run id, and one invocation is worth exactly one line — so this one stands down rather than writing a second."""
     if CYCLE_RUN_ENV in os.environ:
         return
     record_check(
@@ -621,7 +617,7 @@ def _failed_check(check: str, message: str) -> CheckVerdict:
 
 
 def _gates_only_verdict(out_dir: Path, pin_gate: dict, oracle_summary: dict) -> CheckVerdict:
-    """The run_m1 verdict for a --gates-only pass, taken from the same judge the artifact cycle runs over a build it reused rather than from the exit status this pass is about to take. It has to be that judge and not the exit status, because a pass whose oracle holds unmatched rows exits nonzero and is nonetheless green: unmatched rows are the mid-migration steady state, and a --gates-only loop over a ledger edit would otherwise file a red on every iteration. Two of the gate's three inputs are what this pass just re-ran; the third is the build's own defect gate, which belongs to a build this pass did not make and is read from the summary beside the tables whose stamp it already checked. An unreadable one contributes nothing rather than a guess — a build that failed its defect gate never compiled the font the stamp check just found."""
+    """The run_m1 verdict for a --gates-only pass, taken from the same judge the artifact cycle runs over a build it reused; the exit status this pass is about to take is that verdict. Unmatched rows are the mid-migration steady state and never fail it, so a --gates-only loop over a ledger edit files a green on every iteration that holds them. Two of the gate's three inputs are what this pass just re-ran; the third is the build's own defect gate, which belongs to a build this pass did not make and is read from the summary beside the tables whose stamp it already checked. An unreadable one contributes nothing rather than a guess — a build that failed its defect gate never compiled the font the stamp check just found."""
     from rebuild.tools.artifact_cycle import evaluate_run_m1_gate
 
     try:
@@ -661,9 +657,10 @@ def run_gates_only(out_dir: Path = OUT_DIR, jobs: int = 1, fresh_cache: bool = F
     )
     print(f"[t] run_oracle {time.perf_counter() - start:.1f}s", flush=True)
     print(json.dumps(oracle_summary, indent=2))
-    _record_cli_check(_gates_only_verdict(out_dir, pin_gate, oracle_summary), started)
-    if not oracle_summary["pass"]:
-        raise SystemExit("oracle conformance failed; see oracle_summary.json and divergence-audit.tsv")
+    gate = _gates_only_verdict(out_dir, pin_gate, oracle_summary)
+    _record_cli_check(gate, started)
+    if not gate.ok:
+        raise SystemExit("; ".join(gate.failures) + "; see oracle_summary.json and divergence-audit.tsv")
 
 
 def _settle_green(
@@ -829,8 +826,8 @@ def main(argv: list[str] | None = None) -> None:
         RUN_M1_GREEN, before, gate.ok, run_m1_key, "run_m1", files_of=lambda: run_m1_skip_files(REPO_ROOT)
     )
     _record_cli_check(gate, started)
-    if not oracle_summary["pass"]:
-        raise SystemExit("oracle conformance failed; see oracle_summary.json and divergence-audit.tsv")
+    if not gate.ok:
+        raise SystemExit("; ".join(gate.failures) + "; see oracle_summary.json and divergence-audit.tsv")
 
 
 def _hard_exit(status: int) -> NoReturn:
