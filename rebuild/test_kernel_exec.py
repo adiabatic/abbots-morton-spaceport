@@ -470,7 +470,7 @@ class TestTheKernelInvocation:
             raise Reached
 
         monkeypatch.setattr(artifact_cycle, "run_m1_skip_fingerprint", lambda root: "pinned-key")
-        monkeypatch.setattr(run_m1.conform, "unaliased_subset_names", lambda subset_dir, alias_path: {})
+        monkeypatch.setattr(run_m1.oracle, "unaliased_subset_names", lambda subset_dir, alias_path: {})
         monkeypatch.setattr(run_m1.baseline_subset, "ensure_fresh", lambda root: False)
         monkeypatch.setattr(run_m1, "tables_inputs", lambda: STAMP)
         monkeypatch.setattr(run_m1, "load_default_spec", lambda: SPEC)

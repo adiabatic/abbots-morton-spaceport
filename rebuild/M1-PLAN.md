@@ -28,7 +28,8 @@ rebuild/pipeline/
   emit_gpos.py        per-height curs lookups
   compile_font.py     mini-font build via build_font(senior_fea=...) + budget gate
   readback.py         post-compile read-back: the written font re-parsed and structurally proven against the plan
-  conform.py          HarfBuzz per-transition gate, exhaustive sweep, baseline-oracle comparison, ledger matching
+  conform.py          HarfBuzz per-transition gate, exhaustive sweep, the per-row baseline comparison and its memoized walk
+  oracle.py           baseline-oracle driver, divergence classifier, ledger matching, position channel (outside the tables' stamp)
   explain.py          the §6.3a CLI (python -m rebuild.pipeline.explain)
   baseline_subset.py  streaming filter of rebuild/out/baseline-*.tsv.gz to the migrated alphabet; re-run whenever the alphabet grows
   coretext_smoke.py   CoreText-vs-HarfBuzz driver (prototype recipe, extended sequence set)
@@ -401,7 +402,7 @@ One entry per divergence **class**, with a matching predicate, the observed coun
 - id: zwnj-word-initial-unification
   status: intended                # intended | drift-accepted | triaged — nothing else passes review
   match: {predicate: zwnj_noentry_identity, configs: all}
-    # predicate = a named matcher registered in conform.py (small, reviewed functions over the row pair);
+    # predicate = a named matcher registered in oracle.py (small, reviewed functions over the row pair);
     # structured field predicates ({window: ..., seam_change: ...}) are also legal match shapes
   count: 0                        # written by the conformance run; reviewed as a diff
   exemplars:
@@ -503,5 +504,5 @@ There is no closing report: the milestone’s record is the commit history plus 
 - **Behavior ground truth outranks a literal reading of today’s YAML when the two disagree.** ·May·Tea breaks while ·May·May joins, and the off-anchor contact gate independently rejects the join, so qsMay’s grounded-exit refusal names ·Tea. Findings the gates do not contradict stay as authored and are ledgered.
 - **Scope a `from:` or `toward:` list from the baseline TSV, never from FEA reconnaissance.** The old font joins a bare pair by GPOS cursive attachment alone whenever both bare glyphs carry same-height anchors — no calt rule fires, so an FEA grep reports the pair as “no interaction” and a scope authored from that reading silently drops real joins in both directions. The length-2 rows of `rebuild/out/m1/baseline-<config>.subset.tsv.gz` are the definitive pair-level join map.
 - **Off-anchor-contact appeals live in `rebuild/m1-contact-allow.yaml`** (committed-shape, human-reviewed like the ledger): one signature per corner today’s font already draws on a baseline-proven join (·Oy/·TeaOy tails against ·It/·Tea bars at y1, the ·Pea·Pea y6 chain at y7, and their entered/locked variants).
-- **The divergence ledger matches through one classifier:** `conform.classify_divergence` assigns each divergent row a single class from its phenomenon set (per-position alias-vs-settled cell deltas plus seam gains/losses), and every ledger predicate is `classify(row) == id`, so the exactly-one invariant holds by construction. Per-entry counts land in `divergence-audit.tsv` and `oracle_summary.json`.
+- **The divergence ledger matches through one classifier:** `oracle.classify_divergence` assigns each divergent row a single class from its phenomenon set (per-position alias-vs-settled cell deltas plus seam gains/losses), and every ledger predicate is `classify(row) == id`, so the exactly-one invariant holds by construction. Per-entry counts land in `divergence-audit.tsv` and `oracle_summary.json`.
 - **`rebuild/pipeline/run_m1.py` is the integration driver** (`uv run python -m rebuild.pipeline.run_m1`): tables + TSVs, glyph minting (settled cells named by `settle.cell_label`, so rules and glyphs agree by construction; raw cmap glyphs carry no curs anchors), defect gates merged with `surface.check_anchor_conventions`, emit, mini-font build, the post-compile read-back, then the oracle gate. Font-side conformance runs via `run_m1 --conform-only` (per-config sharding with `--jobs`, horizon via `--conform-horizon`, default 4 — the per-edit belt; the artifact cycle wires it in as `gate:conform`, and `make conform-deep` runs the same sweep at horizon 5+ under its own behavior-class-keyed green), and the CoreText smoke via `python -m rebuild.pipeline.coretext_smoke`.
