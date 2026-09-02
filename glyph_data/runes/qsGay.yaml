@@ -219,8 +219,10 @@ policy:
       left:
         family:
         - qsBay
+        - qsDay
         - qsKey
         - qsNo
         - qsEt
+        - qsAwe
   resolve: []
   groups: {}
