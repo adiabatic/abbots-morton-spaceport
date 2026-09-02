@@ -70,7 +70,9 @@ stances:
             - 3
             inks_when: withdrawn
           from:
-          - {family: qsUtter}
+          - family:
+            - qsAh
+            - qsUtter
       exits:
         baseline:
           x: 5
@@ -179,6 +181,10 @@ policy:
         then:
           except:
           - {family: qsPea}
+  - cell: {exit: x-height}
+    over: {entry: x-height}
+    when:
+      left: {family: qsAh}
   extend:
   - exit: baseline
     by: 1
