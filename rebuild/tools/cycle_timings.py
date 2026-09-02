@@ -4,11 +4,11 @@ The journal is rebuild/out/cycle-timings.ndjson (gitignored with the rest of reb
 
 A check line denormalizes its own context — host, cpu count, box size — rather than pointing at a run line for it, because the parentless line is the common case and a record nobody can interpret without a parent it does not have is not a record. rc is not a verdict, and this journal is where that stays honest: run_m1 exits nonzero on the documented steady state of verdict-gated unmatched oracle rows, after its own gate has judged the build green, so a check line records what the judge decided and never what the process returned. The rule runs backwards too — a "step" line carries a return code and no verdict, and no reader here manufactures one from it, so the history from before check lines existed stays what it is, unjudged, rather than being back-filled with a guess that would read exactly like a measurement.
 
-What a cycle spent is still recorded as it always was: one "step" line per subprocess the driver actually spawned, and one "run" line when the cycle finishes, interrupted finishes included. A step line carries the driver's step name (run_m1, gate:conform, merge, ...), the argv, the return code, the wall seconds, the step's peak RSS in bytes (measured by the driver as it reaps the child, so it covers the child's whole process tree — see peak_rss.reap_peak_rss_bytes), and — parsed out of the child's captured stdout/stderr — any inner "[t] <label> <secs>s" phase lines the child printed, which is how the per-config conform sweeps and run_m1's phase breakdown survive even for gates whose output is never streamed to the console. An inner line may carry its own peak-RSS figure as a trailing "rss_gb=<n>" token (peak_rss.rss_token is the writer; decimal GB, like every figure here), which rides into the journal beside the label's seconds. A run line carries the run's identity — hostname, cpu count, and the size of the box it ran on — start/finish stamps, total wall seconds, and the cycle summary's exit/gates/plan blocks, so a slow step can be read in context: which machine, which skips were in effect, what was deferred.
+What a cycle spent is still recorded as it always was: one "step" line per subprocess the driver actually spawned, and one "run" line when the cycle finishes, interrupted finishes included. A step line carries the driver's step name (run_m1, gate:conform, merge, ...), the argv, the return code, the wall seconds, the step's peak RSS in bytes (measured by the driver as it reaps the child, so it covers the child's whole process tree — see peak_rss.reap_peak_rss_bytes), and — parsed out of the child's captured stdout/stderr — any inner "[t] <label> <secs>s" phase lines the child printed, which is how the per-config conform sweeps and run_m1's phase breakdown survive even for gates whose output is never streamed to the console. An inner line may carry its own peak-RSS figure as a trailing "rss_gb=<n>" token (peak_rss.rss_token is the writer; decimal GB, like every figure here), which rides into the journal beside the label's seconds. A run line carries the run's identity — hostname, cpu count, and the size of the box it ran on — start/finish stamps, total wall seconds, and the cycle summary's exit/gates/plan blocks, so a slow step can be read in context: which machine, and which skips were in effect.
 
 The box is worth its own field because a per-step peak read months later means nothing without the machine's size beside it: whether a step that held 9 GB was comfortable or was most of the box is a fact about the box, not about the step, and the journal is the only place the two are ever written down together. `make job-costs` divides that same figure by a checked-in per-unit peak to state the width that constant implies here, which is the second reason it is recorded rather than probed at read time — a figure probed on the reader's box would answer for the wrong machine.
 
-Skipped stages never spawn and so never produce a step line; whether a stage was skipped, deferred, or genuinely absent is read from the run line's plan and gates blocks, not from the step list. A check the cycle never even reached produces no check line either — a skipped check is one that was judged skipped, not one that was never asked.
+Skipped stages never spawn and so never produce a step line; whether a stage was skipped or genuinely absent is read from the run line's plan and gates blocks, not from the step list. A check the cycle never even reached produces no check line either — a skipped check is one that was judged skipped, not one that was never asked.
 
 A fourth kind of line, "pool", is written by something that is not the cycle at all: any pytest run whose pool has a unit name to declare — AMS_POOL_UNIT (POOL_UNIT_ENV), set on the child's own environment by the two gate wrappers and by the cycle's rebuild-lane spawns — has its xdist controller append one line at terminal summary naming the unit, the width the pool resolved to, the controller's own peak, and every worker's. load_pool_records is the reader, and `make job-costs` is what finally holds those measurements against the checked-in per-worker constants they are supposed to price.
 
@@ -359,9 +359,6 @@ def render_runs(
                 f"wall={_seconds(run.get('wall_s')):.1f}s",
                 f"exit={run.get('exit', '?')}",
             ]
-            deferred = (run.get("plan") or {}).get("deferred") or []
-            if deferred:
-                bits.append("deferred=" + ",".join(deferred))
             lines.append("\n" + "  ".join(bits))
         for step in sorted(step_list, key=lambda entry: -_seconds(entry.get("elapsed_s"))):
             rc = step.get("rc")
@@ -377,7 +374,7 @@ def render_runs(
                         f"  {_seconds(item.get('elapsed_s')):>10.1f}s    {item.get('label', '?')}{inner_suffix}"
                     )
         if not step_list:
-            lines.append("  (no steps spawned — everything skipped or deferred)")
+            lines.append("  (no steps spawned — everything skipped)")
     return lines
 
 

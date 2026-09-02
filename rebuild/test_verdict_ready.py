@@ -274,36 +274,19 @@ def test_gates_real_failure_named_as_failing_not_unverified(tmp_path):
     assert "failing gates: rebuild" in gates["detail"]
 
 
-def _deferred(name):
-    return {"status": f"deferred ({name} waits for the next pass)", "green": False, "skip": "deferred"}
-
-
-def test_gates_deferred_skip_blocks_with_the_converging_remedy(tmp_path):
+def test_gates_an_unverified_conform_blocks_readiness(tmp_path):
+    """The readiness check knows no gate names, so the conformance sweep rides in on the same entry fields as its siblings: an unproved skip blocks as unverified, red blocks as a failure, and only a green or a proved skip lets a sitting start."""
     write_surface(tmp_path / "rebuild" / "out" / "review")
     write_summary(
         tmp_path,
         gates=_gate_map(
-            rebuild=_deferred("rebuild"),
-            conform=_deferred("conform"),
-            make_test=_deferred("make_test"),
+            conform={"status": "skipped (--skip-conform)", "green": False, "skip": "forced"},
         ),
     )
     gates = call(tmp_path)["checks"]["gates"]
     assert gates["level"] == "fail"
-    assert "deferred these gates to the next pass: conform, make_test, rebuild" in gates["detail"]
-    assert "Run it again" in gates["detail"]
-    assert gates["remedy"] == "make review-cycle"
-    assert call(tmp_path)["ready"] is False
-
-
-def test_gates_an_unverified_conform_blocks_readiness(tmp_path):
-    """The readiness check knows no gate names, so the conformance sweep rides in on the same entry fields as its siblings: deferred blocks with the converging remedy, red blocks as a failure, and only a green or a proved skip lets a sitting start."""
-    write_surface(tmp_path / "rebuild" / "out" / "review")
-    write_summary(tmp_path, gates=_gate_map(conform=_deferred("conform")))
-    gates = call(tmp_path)["checks"]["gates"]
-    assert gates["level"] == "fail"
-    assert "deferred these gates to the next pass: conform" in gates["detail"]
-    assert gates["remedy"] == "make review-cycle"
+    assert "unverified: conform" in gates["detail"]
+    assert gates["remedy"] == "make artifact-cycle"
 
     write_summary(
         tmp_path,
@@ -328,50 +311,26 @@ def test_gates_an_unverified_conform_blocks_readiness(tmp_path):
     assert call(tmp_path)["checks"]["gates"]["level"] == "ok"
 
 
-def test_gates_deferred_alongside_a_proved_skip_still_reads_as_deferred(tmp_path):
+def test_gates_a_legacy_deferred_skip_reads_as_unverified(tmp_path):
+    """Summaries written while the cycle still deferred gates are still on disk, and an unrun gate is an unrun gate: the entry falls through to the same unverified reading every other unproved skip gets, with the one-command remedy that verifies it."""
     write_surface(tmp_path / "rebuild" / "out" / "review")
     write_summary(
         tmp_path,
         gates=_gate_map(
-            conform=_deferred("conform"),
+            rebuild={
+                "status": "deferred (rebuild waits for the next pass)",
+                "green": False,
+                "skip": "deferred",
+            },
             make_test={"status": "skipped (closure unchanged)", "green": False, "skip": "proved"},
         ),
     )
     gates = call(tmp_path)["checks"]["gates"]
     assert gates["level"] == "fail"
-    assert gates["detail"].endswith(
-        "deferred these gates to the next pass: conform. Run it again to run them."
-    )
-    assert gates["remedy"] == "make review-cycle"
-
-
-def test_gates_deferred_next_to_a_forced_skip_falls_back_to_unverified(tmp_path):
-    write_surface(tmp_path / "rebuild" / "out" / "review")
-    write_summary(
-        tmp_path,
-        gates=_gate_map(
-            rebuild=_deferred("rebuild"),
-            conform={"status": "skipped (--skip-conform)", "green": False, "skip": "forced"},
-        ),
-    )
-    gates = call(tmp_path)["checks"]["gates"]
-    assert gates["level"] == "fail"
-    assert "unverified: conform, rebuild" in gates["detail"]
+    assert "left gates unverified: rebuild" in gates["detail"]
     assert "failing gates" not in gates["detail"]
-
-
-def test_gates_a_real_failure_outranks_a_deferral(tmp_path):
-    write_surface(tmp_path / "rebuild" / "out" / "review")
-    write_summary(
-        tmp_path,
-        gates=_gate_map(
-            rebuild={"status": "FAILED (exit 1)", "green": False, "skip": None},
-            conform=_deferred("conform"),
-        ),
-    )
-    gates = call(tmp_path)["checks"]["gates"]
-    assert gates["level"] == "fail"
-    assert "failing gates: rebuild" in gates["detail"]
+    assert gates["remedy"] == "make artifact-cycle"
+    assert call(tmp_path)["ready"] is False
 
 
 def test_gates_legacy_summary_without_skip_key_keeps_its_old_verdict(tmp_path):

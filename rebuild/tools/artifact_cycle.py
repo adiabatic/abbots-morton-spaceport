@@ -24,9 +24,7 @@ The skip demands that the surface build be skipping too, which is what makes the
 
 The same provably-unchanged principle guards every other heavy stage, each keyed by a content fingerprint over that stage's full input closure and a green record written only after that exact content passed live: run_m1 skips on rebuild/out/run-m1-green.json (the Stage A fingerprint components plus the oracle's subset tables and uv.lock) and re-evaluates its gate from the four summary JSONs already on disk; gate:conform skips on conform-green.json (the run_m1 key plus the M1.otf bytes and the sweep horizon); each rebuild lane skips on its own record (rebuild-contracts-green.json, rebuild-validators-green.json), keyed by rebuild_lane_fingerprint over that lane's own closure — both hold the suite's repo closure under rebuild/ and glyph_data/ plus conftest.py, pyproject.toml, uv.lock and the site fonts, and validators adds the out/m1 artifacts and the baselines it shapes against, which is exactly why the contracts key holds no artifact and the contracts lane can skip whether or not run_m1 rebuilt: a live M1 rebuild writes only under rebuild/out, which that closure does not contain. Both records are also written by rebuild.tools.rebuild_gate, the `make test-rebuild` entry point, so interactive suite greens and cycle greens share them; surface-build skips when the manifest's recorded inputs fingerprint already equals the one a build would stamp now (a rebuild would be byte-identical, mtime-floored generated_at included, so the autosave stays aligned). The census step is neither keyed nor skipped: it reads the surface build's census-facts.json sidecar and rewrites one small checked-in file in milliseconds, so it simply runs every pass. The surface, conform, and rebuild-validators skips engage only on cycles where run_m1 itself skipped, so a live M1 rebuild can never invalidate a key mid-cycle; green records are written only when the key still matches after the work ran, and a red result whose key matches its record deletes the record. --fresh runs everything regardless.
 
---defer-gates, which `make review-cycle` passes, turns the cycle from a one-pass verification into a converging loop. On a *refreshing* pass — one where run_m1 or the surface build has real work — the four heavy gates (rebuild-contracts, rebuild-validators, conform, make-test) are recorded pending instead of run, so a rune edit costs only the artifact chain and the letters are on screen in a fraction of the time. Only a gate that would otherwise run live is deferred: one an auto-skip already proved stays proved, so a pass that merely restamps the review UI can never turn a green gate pending. The next pass has no artifact work left, every stage auto-skips, and the pending gates run against settled artifacts; the pass after that skips those too and costs seconds. Deferral is never a waiver — a deferred gate rides `skip: "deferred"` into the cycle summary, which rebuild.review.status counts as unverified, so `make verdict-ready` and the app banner both stay NOT READY until the loop converges. --no-defer-gates runs them in the one pass, which is what `make artifact-cycle` does at commit time, and --fresh and --force-make-test likewise override deferral for the gates they force. Rehearsal mode (--review-out) never defers: it writes its surface somewhere else, so there is no live surface to see sooner, and its surface build is unskippable by construction — every rehearsal pass would look refreshing and the loop would never converge.
-
-Which passes cost the reviewer their letters is decided here rather than by the caller, because only the resolved plan knows. Two of the things a cycle writes belong to the running app — the surface it serves, where livereload watches every shard and a restamped manifest orphans the tab's store, and the verdict store, which merge_verdicts refuses to touch under a live server because an open tab would flush its own copy back over the merge. A pass whose plan skips both writes neither, so a listening server is left alone and the letters stay on screen for the whole run: that is the gate pass, whose long verification the deferred gates exist to move off the look-edit-look path, and which used to black the app out for every minute of it. A pass whose surface did not move but whose store did takes a shape of its own: the carry there is provably the identity — the snapshot it would read is a clone of the same surface, every content key resolves to itself, and the carry preserves each record's `at`, which the merge compares strictly — so the snapshot and the carry are skipped and the master is merged straight in, which is the one thing the store's own hash cannot see. That pass still writes the store, so it is a port-taking one. A pass that does write under the app needs the port to itself, and --stop-server (which `make review-cycle` passes) is permission to take it — terminate the server and wait out the port — where a bare run still refuses and says how. Retention is the third writer: the app appends to the journal as you verdict, and a compaction rewrites the file around a read, so with a server up the journal and the stash sweep that indexes off it are both left for a later pass.
+Which passes cost the reviewer their letters is decided here rather than by the caller, because only the resolved plan knows. Two of the things a cycle writes belong to the running app — the surface it serves, where livereload watches every shard and a restamped manifest orphans the tab's store, and the verdict store, which merge_verdicts refuses to touch under a live server because an open tab would flush its own copy back over the merge. A pass whose plan skips both writes neither, so a listening server is left alone and the letters stay on screen for the whole run: that is the pass with no artifact work, whose long verification used to black the app out for every minute of it. A pass whose surface did not move but whose store did takes a shape of its own: the carry there is provably the identity — the snapshot it would read is a clone of the same surface, every content key resolves to itself, and the carry preserves each record's `at`, which the merge compares strictly — so the snapshot and the carry are skipped and the master is merged straight in, which is the one thing the store's own hash cannot see. That pass still writes the store, so it is a port-taking one. A pass that does write under the app needs the port to itself, and --stop-server (which `make review-cycle` passes) is permission to take it — terminate the server and wait out the port — where a bare run still refuses and says how. Retention is the third writer: the app appends to the journal as you verdict, and a compaction rewrites the file around a read, so with a server up the journal and the stash sweep that indexes off it are both left for a later pass.
 
 A green finish ends with a retention pass over the cycle's own disk piles, all of them regenerable or journal-covered: every tmp/review-pre-* snapshot except this cycle's is deleted (a snapshot is read once, by its own cycle's carry, and never again), root verdicts-carried-*.json files not stamped for the live surface are deleted (only the stamp-aligned frontier is ever read; the tracked copy under rebuild/evidence/ is never touched), verdicts-autosave-* stashes not referenced by a journal event at or after the last base event are deleted (the journal, not the stashes, is the sanctioned recovery path — and the reference index is the test because a stash's mtime predates the event that created it), and the journal itself is compacted to the newest base event older than RETENTION_WINDOW_DAYS, keeping at least that many days of --restore-as-of history. Failed, interrupted, first-run, and rehearsal cycles never prune; --keep-history opts out entirely; a retention error warns and never turns a green cycle red.
 
@@ -87,8 +85,6 @@ REVIEW_PORT = 7294
 
 POOL_POLICIES = ("queue", "overlap")
 REBUILD_POOL_POLICY_DEFAULT = "queue"
-DEFERRABLE_GATES = ("rebuild-contracts", "rebuild-validators", "conform", "make-test")
-DEFER_NOTE = "surface refreshed this pass; run the cycle again to run it"
 PLUMBING_SKIP_NOTE = "surface, verdicts master, live store, and standing approvals unchanged since the last complete plumbing pass; --fresh overrides"
 SERVER_STAYS_UP_NOTE = "writes neither the surface the app serves nor the verdict store it holds"
 SERVER_STOP_PATTERN = r"rebuild\.review\.serve"
@@ -608,13 +604,6 @@ def resolve_snapshot_dir(tmp_dir: Path, short_id: str) -> Path:
     return candidate
 
 
-def deferred_gates(*, defer: bool, refreshing: bool, would_run: dict[str, bool]) -> frozenset[str]:
-    """Which heavy gates this pass records pending instead of running. Two conditions, both necessary. The pass must be *refreshing* — run_m1 or the surface build has real work — because that is the pass whose whole point is to get the letters on screen, and a pass with no artifact work is the one that should be spending its time on verification instead. And the gate must be one that would otherwise run live, so a gate a green record already proved stays proved rather than being demoted to pending; without that, a review-UI edit (which restamps the surface but moves nothing the heavy gates read) would throw away greens it had no quarrel with. gate:js is never deferrable — it is one node process."""
-    if not defer or not refreshing:
-        return frozenset()
-    return frozenset(name for name in DEFERRABLE_GATES if would_run.get(name))
-
-
 def unfinished_cycle_snapshot(summary_path: Path | None = None) -> Path | None:
     """The snapshot of the last cycle that did not finish green, when it is still on disk. Such a cycle can have rewritten the live surface and then stopped, which leaves its snapshot the only copy of what the surface held beforehand — so this pass must neither take that name nor let its own retention sweep it away. A green cycle's snapshot needs no such protection: its own carry already read it, and nothing reads a snapshot twice."""
     try:
@@ -738,7 +727,6 @@ class Plan:
     plumbing_note: str = ""
     plumbing_store_only: bool = False
     takes_snapshot: bool = False
-    deferred: frozenset[str] = frozenset()
     preserve_snapshot: Path | None = None
     record_greens: bool = False
     pool_policy: str = REBUILD_POOL_POLICY_DEFAULT
@@ -802,7 +790,7 @@ def make_test_pool_width(*, ncores: int | None = None) -> int:
 def kernel_threads_budget(
     *, skip_make_test: bool = False, ncores: int | None = None, total_bytes: int | None = None
 ) -> int:
-    """The kernel fan-out's width for this cycle, named by the cycle rather than inherited silently, because it is the one width here that memory binds: a live configuration holds its whole working set until it emits, so the width is the box divided by one of them. What makes it the cycle's own rather than a re-export of `kernel_exec.KERNEL_THREADS_DEFAULT` is that a cycle is not a box to itself — gate:make-test's pytest pool is hot from t=0 and stays hot right across the table build — so that pool comes off the box before the division: FONT_SUITE_WORKER_BYTES apiece for as many workers as `make_test_pool_width` says it will have, which is the same figure the cycle hands the child, so what is reserved and what runs are one number by construction rather than two that happen to agree. A pass whose gate is skipped or deferred subtracts nothing, there being no pool to subtract, and --skip-gates is that same case with the caller saying so.
+    """The kernel fan-out's width for this cycle, named by the cycle rather than inherited silently, because it is the one width here that memory binds: a live configuration holds its whole working set until it emits, so the width is the box divided by one of them. What makes it the cycle's own rather than a re-export of `kernel_exec.KERNEL_THREADS_DEFAULT` is that a cycle is not a box to itself — gate:make-test's pytest pool is hot from t=0 and stays hot right across the table build — so that pool comes off the box before the division: FONT_SUITE_WORKER_BYTES apiece for as many workers as `make_test_pool_width` says it will have, which is the same figure the cycle hands the child, so what is reserved and what runs are one number by construction rather than two that happen to agree. A pass whose gate is skipped subtracts nothing, there being no pool to subtract, and --skip-gates is that same case with the caller saying so.
 
     The arithmetic underneath stays `kernel_exec.kernel_threads_default`'s: the reserve policy applied exactly once, and AMS_KERNEL_THREADS short-circuiting ahead of all of it, so a stated width wins here exactly as it does for a bare run_m1 and this reservation can never narrow one. What comes back is the memory answer before the configuration count and the cores this process may actually run on narrow it. That narrowing lives in exactly one place, `run_m1.build_tables`'s own `min()`, and is deliberately not repeated here: a second copy on this side would be a second thing to keep in agreement with it, and what not having one costs is only that a box roomier than the configuration count reads a plan line naming a width the run will go on to narrow. `ncores` and `total_bytes` are keywords for the reason every budget here takes its box as one — an assertion about a machine the suite is not running on has to be a pure function over an invented one.
     """
@@ -845,7 +833,7 @@ def surface_job_budget(
 
     One approximation is left, and it is stated rather than hidden: a worker's slice-shaped piles shrink as the pool widens, so no single divisor is true at every width — this one is seeded at width two, the narrowest pool the arithmetic ever starts and so the widest a worker ever gets, which makes it an upper bound at every pooled width and too steep at the wide end. Erring steep is the deliberate direction, because the two ends are not symmetric: a divisor seeded wide is what walked a width-two pool into this box's reserve, while one seeded narrow only hands a roomy box fewer workers than its true cost curve would allow. A box the pooled shape does not fit at all floors at one, which is not a refusal but the serial shape: at width one there is no pool, every fragment exists once instead of twice, and the build is the cheapest it can be on a box that has outgrown it. The lever that buys the width back is streaming phase 2 into shards instead of materializing every fragment in the parent, which WHATNEXT records; it is priced in SURFACE_PARENT_BYTES rather than in a width, so taking it widens this fan-out on every box at once.
 
-    Under a gated cycle `make test`'s pytest pool is hot from t=0, so it comes off the box twice over: two cores out of the cap, as it always has, and FONT_SUITE_WORKER_BYTES apiece for as many workers as `make_test_pool_width` says it will have — the same figure the cycle hands that child, so what is reserved and what runs are one number by construction, the way `kernel_threads_budget` already does it. --skip-gates, the closure-unchanged auto-skip and deferral all give both back. gate:js runs from t=0 in every case, but it is a single node process, not a pool. `ncores` and `total_bytes` are keywords for the reason every budget here takes its box as one — an assertion about a machine the suite is not running on has to be a pure function over an invented one — and the cores come from `memory_budget.usable_cores()` rather than `os.cpu_count()`, so an affinity mask or a cgroup quota narrows this width the way it narrows every other one.
+    Under a gated cycle `make test`'s pytest pool is hot from t=0, so it comes off the box twice over: two cores out of the cap, as it always has, and FONT_SUITE_WORKER_BYTES apiece for as many workers as `make_test_pool_width` says it will have — the same figure the cycle hands that child, so what is reserved and what runs are one number by construction, the way `kernel_threads_budget` already does it. --skip-gates and the closure-unchanged auto-skip each give both back. gate:js runs from t=0 in every case, but it is a single node process, not a pool. `ncores` and `total_bytes` are keywords for the reason every budget here takes its box as one — an assertion about a machine the suite is not running on has to be a pure function over an invented one — and the cores come from `memory_budget.usable_cores()` rather than `os.cpu_count()`, so an affinity mask or a cgroup quota narrows this width the way it narrows every other one.
     """
     from rebuild.tools import memory_budget
 
@@ -905,7 +893,6 @@ def build_plan(
     skip_plumbing: bool = False,
     plumbing_note: str = "",
     store_only: bool = False,
-    deferred: frozenset[str] = frozenset(),
     preserve_snapshot: Path | None = None,
     record_greens: bool = False,
     keep_history: bool = False,
@@ -927,23 +914,20 @@ def build_plan(
             carry_out if carry_out is not None else ROOT / f"verdicts-carried-{short_id}.json"
         )
 
-    no_make_test = skip_gates or skip_make_test or "make-test" in deferred
-    surface_no_pool = skip_make_test or "make-test" in deferred
+    no_make_test = skip_gates or skip_make_test
     make_test_workers = make_test_pool_width(ncores=ncores)
     surface_jobs = surface_job_budget(
-        skip_gates=skip_gates, skip_make_test=surface_no_pool, ncores=ncores, total_bytes=total_bytes
+        skip_gates=skip_gates, skip_make_test=skip_make_test, ncores=ncores, total_bytes=total_bytes
     )
     workers = f"{make_test_workers} worker" + ("" if make_test_workers == 1 else "s")
     if skip_gates:
         surface_head = "--skip-gates, so the surface build takes the whole box"
     elif skip_make_test:
         surface_head = "gate:make-test skipped, so the surface build takes the whole box"
-    elif "make-test" in deferred:
-        surface_head = "gate:make-test deferred, so the surface build takes the whole box"
     else:
         surface_head = f"gate:make-test's pytest pool held to {workers} — its cores reserved here and its bytes off the box beside the build's own parent"
     surface_reason = f"{surface_head}; " + surface_job_derivation(
-        skip_gates=skip_gates, skip_make_test=surface_no_pool, ncores=ncores, total_bytes=total_bytes
+        skip_gates=skip_gates, skip_make_test=skip_make_test, ncores=ncores, total_bytes=total_bytes
     )
     sweep_jobs = sweep_job_budget(ncores)
     conform_jobs = sweep_jobs
@@ -982,7 +966,6 @@ def build_plan(
         skip_plumbing=skip_plumbing,
         plumbing_note=plumbing_note,
         plumbing_store_only=store_only,
-        deferred=deferred,
         preserve_snapshot=preserve_snapshot,
         record_greens=record_greens,
         retention=do_retention,
@@ -1162,8 +1145,6 @@ def build_plan(
             plan.steps.append(
                 Step("gate:conform", None, f"SKIPPED ({conform_note or '--skip-conform'})", lane="conform")
             )
-        elif "conform" in deferred:
-            plan.steps.append(Step("gate:conform", None, f"DEFERRED ({DEFER_NOTE})", lane="conform"))
         else:
             plan.steps.append(
                 Step("gate:conform", conform_gate_argv(conform_jobs, conform_horizon), lane="conform")
@@ -1171,10 +1152,6 @@ def build_plan(
         if skip_contracts:
             plan.steps.append(
                 Step("gate:rebuild-contracts", None, f"SKIPPED ({contracts_note})", lane="contracts")
-            )
-        elif "rebuild-contracts" in deferred:
-            plan.steps.append(
-                Step("gate:rebuild-contracts", None, f"DEFERRED ({DEFER_NOTE})", lane="contracts")
             )
         else:
             plan.steps.append(
@@ -1189,10 +1166,6 @@ def build_plan(
             plan.steps.append(
                 Step("gate:rebuild-validators", None, f"SKIPPED ({validators_note})", lane="validators")
             )
-        elif "rebuild-validators" in deferred:
-            plan.steps.append(
-                Step("gate:rebuild-validators", None, f"DEFERRED ({DEFER_NOTE})", lane="validators")
-            )
         else:
             plan.steps.append(
                 Step(
@@ -1204,8 +1177,6 @@ def build_plan(
             )
         if skip_make_test:
             plan.steps.append(Step("gate:make-test", None, f"SKIPPED ({make_test_note})", lane="t0"))
-        elif "make-test" in deferred:
-            plan.steps.append(Step("gate:make-test", None, f"DEFERRED ({DEFER_NOTE})", lane="t0"))
         else:
             plan.steps.append(Step("gate:make-test", ["make", "test"], lane="t0"))
 
@@ -1288,7 +1259,7 @@ def server_listening(port: int = REVIEW_PORT) -> bool:
 
 
 def server_may_stay_up(*, skip_surface: bool, writes_store: bool) -> bool:
-    """Whether a live review server can run right through this pass. Two things a cycle writes are the app's own: the surface it serves — livereload watches every shard, and a restamped manifest orphans the tab's store — and the verdict store, which merge_verdicts refuses to touch under a live server anyway, since an open tab would flush its copy back over the merge. So the answer comes from the plan's writes, not from any skip flag standing proxy for them: a pass that rebuilds no surface and merges nothing into the store (a --no-carry pass, a --no-merge carry over an unmoved surface, the gate pass the deferred gates exist to produce) writes neither and the letters stay on screen for its whole run. Everything else the cycle writes is either outside the served tree (the census pins, the m1 summaries, the carried file) or read by the app only as status, where landing fresh mid-pass is the point rather than a hazard."""
+    """Whether a live review server can run right through this pass. Two things a cycle writes are the app's own: the surface it serves — livereload watches every shard, and a restamped manifest orphans the tab's store — and the verdict store, which merge_verdicts refuses to touch under a live server anyway, since an open tab would flush its copy back over the merge. So the answer comes from the plan's writes, not from any skip flag standing proxy for them: a pass that rebuilds no surface and merges nothing into the store (a --no-carry pass, a --no-merge carry over an unmoved surface, a pass with no artifact work left to do) writes neither and the letters stay on screen for its whole run. Everything else the cycle writes is either outside the served tree (the census pins, the m1 summaries, the carried file) or read by the app only as status, where landing fresh mid-pass is the point rather than a hazard."""
     return skip_surface and not writes_store
 
 
@@ -1310,14 +1281,7 @@ def _render_concurrency(plan: Plan) -> list[str]:
             "  Concurrency (--skip-gates):",
             f"    Lane build only; no gates; run_m1 sweeps --jobs {plan.sweep_jobs} at --kernel-threads {plan.kernel_threads}, surface-build --jobs {plan.surface_jobs} ({plan.surface_reason})",
         ]
-    defer_contracts = "rebuild-contracts" in plan.deferred
-    defer_validators = "rebuild-validators" in plan.deferred
-    defer_conform = "conform" in plan.deferred
-    defer_make_test = "make-test" in plan.deferred
-    no_make_test = plan.skip_make_test or defer_make_test
-    no_conform = plan.skip_conform or defer_conform
-    no_contracts = plan.skip_contracts or defer_contracts
-    t0_lane = "gate:js" if no_make_test else "gate:js, gate:make-test"
+    t0_lane = "gate:js" if plan.skip_make_test else "gate:js, gate:make-test"
     lines = [
         "",
         f"  Concurrency (pool policy: {plan.pool_policy}):",
@@ -1326,13 +1290,11 @@ def _render_concurrency(plan: Plan) -> list[str]:
     ]
     if plan.skip_conform:
         lines.append("    Lane conform                     : SKIPPED (--skip-conform)")
-    elif defer_conform:
-        lines.append(f"    Lane conform                     : DEFERRED ({DEFER_NOTE})")
     elif plan.pool_policy == "overlap":
         lines.append(
             f"    Lane conform                     : starts when run_m1's three JSONs pass; CO-RESIDENT with the pytest pools (--jobs {plan.conform_jobs})"
         )
-    elif not no_make_test:
+    elif not plan.skip_make_test:
         lines.append(
             f"    Lane conform                     : starts when run_m1's three JSONs pass; QUEUED behind gate:make-test (queue policy — one heavy pool at a time) (--jobs {plan.conform_jobs})"
         )
@@ -1344,19 +1306,17 @@ def _render_concurrency(plan: Plan) -> list[str]:
         lines.append(
             "    Lane rebuild-contracts           : SKIPPED (inputs unchanged since its last green run)"
         )
-    elif defer_contracts:
-        lines.append(f"    Lane rebuild-contracts           : DEFERRED ({DEFER_NOTE})")
     else:
         lines.append("    Lane rebuild-contracts           : submitted once the surface build settles;")
         if plan.pool_policy == "overlap":
             lines.append(
                 "                                       CO-RESIDENT with the other pools (overlap policy)"
             )
-        elif not no_conform:
+        elif not plan.skip_conform:
             lines.append(
                 "                                       QUEUED behind gate:conform (queue policy — one heavy pool at a time)"
             )
-        elif not no_make_test:
+        elif not plan.skip_make_test:
             lines.append(
                 "                                       QUEUED behind gate:make-test (queue policy; gate:conform not running)"
             )
@@ -1366,30 +1326,28 @@ def _render_concurrency(plan: Plan) -> list[str]:
         lines.append(
             "    Lane rebuild-validators          : SKIPPED (inputs unchanged since its last green run)"
         )
-    elif defer_validators:
-        lines.append(f"    Lane rebuild-validators          : DEFERRED ({DEFER_NOTE})")
     else:
         lines.append("    Lane rebuild-validators          : submitted once the surface build settles;")
         if plan.pool_policy == "overlap":
             lines.append(
                 "                                       CO-RESIDENT with the other pools (overlap policy)"
             )
-        elif not no_contracts:
+        elif not plan.skip_contracts:
             lines.append(
                 "                                       QUEUED behind gate:rebuild-contracts, whose chain already waits on gate:conform and gate:make-test"
             )
-        elif not no_conform:
+        elif not plan.skip_conform:
             lines.append(
                 "                                       QUEUED behind gate:conform (queue policy; the contracts lane is not running)"
             )
-        elif not no_make_test:
+        elif not plan.skip_make_test:
             lines.append(
                 "                                       QUEUED behind gate:make-test (queue policy; neither gate:conform nor the contracts lane is running)"
             )
         else:
             lines.append("                                       no other heavy pool running, so no queueing")
     workers = f"{plan.make_test_workers} worker" + ("" if plan.make_test_workers == 1 else "s")
-    if no_make_test:
+    if plan.skip_make_test:
         kernel_reason = "the table build's memory ceiling, the one width RAM binds"
     else:
         kernel_reason = f"the table build's memory ceiling, less gate:make-test's {workers}"
@@ -1398,9 +1356,6 @@ def _render_concurrency(plan: Plan) -> list[str]:
     )
     lines.append(f"    run_m1 --kernel-threads          : {plan.kernel_threads}  ({kernel_reason})")
     lines.append(f"    surface-build --jobs             : {plan.surface_jobs}  ({plan.surface_reason})")
-    pending = ["gate:" + name for name in sorted(plan.deferred)]
-    if pending:
-        lines.append(f"    deferred to the next pass        : {', '.join(pending)}")
     return lines
 
 
@@ -1430,7 +1385,7 @@ def render_plan(plan: Plan) -> str:
 
 @dataclass
 class CycleReport:
-    """The pass's running record. Every `*_status` string here is display-only prose for the summary — it exists to be read by a human, and its wording is free to change. The booleans beside them (`gate_*_green`, `complaints_ok`) are the machine judgment, set at the moment the outcome is judged and read by every decision that follows; greenness is never re-derived from the status strings. A gate that never joined — skipped, deferred, or never submitted — leaves its boolean None, which is neither green nor red."""
+    """The pass's running record. Every `*_status` string here is display-only prose for the summary — it exists to be read by a human, and its wording is free to change. The booleans beside them (`gate_*_green`, `complaints_ok`) are the machine judgment, set at the moment the outcome is judged and read by every decision that follows; greenness is never re-derived from the status strings. A gate that never joined — skipped or never submitted — leaves its boolean None, which is neither green nor red."""
 
     snapshot_dir: Path | None = None
     unmatched: int | None = None
@@ -2207,10 +2162,6 @@ def _run_cycle(
     pool = ThreadPoolExecutor(max_workers=_GATE_POOL_WORKERS)
     failures: list[str] = []
     try:
-        defer_contracts = "rebuild-contracts" in plan.deferred
-        defer_validators = "rebuild-validators" in plan.deferred
-        defer_conform = "conform" in plan.deferred
-        defer_make_test = "make-test" in plan.deferred
         js_fut = (
             None
             if plan.skip_gates
@@ -2218,7 +2169,7 @@ def _run_cycle(
         )
         make_fut = (
             None
-            if plan.skip_gates or plan.skip_make_test or defer_make_test
+            if plan.skip_gates or plan.skip_make_test
             else pool.submit(
                 _gate_make_test_task,
                 plan.argv("gate:make-test"),
@@ -2233,20 +2184,12 @@ def _run_cycle(
         gate_keys: dict[str, str] = {}
         if not plan.skip_gates and plan.skip_conform:
             report.gate_conform = f"skipped ({plan.conform_note or '--skip-conform'})"
-        elif defer_conform:
-            report.gate_conform = f"deferred ({DEFER_NOTE})"
         if not plan.skip_gates and plan.skip_contracts:
             report.gate_contracts = f"skipped ({plan.contracts_note})"
-        elif defer_contracts:
-            report.gate_contracts = f"deferred ({DEFER_NOTE})"
         if not plan.skip_gates and plan.skip_validators:
             report.gate_validators = f"skipped ({plan.validators_note})"
-        elif defer_validators:
-            report.gate_validators = f"deferred ({DEFER_NOTE})"
         if not plan.skip_gates and plan.skip_make_test:
             report.gate_make_test = f"skipped ({plan.make_test_note})"
-        elif defer_make_test:
-            report.gate_make_test = f"deferred ({DEFER_NOTE})"
 
         gate = _do_run_m1(
             report,
@@ -2262,16 +2205,16 @@ def _run_cycle(
         )
         if gate is None or not gate.ok:
             failures.extend(_run_m1_reasons(gate))
-            if (plan.skip_gates or not plan.skip_contracts) and not defer_contracts:
+            if plan.skip_gates or not plan.skip_contracts:
                 report.gate_contracts = "not run (run_m1 gate failed)"
-            if (plan.skip_gates or not plan.skip_validators) and not defer_validators:
+            if plan.skip_gates or not plan.skip_validators:
                 report.gate_validators = "not run (run_m1 gate failed)"
-            if not plan.skip_gates and not plan.skip_conform and not defer_conform:
+            if not plan.skip_gates and not plan.skip_conform:
                 report.gate_conform = "not run (run_m1 gate failed)"
             _join_gates(report, failures, js_fut, None, None, None, make_fut, emit, timings)
             return _finish(report, failures, plan, timings)
 
-        if not plan.skip_gates and not plan.skip_conform and not defer_conform:
+        if not plan.skip_gates and not plan.skip_conform:
             if plan.record_greens:
                 gate_keys["conform"] = conform_skip_fingerprint(ROOT, plan.conform_horizon)
             conform_fut = pool.submit(
@@ -2295,15 +2238,15 @@ def _run_cycle(
             skip_note=plan.surface_note,
         ):
             failures.append("surface rebuild failed")
-            if not plan.skip_gates and not plan.skip_contracts and not defer_contracts:
+            if not plan.skip_gates and not plan.skip_contracts:
                 report.gate_contracts = "not run (surface build failed)"
-            if not plan.skip_gates and not plan.skip_validators and not defer_validators:
+            if not plan.skip_gates and not plan.skip_validators:
                 report.gate_validators = "not run (surface build failed)"
             _join_gates(report, failures, js_fut, None, None, conform_fut, make_fut, emit, timings)
             _record_gate_greens(report, plan, gate_keys, emit)
             return _finish(report, failures, plan, timings)
 
-        if not plan.skip_gates and not plan.skip_contracts and not defer_contracts:
+        if not plan.skip_gates and not plan.skip_contracts:
             if plan.record_greens:
                 gate_keys["contracts"] = rebuild_lane_fingerprint(ROOT, "contracts") or ""
             contracts_fut = pool.submit(
@@ -2316,7 +2259,7 @@ def _run_cycle(
                 registry,
                 plan.argv("gate:rebuild-contracts"),
             )
-        if not plan.skip_gates and not plan.skip_validators and not defer_validators:
+        if not plan.skip_gates and not plan.skip_validators:
             if plan.record_greens:
                 gate_keys["validators"] = rebuild_lane_fingerprint(ROOT, "validators") or ""
             validators_fut = pool.submit(
@@ -2428,18 +2371,18 @@ def _as_str(value: object | None) -> str | None:
 def _gate_entry(status: str, green: bool | None, skip: str | None = None) -> dict:
     """`green` is the judgment the gate recorded when it joined — True exactly when it ran in this pass and passed — never a re-reading of `status`, whose prose is for the human summary. A gate that never joined carries None and publishes False, since nothing was verified.
 
-    `skip` is why the gate did not run, and it is the discriminator the readiness checker needs: "proved" means a matching green record already showed this exact content passing, so the state is verified; "forced" means a flag suppressed the gate and nothing proved anything; "deferred" means this pass chose the surface over the verification and left the gate for the next one, which is likewise unproven but has a one-command remedy. The status prose cannot carry that — every kind reads as some flavor of "skipped" — and a reader that cannot tell them apart is what once let --skip-conform report READY.
+    `skip` is why the gate did not run, and it is the discriminator the readiness checker needs: "proved" means a matching green record already showed this exact content passing, so the state is verified; "forced" means a flag suppressed the gate and nothing proved anything. The status prose cannot carry that — both kinds read as some flavor of "skipped" — and a reader that cannot tell them apart is what once let --skip-conform report READY.
     """
     return {"status": status, "green": green is True, "skip": skip}
 
 
-def _skip_kind(*, proved: bool, deferred: bool, forced: bool = False) -> str | None:
-    """Most-informative first. A flag outranks deferral because a gate the caller switched off is not waiting on anything — the two never co-occur (a forced gate is never a candidate for deferral), but the order says which reading wins if they ever do."""
+def _skip_kind(*, proved: bool, forced: bool = False) -> str | None:
+    """Most-informative first. A green record outranks a flag because it says something about the content rather than about the caller — the two never co-occur (a gate the caller switched off never reaches its own auto-skip), but the order says which reading wins if they ever do."""
     if proved:
         return "proved"
     if forced:
         return "forced"
-    return "deferred" if deferred else None
+    return None
 
 
 def _surface_block(surface_dir: Path) -> dict:
@@ -2465,26 +2408,22 @@ def cycle_summary_payload(report: CycleReport, failures: list[str], plan: Plan, 
             "rebuild_contracts": _gate_entry(
                 report.gate_contracts,
                 report.gate_contracts_green,
-                _skip_kind(proved=plan.skip_contracts, deferred="rebuild-contracts" in plan.deferred),
+                _skip_kind(proved=plan.skip_contracts),
             ),
             "rebuild_validators": _gate_entry(
                 report.gate_validators,
                 report.gate_validators_green,
-                _skip_kind(proved=plan.skip_validators, deferred="rebuild-validators" in plan.deferred),
+                _skip_kind(proved=plan.skip_validators),
             ),
             "conform": _gate_entry(
                 report.gate_conform,
                 report.gate_conform_green,
-                _skip_kind(
-                    proved=plan.conform_proven,
-                    deferred="conform" in plan.deferred,
-                    forced=plan.skip_conform,
-                ),
+                _skip_kind(proved=plan.conform_proven, forced=plan.skip_conform),
             ),
             "make_test": _gate_entry(
                 report.gate_make_test,
                 report.gate_make_test_green,
-                _skip_kind(proved=plan.skip_make_test, deferred="make-test" in plan.deferred),
+                _skip_kind(proved=plan.skip_make_test),
             ),
         },
         "deep_sweep": {"status": deep_status, "note": deep_note},
@@ -2530,7 +2469,6 @@ def cycle_summary_payload(report: CycleReport, failures: list[str], plan: Plan, 
             "skip_contracts": plan.skip_contracts,
             "skip_validators": plan.skip_validators,
             "skip_plumbing": plan.skip_plumbing,
-            "deferred": sorted(plan.deferred),
             "review_out": _as_str(plan.review_out),
             "first_run": plan.first_run,
             "short_id": plan.short_id,
@@ -2783,12 +2721,6 @@ def main(argv: list[str] | None = None) -> int:
         help="run gate:make-test even when its input closure is unchanged since its last green run (the auto-skip)",
     )
     parser.add_argument(
-        "--defer-gates",
-        action=argparse.BooleanOptionalAction,
-        default=False,
-        help="on a pass that rebuilds M1 or the surface, record the heavy gates (rebuild-contracts, rebuild-validators, conform, make-test) pending instead of running them, so the letters are on screen sooner; the next pass has no artifact work and runs them. `make review-cycle` passes this; a deferred gate is unproven, so readiness stays NOT READY until a later pass clears it",
-    )
-    parser.add_argument(
         "--fresh",
         action="store_true",
         help="run every stage and gate even when a green record proves its inputs unchanged since the last green run (disables all auto-skips, gate:make-test's included)",
@@ -2820,7 +2752,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--stop-server",
         action="store_true",
-        help="stop a listening review server instead of refusing, but only when this pass writes under it — the surface it serves or the verdict store it holds. A pass that writes neither leaves the server up whether or not this is passed, so the letters stay on screen through it; `make review-cycle` passes this, which is what makes a gate-only pass background verification rather than a lockout",
+        help="stop a listening review server instead of refusing, but only when this pass writes under it — the surface it serves or the verdict store it holds. A pass that writes neither leaves the server up whether or not this is passed, so the letters stay on screen through it; `make review-cycle` passes this, which is what makes a pass with no artifact work background verification rather than a lockout",
     )
     parser.add_argument(
         "--dry-run",
@@ -2907,25 +2839,6 @@ def main(argv: list[str] | None = None) -> int:
             f"The last cycle did not finish green; keeping its snapshot at {preserve_snapshot} as well as this pass's."
         )
 
-    defer_active = args.defer_gates and not args.fresh and args.review_out is None
-    refreshing = not skip_run_m1 or not skip_surface
-    deferred = deferred_gates(
-        defer=defer_active,
-        refreshing=refreshing,
-        would_run={
-            "rebuild-contracts": not args.skip_gates and not skip_contracts,
-            "rebuild-validators": not args.skip_gates and not skip_validators,
-            "conform": not args.skip_gates and not args.skip_conform and not auto_skip_conform,
-            "make-test": not args.skip_gates and not skip_make_test and not args.force_make_test,
-        },
-    )
-    if deferred:
-        print(
-            "Heavy gates deferred to the next pass: "
-            + ", ".join("gate:" + name for name in sorted(deferred))
-            + f" — {DEFER_NOTE}; --no-defer-gates runs them in this one."
-        )
-
     if not args.no_carry and args.verdicts is None and not first_run:
         resolved = resolve_carry_source()
         if resolved is None:
@@ -2997,7 +2910,6 @@ def main(argv: list[str] | None = None) -> int:
         skip_plumbing=skip_plumbing,
         plumbing_note=plumbing_note,
         store_only=store_only,
-        deferred=deferred,
         preserve_snapshot=preserve_snapshot,
         record_greens=not args.dry_run,
         keep_history=args.keep_history,
@@ -3051,14 +2963,6 @@ def _finish(report: CycleReport, failures: list[str], plan: Plan, timings: Cycle
             run_retention(plan)
         except Exception as exc:
             print(f"warning: retention pass failed: {exc!r}", file=sys.stderr)
-    if plan.deferred:
-        names = ", ".join("gate:" + name for name in sorted(plan.deferred))
-        print("\nCycle complete — the surface is refreshed and the verdicts are carried onto it.")
-        print(f"  Deferred, and so far unverified on this content: {names}.")
-        print("  Look at the letters now; run `make review-cycle` again to run them — nothing else")
-        print("  needs to change, and that pass skips straight past the artifact chain to the gates.")
-        print("  `make verdict-ready` stays NOT READY until they are green.")
-        return 0
     print("\nCycle complete.")
     return 0
 

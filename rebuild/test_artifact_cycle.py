@@ -1779,10 +1779,9 @@ def test_kernel_threads_budget_never_narrows_a_stated_kernel_width(monkeypatch):
 
 
 def test_a_plan_reserves_for_the_pytest_pool_only_when_that_gate_runs():
-    """Skipped, deferred, and --skip-gates are all the same fact — no pool is going to be co-resident — so the fan-out gets the whole box back rather than paying for a pool that never starts."""
+    """An auto-skipped gate and --skip-gates are the same fact — no pool is going to be co-resident — so the fan-out gets the whole box back rather than paying for a pool that never starts."""
     assert _plan(ncores=8).kernel_threads == 2
     assert _plan(ncores=8, skip_make_test=True, make_test_note="closure unchanged").kernel_threads == 3
-    assert _plan(ncores=8, deferred=frozenset({"make-test"})).kernel_threads == 3
     assert _plan(ncores=8, skip_gates=True).kernel_threads == 3
 
 
@@ -2004,7 +2003,6 @@ def test_cycle_summary_payload_plan_block_and_argv():
         "skip_contracts": False,
         "skip_validators": False,
         "skip_plumbing": False,
-        "deferred": [],
         "review_out": None,
         "first_run": False,
         "short_id": "testid",
@@ -2894,203 +2892,26 @@ def test_run_cycle_never_spawns_a_skipped_rebuild_lane(monkeypatch):
     assert report.gate_validators.startswith("skipped (input closure unchanged")
 
 
-ALL_RUN = {
-    "rebuild-contracts": True,
-    "rebuild-validators": True,
-    "conform": True,
-    "make-test": True,
-}
-ALL_DEFERRED = frozenset(ALL_RUN)
-
-
-def test_deferred_gates_needs_both_the_flag_and_a_refreshing_pass():
-    assert ac.deferred_gates(defer=True, refreshing=True, would_run=ALL_RUN) == ALL_DEFERRED
-    assert ac.deferred_gates(defer=False, refreshing=True, would_run=ALL_RUN) == frozenset()
-    assert ac.deferred_gates(defer=True, refreshing=False, would_run=ALL_RUN) == frozenset()
-
-
-def test_deferred_gates_never_demotes_a_gate_that_would_not_run():
-    would_run = {
-        "rebuild-contracts": False,
-        "rebuild-validators": False,
-        "conform": False,
-        "make-test": True,
-    }
-    assert ac.deferred_gates(defer=True, refreshing=True, would_run=would_run) == frozenset({"make-test"})
-    assert ac.deferred_gates(defer=True, refreshing=True, would_run={}) == frozenset()
-
-
-def test_dry_run_plan_deferred_gates_replace_their_steps():
-    plan = _plan(deferred=ALL_DEFERRED)
-    by_name = {step.name: step for step in plan.steps}
-    for name in (
-        "gate:rebuild-contracts",
-        "gate:rebuild-validators",
-        "gate:conform",
-        "gate:make-test",
-    ):
-        assert by_name[name].argv is None
-        assert by_name[name].note == f"DEFERRED ({ac.DEFER_NOTE})"
-    assert by_name["gate:js"].argv is not None
-    rendered = ac.render_plan(plan)
-    assert (
-        "deferred to the next pass        : gate:conform, gate:make-test, gate:rebuild-contracts, gate:rebuild-validators"
-        in rendered
-    )
-
-
-def test_deferring_make_test_frees_the_surface_build_budget():
-    plan = _plan(deferred=frozenset({"make-test"}), ncores=6, total_bytes=BOX_48_GIB)
-    assert plan.surface_jobs == 1
-    by_name = {step.name: step for step in plan.steps}
-    assert _argv(by_name["surface-build"])[-2:] == ["--jobs", "1"]
-    rendered = ac.render_plan(plan)
-    assert "gate:make-test deferred, so the surface build takes the whole box" in rendered
-    assert "gate:make-test not running, so no queueing" in rendered
-
-
-def test_a_proved_skip_outranks_deferral_in_the_plan():
-    plan = _plan(
-        skip_contracts=True,
-        contracts_note="closure unchanged",
-        deferred=frozenset({"rebuild-contracts"}),
-    )
-    by_name = {step.name: step for step in plan.steps}
-    assert by_name["gate:rebuild-contracts"].note == "SKIPPED (closure unchanged)"
-
-
-def test_run_cycle_never_spawns_a_deferred_gate(monkeypatch):
-    calls = {name: 0 for name in ALL_RUN}
-
-    def fake_contracts(pool_policy, conform_fut, make_fut, spawn, emit, registry, argv):
-        calls["rebuild-contracts"] += 1
-        return _lane_verdict("rebuild-contracts")
-
-    def fake_validators(pool_policy, conform_fut, contracts_fut, make_fut, spawn, emit, registry, argv):
-        calls["rebuild-validators"] += 1
-        return _lane_verdict("rebuild-validators")
-
-    def fake_conform(pool_policy, make_fut, spawn, emit, registry, argv):
-        calls["conform"] += 1
-        return _conform_verdict()
-
-    def fake_make(argv, spawn, emit, registry):
-        calls["make-test"] += 1
-        return _step("gate:make-test", 0)
-
-    monkeypatch.setattr(ac, "_gate_contracts_task", fake_contracts)
-    monkeypatch.setattr(ac, "_gate_validators_task", fake_validators)
-    monkeypatch.setattr(ac, "_gate_conform_task", fake_conform)
-    monkeypatch.setattr(ac, "_gate_make_test_task", fake_make)
-    monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
-    monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
-    _patch_build_chain(monkeypatch)
-
-    plan = _plan(deferred=ALL_DEFERRED)
-    report = ac.CycleReport()
-    rc = ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=lambda *a, **k: _step())
-    assert rc == 0
-    assert calls == {name: 0 for name in ALL_RUN}
-    assert report.gate_js == "green"
-    for status in (
-        report.gate_contracts,
-        report.gate_validators,
-        report.gate_conform,
-        report.gate_make_test,
-    ):
-        assert status == f"deferred ({ac.DEFER_NOTE})"
-
-
-def test_a_deferred_gate_keeps_its_status_when_run_m1_fails(monkeypatch):
-    def failing_run_m1(report, *, spawn, emit, registry, **_):
-        return _run_m1_red("Manual-pin gate failed")
-
-    monkeypatch.setattr(ac, "_do_run_m1", failing_run_m1)
-    monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
-    _patch_build_chain(monkeypatch)
-
-    plan = _plan(deferred=ALL_DEFERRED)
-    report = ac.CycleReport()
-    rc = ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=lambda *a, **k: _step())
-    assert rc == 1
-    assert report.gate_contracts == f"deferred ({ac.DEFER_NOTE})"
-    assert report.gate_validators == f"deferred ({ac.DEFER_NOTE})"
-    assert report.gate_conform == f"deferred ({ac.DEFER_NOTE})"
-
-
-def test_run_cycle_records_no_green_for_a_deferred_gate(monkeypatch, tmp_path):
-    monkeypatch.setattr(ac, "run_retention", lambda plan: None)
-    monkeypatch.setattr(ac, "CONFORM_GREEN", tmp_path / "conform-green.json")
-    monkeypatch.setattr(ac, "REBUILD_CONTRACTS_GREEN", tmp_path / "rebuild-contracts-green.json")
-    monkeypatch.setattr(ac, "REBUILD_VALIDATORS_GREEN", tmp_path / "rebuild-validators-green.json")
-    monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
-    monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
-    _patch_build_chain(monkeypatch)
-
-    plan = _plan(deferred=ALL_DEFERRED, record_greens=True)
-    report = ac.CycleReport()
-    assert ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=lambda *a, **k: _step()) == 0
-    for name in ("conform-green.json", "rebuild-contracts-green.json", "rebuild-validators-green.json"):
-        assert not (tmp_path / name).exists()
-
-
-def test_cycle_summary_payload_marks_deferred_skips():
-    report = _green_report()
-    report.gate_contracts = f"deferred ({ac.DEFER_NOTE})"
-    report.gate_contracts_green = None
-    report.gate_validators = f"deferred ({ac.DEFER_NOTE})"
-    report.gate_validators_green = None
-    report.gate_conform = f"deferred ({ac.DEFER_NOTE})"
-    report.gate_conform_green = None
-    report.gate_make_test = f"deferred ({ac.DEFER_NOTE})"
-    report.gate_make_test_green = None
-    plan = _plan(deferred=ALL_DEFERRED)
-    payload = ac.cycle_summary_payload(report, [], plan, "ok")
-    for name in ("rebuild_contracts", "rebuild_validators", "conform", "make_test"):
-        assert payload["gates"][name]["skip"] == "deferred"
-        assert payload["gates"][name]["green"] is False
-    assert payload["gates"]["js"]["skip"] is None
-    assert payload["make_test_fingerprint"] is None
-    assert payload["plan"]["deferred"] == [
-        "conform",
-        "make-test",
-        "rebuild-contracts",
-        "rebuild-validators",
-    ]
-
-
-def test_cycle_summary_payload_prefers_proved_and_forced_over_deferred():
+def test_cycle_summary_payload_tells_a_proved_skip_from_a_forced_one():
     report = _green_report()
     plan = _plan(
         skip_contracts=True,
         skip_validators=True,
         skip_conform=True,
         skip_make_test=True,
-        deferred=ALL_DEFERRED,
     )
     payload = ac.cycle_summary_payload(report, [], plan, "ok")
     assert payload["gates"]["rebuild_contracts"]["skip"] == "proved"
     assert payload["gates"]["rebuild_validators"]["skip"] == "proved"
     assert payload["gates"]["make_test"]["skip"] == "proved"
     assert payload["gates"]["conform"]["skip"] == "forced"
+    assert payload["gates"]["js"]["skip"] is None
 
 
-def test_finish_hands_a_deferred_green_cycle_to_the_next_pass(monkeypatch, capsys):
-    monkeypatch.setattr(ac, "run_retention", lambda plan: None)
-    plan = _plan(deferred=frozenset({"conform", "rebuild-contracts"}))
-    assert ac._finish(_green_report(), [], plan) == 0
-    out = capsys.readouterr().out
-    assert "Deferred, and so far unverified on this content: gate:conform, gate:rebuild-contracts." in out
-    assert "run `make review-cycle` again" in out
-    assert "NOT READY" in out
-
-
-def test_finish_says_nothing_about_deferral_when_nothing_was_deferred(monkeypatch, capsys):
+def test_finish_says_the_cycle_is_complete(monkeypatch, capsys):
     monkeypatch.setattr(ac, "run_retention", lambda plan: None)
     assert ac._finish(_green_report(), [], _plan()) == 0
-    out = capsys.readouterr().out
-    assert "Cycle complete." in out
-    assert "Deferred" not in out
+    assert "Cycle complete." in capsys.readouterr().out
 
 
 def test_resolve_snapshot_dir_takes_the_first_free_name(tmp_path):
@@ -3121,7 +2942,8 @@ def test_prune_snapshots_collects_the_suffixed_names(tmp_path):
     assert keep.exists()
 
 
-def _defer_repo(tmp_path, monkeypatch, stamp="2026-07-17T20:24:44Z"):
+def _unsettled_repo(tmp_path, monkeypatch, stamp="2026-07-17T20:24:44Z"):
+    """A repo where no keyed stage can auto-skip: run_m1's key matches no record, the make-test closure is unreadable, and neither rebuild lane's key matches. `_settled_repo` is the converged counterpart."""
     _seed_auto_repo(tmp_path, monkeypatch, stamp=stamp)
     (tmp_path / "tmp").mkdir()
     (tmp_path / "verdicts-autosave.json").write_text(json.dumps(_verdicts_doc(stamp, ["u-1"])))
@@ -3130,62 +2952,20 @@ def _defer_repo(tmp_path, monkeypatch, stamp="2026-07-17T20:24:44Z"):
     monkeypatch.setattr(ac, "rebuild_lane_fingerprint", lambda root, lane: f"no-match-{lane}")
 
 
-def test_main_defers_on_a_refreshing_pass(tmp_path, monkeypatch, capsys):
-    _defer_repo(tmp_path, monkeypatch)
-    assert ac.main(["--dry-run", "--defer-gates"]) == 0
-    out = capsys.readouterr().out
-    assert (
-        "Heavy gates deferred to the next pass: gate:conform, gate:make-test, gate:rebuild-contracts, gate:rebuild-validators"
-        in out
-    )
-    assert "gate:rebuild-contracts: DEFERRED" in out
-    assert "gate:rebuild-validators: DEFERRED" in out
-    assert "gate:conform: DEFERRED" in out
-
-
-def test_main_does_not_defer_without_the_flag_or_under_fresh(tmp_path, monkeypatch, capsys):
-    _defer_repo(tmp_path, monkeypatch)
+def test_main_runs_every_heavy_gate_on_a_pass_that_rebuilds(tmp_path, monkeypatch, capsys):
+    """Nothing is ever recorded pending: a pass whose artifacts move still verifies everything it cannot prove unchanged."""
+    _unsettled_repo(tmp_path, monkeypatch)
     assert ac.main(["--dry-run"]) == 0
-    assert "deferred" not in capsys.readouterr().out.lower()
-    assert ac.main(["--dry-run", "--defer-gates", "--no-defer-gates"]) == 0
-    assert "deferred" not in capsys.readouterr().out.lower()
-    assert ac.main(["--dry-run", "--defer-gates", "--fresh"]) == 0
-    assert "deferred" not in capsys.readouterr().out.lower()
-
-
-def test_main_never_defers_a_gate_a_flag_already_forces(tmp_path, monkeypatch, capsys):
-    _defer_repo(tmp_path, monkeypatch)
-    argv = [
-        "--dry-run",
-        "--defer-gates",
-        "--skip-conform",
-        "--force-make-test",
-    ]
-    assert ac.main(argv) == 0
     out = capsys.readouterr().out
-    assert "Heavy gates deferred to the next pass: gate:rebuild-contracts, gate:rebuild-validators" in out
-    assert "gate:conform: SKIPPED (--skip-conform)" in out
-    assert "gate:make-test: make test" in out
-
-
-def test_main_defers_nothing_once_the_artifacts_have_settled(tmp_path, monkeypatch, capsys):
-    """The converged pass: run_m1 and the surface both auto-skip, so there is no artifact work to prefer over verification and the pending gates run."""
-    _defer_repo(tmp_path, monkeypatch)
-    ac.record_green(ac.RUN_M1_GREEN, "key")
-    monkeypatch.setattr(ac, "m1_artifacts_present", lambda root=None: True)
-    monkeypatch.setattr(ac, "surface_build_skippable", lambda root=None: True)
-    monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, horizon=None: "no-match")
-    assert ac.main(["--dry-run", "--defer-gates"]) == 0
-    out = capsys.readouterr().out
-    assert "Heavy gates deferred" not in out
     assert "gate:rebuild-contracts: uv run pytest" in out
     assert "gate:rebuild-validators: uv run pytest" in out
     assert "gate:conform: uv run python -m rebuild.pipeline.run_m1 --conform-only" in out
+    assert "gate:make-test: make test" in out
 
 
 def test_main_auto_skips_the_contracts_lane_even_when_run_m1_runs_live(tmp_path, monkeypatch, capsys):
     """The contracts closure holds no build artifact at all, so a live M1 rebuild cannot invalidate its key mid-pass — which is why that skip sits outside the run_m1-skipped block the validators skip has to ride in."""
-    _defer_repo(tmp_path, monkeypatch)
+    _unsettled_repo(tmp_path, monkeypatch)
     monkeypatch.setattr(ac, "rebuild_lane_fingerprint", lambda root, lane: f"key-{lane}")
     ac.record_green(ac.REBUILD_CONTRACTS_GREEN, "key-contracts")
     ac.record_green(ac.REBUILD_VALIDATORS_GREEN, "key-validators")
@@ -3199,7 +2979,7 @@ def test_main_auto_skips_the_contracts_lane_even_when_run_m1_runs_live(tmp_path,
 
 
 def test_main_auto_skips_both_lanes_once_the_artifacts_have_settled(tmp_path, monkeypatch, capsys):
-    _defer_repo(tmp_path, monkeypatch)
+    _unsettled_repo(tmp_path, monkeypatch)
     ac.record_green(ac.RUN_M1_GREEN, "key")
     monkeypatch.setattr(ac, "m1_artifacts_present", lambda root=None: True)
     monkeypatch.setattr(ac, "surface_build_skippable", lambda root=None: True)
@@ -3213,24 +2993,12 @@ def test_main_auto_skips_both_lanes_once_the_artifacts_have_settled(tmp_path, mo
 
 
 def test_main_forces_both_lanes_under_fresh(tmp_path, monkeypatch, capsys):
-    _defer_repo(tmp_path, monkeypatch)
+    _unsettled_repo(tmp_path, monkeypatch)
     monkeypatch.setattr(ac, "rebuild_lane_fingerprint", lambda root, lane: f"key-{lane}")
     ac.record_green(ac.REBUILD_CONTRACTS_GREEN, "key-contracts")
     assert ac.main(["--dry-run", "--fresh"]) == 0
     out = capsys.readouterr().out
     assert "auto-skipped" not in out
-    assert "gate:rebuild-contracts: uv run pytest" in out
-
-
-def test_main_never_defers_a_rehearsal(tmp_path, monkeypatch, capsys):
-    """A rehearsal writes its surface elsewhere, so its surface build is unskippable and every pass would look refreshing — deferring would never converge."""
-    _defer_repo(tmp_path, monkeypatch)
-    ac.record_green(ac.RUN_M1_GREEN, "key")
-    monkeypatch.setattr(ac, "m1_artifacts_present", lambda root=None: True)
-    monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, horizon=None: "no-match")
-    assert ac.main(["--dry-run", "--defer-gates", "--review-out", str(tmp_path / "rehearse")]) == 0
-    out = capsys.readouterr().out
-    assert "Heavy gates deferred" not in out
     assert "gate:rebuild-contracts: uv run pytest" in out
 
 
@@ -3708,9 +3476,8 @@ def test_the_plan_checks_job_costs_after_the_gates():
 
 
 def test_the_plan_checks_job_costs_even_when_the_gates_are_skipped():
-    """The step is never deferrable and never skipped, because deferral is a closed enumeration of four gate names and this is not one of them — exactly as the census is not."""
-    for plan in (_plan(skip_gates=True), _plan(deferred=frozenset(ac.DEFERRABLE_GATES))):
-        assert plan.runs("job-costs") is True
+    """The step is never skipped: --skip-gates suppresses the five gates, and this is not one of them — exactly as the census is not."""
+    assert _plan(skip_gates=True).runs("job-costs") is True
 
 
 def test_both_rebuild_lanes_are_submitted_once_the_surface_build_settles(monkeypatch):
@@ -4111,7 +3878,7 @@ def test_plumbing_settled_reads_the_chains_own_witness():
 
 def _settled_repo(tmp_path, monkeypatch):
     """A repo whose run_m1 and surface build both auto-skip — the converged pass, the only shape the plumbing skip is offered on."""
-    _defer_repo(tmp_path, monkeypatch)
+    _unsettled_repo(tmp_path, monkeypatch)
     ac.record_green(ac.RUN_M1_GREEN, "key")
     monkeypatch.setattr(ac, "m1_artifacts_present", lambda root=None: True)
     monkeypatch.setattr(ac, "surface_build_skippable", lambda root=None: True)
@@ -4138,10 +3905,10 @@ def test_main_skips_the_plumbing_on_a_matching_record(tmp_path, monkeypatch, cap
 
 
 def test_main_runs_the_census_on_the_pass_that_skips_the_plumbing(tmp_path, monkeypatch, capsys):
-    """The census is never skipped or deferred: even the pass that skips the whole verdict chain refreshes the pins, because reading the sidecar and rewriting one small file costs nothing."""
+    """The census is never skipped: even the pass that skips the whole verdict chain refreshes the pins, because reading the sidecar and rewriting one small file costs nothing."""
     _settled_repo(tmp_path, monkeypatch)
     ac.record_plumbing_green("plu")
-    assert ac.main(["--dry-run", "--defer-gates"]) == 0
+    assert ac.main(["--dry-run"]) == 0
     out = capsys.readouterr().out
     assert "verdict plumbing auto-skipped" in out
     assert "census: uv run python -m rebuild.review.census --update" in out
@@ -4149,7 +3916,7 @@ def test_main_runs_the_census_on_the_pass_that_skips_the_plumbing(tmp_path, monk
 
 def test_main_never_skips_the_plumbing_on_a_pass_that_writes_the_surface(tmp_path, monkeypatch, capsys):
     """The skip rides the surface build's own skip: only then is the stamp the chain keys on known not to move mid-pass."""
-    _defer_repo(tmp_path, monkeypatch)
+    _unsettled_repo(tmp_path, monkeypatch)
     monkeypatch.setattr(ac, "PLUMBING_GREEN", tmp_path / "rebuild" / "out" / "plumbing-green.json")
     monkeypatch.setattr(ac, "plumbing_skip_fingerprint", lambda root=None, surface=None, master=None: "plu")
     ac.record_plumbing_green("plu")
@@ -4269,7 +4036,7 @@ def test_main_leaves_the_server_up_on_the_settled_pass(tmp_path, monkeypatch, ca
 
 
 def test_main_stops_the_server_when_the_pass_rebuilds_the_surface(tmp_path, monkeypatch, capsys):
-    _defer_repo(tmp_path, monkeypatch)
+    _unsettled_repo(tmp_path, monkeypatch)
     monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: True)
     stops: list[int] = []
     monkeypatch.setattr(
