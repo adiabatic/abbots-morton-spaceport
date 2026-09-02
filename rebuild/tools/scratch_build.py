@@ -16,7 +16,7 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from rebuild.pipeline import compile_font, conform, defects, emit_gpos, emit_gsub, surface
+from rebuild.pipeline import compile_font, conform, defects, emit_gpos, emit_gsub, oracle, surface
 from rebuild.pipeline import run_m1
 from rebuild.pipeline.spec_load import (
     DEFAULT_REGISTRY_PATH,
@@ -59,8 +59,8 @@ def build_and_oracle(runes_dir: Path, out_dir: Path) -> dict:
     compile_font.build_mini_font(all_glyphs, fea, out_dir / "M1.otf")
 
     for config in ("ss06", "ss07", "ss06+ss07"):
-        conform.assert_subset_identity(out_dir, config)
-    report = conform.compare_against_baseline(
+        oracle.assert_subset_identity(out_dir, config)
+    report = oracle.compare_against_baseline(
         spec,
         out_dir,
         REPO_ROOT / "rebuild" / "m1-aliases.yaml",

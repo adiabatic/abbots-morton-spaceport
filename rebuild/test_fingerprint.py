@@ -35,6 +35,8 @@ def _fake_repo(tmp_path):
     (root / "rebuild" / "m1-aliases.yaml").write_text("[]\n")
     (root / "rebuild" / "m1-divergences.yaml").write_text("[]\n")
     (root / "rebuild" / "pipeline" / "table.py").write_text("TABLE = 1\n")
+    (root / "rebuild" / "pipeline" / "conform.py").write_text("CONFORM = 1\n")
+    (root / "rebuild" / "pipeline" / "oracle.py").write_text("ORACLE = 1\n")
     (root / "rebuild" / "kernel-rs" / "Cargo.toml").write_text("[package]\nname = 'kernel'\n")
     (root / "rebuild" / "kernel-rs" / "Cargo.lock").write_text("lock\n")
     (root / "rebuild" / "kernel-rs" / "src" / "guard.rs").write_text("const GUARD: bool = true;\n")
@@ -233,6 +235,27 @@ def test_the_tables_stamp_still_tracks_the_runes_and_the_pipeline_code(tmp_path)
     assert moved_code != moved_data
     (root / "rebuild" / "kernel-rs" / "src" / "guard.rs").write_text("const GUARD: bool = false;\n")
     assert fingerprint.tables_value(root) != moved_code
+
+
+def test_an_oracle_code_edit_moves_the_run_key_but_not_the_tables_stamp(tmp_path):
+    """The code-side twin of the ledger narrowing above, and the line it must not cross either. rebuild/pipeline/oracle.py runs against tables and a font already built, so an edit there leaves the enumeration on disk describing the sources it came from and `--gates-only` may re-adjudicate against it; the file stays in `pipeline_code_paths`, so the Stage A record and the artifact cycle's run_m1 key still move and a full run still re-derives everything. conform.py holds the producer of what the oracle classifies and stays on the tables' side."""
+    root = _fake_repo(tmp_path)
+    assert root / "rebuild" / "pipeline" / "oracle.py" not in fingerprint.table_code_paths(root)
+    assert root / "rebuild" / "pipeline" / "oracle.py" in fingerprint.pipeline_code_paths(root)
+    assert root / "rebuild" / "pipeline" / "conform.py" in fingerprint.table_code_paths(root)
+    assert root / "rebuild" / "validation" / "shaping.py" in fingerprint.table_code_paths(root)
+    assert root / "rebuild" / "kernel-rs" / "src" / "guard.rs" in fingerprint.table_code_paths(root)
+    before = (
+        fingerprint.compute_all(root)["pipeline_code"],
+        fingerprint.tables_value(root),
+        artifact_cycle.run_m1_skip_fingerprint(root),
+    )
+    (root / "rebuild" / "pipeline" / "oracle.py").write_text("ORACLE = 2\n")
+    assert fingerprint.compute_all(root)["pipeline_code"] != before[0]
+    assert fingerprint.tables_value(root) == before[1]
+    assert artifact_cycle.run_m1_skip_fingerprint(root) != before[2]
+    (root / "rebuild" / "pipeline" / "conform.py").write_text("CONFORM = 2\n")
+    assert fingerprint.tables_value(root) != before[1]
 
 
 def test_rune_digests_key_by_family_name(tmp_path):

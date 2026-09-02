@@ -4,7 +4,7 @@ The surface manifest's `generated_at` stamp is mtime-based and exists to key uni
 
 Chain honesty: run_m1 persists the Stage A components (`data`, `baselines`, `pipeline_code`) into rebuild/out/m1/inputs_fingerprint.json at build time, and the review build copies those recorded values into the manifest instead of recomputing them — so a surface rebuilt over stale out/m1 artifacts carries the stale hashes and the checker flags it.
 
-`tables_value` serves the same honesty for a build artifact rather than a manifest: the serialized decision tables carry it, so the conformance sweep can tell a table its own sources produced from one it must rebuild. It is keyed on `table_data_value` rather than `data_value` — the alias map, the divergence ledger, and the contact allow-list are read by gates that consume a built table and by nothing that builds one, so they belong to the whole-run record and not to this stamp.
+`tables_value` serves the same honesty for a build artifact rather than a manifest: the serialized decision tables carry it, so the conformance sweep can tell a table its own sources produced from one it must rebuild. It is keyed on `table_data_value` rather than `data_value` — the alias map, the divergence ledger, and the contact allow-list are read by gates that consume a built table and by nothing that builds one, so they belong to the whole-run record and not to this stamp. Its code half is `table_code_paths` rather than `pipeline_code_paths` for the same reason: the oracle's own module (`COMPARISON_CODE_MODULES`) runs against tables and a font already built, so an edit to the classifier or the ledger match re-adjudicates over the enumeration on disk instead of throwing it away, and rebuild/test_build_code_closure.py is what proves the build never reaches it.
 
 Rune files are hashed by `rune_file_digest`, a prose-blind digest over the parsed document rather than the raw bytes: YAML comments and formatting, the ductus prose, the notes prose, and the `why` rationale on prefer/extend/contract/resolve/unlock records are all documentation nothing downstream consumes, so editing them must not stale the surface or re-run a cycle. What stays in the digest is exactly what can move an output or a gate: every geometric and policy field, the ductus *keys* (motion names, which the parity and naming lints enforce), the *presence* of every prose field (the schema requires `why` on absolute prefers), and — the one quoted prose — `policy.refuse[].why`, which the kernel crate's engine embeds in the elimination diagnostics the review surface serves in its explain panel.
 """
@@ -48,6 +48,10 @@ def data_paths(repo_root: Path) -> list[Path]:
         root / "glyph_data" / "senior_quikscript_kerning.yaml",
     ]
     return paths
+
+
+# The comparison side of rebuild/pipeline/: modules that run against tables and a font already built and build neither. They ride `pipeline_code_paths` — the whole-run record, the run_m1 green, the review surface's stamp — and only `table_code_paths` leaves them out, so that a serialized window enumeration's stamp names what produced it and nothing more. rebuild/test_build_code_closure.py walks the import graph from every other pipeline module and from `run_m1.run`, and fails the moment either reaches one of these, so the roster cannot quietly admit a module the build actually runs.
+COMPARISON_CODE_MODULES = frozenset({"oracle.py"})
 
 
 def pipeline_code_paths(repo_root: Path) -> list[Path]:
@@ -204,12 +208,23 @@ def rune_digests(repo_root: Path) -> dict[str, str]:
     return {path.stem: rune_file_digest(path) for path in rune_paths(Path(repo_root)) if path.is_file()}
 
 
+def table_code_paths(repo_root: Path) -> list[Path]:
+    """`pipeline_code_paths` minus `COMPARISON_CODE_MODULES`: the code half of the stamp a serialized window enumeration carries. Everything that can move a table or the font stays — the crate, the spec loader, the emitters, the compiler, the gates that run inside the build — and what leaves is only what runs against those artifacts afterward. Conservative in the same direction as `pipeline_code_paths`: a module the build never reaches is still stamped unless it is named in the roster, and the import-graph test is what earns a module its place there."""
+    root = Path(repo_root)
+    pipeline = root / "rebuild" / "pipeline"
+    return [
+        path
+        for path in pipeline_code_paths(root)
+        if not (path.parent == pipeline and path.name in COMPARISON_CODE_MODULES)
+    ]
+
+
 def tables_value(repo_root: Path) -> str:
-    """The content key over everything the decision-table fixpoint reads: the rune and config data by `table_data_value`, plus the pipeline code. A serialized window enumeration carries this value so it can prove it still describes the sources on disk, and the conformance sweep refuses the moment it does not. Deliberately narrower than the Stage A record at both ends — the oracle's baselines feed no table, so re-extracting them must not throw the windows away, and neither do the alias map, the divergence ledger, or the contact allow-list, so re-adjudicating one of those must not either."""
+    """The content key over everything the decision-table fixpoint and the font compile read: the rune and config data by `table_data_value`, plus the build side of the pipeline code by `table_code_paths`. A serialized window enumeration carries this value so it can prove it still describes the sources on disk, and the conformance sweep refuses the moment it does not. Deliberately narrower than the Stage A record at both ends — the oracle's baselines feed no table, so re-extracting them must not throw the windows away, and neither do the alias map, the divergence ledger, the contact allow-list, or the oracle's own code, so re-adjudicating one of those must not either."""
     root = Path(repo_root)
     lines = (
         f"table_data\t{table_data_value(root)}",
-        f"pipeline_code\t{hash_paths(root, pipeline_code_paths(root))}",
+        f"pipeline_code\t{hash_paths(root, table_code_paths(root))}",
     )
     return hashlib.sha256("\n".join(lines).encode()).hexdigest()
 

@@ -15,7 +15,7 @@ from typing import Any
 
 import pytest
 
-from rebuild.pipeline import conform, kernel_exec, oracle_cache, settle
+from rebuild.pipeline import conform, kernel_exec, oracle, oracle_cache, settle
 from rebuild.pipeline.fixtures import mini_spec
 from rebuild.pipeline.model import CellId
 
@@ -170,7 +170,7 @@ class TestAliasAndLedger:
                 "match": {"predicate": "dangling_anchor_dropped", "configs": "all"},
             },
         ]
-        assert conform._match_ledger(ledger, row) == ["boundary-echo"]
+        assert oracle._match_ledger(ledger, row) == ["boundary-echo"]
         namer_dot_row = conform.DivergentRow(
             config="default",
             codepoints="00B7:E652:E670",
@@ -182,7 +182,7 @@ class TestAliasAndLedger:
             new_seams=("break", "break"),
             phenomena=("old-noentry",),
         )
-        assert conform._match_ledger(ledger, namer_dot_row) == ["zwnj-word-initial-unification"]
+        assert oracle._match_ledger(ledger, namer_dot_row) == ["zwnj-word-initial-unification"]
 
     def test_classifier_assigns_each_phenomenon_set_one_class(self):
         base = conform.DivergentRow(
@@ -218,7 +218,7 @@ class TestAliasAndLedger:
         ]
         for phenomena, expected in cases:
             row = replace(base, phenomena=phenomena)
-            assert conform.classify_divergence(row) == expected, phenomena
+            assert oracle.classify_divergence(row) == expected, phenomena
 
     def test_boundary_blanket_takes_every_nonposition_row(self):
         """The ratified boundary-equals-word-boundary rule: a window containing a run-splitting boundary (space or ZWNJ) has its cell/seam-grain divergence absorbed ahead of every other class, whatever its phenomena; position-only rows stay on the kern-attribution channel."""
@@ -242,9 +242,9 @@ class TestAliasAndLedger:
                 ("ligation",),
             ]:
                 row = replace(base, phenomena=phenomena)
-                assert conform.classify_divergence(row) == "boundary-echo", (codepoints, phenomena)
+                assert oracle.classify_divergence(row) == "boundary-echo", (codepoints, phenomena)
             position_row = replace(base, kinds=("position",), phenomena=("position-kern-attributable",))
-            assert conform.classify_divergence(position_row) is None
+            assert oracle.classify_divergence(position_row) is None
 
 
 class TestKernEvaluator:
@@ -264,7 +264,7 @@ class TestKernEvaluator:
             "right_group: noentry\n"
             "value: -3\n"
         )
-        evaluator = conform.KernEvaluator(sidecar)
+        evaluator = oracle.KernEvaluator(sidecar)
         assert evaluator.value_for("qsBay.en-y0", "qsTea") == -1
         assert evaluator.value_for("qsBay", "qsTea.half.ex-y5") == -1
         assert evaluator.value_for("qsNo.alt.en-y5", "qsPea") == -2
@@ -275,11 +275,11 @@ class TestKernEvaluator:
     def test_global_record(self, tmp_path):
         sidecar = tmp_path / "kern.yaml"
         sidecar.write_text("---\nglobal: {value: -1}\n")
-        evaluator = conform.KernEvaluator(sidecar)
+        evaluator = oracle.KernEvaluator(sidecar)
         assert evaluator.value_for("qsPea", "qsTea") == -1
 
     def test_real_sidecar_parses(self):
-        evaluator = conform.KernEvaluator(
+        evaluator = oracle.KernEvaluator(
             Path(__file__).resolve().parents[1] / "glyph_data" / "senior_quikscript_kerning.yaml"
         )
         assert isinstance(evaluator.value_for("qsBay", "qsTea"), int)
@@ -296,13 +296,13 @@ class TestSubsetIdentity:
         row = "E670\tqsIt\t0\t\t0,0,150"
         self._write(tmp_path / "baseline-ss06.subset.tsv.gz", [row])
         self._write(tmp_path / "baseline-default.subset.tsv.gz", [row])
-        conform.assert_subset_identity(tmp_path, "ss06")
+        oracle.assert_subset_identity(tmp_path, "ss06")
 
     def test_differing_tables_fail(self, tmp_path):
         self._write(tmp_path / "baseline-ss06.subset.tsv.gz", ["E670\tqsIt\t0\t\t0,0,150"])
         self._write(tmp_path / "baseline-default.subset.tsv.gz", ["E670\tqsIt.x\t0\t\t0,0,150"])
         with pytest.raises(AssertionError):
-            conform.assert_subset_identity(tmp_path, "ss06")
+            oracle.assert_subset_identity(tmp_path, "ss06")
 
 
 class TestAliasCompleteness:
@@ -325,7 +325,7 @@ class TestAliasCompleteness:
                 "E652\tqsTea.noentry\t0\t\t0,0,150",
             ],
         )
-        assert conform.unaliased_subset_names(tmp_path, self._aliases(tmp_path)) == {}
+        assert oracle.unaliased_subset_names(tmp_path, self._aliases(tmp_path)) == {}
 
     def test_missing_names_are_reported_with_their_configs(self, tmp_path):
         self._write(
@@ -333,7 +333,7 @@ class TestAliasCompleteness:
             ["E650:E670\tqsPea.ex-y0|qsIt\t0,1\tbreak\t0,0,150|0,0,150"],
         )
         self._write(tmp_path / "baseline-ss03.subset.tsv.gz", ["E650\tqsPea.ex-y0\t0\t\t0,0,150"])
-        assert conform.unaliased_subset_names(tmp_path, self._aliases(tmp_path)) == {
+        assert oracle.unaliased_subset_names(tmp_path, self._aliases(tmp_path)) == {
             "qsPea.ex-y0": ["default", "ss03"]
         }
 
@@ -365,22 +365,22 @@ class TestPositionChannel:
     def test_kern_normalization_adds_sidecar_kerns_back(self, tmp_path):
         sidecar = tmp_path / "kern.yaml"
         sidecar.write_text("---\nleft_family: [qsOy]\nright_family: [qsPea]\nvalue: -3\n")
-        kern = conform.KernEvaluator(sidecar)
+        kern = oracle.KernEvaluator(sidecar)
         row = self._row([0xE679, 0xE650], ["qsOy", "qsPea"], [(0, 0, 300), (0, 0, 250)])
-        expected, attributable = conform._kern_normalized_positions(kern, row, 50)
+        expected, attributable = oracle._kern_normalized_positions(kern, row, 50)
         assert expected == ((0, 0, 450), (0, 0, 250))
         assert attributable == (True, False)
 
     def test_kern_partner_skips_the_zwnj_slot(self, tmp_path):
         sidecar = tmp_path / "kern.yaml"
         sidecar.write_text("---\nleft_family: [qsOy]\nright_family: [qsPea]\nvalue: -3\n")
-        kern = conform.KernEvaluator(sidecar)
+        kern = oracle.KernEvaluator(sidecar)
         row = self._row(
             [0xE679, 0x200C, 0xE650],
             ["qsOy", "space", "qsPea.noentry"],
             [(0, 0, 300), (0, 0, 0), (0, 0, 250)],
         )
-        expected, attributable = conform._kern_normalized_positions(kern, row, 50)
+        expected, attributable = oracle._kern_normalized_positions(kern, row, 50)
         assert expected == ((0, 0, 450), (0, 0, 0), (0, 0, 250))
         assert attributable == (True, True, False)
 
@@ -401,20 +401,20 @@ class TestClassifierRouting:
 
     def test_unentered_it_gain_routes_to_ss03_chain(self):
         phenomena = ("seam-gain:qsIt", "seam-gain-unentered:qsIt")
-        assert conform.classify_divergence(self._row("ss03", phenomena)) == "ss03-chain-join-gains"
+        assert oracle.classify_divergence(self._row("ss03", phenomena)) == "ss03-chain-join-gains"
 
     def test_unentered_it_gain_outside_ss03_matches_nothing(self):
         phenomena = ("seam-gain:qsIt", "seam-gain-unentered:qsIt")
-        assert conform.classify_divergence(self._row("default", phenomena)) is None
+        assert oracle.classify_divergence(self._row("default", phenomena)) is None
 
     def test_entered_it_gain_keeps_its_class(self):
         assert (
-            conform.classify_divergence(self._row("default", ("seam-gain:qsIt", "exit-added")))
+            oracle.classify_divergence(self._row("default", ("seam-gain:qsIt", "exit-added")))
             == "entered-it-baseline-join-gain"
         )
 
     def test_position_drift_never_rides_a_cell_grain_class(self):
-        assert conform.classify_divergence(self._row("default", ("exit-dropped", "position-drift"))) is None
+        assert oracle.classify_divergence(self._row("default", ("exit-dropped", "position-drift"))) is None
 
     def test_ss10_predicate_yields_boundary_rows_to_the_blanket(self):
         for boundary in ("0020", "200C"):
@@ -429,29 +429,29 @@ class TestClassifierRouting:
                 new_seams=("break", "break"),
                 phenomena=("seam-loss",),
             )
-            assert conform.PREDICATES["ss10_isolation_completed"](row) is False, boundary
-            assert conform.classify_divergence(row) == "boundary-echo", boundary
+            assert oracle.PREDICATES["ss10_isolation_completed"](row) is False, boundary
+            assert oracle.classify_divergence(row) == "boundary-echo", boundary
 
     def test_ss10_ligation_routes_to_ligature_suppressed(self):
         for pair in ("E653:E67A", "E652:E679"):
             row = self._row("ss10", ("ligation",), codepoints=f"E650:{pair}")
-            assert conform.classify_divergence(row) == "ss10-ligature-suppressed", pair
+            assert oracle.classify_divergence(row) == "ss10-ligature-suppressed", pair
 
     def test_ss10_namer_dot_ligation_outranks_marker_staging(self):
         row = self._row("ss10", ("ligation",), codepoints="00B7:E653:E67A")
-        assert conform.classify_divergence(row) == "ss10-ligature-suppressed"
+        assert oracle.classify_divergence(row) == "ss10-ligature-suppressed"
 
     def test_ss10_ligation_boundary_rows_stay_on_the_blanket(self):
         row = self._row("ss10", ("ligation",), codepoints="200C:E653:E67A")
-        assert conform.classify_divergence(row) == "boundary-echo"
+        assert oracle.classify_divergence(row) == "boundary-echo"
 
     def test_ss10_ligation_without_a_formable_pair_matches_nothing(self):
         row = self._row("ss10", ("ligation",), codepoints="E650:E665:E652")
-        assert conform.classify_divergence(row) is None
+        assert oracle.classify_divergence(row) is None
 
     def test_non_ss10_ligation_keeps_marker_staging(self):
         row = self._row("ss03", ("ligation",), codepoints="E665:E652:E679")
-        assert conform.classify_divergence(row) == "marker-staging-ligature-formation"
+        assert oracle.classify_divergence(row) == "marker-staging-ligature-formation"
 
 
 class TestConformanceMerge:
@@ -519,7 +519,7 @@ class TestOracleAudit:
     """`divergence-audit.tsv` is a fingerprinted artifact its readers parse straight off disk — the review surface's unit assembly, the census, the lanes' filtered load — so the file's bytes are the contract, and they no longer come from one `"\n".join` in the parent: each configuration's rows are written where they are produced and the parent concatenates the shards behind the header. Pin the new assembly against the old formula over the shapes the audit can take, an empty configuration and an empty audit included, because those are where a hand-held layout drifts first — and pin the refusals, because the way this goes wrong is a short audit that reads as a complete one."""
 
     def _shard(self, scratch: Path, config: str, lines: Sequence[str]) -> None:
-        shard = conform.oracle_audit_shard(scratch, config)
+        shard = oracle.oracle_audit_shard(scratch, config)
         shard.parent.mkdir(parents=True, exist_ok=True)
         with shard.open("w", encoding="utf-8", newline="\n") as handle:
             for line in lines:
@@ -548,26 +548,26 @@ class TestOracleAudit:
         ),
     )
     def test_shards_concatenate_to_the_bytes_the_join_used_to_write(self, tmp_path, per_config):
-        scratch = conform.oracle_audit_scratch(tmp_path)
+        scratch = oracle.oracle_audit_scratch(tmp_path)
         for config, lines in per_config.items():
             self._shard(scratch, config, lines)
         every = [line for lines in per_config.values() for line in lines]
-        conform.join_oracle_audit(tmp_path, scratch, per_config, len(every))
-        joined = "\n".join([conform.ORACLE_AUDIT_HEADER, *every]) + "\n"
+        oracle.join_oracle_audit(tmp_path, scratch, per_config, len(every))
+        joined = "\n".join([oracle.ORACLE_AUDIT_HEADER, *every]) + "\n"
         assert (tmp_path / "divergence-audit.tsv").read_bytes() == joined.encode("utf-8")
 
     def test_the_frozen_mini_audit_reassembles_byte_for_byte(self, tmp_path):
         """The same pin over a real audit instead of hand-made rows: the mini bundle's audit.tsv is a live one filtered to four letters, still written by the old formula in `fixtures/mini/regenerate.py`, and its configuration runs are contiguous and in ACCEPTANCE_CONFIGS order — so splitting it back into shards and concatenating them has to land on the file it came from."""
         source = MINI / "audit.tsv"
         rows = source.read_text(encoding="utf-8").splitlines()
-        assert rows[0] == conform.ORACLE_AUDIT_HEADER
+        assert rows[0] == oracle.ORACLE_AUDIT_HEADER
         per_config: dict[str, list[str]] = {config: [] for config in conform.ACCEPTANCE_CONFIGS}
         for row in rows[1:]:
             per_config[row.split("\t")[0]].append(row)
-        scratch = conform.oracle_audit_scratch(tmp_path)
+        scratch = oracle.oracle_audit_scratch(tmp_path)
         for config, lines in per_config.items():
             self._shard(scratch, config, lines)
-        conform.join_oracle_audit(tmp_path, scratch, conform.ACCEPTANCE_CONFIGS, len(rows) - 1)
+        oracle.join_oracle_audit(tmp_path, scratch, conform.ACCEPTANCE_CONFIGS, len(rows) - 1)
         assert (tmp_path / "divergence-audit.tsv").read_bytes() == source.read_bytes()
 
     def test_the_two_oracle_paths_write_the_same_file(self, spec, tmp_path):
@@ -592,7 +592,7 @@ class TestOracleAudit:
         configs = ("default", "ss03")
 
         serial = tmp_path / "serial"
-        in_process = conform.compare_against_baseline(
+        in_process = oracle.compare_against_baseline(
             spec, tables, aliases, ledger, configs=configs, out_dir=serial
         )
         assert in_process.divergent_rows == 3
@@ -600,17 +600,17 @@ class TestOracleAudit:
 
         fanned = tmp_path / "fanned"
         fanned.mkdir()
-        scratch = conform.oracle_audit_scratch(fanned)
-        merged = conform.merge_oracle_results(
-            conform.oracle_config_worker(spec, tables, aliases, ledger, config, None, None, audit_dir=scratch)
+        scratch = oracle.oracle_audit_scratch(fanned)
+        merged = oracle.merge_oracle_results(
+            oracle.oracle_config_worker(spec, tables, aliases, ledger, config, None, None, audit_dir=scratch)
             for config in configs
         )
-        conform.join_oracle_audit(fanned, scratch, configs, merged.divergent_rows)
+        oracle.join_oracle_audit(fanned, scratch, configs, merged.divergent_rows)
         assert merged.divergent_rows == in_process.divergent_rows
         assert (fanned / "divergence-audit.tsv").read_bytes() == (
             serial / "divergence-audit.tsv"
         ).read_bytes()
-        conform.discard_oracle_audit_scratch(fanned)
+        oracle.discard_oracle_audit_scratch(fanned)
         assert [path.name for path in fanned.iterdir()] == ["divergence-audit.tsv"]
 
     def test_a_serial_oracle_that_dies_partway_leaves_the_audit_it_found_standing(
@@ -630,11 +630,11 @@ class TestOracleAudit:
             audit.write(f"{config}\tE650\tcell\tpea-half\tqsPea\tqsPea.half\n")
             if config == "ss03":
                 raise RuntimeError("ss03 fell over")
-            return conform.OracleConfigResult(config=config, divergent_rows=1)
+            return oracle.OracleConfigResult(config=config, divergent_rows=1)
 
-        monkeypatch.setattr(conform, "_compare_config", compare)
+        monkeypatch.setattr(oracle, "_compare_config", compare)
         with pytest.raises(RuntimeError):
-            conform.compare_against_baseline(
+            oracle.compare_against_baseline(
                 spec, tmp_path, aliases, ledger, configs=("default", "ss03"), out_dir=tmp_path
             )
         assert standing.read_bytes() == b"the audit of the last green run\n"
@@ -648,27 +648,27 @@ class TestOracleAudit:
         """Every shard is found before a byte is copied, so the concatenation cannot write a short audit out of whatever happened to be on disk — and the audit already there survives the refusal, which matters because the caller sweeps the scratch directory afterward and the shards are then gone too."""
         standing = tmp_path / "divergence-audit.tsv"
         standing.write_bytes(b"the audit of the last green run\n")
-        scratch = conform.oracle_audit_scratch(tmp_path)
+        scratch = oracle.oracle_audit_scratch(tmp_path)
         self._shard(scratch, "default", ["default\tE650\tcell\ta\tqsPea\tqsPea.half"])
         with pytest.raises(FileNotFoundError, match="ss03"):
-            conform.join_oracle_audit(tmp_path, scratch, ("default", "ss03"), 1)
+            oracle.join_oracle_audit(tmp_path, scratch, ("default", "ss03"), 1)
         assert standing.read_bytes() == b"the audit of the last green run\n"
 
     def test_an_audit_short_of_the_rows_its_workers_counted_is_not_promoted(self, tmp_path):
         """The counts come home through the pipe and the bytes come home on disk, so comparing them is the one cross-check the parent can make — and it is what catches a shard that was truncated but still closed clean, which is the shape no amount of stat-ing finds."""
         standing = tmp_path / "divergence-audit.tsv"
         standing.write_bytes(b"the audit of the last green run\n")
-        scratch = conform.oracle_audit_scratch(tmp_path)
+        scratch = oracle.oracle_audit_scratch(tmp_path)
         self._shard(scratch, "default", ["default\tE650\tcell\ta\tqsPea\tqsPea.half"])
         with pytest.raises(ValueError, match="2 divergent"):
-            conform.join_oracle_audit(tmp_path, scratch, ("default",), 2)
+            oracle.join_oracle_audit(tmp_path, scratch, ("default",), 2)
         assert standing.read_bytes() == b"the audit of the last green run\n"
 
     def test_the_scratch_goes_whether_or_not_the_oracle_got_that_far(self, tmp_path):
-        scratch = conform.oracle_audit_scratch(tmp_path)
+        scratch = oracle.oracle_audit_scratch(tmp_path)
         self._shard(scratch, "default", ["default\tE650\tcell\ta\tqsPea\tqsPea.half"])
         self._shard(scratch, "ss03+ss05", [])
-        conform.discard_oracle_audit_scratch(tmp_path)
+        oracle.discard_oracle_audit_scratch(tmp_path)
         assert list(tmp_path.iterdir()) == []
 
     def test_a_sweep_takes_a_dead_run_s_shards_and_leaves_a_live_one_s(self, tmp_path):
@@ -681,7 +681,7 @@ class TestOracleAudit:
         live = tmp_path / f"divergence-audit.parts.{os.getppid()}"
         live.mkdir()
         (live / "default.part").write_text("")
-        conform.discard_oracle_audit_scratch(tmp_path)
+        oracle.discard_oracle_audit_scratch(tmp_path)
         assert not stale.exists()
         assert (live / "default.part").is_file()
 
@@ -689,10 +689,10 @@ class TestOracleAudit:
         """The scratch directory sits beside the artifacts in rebuild/out/m1, so its name has to miss everything that reads that directory: the cycle's artifact list, its subset-table glob, and the table readers' own patterns. Configuration names carry `+`, which the baseline tables already prove is safe in a filename here."""
         from rebuild.tools.artifact_cycle import M1_ARTIFACT_NAMES
 
-        scratch = conform.oracle_audit_scratch(Path("m1"))
+        scratch = oracle.oracle_audit_scratch(Path("m1"))
         assert scratch.name not in set(M1_ARTIFACT_NAMES)
         for name in [scratch.name] + [
-            conform.oracle_audit_shard(scratch, config).name for config in conform.ACCEPTANCE_CONFIGS
+            oracle.oracle_audit_shard(scratch, config).name for config in conform.ACCEPTANCE_CONFIGS
         ]:
             assert not any(
                 fnmatch(name, pattern)
@@ -705,7 +705,7 @@ class TestOracleAudit:
                     "*.json",
                 )
             )
-        names = [conform.oracle_audit_shard(scratch, config).name for config in conform.ACCEPTANCE_CONFIGS]
+        names = [oracle.oracle_audit_shard(scratch, config).name for config in conform.ACCEPTANCE_CONFIGS]
         assert len(set(names)) == len(conform.ACCEPTANCE_CONFIGS)
 
 
@@ -738,15 +738,15 @@ class TestOracleUnmatchedTally:
         configs = ("default", "ss03")
 
         serial = tmp_path / "serial"
-        report = conform.compare_against_baseline(
+        report = oracle.compare_against_baseline(
             spec, tables, aliases, ledger, configs=configs, out_dir=serial
         )
         assert report.unmatched_count == 28
         assert not report.passed
-        assert len(report.unmatched_exemplars) == conform.ORACLE_UNMATCHED_EXEMPLARS + 3
-        quoted = report.unmatched_exemplars[: conform.ORACLE_UNMATCHED_EXEMPLARS]
+        assert len(report.unmatched_exemplars) == oracle.ORACLE_UNMATCHED_EXEMPLARS + 3
+        quoted = report.unmatched_exemplars[: oracle.ORACLE_UNMATCHED_EXEMPLARS]
         assert [row.codepoints for row in quoted] == [
-            f"{left:04X}:{right:04X}" for left, right in wide[: conform.ORACLE_UNMATCHED_EXEMPLARS]
+            f"{left:04X}:{right:04X}" for left, right in wide[: oracle.ORACLE_UNMATCHED_EXEMPLARS]
         ]
         assert all(row.phenomena for row in quoted)
         audit = (serial / "divergence-audit.tsv").read_text(encoding="utf-8").splitlines()
@@ -755,21 +755,21 @@ class TestOracleUnmatchedTally:
 
         fanned = tmp_path / "fanned"
         fanned.mkdir()
-        scratch = conform.oracle_audit_scratch(fanned)
-        merged = conform.merge_oracle_results(
-            conform.oracle_config_worker(spec, tables, aliases, ledger, config, None, None, audit_dir=scratch)
+        scratch = oracle.oracle_audit_scratch(fanned)
+        merged = oracle.merge_oracle_results(
+            oracle.oracle_config_worker(spec, tables, aliases, ledger, config, None, None, audit_dir=scratch)
             for config in configs
         )
-        conform.discard_oracle_audit_scratch(fanned)
+        oracle.discard_oracle_audit_scratch(fanned)
         assert merged.unmatched_count == report.unmatched_count
         assert [row.codepoints for row in merged.unmatched_exemplars] == [
             row.codepoints for row in report.unmatched_exemplars
         ]
 
     def test_the_verdict_reads_the_count_and_not_the_sample(self):
-        assert conform.BaselineReport().passed
-        assert not conform.BaselineReport(unmatched_count=1).passed
-        assert not conform.BaselineReport(
+        assert oracle.BaselineReport().passed
+        assert not oracle.BaselineReport(unmatched_count=1).passed
+        assert not oracle.BaselineReport(
             multi_matched=[(conform.DivergentRow("default", "E650", (), -1, (), (), (), ()), ("x",))]
         ).passed
 
@@ -873,11 +873,11 @@ class TestOracleRowCache:
         scratch = tmp_path / f"{name}-scratch"
         stores = tmp_path / f"{name}-stores"
         row_cache = (
-            conform.OracleRowCache(stamps, keys, read_dir=read_dir, write_dir=scratch if write else None)
+            oracle.OracleRowCache(stamps, keys, read_dir=read_dir, write_dir=scratch if write else None)
             if cached
             else None
         )
-        report = conform.compare_against_baseline(
+        report = oracle.compare_against_baseline(
             spec, tables, aliases, ledger, configs=configs, out_dir=out, row_cache=row_cache
         )
         if cached and write:
@@ -1124,7 +1124,7 @@ class TestFontBlindComparison:
     def test_the_comparison_channel_takes_no_font_and_the_position_channel_takes_no_settlement(self):
         comparison = list(inspect.signature(conform._compare_row).parameters)
         assert comparison == ["spec", "aliases", "config", "features", "row", "settled"]
-        position = list(inspect.signature(conform._position_drift).parameters)
+        position = list(inspect.signature(oracle._position_drift).parameters)
         assert position == ["shaper", "kern", "features", "row"]
 
     def test_the_position_channel_only_appends_position_to_kinds(self, spec, tmp_path, monkeypatch):
@@ -1136,14 +1136,14 @@ class TestFontBlindComparison:
         ledger = [{"id": "ink-identical", "ink_identical": True, "match": {}}]
 
         seen: list[conform.DivergentRow] = []
-        real = conform._match_ledger
+        real = oracle._match_ledger
 
         def spy(entries, row):
             seen.append(row)
             return real(entries, row)
 
-        monkeypatch.setattr(conform, "_match_ledger", spy)
-        result = conform._compare_config(
+        monkeypatch.setattr(oracle, "_match_ledger", spy)
+        result = oracle._compare_config(
             spec,
             tables,
             "default",

@@ -2,7 +2,7 @@
 
 import pytest
 
-from rebuild.pipeline import conform, oracle_cache, run_m1
+from rebuild.pipeline import conform, oracle, oracle_cache, run_m1
 from rebuild.tools import artifact_cycle as ac
 from rebuild.tools import cycle_timings as ct
 
@@ -117,7 +117,7 @@ def test_red_leaves_a_record_for_other_content_alone(green_store):
 
 
 def _stub_full_run(monkeypatch, *, defect_errors=(), pins=True, pins_in_scope=143, oracle_pass=False):
-    monkeypatch.setattr(run_m1.conform, "unaliased_subset_names", lambda subset_dir, alias_path: {})
+    monkeypatch.setattr(run_m1.oracle, "unaliased_subset_names", lambda subset_dir, alias_path: {})
     monkeypatch.setattr(run_m1.baseline_subset, "ensure_fresh", lambda repo_root: False)
     monkeypatch.setattr(run_m1, "load_default_spec", lambda: object())
     monkeypatch.setattr(ac, "run_m1_skip_files", lambda root=None: {})
@@ -354,8 +354,8 @@ class TestOracleFanIn:
     def _pool(self, monkeypatch, worker):
         monkeypatch.setattr(run_m1, "_spawn_pool", lambda jobs: _InlinePool())
         monkeypatch.setattr(run_m1, "as_completed", lambda futures: reversed(list(futures)))
-        monkeypatch.setattr(conform, "assert_subset_identity", lambda out_dir, config: None)
-        monkeypatch.setattr(conform, "oracle_config_worker", worker)
+        monkeypatch.setattr(oracle, "assert_subset_identity", lambda out_dir, config: None)
+        monkeypatch.setattr(oracle, "oracle_config_worker", worker)
         monkeypatch.setattr(run_m1, "load_default_spec", lambda: None)
         monkeypatch.setattr(
             run_m1,
@@ -382,11 +382,11 @@ class TestOracleFanIn:
                 record.append(row_cache)
             if config == refuse:
                 raise RuntimeError(f"{config} fell over")
-            shard = conform.oracle_audit_shard(audit_dir, config)
+            shard = oracle.oracle_audit_shard(audit_dir, config)
             shard.parent.mkdir(parents=True, exist_ok=True)
             with shard.open("w", encoding="utf-8", newline="\n") as handle:
                 handle.write(f"{config}\tE650\tcell\tpea-half\tqsPea\tqsPea.half\n")
-            return conform.OracleConfigResult(
+            return oracle.OracleConfigResult(
                 config=config, rows_compared=1, divergent_rows=2 if config == overcount else 1
             )
 
@@ -396,7 +396,7 @@ class TestOracleFanIn:
         self._pool(monkeypatch, self._worker())
         run_m1.run_oracle(out_dir=tmp_path, jobs=6)
         lines = (tmp_path / "divergence-audit.tsv").read_text(encoding="utf-8").splitlines()
-        assert lines[0] == conform.ORACLE_AUDIT_HEADER
+        assert lines[0] == oracle.ORACLE_AUDIT_HEADER
         assert [line.split("\t")[0] for line in lines[1:]] == list(conform.ACCEPTANCE_CONFIGS)
         assert sorted(path.name for path in tmp_path.iterdir()) == [
             "divergence-audit.tsv",
