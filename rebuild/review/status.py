@@ -11,7 +11,6 @@ from rebuild.review.serve import parse_autosave_payload
 
 SURFACE_REMEDY = "uv run python -m rebuild.review.build"
 REVIEW_BUILD_REMEDY = "make review-build"
-DEFERRED_GATES_REMEDY = "make review-cycle"
 CARRY_TOOL = "rebuild/tools/carry_verdicts.py"
 MERGE_TOOL = "uv run python -m rebuild.tools.merge_verdicts"
 
@@ -223,7 +222,7 @@ def _freshness_check(manifest, manifest_fp, repo_root, recompute, artifact_cycle
 
 
 def _gates_check(summary, generated_at, manifest_fp, artifact_cycle_remedy) -> dict:
-    """Keyed on each gate entry's `skip` field rather than its prose. A skip the driver marked "proved" rode a matching green record, which is proof that this exact content already passed, so it satisfies readiness; every other kind blocks a sitting, and the wording is what separates them. A "deferred" skip is the converging cycle choosing the surface over the verification, so it gets its own message and the one-command remedy that clears it; a "forced" skip, a gate that never ran, and a real failure each read differently again. Reading the status string instead is what once let `--skip-conform` report READY, since every skip kind spells itself "skipped (...)". Summaries written before the field existed carry no `skip` key at all, and fall back to the old prose rule so a cycle recorded under the previous shape keeps its former verdict instead of turning spuriously red."""
+    """Keyed on each gate entry's `skip` field rather than its prose. A skip the driver marked "proved" rode a matching green record, which is proof that this exact content already passed, so it satisfies readiness; every other kind blocks a sitting, and the wording is what separates them. A "forced" skip and a gate that never ran read as unverified, while a real failure reads as one. Reading the status string instead is what once let `--skip-conform` report READY, since every skip kind spells itself "skipped (...)". Summaries written before the field existed carry no `skip` key at all, and fall back to the old prose rule so a cycle recorded under the previous shape keeps its former verdict instead of turning spuriously red."""
     if summary is None:
         return {
             "level": "fail",
@@ -275,17 +274,11 @@ def _gates_check(summary, generated_at, manifest_fp, artifact_cycle_remedy) -> d
             "detail": f"The last artifact cycle finished green at {summary.get('finished_at')}; every gate it skipped was already proved on this exact content.",
             "remedy": None,
         }
-    deferred = [name for name in unproved if entries[name].get("skip") == "deferred"]
-    if set(deferred) == set(unproved):
-        return {
-            "level": "fail",
-            "detail": f"The last artifact cycle refreshed the surface and deferred these gates to the next pass: {', '.join(deferred)}. Run it again to run them.",
-            "remedy": DEFERRED_GATES_REMEDY,
-        }
     unverified = [
         name
         for name in unproved
-        if name in set(deferred) or str(entries[name].get("status", "")).startswith(("skipped", "not run"))
+        if entries[name].get("skip")
+        or str(entries[name].get("status", "")).startswith(("skipped", "not run"))
     ]
     failing = [name for name in unproved if name not in set(unverified)]
     if failing:
