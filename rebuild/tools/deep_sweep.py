@@ -41,7 +41,7 @@ SUMMARY_NAME = "deep_sweep_summary.json"
 
 
 def tables_stamped() -> bool:
-    """Whether the serialized enumeration under rebuild/out/m1 was produced from exactly the sources on disk — the same tables_inputs() stamp run_font_conformance itself refuses on. Artifact identity, never a receipt of a past run: a --gates-only re-adjudication (which writes no green) and a build handed over from another box both arm the sweep exactly as a locally-green build does."""
+    """Whether the serialized enumeration under rebuild/out/m1 was produced from exactly the sources on disk — the same tables_inputs() stamp run_font_conformance itself refuses on. Artifact identity, never a receipt of a past run: a --gates-only re-adjudication and a build handed over from another box both arm the sweep exactly as a locally-green build does, whatever green either of them did or did not leave behind."""
     return run_m1.serialized_tables(run_m1.OUT_DIR, run_m1.tables_inputs()) is not None
 
 

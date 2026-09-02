@@ -1999,6 +1999,7 @@ def test_cycle_summary_payload_plan_block_and_argv():
         "skip_gates": False,
         "skip_conform": False,
         "skip_run_m1": False,
+        "reuse_run_m1": False,
         "skip_surface": False,
         "skip_contracts": False,
         "skip_validators": False,
@@ -2008,6 +2009,15 @@ def test_cycle_summary_payload_plan_block_and_argv():
         "short_id": "testid",
     }
     assert payload["argv"] == list(sys.argv)
+
+
+def test_cycle_summary_payload_names_the_reuse_route_and_passes_no_kernel_width_on_it():
+    """The machine record has to tell the three run_m1 routes apart on its own: a reuse pass is not a skip, and the width it reports must be the one the child was given, which on this route is none."""
+    plan = _plan(reuse_run_m1=True, run_m1_note="only comparison-side inputs moved")
+    payload = ac.cycle_summary_payload(_green_report(), [], plan, "ok")
+    assert payload["plan"]["reuse_run_m1"] is True
+    assert payload["plan"]["skip_run_m1"] is False
+    assert payload["plan"]["kernel_threads"] is None
 
 
 def test_write_cycle_summary_reads_module_attr_at_call_time(monkeypatch, tmp_path):
@@ -2497,6 +2507,182 @@ def test_conform_skip_fingerprint_includes_horizon_and_font(tmp_path):
     assert ac.conform_skip_fingerprint(tmp_path, 5) != base
 
 
+def _fake_run_m1_root(tmp_path):
+    """A repo skeleton holding one file of every kind the run_m1 skip key reaches: each data input, the contact allow-list, the baselines and the subsets extracted from them, both halves of the pipeline code, the crate, and uv.lock. Written out rather than stubbed, because what the tests over it are about is which labels the real readers produce over a real tree."""
+    for rel in (
+        "glyph_data/runes",
+        "rebuild/schema",
+        "rebuild/pipeline",
+        "rebuild/validation",
+        "rebuild/kernel-rs/src",
+        "rebuild/out/m1",
+    ):
+        (tmp_path / rel).mkdir(parents=True, exist_ok=True)
+    for rel, text in (
+        ("glyph_data/runes/qsX.yaml", "rune: qsX\n"),
+        ("rebuild/schema/rune.json", "{}\n"),
+        ("rebuild/script.yaml", "script: 1\n"),
+        ("glyph_data/punctuation.yaml", "punctuation: 1\n"),
+        ("rebuild/m1-aliases.yaml", "qsX: X\n"),
+        ("rebuild/m1-divergences.yaml", "divergences: []\n"),
+        ("glyph_data/senior_quikscript_kerning.yaml", "pairs: {}\n"),
+        ("rebuild/m1-contact-allow.yaml", "- signature: seam-1\n  why: blessed once\n"),
+        ("rebuild/pipeline/oracle.py", "verdict = 1\n"),
+        ("rebuild/pipeline/settle.py", "settle = 1\n"),
+        ("rebuild/validation/shaper.py", "shape = 1\n"),
+        ("rebuild/kernel-rs/Cargo.toml", "[package]\n"),
+        ("rebuild/kernel-rs/Cargo.lock", "[[package]]\n"),
+        ("rebuild/kernel-rs/src/lib.rs", "fn settle() {}\n"),
+        ("uv.lock", "lock-1\n"),
+    ):
+        (tmp_path / rel).write_text(text)
+    (tmp_path / "rebuild" / "out" / "baseline-default.tsv.gz").write_bytes(b"rows")
+    (tmp_path / "rebuild" / "out" / "m1" / "baseline-default.subset.tsv.gz").write_bytes(b"rows")
+    (tmp_path / "rebuild" / "out" / "m1" / "M1.otf").write_bytes(b"OTTO")
+    return tmp_path
+
+
+def test_comparison_side_label_names_only_the_inputs_no_table_stage_reads():
+    """The roster that lets a cycle stand on the enumeration and the font already on disk, so a label wrongly on it means a pass re-adjudicating against artifacts that no longer describe their sources. uv.lock is the deliberate exclusion and the interesting one: the tables' stamp misses it exactly as it misses the ledgers, but it pins fontTools and uharfbuzz, so a bump there can move the very bytes the reuse proposes to trust."""
+    from rebuild.pipeline import fingerprint
+
+    for label in fingerprint.NON_TABLE_DATA_LABELS:
+        assert ac.comparison_side_label(label)
+    assert ac.comparison_side_label(fingerprint.CONTACT_ALLOW_LABEL)
+    assert ac.comparison_side_label("baselines")
+    assert ac.comparison_side_label("baseline-default.subset.tsv.gz")
+    assert all(
+        ac.comparison_side_label(f"rebuild/pipeline/{name}") for name in fingerprint.COMPARISON_CODE_MODULES
+    )
+    assert not ac.comparison_side_label("uv.lock")
+    assert not ac.comparison_side_label("glyph_data/runes/qsPea.yaml")
+    assert not ac.comparison_side_label("rebuild/script.yaml")
+    assert not ac.comparison_side_label("rebuild/pipeline/settle.py")
+    assert not ac.comparison_side_label("rebuild/kernel-rs/src/lib.rs")
+    assert not ac.comparison_side_label("baseline-default.tsv.gz")
+
+
+def test_every_run_m1_label_is_stamped_the_toolchain_or_comparison_side(tmp_path):
+    """The structural guard behind the whole route: an input in the run key that neither the tables' stamp covers nor `comparison_side_label` names would be reused as though the artifacts on disk still described it. Exactly one label is allowed to be neither, and it is the one the route refuses on purpose. A line added to the key with no home lands here rather than in a cycle quietly standing on a stale font."""
+    from rebuild.pipeline import fingerprint
+
+    root = _fake_run_m1_root(tmp_path)
+    stamped = {line.split("\t", 1)[0] for line in fingerprint.table_data_lines(root)}
+    stamped |= {
+        line.split("\t", 1)[0] for line in fingerprint.path_lines(root, fingerprint.table_code_paths(root))
+    }
+    labels = [line.split("\t", 1)[0] for line in ac.run_m1_skip_lines(root)]
+    assert [
+        label
+        for label in labels
+        if label not in stamped and label != "uv.lock" and not ac.comparison_side_label(label)
+    ] == []
+    assert stamped & set(labels)
+    assert [label for label in labels if ac.comparison_side_label(label)]
+    assert "uv.lock" in labels
+
+
+def test_a_missing_allow_list_contributes_no_line(tmp_path):
+    """The allow-list is optional the way `path_lines` treats every missing file: a tree without one hashes as a tree without one, rather than folding a read error into the key."""
+    from rebuild.pipeline import fingerprint
+
+    root = _fake_run_m1_root(tmp_path)
+    assert fingerprint.CONTACT_ALLOW_LABEL in ac.run_m1_skip_files(root)
+    (root / fingerprint.CONTACT_ALLOW_LABEL).unlink()
+    assert fingerprint.CONTACT_ALLOW_LABEL not in ac.run_m1_skip_files(root)
+
+
+def test_the_allow_list_line_is_prose_blind(tmp_path):
+    """Blessing a contact signature has to move this key — the defect gate is the only stage that reads the file, so nothing else will notice — while wording the bless must not, since a cycle that re-adjudicates over a reworded `why` spends its gates proving what it already proved."""
+    from rebuild.pipeline import fingerprint
+
+    root = _fake_run_m1_root(tmp_path)
+    allow = root / fingerprint.CONTACT_ALLOW_LABEL
+    before = ac.run_m1_skip_fingerprint(root)
+    allow.write_text("# a comment nobody reads\n- signature: seam-1\n  why: blessed twice over\n")
+    assert ac.run_m1_skip_fingerprint(root) == before
+    allow.write_text("- signature: seam-1\n- signature: seam-2\n")
+    assert ac.run_m1_skip_fingerprint(root) != before
+
+
+def test_a_comparison_side_edit_moves_the_run_key_and_leaves_the_sweeps_alone(tmp_path):
+    """Why the two keys had to stop being built from one another. The sweep shapes the compiled font and re-settles the windows beside it; it opens no ledger, no allow-list, no kern sidecar, no baseline and none of the oracle's code, so an edit to any of those can move the key that decides whether to rebuild without moving the key that decides whether to sweep. The second half is what keeps that honest: everything the sweep does read still moves it."""
+    from rebuild.pipeline import kernel_exec
+
+    root = _fake_run_m1_root(tmp_path)
+    conform = ac.conform_skip_fingerprint(root, 4)
+    run_key = ac.run_m1_skip_fingerprint(root)
+    for rel, text in (
+        ("rebuild/m1-divergences.yaml", "divergences: [{unit: u-1}]\n"),
+        ("rebuild/m1-aliases.yaml", "qsX: Y\n"),
+        ("glyph_data/senior_quikscript_kerning.yaml", "pairs: {qsX_qsY: -1}\n"),
+        ("rebuild/m1-contact-allow.yaml", "- signature: seam-2\n"),
+        ("rebuild/pipeline/oracle.py", "verdict = 2\n"),
+        ("rebuild/out/baseline-default.tsv.gz", "many more baseline rows\n"),
+        ("rebuild/out/m1/baseline-default.subset.tsv.gz", "many more subset rows\n"),
+    ):
+        (root / rel).write_text(text)
+        moved = ac.run_m1_skip_fingerprint(root)
+        assert moved != run_key, rel
+        assert ac.conform_skip_fingerprint(root, 4) == conform, rel
+        run_key = moved
+
+    for rel, text in (
+        ("glyph_data/runes/qsX.yaml", "rune: qsX\nstances: {}\n"),
+        ("rebuild/pipeline/settle.py", "settle = 2\n"),
+        ("rebuild/kernel-rs/src/lib.rs", "fn settle() { loop {} }\n"),
+        ("uv.lock", "lock-2\n"),
+        ("rebuild/out/m1/M1.otf", "OTTO and then some\n"),
+    ):
+        (root / rel).write_text(text)
+        moved = ac.conform_skip_fingerprint(root, 4)
+        assert moved != conform, rel
+        conform = moved
+    assert ac.conform_skip_fingerprint(root, 5) != conform
+    assert ac.conform_skip_files(root, 4)["semantics"] == "+".join(kernel_exec.enumeration_tokens())
+
+
+def test_gates_only_reuse_licenses_only_a_diff_the_tables_stamp_cannot_see():
+    """The licensing predicate, and each None it answers means a different thing that all come to "rebuild": no prior green to stand on, nothing moved at all (which is the plain skip's case and not this one), or something build-side moved and the enumeration has to be made again. `moved_input_labels` is asserted beside it because the annotated form the note prints would match no roster entry at all, and the failure would look like a route that simply never fires."""
+    stored = {
+        "glyph_data/runes/qsX.yaml": "r1",
+        "rebuild/m1-divergences.yaml": "d1",
+        "rebuild/pipeline/oracle.py": "o1",
+        "uv.lock": "l1",
+    }
+    record = {"files": dict(stored)}
+    assert ac.gates_only_reuse(record, dict(stored)) is None
+    assert ac.gates_only_reuse(None, dict(stored)) is None
+    assert ac.gates_only_reuse({"fingerprint": "fp"}, dict(stored)) is None
+
+    ledger = {**stored, "rebuild/m1-divergences.yaml": "d2", "rebuild/pipeline/oracle.py": "o2"}
+    assert ac.gates_only_reuse(record, ledger) == [
+        "rebuild/m1-divergences.yaml",
+        "rebuild/pipeline/oracle.py",
+    ]
+    assert ac.moved_input_labels(record, ledger) == [
+        "rebuild/m1-divergences.yaml",
+        "rebuild/pipeline/oracle.py",
+    ]
+    assert ac.moved_inputs_note(record, ledger) == (
+        "rebuild/m1-divergences.yaml (changed), rebuild/pipeline/oracle.py (changed)"
+    )
+
+    assert ac.gates_only_reuse(record, {**stored, "baseline-default.subset.tsv.gz": "s1"}) == [
+        "baseline-default.subset.tsv.gz"
+    ]
+    dropped = {name: value for name, value in stored.items() if name != "rebuild/m1-divergences.yaml"}
+    assert ac.gates_only_reuse(record, dropped) == ["rebuild/m1-divergences.yaml"]
+
+    assert ac.gates_only_reuse(record, {**stored, "uv.lock": "l2"}) is None
+    assert ac.gates_only_reuse(record, {**stored, "glyph_data/runes/qsX.yaml": "r2"}) is None
+    assert ac.gates_only_reuse(record, {**stored, "rebuild/pipeline/settle.py": "s1"}) is None
+    assert (
+        ac.gates_only_reuse(record, {name: value for name, value in stored.items() if name != "uv.lock"})
+        is None
+    )
+
+
 def _write_behavior_classes(root, classes, fmt=None):
     from rebuild.pipeline.emit_gsub import BEHAVIOR_CLASSES_FORMAT
 
@@ -2604,6 +2790,8 @@ def test_run_m1_skip_files_carry_the_lines_behind_the_fingerprint(tmp_path):
     conform = ac.conform_skip_files(tmp_path, 5)
     assert conform["horizon"] == "5"
     assert "M1.otf" in conform
+    assert "uv.lock" in conform
+    assert "semantics" in conform
 
 
 def test_record_green_stores_the_files_and_the_reader_returns_them(tmp_path):
@@ -2668,6 +2856,8 @@ def test_m1_artifacts_present(tmp_path):
 
 
 def test_rebuild_gate_closure_scope_and_exemptions(tmp_path):
+    """The exempt paths are the ones no test in either lane reads: the carried-verdict evidence, the JS-only jstests, the census pins the cycle itself rewrites mid-pass, and the contact allow-list, whose only reader is the defect gate — so blessing a contact signature must not re-run the whole suite to prove nothing."""
+    assert "rebuild/m1-contact-allow.yaml" in ac.REBUILD_GATE_EXEMPT_PREFIXES
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
     (tmp_path / "rebuild" / "evidence").mkdir(parents=True)
     (tmp_path / "rebuild" / "review" / "jstests").mkdir(parents=True)
@@ -2677,6 +2867,7 @@ def test_rebuild_gate_closure_scope_and_exemptions(tmp_path):
     (tmp_path / "rebuild" / "NOTES.md").write_text("")
     (tmp_path / "rebuild" / "evidence" / "verdicts-old.json").write_text("{}")
     (tmp_path / "rebuild" / "review" / "jstests" / "x.test.js").write_text("")
+    (tmp_path / "rebuild" / "m1-contact-allow.yaml").write_text("- signature: seam-1\n")
     (tmp_path / "glyph_data" / "runes" / "qsX.yaml").write_text("")
     (tmp_path / "tools" / "outside.py").write_text("")
     (tmp_path / "conftest.py").write_text("")
@@ -3002,6 +3193,191 @@ def test_main_forces_both_lanes_under_fresh(tmp_path, monkeypatch, capsys):
     assert "gate:rebuild-contracts: uv run pytest" in out
 
 
+def _full_build_step(out: str):
+    """The rendered run_m1 step of a plan that builds: the whole point of the negative cases is that this is what got planned instead of the gates-only argv. --jobs rides in front of --kernel-threads only on a box wide enough to want it, and --fresh-oracle-cache only when the caller asked for one."""
+    return re.search(
+        r"^ +\d+\. run_m1: uv run python -m rebuild\.pipeline\.run_m1"
+        r"( --jobs \d+)? --kernel-threads \d+( --fresh-oracle-cache)?$",
+        out,
+        re.MULTILINE,
+    )
+
+
+def _comparison_side_drift(tmp_path, monkeypatch, moved="rebuild/m1-divergences.yaml"):
+    """A repo whose last green M1 build differs from now by one named input and nothing else, with both halves of the route's licence answered true. Every test here varies one of those three things and reads the route back out of the plan."""
+    _unsettled_repo(tmp_path, monkeypatch)
+    ac.record_green(ac.RUN_M1_GREEN, "green-key", files={moved: "before", "uv.lock": "lock-1"})
+    monkeypatch.setattr(ac, "run_m1_skip_files", lambda root=None: {moved: "after", "uv.lock": "lock-1"})
+    monkeypatch.setattr(ac, "m1_artifacts_present", lambda root=None: True)
+    monkeypatch.setattr(ac, "m1_tables_stamped", lambda root=None: True)
+
+
+def test_main_re_adjudicates_when_only_comparison_side_inputs_moved(tmp_path, monkeypatch, capsys):
+    """The route that makes a ledger edit cost the gates instead of a fixpoint: the tables' stamp cannot see the file that moved, so the enumeration and the font on disk are still the ones the runes describe and the pass re-runs the gates over them. No --kernel-threads goes with it, because nothing on this route enumerates anything to size a fan-out for."""
+    _comparison_side_drift(tmp_path, monkeypatch)
+    assert ac.main(["--dry-run"]) == 0
+    out = capsys.readouterr().out
+    assert "run_m1 will re-adjudicate — only comparison-side inputs moved" in out
+    assert "rebuild/m1-divergences.yaml" in out
+    assert re.search(
+        r"^ +\d+\. run_m1: uv run python -m rebuild\.pipeline\.run_m1 --gates-only[^\n]*\n"
+        r" +\(only comparison-side inputs moved[^\n]*the tables and font are reused",
+        out,
+        re.MULTILINE,
+    )
+    assert "run_m1 --kernel-threads          : not passed" in out
+    assert "run_m1 will rebuild" not in out
+
+
+def test_a_plan_that_skips_run_m1_never_also_reuses_it():
+    """The two routes are exclusive and the skip is the stronger claim — nothing moved at all, so there is nothing to re-adjudicate — which is why the plan resolves the pair rather than trusting its caller to. The reuse route is a step that runs, so nothing downstream may read a missing argv as the only shape a non-building pass takes, and it carries no --kernel-threads: there is no fan-out on it to size."""
+    both = _plan(skip_run_m1=True, reuse_run_m1=True, run_m1_note="build inputs unchanged")
+    assert both.reuse_run_m1 is False
+    assert not both.runs("run_m1")
+    reuse = _plan(reuse_run_m1=True, run_m1_note="only comparison-side inputs moved")
+    assert reuse.runs("run_m1")
+    assert "--gates-only" in reuse.argv("run_m1")
+    assert "--kernel-threads" not in reuse.argv("run_m1")
+
+
+def test_main_skips_the_surface_on_the_reuse_route_only_when_stage_a_already_stands(
+    tmp_path, monkeypatch, capsys
+):
+    """A contact-allow bless is the one comparison-side edit outside every Stage A component, so the record the gates-only pass will rewrite is the record already on disk and the surface it feeds cannot move; a ledger edit moves Stage A's data component, so the record on disk is stale until the pass rewrites it and the manifest's match against it proves nothing. The reuse route asks the live sources rather than the record, where the skip route may trust the record because nothing moved at all."""
+    _comparison_side_drift(tmp_path, monkeypatch, moved="rebuild/m1-contact-allow.yaml")
+    monkeypatch.setattr(ac, "surface_build_skippable", lambda root=None: True)
+    monkeypatch.setattr(ac, "m1_stage_a_current", lambda root=None: True)
+    assert ac.main(["--dry-run"]) == 0
+    out = capsys.readouterr().out
+    assert "run_m1 will re-adjudicate" in out
+    assert "surface-build auto-skipped" in out
+
+    monkeypatch.setattr(ac, "m1_stage_a_current", lambda root=None: False)
+    assert ac.main(["--dry-run"]) == 0
+    out = capsys.readouterr().out
+    assert "run_m1 will re-adjudicate" in out
+    assert "surface-build auto-skipped" not in out
+    assert "surface-build: uv run python -m rebuild.review.build" in out
+
+
+def test_m1_stage_a_current_compares_the_record_against_the_live_sources(tmp_path, monkeypatch):
+    from rebuild.pipeline import fingerprint
+
+    out = tmp_path / "rebuild" / "out" / "m1"
+    out.mkdir(parents=True)
+    monkeypatch.setattr(
+        fingerprint, "stage_a", lambda root: {"data": "d", "baselines": "b", "pipeline_code": "p"}
+    )
+    assert ac.m1_stage_a_current(tmp_path) is False
+    (out / fingerprint.STAGE_A_FILENAME).write_text(
+        json.dumps({"format": fingerprint.FORMAT, "data": "d", "baselines": "b", "pipeline_code": "p"})
+    )
+    assert ac.m1_stage_a_current(tmp_path) is True
+    monkeypatch.setattr(
+        fingerprint, "stage_a", lambda root: {"data": "moved", "baselines": "b", "pipeline_code": "p"}
+    )
+    assert ac.m1_stage_a_current(tmp_path) is False
+
+
+def test_main_rebuilds_when_the_tables_on_disk_no_longer_carry_their_stamp(tmp_path, monkeypatch, capsys):
+    """The green record alone never licenses the reuse. It proves the artifacts once came from a complete build of every build-side input; only the stamp proves none of those inputs has moved since, and without it the font beside the tables is a font nobody can name the sources of."""
+    _comparison_side_drift(tmp_path, monkeypatch)
+    monkeypatch.setattr(ac, "m1_tables_stamped", lambda root=None: False)
+    assert ac.main(["--dry-run"]) == 0
+    out = capsys.readouterr().out
+    assert "run_m1 will re-adjudicate" not in out
+    assert (
+        "run_m1 will rebuild — inputs moved since its last green: rebuild/m1-divergences.yaml (changed)"
+        in out
+    )
+    assert _full_build_step(out) is not None
+    assert "--gates-only" not in out
+
+
+def test_main_rebuilds_when_anything_build_side_moved(tmp_path, monkeypatch, capsys):
+    """One build-side label among the moved ones is enough, however many comparison-side ones ride beside it: the artifacts on disk answer for sources that no longer exist, and re-running the gates over them would compare the new runes against the old font."""
+    _comparison_side_drift(tmp_path, monkeypatch, moved="glyph_data/runes/qsX.yaml")
+    assert ac.main(["--dry-run"]) == 0
+    out = capsys.readouterr().out
+    assert "run_m1 will re-adjudicate" not in out
+    assert "run_m1 will rebuild — inputs moved since its last green" in out
+    assert "--gates-only" not in out
+
+
+def test_main_takes_no_route_at_all_under_fresh(tmp_path, monkeypatch, capsys):
+    """--fresh is the escape hatch for exactly the case the route cannot see: an artifact on disk that is wrong for a reason no input fingerprint records."""
+    _comparison_side_drift(tmp_path, monkeypatch)
+    assert ac.main(["--dry-run", "--fresh"]) == 0
+    out = capsys.readouterr().out
+    assert "run_m1 will re-adjudicate" not in out
+    assert "--gates-only" not in out
+    assert _full_build_step(out) is not None
+
+
+def test_run_cycle_skips_the_sweep_after_run_m1_on_the_key_the_finished_artifacts_carry(
+    monkeypatch, tmp_path, capsys
+):
+    """The sweep's skip is decided after run_m1 rather than in the plan, because only a finished build knows what the font came out as — and the three routes into it (skipped, re-adjudicated, rebuilt) all land on this one key. A skip taken over the artifacts the pass is leaving is proved rather than forced, which is what `review/status.py` reads to call a surface sitting-ready."""
+    monkeypatch.setattr(ac, "CONFORM_GREEN", tmp_path / "conform-green.json")
+    monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, horizon=None: "cfp")
+    monkeypatch.setattr(ac, "rebuild_lane_fingerprint", lambda root, lane: f"rfp-{lane}")
+    ac.record_green(ac.CONFORM_GREEN, "cfp")
+    swept: list[list[str]] = []
+
+    def conform_spy(pool_policy, make_fut, spawn, emit, registry, argv):
+        swept.append(argv)
+        return _conform_verdict()
+
+    monkeypatch.setattr(ac, "_gate_conform_task", conform_spy)
+    monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
+    monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
+    monkeypatch.setattr(ac, "_gate_contracts_task", _contracts_green)
+    monkeypatch.setattr(ac, "_gate_validators_task", _validators_green)
+    monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
+    _patch_build_chain(monkeypatch)
+
+    plan = _plan()
+    report = ac.CycleReport()
+    assert ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=lambda *a, **k: _step()) == 0
+    assert swept == []
+    assert report.conform_proven is True
+    assert report.gate_conform == f"skipped ({ac.CONFORM_SKIP_NOTE})"
+    assert "gate:conform: SKIPPED after run_m1 — " in capsys.readouterr().out
+    payload = ac.cycle_summary_payload(report, [], plan, "ok")
+    assert payload["gates"]["conform"]["skip"] == "proved"
+    assert payload["gates"]["conform"]["green"] is False
+
+
+def test_run_cycle_sweeps_when_the_finished_artifacts_carry_no_green(monkeypatch, tmp_path, capsys):
+    """The same decision the other way, and the reason the skip cannot ride the plan: a pass whose run_m1 moved the font has to sweep it, and the plan was resolved before anything knew that."""
+    monkeypatch.setattr(ac, "CONFORM_GREEN", tmp_path / "conform-green.json")
+    monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, horizon=None: "cfp")
+    monkeypatch.setattr(ac, "rebuild_lane_fingerprint", lambda root, lane: f"rfp-{lane}")
+    ac.record_green(ac.CONFORM_GREEN, "a-font-ago")
+    swept: list[list[str]] = []
+
+    def conform_spy(pool_policy, make_fut, spawn, emit, registry, argv):
+        swept.append(argv)
+        return _conform_verdict()
+
+    monkeypatch.setattr(ac, "_gate_conform_task", conform_spy)
+    monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
+    monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
+    monkeypatch.setattr(ac, "_gate_contracts_task", _contracts_green)
+    monkeypatch.setattr(ac, "_gate_validators_task", _validators_green)
+    monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
+    _patch_build_chain(monkeypatch)
+
+    plan = _plan()
+    report = ac.CycleReport()
+    assert ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=lambda *a, **k: _step()) == 0
+    assert len(swept) == 1
+    assert report.conform_proven is False
+    assert report.gate_conform == "green"
+    assert "SKIPPED after run_m1" not in capsys.readouterr().out
+    assert ac.cycle_summary_payload(report, [], plan, "ok")["gates"]["conform"]["skip"] is None
+
+
 def test_unfinished_cycle_snapshot_is_only_claimed_from_a_red_summary(tmp_path):
     snapshot = tmp_path / "review-pre-abc1234"
     snapshot.mkdir()
@@ -3090,6 +3466,75 @@ def test_do_run_m1_records_green_only_when_fingerprint_stable(monkeypatch, tmp_p
     )
     assert gate is not None and gate.ok
     assert ac.read_green_record(green) is None
+
+
+def test_do_run_m1_reuse_spares_the_summary_the_gates_only_pass_rewrites(monkeypatch, tmp_path):
+    """The one asymmetry of the middle route. `--gates-only` rewrites the defect fields of the build's own pipeline_summary.json in place and refuses outright without one, so clearing it before the spawn would take down the pass that was supposed to be cheap; the two gate summaries are the child's own output and are cleared exactly as a full build clears them, so a child that dies mid-pass cannot leave last pass's verdicts to be judged as this one's. Everything after the spawn is the full build's path, the green included."""
+    files = {name: tmp_path / f"{name}.json" for name in ac.M1_SUMMARY_FILES}
+    monkeypatch.setattr(ac, "M1_SUMMARY_FILES", files)
+    green = tmp_path / "run-m1-green.json"
+    monkeypatch.setattr(ac, "RUN_M1_GREEN", green)
+    monkeypatch.setattr(ac, "run_m1_skip_fingerprint", lambda root=None: "fp-live")
+    monkeypatch.setattr(ac, "run_m1_skip_files", lambda root=None: {"rebuild/m1-divergences.yaml": "d2"})
+    for path in files.values():
+        path.write_text(json.dumps({"stale": True}))
+    files["pipeline"].write_text(json.dumps({"defect_errors": [], "gsub_rule_count": 4212}))
+    survivors: list[str] = []
+    spawned: list[str] = []
+
+    def gates_only(name, argv, **kwargs):
+        spawned.append(name)
+        survivors.extend(sorted(key for key, path in files.items() if path.exists()))
+        files["manual_pins"].write_text(json.dumps({"pass": True, "pins_in_scope": 143, "replayed": 143}))
+        files["oracle"].write_text(json.dumps({"unmatched": 3, "multi_matched": 0}))
+        return _step("run_m1", 0)
+
+    report = ac.CycleReport()
+    gate = ac._do_run_m1(
+        report,
+        spawn=gates_only,
+        emit=ac._Emitter(),
+        registry=ac._ChildRegistry(),
+        argv=["uv", "run", "python", "-m", "rebuild.pipeline.run_m1", "--gates-only"],
+        reuse=True,
+        record=True,
+        fingerprint="fp-live",
+    )
+    assert survivors == ["pipeline"]
+    assert spawned == [ac.RUN_M1_REUSE_STEP] != ["run_m1"]
+    assert gate is not None and gate.ok
+    assert report.unmatched == 3
+    assert json.loads(files["pipeline"].read_text())["gsub_rule_count"] == 4212
+    record = ac.read_green_record(green)
+    assert record is not None
+    assert record["fingerprint"] == "fp-live"
+    assert record["files"] == {"rebuild/m1-divergences.yaml": "d2"}
+
+
+def test_do_run_m1_a_full_build_clears_the_summary_the_reuse_route_keeps(monkeypatch, tmp_path):
+    """The other side of the same rule, so the exemption cannot quietly widen: a build that makes its own tables makes its own pipeline summary too, and a stale one left in place would be judged as this build's if the child died before writing one."""
+    files = {name: tmp_path / f"{name}.json" for name in ac.M1_SUMMARY_FILES}
+    monkeypatch.setattr(ac, "M1_SUMMARY_FILES", files)
+    for path in files.values():
+        path.write_text(json.dumps({"stale": True}))
+    survivors: list[str] = []
+    spawned: list[str] = []
+
+    def full_build(name, argv, **kwargs):
+        spawned.append(name)
+        survivors.extend(sorted(key for key, path in files.items() if path.exists()))
+        return _step("run_m1", 0)
+
+    gate = ac._do_run_m1(
+        ac.CycleReport(),
+        spawn=full_build,
+        emit=ac._Emitter(),
+        registry=ac._ChildRegistry(),
+        argv=["uv", "run", "python", "-m", "rebuild.pipeline.run_m1"],
+    )
+    assert survivors == []
+    assert spawned == ["run_m1"]
+    assert gate is None
 
 
 def test_do_run_m1_red_deletes_matching_green(monkeypatch, tmp_path):

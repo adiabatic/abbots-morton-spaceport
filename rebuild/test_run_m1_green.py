@@ -1,8 +1,10 @@
-"""Interactive run_m1 and --conform-only record the same last-green files the artifact cycle skips on, so a fix verified by hand is not re-verified by the next cycle, and each of them files what it decided as a check line in the timings journal. The gate verdicts come from artifact_cycle's own evaluators, never from run_m1's exit code, which is nonzero whenever the oracle carries UNMATCHED rows — the normal mid-migration state — and that is the fact the check lines here exist to pin: the same run that exits 1 files a green."""
+"""Interactive run_m1 and --conform-only record the same last-green files the artifact cycle skips on, so a fix verified by hand is not re-verified by the next cycle, and each of them files what it decided as a check line in the timings journal. The gate verdicts come from artifact_cycle's own evaluators, never from run_m1's exit code, which is nonzero whenever the oracle carries UNMATCHED rows — the normal mid-migration state — and that is the fact the check lines here exist to pin: the same run that exits 1 files a green. `--gates-only` records that same run_m1 green under one further condition — a prior green to stand on and every input that moved since it comparison-side — which is what makes the artifact cycle's re-adjudication route worth taking rather than merely cheap."""
+
+import json
 
 import pytest
 
-from rebuild.pipeline import conform, oracle, oracle_cache, run_m1
+from rebuild.pipeline import conform, defects, oracle, oracle_cache, run_m1
 from rebuild.tools import artifact_cycle as ac
 from rebuild.tools import cycle_timings as ct
 
@@ -463,11 +465,69 @@ class TestOracleFanIn:
 
 
 class TestGatesOnly:
-    """The cheap re-adjudication entry point: the Manual-pin gate and the oracle over the build already on disk. What it must not do is claim a build's green, and what it must refuse is a font the runes have outgrown."""
+    """The cheap re-adjudication entry point: everything a full run does after the table build except the stages that make the artifacts — the defect gate, the Manual-pin replay and the oracle — re-run over the build already on disk. Two things it must refuse are a stamp the runes have outgrown and a build that left no summary for the defect fields to be rewritten into. One thing licenses the green it may record: every input that has moved since the last green build being comparison-side, which is what lets a bless of the contact allow-list or a ledger edit leave the next cycle nothing to do while a toolchain bump does not."""
 
     def _reuse(self, monkeypatch, tables):
+        """The stamp and the two pre-gate guards every path crosses before it reaches anything worth asserting about. The guards are stubbed rather than run because both read the live subset tables under rebuild/out, which is exactly what a contracts-lane test may not touch; the returned list is the stage log the ordering test reads."""
+        ran: list[str] = []
+        monkeypatch.setattr(
+            run_m1.baseline_subset, "ensure_fresh", lambda repo_root: ran.append("subset") or False
+        )
+        monkeypatch.setattr(
+            run_m1.oracle,
+            "unaliased_subset_names",
+            lambda subset_dir, alias_path: ran.append("aliases") or {},
+        )
         monkeypatch.setattr(run_m1, "tables_inputs", lambda: "fp")
         monkeypatch.setattr(run_m1, "serialized_tables", lambda out_dir, inputs: tables)
+        return ran
+
+    def _summary(self, out_dir, **fields):
+        """The summary a completed build left behind, which is the file this pass rewrites the defect fields of rather than authoring from nothing."""
+        (out_dir / "pipeline_summary.json").write_text(
+            json.dumps({"gsub_rule_count": 7, "font": "M1.otf", **fields}, indent=2) + "\n"
+        )
+
+    def _build(self, monkeypatch, tmp_path, ran, *, report=None):
+        """The artifacts the pass stands on and the seams behind them: the font the stamp vouches for, the treaty tables the defect gate reads beside the enumeration, the minting, the gate itself stubbed to whatever report the caller wants judged, and the Stage A rewrite."""
+        (tmp_path / "M1.otf").write_bytes(b"font")
+        monkeypatch.setattr(run_m1, "OUT_DIR", tmp_path)
+        monkeypatch.setattr(run_m1, "load_default_spec", lambda: object())
+        monkeypatch.setattr(run_m1.table_module, "read_treaty_tsv", lambda path: f"treaty {path.name}")
+        monkeypatch.setattr(run_m1, "mint_cell_glyphs", lambda spec, tables: {})
+        monkeypatch.setattr(
+            run_m1,
+            "_run_defect_gates",
+            lambda spec, tables, cell_glyphs: ran.append("defects")
+            or (defects.DefectReport() if report is None else report),
+        )
+        monkeypatch.setattr(
+            run_m1.fingerprint, "write_stage_a", lambda repo_root, out_dir: ran.append("stage_a") or {}
+        )
+
+    def _green(self, monkeypatch, tmp_path, *, files=None, prior=None, prior_key="fp-prior"):
+        """run_m1's green record homed under tmp_path, the key this pass computes over its inputs, and the per-file map it compares against the one the last green build stored. Every path past the summary check reads that record, so a test that omits this reaches rebuild/out and trips the lane guard rather than failing on its own assertion."""
+        store = tmp_path / "run-m1-green.json"
+        monkeypatch.setattr(ac, "RUN_M1_GREEN", store)
+        monkeypatch.setattr(ac, "run_m1_skip_fingerprint", lambda root=None: "fp-now")
+        monkeypatch.setattr(ac, "run_m1_skip_files", lambda root=None: dict(files or {}))
+        if prior is not None:
+            ac.record_green(store, prior_key, files=prior)
+        return store
+
+    def _gates(self, monkeypatch, ran, *, replayed=4, multi_matched=0):
+        monkeypatch.setattr(
+            run_m1,
+            "run_manual_pin_gate",
+            lambda out_dir, spec: ran.append("pins")
+            or {"pass": True, "disagreements": [], "pins_in_scope": 4, "replayed": replayed},
+        )
+        monkeypatch.setattr(
+            run_m1,
+            "run_oracle",
+            lambda out_dir, spec, jobs, **_cache: ran.append("oracle")
+            or {"unmatched": 19837, "multi_matched": multi_matched},
+        )
 
     def test_it_refuses_tables_the_runes_have_outgrown(self, monkeypatch, tmp_path):
         self._reuse(monkeypatch, None)
@@ -481,47 +541,182 @@ class TestGatesOnly:
             run_m1.run_gates_only(out_dir=tmp_path)
         assert "no compiled font" in str(error.value)
 
-    def test_it_runs_both_gates_and_records_no_green(self, monkeypatch, tmp_path, capsys):
+    @pytest.mark.parametrize("left_behind", [None, "{ not a summary", "[]"])
+    def test_it_refuses_a_build_that_left_no_summary_to_rewrite(self, monkeypatch, tmp_path, left_behind):
+        """The defect fields are rewritten into the build's own summary, so a build that left none — or left something that is not one — is not a build this pass can stand on. Refusing is what keeps a gates-only pass from authoring a summary no build ever wrote and then judging itself against it."""
         self._reuse(monkeypatch, {})
-        monkeypatch.setattr(run_m1, "OUT_DIR", tmp_path)
         (tmp_path / "M1.otf").write_bytes(b"font")
-        monkeypatch.setattr(run_m1, "load_default_spec", lambda: object())
-        ran = []
+        if left_behind is not None:
+            (tmp_path / "pipeline_summary.json").write_text(left_behind)
+        with pytest.raises(SystemExit) as error:
+            run_m1.run_gates_only(out_dir=tmp_path)
+        assert "no readable" in str(error.value)
+        assert _checks() == []
+
+    def test_it_refuses_a_treaty_table_the_defect_gate_cannot_read(self, monkeypatch, tmp_path):
+        """The defect gate reads the treaty tables beside the enumeration, so a stamp that matches over a treaty that will not parse describes a build only half on disk. What that earns is a refusal naming the file, not a traceback out of the gate."""
+        ran = self._reuse(monkeypatch, {"ss06": "decision"})
+        self._build(monkeypatch, tmp_path, ran)
+        self._summary(tmp_path)
+        self._green(monkeypatch, tmp_path)
+
+        def refuse(path):
+            raise OSError("truncated")
+
+        monkeypatch.setattr(run_m1.table_module, "read_treaty_tsv", refuse)
+        with pytest.raises(SystemExit) as error:
+            run_m1.run_gates_only(out_dir=tmp_path)
+        assert "treaties-ss06.tsv is missing or unreadable" in str(error.value)
+
+    def test_it_runs_the_guards_then_the_defect_gate_then_the_pins_then_the_oracle(
+        self, monkeypatch, tmp_path, capsys
+    ):
+        """The two pre-gate guards belong to the oracle rather than to the build — an unaliased subset name makes every oracle number quietly wrong — so a pass that re-runs the oracle over a build it did not make runs them exactly as the pass that built does. The defect gate goes first among the three because its errors are what stop the pass before a pin is ever replayed."""
+        ran = self._reuse(monkeypatch, {})
+        self._build(monkeypatch, tmp_path, ran)
+        self._summary(tmp_path)
+        self._green(monkeypatch, tmp_path)
+        self._gates(monkeypatch, ran)
+        run_m1.main(["--gates-only", "--jobs", "6"])
+        assert ran == ["subset", "aliases", "defects", "stage_a", "pins", "oracle"]
+        output = capsys.readouterr().out
+        assert "[t] baseline_subset" in output
+        assert "[t] alias_completeness" in output
+        assert "[t] defect_gates" in output
+        assert "[t] run_oracle" in output
+
+    def test_it_rewrites_only_the_defect_fields_of_the_builds_summary(self, monkeypatch, tmp_path):
+        """The gate the allow-list feeds writes its answer back into the summary the build left, so the judge reads this pass's defect verdict rather than the one a build reached before the bless. Everything else in that summary belongs to the build and survives untouched — nothing here recompiled a font or counted a GSUB rule."""
+        report = defects.DefectReport(
+            flags=[defects.Defect("W-CONTACT", "qsAh~qsBay", "grazes")],
+            dead_in_alphabet=["qsZoo", "qsAh"],
+            deferred_partner=["qsNo"],
+            notes=["blessed one signature"],
+        )
+        ran = self._reuse(monkeypatch, {})
+        self._build(monkeypatch, tmp_path, ran, report=report)
+        self._summary(
+            tmp_path,
+            settled_cell_glyphs=12,
+            defect_errors=["E-CONTACT qsAh~qsBay: ink collision"],
+            notes=["what the build said"],
+        )
+        self._green(monkeypatch, tmp_path)
+        self._gates(monkeypatch, ran)
+        run_m1.run_gates_only(out_dir=tmp_path)
+        assert json.loads((tmp_path / "pipeline_summary.json").read_text()) == {
+            "gsub_rule_count": 7,
+            "font": "M1.otf",
+            "settled_cell_glyphs": 12,
+            "defect_errors": [],
+            "notes": ["blessed one signature"],
+            "defect_flags": ["W-CONTACT qsAh~qsBay: grazes"],
+            "dead_in_alphabet": ["qsAh", "qsZoo"],
+            "deferred_partner": ["qsNo"],
+        }
+        assert "stage_a" in ran
+
+    def test_a_defect_error_exits_red_before_the_pin_gate_and_clears_the_green(self, monkeypatch, tmp_path):
+        """A bless that turns out not to cover what it was meant to cover fails here exactly as it fails a full build, with the same sentence, and stops the pass before a pin is replayed: there is nothing to certify about a font whose contacts are unaccounted for. The green it clears is the one the moved input has just contradicted."""
+        report = defects.DefectReport(errors=[defects.Defect("E-CONTACT", "qsAh~qsBay", "ink collision")])
+        ran = self._reuse(monkeypatch, {})
+        self._build(monkeypatch, tmp_path, ran, report=report)
+        self._summary(tmp_path)
+        store = self._green(monkeypatch, tmp_path, prior={}, prior_key="fp-now")
         monkeypatch.setattr(
             run_m1,
             "run_manual_pin_gate",
-            lambda out_dir, spec: ran.append("pins")
-            or {"pass": True, "disagreements": [], "pins_in_scope": 4, "replayed": 4},
+            lambda **kwargs: pytest.fail("the pin gate ran behind a defect error"),
         )
-        monkeypatch.setattr(
-            run_m1,
-            "run_oracle",
-            lambda out_dir, spec, jobs, **_cache: ran.append("oracle")
-            or {"unmatched": 0, "multi_matched": 0},
+        with pytest.raises(SystemExit) as error:
+            run_m1.run_gates_only(out_dir=tmp_path)
+        assert str(error.value) == "1 defect-gate errors; see pipeline_summary.json"
+        assert ac.read_green_record(store) is None
+        checks = _checks()
+        assert len(checks) == 1
+        assert checks[0]["verdict"] == "red"
+        assert checks[0]["failures"] == ["1 defect-gate errors; see pipeline_summary.json"]
+        assert json.loads((tmp_path / "pipeline_summary.json").read_text())["defect_errors"] == [
+            "E-CONTACT qsAh~qsBay: ink collision"
+        ]
+
+    def test_a_comparison_side_diff_records_the_green_the_next_cycle_skips_on(self, monkeypatch, tmp_path):
+        """The whole point of the route. The prior green proves the tables and font on disk came from a completed build over every build-side input, the stamp proves none of those has moved since, and this pass re-proves the gates the moved ones feed; with all three in hand the recorded green covers the new inputs too, so the cycle after a ledger edit skips run_m1 outright instead of re-adjudicating it a second time."""
+        ran = self._reuse(monkeypatch, {})
+        self._build(monkeypatch, tmp_path, ran)
+        self._summary(tmp_path)
+        current = {"rebuild/m1-divergences.yaml": "after", "uv.lock": "pinned"}
+        store = self._green(
+            monkeypatch,
+            tmp_path,
+            files=current,
+            prior={"rebuild/m1-divergences.yaml": "before", "uv.lock": "pinned"},
         )
-        monkeypatch.setattr(
-            run_m1, "_settle_green", lambda *args, **kwargs: pytest.fail("--gates-only recorded a green")
+        self._gates(monkeypatch, ran)
+        run_m1.run_gates_only(out_dir=tmp_path)
+        record = ac.read_green_record(store)
+        assert record is not None
+        assert record["fingerprint"] == "fp-now"
+        assert record["files"] == current
+
+    def test_no_prior_green_records_nothing_and_says_why(self, monkeypatch, tmp_path, capsys):
+        """A green here is a claim about artifacts this pass did not build, and without a prior green nothing says those artifacts ever came from a completed build at all. The pass still runs and still files its check line — how one invocation came out is a different claim from a license to skip work."""
+        ran = self._reuse(monkeypatch, {})
+        self._build(monkeypatch, tmp_path, ran)
+        self._summary(tmp_path)
+        store = self._green(monkeypatch, tmp_path, files={"uv.lock": "pinned"})
+        self._gates(monkeypatch, ran)
+        run_m1.run_gates_only(out_dir=tmp_path)
+        assert not store.exists()
+        assert "there is no prior green M1 build for this pass to stand on" in capsys.readouterr().out
+        assert [check["verdict"] for check in _checks()] == ["green"]
+
+    def test_a_build_side_input_among_the_moved_records_nothing_and_names_it(
+        self, monkeypatch, tmp_path, capsys
+    ):
+        """uv.lock pins fontTools and uharfbuzz, so a bump there can move the compiled font's bytes and what HarfBuzz makes of them: standing on a font a different toolchain built is the one reuse this must never license. The line names the label that refused it, so the remedy — a full build — is legible without a diff."""
+        ran = self._reuse(monkeypatch, {})
+        self._build(monkeypatch, tmp_path, ran)
+        self._summary(tmp_path)
+        store = self._green(
+            monkeypatch,
+            tmp_path,
+            files={"uv.lock": "bumped", "rebuild/m1-aliases.yaml": "after"},
+            prior={"uv.lock": "pinned", "rebuild/m1-aliases.yaml": "before"},
         )
-        run_m1.main(["--gates-only", "--jobs", "6"])
-        assert ran == ["pins", "oracle"]
-        assert "[t] run_oracle" in capsys.readouterr().out
+        self._gates(monkeypatch, ran)
+        run_m1.run_gates_only(out_dir=tmp_path)
+        assert (
+            "run_m1: green, but this pass recorded no green — these inputs are build-side, so the artifacts on disk are not the ones they describe: uv.lock"
+            in capsys.readouterr().out
+        )
+        record = ac.read_green_record(store)
+        assert record is not None
+        assert record["fingerprint"] == "fp-prior"
+
+    def test_inputs_that_never_moved_leave_the_standing_green_where_it_is(
+        self, monkeypatch, tmp_path, capsys
+    ):
+        """Nothing moved is the plain skip's case rather than this one: the green already on the record covers these very inputs, so rewriting it would only restamp it with a later time and claim a fresher proof than this pass made."""
+        ran = self._reuse(monkeypatch, {})
+        self._build(monkeypatch, tmp_path, ran)
+        self._summary(tmp_path)
+        standing = {"rebuild/m1-aliases.yaml": "unchanged"}
+        store = self._green(monkeypatch, tmp_path, files=standing, prior=standing)
+        self._gates(monkeypatch, ran)
+        run_m1.run_gates_only(out_dir=tmp_path)
+        assert "nothing has moved since the last green M1 build" in capsys.readouterr().out
+        record = ac.read_green_record(store)
+        assert record is not None
+        assert record["fingerprint"] == "fp-prior"
 
     def test_it_files_the_re_adjudications_verdict(self, monkeypatch, tmp_path):
         """A ledger edit is re-adjudicated in a loop while the unmatched rows remain; the pass is judged by the same evaluator the cycle runs over a build it reused, files that, and exits the way it judged."""
-        self._reuse(monkeypatch, {})
-        monkeypatch.setattr(run_m1, "OUT_DIR", tmp_path)
-        (tmp_path / "M1.otf").write_bytes(b"font")
-        monkeypatch.setattr(run_m1, "load_default_spec", lambda: object())
-        monkeypatch.setattr(
-            run_m1,
-            "run_manual_pin_gate",
-            lambda out_dir, spec: {"pass": True, "disagreements": [], "pins_in_scope": 4, "replayed": 4},
-        )
-        monkeypatch.setattr(
-            run_m1,
-            "run_oracle",
-            lambda out_dir, spec, jobs, **_cache: {"unmatched": 19837, "multi_matched": 0},
-        )
+        ran = self._reuse(monkeypatch, {})
+        self._build(monkeypatch, tmp_path, ran)
+        self._summary(tmp_path)
+        self._green(monkeypatch, tmp_path)
+        self._gates(monkeypatch, ran)
         run_m1.main(["--gates-only"])
         checks = _checks()
         assert len(checks) == 1
@@ -529,22 +724,19 @@ class TestGatesOnly:
         assert checks[0]["verdict"] == "green"
         assert "run" not in checks[0]
 
-    def test_a_pin_gate_that_refuses_the_build_files_a_red(self, monkeypatch, tmp_path):
-        """The one refusal here that is a judgment rather than a pre-flight: the pins replayed and disagreed, so the record says so and carries the sentence the pass died with."""
-        self._reuse(monkeypatch, {})
-        monkeypatch.setattr(run_m1, "OUT_DIR", tmp_path)
-        (tmp_path / "M1.otf").write_bytes(b"font")
-        monkeypatch.setattr(run_m1, "load_default_spec", lambda: object())
-        monkeypatch.setattr(
-            run_m1,
-            "run_manual_pin_gate",
-            lambda out_dir, spec: {"pass": True, "disagreements": [], "pins_in_scope": 4, "replayed": 3},
-        )
+    def test_a_pin_gate_that_refuses_the_build_files_a_red_and_clears_the_green(self, monkeypatch, tmp_path):
+        """The one refusal here that is a judgment rather than a pre-flight: the pins replayed and disagreed, so the record says so and carries the sentence the pass died with. It is a red like the defect gate's and the oracle's, so it settles the green like theirs — a standing record whose key still matches this content is a claim this pass has just contradicted, and leaving it would let the next cycle skip run_m1 on the strength of a build the pins refused."""
+        ran = self._reuse(monkeypatch, {})
+        self._build(monkeypatch, tmp_path, ran)
+        self._summary(tmp_path)
+        store = self._green(monkeypatch, tmp_path, prior={}, prior_key="fp-now")
+        self._gates(monkeypatch, ran, replayed=3)
         monkeypatch.setattr(
             run_m1, "run_oracle", lambda **kwargs: pytest.fail("the oracle ran behind a failed pin gate")
         )
         with pytest.raises(SystemExit):
             run_m1.main(["--gates-only"])
+        assert ac.read_green_record(store) is None
         checks = _checks()
         assert len(checks) == 1
         assert checks[0]["verdict"] == "red"
@@ -558,14 +750,11 @@ class TestGatesOnly:
         assert _checks() == []
 
     def test_a_vacuous_pin_gate_stops_it_before_the_oracle(self, monkeypatch, tmp_path):
-        self._reuse(monkeypatch, {})
-        (tmp_path / "M1.otf").write_bytes(b"font")
-        monkeypatch.setattr(run_m1, "load_default_spec", lambda: object())
-        monkeypatch.setattr(
-            run_m1,
-            "run_manual_pin_gate",
-            lambda out_dir, spec: {"pass": True, "disagreements": [], "pins_in_scope": 4, "replayed": 3},
-        )
+        ran = self._reuse(monkeypatch, {})
+        self._build(monkeypatch, tmp_path, ran)
+        self._summary(tmp_path)
+        self._green(monkeypatch, tmp_path)
+        self._gates(monkeypatch, ran, replayed=3)
         monkeypatch.setattr(
             run_m1, "run_oracle", lambda **kwargs: pytest.fail("the oracle ran behind a failed pin gate")
         )

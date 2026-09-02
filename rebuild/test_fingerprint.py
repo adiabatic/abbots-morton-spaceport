@@ -1,4 +1,4 @@
-"""Tests for the build-input fingerprint module: the streamed file digest and the sweep that keeps it the only way rebuild/ hashes a file, content sensitivity, order independence, missing-file tolerance, the stat-based baselines component, the Stage A record round trip, the serve.py exclusion, and the prose-blind rune digest.
+"""Tests for the build-input fingerprint module: the streamed file digest and the sweep that keeps it the only way rebuild/ hashes a file, content sensitivity, order independence, missing-file tolerance, the stat-based baselines component, the Stage A record round trip, the serve.py exclusion, and the two prose-blind digests — the rune files' and the contact allow-list's.
 
 The sweep is here rather than in prose because file_sha256 exists to stop a hash costing the file its size in RAM, and that claim only holds while every hash goes through it — which a roster of callers written into a docstring cannot keep, since nothing checks a roster and the next module to grow a file hash falsifies it in silence. The modules that cannot import fingerprint spell the same streamed read out inline instead; those are pinned against the helper by value here, so a copy cannot drift from the original unnoticed either.
 """
@@ -195,7 +195,8 @@ def test_data_lines_carry_one_label_per_file_and_hash_to_data_value(tmp_path):
     assert fingerprint.data_value(root) == hashlib.sha256("\n".join(lines).encode()).hexdigest()
 
 
-def test_table_data_lines_drop_exactly_the_comparison_and_defect_inputs(tmp_path):
+def test_table_data_lines_drop_exactly_the_comparison_side_inputs(tmp_path):
+    """The narrowing is by roster rather than by pattern, so the set it removes is worth pinning against the roster itself: whatever `NON_TABLE_DATA_LABELS` names leaves the tables' stamp, and nothing else does."""
     root = _fake_repo(tmp_path)
     labels = {line.split("\t", 1)[0] for line in fingerprint.data_lines(root)}
     table_labels = {line.split("\t", 1)[0] for line in fingerprint.table_data_lines(root)}
@@ -206,9 +207,13 @@ def test_table_data_lines_drop_exactly_the_comparison_and_defect_inputs(tmp_path
     )
 
 
-def test_an_alias_ledger_or_allow_list_edit_moves_the_run_key_but_not_the_tables_stamp(tmp_path):
-    """The whole point of the narrowing, and the line it must not cross. Those three files are read by gates that consume a decision table — the oracle's comparison and the defect gate's allow-list — so a serialized enumeration built before the edit still describes the sources on disk and `--gates-only` may re-adjudicate against it. They stay in `data_value` and so in the artifact cycle's run_m1 key, which is what decides whether the defect gate re-runs at all, so narrowing the stamp cannot skip a gate."""
+def test_a_comparison_side_data_edit_moves_the_run_key_but_not_the_tables_stamp(tmp_path):
+    """The whole point of the narrowing, and the line it must not cross. All three files are read by gates that consume a decision table — the oracle's naming and classification from the alias map and the divergence ledger, its position channel from the kern sidecar — so a serialized enumeration built before the edit still describes the sources on disk and `--gates-only` may re-adjudicate against it. They stay in `data_value` and so in the artifact cycle's run_m1 key, which is what decides whether the comparison re-runs at all, so narrowing the stamp cannot skip a gate.
+
+    The kern sidecar is the newest member and the one the roster has to keep honest: the font compile hands its builder an empty kerning map and never opens the file, so the only reader is `oracle.KernEvaluator`, and a sidecar edit that throws away an enumeration is spending a fixpoint on a table that would come back byte for byte.
+    """
     root = _fake_repo(tmp_path)
+    assert "glyph_data/senior_quikscript_kerning.yaml" in fingerprint.NON_TABLE_DATA_LABELS
     for label in fingerprint.NON_TABLE_DATA_LABELS:
         before = (
             fingerprint.data_value(root),
@@ -219,6 +224,61 @@ def test_an_alias_ledger_or_allow_list_edit_moves_the_run_key_but_not_the_tables
         assert fingerprint.data_value(root) != before[0]
         assert fingerprint.tables_value(root) == before[1]
         assert artifact_cycle.run_m1_skip_fingerprint(root) != before[2]
+
+
+ALLOW_LIST = textwrap.dedent("""\
+    # Reviewed declared-OK signatures for the off-anchor-contact gate.
+    - signature: contact:qsOy.hapax.ex-y0:qsIt.hapax.en-y0:y1
+      why: the corner today's font already draws on a baseline-proven join
+    """)
+
+
+def _allow_after(root, text):
+    (root / fingerprint.CONTACT_ALLOW_LABEL).write_text(text)
+    return (
+        fingerprint.data_value(root),
+        fingerprint.tables_value(root),
+        artifact_cycle.run_m1_skip_fingerprint(root),
+    )
+
+
+def test_blessing_a_contact_signature_moves_the_run_key_alone(tmp_path):
+    """The allow-list's home after the narrowing: no fingerprint component at all, and one line in the artifact cycle's run_m1 key. The defect gate is its only reader, so a two-line bless has to re-run that gate and has no business re-stamping the surface or dropping the review unit cache — which is exactly what a place in `data_paths` cost it, since both `unit_cache.environment_stamp` and `oracle_cache.stamped_data_paths` derive from that list."""
+    root = _fake_repo(tmp_path)
+    before = _allow_after(root, ALLOW_LIST)
+    assert root / fingerprint.CONTACT_ALLOW_LABEL not in fingerprint.data_paths(root)
+    assert fingerprint.CONTACT_ALLOW_LABEL not in {
+        line.split("\t", 1)[0] for line in fingerprint.data_lines(root)
+    }
+    after = _allow_after(root, ALLOW_LIST.replace(":y1", ":y2"))
+    assert after[:2] == before[:2]
+    assert after[2] != before[2]
+
+
+def test_wording_a_bless_or_reformatting_the_allow_list_moves_nothing(tmp_path):
+    """`why:` on an allow-list entry is the reviewer's recorded rationale for blessing that corner and reaches no gate, so rewording one must not cost a re-adjudication — the same bargain the rune digest strikes with `ductus` and `notes`. Comments and blank lines go the same way, since the digest is taken over the parsed document rather than the bytes."""
+    root = _fake_repo(tmp_path)
+    before = _allow_after(root, ALLOW_LIST)
+    assert _allow_after(root, ALLOW_LIST.replace("already draws on", "has always drawn on")) == before
+    assert _allow_after(root, ALLOW_LIST.replace("gate.\n", "gate.\n# and a second line.\n")) == before
+    assert _allow_after(root, ALLOW_LIST.replace("- signature:", "\n- signature:")) == before
+
+
+def test_contact_allow_digest_is_prose_blind_and_falls_back_to_bytes(tmp_path):
+    """The digest on its own, away from any key that carries it. Prose-blindness is the whole reason it is not `file_sha256`: a signature is what the gate reads and a `why` is what the reviewer wrote, so only the first may move it. The raw fallback is the other half — a malformed allow-list is a stopping change, `defects.run_gates` will refuse to read it, so two different broken drafts must not collapse onto one value the way a swallowed parse error would leave them."""
+    path = tmp_path / "m1-contact-allow.yaml"
+    path.write_text(ALLOW_LIST)
+    parsed = fingerprint.contact_allow_digest(path)
+    path.write_text(ALLOW_LIST.replace("already draws on", "has always drawn on"))
+    assert fingerprint.contact_allow_digest(path) == parsed
+    path.write_text(ALLOW_LIST.replace(":y1", ":y2"))
+    assert fingerprint.contact_allow_digest(path) != parsed
+    broken = "- signature: [unclosed\n"
+    path.write_text(broken)
+    broken_digest = fingerprint.contact_allow_digest(path)
+    assert broken_digest == hashlib.sha256(broken.encode()).hexdigest()
+    path.write_text("- signature: [unclosed again\n")
+    assert fingerprint.contact_allow_digest(path) not in (parsed, broken_digest)
 
 
 def test_the_tables_stamp_still_tracks_the_runes_and_the_pipeline_code(tmp_path):

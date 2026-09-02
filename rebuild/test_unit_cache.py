@@ -197,6 +197,27 @@ def test_unit_store_environment_tracks_each_kernel_settlement_mode(monkeypatch):
     assert stamp() != base
 
 
+def test_unit_store_environment_ignores_the_contact_allow_list(tmp_path):
+    """The store this stamp guards is the expensive one — dropping it rebuilds every unit of the surface cold — and the contact allow-list is the input least entitled to drop it: the defect gate is its only reader, nothing under the review build opens it, and a bless is two lines. It used to reach the stamp anyway, because the `data` line folds `fingerprint.data_paths` and the allow-list sat in that list; it now sits outside it, so the fold cannot reach it by any door. A hand-built root rather than the repo's, so the edit is a real one and the assertion is not about a file this suite may not write."""
+    spec = fixtures.mini_spec()
+    root = tmp_path / "repo"
+    (root / "rebuild").mkdir(parents=True)
+    registry = root / "rebuild" / "script.yaml"
+    registry.write_text("alphabet: []\n", encoding="utf-8")
+    allow = root / "rebuild" / "m1-contact-allow.yaml"
+
+    def stamp():
+        return unit_cache.environment_stamp(root, spec, MINI, MINI_FONT, MINI_FONT, "after-helpers")
+
+    base = stamp()
+    allow.write_text("- {signature: 'contact:qsPea.full.ex-y0:qsTea.full.en-y0:y1'}\n", encoding="utf-8")
+    assert stamp() == base
+    allow.write_text("- {signature: 'contact:qsPea.full.ex-y0:qsTea.full.en-y0:y2'}\n", encoding="utf-8")
+    assert stamp() == base
+    registry.write_text("alphabet: [edited]\n", encoding="utf-8")
+    assert stamp() != base
+
+
 # --- the key and cluster byte-contracts ------------------------------------------------
 
 

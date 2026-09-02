@@ -6,7 +6,7 @@ The glyph-name contract this driver pins: settlement-lookup outcomes are `settle
 
 The ZWNJ-structure and split-buffer checks that once had a standalone horizon-5 gate of their own now ride gate:conform's belt, so they are proven per build at horizon 4 and periodically at 5 or deeper by `make conform-deep` — the same charter the belt already has, over a rule whose closure property makes a horizon-4 proof cover every window the oracle absorbs.
 
-Run as: uv run python -m rebuild.pipeline.run_m1 — or `--conform-only` for the belt alone against the M1.otf on disk, or `--gates-only` for the Manual-pin gate and the oracle against it, which is the cheap way to re-adjudicate an edit to the divergence ledger, the alias map, or the oracle's own code — the classifier, its predicates, the ledger match and the position channel all live in rebuild/pipeline/oracle.py, which the enumeration's stamp leaves out (`fingerprint.table_code_paths`; rebuild/test_build_code_closure.py proves the build never reaches it) — without rebuilding a thing. Either way the oracle serves what it can from the per-row verdict stores rebuild/pipeline/oracle_cache.py keeps beside the tables — a ledger or alias edit moves no family key and no stamp line, so every row is served and the whole re-adjudication is the ledger match and the audit; `--fresh-oracle-cache` distrusts them, and `--gates-only` may read them but never write one.
+Run as: uv run python -m rebuild.pipeline.run_m1 — or `--conform-only` for the belt alone against the M1.otf on disk, or `--gates-only` for everything a full run does after the table build except the stages that make the artifacts: the defect gate, the Manual-pin gate and the oracle over the tables and font already there. That is the cheap way to re-adjudicate any comparison-side edit — the divergence ledger, the alias map, the kern sidecar, the contact allow-list the defect gate reads, or the oracle's own code, the classifier and its predicates and the ledger match and the position channel all living in rebuild/pipeline/oracle.py, which the enumeration's stamp leaves out (`fingerprint.table_code_paths`; rebuild/test_build_code_closure.py proves the build never reaches it) — without rebuilding a thing. That pass records run_m1's green when a prior green exists and everything that has moved since it is comparison-side, so the artifact cycle takes the route itself and the pass after it skips run_m1 outright. Either way the oracle serves what it can from the per-row verdict stores rebuild/pipeline/oracle_cache.py keeps beside the tables — a ledger or alias edit moves no family key and no stamp line, so every row is served and the whole re-adjudication is the ledger match and the audit; `--fresh-oracle-cache` distrusts them, and `--gates-only` may read them but never write one.
 """
 
 from __future__ import annotations
@@ -211,6 +211,32 @@ def namer_dot_glyphs() -> dict[CellId, GlyphRecord]:
     return records
 
 
+def _run_defect_gates(
+    spec: ResolvedSpec,
+    tables: Mapping[str, tuple],
+    cell_glyphs: Mapping[CellId, GlyphRecord],
+) -> defects.DefectReport:
+    """The section 9 defect gates over one build's tables and minted glyphs: `defects.run_gates` under the reviewed allow-list, with the anchor-convention lint folded in as E-ANCHOR errors. Shared by the build and by `--gates-only`, which re-runs it over the tables and glyphs already on disk — the allow-list is in no stamp and no fingerprint component, so blessing a signature is exactly the edit that re-adjudicates here instead of rebuilding."""
+    allow = frozenset(entry["signature"] for entry in yaml.safe_load(CONTACT_ALLOW_YAML.read_text()) or ())
+    report = defects.run_gates(spec, tables, cell_glyphs, allow=allow)
+    for issue in surface.check_anchor_conventions(spec):
+        report.errors.append(
+            defects.Defect("E-ANCHOR", f"convention:{issue.path}", f"{issue.file}: {issue.message}")
+        )
+    return report
+
+
+def _defect_summary_fields(report: defects.DefectReport) -> dict:
+    """The five `pipeline_summary.json` fields the defect gate owns, in the shapes `run` writes them — and the whole of what a `--gates-only` pass rewrites into the summary a build left behind."""
+    return {
+        "defect_errors": [f"{d.code} {d.signature}: {d.message}" for d in report.errors],
+        "defect_flags": [f"{d.code} {d.signature}: {d.message}" for d in report.flags],
+        "dead_in_alphabet": sorted(report.dead_in_alphabet),
+        "deferred_partner": sorted(report.deferred_partner),
+        "notes": report.notes,
+    }
+
+
 def run(
     out_dir: Path = OUT_DIR,
     spec: ResolvedSpec | None = None,
@@ -238,13 +264,7 @@ def run(
     print(f"[t] glyph_minting {time.perf_counter() - start:.1f}s", flush=True)
 
     start = time.perf_counter()
-    allow = frozenset(entry["signature"] for entry in yaml.safe_load(CONTACT_ALLOW_YAML.read_text()) or ())
-    anchor_issues = surface.check_anchor_conventions(spec)
-    defect_report = defects.run_gates(spec, tables, cell_glyphs, allow=allow)
-    for issue in anchor_issues:
-        defect_report.errors.append(
-            defects.Defect("E-ANCHOR", f"convention:{issue.path}", f"{issue.file}: {issue.message}")
-        )
+    defect_report = _run_defect_gates(spec, tables, cell_glyphs)
     print(f"[t] defect_gates {time.perf_counter() - start:.1f}s", flush=True)
 
     start = time.perf_counter()
@@ -285,11 +305,7 @@ def run(
         "settled_cell_glyphs": len(cell_glyphs),
         "total_glyphs": len(all_glyphs),
         "gsub_rule_count": gsub_plan.rule_count,
-        "defect_errors": [f"{d.code} {d.signature}: {d.message}" for d in defect_report.errors],
-        "defect_flags": [f"{d.code} {d.signature}: {d.message}" for d in defect_report.flags],
-        "dead_in_alphabet": sorted(defect_report.dead_in_alphabet),
-        "deferred_partner": sorted(defect_report.deferred_partner),
-        "notes": defect_report.notes,
+        **_defect_summary_fields(defect_report),
         "font": str(font_path),
     }
     (out_dir / "pipeline_summary.json").write_text(json.dumps(summary, indent=2) + "\n")
@@ -316,15 +332,11 @@ def serialized_tables(out_dir: Path, inputs: str) -> dict[str, DecisionTable] | 
 def tables_inputs() -> str:
     """The stamp serialized windows carry: `fingerprint.tables_value` plus a token per semantics-mode default that is on (the simulated prospect, the stage-4b shifted vote slots, the issue-26 class-grain deep slots). The environment flags change settlement semantics or enumeration grain without moving any hashed source, so without the tokens a flag-on enumeration would read as fresh to a flag-off process (and the reverse) and the sweep would replay tables the in-process kernel no longer produces.
 
-    The stamp is over what the fixpoint reads, which is why its data half is `fingerprint.table_data_value` and not `fingerprint.data_value`: `rebuild/m1-aliases.yaml` and `rebuild/m1-divergences.yaml` are the baseline oracle's comparison inputs and `rebuild/m1-contact-allow.yaml` is the defect gate's allow-list, all three consumed against tables that are already built. Editing one leaves every enumeration on disk exactly as fresh as it was, which is what lets `--gates-only` re-adjudicate a ledger or alias edit over the tables and font already there instead of refusing it. The classifier those files feed comes along too: it lives in rebuild/pipeline/oracle.py, and the stamp's code half is `fingerprint.table_code_paths`, the pipeline tree minus that comparison side, so a classifier edit passes the same way — rebuild/test_build_code_closure.py is what holds the build to never importing it. None of that narrows what a full run checks — the three files stay in `fingerprint.data_lines` and oracle.py in `fingerprint.pipeline_code_paths`, so the artifact cycle's run_m1 green record still moves and the defect gate still re-runs.
+    The stamp is over what the fixpoint reads, which is why its data half is `fingerprint.table_data_value` and not `fingerprint.data_value`: the alias map, the divergence ledger and the kern sidecar are the baseline oracle's comparison inputs, and the contact allow-list — which is in no fingerprint component at all — is the defect gate's, every one of them consumed against tables that are already built. Editing one leaves every enumeration on disk exactly as fresh as it was, which is what lets `--gates-only` re-adjudicate over the tables and font already there instead of refusing to. The classifier those files feed comes along too: it lives in rebuild/pipeline/oracle.py, and the stamp's code half is `fingerprint.table_code_paths`, the pipeline tree minus that comparison side, so a classifier edit passes the same way — rebuild/test_build_code_closure.py is what holds the build to never importing it. None of that narrows what a comparison-side edit is checked by: every one of those labels is in the artifact cycle's run_m1 key (`artifact_cycle.run_m1_skip_lines`), so the green still moves and the gates they feed — the defect gate included — still re-run, over the artifacts on disk rather than over new ones.
     """
     inputs = fingerprint.tables_value(REPO_ROOT)
-    if kernel_exec.SIMULATED_PROSPECT_DEFAULT:
-        inputs = f"{inputs}+simulated-prospect"
-    if kernel_exec.VOTE_SLOTS_DEFAULT:
-        inputs = f"{inputs}+vote-slots"
-    if kernel_exec.class_grain():
-        inputs = f"{inputs}+deep-classes"
+    for token in kernel_exec.enumeration_tokens():
+        inputs = f"{inputs}+{token}"
     return inputs
 
 
@@ -616,23 +628,52 @@ def _failed_check(check: str, message: str) -> CheckVerdict:
     return CheckVerdict(check=check, verdict="red", status="FAILED", failures=[message], failed_ids=[])
 
 
-def _gates_only_verdict(out_dir: Path, pin_gate: dict, oracle_summary: dict) -> CheckVerdict:
-    """The run_m1 verdict for a --gates-only pass, taken from the same judge the artifact cycle runs over a build it reused; the exit status this pass is about to take is that verdict. Unmatched rows are the mid-migration steady state and never fail it, so a --gates-only loop over a ledger edit files a green on every iteration that holds them. Two of the gate's three inputs are what this pass just re-ran; the third is the build's own defect gate, which belongs to a build this pass did not make and is read from the summary beside the tables whose stamp it already checked. An unreadable one contributes nothing rather than a guess — a build that failed its defect gate never compiled the font the stamp check just found."""
-    from rebuild.tools.artifact_cycle import evaluate_run_m1_gate
-
-    try:
-        pipeline = json.loads((out_dir / "pipeline_summary.json").read_text())
-    except OSError, ValueError:
-        pipeline = {}
-    return evaluate_run_m1_gate(pipeline, pin_gate, oracle_summary)
+def _run_pregate_guards() -> None:
+    """The two guards that run before anything is adjudicated, on the build path and on the `--gates-only` path alike: the subset baselines refiltered when they no longer describe the sources on disk, and every old glyph name in those subsets carrying an alias. Both belong to the oracle rather than to the build — an unaliased name makes every oracle number quietly wrong — so a pass that re-runs the oracle over a build it did not make has to run them exactly as the pass that built does."""
+    start = time.perf_counter()
+    refiltered = baseline_subset.ensure_fresh(REPO_ROOT)
+    print(
+        f"[t] baseline_subset {time.perf_counter() - start:.1f}s ({'refiltered' if refiltered else 'fresh'})",
+        flush=True,
+    )
+    start = time.perf_counter()
+    missing_aliases = oracle.unaliased_subset_names(OUT_DIR, ALIAS_YAML)
+    print(f"[t] alias_completeness {time.perf_counter() - start:.1f}s", flush=True)
+    if missing_aliases:
+        listing = "\n".join(f"  {name} ({', '.join(configs)})" for name, configs in missing_aliases.items())
+        raise SystemExit(
+            f"rebuild/m1-aliases.yaml is missing {len(missing_aliases)} old glyph names that appear in subset baseline rows — every oracle number would be quietly wrong, so author each entry (or map it to the literal `pending` to run anyway with those rows unaliased):\n{listing}"
+        )
 
 
 def run_gates_only(out_dir: Path = OUT_DIR, jobs: int = 1, fresh_cache: bool = False) -> None:
-    """The two post-build gates over artifacts already on disk: the Manual-pin replay and the oracle, rewriting their summaries and `divergence-audit.tsv` without recompiling anything. What licenses the reuse is the stamp the build left on its serialized enumerations — it names the sources those tables came from, so a stamp that still matches the runes on disk says the M1.otf beside them is the font those runes describe, and a stamp that does not is a refusal rather than a silent sweep of a stale binary. Because that stamp names only what the build reads, an edit to the divergence ledger or the alias map passes it and re-adjudicates here rather than being turned away, and so does an edit to the classifier that reads them, rebuild/pipeline/oracle.py being outside the stamp's code half. This still writes no green record: run_m1's green covers the whole build, a pass that recompiled nothing has not earned it, and the ledger and the alias map both stay in the key that green is taken over. It does file a check line, which is a different claim and a compatible one — a green record licenses a later pass to skip work, while a check line only says how one invocation came out, and how a re-adjudication came out is exactly what a ledger edit wants on the record. For the same reason it opens the oracle row cache read-only — a pass that may not record a green may not record a build input either, and the store one of these passes would write is a store no build ever produced. It reads one gladly, which is the whole point: a ledger edit moves no family key and no stamp line, so every row is served and the re-adjudication costs seconds. Recording no ordinal has one further consequence worth naming: the store's renewal slice and its verification sample both advance on the pass a store records, so these passes rotate them on the clock instead — a re-adjudication loop that re-proved one frozen twentieth of the table every time would be no guard at all. `--fresh-oracle-cache` here declines the read rather than taking the stores off disk, since deleting a build input is a write like any other. What passes the stamp without being re-adjudicated here is `rebuild/m1-contact-allow.yaml`: the defect gate is the only stage that reads it and the defect gate belongs to the build, so an edit to it reaches `defects_summary.json` through a full run and no other way."""
+    """Everything a full run does after the table build except the stages that make the artifacts — the defect gate, the Manual-pin replay and the oracle, re-run over the tables and the M1.otf already on disk, rewriting the defect fields of `pipeline_summary.json`, the Stage A record, the gate summaries and `divergence-audit.tsv` without recompiling anything. What licenses the reuse is the stamp the build left on its serialized enumerations: it names the sources those tables came from, so a stamp that still matches the runes on disk says the M1.otf beside them is the font those runes describe, and a stamp that does not is a refusal rather than a silent sweep of a stale binary. Because that stamp names only what the build reads, every comparison-side edit passes it and re-adjudicates here — the divergence ledger, the alias map, the kern sidecar, the contact allow-list the defect gate reads, and the classifier those files feed, rebuild/pipeline/oracle.py being outside the stamp's code half.
+
+    It may record run_m1's green, and the condition is what makes that sound: a prior green record must exist and every input that has moved since it must be comparison-side (`artifact_cycle.gates_only_reuse`). The prior green is the proof that the tables and font on disk came from a completed build over every build-side input; the stamp check is the proof that none of those inputs has moved since; and this pass is what re-proves the gates the moved inputs feed. With both in hand the recorded green covers the new inputs too, so the next cycle skips run_m1 outright. Without them the pass still runs, still files its check line, and says which label kept it from recording — a check line only claims how one invocation came out, where a green licenses a later pass to skip work.
+
+    It opens the oracle row cache read-only all the same (`write_cache=False`): a ledger or alias edit moves no family key and no stamp line, so every row is served and the re-adjudication costs seconds, while the store one of these passes would write is a store no build ever produced. Recording no ordinal has one consequence worth naming: the store's renewal slice and its verification sample both advance on the pass a store records, so these passes rotate them on the clock instead — a re-adjudication loop that re-proved one frozen twentieth of the table every time would be no guard at all. `--fresh-oracle-cache` here declines the read rather than taking the stores off disk, since deleting a build input is a write like any other.
+    """
+    from rebuild.tools.artifact_cycle import (
+        RUN_M1_GREEN,
+        comparison_side_label,
+        evaluate_run_m1_gate,
+        gates_only_reuse,
+        moved_input_labels,
+        read_green_record,
+        run_m1_skip_files,
+        run_m1_skip_fingerprint,
+    )
+
+    def run_m1_key() -> str:
+        return run_m1_skip_fingerprint(REPO_ROOT)
+
     started = time.perf_counter()
+    _run_pregate_guards()
     inputs = tables_inputs()
     font_path = out_dir / "M1.otf"
-    if serialized_tables(out_dir, inputs) is None:
+    summary_path = out_dir / "pipeline_summary.json"
+    serialized = serialized_tables(out_dir, inputs)
+    if serialized is None:
         raise SystemExit(
             f"the stamped window enumerations under {out_dir} are missing, unreadable, or were built from other sources than the ones on disk — run `uv run python -m rebuild.pipeline.run_m1` (or a cycle pass) first; --gates-only re-runs the gates over a build, it does not make one"
         )
@@ -640,7 +681,42 @@ def run_gates_only(out_dir: Path = OUT_DIR, jobs: int = 1, fresh_cache: bool = F
         raise SystemExit(
             f"no compiled font at {font_path} — run `uv run python -m rebuild.pipeline.run_m1` first"
         )
+    try:
+        pipeline_summary = json.loads(summary_path.read_text())
+    except OSError, ValueError:
+        pipeline_summary = None
+    if not isinstance(pipeline_summary, dict):
+        raise SystemExit(
+            f"no readable {summary_path} — the defect fields are rewritten into the build's own summary, and a build that left none is not a build this pass can stand on; run `uv run python -m rebuild.pipeline.run_m1` first"
+        )
+
     spec = load_default_spec()
+    before = run_m1_key()
+    record = read_green_record(RUN_M1_GREEN)
+    current = run_m1_skip_files(REPO_ROOT)
+
+    tables: dict[str, tuple] = {}
+    for config, decision in serialized.items():
+        treaty_path = out_dir / f"treaties-{config}.tsv"
+        try:
+            tables[config] = (decision, table_module.read_treaty_tsv(treaty_path))
+        except (OSError, ValueError) as error:
+            raise SystemExit(
+                f"{treaty_path} is missing or unreadable ({error}) — the defect gate reads the treaty tables beside the enumeration, so this build is not one this pass can adjudicate; run `uv run python -m rebuild.pipeline.run_m1` first"
+            )
+
+    start = time.perf_counter()
+    cell_glyphs = mint_cell_glyphs(spec, tables)
+    defect_fields = _defect_summary_fields(_run_defect_gates(spec, tables, cell_glyphs))
+    print(f"[t] defect_gates {time.perf_counter() - start:.1f}s", flush=True)
+    pipeline_summary.update(defect_fields)
+    summary_path.write_text(json.dumps(pipeline_summary, indent=2) + "\n")
+    fingerprint.write_stage_a(REPO_ROOT, out_dir)
+    if defect_fields["defect_errors"]:
+        message = f"{len(defect_fields['defect_errors'])} defect-gate errors; see pipeline_summary.json"
+        _settle_green(RUN_M1_GREEN, before, False, run_m1_key, "run_m1")
+        _record_cli_check(_failed_check("run_m1", message), started)
+        raise SystemExit(message)
 
     start = time.perf_counter()
     pin_gate = run_manual_pin_gate(out_dir=out_dir, spec=spec)
@@ -648,6 +724,7 @@ def run_gates_only(out_dir: Path = OUT_DIR, jobs: int = 1, fresh_cache: bool = F
     print(json.dumps(pin_gate, indent=2))
     pin_failure = manual_pin_gate_failure(pin_gate)
     if pin_failure is not None:
+        _settle_green(RUN_M1_GREEN, before, False, run_m1_key, "run_m1")
         _record_cli_check(_failed_check("run_m1", pin_failure), started)
         raise SystemExit(f"{pin_failure}; see manual_pins_summary.json")
 
@@ -657,10 +734,32 @@ def run_gates_only(out_dir: Path = OUT_DIR, jobs: int = 1, fresh_cache: bool = F
     )
     print(f"[t] run_oracle {time.perf_counter() - start:.1f}s", flush=True)
     print(json.dumps(oracle_summary, indent=2))
-    gate = _gates_only_verdict(out_dir, pin_gate, oracle_summary)
+    gate = evaluate_run_m1_gate(pipeline_summary, pin_gate, oracle_summary)
     _record_cli_check(gate, started)
     if not gate.ok:
+        _settle_green(RUN_M1_GREEN, before, False, run_m1_key, "run_m1")
         raise SystemExit("; ".join(gate.failures) + "; see oracle_summary.json and divergence-audit.tsv")
+    if gates_only_reuse(record, current) is not None:
+        _settle_green(
+            RUN_M1_GREEN,
+            before,
+            True,
+            run_m1_key,
+            "run_m1",
+            files_of=lambda: run_m1_skip_files(REPO_ROOT),
+        )
+        return
+    labels = moved_input_labels(record, current) or []
+    offenders = [label for label in labels if not comparison_side_label(label)]
+    if offenders:
+        why = f"these inputs are build-side, so the artifacts on disk are not the ones they describe: {', '.join(offenders)}"
+    elif record is None:
+        why = "there is no prior green M1 build for this pass to stand on"
+    elif not isinstance(record.get("files"), dict):
+        why = "the last green M1 build predates the per-file record this decision is taken over"
+    else:
+        why = "nothing has moved since the last green M1 build, so that green already stands"
+    print(f"run_m1: green, but this pass recorded no green — {why}", flush=True)
 
 
 def _settle_green(
@@ -704,7 +803,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument(
         "--gates-only",
         action="store_true",
-        help="re-run the Manual-pin gate and the oracle against the M1.otf and tables already on disk, rewriting their summaries and divergence-audit.tsv; refuses when those tables were built from other sources than the ones on disk",
+        help="re-run the defect gate, the Manual-pin gate and the oracle against the M1.otf and tables already on disk, rewriting the defect fields of pipeline_summary.json, the gate summaries, the Stage A record and divergence-audit.tsv; refuses when those tables were built from other sources than the ones on disk, and records run_m1's green when everything that moved since the last green build is comparison-side",
     )
     parser.add_argument(
         "--fresh-oracle-cache",
@@ -777,20 +876,7 @@ def main(argv: list[str] | None = None) -> None:
     def run_m1_key() -> str:
         return run_m1_skip_fingerprint(REPO_ROOT)
 
-    start = time.perf_counter()
-    refiltered = baseline_subset.ensure_fresh(REPO_ROOT)
-    print(
-        f"[t] baseline_subset {time.perf_counter() - start:.1f}s ({'refiltered' if refiltered else 'fresh'})",
-        flush=True,
-    )
-    start = time.perf_counter()
-    missing_aliases = oracle.unaliased_subset_names(OUT_DIR, ALIAS_YAML)
-    print(f"[t] alias_completeness {time.perf_counter() - start:.1f}s", flush=True)
-    if missing_aliases:
-        listing = "\n".join(f"  {name} ({', '.join(configs)})" for name, configs in missing_aliases.items())
-        raise SystemExit(
-            f"rebuild/m1-aliases.yaml is missing {len(missing_aliases)} old glyph names that appear in subset baseline rows — every oracle number would be quietly wrong, so author each entry (or map it to the literal `pending` to run anyway with those rows unaliased):\n{listing}"
-        )
+    _run_pregate_guards()
     inputs = tables_inputs()
     spec = load_default_spec()
     before = run_m1_key()

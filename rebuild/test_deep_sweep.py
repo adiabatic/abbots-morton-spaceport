@@ -48,7 +48,7 @@ def test_a_root_without_a_behavior_class_sidecar_is_refused(bench, monkeypatch):
 
 
 def test_a_stale_tables_stamp_is_refused(bench, monkeypatch):
-    """The precondition is artifact identity — the serialized enumeration stamped from exactly the sources on disk — never a green receipt: a --gates-only pass writes no green yet leaves a perfectly sweepable font, and a red interactive run deletes the receipt without changing a byte of the artifacts."""
+    """The precondition is artifact identity — the serialized enumeration stamped from exactly the sources on disk — never a green receipt: a --gates-only pass leaves a perfectly sweepable font whether or not the inputs that moved since the last green build licensed it to record one, and a red interactive run deletes the receipt without changing a byte of the artifacts."""
     _stub_sweep(monkeypatch, {"pass": True, "divergences": 0})
     monkeypatch.setattr(deep_sweep, "tables_stamped", lambda: False)
     with pytest.raises(SystemExit, match="stale relative to the runes"):
