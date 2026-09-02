@@ -80,7 +80,10 @@ def test_fixture_units_exercise_the_contract_branches():
     assert any("&#x00B7;" in (unit["text_entities"] or "") for unit in units)
     assert any("ligation" in unit["kinds"] for unit in units)
     assert any(unit["pair"] is None for unit in units)
-    assert any(unit["drafts"]["pin"]["duplicate_of"] for unit in units)
+    assert any(unit["drafts"] and unit["drafts"]["pin"]["duplicate_of"] for unit in units)
+    assert any(
+        unit["drafts"] is None and "\nposition " not in unit["explain"] for unit in units
+    ), "a fixture unit must exercise the slim machine-approved shape"
     assert any(
         seam["home"] for unit in units for seam in unit.get("secondary_seams") or ()
     ), "a fixture unit must exercise the homed secondary-seam branch"

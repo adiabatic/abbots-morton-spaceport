@@ -44,6 +44,7 @@ from rebuild.review.audit import (
     merge_ink_duplicate_units,
     parse_codepoints,
     signature_rows,
+    slim_detail,
     synthesize_family_classes,
 )
 from rebuild.review.drafts import Drafter, _import_test_shaping
@@ -367,10 +368,18 @@ def patch_cached_fragment(
 
 
 def unit_to_json(enriched: EnrichedUnit, drafter: Drafter, full_configs=ACCEPTANCE_CONFIGS) -> dict:
+    """The shard fragment for one enriched unit. A slim unit (`audit.slim_detail`) is written with `drafts: null` and never visits the drafter — whose pin draft replays a shaping per unit — because nothing on its channel reaches a reviewer; its explain was already cut to the header by the enricher."""
     unit = enriched.unit
-    pin = drafter.draft_pin(enriched)
-    policy = drafter.draft_policy(enriched)
-    any_of = drafter.draft_any_of(enriched)
+    drafts = None
+    if not unit.slim_detail:
+        pin = drafter.draft_pin(enriched)
+        policy = drafter.draft_policy(enriched)
+        any_of = drafter.draft_any_of(enriched)
+        drafts = {
+            "pin": pin.to_json(),
+            "policy": policy.to_json() if policy else None,
+            "any_of": any_of.to_json(),
+        }
     scaffold = unit_scaffold(unit, full_configs)
     fragment = {
         **{key: scaffold[key] for key in _SCAFFOLD_HEAD},
@@ -403,11 +412,7 @@ def unit_to_json(enriched: EnrichedUnit, drafter: Drafter, full_configs=ACCEPTAN
         "summary": enriched.summary,
         "explain": enriched.explain_text,
         "provenance": list(enriched.provenance),
-        "drafts": {
-            "pin": pin.to_json(),
-            "policy": policy.to_json() if policy else None,
-            "any_of": any_of.to_json(),
-        },
+        "drafts": drafts,
     }
     fragment["content_key"] = unit_cache.carry_content_hash(fragment)
     return fragment
@@ -1637,7 +1642,11 @@ def build_table_diff(
     copy_static(out_dir, static_dir)
     unit_index.write_index(out_dir, shards_by_class.items())
     app_index.write_app_artifacts(out_dir, shards_by_class, spans_by_class)
-    errors = check_output_dir(out_dir)
+    errors = [
+        *check_manifest(manifest),
+        *check_shards(manifest, shards_by_class),
+        *_check_output_files(out_dir, manifest),
+    ]
     if errors:
         raise SystemExit("contract check failed:\n" + "\n".join(errors[:20]))
     return manifest
@@ -1875,6 +1884,13 @@ def check_unit(unit: dict, mode: str = "m1-audit") -> list[str]:
             need(cluster is None, "units outside the human workload must carry cluster null")
     for key in ("class", "group", "notation", "summary", "explain"):
         need(isinstance(unit.get(key), str) and unit.get(key) != "", f"{key} must be a nonempty string")
+    # Slim is a shape the checker holds exact in both directions, like batch null: a slim unit carrying a candidate table or drafts is bytes the build promised not to write, and a human unit without them is a reviewer with nothing to act on.
+    slim = mode == "m1-audit" and slim_detail(unit)
+    if slim and isinstance(unit.get("explain"), str):
+        need(
+            "\nposition " not in unit["explain"],
+            "units on the ink-identical and Junior-equivalent channels keep the explain header only",
+        )
     summary = unit.get("summary")
     if mode == "m1-audit" and isinstance(summary, str):
         need(summary.startswith("New: "), "summary must open with the New: clause")
@@ -2086,10 +2102,13 @@ def check_unit(unit: dict, mode: str = "m1-audit") -> list[str]:
             )
 
     drafts = unit.get("drafts")
-    need(
-        isinstance(drafts, dict) and {"pin", "policy", "any_of"} <= set(drafts or ()),
-        "drafts must carry pin/policy/any_of",
-    )
+    if slim:
+        need(drafts is None, "units on the ink-identical and Junior-equivalent channels carry drafts null")
+    else:
+        need(
+            isinstance(drafts, dict) and {"pin", "policy", "any_of"} <= set(drafts or ()),
+            "drafts must carry pin/policy/any_of",
+        )
     if isinstance(drafts, dict):
         pin = drafts.get("pin")
         if mode == "m1-audit":

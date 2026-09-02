@@ -461,42 +461,11 @@
    }
   },
   "boundary_marks": [],
-  "explain": "position 1: the rebuild extends the ligature's exit by one pixel toward \u00b7Low.",
+  "explain": "sequence E653:E67A:E667   config ss02\nsettled: qsDay_qsUtter.loop.ex-ext-1 qsLow.en-y5",
   "summary": "New: \u00b7Day\u00b7Utter\u00b7Low settles differently from the baseline \u2014 decided by fixture data (open the explain panel for the candidate table).",
   "provenance": [
    "glyph_data/runes/qsDay.yaml:policy.extend[3]"
   ],
-  "drafts": {
-   "pin": {
-    "expect": "\u00b7Day+?Utter ~x~ \u00b7Low",
-    "attribute": "data-expect",
-    "stylistic_set": "02 10",
-    "syntax": "pass",
-    "semantics_after_font": "pass",
-    "duplicate_of": "site/the-manual.html#pin-417",
-    "suggested_home": "site/the-manual.html"
-   },
-   "policy": {
-    "file": "glyph_data/runes/qsDay.yaml",
-    "keypath": "policy.refuse[+]",
-    "suggested_record": "{right: {rune: qsLow, en: x-height}, why: 'TODO'}",
-    "names_provenance": [
-     "glyph_data/runes/qsDay.yaml:policy.extend[3]"
-    ],
-    "decided_stage": "extend",
-    "schema_valid": true
-   },
-   "any_of": {
-    "text": "qsDay qsUtter qsLow",
-    "features": {
-     "ss02": true,
-     "ss10": true
-    },
-    "candidates": [
-     "\u00b7Day+?Utter ~x~ \u00b7Low",
-     "\u00b7Day+?Utter | \u00b7Low"
-    ]
-   }
-  }
+  "drafts": null
  }
 ]
