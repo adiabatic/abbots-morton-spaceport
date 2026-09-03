@@ -376,7 +376,7 @@ def main() -> None:
         dest_b = work / "py-opt.subset.tsv"
         elapsed, kept = _best(lambda: filter_table(BIG_TSV, dest_a, M1_ALPHABET), 3)
         subset["python_repo_baseline"] = {
-            "kept": kept,
+            "kept": kept.kept,
             "seconds": elapsed,
             "checksum": sha_file(dest_a),
         }
