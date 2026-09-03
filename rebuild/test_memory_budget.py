@@ -27,6 +27,10 @@ BOX_32_GB = 32_000_000_000
 BOX_64_GB = 64_000_000_000
 BOX_1_TB = 1_000_000_000_000
 SPELLINGS_OF_32_GB = (BOX_32_GIB, BOX_32_GB)
+# The box the validators lane's division binds on now that a worker of it costs what it does: a lane worker is cheap enough that a 32 GB box reaches the cap, so the small-box direction has to be argued on a small box.
+BOX_11_GIB = 11_811_160_064
+BOX_11_GB = 11_000_000_000
+SPELLINGS_OF_11_GB = (BOX_11_GIB, BOX_11_GB)
 
 BOX_SIZES = (
     4_000_000_000,
@@ -179,10 +183,10 @@ class TestTheValidatorsLaneWidth:
         """A 64 GB box has room for more of these workers than the lane is ever given, and `VALIDATORS_LANE_CAP` is what holds it there, because the argument against the rest is not memory at all — it is a lane short enough that per-worker interpreter and collection cost shows, and whose tail the cap's own slots already drain."""
         assert _validators_workers(total_bytes=BOX_64_GB, cores=12) == VALIDATORS_LANE_CAP
 
-    @pytest.mark.parametrize("total", SPELLINGS_OF_32_GB)
+    @pytest.mark.parametrize("total", SPELLINGS_OF_11_GB)
     def test_memory_binds_before_the_cap_once_the_box_is_small_enough(self, total: int):
-        """The direction that makes deriving the width worth doing, and the reason a worker's price has to be measured rather than guessed low: a validators worker is heavy enough that the 32 GB box the repo states its other recorded widths against has room for three of them after the reserve, so it gets three rather than the four a checked-in literal handed every box alike. Both spellings of that box answer the same, so the reproduction does not rest on a unit convention."""
-        assert _validators_workers(total_bytes=total, cores=12) == 3
+        """The direction that makes deriving the width worth doing: an 11 GB box has room for two of these workers after the reserve, so it gets two rather than the four a checked-in literal handed every box alike. The box has to be this small to make the point now — the lane stopped holding a corpus, so a worker of it is cheap enough that every box the repo states its other widths against reaches the cap instead — which is the width answer moving with a measured cost rather than with a guess. Both spellings of that box answer the same, so the reproduction does not rest on a unit convention."""
+        assert _validators_workers(total_bytes=total, cores=12) == 2
 
     def test_a_box_with_fewer_cores_than_the_cap_gets_its_cores(self):
         """The cap and the core count sit in one `min()` because neither is a memory fact: a two-core box, or a container with a two-core CPU quota, starts two workers rather than `VALIDATORS_LANE_CAP`'s worth of idle ones."""
@@ -232,8 +236,8 @@ class TestWhatDashNAutoResolvesTo:
     def test_a_run_this_hook_cannot_narrow_is_priced_at_a_validators_worker(
         self, root_hook: ModuleType, monkeypatch: pytest.MonkeyPatch
     ):
-        """The half of the fallback that protects a small box: a 16 GB box has room for exactly one worker at this price, so the answer is one rather than the core count, and a fallback that had quietly stopped dividing could not give it."""
-        monkeypatch.setenv("AMS_TOTAL_MEMORY_BYTES", "16000000000")
+        """The half of the fallback that protects a small box: a 10 GB box has room for exactly one worker at this price, so the answer is one rather than the core count, and a fallback that had quietly stopped dividing could not give it."""
+        monkeypatch.setenv("AMS_TOTAL_MEMORY_BYTES", "10000000000")
         assert root_hook.pytest_xdist_auto_num_workers(_StubConfig("rebuild/")) == 1
 
     def test_the_cores_cap_that_same_answer_once_the_box_is_large_enough(
