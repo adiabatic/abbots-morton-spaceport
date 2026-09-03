@@ -8,10 +8,15 @@ from pathlib import Path
 
 import yaml
 
+from rebuild.review import families
+
 ACCEPTANCE_CONFIGS = ("default", "ss03", "ss04", "ss05", "ss03+ss05", "ss10")
 BATCH_SIZE = 300
 
 UNMATCHED_CLASS = "UNMATCHED"
+
+# The class ids the build synthesizes for itself — the catch-all the unmatched windows land in and the verdict families `synthesize_family_classes` appends beside it — so a ledger entry claiming one would be shadowed by a class nothing in the ledger describes.
+RESERVED_CLASS_IDS = frozenset({UNMATCHED_CLASS, *families.FAMILY_ORDER})
 
 AUDIT_HEADER = ("config", "codepoints", "kinds", "matched_entry", "baseline", "new")
 
@@ -136,10 +141,19 @@ def load_audit(path: Path) -> list[AuditRow]:
 def load_ledger(path: Path) -> list[LedgerClass]:
     entries = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or []
     classes: list[LedgerClass] = []
+    seen: set[str] = set()
     for entry in entries:
+        identifier = entry.get("id")
+        if not isinstance(identifier, str) or not identifier:
+            raise ValueError(f"{path}: every ledger entry needs a nonempty string id, not {identifier!r}")
+        if identifier in RESERVED_CLASS_IDS:
+            raise ValueError(f"{path}: {identifier} is a class the build synthesizes itself")
+        if identifier in seen:
+            raise ValueError(f"{path}: {identifier} is declared twice")
+        seen.add(identifier)
         classes.append(
             LedgerClass(
-                id=entry["id"],
+                id=identifier,
                 status=entry.get("status", ""),
                 why=(entry.get("why") or "").strip(),
                 ink_identical=bool(entry.get("ink_identical", False)),

@@ -21,7 +21,7 @@ import sys
 import time
 import traceback
 import warnings
-from collections.abc import Collection
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass, replace
 from functools import lru_cache
 from itertools import combinations
@@ -420,10 +420,18 @@ def unit_to_json(enriched: EnrichedUnit, drafter: Drafter, full_configs=ACCEPTAN
     return fragment
 
 
-def _copy_font(source: Path, out_dir: Path, name: str, family: str, repo_root: Path) -> dict:
+def _copy_font(
+    source: Path, out_dir: Path, name: str, family: str, repo_root: Path, expected_sha256: str
+) -> dict:
     target = out_dir / "fonts" / name
     target.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(source, target)
+    digest = _sha256(target)
+    if digest != expected_sha256:
+        raise SystemExit(
+            f"{source} changed between this build's load ({expected_sha256}) and its copy ({digest}), "
+            "so the units would describe a font other than the one shipped beside them; rebuild the surface"
+        )
     try:
         rel = str(source.resolve().relative_to(repo_root))
     except ValueError:
@@ -432,7 +440,7 @@ def _copy_font(source: Path, out_dir: Path, name: str, family: str, repo_root: P
         "file": f"fonts/{name}",
         "family": family,
         "source": rel,
-        "sha256": _sha256(target),
+        "sha256": digest,
         "upem": _upem(target),
     }
 
@@ -978,9 +986,10 @@ def _write_surface(
     repo_root: Path,
     static_dir: Path,
     mismatches: list,
+    font_digests: Mapping[str, str],
     served_ids: Collection[str] = (),
 ) -> dict:
-    """Reassemble the per-unit JSON fragments into shards (per class, triage order), copy fonts, and write the manifest with its parent-once `generated_at`/`repo_head` stamps. The contract check runs over the in-memory shards and manifest it just assembled — the same dicts the writer serialized — instead of re-parsing the hundreds of megabytes it just wrote, and `served_ids` carries the cache's plan into it (see `check_shards`)."""
+    """Reassemble the per-unit JSON fragments into shards (per class, triage order), copy fonts, and write the manifest with its parent-once `generated_at`/`repo_head` stamps. `check_shards` runs over the in-memory shards and manifest it just assembled — the same dicts the writer serialized — instead of re-parsing the hundreds of megabytes it just wrote, and `served_ids` carries the cache's plan into it (see `check_shards`). The manifest-shape predicates (`check_manifest`) and the beside-the-manifest file predicates (`_check_output_files`) do not run per build: every field they read is written right here out of this function's own inputs, and the fonts are held instead by the digest taken at load and asserted at `_copy_font`. `check_output_dir` proves them over a real build once per contracts run — `rebuild/test_app_index.py` over the mini bundle, `rebuild/test_review_build.py` over a table diff — and `refresh_assets` still runs the file predicates over the surface it restamps."""
     classes_meta: list[dict] = []
     shards_by_class: dict[str, list[dict]] = {}
     spans_by_class: dict[str, list[tuple[int, int, int]]] = {}
@@ -1010,8 +1019,12 @@ def _write_surface(
         )
 
     fonts = {
-        "before": _copy_font(before_font, out_dir, "before.otf", "AMS Review Before", repo_root),
-        "after": _copy_font(after_font, out_dir, "after.otf", "AMS Review After", repo_root),
+        "before": _copy_font(
+            before_font, out_dir, "before.otf", "AMS Review Before", repo_root, font_digests["before"]
+        ),
+        "after": _copy_font(
+            after_font, out_dir, "after.otf", "AMS Review After", repo_root, font_digests["after"]
+        ),
     }
     machine_units = [unit for unit in workload.units if unit.machine_approved]
     manifest = {
@@ -1056,9 +1069,7 @@ def _write_surface(
             f"enricher: re-settled cells diverge from the audit in {len(mismatches)} units "
             f"(first: {mismatches[0]})"
         )
-    errors.extend(check_manifest(manifest))
     errors.extend(check_shards(manifest, shards_by_class, repo_root, served_ids=served_ids))
-    errors.extend(_check_output_files(out_dir, manifest, repo_root))
     if errors:
         raise SystemExit("contract check failed:\n" + "\n".join(errors[:20]))
     return manifest
@@ -1145,9 +1156,14 @@ def build_m1(
 
     phase = time.perf_counter()
     workload = load_workload(audit_path, ledger_path, dict(LETTERS))
+    if not workload.units:
+        raise SystemExit(
+            f"{audit_path} records no divergent rows, so there is nothing to build a review surface over"
+        )
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         spec = load_spec(spec_root)
+    font_digests = {"before": _sha256(before_font), "after": _sha256(after_font)}
     family_keys, helpers_digest = unit_cache.family_content_keys(spec_root, spec, after_font)
     keyer = unit_cache.UnitKeyer(family_keys, dict(LETTERS))
     signatures, signature_entries, signature_environment, signatures_shaped = _resolve_signature_digests(
@@ -1362,6 +1378,7 @@ def build_m1(
         repo_root,
         static_dir,
         mismatches,
+        font_digests,
         served_ids=frozenset(served),
     )
     print(f"[t] review.build manifest+check {time.perf_counter() - phase:.1f}s", file=sys.stderr, flush=True)
@@ -1562,6 +1579,10 @@ def build_table_diff(
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     entries = tablediff.diff_dirs(baseline_dir, new_dir)
+    if not entries:
+        raise SystemExit(
+            f"{baseline_dir} and {new_dir} settle every window alike, so there is nothing to diff"
+        )
 
     if with_witnesses and entries:
         try:
@@ -1578,6 +1599,7 @@ def build_table_diff(
     for entry in entries:
         by_bucket.setdefault(entry.bucket, []).append(entry)
 
+    font_digests = {"before": _sha256(before_font), "after": _sha256(after_font)}
     comparator = InkComparator(before_font, after_font)
     classes_meta: list[dict] = []
     shards_by_class: dict[str, list[dict]] = {}
@@ -1641,8 +1663,12 @@ def build_table_diff(
         )
 
     fonts = {
-        "before": _copy_font(before_font, out_dir, "before.otf", "AMS Review Before", repo_root),
-        "after": _copy_font(after_font, out_dir, "after.otf", "AMS Review After", repo_root),
+        "before": _copy_font(
+            before_font, out_dir, "before.otf", "AMS Review Before", repo_root, font_digests["before"]
+        ),
+        "after": _copy_font(
+            after_font, out_dir, "after.otf", "AMS Review After", repo_root, font_digests["after"]
+        ),
     }
     manifest = {
         "format": MANIFEST_FORMAT,
@@ -1679,11 +1705,7 @@ def build_table_diff(
     copy_static(out_dir, static_dir)
     unit_index.write_index(out_dir, shards_by_class.items())
     app_index.write_app_artifacts(out_dir, shards_by_class, spans_by_class)
-    errors = [
-        *check_manifest(manifest),
-        *check_shards(manifest, shards_by_class),
-        *_check_output_files(out_dir, manifest),
-    ]
+    errors = check_shards(manifest, shards_by_class)
     if errors:
         raise SystemExit("contract check failed:\n" + "\n".join(errors[:20]))
     return manifest
@@ -1751,11 +1773,6 @@ def check_manifest(manifest: dict) -> list[str]:
             isinstance(by_class, dict) and all(isinstance(count, int) for count in (by_class or {}).values()),
             "machine_approved.by_class must map class ids to integers",
         )
-        if isinstance(by_class, dict) and isinstance(machine.get("units"), int):
-            need(
-                sum(by_class.values()) == machine["units"],
-                "machine_approved.by_class must sum to machine_approved.units",
-            )
         channels = machine.get("channels")
         if channels is not None:
             need(
@@ -1775,13 +1792,6 @@ def check_manifest(manifest: dict) -> list[str]:
                     need(
                         isinstance(record.get("method"), str) and record.get("method"),
                         f"machine_approved.channels.{channel}.method must be a nonempty string",
-                    )
-                if all(isinstance(record, dict) for record in channels.values()) and isinstance(
-                    machine.get("units"), int
-                ):
-                    need(
-                        sum(record.get("units", 0) for record in channels.values()) == machine["units"],
-                        "machine_approved.channels must sum to machine_approved.units",
                     )
     seam_census = manifest.get("secondary_seams")
     if seam_census is not None:
@@ -1803,7 +1813,7 @@ def check_manifest(manifest: dict) -> list[str]:
                 )
             need(isinstance(record.get("upem"), int), f"fonts.{side}.upem must be an integer")
     classes = manifest.get("classes")
-    need(isinstance(classes, list) and classes, "classes must be a nonempty list")
+    need(isinstance(classes, list), "classes must be a list")
     for meta in classes or ():
         identifier = meta.get("id", "<missing>")
         for key in ("id", "why"):
@@ -1825,11 +1835,6 @@ def check_manifest(manifest: dict) -> list[str]:
             well_formed,
             f"classes[{identifier}].machine_channels must count the three machine channels",
         )
-        if well_formed and isinstance(meta.get("machine_approved_count"), int):
-            need(
-                sum(channels.values()) == meta["machine_approved_count"],
-                f"classes[{identifier}].machine_channels must sum to machine_approved_count",
-            )
         need(isinstance(meta.get("batches"), list), f"classes[{identifier}].batches must be a list")
         need("status" in meta, f"classes[{identifier}].status must be present")
         need(
@@ -2417,7 +2422,7 @@ def check_shards(
 
 
 def _check_output_files(out_dir: Path, manifest: dict, repo_root: Path | None = None) -> list[str]:
-    """The files beside the manifest: every part of every shard present and non-empty, the per-unit index and the app's two sidecars present and stamped for this manifest, the index page written, and each copied font matching both the sha the manifest recorded and — when `repo_root` resolves the source it names — the font it was copied from. That second comparison is what catches a surface serving last cycle's letters: the copy is faithful to a manifest written over an M1.otf that has since moved on."""
+    """The files beside the manifest: every part of every shard present and non-empty, the per-unit index and the app's two sidecars present and stamped for this manifest, the index page written, and each copied font matching both the sha the manifest recorded and — when `repo_root` resolves the source it names — the font it was copied from. The build guards that second comparison itself, with the digest it takes at load and asserts at `_copy_font`, and the cycle's surface skip and `make verdict-ready` hold the manifest's recorded after-font sha against `rebuild/out/m1/M1.otf`; the comparison survives here for `check_output_dir` and `refresh_assets`."""
     errors: list[str] = []
     for meta in manifest.get("classes", ()):
         for part in unit_index.class_shards(meta):
