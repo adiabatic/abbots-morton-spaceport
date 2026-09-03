@@ -21,6 +21,7 @@ if str(ROOT) not in sys.path:
 
 from rebuild.review import journal, status  # noqa: E402
 from rebuild.review.serve import parse_autosave_payload, stash_path_for  # noqa: E402
+from rebuild.tools.review_server import server_listening as _server_listening  # noqa: E402
 
 AUTOSAVE = ROOT / "verdicts-autosave.json"
 SURFACE = ROOT / "rebuild" / "out" / "review"
@@ -75,12 +76,6 @@ def _write_store(autosave: Path, payload: dict) -> None:
     tmp = autosave.with_name(autosave.name + ".tmp")
     tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
     os.replace(tmp, autosave)
-
-
-def _server_listening() -> bool:
-    from rebuild.tools.artifact_cycle import server_listening
-
-    return server_listening()
 
 
 def _surface_stamp(surface: Path) -> str | None:

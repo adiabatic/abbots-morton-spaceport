@@ -45,7 +45,6 @@ import os
 import posixpath
 import re
 import shutil
-import socket
 import subprocess
 import sys
 import threading
@@ -62,6 +61,7 @@ if str(ROOT) not in sys.path:
 from rebuild.review import unit_index  # noqa: E402
 from rebuild.tools.cycle_timings import CYCLE_RUN_ENV, CheckVerdict  # noqa: E402
 from rebuild.tools.peak_rss import reap_peak_rss_bytes, rss_token  # noqa: E402
+from rebuild.tools.review_server import REVIEW_PORT, server_listening  # noqa: E402
 
 if TYPE_CHECKING:
     from rebuild.tools.cycle_timings import CycleTimings
@@ -85,7 +85,6 @@ REBUILD_CONTRACTS_GREEN = ROOT / "rebuild" / "out" / "rebuild-contracts-green.js
 REBUILD_VALIDATORS_GREEN = ROOT / "rebuild" / "out" / "rebuild-validators-green.json"
 PLUMBING_GREEN = ROOT / "rebuild" / "out" / "plumbing-green.json"
 JSTEST_DIR = ROOT / "rebuild" / "review" / "jstests"
-REVIEW_PORT = 7294
 
 POOL_POLICIES = ("queue", "overlap")
 REBUILD_POOL_POLICY_DEFAULT = "queue"
@@ -673,18 +672,15 @@ def surface_build_skippable(
     return all((surface / shard).exists() for shard in shards)
 
 
-# The chain's own code, named module by module rather than as the whole of rebuild/tools/: the closure of rebuild.tools.verdict_chain (which runs every step) plus this driver (which builds its argv) and the two the driver imports to journal a run. rebuild/test_plumbing_closure.py walks the import graph from those entry points on every contracts run and fails if anything reachable in this repo is outside the union of this list, the manifest fingerprint's review_code and pipeline_code, and serve.py — so the list cannot go stale the way a hand-written one otherwise would, and hashing twenty-three unrelated tools to be safe is no longer the price of the guarantee.
-PLUMBING_ENTRY_POINTS = ("rebuild.tools.verdict_chain", "rebuild.tools.artifact_cycle")
+# The chain's own code, named module by module rather than as the whole of rebuild/tools/: the closure of rebuild.tools.verdict_chain, which runs every step, held to the walked import graph by rebuild/test_plumbing_closure.py on every contracts run. This driver is not an entry point, because every argv it hands the chain names an input the key already hashes — the surface, a snapshot of that same surface, the master, the store — or a flag that disables the skip outright, and the chain's own flag parsing lives in verdict_chain; the two width yardsticks the pipeline takes from this tree (memory_budget and peak_rss, reached only through kernel_exec) are the pipeline_code component's coverage question, which the key carries whole through its manifest line, so the walk stops at that component's boundary rather than dragging a fan-out width and a cost reading into a verdict's closure.
+PLUMBING_ENTRY_POINTS = ("rebuild.tools.verdict_chain",)
 PLUMBING_TOOL_MODULES = (
-    "artifact_cycle",
     "carry_verdicts",
     "complaint_docket",
-    "cycle_timings",
     "echo_verdicts",
-    "memory_budget",
     "merge_verdicts",
-    "peak_rss",
     "review_docket",
+    "review_server",
     "standing_verdicts",
     "verdict_chain",
     "verdict_notes",
@@ -698,7 +694,7 @@ def plumbing_code_paths(root: Path = ROOT) -> list[Path]:
 def plumbing_skip_fingerprint(
     root: Path = ROOT, surface: Path | None = None, master: Path | None = None
 ) -> str | None:
-    """Content key over everything the verdict plumbing reads: the surface it resolves unit ids against, the verdicts master it carries forward, the live store it merges into, the checked-in standing approvals, and the chain's own code. Carry, merge, both fills with their merges, and the complaint docket are pure functions of exactly those, and the chain is idempotent once it has run — so a key matching the record a *complete* chain left behind proves re-running it would write nothing new. The master is in the key because it is the one input the autosave's hash cannot see: an export dropped at the repo root can outrank the autosave in the auto-resolution and carry verdicts the store has never held. The code is in it for the same reason every sibling key carries its own stage's executable — a fix to a fill's matcher or to the carry's fallback must run rather than be skipped as proven — and it is the chain's real import closure (`plumbing_code_paths`, which a contracts test holds against the entry points' import graph) plus the review/ modules the chain runs that the surface build does not — serve.py, which merge_verdicts reads the store through, and status.py and journal.py, which the merge and the readiness check run; review/'s build-side modules ride inside the manifest fingerprint's review_code. The manifest line drops `unit_index.ASSET_COMPONENTS`, because no step of the chain reads the copied app shell — and an assets refresh rewrites exactly that field, which must not re-run a chain every one of whose real inputs is unmoved. None when the surface has no fingerprinted manifest or no master was resolved."""
+    """Content key over everything the verdict plumbing reads: the surface it resolves unit ids against, the verdicts master it carries forward, the live store it merges into, the checked-in standing approvals, and the chain's own code. Carry, merge, both fills with their merges, and the complaint docket are pure functions of exactly those, and the chain is idempotent once it has run — so a key matching the record a *complete* chain left behind proves re-running it would write nothing new. The master is in the key because it is the one input the autosave's hash cannot see: an export dropped at the repo root can outrank the autosave in the auto-resolution and carry verdicts the store has never held. The code is in it for the same reason every sibling key carries its own stage's executable — a fix to a fill's matcher or to the carry's fallback must run rather than be skipped as proven — and it is the chain's real import closure (`plumbing_code_paths`, which a contracts test holds against the chain's import graph) plus the review/ modules the chain runs that the surface build does not — serve.py, which merge_verdicts reads the store through, and status.py and journal.py, which the merge and the readiness check run; review/'s build-side modules ride inside the manifest fingerprint's review_code. The manifest line drops `unit_index.ASSET_COMPONENTS`, because no step of the chain reads the copied app shell — and an assets refresh rewrites exactly that field, which must not re-run a chain every one of whose real inputs is unmoved. None when the surface has no fingerprinted manifest or no master was resolved."""
     if master is None:
         return None
     surface_dir = surface if surface is not None else REVIEW_OUT
@@ -1408,12 +1404,6 @@ def resolve_short_id() -> str:
     except OSError, subprocess.SubprocessError:
         pass
     return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-
-
-def server_listening(port: int = REVIEW_PORT) -> bool:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.settimeout(0.5)
-        return sock.connect_ex(("127.0.0.1", port)) == 0
 
 
 def server_may_stay_up(*, skip_surface: bool, writes_store: bool) -> bool:
