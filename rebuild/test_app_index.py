@@ -15,7 +15,7 @@ import pytest
 
 from rebuild.review import app_index, unit_index
 from rebuild.review.audit import MACHINE_CHANNELS
-from rebuild.review.build import _check_output_files, _write_shard, build_m1
+from rebuild.review.build import _check_output_files, _write_shard, build_m1, check_output_dir
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 FIXTURES = REPO_ROOT / "rebuild" / "review" / "fixtures"
@@ -399,6 +399,11 @@ def test_a_build_writes_both_sidecars_over_its_own_shards(mini_surface):
     assert set(row["id"] for row in locator) == set(by_id) - set(manifest["human_unit_ids"])
     for row in locator:
         assert _addressed(mini_surface, manifest, row) == by_id[row["id"]]
+
+
+def test_a_build_satisfies_the_whole_surface_contract(mini_surface):
+    """The one place the manifest-shape predicates and the beside-the-manifest file predicates run over a real m1-audit build. `_write_surface` runs only `check_shards` on itself, because everything the other two read it wrote out of its own inputs — so this is where a build is held to the whole of `check_output_dir` rather than the part of it that needs the shards."""
+    assert check_output_dir(mini_surface, REPO_ROOT) == []
 
 
 def test_a_builds_class_records_count_the_machine_channels_it_shipped(mini_surface):

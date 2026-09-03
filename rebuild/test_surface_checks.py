@@ -1,6 +1,6 @@
 """The invariants the surface build enforces on itself, each shown refusing a surface that breaks it, beside the drafts and the geometry it refuses to produce in the first place.
 
-These predicates used to be tests that swept the live shards once a validators lane; they are checks inside `build_m1` now, which means a violation fails the build that produced it rather than a gate half an hour later. `check_unit` runs over every unit a build computed, a cache-served one held instead by the `content_key` stamp its shard and its store record must agree on, and every cross-unit predicate in `check_shards` runs over both kinds. What that move costs is granularity — a violation arrives as one line in a `contract check failed` list rather than a named failing test — so what this module holds is the checker's own correctness: every predicate is exercised against the checked-in fixture surface, which passes as shipped, and then against one field broken at a time. The emitters answer for the other end, where a draft, a highlight rect, or a baseline row that could only ship as a recorded failure raises where it is made instead; those are exercised over the frozen mini bundle rather than over a broken fixture, because an emitter can only be wrong about a window it actually saw.
+These predicates used to be tests that swept the live shards once a validators lane; the cross-unit ones are checks inside `build_m1` now, which means a violation fails the build that produced it rather than a gate half an hour later. The manifest-shape predicates and the ones about the files beside the manifest are not: a build writes every field they read out of its own inputs, so they are proven through `check_output_dir` over a real m1 build instead (`rebuild/test_app_index.py` over the frozen mini bundle), and over the checked-in fixture surface here. `check_unit` runs over every unit a build computed, a cache-served one held instead by the `content_key` stamp its shard and its store record must agree on, and every cross-unit predicate in `check_shards` runs over both kinds. What that move costs is granularity — a violation arrives as one line in a `contract check failed` list rather than a named failing test — so what this module holds is the checker's own correctness: every predicate is exercised against the checked-in fixture surface, which passes as shipped, and then against one field broken at a time. The emitters answer for the other end, where a draft, a highlight rect, or a baseline row that could only ship as a recorded failure raises where it is made instead; those are exercised over the frozen mini bundle rather than over a broken fixture, because an emitter can only be wrong about a window it actually saw.
 """
 
 import copy
@@ -14,12 +14,15 @@ from pathlib import Path
 import pytest
 
 from rebuild.review import app_index, census, drafts, unit_index
-from rebuild.review.audit import UNMATCHED_CLASS, Unit, load_workload
+from rebuild.review.audit import AUDIT_HEADER, UNMATCHED_CLASS, Unit, load_workload
 from rebuild.review.build import (
     _check_output_files,
+    _copy_font,
+    _sha256,
     _verification_sample,
     _write_json,
     build_m1,
+    build_table_diff,
     check_manifest,
     check_output_dir,
     check_shards,
@@ -446,6 +449,62 @@ def test_a_build_without_its_baseline_subset_tables_refuses_before_it_starts(tmp
             subset_dir=tmp_path / "no-tables",
         )
     assert "baseline subset tables" in str(raised.value)
+
+
+def test_an_empty_audit_refuses_before_any_unit_is_built(tmp_path, mini_bundle):
+    """The rebuild's own end state — an audit whose every window matches — is not a surface with nothing in it but a build with nothing to do, and it says so where the rows are read rather than several minutes later as a manifest whose `classes` list came out empty."""
+    audit_path = tmp_path / "audit.tsv"
+    audit_path.write_text("\t".join(AUDIT_HEADER) + "\n", encoding="utf-8")
+    with pytest.raises(SystemExit) as raised:
+        build_m1(
+            tmp_path / "surface",
+            audit_path=audit_path,
+            ledger_path=mini_bundle.ledger,
+            subset_dir=MINI,
+            after_font=MINI_FONT,
+            spec_root=mini_bundle.spec_root,
+            jobs=1,
+        )
+    assert str(audit_path) in str(raised.value)
+
+
+def test_identical_table_directories_refuse_to_diff(tmp_path):
+    """The same refusal on the table-diff side, and the same end state: two directories that settle every window alike have no diff to review."""
+    old_dir = tmp_path / "old"
+    new_dir = tmp_path / "new"
+    old_dir.mkdir()
+    new_dir.mkdir()
+    for name in ("settlement-default.tsv", "treaties-default.tsv"):
+        shutil.copyfile(MINI / name, old_dir / name)
+        shutil.copyfile(MINI / name, new_dir / name)
+    with pytest.raises(SystemExit) as raised:
+        build_table_diff(
+            tmp_path / "out",
+            old_dir,
+            new_dir,
+            REPO_ROOT / "site" / "AbbotsMortonSpaceportSansSenior-Regular.otf",
+            MINI_FONT,
+            with_witnesses=False,
+        )
+    assert str(old_dir) in str(raised.value)
+    assert str(new_dir) in str(raised.value)
+
+
+def test_a_font_that_moved_since_load_fails_the_copy(tmp_path):
+    """What the build holds its fonts to now that it no longer re-reads them after the fact: the digest it took when it loaded the font, asserted against the copy it ships. A run_m1 landing anywhere in the minutes between would otherwise leave a surface whose units describe the old font beside an `after.otf` that is the new one."""
+    digest = _sha256(MINI_FONT)
+    record = _copy_font(MINI_FONT, tmp_path, "after.otf", "AMS Review After", REPO_ROOT, digest)
+    assert record["sha256"] == digest
+    with pytest.raises(SystemExit) as raised:
+        _copy_font(MINI_FONT, tmp_path, "after.otf", "AMS Review After", REPO_ROOT, "0" * 64)
+    assert str(MINI_FONT) in str(raised.value)
+
+
+def test_a_manifest_with_no_classes_draws_no_complaint():
+    """A surface with an empty `classes` list is not a contract violation — it is a workload the build refuses to start, and the refusals above are where that is said. The checker used to call it malformed, which fired on the rebuild's own end state."""
+    manifest, _shards = _surface()
+    manifest["classes"] = []
+    assert not [error for error in check_manifest(manifest) if "classes" in error]
 
 
 # --- the served-vs-recomputed sample ------------------------------------------------------------

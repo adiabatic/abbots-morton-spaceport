@@ -8,7 +8,9 @@ The live counts belong to the census the surface build emits and the artifact cy
 from pathlib import Path
 
 import pytest
+import yaml
 
+from rebuild.review import families
 from rebuild.review.audit import (
     ACCEPTANCE_CONFIGS,
     AuditRow,
@@ -278,3 +280,43 @@ def test_units_whose_configs_render_differently_never_fold(mini_bundle):
     stats = merge_ink_duplicate_units(units, lambda text, config: (text, config))
     assert stats == {"windows_folded": 0, "units_folded": 0, "kept_split_matched_classes": 0}
     assert len(units) == 2
+
+
+# --- the ledger's own ids -------------------------------------------------------------------
+
+
+def _ledger(tmp_path, *ids: str) -> Path:
+    path = tmp_path / "ledger.yaml"
+    path.write_text(
+        "".join(f"- id: {identifier}\n  status: accepted\n  why: because\n" for identifier in ids),
+        encoding="utf-8",
+    )
+    return path
+
+
+def test_a_ledger_declaring_one_class_twice_is_refused_at_load(tmp_path):
+    """Everything downstream indexes the ledger by id — the class order the surface shards in, the oracle's row matcher, the verdict store's class keys — so a repeated id is a class whose second entry silently loses, and it is refused where the file is read."""
+    with pytest.raises(ValueError, match="halves-entry-extension-restored"):
+        load_ledger(
+            _ledger(
+                tmp_path,
+                "dangling-anchor-dropped",
+                "halves-entry-extension-restored",
+                "halves-entry-extension-restored",
+            )
+        )
+
+
+@pytest.mark.parametrize("identifier", ["UNMATCHED", families.FAMILY_ORDER[0]])
+def test_a_ledger_claiming_a_synthesized_class_is_refused_at_load(tmp_path, identifier):
+    """The catch-all and the verdict families are classes the build makes for itself, so a ledger entry claiming one of those ids would be shadowed by a class the ledger does not describe."""
+    with pytest.raises(ValueError, match=identifier):
+        load_ledger(_ledger(tmp_path, identifier))
+
+
+def test_the_live_ledger_loads_one_class_per_entry():
+    """The other end of those refusals: the checked-in ledger passes them, and every entry in the file reaches the loader as its own class."""
+    path = REPO_ROOT / "rebuild" / "m1-divergences.yaml"
+    entries = yaml.safe_load(path.read_text(encoding="utf-8"))
+    classes = load_ledger(path)
+    assert [entry["id"] for entry in entries] == [entry.id for entry in classes]
