@@ -382,7 +382,7 @@ def build_facts(
     premerge: PremergeFacts,
     row_count: int,
 ) -> dict:
-    """The sidecar payload: the finished pins the regenerator copies into the checked-in file, plus the pre-merge records they were reduced from, stamped with the identity of the surface that owns them. The records ride along so a reader can re-reduce the pre-merge groups itself — the sample tests do exactly that against fresh shaping."""
+    """The sidecar payload: the finished pins the regenerator copies into the checked-in file, plus the pre-merge records they were reduced from, stamped with the identity of the surface that owns them. The records ride along so a reader can re-reduce the pre-merge groups itself, which is what `--from-scratch` compares against."""
     families = families_group_from([family for _index, family in premerge.families])
     return {
         "format": FACTS_FORMAT,
