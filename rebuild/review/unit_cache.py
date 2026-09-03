@@ -72,6 +72,14 @@ def _sha256_file(path: Path) -> str:
         return "missing"
 
 
+def _manifest_stamp(out_dir: Path) -> str:
+    """The manifest's identity digest for the store's whole-store stamp, or the sentinel when there is no manifest to read — a first build, or a crash between the manifest write and this one. The sentinel turns that into a stamp mismatch and a full rebuild rather than an exception out of `load_store`."""
+    try:
+        return unit_index.manifest_sha256(Path(out_dir))
+    except OSError:
+        return "missing"
+
+
 def _cursive_anchor_map(font) -> dict[str, list]:
     """Per glyph, the cursive-attachment geometry the after font positions it by: one (lookup index, entry, exit) triple per CursivePos record naming it, anchors as [x, y] or None. GPOS is the one channel a compiled glyph's rendering reads outside its charstring and advance, so it belongs in the per-glyph digest."""
     anchors: dict[str, list] = {}
@@ -317,9 +325,8 @@ class CachedUnit:
 
 
 def write_store(out_dir: Path, environment: str, records: Iterable[CachedUnit]) -> None:
-    """Written after the manifest, stamped with the manifest's bytes, so a store can prove it describes the shards beside it; a crash between the two leaves a stamp mismatch and the next build falls back to a full pass. The gzip mtime is pinned so consecutive identical builds stay byte-identical, and the compression level with it — level 1 rather than 9, because this file is written once and read once per build and the four seconds level 9 spends buying ten megabytes on a scratch artifact are four seconds off every cycle."""
-    manifest_sha = _sha256_file(Path(out_dir) / "manifest.json")
-    header = {"format": STORE_FORMAT, "environment": environment, "manifest_sha256": manifest_sha}
+    """Written after the manifest, stamped with the manifest's identity (`unit_index.manifest_sha256`, which projects the copied UI assets' components out), so a store can prove it describes the shards beside it while an assets refresh that rewrites only that field leaves it current; a crash between the two leaves a stamp mismatch and the next build falls back to a full pass. The gzip mtime is pinned so consecutive identical builds stay byte-identical, and the compression level with it — level 1 rather than 9, because this file is written once and read once per build and the four seconds level 9 spends buying ten megabytes on a scratch artifact are four seconds off every cycle."""
+    header = {"format": STORE_FORMAT, "environment": environment, "manifest_sha256": _manifest_stamp(out_dir)}
     path = store_path(out_dir)
     with open(path, "wb") as handle:
         with gzip.GzipFile(fileobj=handle, mode="wb", mtime=0, compresslevel=1) as stream:
@@ -329,7 +336,7 @@ def write_store(out_dir: Path, environment: str, records: Iterable[CachedUnit]) 
 
 
 def load_store(out_dir: Path, environment: str) -> dict[str, CachedUnit] | None:
-    """The prior build's records keyed by content key, or None when there is no usable store: absent, unreadable, format- or environment-mismatched, or stamped for a manifest other than the one on disk (over-invalidation is the safe direction — a None simply costs a full build)."""
+    """The prior build's records keyed by content key, or None when there is no usable store: absent, unreadable, format- or environment-mismatched, or stamped for a manifest whose identity is not the one on disk (over-invalidation is the safe direction — a None simply costs a full build)."""
     path = store_path(out_dir)
     if not path.is_file():
         return None
@@ -338,7 +345,7 @@ def load_store(out_dir: Path, environment: str) -> dict[str, CachedUnit] | None:
             header = json.loads(next(stream))
             if header.get("format") != STORE_FORMAT or header.get("environment") != environment:
                 return None
-            if header.get("manifest_sha256") != _sha256_file(Path(out_dir) / "manifest.json"):
+            if header.get("manifest_sha256") != _manifest_stamp(out_dir):
                 return None
             records = {}
             for line in stream:

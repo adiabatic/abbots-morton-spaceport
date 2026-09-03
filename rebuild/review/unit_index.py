@@ -4,21 +4,21 @@ The shards are the authority and this file is a projection of them — never a s
 
 Two fields are counted rather than copied, because counting is all any reader does with them: `render_groups` is the number of groups (standing fill wants "exactly one") and `secondary_seams` the number of seams (standing fill wants "none"). Everything else is the shard's own value.
 
-The file is stamped with the manifest's sha256, exactly as the unit store is, so a surface half-written by a crashed build can never be read as describing the shards beside it — and a reader that finds no index, or one stamped for another manifest, falls back to streaming the shards through the same projection. That fallback is what lets carry resolve verdicts against the archived snapshots under tmp/review-pre-*, every one of which predates this file.
+The file is stamped with the manifest's identity digest (`manifest_sha256`), exactly as the unit store is, so a surface half-written by a crashed build can never be read as describing the shards beside it — and a reader that finds no index, or one stamped for another manifest, falls back to streaming the shards through the same projection. That fallback is what lets carry resolve verdicts against the archived snapshots under tmp/review-pre-*, every one of which predates this file.
 """
 
 from __future__ import annotations
 
 import gzip
+import hashlib
 import json
 from collections.abc import Iterable, Iterator, Mapping
 from pathlib import Path
 from typing import Any
 
-from rebuild.pipeline import fingerprint
-
 INDEX_NAME = "units-index.ndjson.gz"
 INDEX_FORMAT = "ams-review-unit-index/1"
+ASSET_COMPONENTS: tuple[str, ...] = ("static",)
 
 
 def index_path(surface: Path) -> Path:
@@ -81,7 +81,22 @@ def index_record(fragment: dict) -> dict:
 
 
 def manifest_sha256(surface: Path) -> str:
-    return fingerprint.file_sha256(Path(surface) / "manifest.json")
+    """The manifest's identity: everything it says about which units and shards it describes, hashed over its parsed content with `ASSET_COMPONENTS` projected out of `inputs_fingerprint`. Those components are the fingerprint the copied review UI assets ride, and no shard, sidecar, unit or plumbing step reads them, so they are outside the surface's identity and outside every hard freshness check — this roster is what every site that treats a component as soft reads. Projecting them out is exactly what lets an assets refresh rewrite that one field in place and leave every sidecar beside it, and the unit-cache store with them, stamped for the manifest they describe. A manifest that will not parse is hashed by its raw bytes instead, the way `fingerprint._projected_digest` falls back, so a broken file mismatches rather than passing for something."""
+    raw = (Path(surface) / "manifest.json").read_bytes()
+    try:
+        document = json.loads(raw)
+    except ValueError:
+        return hashlib.sha256(raw).hexdigest()
+    if isinstance(document, dict):
+        recorded = document.get("inputs_fingerprint")
+        if isinstance(recorded, dict):
+            document = {
+                **document,
+                "inputs_fingerprint": {
+                    name: value for name, value in recorded.items() if name not in ASSET_COMPONENTS
+                },
+            }
+    return hashlib.sha256(json.dumps(document, sort_keys=True, ensure_ascii=True).encode()).hexdigest()
 
 
 def shard_paths(surface: Path) -> list[Path]:
@@ -124,7 +139,7 @@ def index_header(surface: Path) -> dict | None:
 
 
 def index_is_current(surface: Path) -> bool:
-    """Whether the index beside this manifest describes it: present, in a format this reader knows, and stamped with the manifest's own bytes."""
+    """Whether the index beside this manifest describes it: present, in a format this reader knows, and stamped with the manifest's own identity."""
     header = index_header(surface)
     if header is None or header.get("format") != INDEX_FORMAT:
         return False

@@ -2019,6 +2019,7 @@ def test_cycle_summary_payload_plan_block_and_argv():
         "skip_run_m1": False,
         "reuse_run_m1": False,
         "skip_surface": False,
+        "refresh_assets": False,
         "skip_contracts": False,
         "skip_validators": False,
         "skip_plumbing": False,
@@ -2027,6 +2028,16 @@ def test_cycle_summary_payload_plan_block_and_argv():
         "short_id": "testid",
     }
     assert payload["argv"] == list(sys.argv)
+    assert payload["assets_status"] == "not run"
+
+
+def test_cycle_summary_payload_records_an_assets_refresh():
+    """The refresh is a step of its own in the record, so a pass that skipped the surface build can still be told apart from one that copied a new app shell over it."""
+    report = _green_report()
+    report.assets_status = "refreshed in place (units, sidecars and generated_at unmoved)"
+    payload = ac.cycle_summary_payload(report, [], _plan(skip_surface=True, refresh_assets=True), "ok")
+    assert payload["plan"]["refresh_assets"] is True
+    assert payload["assets_status"].startswith("refreshed in place")
 
 
 def test_cycle_summary_payload_names_the_reuse_route_and_passes_no_kernel_width_on_it():
@@ -2953,6 +2964,16 @@ def test_only_the_validators_key_sees_the_build_artifacts(tmp_path):
 
     (tmp_path / "rebuild" / "test_x.py").write_text("x = 1\n")
     assert ac.rebuild_lane_fingerprint(tmp_path, "contracts") != contracts
+
+    # The app shell is the mirror image: nothing in the validators lane reads it, and the two tests that
+    # do — the index-html sanity check and the `node --check` pass — read it at its source in contracts.
+    contracts = ac.rebuild_lane_fingerprint(tmp_path, "contracts")
+    validators = ac.rebuild_lane_fingerprint(tmp_path, "validators")
+    static = tmp_path / "rebuild" / "review" / "static"
+    static.mkdir(parents=True)
+    (static / "app.js").write_text("export const app = 1;\n")
+    assert ac.rebuild_lane_fingerprint(tmp_path, "contracts") != contracts
+    assert ac.rebuild_lane_fingerprint(tmp_path, "validators") == validators
 
 
 def test_both_lane_fingerprints_are_none_outside_git(tmp_path):
@@ -4121,6 +4142,16 @@ def test_plumbing_skip_fingerprint_moves_with_every_input(tmp_path):
     )
     assert ac.plumbing_skip_fingerprint(tmp_path, surface, master) != base
 
+    (surface / "manifest.json").write_text(
+        json.dumps(
+            {
+                "generated_at": "2026-07-17T20:24:44Z",
+                "inputs_fingerprint": {"runes": "aaa", "static": "refreshed"},
+            }
+        )
+    )
+    assert ac.plumbing_skip_fingerprint(tmp_path, surface, master) == base
+
     (surface / "manifest.json").write_text(json.dumps({"generated_at": "2026-07-17T20:24:44Z"}))
     assert ac.plumbing_skip_fingerprint(tmp_path, surface, master) is None
 
@@ -4465,6 +4496,52 @@ def test_main_skipping_the_plumbing_takes_the_snapshot_with_it(tmp_path, monkeyp
     assert calls == []
 
 
+def _assets_only_repo(tmp_path, monkeypatch):
+    """A settled repo whose one moved input is the copied review UI assets: the byte-strict question answers no, the assets-exempt one answers yes, and that pair is the whole trigger for the refresh step."""
+    _settled_repo(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        ac, "surface_build_skippable", lambda root=None, review_out=None, ignore=(): bool(ignore)
+    )
+
+
+def test_main_refreshes_the_assets_when_only_the_static_component_moved(tmp_path, monkeypatch, capsys):
+    """An app JS/CSS/HTML edit plans a copy and a restamp where it used to plan a whole surface build. Everything downstream inherits the skip: no snapshot, and — on a matching plumbing record — no chain either, since the manifest line the key hashes drops the component the refresh rewrites."""
+    _assets_only_repo(tmp_path, monkeypatch)
+    ac.record_plumbing_green("plu")
+    assert ac.main(["--dry-run"]) == 0
+    out = capsys.readouterr().out
+    assert "surface-build auto-skipped: only the review UI assets moved" in out
+    assert "assets-refresh: uv run python -m rebuild.review.build refresh-assets" in out
+    assert "surface-build: SKIPPED (only the review UI assets moved" in out
+    assert "snapshot: SKIPPED" in out
+    assert "verdict plumbing auto-skipped" in out
+
+    ac.record_plumbing_green("moved")
+    assert ac.main(["--dry-run"]) == 0
+    out = capsys.readouterr().out
+    assert "assets-refresh: uv run python -m rebuild.review.build refresh-assets" in out
+    assert "verdict plumbing auto-skipped" not in out
+    assert "--merge-master" in out
+    assert "snapshot: SKIPPED (the surface did not move" in out
+
+
+def test_main_plans_no_assets_refresh_when_the_surface_already_matches(tmp_path, monkeypatch, capsys):
+    """The strict question is asked first, so a surface that would rebuild byte for byte has nothing copied over it — and --fresh takes the pass past both questions to a real build."""
+    _settled_repo(tmp_path, monkeypatch)
+    assert ac.main(["--dry-run"]) == 0
+    out = capsys.readouterr().out
+    assert "assets-refresh" not in out
+    assert "the surface already reflects these inputs byte for byte" in out
+
+    monkeypatch.setattr(
+        ac, "surface_build_skippable", lambda root=None, review_out=None, ignore=(): bool(ignore)
+    )
+    assert ac.main(["--dry-run", "--fresh"]) == 0
+    out = capsys.readouterr().out
+    assert "assets-refresh" not in out
+    assert "surface-build: uv run python -m rebuild.review.build" in out
+
+
 def test_server_may_stay_up_only_when_the_pass_writes_neither_of_the_apps_files():
     """The predicate answers from the plan's writes, so a --no-carry pass and a --no-merge carry over an unmoved surface (skip_surface, no store merge) leave the server up, while any store-writing pass — store_only included — and any surface rewrite still take the port."""
     assert ac.server_may_stay_up(skip_surface=True, writes_store=False) is True
@@ -4560,6 +4637,24 @@ def test_main_stops_the_server_when_the_pass_rebuilds_the_surface(tmp_path, monk
     assert ac.main(["--stop-server"]) == 0
     assert stops == [1]
     assert "Stopping the review server" in capsys.readouterr().out
+
+
+def test_main_leaves_the_server_up_for_an_assets_refresh_pass(tmp_path, monkeypatch, capsys):
+    """The refresh moves no shard and no stamp, so there is nothing under the app to take the port for: the letters stay on screen and livereload swaps the shell under them. A store write is still a store write, though, so the same pass with the plumbing record moved refuses without --stop-server."""
+    _assets_only_repo(tmp_path, monkeypatch)
+    ac.record_plumbing_green("plu")
+    monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: True)
+    monkeypatch.setattr(
+        ac, "stop_review_server", lambda timeout=ac.SERVER_STOP_TIMEOUT: pytest.fail("stopped")
+    )
+    monkeypatch.setattr(ac, "snapshot_surface", lambda src, dst: "cloned")
+    monkeypatch.setattr(ac, "_run_cycle", lambda plan, report, emit, registry, **_: 0)
+    assert ac.main([]) == 0
+    assert ac.SERVER_STAYS_UP_NOTE in capsys.readouterr().out
+
+    ac.record_plumbing_green("moved")
+    assert ac.main([]) == 2
+    assert "REFUSING TO RUN" in capsys.readouterr().out
 
 
 def test_snapshot_surface_copies_tree(tmp_path):
@@ -4934,6 +5029,52 @@ def test_green_cycle_journals_steps_then_one_run_line(monkeypatch, tmp_path):
     assert entries[-1]["exit"] == "ok"
     assert entries[-1]["interrupted"] is False
     assert {entry["run"] for entry in entries} == {entries[-1]["run"]}
+
+
+def test_an_assets_refresh_journals_under_its_own_name(monkeypatch, tmp_path):
+    """The refresh spawns a child where the surface build would have, so `wrap_spawn` times it — under its own step name rather than "surface-build", which keeps `calibrate_budgets`' sample of that step a sample of real builds."""
+    _patch_timing_cycle(monkeypatch)
+
+    journal_path = tmp_path / "timings.ndjson"
+    report = ac.CycleReport()
+    rc = ac._run_cycle(
+        _plan(skip_surface=True, refresh_assets=True, surface_note=ac.ASSETS_REFRESH_NOTE),
+        report,
+        ac._Emitter(),
+        ac._ChildRegistry(),
+        spawn=lambda name, argv, **k: _step(name),
+        timings=CycleTimings(journal_path),
+    )
+
+    assert rc == 0
+    entries = [json.loads(line) for line in journal_path.read_text(encoding="utf-8").splitlines()]
+    assert [entry["name"] for entry in entries if entry["kind"] == "step"] == [
+        "run_m1",
+        "assets-refresh",
+        "surface",
+        "job-costs",
+    ]
+    assert report.assets_status.startswith("refreshed in place")
+
+
+def test_a_failed_assets_refresh_stops_the_pass_before_the_lanes(monkeypatch, capsys):
+    """A refresh that cannot land leaves a surface whose manifest may say one thing and whose shell says another, so the pass stops there and neither rebuild lane is claimed to have run."""
+    _patch_timing_cycle(monkeypatch)
+
+    report = ac.CycleReport()
+    rc = ac._run_cycle(
+        _plan(skip_surface=True, refresh_assets=True, surface_note=ac.ASSETS_REFRESH_NOTE),
+        report,
+        ac._Emitter(),
+        ac._ChildRegistry(),
+        spawn=lambda name, argv, **k: _step(name, rc=1 if name == "assets-refresh" else 0),
+    )
+
+    assert rc == 1
+    assert report.assets_status.startswith("FAILED")
+    assert report.gate_contracts == "not run (assets refresh failed)"
+    assert report.gate_validators == "not run (assets refresh failed)"
+    assert "assets refresh failed" in capsys.readouterr().out
 
 
 def test_green_cycle_files_one_check_line_per_gate_it_judged(monkeypatch, tmp_path):

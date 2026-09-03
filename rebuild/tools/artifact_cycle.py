@@ -26,7 +26,7 @@ The same provably-unchanged principle guards every other heavy stage, each keyed
 
 Between the run_m1 skip and a full rebuild there is a third route. When the per-file diff against the run_m1 green is confined to comparison-side inputs — the alias map, the divergence ledger, the contact allow-list, the kern sidecar, the oracle's own module, the baselines and their subsets, every one of them outside the tables' stamp (`comparison_side_label` is the roster and argues each member) — and the tables on disk still carry that stamp and the artifacts are all present, the cycle spawns `run_m1 --gates-only` instead of a build: the defect gate, the Manual-pin gate and the oracle re-run over the tables and font already there, the ledgers' verdicts are re-adjudicated, and nothing is enumerated. The green that pass records covers the new inputs, so the next cycle skips run_m1 outright. `uv.lock` is deliberately not comparison-side — a fontTools or uharfbuzz bump can move the font's bytes and what the shaper makes of them — so a toolchain bump still rebuilds.
 
-Which passes cost the reviewer their letters is decided here rather than by the caller, because only the resolved plan knows. Two of the things a cycle writes belong to the running app — the surface it serves, where livereload watches every shard and a restamped manifest orphans the tab's store, and the verdict store, which merge_verdicts refuses to touch under a live server because an open tab would flush its own copy back over the merge. A pass whose plan skips both writes neither, so a listening server is left alone and the letters stay on screen for the whole run: that is the pass with no artifact work, whose long verification used to black the app out for every minute of it. A pass whose surface did not move but whose store did takes a shape of its own: the carry there is provably the identity — the snapshot it would read is a clone of the same surface, every content key resolves to itself, and the carry preserves each record's `at`, which the merge compares strictly — so the snapshot and the carry are skipped and the master is merged straight in, which is the one thing the store's own hash cannot see. That pass still writes the store, so it is a port-taking one. A pass that does write under the app needs the port to itself, and --stop-server (which `make review-cycle` passes) is permission to take it — terminate the server and wait out the port — where a bare run still refuses and says how. Retention is the third writer: the app appends to the journal as you verdict, and a compaction rewrites the file around a read, so with a server up the journal and the stash sweep that indexes off it are both left for a later pass.
+Which passes cost the reviewer their letters is decided here rather than by the caller, because only the resolved plan knows. Two of the things a cycle writes belong to the running app — the surface it serves, where livereload watches every shard and a restamped manifest orphans the tab's store, and the verdict store, which merge_verdicts refuses to touch under a live server because an open tab would flush its own copy back over the merge. A pass whose plan skips both writes neither, so a listening server is left alone and the letters stay on screen for the whole run: that is the pass with no artifact work, whose long verification used to black the app out for every minute of it. A pass whose surface did not move but whose store did takes a shape of its own: the carry there is provably the identity — the snapshot it would read is a clone of the same surface, every content key resolves to itself, and the carry preserves each record's `at`, which the merge compares strictly — so the snapshot and the carry are skipped and the master is merged straight in, which is the one thing the store's own hash cannot see. That pass still writes the store, so it is a port-taking one. An edit confined to rebuild/review/static/ has a shape of its own as well: the copied app assets are the one surface input no unit can feel, so instead of rebuilding, the pass copies them over the served copy and restamps that single fingerprint component (`assets-refresh`), which leaves every shard, both sidecars, the unit-cache store and `generated_at` exactly where they were — nothing under the app moves that the tab is keyed on, so the server stays up and livereload reloads it onto the new shell. A pass that does write under the app needs the port to itself, and --stop-server (which `make review-cycle` passes) is permission to take it — terminate the server and wait out the port — where a bare run still refuses and says how. Retention is the third writer: the app appends to the journal as you verdict, and a compaction rewrites the file around a read, so with a server up the journal and the stash sweep that indexes off it are both left for a later pass.
 
 A green finish ends with a retention pass over the cycle's own disk piles, all of them regenerable or journal-covered: every tmp/review-pre-* snapshot except this cycle's is deleted (a snapshot is read once, by its own cycle's carry, and never again), root verdicts-carried-*.json files not stamped for the live surface are deleted (only the stamp-aligned frontier is ever read; the tracked copy under rebuild/evidence/ is never touched), verdicts-autosave-* stashes not referenced by a journal event at or after the last base event are deleted (the journal, not the stashes, is the sanctioned recovery path — and the reference index is the test because a stash's mtime predates the event that created it), and the journal itself is compacted to the newest base event older than RETENTION_WINDOW_DAYS, keeping at least that many days of --restore-as-of history. Failed, interrupted, first-run, and rehearsal cycles never prune; --keep-history opts out entirely; a retention error warns and never turns a green cycle red.
 
@@ -89,7 +89,8 @@ POOL_POLICIES = ("queue", "overlap")
 REBUILD_POOL_POLICY_DEFAULT = "queue"
 PLUMBING_SKIP_NOTE = "surface, verdicts master, live store, and standing approvals unchanged since the last complete plumbing pass; --fresh overrides"
 CONFORM_SKIP_NOTE = "font and sweep inputs unchanged since its last green sweep; --fresh overrides"
-SERVER_STAYS_UP_NOTE = "writes neither the surface the app serves nor the verdict store it holds"
+ASSETS_REFRESH_NOTE = "only the review UI assets moved since the surface was stamped; they are copied over the served copy and the manifest's static component restamped in place — no shard, sidecar or generated_at moves; --fresh overrides"
+SERVER_STAYS_UP_NOTE = "rewrites no unit shard, moves no manifest stamp, and leaves the verdict store alone"
 SERVER_STOP_PATTERN = r"rebuild\.review\.serve"
 SERVER_STOP_TIMEOUT = 15.0
 # The gate pool's seats, sized to the tasks the chain submits rather than to the box or to the work actually in flight: under the queue policy a parked task holds its worker for the whole wait — conform on make-test, contracts on both, validators on all three — so every gate task has to be seatable at once, with slack on top of that. A seat short of the task count would serialize a wait behind an unrelated task's completion, which is the queueing this pool exists not to do, and a width taken from the cores in hand would put a small box exactly there. `test_the_gate_pool_seats_every_gate_task_at_once` in rebuild/test_artifact_cycle.py is what holds this and the chain's task list in step.
@@ -264,6 +265,7 @@ REBUILD_GATE_EXEMPT_PREFIXES = (
     "rebuild/review-census-pins.json",
     "rebuild/m1-contact-allow.yaml",
 )
+VALIDATORS_EXEMPT_PREFIXES = ("rebuild/review/static/",)
 
 
 def _sha256_path(path: Path) -> str:
@@ -564,12 +566,16 @@ def rebuild_gate_closure_files(root: Path) -> list[str] | None:
 
 
 def rebuild_lane_fingerprint(root: Path, lane: str) -> str | None:
-    """Content key over one lane's full input closure, and the two closures are what make the lanes separately skippable. Contracts covers the repo files from rebuild_gate_closure_files, which has already dropped the exempt paths, so a bless of a contact signature moves neither lane's key — plus the site fonts, which its shaping tests measure against and which are the frozen old font, unmoved by any rune edit; it deliberately contains no build artifact at all, so a verdict-only or artifact-only cycle re-runs nothing here, and a live M1 rebuild — which writes only under rebuild/out — cannot invalidate the key mid-pass. Validators adds exactly what that lane reads on top: the out/m1 artifacts, the oracle's subset tables, and the baselines. Both contain the rune files, prose-blind, because several contracts tests load the live spec. The verdict store is absent from both — the suite exercises it only through fixtures — which is what lets a verdict-only cycle skip the suite entirely. None when git is unavailable, in which case the caller must run the lane unconditionally."""
+    """Content key over one lane's full input closure, and the two closures are what make the lanes separately skippable. Contracts covers the repo files from rebuild_gate_closure_files, which has already dropped the exempt paths, so a bless of a contact signature moves neither lane's key — plus the site fonts, which its shaping tests measure against and which are the frozen old font, unmoved by any rune edit; it deliberately contains no build artifact at all, so a verdict-only or artifact-only cycle re-runs nothing here, and a live M1 rebuild — which writes only under rebuild/out — cannot invalidate the key mid-pass. Validators adds exactly what that lane reads on top: the out/m1 artifacts, the oracle's subset tables, and the baselines. It drops one tree more than the shared exemptions, too: rebuild/review/static/, the copied app shell, which nothing in that lane reads — `built_review_surface` already exempts the matching fingerprint component, and the only tests that read the shell (the index-html sanity check and the `node --check` pass in rebuild/test_review_build.py) read it at its source and sit in the contracts lane, whose closure keeps it. Both contain the rune files, prose-blind, because several contracts tests load the live spec. The verdict store is absent from both — the suite exercises it only through fixtures — which is what lets a verdict-only cycle skip the suite entirely. None when git is unavailable, in which case the caller must run the lane unconditionally."""
     from rebuild.pipeline import fingerprint
 
     files = rebuild_gate_closure_files(root)
     if files is None:
         return None
+    if lane == "validators":
+        files = [
+            rel for rel in files if not any(rel.startswith(prefix) for prefix in VALIDATORS_EXEMPT_PREFIXES)
+        ]
     lines = [f"{rel}\t{_closure_digest(root, rel)}" for rel in files]
     lines.append(f"fonts\t{fingerprint.hash_paths(root, fingerprint.font_paths(root))}")
     if lane == "validators":
@@ -585,7 +591,7 @@ def surface_build_skippable(
 ) -> bool:
     """Whether rebuilding the review surface would reproduce its content byte for byte, so the build can be skipped with the autosave still aligned. True only when the manifest's recorded inputs fingerprint equals the one a build would stamp now (Stage A as recorded by run_m1, Stage B recomputed) and every shard the manifest names is still present. generated_at is mtime-derived, so a rebuild after pure mtime churn (git checkout, touch) could restamp it even with identical content — skipping deliberately keeps the existing stamp instead, which preserves the manifest-autosave alignment the stamp exists to key.
 
-    `ignore` names fingerprint components exempted from the comparison, for a caller asking a narrower question than byte identity: the validators-lane fixture passes ("static",) because its consumers read the units and never the copied UI assets — the same hard/warn split status._freshness_check draws — while the cycle's own skip decision stays byte-strict, the copied assets being part of the bytes a rebuild must reproduce. A component missing from either side still refuses: only a recorded-and-expected pair is ever waved through.
+    `ignore` names fingerprint components exempted from the comparison, for a caller asking a narrower question than byte identity: the validators-lane fixture passes `unit_index.ASSET_COMPONENTS` because its consumers read the units and never the copied UI assets — the same hard/warn split status._freshness_check draws. The cycle asks both questions in turn rather than one: the strict one first, since a surface that reproduces byte for byte needs nothing done to it at all; and when only an ASSET_COMPONENTS member differs, it copies those assets over the served surface and restamps that one component (`assets-refresh`) instead of rebuilding units that cannot have moved. A component missing from either side still refuses: only a recorded-and-expected pair is ever waved through.
     """
     from rebuild.pipeline import fingerprint
 
@@ -639,7 +645,7 @@ def plumbing_code_paths(root: Path = ROOT) -> list[Path]:
 def plumbing_skip_fingerprint(
     root: Path = ROOT, surface: Path | None = None, master: Path | None = None
 ) -> str | None:
-    """Content key over everything the verdict plumbing reads: the surface it resolves unit ids against, the verdicts master it carries forward, the live store it merges into, the checked-in standing approvals, and the chain's own code. Carry, merge, both fills with their merges, and the complaint docket are pure functions of exactly those, and the chain is idempotent once it has run — so a key matching the record a *complete* chain left behind proves re-running it would write nothing new. The master is in the key because it is the one input the autosave's hash cannot see: an export dropped at the repo root can outrank the autosave in the auto-resolution and carry verdicts the store has never held. The code is in it for the same reason every sibling key carries its own stage's executable — a fix to a fill's matcher or to the carry's fallback must run rather than be skipped as proven — and it is the chain's real import closure (`plumbing_code_paths`, which a contracts test holds against the entry points' import graph) plus the review/ modules the chain runs that the surface build does not — serve.py, which merge_verdicts reads the store through, and status.py and journal.py, which the merge and the readiness check run; review/'s build-side modules ride inside the manifest fingerprint's review_code. None when the surface has no fingerprinted manifest or no master was resolved."""
+    """Content key over everything the verdict plumbing reads: the surface it resolves unit ids against, the verdicts master it carries forward, the live store it merges into, the checked-in standing approvals, and the chain's own code. Carry, merge, both fills with their merges, and the complaint docket are pure functions of exactly those, and the chain is idempotent once it has run — so a key matching the record a *complete* chain left behind proves re-running it would write nothing new. The master is in the key because it is the one input the autosave's hash cannot see: an export dropped at the repo root can outrank the autosave in the auto-resolution and carry verdicts the store has never held. The code is in it for the same reason every sibling key carries its own stage's executable — a fix to a fill's matcher or to the carry's fallback must run rather than be skipped as proven — and it is the chain's real import closure (`plumbing_code_paths`, which a contracts test holds against the entry points' import graph) plus the review/ modules the chain runs that the surface build does not — serve.py, which merge_verdicts reads the store through, and status.py and journal.py, which the merge and the readiness check run; review/'s build-side modules ride inside the manifest fingerprint's review_code. The manifest line drops `unit_index.ASSET_COMPONENTS`, because no step of the chain reads the copied app shell — and an assets refresh rewrites exactly that field, which must not re-run a chain every one of whose real inputs is unmoved. None when the surface has no fingerprinted manifest or no master was resolved."""
     if master is None:
         return None
     surface_dir = surface if surface is not None else REVIEW_OUT
@@ -653,7 +659,11 @@ def plumbing_skip_fingerprint(
     from rebuild.pipeline import fingerprint
 
     lines = [
-        f"manifest\t{json.dumps(fp, sort_keys=True)}",
+        "manifest\t"
+        + json.dumps(
+            {key: value for key, value in fp.items() if key not in unit_index.ASSET_COMPONENTS},
+            sort_keys=True,
+        ),
         f"generated_at\t{manifest.get('generated_at')}",
         f"master\t{master}\t{_sha256_path(Path(master))}",
         f"autosave\t{_sha256_path(root / 'verdicts-autosave.json')}",
@@ -790,6 +800,7 @@ class Plan:
     run_m1_fingerprint: str | None = None
     fresh: bool = False
     skip_surface: bool = False
+    refresh_assets: bool = False
     surface_note: str = ""
     skip_contracts: bool = False
     contracts_note: str = ""
@@ -958,6 +969,7 @@ def build_plan(
     run_m1_fingerprint: str | None = None,
     fresh: bool = False,
     skip_surface: bool = False,
+    refresh_assets: bool = False,
     surface_note: str = "",
     skip_contracts: bool = False,
     contracts_note: str = "",
@@ -1032,6 +1044,7 @@ def build_plan(
         run_m1_fingerprint=run_m1_fingerprint,
         fresh=fresh,
         skip_surface=skip_surface,
+        refresh_assets=refresh_assets,
         surface_note=surface_note,
         skip_contracts=skip_contracts,
         contracts_note=contracts_note,
@@ -1125,6 +1138,15 @@ def build_plan(
 
     if skip_surface:
         plan.steps.append(Step("surface-build", None, f"SKIPPED ({surface_note})", lane="build"))
+        if refresh_assets:
+            plan.steps.append(
+                Step(
+                    "assets-refresh",
+                    ["uv", "run", "python", "-m", "rebuild.review.build", "refresh-assets"],
+                    "copy rebuild/review/static/ over the served copy and restamp the manifest's static component; the units and the sidecars are untouched, so the autosave stays aligned",
+                    lane="build",
+                )
+            )
     else:
         surface_argv = ["uv", "run", "python", "-m", "rebuild.review.build", "--jobs", str(surface_jobs)]
         if review_out is not None:
@@ -1342,7 +1364,7 @@ def server_listening(port: int = REVIEW_PORT) -> bool:
 
 
 def server_may_stay_up(*, skip_surface: bool, writes_store: bool) -> bool:
-    """Whether a live review server can run right through this pass. Two things a cycle writes are the app's own: the surface it serves — livereload watches every shard, and a restamped manifest orphans the tab's store — and the verdict store, which merge_verdicts refuses to touch under a live server anyway, since an open tab would flush its copy back over the merge. So the answer comes from the plan's writes, not from any skip flag standing proxy for them: a pass that rebuilds no surface and merges nothing into the store (a --no-carry pass, a --no-merge carry over an unmoved surface, a pass with no artifact work left to do) writes neither and the letters stay on screen for its whole run. Everything else the cycle writes is either outside the served tree (the census pins, the m1 summaries, the carried file) or read by the app only as status, where landing fresh mid-pass is the point rather than a hazard."""
+    """Whether a live review server can run right through this pass. Two things a cycle writes are the app's own: the surface's units and stamp — livereload watches every shard, and a restamped manifest orphans the tab's store — and the verdict store, which merge_verdicts refuses to touch under a live server anyway, since an open tab would flush its copy back over the merge. So the answer comes from the plan's writes, not from any skip flag standing proxy for them: a pass that rewrites no units and merges nothing into the store (a --no-carry pass, a --no-merge carry over an unmoved surface, a pass with no artifact work left to do) writes neither and the letters stay on screen for its whole run. An assets refresh is one of those passes rather than an exception to them: it rewrites no shard and leaves `generated_at` where it was, so the tab's store cannot be orphaned, and livereload — which already watches the served *.js, *.css, *.html and *.json — simply reloads the tab onto the new shell. Everything else the cycle writes is either outside the served tree (the census pins, the m1 summaries, the carried file) or read by the app only as status, where landing fresh mid-pass is the point rather than a hazard."""
     return skip_surface and not writes_store
 
 
@@ -1483,6 +1505,7 @@ class CycleReport:
     surface_rows: int | None = None
     surface_batches: int | None = None
     echo_groups: int | None = None
+    assets_status: str = "not run"
     carry_out: Path | None = None
     carry_lines: list[str] = field(default_factory=list)
     merge_status: str = "not run"
@@ -1776,6 +1799,19 @@ def _read_surface_totals(report: CycleReport, surface_dir: Path) -> bool:
     report.surface_rows = totals.get("rows")
     report.surface_batches = totals.get("batches")
     report.echo_groups = totals.get("echo_groups")
+    return True
+
+
+def _do_assets_refresh(
+    report: CycleReport, *, spawn, emit: _Emitter, registry: _ChildRegistry, plan: Plan
+) -> bool:
+    """Copy the review app's static files over the served surface and restamp the manifest's assets component, on the pass where that component is the only input that moved. It stands where the surface build would have stood, and everything downstream treats the pass as the skip it is: no unit can have changed, no shard, sidecar or `generated_at` moves, and so the carry is the identity, the snapshot has nothing to survive, and a listening server keeps its letters — livereload sees the copied files and reloads the tab onto the new shell."""
+    result = spawn("assets-refresh", plan.argv("assets-refresh"), emit=emit, registry=registry, stream=True)
+    if result.returncode != 0:
+        emit.emit(f"ERROR: review.build refresh-assets exited {result.returncode}.")
+        report.assets_status = f"FAILED (exit {result.returncode})"
+        return False
+    report.assets_status = "refreshed in place (units, sidecars and generated_at unmoved)"
     return True
 
 
@@ -2335,6 +2371,18 @@ def _run_cycle(
                     plan.argv("gate:conform"),
                 )
 
+        if plan.runs("assets-refresh") and not _do_assets_refresh(
+            report, spawn=spawn, emit=emit, registry=registry, plan=plan
+        ):
+            failures.append("assets refresh failed")
+            if not plan.skip_gates and not plan.skip_contracts:
+                report.gate_contracts = "not run (assets refresh failed)"
+            if not plan.skip_gates and not plan.skip_validators:
+                report.gate_validators = "not run (assets refresh failed)"
+            _join_gates(report, failures, js_fut, None, None, conform_fut, make_fut, emit, timings)
+            _record_gate_greens(report, plan, gate_keys, emit)
+            return _finish(report, failures, plan, timings)
+
         if not _do_surface_build(
             report,
             spawn=spawn,
@@ -2436,6 +2484,7 @@ def _print_summary(report: CycleReport) -> None:
     print(f"  surface units           : {show(report.surface_units)}")
     print(f"  surface rows            : {show(report.surface_rows)}")
     print(f"  surface batches         : {show(report.surface_batches)}")
+    print(f"  assets refresh          : {report.assets_status}")
     print(f"  echo groups             : {show(report.echo_groups)}")
     print(f"  carry output            : {show(report.carry_out)}")
     for line in report.carry_lines:
@@ -2544,6 +2593,7 @@ def cycle_summary_payload(report: CycleReport, failures: list[str], plan: Plan, 
         "surface_units": report.surface_units,
         "surface_rows": report.surface_rows,
         "surface_batches": report.surface_batches,
+        "assets_status": report.assets_status,
         "echo_groups": report.echo_groups,
         "carry_out": _as_str(report.carry_out),
         "carry_lines": list(report.carry_lines),
@@ -2575,6 +2625,7 @@ def cycle_summary_payload(report: CycleReport, failures: list[str], plan: Plan, 
             "skip_run_m1": plan.skip_run_m1,
             "reuse_run_m1": plan.reuse_run_m1,
             "skip_surface": plan.skip_surface,
+            "refresh_assets": plan.refresh_assets,
             "skip_contracts": plan.skip_contracts,
             "skip_validators": plan.skip_validators,
             "skip_plumbing": plan.skip_plumbing,
@@ -2861,7 +2912,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--stop-server",
         action="store_true",
-        help="stop a listening review server instead of refusing, but only when this pass writes under it — the surface it serves or the verdict store it holds. A pass that writes neither leaves the server up whether or not this is passed, so the letters stay on screen through it; `make review-cycle` passes this, which is what makes a pass with no artifact work background verification rather than a lockout",
+        help="stop a listening review server instead of refusing, but only when this pass writes under it — the served surface's units or stamp, or the verdict store it holds. A pass that writes neither leaves the server up whether or not this is passed, so the letters stay on screen through it — an assets refresh is such a pass, since it moves no unit and no stamp and livereload simply reloads the tab onto the new shell; `make review-cycle` passes this, which is what makes a pass with no artifact work background verification rather than a lockout",
     )
     parser.add_argument(
         "--dry-run",
@@ -2893,6 +2944,7 @@ def main(argv: list[str] | None = None) -> int:
     reuse_run_m1 = False
     run_m1_note = ""
     skip_surface = False
+    refresh_assets = False
     surface_note = ""
     skip_contracts = False
     contracts_note = ""
@@ -2931,12 +2983,16 @@ def main(argv: list[str] | None = None) -> int:
                     if cache_note is not None:
                         print(f"  {cache_note}")
     if skip_run_m1 or (reuse_run_m1 and m1_stage_a_current(ROOT)):
-        if args.review_out is None and not first_run and surface_build_skippable(ROOT):
-            skip_surface = True
-            surface_note = (
-                "the surface already reflects these inputs byte for byte, stamp included; --fresh overrides"
-            )
-            print(f"surface-build auto-skipped: {surface_note}")
+        if args.review_out is None and not first_run:
+            if surface_build_skippable(ROOT):
+                skip_surface = True
+                surface_note = "the surface already reflects these inputs byte for byte, stamp included; --fresh overrides"
+                print(f"surface-build auto-skipped: {surface_note}")
+            elif surface_build_skippable(ROOT, ignore=unit_index.ASSET_COMPONENTS):
+                skip_surface = True
+                refresh_assets = True
+                surface_note = ASSETS_REFRESH_NOTE
+                print(f"surface-build auto-skipped: {ASSETS_REFRESH_NOTE}")
     if skip_run_m1:
         if not args.skip_gates and not args.skip_conform:
             green = read_green_record(CONFORM_GREEN)
@@ -3022,6 +3078,7 @@ def main(argv: list[str] | None = None) -> int:
         run_m1_fingerprint=run_m1_fp,
         fresh=args.fresh,
         skip_surface=skip_surface,
+        refresh_assets=refresh_assets,
         surface_note=surface_note,
         skip_contracts=skip_contracts,
         contracts_note=contracts_note,
