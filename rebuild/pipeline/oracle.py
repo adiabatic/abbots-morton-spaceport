@@ -9,7 +9,6 @@ The producer of what the oracle classifies stays in conform.py: `_compare_row` a
 
 from __future__ import annotations
 
-import gzip
 import itertools
 import os
 import shutil
@@ -22,7 +21,7 @@ from typing import Callable, Iterable, Iterator, Mapping, TextIO
 
 import yaml
 
-from rebuild.pipeline import geometry, kernel_exec, oracle_cache, settle
+from rebuild.pipeline import baseline_subset, geometry, kernel_exec, oracle_cache, settle
 from rebuild.pipeline.conform import (
     ACCEPTANCE_CONFIGS,
     BOUNDARY_GLYPH_NAMES,
@@ -118,18 +117,13 @@ def open_row_cache(
 
 
 def unaliased_subset_names(subset_dir: Path, alias_path: Path) -> dict[str, list[str]]:
-    """Every old glyph name in any subset baseline row that resolves through neither the alias map nor BOUNDARY_GLYPH_NAMES, mapped to the sorted configs it appears in. The alias map's contract is completeness over these rows, and a hole is a silent wrong-number generator rather than a loud failure — a ligation-grain row never reaches the per-glyph alias check in `_compare_row`, so its counts ride ledger classes as if the name were understood — which is why run_m1 refuses to build while this is non-empty. A `pending` entry acknowledges a name mid-migration without claiming a denotation: it resolves here and still reads as unaliased in the comparison."""
+    """Every old glyph name in any subset baseline row that resolves through neither the alias map nor BOUNDARY_GLYPH_NAMES, mapped to the sorted configs it appears in. The alias map's contract is completeness over these rows, and a hole is a silent wrong-number generator rather than a loud failure — a ligation-grain row never reaches the per-glyph alias check in `_compare_row`, so its counts ride ledger classes as if the name were understood — which is why run_m1 refuses to build while this is non-empty. A `pending` entry acknowledges a name mid-migration without claiming a denotation: it resolves here and still reads as unaliased in the comparison. The names themselves are read from the sidecar the refilter wrote (`baseline_subset.read_subset_names`) rather than streamed out of ten million subset rows: the roster can only change when the tables are refiltered, so this costs milliseconds and runs on the `--gates-only` path as readily as on a build."""
     known = set(load_alias_map(alias_path)) | BOUNDARY_GLYPH_NAMES
     missing: dict[str, set[str]] = {}
-    for table in sorted(Path(subset_dir).glob("baseline-*.subset.tsv.gz")):
-        config = table.name[len("baseline-") : -len(".subset.tsv.gz")]
-        with gzip.open(table, "rt", encoding="utf-8") as fh:
-            for line in fh:
-                if line.startswith("#") or not line.strip():
-                    continue
-                for name in line.split("\t", 2)[1].split("|"):
-                    if name not in known:
-                        missing.setdefault(name, set()).add(config)
+    for config, names in baseline_subset.read_subset_names(subset_dir).items():
+        for name in names:
+            if name not in known:
+                missing.setdefault(name, set()).add(config)
     return {name: sorted(configs) for name, configs in sorted(missing.items())}
 
 
@@ -521,20 +515,6 @@ class KernEvaluator:
             if right_ok:
                 total += rule.get("value", 0)
         return total
-
-
-def assert_subset_identity(subset_dir: Path, config: str, reference: str = "default") -> None:
-    """The ss06/ss07/ss06+ss07 gate: the filtered sub-table must be row-identical to the reference configuration's."""
-    left = list(iter_rows(Path(subset_dir) / f"baseline-{config}.subset.tsv.gz"))
-    right = list(iter_rows(Path(subset_dir) / f"baseline-{reference}.subset.tsv.gz"))
-    if left != right:
-        first = next(
-            (pair for pair in zip(left, right) if pair[0] != pair[1]),
-            (None, None),
-        )
-        raise AssertionError(
-            f"subset table {config} is not row-identical to {reference}: first differing pair {first}"
-        )
 
 
 ORACLE_AUDIT_HEADER = "config\tcodepoints\tkinds\tmatched_entry\tbaseline\tnew"

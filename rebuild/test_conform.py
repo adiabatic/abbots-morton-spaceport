@@ -1,4 +1,4 @@
-"""Conformance-module helper tests: normalization, the raw-pipeline replay, alias/ledger plumbing, kern evaluation, the subset-identity assertion, and the memoized settled-window walk's equivalence to settling the same texts unmemoized. The font-facing sweep itself runs in run_m1 (it needs the compiled mini-font). Settlement here is the crate's, so these arms need a built kernel: the guard sweep and the walk both invoke it, once per module for the sweep and in waves for the walk."""
+"""Conformance-module helper tests: normalization, the raw-pipeline replay, alias/ledger plumbing, kern evaluation, and the memoized settled-window walk's equivalence to settling the same texts unmemoized. The font-facing sweep itself runs in run_m1 (it needs the compiled mini-font). Settlement here is the crate's, so these arms need a built kernel: the guard sweep and the walk both invoke it, once per module for the sweep and in waves for the walk."""
 
 import gzip
 import hashlib
@@ -16,7 +16,7 @@ from typing import Any
 
 import pytest
 
-from rebuild.pipeline import conform, kernel_exec, oracle, oracle_cache, settle
+from rebuild.pipeline import baseline_subset, conform, kernel_exec, oracle, oracle_cache, settle
 from rebuild.pipeline.fixtures import mini_spec
 from rebuild.pipeline.model import CellId
 
@@ -286,32 +286,12 @@ class TestKernEvaluator:
         assert isinstance(evaluator.value_for("qsBay", "qsTea"), int)
 
 
-class TestSubsetIdentity:
-    def _write(self, path, rows):
-        with gzip.open(path, "wt", encoding="utf-8") as fh:
-            fh.write("# config: x\n")
-            for row in rows:
-                fh.write(row + "\n")
-
-    def test_identical_tables_pass(self, tmp_path):
-        row = "E670\tqsIt\t0\t\t0,0,150"
-        self._write(tmp_path / "baseline-ss06.subset.tsv.gz", [row])
-        self._write(tmp_path / "baseline-default.subset.tsv.gz", [row])
-        oracle.assert_subset_identity(tmp_path, "ss06")
-
-    def test_differing_tables_fail(self, tmp_path):
-        self._write(tmp_path / "baseline-ss06.subset.tsv.gz", ["E670\tqsIt\t0\t\t0,0,150"])
-        self._write(tmp_path / "baseline-default.subset.tsv.gz", ["E670\tqsIt.x\t0\t\t0,0,150"])
-        with pytest.raises(AssertionError):
-            oracle.assert_subset_identity(tmp_path, "ss06")
-
-
 class TestAliasCompleteness:
-    def _write(self, path, rows):
-        with gzip.open(path, "wt", encoding="utf-8") as fh:
-            fh.write("# config: x\n")
-            for row in rows:
-                fh.write(row + "\n")
+    def _names(self, tmp_path, names):
+        """The sidecar the refilter writes, which is now the alias check's whole input — so these arms stand up a names document rather than a pile of subset tables."""
+        path = tmp_path / baseline_subset.NAMES_NAME
+        path.write_text(json.dumps({"format": baseline_subset.NAMES_FORMAT, "names": names}) + "\n")
+        return path
 
     def _aliases(self, tmp_path):
         path = tmp_path / "aliases.yaml"
@@ -319,21 +299,11 @@ class TestAliasCompleteness:
         return path
 
     def test_known_pending_and_boundary_names_resolve(self, tmp_path):
-        self._write(
-            tmp_path / "baseline-default.subset.tsv.gz",
-            [
-                "0020:E670\tspace|qsIt\t0,1\tbreak\t0,0,150|0,0,150",
-                "E652\tqsTea.noentry\t0\t\t0,0,150",
-            ],
-        )
+        self._names(tmp_path, {"default": ["qsIt", "qsTea.noentry", "space"]})
         assert oracle.unaliased_subset_names(tmp_path, self._aliases(tmp_path)) == {}
 
     def test_missing_names_are_reported_with_their_configs(self, tmp_path):
-        self._write(
-            tmp_path / "baseline-default.subset.tsv.gz",
-            ["E650:E670\tqsPea.ex-y0|qsIt\t0,1\tbreak\t0,0,150|0,0,150"],
-        )
-        self._write(tmp_path / "baseline-ss03.subset.tsv.gz", ["E650\tqsPea.ex-y0\t0\t\t0,0,150"])
+        self._names(tmp_path, {"default": ["qsIt", "qsPea.ex-y0"], "ss03": ["qsPea.ex-y0"]})
         assert oracle.unaliased_subset_names(tmp_path, self._aliases(tmp_path)) == {
             "qsPea.ex-y0": ["default", "ss03"]
         }

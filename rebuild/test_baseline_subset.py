@@ -1,8 +1,10 @@
-"""baseline_subset tests over synthetic tables: the row filter itself, and the stamp-keyed freshness contract run_m1 leans on so a stale subset can never feed the oracle."""
+"""baseline_subset tests over synthetic tables: the row filter itself, the stamp-keyed freshness contract run_m1 leans on so a stale subset can never feed the oracle, the default-covered identity proof the refilter refuses to stamp around, and the names sidecar the alias check reads instead of the tables."""
 
 import gzip
 import hashlib
 import json
+
+import pytest
 
 from rebuild.pipeline import baseline_subset
 
@@ -25,8 +27,8 @@ class TestFilterTable:
         ]
         _write_table(source, rows)
         destination = tmp_path / "out" / "baseline-default.subset.tsv.gz"
-        kept = baseline_subset.filter_table(source, destination)
-        assert kept == 2
+        result = baseline_subset.filter_table(source, destination)
+        assert result.kept == 2
         with gzip.open(destination, "rt", encoding="utf-8") as fh:
             content = fh.read()
         assert content.startswith("# baseline-extractor v1\n# config: default\n")
@@ -54,10 +56,19 @@ class TestFilterTable:
         assert not baseline_subset._codepoints_in_alphabet("garbage", baseline_subset.M1_ALPHABET)
 
 
+SEED_ROWS = ["E670\tqsIt\t0\t\t0,0,150", "E657\tqsThey\t0\t\t0,0,250"]
+
+
+def _write_sources(out, rows):
+    """The reference table and the three configurations the acceptance gate covers through it, all filtering to the same rows — the shape the identity proof demands of a healthy tree."""
+    for config in (baseline_subset.IDENTITY_REFERENCE,) + baseline_subset.DEFAULT_COVERED_CONFIGS:
+        _write_table(out / f"baseline-{config}.tsv.gz", rows)
+
+
 def _seed_repo(tmp_path):
     out = tmp_path / "rebuild" / "out"
     out.mkdir(parents=True)
-    _write_table(out / "baseline-default.tsv.gz", ["E670\tqsIt\t0\t\t0,0,150", "E657\tqsThey\t0\t\t0,0,250"])
+    _write_sources(out, SEED_ROWS)
     (out / "digests.tsv").write_text("config\trows\tsha256_uncompressed\ndefault\t2\tabc\n")
     return tmp_path
 
@@ -77,10 +88,7 @@ class TestEnsureFresh:
     def test_a_source_table_change_reads_as_stale_and_refilters(self, tmp_path):
         root = _seed_repo(tmp_path)
         baseline_subset.ensure_fresh(root)
-        _write_table(
-            root / "rebuild" / "out" / "baseline-default.tsv.gz",
-            ["E670\tqsIt\t0\t\t0,0,150", "E657\tqsThey\t0\t\t0,0,250", "E672\tqsEt\t0\t\t0,0,200"],
-        )
+        _write_sources(root / "rebuild" / "out", SEED_ROWS + ["E672\tqsEt\t0\t\t0,0,200"])
         assert baseline_subset.is_fresh(root) is False
         assert baseline_subset.ensure_fresh(root) is True
         with gzip.open(
@@ -165,12 +173,106 @@ class TestEnsureFresh:
         baseline_subset.ensure_fresh(root)
         stamp = root / "rebuild" / "out" / "m1" / baseline_subset.STAMP_NAME
         good_key = baseline_subset.stamp_key(root)
+        outputs = json.loads(stamp.read_text())["outputs"]
         for payload in (
             "{",
             "[]",
             '{"key": 5}',
             json.dumps({"key": good_key, "outputs": ["baseline-default.subset.tsv.gz"]}),
             json.dumps({"key": good_key, "outputs": {"baseline-default.subset.tsv.gz": 5}}),
+            json.dumps({"format": baseline_subset.STAMP_FORMAT, "key": good_key, "outputs": outputs}),
+            json.dumps({"format": "ams-baseline-subset-stamp/1", "key": good_key, "outputs": outputs}),
         ):
             stamp.write_text(payload)
             assert baseline_subset.is_fresh(root) is False
+
+
+class TestDefaultCovered:
+    """The ss06/ss07/ss06+ss07 proof, made where the tables are written. What it is defending is the acceptance gate's coverage claim: those three run through default's arm alone, which is only sound while their filtered rows are default's filtered rows."""
+
+    def test_identical_roster_tables_stamp_fresh(self, tmp_path):
+        root = _seed_repo(tmp_path)
+        assert baseline_subset.ensure_fresh(root) is True
+        assert baseline_subset.is_fresh(root) is True
+
+    def test_a_diverged_roster_table_refuses_and_leaves_no_stamp(self, tmp_path):
+        root = _seed_repo(tmp_path)
+        _write_table(
+            root / "rebuild" / "out" / "baseline-ss06.tsv.gz",
+            ["E670\tqsIt.x\t0\t\t0,0,150", "E657\tqsThey\t0\t\t0,0,250"],
+        )
+        with pytest.raises(baseline_subset.SubsetIdentityError) as error:
+            baseline_subset.refresh(root)
+        message = str(error.value)
+        assert "ss06" in message
+        assert "default" in message
+        assert "ACCEPTANCE_CONFIGS" in message
+        assert baseline_subset.is_fresh(root) is False
+
+    def test_a_missing_roster_source_refuses_naming_it(self, tmp_path):
+        root = _seed_repo(tmp_path)
+        (root / "rebuild" / "out" / "baseline-ss07.tsv.gz").unlink()
+        with pytest.raises(baseline_subset.SubsetIdentityError, match="ss07"):
+            baseline_subset.refresh(root)
+
+
+class TestSubsetNames:
+    """The sidecar that replaced a ten-million-row stream: the alias check's whole input, written once per refilter and stamped so it cannot go missing behind a fresh reading."""
+
+    def test_the_sidecar_holds_the_kept_rows_distinct_names_per_config(self, tmp_path):
+        root = _seed_repo(tmp_path)
+        baseline_subset.refresh(root)
+        names = baseline_subset.read_subset_names(root / "rebuild" / "out" / "m1")
+        assert names["default"] == ["qsIt"]
+        assert names["ss06"] == ["qsIt"]
+        assert "qsThey" not in names["default"]
+
+    def test_ligation_grain_names_are_split_and_sorted(self, tmp_path):
+        root = _seed_repo(tmp_path)
+        _write_sources(
+            root / "rebuild" / "out",
+            ["E652:E670\tqsTea.half.ex-y5|qsIt.en-y5\t0,1\ty5\t0,0,100|0,0,100"] + SEED_ROWS,
+        )
+        baseline_subset.refresh(root)
+        names = baseline_subset.read_subset_names(root / "rebuild" / "out" / "m1")
+        assert names["default"] == ["qsIt", "qsIt.en-y5", "qsTea.half.ex-y5"]
+
+    def test_the_stamp_records_the_sidecars_hash(self, tmp_path):
+        root = _seed_repo(tmp_path)
+        baseline_subset.refresh(root)
+        out = root / "rebuild" / "out" / "m1"
+        stamp = json.loads((out / baseline_subset.STAMP_NAME).read_text())
+        recorded = stamp["sidecars"][baseline_subset.NAMES_NAME]
+        assert hashlib.sha256((out / baseline_subset.NAMES_NAME).read_bytes()).hexdigest() == recorded
+
+    def test_a_deleted_or_edited_sidecar_reads_as_stale_and_is_regenerated(self, tmp_path):
+        root = _seed_repo(tmp_path)
+        baseline_subset.ensure_fresh(root)
+        sidecar = root / "rebuild" / "out" / "m1" / baseline_subset.NAMES_NAME
+        first = sidecar.read_bytes()
+        sidecar.unlink()
+        assert baseline_subset.is_fresh(root) is False
+        assert baseline_subset.ensure_fresh(root) is True
+        assert sidecar.read_bytes() == first
+        sidecar.write_text('{"format": "ams-baseline-subset-names/1", "names": {}}\n')
+        assert baseline_subset.is_fresh(root) is False
+        assert baseline_subset.ensure_fresh(root) is True
+        assert sidecar.read_bytes() == first
+
+    def test_a_missing_sidecar_names_ensure_fresh_as_the_remedy(self, tmp_path):
+        root = _seed_repo(tmp_path)
+        baseline_subset.ensure_fresh(root)
+        (root / "rebuild" / "out" / "m1" / baseline_subset.NAMES_NAME).unlink()
+        with pytest.raises(FileNotFoundError, match="ensure_fresh"):
+            baseline_subset.read_subset_names(root / "rebuild" / "out" / "m1")
+
+    def test_a_wrong_format_or_shape_is_a_loud_refusal(self, tmp_path):
+        root = _seed_repo(tmp_path)
+        baseline_subset.ensure_fresh(root)
+        sidecar = root / "rebuild" / "out" / "m1" / baseline_subset.NAMES_NAME
+        sidecar.write_text('{"format": "ams-baseline-subset-names/0", "names": {}}\n')
+        with pytest.raises(ValueError):
+            baseline_subset.read_subset_names(sidecar.parent)
+        sidecar.write_text('{"format": "ams-baseline-subset-names/1", "names": []}\n')
+        with pytest.raises(ValueError):
+            baseline_subset.read_subset_names(sidecar.parent)

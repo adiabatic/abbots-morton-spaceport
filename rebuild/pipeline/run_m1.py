@@ -524,8 +524,6 @@ def run_oracle(
     """
     if spec is None:
         spec = load_default_spec()
-    for config in ("ss06", "ss07", "ss06+ss07"):
-        oracle.assert_subset_identity(out_dir, config)
     oracle.discard_oracle_audit_scratch(out_dir)
     if fresh_cache and write_cache:
         oracle_cache.discard_stores(out_dir, conform.ACCEPTANCE_CONFIGS)
@@ -600,7 +598,6 @@ def run_oracle(
         "counts_by_entry": dict(sorted(report.counts_by_entry.items())),
         "unmatched": report.unmatched_count,
         "multi_matched": len(report.multi_matched),
-        "subset_identity": ["ss06", "ss07", "ss06+ss07"],
         "notes": report.notes,
     }
     for row in report.unmatched_exemplars[: oracle.ORACLE_UNMATCHED_EXEMPLARS]:
@@ -629,9 +626,12 @@ def _failed_check(check: str, message: str) -> CheckVerdict:
 
 
 def _run_pregate_guards() -> None:
-    """The two guards that run before anything is adjudicated, on the build path and on the `--gates-only` path alike: the subset baselines refiltered when they no longer describe the sources on disk, and every old glyph name in those subsets carrying an alias. Both belong to the oracle rather than to the build — an unaliased name makes every oracle number quietly wrong — so a pass that re-runs the oracle over a build it did not make has to run them exactly as the pass that built does."""
+    """The two guards that run before anything is adjudicated, on the build path and on the `--gates-only` path alike: the subset baselines refiltered when they no longer describe the sources on disk, and every old glyph name in those subsets carrying an alias. Both belong to the oracle rather than to the build — an unaliased name makes every oracle number quietly wrong — so a pass that re-runs the oracle over a build it did not make has to run them exactly as the pass that built does. The ss06/ss07/ss06+ss07 identity is proven inside that refilter rather than here, since only a refilter can change the answer; a diverged configuration is never stamped fresh, so the refusal it raises surfaces as this guard's refusal on every run until it is dealt with."""
     start = time.perf_counter()
-    refiltered = baseline_subset.ensure_fresh(REPO_ROOT)
+    try:
+        refiltered = baseline_subset.ensure_fresh(REPO_ROOT)
+    except baseline_subset.SubsetIdentityError as error:
+        raise SystemExit(str(error)) from error
     print(
         f"[t] baseline_subset {time.perf_counter() - start:.1f}s ({'refiltered' if refiltered else 'fresh'})",
         flush=True,

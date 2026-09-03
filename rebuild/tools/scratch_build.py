@@ -58,8 +58,6 @@ def build_and_oracle(runes_dir: Path, out_dir: Path) -> dict:
     all_glyphs = {**cell_glyphs, **bare, **twins, **dots}
     compile_font.build_mini_font(all_glyphs, fea, out_dir / "M1.otf")
 
-    for config in ("ss06", "ss07", "ss06+ss07"):
-        oracle.assert_subset_identity(out_dir, config)
     report = oracle.compare_against_baseline(
         spec,
         out_dir,
