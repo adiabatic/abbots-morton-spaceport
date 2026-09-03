@@ -2996,6 +2996,56 @@ def test_surface_build_skippable_matches_manifest(tmp_path):
     assert not ac.surface_build_skippable(tmp_path, surface, ignore=("static",))
 
 
+REFUSE_RUNE = "rune: qsX\npolicy:\n  refuse:\n  - {exit: baseline, why: two verticals render thick}\n"
+
+
+def test_a_refuse_why_edit_restamps_the_surface_and_nothing_upstream(tmp_path):
+    """The bargain issue #114 struck, stated over every key a cycle consults at once. A refusal's `why` is quoted into the explain text the surface serves, so the surface has to notice a rewording — but nothing that builds an artifact reads it, so run_m1's green, the conform sweep's key, the tables' own stamp, the Stage A record and both suite lanes must all stay exactly where they were, and the pass that follows the edit rebuilds the surface over artifacts it never touches."""
+    from rebuild.pipeline import fingerprint
+
+    root = _fake_run_m1_root(tmp_path)
+    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+    (root / ".gitignore").write_text("rebuild/out/\n")
+    rune = root / "glyph_data" / "runes" / "qsX.yaml"
+    rune.write_text(REFUSE_RUNE)
+    m1 = root / "rebuild" / "out" / "m1"
+    stage_a = fingerprint.stage_a(root)
+    (m1 / fingerprint.STAGE_A_FILENAME).write_text(json.dumps({"format": fingerprint.FORMAT, **stage_a}))
+    surface = root / "rebuild" / "out" / "review"
+    surface.mkdir(parents=True)
+    (surface / "units-000.json").write_text("[]")
+    before_font, junior_font = fingerprint.font_paths(root)
+    (surface / "manifest.json").write_text(
+        json.dumps(
+            {
+                "generated_at": "2026-01-01T00:00:00Z",
+                "inputs_fingerprint": {
+                    **stage_a,
+                    **fingerprint.stage_b(root, before_font, junior_font),
+                },
+                "classes": [{"id": "c", "shards": ["units-000.json"]}],
+            }
+        )
+    )
+    assert ac.surface_build_skippable(root, surface)
+    upstream = {
+        "run_m1": ac.run_m1_skip_fingerprint(root),
+        "conform": ac.conform_skip_fingerprint(root),
+        "tables": fingerprint.tables_value(root),
+        "stage_a": fingerprint.stage_a(root),
+    }
+    lanes = {lane: ac.rebuild_lane_fingerprint(root, lane) for lane in ac.REBUILD_LANES}
+    assert all(value is not None for value in lanes.values())
+
+    rune.write_text(REFUSE_RUNE.replace("render thick", "render thin"))
+    assert not ac.surface_build_skippable(root, surface)
+    assert ac.run_m1_skip_fingerprint(root) == upstream["run_m1"]
+    assert ac.conform_skip_fingerprint(root) == upstream["conform"]
+    assert fingerprint.tables_value(root) == upstream["tables"]
+    assert fingerprint.stage_a(root) == upstream["stage_a"]
+    assert {lane: ac.rebuild_lane_fingerprint(root, lane) for lane in ac.REBUILD_LANES} == lanes
+
+
 def test_the_census_pins_are_outside_the_rebuild_closure(tmp_path):
     """The census step rewrites the pins mid-pass, so counting them as an input would invalidate the gate's key at record time on every refreshing pass. The suite no longer reads them, so they are exempt and the refresh is invisible to the key."""
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)

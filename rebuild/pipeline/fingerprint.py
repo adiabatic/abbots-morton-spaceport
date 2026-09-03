@@ -8,7 +8,9 @@ Chain honesty: run_m1 persists the Stage A components (`data`, `baselines`, `pip
 
 The contact allow-list is in no component here at all, `data` included. The defect gate is the only stage that reads it, so a two-line bless has no business dropping the review unit cache and re-stamping the whole surface — which is what its old place in `data_paths` cost, through `unit_cache.environment_stamp` and `oracle_cache.stamped_data_paths` alike. It rides the artifact cycle's run_m1 skip key alone, under `CONTACT_ALLOW_LABEL`, hashed by `contact_allow_digest`: prose-blind in the same way a rune is, since a signature's `why:` is the reviewer's recorded rationale and can move no gate.
 
-Rune files are hashed by `rune_file_digest`, a prose-blind digest over the parsed document rather than the raw bytes: YAML comments and formatting, the ductus prose, the notes prose, and the `why` rationale on prefer/extend/contract/resolve/unlock records are all documentation nothing downstream consumes, so editing them must not stale the surface or re-run a cycle. What stays in the digest is exactly what can move an output or a gate: every geometric and policy field, the ductus *keys* (motion names, which the parity and naming lints enforce), the *presence* of every prose field (the schema requires `why` on absolute prefers), and — the one quoted prose — `policy.refuse[].why`, which the kernel crate's engine embeds in the elimination diagnostics the review surface serves in its explain panel.
+Rune files are hashed by `rune_file_digest`, a prose-blind digest over the parsed document rather than the raw bytes: YAML comments and formatting, the ductus prose, the notes prose, and every `why` rationale — refuse records' included — are documentation no stage that builds anything consumes, so editing them must not stale the surface or re-run a cycle. What stays in the digest is exactly what can move an output or a gate: every geometric and policy field, the ductus *keys* (motion names, which the parity and naming lints enforce), and the *presence* of every prose field (the schema requires `why` on absolute prefers).
+
+One rationale is read after all, and it has two homes of its own rather than a place in that digest. `policy.refuse[].why` is what the kernel crate's engine appends to a refusal's elimination sentence when it is asked for an explain ladder — a request the table fixpoint never makes and the review surface's explain panel is the whole audience for. So it rides `rune_explain_digest`, which the review unit cache's family keys are built from, and the Stage B `explain_prose` component, which the surface's manifest stamps: rewording one re-enriches the windows whose explain text quotes it and re-stamps the surface, and costs nothing else. The tables' stamp, the conformance sweep's key, the rebuild lanes' keys, the artifact cycle's run_m1 green, the oracle row cache's family keys, and `unit_cache.environment_stamp` all read `rune_file_digest` and cannot see it.
 """
 
 from __future__ import annotations
@@ -23,7 +25,7 @@ import yaml
 FORMAT = "ams-inputs-fingerprint/2"
 _SAFE_LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
 STAGE_A_COMPONENTS = ("data", "baselines", "pipeline_code")
-STAGE_B_COMPONENTS = ("review_code", "static", "fonts")
+STAGE_B_COMPONENTS = ("review_code", "static", "fonts", "explain_prose")
 COMPONENTS = STAGE_A_COMPONENTS + STAGE_B_COMPONENTS
 STAGE_A_FILENAME = "inputs_fingerprint.json"
 
@@ -110,6 +112,11 @@ def hash_paths(repo_root: Path, paths: list[Path]) -> str:
     return hashlib.sha256("\n".join(path_lines(repo_root, paths)).encode()).hexdigest()
 
 
+# Every policy record kind that carries an author `why`, and the one whose rationale something downstream reads. The difference is the whole of what separates `rune_file_digest` from `rune_explain_digest`.
+POLICY_PROSE_KINDS = ("prefer", "extend", "contract", "resolve", "refuse")
+QUOTED_POLICY_PROSE_KINDS = ("refuse",)
+
+
 def _without_why(record: object) -> object:
     if isinstance(record, dict) and isinstance(record.get("why"), str):
         return {**record, "why": None}
@@ -128,8 +135,8 @@ def _projected_stance(stance: object) -> object:
     return {**stance, "surface": {**surface, "unlocks": [_without_why(unlock) for unlock in unlocks]}}
 
 
-def _projected_rune(document: object) -> object:
-    """The prose-blind view of a parsed rune document (see the module docstring for the contract). Anything shaped in a way the schema would reject — a non-string prose value, a non-dict ductus — passes through unprojected, so a type-breaking edit still moves the digest and the load failure it causes stays visible. refuse records keep their `why`: it is the one rationale the crate's engine quotes into the elimination diagnostics the review surface serves."""
+def _projected_rune(document: object, *, quoted_prose: bool = False) -> object:
+    """The prose-blind view of a parsed rune document (see the module docstring for the contract). Anything shaped in a way the schema would reject — a non-string prose value, a non-dict ductus — passes through unprojected, so a type-breaking edit still moves the digest and the load failure it causes stays visible. `quoted_prose` spares the one rationale something downstream reads, `policy.refuse[].why`, which is the whole difference between the two rune digests here."""
     if not isinstance(document, dict):
         return document
     projected = dict(document)
@@ -142,10 +149,11 @@ def _projected_rune(document: object) -> object:
         projected["notes"] = None
     policy = projected.get("policy")
     if isinstance(policy, dict):
+        kept = QUOTED_POLICY_PROSE_KINDS if quoted_prose else ()
         projected["policy"] = {
             kind: (
                 [_without_why(record) for record in records]
-                if kind in ("prefer", "extend", "contract", "resolve") and isinstance(records, list)
+                if kind in POLICY_PROSE_KINDS and kind not in kept and isinstance(records, list)
                 else records
             )
             for kind, records in policy.items()
@@ -169,6 +177,15 @@ def _projected_digest(path: Path, project: Callable[[object], object]) -> str:
 def rune_file_digest(path: Path) -> str:
     """One rune file's prose-blind content digest (the module docstring holds the contract for what the projection drops)."""
     return _projected_digest(path, _projected_rune)
+
+
+def _projected_rune_keeping_quoted_prose(document: object) -> object:
+    return _projected_rune(document, quoted_prose=True)
+
+
+def rune_explain_digest(path: Path) -> str:
+    """One rune file's explain-aware content digest: `rune_file_digest`'s projection but for `policy.refuse[].why`, the sentence the crate's engine appends to a refusal's elimination when it is asked for an explain ladder and the review surface serves as explain text. Nothing that builds a table or a font asks for that ladder, so this digest is the review side's alone — it exists so rewording a refusal can invalidate the windows quoting it without touching anything keyed on the prose-blind digest."""
+    return _projected_digest(path, _projected_rune_keeping_quoted_prose)
 
 
 CONTACT_ALLOW_LABEL = "rebuild/m1-contact-allow.yaml"
@@ -224,8 +241,41 @@ def table_data_value(repo_root: Path) -> str:
 
 
 def rune_digests(repo_root: Path) -> dict[str, str]:
-    """Every rune file's prose-blind digest, keyed by family name (the file stem, which spec_load lints to equal the `rune:` field). This is the per-rune grain the caches invalidate at: the oracle row cache's per-family content keys (`oracle_cache.family_content_keys`) and the review unit cache's are both built from these, so an entry survives a cycle exactly when every family it names still carries the digest recorded beside it."""
+    """Every rune file's prose-blind digest, keyed by family name (the file stem, which spec_load lints to equal the `rune:` field). This is the per-rune grain the oracle row cache invalidates at (`oracle_cache.family_keys`), so a cached row survives a cycle exactly when every family it names still carries the digest recorded beside it. The review unit cache keys on `rune_explain_digests` instead, because among the products it caches is the explain text a refusal's `why` is quoted into."""
     return {path.stem: rune_file_digest(path) for path in rune_paths(Path(repo_root)) if path.is_file()}
+
+
+def rune_explain_digests(repo_root: Path) -> dict[str, str]:
+    """`rune_digests` at the same per-family grain and explain-aware, which is what the review unit cache's family content keys (`unit_cache.family_content_keys`) are built from: an entry moves when a record moves and when a refusal's `why` is reworded, and on nothing else. Byte-identical to `rune_digests` for a rune whose refusals carry no `why`."""
+    return {path.stem: rune_explain_digest(path) for path in rune_paths(Path(repo_root)) if path.is_file()}
+
+
+def refuse_prose_lines(repo_root: Path) -> list[str]:
+    """The `family\\tindex\\twhy` line of every refuse record carrying a `why`, sorted — the whole of the rune prose anything downstream reads, and so the whole of the `explain_prose` component. A rune that will not parse or decode contributes `family\\t-\\t<raw digest>` instead, the way `_projected_digest` falls back, so a broken file moves the value rather than silently contributing no refusals at all."""
+    lines: list[str] = []
+    for path in rune_paths(Path(repo_root)):
+        if not path.is_file():
+            continue
+        raw = path.read_bytes()
+        try:
+            document = yaml.load(raw.decode(), Loader=_SAFE_LOADER)
+        except yaml.YAMLError, UnicodeDecodeError, TypeError, ValueError:
+            lines.append(f"{path.stem}\t-\t{hashlib.sha256(raw).hexdigest()}")
+            continue
+        policy = document.get("policy") if isinstance(document, dict) else None
+        records = policy.get("refuse") if isinstance(policy, dict) else None
+        if not isinstance(records, list):
+            continue
+        for index, record in enumerate(records):
+            why = record.get("why") if isinstance(record, dict) else None
+            if isinstance(why, str):
+                lines.append(f"{path.stem}\t{index}\t{why}")
+    return sorted(lines)
+
+
+def explain_prose_value(repo_root: Path) -> str:
+    """The `explain_prose` component: `refuse_prose_lines` hashed, so the surface's manifest can answer whether the explain text it serves is the wording on disk. Stage B rather than Stage A because no stage of the M1 build reads it — run_m1 could not record it honestly, and a stale value here is the surface's to fix rather than a rebuild's."""
+    return hashlib.sha256("\n".join(refuse_prose_lines(repo_root)).encode()).hexdigest()
 
 
 def table_code_paths(repo_root: Path) -> list[Path]:
@@ -276,6 +326,7 @@ def stage_b(repo_root: Path, before_font: Path, junior_font: Path) -> dict:
         "review_code": hash_paths(root, review_code_paths(root)),
         "static": hash_paths(root, static_paths(root)),
         "fonts": hash_paths(root, [Path(before_font), Path(junior_font)]),
+        "explain_prose": explain_prose_value(root),
     }
 
 

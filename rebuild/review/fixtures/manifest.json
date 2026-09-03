@@ -9,7 +9,8 @@
   "pipeline_code": "fixture-pipeline-code",
   "review_code": "fixture-review-code",
   "static": "fixture-static",
-  "fonts": "fixture-fonts"
+  "fonts": "fixture-fonts",
+  "explain_prose": "fixture-explain-prose"
  },
  "source": {
   "audit": "rebuild/review/fixtures/fixture-audit.tsv",

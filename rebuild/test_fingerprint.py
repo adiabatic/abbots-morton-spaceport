@@ -1,4 +1,4 @@
-"""Tests for the build-input fingerprint module: the streamed file digest and the sweep that keeps it the only way rebuild/ hashes a file, content sensitivity, order independence, missing-file tolerance, the stat-based baselines component, the Stage A record round trip, the serve.py exclusion, and the two prose-blind digests — the rune files' and the contact allow-list's.
+"""Tests for the build-input fingerprint module: the streamed file digest and the sweep that keeps it the only way rebuild/ hashes a file, content sensitivity, order independence, missing-file tolerance, the stat-based baselines component, the Stage A record round trip, the serve.py exclusion, the two prose-blind digests — the rune files' and the contact allow-list's — and the explain-aware rune digest and `explain_prose` component that are where a refuse record's `why` lives instead of in any key a table build reads.
 
 The sweep is here rather than in prose because file_sha256 exists to stop a hash costing the file its size in RAM, and that claim only holds while every hash goes through it — which a roster of callers written into a docstring cannot keep, since nothing checks a roster and the next module to grow a file hash falsifies it in silence. The modules that cannot import fingerprint spell the same streamed read out inline instead; those are pinned against the helper by value here, so a copy cannot drift from the original unnoticed either.
 """
@@ -396,13 +396,81 @@ def test_data_value_ignores_notes_prose_but_not_notes_presence(tmp_path):
     assert _data_after(root, without_notes) != before
 
 
-def test_data_value_ignores_unquoted_whys_but_not_refuse_why(tmp_path):
+def test_data_value_ignores_every_why_but_not_why_presence(tmp_path):
+    """Every rationale a rune carries is documentation as far as anything that builds a table is concerned, a refusal's included: the crate appends a refuse `why` to an elimination sentence only when it is asked for an explain ladder, which the fixpoint never asks for. Presence is the separate claim that stays inside, because the schema requires a `why` on an absolute prefer and dropping one is a load failure the digest has to see coming."""
     root = _fake_repo(tmp_path)
     before = _data_after(root, PROSE_RUNE)
+    tables = fingerprint.tables_value(root)
     assert _data_after(root, PROSE_RUNE.replace("nicer to write", "easier to write")) == before
     assert _data_after(root, PROSE_RUNE.replace("original unlock rationale", "reworded rationale")) == before
+    assert _data_after(root, PROSE_RUNE.replace("render thick", "render thin")) == before
+    assert fingerprint.tables_value(root) == tables
     assert _data_after(root, PROSE_RUNE.replace(", why: nicer to write}", "}")) != before
-    assert _data_after(root, PROSE_RUNE.replace("render thick", "render thin")) != before
+    assert _data_after(root, PROSE_RUNE.replace(", why: two verticals render thick}", "}")) != before
+
+
+def _explain_after(root, text):
+    path = root / "glyph_data" / "runes" / "qsPea.yaml"
+    path.write_text(text)
+    return fingerprint.rune_explain_digest(path)
+
+
+def test_rune_explain_digest_moves_with_the_refuse_why_alone(tmp_path):
+    """The explain-aware digest's whole charter: the prose-blind projection plus the one sentence the review surface serves back, so a reworded refusal moves it and no other prose, comment, or reformatting does. A rune whose refusals carry no `why` hashes the same either way, which is what lets the review unit cache switch onto this digest without restamping a store."""
+    root = _fake_repo(tmp_path)
+    before = _explain_after(root, PROSE_RUNE)
+    assert _explain_after(root, PROSE_RUNE.replace("render thick", "render thin")) != before
+    assert _explain_after(root, PROSE_RUNE.replace("nicer to write", "easier to write")) == before
+    assert _explain_after(root, PROSE_RUNE.replace("original unlock rationale", "reworded")) == before
+    assert _explain_after(root, PROSE_RUNE.replace("Cannot join", "Must not join")) == before
+    assert _explain_after(root, PROSE_RUNE.replace("drawn downward", "drawn upward")) == before
+    assert _explain_after(root, PROSE_RUNE.replace("ductus:", "ductus: # DRAFT")) == before
+    assert _explain_after(root, PROSE_RUNE.replace('bitmap: ["#", "#"]', 'bitmap: [ "#",   "#" ]')) == before
+    explain_digests = fingerprint.rune_explain_digests(root)
+    assert set(explain_digests) == set(fingerprint.rune_digests(root)) == {"qsPea", "qsBay"}
+    assert explain_digests["qsPea"] == before
+    assert explain_digests["qsBay"] == fingerprint.rune_digests(root)["qsBay"]
+
+
+def test_refuse_prose_lines_name_the_family_and_the_record(tmp_path):
+    """The component's input, spelled at the grain a reader can diff: one line per refusal that carries a rationale, indexed so two refusals in a file cannot collapse onto one line, and a raw-byte fallback for a rune that will not parse, so a broken file reads as changed rather than as carrying no refusals at all."""
+    root = _fake_repo(tmp_path)
+    (root / "glyph_data" / "runes" / "qsPea.yaml").write_text(PROSE_RUNE)
+    assert fingerprint.refuse_prose_lines(root) == ["qsPea\t0\ttwo verticals render thick"]
+    assert (
+        fingerprint.explain_prose_value(root)
+        == hashlib.sha256("\n".join(fingerprint.refuse_prose_lines(root)).encode()).hexdigest()
+    )
+    broken = "rune: qsPea\n\t: [broken"
+    (root / "glyph_data" / "runes" / "qsPea.yaml").write_text(broken)
+    assert fingerprint.refuse_prose_lines(root) == [
+        f"qsPea\t-\t{hashlib.sha256(broken.encode()).hexdigest()}"
+    ]
+
+
+def test_explain_prose_is_the_one_component_a_refuse_why_moves(tmp_path):
+    """Where the quoted prose lives now that it is out of `data`: a Stage B component of its own, so rewording a refusal re-stamps the surface — which is how the explain text served can be checked against the runes on disk — while `data`, `baselines` and `pipeline_code` stay put and with them run_m1's green, the conform sweep's key and both suite lanes. Stage A never carries it: run_m1 reads no refuse prose and could not record it honestly."""
+    root = _fake_repo(tmp_path)
+    (root / "glyph_data" / "runes" / "qsPea.yaml").write_text(PROSE_RUNE)
+    before = fingerprint.compute_all(root)
+    assert "explain_prose" in fingerprint.STAGE_B_COMPONENTS
+    assert "explain_prose" not in fingerprint.stage_a(root)
+    (root / "glyph_data" / "runes" / "qsPea.yaml").write_text(
+        PROSE_RUNE.replace("render thick", "render thin")
+    )
+    after = fingerprint.compute_all(root)
+    assert after["explain_prose"] != before["explain_prose"]
+    assert {key: after[key] for key in fingerprint.COMPONENTS if key != "explain_prose"} == {
+        key: before[key] for key in fingerprint.COMPONENTS if key != "explain_prose"
+    }
+    (root / "glyph_data" / "runes" / "qsPea.yaml").write_text(
+        PROSE_RUNE.replace("render thick", "render thin").replace('bitmap: ["#", "#"]', 'bitmap: ["#", "##"]')
+    )
+    bitmap = fingerprint.compute_all(root)
+    assert bitmap["data"] != after["data"]
+    assert {key: bitmap[key] for key in fingerprint.COMPONENTS if key != "data"} == {
+        key: after[key] for key in fingerprint.COMPONENTS if key != "data"
+    }
 
 
 def test_data_value_tracks_semantic_edits(tmp_path):
