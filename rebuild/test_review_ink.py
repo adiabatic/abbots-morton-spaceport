@@ -127,7 +127,7 @@ QS_A_OUTLINE = (((0, 0), (100, 0), (100, 150), (0, 150)),)
 MARKER_GLYPHS = {
     "qsA": (QS_A_OUTLINE, 100),
     "qsB": ((((50, 0), (150, 0), (150, 150), (50, 150)),), 200),
-    # A second name over ·A's outline and advance exactly: the only thing that distinguishes it from qsA is what a signature must not read.
+    # A second name over qsA's outline and advance exactly: the only thing that distinguishes it from qsA is what a signature must not read.
     "qsC": (QS_A_OUTLINE, 100),
     "space": ((), 100),
 }
