@@ -354,9 +354,9 @@ def run_conformance(font_path, spec, configs) -> ConformReport: ...
     # the per-edit belt (issue #74): exhaustive enumeration, length 1 up to the conform horizon
     # (--conform-horizon, default 4) over the alphabet per acceptance config, HarfBuzz vs settle()
     # transition by transition (names via TTFont, never glyph_to_string); gap-0 pen positions;
-    # ZWNJ zero-advance/no-ink; split-buffer equivalence. No coverage accounting: read-back proves the
-    # font holds every planned rule per build, the crate's fold refuses a rule no replayed row ever
-    # first-matches, and rebuild/test_rule_witnesses.py is the font-free realizability alarm.
+    # split-buffer equivalence. No coverage accounting: read-back proves the font holds every planned
+    # rule per build and its ZWNJ/space glyphs inert, the crate's fold refuses a rule no replayed row
+    # ever first-matches, and rebuild/test_rule_witnesses.py is the font-free realizability alarm.
     # `make conform-deep` (rebuild/tools/deep_sweep.py) runs the same sweep at horizon 5+ on demand,
     # green-keyed on emit_gsub.behavior_classes + the compilation code + uharfbuzz.
 def compare_against_baseline(spec, subset_tables_dir, alias_path, ledger_path) -> BaselineReport: ...
@@ -431,7 +431,7 @@ All must be green for M1 completion; each is a command or an assertion in `rebui
 6. **Dead policy asserted empty or explained** — deferred-partner records reported as a list; genuinely-dead-in-alphabet records must each carry a written explanation (expected: qsPea’s baseline-entry row).
 7. **Outcome-partition invariant + budget gate** — `assert_outcome_partition()` on every config’s table; budget gate fails on per-rule format-3 fallback past the headroom floor, recorded in `budget.json`.
 8. **Oracle conformance** (§6 above) — no subset baseline row matches more than one ledger entry (`multi_matched == 0`), across every configuration in `conform.ACCEPTANCE_CONFIGS`, whose coverage of ss06/ss07/ss06+ss07 rests on the identity proved in step 1 of the procedure above; unmatched rows are informational and verdict-gated on the review surface.
-9. **Font conformance** — the per-edit belt: exhaustive HarfBuzz sweep to the conform horizon (default 4) vs `settle`, exact (no ledger), split-buffer equivalence, gap-0 pen positions, ZWNJ structural checks — rule coverage owned by read-back, the crate's fold-time first-match tally, and the font-free witness gate, with `make conform-deep` running the same sweep at horizon 5+ on demand; CoreText smoke green over the extended sequence set.
+9. **Font conformance** — the per-edit belt: exhaustive HarfBuzz sweep to the conform horizon (default 4) vs `settle`, exact (no ledger), split-buffer equivalence, gap-0 pen positions — rule coverage owned by read-back, the crate's fold-time first-match tally, and the font-free witness gate, with the boundary glyphs’ inertness (no substituted position admits `uni200C` or `space`, zero advance, no outline) read-back’s too, and `make conform-deep` running the same sweep at horizon 5+ on demand; CoreText smoke green over the extended sequence set.
 10. **Ductus parity + draft flags** — every stance names a motion; every drafted motion carries `# DRAFT — pending author sign-off`; the sign-off worklist is the rune files’ `# DRAFT` markers themselves, enumerated by grep.
 11. **Formatting** — `make prettier` AND `uv run --with black black -q rebuild/`; `markdownlint-cli2` clean over new `.md`.
 12. **Repo hygiene** — no existing pipeline file modified; new code stays under `rebuild/`, runes under `glyph_data/runes/`, scratch under `tmp/`.

@@ -1,6 +1,6 @@
 """Conformance gates (M1-PLAN sections 5 and 6, Group 3): HarfBuzz vs the settlement function, and the settlement function vs the section 13.1 baseline oracle.
 
-`run_conformance` promotes prototype/conform.py: the Shaper (MONOTONE_CHARACTERS cluster level; names via TTFont, never HarfBuzz's truncating API), the exhaustive length-1..horizon enumeration per acceptance configuration (the per-edit belt, horizon 4 by default), the ZWNJ structural checks (zero advance, no ink), split-buffer equivalence, gap-0 pen positions, and the font-vs-settle oracle diff, which takes no ledger: any divergence is a compiler defect by definition. Coverage is deliberately not this sweep's job: read-back (rebuild/pipeline/readback.py) proves per build that the compiled font holds every emitted rule at its planned position, and the dead-rule alarm is split between the crate's fold, which refuses at table-build time any rule no replayed row first-matches (`fold::assert_outcome_partition`), and rebuild/test_rule_witnesses.py, which keeps the realizability half — whether a string exists at all — and reaches it hint-first off the verified witness texts a previous run cached, so the sweep's remaining unique charter is what only shaping the real binary can test — HarfBuzz's application semantics (lookup interaction across features, backtrack-sees-settled across subtable breaks, default-ignorable skipping, class matching, Extension indirection) and the sufficiency of the 6-slot window abstraction itself, which witness-constructed strings structurally cannot probe because witnesses are built from that abstraction. The deep form of the same sweep runs at horizon 5 or deeper on demand (`make conform-deep`, rebuild/tools/deep_sweep.py), armed by the behavior-class enumeration `emit_gsub.behavior_classes` plus the font-compilation code and the uharfbuzz version, so a rune edit that introduces no novel rule shape never stales it. The ZWNJ/split-buffer checks ride the belt itself, on the texts they can say anything about, which is where the standalone horizon-5 boundary gate's charter now lives: proven per build at the belt's horizon and periodically deeper by `make conform-deep`. Settlement rides `_SettledWindowWalk`'s per-config window memo, so a distinct raw window costs one batched crate answer and every recurrence across the sweep's texts costs a dict probe, and the oracle's rows settle through a walk of their own.
+`run_conformance` promotes prototype/conform.py: the Shaper (MONOTONE_CHARACTERS cluster level; names via TTFont, never HarfBuzz's truncating API), the exhaustive length-1..horizon enumeration per acceptance configuration (the per-edit belt, horizon 4 by default), split-buffer equivalence, gap-0 pen positions, and the font-vs-settle oracle diff, which takes no ledger: any divergence is a compiler defect by definition. Coverage is deliberately not this sweep's job: read-back (rebuild/pipeline/readback.py) proves per build that the compiled font holds every emitted rule at its planned position, and the dead-rule alarm is split between the crate's fold, which refuses at table-build time any rule no replayed row first-matches (`fold::assert_outcome_partition`), and rebuild/test_rule_witnesses.py, which keeps the realizability half — whether a string exists at all — and reaches it hint-first off the verified witness texts a previous run cached, so the sweep's remaining unique charter is what only shaping the real binary can test — HarfBuzz's application semantics (lookup interaction across features, backtrack-sees-settled across subtable breaks, default-ignorable skipping, class matching, Extension indirection) and the sufficiency of the 6-slot window abstraction itself, which witness-constructed strings structurally cannot probe because witnesses are built from that abstraction. The deep form of the same sweep runs at horizon 5 or deeper on demand (`make conform-deep`, rebuild/tools/deep_sweep.py), armed by the behavior-class enumeration `emit_gsub.behavior_classes` plus the font-compilation code and the uharfbuzz version, so a rune edit that introduces no novel rule shape never stales it. The split-buffer check rides the belt itself, on the texts it can say anything about, which is where the standalone horizon-5 boundary gate's charter now lives: proven per build at the belt's horizon and periodically deeper by `make conform-deep`. The ZWNJ slot's own structure — zero advance, no ink — is read-back's static boundary-glyphs stage now, proven off the font bytes once per build rather than at every shaped slot. Settlement rides `_SettledWindowWalk`'s per-config window memo, so a distinct raw window costs one batched crate answer and every recurrence across the sweep's texts costs a dict probe, and the oracle's rows settle through a walk of their own.
 
 The section 6 oracle gate itself lives in rebuild/pipeline/oracle.py (`compare_against_baseline`, the ledger classifier, the position channel), which is the comparison side the enumeration's stamp leaves out. What stays here is its producer: `_compare_row` compares one baseline row's ligation (clusters), per-seam classification, and cell identity against the settled stream through the hand-written alias map and answers the `DivergentRow` the oracle classifies; `_cached_verdict` and `_served_verdict` are the codec between that answer and the oracle row cache's record, and `_verify_served_sample` re-derives a pass's served sample against the store. Those, with the walk, are the two entry points `oracle_cache.ORACLE_ROW_CODE_PATHS` is cut from, which is why they and not the classifier live in this file.
 
@@ -95,7 +95,6 @@ class Shaper:
         self.tt = TTFont(str(font_path))
         self.hb_font = hb.Font(hb.Face(hb.Blob.from_file_path(str(font_path))))
         self.glyph_set = self.tt.getGlyphSet()
-        self._ink_cache: dict[str, bool] = {}
         self._outline_cache: dict[str, tuple] = {}
 
     def shape(self, text: str, features: frozenset[str]) -> list[dict]:
@@ -117,17 +116,6 @@ class Shaper:
             }
             for info, pos in zip(buf.glyph_infos, buf.glyph_positions)
         ]
-
-    def has_ink(self, glyph_name: str) -> bool:
-        cached = self._ink_cache.get(glyph_name)
-        if cached is None:
-            from fontTools.pens.boundsPen import BoundsPen
-
-            pen = BoundsPen(self.glyph_set)
-            self.glyph_set[glyph_name].draw(pen)
-            cached = pen.bounds is not None
-            self._ink_cache[glyph_name] = cached
-        return cached
 
     def outline_signature(self, glyph_name: str) -> tuple:
         cached = self._outline_cache.get(glyph_name)
@@ -231,28 +219,6 @@ def check_oracle(text, config, shaped, expected, divergences, modes) -> None:
         if want != got:
             divergences.append(Divergence(text, config, index, want, got, "name"))
             return
-
-
-def check_zwnj_structure(text, config, shaper: Shaper, shaped, divergences) -> None:
-    for index in sorted(zwnj_slots(text, shaped)):
-        glyph = shaped[index]
-        if glyph["x_advance"] != 0:
-            divergences.append(
-                Divergence(
-                    text,
-                    config,
-                    index,
-                    "x_advance 0 at ZWNJ slot",
-                    f"x_advance {glyph['x_advance']} ({glyph['name']})",
-                    "zwnj-advance",
-                )
-            )
-        if shaper.has_ink(glyph["name"]):
-            divergences.append(
-                Divergence(
-                    text, config, index, "no ink at ZWNJ slot", f"inked glyph {glyph['name']}", "zwnj-ink"
-                )
-            )
 
 
 def _slot_signature(shaper: Shaper, glyph: dict) -> tuple:
@@ -1424,7 +1390,7 @@ def _conformance_config(
     max_length: int,
     guard_verdicts: settle.FormationGuard | None = None,
 ) -> ConformanceConfigResult:
-    """One config's belt run: every string of length 1..max_length over the alphabet, shaped against the font and diffed against the settled stream, with the ZWNJ structural checks, split-buffer equivalence and gap-0 pen positions riding along. Configs share nothing, so this is the unit both the serial wrapper and the process-pool worker call. Settlement rides `_SettledWindowWalk`'s per-config memo, which is a speed device only — the sweep's verdict does not depend on which windows it has already seen. Each length's texts are streamed through the walk `TEXT_CHUNK` at a time rather than enumerated whole, because a bucket at any interesting horizon is millions of strings and only the chunk in flight need be resident; the swept order is the product's own either way. The two structural checks run here on the texts they can say anything about — a ZWNJ-free text has no ZWNJ slot to weigh and a splitter-free one is trivially identical to its own single segment — which is the whole of their coverage now that the standalone horizon-5 boundary pass has gone; the deep sweep takes them past this horizon on its own arming key."""
+    """One config's belt run: every string of length 1..max_length over the alphabet, shaped against the font and diffed against the settled stream, with split-buffer equivalence and gap-0 pen positions riding along. Configs share nothing, so this is the unit both the serial wrapper and the process-pool worker call. Settlement rides `_SettledWindowWalk`'s per-config memo, which is a speed device only — the sweep's verdict does not depend on which windows it has already seen. Each length's texts are streamed through the walk `TEXT_CHUNK` at a time rather than enumerated whole, because a bucket at any interesting horizon is millions of strings and only the chunk in flight need be resident; the swept order is the product's own either way. The one structural check runs here on the texts it can say anything about — a splitter-free text is trivially identical to its own single segment — which is the whole of its coverage now that the standalone horizon-5 boundary pass has gone; the deep sweep takes it past this horizon on its own arming key. The ZWNJ slot's own structure — zero advance, no ink — is read-back's static boundary-glyphs stage, proven off the font bytes once per build."""
     features = features_for_config(config)
     if guard_verdicts is None:
         guard_verdicts = kernel_exec.guard_sweep(spec)
@@ -1437,8 +1403,6 @@ def _conformance_config(
     def sweep_text(text: str, settled: list[Settled], names: list[str]) -> None:
         shaped = shaper.shape(text, features)
         result.shaping_runs += 1
-        if ZWNJ in text:
-            check_zwnj_structure(text, config, shaper, shaped, result.divergences)
         if set(text) & splitters:
             check_split_buffer(text, config, features, shaper, shaped, result.divergences, splitters)
         expected = isolated_overlay_names(spec, settled) if overlay else names

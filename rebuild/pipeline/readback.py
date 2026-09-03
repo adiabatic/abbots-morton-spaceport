@@ -1,6 +1,6 @@
 """Read-back verification: the font that was just written, re-parsed from its own bytes and structurally proven against the plan the emitters held in memory (issue #73).
 
-The build stage before this one hands feaLib a block of FEA text and gets an OTF back, and everything between those two — feaLib's parse, its lookup and subtable format choices, `pack_gsub`'s repack of the settlement lookup, fontTools' serialization, and the re-parse — is machinery no gate downstream reads structurally. `gate:conform` proves the font *shapes* what settlement says, through HarfBuzz, which is the behavioral claim and the one that matters; but it can only see what its sweep reaches, and it says nothing about a rule that is present and inert, a feature registered under the wrong tag, or a lookupFlag that skips a class nobody probed. This stage makes the transcription claim instead: every lookup's decompiled content equals what the emitter planned, every feature and script registration is the one the plan implies, the cross-feature LookupList order that pins application order on both shapers is the definition order the emitters chose, and every lookupFlag is zero. Zero divergences means the compiled font provably holds the rules the plan intended.
+The build stage before this one hands feaLib a block of FEA text and gets an OTF back, and everything between those two — feaLib's parse, its lookup and subtable format choices, `pack_gsub`'s repack of the settlement lookup, fontTools' serialization, and the re-parse — is machinery no gate downstream reads structurally. `gate:conform` proves the font *shapes* what settlement says, through HarfBuzz, which is the behavioral claim and the one that matters; but it can only see what its sweep reaches, and it says nothing about a rule that is present and inert, a feature registered under the wrong tag, or a lookupFlag that skips a class nobody probed. This stage makes the transcription claim instead: every lookup's decompiled content equals what the emitter planned, every feature and script registration is the one the plan implies, the cross-feature LookupList order that pins application order on both shapers is the definition order the emitters chose, and every lookupFlag is zero. The two glyphs a word boundary is made of are proven inert on the same bytes: no substituted position of any lookup admits `uni200C` or `space` — a format-2 class 0 resolved to the complement of its ClassDef, so a rule that reaches a slot through the unnamed class is visible here — `uni200C` is zero-advance in `hmtx`, and neither glyph draws an outline, so gate:conform's belt no longer has to weigh a ZWNJ slot per shaped text. Zero divergences means the compiled font provably holds the rules the plan intended.
 
 It is deliberately a transcription round-trip and nothing more. `pack_gsub`'s repack is proven here, over the written bytes, by decompiling the settlement lookup through `pack_gsub.per_glyph_sequences` and holding each input glyph's ordered rules to the plan the emitters held — the pass itself no longer replays its own output in memory. It predicts no cascade: it never asks what a buffer would do, never composes stages, never resolves which of two competing rules wins. Ordered rules are compared at the grain first-match-wins actually runs on (per input glyph for settlement, per lead glyph for formation), because rules that cannot share an input cannot compete and feaLib is free to regroup them — it picks whichever of the three chained-context subtable formats compiles smallest, so the guarded formation rides format 1 in a small font and format 3 in the shipped one, and the settlement lookup arrives packed into a format-2/format-3 mix. Shaping behavior stays gate:conform's.
 
@@ -20,6 +20,7 @@ from rebuild.pipeline.emit_gpos import CURS_HEIGHT_YS, Anchor, Registration
 from rebuild.pipeline.emit_gsub import GsubPlan, SettleRule
 
 MAX_DIVERGENCES = 50
+BOUNDARY_GLYPHS = ("uni200C", "space")
 SUBTABLE_OFFSET_HEADROOM_FLOOR = 16_384
 NO_REQUIRED_FEATURE = 0xFFFF
 
@@ -87,10 +88,11 @@ def _records_of(rule: Any) -> tuple[tuple[int, int], ...]:
     return tuple((record.SequenceIndex, record.LookupListIndex) for record in rule.SubstLookupRecord or [])
 
 
-def _class_sets(class_defs: Mapping[str, int]) -> dict[int, frozenset[str]]:
+def _class_sets(class_defs: Mapping[str, int], all_glyphs: frozenset[str]) -> dict[int, frozenset[str]]:
     by_class: dict[int, set[str]] = {}
     for glyph, klass in class_defs.items():
         by_class.setdefault(klass, set()).add(glyph)
+    by_class.setdefault(0, set()).update(all_glyphs - frozenset(class_defs))
     return {klass: frozenset(glyphs) for klass, glyphs in by_class.items()}
 
 
@@ -133,8 +135,8 @@ def _ligature_map(lookup: Any) -> dict[tuple[str, ...], str] | None:
     return formed
 
 
-def _chain_rows(lookup: Any) -> tuple[list[_ChainRow], list[str]]:
-    """Every chained-context rule the lookup expresses, in subtable order, across all three subtable formats — feaLib compiles each ruleset in whichever format is smallest, so a stage's shape on disk is not the shape its FEA was written in."""
+def _chain_rows(lookup: Any, all_glyphs: frozenset[str]) -> tuple[list[_ChainRow], list[str]]:
+    """Every chained-context rule the lookup expresses, in subtable order, across all three subtable formats — feaLib compiles each ruleset in whichever format is smallest, so a stage's shape on disk is not the shape its FEA was written in, and a format-2 class 0 resolves to its OpenType meaning, every glyph in the font's glyph order the ClassDef does not name, rather than to the empty set."""
     rows: list[_ChainRow] = []
     problems: list[str] = []
     for index, subtable in enumerate(_unwrapped(lookup)):
@@ -165,9 +167,9 @@ def _chain_rows(lookup: Any) -> tuple[list[_ChainRow], list[str]]:
                     )
         elif subtable_format == 2:
             covered = frozenset(subtable.Coverage.glyphs)
-            backtrack_sets = _class_sets(subtable.BacktrackClassDef.classDefs)
-            input_sets = _class_sets(subtable.InputClassDef.classDefs)
-            lookahead_sets = _class_sets(subtable.LookAheadClassDef.classDefs)
+            backtrack_sets = _class_sets(subtable.BacktrackClassDef.classDefs, all_glyphs)
+            input_sets = _class_sets(subtable.InputClassDef.classDefs, all_glyphs)
+            lookahead_sets = _class_sets(subtable.LookAheadClassDef.classDefs, all_glyphs)
             for input_class, class_set in enumerate(subtable.ChainSubClassSet or []):
                 if class_set is None:
                     continue
@@ -265,6 +267,75 @@ def _check_lookup_flags(table: Any, label: str, divergences: list[str]) -> int:
     return len(lookups)
 
 
+def _check_boundary_glyphs(
+    font: Any, lookups: list[Any], all_glyphs: frozenset[str], divergences: list[str]
+) -> dict:
+    """The two glyphs a word boundary is made of, proven inert on the bytes: no substituted position of any lookup admits `uni200C` or `space`, `uni200C` carries a zero advance in `hmtx`, and neither draws an outline. gate:conform's belt used to weigh the second half of that per shaped text, asserting a zero advance and no ink at every ZWNJ slot it shaped. The state is unreachable from a rune edit — every substituted position is minted from rune names by `emit_gsub`, and `compile_font` supplies both boundary glyphs inkless with `uni200C` zero-advance — so the only way a ZWNJ slot could gain ink or an advance is an emitter, packer, compiler or shaper edit, and every one of those lands in the written lookups or in `hmtx`/`CFF `, on the very parse this stage already makes."""
+    from fontTools.pens.boundsPen import BoundsPen
+
+    stage = "boundary glyphs"
+    boundary = set(BOUNDARY_GLYPHS)
+    positions = 0
+    for index, lookup in enumerate(lookups):
+        subtables = _unwrapped(lookup)
+        if subtables and type(subtables[0]).__name__ == "ChainContextSubst":
+            rows, problems = _chain_rows(lookup, all_glyphs)
+            for problem in problems:
+                divergences.append(f"{stage}: lookup {index} {problem}")
+            for row_index, row in enumerate(rows):
+                for sequence_index, _inner in row.records:
+                    positions += 1
+                    if sequence_index >= len(row.input):
+                        divergences.append(
+                            f"{stage}: lookup {index} row {row_index} substitutes sequence index {sequence_index} past its {len(row.input)} input slots"
+                        )
+                        continue
+                    hit = row.input[sequence_index] & boundary
+                    if hit:
+                        divergences.append(
+                            f"{stage}: lookup {index} row {row_index} substitutes input slot {sequence_index}, whose class admits {sorted(hit)}"
+                        )
+            continue
+        for position, subtable in enumerate(subtables):
+            kind = type(subtable).__name__
+            if kind == "SingleSubst":
+                positions += len(subtable.mapping)
+                hit = sorted(set(subtable.mapping) & boundary)
+                if hit:
+                    divergences.append(f"{stage}: lookup {index} substitutes {hit} itself")
+            elif kind == "LigatureSubst":
+                for first, ligatures in subtable.ligatures.items():
+                    for ligature in ligatures:
+                        sequence = (first, *ligature.Component)
+                        positions += 1
+                        hit = sorted(set(sequence) & boundary)
+                        if hit:
+                            divergences.append(
+                                f"{stage}: lookup {index} forms {' '.join(sequence)}, whose input admits {hit}"
+                            )
+            else:
+                divergences.append(
+                    f"{stage}: lookup {index} subtable {position} is {kind}, which no stage emits"
+                )
+    metrics: dict[str, Any] = {}
+    glyph_set = font.getGlyphSet()
+    for name in BOUNDARY_GLYPHS:
+        if name not in all_glyphs:
+            divergences.append(f"{stage}: the font carries no {name}")
+            metrics[name] = None
+            continue
+        advance = font["hmtx"][name][0]
+        pen = BoundsPen(glyph_set)
+        glyph_set[name].draw(pen)
+        inked = pen.bounds is not None
+        metrics[name] = {"advance": advance, "inked": inked}
+        if name == "uni200C" and advance:
+            divergences.append(f"{stage}: {name} carries an advance of {advance}, expected 0")
+        if inked:
+            divergences.append(f"{stage}: {name} draws ink over {pen.bounds}, expected an empty outline")
+    return {"substituted_positions": positions, **metrics}
+
+
 def _feature_indices(table: Any) -> dict[str, list[int]]:
     indices: dict[str, list[int]] = {}
     for record in table.FeatureList.FeatureRecord or []:
@@ -334,10 +405,12 @@ def _check_single_stage(stage: str, lookup: Any, expected: Mapping[str, str], di
     return len(mapping)
 
 
-def _check_guarded_formation(plan: GsubPlan, lookup: Any, lookups: list[Any], divergences: list[str]) -> int:
+def _check_guarded_formation(
+    plan: GsubPlan, lookup: Any, lookups: list[Any], all_glyphs: frozenset[str], divergences: list[str]
+) -> int:
     """The late-formation guard's rows as the font holds them: literal input slots, no backtrack, and either no substitution (an `ignore sub` guard row) or one at sequence index 0 resolving through the anonymous ligature lookup feaLib deduped the forming rows into."""
     stage = "formation guarded"
-    rows, problems = _chain_rows(lookup)
+    rows, problems = _chain_rows(lookup, all_glyphs)
     for problem in problems:
         divergences.append(f"{stage}: {problem}")
     got: list[Row] = []
@@ -399,10 +472,12 @@ def _check_plain_formation(plan: GsubPlan, lookup: Any, divergences: list[str]) 
     return len(formed)
 
 
-def _check_chokepoint(plan: GsubPlan, lookup: Any, lookups: list[Any], divergences: list[str]) -> int:
+def _check_chokepoint(
+    plan: GsubPlan, lookup: Any, lookups: list[Any], all_glyphs: frozenset[str], divergences: list[str]
+) -> int:
     """The ZWNJ chokepoint: one row that matches every entry-live raw glyph behind a ZWNJ and substitutes its locked twin, so nothing downstream of a word boundary can join leftward."""
     stage = "zwnj chokepoint"
-    rows, problems = _chain_rows(lookup)
+    rows, problems = _chain_rows(lookup, all_glyphs)
     for problem in problems:
         divergences.append(f"{stage}: {problem}")
     if len(rows) != 1:
@@ -491,12 +566,14 @@ def _check_settle(plan: GsubPlan, lookup: Any, lookups: list[Any], divergences: 
     return total, len(got)
 
 
-def _check_namer_dot(plan: GsubPlan, lookup: Any, lookups: list[Any], divergences: list[str]) -> int:
+def _check_namer_dot(
+    plan: GsubPlan, lookup: Any, lookups: list[Any], all_glyphs: frozenset[str], divergences: list[str]
+) -> int:
     """The namer-dot mini-calt: the ZWNJ guard row that keeps the dot from lowering across a word boundary, then the row that lowers it before a Short letter."""
     stage = "namer dot"
     assert plan.namer_dot_stage is not None
     dot, lowered, followers = plan.namer_dot_stage
-    rows, problems = _chain_rows(lookup)
+    rows, problems = _chain_rows(lookup, all_glyphs)
     for problem in problems:
         divergences.append(f"{stage}: {problem}")
     if len(rows) != 2:
@@ -595,12 +672,13 @@ def verify_font(
     plan: GsubPlan,
     cursive: Mapping[int, Mapping[str, Registration]],
 ) -> dict:
-    """Re-parse the font at `font_path` and compare every GSUB/GPOS registration, lookup order, lookupFlag and lookup body against the emitters' plan, and read the GSUB's uint16 offset budget off the raw table bytes in the same parse; returns the JSON-ready report `run_m1` writes to `readback_summary.json`. Divergences are collected, never raised."""
+    """Re-parse the font at `font_path` and compare every GSUB/GPOS registration, lookup order, lookupFlag and lookup body against the emitters' plan, prove the boundary glyphs inert (no substituted position admits `uni200C` or `space`, zero advance, no outline), and read the GSUB's uint16 offset budget off the raw table bytes in the same parse; returns the JSON-ready report `run_m1` writes to `readback_summary.json`. Divergences are collected, never raised."""
     from fontTools.ttLib import TTFont
 
     divergences: list[str] = []
     checked: dict[str, Any] = {}
     font = TTFont(str(font_path))
+    all_glyphs = frozenset(font.getGlyphOrder())
     try:
         if "GSUB" not in font:
             divergences.append("feature list: the font carries no GSUB table")
@@ -616,6 +694,7 @@ def verify_font(
             _check_script_list(gsub, "GSUB", divergences)
             checked["gsub_features"] = len(gsub.FeatureList.FeatureRecord or [])
             checked["gsub_lookups_flag_checked"] = _check_lookup_flags(gsub, "GSUB", divergences)
+            checked["boundary_glyphs"] = _check_boundary_glyphs(font, lookups, all_glyphs, divergences)
             indices = _check_feature_list(plan, gsub, divergences)
             if indices is not None:
                 stages = _check_definition_order(plan, indices, divergences)
@@ -638,11 +717,15 @@ def verify_font(
                     if lookup is None:
                         continue
                     if stage_name == "m1_formation_guarded":
-                        checked["guarded_rows"] = _check_guarded_formation(plan, lookup, lookups, divergences)
+                        checked["guarded_rows"] = _check_guarded_formation(
+                            plan, lookup, lookups, all_glyphs, divergences
+                        )
                     elif stage_name == "m1_formation":
                         checked["plain_ligatures"] = _check_plain_formation(plan, lookup, divergences)
                     elif stage_name == "m1_zwnj":
-                        checked["chokepoint_members"] = _check_chokepoint(plan, lookup, lookups, divergences)
+                        checked["chokepoint_members"] = _check_chokepoint(
+                            plan, lookup, lookups, all_glyphs, divergences
+                        )
                     elif stage_name == "m1_settle":
                         settle_rules, settle_inputs = _check_settle(plan, lookup, lookups, divergences)
                         checked["settle_rules"] = settle_rules
@@ -653,7 +736,9 @@ def verify_font(
                             "format3": formats.count(3),
                         }
                     elif stage_name == "m1_namer_dot_word_start":
-                        checked["namer_rows"] = _check_namer_dot(plan, lookup, lookups, divergences)
+                        checked["namer_rows"] = _check_namer_dot(
+                            plan, lookup, lookups, all_glyphs, divergences
+                        )
         if "GPOS" not in font:
             divergences.append("feature list: the font carries no GPOS table")
         else:
