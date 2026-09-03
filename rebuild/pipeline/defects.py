@@ -6,6 +6,8 @@ Table duck-typing: `tables_by_config` maps a feature configuration to either a `
 
 The extension-band check is deliberately coarse at M1 (which record applied is settlement's knowledge, not the treaty row's): per-record static sanity (`ok[0] <= by <= ok[1]`) is exact; per-seam, the summed extension is checked against the union of candidate bands on the pair's two runes at the seam's side and height — below every band is the error, above every band the flag.
 
+E-ANCHOR has one implementation, and it is here: `_check_anchors` holds every realized record's live, non-exempt sides against the drawing it actually ships, and `_check_parity_anchors` holds the `selectable: false` rows — which realize into no cell at all — against their stance's base drawing. A row's `x_off_convention` flag exempts that side alone; a `trim` adjustment exempts the side it trimmed. Like every gate in this module, E-ANCHOR is blessable by an `anchor:` signature through the allow channel: the flag is the authored exemption, the ledger the reviewed one.
+
 The dead-policy gate partitions unexercised records by scope: a record none of whose referencable families is a modeled rune is deferred-partner (reported, never failed); a record naming at least one modeled family that never fires is genuinely dead within the alphabet (warning, asserted empty or explained in the report). Exercised-ness is firing evidence: the settlement engine records the YAML provenance of every record that demonstrably fired while tabulating a configuration (refusals that killed a candidate, including inside the lookahead closure; unlocks that granted capability; row scopes that admitted a side; extends/contracts/prefers that shaped a committed cell), exposed as `DecisionTable.cited_provenance`; decision-rule and treaty-row provenance strings are unioned in for duck-typed tables.
 """
 
@@ -165,6 +167,26 @@ def _check_anchors(report: DefectReport, allow: frozenset[str], glyphs: Mapping[
                     f"{cell}: exit anchor x={record.exit[0]} but rightmost ink + 1 at y={y} is {span[1] + 1 if span else 'absent'}",
                     error=True,
                 )
+
+
+def _check_parity_anchors(report: DefectReport, allow: frozenset[str], spec: ResolvedSpec) -> None:
+    """The E-ANCHOR half `_check_anchors` cannot reach: a `selectable: false` entry row realizes into no cell — the crate never offers it to settlement — and its anchor reaches GPOS only as `GlyphRecord.entry_curs_only`, so the convention is held against the stance's base drawing here, the one place nothing else covers. Declared rows only: an unlock-synthesized row is always selectable."""
+    for rune_name, rune in spec.runes.items():
+        for stance in rune.stances.values():
+            for height, row in stance.surface.entries.items():
+                if row.selectable or row.x_off_convention:
+                    continue
+                y = spec.registry.heights[height]
+                span = geometry.ink_span(stance.bitmap.rows, stance.bitmap.y_offset, y)
+                if span is None or span[0] != row.x:
+                    _report(
+                        report,
+                        allow,
+                        "E-ANCHOR",
+                        f"anchor:{rune_name}.{stance.name}.en-{height}:parity",
+                        f"{rune_name}.{stance.name} entry {height} (selectable: false) anchor x={row.x} but leftmost ink at y={y} is {span[0] if span else 'absent'}",
+                        error=True,
+                    )
 
 
 def _check_treaties(
@@ -388,6 +410,7 @@ def run_gates(
     report = DefectReport()
     _check_dangle(report, allow, glyphs)
     _check_anchors(report, allow, glyphs)
+    _check_parity_anchors(report, allow, spec)
     _check_treaties(report, allow, spec, tables_by_config, glyphs)
     _check_dead_policy(report, spec, tables_by_config)
     report.notes.append(

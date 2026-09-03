@@ -12,11 +12,9 @@ import json
 import sys
 from pathlib import Path
 
-import yaml
-
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from rebuild.pipeline import compile_font, conform, defects, emit_gpos, emit_gsub, oracle, readback, surface
+from rebuild.pipeline import compile_font, conform, emit_gpos, emit_gsub, oracle, readback
 from rebuild.pipeline import run_m1
 from rebuild.pipeline.spec_load import (
     DEFAULT_REGISTRY_PATH,
@@ -42,15 +40,7 @@ def build_and_oracle(runes_dir: Path, out_dir: Path) -> dict:
     bare, twins, ss10_twins = run_m1.mint_raw_glyphs(spec)
     dots = run_m1.namer_dot_glyphs()
 
-    allow = frozenset(
-        entry["signature"] for entry in yaml.safe_load(run_m1.CONTACT_ALLOW_YAML.read_text()) or ()
-    )
-    anchor_issues = surface.check_anchor_conventions(spec)
-    defect_report = defects.run_gates(spec, tables, cell_glyphs, allow=allow)
-    for issue in anchor_issues:
-        defect_report.errors.append(
-            defects.Defect("E-ANCHOR", f"convention:{issue.path}", f"{issue.file}: {issue.message}")
-        )
+    defect_report = run_m1._run_defect_gates(spec, tables, cell_glyphs)
 
     gsub_plan = emit_gsub.emit_gsub(spec, tables, glyphs={**cell_glyphs, **bare}, ss10_twins=ss10_twins)
     gpos_fea = emit_gpos.emit_gpos({**cell_glyphs, **bare, **twins}, spec=spec)

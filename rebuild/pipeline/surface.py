@@ -1,4 +1,4 @@
-"""Cell enumeration and binding resolution (rebuild/M1-PLAN.md section 5, Group 1): declared rows ∪ {none} per side filtered by pairings/require/unlocks, explicit cells: bindings over side bindings over the base bitmap, per-cell anchor overrides, and the E-ANCHOR x-convention validator over resolved per-cell bitmaps.
+"""Cell enumeration and binding resolution (rebuild/M1-PLAN.md section 5, Group 1): declared rows ∪ {none} per side filtered by pairings/require/unlocks, explicit cells: bindings over side bindings over the base bitmap, and per-cell anchor overrides.
 
 Pairings constrain two-sided cells only; one-sided and isolated cells always exist unless require removes them (doc/rebuild-design.md section 3.2). A mid-word declined exit arrives as an `ex-bind-<bitmap>` adjustment from settlement and resolves to the withdrawal binding; the token-less exit-none cell is the boundary rendering, where the exit was never declined and the base drawing stands.
 """
@@ -8,7 +8,6 @@ from __future__ import annotations
 import warnings
 
 from rebuild.pipeline.model import (
-    Bitmap,
     CellId,
     CellPlan,
     Height,
@@ -17,7 +16,7 @@ from rebuild.pipeline.model import (
     SurfaceRow,
     Unlock,
 )
-from rebuild.pipeline.spec_load import SpecError, SpecIssue, SpecWarning
+from rebuild.pipeline.spec_load import SpecError, SpecWarning
 
 
 def _all_features(spec: ResolvedSpec) -> frozenset[str]:
@@ -223,9 +222,10 @@ def resolve_cell(spec: ResolvedSpec, cell: CellId) -> CellPlan:
         exit_stub=exit_row.stub if (explicit is None and exit_row is not None) else None,
         entry_curs_only=entry_curs_only,
         exit_ink_y=exit_row.ink_y if exit_row is not None else None,
-        x_off_convention=bool(
-            (entry_row is not None and entry_row.x_off_convention)
-            or (exit_row is not None and exit_row.x_off_convention)
+        convention_exempt=tuple(
+            side
+            for side, row in (("entry", entry_row), ("exit", exit_row))
+            if row is not None and row.x_off_convention
         ),
         safety_checks=safety_checks,
         unlock=unlock,
@@ -234,87 +234,6 @@ def resolve_cell(spec: ResolvedSpec, cell: CellId) -> CellPlan:
 
 def _ink_columns(row: str) -> list[int]:
     return [column for column, pixel in enumerate(row) if pixel == "#"]
-
-
-def resolved_cell_bitmap(spec: ResolvedSpec, plan: CellPlan) -> Bitmap:
-    """The cell's drawing with live-side stub arithmetic applied — sufficient for anchor-convention validation; geometry's realize() is the full version with extensions and binds."""
-    stance = spec.runes[plan.cell.rune].stances[plan.cell.stance]
-    base = stance.bitmaps[plan.bitmap] if plan.bitmap is not None else stance.bitmap
-    width = base.width
-    rows = [list(row.ljust(width)) for row in base.rows]
-    for stub, height in ((plan.entry_stub, plan.cell.entry), (plan.exit_stub, plan.cell.exit)):
-        if stub is None or height is None:
-            continue
-        y = spec.registry.heights[height]
-        index = len(rows) - 1 - (y - base.y_offset)
-        if not 0 <= index < len(rows):
-            continue
-        pixel = "#" if stub.inks_when == "joined" else " "
-        for column in stub.cols:
-            while column >= len(rows[index]):
-                rows[index].append(" ")
-            rows[index][column] = pixel
-    return Bitmap(rows=tuple("".join(row) for row in rows), y_offset=base.y_offset)
-
-
-def _convention_issue(
-    issues: list[SpecIssue], row: SurfaceRow, side: str, declared_x: int, expected: int | None, cell: CellId
-) -> None:
-    if expected is None:
-        message = f"E-ANCHOR: {cell} has no ink at the {side} height, so the anchor convention cannot hold"
-    elif expected == declared_x:
-        return
-    else:
-        message = (
-            f"E-ANCHOR: {cell} {side} anchor x={declared_x} drifts from the convention value {expected} "
-            f"(entry.x = min ink, exit.x = max ink + 1) and carries no x_off_convention flag"
-        )
-    provenance = row.provenance
-    issues.append(
-        SpecIssue(
-            provenance.file if provenance else "<unknown>", provenance.path if provenance else "", message
-        )
-    )
-
-
-def check_anchor_conventions(spec: ResolvedSpec) -> tuple[SpecIssue, ...]:
-    """The E-ANCHOR gate: every reachable cell's effective anchors against its resolved per-cell bitmap, plus the selectable: false GPOS-parity anchors against the base drawing."""
-    issues: list[SpecIssue] = []
-    every_feature = _all_features(spec)
-    for rune_name, rune_obj in spec.runes.items():
-        for stance_name, stance in rune_obj.stances.items():
-            entries, exits, _granted = effective_rows(spec, rune_name, stance_name, every_feature)
-            for height, row in entries.items():
-                if not row.selectable and not row.x_off_convention:
-                    ink = _ink_columns(stance.bitmap.row_for_y(spec.registry.heights[height]) or "")
-                    expected = min(ink) if ink else None
-                    _convention_issue(
-                        issues,
-                        row,
-                        "entry",
-                        row.x,
-                        expected,
-                        CellId(rune_name, stance_name, height, None, ()),
-                    )
-        for cell in enumerate_cells(spec, rune_name, every_feature):
-            plan = resolve_cell(spec, cell)
-            bitmap = resolved_cell_bitmap(spec, plan)
-            entries, exits, _granted = effective_rows(spec, cell.rune, cell.stance, every_feature)
-            if cell.entry is not None:
-                row = entries[cell.entry]
-                if not row.x_off_convention:
-                    assert plan.entry_x is not None
-                    ink = _ink_columns(bitmap.row_for_y(spec.registry.heights[cell.entry]) or "")
-                    _convention_issue(issues, row, "entry", plan.entry_x, min(ink) if ink else None, cell)
-            if cell.exit is not None:
-                row = exits[cell.exit]
-                if not row.x_off_convention:
-                    assert plan.exit_x is not None
-                    ink = _ink_columns(bitmap.row_for_y(spec.registry.heights[cell.exit]) or "")
-                    if not ink and plan.exit_ink_y is not None:
-                        ink = _ink_columns(bitmap.row_for_y(plan.exit_ink_y) or "")
-                    _convention_issue(issues, row, "exit", plan.exit_x, max(ink) + 1 if ink else None, cell)
-    return tuple(issues)
 
 
 def check_cell_bindings(spec: ResolvedSpec) -> None:

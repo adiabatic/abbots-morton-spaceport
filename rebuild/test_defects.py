@@ -1,12 +1,14 @@
 """Defect-gate tests over the fixture spec, with lightweight duck-typed decision/treaty tables standing in for Group 2's."""
 
+import textwrap
 from dataclasses import dataclass, field
 
 import pytest
 
-from rebuild.pipeline import defects, geometry
+from rebuild.pipeline import defects, geometry, surface
 from rebuild.pipeline.fixtures import mini_spec
 from rebuild.pipeline.model import CellId, CellPlan, GlyphRecord
+from rebuild.test_spec_load import load_tmp_spec
 
 
 @dataclass(frozen=True)
@@ -120,6 +122,81 @@ class TestAnchorConvention:
         cell, record = _realize(spec, "qsPea", "half", None, "x-height", exit_ink_y=6)
         report = defects.run_gates(spec, _tables(rules=[_cite_all_policy(spec)]), {cell: record})
         assert not [d for d in report.errors if d.code == "E-ANCHOR"]
+
+    def test_unselectable_entry_row_is_checked_against_the_base_drawing(self, tmp_path):
+        text = textwrap.dedent("""\
+            rune: qsIt
+            codepoint: 0xE670
+            ductus:
+              hapax: |
+                A vertical stroke.
+            stances:
+              hapax:
+                motion: hapax
+                bitmap: [" #", " #", " #", " #", " #", " #"]
+                surface:
+                  entries:
+                    baseline: {x: 1}
+                    x-height: {x: 0, selectable: false}
+                  exits:
+                    baseline: {x: 2, withdrawal: safe}
+            """)
+        spec = load_tmp_spec(tmp_path, {"qsIt": text})
+        report = defects.run_gates(spec, _tables(rules=[_cite_all_policy(spec)]), {})
+        errors = [d for d in report.errors if d.code == "E-ANCHOR"]
+        signature = "anchor:qsIt.hapax.en-x-height:parity"
+        assert [d.signature for d in errors] == [signature]
+
+        flagged = load_tmp_spec(
+            tmp_path,
+            {
+                "qsIt": text.replace(
+                    "{x: 0, selectable: false}", "{x: 0, selectable: false, x_off_convention: true}"
+                )
+            },
+        )
+        report = defects.run_gates(flagged, _tables(rules=[_cite_all_policy(flagged)]), {})
+        assert not [d for d in report.errors if d.code == "E-ANCHOR"]
+
+        report = defects.run_gates(
+            spec, _tables(rules=[_cite_all_policy(spec)]), {}, allow=frozenset({signature})
+        )
+        assert not report.errors
+        assert [d.signature for d in report.blessed] == [signature]
+
+    def test_x_off_convention_exempts_only_its_own_side(self, tmp_path):
+        template = textwrap.dedent("""\
+            rune: qsIt
+            codepoint: 0xE670
+            ductus:
+              hapax: |
+                A vertical stroke.
+            stances:
+              hapax:
+                motion: hapax
+                bitmap: [" #", " #", " #", " #", " #", " #"]
+                surface:
+                  entries:
+                    baseline: {ENTRY}
+                  exits:
+                    baseline: {EXIT}
+            """)
+        cell = CellId("qsIt", "hapax", "baseline", "baseline", ())
+        for entry_row, exit_row, exempt, drifting in (
+            ("x: 0, x_off_convention: true", "x: 3, withdrawal: safe", ("entry",), "exit"),
+            ("x: 0", "x: 3, withdrawal: safe, x_off_convention: true", ("exit",), "entry"),
+        ):
+            spec = load_tmp_spec(
+                tmp_path,
+                {"qsIt": template.replace("ENTRY", entry_row).replace("EXIT", exit_row)},
+            )
+            plan = surface.resolve_cell(spec, cell)
+            assert plan.convention_exempt == exempt
+            record = geometry.realize(spec, plan)
+            assert record.convention_exempt == exempt
+            report = defects.run_gates(spec, _tables(rules=[_cite_all_policy(spec)]), {plan.cell: record})
+            errors = [d for d in report.errors if d.code == "E-ANCHOR"]
+            assert [d.signature for d in errors] == [f"anchor:{record.name}:{drifting}"]
 
 
 class TestUnrealized:
