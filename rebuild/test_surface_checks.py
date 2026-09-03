@@ -4,14 +4,17 @@ These predicates used to be tests that swept the live shards once a validators l
 """
 
 import copy
+import gzip
 import json
 import shutil
+import warnings
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
-from rebuild.review import app_index, census, unit_index
-from rebuild.review.audit import UNMATCHED_CLASS, Unit
+from rebuild.review import app_index, census, drafts, unit_index
+from rebuild.review.audit import UNMATCHED_CLASS, Unit, load_workload
 from rebuild.review.build import (
     _check_output_files,
     _verification_sample,
@@ -22,9 +25,17 @@ from rebuild.review.build import (
     check_shards,
     check_unit,
 )
+from rebuild.review.drafts import DraftError, Drafter
+from rebuild.review.enrich import LETTERS, Enricher, _highlight, load_spec, load_subset_rows
+from rebuild.validation.rowmodel import Row
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 FIXTURES = REPO_ROOT / "rebuild" / "review" / "fixtures"
+MINI = FIXTURES / "mini"
+MINI_AUDIT = MINI / "audit.tsv"
+MINI_FONT = MINI / "M1.otf"
+# Enough of the bundle's windows for each shape the drafter tests ask for to be among them, and few enough that one settlement pass covers the slice.
+MINI_SLICE = 64
 SEAM_BEARER = "u-0004"
 SEAM_HOME = "u-0005"
 
@@ -70,53 +81,80 @@ def test_the_fixture_surface_passes_every_predicate():
 
 # --- the drafts a reviewer would act on -------------------------------------------------------
 
-
-def test_a_pin_that_does_not_parse_fails_the_build():
-    unit = _one()
-    unit["drafts"]["pin"]["syntax"] = "fail: Expected glyph token at pos 0"
-    _complaint(check_unit(unit), "drafts.pin.syntax")
+# A draft nobody could act on is refused where it is made rather than recorded as a `fail: …` value for a later re-read to reject, so these are `DraftError`s out of the drafter and not complaints out of `check_unit`. They are asserted over the frozen mini bundle — real windows, a real after font, a real settlement — because a drafter can only be wrong about a window it actually drafted.
 
 
-def test_a_pin_the_after_font_refutes_fails_the_build():
-    unit = _one()
-    unit["drafts"]["pin"]["semantics_after_font"] = "fail: seam mismatch at 0"
-    _complaint(check_unit(unit), "drafts.pin.semantics_after_font")
+@pytest.fixture(scope="module")
+def mini_enriched(mini_bundle):
+    """A slice of the bundle's windows, enriched under the spec they settled beneath. One slice serves every drafter test here: enrichment is the expensive half, and none of them cares which window it gets beyond the shape it asks for."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        spec = load_spec(mini_bundle.spec_root)
+    enricher = Enricher(spec, MINI, MINI_FONT, repo_root=REPO_ROOT)
+    workload = load_workload(MINI_AUDIT, mini_bundle.ledger, dict(LETTERS))
+    return enricher.enrich_many(workload.units[:MINI_SLICE])
 
 
-def test_a_policy_draft_that_the_rune_schema_rejects_fails_the_build():
-    unit = _one()
-    unit["drafts"]["policy"]["schema_valid"] = False
-    _complaint(check_unit(unit), "must validate against the rune schema")
+@pytest.fixture(scope="module")
+def mini_drafter():
+    return Drafter(MINI_FONT, repo_root=REPO_ROOT)
 
 
-def test_a_policy_draft_pointing_outside_the_three_keypaths_fails_the_build():
-    unit = _one()
-    unit["drafts"]["policy"]["keypath"] = "policy.resolve[+]"
-    _complaint(check_unit(unit), "drafts.policy.keypath")
+@pytest.fixture(scope="module")
+def joined_unit(mini_enriched):
+    """A window whose first after-seam is one a pin can assert either way, so a test can flip it and know the after font refutes the result."""
+    return next(unit for unit in mini_enriched if unit.after_seams[:1] in (("break",), ("y0",)))
 
 
-def test_a_policy_draft_naming_a_record_the_unit_never_saw_fails_the_build():
-    unit = _one()
-    unit["drafts"]["policy"]["names_provenance"] = ["glyph_data/runes/qsMay.yaml#/policy/refuse/9"]
-    _complaint(check_unit(unit), "names_provenance")
+@pytest.fixture(scope="module")
+def policy_unit(mini_enriched, mini_drafter):
+    return next(unit for unit in mini_enriched if mini_drafter.draft_policy(unit) is not None)
+
+
+def test_a_pin_the_after_font_refutes_is_never_drafted(mini_drafter, joined_unit):
+    """The pin the drafter would hand a reviewer to paste into the corpus, drafted from a real window and then from the same window with one seam asserted the other way: the first is what ships, and the second is refused rather than shipped with a recorded failure beside it."""
+    assert mini_drafter.draft_pin(joined_unit).semantics_after_font == "pass"
+    flipped = ("y0" if joined_unit.after_seams[0] == "break" else "break", *joined_unit.after_seams[1:])
+    with pytest.raises(DraftError) as raised:
+        mini_drafter.draft_pin(replace(joined_unit, after_seams=flipped))
+    assert "after font" in str(raised.value)
+
+
+def test_a_pin_that_does_not_parse_is_never_drafted(monkeypatch, mini_drafter, joined_unit):
+    monkeypatch.setattr(drafts, "expect_string", lambda *_args: "·Tea ~~~ ·Oy")
+    with pytest.raises(DraftError) as raised:
+        mini_drafter.draft_pin(joined_unit)
+    assert "does not parse" in str(raised.value)
+
+
+def test_a_policy_record_the_rune_schema_rejects_is_never_drafted(monkeypatch, mini_drafter, policy_unit):
+    """Which of the three checkers the branch table reaches depends on the window, so all three are made to refuse: what is under test is that a refused record raises rather than riding out as a schema_valid false."""
+    for name in ("_refuse_checker", "_prefer_checker", "_contract_checker"):
+        monkeypatch.setattr(getattr(mini_drafter, name), "check", lambda _record: ["boom"])
+    with pytest.raises(DraftError) as raised:
+        mini_drafter.draft_policy(policy_unit)
+    assert "rune schema" in str(raised.value)
+
+
+def test_an_any_of_candidate_that_does_not_parse_is_never_drafted(monkeypatch, mini_drafter, joined_unit):
+    """The before-behavior candidate is the one string in the any-of record nothing else checks — the pin covers the after behavior — so it is parsed where it is written."""
+    real = drafts.expect_string
+    calls: list[int] = []
+
+    def once_then_garbage(*args):
+        calls.append(1)
+        return real(*args) if len(calls) == 1 else "·Tea ~~~ ·Oy"
+
+    monkeypatch.setattr(drafts, "expect_string", once_then_garbage)
+    with pytest.raises(DraftError) as raised:
+        mini_drafter.draft_any_of(joined_unit)
+    assert "does not parse" in str(raised.value)
 
 
 def test_a_policy_draft_naming_a_file_that_is_not_in_the_repo_fails_the_build():
     manifest, shards = _surface()
     _unit(shards, "u-0000")["drafts"]["policy"]["file"] = "glyph_data/runes/qsNotAletter.yaml"
     _complaint(check_shards(manifest, shards, REPO_ROOT), "which is not a file in the repo")
-
-
-def test_repeated_any_of_candidates_fail_the_build():
-    unit = _one()
-    unit["drafts"]["any_of"]["candidates"] = ["·Tea+Oy", "·Tea+Oy"]
-    _complaint(check_unit(unit), "must not repeat a behavior")
-
-
-def test_an_any_of_candidate_that_does_not_parse_fails_the_build():
-    unit = _one()
-    unit["drafts"]["any_of"]["candidates"] = [unit["drafts"]["pin"]["expect"], "·Tea ~~~ ·Oy"]
-    _complaint(check_unit(unit), "does not parse")
 
 
 # --- the slim machine-approved shape ------------------------------------------------------------
@@ -422,6 +460,55 @@ def test_the_verification_sample_is_reproducible_and_bounded():
     assert first != _verification_sample(served, "a-different-stamp", 200)
     assert _verification_sample([], "an-environment-stamp") == []
     assert sorted(_verification_sample(served[:5], "an-environment-stamp", 200)) == served[:5]
+
+
+# --- what the emitters refuse to produce --------------------------------------------------------
+
+
+def test_a_highlight_rect_is_refused_where_the_pens_run_backwards():
+    """`x_min <= x_max <= advance_total` is a property of the pen positions the rect is read off, so it is held there: monotone pens can only make a well-formed rect, and pens that are not are a shaped run the enricher has no business drawing a band over."""
+    with pytest.raises(ValueError) as raised:
+        _highlight([0, 10, 5], [(0, 1), (1, 2)], 0, 1)
+    assert "non-decreasing" in str(raised.value)
+    assert _highlight([0, 5, 10], [(0, 1), (1, 2)], 0, 1) == {
+        "x_min": 0,
+        "x_max": 10,
+        "advance_total": 10,
+    }
+
+
+def _subset_table(path: Path, seams: tuple[str, ...]) -> Path:
+    row = Row(
+        codepoints=(0xE650, 0xE652),
+        glyphs=("qsPea", "qsTea"),
+        clusters=(0, 1),
+        seams=seams,
+        positions=((0, 0, 10), (0, 0, 12)),
+    )
+    with gzip.open(path, "wt", encoding="utf-8") as stream:
+        stream.write("# config: default\n")
+        stream.write(row.to_tsv() + "\n")
+    return path
+
+
+def test_a_baseline_row_outside_the_seam_vocabulary_is_refused_at_load(tmp_path):
+    """`SeamClassifier.classify` can name two heights at once, and a shard's `before.seams` cannot say that. The refusal belongs where the table is read — a compound token there is a bad input, and one config's table is read once per process rather than once per unit."""
+    clean = _subset_table(tmp_path / "baseline-clean.subset.tsv.gz", ("y0",))
+    assert list(load_subset_rows(clean)) == ["E650:E652"]
+    compound = _subset_table(tmp_path / "baseline-compound.subset.tsv.gz", ("y0+y5",))
+    with pytest.raises(ValueError) as raised:
+        load_subset_rows(compound)
+    assert "'y0+y5'" in str(raised.value)
+
+
+def test_a_served_unit_skips_check_unit_but_not_the_cross_unit_grain():
+    """What `served_ids` buys and what it must not: the per-unit predicates are the ones a served fragment's stamp already answers for, while the predicates that relate a unit to its shard and to its neighbors run over every unit on every build, served or not."""
+    manifest, shards = _surface()
+    _unit(shards, "u-0000")["drafts"]["pin"]["syntax"] = "fail: Expected glyph token at pos 0"
+    _complaint(check_shards(manifest, shards, REPO_ROOT), "drafts.pin.syntax")
+    assert check_shards(manifest, shards, REPO_ROOT, served_ids={"u-0000"}) == []
+    _unit(shards, "u-0000")["class"] = "a-class-of-its-own"
+    _complaint(check_shards(manifest, shards, REPO_ROOT, served_ids={"u-0000"}), "in shard")
 
 
 # --- the census projection ----------------------------------------------------------------------

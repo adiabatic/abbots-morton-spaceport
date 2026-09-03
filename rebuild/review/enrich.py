@@ -255,6 +255,31 @@ class EnrichedUnit:
     notation_tokens: tuple[str, ...] = ()
 
 
+_SEAM_TOKENS = ("break", "lig", "absent")
+
+
+def is_seam_token(token) -> bool:
+    """Whether a token is one the seam vocabulary admits: `break`, `lig`, `absent`, or `y` followed by a height. The compound tokens `SeamClassifier.classify` can emit when two heights join at once (`y0+y5`) are deliberately outside it — a shard's seams are single-height, and a baseline row carrying a compound one is a table the surface cannot describe."""
+    return isinstance(token, str) and (
+        token in _SEAM_TOKENS or (token.startswith("y") and token[1:].isdigit())
+    )
+
+
+def load_subset_rows(path: Path) -> dict[str, Row]:
+    """One baseline subset table keyed by colon-joined uppercase codepoints, with every row's seams held to `is_seam_token` as they are read. The vocabulary check belongs here rather than downstream on the emitted fragment: these rows are the sole source of a unit's `before.seams`, they are read once per config per process, and a table the classifier wrote a compound token into is a bad input rather than a bad fragment."""
+    table: dict[str, Row] = {}
+    for row in iter_rows(path):
+        codepoints = ":".join(f"{value:04X}" for value in row.codepoints)
+        for token in row.seams:
+            if not is_seam_token(token):
+                raise ValueError(
+                    f"{path}: the baseline row for {codepoints} carries the seam token {token!r}, which is "
+                    "not one of break/lig/absent/yN"
+                )
+        table[codepoints] = row
+    return table
+
+
 def _pen_positions(positions: tuple[tuple[int, int, int], ...]) -> list[int]:
     pens = [0]
     for _x, _y, advance in positions:
@@ -283,6 +308,8 @@ def _highlight(
     cp_start: int,
     cp_end: int,
 ) -> dict:
+    if any(later < earlier for earlier, later in zip(pens, pens[1:])):
+        raise ValueError(f"a highlight rect wants non-decreasing pen positions, got {pens}")
     first = _covering(spans, cp_start)
     last = _covering(spans, cp_end)
     return {"x_min": pens[first], "x_max": pens[last + 1], "advance_total": pens[-1]}
@@ -323,11 +350,7 @@ class Enricher:
     def subset_row(self, config: str, codepoints: str) -> Row | None:
         if config not in self._subset_rows:
             path = self.subset_dir / f"baseline-{config}.subset.tsv.gz"
-            table: dict[str, Row] = {}
-            if path.exists():
-                for row in iter_rows(path):
-                    table[":".join(f"{cp:04X}" for cp in row.codepoints)] = row
-            self._subset_rows[config] = table
+            self._subset_rows[config] = load_subset_rows(path) if path.exists() else {}
         return self._subset_rows[config].get(codepoints)
 
     def formed_spans(self, codepoint_values: tuple[int, ...]) -> list[tuple[int, int]]:

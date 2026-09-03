@@ -3,6 +3,7 @@
 None of that is a property of any glyph, so none of it needs the live build: the workload is the frozen mini-M1 bundle under rebuild/review/fixtures/mini/ — a thousand-odd real windows over four letters, their subset-table slices, and the after-font they were extracted with — and the whole module runs in the contracts lane at full width, each build costing seconds rather than the twelve-and-a-half a live subset-table parse cost before serving a workload that never read it. `fixtures/mini/regenerate.py` is how the bundle is refreshed; the key and cluster byte-contracts below are pinned separately over synthetic inputs.
 """
 
+import gzip
 import hashlib
 import json
 import re
@@ -13,7 +14,7 @@ from pathlib import Path
 import pytest
 
 from rebuild.pipeline import fixtures, kernel_exec
-from rebuild.review import unit_cache
+from rebuild.review import unit_cache, unit_index
 from rebuild.review.audit import AuditRow, Unit
 from rebuild.review.build import (
     SITE_BEFORE_FONT,
@@ -121,6 +122,43 @@ def test_incremental_rebuild_matches_a_from_scratch_build_after_an_edit(
     scratch = tmp_path / "scratch"
     _build(scratch, mini_bundle, audit_path=edited, jobs=1)
     assert _tree(incremental) == _tree(scratch)
+
+
+def _shard_paths(surface: Path) -> list[Path]:
+    manifest = json.loads((surface / "manifest.json").read_text(encoding="utf-8"))
+    return [surface / part for meta in manifest["classes"] for part in unit_index.class_shards(meta)]
+
+
+def test_a_fragment_whose_stamp_moved_is_not_served(base_surface, mini_bundle, tmp_path, capfd):
+    """The cache fetches a prior fragment by id, and the id alone says nothing about what is in the file. So the store records the stamp the fragment was emitted with and the build serves it only when the shard on disk still carries that stamp; a fragment edited underneath the store falls back to a fresh computation, which is what puts the correct bytes back."""
+    surface = _copy(base_surface, tmp_path)
+    path = next(path for path in _shard_paths(surface) if json.loads(path.read_text(encoding="utf-8")))
+    fragments = json.loads(path.read_text(encoding="utf-8"))
+    fragments[0]["content_key"] = "0" * 64
+    path.write_text(json.dumps(fragments), encoding="utf-8")
+    capfd.readouterr()
+    _build(surface, mini_bundle, jobs=1)
+    served, total = _served(capfd)
+    assert served == total - 1
+    assert _tree(surface) == _tree(base_surface)
+
+
+def test_a_store_whose_ink_deltas_moved_fails_the_verification_sample(base_surface, mini_bundle, tmp_path):
+    """The ink deltas sit outside the content key (they are a carry-presentation field), so the stamp cannot speak for them and the served-vs-recomputed sample compares them beside it. A store whose deltas no longer describe the fonts is exactly the drift that would otherwise ship silently."""
+    surface = _copy(base_surface, tmp_path)
+    path = unit_cache.store_path(surface)
+    with gzip.open(path, "rt", encoding="utf-8") as stream:
+        lines = stream.read().splitlines()
+    edited = [lines[0]]
+    for line in lines[1:]:
+        record = json.loads(line)
+        record["ink_deltas"] = {**record["ink_deltas"], "bogus": "d-000000000000"}
+        edited.append(json.dumps(record))
+    with gzip.open(path, "wt", encoding="utf-8") as stream:
+        stream.write("\n".join(edited) + "\n")
+    with pytest.raises(SystemExit) as raised:
+        _build(surface, mini_bundle, jobs=1)
+    assert "fresh recomputation" in str(raised.value)
 
 
 def test_corrupt_store_degrades_to_a_full_build(base_surface, mini_bundle, tmp_path, capfd):
@@ -317,6 +355,7 @@ def test_store_round_trip_and_invalidation(tmp_path):
         key="k1",
         prior_id="u-0001",
         prior_class="boundary-echo",
+        content_key="f" * 64,
         ink_identical=False,
         picture_identical=False,
         junior_equivalent=False,

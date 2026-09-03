@@ -194,7 +194,7 @@ def test_every_row_addresses_the_fragment_it_was_projected_from(fixture_surface)
 
 
 def test_the_slimmed_flags_are_absent_and_every_row_carries_an_integer_batch(fixture_surface):
-    """A row in this file is provably non-machine and non-exempt — `check_unit` enforces that a unit with any machine channel, or with `no_verdict`, carries a null batch — so the four flags are dropped rather than carried as four falses per unit. A reader finds them undefined, which is falsy, which is what `false` already meant."""
+    """A row in this file is provably non-machine and non-exempt — `check_unit` enforces that a unit with any machine channel, or with `no_verdict`, carries a null batch, on every unit a build computes and through the content-key stamp on every one it serves from the cache — so the four flags are dropped rather than carried as four falses per unit. A reader finds them undefined, which is falsy, which is what `false` already meant."""
     rows = app_index.load_rows(fixture_surface, app_index.APP_INDEX_NAME)
     assert rows
     for row in rows:
@@ -372,7 +372,7 @@ def test_a_build_writes_both_sidecars_over_its_own_shards(mini_surface):
 
 
 def test_a_builds_class_records_count_the_machine_channels_it_shipped(mini_surface):
-    """The app renders a machine fold's count and badge before it has any of the fold's units, so the split has to be in the manifest — and it has to agree with the shards, which is what `check_shards` holds it to on every build."""
+    """The app renders a machine fold's count and badge before it has any of the fold's units, so the split has to be in the manifest — and it has to agree with the shards, which is what `check_shards` holds it to on every build, over every unit it shipped rather than only the ones it computed."""
     manifest, shards = _surface_shards(mini_surface)
     for meta in manifest["classes"]:
         observed = {

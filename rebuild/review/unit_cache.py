@@ -24,7 +24,7 @@ from rebuild.review import unit_index
 from rebuild.review.audit import ACCEPTANCE_CONFIGS, AuditRow, Unit, parse_codepoints
 from rebuild.review.drafts import CORPUS_FILES
 
-STORE_FORMAT = "ams-review-unit-cache/2"
+STORE_FORMAT = "ams-review-unit-cache/3"
 STORE_NAME = "unit-cache.ndjson.gz"
 SIGNATURE_STORE_FORMAT = "ams-review-ink-signatures/1"
 SIGNATURE_STORE_NAME = "ink-signatures.tsv.gz"
@@ -257,11 +257,12 @@ class UnitKeyer:
 
 @dataclass
 class CachedUnit:
-    """One prior unit's reusable products: the identity needed to fetch its emitted fragment from the prior shards, plus the slim projection the parent's global reduces read."""
+    """One prior unit's reusable products: the identity needed to fetch its emitted fragment from the prior shards, plus the slim projection the parent's global reduces read. The record also carries the fragment's own `content_key` stamp — distinct from `key`, which is the content key over the unit's *inputs* — and a prior fragment is served only when the stamp on disk equals it, so what is fetched by id is proved to be the bytes this record describes."""
 
     key: str
     prior_id: str
     prior_class: str
+    content_key: str
     ink_identical: bool
     picture_identical: bool
     junior_equivalent: bool
@@ -279,6 +280,7 @@ class CachedUnit:
             "key": self.key,
             "id": self.prior_id,
             "class": self.prior_class,
+            "content_key": self.content_key,
             "ink_identical": self.ink_identical,
             "picture_identical": self.picture_identical,
             "junior_equivalent": self.junior_equivalent,
@@ -299,6 +301,7 @@ class CachedUnit:
             key=record["key"],
             prior_id=record["id"],
             prior_class=record["class"],
+            content_key=record["content_key"],
             ink_identical=record["ink_identical"],
             picture_identical=record["picture_identical"],
             junior_equivalent=record["junior_equivalent"],
