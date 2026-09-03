@@ -227,4 +227,6 @@ def test_small_extraction_is_deterministic(tmp_path):
     assert [row.codepoints for row in parsed[:47]] == [(cp,) for cp in alphabet.ALPHABET]
     assert (first_dir / "digests.tsv").exists()
     summary_path = extract.write_summary(first_dir)
-    assert summary_path.read_text(encoding="utf-8").startswith("# Baseline extraction summary")
+    summary = summary_path.read_text(encoding="utf-8")
+    assert summary.startswith("# Baseline extraction summary")
+    assert "Corpus pin replay" not in summary

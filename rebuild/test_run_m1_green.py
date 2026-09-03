@@ -203,6 +203,26 @@ def test_a_diverged_subset_stops_the_run_before_the_alias_check(monkeypatch):
     assert reached == []
 
 
+def test_a_font_provenance_refusal_stops_the_run_before_the_alias_check(monkeypatch):
+    """The proof that no stamp can carry, surfaced the same way: a source table whose header names a font other than the one on disk stops the run where the diverged subset stops it, because rows some other font shaped would make every oracle number wrong just as quietly."""
+    reached: list[str] = []
+
+    def ensure(repo_root):
+        raise run_m1.baseline_subset.BaselineProvenanceError(
+            "baseline-ss03.tsv.gz was extracted from another font"
+        )
+
+    monkeypatch.setattr(run_m1.baseline_subset, "ensure_fresh", ensure)
+    monkeypatch.setattr(
+        run_m1.oracle,
+        "unaliased_subset_names",
+        lambda subset_dir, alias_path: reached.append("aliases") or {},
+    )
+    with pytest.raises(SystemExit, match="another font"):
+        run_m1._run_pregate_guards()
+    assert reached == []
+
+
 def test_unmatched_oracle_rows_record_a_green_and_exit_zero(monkeypatch, tmp_path):
     """Unmatched oracle rows are the mid-migration steady state: they are verdict-gated on the review surface, never a failure of the build, so a run that holds them records its green and exits the way its gate judged."""
     store = tmp_path / "run-m1-green.json"

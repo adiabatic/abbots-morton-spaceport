@@ -1,4 +1,4 @@
-"""baseline_subset tests over synthetic tables: the row filter itself, the stamp-keyed freshness contract run_m1 leans on so a stale subset can never feed the oracle, the default-covered identity proof the refilter refuses to stamp around, and the names sidecar the alias check reads instead of the tables."""
+"""baseline_subset tests over synthetic tables: the row filter itself, the stamp-keyed freshness contract run_m1 leans on so a stale subset can never feed the oracle, the font-provenance proof that runs ahead of every freshness check so a rebuilt site font cannot ride a stamp that never moved, the default-covered identity proof the refilter refuses to stamp around, and the names sidecar the alias check reads instead of the tables."""
 
 import gzip
 import hashlib
@@ -8,10 +8,17 @@ import pytest
 
 from rebuild.pipeline import baseline_subset
 
+FONT_RELATIVE_PATH = "site/AbbotsMortonSpaceportSansSenior-Regular.otf"
+FONT_BYTES = b"not really an otf"
+FONT_SHA256 = hashlib.sha256(FONT_BYTES).hexdigest()
 
-def _write_table(path, rows):
+
+def _write_table(path, rows, *, font_sha256=None):
     with gzip.open(path, "wt", encoding="utf-8") as fh:
-        fh.write("# baseline-extractor v1\n# config: default\n")
+        fh.write(
+            f"# baseline-extract v1.0.0\n# font: {FONT_RELATIVE_PATH}\n"
+            f"# font_sha256: {font_sha256 or FONT_SHA256}\n# config: default\n"
+        )
         for row in rows:
             fh.write(row + "\n")
 
@@ -31,7 +38,7 @@ class TestFilterTable:
         assert result.kept == 2
         with gzip.open(destination, "rt", encoding="utf-8") as fh:
             content = fh.read()
-        assert content.startswith("# baseline-extractor v1\n# config: default\n")
+        assert content.startswith(f"# baseline-extract v1.0.0\n# font: {FONT_RELATIVE_PATH}\n")
         assert "E670\t" in content
         assert "E652:E670\t" in content
         assert "E657" not in content
@@ -70,6 +77,9 @@ def _seed_repo(tmp_path):
     out.mkdir(parents=True)
     _write_sources(out, SEED_ROWS)
     (out / "digests.tsv").write_text("config\trows\tsha256_uncompressed\ndefault\t2\tabc\n")
+    font = tmp_path / FONT_RELATIVE_PATH
+    font.parent.mkdir(parents=True)
+    font.write_bytes(FONT_BYTES)
     return tmp_path
 
 
@@ -185,6 +195,74 @@ class TestEnsureFresh:
         ):
             stamp.write_text(payload)
             assert baseline_subset.is_fresh(root) is False
+
+
+class TestFontProvenance:
+    """The claim the oracle's rows rest on and no stamp can carry: every source table was extracted from the site font on disk. The site font is `make all` output rather than a filter input, so rebuilding or re-extracting it moves no stamp key at all — which is why the proof runs on every ensure_fresh, ahead of the freshness check, rather than once per refilter."""
+
+    def test_matching_headers_prove_and_return_the_tables(self, tmp_path):
+        root = _seed_repo(tmp_path)
+        proven = baseline_subset.prove_font_provenance(root)
+        assert set(proven) == {
+            f"baseline-{config}.tsv.gz"
+            for config in (baseline_subset.IDENTITY_REFERENCE,) + baseline_subset.DEFAULT_COVERED_CONFIGS
+        }
+        assert set(proven.values()) == {FONT_SHA256}
+        assert baseline_subset.ensure_fresh(root) is True
+
+    def test_a_rewritten_site_font_refuses_before_any_freshness_check(self, tmp_path):
+        """A stamped-fresh tree with a rebuilt font underneath it: the tables still hash to what the stamp recorded, so is_fresh would wave them through — the refusal has to come from ahead of it, and must leave the stamp exactly as it found it."""
+        root = _seed_repo(tmp_path)
+        assert baseline_subset.ensure_fresh(root) is True
+        stamp = root / "rebuild" / "out" / "m1" / baseline_subset.STAMP_NAME
+        before = stamp.read_bytes()
+        rebuilt = b"a different font entirely"
+        (root / FONT_RELATIVE_PATH).write_bytes(rebuilt)
+        with pytest.raises(baseline_subset.BaselineProvenanceError) as error:
+            baseline_subset.ensure_fresh(root)
+        message = str(error.value)
+        assert "baseline-default.tsv.gz" in message
+        assert FONT_SHA256 in message
+        assert hashlib.sha256(rebuilt).hexdigest() in message
+        assert "rebuild.baseline.cli extract" in message
+        assert stamp.read_bytes() == before
+
+    def test_a_table_extracted_from_another_font_refuses_naming_it(self, tmp_path):
+        root = _seed_repo(tmp_path)
+        _write_table(root / "rebuild" / "out" / "baseline-ss04.tsv.gz", SEED_ROWS, font_sha256="f" * 64)
+        with pytest.raises(baseline_subset.BaselineProvenanceError) as error:
+            baseline_subset.ensure_fresh(root)
+        message = str(error.value)
+        assert "ss04" in message
+        assert "f" * 64 in message
+
+    def test_a_header_without_provenance_lines_refuses(self, tmp_path):
+        """A table from before the header contract: nothing in it says which font shaped its rows, which is a state to re-extract out of rather than one to guess at."""
+        root = _seed_repo(tmp_path)
+        with gzip.open(root / "rebuild" / "out" / "baseline-ss05.tsv.gz", "wt", encoding="utf-8") as fh:
+            fh.write("# config: default\n")
+            fh.write(SEED_ROWS[0] + "\n")
+        with pytest.raises(baseline_subset.BaselineProvenanceError) as error:
+            baseline_subset.prove_font_provenance(root)
+        message = str(error.value)
+        assert "baseline-ss05.tsv.gz" in message
+        assert "render_header" in message
+
+    def test_a_missing_site_font_refuses_naming_the_path(self, tmp_path):
+        root = _seed_repo(tmp_path)
+        (root / FONT_RELATIVE_PATH).unlink()
+        with pytest.raises(baseline_subset.BaselineProvenanceError) as error:
+            baseline_subset.ensure_fresh(root)
+        message = str(error.value)
+        assert FONT_RELATIVE_PATH in message
+        assert "make all" in message
+
+    def test_main_hand_run_proves_provenance_first(self, tmp_path, monkeypatch):
+        root = _seed_repo(tmp_path)
+        monkeypatch.setattr(baseline_subset, "REPO_ROOT", root)
+        (root / FONT_RELATIVE_PATH).write_bytes(b"rebuilt out from under the tables")
+        with pytest.raises(baseline_subset.BaselineProvenanceError):
+            baseline_subset.main()
 
 
 class TestDefaultCovered:

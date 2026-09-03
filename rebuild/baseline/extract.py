@@ -370,16 +370,6 @@ def write_summary(out_dir: Path, top_glyphs: int = 20) -> Path:
     else:
         lines.append("No digests found; run the extraction first.")
         lines.append("")
-    replay_path = out_dir / "replay-report.json"
-    lines.append("## Corpus pin replay")
-    lines.append("")
-    if replay_path.exists():
-        report = json.loads(replay_path.read_text(encoding="utf-8"))
-        for key, value in sorted(report.items()):
-            lines.append(f"- {key}: {value}")
-    else:
-        lines.append("Not run yet (`replay-report.json` absent).")
-    lines.append("")
     path = out_dir / "SUMMARY.md"
     path.write_text("\n".join(lines), encoding="utf-8")
     return path

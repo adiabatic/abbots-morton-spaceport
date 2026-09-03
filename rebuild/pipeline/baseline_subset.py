@@ -2,7 +2,7 @@
 
 Streams each `rebuild/out/baseline-<config>.tsv.gz` once via `rebuild.validation.rowmodel.open_table`, keeps rows whose codepoints are a subset of the M1 alphabet, and writes `rebuild/out/m1/baseline-<config>.subset.tsv.gz` preserving the header lines and the canonical (length, codepoints) row order. The same filter runs over `equivalence-triage.tsv` into `rebuild/out/m1/triage.subset.tsv`.
 
-Two claims about those tables are proven here rather than on every run that reads them, because a refilter is the only thing that can change either answer. The first is that every `DEFAULT_COVERED_CONFIGS` sub-table is row-identical to `IDENTITY_REFERENCE`'s: the acceptance gate covers ss06, ss07 and ss06+ss07 by running default alone, and that only holds while their filtered rows are the same rows. The digest each filter pass already folds over its kept data lines turns that proof into a comparison of hex strings — no second read of three 838k-row tables — and a mismatch raises `SubsetIdentityError` before the stamp is written, so a diverged configuration is never stamped fresh and the next run refilters into the same refusal rather than adjudicating against tables nobody proved. The second is the roster of old glyph names the kept rows carry: `refresh` writes it to `subset-names.json`, sorted and distinct per configuration, off the tokens the filter already splits — so the oracle's alias-completeness guard answers from a few thousand names instead of streaming ten million rows, on the `--gates-only` path as cheaply as on a full build.
+Two claims about those tables are proven here rather than on every run that reads them, because a refilter is the only thing that can change either answer. The first is that every `DEFAULT_COVERED_CONFIGS` sub-table is row-identical to `IDENTITY_REFERENCE`'s: the acceptance gate covers ss06, ss07 and ss06+ss07 by running default alone, and that only holds while their filtered rows are the same rows. The digest each filter pass already folds over its kept data lines turns that proof into a comparison of hex strings — no second read of three 838k-row tables — and a mismatch raises `SubsetIdentityError` before the stamp is written, so a diverged configuration is never stamped fresh and the next run refilters into the same refusal rather than adjudicating against tables nobody proved. The second is the roster of old glyph names the kept rows carry: `refresh` writes it to `subset-names.json`, sorted and distinct per configuration, off the tokens the filter already splits — so the oracle's alias-completeness guard answers from a few thousand names instead of streaming ten million rows, on the `--gates-only` path as cheaply as on a full build. A third claim rides the opposite schedule, proven on every `ensure_fresh` rather than once per refilter: that every source table was extracted from the site font on disk, its header's `font_sha256` weighed against the font the header itself names. `make all` rewrites that font outside every stamp this module keeps, so a rebuilt or re-extracted font moves no key a freshness check would notice, and only a proof that runs whether the tables read fresh or stale can keep the oracle from adjudicating against rows some other font shaped.
 
 run_m1 calls ensure_fresh() before its gates, so an M1_ALPHABET edit can never feed the oracle stale subset tables: subset_stamp.json records a key over the alphabet, the source tables, and this module, plus each output's content hash and the names sidecar's, and the refilter is skipped only when the key matches and the outputs on disk are exactly the stamped set with the stamped bytes — a truncated table, an edited table, a missing or edited sidecar, or an orphan left by a vanished source all read as stale, and refresh() prunes orphans. The alias map is deliberately outside the key even though the sidecar feeds the alias check: it is hand-edited far more often than the tables move, and folding it in would turn every alias edit into a full refilter of every configuration. Subset gzip members are written with mtime=0 so refiltering unchanged sources reproduces each table byte for byte.
 
@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from rebuild.pipeline import fingerprint
-from rebuild.validation.rowmodel import open_table
+from rebuild.validation.rowmodel import open_table, read_header
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 BASELINE_DIR = REPO_ROOT / "rebuild" / "out"
@@ -70,9 +70,15 @@ M1_ALPHABET = frozenset(
 
 _IDENTITY_REMEDY = "the acceptance gate covers it by running default alone, which holds only while the two filter to the same rows; if it has genuinely diverged, add it to ACCEPTANCE_CONFIGS in rebuild/pipeline/conform.py (what the ·Owe migration needs, BASELINE-PLAN section 5) and drop it from DEFAULT_COVERED_CONFIGS here"
 
+EXTRACT_REMEDY = "re-extract with `uv run python -m rebuild.baseline.cli extract --all --out rebuild/out` then `uv run python -m rebuild.baseline.cli summarize --out rebuild/out`, or rebuild the font the tables were extracted from (the header's git_sha names the commit it was built at; the site font is `make all` output)"
+
 
 class SubsetIdentityError(RuntimeError):
     """A DEFAULT_COVERED_CONFIGS sub-table that no longer matches the reference — raised before the stamp is written, so the refusal cannot be skipped by a freshness check."""
+
+
+class BaselineProvenanceError(RuntimeError):
+    """A source baseline table whose header names a font other than the one on disk — raised before any freshness check, so a re-extracted or rebuilt site font can never feed the oracle rows shaped by a different font."""
 
 
 @dataclass(frozen=True)
@@ -259,8 +265,38 @@ def is_fresh(repo_root: Path = REPO_ROOT) -> bool:
     return True
 
 
+def prove_font_provenance(repo_root: Path = REPO_ROOT) -> dict[str, str]:
+    """Every `rebuild/out/baseline-*.tsv.gz` header's recorded `font_sha256` weighed against the font that same header names, returned as `{table name: font_sha256}` for the tables proven. A baseline row is a pure function of the font bytes, the alphabet and the extractor code: the header's `alphabet_sha256` pins the second and rebuild/test_extractor.py's determinism and header tests pin the third, so this is what pins the first, and it is why no stage re-shapes a table row to check it. Twelve gzip headers and one hash of a half-megabyte font cost milliseconds, which is what lets it run on every call rather than ride a stamp. An empty tree proves nothing and refuses nothing — the no-tables case is `_prove_default_covered`'s to refuse, downstream."""
+    baseline_dir, _ = _dirs(repo_root)
+    proven: dict[str, str] = {}
+    live_digests: dict[Path, str] = {}
+    for source in sorted(baseline_dir.glob("baseline-*.tsv.gz")):
+        header = read_header(source)
+        font_relative = header.get("font")
+        recorded = header.get("font_sha256")
+        if not font_relative or not recorded:
+            raise BaselineProvenanceError(
+                f"{source.name} carries no '# font:' / '# font_sha256:' header pair, so nothing says which font shaped its rows — it predates the header contract rebuild/baseline/model.render_header writes, so {EXTRACT_REMEDY}"
+            )
+        font_path = Path(repo_root) / font_relative
+        if font_path not in live_digests:
+            if not font_path.is_file():
+                raise BaselineProvenanceError(
+                    f"{source.name} was extracted from {font_relative}, which is not on disk at {font_path} — the site font is gitignored `make all` output, so run `make all` before adjudicating against these tables, or {EXTRACT_REMEDY}"
+                )
+            live_digests[font_path] = fingerprint.file_sha256(font_path)
+        live = live_digests[font_path]
+        if live != recorded:
+            raise BaselineProvenanceError(
+                f"{source.name} was extracted from a {font_relative} that hashed to {recorded}, but the {font_relative} on disk now hashes to {live} — its rows are not the rows this font shapes, so {EXTRACT_REMEDY}"
+            )
+        proven[source.name] = recorded
+    return proven
+
+
 def ensure_fresh(repo_root: Path = REPO_ROOT) -> bool:
-    """run_m1's pre-gate guard: refilter when stale, no-op when fresh. Returns whether a refilter ran, and raises SubsetIdentityError when the refilter finds a default-covered configuration that has diverged."""
+    """run_m1's pre-gate guard: prove the source tables' font provenance, then refilter when stale and no-op when fresh. Returns whether a refilter ran, raises BaselineProvenanceError when a source table's header names a font other than the one on disk, and raises SubsetIdentityError when the refilter finds a default-covered configuration that has diverged. The provenance proof runs first and on every call, fresh or stale, because the site font is `make all` output rather than an input to the filter: it can be rebuilt or re-extracted under a stamp key that never moves, so a proof that rode the stamp would be a proof that never ran again."""
+    prove_font_provenance(repo_root)
     if is_fresh(repo_root):
         return False
     refresh(repo_root)
@@ -268,6 +304,7 @@ def ensure_fresh(repo_root: Path = REPO_ROOT) -> bool:
 
 
 def main() -> None:
+    prove_font_provenance(REPO_ROOT)
     refresh(REPO_ROOT)
 
 

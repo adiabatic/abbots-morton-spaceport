@@ -621,11 +621,11 @@ def _failed_check(check: str, message: str) -> CheckVerdict:
 
 
 def _run_pregate_guards() -> None:
-    """The two guards that run before anything is adjudicated, on the build path and on the `--gates-only` path alike: the subset baselines refiltered when they no longer describe the sources on disk, and every old glyph name in those subsets carrying an alias. Both belong to the oracle rather than to the build — an unaliased name makes every oracle number quietly wrong — so a pass that re-runs the oracle over a build it did not make has to run them exactly as the pass that built does. The ss06/ss07/ss06+ss07 identity is proven inside that refilter rather than here, since only a refilter can change the answer; a diverged configuration is never stamped fresh, so the refusal it raises surfaces as this guard's refusal on every run until it is dealt with."""
+    """The three things proven before anything is adjudicated, on the build path and on the `--gates-only` path alike: every source baseline table shaped by the site font on disk (its header's font_sha256 weighed against the font that header names, which `baseline_subset.ensure_fresh` does on every call because `make all` rewrites that font under a stamp key that never moves), the subset baselines refiltered when they no longer describe the sources on disk, and every old glyph name in those subsets carrying an alias. All three belong to the oracle rather than to the build — rows some other font shaped and an unaliased name each make every oracle number quietly wrong — so a pass that re-runs the oracle over a build it did not make has to run them exactly as the pass that built does. The ss06/ss07/ss06+ss07 identity is proven inside that refilter rather than here, since only a refilter can change the answer; a diverged configuration is never stamped fresh, so the refusal it raises surfaces as this guard's refusal on every run until it is dealt with."""
     start = time.perf_counter()
     try:
         refiltered = baseline_subset.ensure_fresh(REPO_ROOT)
-    except baseline_subset.SubsetIdentityError as error:
+    except (baseline_subset.SubsetIdentityError, baseline_subset.BaselineProvenanceError) as error:
         raise SystemExit(str(error)) from error
     print(
         f"[t] baseline_subset {time.perf_counter() - start:.1f}s ({'refiltered' if refiltered else 'fresh'})",
