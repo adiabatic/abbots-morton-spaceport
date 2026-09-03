@@ -1687,7 +1687,7 @@ def check_manifest(manifest: dict) -> list[str]:
         isinstance(inputs, dict)
         and set(inputs) == set(fingerprint.COMPONENTS)
         and all(value is None or isinstance(value, str) for value in inputs.values()),
-        "inputs_fingerprint must map the six input components to hashes or null",
+        f"inputs_fingerprint must map exactly the input components ({', '.join(fingerprint.COMPONENTS)}) to hashes or null",
     )
     need(
         isinstance(manifest.get("configs"), list) and manifest.get("configs"),

@@ -14,7 +14,15 @@ from rebuild.review.status import (
 
 STAMP = "2026-07-17T20:24:44Z"
 OTHER_STAMP = "2026-07-10T00:00:00Z"
-FP = {"data": "d", "baselines": "b", "pipeline_code": "p", "review_code": "r", "static": "s", "fonts": "f"}
+FP = {
+    "data": "d",
+    "baselines": "b",
+    "pipeline_code": "p",
+    "review_code": "r",
+    "static": "s",
+    "fonts": "f",
+    "explain_prose": "e",
+}
 
 DEFAULT_CLASSES = [
     {"id": "class-a", "shards": ["units/class-a.json"], "status": "reviewed-approved"},
@@ -161,6 +169,19 @@ def test_data_stale_fails_with_artifact_cycle_remedy(tmp_path):
     assert freshness["components"]["static"] == "fresh"
     assert freshness["remedy"] == "make artifact-cycle"
     assert "data" in freshness["detail"]
+
+
+def test_explain_prose_stale_fails_like_any_other_hard_component(tmp_path):
+    """The component the refuse prose rides is hard, not a warning: the surface serves that wording as a unit's explain text, so a surface stamped before the rewording is showing a sentence the runes no longer say. Only `static` is soft, and this is not it."""
+    write_surface(tmp_path / "rebuild" / "out" / "review", inputs_fp={**FP, "explain_prose": "OLD"})
+    write_summary(tmp_path, inputs_fp={**FP, "explain_prose": "OLD"})
+    write_autosave(tmp_path)
+    freshness = call(tmp_path)["checks"]["freshness"]
+    assert freshness["level"] == "fail"
+    assert freshness["components"]["explain_prose"] == "stale"
+    assert freshness["components"]["static"] == "fresh"
+    assert freshness["remedy"] == "make artifact-cycle"
+    assert "explain_prose" in freshness["detail"]
 
 
 def test_static_only_stale_warns_with_review_build_remedy(tmp_path):

@@ -1,10 +1,11 @@
-"""Decision-table and treaty-table tests over the real M1 fixture spec, built through the crate (`kernel_exec.build_tables`): the enumeration's shape, rule-ordering discipline, joint flagging, configuration identities, the deep-class collapse, and diff-stable TSV output. Every table here is the crate's answer and every check is this side's own reading of it — `replay` below is the independent first-match-wins statement the fold's own `assert_outcome_partition` cannot make about itself. The claims that need the enumerated grain the artifacts drop, or a fold to perturb, are the crate's tests: `fold::tests::the_reduced_replay_catches_what_the_whole_table_replay_catches`, `the_prospect_pass_raises_joints_and_clears_none`, `treaty_rows_tying_on_the_triple_are_ordered_by_the_whole_row`, `a_rule_that_splits_a_deep_class_is_refused` and the E-STRANDED and cell-disagreement refusals beside them. The two deep-slot classes below run over synthetic ·Tea chains that `tea_chain_spec` hangs on the mini spec, since the fixture deliberately carries no chain of its own, and the live alphabet's own chain records are proven at every table build in the crate rather than here."""
+"""Decision-table and treaty-table tests over the real M1 fixture spec, built through the crate (`kernel_exec.build_tables`): the enumeration's shape, rule-ordering discipline, joint flagging, configuration identities, the deep-class collapse, diff-stable TSV output, and the blindness of the whole product to the one rune prose the crate quotes — a refusal's `why`, which reaches the explain ladder and no table. Every table here is the crate's answer and every check is this side's own reading of it — `replay` below is the independent first-match-wins statement the fold's own `assert_outcome_partition` cannot make about itself. The claims that need the enumerated grain the artifacts drop, or a fold to perturb, are the crate's tests: `fold::tests::the_reduced_replay_catches_what_the_whole_table_replay_catches`, `the_prospect_pass_raises_joints_and_clears_none`, `treaty_rows_tying_on_the_triple_are_ordered_by_the_whole_row`, `a_rule_that_splits_a_deep_class_is_refused` and the E-STRANDED and cell-disagreement refusals beside them. The two deep-slot classes below run over synthetic ·Tea chains that `tea_chain_spec` hangs on the mini spec, since the fixture deliberately carries no chain of its own, and the live alphabet's own chain records are proven at every table build in the crate rather than here."""
 
 import dataclasses
 
 import pytest
 
 from rebuild.pipeline import fixtures, kernel_exec, model, table
+from rebuild.pipeline.explain import explain_many, parse_sequence
 from rebuild.pipeline.kernel_exec import build_tables
 from rebuild.pipeline.table import (
     BOUNDARY_LOOKAHEAD_CLASS,
@@ -645,3 +646,53 @@ class TestDeepClasses:
         assert checked3
         if expect_r4:
             assert checked4, "the fixture stopped minting r4 classes, so the r4 arm never ran"
+
+
+REFUSE_WHY_MARKER = "Two adjacent verticals"
+REWORDED_WHY = "Two adjacent verticals joined at the baseline blot into one fat stroke."
+REFUSAL_WINDOW = "qsSee:qsIt:qsIt"
+
+
+def refuse_reworded_spec(spec, rune_name, marker):
+    """The mini spec with one refuse record's `why` rewritten and nothing else touched, rebuilt the way `tea_chain_spec` rebuilds a policy — the record, the policy, the rune, the spec. ·It's own "adjacent verticals" refusal is the one used, because it is a mini refusal that demonstrably fires on a window this suite can settle."""
+    rune = spec.runes[rune_name]
+    refuse = tuple(
+        dataclasses.replace(record, why=REWORDED_WHY) if (record.why or "").startswith(marker) else record
+        for record in rune.policy.refuse
+    )
+    assert any(record.why == REWORDED_WHY for record in refuse), f"{rune_name} lost its {marker!r} refusal"
+    runes = dict(spec.runes)
+    runes[rune_name] = dataclasses.replace(rune, policy=dataclasses.replace(rune.policy, refuse=refuse))
+    return dataclasses.replace(spec, runes=runes)
+
+
+def refusal_sentences(spec, window):
+    report = explain_many(spec, [(parse_sequence(spec, window), frozenset())])[0]
+    return [
+        elimination.description
+        for position in report.positions
+        for elimination in position.trace.eliminations
+        if elimination.stage == "refuse"
+    ]
+
+
+def test_a_refuse_why_rewording_leaves_the_tables_byte_identical_and_reaches_the_explain(tmp_path):
+    """The machine-checked half of the claim `fingerprint.rune_file_digest` makes by dropping a refusal's `why`: the crate reads that prose only when it is building an explain ladder, so rewording one cannot move a table the fixpoint produces — not a decision row, not a treaty row, not the differential digest that covers the provenance and the guards too — while the elimination sentence the review surface serves says the new words and no longer says the old ones. Byte identity is the assertion rather than digest equality alone, since the artifacts are what a stamp claims to describe."""
+    spec = fixtures.mini_spec()
+    reworded = refuse_reworded_spec(spec, "qsIt", REFUSE_WHY_MARKER)
+    tables = {"before": build_tables(spec, frozenset()), "after": build_tables(reworded, frozenset())}
+    for name, (decision, treaty) in tables.items():
+        decision.write_tsv(tmp_path / f"{name}-decision.tsv")
+        treaty.write_tsv(tmp_path / f"{name}-treaty.tsv")
+    for artifact in ("decision", "treaty"):
+        assert (tmp_path / f"before-{artifact}.tsv").read_bytes() == (
+            tmp_path / f"after-{artifact}.tsv"
+        ).read_bytes()
+    assert table.table_digest(*tables["before"]) == table.table_digest(*tables["after"])
+
+    original = refusal_sentences(spec, REFUSAL_WINDOW)
+    assert any("extra-thick stroke" in sentence for sentence in original)
+    assert not any(REWORDED_WHY in sentence for sentence in original)
+    after = refusal_sentences(reworded, REFUSAL_WINDOW)
+    assert any(REWORDED_WHY in sentence for sentence in after)
+    assert not any("extra-thick stroke" in sentence for sentence in after)

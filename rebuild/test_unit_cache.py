@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from rebuild.pipeline import fixtures, kernel_exec
+from rebuild.pipeline import fixtures, kernel_exec, spec_load
 from rebuild.review import unit_cache, unit_index
 from rebuild.review.audit import AuditRow, Unit
 from rebuild.review.build import (
@@ -254,6 +254,37 @@ def test_unit_store_environment_ignores_the_contact_allow_list(tmp_path):
     assert stamp() == base
     registry.write_text("alphabet: [edited]\n", encoding="utf-8")
     assert stamp() != base
+
+
+REFUSE_RUNE = """\
+rune: qsPea
+policy:
+  refuse:
+  - {exit: baseline, why: two verticals render thick}
+"""
+
+
+def test_a_refuse_why_edit_moves_only_that_family_key(tmp_path):
+    """The grain the quoted prose invalidates at. A refusal's `why` is quoted into the explain text a unit serves, so rewording one has to re-enrich the windows that show it — but only those: the families whose keys move are the reworded rune and whatever reaches it through `resolve.against`, and the whole-store stamp does not move at all, so nothing outside those windows is rebuilt. A hand-built root rather than the repo's, so the edit is a real one and the fixture spec supplies the closure."""
+    spec = fixtures.mini_spec()
+    runes = tmp_path / "glyph_data" / "runes"
+    runes.mkdir(parents=True)
+    (runes / "qsTea.yaml").write_text("rune: qsTea\n", encoding="utf-8")
+    (runes / "qsPea.yaml").write_text(REFUSE_RUNE, encoding="utf-8")
+
+    def stamp():
+        return unit_cache.environment_stamp(tmp_path, spec, MINI, MINI_FONT, MINI_FONT, "after-helpers")
+
+    before, _ = unit_cache.family_content_keys(tmp_path, spec, MINI_FONT)
+    before_stamp = stamp()
+    (runes / "qsPea.yaml").write_text(REFUSE_RUNE.replace("render thick", "render thin"), encoding="utf-8")
+    after, _ = unit_cache.family_content_keys(tmp_path, spec, MINI_FONT)
+    assert set(after) == set(before)
+    moved = {name for name in before if after[name] != before[name]}
+    assert "qsPea" in moved
+    closure = spec_load.rune_closure(spec)
+    assert all(name == "qsPea" or "qsPea" in closure.get(name, frozenset()) for name in moved)
+    assert stamp() == before_stamp
 
 
 # --- the key and cluster byte-contracts ------------------------------------------------
