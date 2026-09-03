@@ -1,23 +1,94 @@
-"""Both serializations at the kernel boundary. The resolved-spec dump is the leg the Rust settlement kernel will read a spec through — value round trip, canonical fixpoint, the collection order the dump promises to preserve, and the loud refusals that keep a wrong dump from parsing as a partial one; both specs are exercised there, the mini fixture for reach into hand-built corners and the live alphabet because that is the tree the port actually carries. The transition stream is the return leg, and its test is the round trip stated over the product's own values: write a fixpoint product, parse it back, and get a value equal to the one written, field for field and row for row, with the wire layout pinned against the raw bytes beside it. It used to be stated one step further on — parse a stream, fold it, and compare the tables — but the fold is the crate's now, so the tables a stream folds into are not something this side can produce, and equality of the product is the stronger half of what that proved anyway. The stream runs on the mini spec alone, because what it proves is a property of the format rather than of any one alphabet."""
+"""Both serializations at the kernel boundary. The resolved-spec dump is the leg the Rust settlement kernel reads a spec through — value round trip, canonical fixpoint, the collection order the dump promises to preserve, and the loud refusals that keep a wrong dump from parsing as a partial one. All of that is stated over the mini fixture alone, widened in place by `_reaching_mini` until the encoder meets every shape it meets on the live alphabet, which is exactly what `TestTheMiniReachesEveryShapeTheLiveDumpDoes` holds true as `model.py` grows. The live alphabet appears once, in the claim no fixture can stand in for: the dump goes out through the crate's own `spec-echo` and the bytes have to come back identical, which is where a Rust model lagging a `model.py` change surfaces. The transition stream is the return leg, and its test is the round trip stated over the product's own values: write a fixpoint product, parse it back, and get a value equal to the one written, field for field and row for row, with the wire layout pinned against the raw bytes beside it. It used to be stated one step further on — parse a stream, fold it, and compare the tables — but the fold is the crate's now, so the tables a stream folds into are not something this side can produce, and equality of the product is the stronger half of what that proved anyway. The stream runs on the mini spec alone, because what it proves is a property of the format rather than of any one alphabet."""
 
 import dataclasses
 import gzip
 import json
+import warnings
 
 import pytest
 
-from rebuild.pipeline import fixtures, kernel_io, spec_load
+from rebuild.pipeline import fixtures, kernel_exec, kernel_io, spec_load
 from rebuild.pipeline import table as table_module
 from rebuild.pipeline.kernel_exec import enumerate_transitions
-from rebuild.pipeline.model import ResolvedSpec, Rune, SurfaceRow
+from rebuild.pipeline.model import (
+    Bitmap,
+    Condition,
+    Pairing,
+    PolicyRecord,
+    ResolvedSpec,
+    Rune,
+    SurfaceRow,
+    Unlock,
+    When,
+)
 
 MINI = fixtures.mini_spec()
 CONFIGS = {"default": frozenset(), "ss03": frozenset({"ss03"}), "ss04": frozenset({"ss04"})}
+CONTEXT = 48
 
 
-@pytest.fixture(scope="module", params=["mini", "live"])
-def spec(request) -> ResolvedSpec:
-    return fixtures.mini_spec() if request.param == "mini" else spec_load.load_default_spec()
+def _reaching_mini() -> ResolvedSpec:
+    """The mini fixture plus the three encoder shapes only the live alphabet used to reach: a populated `Bitmap | None` (`Rune.mono`), a `When | None` left None (an unconditional `Unlock`, mirroring live `qsIt.hapax`'s ss04 pairing unlock), and a populated `tuple[str, str | None]` (a resolve's `against`, mirroring live `qsTea_qsOy`'s). The widening lives here rather than in `fixtures.mini_spec` because an unconditional unlock and a resolve record are settlement-bearing: they would move every mini-built table and every settle test, where here they only ride a dump nothing settles."""
+    spec = fixtures.mini_spec()
+    runes = dict(spec.runes)
+    it = runes["qsIt"]
+    hapax = it.stances["hapax"]
+    surface = dataclasses.replace(
+        hapax.surface,
+        unlocks=(
+            *hapax.surface.unlocks,
+            Unlock(feature="ss04", pairing=Pairing("baseline", "baseline")),
+        ),
+    )
+    runes["qsIt"] = dataclasses.replace(
+        it,
+        mono=Bitmap(("#",) * 6),
+        stances={**it.stances, "hapax": dataclasses.replace(hapax, surface=surface)},
+    )
+    tea_oy = runes["qsTea_qsOy"]
+    runes["qsTea_qsOy"] = dataclasses.replace(
+        tea_oy,
+        policy=dataclasses.replace(
+            tea_oy.policy,
+            resolve=(
+                PolicyRecord(
+                    kind="resolve",
+                    against=("qsIt", "withhold-before-no-after-oy"),
+                    when=When(right=Condition(family=("qsIt",), then=Condition(family=("qsDay",)))),
+                    pick={"exit": "baseline"},
+                ),
+            ),
+        ),
+    )
+    return dataclasses.replace(spec, runes=runes)
+
+
+SPEC = _reaching_mini()
+
+
+def _first_difference(written: bytes, echoed: bytes) -> str:
+    """Where two byte strings first disagree and what each has there — the offset of the first differing byte, or the length of the shorter one when the disagreement is that one ran out, with both sides' surrounding context spelled out."""
+    shared = min(len(written), len(echoed))
+    offset = next((index for index in range(shared) if written[index] != echoed[index]), shared)
+    start = max(0, offset - CONTEXT)
+    stop = offset + CONTEXT
+    return (
+        f"first difference at byte {offset} of {len(written)} written, {len(echoed)} echoed\n"
+        f"  python[{start}:{stop}] {written[start:stop]!r}\n"
+        f"  kernel[{start}:{stop}] {echoed[start:stop]!r}"
+    )
+
+
+@pytest.fixture(scope="module")
+def spec() -> ResolvedSpec:
+    return SPEC
+
+
+@pytest.fixture(scope="module")
+def live_spec() -> ResolvedSpec:
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", spec_load.SpecWarning)
+        return spec_load.load_default_spec()
 
 
 def _multi_stance_rune(spec: ResolvedSpec) -> tuple[str, Rune]:
@@ -61,9 +132,10 @@ class TestRoundTrip:
         assert kernel_io.spec_json(spec) == kernel_io.spec_json(spec)
 
     def test_the_dump_is_in_canonical_json_form(self, spec):
-        """The two canonicalization clauses a value round trip cannot see: compact separators and ASCII-only text. Re-encoding the parsed payload under exactly those settings must reproduce the dump byte for byte — the live spec carries enough non-ASCII prose to make the escape clause load-bearing."""
+        """The two canonicalization clauses a value round trip cannot see: compact separators and ASCII-only text. Re-encoding the parsed payload under exactly those settings must reproduce the dump byte for byte, and the escape clause is load-bearing rather than vacuous — the same payload spelled with `ensure_ascii=False` is not ASCII at all, because the prose in this tree carries `·` wherever it names a letter."""
         text = kernel_io.spec_json(spec)
         assert text.isascii()
+        assert not json.dumps(json.loads(text), ensure_ascii=False).isascii()
         assert text == json.dumps(json.loads(text), separators=(",", ":"), ensure_ascii=True)
 
     def test_the_dump_declares_its_format_first(self, spec):
@@ -182,6 +254,50 @@ class TestRefusals:
         next(iter(payload["runes"].values()))["ligature"] = None
         with pytest.raises(ValueError):
             kernel_io.spec_of(json.dumps(payload))
+
+
+class TestTheMiniReachesEveryShapeTheLiveDumpDoes:
+    """What let the live arm of every test above go. The codec reads `model.py` through its type hints, so its coverage is a question about which hints the encoder is actually handed — and the answer is a set that a fixture can fall behind without anything going red. Spying on `_encode` makes the set observable: every optional and container shape the encoder meets on the live alphabet it must also meet on the widened mini, so a `model.py` growth the live dump populates and the mini does not fails here rather than quietly un-covering the codec."""
+
+    def test_the_widened_mini_hands_the_encoder_every_live_shape(self, monkeypatch, live_spec):
+        original = kernel_io._encode
+        seen: set[tuple[str, bool]] = set()
+
+        def spy(hint, value):
+            seen.add((repr(hint), value is None))
+            return original(hint, value)
+
+        monkeypatch.setattr(kernel_io, "_encode", spy)
+
+        def reach(target: ResolvedSpec) -> set[tuple[str, bool]]:
+            seen.clear()
+            kernel_io.spec_json(target)
+            return set(seen)
+
+        missing = reach(live_spec) - reach(SPEC)
+        assert (
+            missing == set()
+        ), f"the live dump hands the encoder shapes the mini never does: {sorted(missing)} — widen `_reaching_mini` until it reaches them, or those codec paths go untested"
+
+
+@pytest.mark.parametrize("arm", ["mini", "live"])
+class TestTheCrateEchoesTheDumpByteForByte:
+    """The differential proof that the crate's spec ingest is lossless: the binary parses the dump into its interned model, drops the parse tree, and re-emits from the model alone, so a field the model forgot to carry, a mapping it reordered and an escape it spells differently all surface as a byte diff rather than as a disagreement discovered several stages downstream. `model.py` is a cross-group contract, and a change to it the crate has not followed fails here on the next `make test-rebuild`. The mini arm rides alongside the live one because it is cheap and it keeps the crate's `against`, `mono` and `when: null` emit paths exercised even on a day when the live alphabet carries no record of those shapes. The spawn goes through `kernel_exec._run_kernel` so the uplift lock orders it against a concurrent worker's `ensure_built`."""
+
+    def test_the_dump_comes_back_out_of_the_binary_unchanged(self, arm, live_spec, tmp_path):
+        subject = SPEC if arm == "mini" else live_spec
+        path = tmp_path / f"spec-{arm}.json"
+        kernel_io.write_spec(subject, path)
+        kernel_exec.ensure_built()
+        finished = kernel_exec._run_kernel([str(kernel_exec.BINARY), "spec-echo", str(path)], "spec-echo")
+        written = path.read_bytes()
+        assert (
+            finished.returncode == 0
+        ), f"the kernel exited {finished.returncode}: {finished.stderr.decode(errors='replace').strip()}"
+        assert (
+            finished.stderr == b""
+        ), f"the kernel wrote to stderr on a clean exit: {finished.stderr.decode(errors='replace').strip()}"
+        assert finished.stdout == written, _first_difference(written, finished.stdout)
 
 
 @pytest.fixture(scope="module")

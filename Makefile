@@ -1,4 +1,4 @@
-.PHONY: all test test-rebuild test-rebuild-slow test-slowly test-leaks leak-snapshot typecheck print-job serve explainer check-html-before check-html-after build-kerning-hardcases review test-and-review review-build review-serve review-cycle artifact-cycle verdict-ready cycle-timings job-costs complaint-docket novelty-order kernel-build kernel-check kernel-parity kernel-gate conform-deep prettier woff2 clean
+.PHONY: all test test-rebuild test-rebuild-slow test-slowly test-leaks leak-snapshot typecheck print-job serve explainer check-html-before check-html-after build-kerning-hardcases review test-and-review review-build review-serve review-cycle artifact-cycle verdict-ready cycle-timings job-costs complaint-docket novelty-order kernel-build kernel-check kernel-gate conform-deep prettier woff2 clean
 
 all:
 	uv run python tools/build_font.py glyph_data/ site/
@@ -126,7 +126,7 @@ complaint-docket:
 novelty-order:
 	uv run python rebuild/tools/novelty_order.py $(ARGS)
 
-# Build the Rust M1 kernel (rebuild/kernel-rs, issue #40) in release mode. The release profile is the one the parity harness runs and the one every later port gate reuses, so there is deliberately no debug target.
+# Build the Rust M1 kernel (rebuild/kernel-rs, issue #40) in release mode. The release profile is the one the pipeline runs, the one the contracts lane's spec-echo parity test runs, and the one every later port gate reuses, so there is deliberately no debug target.
 kernel-build:
 	cargo build --release --manifest-path rebuild/kernel-rs/Cargo.toml
 
@@ -136,12 +136,8 @@ kernel-check:
 	cargo clippy --all-targets --manifest-path rebuild/kernel-rs/Cargo.toml -- -D warnings
 	cargo test --manifest-path rebuild/kernel-rs/Cargo.toml
 
-# Prove the Rust kernel's spec ingest lossless: dump the live alphabet and every scaling-ladder rung through kernel_io.spec_json, echo each back out of the binary's own model, and require the bytes to be identical. A change to rebuild/pipeline/model.py that the Rust side has not followed fails here.
-kernel-parity: kernel-build
-	uv run python -m rebuild.tools.kernel_parity
-
-# The thing to run around any kernel-semantics change (nothing in the artifact cycle runs it): the crate's own gate and the spec-ingest parity, seconds to a minute end to end. There is no settlement differential here and no fixpoint byte-compare, because there is no second settler and no second enumeration to compare against — settlement has one home. Settlement trust is the crate's own tests, gate:conform's HarfBuzz shaping against a per-window re-settle keyed on the raw window, and the witness gate. Neither leg takes knobs, so this target reads no ARGS.
-kernel-gate: kernel-check kernel-parity
+# The thing to run around any kernel-semantics change (no cycle gate runs the crate's own suite): the crate's fmt/clippy/test gate and nothing else, seconds once the crate is built. The spec-ingest parity rides the contracts lane instead — rebuild/test_kernel_io.py echoes the live dump through spec-echo on every make test-rebuild — and there is no settlement differential here and no fixpoint byte-compare, because there is no second settler and no second enumeration to compare against: settlement has one home. Settlement trust is the crate's own tests, gate:conform's HarfBuzz shaping against a per-window re-settle keyed on the raw window, and the witness gate. It takes no knobs, so this target reads no ARGS.
+kernel-gate: kernel-check
 
 # The periodic deep form of gate:conform: the exhaustive font-vs-settle sweep at horizon 5+ (ARGS='--horizon 6' to go deeper, ARGS='--status' to ask whether it is armed), run by hand or overnight and never by the cycle. Its green is keyed on the emitted lookup's behavior classes, the font-compilation code and the uharfbuzz version rather than on the runes, so a rune edit that introduces no novel rule shape never stales it; a green deep run also refreshes gate:conform's own record, since an exhaustive sweep at this depth covers every text the per-edit belt shapes. The artifact cycle prints armed/current each pass.
 conform-deep:

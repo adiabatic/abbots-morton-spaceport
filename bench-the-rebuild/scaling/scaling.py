@@ -6,7 +6,7 @@ Every rung goes through the kernel crate: one `build-tables --configs=default --
 
 The report is the consecutive-pair exponents against runes, as before, plus a least-squares fit of ln count on ln alphabet over the whole ladder in both denominators. Fit the whole ladder and state the denominator: a single pair swings by a large fraction of the threshold on ordinary scatter and on which letters that rung happened to add, and a rune exponent is the letter exponent times `d ln letters / d ln runes`, which the nested ladder drives from below 1 to above 1 as it stops adding ligatures and starts adding letters. RUST-PORT-PLAN.md states its threshold in this fitted form and in both bases — about 4.5 in letters, about 5.5 in runes — and those are one threshold rather than two.
 
-The knobs. Positional arguments are the rune counts to cut rungs at, any k rather than only a ladder rung, and default to the full ladder from `kernel_parity.ladder_rungs`, which is the ladder's one authority now that this script imports it instead of reproducing it. `AMS_SCALING_DUMP=<dir>` keeps each rung's spec dump and the artifacts its child wrote instead of letting a temporary directory take them, which is how `levers/kernel_all_configs.py --spec <dir>/spec-rN.json` re-times one rung, or times all six configurations on it. `AMS_SCALING_BINARY=<path>` measures that binary as-is rather than building the crate — the arm-at-another-revision knob, in the seat `AMS_SCALING_ROOT` held when the arm was a Python tree to import from. `AMS_DEEP_CLASSES=0`, `AMS_SIMULATED_PROSPECT=0` and `AMS_VOTE_SLOTS=0` reach the child through `kernel_exec.world_flags()`, and every row's `world` names the flags that rode, `shipping defaults` when none did.
+The knobs. Positional arguments are the rune counts to cut rungs at, any k rather than only a ladder rung, and default to the full ladder from `scaling_ladder.ladder_rungs`, which is the ladder's one authority now that this script imports it instead of reproducing it. `AMS_SCALING_DUMP=<dir>` keeps each rung's spec dump and the artifacts its child wrote instead of letting a temporary directory take them, which is how `levers/kernel_all_configs.py --spec <dir>/spec-rN.json` re-times one rung, or times all six configurations on it. `AMS_SCALING_BINARY=<path>` measures that binary as-is rather than building the crate — the arm-at-another-revision knob, in the seat `AMS_SCALING_ROOT` held when the arm was a Python tree to import from. `AMS_DEEP_CLASSES=0`, `AMS_SIMULATED_PROSPECT=0` and `AMS_VOTE_SLOTS=0` reach the child through `kernel_exec.world_flags()`, and every row's `world` names the flags that rode, `shipping defaults` when none did.
 
 Rows print as they land and the whole set is written to `scaling.json` beside this file. Run it from anywhere: `uv run python bench-the-rebuild/scaling/scaling.py [k ...]`.
 """
@@ -29,7 +29,7 @@ sys.path.insert(0, str(HERE.parents[2]))
 
 from rebuild.pipeline import kernel_exec, kernel_io, table
 from rebuild.pipeline.spec_load import load_default_spec
-from rebuild.tools import kernel_parity, peak_rss
+from rebuild.tools import peak_rss, scaling_ladder
 from rebuild.tools.cycle_timings import _INNER_LINE
 
 
@@ -155,8 +155,8 @@ def report(rows: list[dict]) -> None:
 
 def main() -> int:
     spec = load_default_spec()
-    order = kernel_parity.ladder_order(spec)
-    rungs = [int(argument) for argument in sys.argv[1:]] or kernel_parity.ladder_rungs(order)
+    order = scaling_ladder.ladder_order(spec)
+    rungs = [int(argument) for argument in sys.argv[1:]] or scaling_ladder.ladder_rungs(order)
     binary = kernel_binary()
     dump = os.environ.get("AMS_SCALING_DUMP")
     rows: list[dict] = []
@@ -167,7 +167,7 @@ def main() -> int:
         else:
             root = Path(stack.enter_context(tempfile.TemporaryDirectory()))
         for rung in rungs:
-            sub = kernel_parity.sub_spec(spec, order, rung)
+            sub = scaling_ladder.sub_spec(spec, order, rung)
             runes = len(sub.runes)
             letters = sum(1 for name in sub.runes if not sub.runes[name].sequence)
             spec_path = root / f"spec-r{runes}.json"
