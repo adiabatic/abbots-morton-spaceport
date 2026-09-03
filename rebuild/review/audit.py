@@ -15,7 +15,6 @@ BATCH_SIZE = 300
 
 UNMATCHED_CLASS = "UNMATCHED"
 
-# The class ids the build synthesizes for itself — the catch-all the unmatched windows land in and the verdict families `synthesize_family_classes` appends beside it — so a ledger entry claiming one would be shadowed by a class nothing in the ledger describes.
 RESERVED_CLASS_IDS = frozenset({UNMATCHED_CLASS, *families.FAMILY_ORDER})
 
 AUDIT_HEADER = ("config", "codepoints", "kinds", "matched_entry", "baseline", "new")
