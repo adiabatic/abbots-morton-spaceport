@@ -261,15 +261,18 @@ def test_an_alias_edit_stales_only_the_families_its_keys_name(repo):
 
 
 def test_an_alias_head_with_no_family_key_raises(repo):
-    """The guard the 30 registry families with no rune file exist to defeat. qsBay is a registered family and would pass any "does this head name a family" check, but the rune tree holds no file for it, so it has no key — and a head with no key can never be reported moved, which would leave its entries stamped by nothing at all. The refusal is what keeps the alias map's heads and the family keys the same set."""
+    """The guard the unmigrated registry families exist to defeat: such a family would pass any "does this head name a family" check, but the rune tree holds no file for it, so it has no key — and a head with no key can never be reported moved, which would leave its entries stamped by nothing at all. The refusal is what keeps the alias map's heads and the family keys the same set.
+
+    The family is chosen rather than named, because naming one makes the test an exemplar that dissolves the day that letter migrates — which is how it dissolved once already. Every registry family the pinned rune tree has no key for does equally well here, and the migration that empties that set is the migration that retires the guard.
+    """
     spec = fixtures.mini_spec()
-    assert "qsBay" in spec.registry.families
-    _write_alias(repo, {**ALIAS_MAP, "qsBay.en-y0": {"rune": "qsBay", "stance": "full"}})
-    with pytest.raises(ValueError, match="qsBay"):
+    unmigrated = next(name for name in sorted(spec.registry.families) if name not in _keys(repo, spec))
+    _write_alias(repo, {**ALIAS_MAP, f"{unmigrated}.en-y0": {"rune": unmigrated, "stance": "full"}})
+    with pytest.raises(ValueError, match=unmigrated):
         oracle_cache.alias_family_digests(_alias(repo), _keys(repo, spec).keys())
-    with pytest.raises(ValueError, match="qsBay"):
+    with pytest.raises(ValueError, match=unmigrated):
         _keys(repo, spec)
-    with pytest.raises(ValueError, match="qsBay"):
+    with pytest.raises(ValueError, match=unmigrated):
         _stamp(repo, spec)
 
 

@@ -3130,7 +3130,9 @@ def test_both_lane_fingerprints_are_none_outside_git(tmp_path):
 
 
 def test_surface_build_skippable_matches_manifest(tmp_path):
+    """The skip is a claim that a rebuild would reproduce this surface whole, so every file the claim covers has to answer for itself: the fingerprint, every shard the manifest names, and the three files it does not name — the per-unit index and both app sidecars, each stamped for the manifest beside it rather than merely present, since they are written after the manifest and outside it."""
     from rebuild.pipeline import fingerprint
+    from rebuild.review import app_index, unit_index
 
     m1 = tmp_path / "rebuild" / "out" / "m1"
     m1.mkdir(parents=True)
@@ -3147,22 +3149,49 @@ def test_surface_build_skippable_matches_manifest(tmp_path):
         "inputs_fingerprint": expected,
         "classes": [{"id": "c", "shards": ["units-000.json"]}],
     }
-    (surface / "manifest.json").write_text(json.dumps(manifest))
+
+    def restamp():
+        (surface / "manifest.json").write_text(json.dumps(manifest))
+        unit_index.write_index(surface, [])
+        app_index.write_app_artifacts(surface, {}, {})
+
+    restamp()
     assert ac.surface_build_skippable(tmp_path, surface)
     shard.unlink()
     assert not ac.surface_build_skippable(tmp_path, surface)
     shard.write_text("[]")
     manifest["inputs_fingerprint"] = {**expected, "data": "changed"}
-    (surface / "manifest.json").write_text(json.dumps(manifest))
+    restamp()
     assert not ac.surface_build_skippable(tmp_path, surface)
 
     manifest["inputs_fingerprint"] = {**expected, "static": "moved"}
-    (surface / "manifest.json").write_text(json.dumps(manifest))
+    restamp()
     assert not ac.surface_build_skippable(tmp_path, surface)
     assert ac.surface_build_skippable(tmp_path, surface, ignore=("static",))
     del manifest["inputs_fingerprint"]["static"]
-    (surface / "manifest.json").write_text(json.dumps(manifest))
+    restamp()
     assert not ac.surface_build_skippable(tmp_path, surface, ignore=("static",))
+
+    manifest["inputs_fingerprint"] = expected
+    restamp()
+    assert ac.surface_build_skippable(tmp_path, surface)
+    for name, _fmt in app_index.ARTIFACTS:
+        kept = app_index.artifact_path(surface, name)
+        raw = kept.read_bytes()
+        kept.unlink()
+        assert not ac.surface_build_skippable(tmp_path, surface)
+        kept.write_bytes(raw)
+    assert ac.surface_build_skippable(tmp_path, surface)
+    unit_index.index_path(surface).unlink()
+    assert not ac.surface_build_skippable(tmp_path, surface)
+
+    # The manifest rewritten without the sidecars: every shard is still there and the fingerprint still matches, and the three stamped files are the only thing that can tell.
+    unit_index.write_index(surface, [])
+    manifest["generated_at"] = "2026-02-02T00:00:00Z"
+    (surface / "manifest.json").write_text(json.dumps(manifest))
+    assert not ac.surface_build_skippable(tmp_path, surface)
+    restamp()
+    assert ac.surface_build_skippable(tmp_path, surface)
 
 
 REFUSE_RUNE = "rune: qsX\npolicy:\n  refuse:\n  - {exit: baseline, why: two verticals render thick}\n"
@@ -3171,6 +3200,7 @@ REFUSE_RUNE = "rune: qsX\npolicy:\n  refuse:\n  - {exit: baseline, why: two vert
 def test_a_refuse_why_edit_restamps_the_surface_and_nothing_upstream(tmp_path):
     """The bargain issue #114 struck, stated over every key a cycle consults at once. A refusal's `why` is quoted into the explain text the surface serves, so the surface has to notice a rewording — but nothing that builds an artifact reads it, so run_m1's green, the conform sweep's key, the tables' own stamp, the Stage A record and both suite lanes must all stay exactly where they were, and the pass that follows the edit rebuilds the surface over artifacts it never touches."""
     from rebuild.pipeline import fingerprint
+    from rebuild.review import app_index, unit_index
 
     root = _fake_run_m1_root(tmp_path)
     subprocess.run(["git", "init", "-q"], cwd=root, check=True)
@@ -3196,6 +3226,8 @@ def test_a_refuse_why_edit_restamps_the_surface_and_nothing_upstream(tmp_path):
             }
         )
     )
+    unit_index.write_index(surface, [])
+    app_index.write_app_artifacts(surface, {}, {})
     assert ac.surface_build_skippable(root, surface)
     upstream = {
         "run_m1": ac.run_m1_skip_fingerprint(root),

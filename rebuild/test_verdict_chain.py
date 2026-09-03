@@ -1,4 +1,4 @@
-"""Tests for the verdict chain's contract with the steps it drives, which is thinner than it looks: the chain loads the surface's unit index once and hands every step the whole of it, and each step decides for itself what part of that list it has any business reading. The standing fill is the one step that decides visibly — the chain asks for its `--open-only` form, over the blanks and the units verdicted outside the accepting set, because those are the only units that can move what it writes or warns about — so what is asserted here is that the chain passes the flag and still hands the index over entire."""
+"""Tests for the verdict chain's contract with the steps it drives, which is thinner than it looks: the chain loads the surface's unit index once and hands every step the whole of it, and each step decides for itself what part of that list it has any business reading. The standing fill is the one step that decides visibly — the chain asks for its `--open-only --require-reach` form, narrowing what it writes from to the units that can move a fill while keeping the reach check over the whole domain, where a rule that has run out of windows fails the step — so what is asserted here is that the chain passes both flags and still hands the index over entire."""
 
 import json
 import pathlib
@@ -23,7 +23,7 @@ def _write_out(argv):
 
 
 def test_the_chain_runs_the_standing_fill_in_its_open_only_form(tmp_path, monkeypatch):
-    """The narrowing is the tool's, so the chain still hands over the whole index and merely names the form."""
+    """The narrowing and the refusal are both the tool's, so the chain still hands over the whole index and merely names the form."""
     surface = tmp_path / "review"
     surface.mkdir()
     (surface / "manifest.json").write_text(json.dumps({"generated_at": STAMP}))
@@ -66,5 +66,6 @@ def test_the_chain_runs_the_standing_fill_in_its_open_only_form(tmp_path, monkey
     assert code == 0
     [(argv, units)] = calls
     assert "--open-only" in argv
+    assert "--require-reach" in argv
     assert argv[argv.index("--out") + 1] == str(standing_out)
     assert units is index

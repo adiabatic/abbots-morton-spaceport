@@ -6,12 +6,9 @@ A derived rule needs a check that the derivation is honest, so a `sys.addauditho
 
 `_redirect_cycle_writes` is the standing guarantee that running the suite never costs the working repo a file; it is autouse, so every module in rebuild/ gets it whether or not its author thought about the cycle.
 
-`built_review_surface` yields the cycle's own rebuild/out/review, read-only, and **refuses rather than builds**: when `surface_build_skippable` cannot prove that surface reflects today's inputs, the fixture fails naming the command that fixes it. That is the decision `stamped_decision` already makes one file over for the settlement tables, made here for the same reason — building a surface inside a pytest worker cost the better part of ten minutes and fifteen gigabytes, sprang on exactly the bare `make test-rebuild` an author reaches for after a rune edit, and re-derived what the artifact cycle had just built. In the cycle the surface step settles before the gates are submitted, so the refusal essentially never fires there.
-
-The whole-workload fixtures are gone with it. `enriched_units` enriched all 451k units to check properties of drafts the build itself computes for every shipped unit, and `workload` held the un-enriched graph so that sixteen worked examples could look up windows whose codepoints they already name; between them they were the reason this lane ran two workers wide. What stands in their place is exactly what those readers turn out to need: `example_units` streams the live audit once into a filtered copy and loads a Workload of the named windows only, and `workload_index` keeps the census grain — codepoints, class, no-verdict flag, configs, in workload order — for the two tests whose assertion is "the sidecar's flag at position *i* describes workload unit *i*" and which therefore need the ordered list rather than the graph.
+What the validators lane still holds is short enough to name: the per-configuration rule-witness arms in `rebuild/test_rule_witnesses.py`, whose subject is the live tables. Everything else that once sat here reads the frozen mini bundle under `rebuild/review/fixtures/mini/` — the enrich and drafts worked examples through `example_units` below, the ink comparisons, the table-diff witnesses, the manual-pins teeth — because none of them was ever a claim about today's corpus, only about the code that reads one. What that buys is not only width: a dissolved exemplar now fails the bundle regeneration, which names the window, rather than a lane a rune edit later.
 """
 
-import json
 import os
 import sys
 from collections.abc import Iterable
@@ -40,9 +37,10 @@ GREEN_RECORDS = (
 )
 
 REBUILD_DIR = Path(__file__).resolve().parent
+MINI = REBUILD_DIR / "review" / "fixtures" / "mini"
 LANES = ("contracts", "validators")
 LIVE_FIXTURE = "live_artifacts"
-# What one validators worker holds at its peak, and so the divisor a box divides itself by to reach this lane's width. With the in-process surface build refused and the whole-workload fixtures retired, most of what a worker holds is a filtered Workload, a couple of subset tables, or a font; the one item still measured in gigabytes is `workload_index`, whose transient while `load_workload` builds the graph it projects is what puts one worker of a run several gigabytes clear of its siblings. Two instruments report that peak and agree on its scale: the `peak RSS (GB): ... workers ...` line the root conftest prints at the end of every run, and the `peak_rss_bytes` the cycle-timings journal stamps on every `gate:rebuild-validators` step, which is the widest single process in that lane's tree. This seed rounds up past the top of what they have recorded since those fixtures went, for the same reason `kernel_exec.CONFIG_PEAK_BYTES` rounds up past its own measurement: a per-unit cost that errs low is what puts a box into swap, while one that errs high only narrows a pool. So it is a reading to keep current rather than a contract — re-seed it off a validators run's own line whenever a fixture's working set moves, and expect the root conftest's restatement of it to move in the same commit.
+# What one validators worker holds at its peak, and so the divisor a box divides itself by to reach this lane's width. Nothing in the lane loads a corpus any more — a worker holds a configuration's stamped tables and the witness memo beside them, which is a fraction of what the retired whole-workload fixtures cost. Two instruments report the peak and agree on its scale: the `peak RSS (GB): ... workers ...` line the root conftest prints at the end of every run, and the `peak_rss_bytes` the cycle-timings journal stamps on every `gate:rebuild-validators` step, which is the widest single process in that lane's tree. This seed rounds up past the top of what they have recorded, for the same reason `kernel_exec.CONFIG_PEAK_BYTES` rounds up past its own measurement: a per-unit cost that errs low is what puts a box into swap, while one that errs high only narrows a pool. So it is a reading to keep current rather than a contract — re-seed it off a validators run's own line whenever a fixture's working set moves, and expect the root conftest's restatement of it to move in the same commit.
 VALIDATORS_WORKER_BYTES = 7_000_000_000
 # The non-memory bound on the same width, and the half of this lane's argument that arithmetic cannot supply: the lane is short enough that a worker's own interpreter and collection cost shows against its total, and no one arm is its tail any more — the per-configuration rule-witness arms that used to head every run's `--durations` list run hint-first off a verified memo now, so four slots drain a spread of comparable arms rather than a queue behind one. Deliberately not tied to the acceptance-configuration count those arms are parametrized over, which would read as tighter and behave as looser — a matrix that grew by one would silently widen a pool nobody re-measured, and the arms are not the whole of what the lane runs. So it stays a stated bound with a stated reason, and what should move it is the lane's own `--durations` list saying four slots no longer drain what it collects, never the box getting bigger; a bigger box is what the divisor above is for.
 VALIDATORS_LANE_CAP = 4
@@ -319,25 +317,6 @@ def live_deletion_targets():
     return list(LIVE_DELETION_TARGETS)
 
 
-@pytest.fixture(scope="session")
-def built_review_surface(live_artifacts: LiveArtifacts):
-    """Yields (surface_dir, manifest) for the cycle's own rebuild/out/review — read-only, never built here. `surface_build_skippable` is the proof: the manifest's recorded inputs fingerprint equals the one a build would stamp now, which is the same standard the artifact cycle skips its own surface step on, and in a cycle that step settles before any gate is submitted, so this is the taken branch every time the gate runs. One component is exempted: `static`, the copied review UI assets, because every consumer of this fixture reads the manifest, the shards, and the census sidecar — never the app shell, which the one test that inspects it reads at its source — so a CSS tweak must not fail the whole validators lane over bytes none of it asserts about. That is the same hard/warn line status._freshness_check draws for `make verdict-ready`; the cycle asks the strict question first and, when only that component differs, refreshes the assets over the served copy in place rather than rebuilding.
-
-    When it cannot be proven, the fixture fails naming the command that fixes it instead of building a surface of its own. A build inside a pytest worker is a fifteen-gigabyte, several-hundred-second job that re-derives what the cycle already produced, and worksteal will happily land it on a worker that is holding something else; the cost of refusing is that a bare `make test-rebuild` after a rune edit fails fast rather than grinding, which is the trade `stamped_decision` in test_rule_witnesses already makes for the stamped tables.
-    """
-    from rebuild.review.unit_index import ASSET_COMPONENTS
-    from rebuild.tools.artifact_cycle import REVIEW_OUT, surface_build_skippable
-
-    if not surface_build_skippable(REPO_ROOT, ignore=ASSET_COMPONENTS):
-        pytest.fail(
-            f"no review surface under {REVIEW_OUT} is stamped with the current inputs — a stale or missing "
-            "surface fails this gate instead of building one in-process; run `make review-cycle` (or "
-            "`uv run python -m rebuild.review.build`) first"
-        )
-    manifest = json.loads((REVIEW_OUT / "manifest.json").read_text(encoding="utf-8"))
-    return REVIEW_OUT, manifest
-
-
 @dataclass(frozen=True)
 class MiniBundle:
     """The spec root materialized from the frozen mini-M1 bundle's pin, and that spec root's ledger."""
@@ -356,115 +335,19 @@ def mini_bundle(tmp_path_factory) -> MiniBundle:
     return MiniBundle(spec_root=spec_root, ledger=spec_root / "rebuild" / "m1-divergences.yaml")
 
 
-# The windows the worked examples name. Every test that used to scan the whole workload for one unit hard-coded its codepoints already; the three that asked for "some unit of class X" are pinned here instead, so an emptied class fails loudly rather than silently sampling something else.
-EXAMPLE_WINDOWS = frozenset(
-    {
-        "0020:E650:E650",
-        "200C:E652:E679",
-        "200C:E665:E679:E650",
-        "E650:E650:E670",
-        "E650:E650:200C:E67A",
-        "E658:E666",
-        "E650:200C:E650:E665",
-        "E650:200C:E650:E670",
-        "E650:E670:E65D",
-        "E652:E670",
-        "E652:E653:E67A:E652",
-        "E665:E666:E666",
-        "E665:E670:E652:E679",
-        "E670:E670",
-        "E670:E67A:E670:E665",
-    }
-)
-
-
-def _filter_audit(audit_path: Path, windows: Iterable[str], destination: Path) -> Path:
-    """Copy the audit's header plus the rows of the named windows into `destination`, streaming — so the filtered load below goes through `load_audit` itself rather than a second parser that could drift from it, without ever holding the 307 MB original."""
-    wanted = frozenset(windows)
-    with open(audit_path, encoding="utf-8") as source, open(destination, "w", encoding="utf-8") as sink:
-        sink.write(next(source))
-        for line in source:
-            fields = line.split("\t", 2)
-            if len(fields) > 1 and fields[1] in wanted:
-                sink.write(line)
-    return destination
-
-
+# The frozen worked-example windows, keyed by (codepoints, first config) — the whole of what the enrich and drafts examples ever wanted, since each of them names the codepoints it is about. `regenerate.EXAMPLE_WINDOWS` is the authority on the set, and the bundle refuses to regenerate while a member of it selects no audit row, so a dissolved exemplar is caught where the rows are frozen rather than here. Deliberately a contracts fixture: the mini audit's rows settled under the pinned spec `mini_bundle` materializes, so this must never reach the live audit.
 @pytest.fixture(scope="session")
-def audit_windows(tmp_path_factory, live_artifacts: LiveArtifacts):
-    """A loader for `Workload`s over named windows of the live audit: `audit_windows({"E652:E670", ...})` streams the audit once per distinct window set and returns the units those rows build. The dedupe key is (codepoints, baseline, new), so a window's units come out exactly as they do over the whole audit — same configs, kinds, class, config_classes, render groups. What differs is what the filter cannot preserve: unit ids, batches, and triage `group` ordering are relative to the filtered list, so nothing may assert on them here."""
+def example_units(mini_bundle: MiniBundle):
     from rebuild.review.audit import load_workload
-    from rebuild.review.build import M1_LEDGER
     from rebuild.review.enrich import LETTERS
+    from rebuild.review.fixtures.mini import regenerate
 
-    root = tmp_path_factory.mktemp("audit-windows")
-    cache: dict[frozenset[str], object] = {}
-
-    def load(windows: Iterable[str]):
-        key = frozenset(windows)
-        if key not in cache:
-            path = _filter_audit(live_artifacts.audit, key, root / f"{len(cache)}.tsv")
-            cache[key] = load_workload(path, M1_LEDGER, dict(LETTERS))
-        return cache[key]
-
-    return load
-
-
-@pytest.fixture(scope="session")
-def example_units(audit_windows):
-    """The worked-example windows of `EXAMPLE_WINDOWS`, keyed by (codepoints, first config) the way the retired `units_by_key` was. This is what replaced the whole-workload `workload` fixture for the sixteen tests that wanted one unit each: a streamed filter and a few dozen units instead of a 451k-unit graph and its two gigabytes."""
-    workload = audit_windows(EXAMPLE_WINDOWS)
-    return {(unit.codepoints, unit.configs[0]): unit for unit in workload.units}
-
-
-@dataclass(frozen=True)
-class IndexedUnit:
-    """One pre-merge unit at the census grain — the four fields `census.workload_digest` is defined over, and the whole of what a flag-alignment test needs to say "position *i* of the sidecar describes this window"."""
-
-    codepoints: str
-    class_id: str
-    no_verdict: bool
-    configs: tuple[str, ...]
-
-    @property
-    def codepoint_values(self) -> tuple[int, ...]:
-        from rebuild.review.audit import parse_codepoints
-
-        return parse_codepoints(self.codepoints)
-
-
-@dataclass(frozen=True)
-class WorkloadIndex:
-    units: tuple[IndexedUnit, ...]
-    row_count: int
-    sibling_positions: tuple[int, ...]
-
-
-@pytest.fixture(scope="session")
-def workload_index(live_artifacts: LiveArtifacts) -> WorkloadIndex:
-    """The live pre-merge unit list at census grain, in workload order, plus the positions of the multi-sibling windows the ink sample stratifies over. Built through `load_workload` — the ordering is the loader's and cannot drift from it — and projected immediately, so the graph is transient rather than resident: a worker that touches this pays the audit parse once and keeps tens of megabytes, where the retired `workload` fixture kept the whole graph and its AuditRows for the whole session.
-
-    Anything needing a real `Unit` — an enrichment, a re-shape — takes `example_units` or `audit_windows` instead; this fixture deliberately holds no rows, so it cannot grow back into the graph it replaced.
-    """
-    from rebuild.review.audit import _sibling_windows, load_workload
-    from rebuild.review.build import M1_AUDIT, M1_LEDGER
-    from rebuild.review.enrich import LETTERS
-
-    workload = load_workload(M1_AUDIT, M1_LEDGER, dict(LETTERS))
-    position = {id(unit): index for index, unit in enumerate(workload.units)}
-    siblings = tuple(
-        sorted(position[id(unit)] for group in _sibling_windows(workload.units).values() for unit in group)
-    )
-    return WorkloadIndex(
-        units=tuple(
-            IndexedUnit(
-                codepoints=unit.codepoints,
-                class_id=unit.class_id,
-                no_verdict=unit.no_verdict,
-                configs=unit.configs,
-            )
-            for unit in workload.units
-        ),
-        row_count=workload.row_count,
-        sibling_positions=siblings,
-    )
+    workload = load_workload(MINI / "audit.tsv", mini_bundle.ledger, dict(LETTERS))
+    units = {
+        (unit.codepoints, unit.configs[0]): unit
+        for unit in workload.units
+        if unit.codepoints in regenerate.EXAMPLE_WINDOWS
+    }
+    reached = {codepoints for codepoints, _config in units}
+    assert reached == set(regenerate.EXAMPLE_WINDOWS), sorted(regenerate.EXAMPLE_WINDOWS - reached)
+    return units

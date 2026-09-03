@@ -2381,7 +2381,12 @@ def main(argv=None, *, units=None):
     parser.add_argument(
         "--open-only",
         action="store_true",
-        help="run the rules over only the blanks and the units verdicted outside approve/either/identical — the artifact cycle's form. The fills are byte-identical and the WARNING reads the same; what goes is the already-verdicted column and the per-rule reach rollup, whose numbers are readings of the store rather than of the fills (the validators lane proves the checked-in rules still reach the live surface).",
+        help="run the rules over only the blanks and the units verdicted outside approve/either/identical — the artifact cycle's form. The fills are byte-identical and the WARNING reads the same; what goes is the already-verdicted column and the per-rule reach rollup, whose numbers are readings of the store rather than of the fills. Combine with --require-reach, as the cycle does, to keep the rollup and the refusal.",
+    )
+    parser.add_argument(
+        "--require-reach",
+        action="store_true",
+        help="after writing the fills, fail when any checked-in rule reaches no window of this surface — judged over the whole human domain with a blank store, so a rule whose every window a human has already judged still counts as reaching. The artifact cycle's form: a rule whose swath a rune change dissolved turns the plumbing step red, and `make verdict-ready` reads NOT READY, until the rule is deleted from the rules file or the form it waits for migrates.",
     )
     args = parser.parse_args(argv)
     if args.open_only and args.explain is not None:
@@ -2431,9 +2436,14 @@ def main(argv=None, *, units=None):
     candidates = open_units(units, records) if args.open_only else units
     run = rule_reach(rules, candidates, records, manifest["generated_at"], context=context)
 
+    # Reach is a reading of the surface rather than of the queue, so --require-reach judges it over the whole human domain against an empty store: a rule every one of whose windows a human already verdicted has still reached them, and a narrowed run would have been offered none of them.
+    reaches = run.reaches
+    if args.require_reach:
+        reaches = rule_reach(rules, units, {}, manifest["generated_at"], context=context).reaches
+
     lines = _tally_lines(rules, run, args.open_only)
-    if not args.open_only:
-        lines += _rollup_lines(rules, run.reaches)
+    if args.require_reach or not args.open_only:
+        lines += _rollup_lines(rules, reaches)
     lines += _tripwire_lines(run.reaches, records)
     lines += _vocabulary_lines(rules, units)
     if args.explain is not None:
@@ -2453,6 +2463,19 @@ def main(argv=None, *, units=None):
     )
     for line in lines:
         print(line)
+    if args.require_reach:
+        unreached = [
+            rule["id"]
+            for rule in rules
+            if not (_own_line_total(reaches[rule["id"]]) + reaches[rule["id"]].composed_credit)
+        ]
+        if unreached:
+            print(
+                f"  the plumbing refuses: {', '.join(unreached)} reached no window of this surface. There "
+                "is no retired marker and no allowance for a rule that has run out of windows — delete it "
+                f"from {args.rules}, or leave it and this stays red until the form it waits for migrates."
+            )
+            return 1
     return 0
 
 

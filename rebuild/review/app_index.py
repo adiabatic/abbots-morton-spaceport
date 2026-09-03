@@ -104,7 +104,10 @@ def write_app_artifacts(
     shards: Mapping[str, list[dict]],
     spans: Mapping[str, Sequence[Span]],
 ) -> tuple[Path, Path]:
-    """Write both sidecars from the fragments and spans the build already holds, stamped with the manifest beside them — so this runs after the manifest is written. Classes are walked in `unit_index.class_shard_key` order, the order `write_index` and every shard walk use, and each class's fragments split into the app index or the locator on `batch is not None`. A pinned gzip mtime keeps consecutive builds of the same inputs byte-identical."""
+    """Write both sidecars from the fragments and spans the build already holds, stamped with the manifest beside them — so this runs after the manifest is written. Classes are walked in `unit_index.class_shard_key` order, the order `write_index` and every shard walk use, and each class's fragments split into the app index or the locator on `batch is not None`. A pinned gzip mtime keeps consecutive builds of the same inputs byte-identical.
+
+    Each file is staged under a sibling `.partial` name and renamed only once both have closed cleanly, exactly as `build._write_shard` stages its parts and for a sharper version of the same reason: `app_row` asserts on a fragment whose machine flags are not false, and the projection can raise partway through a file whose previous build's copy the app is still being served. In place, that leaves a truncated sidecar with a valid header — the app boots from it, Range-fetches offsets into shards it no longer describes, and the failure surfaces as garbled records rather than as the refusal `artifact_is_current` exists to make. Staged, a failed write leaves the last good pair in place and nothing beside it, and the two land together, which is what lets `artifact_cycle.surface_build_skippable` read their currency as a statement about the whole surface.
+    """
     surface = Path(surface)
     ordered = sorted(shards.items(), key=lambda item: unit_index.class_shard_key(item[0]))
     human = sum(
@@ -113,21 +116,33 @@ def write_app_artifacts(
     machine = sum(len(fragments) for _class_id, fragments in ordered) - human
     index_path = artifact_path(surface, APP_INDEX_NAME)
     locator_path = artifact_path(surface, LOCATOR_NAME)
-    with open(index_path, "wb") as index_raw, open(locator_path, "wb") as locator_raw:
-        with (
-            gzip.GzipFile(fileobj=index_raw, mode="wb", mtime=0, compresslevel=COMPRESS_LEVEL) as index,
-            gzip.GzipFile(fileobj=locator_raw, mode="wb", mtime=0, compresslevel=COMPRESS_LEVEL) as locator,
-        ):
-            index.write(_line({**header(surface, APP_INDEX_FORMAT), "units": human}))
-            locator.write(_line({**header(surface, LOCATOR_FORMAT), "units": machine}))
-            for class_id, fragments in ordered:
-                addresses = spans.get(class_id) or ()
-                for fragment, (part, start, length) in zip(fragments, addresses, strict=True):
-                    if fragment.get("batch") is None:
-                        locator.write(_line(locator_row(fragment, part, start, length)))
-                    else:
-                        index.write(_line(app_row(fragment, part, start, length)))
-    return index_path, locator_path
+    staged = (
+        index_path.with_name(index_path.name + ".partial"),
+        locator_path.with_name(locator_path.name + ".partial"),
+    )
+    try:
+        with open(staged[0], "wb") as index_raw, open(staged[1], "wb") as locator_raw:
+            with (
+                gzip.GzipFile(fileobj=index_raw, mode="wb", mtime=0, compresslevel=COMPRESS_LEVEL) as index,
+                gzip.GzipFile(
+                    fileobj=locator_raw, mode="wb", mtime=0, compresslevel=COMPRESS_LEVEL
+                ) as locator,
+            ):
+                index.write(_line({**header(surface, APP_INDEX_FORMAT), "units": human}))
+                locator.write(_line({**header(surface, LOCATOR_FORMAT), "units": machine}))
+                for class_id, fragments in ordered:
+                    addresses = spans.get(class_id) or ()
+                    for fragment, (part, start, length) in zip(fragments, addresses, strict=True):
+                        if fragment.get("batch") is None:
+                            locator.write(_line(locator_row(fragment, part, start, length)))
+                        else:
+                            index.write(_line(app_row(fragment, part, start, length)))
+        staged[0].replace(index_path)
+        staged[1].replace(locator_path)
+        return index_path, locator_path
+    finally:
+        for path in staged:
+            path.unlink(missing_ok=True)
 
 
 def _line(record: dict) -> bytes:

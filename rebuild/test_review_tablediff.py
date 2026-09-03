@@ -1,6 +1,6 @@
 """Tests for the general table-vs-table treaty-diff mode: added/removed/changed classification on synthetic table pairs, remove+add pairing into regrouped rows, provenance-only demotion, witness search that re-settles to the changed row, and the snapshot round-trip.
 
-Only the two witness arms are about the live tables — they re-settle real settlement rows and treaty pairs and check the outcome comes back. The classification, the round trip, and the self-diff are properties of `diff_dirs` and `write_snapshot` over any tables, so they take the synthetic pair or the frozen mini-M1 bundle and run in the contracts lane.
+The two witness arms re-settle real settlement rows and treaty pairs and check the outcome comes back — over the frozen mini-M1 bundle's tables, under the spec `mini_bundle` materializes, which is the spec those tables were built from. That pairing is what the arms need and all they need: a witness re-settling to its own row is a property of `WitnessIndex` against the spec the row came from, not a claim about today's rules. The classification, the round trip, and the self-diff are properties of `diff_dirs` and `write_snapshot` over any tables, so they take the synthetic pair or the same bundle; the whole file runs in the contracts lane.
 """
 
 import warnings
@@ -174,17 +174,17 @@ def test_diff_is_deterministic(table_dirs):
 
 
 @pytest.fixture(scope="module")
-def witness_index():
+def witness_index(mini_bundle):
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        spec = load_spec(REPO_ROOT)
+        spec = load_spec(mini_bundle.spec_root)
     return spec, tablediff.WitnessIndex(spec, "default", max_depth=3)
 
 
-def test_witness_resettles_to_the_settlement_row(witness_index, live_artifacts):
-    """Every witness the index hands back for a live settlement row settles to that row's outcome. The whole stride is gathered first and explained in one `explain_many` call, so the check costs a handful of kernel invocations rather than one per witness."""
+def test_witness_resettles_to_the_settlement_row(witness_index):
+    """Every witness the index hands back for a frozen settlement row settles to that row's outcome under the spec the row was written by. The whole stride is gathered first and explained in one `explain_many` call, so the check costs a handful of kernel invocations rather than one per witness."""
     spec, index = witness_index
-    rows = tablediff.load_settlement(live_artifacts.m1 / "settlement-default.tsv")
+    rows = tablediff.load_settlement(MINI / "settlement-default.tsv")
     asked = []
     for key, value in list(rows.items())[::10]:
         witness = index.witness_settlement(key)
@@ -198,10 +198,10 @@ def test_witness_resettles_to_the_settlement_row(witness_index, live_artifacts):
         assert value.outcome in labels, (key.label(), value.outcome, labels)
 
 
-def test_witness_resettles_to_the_treaty_pair(witness_index, live_artifacts):
-    """Every witness the index hands back for a live treaty row settles to that row's left and right as adjacent cells, batched through one `explain_many` call the same way."""
+def test_witness_resettles_to_the_treaty_pair(witness_index):
+    """Every witness the index hands back for a frozen treaty row settles to that row's left and right as adjacent cells, batched through one `explain_many` call the same way."""
     spec, index = witness_index
-    rows = tablediff.load_treaty(live_artifacts.m1 / "treaties-default.tsv")
+    rows = tablediff.load_treaty(MINI / "treaties-default.tsv")
     asked = []
     for key in list(rows)[::25]:
         witness = index.witness_treaty(key)

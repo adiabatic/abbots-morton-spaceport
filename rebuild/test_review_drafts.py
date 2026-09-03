@@ -1,6 +1,6 @@
 """Tests for the three verdict drafters against real M1 units: the semantic validator's teeth, the policy drafter's branch table on worked-example windows (contract for a gained extension, refuse for a new join, prefer on a name-grain divergence and on an empty trace, and the decline), any-of candidate ordering, and duplicate detection against a synthetic corpus index.
 
-The whole-corpus sweeps that used to live here are gone: what every drafted pin and policy record must satisfy — the pin parses and replays "pass", the record is schema-valid, the any-of candidates are distinct and parseable — the drafter now refuses to produce anything else, raising `DraftError` where the draft is made rather than recording a failure for `check_unit` to reject downstream, so no sweep of shipped fragments can witness a violation that exists. (The ink-identical and Junior-equivalent units carry `drafts: null` and are never drafted at all; that a record names only trace provenance in a real file is still `check_unit`'s and `check_shards`'.) The worked examples that remain take their windows from `example_units`, a filtered load of the audit rather than the whole 451k-unit graph.
+The whole-corpus sweeps that used to live here are gone: what every drafted pin and policy record must satisfy — the pin parses and replays "pass", the record is schema-valid, the any-of candidates are distinct and parseable — the drafter now refuses to produce anything else, raising `DraftError` where the draft is made rather than recording a failure for `check_unit` to reject downstream, so no sweep of shipped fragments can witness a violation that exists. (The ink-identical and Junior-equivalent units carry `drafts: null` and are never drafted at all; that a record names only trace provenance in a real file is still `check_unit`'s and `check_shards`'.) The worked examples that remain take their windows from `example_units`, a filtered load of the frozen mini bundle's audit, and shape them in the bundle's own font — how the drafter words a record is a property of the drafter, so nothing here reaches the live corpus.
 """
 
 import warnings
@@ -19,19 +19,21 @@ from rebuild.review.drafts import (
 from rebuild.review.enrich import Enricher, load_spec
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+MINI = REPO_ROOT / "rebuild" / "review" / "fixtures" / "mini"
+MINI_FONT = MINI / "M1.otf"
 
 
 @pytest.fixture(scope="module")
-def enricher(live_artifacts):
+def enricher(mini_bundle):
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        spec = load_spec(REPO_ROOT)
-    return Enricher(spec, live_artifacts.m1, live_artifacts.font)
+        spec = load_spec(mini_bundle.spec_root)
+    return Enricher(spec, MINI, MINI_FONT, repo_root=REPO_ROOT)
 
 
 @pytest.fixture(scope="module")
-def drafter(live_artifacts):
-    return Drafter(live_artifacts.font)
+def drafter():
+    return Drafter(MINI_FONT, repo_root=REPO_ROOT)
 
 
 def test_pins_are_whole_word_with_no_variant_assertions():
@@ -154,12 +156,12 @@ def test_any_of_orders_after_behavior_first(drafter, enricher, example_units):
     assert draft.candidates[0] == after_expect
 
 
-def test_duplicate_detection_fires_on_a_known_pinned_text(enricher, example_units, live_artifacts):
+def test_duplicate_detection_fires_on_a_known_pinned_text(enricher, example_units):
     enriched = enricher.enrich(example_units[("E652:E670", "default")])
     text = "".join(chr(value) for value in enriched.unit.codepoint_values)
     token = enriched.unit.configs[0]
     index = {(text, token): {"source": "site/the-manual.html:123", "attribute": "data-expect"}}
-    drafter = Drafter(live_artifacts.font, corpus_index=index)
+    drafter = Drafter(MINI_FONT, corpus_index=index)
     pin = drafter.draft_pin(enriched)
     assert pin.duplicate_of == "site/the-manual.html:123"
     assert pin.attribute == "data-expect"

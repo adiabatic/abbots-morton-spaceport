@@ -58,7 +58,7 @@ from typing import TYPE_CHECKING
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
-from rebuild.review import unit_index  # noqa: E402
+from rebuild.review import app_index, unit_index  # noqa: E402
 from rebuild.tools.cycle_timings import CYCLE_RUN_ENV, CheckVerdict  # noqa: E402
 from rebuild.tools.peak_rss import reap_peak_rss_bytes, rss_token  # noqa: E402
 from rebuild.tools.review_server import REVIEW_PORT, server_listening  # noqa: E402
@@ -618,7 +618,7 @@ def rebuild_gate_closure_files(root: Path) -> list[str] | None:
 
 
 def rebuild_lane_fingerprint(root: Path, lane: str) -> str | None:
-    """Content key over one lane's full input closure, and the two closures are what make the lanes separately skippable. Contracts covers the repo files from rebuild_gate_closure_files, which has already dropped the exempt paths, so a bless of a contact signature moves neither lane's key — plus the site fonts, which its shaping tests measure against and which are the frozen old font, unmoved by any rune edit; it deliberately contains no build artifact at all, so a verdict-only or artifact-only cycle re-runs nothing here, and a live M1 rebuild — which writes only under rebuild/out — cannot invalidate the key mid-pass. Validators adds exactly what that lane reads on top: the out/m1 artifacts, the oracle's subset tables, and the baselines. It drops one tree more than the shared exemptions, too: rebuild/review/static/, the copied app shell, which nothing in that lane reads — `built_review_surface` already exempts the matching fingerprint component, and the only tests that read the shell (the index-html sanity check and the `node --check` pass in rebuild/test_review_build.py) read it at its source and sit in the contracts lane, whose closure keeps it. Both contain the rune files, prose-blind, because several contracts tests load the live spec. The verdict store is absent from both — the suite exercises it only through fixtures — which is what lets a verdict-only cycle skip the suite entirely. None when git is unavailable, in which case the caller must run the lane unconditionally."""
+    """Content key over one lane's full input closure, and the two closures are what make the lanes separately skippable. Contracts covers the repo files from rebuild_gate_closure_files, which has already dropped the exempt paths, so a bless of a contact signature moves neither lane's key — plus the site fonts, which its shaping tests measure against and which are the frozen old font, unmoved by any rune edit; it deliberately contains no build artifact at all, so a verdict-only or artifact-only cycle re-runs nothing here, and a live M1 rebuild — which writes only under rebuild/out — cannot invalidate the key mid-pass. Validators adds exactly what that lane reads on top: the out/m1 artifacts, the oracle's subset tables, and the baselines. It drops one tree more than the shared exemptions, too: rebuild/review/static/, the copied app shell, which nothing in that lane reads — the only tests that read the shell (the index-html sanity check and the `node --check` pass in rebuild/test_review_build.py) read it at its source and sit in the contracts lane, whose closure keeps it. Both contain the rune files, prose-blind, because several contracts tests load the live spec. The verdict store is absent from both — the suite exercises it only through fixtures — which is what lets a verdict-only cycle skip the suite entirely. None when git is unavailable, in which case the caller must run the lane unconditionally."""
     from rebuild.pipeline import fingerprint
 
     files = rebuild_gate_closure_files(root)
@@ -643,7 +643,9 @@ def surface_build_skippable(
 ) -> bool:
     """Whether rebuilding the review surface would reproduce its content byte for byte, so the build can be skipped with the autosave still aligned. True only when the manifest's recorded inputs fingerprint equals the one a build would stamp now (Stage A as recorded by run_m1, Stage B recomputed) and every shard the manifest names is still present. generated_at is mtime-derived, so a rebuild after pure mtime churn (git checkout, touch) could restamp it even with identical content — skipping deliberately keeps the existing stamp instead, which preserves the manifest-autosave alignment the stamp exists to key.
 
-    `ignore` names fingerprint components exempted from the comparison, for a caller asking a narrower question than byte identity: the validators-lane fixture passes `unit_index.ASSET_COMPONENTS` because its consumers read the units and never the copied UI assets — the same hard/warn split status._freshness_check draws. The cycle asks both questions in turn rather than one: the strict one first, since a surface that reproduces byte for byte needs nothing done to it at all; and when only an ASSET_COMPONENTS member differs, it copies those assets over the served surface and restamps that one component (`assets-refresh`) instead of rebuilding units that cannot have moved. A component missing from either side still refuses: only a recorded-and-expected pair is ever waved through.
+    The three files the manifest does not name are checked too — the per-unit index and both app sidecars — and each has to be stamped for the manifest beside it rather than merely present. They are written after the manifest and outside it, so a build interrupted between the two, or a manifest rewritten by anything that does not rewrite them, leaves a surface whose shards are all there and whose sidecars address a surface that no longer exists. Skipping on shard existence alone would then serve that surface forever; asking `unit_index.index_is_current` and `app_index.artifact_is_current` makes the skip say what it means, which is that a rebuild would reproduce this surface's content whole.
+
+    `ignore` names fingerprint components exempted from the comparison, for a caller asking a narrower question than byte identity — the same hard/warn split status._freshness_check draws. The cycle asks both questions in turn rather than one: the strict one first, since a surface that reproduces byte for byte needs nothing done to it at all; and when only an ASSET_COMPONENTS member differs, it copies those assets over the served surface and restamps that one component (`assets-refresh`) instead of rebuilding units that cannot have moved. A component missing from either side still refuses: only a recorded-and-expected pair is ever waved through.
     """
     from rebuild.pipeline import fingerprint
 
@@ -669,7 +671,11 @@ def surface_build_skippable(
         shards = [part for meta in manifest["classes"] for part in unit_index.class_shards(meta)]
     except KeyError, TypeError, AttributeError:
         return False
-    return all((surface / shard).exists() for shard in shards)
+    if not all((surface / shard).exists() for shard in shards):
+        return False
+    return unit_index.index_is_current(surface) and all(
+        app_index.artifact_is_current(surface, name, fmt) for name, fmt in app_index.ARTIFACTS
+    )
 
 
 # The chain's own code, named module by module rather than as the whole of rebuild/tools/: the closure of rebuild.tools.verdict_chain, which runs every step, held to the walked import graph by rebuild/test_plumbing_closure.py on every contracts run. This driver is not an entry point, because every argv it hands the chain names an input the key already hashes — the surface, a snapshot of that same surface, the master, the store — or a flag that disables the skip outright, and the chain's own flag parsing lives in verdict_chain; the two width yardsticks the pipeline takes from this tree (memory_budget and peak_rss, reached only through kernel_exec) are the pipeline_code component's coverage question, which the key carries whole through its manifest line, so the walk stops at that component's boundary rather than dragging a fan-out width and a cost reading into a verdict's closure.
@@ -1920,7 +1926,7 @@ def _scrape(lines: list[str], keep) -> list[str]:
 
 
 def _standing_fill_news(line: str) -> bool:
-    """Which of the standing fill's tally lines the summary keeps: the wrote-line, the tripwire's WARNING (so an over-broad rule is read off cycle_summary.json rather than only out of the child's dump), every per-rule line (linear in the rule count, and what lets a just-landed rule be quoted from the summary even at 0 filled), and only the composed-pair lines that actually filled or held something — the steady-state pairs grow quadratically in the rule set and their full roll call is standing_probe --coverage's job, not the summary's. The reach rollup's REACHED NOTHING lines and the except_left vocabulary line stay out: the validators lane already proves every checked-in rule reaches the live surface, and the vocabulary line is informational. The already-verdicted column is optional because the chain runs the fill in its --open-only form, which drops it, while a dry run over the whole domain still prints it."""
+    """Which of the standing fill's tally lines the summary keeps: the wrote-line, the tripwire's WARNING (so an over-broad rule is read off cycle_summary.json rather than only out of the child's dump), every per-rule line (linear in the rule count, and what lets a just-landed rule be quoted from the summary even at 0 filled), and only the composed-pair lines that actually filled or held something — the steady-state pairs grow quadratically in the rule set and their full roll call is standing_probe --coverage's job, not the summary's. The reach rollup's REACHED NOTHING lines and the except_left vocabulary line stay out: a rule reaching nothing now fails the step outright under `--require-reach`, so the summary carries the red rather than a line to notice, and the vocabulary line is informational. The already-verdicted column is optional because the chain runs the fill in its --open-only form, which drops it, while a dry run over the whole domain still prints it."""
     if line.startswith("wrote ") and "standing-approval verdicts" in line:
         return True
     if line.startswith("WARNING:"):

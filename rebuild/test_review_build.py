@@ -1,15 +1,11 @@
 """Tests for the review-app build CLI: the §7 contract checker over rebuild/review/fixtures/ (the same checker `build_m1` runs over its own output, so fixtures and real output can never drift), the config-note badge vocabulary, the app shell and its shipped scripts, the export round-trip, and the table-diff build.
 
-What is asserted against the *live* surface is deliberately short, because `build_m1` proves the per-unit and per-shard contracts over every unit it writes and fails the build on any violation, and anything the manifest writer computes from its own inputs (the fingerprint, the feature descriptions, the sidebar order) is true by construction — re-walking the shards here to restate one of them bought nothing but seconds and gigabytes apiece. What stays is what no build check makes: the worked example of the ink-duplicate fold (looked up by codepoint rather than by parsing every shard) and the sidecars' byte addressing. The shipped ink deltas are not among them any more — the build's own served-vs-recomputed sample re-shapes the fonts for a couple of hundred served windows on every build and holds the persisted deltas against that recomputation, which is the same claim continuously rather than three windows a lane.
-
-The built surface comes from `built_review_surface` in rebuild/conftest.py — the artifact cycle's own rebuild/out/review, read-only, refused rather than rebuilt when it is stale.
+Nothing here reads the live surface any more, and nothing needs to. `build_m1` proves the per-unit and per-shard contracts over every unit it writes and fails the build on any violation, and anything the manifest writer computes from its own inputs (the fingerprint, the feature descriptions, the sidebar order) is true by construction. Of the two claims that used to be asserted against a built corpus here, the sidecars' byte addressing is now `rebuild/test_app_index.py`'s over a mini build it can hold — plus the staging in `app_index.write_app_artifacts` and the currency check `artifact_cycle.surface_build_skippable` makes, which together are why a shipped surface cannot carry a sidecar addressing shards it was not projected from; and the ink-duplicate fold's worked example is `census.derive_premerge`'s assert plus the name-blindness of the real `InkComparator.signature`, witnessed on the marker font in `rebuild/test_review_ink.py`, with the corpus-wide "fold fired" witness surviving as a count in rebuild/review-census-pins.json. The shipped ink deltas are covered by the build's own served-vs-recomputed sample, which re-shapes a couple of hundred served windows on every build.
 """
 
 import copy
-import gzip
 import json
 import multiprocessing
-import random
 import shutil
 import subprocess
 from html.parser import HTMLParser
@@ -45,11 +41,6 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 FIXTURES = REPO_ROOT / "rebuild" / "review" / "fixtures"
 MINI = FIXTURES / "mini"
 LEDGER_PATH = REPO_ROOT / "rebuild" / "m1-divergences.yaml"
-
-
-@pytest.fixture(scope="module")
-def built(built_review_surface):
-    return built_review_surface
 
 
 def _load_fixture_units():
@@ -261,100 +252,6 @@ def test_check_shards_flags_human_unit_ids_that_do_not_match_batches():
     }
     manifest["human_unit_ids"].pop()
     assert any("human_unit_ids" in error for error in check_shards(manifest, shards))
-
-
-def _shard_parts(out_dir, manifest):
-    for meta in manifest["classes"]:
-        for part in unit_index.class_shards(meta):
-            yield out_dir / part
-
-
-def _units_with_codepoints(out_dir, manifest, wanted):
-    """The units of the named windows, gathered without parsing shard parts that cannot hold one. A part's codepoints appear verbatim in its JSON text, so a substring test over the raw bytes rules most of the surface out for the price of a read — which matters, because parsing the whole corpus costs twelve seconds and eight gigabytes where a worked example wants two units."""
-    found = {}
-    for path in _shard_parts(out_dir, manifest):
-        raw = path.read_text(encoding="utf-8")
-        if not any(f'"{codepoints}"' in raw for codepoints in wanted):
-            continue
-        for unit in json.loads(raw):
-            if unit["codepoints"] in wanted:
-                found.setdefault(unit["codepoints"], []).append(unit)
-    return found
-
-
-def _non_ss10_units(units):
-    """A window's units outside its ss10-only sibling: under ss10 every letter keeps its own cluster, so the same codepoints settle into a second, seamless unit that the worked examples below never mean."""
-    return [unit for unit in units if unit["configs"] != ["ss10"]]
-
-
-def test_ink_duplicate_siblings_fold_in_the_built_output(built):
-    """The worked example of the ink-duplicate merge: the old font's ss04 lookups rename word-initial ·It in ·It·Day·Tea·No (E670:E653:E652:E666) without moving any ink, which used to split the window into a default-configs unit and an ss04-only sibling asking the identical visual question twice. The build folds them: one unit, every non-ss10 config, one render group, no config badge."""
-    out_dir, manifest = built
-    (unit,) = _non_ss10_units(
-        _units_with_codepoints(out_dir, manifest, {"E670:E653:E652:E666"})["E670:E653:E652:E666"]
-    )
-    assert unit["configs"] == ["default", "ss03", "ss04", "ss05", "ss03+ss05"]
-    assert unit["render_groups"] == [{"configs": unit["configs"]}]
-    assert unit["config_note"] is None
-    assert unit["config_gate"] is None
-
-
-SIDECAR_SAMPLE = 40
-
-
-def _sidecar_sample(surface: Path, name: str, seed: str, count: int) -> tuple[list[str], list[dict]]:
-    """Every row id in one of the app's sidecars, plus a deterministic reservoir sample of whole rows, in one streaming pass — the app index runs to a hundred megabytes and nothing here may hold it."""
-    rng = random.Random(seed)
-    ids: list[str] = []
-    kept: list[dict] = []
-    with gzip.open(app_index.artifact_path(surface, name), "rt", encoding="utf-8") as stream:
-        next(stream)
-        for index, line in enumerate(stream):
-            row = json.loads(line)
-            ids.append(row["id"])
-            if len(kept) < count:
-                kept.append(row)
-            elif rng.random() < count / (index + 1):
-                kept[rng.randrange(count)] = row
-    return ids, kept
-
-
-def _addressed_fragment(surface: Path, manifest: dict, row: dict) -> dict:
-    """The shard record a sidecar row addresses, read the way the app's explain panel reads it: the named part, that byte range of it, parsed on its own."""
-    meta = next(entry for entry in manifest["classes"] if entry["id"] == row["class"])
-    part = unit_index.class_shards(meta)[row["shard_part"]]
-    with open(surface / part, "rb") as handle:
-        handle.seek(row["byte_start"])
-        raw = handle.read(row["byte_length"])
-    return json.loads(raw)
-
-
-def test_the_shipped_app_sidecars_address_the_shards_they_were_projected_from(built):
-    """The persisted-value-against-its-source claim no build check makes: the app boots from a projection and Range-fetches the rest, so what has to hold on the shipped surface is that each row's span really slices its own record out of the shard on disk and that the row really is that record's projection. The id sets are checked whole — the app index is the manifest's human workload and the locator is exactly the rest — and the byte agreement on a deterministic sample, because reading every span would re-read the corpus this module deliberately does not. (Their order is the shard walk's, which `rebuild/test_app_index.py` pins over a build it can hold.)"""
-    out_dir, manifest = built
-    for name, fmt in app_index.ARTIFACTS:
-        assert app_index.artifact_is_current(out_dir, name, fmt), name
-
-    human_ids, human_rows = _sidecar_sample(
-        out_dir, app_index.APP_INDEX_NAME, manifest["generated_at"], SIDECAR_SAMPLE
-    )
-    assert len(human_ids) == len(manifest["human_unit_ids"])
-    assert set(human_ids) == set(manifest["human_unit_ids"])
-    for row in human_rows:
-        fragment = _addressed_fragment(out_dir, manifest, row)
-        assert fragment["id"] == row["id"]
-        assert row == app_index.app_row(fragment, row["shard_part"], row["byte_start"], row["byte_length"])
-
-    machine_ids, machine_rows = _sidecar_sample(
-        out_dir, app_index.LOCATOR_NAME, manifest["generated_at"], SIDECAR_SAMPLE
-    )
-    assert len(machine_ids) == manifest["totals"]["units"] - len(manifest["human_unit_ids"])
-    assert set(machine_ids).isdisjoint(manifest["human_unit_ids"])
-    for row in machine_rows:
-        fragment = _addressed_fragment(out_dir, manifest, row)
-        assert row == app_index.locator_row(
-            fragment, row["shard_part"], row["byte_start"], row["byte_length"]
-        )
 
 
 def test_config_note_covers_the_general_gated_excluded_overlay_and_fallback_cases():

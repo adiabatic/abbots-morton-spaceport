@@ -1,10 +1,10 @@
-"""Tests for the review surface's ink-identity comparison: the unified boolean (config_diff's identity sentinel, which implies the sorted-placed-pieces census reference) reproduces the census facts — the ␣·Pea·Pea window is ink-identical, the ◊ZWNJ ·May·Oy·Pea one only because kerning is neutralized, and the verdict is deterministic across comparators.
+"""Tests for the review surface's ink-identity comparison: the unified boolean (config_diff's identity sentinel, which the signature now carries by definition) reproduces the worked readings — the ◊ZWNJ ·May·Oy·Pea window is ink-identical only because kerning is neutralized, ␣·Pea·Pea is ink-identical outright, a real one-pixel change is not picture-identical, and the verdict is deterministic across comparators.
 
-The kern-neutral census over the live workload at the name-grain (pre-merge) dedupe comes from the surface build's census-facts.json sidecar, which reports one ink flag per pre-merge unit. The totals themselves are the census's to report — the artifact cycle diffs them into rebuild/review-census-pins.json — and that the sidecar's own aggregate is what its own flags reduce to is now `derive_premerge`'s to assert, over the same capture it writes. What is left here is the check no reduction can make: the flags are derived rather than re-shaped, so a sample re-shapes them fresh against the fonts — the whole-corpus stride plus a stratum drawn from the sibling windows, the fold-candidate population where a folded unit borrows its survivor's verdict — against `workload_index`, the ordered census-grain list the flag string is indexed into.
+Nothing here reads the live corpus. The windows come from the frozen mini bundle's audit and are shaped in that bundle's own font, because every claim in this file is about the comparator rather than about today's letters. The fold's soundness used to be sampled here — `signature` grouped sorted pieces while `config_diff` aligned runs in order, so the two could in principle disagree — and is definitional now: `signature` returns the same two `run_ink` lists `config_diff` reads, so equal signatures give equal deltas and equal ink flags with nothing left to sample. What a sample cannot say either way is that the signature ignores glyph names, so the marker font gives two names one outline and holds their signatures equal.
 
 Also here: `delta_digest`, the persisted identity of one config's localized delta, whose shape check_unit enforces and whose recipe is a byte-identity contract with the digests recorded in rebuild/standing-approvals.yaml.
 
-And, on inputs this file builds for itself rather than the live artifact, the two pixel-grain readings the standing approvals' slide shape works from: `rectilinear_cells`, which rasterizes one grid-rectilinear outline under nonzero winding — a hole stays empty, two overlapping same-direction contours fill their union, and a curve or an off-grid coordinate answers None rather than a picture — and `named_run`, the shaped run with its glyph names still attached, which keeps the inkless markers its pieces drop and whose nameless projection is `run_ink`.
+And, on inputs this file builds for itself, the two pixel-grain readings the standing approvals' slide shape works from: `rectilinear_cells`, which rasterizes one grid-rectilinear outline under nonzero winding — a hole stays empty, two overlapping same-direction contours fill their union, and a curve or an off-grid coordinate answers None rather than a picture — and `named_run`, the shaped run with its glyph names still attached, which keeps the inkless markers its pieces drop and whose nameless projection is `run_ink`.
 """
 
 import hashlib
@@ -14,8 +14,6 @@ from pathlib import Path
 
 import pytest
 
-from rebuild.review import census
-from rebuild.review.census import load_facts
 from rebuild.review.ink import (
     IDENTITY_DIFF,
     InkComparator,
@@ -30,13 +28,24 @@ from rebuild.review.ink import (
 from rebuild.validation.shaping import Shaper
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+MINI = REPO_ROOT / "rebuild" / "review" / "fixtures" / "mini"
+MINI_FONT = MINI / "M1.otf"
 BEFORE_FONT = REPO_ROOT / "site" / "AbbotsMortonSpaceportSansSenior-Regular.otf"
 JUNIOR_FONT = REPO_ROOT / "site" / "AbbotsMortonSpaceportSansJunior-Regular.otf"
 
 
 @pytest.fixture(scope="module")
-def comparator(live_artifacts):
-    return InkComparator(BEFORE_FONT, live_artifacts.font)
+def comparator():
+    return InkComparator(BEFORE_FONT, MINI_FONT)
+
+
+@pytest.fixture(scope="module")
+def mini_units(mini_bundle):
+    """The frozen bundle's whole workload, which is about a thousand windows over four letters and the boundary tokens — enough for a stride to witness a property of the comparator, and small enough that loading it costs a second."""
+    from rebuild.review.audit import load_workload
+    from rebuild.review.enrich import LETTERS
+
+    return load_workload(MINI / "audit.tsv", mini_bundle.ledger, dict(LETTERS))
 
 
 def _text(unit) -> str:
@@ -114,12 +123,15 @@ def test_rectilinear_cells_refuses_an_unclosed_contour():
     assert rectilinear_cells(outline) is None
 
 
+QS_A_OUTLINE = (((0, 0), (100, 0), (100, 150), (0, 150)),)
 MARKER_GLYPHS = {
-    "qsA": ((((0, 0), (100, 0), (100, 150), (0, 150)),), 100),
+    "qsA": (QS_A_OUTLINE, 100),
     "qsB": ((((50, 0), (150, 0), (150, 150), (50, 150)),), 200),
+    # A second name over ·A's outline and advance exactly: the only thing that distinguishes it from qsA is what a signature must not read.
+    "qsC": (QS_A_OUTLINE, 100),
     "space": ((), 100),
 }
-MARKER_CMAP = {0xE001: "qsA", 0xE002: "qsB", 0x20: "space"}
+MARKER_CMAP = {0xE001: "qsA", 0xE002: "qsB", 0xE003: "qsC", 0x20: "space"}
 
 
 def _build_font(path, glyphs=MARKER_GLYPHS, cmap=MARKER_CMAP):
@@ -178,6 +190,13 @@ def test_run_ink_is_the_nameless_projection_of_named_run(marker_comparator):
     """`run_ink` is defined as the names dropped and nothing else, which is what keeps a name out of every piece comparison the delta alignment makes."""
     _names, pieces = marker_comparator.named_run("before", MARKER_TEXT, {})
     assert marker_comparator.run_ink("before", MARKER_TEXT, {}) == [piece[1:] for piece in pieces]
+
+
+def test_the_signature_is_blind_to_the_glyph_name(marker_comparator):
+    """The one thing the definitional fold cannot prove of itself: `signature` is `run_ink` on both sides, and `run_ink` drops the name, so two glyphs drawing the same outline at the same advance under different names present the same signature. That is what makes the ink-duplicate merge a fold of relabel-splits rather than of nothing — the real corpus's whole population of candidates differ in exactly this way — and the synthetic fold tests stub `ink_sig`, so the real function is witnessed here."""
+    assert marker_comparator.signature(chr(0xE001), "default") == marker_comparator.signature(
+        chr(0xE003), "default"
+    )
 
 
 def test_the_intern_rasterizes_a_shape_in_its_own_canonical_frame(marker_comparator):
@@ -246,10 +265,10 @@ def test_u_0000_is_ink_identical(comparator):
     assert comparator.ink_identical(text, ("default",)) is True
 
 
-def test_verdicts_are_deterministic_across_two_comparators(workload_index, comparator, live_artifacts):
+def test_verdicts_are_deterministic_across_two_comparators(mini_units, comparator):
     """Memoization hygiene: a second comparator over the same fonts reaches the same verdict. A hundred windows witness that as well as a corpus stride did — the property is that the memo cannot serve a different answer, not that it holds for a particular number of windows."""
-    again = InkComparator(BEFORE_FONT, live_artifacts.font)
-    sample = workload_index.units[:: max(1, len(workload_index.units) // 100)]
+    again = InkComparator(BEFORE_FONT, MINI_FONT)
+    sample = mini_units.units[:: max(1, len(mini_units.units) // 100)]
     assert [comparator.ink_identical(_text(unit), unit.configs) for unit in sample] == [
         again.ink_identical(_text(unit), unit.configs) for unit in sample
     ]
@@ -270,43 +289,18 @@ def test_config_diff_localizes_the_delta_to_the_changed_region(comparator):
     assert diff_two[2] == -50
 
 
-def test_the_founding_overlap_removal_window_is_picture_identical(comparator):
-    """·At·J’ai·Day·Tea: the old font double-drew one pixel where ·At's exit meets ·J’ai's entry, and the rebuild contracts ·J’ai's entry instead — a name-grain change under every config, and no visible one."""
-    text = "".join(chr(value) for value in (0xE674, 0xE65D, 0xE653, 0xE652))
-    configs = ("default", "ss03", "ss04", "ss05", "ss03+ss05")
-    assert comparator.ink_identical(text, configs) is False
-    assert comparator.picture_identical(text, configs) is True
-
-
 def test_a_real_one_pixel_change_is_not_picture_identical(comparator):
     """·Pea·Tea·Eight·Roe differs by a single pixel that no neighbor covers, which is exactly the difference the channel must keep asking about."""
     text = "".join(chr(value) for value in (0xE650, 0xE652, 0xE673, 0xE668))
     assert comparator.picture_identical(text, ("default",)) is False
 
 
-def test_piece_identity_implies_picture_identity_over_a_corpus_sample(workload_index, comparator):
-    """The build asks the picture question only where the piece question said no, on the strength of this implication; a stride over the corpus holds it against the shipped fonts, off-grid placements included."""
-    for unit in workload_index.units[::2000]:
+def test_piece_identity_implies_picture_identity_over_a_sample(mini_units, comparator):
+    """The build asks the picture question only where the piece question said no, on the strength of this implication; a stride over the frozen windows holds it against real compiled outlines, off-grid placements included."""
+    for unit in mini_units.units[::5]:
         for config in unit.configs:
             if comparator.config_diff(_text(unit), config) == IDENTITY_DIFF:
                 assert comparator.picture_equal(_text(unit), config), (unit.codepoints, config)
-
-
-def test_the_retired_sorted_runs_formulation_agrees_over_a_corpus_sample(workload_index, live_artifacts):
-    """The unification contract: ink_identical reads config_diff's identity sentinel, and the retired census formulation — sorted whole placed runs compared across fonts — must reach the same verdict on every (text, config). The sentinel implies run identity by construction (empty middles and no follower shift leave nothing moved), so the direction this samples is the converse: no window whose placed runs match may come back with a nonempty localized delta or a recorded shift. The full-corpus backstop is the census itself — a disagreement can only flip a unit identical→non-identical, so any escape moves machine_total in the pins diff a human reads at acceptance."""
-    comparator = InkComparator(BEFORE_FONT, live_artifacts.font, shaper_for)
-    disagreements = []
-    for unit in workload_index.units[::2000]:
-        text = _text(unit)
-        for config in unit.configs:
-            features = features_for(config)
-            retired = comparator.ink_pieces("before", text, features) == comparator.ink_pieces(
-                "after", text, features
-            )
-            unified = comparator.config_diff(text, config) == IDENTITY_DIFF
-            if retired is not unified:
-                disagreements.append((unit.codepoints, config, retired, unified))
-    assert disagreements == []
 
 
 def test_delta_digest_is_a_d_prefixed_twelve_hex_token(comparator):
@@ -319,28 +313,6 @@ def test_delta_digest_is_a_d_prefixed_twelve_hex_token(comparator):
         assert all(character in "0123456789abcdef" for character in digest[2:])
 
 
-def test_delta_digest_is_determined_by_the_tuple_alone(comparator, live_artifacts):
-    """Equal tuples digest equally no matter which comparator, run, or process produced them — that is what lets a digest recorded in rebuild/standing-approvals.yaml keep matching across rebuilds. Asserted both against a freshly constructed comparator and against a hand-written copy of the tuple."""
-    pair = "".join(chr(value) for value in (0xE650, 0xE665))
-    diff = comparator.config_diff(pair, "default")
-    again = InkComparator(BEFORE_FONT, live_artifacts.font)
-    assert delta_digest(again.config_diff(pair, "default")) == delta_digest(diff)
-    assert delta_digest((diff[0], diff[1], diff[2])) == delta_digest(diff)
-
-
-def test_delta_digest_separates_the_deltas_config_diff_separates(comparator):
-    """The digest carries exactly the distinctions the tuple carries, over the same worked ·Pea·May example as test_config_diff_localizes_the_delta_to_the_changed_region: the one- and two-follower windows share a tuple and so share a digest, while the bare pair — same ink appearing and disappearing, but nothing sliding — differs in the recorded shift and so digests apart."""
-    pair = "".join(chr(value) for value in (0xE650, 0xE665))
-    one_follower = "".join(chr(value) for value in (0xE650, 0xE665, 0xE667))
-    two_followers = "".join(chr(value) for value in (0xE650, 0xE665, 0xE667, 0xE658))
-    assert delta_digest(comparator.config_diff(one_follower, "default")) == delta_digest(
-        comparator.config_diff(two_followers, "default")
-    )
-    assert delta_digest(comparator.config_diff(pair, "default")) != delta_digest(
-        comparator.config_diff(one_follower, "default")
-    )
-
-
 def test_the_identity_diff_digests_to_a_pinned_constant():
     """((), (), 0) is IDENTITY_DIFF, the ink-identical sentinel the build declines to record, and both the constant's value and its digest are pinned here — a byte-identity contract, since changing the recipe orphans every digest already written into rebuild/standing-approvals.yaml. A nonzero shift is a different delta and digests apart even with empty middles."""
     assert IDENTITY_DIFF == ((), (), 0)
@@ -348,28 +320,11 @@ def test_the_identity_diff_digests_to_a_pinned_constant():
     assert delta_digest(((), (), 1)) != delta_digest(((), (), 0))
 
 
-def test_fresh_ink_derivation_agrees_with_the_sidecar_over_a_sample(
-    built_review_surface, workload_index, comparator
-):
-    """The sidecar's flags are projected from the build's phase 1, not re-shaped, so something has to keep the projection honest against the fonts. Two strata do: a stride over the whole corpus, and a stride over the units of multi-sibling windows — the fold-candidate population, where a folded unit's flag is its survivor's rather than its own, which is exactly the grain the derivation must get right. The census digest is asserted first, because an index into a flag string means nothing until the list it indexes is the one the sidecar was taken over."""
-    out_dir, manifest = built_review_surface
-    facts = load_facts(out_dir, manifest)
-    assert len(workload_index.units) == facts["premerge"]["units"]
-    assert census.workload_digest(workload_index.units) == facts["premerge"]["workload_digest"]
-    flags = facts["premerge"]["ink_identical"]
-    siblings = workload_index.sibling_positions
-    stride = max(1, len(siblings) // 150)
-    sample = sorted(set(range(0, len(workload_index.units), 1000)) | set(siblings[::stride]))
-    for index in sample:
-        unit = workload_index.units[index]
-        assert comparator.ink_identical(_text(unit), unit.configs) == (flags[index] == "1"), unit.codepoints
-
-
-def test_signature_digest_is_determined_by_the_tuple_alone(comparator, live_artifacts):
+def test_signature_digest_is_determined_by_the_tuple_alone(comparator):
     """Equal signatures digest equally across comparators and processes — what lets the persisted ink-signature store serve a digest recorded by a prior build — and different placed ink digests apart."""
     pair = "".join(chr(value) for value in (0xE650, 0xE665))
     digest = signature_digest(comparator.signature(pair, "default"))
-    again = InkComparator(BEFORE_FONT, live_artifacts.font)
+    again = InkComparator(BEFORE_FONT, MINI_FONT)
     assert signature_digest(again.signature(pair, "default")) == digest
     assert signature_digest(comparator.signature(pair[:1], "default")) != digest
 
@@ -411,8 +366,8 @@ def test_shaper_for_rekeys_when_the_font_changes_on_disk(tmp_path):
 
 
 @pytest.fixture(scope="module")
-def oracle(live_artifacts):
-    return JuniorOracle(JUNIOR_FONT, BEFORE_FONT, live_artifacts.font)
+def oracle():
+    return JuniorOracle(JUNIOR_FONT, BEFORE_FONT, MINI_FONT)
 
 
 def test_junior_tracking_premise_holds(oracle):

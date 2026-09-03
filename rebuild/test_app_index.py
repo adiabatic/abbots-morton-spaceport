@@ -322,6 +322,26 @@ def test_a_truncated_or_foreign_sidecar_is_refused(fixture_surface):
         assert app_index.load_rows(fixture_surface, name) == []
 
 
+def test_a_failed_projection_leaves_the_previous_pair_intact(fixture_surface, monkeypatch):
+    """`app_row` asserts, so the projection can raise partway through a rewrite of a surface the app is still being served. Staged and renamed, that failure costs nothing: both sidecars keep the bytes the last good write left, and no `.partial` survives to be mistaken for one of them."""
+    intact = {
+        name: app_index.artifact_path(fixture_surface, name).read_bytes()
+        for name, _fmt in app_index.ARTIFACTS
+    }
+    _manifest, shards = _surface_shards(fixture_surface)
+    spans = {class_id: [(0, 0, 1)] * len(fragments) for class_id, fragments in shards.items()}
+
+    def boom(*_args, **_kwargs):
+        raise AssertionError("u-9999")
+
+    monkeypatch.setattr(app_index, "app_row", boom)
+    with pytest.raises(AssertionError):
+        app_index.write_app_artifacts(fixture_surface, shards, spans)
+    for name, _fmt in app_index.ARTIFACTS:
+        assert app_index.artifact_path(fixture_surface, name).read_bytes() == intact[name]
+    assert not list(fixture_surface.glob("*.partial"))
+
+
 def test_writing_the_sidecars_twice_writes_the_same_bytes(tmp_path):
     """A pinned gzip mtime, so a rebuild of unchanged inputs leaves the whole output tree byte-identical — which is what `test_builds_are_byte_identical` reads the tree for."""
     first = _rewrite_fixture_surface(tmp_path / "a")
