@@ -282,9 +282,6 @@ def test_units_whose_configs_render_differently_never_fold(mini_bundle):
     assert len(units) == 2
 
 
-# --- the ledger's own ids -------------------------------------------------------------------
-
-
 def _ledger(tmp_path, *ids: str) -> Path:
     path = tmp_path / "ledger.yaml"
     path.write_text(
