@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import gzip
+import hashlib
 import json
 import shutil
 from pathlib import Path
 
+from rebuild.pipeline import fingerprint
 from rebuild.review import app_index, unit_index
 from rebuild.review.build import _check_output_files, _write_shard
 
@@ -170,6 +172,38 @@ def test_an_index_stamped_for_another_manifest_is_refused(tmp_path):
     assert unit_index.load_index(surface) is None
     # The shards are the authority, so a stale stamp costs a slower read and never a wrong answer.
     assert unit_index.load_units(surface) == fallback
+
+
+def test_the_manifest_identity_ignores_the_assets_component(tmp_path):
+    """The stamp is the manifest's identity — what it says about which units and shards it describes — and the copied review UI assets are outside it. That is what lets an assets refresh rewrite `inputs_fingerprint.static` over a served surface and leave this sidecar, both app sidecars and the unit-cache store still describing the manifest beside them; anything the readers actually resolve against still moves the digest."""
+    assert set(unit_index.ASSET_COMPONENTS) <= set(fingerprint.STAGE_B_COMPONENTS)
+    surface = _fixture_surface(tmp_path)
+    _write(surface)
+    manifest_path = surface / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    before = unit_index.manifest_sha256(surface)
+
+    refreshed = {
+        **manifest,
+        "inputs_fingerprint": {**manifest["inputs_fingerprint"], "static": "refreshed"},
+    }
+    manifest_path.write_text(json.dumps(refreshed, indent=4) + "\n", encoding="utf-8")
+    assert unit_index.manifest_sha256(surface) == before
+    assert unit_index.index_is_current(surface) is True
+
+    manifest_path.write_text(
+        json.dumps({**refreshed, "generated_at": "2099-01-01T00:00:00Z"}), encoding="utf-8"
+    )
+    assert unit_index.manifest_sha256(surface) != before
+
+    classes = [dict(entry) for entry in refreshed["classes"]]
+    classes[0]["shards"] = list(classes[0]["shards"]) + ["units/invented.json"]
+    manifest_path.write_text(json.dumps({**refreshed, "classes": classes}), encoding="utf-8")
+    assert unit_index.manifest_sha256(surface) != before
+
+    manifest_path.write_bytes(b"{ not json")
+    assert unit_index.manifest_sha256(surface) == hashlib.sha256(b"{ not json").hexdigest()
+    assert unit_index.index_is_current(surface) is False
 
 
 def test_a_truncated_or_foreign_index_is_refused(tmp_path):

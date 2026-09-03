@@ -373,10 +373,12 @@ def test_cluster_id_from_repr_matches_the_tuple_recipe():
 
 
 def test_an_absent_manifest_hashes_to_a_sentinel_rather_than_raising(tmp_path):
-    """The store's stamp is a hash of the manifest beside it, and the surface it stamps may have none yet — a first build, or a crash between the two writes. The sentinel is what turns that into a stamp mismatch and a full rebuild instead of an exception out of load_store, so it is pinned against both shapes of unreadable rather than left resting on the streamed read happening to raise what the read-whole one did."""
+    """The store's stamp is the identity of the manifest beside it, and the surface it stamps may have none yet — a first build, or a crash between the two writes. The sentinel is what turns that into a stamp mismatch and a full rebuild instead of an exception out of load_store, so it is pinned against both shapes of unreadable rather than left resting on the streamed read happening to raise what the read-whole one did."""
+    assert unit_cache._manifest_stamp(tmp_path) == "missing"
     assert unit_cache._sha256_file(tmp_path / "manifest.json") == "missing"
     assert unit_cache._sha256_file(tmp_path) == "missing"
     (tmp_path / "manifest.json").write_text("{}", encoding="utf-8")
+    assert unit_cache._manifest_stamp(tmp_path) != "missing"
     assert unit_cache._sha256_file(tmp_path / "manifest.json") != "missing"
 
 
@@ -418,6 +420,19 @@ def test_store_round_trip_and_invalidation(tmp_path):
     assert loaded is not None and loaded["k1"] == cached
     assert unit_cache.load_store(tmp_path, "env-b") is None
     (tmp_path / "manifest.json").write_text('{"changed": true}', encoding="utf-8")
+    assert unit_cache.load_store(tmp_path, "env-a") is None
+
+    # The store is stamped with the manifest's identity, so refreshing the copied UI assets over a served
+    # surface leaves it loadable while anything the served units depend on still drops it.
+    manifest = {"generated_at": "2026-01-01T00:00:00Z", "inputs_fingerprint": {"data": "d", "static": "s"}}
+    (tmp_path / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    unit_cache.write_store(tmp_path, "env-a", [cached])
+    refreshed = {**manifest, "inputs_fingerprint": {"data": "d", "static": "refreshed"}}
+    (tmp_path / "manifest.json").write_text(json.dumps(refreshed, indent=2), encoding="utf-8")
+    assert unit_cache.load_store(tmp_path, "env-a") is not None
+    (tmp_path / "manifest.json").write_text(
+        json.dumps({**refreshed, "generated_at": "2099-01-01T00:00:00Z"}), encoding="utf-8"
+    )
     assert unit_cache.load_store(tmp_path, "env-a") is None
 
 

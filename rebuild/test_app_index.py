@@ -292,6 +292,16 @@ def test_the_headers_stamp_the_manifest_beside_them(fixture_surface):
         assert app_index.artifact_is_current(fixture_surface, name, fmt)
 
 
+def test_a_refreshed_assets_component_leaves_both_sidecars_current(fixture_surface):
+    """The stamp is the manifest's identity, not its bytes, so rewriting `inputs_fingerprint.static` in place — which is the whole of what an assets refresh does to a served surface — leaves both sidecars describing the manifest beside them. Without that, a CSS edit would orphan the two files the app boots from and send every reader back to the shards."""
+    manifest_path = fixture_surface / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["inputs_fingerprint"] = {**manifest["inputs_fingerprint"], "static": "refreshed"}
+    manifest_path.write_text(json.dumps(manifest, indent=1) + "\n", encoding="utf-8")
+    for name, fmt in app_index.ARTIFACTS:
+        assert app_index.artifact_is_current(fixture_surface, name, fmt) is True
+
+
 def test_a_sidecar_stamped_for_another_manifest_is_refused(fixture_surface):
     """The hazard the stamp closes is a tab holding rows from a surface that has since been rebuilt: its ids name units this build reassigned, and its spans would slice a neighboring record out of a rewritten shard."""
     manifest = json.loads((fixture_surface / "manifest.json").read_text(encoding="utf-8"))

@@ -1,9 +1,10 @@
-"""The review-app generation CLI (rebuild/REVIEW-PLAN.md §1.3): assemble units, precompute enrichment and all three verdict drafts, and write the self-contained rebuild/out/review/ directory — manifest.json, one unit shard per class (in byte-capped parts when a class outgrows one file), the census-facts.json sidecar the artifact cycle's census refresh copies into the checked-in pins, copied fonts, and the static app files. Also the `snapshot` subcommand for accepted-state baselines.
+"""The review-app generation CLI (rebuild/REVIEW-PLAN.md §1.3): assemble units, precompute enrichment and all three verdict drafts, and write the self-contained rebuild/out/review/ directory — manifest.json, one unit shard per class (in byte-capped parts when a class outgrows one file), the census-facts.json sidecar the artifact cycle's census refresh copies into the checked-in pins, copied fonts, and the static app files. Also the `snapshot` subcommand for accepted-state baselines, and `refresh-assets`, which copies the static app files over an already-built surface and restamps that one fingerprint component without rebuilding a unit.
 
 Usage:
     uv run python -m rebuild.review.build
     uv run python -m rebuild.review.build --mode table-diff --baseline <dir> --new <dir> --before-font <otf> --after-font <otf>
     uv run python -m rebuild.review.build snapshot --tables rebuild/out/m1 --font rebuild/out/m1/M1.otf --to rebuild/out/review-baseline
+    uv run python -m rebuild.review.build refresh-assets
 """
 
 from __future__ import annotations
@@ -452,6 +453,34 @@ def copy_static(out_dir: Path, static_dir: Path = STATIC_DIR) -> list[str]:
             _FALLBACK_INDEX.format(build=BUILD_COMMAND, serve=SERVE_COMMAND), encoding="utf-8"
         )
         copied.append("index.html")
+    return copied
+
+
+def refresh_assets(out_dir: Path, repo_root: Path = REPO_ROOT) -> list[str]:
+    """Copy `rebuild/review/static/` over an already-built surface and restamp the manifest's `static` component alone — the whole of what an app JS/CSS/HTML edit moves, and the one surface input whose change cannot reach a single unit. Everything else the surface carries stays exactly as the build left it: `generated_at` and `repo_head`, every shard, both app sidecars, the per-unit index, and the unit-cache store. That is what keeps a live verdicting session whole — the autosave is keyed on `generated_at`, which does not move — and what keeps the sidecars and the store current, since `unit_index.manifest_sha256` projects this component out of the manifest's identity. `_check_output_files` runs afterwards as the executable proof of that second claim rather than a promise about it, and a surface that fails it gets its manifest put back: a restamped manifest over a surface whose sidecars do not describe it would read as fresh to the next cycle, which would then skip the build that is the only thing that can repair it."""
+    out_dir = Path(out_dir)
+    repo_root = Path(repo_root)
+    manifest_path = out_dir / "manifest.json"
+    if not manifest_path.is_file():
+        raise SystemExit(f"no surface to refresh: {manifest_path} is missing")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    recorded = manifest.get("inputs_fingerprint") if isinstance(manifest, dict) else None
+    if not isinstance(recorded, dict):
+        raise SystemExit(
+            f"{manifest_path} records no inputs_fingerprint, so there is no component to restamp; "
+            f"rebuild the surface with `{BUILD_COMMAND}`"
+        )
+    original = manifest_path.read_bytes()
+    copied = copy_static(out_dir, repo_root / "rebuild" / "review" / "static")
+    recorded["static"] = fingerprint.hash_paths(repo_root, fingerprint.static_paths(repo_root))
+    _write_json(manifest_path, manifest)
+    errors = _check_output_files(out_dir, manifest, repo_root)
+    if errors:
+        manifest_path.write_bytes(original)
+        raise SystemExit(
+            "contract check failed after the refresh, and the manifest is put back so the surface still "
+            "reads as stale:\n" + "\n".join(f"  - {line}" for line in errors)
+        )
     return copied
 
 
@@ -2453,6 +2482,19 @@ def check_output_dir(out_dir: Path, repo_root: Path | None = None) -> list[str]:
 
 def main(argv: list[str] | None = None) -> None:
     argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] == "refresh-assets":
+        parser = argparse.ArgumentParser(
+            prog="rebuild.review.build refresh-assets", description=refresh_assets.__doc__
+        )
+        parser.add_argument("--out", type=Path, default=DEFAULT_OUT)
+        args = parser.parse_args(argv[1:])
+        copied = refresh_assets(args.out)
+        print(
+            f"Refreshed {len(copied)} review asset(s) under {args.out}; the manifest's static component is "
+            "restamped and nothing else moved",
+            file=sys.stderr,
+        )
+        return
     if argv and argv[0] == "snapshot":
         parser = argparse.ArgumentParser(
             prog="rebuild.review.build snapshot", description=tablediff.write_snapshot.__doc__

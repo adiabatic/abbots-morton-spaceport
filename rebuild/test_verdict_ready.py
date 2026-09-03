@@ -184,14 +184,15 @@ def test_explain_prose_stale_fails_like_any_other_hard_component(tmp_path):
     assert "explain_prose" in freshness["detail"]
 
 
-def test_static_only_stale_warns_with_review_build_remedy(tmp_path):
+def test_static_only_stale_warns_and_points_at_the_cycle(tmp_path):
+    """The one soft component, and the remedy is the cycle rather than a surface rebuild: a cycle refreshes the copied assets over the served surface in seconds and keeps the server up, where `make review-build` would rebuild every unit and leave the recorded cycle stamped for a surface that no longer exists."""
     write_surface(tmp_path / "rebuild" / "out" / "review", inputs_fp={**FP, "static": "OLD"})
     write_summary(tmp_path, inputs_fp={**FP, "static": "OLD"})
     write_autosave(tmp_path)
     freshness = call(tmp_path)["checks"]["freshness"]
     assert freshness["level"] == "warn"
     assert freshness["components"]["static"] == "stale"
-    assert freshness["remedy"] == "make review-build"
+    assert freshness["remedy"] == "make artifact-cycle"
 
 
 def test_gates_summary_missing(tmp_path):

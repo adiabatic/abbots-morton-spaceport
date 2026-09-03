@@ -10,7 +10,6 @@ from rebuild.review import unit_index
 from rebuild.review.serve import parse_autosave_payload
 
 SURFACE_REMEDY = "uv run python -m rebuild.review.build"
-REVIEW_BUILD_REMEDY = "make review-build"
 CARRY_TOOL = "rebuild/tools/carry_verdicts.py"
 MERGE_TOOL = "uv run python -m rebuild.tools.merge_verdicts"
 
@@ -193,7 +192,11 @@ def _freshness_check(manifest, manifest_fp, repo_root, recompute, artifact_cycle
             components[name] = "fresh"
         else:
             components[name] = "stale"
-    hard = [name for name in fingerprint.COMPONENTS if name != "static" and components[name] != "fresh"]
+    hard = [
+        name
+        for name in fingerprint.COMPONENTS
+        if name not in unit_index.ASSET_COMPONENTS and components[name] != "fresh"
+    ]
     if hard:
         stale = [name for name in hard if components[name] == "stale"]
         if stale:
@@ -206,11 +209,11 @@ def _freshness_check(manifest, manifest_fp, repo_root, recompute, artifact_cycle
             "remedy": artifact_cycle_remedy,
             "components": components,
         }
-    if components["static"] != "fresh":
+    if any(components[name] != "fresh" for name in unit_index.ASSET_COMPONENTS):
         return {
             "level": "warn",
-            "detail": "Only the review UI assets changed since the surface was generated; the units are unchanged.",
-            "remedy": REVIEW_BUILD_REMEDY,
+            "detail": "Only the review UI assets changed since the surface was generated; the units are unchanged, and the cycle refreshes the served copy in place.",
+            "remedy": artifact_cycle_remedy,
             "components": components,
         }
     return {

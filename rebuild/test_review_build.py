@@ -493,6 +493,106 @@ def test_node_check_passes_on_every_shipped_script():
         assert result.returncode == 0, f"{script.name}: {result.stderr}"
 
 
+def _seed_refreshable_surface(surface: Path, inputs_fingerprint: dict) -> dict:
+    """A built surface with nothing in it but the files `_check_output_files` insists on: an empty manifest, the per-unit index, and both app sidecars, each stamped for the manifest beside it. `refresh_assets` writes index.html itself, out of the static tree it copies."""
+    surface.mkdir(parents=True, exist_ok=True)
+    manifest = {
+        "generated_at": "2026-01-01T00:00:00Z",
+        "repo_head": "0" * 40,
+        "inputs_fingerprint": dict(inputs_fingerprint),
+        "classes": [],
+        "fonts": {},
+    }
+    (surface / "manifest.json").write_text(json.dumps(manifest, indent=1) + "\n", encoding="utf-8")
+    unit_index.write_index(surface, [])
+    app_index.write_app_artifacts(surface, {}, {})
+    return manifest
+
+
+def _fake_static_tree(root: Path) -> Path:
+    static = root / "rebuild" / "review" / "static"
+    static.mkdir(parents=True)
+    (static / "index.html").write_text("<!DOCTYPE html>\n<html><body><main></main></body></html>\n")
+    (static / "app.js").write_text("export const app = 1;\n")
+    return static
+
+
+def test_refresh_assets_restamps_only_the_static_component(tmp_path):
+    """The whole of an assets refresh: the app shell lands on the served surface, one fingerprint component is rewritten in place, and nothing else moves. `generated_at` stays, so an open verdicting session keeps its store; the index and both sidecars stay current, because the manifest's identity projects this component out; and the surface a moment ago described as stale now answers the cycle's byte-strict question, so the next pass skips the build outright."""
+    from rebuild.tools.artifact_cycle import surface_build_skippable
+
+    root = tmp_path / "repo"
+    static = _fake_static_tree(root)
+    m1 = root / "rebuild" / "out" / "m1"
+    m1.mkdir(parents=True)
+    stage_a = {"data": "d", "baselines": "b", "pipeline_code": "p"}
+    (m1 / fingerprint.STAGE_A_FILENAME).write_text(json.dumps({"format": fingerprint.FORMAT, **stage_a}))
+    before_font, junior_font = fingerprint.font_paths(root)
+    stage_b = fingerprint.stage_b(root, before_font, junior_font)
+    surface = root / "rebuild" / "out" / "review"
+    before = _seed_refreshable_surface(surface, {**stage_a, **stage_b, "static": "OLD"})
+    assert not surface_build_skippable(root, surface)
+
+    copied = review_build.refresh_assets(surface, root)
+
+    assert sorted(copied) == ["app.js", "index.html"]
+    assert (surface / "app.js").read_text() == (static / "app.js").read_text()
+    assert (surface / "index.html").read_text() == (static / "index.html").read_text()
+    manifest = json.loads((surface / "manifest.json").read_text(encoding="utf-8"))
+    recorded = manifest["inputs_fingerprint"]
+    assert recorded["static"] == fingerprint.hash_paths(root, fingerprint.static_paths(root))
+    assert recorded["static"] != "OLD"
+    assert {name: value for name, value in recorded.items() if name != "static"} == {
+        name: value for name, value in before["inputs_fingerprint"].items() if name != "static"
+    }
+    assert manifest["generated_at"] == before["generated_at"]
+    assert unit_index.index_is_current(surface)
+    for name, fmt in app_index.ARTIFACTS:
+        assert app_index.artifact_is_current(surface, name, fmt)
+    assert surface_build_skippable(root, surface)
+
+
+def test_refresh_assets_refuses_a_surface_it_cannot_restamp(tmp_path):
+    """A surface predating input fingerprinting has no component to rewrite, so the refresh refuses rather than inventing one — the pass that needs it is a full rebuild."""
+    root = tmp_path / "repo"
+    _fake_static_tree(root)
+    surface = root / "rebuild" / "out" / "review"
+    surface.mkdir(parents=True)
+    with pytest.raises(SystemExit):
+        review_build.refresh_assets(surface, root)
+    (surface / "manifest.json").write_text(json.dumps({"generated_at": "x", "classes": []}))
+    with pytest.raises(SystemExit):
+        review_build.refresh_assets(surface, root)
+
+
+def test_refresh_assets_puts_the_manifest_back_when_the_surface_is_broken(tmp_path):
+    """The restamp is what makes the surface read as fresh, so it must not survive a failed contract check: a manifest left claiming freshness over sidecars that no longer describe it would send the next cycle straight past the rebuild that is the only repair."""
+    root = tmp_path / "repo"
+    _fake_static_tree(root)
+    surface = root / "rebuild" / "out" / "review"
+    _seed_refreshable_surface(surface, {"static": "OLD"})
+    unit_index.index_path(surface).unlink()
+    with pytest.raises(SystemExit):
+        review_build.refresh_assets(surface, root)
+    manifest = json.loads((surface / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["inputs_fingerprint"]["static"] == "OLD"
+
+
+def test_the_refresh_assets_verb_copies_the_shipped_app(tmp_path):
+    """The CLI arm the artifact cycle spawns, over the real rebuild/review/static/: the shipped shell lands on the surface and the component the cycle compares carries the value `fingerprint.stage_b` would stamp."""
+    surface = tmp_path / "surface"
+    _seed_refreshable_surface(surface, {"static": "OLD"})
+    review_build.main(["refresh-assets", "--out", str(surface)])
+    manifest = json.loads((surface / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["inputs_fingerprint"]["static"] == fingerprint.hash_paths(
+        REPO_ROOT, fingerprint.static_paths(REPO_ROOT)
+    )
+    assert (surface / "index.html").read_text(encoding="utf-8") == (STATIC_DIR / "index.html").read_text(
+        encoding="utf-8"
+    )
+    assert unit_index.index_is_current(surface)
+
+
 def _padded(count: int, filler: int = 0) -> list[dict]:
     return [{"id": f"u-{index:04d}", "pad": "x" * filler} for index in range(count)]
 
