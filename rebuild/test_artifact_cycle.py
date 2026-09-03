@@ -2394,16 +2394,26 @@ def test_closure_fingerprint_moves_when_the_makefile_stops_parsing(tmp_path):
     assert broken != first
 
 
-def test_recipe_probe_is_blind_to_the_callers_make_flags(tmp_path, monkeypatch):
-    """Both the cycle's gate and `make test`'s wrapper reach the probe as sub-makes, so MAKEFLAGS and MFLAGS come off the environment first — otherwise `make test FORCE=1` would hash the same recipe a second way and re-arm the gate for everyone."""
+def test_recipe_probe_is_blind_to_the_callers_overrides(tmp_path, monkeypatch):
+    """`make test FORCE=1` reaches the probe by two routes at once — inside MAKEFLAGS, which a sub-make re-reads as its own command line, and as a plain exported FORCE that stripping the flags never touches — and both the cycle's gate and `make test`'s wrapper reach it as sub-makes. So the recipe expands the same way for a forced caller as for a bare one; otherwise a forced green would key on a recipe no bare run ever prints, re-arming the whole suite afterward on the very override that exists to run it once, and a forced red would leave standing the green it had just contradicted."""
     root = _git_repo(tmp_path)
-    monkeypatch.delenv("MAKEFLAGS", raising=False)
-    monkeypatch.delenv("MFLAGS", raising=False)
+    for name in ("MAKEFLAGS", "MFLAGS", "FORCE"):
+        monkeypatch.delenv(name, raising=False)
     plain = ac.make_test_closure_fingerprint(root)
     assert plain is not None
     monkeypatch.setenv("MAKEFLAGS", " -- FORCE=1")
     monkeypatch.setenv("MFLAGS", "-j2")
+    monkeypatch.setenv("FORCE", "1")
     assert ac.make_test_closure_fingerprint(root) == plain
+
+
+def test_recipe_pins_cover_the_repos_own_executed_rules(monkeypatch):
+    """The pin roster has to name every variable the real `all` and `test` rules read, not only the one the fake Makefile mimics, so this asks the live Makefile the question the documented override poses: FORCE=1 in the environment, and the same two probe lines back."""
+    monkeypatch.delenv("FORCE", raising=False)
+    plain = ac.make_test_recipe_lines(ac.ROOT)
+    assert plain is not None
+    monkeypatch.setenv("FORCE", "1")
+    assert ac.make_test_recipe_lines(ac.ROOT) == plain
 
 
 def test_closure_fingerprint_is_none_when_make_is_unavailable(tmp_path, monkeypatch):
