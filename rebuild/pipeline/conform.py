@@ -1,6 +1,6 @@
 """Conformance gates (M1-PLAN sections 5 and 6, Group 3): HarfBuzz vs the settlement function, and the settlement function vs the section 13.1 baseline oracle.
 
-`run_conformance` promotes prototype/conform.py: the Shaper (MONOTONE_CHARACTERS cluster level; names via TTFont, never HarfBuzz's truncating API), the exhaustive length-1..horizon enumeration per acceptance configuration (the per-edit belt, horizon 4 by default), the ZWNJ structural checks (zero advance, no ink), split-buffer equivalence, gap-0 pen positions, and the font-vs-settle oracle diff, which takes no ledger: any divergence is a compiler defect by definition. Coverage is deliberately not this sweep's job: read-back (rebuild/pipeline/readback.py) proves per build that the compiled font holds every emitted rule at its planned position, and rebuild/test_rule_witnesses.py remains the font-free dead-rule alarm, so the sweep's remaining unique charter is what only shaping the real binary can test — HarfBuzz's application semantics (lookup interaction across features, backtrack-sees-settled across subtable breaks, default-ignorable skipping, class matching, Extension indirection) and the sufficiency of the 6-slot window abstraction itself, which witness-constructed strings structurally cannot probe because witnesses are built from that abstraction. The deep form of the same sweep runs at horizon 5 or deeper on demand (`make conform-deep`, rebuild/tools/deep_sweep.py), armed by the behavior-class enumeration `emit_gsub.behavior_classes` plus the font-compilation code and the uharfbuzz version, so a rune edit that introduces no novel rule shape never stales it. The ZWNJ/split-buffer checks ride the belt itself, on the texts they can say anything about, which is where the standalone horizon-5 boundary gate's charter now lives: proven per build at the belt's horizon and periodically deeper by `make conform-deep`. Settlement rides `_SettledWindowWalk`'s per-config window memo, so a distinct raw window costs one batched crate answer and every recurrence across the sweep's texts costs a dict probe, and the oracle's rows settle through a walk of their own.
+`run_conformance` promotes prototype/conform.py: the Shaper (MONOTONE_CHARACTERS cluster level; names via TTFont, never HarfBuzz's truncating API), the exhaustive length-1..horizon enumeration per acceptance configuration (the per-edit belt, horizon 4 by default), the ZWNJ structural checks (zero advance, no ink), split-buffer equivalence, gap-0 pen positions, and the font-vs-settle oracle diff, which takes no ledger: any divergence is a compiler defect by definition. Coverage is deliberately not this sweep's job: read-back (rebuild/pipeline/readback.py) proves per build that the compiled font holds every emitted rule at its planned position, and the dead-rule alarm is split between the crate's fold, which refuses at table-build time any rule no replayed row first-matches (`fold::assert_outcome_partition`), and rebuild/test_rule_witnesses.py, which keeps the realizability half — whether a string exists at all — and reaches it hint-first off the verified witness texts a previous run cached, so the sweep's remaining unique charter is what only shaping the real binary can test — HarfBuzz's application semantics (lookup interaction across features, backtrack-sees-settled across subtable breaks, default-ignorable skipping, class matching, Extension indirection) and the sufficiency of the 6-slot window abstraction itself, which witness-constructed strings structurally cannot probe because witnesses are built from that abstraction. The deep form of the same sweep runs at horizon 5 or deeper on demand (`make conform-deep`, rebuild/tools/deep_sweep.py), armed by the behavior-class enumeration `emit_gsub.behavior_classes` plus the font-compilation code and the uharfbuzz version, so a rune edit that introduces no novel rule shape never stales it. The ZWNJ/split-buffer checks ride the belt itself, on the texts they can say anything about, which is where the standalone horizon-5 boundary gate's charter now lives: proven per build at the belt's horizon and periodically deeper by `make conform-deep`. Settlement rides `_SettledWindowWalk`'s per-config window memo, so a distinct raw window costs one batched crate answer and every recurrence across the sweep's texts costs a dict probe, and the oracle's rows settle through a walk of their own.
 
 The section 6 oracle gate itself lives in rebuild/pipeline/oracle.py (`compare_against_baseline`, the ledger classifier, the position channel), which is the comparison side the enumeration's stamp leaves out. What stays here is its producer: `_compare_row` compares one baseline row's ligation (clusters), per-seam classification, and cell identity against the settled stream through the hand-written alias map and answers the `DivergentRow` the oracle classifies; `_cached_verdict` and `_served_verdict` are the codec between that answer and the oracle row cache's record, and `_verify_served_sample` re-derives a pass's served sample against the store. Those, with the walk, are the two entry points `oracle_cache.ORACLE_ROW_CODE_PATHS` is cut from, which is why they and not the classifier live in this file.
 
@@ -17,7 +17,7 @@ import time
 from contextlib import suppress
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable, Iterable, Mapping, Sequence
+from typing import TYPE_CHECKING, Callable, Collection, Iterable, Mapping, Sequence
 
 import yaml
 
@@ -1179,16 +1179,22 @@ def _assemble_window_witness(
 WITNESS_ROW_CAP = 32
 
 
-def _first_match_rows(decision) -> dict[int, list]:
-    """Group the table's transitions by the rule index that first-matches each window, replaying the same first-match-wins semantics assert_outcome_partition proves — the static answer to 'which windows would make rule N fire?'. A deep slot holding a class token is tested through its representative member, exact by the build's union-of-fibers assertion.
+def _first_match_rows(decision, only: Collection[int] | None = None) -> dict[int, list]:
+    """Group the table's transitions by the rule index that first-matches each window, replaying the same first-match-wins semantics assert_outcome_partition proves — the static answer to 'which windows would make rule N fire?'. A deep slot holding a class token is tested through its representative member, exact by the build's union-of-fibers assertion. Nothing here decides whether a rule is dead any more: the crate's fold tallies the same first-match per replayed row and refuses a table whose rule none of them reaches, so this replay only seeds the search for a realizing string.
+
+    `only` narrows it to the rules a witness is still wanted for. A row whose input glyph belongs to none of them is skipped whole, but within a row the rules of its input are still tested in their own order — an earlier rule can never be skipped, because skipping it is exactly what would hand a later rule a window the first-match semantics gives to someone else — and a row is kept only when the index that wins is one of `only`. So a narrowed call answers the same rows for the rules it names as the unnarrowed one, at a fraction of the work.
 
     At most `WITNESS_ROW_CAP` rows are kept per rule, because the witness search only ever reads the shortest candidates any of them yields, as many as `_candidate_witness_tokens`'s own `limit` keeps, and a popular rule first-matches tens of thousands of windows — assembling candidates for all of them was the whole cost of the gate. The bound is on the search, not on the verdict: a rule whose only realizable window sat past the cap would be reported unwitnessed, a false alarm and never a false pass.
     """
     rules_by_input: dict[str, list[tuple[int, Rule]]] = {}
     for index, rule in enumerate(decision.rules):
         rules_by_input.setdefault(rule.input_glyph, []).append((index, rule))
+    wanted = None if only is None else set(only)
+    inputs = None if wanted is None else {decision.rules[index].input_glyph for index in wanted}
     rows_by_rule: dict[int, list] = {}
     for row in decision.transitions:
+        if inputs is not None and row.input_glyph not in inputs:
+            continue
         right3 = _token_representative(decision, getattr(row, "right3", "#NA"))
         right4 = _token_representative(decision, getattr(row, "right4", "#NA"))
         for index, rule in rules_by_input.get(row.input_glyph, ()):
@@ -1204,9 +1210,10 @@ def _first_match_rows(decision) -> dict[int, list]:
             look4 = getattr(rule, "look4", None)
             if look4 is not None and right4 not in look4:
                 continue
-            rows = rows_by_rule.setdefault(index, [])
-            if len(rows) < WITNESS_ROW_CAP:
-                rows.append(row)
+            if wanted is None or index in wanted:
+                rows = rows_by_rule.setdefault(index, [])
+                if len(rows) < WITNESS_ROW_CAP:
+                    rows.append(row)
             break
     return rows_by_rule
 
@@ -1242,12 +1249,17 @@ class WitnessReport:
     rules: int
     witnessed: dict[int, str] = field(default_factory=dict)
     unwitnessed: list[int] = field(default_factory=list)
+    searched: list[int] = field(default_factory=list)
 
 
-def find_rule_witnesses(spec, features, decision, glyph_names=None, guard_verdicts=None) -> WitnessReport:
-    """The font-free half of rule coverage: for every settlement rule, derive a shortest realizing string from the table's windows and verify against the crate's settlement that the rule actually first-matches somewhere in it. A rule left unwitnessed has no realizing string the table can construct — dead code in the emitted FEA — so this is the always-on generator-defect alarm (rebuild/test_rule_witnesses.py), font-free by construction: it asks whether a rule can ever fire, where read-back asks whether the compiled font holds it and the sweep asks whether HarfBuzz applies it the way the kernel says.
+def find_rule_witnesses(
+    spec, features, decision, glyph_names=None, guard_verdicts=None, hints: Mapping[str, str] | None = None
+) -> WitnessReport:
+    """The realizability half of rule coverage: for every settlement rule, produce a string the crate's settlement confirms the rule first-matches somewhere in. Its sibling, that no rule sits behind another and can never win a window at all, is the crate's own — `fold::assert_outcome_partition` tallies the first-matching rule of every replayed row and refuses the table when one is never first, so a rule dead in the static sense fails the build rather than this gate. What is left here is the question a fold cannot answer: whether any string realizes the windows that rule owns. A rule left unwitnessed has none the table can construct — dead code in the emitted FEA — so this stays the always-on generator-defect alarm (rebuild/test_rule_witnesses.py), font-free by construction: it asks whether a rule can ever fire, where read-back asks whether the compiled font holds it and the sweep asks whether HarfBuzz applies it the way the kernel says.
 
-    One guard sweep and one walk serve the whole table. Candidate streams are assembled for every rule first, because the assembly is where the section 5.7 guard is read hundreds of thousands of times and a per-call sweep would spawn a kernel for each; then every candidate text prefills the walk in waves, so the lazy first-witness loop below settles nothing — it reads the memo the prefill filled. The prefill is tolerant (`on_error="drop"`) precisely because it is eager where the loop is lazy: it settles every candidate of every rule, including the ones after the first witness that the loop will never look at, and a window the crate refuses in one of those must not take the gate down. Memoized as a refusal, it surfaces if and only if the loop actually walks that text — which is the semantics the per-candidate settle had before the prefill existed.
+    `hints` is what makes the answer cheap on the run after the first: a mapping from `rule_signature` to a witness text a previous run verified, keyed by the signature rather than by the rule's index so it survives a table that reindexed around an edit. Nothing is trusted. Every hint is walked and re-checked against `_matched_windows` exactly as a freshly derived candidate would be, and a hint that no longer wins its rule — or that the crate now refuses, which is a stale text and no generator defect — is simply a miss. The persisted form is `read_witness_hints` / `write_witness_hints`; a caller that passes none searches for everything, which is what the fixture-scale callers do.
+
+    The search runs only for the misses, and pays what it always paid for them: one guard sweep and one walk serve the whole table, the BFS over the table's windows and `_first_match_rows` are narrowed to the unwitnessed rules, and candidate streams are assembled for all of them before any is walked, because the assembly is where the section 5.7 guard is read hundreds of thousands of times and a per-call sweep would spawn a kernel for each. Then every candidate text prefills the walk in waves, so the lazy first-witness loop below settles nothing — it reads the memo the prefill filled. The prefill is tolerant (`on_error="drop"`) precisely because it is eager where the loop is lazy: it settles every candidate of every rule, including the ones after the first witness that the loop will never look at, and a window the crate refuses in one of those must not take the gate down. Memoized as a refusal, it surfaces if and only if the loop actually walks that text — which is the semantics the per-candidate settle had before the prefill existed.
     """
     from rebuild.pipeline.emit_gsub import _raw_rename_map
 
@@ -1257,42 +1269,100 @@ def find_rule_witnesses(spec, features, decision, glyph_names=None, guard_verdic
         glyph_names = {cell: settle.cell_label(spec, cell) for cell in decision.reachable_cells()}
     features = frozenset(features)
     rules_by_input = _renamed_rules_by_input(spec, features, decision)
-    prefixes, by_right3 = _shortest_window_prefixes(decision)
-    rows_by_rule = _first_match_rows(decision)
     deep_index = (
         _DeepTokenIndex(decision, _raw_rename_map(spec, features))
         if getattr(decision, "deep_classes", None)
         else None
     )
-    candidates = [
-        [
+    walker = _SettledWindowWalk(spec, features, glyph_names, guard_verdicts, on_error="drop")
+    report = WitnessReport(config=decision.config, rules=len(decision.rules))
+
+    def first_matches(index: int, text: str) -> bool:
+        _settled, expected = walker.walk(text)
+        return any(
+            matched == index
+            for _pos, _window, matched in _matched_windows(
+                spec, text, features, guard_verdicts, expected, rules_by_input, deep_index
+            )
+        )
+
+    offered: Mapping[str, str] = hints or {}
+    hinted = {
+        index: offered[signature]
+        for index, rule in enumerate(decision.rules)
+        if (signature := rule_signature(rule)) in offered
+    }
+    if hinted:
+        with suppress(settle.SettleError):
+            walker.prefill(sorted(set(hinted.values())))
+        for index, text in hinted.items():
+            with suppress(settle.SettleError):
+                if first_matches(index, text):
+                    report.witnessed[index] = text
+    misses = [index for index in range(len(decision.rules)) if index not in report.witnessed]
+    if not misses:
+        return report
+    report.searched = misses
+    prefixes, by_right3 = _shortest_window_prefixes(decision)
+    rows_by_rule = _first_match_rows(decision, only=misses)
+    candidates = {
+        index: [
             _token_text(spec, tokens)
             for tokens in _candidate_witness_tokens(
                 spec, guard_verdicts, prefixes, by_right3, rows_by_rule.get(index, ()), decision
             )
         ]
-        for index in range(len(decision.rules))
-    ]
-    walker = _SettledWindowWalk(spec, features, glyph_names, guard_verdicts, on_error="drop")
-    walker.prefill(sorted({text for texts in candidates for text in texts}))
-    report = WitnessReport(config=decision.config, rules=len(decision.rules))
-    for index in range(len(decision.rules)):
-        witness = None
-        for text in candidates[index]:
-            _settled, expected = walker.walk(text)
-            if any(
-                matched == index
-                for _pos, _window, matched in _matched_windows(
-                    spec, text, features, guard_verdicts, expected, rules_by_input, deep_index
-                )
-            ):
-                witness = text
-                break
+        for index in misses
+    }
+    walker.prefill(sorted({text for texts in candidates.values() for text in texts}))
+    for index in misses:
+        witness = next((text for text in candidates[index] if first_matches(index, text)), None)
         if witness is None:
             report.unwitnessed.append(index)
         else:
             report.witnessed[index] = witness
     return report
+
+
+WITNESS_HINTS_FORMAT = "ams-m1-witness-hints/1"
+
+
+def witness_hints_path(out_dir: Path, config: str) -> Path:
+    """Where one configuration's witness hints live, beside the enumeration they were derived from. Regenerable and gitignored, and deliberately outside `artifact_cycle.M1_ARTIFACT_NAMES` and every glob the validators-lane key runs over that directory, so the file can never move the validators lane's own key: a hint is a speed device whose every entry is re-verified before it is believed."""
+    return out_dir / f"witness-hints-{config}.json"
+
+
+def read_witness_hints(path: Path, config: str) -> dict[str, str]:
+    """The hints a previous run wrote for `config`, or nothing at all. Every way of not having them — no file, unreadable, not JSON, written by another format version, written for another configuration, or carrying anything but a flat map of strings — answers the same empty mapping, because the only cost of an absent hint is the search that would have run anyway."""
+    try:
+        record = json.loads(path.read_text(encoding="utf-8"))
+    except OSError, ValueError:
+        return {}
+    if not isinstance(record, dict):
+        return {}
+    if record.get("format") != WITNESS_HINTS_FORMAT or record.get("config") != config:
+        return {}
+    hints = record.get("hints")
+    if not isinstance(hints, dict):
+        return {}
+    if not all(isinstance(key, str) and isinstance(value, str) for key, value in hints.items()):
+        return {}
+    return dict(hints)
+
+
+def write_witness_hints(path: Path, decision, report: WitnessReport) -> None:
+    """Record this run's verified witnesses for the next one, keyed by `rule_signature` so a table that reindexed around an edit still finds them. Only witnessed rules are written, so a signature nothing witnesses this run is pruned by the write itself and the file never accumulates. Replaced atomically through a sibling temp file, so a run interrupted mid-write leaves the previous hints intact rather than a truncated file the reader would answer empty for."""
+    record = {
+        "format": WITNESS_HINTS_FORMAT,
+        "config": decision.config,
+        "hints": {
+            rule_signature(decision.rules[index]): text for index, text in sorted(report.witnessed.items())
+        },
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp = path.with_name(f"{path.name}.tmp")
+    temp.write_text(json.dumps(record, sort_keys=True, ensure_ascii=False) + "\n", encoding="utf-8")
+    os.replace(temp, path)
 
 
 def run_conformance(

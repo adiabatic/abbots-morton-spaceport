@@ -3,6 +3,7 @@
 import gzip
 import hashlib
 import inspect
+import json
 import os
 import subprocess
 import sys
@@ -1592,3 +1593,97 @@ class TestWitnessRowCap:
         monkeypatch.setattr(conform, "WITNESS_ROW_CAP", 1)
         report = conform.find_rule_witnesses(spec, frozenset(), poisoned)
         assert report.unwitnessed == [len(decision.rules)]
+
+
+class TestWitnessHints:
+    """The witness search's memo of verified witness texts. What must hold is that a hint is never believed: one that still wins its rule spares the search, one that does not is a miss the search picks up, and neither can turn a rule nothing realizes into a witnessed one."""
+
+    def _tables(self):
+        return kernel_exec.build_tables(mini_spec(), frozenset())
+
+    def _plain(self):
+        spec = mini_spec()
+        decision, _treaty = self._tables()
+        report = conform.find_rule_witnesses(spec, frozenset(), decision)
+        hints = {
+            conform.rule_signature(decision.rules[index]): text for index, text in report.witnessed.items()
+        }
+        return spec, decision, report, hints
+
+    def test_a_full_hint_set_spares_the_search_entirely(self, monkeypatch):
+        spec, decision, plain, hints = self._plain()
+
+        def refuse(*args, **kwargs):
+            raise AssertionError("the search ran for a rule every hint already witnessed")
+
+        monkeypatch.setattr(conform, "_shortest_window_prefixes", refuse)
+        monkeypatch.setattr(conform, "_first_match_rows", refuse)
+        report = conform.find_rule_witnesses(spec, frozenset(), decision, hints=hints)
+        assert report.searched == []
+        assert report.unwitnessed == []
+        assert report.witnessed == plain.witnessed
+
+    def test_a_hint_that_no_longer_wins_its_rule_is_searched_for(self):
+        spec, decision, plain, hints = self._plain()
+        letters = {}
+        for char in sorted(conform.spec_alphabet(spec)):
+            token = settle.tokens_from_codepoints(spec, [ord(char)])[0]
+            if token.kind == "letter":
+                letters[token.rune] = char
+        index, foreign = next(
+            (index, letters[rune])
+            for index in sorted(plain.witnessed)
+            for rune in sorted(letters)
+            if rune not in decision.rules[index].input_glyph
+        )
+        stale = dict(hints, **{conform.rule_signature(decision.rules[index]): foreign})
+        report = conform.find_rule_witnesses(spec, frozenset(), decision, hints=stale)
+        assert report.searched == [index]
+        assert report.unwitnessed == []
+        assert len(report.witnessed) == len(decision.rules)
+
+    def test_a_dead_rule_survives_a_hint_set_that_covers_every_other(self):
+        from rebuild.pipeline.table import Rule
+
+        spec, decision, plain, hints = self._plain()
+        dead = Rule(
+            input_glyph="qsMay",
+            backtrack=("qsNever.loop",),
+            look1=None,
+            look2=None,
+            look3=None,
+            look4=None,
+            outcome="qsMay",
+            provenance=(),
+            joint=False,
+        )
+        poisoned = replace(decision, rules=(dead,) + decision.rules)
+        report = conform.find_rule_witnesses(spec, frozenset(), poisoned, hints=hints)
+        assert report.searched == [0]
+        assert report.unwitnessed == [0]
+        assert report.witnessed == {index + 1: text for index, text in plain.witnessed.items()}
+
+    def test_the_hint_file_round_trips_and_everything_else_reads_empty(self, tmp_path):
+        _spec, decision, plain, hints = self._plain()
+        path = conform.witness_hints_path(tmp_path / "m1", decision.config)
+        conform.write_witness_hints(path, decision, plain)
+        assert conform.read_witness_hints(path, decision.config) == hints
+        assert conform.read_witness_hints(tmp_path / "absent.json", decision.config) == {}
+        corrupt = tmp_path / "corrupt.json"
+        corrupt.write_text("{not json at all", encoding="utf-8")
+        assert conform.read_witness_hints(corrupt, decision.config) == {}
+        assert conform.read_witness_hints(path, "some-other-config") == {}
+        record = json.loads(path.read_text(encoding="utf-8"))
+        foreign = tmp_path / "foreign.json"
+        foreign.write_text(json.dumps(dict(record, format="not-this-format")), encoding="utf-8")
+        assert conform.read_witness_hints(foreign, decision.config) == {}
+        malformed = tmp_path / "malformed.json"
+        malformed.write_text(json.dumps(dict(record, hints=["a", "b"])), encoding="utf-8")
+        assert conform.read_witness_hints(malformed, decision.config) == {}
+
+    def test_narrowing_the_replay_answers_the_rules_it_names_unchanged(self):
+        decision, _treaty = self._tables()
+        rows = conform._first_match_rows(decision)
+        assert rows
+        for index in sorted(rows)[:: max(1, len(rows) // 8)]:
+            assert conform._first_match_rows(decision, only={index}) == {index: rows[index]}
