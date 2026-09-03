@@ -16,7 +16,7 @@ Every configuration's row carries the sha256 of its stream file, so two runs at 
 
 What this harness times is the enumeration and the stream, which is what `enumerate-configs` does and no longer the whole of what a build's table stage does: since the crate grew its `build-tables` verb a build folds in the same process and writes tables rather than a stream, so `make cycle-timings`'s `build_tables_total` now covers a fold this arm does not. The two still compare on the enumeration, which is where the growth is.
 
-`--rung N` swaps the live alphabet for one rung of `kernel_parity`'s nested scaling ladder — the ladder `scaling/scaling.py` now sweeps whole through this same binary — and times the default configuration alone on it, which is how one rung is re-timed, or timed at every acceptance configuration with `--configs`, without re-running the sweep. `--spec` measures a dump already written instead of writing a fresh one, which is how a rung gets a second run without re-resolving the spec, and `scaling.py` leaves one per rung under `AMS_SCALING_DUMP=<dir>` — but it names a spec, not a set of configurations, so a bare `--spec` over a rung dump times the whole acceptance set where the `--rung` that wrote it timed one. `--configs=default` beside it is what repeats the rung's own measurement; `--configs` narrows any run the same way, and refuses a token the acceptance sweep does not spell.
+`--rung N` swaps the live alphabet for one rung of `scaling_ladder`'s nested scaling ladder — the ladder `scaling/scaling.py` now sweeps whole through this same binary — and times the default configuration alone on it, which is how one rung is re-timed, or timed at every acceptance configuration with `--configs`, without re-running the sweep. `--spec` measures a dump already written instead of writing a fresh one, which is how a rung gets a second run without re-resolving the spec, and `scaling.py` leaves one per rung under `AMS_SCALING_DUMP=<dir>` — but it names a spec, not a set of configurations, so a bare `--spec` over a rung dump times the whole acceptance set where the `--rung` that wrote it timed one. `--configs=default` beside it is what repeats the rung's own measurement; `--configs` narrows any run the same way, and refuses a token the acceptance sweep does not spell.
 """
 
 from __future__ import annotations
@@ -40,7 +40,7 @@ sys.path.insert(0, str(ROOT))
 
 from rebuild.pipeline import conform, kernel_exec, kernel_io
 from rebuild.pipeline.spec_load import load_default_spec
-from rebuild.tools import kernel_parity, peak_rss
+from rebuild.tools import peak_rss, scaling_ladder
 from rebuild.tools.cycle_timings import _INNER_LINE
 
 
@@ -148,12 +148,12 @@ def main() -> int:
     else:
         spec = load_default_spec()
         if args.rung:
-            order = kernel_parity.ladder_order(spec)
-            rungs = kernel_parity.ladder_rungs(order)
+            order = scaling_ladder.ladder_order(spec)
+            rungs = scaling_ladder.ladder_rungs(order)
             if args.rung not in rungs:
                 offered = ", ".join(str(rung) for rung in rungs)
                 raise SystemExit(f"--rung {args.rung} is not a rung of the ladder: {offered}")
-            spec = kernel_parity.sub_spec(spec, order, args.rung)
+            spec = scaling_ladder.sub_spec(spec, order, args.rung)
         runes = len(spec.runes)
         stem = f"r{runes}" if args.rung else "live"
         out_dir = scratch_out_dir(args.out_dir, f"{stem}-{args.mode}")
