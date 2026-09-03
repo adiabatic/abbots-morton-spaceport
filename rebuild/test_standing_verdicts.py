@@ -2414,7 +2414,7 @@ def test_a_matched_unit_verdicted_outside_the_blessed_set_trips_the_warning(tmp_
     _run_main(tmp_path, monkeypatch, [canonical("u-1"), canonical("u-2")], verdicts)
     lines = capsys.readouterr().out.splitlines()
     [warning] = [line for line in lines if line.startswith("  WARNING:")]
-    assert "a verdict outside approve/either sits on 1 matched unit" in warning
+    assert "a verdict outside approve/either/identical sits on 1 matched unit" in warning
     assert f"u-2 under {RULE['id']} (reject)" in warning
 
 
@@ -2422,6 +2422,94 @@ def test_the_warning_is_silent_when_every_matched_verdict_is_blessed(tmp_path, m
     verdicts = [{"unit": "u-2", "verdict": "either", "note": "", "at": "2026-07-11T00:00:00Z"}]
     _run_main(tmp_path, monkeypatch, [canonical("u-1"), canonical("u-2")], verdicts)
     assert not any(line.startswith("  WARNING:") for line in capsys.readouterr().out.splitlines())
+
+
+def test_an_identical_verdict_never_trips_the_warning(tmp_path, monkeypatch, capsys):
+    """`identical` accepts the new rendering exactly as approve and either do — the reviewer merely found the highlighted portion unchanged — so a rule agreeing with one is no accident to report."""
+    units = [canonical("u-1"), canonical("u-2")]
+    verdicts = [{"unit": "u-2", "verdict": "identical", "note": "", "at": "2026-07-11T00:00:00Z"}]
+    _run_main(tmp_path / "full", monkeypatch, units, verdicts)
+    assert not any(line.startswith("  WARNING:") for line in capsys.readouterr().out.splitlines())
+    _run_main(tmp_path / "open", monkeypatch, units, verdicts, extra=("--open-only",))
+    assert not any(line.startswith("  WARNING:") for line in capsys.readouterr().out.splitlines())
+
+
+def test_open_only_writes_the_fills_the_whole_domain_writes(tmp_path, monkeypatch):
+    """A fill comes only from a blank and every matcher decision is per-unit pure, so handing the run only the blanks and the disputed units cannot move a single record."""
+    units = [
+        canonical("u-1"),
+        canonical("u-2"),
+        canonical("u-3"),
+        canonical("u-4", left="qsOut.ex-ext-1"),
+        canonical("u-5"),
+    ]
+    verdicts = [
+        {"unit": "u-2", "verdict": "approve", "note": "", "at": "2026-07-11T00:00:00Z"},
+        {"unit": "u-3", "verdict": "skip", "note": "[parked]", "at": "2026-07-11T00:00:00Z"},
+        {"unit": "u-5", "verdict": "reject", "note": "", "at": "2026-07-11T00:00:00Z"},
+    ]
+    whole = _run_main(tmp_path / "full", monkeypatch, units, verdicts)
+    narrowed = _run_main(tmp_path / "open", monkeypatch, units, verdicts, extra=("--open-only",))
+    assert whole == narrowed
+    assert [record["unit"] for record in narrowed["verdicts"]] == ["u-1"]
+
+
+def test_open_only_keeps_the_tripwire_word_for_word(tmp_path, monkeypatch, capsys):
+    """Every unit the tripwire can name carries a verdict outside the accepting set, which is precisely what the narrowing keeps."""
+    units = [canonical("u-1"), canonical("u-2")]
+    verdicts = [{"unit": "u-2", "verdict": "reject", "note": "", "at": "2026-07-11T00:00:00Z"}]
+    _run_main(tmp_path / "full", monkeypatch, units, verdicts)
+    [whole] = [line for line in capsys.readouterr().out.splitlines() if line.startswith("  WARNING:")]
+    _run_main(tmp_path / "open", monkeypatch, units, verdicts, extra=("--open-only",))
+    [narrowed] = [line for line in capsys.readouterr().out.splitlines() if line.startswith("  WARNING:")]
+    assert narrowed == whole
+
+
+def test_open_only_drops_the_already_verdicted_column_and_the_rollup(tmp_path, monkeypatch, capsys):
+    """Both are readings of the store rather than of the fills, and a narrowed run has not read the store — the validators lane is what proves the checked-in rules still reach the live surface."""
+    units = [canonical("u-1"), canonical("u-2"), canonical("u-3", left="qsOut.ex-ext-1")]
+    verdicts = [{"unit": "u-2", "verdict": "approve", "note": "", "at": "2026-07-11T00:00:00Z"}]
+    _run_main(
+        tmp_path,
+        monkeypatch,
+        units,
+        verdicts,
+        rules_list=(RULE, SHORTENED_RULE),
+        extra=("--open-only",),
+    )
+    lines = capsys.readouterr().out.splitlines()
+    assert f"  {RULE['id']}: 1 filled, 1 held for review by except_left" in lines
+    assert not any("already verdicted" in line for line in lines)
+    assert not any(line.startswith("  per-rule reach (") for line in lines)
+    assert not any(line.startswith("  REACHED NOTHING:") for line in lines)
+
+
+def test_open_only_reads_the_except_left_vocabulary_off_the_whole_surface(tmp_path, monkeypatch, capsys):
+    """Which families the surface's windows join from is a question about the surface, not about the queue, so the narrowing must not answer it off the blanks alone."""
+    verdicts = [
+        {"unit": uid, "verdict": "approve", "note": "", "at": "2026-07-11T00:00:00Z"}
+        for uid in ("u-1", "o-1")
+    ]
+    units = [canonical("u-1"), out_window("o-1")]
+    _run_main(tmp_path / "joined", monkeypatch, units, verdicts, extra=("--open-only",))
+    assert not any("except_left vocabulary" in line for line in capsys.readouterr().out.splitlines())
+    _run_main(tmp_path / "bare", monkeypatch, [canonical("u-1")], verdicts[:1], extra=("--open-only",))
+    lines = capsys.readouterr().out.splitlines()
+    assert any(
+        line.startswith(f"  except_left vocabulary: {RULE['id']} guards against qsOut,") for line in lines
+    )
+
+
+def test_open_only_refuses_explain(tmp_path, monkeypatch):
+    """--explain's middle column names the ids a verdict already covers, which a narrowed run was never offered."""
+    with pytest.raises(SystemExit):
+        _run_main(
+            tmp_path,
+            monkeypatch,
+            [canonical("u-1")],
+            [],
+            extra=("--explain", RULE["id"], "--open-only"),
+        )
 
 
 def test_an_except_left_family_no_window_joins_from_is_named(tmp_path, monkeypatch, capsys):
@@ -2553,6 +2641,25 @@ def test_main_writes_one_composed_record_and_leaves_the_per_rule_lines(
     assert (
         f"  {SLIDE_RULE['id']} + {COMPOSED_EXT_RULE['id']}: 1 filled, 0 already verdicted, "
         "0 held for review by except_left"
+    ) in lines
+
+
+def test_open_only_names_the_composed_pair_without_the_column(tmp_path, monkeypatch, capsys, slide_fonts):
+    """A composed reading claims a window on that window's own contents, so a narrowed run credits the same pair and only the middle column goes."""
+    _run_main(
+        tmp_path,
+        monkeypatch,
+        [composed_window("c-1")],
+        [],
+        rules_list=(SLIDE_RULE, COMPOSED_EXT_RULE),
+        fonts=slide_fonts,
+        extra=("--open-only",),
+    )
+    lines = capsys.readouterr().out.splitlines()
+    assert f"  {SLIDE_RULE['id']}: 0 filled, 0 held for review by except_left" in lines
+    assert f"  {COMPOSED_EXT_RULE['id']}: 0 filled, 0 held for review by except_left" in lines
+    assert (
+        f"  {SLIDE_RULE['id']} + {COMPOSED_EXT_RULE['id']}: 1 filled, " "0 held for review by except_left"
     ) in lines
 
 
