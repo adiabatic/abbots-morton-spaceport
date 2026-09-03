@@ -1,6 +1,6 @@
 """The M1 integration driver (M1-PLAN Phase 5): the full pipeline run over the real rune files, writing every section 8 artifact under rebuild/out/m1/.
 
-Stages: load_default_spec -> per-configuration decision/treaty tables (enumerated and folded in the kernel crate, one process per configuration: the first-match-wins replay asserted as each one folds, TSVs written, and the window enumeration serialized under the fingerprint of the sources it came from, so `--conform-only` mints its glyph inventory from it and refuses to run against a stale or missing one) -> glyph inventory minting (settled cells named by the table's own cell labels, plus the raw cmap glyphs, marker twins, chokepoint twins, and the namer dot pair) -> defects gates (run_gates merged with surface.check_anchor_conventions) -> emit_gsub/emit_gpos (whose plan also enumerates the emitted lookup's HarfBuzz-facing shapes into behavior_classes.json, the arming key rebuild/tools/deep_sweep.py reads) -> build_mini_font -> read-back (the font just written, re-parsed from its own bytes and structurally proven against the plan the emitters held, with the GSUB's uint16 subtable-offset headroom read off the raw table bytes in that same parse and held to its floor, and that plan's settlement rows recorded beside the summary with their per-configuration sources for the witness gate to count coverage over; rebuild/pipeline/readback.py).
+Stages: load_default_spec -> per-configuration decision/treaty tables (enumerated and folded in the kernel crate, one process per configuration: the first-match-wins replay asserted as each one folds, TSVs written, and the window enumeration serialized under the fingerprint of the sources it came from, so `--conform-only` mints its glyph inventory from it and refuses to run against a stale or missing one) -> glyph inventory minting (settled cells named by the table's own cell labels, plus the raw cmap glyphs, marker twins, chokepoint twins, and the namer dot pair) -> defect gates (defects.run_gates under the reviewed allow-list) -> emit_gsub/emit_gpos (whose plan also enumerates the emitted lookup's HarfBuzz-facing shapes into behavior_classes.json, the arming key rebuild/tools/deep_sweep.py reads) -> build_mini_font -> read-back (the font just written, re-parsed from its own bytes and structurally proven against the plan the emitters held, with the GSUB's uint16 subtable-offset headroom read off the raw table bytes in that same parse and held to its floor, and that plan's settlement rows recorded beside the summary with their per-configuration sources for the witness gate to count coverage over; rebuild/pipeline/readback.py).
 
 The glyph-name contract this driver pins: settlement-lookup outcomes are `settle.cell_label` names, so the decision-table rules and the compiled glyph set agree by construction; the raw cmap glyph for each rune is the bare rune name drawn as the isolated cell but carrying no curs anchors; marker, chokepoint, and ss10 twins reuse the bare drawing (under ss10 the pre-empt lookup substitutes every letter's cmap glyph by its anchor-free `.ss10` twin before formation, so no ligature ever forms, nothing settles, each letter keeps its own cluster, and every seam is a break).
 
@@ -216,14 +216,9 @@ def _run_defect_gates(
     tables: Mapping[str, tuple],
     cell_glyphs: Mapping[CellId, GlyphRecord],
 ) -> defects.DefectReport:
-    """The section 9 defect gates over one build's tables and minted glyphs: `defects.run_gates` under the reviewed allow-list, with the anchor-convention lint folded in as E-ANCHOR errors. Shared by the build and by `--gates-only`, which re-runs it over the tables and glyphs already on disk — the allow-list is in no stamp and no fingerprint component, so blessing a signature is exactly the edit that re-adjudicates here instead of rebuilding."""
+    """The section 9 defect gates over one build's tables and minted glyphs: `defects.run_gates` under the reviewed allow-list. Shared by the build and by `--gates-only`, which re-runs it over the tables and glyphs already on disk — the allow-list is in no stamp and no fingerprint component, so blessing a signature is exactly the edit that re-adjudicates here instead of rebuilding."""
     allow = frozenset(entry["signature"] for entry in yaml.safe_load(CONTACT_ALLOW_YAML.read_text()) or ())
-    report = defects.run_gates(spec, tables, cell_glyphs, allow=allow)
-    for issue in surface.check_anchor_conventions(spec):
-        report.errors.append(
-            defects.Defect("E-ANCHOR", f"convention:{issue.path}", f"{issue.file}: {issue.message}")
-        )
-    return report
+    return defects.run_gates(spec, tables, cell_glyphs, allow=allow)
 
 
 def _defect_summary_fields(report: defects.DefectReport) -> dict:

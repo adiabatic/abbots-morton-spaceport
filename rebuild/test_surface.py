@@ -1,12 +1,12 @@
-"""surface unit tests over the real loaded spec: cell enumeration under feature configurations, binding resolution per the explicit-cells > side-bindings > base order, the side-binding disagreement error, and the E-ANCHOR convention gate."""
+"""surface unit tests over the real loaded spec: cell enumeration under feature configurations, binding resolution per the explicit-cells > side-bindings > base order, and the side-binding disagreement error."""
 
 import textwrap
 import warnings
 
 import pytest
 
-from rebuild.pipeline import surface
-from rebuild.pipeline.model import CellId
+from rebuild.pipeline import geometry, surface
+from rebuild.pipeline.model import Bitmap, CellId
 from rebuild.pipeline.spec_load import SpecError, SpecWarning, load_default_spec
 from rebuild.test_spec_load import load_tmp_spec
 
@@ -107,7 +107,7 @@ def test_resolve_explicit_cell_bindings(spec):
     assert plan.entry_stub is not None
     assert plan.exit_stub is not None
     assert plan.entry_stub.cols == (0,) and plan.exit_stub.cols == (3,)
-    assert list(surface.resolved_cell_bitmap(spec, plan).rows) == [
+    assert list(geometry.realize(spec, plan).bitmap) == [
         " ## ",
         "#  #",
         "#  #",
@@ -130,7 +130,7 @@ def test_resolve_side_bindings_and_overrides(spec):
     assert plan.exit_x == 4
     assert plan.entry_stub is not None
     assert plan.entry_stub.cols == (3,) and plan.entry_stub.inks_when == "withdrawn"
-    assert list(surface.resolved_cell_bitmap(spec, plan).rows) == [
+    assert list(geometry.realize(spec, plan).bitmap) == [
         "  # ",
         " #  ",
         " #  ",
@@ -163,11 +163,12 @@ def test_resolve_stubs_and_oddities(spec):
     assert plan.exit_stub is not None and plan.exit_stub.cols == (3,)
     assert plan.exit_ink_y == 6
     assert plan.safety_checks == (("exit", "y6"),)
-    bitmap = surface.resolved_cell_bitmap(spec, plan)
-    assert bitmap.row_for_y(5) == "   #"
+    record = geometry.realize(spec, plan)
+    assert Bitmap(record.bitmap, record.y_offset).row_for_y(5) == "   #"
     plan = surface.resolve_cell(spec, CellId("qsPea", "full", "x-height", "baseline", ()))
     assert plan.entry_stub is not None and plan.entry_stub.cols == (0,)
-    assert surface.resolved_cell_bitmap(spec, plan).row_for_y(5) == "#  #"
+    record = geometry.realize(spec, plan)
+    assert Bitmap(record.bitmap, record.y_offset).row_for_y(5) == "#  #"
     plan = surface.resolve_cell(spec, CellId("qsTea", "half", None, "x-height", ()))
     assert plan.entry_curs_only is None
 
@@ -240,35 +241,6 @@ def test_explicit_cells_row_settles_the_disagreement(tmp_path):
     spec = load_tmp_spec(tmp_path, {"qsMay": text})
     plan = surface.resolve_cell(spec, CellId("qsMay", "hapax", "x-height", "x-height", ()))
     assert plan.bitmap == "entry-form"
-
-
-def test_anchor_convention_drift_is_flagged(tmp_path):
-    text = textwrap.dedent("""\
-        rune: qsIt
-        codepoint: 0xE670
-        ductus:
-          hapax: |
-            A vertical stroke.
-        stances:
-          hapax:
-            motion: hapax
-            bitmap: [" #", " #", " #", " #", " #", " #"]
-            surface:
-              entries:
-                baseline: {x: 0}
-              exits:
-                baseline: {x: 2, withdrawal: safe}
-        """)
-    spec = load_tmp_spec(tmp_path, {"qsIt": text})
-    issues = surface.check_anchor_conventions(spec)
-    assert issues
-    assert all("E-ANCHOR" in issue.message for issue in issues)
-    assert any("entry anchor x=0 drifts from the convention value 1" in issue.message for issue in issues)
-    flagged = text.replace("{x: 0}", "{x: 0, x_off_convention: true}").replace(
-        "{x: 2,", "{x: 3, x_off_convention: true,"
-    )
-    spec = load_tmp_spec(tmp_path, {"qsIt": flagged})
-    assert surface.check_anchor_conventions(spec) == ()
 
 
 def test_cell_binding_watchdog_warns_on_dead_rows(tmp_path):

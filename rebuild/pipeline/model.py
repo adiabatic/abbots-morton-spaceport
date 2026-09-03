@@ -264,7 +264,7 @@ class ResolvedSpec:  # spec_load's output; the input to everything else
 
 @dataclass(frozen=True)
 class CellPlan:
-    """surface.resolve_cell's output: binding resolution only, no ink. `bitmap` is the named sibling the cell renders with (None = the stance's base drawing); anchor x values are post-override; `safety_checks` lists the (side, height) pairs whose `withdrawal: safe` claim geometry's defects gate must verify."""
+    """surface.resolve_cell's output: binding resolution only, no ink. `bitmap` is the named sibling the cell renders with (None = the stance's base drawing); anchor x values are post-override; `safety_checks` lists the (side, height) pairs whose `withdrawal: safe` claim geometry's defects gate must verify. `convention_exempt` names the sides ("entry"/"exit") whose declared row carries `x_off_convention`, so E-ANCHOR skips that side and that side only."""
 
     cell: CellId
     bitmap: str | None = None
@@ -274,7 +274,7 @@ class CellPlan:
     exit_stub: Stub | None = None
     entry_curs_only: tuple[int, int] | None = None  # selectable: false anchor kept for GPOS parity
     exit_ink_y: int | None = None
-    x_off_convention: bool = False
+    convention_exempt: tuple[str, ...] = ()
     safety_checks: tuple[tuple[str, Height], ...] = ()
     unlock: Unlock | None = None  # set when the cell exists only via this unlock row
 

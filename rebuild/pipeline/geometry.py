@@ -1,6 +1,6 @@
 """Per-cell bitmap and anchor realization (M1-PLAN section 5, Group 3).
 
-`realize` turns a CellPlan plus generated adjustments into a GlyphRecord, in the design section 3.2 resolution order: the plan's resolved binding (explicit `cells:` row > side bindings > base bitmap, chosen by surface.resolve_cell) supplies the starting drawing; stub arithmetic applies per side liveness; then the adjustments grammar (model.py) applies extend/contract/trim connector arithmetic and `bind:` substitutions; then anchors land per the standing conventions (`entry.x = min_ink_x_at_entry_y`, `exit.x = max_ink_x_at_exit_y + 1`), with per-cell overrides and the flagged exceptions honored.
+`realize` turns a CellPlan plus generated adjustments into a GlyphRecord, in the design section 3.2 resolution order: the plan's resolved binding (explicit `cells:` row > side bindings > base bitmap, chosen by surface.resolve_cell) supplies the starting drawing; stub arithmetic applies per side liveness; then the adjustments grammar (model.py) applies extend/contract/trim connector arithmetic and `bind:` substitutions; then anchors land per the standing conventions (`entry.x = min_ink_x_at_entry_y`, `exit.x = max_ink_x_at_exit_y + 1`), with per-cell overrides honored. A row's `x_off_convention` flag exempts its own side of E-ANCHOR and no other. A `trim` adjustment exempts the side it trims, because the anchor deliberately stays where the pre-trim ink put it.
 
 `seam_gap` is the section 9 gap arithmetic over two realized records; `verify_withdrawal_safe` discharges `withdrawal: safe` claims (no reaching connector ink at the declined row: the terminal ink pixel at the row must continue vertically into an adjacent row, or the row must be empty).
 """
@@ -229,9 +229,7 @@ def realize(
         exit_anchor = (exit_x, exit_y)
 
     entry_curs_only = plan.entry_curs_only
-    convention_exempt: list[str] = []
-    if plan.x_off_convention:
-        convention_exempt.extend(("entry", "exit"))
+    convention_exempt: list[str] = list(plan.convention_exempt)
 
     for token in effective:
         parsed = parse_adjustment(token)
