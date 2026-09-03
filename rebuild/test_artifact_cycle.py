@@ -1,5 +1,6 @@
 import argparse
 import functools
+import hashlib
 import json
 import os
 import re
@@ -3130,7 +3131,7 @@ def test_both_lane_fingerprints_are_none_outside_git(tmp_path):
 
 
 def test_surface_build_skippable_matches_manifest(tmp_path):
-    """The skip is a claim that a rebuild would reproduce this surface whole, so every file the claim covers has to answer for itself: the fingerprint, every shard the manifest names, and the three files it does not name — the per-unit index and both app sidecars, each stamped for the manifest beside it rather than merely present, since they are written after the manifest and outside it."""
+    """The skip is a claim that a rebuild would reproduce this surface whole, so every file the claim covers has to answer for itself: the fingerprint, every shard the manifest names, the three files it does not name — the per-unit index and both app sidecars, each stamped for the manifest beside it rather than merely present, since they are written after the manifest and outside it — and the after font, which no fingerprint component covers at all, so only the manifest's recorded sha held against M1.otf on disk can say a run_m1 landed since."""
     from rebuild.pipeline import fingerprint
     from rebuild.review import app_index, unit_index
 
@@ -3140,6 +3141,8 @@ def test_surface_build_skippable_matches_manifest(tmp_path):
     surface.mkdir(parents=True)
     stage_a = {"data": "d", "baselines": "b", "pipeline_code": "p"}
     (m1 / fingerprint.STAGE_A_FILENAME).write_text(json.dumps({"format": fingerprint.FORMAT, **stage_a}))
+    font = m1 / "M1.otf"
+    font.write_bytes(b"OTTO")
     before_font, junior_font = fingerprint.font_paths(tmp_path)
     expected = {**stage_a, **fingerprint.stage_b(tmp_path, before_font, junior_font)}
     shard = surface / "units-000.json"
@@ -3148,6 +3151,7 @@ def test_surface_build_skippable_matches_manifest(tmp_path):
         "generated_at": "2026-01-01T00:00:00Z",
         "inputs_fingerprint": expected,
         "classes": [{"id": "c", "shards": ["units-000.json"]}],
+        "fonts": {"after": {"file": "fonts/after.otf", "sha256": hashlib.sha256(b"OTTO").hexdigest()}},
     }
 
     def restamp():
@@ -3175,6 +3179,19 @@ def test_surface_build_skippable_matches_manifest(tmp_path):
     manifest["inputs_fingerprint"] = expected
     restamp()
     assert ac.surface_build_skippable(tmp_path, surface)
+
+    fonts = manifest["fonts"]
+    font.write_bytes(b"OTTO-newer")
+    assert not ac.surface_build_skippable(tmp_path, surface)
+    font.write_bytes(b"OTTO")
+    assert ac.surface_build_skippable(tmp_path, surface)
+    del manifest["fonts"]
+    restamp()
+    assert not ac.surface_build_skippable(tmp_path, surface)
+    manifest["fonts"] = fonts
+    restamp()
+    assert ac.surface_build_skippable(tmp_path, surface)
+
     for name, _fmt in app_index.ARTIFACTS:
         kept = app_index.artifact_path(surface, name)
         raw = kept.read_bytes()
@@ -3223,6 +3240,9 @@ def test_a_refuse_why_edit_restamps_the_surface_and_nothing_upstream(tmp_path):
                     **fingerprint.stage_b(root, before_font, junior_font),
                 },
                 "classes": [{"id": "c", "shards": ["units-000.json"]}],
+                "fonts": {
+                    "after": {"file": "fonts/after.otf", "sha256": hashlib.sha256(b"OTTO").hexdigest()}
+                },
             }
         )
     )

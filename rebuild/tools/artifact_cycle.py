@@ -645,6 +645,8 @@ def surface_build_skippable(
 
     The three files the manifest does not name are checked too — the per-unit index and both app sidecars — and each has to be stamped for the manifest beside it rather than merely present. They are written after the manifest and outside it, so a build interrupted between the two, or a manifest rewritten by anything that does not rewrite them, leaves a surface whose shards are all there and whose sidecars address a surface that no longer exists. Skipping on shard existence alone would then serve that surface forever; asking `unit_index.index_is_current` and `app_index.artifact_is_current` makes the skip say what it means, which is that a rebuild would reproduce this surface's content whole.
 
+    The after font is held against the file on disk for a reason no fingerprint component can cover: the key hashes the font's inputs and the two site fonts, never rebuild/out/m1/M1.otf itself, so a run_m1 that landed since this surface was built moves nothing the comparison above can see while the letters the surface ships are last build's. The build asserts at copy time that the font it ships is the font it hashed at load, so the manifest's recorded after-font sha is a true statement about the bytes under fonts/after.otf — and comparing that sha with M1.otf as it stands now is what says the skip is not stepping over a newer font.
+
     `ignore` names fingerprint components exempted from the comparison, for a caller asking a narrower question than byte identity — the same hard/warn split status._freshness_check draws. The cycle asks both questions in turn rather than one: the strict one first, since a surface that reproduces byte for byte needs nothing done to it at all; and when only an ASSET_COMPONENTS member differs, it copies those assets over the served surface and restamps that one component (`assets-refresh`) instead of rebuilding units that cannot have moved. A component missing from either side still refuses: only a recorded-and-expected pair is ever waved through.
     """
     from rebuild.pipeline import fingerprint
@@ -672,6 +674,14 @@ def surface_build_skippable(
     except KeyError, TypeError, AttributeError:
         return False
     if not all((surface / shard).exists() for shard in shards):
+        return False
+    try:
+        after_sha = manifest["fonts"]["after"]["sha256"]
+    except KeyError, TypeError:
+        return False
+    if not isinstance(after_sha, str):
+        return False
+    if after_sha != _sha256_path(root / "rebuild" / "out" / "m1" / "M1.otf"):
         return False
     return unit_index.index_is_current(surface) and all(
         app_index.artifact_is_current(surface, name, fmt) for name, fmt in app_index.ARTIFACTS
@@ -1875,7 +1885,7 @@ def _do_surface_build(
     skip: bool = False,
     skip_note: str = "",
 ) -> bool:
-    """Rebuild (or, when `skip` is set, reuse) the review surface. Both paths take the four totals from the surface's own manifest.json — review.build's validated output, whose integer totals build.check_manifest enforces — rather than scraping them back out of the build's stderr, so the numbers the summary reports are the ones the surface on disk actually carries."""
+    """Rebuild (or, when `skip` is set, reuse) the review surface. Both paths take the four totals from the surface's own manifest.json — review.build's validated output, whose totals build.check_shards holds to the shards it wrote — rather than scraping them back out of the build's stderr, so the numbers the summary reports are the ones the surface on disk actually carries."""
     surface_dir = review_out if review_out is not None else REVIEW_OUT
     if skip:
         if not _read_surface_totals(report, surface_dir):

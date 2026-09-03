@@ -1,4 +1,4 @@
-"""Readiness logic for the review surface: is the served surface present, does it still reflect the runes and code on disk, was it produced by a green artifact cycle, and is there a stamp-aligned verdict store to adjudicate against? Pure computation over the surface manifest, the persisted cycle summary, the autosave, and the repo-root verdicts files — the serve.py /status handler and the verdict_ready CLI both render this one dict, so the shape here is a contract other code encodes against."""
+"""Readiness logic for the review surface: is the served surface present, does it still reflect the runes and code on disk — the after font it ships still the M1 font on disk, its per-unit index and both app sidecars still stamped for its manifest — was it produced by a green artifact cycle, and is there a stamp-aligned verdict store to adjudicate against? Pure computation over the surface manifest and the files it answers for, the persisted cycle summary, the autosave, and the repo-root verdicts files — the serve.py /status handler and the verdict_ready CLI both render this one dict, so the shape here is a contract other code encodes against."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 
 from rebuild.pipeline import fingerprint
-from rebuild.review import unit_index
+from rebuild.review import app_index, unit_index
 from rebuild.review.serve import parse_autosave_payload
 
 SURFACE_REMEDY = "uv run python -m rebuild.review.build"
@@ -158,7 +158,9 @@ def _surface_check(manifest) -> dict:
     return {"level": "ok", "detail": "The review surface manifest is present and readable.", "remedy": None}
 
 
-def _freshness_check(manifest, manifest_fp, repo_root, recompute, artifact_cycle_remedy) -> dict:
+def _freshness_check(
+    manifest, manifest_fp, repo_root, recompute, artifact_cycle_remedy, review_dir, m1_out
+) -> dict:
     unknown = {name: "unknown" for name in fingerprint.COMPONENTS}
     if manifest is None:
         return {
@@ -206,6 +208,39 @@ def _freshness_check(manifest, manifest_fp, repo_root, recompute, artifact_cycle
         return {
             "level": "fail",
             "detail": detail,
+            "remedy": artifact_cycle_remedy,
+            "components": components,
+        }
+    fonts = manifest.get("fonts")
+    after_record = fonts.get("after") if isinstance(fonts, dict) else None
+    recorded_sha = after_record.get("sha256") if isinstance(after_record, dict) else None
+    after = Path(m1_out) / "M1.otf"
+    if not isinstance(recorded_sha, str):
+        return {
+            "level": "fail",
+            "detail": "The surface records no after-font hash, so it cannot be checked against rebuild/out/m1/M1.otf.",
+            "remedy": artifact_cycle_remedy,
+            "components": components,
+        }
+    try:
+        on_disk = fingerprint.file_sha256(after)
+    except OSError:
+        on_disk = None
+    if on_disk != recorded_sha:
+        return {
+            "level": "fail",
+            "detail": "The surface's after font is not the M1 font on disk: rebuild/out/m1/M1.otf is missing or has moved on since this surface was built, so the letters being served are last build's.",
+            "remedy": artifact_cycle_remedy,
+            "components": components,
+        }
+    missing = [] if unit_index.index_is_current(review_dir) else [unit_index.INDEX_NAME]
+    missing += [
+        name for name, fmt in app_index.ARTIFACTS if not app_index.artifact_is_current(review_dir, name, fmt)
+    ]
+    if missing:
+        return {
+            "level": "fail",
+            "detail": f"These files are missing or stamped for another manifest: {', '.join(missing)}. Either the build that wrote this surface did not finish, or the manifest was rewritten without them.",
             "remedy": artifact_cycle_remedy,
             "components": components,
         }
@@ -419,7 +454,9 @@ def compute_status(
     )
     checks = {
         "surface": _surface_check(manifest),
-        "freshness": _freshness_check(manifest, manifest_fp, repo_root, recompute, artifact_cycle_remedy),
+        "freshness": _freshness_check(
+            manifest, manifest_fp, repo_root, recompute, artifact_cycle_remedy, review_dir, m1_out
+        ),
         "gates": _gates_check(summary, generated_at, manifest_fp, artifact_cycle_remedy),
         "verdict_store": verdict_store,
         "frontier": _frontier_check(frontier_hit, frontier_rel),
