@@ -4305,7 +4305,7 @@ def test_plumbing_skip_fingerprint_moves_with_every_input(tmp_path):
 
 
 def test_plumbing_skip_fingerprint_covers_the_chains_own_code(tmp_path):
-    """Every other stage's key folds in its own executable; this chain's lives in rebuild/tools/, which no other fingerprint reads. Without it a fix to a fill's matcher would be skipped as already proven and silently never run."""
+    """Every other stage's key folds in its own executable; this chain's lives in rebuild/tools/, which no other fingerprint reads. Without it a fix to a fill's matcher would be skipped as already proven and silently never run. The negative half is what issue #117 bought: the driver, the timings journal and the two width yardsticks share that directory but run no step of the chain, so an edit to one leaves the key exactly where it was and the letters stay on screen."""
     surface = tmp_path / "review"
     surface.mkdir()
     (surface / "manifest.json").write_text(
@@ -4332,6 +4332,20 @@ def test_plumbing_skip_fingerprint_covers_the_chains_own_code(tmp_path):
 
     (tmp_path / "rebuild" / "review" / "serve.py").write_text("y = 2\n")
     assert ac.plumbing_skip_fingerprint(tmp_path, surface, master) != base
+
+    outside = ("artifact_cycle.py", "cycle_timings.py", "memory_budget.py", "peak_rss.py")
+    for name in outside:
+        (tools / name).write_text("x = 1\n")
+    unmoved = ac.plumbing_skip_fingerprint(tmp_path, surface, master)
+    for name in outside:
+        (tools / name).write_text("x = 2\n")
+        assert ac.plumbing_skip_fingerprint(tmp_path, surface, master) == unmoved, name
+        (tools / name).write_text("x = 1\n")
+
+    (tools / "review_server.py").write_text("x = 1\n")
+    probed = ac.plumbing_skip_fingerprint(tmp_path, surface, master)
+    (tools / "review_server.py").write_text("x = 2\n")
+    assert ac.plumbing_skip_fingerprint(tmp_path, surface, master) != probed
 
 
 def test_plumbing_skip_fingerprint_sees_a_master_that_is_not_the_autosave(tmp_path):

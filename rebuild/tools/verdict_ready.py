@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 from rebuild.review import status
+from rebuild.tools.review_server import server_listening
 
 ROOT = Path(__file__).resolve().parents[2]
 REVIEW_DIR = ROOT / "rebuild" / "out" / "review"
@@ -43,8 +44,6 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=(__doc__ or "").split(".")[0] + ".")
     parser.add_argument("--json", action="store_true", help="dump the full status dict as JSON")
     args = parser.parse_args()
-
-    from rebuild.tools.artifact_cycle import server_listening
 
     result = status.compute_status(ROOT, REVIEW_DIR, M1_OUT, AUTOSAVE_PATH, CYCLE_SUMMARY_PATH)
     listening = server_listening()
