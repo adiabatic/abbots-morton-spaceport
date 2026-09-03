@@ -1155,7 +1155,7 @@ class TestConformSummary:
 
 
 class _SilentShaper:
-    """Enough of a Shaper for the belt's bookkeeping, which never reads shaped output: every text shapes to nothing, so the oracle records one length divergence per text and the structural checks see no slots. The texts it was asked to shape are the observable."""
+    """Enough of a Shaper for the belt's bookkeeping, which never reads shaped output: every text shapes to nothing, so the oracle records one length divergence per text and the split-buffer check sees no splitter slot. The texts it was asked to shape are the observable."""
 
     def __init__(self):
         self.shaped: list[str] = []
@@ -1164,15 +1164,12 @@ class _SilentShaper:
         self.shaped.append(text)
         return []
 
-    def has_ink(self, glyph_name: str) -> bool:
-        return False
-
     def outline_signature(self, glyph_name: str) -> tuple:
         return ()
 
 
 class TestBeltEconomics:
-    """What the per-edit belt does and does not spend over a short horizon with the font faked out: every text of every length up to the horizon shapes exactly once, and the two structural checks run on exactly the texts they can say anything about."""
+    """What the per-edit belt does and does not spend over a short horizon with the font faked out: every text of every length up to the horizon shapes exactly once, and the split-buffer check runs on exactly the texts it can say anything about."""
 
     HORIZON = 2
 
@@ -1200,21 +1197,16 @@ class TestBeltEconomics:
         assert len(shaper.shaped) == len(set(shaper.shaped)) == result.sequences
         assert all(len(text) <= self.HORIZON for text in shaper.shaped)
 
-    def test_the_structural_checks_run_on_the_texts_that_carry_a_boundary(self, spec, guard, monkeypatch):
-        """The retired boundary gate's charter, now the belt's: every ZWNJ-bearing text is weighed for zero-advance inkless slots and every splitter-bearing one against its own segments — and no other text pays for either, since a text with no boundary in it satisfies both by construction."""
-        zwnj_checked: list[str] = []
+    def test_the_split_buffer_check_runs_on_the_texts_that_carry_a_splitter(self, spec, guard, monkeypatch):
+        """The retired boundary gate's charter, now the belt's: every splitter-bearing text is held against its own segments shaped alone, and no other text pays for it, since a text with no splitter in it is trivially identical to its own single segment. The ZWNJ slot's own structure — zero advance, no ink — is read-back's static boundary-glyphs stage over the font bytes, not the belt's."""
         split_checked: list[str] = []
-        monkeypatch.setattr(
-            conform, "check_zwnj_structure", lambda text, *args, **kwargs: zwnj_checked.append(text)
-        )
         monkeypatch.setattr(
             conform, "check_split_buffer", lambda text, *args, **kwargs: split_checked.append(text)
         )
         _result, shaper = self._run(spec, guard)
         splitters = conform.splitting_boundary_chars(spec)
-        assert set(zwnj_checked) == {text for text in shaper.shaped if conform.ZWNJ in text}
         assert set(split_checked) == {text for text in shaper.shaped if set(text) & splitters}
-        assert zwnj_checked and split_checked
+        assert split_checked
 
 
 class TestRawLabelsLateFormation:

@@ -117,6 +117,17 @@ class TestReadback:
         assert formats["format2"] >= 1
         assert formats["format2"] + formats["format3"] == settle_subtables
 
+    def test_the_boundary_glyphs_are_inert_on_the_bytes(self, built):
+        """The claim the belt used to make per shaped ZWNJ slot, made once off the written font: every substituted position of every lookup was examined and none of them admits a boundary glyph, `uni200C` carries no advance, and neither glyph draws an outline."""
+        font_path, plan, cursive, _twins = built
+        report = readback.verify_font(font_path, plan, cursive)
+        boundary = report["checked"]["boundary_glyphs"]
+        assert boundary["substituted_positions"] > 0
+        assert boundary["uni200C"]["advance"] == 0
+        assert boundary["uni200C"]["inked"] is False
+        assert boundary["space"]["inked"] is False
+        assert report["pass"]
+
     def test_verification_is_deterministic(self, built):
         font_path, plan, cursive, _twins = built
         assert readback.verify_font(font_path, plan, cursive) == readback.verify_font(
@@ -234,6 +245,84 @@ class TestCorruptions:
         breached = _named(report, "gsub budget:")
         assert len(breached) == 1 and "65,536-byte floor" in breached[0]
         assert report["divergences"] == breached
+
+    def test_a_single_substitution_of_the_zwnj(self, built, tmp_path):
+        """A pre-empt lookup that substitutes the ZWNJ itself: the slot a word boundary is made of would be replaced by a drawn letter, and no shaping sweep has to be run to see it."""
+
+        def mutate(font, _plan):
+            index = _feature_record(font, "GSUB", "ss10").Feature.LookupListIndex[0]
+            _inner(font["GSUB"].table.LookupList.Lookup[index].SubTable[0]).mapping["uni200C"] = "qsPea"
+
+        report = _corrupted_report(built, tmp_path, "zwnj-single-subst", mutate)
+        assert not report["pass"]
+        named = _named(report, "boundary glyphs:")
+        assert named and any("uni200C" in line for line in named)
+
+    def test_a_settlement_input_coverage_admitting_space(self, built, tmp_path):
+        """A format-3 settlement rule whose substituted input coverage has grown a space: the rule would fire on a word boundary, which is exactly the position nothing may substitute."""
+
+        def mutate(font, plan):
+            lookup = font["GSUB"].table.LookupList.Lookup[_stage_index(font, plan, "m1_settle")]
+            inner = next(
+                candidate
+                for candidate in (_inner(subtable) for subtable in lookup.SubTable)
+                if candidate.Format == 3
+            )
+            glyphs = inner.InputCoverage[0].glyphs
+            glyphs.append("space")
+            glyphs.sort(key=font.getGlyphID)
+
+        report = _corrupted_report(built, tmp_path, "space-in-input", mutate)
+        assert not report["pass"]
+        named = _named(report, "boundary glyphs:")
+        assert named and any("space" in line for line in named)
+
+    def test_a_format2_class_zero_lead_admitting_the_zwnj(self, built, tmp_path):
+        """Class 0 of a ClassDef is every glyph it does not name, which is the class the old decompile read as empty — so a format-2 ruleset hung off class 0 could substitute a lead slot that admits the ZWNJ and nothing structural would say so. The rules are copied onto class 0 and the ZWNJ added to the subtable's coverage; `uni200C` is absent from the InputClassDef, so it is class 0 by definition."""
+
+        def mutate(font, plan):
+            lookup = font["GSUB"].table.LookupList.Lookup[_stage_index(font, plan, "m1_settle")]
+            inner = next(
+                candidate
+                for candidate in (_inner(subtable) for subtable in lookup.SubTable)
+                if candidate.Format == 2
+            )
+            assert "uni200C" not in inner.InputClassDef.classDefs
+            populated = next(
+                index
+                for index, class_set in enumerate(inner.ChainSubClassSet)
+                if index > 0 and class_set is not None
+            )
+            inner.ChainSubClassSet[0] = inner.ChainSubClassSet[populated]
+            inner.Coverage.glyphs = sorted(set(inner.Coverage.glyphs) | {"uni200C"}, key=font.getGlyphID)
+
+        report = _corrupted_report(built, tmp_path, "class-zero-lead", mutate)
+        assert not report["pass"]
+        named = _named(report, "boundary glyphs:")
+        assert named and any("uni200C" in line for line in named)
+
+    def test_a_zwnj_with_an_advance(self, built, tmp_path):
+        """The ZWNJ has to occupy no width, or every word boundary in the font moves the letters after it."""
+
+        def mutate(font, _plan):
+            font["hmtx"]["uni200C"] = (100, 0)
+
+        report = _corrupted_report(built, tmp_path, "wide-zwnj", mutate)
+        assert not report["pass"]
+        named = _named(report, "boundary glyphs:")
+        assert named and any("advance" in line for line in named)
+
+    def test_an_inked_zwnj(self, built, tmp_path):
+        """The ZWNJ has to draw nothing, or a word boundary shows up on the page as a letter."""
+
+        def mutate(font, _plan):
+            charstrings = font["CFF "].cff[0].CharStrings
+            charstrings["uni200C"] = charstrings["qsPea"]
+
+        report = _corrupted_report(built, tmp_path, "inked-zwnj", mutate)
+        assert not report["pass"]
+        named = _named(report, "boundary glyphs:")
+        assert named and any("ink" in line for line in named)
 
     def test_dropping_the_ss10_feature(self, built, tmp_path):
         def mutate(font, _plan):
