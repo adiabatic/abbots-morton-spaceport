@@ -1,9 +1,11 @@
 """Tests for rebuild.review.status.compute_status and its helpers: the readiness dict the /status handler and the verdict_ready CLI both render. Fixtures build a fake repo tree (surface manifest + tiny shards, cycle summary, autosave, repo-root verdicts files) and stub the fingerprint recompute so no real build inputs are touched."""
 
+import hashlib
 import json
 from collections.abc import Mapping
 from pathlib import Path
 
+from rebuild.review import app_index, unit_index
 from rebuild.review.status import (
     compute_status,
     count_effective,
@@ -32,6 +34,8 @@ CLASS_A_UNITS = [{"id": "u-1", "batch": 1}, {"id": "u-2", "batch": 2}, {"id": "m
 CLASS_B_UNITS = [{"id": "u-3", "batch": 1}]
 HUMAN_ID_LIST = ["u-1", "u-2", "u-3"]
 HUMAN_IDS = frozenset(HUMAN_ID_LIST)
+AFTER_FONT_BYTES = b"OTTO-after"
+OTHER_FONT_BYTES = b"OTTO-newer"
 
 
 def recompute(_repo):
@@ -64,7 +68,10 @@ def write_surface(
     inputs_fp: str | Mapping[str, str | None] = "fresh",
     shards: bool = True,
     human_ids: list[str] | None = HUMAN_ID_LIST,
+    after_font: str = "present",
+    sidecars: bool = True,
 ) -> None:
+    """`after_font` picks what the surface says about the font it ships against the M1.otf beside it: "present" records the sha of the font it writes, "moved" records the sha of one byte string and writes another (the run_m1 that landed after the build), and "omit" writes the font with no fonts block at all. `sidecars` writes the per-unit index and both app sidecars, stamped for the manifest — everything a finished build leaves behind, so a test that wants a missing one deletes it."""
     manifest: dict[str, object] = {
         "format": "ams-review-manifest/2",
         "generated_at": generated_at,
@@ -77,10 +84,23 @@ def write_surface(
         manifest["inputs_fingerprint"] = dict(FP)
     elif inputs_fp != "omit":
         manifest["inputs_fingerprint"] = inputs_fp
+    font = review_dir.parent / "m1" / "M1.otf"
+    font.parent.mkdir(parents=True, exist_ok=True)
+    font.write_bytes(AFTER_FONT_BYTES if after_font != "moved" else OTHER_FONT_BYTES)
+    if after_font != "omit":
+        manifest["fonts"] = {
+            "after": {
+                "file": "fonts/after.otf",
+                "sha256": hashlib.sha256(AFTER_FONT_BYTES).hexdigest(),
+            }
+        }
     _write(review_dir / "manifest.json", manifest)
     if shards:
         _write(review_dir / "units" / "class-a.json", CLASS_A_UNITS)
         _write(review_dir / "units" / "class-b.json", CLASS_B_UNITS)
+    if sidecars:
+        unit_index.write_index(review_dir, [])
+        app_index.write_app_artifacts(review_dir, {}, {})
 
 
 def write_summary(
@@ -193,6 +213,44 @@ def test_static_only_stale_warns_and_points_at_the_cycle(tmp_path):
     assert freshness["level"] == "warn"
     assert freshness["components"]["static"] == "stale"
     assert freshness["remedy"] == "make artifact-cycle"
+
+
+def test_freshness_fails_when_the_after_font_moved(tmp_path):
+    """The gap no fingerprint component can close: the key hashes the font's inputs and the two site fonts, never M1.otf, so a run_m1 that landed after the surface build leaves every component fresh while the letters on screen are last build's. The manifest's recorded after-font sha is a true statement about the bytes it shipped — the build asserts that at copy time — so holding it against the font on disk is what catches the swap."""
+    setup_green(tmp_path)
+    (tmp_path / "rebuild" / "out" / "m1" / "M1.otf").write_bytes(OTHER_FONT_BYTES)
+    result = call(tmp_path)
+    freshness = result["checks"]["freshness"]
+    assert freshness["level"] == "fail"
+    assert "M1.otf" in freshness["detail"]
+    assert freshness["remedy"] == "make artifact-cycle"
+    assert set(freshness["components"].values()) == {"fresh"}
+    assert result["ready"] is False
+
+
+def test_freshness_fails_when_a_sidecar_is_missing(tmp_path):
+    """The index and both app sidecars are written after the manifest and outside it, so a build killed between the two — or a manifest rewritten by something that does not rewrite them — leaves a surface whose fingerprint reads fresh and whose app boots off files describing a surface that no longer exists."""
+    setup_green(tmp_path)
+    review_dir = tmp_path / "rebuild" / "out" / "review"
+    unit_index.index_path(review_dir).unlink()
+    result = call(tmp_path)
+    freshness = result["checks"]["freshness"]
+    assert freshness["level"] == "fail"
+    assert unit_index.INDEX_NAME in freshness["detail"]
+    assert freshness["remedy"] == "make artifact-cycle"
+    assert result["ready"] is False
+
+
+def test_freshness_fails_when_the_font_record_is_absent(tmp_path):
+    """A surface that records no after-font sha cannot answer the question at all, and unverifiable reads as unready rather than as fine."""
+    write_surface(tmp_path / "rebuild" / "out" / "review", after_font="omit")
+    write_summary(tmp_path)
+    write_autosave(tmp_path)
+    result = call(tmp_path)
+    freshness = result["checks"]["freshness"]
+    assert freshness["level"] == "fail"
+    assert "rebuild/out/m1/M1.otf" in freshness["detail"]
+    assert result["ready"] is False
 
 
 def test_gates_summary_missing(tmp_path):

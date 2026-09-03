@@ -4,6 +4,7 @@ Nothing here reads the live surface any more, and nothing needs to. `build_m1` p
 """
 
 import copy
+import hashlib
 import json
 import multiprocessing
 import shutil
@@ -390,15 +391,20 @@ def test_node_check_passes_on_every_shipped_script():
         assert result.returncode == 0, f"{script.name}: {result.stderr}"
 
 
-def _seed_refreshable_surface(surface: Path, inputs_fingerprint: dict) -> dict:
-    """A built surface with nothing in it but the files `_check_output_files` insists on: an empty manifest, the per-unit index, and both app sidecars, each stamped for the manifest beside it. `refresh_assets` writes index.html itself, out of the static tree it copies."""
+def _seed_refreshable_surface(surface: Path, inputs_fingerprint: dict, root: Path) -> dict:
+    """A built surface with nothing in it but the files `_check_output_files` insists on: an empty manifest, the per-unit index, both app sidecars — each stamped for the manifest beside it — and the copied after font, matching both the sha the manifest records for it and the M1.otf under `root` a real build would have copied it from. `refresh_assets` writes index.html itself, out of the static tree it copies. The record names no `source`, so the check compares the copy against the manifest and stops there rather than resolving a path inside the fixture tree."""
     surface.mkdir(parents=True, exist_ok=True)
+    font_bytes = b"OTTO-fixture"
+    (root / "rebuild" / "out" / "m1").mkdir(parents=True, exist_ok=True)
+    (root / "rebuild" / "out" / "m1" / "M1.otf").write_bytes(font_bytes)
+    (surface / "fonts").mkdir(parents=True, exist_ok=True)
+    (surface / "fonts" / "after.otf").write_bytes(font_bytes)
     manifest = {
         "generated_at": "2026-01-01T00:00:00Z",
         "repo_head": "0" * 40,
         "inputs_fingerprint": dict(inputs_fingerprint),
         "classes": [],
-        "fonts": {},
+        "fonts": {"after": {"file": "fonts/after.otf", "sha256": hashlib.sha256(font_bytes).hexdigest()}},
     }
     (surface / "manifest.json").write_text(json.dumps(manifest, indent=1) + "\n", encoding="utf-8")
     unit_index.write_index(surface, [])
@@ -427,7 +433,7 @@ def test_refresh_assets_restamps_only_the_static_component(tmp_path):
     before_font, junior_font = fingerprint.font_paths(root)
     stage_b = fingerprint.stage_b(root, before_font, junior_font)
     surface = root / "rebuild" / "out" / "review"
-    before = _seed_refreshable_surface(surface, {**stage_a, **stage_b, "static": "OLD"})
+    before = _seed_refreshable_surface(surface, {**stage_a, **stage_b, "static": "OLD"}, root)
     assert not surface_build_skippable(root, surface)
 
     copied = review_build.refresh_assets(surface, root)
@@ -467,7 +473,7 @@ def test_refresh_assets_puts_the_manifest_back_when_the_surface_is_broken(tmp_pa
     root = tmp_path / "repo"
     _fake_static_tree(root)
     surface = root / "rebuild" / "out" / "review"
-    _seed_refreshable_surface(surface, {"static": "OLD"})
+    _seed_refreshable_surface(surface, {"static": "OLD"}, root)
     unit_index.index_path(surface).unlink()
     with pytest.raises(SystemExit):
         review_build.refresh_assets(surface, root)
@@ -478,7 +484,7 @@ def test_refresh_assets_puts_the_manifest_back_when_the_surface_is_broken(tmp_pa
 def test_the_refresh_assets_verb_copies_the_shipped_app(tmp_path):
     """The CLI arm the artifact cycle spawns, over the real rebuild/review/static/: the shipped shell lands on the surface and the component the cycle compares carries the value `fingerprint.stage_b` would stamp."""
     surface = tmp_path / "surface"
-    _seed_refreshable_surface(surface, {"static": "OLD"})
+    _seed_refreshable_surface(surface, {"static": "OLD"}, tmp_path)
     review_build.main(["refresh-assets", "--out", str(surface)])
     manifest = json.loads((surface / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["inputs_fingerprint"]["static"] == fingerprint.hash_paths(
