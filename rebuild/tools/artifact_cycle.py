@@ -14,7 +14,7 @@ The two artifact-independent gates (js, make-test) run from t=0 in a small threa
 
 The cycle runs no cross-language check, because there is no second implementation to check against: the kernel crate is the only engine that enumerates and the only one that settles, so neither the tables nor a window's outcome can drift from a twin. What the cycle does prove about settlement is empirical — gate:conform shapes the compiled font through HarfBuzz and compares it against a re-settle of every swept text, window by window, through the crate's own settle-cases verb, with the memo keyed on the raw window so the sweep stays independent of the crate's enumeration and fold. `make kernel-gate` is the on-demand instrument to reach for around a kernel-semantics change: the crate's own gate and the spec-ingest parity, seconds once the crate is built.
 
-gate:make-test is auto-skipped when its input closure is provably unchanged since the last green run. The closure is every tracked or untracked-unignored file outside the exempt trees (MAKE_TEST_EXEMPT_PREFIXES; make_test_exempt is the authority) and Markdown — nothing `make test` executes (make all -> build_font over glyph_data/*.yaml non-recursively, typst, pyright over tools/ test/ conftest.py, pytest test/ site/) reads those trees, so a diff confined to them cannot move the gate's outcome and re-running its ≈15 CPU-minutes would verify nothing. The last green fingerprint lives in rebuild/out/make-test-green.json, written by rebuild.tools.make_test_gate — the `make test` entry point — on every green run, so interactive greens and cycle greens share one record and `make test` itself self-skips on the same test. cycle_summary.json still records the fingerprint the cycle ran (or validly skipped) against, for display only — the skip decision reads the shared green record alone, so a contradicted green that make_test_gate deleted can never be resurrected out of an older summary. The fingerprint sees file content only — a system-toolchain change (a typst upgrade, say; pyright and pytest are pinned through uv.lock, which is in the closure) is invisible to it. --force-make-test runs the gate regardless (as does `make test FORCE=1` inside the wrapper).
+gate:make-test is auto-skipped when its input closure is provably unchanged since the last green run. The closure is every tracked or untracked-unignored file outside what make_test_exempt exempts — the exempt trees, the exempt files, Markdown, and the Makefile itself beyond what `make -n all` and `make -n test` print — that function being the authority and arguing each exemption from what the gate executes (make all -> build_font over glyph_data/*.yaml non-recursively, typst, pyright over tools/ test/ conftest.py, pytest test/ site/), none of which reads any of it, so a diff confined there cannot move the gate's outcome and re-running its ≈15 CPU-minutes would verify nothing. The last green fingerprint lives in rebuild/out/make-test-green.json, written by rebuild.tools.make_test_gate — the `make test` entry point — on every green run, so interactive greens and cycle greens share one record and `make test` itself self-skips on the same test. cycle_summary.json still records the fingerprint the cycle ran (or validly skipped) against, for display only — the skip decision reads the shared green record alone, so a contradicted green that make_test_gate deleted can never be resurrected out of an older summary. The fingerprint sees file content only — a system-toolchain change (a typst upgrade, say; pyright and pytest are pinned through uv.lock, which is in the closure) is invisible to it. --force-make-test runs the gate regardless (as does `make test FORCE=1` inside the wrapper).
 
 The verdict plumbing is guarded the same way, by rebuild/out/plumbing-green.json. Every step of it is a pure function of the surface, the verdicts master, the live store, the checked-in standing approvals, and its own code, so the key is (the surface's inputs fingerprint and stamp, the master's path and bytes, the autosave's bytes, standing-approvals' bytes, the chain's own import closure plus review/serve.py). Two of those components are there because a narrower key looked sufficient and was not. The master, because it is the one input the autosave's hash cannot see: an export dropped at the repo root can outrank the autosave in the auto-resolution and carry verdicts the store has never held. The code, because every sibling key folds in its own stage's executable and this chain's lives in a tree no other fingerprint reads — without it a fix to a fill's matcher or the carry's ink fallback would be skipped as already proven, silently never running. That component is the named closure `plumbing_code_paths` rather than the whole of rebuild/tools/, and rebuild/test_plumbing_closure.py walks the entry points' import graph on every contracts run to prove the name still covers what runs.
 
@@ -37,10 +37,12 @@ from __future__ import annotations
 
 import argparse
 import ast
+import fnmatch
 import functools
 import hashlib
 import json
 import os
+import posixpath
 import re
 import shutil
 import socket
@@ -155,12 +157,37 @@ MAKE_TEST_EXEMPT_PREFIXES = (
     "tmp/",
     ".claude/",
     "bench-the-rebuild/",
+    ".vscode/",
+    ".github/",
+    "reference/csur/",
+    "site/icons/",
 )
+MAKE_TEST_EXEMPT_FILES = (
+    "Makefile",
+    ".gitignore",
+    ".markdownlint-cli2.yaml",
+    ".pre-commit-config.yaml",
+    ".prettierrc",
+    ".git-blame-ignore-revs",
+    "LICENSE-OFL-1.1.txt",
+    "site/gear-menu.js",
+    "site/shared.css",
+)
+MAKE_TEST_EXEMPT_NAME_GLOBS = (("reference", "*.pdf"), ("reference", "*.png"), ("site", "*.svg"))
+MAKE_TEST_RECIPES = ("all", "test")
 
 
 def make_test_exempt(path: str) -> bool:
-    """Whether a repo-relative path is provably outside gate:make-test's input closure. The exempt trees are safe because nothing the gate executes reads them: build_font globs glyph_data/*.yaml non-recursively (never glyph_data/runes/), and test/, site/, tools/ and conftest.py reference no rune file at all and reach into rebuild/ only where the root conftest imports three helpers inside its own callers — peak_rss for the summary line, memory_budget for the pool width, fingerprint for the font-path list — none of which can change what the suite asserts, and each of which the rebuild suite's own lanes gate; Markdown is never an input to any gate. bench-the-rebuild/ is measurement scaffolding that only ever reads the tree — nothing under test/, site/, tools/ or conftest.py imports it, and pytest never collects it (testpaths is test/ and site/)."""
-    return path.endswith(".md") or any(path.startswith(prefix) for prefix in MAKE_TEST_EXEMPT_PREFIXES)
+    """Whether a repo-relative path is provably outside gate:make-test's input closure, argued file by file from what the gate actually executes (make all, typst, pyright, pytest test/ site/). The exempt trees are safe because nothing it executes reads them: build_font globs glyph_data/*.yaml non-recursively (never glyph_data/runes/), and test/, site/, tools/ and conftest.py reference no rune file at all and reach into rebuild/ only where the root conftest imports three helpers inside its own callers — peak_rss for the summary line, memory_budget for the pool width, fingerprint for the font-path list — none of which can change what the suite asserts, and each of which the rebuild suite's own lanes gate; Markdown is never an input to any gate. bench-the-rebuild/ is measurement scaffolding that only ever reads the tree — nothing under test/, site/, tools/ or conftest.py imports it, and pytest never collects it (testpaths is test/ and site/). .vscode/ is editor configuration, and its schema files reach no import: tools/quikscript_ir.py names them only inside the error messages it raises. .github/ is CI, which spawns the suite rather than being read by it. reference/csur/ and the reference PDFs and PNGs are human reference material nothing compiles, while reference/DepartureMono-Regular.otf stays inside the closure because tools/build_font.py bundles it and test/test_mono_matches_departure_mono.py shapes against it. site/icons/, site/*.svg, site/gear-menu.js and site/shared.css are browser assets the served pages load: the only Python that names them is tools/build_check_html.py, which emits them as string references and which `make check-html-after` alone runs — while site/shared.js stays because test/test_shared.py executes it under node, and site/print.typ stays because `make all` compiles it. The dotfile configs and the OFL text are read by git, the linters and the formatters, never by the suite. The name globs are anchored to their own directory, so site/*.svg never reaches a nested directory and reference/*.pdf never reaches reference/csur/. The Makefile is exempt as a file because the two rules the suite executes are keyed by their `make -n` expansion instead (see make_test_recipe_lines), so a comment or a cycle/kernel target cannot re-arm the gate while an edit to `all` or `test` — or one that stops the file parsing — still does."""
+    if path.endswith(".md") or path in MAKE_TEST_EXEMPT_FILES:
+        return True
+    if any(path.startswith(prefix) for prefix in MAKE_TEST_EXEMPT_PREFIXES):
+        return True
+    directory, name = posixpath.dirname(path), posixpath.basename(path)
+    return any(
+        directory == parent and fnmatch.fnmatchcase(name, pattern)
+        for parent, pattern in MAKE_TEST_EXEMPT_NAME_GLOBS
+    )
 
 
 def make_test_closure_files(root: Path) -> list[str] | None:
@@ -179,14 +206,35 @@ def make_test_closure_files(root: Path) -> list[str] | None:
     return sorted(path for path in paths if not make_test_exempt(path))
 
 
+def make_test_recipe_lines(root: Path) -> list[str] | None:
+    """One hash line per rule the suite executes, standing in for the Makefile's bytes. What `make -n <target>` prints is the recipe the suite will run once every variable and function has expanded, so hashing that output keys the gate on the `all` and `test` rules and on nothing else in the file. stderr and the return code ride into the same digest, so a Makefile that has stopped parsing moves the key rather than silently hashing an empty recipe. MAKEFLAGS and MFLAGS come off the environment first: both the cycle's gate and `make test`'s own wrapper reach this as sub-makes, and GNU make forwards -j and command-line overrides such as FORCE=1 to its children through those variables, which would otherwise let one unchanged recipe hash two ways depending on who asked. None when make is missing, which is the same run-unconditionally path git's absence takes; a nonzero exit is never None, because a failing make is content."""
+    env = {key: value for key, value in os.environ.items() if key not in ("MAKEFLAGS", "MFLAGS")}
+    lines = []
+    for target in MAKE_TEST_RECIPES:
+        try:
+            result = subprocess.run(
+                ["make", "-n", target], cwd=root, capture_output=True, check=False, env=env
+            )
+        except OSError:
+            return None
+        digest = hashlib.sha256(
+            b"\0".join((result.stdout, result.stderr, str(result.returncode).encode()))
+        ).hexdigest()
+        lines.append(f"make -n {target}\t{digest}")
+    return lines
+
+
 def make_test_closure_fingerprint(root: Path = ROOT) -> str | None:
-    """Content hash of gate:make-test's input closure, read from the worktree (not the index) so uncommitted edits count. A deleted-but-tracked file hashes as absent, so deletions move the fingerprint too."""
+    """Content hash of gate:make-test's input closure: every file make_test_exempt leaves in, read from the worktree (not the index) so uncommitted edits count, then the two executed Makefile rules as make_test_recipe_lines hashes them. A deleted-but-tracked file hashes as absent, so deletions move the fingerprint too. None when either half is unavailable — no git, or no make — in which case the caller must run the gate unconditionally."""
     files = make_test_closure_files(root)
-    if files is None:
+    recipes = make_test_recipe_lines(root)
+    if files is None or recipes is None:
         return None
     digest = hashlib.sha256()
     for rel in files:
         digest.update(f"{rel}\t{_sha256_path(root / rel)}\n".encode())
+    for line in recipes:
+        digest.update(f"{line}\n".encode())
     return digest.hexdigest()
 
 

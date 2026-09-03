@@ -2233,6 +2233,23 @@ def test_make_test_exempt_classification():
         "bench-the-rebuild/scaling/scaling.py",
         "bench-the-rebuild/primitives/rust/src/main.rs",
         "bench-the-rebuild/fixtures/baseline-rows.tsv",
+        "Makefile",
+        ".vscode/settings.json",
+        ".vscode/quikscript.schema.json",
+        ".github/workflows/deploy.yml",
+        "reference/csur/kingsley.ttf",
+        "reference/Quikscript Manual.pdf",
+        "reference/Shaw Alphabet Reading Key.png",
+        "site/icons/copy.svg",
+        "site/quikscript-title.svg",
+        "site/gear-menu.js",
+        "site/shared.css",
+        ".gitignore",
+        ".markdownlint-cli2.yaml",
+        ".pre-commit-config.yaml",
+        ".prettierrc",
+        ".git-blame-ignore-revs",
+        "LICENSE-OFL-1.1.txt",
     ):
         assert ac.make_test_exempt(path), path
     for path in (
@@ -2240,13 +2257,36 @@ def test_make_test_exempt_classification():
         "glyph_data/punctuation.yaml",
         "tools/build_font.py",
         "test/test_calt_regressions.py",
+        "test/test_shared.py",
         "site/the-manual.html",
+        "site/shared.js",
+        "site/print.typ",
         "conftest.py",
-        "Makefile",
         "pyproject.toml",
+        "postscript_glyph_names.yaml",
+        "typings/uharfbuzz/__init__.pyi",
+        "reference/DepartureMono-Regular.otf",
+        "reference/LICENSE.DepartureMono.txt",
+        "reference/nested/a.pdf",
+        "site/nested/a.svg",
         "uv.lock",
     ):
         assert not ac.make_test_exempt(path), path
+
+
+FAKE_MAKEFILE = """.PHONY: all test kernel-check
+
+all:
+\techo build
+
+test:
+\techo test $(if $(FORCE),--force)
+
+# comment
+
+kernel-check:
+\techo kernel
+"""
 
 
 def _git_repo(tmp_path):
@@ -2257,12 +2297,40 @@ def _git_repo(tmp_path):
     (tmp_path / "rebuild").mkdir()
     (tmp_path / "rebuild" / "notes.py").write_text("x = 1\n")
     (tmp_path / "README.md").write_text("hello\n")
+    (tmp_path / "Makefile").write_text(FAKE_MAKEFILE)
+    (tmp_path / ".gitignore").write_text("tmp/\n")
+    (tmp_path / ".vscode").mkdir()
+    (tmp_path / ".vscode" / "settings.json").write_text("{}\n")
+    (tmp_path / "reference").mkdir()
+    (tmp_path / "reference" / "Manual.pdf").write_text("pdf\n")
+    (tmp_path / "reference" / "DepartureMono-Regular.otf").write_text("otf\n")
+    (tmp_path / "site").mkdir()
+    (tmp_path / "site" / "icons").mkdir()
+    (tmp_path / "site" / "icons" / "copy.svg").write_text("<svg/>\n")
+    (tmp_path / "site" / "title.svg").write_text("<svg/>\n")
+    (tmp_path / "site" / "shared.css").write_text("body {}\n")
+    (tmp_path / "site" / "shared.js").write_text("export {};\n")
     return tmp_path
 
 
 def test_closure_files_apply_the_exemptions(tmp_path):
     root = _git_repo(tmp_path)
-    assert ac.make_test_closure_files(root) == ["tools/build_font.py"]
+    assert ac.make_test_closure_files(root) == [
+        "reference/DepartureMono-Regular.otf",
+        "site/shared.js",
+        "tools/build_font.py",
+    ]
+
+
+def test_closure_files_leave_the_makefile_to_the_recipe_probe(tmp_path):
+    """The Makefile is not hashed as a file, so a comment or an unrelated target cannot re-arm the gate — it enters the fingerprint as one probe line per rule the suite executes."""
+    root = _git_repo(tmp_path)
+    files = ac.make_test_closure_files(root)
+    assert files is not None
+    assert "Makefile" not in files
+    lines = ac.make_test_recipe_lines(root)
+    assert lines is not None
+    assert [line.split("\t")[0] for line in lines] == ["make -n all", "make -n test"]
 
 
 def test_closure_files_none_outside_a_git_repo(tmp_path):
@@ -2286,6 +2354,71 @@ def test_closure_fingerprint_moves_only_with_closure_content(tmp_path):
     (root / "test").mkdir()
     (root / "test" / "test_new.py").write_text("def test(): pass\n")
     assert ac.make_test_closure_fingerprint(root) not in (first, second)
+
+
+def test_closure_fingerprint_moves_with_an_executed_recipe(tmp_path):
+    """Editing either rule the suite runs moves the key, which is the whole point of keeping the Makefile in the closure at all."""
+    root = _git_repo(tmp_path)
+    first = ac.make_test_closure_fingerprint(root)
+    (root / "Makefile").write_text(FAKE_MAKEFILE.replace("\techo build", "\techo build --twice"))
+    second = ac.make_test_closure_fingerprint(root)
+    assert second not in (None, first)
+    (root / "Makefile").write_text(
+        FAKE_MAKEFILE.replace("\techo build", "\techo build --twice").replace(
+            "\techo test ", "\techo test --verbose "
+        )
+    )
+    assert ac.make_test_closure_fingerprint(root) not in (None, first, second)
+
+
+def test_closure_fingerprint_ignores_makefile_edits_the_suite_never_executes(tmp_path):
+    """A comment, a target nothing under `make test` runs, and a brand-new rule are all invisible to the gate, so the cycle and kernel targets can churn without re-arming a quarter-hour of tests."""
+    root = _git_repo(tmp_path)
+    first = ac.make_test_closure_fingerprint(root)
+    assert first is not None
+    (root / "Makefile").write_text(FAKE_MAKEFILE.replace("# comment", "# a different comment"))
+    assert ac.make_test_closure_fingerprint(root) == first
+    (root / "Makefile").write_text(FAKE_MAKEFILE.replace("\techo kernel", "\techo kernel --check"))
+    assert ac.make_test_closure_fingerprint(root) == first
+    (root / "Makefile").write_text(FAKE_MAKEFILE + "\nconform-deep:\n\techo deep\n")
+    assert ac.make_test_closure_fingerprint(root) == first
+
+
+def test_closure_fingerprint_moves_when_the_makefile_stops_parsing(tmp_path):
+    """stderr and the return code ride into the probe's digest, so a Makefile make can no longer read moves the key instead of hashing an empty recipe — and nothing raises."""
+    root = _git_repo(tmp_path)
+    first = ac.make_test_closure_fingerprint(root)
+    (root / "Makefile").write_text("all:\n\techo build\nfoo bar baz\n")
+    broken = ac.make_test_closure_fingerprint(root)
+    assert broken is not None
+    assert broken != first
+
+
+def test_recipe_probe_is_blind_to_the_callers_make_flags(tmp_path, monkeypatch):
+    """Both the cycle's gate and `make test`'s wrapper reach the probe as sub-makes, so MAKEFLAGS and MFLAGS come off the environment first — otherwise `make test FORCE=1` would hash the same recipe a second way and re-arm the gate for everyone."""
+    root = _git_repo(tmp_path)
+    monkeypatch.delenv("MAKEFLAGS", raising=False)
+    monkeypatch.delenv("MFLAGS", raising=False)
+    plain = ac.make_test_closure_fingerprint(root)
+    assert plain is not None
+    monkeypatch.setenv("MAKEFLAGS", " -- FORCE=1")
+    monkeypatch.setenv("MFLAGS", "-j2")
+    assert ac.make_test_closure_fingerprint(root) == plain
+
+
+def test_closure_fingerprint_is_none_when_make_is_unavailable(tmp_path, monkeypatch):
+    """A box without make takes git's absence path: no fingerprint, so the caller runs the gate unconditionally rather than trusting a key it could not compute."""
+    root = _git_repo(tmp_path)
+    real_run = ac.subprocess.run
+
+    def fake_run(argv, *args, **kwargs):
+        if argv[0] == "make":
+            raise FileNotFoundError(argv[0])
+        return real_run(argv, *args, **kwargs)
+
+    monkeypatch.setattr(ac.subprocess, "run", fake_run)
+    assert ac.make_test_recipe_lines(root) is None
+    assert ac.make_test_closure_fingerprint(root) is None
 
 
 def test_closure_fingerprint_moves_when_a_tracked_file_is_deleted(tmp_path):
