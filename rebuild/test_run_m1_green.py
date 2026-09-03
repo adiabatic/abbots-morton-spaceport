@@ -185,6 +185,24 @@ def test_main_refreshes_the_baseline_subset_before_anything_reads_it(monkeypatch
     assert record["fingerprint"] == "fp-post-refilter"
 
 
+def test_a_diverged_subset_stops_the_run_before_the_alias_check(monkeypatch):
+    """The identity proof moved into the refilter, so the guard's job is to turn its refusal into the same refusal the alias hole gets: a SystemExit carrying the remedy, raised before anything else reads the tables the refilter would not stamp."""
+    reached: list[str] = []
+
+    def ensure(repo_root):
+        raise run_m1.baseline_subset.SubsetIdentityError("ss06 diverged")
+
+    monkeypatch.setattr(run_m1.baseline_subset, "ensure_fresh", ensure)
+    monkeypatch.setattr(
+        run_m1.oracle,
+        "unaliased_subset_names",
+        lambda subset_dir, alias_path: reached.append("aliases") or {},
+    )
+    with pytest.raises(SystemExit, match="ss06 diverged"):
+        run_m1._run_pregate_guards()
+    assert reached == []
+
+
 def test_unmatched_oracle_rows_record_a_green_and_exit_zero(monkeypatch, tmp_path):
     """Unmatched oracle rows are the mid-migration steady state: they are verdict-gated on the review surface, never a failure of the build, so a run that holds them records its green and exits the way its gate judged."""
     store = tmp_path / "run-m1-green.json"
@@ -368,7 +386,6 @@ class TestOracleFanIn:
     def _pool(self, monkeypatch, worker):
         monkeypatch.setattr(run_m1, "_spawn_pool", lambda jobs: _InlinePool())
         monkeypatch.setattr(run_m1, "as_completed", lambda futures: reversed(list(futures)))
-        monkeypatch.setattr(oracle, "assert_subset_identity", lambda out_dir, config: None)
         monkeypatch.setattr(oracle, "oracle_config_worker", worker)
         monkeypatch.setattr(run_m1, "load_default_spec", lambda: None)
         monkeypatch.setattr(
