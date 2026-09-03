@@ -2,10 +2,13 @@ config	codepoints	kinds	matched_entry	baseline	new
 default	E650:E650	cell	dangling-anchor-dropped	qsPea.half.en-y6.ex-y6|qsPea.en-y6	qsPea/half/None/y6/|qsPea/full/y6/None/
 default	E650:E653	cell	dangling-anchor-dropped	qsPea|qsDay.half.en-y0.ex-y0	qsPea/full/None/baseline/|qsDay/half/baseline/None/
 default	E652:E653	cell	dangling-anchor-dropped	qsTea.ex-y0|qsDay.half.en-y0.ex-y0.en-ext-1	qsTea/full/None/baseline/|qsDay/half/baseline/None/en-ext-1
+default	E652:E670	cell	dangling-anchor-dropped	qsTea.half.ex-y5|qsIt.en-y5.ex-y0	qsTea/half/None/x-height/|qsIt/hapax/x-height/None/
 default	E653:E652	cell	bare-name-live-join	qsDay|qsTea.en-y0	qsDay/full/None/baseline/|qsTea/full/baseline/None/
 default	E653:E653	cell	dangling-anchor-dropped	qsDay|qsDay.half.en-y0.ex-y0	qsDay/full/None/baseline/|qsDay/half/baseline/None/
 default	E653:E668	cell	bare-name-live-join	qsDay|qsRoe	qsDay/full/None/baseline/|qsRoe/hapax/baseline/None/
+default	E658:E666	cell	bare-name-live-join	qsFee.ex-y5.before-utter.ex-ext-1|qsNo	qsFee/loop/None/x-height/ex-ext-1|qsNo/loop/x-height/None/
 default	E668:E668	cell	dangling-anchor-dropped	qsRoe.en-y0.ex-y5|qsRoe	qsRoe/hapax/None/x-height/|qsRoe/hapax/x-height/None/
+default	E670:E670	cell	dangling-anchor-dropped	qsIt.ex-y5|qsIt	qsIt/hapax/None/None/|qsIt/hapax/None/None/
 default	0020:E650:E650	cell	boundary-echo	space|qsPea.half.en-y6.ex-y6|qsPea.en-y6	space/boundary/None/None/|qsPea/half/None/y6/|qsPea/full/y6/None/
 default	0020:E650:E653	cell	boundary-echo	space|qsPea|qsDay.half.en-y0.ex-y0	space/boundary/None/None/|qsPea/full/None/baseline/|qsDay/half/baseline/None/
 default	0020:E652:E653	cell	boundary-echo	space|qsTea.ex-y0|qsDay.half.en-y0.ex-y0.en-ext-1	space/boundary/None/None/|qsTea/full/None/baseline/|qsDay/half/baseline/None/en-ext-1
@@ -24,6 +27,7 @@ default	200C:E650:E653	cell	boundary-echo	space|qsPea.noentry|qsDay.half.en-y0.e
 default	200C:E650:E668	cell	boundary-echo	space|qsPea.half.ex-y5.ex-dips|qsRoe.en-y5.en-con-1	zwnj/boundary/None/None/|qsPea/half/None/x-height/locked|qsRoe/hapax/x-height/None/en-con-1
 default	200C:E652:E652	cell	boundary-echo	space|qsTea.ex-y0|qsTea	zwnj/boundary/None/None/|qsTea/full/None/None/locked|qsTea/full/None/None/
 default	200C:E652:E653	cell	boundary-echo	space|qsTea.ex-y0|qsDay.half.en-y0.ex-y0.en-ext-1	zwnj/boundary/None/None/|qsTea/full/None/baseline/locked|qsDay/half/baseline/None/en-ext-1
+default	200C:E652:E679	ligation	boundary-echo	space|qsTea.noentry|qsOy	zwnj/boundary/None/None/|qsTea_qsOy/hapax/None/None/
 default	200C:E653:E652	cell	boundary-echo	space|qsDay.noentry|qsTea.en-y0	zwnj/boundary/None/None/|qsDay/full/None/baseline/locked|qsTea/full/baseline/None/
 default	200C:E653:E653	cell	boundary-echo	space|qsDay.noentry|qsDay.half.en-y0.ex-y0	zwnj/boundary/None/None/|qsDay/full/None/baseline/locked|qsDay/half/baseline/None/
 default	200C:E653:E668	cell	boundary-echo	space|qsDay.noentry|qsRoe	zwnj/boundary/None/None/|qsDay/full/None/baseline/locked|qsRoe/hapax/baseline/None/
@@ -35,6 +39,7 @@ default	E650:E650:E650	cell	dangling-anchor-dropped	qsPea.half.en-y6.ex-y6|qsPea
 default	E650:E650:E652	cell	dangling-anchor-dropped	qsPea.half.en-y6.ex-y6|qsPea.en-y6.ex-y0|qsTea	qsPea/half/None/y6/|qsPea/full/y6/None/|qsTea/full/None/None/
 default	E650:E650:E653	cell	dangling-anchor-dropped	qsPea.half.en-y6.ex-y6|qsPea.en-y6.ex-y0|qsDay.half.en-y0.ex-y0	qsPea/half/None/y6/|qsPea/full/y6/baseline/|qsDay/half/baseline/None/
 default	E650:E650:E668	cell,seam	pea-chain-regularized	qsPea|qsPea.half.ex-y5.ex-dips|qsRoe.en-y5.en-con-1	qsPea/half/None/y6/|qsPea/half/y6/x-height/|qsRoe/hapax/x-height/None/en-con-1
+default	E650:E650:E670	cell,seam	pea-chain-regularized	qsPea|qsPea.half.ex-y5.ex-dips|qsIt.en-y5.ex-y0	qsPea/half/None/y6/|qsPea/half/y6/x-height/|qsIt/hapax/x-height/None/
 default	E650:E652:E653	cell	dangling-anchor-dropped	qsPea|qsTea.ex-y0|qsDay.half.en-y0.ex-y0.en-ext-1	qsPea/full/None/None/|qsTea/full/None/baseline/|qsDay/half/baseline/None/en-ext-1
 default	E650:E653:0020	cell	boundary-echo	qsPea|qsDay.half.en-y0.ex-y0|space	qsPea/full/None/baseline/|qsDay/half/baseline/None/|space/boundary/None/None/
 default	E650:E653:00B7	cell	dangling-anchor-dropped	qsPea|qsDay.half.en-y0.ex-y0|periodcentered	qsPea/full/None/baseline/|qsDay/half/baseline/None/|namer-dot/boundary/None/None/
@@ -44,6 +49,7 @@ default	E650:E653:E652	cell	bare-name-live-join	qsPea|qsDay.half.en-y0.ex-y0|qsT
 default	E650:E653:E653	cell	dangling-anchor-dropped	qsPea|qsDay.half.en-y0.ex-y0|qsDay.half.en-y0.ex-y0	qsPea/full/None/baseline/|qsDay/half/baseline/baseline/|qsDay/half/baseline/None/
 default	E650:E653:E668	cell	bare-name-live-join	qsPea|qsDay.half.en-y0.ex-y0|qsRoe	qsPea/full/None/baseline/|qsDay/half/baseline/baseline/|qsRoe/hapax/baseline/None/
 default	E650:E668:E668	cell,position	UNMATCHED	qsPea.half.ex-y5.ex-dips|qsRoe.ex-y0|qsRoe	qsPea/half/None/x-height/|qsRoe/hapax/x-height/baseline/en-con-1|qsRoe/hapax/baseline/None/
+default	E650:E670:E65D	cell,seam	regrouping-floor-drift	qsPea.half.ex-y5.ex-dips|qsIt.en-y5.ex-y0|qsJai	qsPea/full/None/None/|qsIt/hapax/None/x-height/ex-ext-1|qsJai/hapax/x-height/None/
 default	E652:E650:E650	cell	dangling-anchor-dropped	qsTea|qsPea.half.en-y6.ex-y6|qsPea.en-y6	qsTea/full/None/None/|qsPea/half/None/y6/|qsPea/full/y6/None/
 default	E652:E650:E653	cell	dangling-anchor-dropped	qsTea|qsPea|qsDay.half.en-y0.ex-y0	qsTea/full/None/None/|qsPea/full/None/baseline/|qsDay/half/baseline/None/
 default	E652:E652:E653	cell	dangling-anchor-dropped	qsTea|qsTea.ex-y0|qsDay.half.en-y0.ex-y0.en-ext-1	qsTea/full/None/None/|qsTea/full/None/baseline/|qsDay/half/baseline/None/en-ext-1
@@ -77,6 +83,7 @@ default	E653:E668:E650	cell	bare-name-live-join	qsDay|qsRoe|qsPea	qsDay/full/Non
 default	E653:E668:E652	cell	bare-name-live-join	qsDay|qsRoe|qsTea	qsDay/full/None/baseline/|qsRoe/hapax/baseline/None/|qsTea/full/None/None/
 default	E653:E668:E653	cell	bare-name-live-join	qsDay|qsRoe|qsDay	qsDay/full/None/baseline/|qsRoe/hapax/baseline/None/|qsDay/full/None/None/
 default	E653:E668:E668	cell	bare-name-live-join	qsDay|qsRoe.en-y0.ex-y5|qsRoe	qsDay/full/None/baseline/|qsRoe/hapax/baseline/x-height/|qsRoe/hapax/x-height/None/
+default	E665:E666:E666	cell	bare-name-live-join	qsMay|qsNo|qsNo	qsMay/loop/None/x-height/|qsNo/loop/x-height/x-height/|qsNo/loop/x-height/None/
 default	E668:E650:E650	cell	dangling-anchor-dropped	qsRoe|qsPea.half.en-y6.ex-y6|qsPea.en-y6	qsRoe/hapax/None/None/|qsPea/half/None/y6/|qsPea/full/y6/None/
 default	E668:E650:E653	cell	dangling-anchor-dropped	qsRoe|qsPea|qsDay.half.en-y0.ex-y0	qsRoe/hapax/None/None/|qsPea/full/None/baseline/|qsDay/half/baseline/None/
 default	E668:E652:E653	cell	dangling-anchor-dropped	qsRoe|qsTea.ex-y0|qsDay.half.en-y0.ex-y0.en-ext-1	qsRoe/hapax/None/None/|qsTea/full/None/baseline/|qsDay/half/baseline/None/en-ext-1
@@ -337,6 +344,7 @@ default	200C:E653:E668:E650	cell	boundary-echo	space|qsDay.noentry|qsRoe|qsPea	z
 default	200C:E653:E668:E652	cell	boundary-echo	space|qsDay.noentry|qsRoe|qsTea	zwnj/boundary/None/None/|qsDay/full/None/baseline/locked|qsRoe/hapax/baseline/None/|qsTea/full/None/None/
 default	200C:E653:E668:E653	cell	boundary-echo	space|qsDay.noentry|qsRoe|qsDay	zwnj/boundary/None/None/|qsDay/full/None/baseline/locked|qsRoe/hapax/baseline/None/|qsDay/full/None/None/
 default	200C:E653:E668:E668	cell	boundary-echo	space|qsDay.noentry|qsRoe.en-y0.ex-y5|qsRoe	zwnj/boundary/None/None/|qsDay/full/None/baseline/locked|qsRoe/hapax/baseline/x-height/|qsRoe/hapax/x-height/None/
+default	200C:E665:E679:E650	cell	boundary-echo	space|qsMay.noentry|qsOy.en-y5.ex-y0|qsPea	zwnj/boundary/None/None/|qsMay/loop/None/x-height/locked|qsOy/hapax/x-height/None/|qsPea/full/None/None/
 default	200C:E668:E650:E650	cell	boundary-echo	space|qsRoe.noentry|qsPea.half.en-y6.ex-y6|qsPea.en-y6	zwnj/boundary/None/None/|qsRoe/hapax/None/None/locked|qsPea/half/None/y6/|qsPea/full/y6/None/
 default	200C:E668:E650:E653	cell	boundary-echo	space|qsRoe.noentry|qsPea|qsDay.half.en-y0.ex-y0	zwnj/boundary/None/None/|qsRoe/hapax/None/None/locked|qsPea/full/None/baseline/|qsDay/half/baseline/None/
 default	200C:E668:E652:E653	cell	boundary-echo	space|qsRoe.noentry|qsTea.ex-y0|qsDay.half.en-y0.ex-y0.en-ext-1	zwnj/boundary/None/None/|qsRoe/hapax/None/None/locked|qsTea/full/None/baseline/|qsDay/half/baseline/None/en-ext-1
@@ -365,7 +373,9 @@ default	E650:00B7:E653:E653	cell	dangling-anchor-dropped	qsPea|periodcentered|qs
 default	E650:00B7:E653:E668	cell	bare-name-live-join	qsPea|periodcentered|qsDay|qsRoe	qsPea/full/None/None/|namer-dot/boundary/None/None/|qsDay/full/None/baseline/|qsRoe/hapax/baseline/None/
 default	E650:00B7:E668:E668	cell	dangling-anchor-dropped	qsPea|periodcentered.lowered|qsRoe.en-y0.ex-y5|qsRoe	qsPea/full/None/None/|namer-dot/boundary/None/None/|qsRoe/hapax/None/x-height/|qsRoe/hapax/x-height/None/
 default	E650:200C:E650:E653	cell	boundary-echo	qsPea|space|qsPea.noentry|qsDay.half.en-y0.ex-y0	qsPea/full/None/None/|zwnj/boundary/None/None/|qsPea/full/None/baseline/locked|qsDay/half/baseline/None/
+default	E650:200C:E650:E665	cell	boundary-echo	qsPea|space|qsPea.noentry|qsMay.en-y0.ex-y5.en-ext-1	qsPea/full/None/None/|zwnj/boundary/None/None/|qsPea/full/None/baseline/locked|qsMay/loop/baseline/None/
 default	E650:200C:E650:E668	cell	boundary-echo	qsPea|space|qsPea.half.ex-y5.ex-dips|qsRoe.en-y5.en-con-1	qsPea/full/None/None/|zwnj/boundary/None/None/|qsPea/half/None/x-height/locked|qsRoe/hapax/x-height/None/en-con-1
+default	E650:200C:E650:E670	cell	boundary-echo	qsPea|space|qsPea.half.ex-y5.ex-dips|qsIt.en-y5.ex-y0	qsPea/full/None/None/|zwnj/boundary/None/None/|qsPea/half/None/x-height/locked|qsIt/hapax/x-height/None/
 default	E650:200C:E652:E652	cell	boundary-echo	qsPea|space|qsTea.ex-y0|qsTea	qsPea/full/None/None/|zwnj/boundary/None/None/|qsTea/full/None/None/locked|qsTea/full/None/None/
 default	E650:200C:E652:E653	cell	boundary-echo	qsPea|space|qsTea.ex-y0|qsDay.half.en-y0.ex-y0.en-ext-1	qsPea/full/None/None/|zwnj/boundary/None/None/|qsTea/full/None/baseline/locked|qsDay/half/baseline/None/en-ext-1
 default	E650:200C:E653:E652	cell	boundary-echo	qsPea|space|qsDay.noentry|qsTea.en-y0	qsPea/full/None/None/|zwnj/boundary/None/None/|qsDay/full/None/baseline/locked|qsTea/full/baseline/None/
@@ -393,6 +403,7 @@ default	E650:E650:200C:E650	cell	boundary-echo	qsPea.half.en-y6.ex-y6|qsPea.en-y
 default	E650:E650:200C:E652	cell	boundary-echo	qsPea.half.en-y6.ex-y6|qsPea.en-y6|space|qsTea.noentry	qsPea/half/None/y6/|qsPea/full/y6/None/|zwnj/boundary/None/None/|qsTea/full/None/None/locked
 default	E650:E650:200C:E653	cell	boundary-echo	qsPea.half.en-y6.ex-y6|qsPea.en-y6|space|qsDay.noentry	qsPea/half/None/y6/|qsPea/full/y6/None/|zwnj/boundary/None/None/|qsDay/full/None/None/locked
 default	E650:E650:200C:E668	cell	boundary-echo	qsPea.half.en-y6.ex-y6|qsPea.en-y6|space|qsRoe.noentry	qsPea/half/None/y6/|qsPea/full/y6/None/|zwnj/boundary/None/None/|qsRoe/hapax/None/None/locked
+default	E650:E650:200C:E67A	cell	boundary-echo	qsPea.half.en-y6.ex-y6|qsPea.en-y6|space|qsUtter.noentry	qsPea/half/None/y6/|qsPea/full/y6/None/|zwnj/boundary/None/None/|qsUtter/mono/None/None/locked
 default	E650:E650:E650:0020	cell	boundary-echo	qsPea.half.en-y6.ex-y6|qsPea.half.en-y6.ex-y6|qsPea.en-y6|space	qsPea/half/None/y6/|qsPea/half/y6/y6/|qsPea/full/y6/None/|space/boundary/None/None/
 default	E650:E650:E650:00B7	cell	dangling-anchor-dropped	qsPea.half.en-y6.ex-y6|qsPea.half.en-y6.ex-y6|qsPea.en-y6|periodcentered	qsPea/half/None/y6/|qsPea/half/y6/y6/|qsPea/full/y6/None/|namer-dot/boundary/None/None/
 default	E650:E650:E650:200C	cell	boundary-echo	qsPea.half.en-y6.ex-y6|qsPea.half.en-y6.ex-y6|qsPea.en-y6|space	qsPea/half/None/y6/|qsPea/half/y6/y6/|qsPea/full/y6/None/|zwnj/boundary/None/None/
@@ -584,6 +595,7 @@ default	E652:E653:E668:E650	cell	bare-name-live-join	qsTea.ex-y0|qsDay.half.en-y
 default	E652:E653:E668:E652	cell	bare-name-live-join	qsTea.ex-y0|qsDay.half.en-y0.ex-y0.en-ext-1|qsRoe|qsTea	qsTea/full/None/baseline/|qsDay/half/baseline/baseline/en-ext-1|qsRoe/hapax/baseline/None/|qsTea/full/None/None/
 default	E652:E653:E668:E653	cell	bare-name-live-join	qsTea.ex-y0|qsDay.half.en-y0.ex-y0.en-ext-1|qsRoe|qsDay	qsTea/full/None/baseline/|qsDay/half/baseline/baseline/en-ext-1|qsRoe/hapax/baseline/None/|qsDay/full/None/None/
 default	E652:E653:E668:E668	cell	bare-name-live-join	qsTea.ex-y0|qsDay.half.en-y0.ex-y0.en-ext-1|qsRoe.en-y0.ex-y5|qsRoe	qsTea/full/None/baseline/|qsDay/half/baseline/baseline/en-ext-1|qsRoe/hapax/baseline/x-height/|qsRoe/hapax/x-height/None/
+default	E652:E653:E67A:E652	cell	dangling-anchor-dropped	qsTea.ex-y0|qsDay_qsUtter.half.en-y0.ex-y5.en-ext-1|qsTea	qsTea/full/None/baseline/|qsDay_qsUtter/half/baseline/None/en-ext-1|qsTea/full/None/None/
 default	E652:E668:E650:E650	cell	dangling-anchor-dropped	qsTea.half.ex-y5|qsRoe.en-y5.en-con-1|qsPea.half.en-y6.ex-y6|qsPea.en-y6	qsTea/half/None/x-height/|qsRoe/hapax/x-height/None/en-con-1|qsPea/half/None/y6/|qsPea/full/y6/None/
 default	E652:E668:E650:E653	cell	dangling-anchor-dropped	qsTea.half.ex-y5|qsRoe.en-y5.en-con-1|qsPea|qsDay.half.en-y0.ex-y0	qsTea/half/None/x-height/|qsRoe/hapax/x-height/None/en-con-1|qsPea/full/None/baseline/|qsDay/half/baseline/None/
 default	E652:E668:E652:E653	cell	dangling-anchor-dropped	qsTea.half.ex-y5|qsRoe.en-y5.en-con-1|qsTea.ex-y0|qsDay.half.en-y0.ex-y0.en-ext-1	qsTea/half/None/x-height/|qsRoe/hapax/x-height/None/en-con-1|qsTea/full/None/baseline/|qsDay/half/baseline/None/en-ext-1
@@ -781,6 +793,7 @@ default	E653:E668:E668:E650	cell	bare-name-live-join	qsDay|qsRoe.en-y0.ex-y5|qsR
 default	E653:E668:E668:E652	cell	bare-name-live-join	qsDay|qsRoe.en-y0.ex-y5|qsRoe|qsTea	qsDay/full/None/baseline/|qsRoe/hapax/baseline/x-height/|qsRoe/hapax/x-height/None/|qsTea/full/None/None/
 default	E653:E668:E668:E653	cell	bare-name-live-join	qsDay|qsRoe.en-y0.ex-y5|qsRoe|qsDay	qsDay/full/None/baseline/|qsRoe/hapax/baseline/x-height/|qsRoe/hapax/x-height/None/|qsDay/full/None/None/
 default	E653:E668:E668:E668	cell	bare-name-live-join	qsDay|qsRoe.en-y0.ex-y5|qsRoe.ex-y0|qsRoe	qsDay/full/None/baseline/|qsRoe/hapax/baseline/x-height/|qsRoe/hapax/x-height/baseline/|qsRoe/hapax/baseline/None/
+default	E665:E670:E652:E679	cell,seam	pre-ligature-cleanup-regularized	qsMay|qsIt|qsTea_qsOy	qsMay/loop/None/x-height/ex-ext-1|qsIt/hapax/x-height/None/|qsTea_qsOy/hapax/None/None/
 default	E668:0020:E650:E650	cell	boundary-echo	qsRoe|space|qsPea.half.en-y6.ex-y6|qsPea.en-y6	qsRoe/hapax/None/None/|space/boundary/None/None/|qsPea/half/None/y6/|qsPea/full/y6/None/
 default	E668:0020:E650:E653	cell	boundary-echo	qsRoe|space|qsPea|qsDay.half.en-y0.ex-y0	qsRoe/hapax/None/None/|space/boundary/None/None/|qsPea/full/None/baseline/|qsDay/half/baseline/None/
 default	E668:0020:E652:E653	cell	boundary-echo	qsRoe|space|qsTea.ex-y0|qsDay.half.en-y0.ex-y0.en-ext-1	qsRoe/hapax/None/None/|space/boundary/None/None/|qsTea/full/None/baseline/|qsDay/half/baseline/None/en-ext-1
@@ -901,13 +914,17 @@ default	E668:E668:E668:E650	cell	dangling-anchor-dropped	qsRoe.en-y0.ex-y5|qsRoe
 default	E668:E668:E668:E652	cell	dangling-anchor-dropped	qsRoe.en-y0.ex-y5|qsRoe.ex-y0|qsRoe|qsTea	qsRoe/hapax/None/x-height/|qsRoe/hapax/x-height/baseline/|qsRoe/hapax/baseline/None/|qsTea/full/None/None/
 default	E668:E668:E668:E653	cell	dangling-anchor-dropped	qsRoe.en-y0.ex-y5|qsRoe.ex-y0|qsRoe|qsDay	qsRoe/hapax/None/x-height/|qsRoe/hapax/x-height/baseline/|qsRoe/hapax/baseline/None/|qsDay/full/None/None/
 default	E668:E668:E668:E668	cell	dangling-anchor-dropped	qsRoe.en-y0.ex-y5|qsRoe.ex-y0|qsRoe.en-y0.ex-y5|qsRoe	qsRoe/hapax/None/x-height/|qsRoe/hapax/x-height/baseline/|qsRoe/hapax/baseline/x-height/|qsRoe/hapax/x-height/None/
+default	E670:E67A:E670:E665	cell	same-seam-extension-non-summing	qsIt.ex-y0.before-utter|qsUtter|qsIt.en-y5.ex-y0.ex-ext-1|qsMay.en-y0.ex-y5.en-ext-1	qsIt/hapax/None/baseline/|qsUtter/mono/baseline/x-height/|qsIt/hapax/x-height/baseline/|qsMay/loop/baseline/None/
 ss03	E650:E650	cell	dangling-anchor-dropped	qsPea.half.en-y6.ex-y6|qsPea.en-y6	qsPea/half/None/y6/|qsPea/full/y6/None/
 ss03	E650:E653	cell	dangling-anchor-dropped	qsPea|qsDay.half.en-y0.ex-y0	qsPea/full/None/baseline/|qsDay/half/baseline/None/
 ss03	E652:E653	cell	dangling-anchor-dropped	qsTea.ex-y0|qsDay.half.en-y0.ex-y0.en-ext-1	qsTea/full/None/baseline/|qsDay/half/baseline/None/en-ext-1
+ss03	E652:E670	cell	dangling-anchor-dropped	qsTea.half.ex-y5|qsIt.en-y5.ex-y0	qsTea/half/None/x-height/|qsIt/hapax/x-height/None/
 ss03	E653:E652	cell	bare-name-live-join	qsDay|qsTea.en-y0	qsDay/full/None/baseline/|qsTea/full/baseline/None/
 ss03	E653:E653	cell	dangling-anchor-dropped	qsDay|qsDay.half.en-y0.ex-y0	qsDay/full/None/baseline/|qsDay/half/baseline/None/
 ss03	E653:E668	cell	bare-name-live-join	qsDay|qsRoe	qsDay/full/None/baseline/|qsRoe/hapax/baseline/None/
+ss03	E658:E666	cell	bare-name-live-join	qsFee.ex-y5.before-utter.ex-ext-1|qsNo	qsFee/loop/None/x-height/ex-ext-1|qsNo/loop/x-height/None/
 ss03	E668:E668	cell	dangling-anchor-dropped	qsRoe.en-y0.ex-y5|qsRoe	qsRoe/hapax/None/x-height/|qsRoe/hapax/x-height/None/
+ss03	E670:E670	cell	dangling-anchor-dropped	qsIt.ex-y5|qsIt	qsIt/hapax/None/None/|qsIt/hapax/None/None/
 ss03	0020:E650:E650	cell	boundary-echo	space|qsPea.half.en-y6.ex-y6|qsPea.en-y6	space/boundary/None/None/|qsPea/half/None/y6/|qsPea/full/y6/None/
 ss03	0020:E650:E653	cell	boundary-echo	space|qsPea|qsDay.half.en-y0.ex-y0	space/boundary/None/None/|qsPea/full/None/baseline/|qsDay/half/baseline/None/
 ss03	0020:E652:E653	cell	boundary-echo	space|qsTea.ex-y0|qsDay.half.en-y0.ex-y0.en-ext-1	space/boundary/None/None/|qsTea/full/None/baseline/|qsDay/half/baseline/None/en-ext-1
@@ -926,6 +943,7 @@ ss03	200C:E650:E653	cell	boundary-echo	space|qsPea.noentry|qsDay.half.en-y0.ex-y
 ss03	200C:E650:E668	cell	boundary-echo	space|qsPea.half.ex-y5.ex-dips|qsRoe.en-y5.en-con-1	zwnj/boundary/None/None/|qsPea/half/None/x-height/locked|qsRoe/hapax/x-height/None/en-con-1
 ss03	200C:E652:E652	cell	boundary-echo	space|qsTea.ex-y0|qsTea	zwnj/boundary/None/None/|qsTea/full/None/None/locked|qsTea/full/None/None/
 ss03	200C:E652:E653	cell	boundary-echo	space|qsTea.ex-y0|qsDay.half.en-y0.ex-y0.en-ext-1	zwnj/boundary/None/None/|qsTea/full/None/baseline/locked|qsDay/half/baseline/None/en-ext-1
+ss03	200C:E652:E679	ligation	boundary-echo	space|qsTea.noentry|qsOy	zwnj/boundary/None/None/|qsTea_qsOy/hapax/None/None/
 ss03	200C:E653:E652	cell	boundary-echo	space|qsDay.noentry|qsTea.en-y0	zwnj/boundary/None/None/|qsDay/full/None/baseline/locked|qsTea/full/baseline/None/
 ss03	200C:E653:E653	cell	boundary-echo	space|qsDay.noentry|qsDay.half.en-y0.ex-y0	zwnj/boundary/None/None/|qsDay/full/None/baseline/locked|qsDay/half/baseline/None/
 ss03	200C:E653:E668	cell	boundary-echo	space|qsDay.noentry|qsRoe	zwnj/boundary/None/None/|qsDay/full/None/baseline/locked|qsRoe/hapax/baseline/None/
@@ -937,6 +955,7 @@ ss03	E650:E650:E650	cell	dangling-anchor-dropped	qsPea.half.en-y6.ex-y6|qsPea.ha
 ss03	E650:E650:E652	cell	dangling-anchor-dropped	qsPea.half.en-y6.ex-y6|qsPea.en-y6.ex-y0|qsTea	qsPea/half/None/y6/|qsPea/full/y6/None/|qsTea/full/None/None/
 ss03	E650:E650:E653	cell	dangling-anchor-dropped	qsPea.half.en-y6.ex-y6|qsPea.en-y6.ex-y0|qsDay.half.en-y0.ex-y0	qsPea/half/None/y6/|qsPea/full/y6/baseline/|qsDay/half/baseline/None/
 ss03	E650:E650:E668	cell,seam	pea-chain-regularized	qsPea|qsPea.half.ex-y5.ex-dips|qsRoe.en-y5.en-con-1	qsPea/half/None/y6/|qsPea/half/y6/x-height/|qsRoe/hapax/x-height/None/en-con-1
+ss03	E650:E650:E670	cell,seam	pea-chain-regularized	qsPea|qsPea.half.ex-y5.ex-dips|qsIt.en-y5.ex-y0	qsPea/half/None/y6/|qsPea/half/y6/x-height/|qsIt/hapax/x-height/None/
 ss03	E650:E652:E653	cell	dangling-anchor-dropped	qsPea|qsTea.ex-y0|qsDay.half.en-y0.ex-y0.en-ext-1	qsPea/full/None/None/|qsTea/full/None/baseline/|qsDay/half/baseline/None/en-ext-1
 ss03	E650:E653:0020	cell	boundary-echo	qsPea|qsDay.half.en-y0.ex-y0|space	qsPea/full/None/baseline/|qsDay/half/baseline/None/|space/boundary/None/None/
 ss03	E650:E653:00B7	cell	dangling-anchor-dropped	qsPea|qsDay.half.en-y0.ex-y0|periodcentered	qsPea/full/None/baseline/|qsDay/half/baseline/None/|namer-dot/boundary/None/None/
@@ -946,6 +965,7 @@ ss03	E650:E653:E652	cell	bare-name-live-join	qsPea|qsDay.half.en-y0.ex-y0|qsTea.
 ss03	E650:E653:E653	cell	dangling-anchor-dropped	qsPea|qsDay.half.en-y0.ex-y0|qsDay.half.en-y0.ex-y0	qsPea/full/None/baseline/|qsDay/half/baseline/baseline/|qsDay/half/baseline/None/
 ss03	E650:E653:E668	cell	bare-name-live-join	qsPea|qsDay.half.en-y0.ex-y0|qsRoe	qsPea/full/None/baseline/|qsDay/half/baseline/baseline/|qsRoe/hapax/baseline/None/
 ss03	E650:E668:E668	cell,position	UNMATCHED	qsPea.half.ex-y5.ex-dips|qsRoe.ex-y0|qsRoe	qsPea/half/None/x-height/|qsRoe/hapax/x-height/baseline/en-con-1|qsRoe/hapax/baseline/None/
+ss03	E650:E670:E65D	cell,seam	regrouping-floor-drift	qsPea.half.ex-y5.ex-dips|qsIt.en-y5.ex-y0|qsJai	qsPea/full/None/None/|qsIt/hapax/None/x-height/ex-ext-1|qsJai/hapax/x-height/None/
 ss03	E652:E650:E650	cell	dangling-anchor-dropped	qsTea|qsPea.half.en-y6.ex-y6|qsPea.en-y6	qsTea/full/None/None/|qsPea/half/None/y6/|qsPea/full/y6/None/
 ss03	E652:E650:E653	cell	dangling-anchor-dropped	qsTea|qsPea|qsDay.half.en-y0.ex-y0	qsTea/full/None/None/|qsPea/full/None/baseline/|qsDay/half/baseline/None/
 ss03	E652:E652:E653	cell	dangling-anchor-dropped	qsTea|qsTea.ex-y0|qsDay.half.en-y0.ex-y0.en-ext-1	qsTea/full/None/None/|qsTea/full/None/baseline/|qsDay/half/baseline/None/en-ext-1
@@ -979,6 +999,7 @@ ss03	E653:E668:E650	cell	bare-name-live-join	qsDay|qsRoe|qsPea	qsDay/full/None/b
 ss03	E653:E668:E652	cell	bare-name-live-join	qsDay|qsRoe|qsTea	qsDay/full/None/baseline/|qsRoe/hapax/baseline/None/|qsTea/full/None/None/
 ss03	E653:E668:E653	cell	bare-name-live-join	qsDay|qsRoe|qsDay	qsDay/full/None/baseline/|qsRoe/hapax/baseline/None/|qsDay/full/None/None/
 ss03	E653:E668:E668	cell	bare-name-live-join	qsDay|qsRoe.en-y0.ex-y5|qsRoe	qsDay/full/None/baseline/|qsRoe/hapax/baseline/x-height/|qsRoe/hapax/x-height/None/
+ss03	E665:E666:E666	cell	bare-name-live-join	qsMay|qsNo|qsNo	qsMay/loop/None/x-height/|qsNo/loop/x-height/x-height/|qsNo/loop/x-height/None/
 ss03	E668:E650:E650	cell	dangling-anchor-dropped	qsRoe|qsPea.half.en-y6.ex-y6|qsPea.en-y6	qsRoe/hapax/None/None/|qsPea/half/None/y6/|qsPea/full/y6/None/
 ss03	E668:E650:E653	cell	dangling-anchor-dropped	qsRoe|qsPea|qsDay.half.en-y0.ex-y0	qsRoe/hapax/None/None/|qsPea/full/None/baseline/|qsDay/half/baseline/None/
 ss03	E668:E652:E653	cell	dangling-anchor-dropped	qsRoe|qsTea.ex-y0|qsDay.half.en-y0.ex-y0.en-ext-1	qsRoe/hapax/None/None/|qsTea/full/None/baseline/|qsDay/half/baseline/None/en-ext-1
@@ -1239,6 +1260,7 @@ ss03	200C:E653:E668:E650	cell	boundary-echo	space|qsDay.noentry|qsRoe|qsPea	zwnj
 ss03	200C:E653:E668:E652	cell	boundary-echo	space|qsDay.noentry|qsRoe|qsTea	zwnj/boundary/None/None/|qsDay/full/None/baseline/locked|qsRoe/hapax/baseline/None/|qsTea/full/None/None/
 ss03	200C:E653:E668:E653	cell	boundary-echo	space|qsDay.noentry|qsRoe|qsDay	zwnj/boundary/None/None/|qsDay/full/None/baseline/locked|qsRoe/hapax/baseline/None/|qsDay/full/None/None/
 ss03	200C:E653:E668:E668	cell	boundary-echo	space|qsDay.noentry|qsRoe.en-y0.ex-y5|qsRoe	zwnj/boundary/None/None/|qsDay/full/None/baseline/locked|qsRoe/hapax/baseline/x-height/|qsRoe/hapax/x-height/None/
+ss03	200C:E665:E679:E650	cell	boundary-echo	space|qsMay.noentry|qsOy.en-y5.ex-y0|qsPea	zwnj/boundary/None/None/|qsMay/loop/None/x-height/locked|qsOy/hapax/x-height/None/|qsPea/full/None/None/
 ss03	200C:E668:E650:E650	cell	boundary-echo	space|qsRoe.noentry|qsPea.half.en-y6.ex-y6|qsPea.en-y6	zwnj/boundary/None/None/|qsRoe/hapax/None/None/locked|qsPea/half/None/y6/|qsPea/full/y6/None/
 ss03	200C:E668:E650:E653	cell	boundary-echo	space|qsRoe.noentry|qsPea|qsDay.half.en-y0.ex-y0	zwnj/boundary/None/None/|qsRoe/hapax/None/None/locked|qsPea/full/None/baseline/|qsDay/half/baseline/None/
 ss03	200C:E668:E652:E653	cell	boundary-echo	space|qsRoe.noentry|qsTea.ex-y0|qsDay.half.en-y0.ex-y0.en-ext-1	zwnj/boundary/None/None/|qsRoe/hapax/None/None/locked|qsTea/full/None/baseline/|qsDay/half/baseline/None/en-ext-1
@@ -1267,7 +1289,9 @@ ss03	E650:00B7:E653:E653	cell	dangling-anchor-dropped	qsPea|periodcentered|qsDay
 ss03	E650:00B7:E653:E668	cell	bare-name-live-join	qsPea|periodcentered|qsDay|qsRoe	qsPea/full/None/None/|namer-dot/boundary/None/None/|qsDay/full/None/baseline/|qsRoe/hapax/baseline/None/
 ss03	E650:00B7:E668:E668	cell	dangling-anchor-dropped	qsPea|periodcentered.lowered|qsRoe.en-y0.ex-y5|qsRoe	qsPea/full/None/None/|namer-dot/boundary/None/None/|qsRoe/hapax/None/x-height/|qsRoe/hapax/x-height/None/
 ss03	E650:200C:E650:E653	cell	boundary-echo	qsPea|space|qsPea.noentry|qsDay.half.en-y0.ex-y0	qsPea/full/None/None/|zwnj/boundary/None/None/|qsPea/full/None/baseline/locked|qsDay/half/baseline/None/
+ss03	E650:200C:E650:E665	cell	boundary-echo	qsPea|space|qsPea.noentry|qsMay.en-y0.ex-y5.en-ext-1	qsPea/full/None/None/|zwnj/boundary/None/None/|qsPea/full/None/baseline/locked|qsMay/loop/baseline/None/
 ss03	E650:200C:E650:E668	cell	boundary-echo	qsPea|space|qsPea.half.ex-y5.ex-dips|qsRoe.en-y5.en-con-1	qsPea/full/None/None/|zwnj/boundary/None/None/|qsPea/half/None/x-height/locked|qsRoe/hapax/x-height/None/en-con-1
+ss03	E650:200C:E650:E670	cell	boundary-echo	qsPea|space|qsPea.half.ex-y5.ex-dips|qsIt.en-y5.ex-y0	qsPea/full/None/None/|zwnj/boundary/None/None/|qsPea/half/None/x-height/locked|qsIt/hapax/x-height/None/
 ss03	E650:200C:E652:E652	cell	boundary-echo	qsPea|space|qsTea.ex-y0|qsTea	qsPea/full/None/None/|zwnj/boundary/None/None/|qsTea/full/None/None/locked|qsTea/full/None/None/
 ss03	E650:200C:E652:E653	cell	boundary-echo	qsPea|space|qsTea.ex-y0|qsDay.half.en-y0.ex-y0.en-ext-1	qsPea/full/None/None/|zwnj/boundary/None/None/|qsTea/full/None/baseline/locked|qsDay/half/baseline/None/en-ext-1
 ss03	E650:200C:E653:E652	cell	boundary-echo	qsPea|space|qsDay.noentry|qsTea.en-y0	qsPea/full/None/None/|zwnj/boundary/None/None/|qsDay/full/None/baseline/locked|qsTea/full/baseline/None/
@@ -1295,6 +1319,7 @@ ss03	E650:E650:200C:E650	cell	boundary-echo	qsPea.half.en-y6.ex-y6|qsPea.en-y6|s
 ss03	E650:E650:200C:E652	cell	boundary-echo	qsPea.half.en-y6.ex-y6|qsPea.en-y6|space|qsTea.noentry	qsPea/half/None/y6/|qsPea/full/y6/None/|zwnj/boundary/None/None/|qsTea/full/None/None/locked
 ss03	E650:E650:200C:E653	cell	boundary-echo	qsPea.half.en-y6.ex-y6|qsPea.en-y6|space|qsDay.noentry	qsPea/half/None/y6/|qsPea/full/y6/None/|zwnj/boundary/None/None/|qsDay/full/None/None/locked
 ss03	E650:E650:200C:E668	cell	boundary-echo	qsPea.half.en-y6.ex-y6|qsPea.en-y6|space|qsRoe.noentry	qsPea/half/None/y6/|qsPea/full/y6/None/|zwnj/boundary/None/None/|qsRoe/hapax/None/None/locked
+ss03	E650:E650:200C:E67A	cell	boundary-echo	qsPea.half.en-y6.ex-y6|qsPea.en-y6|space|qsUtter.noentry	qsPea/half/None/y6/|qsPea/full/y6/None/|zwnj/boundary/None/None/|qsUtter/mono/None/None/locked
 ss03	E650:E650:E650:0020	cell	boundary-echo	qsPea.half.en-y6.ex-y6|qsPea.half.en-y6.ex-y6|qsPea.en-y6|space	qsPea/half/None/y6/|qsPea/half/y6/y6/|qsPea/full/y6/None/|space/boundary/None/None/
 ss03	E650:E650:E650:00B7	cell	dangling-anchor-dropped	qsPea.half.en-y6.ex-y6|qsPea.half.en-y6.ex-y6|qsPea.en-y6|periodcentered	qsPea/half/None/y6/|qsPea/half/y6/y6/|qsPea/full/y6/None/|namer-dot/boundary/None/None/
 ss03	E650:E650:E650:200C	cell	boundary-echo	qsPea.half.en-y6.ex-y6|qsPea.half.en-y6.ex-y6|qsPea.en-y6|space	qsPea/half/None/y6/|qsPea/half/y6/y6/|qsPea/full/y6/None/|zwnj/boundary/None/None/
@@ -1486,6 +1511,7 @@ ss03	E652:E653:E668:E650	cell	bare-name-live-join	qsTea.ex-y0|qsDay.half.en-y0.e
 ss03	E652:E653:E668:E652	cell	bare-name-live-join	qsTea.ex-y0|qsDay.half.en-y0.ex-y0.en-ext-1|qsRoe|qsTea	qsTea/full/None/baseline/|qsDay/half/baseline/baseline/en-ext-1|qsRoe/hapax/baseline/None/|qsTea/full/None/None/
 ss03	E652:E653:E668:E653	cell	bare-name-live-join	qsTea.ex-y0|qsDay.half.en-y0.ex-y0.en-ext-1|qsRoe|qsDay	qsTea/full/None/baseline/|qsDay/half/baseline/baseline/en-ext-1|qsRoe/hapax/baseline/None/|qsDay/full/None/None/
 ss03	E652:E653:E668:E668	cell	bare-name-live-join	qsTea.ex-y0|qsDay.half.en-y0.ex-y0.en-ext-1|qsRoe.en-y0.ex-y5|qsRoe	qsTea/full/None/baseline/|qsDay/half/baseline/baseline/en-ext-1|qsRoe/hapax/baseline/x-height/|qsRoe/hapax/x-height/None/
+ss03	E652:E653:E67A:E652	cell	halves-entry-extension-restored	qsTea.ex-y0|qsDay_qsUtter.half.en-y0.ex-y5.ex-ext-1|qsTea.half.en-y5.after-xheight-exit	qsTea/full/None/baseline/|qsDay_qsUtter/half/baseline/x-height/en-ext-1+ex-ext-1|qsTea/full/x-height/None/
 ss03	E652:E668:E650:E650	cell	dangling-anchor-dropped	qsTea.half.ex-y5|qsRoe.en-y5.en-con-1|qsPea.half.en-y6.ex-y6|qsPea.en-y6	qsTea/half/None/x-height/|qsRoe/hapax/x-height/None/en-con-1|qsPea/half/None/y6/|qsPea/full/y6/None/
 ss03	E652:E668:E650:E653	cell	dangling-anchor-dropped	qsTea.half.ex-y5|qsRoe.en-y5.en-con-1|qsPea|qsDay.half.en-y0.ex-y0	qsTea/half/None/x-height/|qsRoe/hapax/x-height/None/en-con-1|qsPea/full/None/baseline/|qsDay/half/baseline/None/
 ss03	E652:E668:E652:E653	cell	dangling-anchor-dropped	qsTea.half.ex-y5|qsRoe.en-y5.en-con-1|qsTea.ex-y0|qsDay.half.en-y0.ex-y0.en-ext-1	qsTea/half/None/x-height/|qsRoe/hapax/x-height/None/en-con-1|qsTea/full/None/baseline/|qsDay/half/baseline/None/en-ext-1
@@ -1683,6 +1709,7 @@ ss03	E653:E668:E668:E650	cell	bare-name-live-join	qsDay|qsRoe.en-y0.ex-y5|qsRoe|
 ss03	E653:E668:E668:E652	cell	bare-name-live-join	qsDay|qsRoe.en-y0.ex-y5|qsRoe|qsTea	qsDay/full/None/baseline/|qsRoe/hapax/baseline/x-height/|qsRoe/hapax/x-height/None/|qsTea/full/None/None/
 ss03	E653:E668:E668:E653	cell	bare-name-live-join	qsDay|qsRoe.en-y0.ex-y5|qsRoe|qsDay	qsDay/full/None/baseline/|qsRoe/hapax/baseline/x-height/|qsRoe/hapax/x-height/None/|qsDay/full/None/None/
 ss03	E653:E668:E668:E668	cell	bare-name-live-join	qsDay|qsRoe.en-y0.ex-y5|qsRoe.ex-y0|qsRoe	qsDay/full/None/baseline/|qsRoe/hapax/baseline/x-height/|qsRoe/hapax/x-height/baseline/|qsRoe/hapax/baseline/None/
+ss03	E665:E670:E652:E679	cell,seam	pre-ligature-cleanup-regularized	qsMay|qsIt|qsTea_qsOy	qsMay/loop/None/x-height/ex-ext-1|qsIt/hapax/x-height/None/|qsTea_qsOy/hapax/None/None/
 ss03	E668:0020:E650:E650	cell	boundary-echo	qsRoe|space|qsPea.half.en-y6.ex-y6|qsPea.en-y6	qsRoe/hapax/None/None/|space/boundary/None/None/|qsPea/half/None/y6/|qsPea/full/y6/None/
 ss03	E668:0020:E650:E653	cell	boundary-echo	qsRoe|space|qsPea|qsDay.half.en-y0.ex-y0	qsRoe/hapax/None/None/|space/boundary/None/None/|qsPea/full/None/baseline/|qsDay/half/baseline/None/
 ss03	E668:0020:E652:E653	cell	boundary-echo	qsRoe|space|qsTea.ex-y0|qsDay.half.en-y0.ex-y0.en-ext-1	qsRoe/hapax/None/None/|space/boundary/None/None/|qsTea/full/None/baseline/|qsDay/half/baseline/None/en-ext-1
@@ -1803,13 +1830,17 @@ ss03	E668:E668:E668:E650	cell	dangling-anchor-dropped	qsRoe.en-y0.ex-y5|qsRoe.ex
 ss03	E668:E668:E668:E652	cell	dangling-anchor-dropped	qsRoe.en-y0.ex-y5|qsRoe.ex-y0|qsRoe|qsTea	qsRoe/hapax/None/x-height/|qsRoe/hapax/x-height/baseline/|qsRoe/hapax/baseline/None/|qsTea/full/None/None/
 ss03	E668:E668:E668:E653	cell	dangling-anchor-dropped	qsRoe.en-y0.ex-y5|qsRoe.ex-y0|qsRoe|qsDay	qsRoe/hapax/None/x-height/|qsRoe/hapax/x-height/baseline/|qsRoe/hapax/baseline/None/|qsDay/full/None/None/
 ss03	E668:E668:E668:E668	cell	dangling-anchor-dropped	qsRoe.en-y0.ex-y5|qsRoe.ex-y0|qsRoe.en-y0.ex-y5|qsRoe	qsRoe/hapax/None/x-height/|qsRoe/hapax/x-height/baseline/|qsRoe/hapax/baseline/x-height/|qsRoe/hapax/x-height/None/
+ss03	E670:E67A:E670:E665	cell	same-seam-extension-non-summing	qsIt.ex-y0.before-utter|qsUtter|qsIt.en-y5.ex-y0.ex-ext-1|qsMay.en-y0.ex-y5.en-ext-1	qsIt/hapax/None/baseline/|qsUtter/mono/baseline/x-height/|qsIt/hapax/x-height/baseline/|qsMay/loop/baseline/None/
 ss04	E650:E650	cell	dangling-anchor-dropped	qsPea.half.en-y6.ex-y6|qsPea.en-y6	qsPea/half/None/y6/|qsPea/full/y6/None/
 ss04	E650:E653	cell	dangling-anchor-dropped	qsPea|qsDay.half.en-y0.ex-y0	qsPea/full/None/baseline/|qsDay/half/baseline/None/
 ss04	E652:E653	cell	dangling-anchor-dropped	qsTea.ex-y0|qsDay.half.en-y0.ex-y0.en-ext-1	qsTea/full/None/baseline/|qsDay/half/baseline/None/en-ext-1
+ss04	E652:E670	cell	dangling-anchor-dropped	qsTea.half.ex-y5|qsIt.en-y5.ex-y0	qsTea/half/None/x-height/|qsIt/hapax/x-height/None/
 ss04	E653:E652	cell	bare-name-live-join	qsDay|qsTea.en-y0	qsDay/full/None/baseline/|qsTea/full/baseline/None/
 ss04	E653:E653	cell	dangling-anchor-dropped	qsDay|qsDay.half.en-y0.ex-y0	qsDay/full/None/baseline/|qsDay/half/baseline/None/
 ss04	E653:E668	cell	bare-name-live-join	qsDay|qsRoe	qsDay/full/None/baseline/|qsRoe/hapax/baseline/None/
+ss04	E658:E666	cell	bare-name-live-join	qsFee.ex-y5.before-utter.ex-ext-1|qsNo	qsFee/loop/None/x-height/ex-ext-1|qsNo/loop/x-height/None/
 ss04	E668:E668	cell	dangling-anchor-dropped	qsRoe.en-y0.ex-y5|qsRoe	qsRoe/hapax/None/x-height/|qsRoe/hapax/x-height/None/
+ss04	E670:E670	cell	dangling-anchor-dropped	qsIt.ex-y5|qsIt	qsIt/hapax/None/None/|qsIt/hapax/None/None/
 ss04	0020:E650:E650	cell	boundary-echo	space|qsPea.half.en-y6.ex-y6|qsPea.en-y6	space/boundary/None/None/|qsPea/half/None/y6/|qsPea/full/y6/None/
 ss04	0020:E650:E653	cell	boundary-echo	space|qsPea|qsDay.half.en-y0.ex-y0	space/boundary/None/None/|qsPea/full/None/baseline/|qsDay/half/baseline/None/
 ss04	0020:E652:E653	cell	boundary-echo	space|qsTea.ex-y0|qsDay.half.en-y0.ex-y0.en-ext-1	space/boundary/None/None/|qsTea/full/None/baseline/|qsDay/half/baseline/None/en-ext-1
@@ -1828,6 +1859,7 @@ ss04	200C:E650:E653	cell	boundary-echo	space|qsPea.noentry|qsDay.half.en-y0.ex-y
 ss04	200C:E650:E668	cell	boundary-echo	space|qsPea.half.ex-y5.ex-dips|qsRoe.en-y5.en-con-1	zwnj/boundary/None/None/|qsPea/half/None/x-height/locked|qsRoe/hapax/x-height/None/en-con-1
 ss04	200C:E652:E652	cell	boundary-echo	space|qsTea.ex-y0|qsTea	zwnj/boundary/None/None/|qsTea/full/None/None/locked|qsTea/full/None/None/
 ss04	200C:E652:E653	cell	boundary-echo	space|qsTea.ex-y0|qsDay.half.en-y0.ex-y0.en-ext-1	zwnj/boundary/None/None/|qsTea/full/None/baseline/locked|qsDay/half/baseline/None/en-ext-1
+ss04	200C:E652:E679	ligation	boundary-echo	space|qsTea.noentry|qsOy	zwnj/boundary/None/None/|qsTea_qsOy/hapax/None/None/
 ss04	200C:E653:E652	cell	boundary-echo	space|qsDay.noentry|qsTea.en-y0	zwnj/boundary/None/None/|qsDay/full/None/baseline/locked|qsTea/full/baseline/None/
 ss04	200C:E653:E653	cell	boundary-echo	space|qsDay.noentry|qsDay.half.en-y0.ex-y0	zwnj/boundary/None/None/|qsDay/full/None/baseline/locked|qsDay/half/baseline/None/
 ss04	200C:E653:E668	cell	boundary-echo	space|qsDay.noentry|qsRoe	zwnj/boundary/None/None/|qsDay/full/None/baseline/locked|qsRoe/hapax/baseline/None/
@@ -1839,6 +1871,7 @@ ss04	E650:E650:E650	cell	dangling-anchor-dropped	qsPea.half.en-y6.ex-y6|qsPea.ha
 ss04	E650:E650:E652	cell	dangling-anchor-dropped	qsPea.half.en-y6.ex-y6|qsPea.en-y6.ex-y0|qsTea	qsPea/half/None/y6/|qsPea/full/y6/None/|qsTea/full/None/None/
 ss04	E650:E650:E653	cell	dangling-anchor-dropped	qsPea.half.en-y6.ex-y6|qsPea.en-y6.ex-y0|qsDay.half.en-y0.ex-y0	qsPea/half/None/y6/|qsPea/full/y6/baseline/|qsDay/half/baseline/None/
 ss04	E650:E650:E668	cell,seam	pea-chain-regularized	qsPea|qsPea.half.ex-y5.ex-dips|qsRoe.en-y5.en-con-1	qsPea/half/None/y6/|qsPea/half/y6/x-height/|qsRoe/hapax/x-height/None/en-con-1
+ss04	E650:E650:E670	cell,seam	pea-chain-regularized	qsPea|qsPea.half.ex-y5.ex-dips|qsIt.en-y5.ex-y0	qsPea/half/None/y6/|qsPea/half/y6/x-height/|qsIt/hapax/x-height/None/
 ss04	E650:E652:E653	cell	dangling-anchor-dropped	qsPea|qsTea.ex-y0|qsDay.half.en-y0.ex-y0.en-ext-1	qsPea/full/None/None/|qsTea/full/None/baseline/|qsDay/half/baseline/None/en-ext-1
 ss04	E650:E653:0020	cell	boundary-echo	qsPea|qsDay.half.en-y0.ex-y0|space	qsPea/full/None/baseline/|qsDay/half/baseline/None/|space/boundary/None/None/
 ss04	E650:E653:00B7	cell	dangling-anchor-dropped	qsPea|qsDay.half.en-y0.ex-y0|periodcentered	qsPea/full/None/baseline/|qsDay/half/baseline/None/|namer-dot/boundary/None/None/
@@ -1848,6 +1881,7 @@ ss04	E650:E653:E652	cell	bare-name-live-join	qsPea|qsDay.half.en-y0.ex-y0|qsTea.
 ss04	E650:E653:E653	cell	dangling-anchor-dropped	qsPea|qsDay.half.en-y0.ex-y0|qsDay.half.en-y0.ex-y0	qsPea/full/None/baseline/|qsDay/half/baseline/baseline/|qsDay/half/baseline/None/
 ss04	E650:E653:E668	cell	bare-name-live-join	qsPea|qsDay.half.en-y0.ex-y0|qsRoe	qsPea/full/None/baseline/|qsDay/half/baseline/baseline/|qsRoe/hapax/baseline/None/
 ss04	E650:E668:E668	cell,position	UNMATCHED	qsPea.half.ex-y5.ex-dips|qsRoe.ex-y0|qsRoe	qsPea/half/None/x-height/|qsRoe/hapax/x-height/baseline/en-con-1|qsRoe/hapax/baseline/None/
+ss04	E650:E670:E65D	cell,seam	regrouping-floor-drift	qsPea.half.ex-y5.ex-dips|qsIt.en-y5.ex-y0|qsJai	qsPea/full/None/None/|qsIt/hapax/None/x-height/ex-ext-1|qsJai/hapax/x-height/None/
 ss04	E652:E650:E650	cell	dangling-anchor-dropped	qsTea|qsPea.half.en-y6.ex-y6|qsPea.en-y6	qsTea/full/None/None/|qsPea/half/None/y6/|qsPea/full/y6/None/
 ss04	E652:E650:E653	cell	dangling-anchor-dropped	qsTea|qsPea|qsDay.half.en-y0.ex-y0	qsTea/full/None/None/|qsPea/full/None/baseline/|qsDay/half/baseline/None/
 ss04	E652:E652:E653	cell	dangling-anchor-dropped	qsTea|qsTea.ex-y0|qsDay.half.en-y0.ex-y0.en-ext-1	qsTea/full/None/None/|qsTea/full/None/baseline/|qsDay/half/baseline/None/en-ext-1
@@ -1881,6 +1915,7 @@ ss04	E653:E668:E650	cell	bare-name-live-join	qsDay|qsRoe|qsPea	qsDay/full/None/b
 ss04	E653:E668:E652	cell	bare-name-live-join	qsDay|qsRoe|qsTea	qsDay/full/None/baseline/|qsRoe/hapax/baseline/None/|qsTea/full/None/None/
 ss04	E653:E668:E653	cell	bare-name-live-join	qsDay|qsRoe|qsDay	qsDay/full/None/baseline/|qsRoe/hapax/baseline/None/|qsDay/full/None/None/
 ss04	E653:E668:E668	cell	bare-name-live-join	qsDay|qsRoe.en-y0.ex-y5|qsRoe	qsDay/full/None/baseline/|qsRoe/hapax/baseline/x-height/|qsRoe/hapax/x-height/None/
+ss04	E665:E666:E666	cell	bare-name-live-join	qsMay|qsNo|qsNo	qsMay/loop/None/x-height/|qsNo/loop/x-height/x-height/|qsNo/loop/x-height/None/
 ss04	E668:E650:E650	cell	dangling-anchor-dropped	qsRoe|qsPea.half.en-y6.ex-y6|qsPea.en-y6	qsRoe/hapax/None/None/|qsPea/half/None/y6/|qsPea/full/y6/None/
 ss04	E668:E650:E653	cell	dangling-anchor-dropped	qsRoe|qsPea|qsDay.half.en-y0.ex-y0	qsRoe/hapax/None/None/|qsPea/full/None/baseline/|qsDay/half/baseline/None/
 ss04	E668:E652:E653	cell	dangling-anchor-dropped	qsRoe|qsTea.ex-y0|qsDay.half.en-y0.ex-y0.en-ext-1	qsRoe/hapax/None/None/|qsTea/full/None/baseline/|qsDay/half/baseline/None/en-ext-1
@@ -2141,6 +2176,7 @@ ss04	200C:E653:E668:E650	cell	boundary-echo	space|qsDay.noentry|qsRoe|qsPea	zwnj
 ss04	200C:E653:E668:E652	cell	boundary-echo	space|qsDay.noentry|qsRoe|qsTea	zwnj/boundary/None/None/|qsDay/full/None/baseline/locked|qsRoe/hapax/baseline/None/|qsTea/full/None/None/
 ss04	200C:E653:E668:E653	cell	boundary-echo	space|qsDay.noentry|qsRoe|qsDay	zwnj/boundary/None/None/|qsDay/full/None/baseline/locked|qsRoe/hapax/baseline/None/|qsDay/full/None/None/
 ss04	200C:E653:E668:E668	cell	boundary-echo	space|qsDay.noentry|qsRoe.en-y0.ex-y5|qsRoe	zwnj/boundary/None/None/|qsDay/full/None/baseline/locked|qsRoe/hapax/baseline/x-height/|qsRoe/hapax/x-height/None/
+ss04	200C:E665:E679:E650	cell	boundary-echo	space|qsMay.noentry|qsOy.en-y5.ex-y0|qsPea	zwnj/boundary/None/None/|qsMay/loop/None/x-height/locked|qsOy/hapax/x-height/None/|qsPea/full/None/None/
 ss04	200C:E668:E650:E650	cell	boundary-echo	space|qsRoe.noentry|qsPea.half.en-y6.ex-y6|qsPea.en-y6	zwnj/boundary/None/None/|qsRoe/hapax/None/None/locked|qsPea/half/None/y6/|qsPea/full/y6/None/
 ss04	200C:E668:E650:E653	cell	boundary-echo	space|qsRoe.noentry|qsPea|qsDay.half.en-y0.ex-y0	zwnj/boundary/None/None/|qsRoe/hapax/None/None/locked|qsPea/full/None/baseline/|qsDay/half/baseline/None/
 ss04	200C:E668:E652:E653	cell	boundary-echo	space|qsRoe.noentry|qsTea.ex-y0|qsDay.half.en-y0.ex-y0.en-ext-1	zwnj/boundary/None/None/|qsRoe/hapax/None/None/locked|qsTea/full/None/baseline/|qsDay/half/baseline/None/en-ext-1
@@ -2169,7 +2205,9 @@ ss04	E650:00B7:E653:E653	cell	dangling-anchor-dropped	qsPea|periodcentered|qsDay
 ss04	E650:00B7:E653:E668	cell	bare-name-live-join	qsPea|periodcentered|qsDay|qsRoe	qsPea/full/None/None/|namer-dot/boundary/None/None/|qsDay/full/None/baseline/|qsRoe/hapax/baseline/None/
 ss04	E650:00B7:E668:E668	cell	dangling-anchor-dropped	qsPea|periodcentered.lowered|qsRoe.en-y0.ex-y5|qsRoe	qsPea/full/None/None/|namer-dot/boundary/None/None/|qsRoe/hapax/None/x-height/|qsRoe/hapax/x-height/None/
 ss04	E650:200C:E650:E653	cell	boundary-echo	qsPea|space|qsPea.noentry|qsDay.half.en-y0.ex-y0	qsPea/full/None/None/|zwnj/boundary/None/None/|qsPea/full/None/baseline/locked|qsDay/half/baseline/None/
+ss04	E650:200C:E650:E665	cell	boundary-echo	qsPea|space|qsPea.noentry|qsMay.en-y0.ex-y5.en-ext-1	qsPea/full/None/None/|zwnj/boundary/None/None/|qsPea/full/None/baseline/locked|qsMay/loop/baseline/None/
 ss04	E650:200C:E650:E668	cell	boundary-echo	qsPea|space|qsPea.half.ex-y5.ex-dips|qsRoe.en-y5.en-con-1	qsPea/full/None/None/|zwnj/boundary/None/None/|qsPea/half/None/x-height/locked|qsRoe/hapax/x-height/None/en-con-1
+ss04	E650:200C:E650:E670	cell	boundary-echo	qsPea|space|qsPea.half.ex-y5.ex-dips|qsIt.en-y5.ex-y0	qsPea/full/None/None/|zwnj/boundary/None/None/|qsPea/half/None/x-height/locked|qsIt/hapax/x-height/None/
 ss04	E650:200C:E652:E652	cell	boundary-echo	qsPea|space|qsTea.ex-y0|qsTea	qsPea/full/None/None/|zwnj/boundary/None/None/|qsTea/full/None/None/locked|qsTea/full/None/None/
 ss04	E650:200C:E652:E653	cell	boundary-echo	qsPea|space|qsTea.ex-y0|qsDay.half.en-y0.ex-y0.en-ext-1	qsPea/full/None/None/|zwnj/boundary/None/None/|qsTea/full/None/baseline/locked|qsDay/half/baseline/None/en-ext-1
 ss04	E650:200C:E653:E652	cell	boundary-echo	qsPea|space|qsDay.noentry|qsTea.en-y0	qsPea/full/None/None/|zwnj/boundary/None/None/|qsDay/full/None/baseline/locked|qsTea/full/baseline/None/
@@ -2197,6 +2235,7 @@ ss04	E650:E650:200C:E650	cell	boundary-echo	qsPea.half.en-y6.ex-y6|qsPea.en-y6|s
 ss04	E650:E650:200C:E652	cell	boundary-echo	qsPea.half.en-y6.ex-y6|qsPea.en-y6|space|qsTea.noentry	qsPea/half/None/y6/|qsPea/full/y6/None/|zwnj/boundary/None/None/|qsTea/full/None/None/locked
 ss04	E650:E650:200C:E653	cell	boundary-echo	qsPea.half.en-y6.ex-y6|qsPea.en-y6|space|qsDay.noentry	qsPea/half/None/y6/|qsPea/full/y6/None/|zwnj/boundary/None/None/|qsDay/full/None/None/locked
 ss04	E650:E650:200C:E668	cell	boundary-echo	qsPea.half.en-y6.ex-y6|qsPea.en-y6|space|qsRoe.noentry	qsPea/half/None/y6/|qsPea/full/y6/None/|zwnj/boundary/None/None/|qsRoe/hapax/None/None/locked
+ss04	E650:E650:200C:E67A	cell	boundary-echo	qsPea.half.en-y6.ex-y6|qsPea.en-y6|space|qsUtter.noentry	qsPea/half/None/y6/|qsPea/full/y6/None/|zwnj/boundary/None/None/|qsUtter/mono/None/None/locked
 ss04	E650:E650:E650:0020	cell	boundary-echo	qsPea.half.en-y6.ex-y6|qsPea.half.en-y6.ex-y6|qsPea.en-y6|space	qsPea/half/None/y6/|qsPea/half/y6/y6/|qsPea/full/y6/None/|space/boundary/None/None/
 ss04	E650:E650:E650:00B7	cell	dangling-anchor-dropped	qsPea.half.en-y6.ex-y6|qsPea.half.en-y6.ex-y6|qsPea.en-y6|periodcentered	qsPea/half/None/y6/|qsPea/half/y6/y6/|qsPea/full/y6/None/|namer-dot/boundary/None/None/
 ss04	E650:E650:E650:200C	cell	boundary-echo	qsPea.half.en-y6.ex-y6|qsPea.half.en-y6.ex-y6|qsPea.en-y6|space	qsPea/half/None/y6/|qsPea/half/y6/y6/|qsPea/full/y6/None/|zwnj/boundary/None/None/
@@ -2388,6 +2427,7 @@ ss04	E652:E653:E668:E650	cell	bare-name-live-join	qsTea.ex-y0|qsDay.half.en-y0.e
 ss04	E652:E653:E668:E652	cell	bare-name-live-join	qsTea.ex-y0|qsDay.half.en-y0.ex-y0.en-ext-1|qsRoe|qsTea	qsTea/full/None/baseline/|qsDay/half/baseline/baseline/en-ext-1|qsRoe/hapax/baseline/None/|qsTea/full/None/None/
 ss04	E652:E653:E668:E653	cell	bare-name-live-join	qsTea.ex-y0|qsDay.half.en-y0.ex-y0.en-ext-1|qsRoe|qsDay	qsTea/full/None/baseline/|qsDay/half/baseline/baseline/en-ext-1|qsRoe/hapax/baseline/None/|qsDay/full/None/None/
 ss04	E652:E653:E668:E668	cell	bare-name-live-join	qsTea.ex-y0|qsDay.half.en-y0.ex-y0.en-ext-1|qsRoe.en-y0.ex-y5|qsRoe	qsTea/full/None/baseline/|qsDay/half/baseline/baseline/en-ext-1|qsRoe/hapax/baseline/x-height/|qsRoe/hapax/x-height/None/
+ss04	E652:E653:E67A:E652	cell	dangling-anchor-dropped	qsTea.ex-y0|qsDay_qsUtter.half.en-y0.ex-y5.en-ext-1|qsTea	qsTea/full/None/baseline/|qsDay_qsUtter/half/baseline/None/en-ext-1|qsTea/full/None/None/
 ss04	E652:E668:E650:E650	cell	dangling-anchor-dropped	qsTea.half.ex-y5|qsRoe.en-y5.en-con-1|qsPea.half.en-y6.ex-y6|qsPea.en-y6	qsTea/half/None/x-height/|qsRoe/hapax/x-height/None/en-con-1|qsPea/half/None/y6/|qsPea/full/y6/None/
 ss04	E652:E668:E650:E653	cell	dangling-anchor-dropped	qsTea.half.ex-y5|qsRoe.en-y5.en-con-1|qsPea|qsDay.half.en-y0.ex-y0	qsTea/half/None/x-height/|qsRoe/hapax/x-height/None/en-con-1|qsPea/full/None/baseline/|qsDay/half/baseline/None/
 ss04	E652:E668:E652:E653	cell	dangling-anchor-dropped	qsTea.half.ex-y5|qsRoe.en-y5.en-con-1|qsTea.ex-y0|qsDay.half.en-y0.ex-y0.en-ext-1	qsTea/half/None/x-height/|qsRoe/hapax/x-height/None/en-con-1|qsTea/full/None/baseline/|qsDay/half/baseline/None/en-ext-1
@@ -2585,6 +2625,7 @@ ss04	E653:E668:E668:E650	cell	bare-name-live-join	qsDay|qsRoe.en-y0.ex-y5|qsRoe|
 ss04	E653:E668:E668:E652	cell	bare-name-live-join	qsDay|qsRoe.en-y0.ex-y5|qsRoe|qsTea	qsDay/full/None/baseline/|qsRoe/hapax/baseline/x-height/|qsRoe/hapax/x-height/None/|qsTea/full/None/None/
 ss04	E653:E668:E668:E653	cell	bare-name-live-join	qsDay|qsRoe.en-y0.ex-y5|qsRoe|qsDay	qsDay/full/None/baseline/|qsRoe/hapax/baseline/x-height/|qsRoe/hapax/x-height/None/|qsDay/full/None/None/
 ss04	E653:E668:E668:E668	cell	bare-name-live-join	qsDay|qsRoe.en-y0.ex-y5|qsRoe.ex-y0|qsRoe	qsDay/full/None/baseline/|qsRoe/hapax/baseline/x-height/|qsRoe/hapax/x-height/baseline/|qsRoe/hapax/baseline/None/
+ss04	E665:E670:E652:E679	cell,seam	pre-ligature-cleanup-regularized	qsMay|qsIt|qsTea_qsOy	qsMay/loop/None/x-height/ex-ext-1|qsIt/hapax/x-height/None/|qsTea_qsOy/hapax/None/None/
 ss04	E668:0020:E650:E650	cell	boundary-echo	qsRoe|space|qsPea.half.en-y6.ex-y6|qsPea.en-y6	qsRoe/hapax/None/None/|space/boundary/None/None/|qsPea/half/None/y6/|qsPea/full/y6/None/
 ss04	E668:0020:E650:E653	cell	boundary-echo	qsRoe|space|qsPea|qsDay.half.en-y0.ex-y0	qsRoe/hapax/None/None/|space/boundary/None/None/|qsPea/full/None/baseline/|qsDay/half/baseline/None/
 ss04	E668:0020:E652:E653	cell	boundary-echo	qsRoe|space|qsTea.ex-y0|qsDay.half.en-y0.ex-y0.en-ext-1	qsRoe/hapax/None/None/|space/boundary/None/None/|qsTea/full/None/baseline/|qsDay/half/baseline/None/en-ext-1
@@ -2705,13 +2746,17 @@ ss04	E668:E668:E668:E650	cell	dangling-anchor-dropped	qsRoe.en-y0.ex-y5|qsRoe.ex
 ss04	E668:E668:E668:E652	cell	dangling-anchor-dropped	qsRoe.en-y0.ex-y5|qsRoe.ex-y0|qsRoe|qsTea	qsRoe/hapax/None/x-height/|qsRoe/hapax/x-height/baseline/|qsRoe/hapax/baseline/None/|qsTea/full/None/None/
 ss04	E668:E668:E668:E653	cell	dangling-anchor-dropped	qsRoe.en-y0.ex-y5|qsRoe.ex-y0|qsRoe|qsDay	qsRoe/hapax/None/x-height/|qsRoe/hapax/x-height/baseline/|qsRoe/hapax/baseline/None/|qsDay/full/None/None/
 ss04	E668:E668:E668:E668	cell	dangling-anchor-dropped	qsRoe.en-y0.ex-y5|qsRoe.ex-y0|qsRoe.en-y0.ex-y5|qsRoe	qsRoe/hapax/None/x-height/|qsRoe/hapax/x-height/baseline/|qsRoe/hapax/baseline/x-height/|qsRoe/hapax/x-height/None/
+ss04	E670:E67A:E670:E665	cell	same-seam-extension-non-summing	qsIt.en-y0.ex-y0.before-utter|qsUtter|qsIt.en-y5.ex-y0.ex-ext-1|qsMay.en-y0.ex-y5.en-ext-1	qsIt/hapax/None/baseline/|qsUtter/mono/baseline/x-height/|qsIt/hapax/x-height/baseline/|qsMay/loop/baseline/None/
 ss05	E650:E650	cell	dangling-anchor-dropped	qsPea.half.en-y6.ex-y6|qsPea.en-y6	qsPea/half/None/y6/|qsPea/full/y6/None/
 ss05	E650:E653	cell	dangling-anchor-dropped	qsPea|qsDay.half.en-y0.ex-y0	qsPea/full/None/baseline/|qsDay/half/baseline/None/
 ss05	E652:E653	cell	dangling-anchor-dropped	qsTea.ex-y0|qsDay.half.en-y0.ex-y0.en-ext-1	qsTea/full/None/baseline/|qsDay/half/baseline/None/en-ext-1
+ss05	E652:E670	cell	dangling-anchor-dropped	qsTea.half.ex-y5|qsIt.en-y5.ex-y0	qsTea/half/None/x-height/|qsIt/hapax/x-height/None/
 ss05	E653:E652	cell	bare-name-live-join	qsDay|qsTea.en-y0	qsDay/full/None/baseline/|qsTea/full/baseline/None/
 ss05	E653:E653	cell	dangling-anchor-dropped	qsDay|qsDay.half.en-y0.ex-y0	qsDay/full/None/baseline/|qsDay/half/baseline/None/
 ss05	E653:E668	cell	bare-name-live-join	qsDay|qsRoe	qsDay/full/None/baseline/|qsRoe/hapax/baseline/None/
+ss05	E658:E666	cell	bare-name-live-join	qsFee.ex-y5.before-utter.ex-ext-1|qsNo	qsFee/loop/None/x-height/ex-ext-1|qsNo/loop/x-height/None/
 ss05	E668:E668	cell	dangling-anchor-dropped	qsRoe.en-y0.ex-y5|qsRoe	qsRoe/hapax/None/x-height/|qsRoe/hapax/x-height/None/
+ss05	E670:E670	cell	dangling-anchor-dropped	qsIt.ex-y5|qsIt	qsIt/hapax/None/None/|qsIt/hapax/None/None/
 ss05	0020:E650:E650	cell	boundary-echo	space|qsPea.half.en-y6.ex-y6|qsPea.en-y6	space/boundary/None/None/|qsPea/half/None/y6/|qsPea/full/y6/None/
 ss05	0020:E650:E653	cell	boundary-echo	space|qsPea|qsDay.half.en-y0.ex-y0	space/boundary/None/None/|qsPea/full/None/baseline/|qsDay/half/baseline/None/
 ss05	0020:E652:E653	cell	boundary-echo	space|qsTea.ex-y0|qsDay.half.en-y0.ex-y0.en-ext-1	space/boundary/None/None/|qsTea/full/None/baseline/|qsDay/half/baseline/None/en-ext-1
@@ -2730,6 +2775,7 @@ ss05	200C:E650:E653	cell	boundary-echo	space|qsPea.noentry|qsDay.half.en-y0.ex-y
 ss05	200C:E650:E668	cell	boundary-echo	space|qsPea.half.ex-y5.ex-dips|qsRoe.en-y5.en-con-1	zwnj/boundary/None/None/|qsPea/half/None/x-height/locked|qsRoe/hapax/x-height/None/en-con-1
 ss05	200C:E652:E652	cell	boundary-echo	space|qsTea.ex-y0|qsTea	zwnj/boundary/None/None/|qsTea/full/None/None/locked|qsTea/full/None/None/
 ss05	200C:E652:E653	cell	boundary-echo	space|qsTea.ex-y0|qsDay.half.en-y0.ex-y0.en-ext-1	zwnj/boundary/None/None/|qsTea/full/None/baseline/locked|qsDay/half/baseline/None/en-ext-1
+ss05	200C:E652:E679	ligation	boundary-echo	space|qsTea.noentry|qsOy	zwnj/boundary/None/None/|qsTea_qsOy/hapax/None/None/
 ss05	200C:E653:E652	cell	boundary-echo	space|qsDay.noentry|qsTea.en-y0	zwnj/boundary/None/None/|qsDay/full/None/baseline/locked|qsTea/full/baseline/None/
 ss05	200C:E653:E653	cell	boundary-echo	space|qsDay.noentry|qsDay.half.en-y0.ex-y0	zwnj/boundary/None/None/|qsDay/full/None/baseline/locked|qsDay/half/baseline/None/
 ss05	200C:E653:E668	cell	boundary-echo	space|qsDay.noentry|qsRoe	zwnj/boundary/None/None/|qsDay/full/None/baseline/locked|qsRoe/hapax/baseline/None/
@@ -2741,6 +2787,7 @@ ss05	E650:E650:E650	cell	dangling-anchor-dropped	qsPea.half.en-y6.ex-y6|qsPea.ha
 ss05	E650:E650:E652	cell	dangling-anchor-dropped	qsPea.half.en-y6.ex-y6|qsPea.en-y6.ex-y0|qsTea	qsPea/half/None/y6/|qsPea/full/y6/None/|qsTea/full/None/None/
 ss05	E650:E650:E653	cell	dangling-anchor-dropped	qsPea.half.en-y6.ex-y6|qsPea.en-y6.ex-y0|qsDay.half.en-y0.ex-y0	qsPea/half/None/y6/|qsPea/full/y6/baseline/|qsDay/half/baseline/None/
 ss05	E650:E650:E668	cell,seam	pea-chain-regularized	qsPea|qsPea.half.ex-y5.ex-dips|qsRoe.en-y5.en-con-1	qsPea/half/None/y6/|qsPea/half/y6/x-height/|qsRoe/hapax/x-height/None/en-con-1
+ss05	E650:E650:E670	cell,seam	pea-chain-regularized	qsPea|qsPea.half.ex-y5.ex-dips|qsIt.en-y5.ex-y0	qsPea/half/None/y6/|qsPea/half/y6/x-height/|qsIt/hapax/x-height/None/
 ss05	E650:E652:E653	cell	dangling-anchor-dropped	qsPea|qsTea.ex-y0|qsDay.half.en-y0.ex-y0.en-ext-1	qsPea/full/None/None/|qsTea/full/None/baseline/|qsDay/half/baseline/None/en-ext-1
 ss05	E650:E653:0020	cell	boundary-echo	qsPea|qsDay.half.en-y0.ex-y0|space	qsPea/full/None/baseline/|qsDay/half/baseline/None/|space/boundary/None/None/
 ss05	E650:E653:00B7	cell	dangling-anchor-dropped	qsPea|qsDay.half.en-y0.ex-y0|periodcentered	qsPea/full/None/baseline/|qsDay/half/baseline/None/|namer-dot/boundary/None/None/
@@ -2750,6 +2797,7 @@ ss05	E650:E653:E652	cell	bare-name-live-join	qsPea|qsDay.half.en-y0.ex-y0|qsTea.
 ss05	E650:E653:E653	cell	dangling-anchor-dropped	qsPea|qsDay.half.en-y0.ex-y0|qsDay.half.en-y0.ex-y0	qsPea/full/None/baseline/|qsDay/half/baseline/baseline/|qsDay/half/baseline/None/
 ss05	E650:E653:E668	cell	bare-name-live-join	qsPea|qsDay.half.en-y0.ex-y0|qsRoe	qsPea/full/None/baseline/|qsDay/half/baseline/baseline/|qsRoe/hapax/baseline/None/
 ss05	E650:E668:E668	cell,position	UNMATCHED	qsPea.half.ex-y5.ex-dips|qsRoe.ex-y0|qsRoe	qsPea/half/None/x-height/|qsRoe/hapax/x-height/baseline/en-con-1|qsRoe/hapax/baseline/None/
+ss05	E650:E670:E65D	cell,seam	regrouping-floor-drift	qsPea.half.ex-y5.ex-dips|qsIt.en-y5.ex-y0|qsJai	qsPea/full/None/None/|qsIt/hapax/None/x-height/ex-ext-1|qsJai/hapax/x-height/None/
 ss05	E652:E650:E650	cell	dangling-anchor-dropped	qsTea|qsPea.half.en-y6.ex-y6|qsPea.en-y6	qsTea/full/None/None/|qsPea/half/None/y6/|qsPea/full/y6/None/
 ss05	E652:E650:E653	cell	dangling-anchor-dropped	qsTea|qsPea|qsDay.half.en-y0.ex-y0	qsTea/full/None/None/|qsPea/full/None/baseline/|qsDay/half/baseline/None/
 ss05	E652:E652:E653	cell	dangling-anchor-dropped	qsTea|qsTea.ex-y0|qsDay.half.en-y0.ex-y0.en-ext-1	qsTea/full/None/None/|qsTea/full/None/baseline/|qsDay/half/baseline/None/en-ext-1
@@ -2783,6 +2831,7 @@ ss05	E653:E668:E650	cell	bare-name-live-join	qsDay|qsRoe|qsPea	qsDay/full/None/b
 ss05	E653:E668:E652	cell	bare-name-live-join	qsDay|qsRoe|qsTea	qsDay/full/None/baseline/|qsRoe/hapax/baseline/None/|qsTea/full/None/None/
 ss05	E653:E668:E653	cell	bare-name-live-join	qsDay|qsRoe|qsDay	qsDay/full/None/baseline/|qsRoe/hapax/baseline/None/|qsDay/full/None/None/
 ss05	E653:E668:E668	cell	bare-name-live-join	qsDay|qsRoe.en-y0.ex-y5|qsRoe	qsDay/full/None/baseline/|qsRoe/hapax/baseline/x-height/|qsRoe/hapax/x-height/None/
+ss05	E665:E666:E666	cell	bare-name-live-join	qsMay|qsNo|qsNo	qsMay/loop/None/x-height/|qsNo/loop/x-height/x-height/|qsNo/loop/x-height/None/
 ss05	E668:E650:E650	cell	dangling-anchor-dropped	qsRoe|qsPea.half.en-y6.ex-y6|qsPea.en-y6	qsRoe/hapax/None/None/|qsPea/half/None/y6/|qsPea/full/y6/None/
 ss05	E668:E650:E653	cell	dangling-anchor-dropped	qsRoe|qsPea|qsDay.half.en-y0.ex-y0	qsRoe/hapax/None/None/|qsPea/full/None/baseline/|qsDay/half/baseline/None/
 ss05	E668:E652:E653	cell	dangling-anchor-dropped	qsRoe|qsTea.ex-y0|qsDay.half.en-y0.ex-y0.en-ext-1	qsRoe/hapax/None/None/|qsTea/full/None/baseline/|qsDay/half/baseline/None/en-ext-1
@@ -3043,6 +3092,7 @@ ss05	200C:E653:E668:E650	cell	boundary-echo	space|qsDay.noentry|qsRoe|qsPea	zwnj
 ss05	200C:E653:E668:E652	cell	boundary-echo	space|qsDay.noentry|qsRoe|qsTea	zwnj/boundary/None/None/|qsDay/full/None/baseline/locked|qsRoe/hapax/baseline/None/|qsTea/full/None/None/
 ss05	200C:E653:E668:E653	cell	boundary-echo	space|qsDay.noentry|qsRoe|qsDay	zwnj/boundary/None/None/|qsDay/full/None/baseline/locked|qsRoe/hapax/baseline/None/|qsDay/full/None/None/
 ss05	200C:E653:E668:E668	cell	boundary-echo	space|qsDay.noentry|qsRoe.en-y0.ex-y5|qsRoe	zwnj/boundary/None/None/|qsDay/full/None/baseline/locked|qsRoe/hapax/baseline/x-height/|qsRoe/hapax/x-height/None/
+ss05	200C:E665:E679:E650	cell	boundary-echo	space|qsMay.noentry|qsOy.en-y5.ex-y0|qsPea	zwnj/boundary/None/None/|qsMay/loop/None/x-height/locked|qsOy/hapax/x-height/None/|qsPea/full/None/None/
 ss05	200C:E668:E650:E650	cell	boundary-echo	space|qsRoe.noentry|qsPea.half.en-y6.ex-y6|qsPea.en-y6	zwnj/boundary/None/None/|qsRoe/hapax/None/None/locked|qsPea/half/None/y6/|qsPea/full/y6/None/
 ss05	200C:E668:E650:E653	cell	boundary-echo	space|qsRoe.noentry|qsPea|qsDay.half.en-y0.ex-y0	zwnj/boundary/None/None/|qsRoe/hapax/None/None/locked|qsPea/full/None/baseline/|qsDay/half/baseline/None/
 ss05	200C:E668:E652:E653	cell	boundary-echo	space|qsRoe.noentry|qsTea.ex-y0|qsDay.half.en-y0.ex-y0.en-ext-1	zwnj/boundary/None/None/|qsRoe/hapax/None/None/locked|qsTea/full/None/baseline/|qsDay/half/baseline/None/en-ext-1
@@ -3071,7 +3121,9 @@ ss05	E650:00B7:E653:E653	cell	dangling-anchor-dropped	qsPea|periodcentered|qsDay
 ss05	E650:00B7:E653:E668	cell	bare-name-live-join	qsPea|periodcentered|qsDay|qsRoe	qsPea/full/None/None/|namer-dot/boundary/None/None/|qsDay/full/None/baseline/|qsRoe/hapax/baseline/None/
 ss05	E650:00B7:E668:E668	cell	dangling-anchor-dropped	qsPea|periodcentered.lowered|qsRoe.en-y0.ex-y5|qsRoe	qsPea/full/None/None/|namer-dot/boundary/None/None/|qsRoe/hapax/None/x-height/|qsRoe/hapax/x-height/None/
 ss05	E650:200C:E650:E653	cell	boundary-echo	qsPea|space|qsPea.noentry|qsDay.half.en-y0.ex-y0	qsPea/full/None/None/|zwnj/boundary/None/None/|qsPea/full/None/baseline/locked|qsDay/half/baseline/None/
+ss05	E650:200C:E650:E665	cell	boundary-echo	qsPea|space|qsPea.noentry|qsMay.en-y0.ex-y5.en-ext-1	qsPea/full/None/None/|zwnj/boundary/None/None/|qsPea/full/None/baseline/locked|qsMay/loop/baseline/None/
 ss05	E650:200C:E650:E668	cell	boundary-echo	qsPea|space|qsPea.half.ex-y5.ex-dips|qsRoe.en-y5.en-con-1	qsPea/full/None/None/|zwnj/boundary/None/None/|qsPea/half/None/x-height/locked|qsRoe/hapax/x-height/None/en-con-1
+ss05	E650:200C:E650:E670	cell	boundary-echo	qsPea|space|qsPea.half.ex-y5.ex-dips|qsIt.en-y5.ex-y0	qsPea/full/None/None/|zwnj/boundary/None/None/|qsPea/half/None/x-height/locked|qsIt/hapax/x-height/None/
 ss05	E650:200C:E652:E652	cell	boundary-echo	qsPea|space|qsTea.ex-y0|qsTea	qsPea/full/None/None/|zwnj/boundary/None/None/|qsTea/full/None/None/locked|qsTea/full/None/None/
 ss05	E650:200C:E652:E653	cell	boundary-echo	qsPea|space|qsTea.ex-y0|qsDay.half.en-y0.ex-y0.en-ext-1	qsPea/full/None/None/|zwnj/boundary/None/None/|qsTea/full/None/baseline/locked|qsDay/half/baseline/None/en-ext-1
 ss05	E650:200C:E653:E652	cell	boundary-echo	qsPea|space|qsDay.noentry|qsTea.en-y0	qsPea/full/None/None/|zwnj/boundary/None/None/|qsDay/full/None/baseline/locked|qsTea/full/baseline/None/
@@ -3099,6 +3151,7 @@ ss05	E650:E650:200C:E650	cell	boundary-echo	qsPea.half.en-y6.ex-y6|qsPea.en-y6|s
 ss05	E650:E650:200C:E652	cell	boundary-echo	qsPea.half.en-y6.ex-y6|qsPea.en-y6|space|qsTea.noentry	qsPea/half/None/y6/|qsPea/full/y6/None/|zwnj/boundary/None/None/|qsTea/full/None/None/locked
 ss05	E650:E650:200C:E653	cell	boundary-echo	qsPea.half.en-y6.ex-y6|qsPea.en-y6|space|qsDay.noentry	qsPea/half/None/y6/|qsPea/full/y6/None/|zwnj/boundary/None/None/|qsDay/full/None/None/locked
 ss05	E650:E650:200C:E668	cell	boundary-echo	qsPea.half.en-y6.ex-y6|qsPea.en-y6|space|qsRoe.noentry	qsPea/half/None/y6/|qsPea/full/y6/None/|zwnj/boundary/None/None/|qsRoe/hapax/None/None/locked
+ss05	E650:E650:200C:E67A	cell	boundary-echo	qsPea.half.en-y6.ex-y6|qsPea.en-y6|space|qsUtter.noentry	qsPea/half/None/y6/|qsPea/full/y6/None/|zwnj/boundary/None/None/|qsUtter/mono/None/None/locked
 ss05	E650:E650:E650:0020	cell	boundary-echo	qsPea.half.en-y6.ex-y6|qsPea.half.en-y6.ex-y6|qsPea.en-y6|space	qsPea/half/None/y6/|qsPea/half/y6/y6/|qsPea/full/y6/None/|space/boundary/None/None/
 ss05	E650:E650:E650:00B7	cell	dangling-anchor-dropped	qsPea.half.en-y6.ex-y6|qsPea.half.en-y6.ex-y6|qsPea.en-y6|periodcentered	qsPea/half/None/y6/|qsPea/half/y6/y6/|qsPea/full/y6/None/|namer-dot/boundary/None/None/
 ss05	E650:E650:E650:200C	cell	boundary-echo	qsPea.half.en-y6.ex-y6|qsPea.half.en-y6.ex-y6|qsPea.en-y6|space	qsPea/half/None/y6/|qsPea/half/y6/y6/|qsPea/full/y6/None/|zwnj/boundary/None/None/
@@ -3290,6 +3343,7 @@ ss05	E652:E653:E668:E650	cell	bare-name-live-join	qsTea.ex-y0|qsDay.half.en-y0.e
 ss05	E652:E653:E668:E652	cell	bare-name-live-join	qsTea.ex-y0|qsDay.half.en-y0.ex-y0.en-ext-1|qsRoe|qsTea	qsTea/full/None/baseline/|qsDay/half/baseline/baseline/en-ext-1|qsRoe/hapax/baseline/None/|qsTea/full/None/None/
 ss05	E652:E653:E668:E653	cell	bare-name-live-join	qsTea.ex-y0|qsDay.half.en-y0.ex-y0.en-ext-1|qsRoe|qsDay	qsTea/full/None/baseline/|qsDay/half/baseline/baseline/en-ext-1|qsRoe/hapax/baseline/None/|qsDay/full/None/None/
 ss05	E652:E653:E668:E668	cell	bare-name-live-join	qsTea.ex-y0|qsDay.half.en-y0.ex-y0.en-ext-1|qsRoe.en-y0.ex-y5|qsRoe	qsTea/full/None/baseline/|qsDay/half/baseline/baseline/en-ext-1|qsRoe/hapax/baseline/x-height/|qsRoe/hapax/x-height/None/
+ss05	E652:E653:E67A:E652	cell	dangling-anchor-dropped	qsTea.ex-y0|qsDay_qsUtter.half.en-y0.ex-y5.en-ext-1|qsTea	qsTea/full/None/baseline/|qsDay_qsUtter/half/baseline/None/en-ext-1|qsTea/full/None/None/
 ss05	E652:E668:E650:E650	cell	dangling-anchor-dropped	qsTea.half.ex-y5|qsRoe.en-y5.en-con-1|qsPea.half.en-y6.ex-y6|qsPea.en-y6	qsTea/half/None/x-height/|qsRoe/hapax/x-height/None/en-con-1|qsPea/half/None/y6/|qsPea/full/y6/None/
 ss05	E652:E668:E650:E653	cell	dangling-anchor-dropped	qsTea.half.ex-y5|qsRoe.en-y5.en-con-1|qsPea|qsDay.half.en-y0.ex-y0	qsTea/half/None/x-height/|qsRoe/hapax/x-height/None/en-con-1|qsPea/full/None/baseline/|qsDay/half/baseline/None/
 ss05	E652:E668:E652:E653	cell	dangling-anchor-dropped	qsTea.half.ex-y5|qsRoe.en-y5.en-con-1|qsTea.ex-y0|qsDay.half.en-y0.ex-y0.en-ext-1	qsTea/half/None/x-height/|qsRoe/hapax/x-height/None/en-con-1|qsTea/full/None/baseline/|qsDay/half/baseline/None/en-ext-1
@@ -3487,6 +3541,7 @@ ss05	E653:E668:E668:E650	cell	bare-name-live-join	qsDay|qsRoe.en-y0.ex-y5|qsRoe|
 ss05	E653:E668:E668:E652	cell	bare-name-live-join	qsDay|qsRoe.en-y0.ex-y5|qsRoe|qsTea	qsDay/full/None/baseline/|qsRoe/hapax/baseline/x-height/|qsRoe/hapax/x-height/None/|qsTea/full/None/None/
 ss05	E653:E668:E668:E653	cell	bare-name-live-join	qsDay|qsRoe.en-y0.ex-y5|qsRoe|qsDay	qsDay/full/None/baseline/|qsRoe/hapax/baseline/x-height/|qsRoe/hapax/x-height/None/|qsDay/full/None/None/
 ss05	E653:E668:E668:E668	cell	bare-name-live-join	qsDay|qsRoe.en-y0.ex-y5|qsRoe.ex-y0|qsRoe	qsDay/full/None/baseline/|qsRoe/hapax/baseline/x-height/|qsRoe/hapax/x-height/baseline/|qsRoe/hapax/baseline/None/
+ss05	E665:E670:E652:E679	cell,seam	pre-ligature-cleanup-regularized	qsMay|qsIt|qsTea_qsOy	qsMay/loop/None/x-height/ex-ext-1|qsIt/hapax/x-height/None/|qsTea_qsOy/hapax/None/None/
 ss05	E668:0020:E650:E650	cell	boundary-echo	qsRoe|space|qsPea.half.en-y6.ex-y6|qsPea.en-y6	qsRoe/hapax/None/None/|space/boundary/None/None/|qsPea/half/None/y6/|qsPea/full/y6/None/
 ss05	E668:0020:E650:E653	cell	boundary-echo	qsRoe|space|qsPea|qsDay.half.en-y0.ex-y0	qsRoe/hapax/None/None/|space/boundary/None/None/|qsPea/full/None/baseline/|qsDay/half/baseline/None/
 ss05	E668:0020:E652:E653	cell	boundary-echo	qsRoe|space|qsTea.ex-y0|qsDay.half.en-y0.ex-y0.en-ext-1	qsRoe/hapax/None/None/|space/boundary/None/None/|qsTea/full/None/baseline/|qsDay/half/baseline/None/en-ext-1
@@ -3607,13 +3662,17 @@ ss05	E668:E668:E668:E650	cell	dangling-anchor-dropped	qsRoe.en-y0.ex-y5|qsRoe.ex
 ss05	E668:E668:E668:E652	cell	dangling-anchor-dropped	qsRoe.en-y0.ex-y5|qsRoe.ex-y0|qsRoe|qsTea	qsRoe/hapax/None/x-height/|qsRoe/hapax/x-height/baseline/|qsRoe/hapax/baseline/None/|qsTea/full/None/None/
 ss05	E668:E668:E668:E653	cell	dangling-anchor-dropped	qsRoe.en-y0.ex-y5|qsRoe.ex-y0|qsRoe|qsDay	qsRoe/hapax/None/x-height/|qsRoe/hapax/x-height/baseline/|qsRoe/hapax/baseline/None/|qsDay/full/None/None/
 ss05	E668:E668:E668:E668	cell	dangling-anchor-dropped	qsRoe.en-y0.ex-y5|qsRoe.ex-y0|qsRoe.en-y0.ex-y5|qsRoe	qsRoe/hapax/None/x-height/|qsRoe/hapax/x-height/baseline/|qsRoe/hapax/baseline/x-height/|qsRoe/hapax/x-height/None/
+ss05	E670:E67A:E670:E665	cell	same-seam-extension-non-summing	qsIt.ex-y0.before-utter|qsUtter|qsIt.en-y5.ex-y0.ex-ext-1|qsMay.en-y0.ex-y5.en-ext-1	qsIt/hapax/None/baseline/|qsUtter/mono/baseline/x-height/|qsIt/hapax/x-height/baseline/|qsMay/loop/baseline/None/
 ss03+ss05	E650:E650	cell	dangling-anchor-dropped	qsPea.half.en-y6.ex-y6|qsPea.en-y6	qsPea/half/None/y6/|qsPea/full/y6/None/
 ss03+ss05	E650:E653	cell	dangling-anchor-dropped	qsPea|qsDay.half.en-y0.ex-y0	qsPea/full/None/baseline/|qsDay/half/baseline/None/
 ss03+ss05	E652:E653	cell	dangling-anchor-dropped	qsTea.ex-y0|qsDay.half.en-y0.ex-y0.en-ext-1	qsTea/full/None/baseline/|qsDay/half/baseline/None/en-ext-1
+ss03+ss05	E652:E670	cell	dangling-anchor-dropped	qsTea.half.ex-y5|qsIt.en-y5.ex-y0	qsTea/half/None/x-height/|qsIt/hapax/x-height/None/
 ss03+ss05	E653:E652	cell	bare-name-live-join	qsDay|qsTea.en-y0	qsDay/full/None/baseline/|qsTea/full/baseline/None/
 ss03+ss05	E653:E653	cell	dangling-anchor-dropped	qsDay|qsDay.half.en-y0.ex-y0	qsDay/full/None/baseline/|qsDay/half/baseline/None/
 ss03+ss05	E653:E668	cell	bare-name-live-join	qsDay|qsRoe	qsDay/full/None/baseline/|qsRoe/hapax/baseline/None/
+ss03+ss05	E658:E666	cell	bare-name-live-join	qsFee.ex-y5.before-utter.ex-ext-1|qsNo	qsFee/loop/None/x-height/ex-ext-1|qsNo/loop/x-height/None/
 ss03+ss05	E668:E668	cell	dangling-anchor-dropped	qsRoe.en-y0.ex-y5|qsRoe	qsRoe/hapax/None/x-height/|qsRoe/hapax/x-height/None/
+ss03+ss05	E670:E670	cell	dangling-anchor-dropped	qsIt.ex-y5|qsIt	qsIt/hapax/None/None/|qsIt/hapax/None/None/
 ss03+ss05	0020:E650:E650	cell	boundary-echo	space|qsPea.half.en-y6.ex-y6|qsPea.en-y6	space/boundary/None/None/|qsPea/half/None/y6/|qsPea/full/y6/None/
 ss03+ss05	0020:E650:E653	cell	boundary-echo	space|qsPea|qsDay.half.en-y0.ex-y0	space/boundary/None/None/|qsPea/full/None/baseline/|qsDay/half/baseline/None/
 ss03+ss05	0020:E652:E653	cell	boundary-echo	space|qsTea.ex-y0|qsDay.half.en-y0.ex-y0.en-ext-1	space/boundary/None/None/|qsTea/full/None/baseline/|qsDay/half/baseline/None/en-ext-1
@@ -3632,6 +3691,7 @@ ss03+ss05	200C:E650:E653	cell	boundary-echo	space|qsPea.noentry|qsDay.half.en-y0
 ss03+ss05	200C:E650:E668	cell	boundary-echo	space|qsPea.half.ex-y5.ex-dips|qsRoe.en-y5.en-con-1	zwnj/boundary/None/None/|qsPea/half/None/x-height/locked|qsRoe/hapax/x-height/None/en-con-1
 ss03+ss05	200C:E652:E652	cell	boundary-echo	space|qsTea.ex-y0|qsTea	zwnj/boundary/None/None/|qsTea/full/None/None/locked|qsTea/full/None/None/
 ss03+ss05	200C:E652:E653	cell	boundary-echo	space|qsTea.ex-y0|qsDay.half.en-y0.ex-y0.en-ext-1	zwnj/boundary/None/None/|qsTea/full/None/baseline/locked|qsDay/half/baseline/None/en-ext-1
+ss03+ss05	200C:E652:E679	ligation	boundary-echo	space|qsTea.noentry|qsOy	zwnj/boundary/None/None/|qsTea_qsOy/hapax/None/None/
 ss03+ss05	200C:E653:E652	cell	boundary-echo	space|qsDay.noentry|qsTea.en-y0	zwnj/boundary/None/None/|qsDay/full/None/baseline/locked|qsTea/full/baseline/None/
 ss03+ss05	200C:E653:E653	cell	boundary-echo	space|qsDay.noentry|qsDay.half.en-y0.ex-y0	zwnj/boundary/None/None/|qsDay/full/None/baseline/locked|qsDay/half/baseline/None/
 ss03+ss05	200C:E653:E668	cell	boundary-echo	space|qsDay.noentry|qsRoe	zwnj/boundary/None/None/|qsDay/full/None/baseline/locked|qsRoe/hapax/baseline/None/
@@ -3643,6 +3703,7 @@ ss03+ss05	E650:E650:E650	cell	dangling-anchor-dropped	qsPea.half.en-y6.ex-y6|qsP
 ss03+ss05	E650:E650:E652	cell	dangling-anchor-dropped	qsPea.half.en-y6.ex-y6|qsPea.en-y6.ex-y0|qsTea	qsPea/half/None/y6/|qsPea/full/y6/None/|qsTea/full/None/None/
 ss03+ss05	E650:E650:E653	cell	dangling-anchor-dropped	qsPea.half.en-y6.ex-y6|qsPea.en-y6.ex-y0|qsDay.half.en-y0.ex-y0	qsPea/half/None/y6/|qsPea/full/y6/baseline/|qsDay/half/baseline/None/
 ss03+ss05	E650:E650:E668	cell,seam	pea-chain-regularized	qsPea|qsPea.half.ex-y5.ex-dips|qsRoe.en-y5.en-con-1	qsPea/half/None/y6/|qsPea/half/y6/x-height/|qsRoe/hapax/x-height/None/en-con-1
+ss03+ss05	E650:E650:E670	cell,seam	pea-chain-regularized	qsPea|qsPea.half.ex-y5.ex-dips|qsIt.en-y5.ex-y0	qsPea/half/None/y6/|qsPea/half/y6/x-height/|qsIt/hapax/x-height/None/
 ss03+ss05	E650:E652:E653	cell	dangling-anchor-dropped	qsPea|qsTea.ex-y0|qsDay.half.en-y0.ex-y0.en-ext-1	qsPea/full/None/None/|qsTea/full/None/baseline/|qsDay/half/baseline/None/en-ext-1
 ss03+ss05	E650:E653:0020	cell	boundary-echo	qsPea|qsDay.half.en-y0.ex-y0|space	qsPea/full/None/baseline/|qsDay/half/baseline/None/|space/boundary/None/None/
 ss03+ss05	E650:E653:00B7	cell	dangling-anchor-dropped	qsPea|qsDay.half.en-y0.ex-y0|periodcentered	qsPea/full/None/baseline/|qsDay/half/baseline/None/|namer-dot/boundary/None/None/
@@ -3652,6 +3713,7 @@ ss03+ss05	E650:E653:E652	cell	bare-name-live-join	qsPea|qsDay.half.en-y0.ex-y0|q
 ss03+ss05	E650:E653:E653	cell	dangling-anchor-dropped	qsPea|qsDay.half.en-y0.ex-y0|qsDay.half.en-y0.ex-y0	qsPea/full/None/baseline/|qsDay/half/baseline/baseline/|qsDay/half/baseline/None/
 ss03+ss05	E650:E653:E668	cell	bare-name-live-join	qsPea|qsDay.half.en-y0.ex-y0|qsRoe	qsPea/full/None/baseline/|qsDay/half/baseline/baseline/|qsRoe/hapax/baseline/None/
 ss03+ss05	E650:E668:E668	cell,position	UNMATCHED	qsPea.half.ex-y5.ex-dips|qsRoe.ex-y0|qsRoe	qsPea/half/None/x-height/|qsRoe/hapax/x-height/baseline/en-con-1|qsRoe/hapax/baseline/None/
+ss03+ss05	E650:E670:E65D	cell,seam	regrouping-floor-drift	qsPea.half.ex-y5.ex-dips|qsIt.en-y5.ex-y0|qsJai	qsPea/full/None/None/|qsIt/hapax/None/x-height/ex-ext-1|qsJai/hapax/x-height/None/
 ss03+ss05	E652:E650:E650	cell	dangling-anchor-dropped	qsTea|qsPea.half.en-y6.ex-y6|qsPea.en-y6	qsTea/full/None/None/|qsPea/half/None/y6/|qsPea/full/y6/None/
 ss03+ss05	E652:E650:E653	cell	dangling-anchor-dropped	qsTea|qsPea|qsDay.half.en-y0.ex-y0	qsTea/full/None/None/|qsPea/full/None/baseline/|qsDay/half/baseline/None/
 ss03+ss05	E652:E652:E653	cell	dangling-anchor-dropped	qsTea|qsTea.ex-y0|qsDay.half.en-y0.ex-y0.en-ext-1	qsTea/full/None/None/|qsTea/full/None/baseline/|qsDay/half/baseline/None/en-ext-1
@@ -3685,6 +3747,7 @@ ss03+ss05	E653:E668:E650	cell	bare-name-live-join	qsDay|qsRoe|qsPea	qsDay/full/N
 ss03+ss05	E653:E668:E652	cell	bare-name-live-join	qsDay|qsRoe|qsTea	qsDay/full/None/baseline/|qsRoe/hapax/baseline/None/|qsTea/full/None/None/
 ss03+ss05	E653:E668:E653	cell	bare-name-live-join	qsDay|qsRoe|qsDay	qsDay/full/None/baseline/|qsRoe/hapax/baseline/None/|qsDay/full/None/None/
 ss03+ss05	E653:E668:E668	cell	bare-name-live-join	qsDay|qsRoe.en-y0.ex-y5|qsRoe	qsDay/full/None/baseline/|qsRoe/hapax/baseline/x-height/|qsRoe/hapax/x-height/None/
+ss03+ss05	E665:E666:E666	cell	bare-name-live-join	qsMay|qsNo|qsNo	qsMay/loop/None/x-height/|qsNo/loop/x-height/x-height/|qsNo/loop/x-height/None/
 ss03+ss05	E668:E650:E650	cell	dangling-anchor-dropped	qsRoe|qsPea.half.en-y6.ex-y6|qsPea.en-y6	qsRoe/hapax/None/None/|qsPea/half/None/y6/|qsPea/full/y6/None/
 ss03+ss05	E668:E650:E653	cell	dangling-anchor-dropped	qsRoe|qsPea|qsDay.half.en-y0.ex-y0	qsRoe/hapax/None/None/|qsPea/full/None/baseline/|qsDay/half/baseline/None/
 ss03+ss05	E668:E652:E653	cell	dangling-anchor-dropped	qsRoe|qsTea.ex-y0|qsDay.half.en-y0.ex-y0.en-ext-1	qsRoe/hapax/None/None/|qsTea/full/None/baseline/|qsDay/half/baseline/None/en-ext-1
@@ -3945,6 +4008,7 @@ ss03+ss05	200C:E653:E668:E650	cell	boundary-echo	space|qsDay.noentry|qsRoe|qsPea
 ss03+ss05	200C:E653:E668:E652	cell	boundary-echo	space|qsDay.noentry|qsRoe|qsTea	zwnj/boundary/None/None/|qsDay/full/None/baseline/locked|qsRoe/hapax/baseline/None/|qsTea/full/None/None/
 ss03+ss05	200C:E653:E668:E653	cell	boundary-echo	space|qsDay.noentry|qsRoe|qsDay	zwnj/boundary/None/None/|qsDay/full/None/baseline/locked|qsRoe/hapax/baseline/None/|qsDay/full/None/None/
 ss03+ss05	200C:E653:E668:E668	cell	boundary-echo	space|qsDay.noentry|qsRoe.en-y0.ex-y5|qsRoe	zwnj/boundary/None/None/|qsDay/full/None/baseline/locked|qsRoe/hapax/baseline/x-height/|qsRoe/hapax/x-height/None/
+ss03+ss05	200C:E665:E679:E650	cell	boundary-echo	space|qsMay.noentry|qsOy.en-y5.ex-y0|qsPea	zwnj/boundary/None/None/|qsMay/loop/None/x-height/locked|qsOy/hapax/x-height/None/|qsPea/full/None/None/
 ss03+ss05	200C:E668:E650:E650	cell	boundary-echo	space|qsRoe.noentry|qsPea.half.en-y6.ex-y6|qsPea.en-y6	zwnj/boundary/None/None/|qsRoe/hapax/None/None/locked|qsPea/half/None/y6/|qsPea/full/y6/None/
 ss03+ss05	200C:E668:E650:E653	cell	boundary-echo	space|qsRoe.noentry|qsPea|qsDay.half.en-y0.ex-y0	zwnj/boundary/None/None/|qsRoe/hapax/None/None/locked|qsPea/full/None/baseline/|qsDay/half/baseline/None/
 ss03+ss05	200C:E668:E652:E653	cell	boundary-echo	space|qsRoe.noentry|qsTea.ex-y0|qsDay.half.en-y0.ex-y0.en-ext-1	zwnj/boundary/None/None/|qsRoe/hapax/None/None/locked|qsTea/full/None/baseline/|qsDay/half/baseline/None/en-ext-1
@@ -3973,7 +4037,9 @@ ss03+ss05	E650:00B7:E653:E653	cell	dangling-anchor-dropped	qsPea|periodcentered|
 ss03+ss05	E650:00B7:E653:E668	cell	bare-name-live-join	qsPea|periodcentered|qsDay|qsRoe	qsPea/full/None/None/|namer-dot/boundary/None/None/|qsDay/full/None/baseline/|qsRoe/hapax/baseline/None/
 ss03+ss05	E650:00B7:E668:E668	cell	dangling-anchor-dropped	qsPea|periodcentered.lowered|qsRoe.en-y0.ex-y5|qsRoe	qsPea/full/None/None/|namer-dot/boundary/None/None/|qsRoe/hapax/None/x-height/|qsRoe/hapax/x-height/None/
 ss03+ss05	E650:200C:E650:E653	cell	boundary-echo	qsPea|space|qsPea.noentry|qsDay.half.en-y0.ex-y0	qsPea/full/None/None/|zwnj/boundary/None/None/|qsPea/full/None/baseline/locked|qsDay/half/baseline/None/
+ss03+ss05	E650:200C:E650:E665	cell	boundary-echo	qsPea|space|qsPea.noentry|qsMay.en-y0.ex-y5.en-ext-1	qsPea/full/None/None/|zwnj/boundary/None/None/|qsPea/full/None/baseline/locked|qsMay/loop/baseline/None/
 ss03+ss05	E650:200C:E650:E668	cell	boundary-echo	qsPea|space|qsPea.half.ex-y5.ex-dips|qsRoe.en-y5.en-con-1	qsPea/full/None/None/|zwnj/boundary/None/None/|qsPea/half/None/x-height/locked|qsRoe/hapax/x-height/None/en-con-1
+ss03+ss05	E650:200C:E650:E670	cell	boundary-echo	qsPea|space|qsPea.half.ex-y5.ex-dips|qsIt.en-y5.ex-y0	qsPea/full/None/None/|zwnj/boundary/None/None/|qsPea/half/None/x-height/locked|qsIt/hapax/x-height/None/
 ss03+ss05	E650:200C:E652:E652	cell	boundary-echo	qsPea|space|qsTea.ex-y0|qsTea	qsPea/full/None/None/|zwnj/boundary/None/None/|qsTea/full/None/None/locked|qsTea/full/None/None/
 ss03+ss05	E650:200C:E652:E653	cell	boundary-echo	qsPea|space|qsTea.ex-y0|qsDay.half.en-y0.ex-y0.en-ext-1	qsPea/full/None/None/|zwnj/boundary/None/None/|qsTea/full/None/baseline/locked|qsDay/half/baseline/None/en-ext-1
 ss03+ss05	E650:200C:E653:E652	cell	boundary-echo	qsPea|space|qsDay.noentry|qsTea.en-y0	qsPea/full/None/None/|zwnj/boundary/None/None/|qsDay/full/None/baseline/locked|qsTea/full/baseline/None/
@@ -4001,6 +4067,7 @@ ss03+ss05	E650:E650:200C:E650	cell	boundary-echo	qsPea.half.en-y6.ex-y6|qsPea.en
 ss03+ss05	E650:E650:200C:E652	cell	boundary-echo	qsPea.half.en-y6.ex-y6|qsPea.en-y6|space|qsTea.noentry	qsPea/half/None/y6/|qsPea/full/y6/None/|zwnj/boundary/None/None/|qsTea/full/None/None/locked
 ss03+ss05	E650:E650:200C:E653	cell	boundary-echo	qsPea.half.en-y6.ex-y6|qsPea.en-y6|space|qsDay.noentry	qsPea/half/None/y6/|qsPea/full/y6/None/|zwnj/boundary/None/None/|qsDay/full/None/None/locked
 ss03+ss05	E650:E650:200C:E668	cell	boundary-echo	qsPea.half.en-y6.ex-y6|qsPea.en-y6|space|qsRoe.noentry	qsPea/half/None/y6/|qsPea/full/y6/None/|zwnj/boundary/None/None/|qsRoe/hapax/None/None/locked
+ss03+ss05	E650:E650:200C:E67A	cell	boundary-echo	qsPea.half.en-y6.ex-y6|qsPea.en-y6|space|qsUtter.noentry	qsPea/half/None/y6/|qsPea/full/y6/None/|zwnj/boundary/None/None/|qsUtter/mono/None/None/locked
 ss03+ss05	E650:E650:E650:0020	cell	boundary-echo	qsPea.half.en-y6.ex-y6|qsPea.half.en-y6.ex-y6|qsPea.en-y6|space	qsPea/half/None/y6/|qsPea/half/y6/y6/|qsPea/full/y6/None/|space/boundary/None/None/
 ss03+ss05	E650:E650:E650:00B7	cell	dangling-anchor-dropped	qsPea.half.en-y6.ex-y6|qsPea.half.en-y6.ex-y6|qsPea.en-y6|periodcentered	qsPea/half/None/y6/|qsPea/half/y6/y6/|qsPea/full/y6/None/|namer-dot/boundary/None/None/
 ss03+ss05	E650:E650:E650:200C	cell	boundary-echo	qsPea.half.en-y6.ex-y6|qsPea.half.en-y6.ex-y6|qsPea.en-y6|space	qsPea/half/None/y6/|qsPea/half/y6/y6/|qsPea/full/y6/None/|zwnj/boundary/None/None/
@@ -4192,6 +4259,7 @@ ss03+ss05	E652:E653:E668:E650	cell	bare-name-live-join	qsTea.ex-y0|qsDay.half.en
 ss03+ss05	E652:E653:E668:E652	cell	bare-name-live-join	qsTea.ex-y0|qsDay.half.en-y0.ex-y0.en-ext-1|qsRoe|qsTea	qsTea/full/None/baseline/|qsDay/half/baseline/baseline/en-ext-1|qsRoe/hapax/baseline/None/|qsTea/full/None/None/
 ss03+ss05	E652:E653:E668:E653	cell	bare-name-live-join	qsTea.ex-y0|qsDay.half.en-y0.ex-y0.en-ext-1|qsRoe|qsDay	qsTea/full/None/baseline/|qsDay/half/baseline/baseline/en-ext-1|qsRoe/hapax/baseline/None/|qsDay/full/None/None/
 ss03+ss05	E652:E653:E668:E668	cell	bare-name-live-join	qsTea.ex-y0|qsDay.half.en-y0.ex-y0.en-ext-1|qsRoe.en-y0.ex-y5|qsRoe	qsTea/full/None/baseline/|qsDay/half/baseline/baseline/en-ext-1|qsRoe/hapax/baseline/x-height/|qsRoe/hapax/x-height/None/
+ss03+ss05	E652:E653:E67A:E652	cell	halves-entry-extension-restored	qsTea.ex-y0|qsDay_qsUtter.half.en-y0.ex-y5.ex-ext-1|qsTea.half.en-y5.after-xheight-exit	qsTea/full/None/baseline/|qsDay_qsUtter/half/baseline/x-height/en-ext-1+ex-ext-1|qsTea/full/x-height/None/
 ss03+ss05	E652:E668:E650:E650	cell	dangling-anchor-dropped	qsTea.half.ex-y5|qsRoe.en-y5.en-con-1|qsPea.half.en-y6.ex-y6|qsPea.en-y6	qsTea/half/None/x-height/|qsRoe/hapax/x-height/None/en-con-1|qsPea/half/None/y6/|qsPea/full/y6/None/
 ss03+ss05	E652:E668:E650:E653	cell	dangling-anchor-dropped	qsTea.half.ex-y5|qsRoe.en-y5.en-con-1|qsPea|qsDay.half.en-y0.ex-y0	qsTea/half/None/x-height/|qsRoe/hapax/x-height/None/en-con-1|qsPea/full/None/baseline/|qsDay/half/baseline/None/
 ss03+ss05	E652:E668:E652:E653	cell	dangling-anchor-dropped	qsTea.half.ex-y5|qsRoe.en-y5.en-con-1|qsTea.ex-y0|qsDay.half.en-y0.ex-y0.en-ext-1	qsTea/half/None/x-height/|qsRoe/hapax/x-height/None/en-con-1|qsTea/full/None/baseline/|qsDay/half/baseline/None/en-ext-1
@@ -4389,6 +4457,7 @@ ss03+ss05	E653:E668:E668:E650	cell	bare-name-live-join	qsDay|qsRoe.en-y0.ex-y5|q
 ss03+ss05	E653:E668:E668:E652	cell	bare-name-live-join	qsDay|qsRoe.en-y0.ex-y5|qsRoe|qsTea	qsDay/full/None/baseline/|qsRoe/hapax/baseline/x-height/|qsRoe/hapax/x-height/None/|qsTea/full/None/None/
 ss03+ss05	E653:E668:E668:E653	cell	bare-name-live-join	qsDay|qsRoe.en-y0.ex-y5|qsRoe|qsDay	qsDay/full/None/baseline/|qsRoe/hapax/baseline/x-height/|qsRoe/hapax/x-height/None/|qsDay/full/None/None/
 ss03+ss05	E653:E668:E668:E668	cell	bare-name-live-join	qsDay|qsRoe.en-y0.ex-y5|qsRoe.ex-y0|qsRoe	qsDay/full/None/baseline/|qsRoe/hapax/baseline/x-height/|qsRoe/hapax/x-height/baseline/|qsRoe/hapax/baseline/None/
+ss03+ss05	E665:E670:E652:E679	cell,seam	pre-ligature-cleanup-regularized	qsMay|qsIt|qsTea_qsOy	qsMay/loop/None/x-height/ex-ext-1|qsIt/hapax/x-height/None/|qsTea_qsOy/hapax/None/None/
 ss03+ss05	E668:0020:E650:E650	cell	boundary-echo	qsRoe|space|qsPea.half.en-y6.ex-y6|qsPea.en-y6	qsRoe/hapax/None/None/|space/boundary/None/None/|qsPea/half/None/y6/|qsPea/full/y6/None/
 ss03+ss05	E668:0020:E650:E653	cell	boundary-echo	qsRoe|space|qsPea|qsDay.half.en-y0.ex-y0	qsRoe/hapax/None/None/|space/boundary/None/None/|qsPea/full/None/baseline/|qsDay/half/baseline/None/
 ss03+ss05	E668:0020:E652:E653	cell	boundary-echo	qsRoe|space|qsTea.ex-y0|qsDay.half.en-y0.ex-y0.en-ext-1	qsRoe/hapax/None/None/|space/boundary/None/None/|qsTea/full/None/baseline/|qsDay/half/baseline/None/en-ext-1
@@ -4509,7 +4578,9 @@ ss03+ss05	E668:E668:E668:E650	cell	dangling-anchor-dropped	qsRoe.en-y0.ex-y5|qsR
 ss03+ss05	E668:E668:E668:E652	cell	dangling-anchor-dropped	qsRoe.en-y0.ex-y5|qsRoe.ex-y0|qsRoe|qsTea	qsRoe/hapax/None/x-height/|qsRoe/hapax/x-height/baseline/|qsRoe/hapax/baseline/None/|qsTea/full/None/None/
 ss03+ss05	E668:E668:E668:E653	cell	dangling-anchor-dropped	qsRoe.en-y0.ex-y5|qsRoe.ex-y0|qsRoe|qsDay	qsRoe/hapax/None/x-height/|qsRoe/hapax/x-height/baseline/|qsRoe/hapax/baseline/None/|qsDay/full/None/None/
 ss03+ss05	E668:E668:E668:E668	cell	dangling-anchor-dropped	qsRoe.en-y0.ex-y5|qsRoe.ex-y0|qsRoe.en-y0.ex-y5|qsRoe	qsRoe/hapax/None/x-height/|qsRoe/hapax/x-height/baseline/|qsRoe/hapax/baseline/x-height/|qsRoe/hapax/x-height/None/
+ss03+ss05	E670:E67A:E670:E665	cell	same-seam-extension-non-summing	qsIt.ex-y0.before-utter|qsUtter|qsIt.en-y5.ex-y0.ex-ext-1|qsMay.en-y0.ex-y5.en-ext-1	qsIt/hapax/None/baseline/|qsUtter/mono/baseline/x-height/|qsIt/hapax/x-height/baseline/|qsMay/loop/baseline/None/
 ss10	E650:E668	seam	UNMATCHED	qsPea|qsRoe	qsPea/full/None/None/|qsRoe/hapax/None/None/
+ss10	E652:E679	ligation	ss10-ligature-suppressed	qsTea_qsOy	qsTea/full/None/None/|qsOy/hapax/None/None/
 ss10	E653:E668	seam	ss10-isolation-completed	qsDay|qsRoe	qsDay/full/None/None/|qsRoe/hapax/None/None/
 ss10	0020:E650:E668	seam	boundary-echo	space|qsPea|qsRoe	space/boundary/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/
 ss10	0020:E653:E668	seam	boundary-echo	space|qsDay|qsRoe	space/boundary/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/
@@ -4539,6 +4610,7 @@ ss10	E653:E668:E650	seam	ss10-isolation-completed	qsDay|qsRoe|qsPea	qsDay/full/N
 ss10	E653:E668:E652	seam	ss10-isolation-completed	qsDay|qsRoe|qsTea	qsDay/full/None/None/|qsRoe/hapax/None/None/|qsTea/full/None/None/
 ss10	E653:E668:E653	seam	ss10-isolation-completed	qsDay|qsRoe|qsDay	qsDay/full/None/None/|qsRoe/hapax/None/None/|qsDay/full/None/None/
 ss10	E653:E668:E668	seam	ss10-isolation-completed	qsDay|qsRoe|qsRoe	qsDay/full/None/None/|qsRoe/hapax/None/None/|qsRoe/hapax/None/None/
+ss10	E665:E666:E666	seam	ss10-isolation-completed	qsMay|qsNo|qsNo	qsMay/loop/None/None/|qsNo/loop/None/None/|qsNo/loop/None/None/
 ss10	E668:E650:E668	seam	UNMATCHED	qsRoe|qsPea|qsRoe	qsRoe/hapax/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/
 ss10	E668:E653:E668	seam	ss10-isolation-completed	qsRoe|qsDay|qsRoe	qsRoe/hapax/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/
 ss10	0020:0020:E650:E668	seam	boundary-echo	space|space|qsPea|qsRoe	space/boundary/None/None/|space/boundary/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/
@@ -4646,6 +4718,7 @@ ss10	E650:200C:E668:E652	position	kern-channel-out-of-scope	qsPea|space|qsRoe|qs
 ss10	E650:200C:E668:E653	position	kern-channel-out-of-scope	qsPea|space|qsRoe|qsDay	slot 1 (space): origin want (200, 0), got (250, 0)|slot 2 (qsRoe): origin want (200, 0), got (250, 0)|slot 3 (qsDay): origin want (500, 0), got (550, 0)|total advance: want 750, got 800
 ss10	E650:200C:E668:E668	position	kern-channel-out-of-scope	qsPea|space|qsRoe|qsRoe	slot 1 (space): origin want (200, 0), got (250, 0)|slot 2 (qsRoe): origin want (200, 0), got (250, 0)|slot 3 (qsRoe): origin want (500, 0), got (550, 0)|total advance: want 800, got 850
 ss10	E650:E650:200C:E668	position	kern-channel-out-of-scope	qsPea|qsPea|space|qsRoe	slot 2 (space): origin want (450, 0), got (500, 0)|slot 3 (qsRoe): origin want (450, 0), got (500, 0)|total advance: want 750, got 800
+ss10	E650:E650:200C:E67A	position	kern-channel-out-of-scope	qsPea|qsPea|space|qsUtter	slot 2 (space): origin want (450, 0), got (500, 0)|slot 3 (qsUtter): origin want (450, 0), got (500, 0)|total advance: want 750, got 800
 ss10	E650:E650:E650:E668	seam	UNMATCHED	qsPea|qsPea|qsPea|qsRoe	qsPea/full/None/None/|qsPea/full/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/
 ss10	E650:E650:E653:E668	seam	ss10-isolation-completed	qsPea|qsPea|qsDay|qsRoe	qsPea/full/None/None/|qsPea/full/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/
 ss10	E650:E650:E668:0020	seam	boundary-echo	qsPea|qsPea|qsRoe|space	qsPea/full/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/|space/boundary/None/None/
@@ -4744,6 +4817,7 @@ ss10	E652:E653:E668:E650	seam	ss10-isolation-completed	qsTea|qsDay|qsRoe|qsPea	q
 ss10	E652:E653:E668:E652	seam	ss10-isolation-completed	qsTea|qsDay|qsRoe|qsTea	qsTea/full/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/|qsTea/full/None/None/
 ss10	E652:E653:E668:E653	seam	ss10-isolation-completed	qsTea|qsDay|qsRoe|qsDay	qsTea/full/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/|qsDay/full/None/None/
 ss10	E652:E653:E668:E668	seam	ss10-isolation-completed	qsTea|qsDay|qsRoe|qsRoe	qsTea/full/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/|qsRoe/hapax/None/None/
+ss10	E652:E653:E67A:E652	ligation	ss10-ligature-suppressed	qsTea|qsDay_qsUtter.half.en-y0.ex-y5.en-ext-1|qsTea	qsTea/full/None/None/|qsDay/full/None/None/|qsUtter/mono/None/None/|qsTea/full/None/None/
 ss10	E652:E668:E650:E668	seam	UNMATCHED	qsTea|qsRoe|qsPea|qsRoe	qsTea/full/None/None/|qsRoe/hapax/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/
 ss10	E652:E668:E653:E668	seam	ss10-isolation-completed	qsTea|qsRoe|qsDay|qsRoe	qsTea/full/None/None/|qsRoe/hapax/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/
 ss10	E653:0020:E650:E668	seam	boundary-echo	qsDay|space|qsPea|qsRoe	qsDay/full/None/None/|space/boundary/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/
@@ -4831,6 +4905,7 @@ ss10	E653:E668:E668:E650	seam	ss10-isolation-completed	qsDay|qsRoe|qsRoe|qsPea	q
 ss10	E653:E668:E668:E652	seam	ss10-isolation-completed	qsDay|qsRoe|qsRoe|qsTea	qsDay/full/None/None/|qsRoe/hapax/None/None/|qsRoe/hapax/None/None/|qsTea/full/None/None/
 ss10	E653:E668:E668:E653	seam	ss10-isolation-completed	qsDay|qsRoe|qsRoe|qsDay	qsDay/full/None/None/|qsRoe/hapax/None/None/|qsRoe/hapax/None/None/|qsDay/full/None/None/
 ss10	E653:E668:E668:E668	seam	ss10-isolation-completed	qsDay|qsRoe|qsRoe|qsRoe	qsDay/full/None/None/|qsRoe/hapax/None/None/|qsRoe/hapax/None/None/|qsRoe/hapax/None/None/
+ss10	E665:E670:E652:E679	ligation	ss10-ligature-suppressed	qsMay|qsIt|qsTea_qsOy	qsMay/loop/None/None/|qsIt/hapax/None/None/|qsTea/full/None/None/|qsOy/hapax/None/None/
 ss10	E668:0020:E650:E668	seam	boundary-echo	qsRoe|space|qsPea|qsRoe	qsRoe/hapax/None/None/|space/boundary/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/
 ss10	E668:0020:E653:E668	seam	boundary-echo	qsRoe|space|qsDay|qsRoe	qsRoe/hapax/None/None/|space/boundary/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/
 ss10	E668:00B7:E650:E668	seam	UNMATCHED	qsRoe|periodcentered|qsPea|qsRoe	qsRoe/hapax/None/None/|namer-dot/boundary/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/

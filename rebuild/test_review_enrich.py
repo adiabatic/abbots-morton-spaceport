@@ -1,6 +1,6 @@
 """Tests for the review surface's enrichment: the notation map against doc/glyph-names.md, divergent positions and pair selection on known units, highlight x-ranges against hand-computed hmtx sums, and the secondary-seam home resolver over hand-built stubs.
 
-Every unit these tests reach for is one whose codepoints they name, and they take them from `example_units` — a filtered load of the live audit — rather than from the whole workload. The three whole-corpus sweeps that used to live here have moved into the build, where they cover every shipped unit instead of a re-enrichment of the same corpus: the audit-vs-re-settlement agreement, the before-seam derivations, and the summary's shape.
+Every unit these tests reach for is one whose codepoints they name, and they take them from `example_units` — a filtered load of the frozen mini bundle's audit, settled under the spec `mini_bundle` materializes — rather than from the live corpus. Which position the enricher judges and how it words the summary are properties of the code, so a frozen window witnesses them as well as a live one and does it in the contracts lane; a window that stops existing fails the bundle regeneration, which names it. The three whole-corpus sweeps that used to live here have moved into the build, where they cover every shipped unit instead of a re-enrichment of the same corpus: the audit-vs-re-settlement agreement, the before-seam derivations, and the summary's shape.
 """
 
 import dataclasses
@@ -29,23 +29,25 @@ from rebuild.review.ink import kern_neutral
 from rebuild.validation.rowmodel import iter_rows
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+MINI = REPO_ROOT / "rebuild" / "review" / "fixtures" / "mini"
+MINI_FONT = MINI / "M1.otf"
 
 
 @pytest.fixture(scope="module")
-def spec():
+def spec(mini_bundle):
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        return load_spec(REPO_ROOT)
+        return load_spec(mini_bundle.spec_root)
 
 
 @pytest.fixture(scope="module")
-def enricher(spec, live_artifacts):
-    return Enricher(spec, live_artifacts.m1, live_artifacts.font)
+def enricher(spec):
+    return Enricher(spec, MINI, MINI_FONT, repo_root=REPO_ROOT)
 
 
 @pytest.fixture(scope="module")
 def units_by_key(example_units):
-    """The worked-example windows, keyed the way this module has always keyed them. `example_units` is the whole of what these tests ever wanted: each one names the codepoints it is about, and the retired `workload` fixture existed only to look those up in a 451k-unit graph."""
+    """The worked-example windows, keyed the way this module has always keyed them."""
     return example_units
 
 
@@ -180,11 +182,11 @@ def test_single_cell_unit_has_null_pair(enricher):
     assert enriched.pair is None
 
 
-def test_highlight_matches_hmtx_sums_on_a_break_only_unit(enricher, units_by_key, live_artifacts):
+def test_highlight_matches_hmtx_sums_on_a_break_only_unit(enricher, units_by_key):
     unit = units_by_key[("E670:E670", "default")]
     enriched = enricher.enrich(unit)
     assert enriched.after_seams == ("break",)
-    font = TTFont(str(live_artifacts.font))
+    font = TTFont(str(MINI_FONT))
     hmtx = font["hmtx"]
     shaped = enricher.after_shaper.shape("".join(chr(v) for v in unit.codepoint_values))
     advances = [hmtx[name][0] for name in shaped.names]
@@ -438,6 +440,13 @@ def test_enrich_emits_secondary_seams_with_primary_style_rects(enricher, units_b
     assert seam.highlight_after["x_min"] > enriched.highlight_after["x_min"]
 
 
-def test_subset_tables_iterate(enricher, live_artifacts):
-    rows = list(iter_rows(live_artifacts.m1 / "baseline-default.subset.tsv.gz"))
-    assert len(rows) == 837930
+def test_subset_tables_iterate():
+    """`iter_rows` really reads a subset table's windows: the windows it yields over the bundle's default slice cover every window the bundle's audit names. The slice is drawn over the audit's windows and the audit holds only rows the M1 build produced, so the slice is a superset — a subset table carries a row for every window the config renders, divergent or not — and what is asserted is the containment rather than a row count, which would be a fact about this bundle rather than about the reader."""
+    windows = {
+        row.split("\t")[1] for row in (MINI / "audit.tsv").read_text(encoding="utf-8").splitlines()[1:]
+    }
+    yielded = {
+        ":".join(f"{value:04X}" for value in row.codepoints)
+        for row in iter_rows(MINI / "baseline-default.subset.tsv.gz")
+    }
+    assert windows <= yielded

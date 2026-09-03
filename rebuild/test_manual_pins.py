@@ -3,15 +3,21 @@
 The standing conformance guarantee itself — every corpus pin the migrated alphabet can express replays cleanly, over a gate that really had pins in scope — is `run_m1.main()`'s, which raises on it. Re-running the identical `run_gate` call in a test afterwards proved nothing the build had not already refused to ship without.
 """
 
+from pathlib import Path
+
 import pytest
 
 from rebuild.pipeline import manual_pins
 from rebuild.pipeline.geometry import isolated_cell
 from rebuild.pipeline.settle import cell_label
 from rebuild.pipeline.spec_load import load_default_spec
+from rebuild.review import enrich
 from rebuild.validation.classify import SeamClassifier
 from rebuild.validation.pins import PinRun, _import_test_shaping
 from rebuild.validation.shaping import Shaper
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+MINI_FONT = REPO_ROOT / "rebuild" / "review" / "fixtures" / "mini" / "M1.otf"
 
 
 @pytest.fixture(scope="module")
@@ -65,12 +71,14 @@ class TestSemantics:
 
 
 class TestTeeth:
-    def test_contradicting_pin_fails(self, spec, live_artifacts):
+    def test_contradicting_pin_fails(self, mini_bundle):
+        """The gate has to refuse a pin the font contradicts, which needs a font and a spec that agree with each other — not the live ones. The frozen mini bundle is exactly such a pair, and ·Pea·Tea is a window it carries: one of the two contradicting pins about that seam must fail, because they cannot both be true of any font."""
+        spec = enrich.load_spec(mini_bundle.spec_root)
         ts = _import_test_shaping()
-        shaper = Shaper(live_artifacts.font)
-        classifier = SeamClassifier(live_artifacts.font)
-        text = "\ue670\ue666"
-        for expect in ("·It | ·No", "·It ~b~ ·No"):
+        shaper = Shaper(MINI_FONT)
+        classifier = SeamClassifier(MINI_FONT)
+        text = "\ue650\ue652"
+        for expect in ("·Pea | ·Tea", "·Pea ~x~ ·Tea"):
             tokens, connections = ts.parse_expect(expect)
             pin = PinRun(
                 source="synthetic",
@@ -85,4 +93,6 @@ class TestTeeth:
             manual_pins._check_pin(spec, shaper, classifier, pin, report)
             if report.disagreements:
                 return
-        pytest.fail("neither a break pin nor a baseline-join pin failed for ·It·No — the gate has no teeth")
+        pytest.fail(
+            "neither a break pin nor an x-height-join pin failed for ·Pea·Tea — the gate has no teeth"
+        )

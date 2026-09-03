@@ -6,7 +6,7 @@ The tests no longer read this file at all — a build asserting the numbers it j
 
 Three grains coexist and must not be conflated. The manifest and built groups are post-merge, read from a built surface after the ink-duplicate fold; the audit, ink, and families groups are the pre-merge name grain, which no surface shard reports.
 
-The pre-merge groups are read from the surface's census-facts.json sidecar, which `build_m1` writes as a by-product: it derives them from the pre-merge state it captured just before folding plus the phase-1 products it computed anyway — each post-merge unit's ink verdict and each UNMATCHED unit's verdict family — instead of re-shaping and re-enriching the whole corpus a second time. That deliberately trades some of the comparison's independence from the build for a census that costs milliseconds rather than minutes. `--from-scratch` retains the standalone re-derivation from the source inputs (TSV + ledger + fonts + spec) for when the two must be compared, and the sample tests in rebuild/test_review_ink.py and rebuild/test_review_families.py continuously verify the derivation against fresh shaping and enrichment.
+The pre-merge groups are read from the surface's census-facts.json sidecar, which `build_m1` writes as a by-product: it derives them from the pre-merge state it captured just before folding plus the phase-1 products it computed anyway — each post-merge unit's ink verdict and each UNMATCHED unit's verdict family — instead of re-shaping and re-enriching the whole corpus a second time. That deliberately trades some of the comparison's independence from the build for a census that costs milliseconds rather than minutes. `--from-scratch` retains the standalone re-derivation from the source inputs (TSV + ledger + fonts + spec) for when the two must be compared. What the derivation needs beyond that is not sampled but asserted where it is derived: `derive_premerge` refuses a default-novel UNMATCHED unit that was folded away, refuses an UNMATCHED unit that resolved to no family, and holds one ink flag per captured unit, which between them are the grain bookkeeping the retired sample tests were re-deriving.
 
 Usage:
     uv run python -m rebuild.review.census --update --surface rebuild/out/review  # what every artifact-cycle pass runs
@@ -277,7 +277,7 @@ def workload_digest(units: Iterable[CensusGrain]) -> str:
 def derive_premerge(capture: list[PremergeUnit], live_units: Sequence[Unit]) -> PremergeFacts:
     """Project the build's post-merge phase-1 products back onto the pre-merge grain the census pins are defined over. A unit that survived the fold answers for itself; one that was folded away answers through its survivor, resolved as the unique live unit of the same window whose config set covers the folded unit's earliest config.
 
-    Both projections are sound by construction. A fold happens only when every config of every folded sibling yields one identical ink signature, so a folded sibling's ink verdict is its survivor's. And a pre-merge UNMATCHED unit that is novel under the default config necessarily leads its window's fold order, so it is always its own survivor and its family is the phase-1 family on that same object; everything else UNMATCHED never carries the default config, is therefore deferred, and took its bucket at capture time.
+    Both projections are sound by construction, and neither rests on an agreement between two derivations any more. A fold happens only when every config of every folded sibling yields one identical `InkComparator.signature`, and that signature is now defined as the two run-order ink lists `config_diff` reads — so a folded sibling's delta, and therefore its ink verdict, is its survivor's by definition rather than by a sampled resemblance. And a pre-merge UNMATCHED unit that is novel under the default config necessarily leads its window's fold order, so it is always its own survivor and its family is the phase-1 family on that same object; everything else UNMATCHED never carries the default config, is therefore deferred, and took its bucket at capture time. That second argument is asserted rather than trusted below, at the one place it could fail — an UNMATCHED, undeferred snapshot that is not its own survivor — which is the whole of what the retired families sample was checking.
     """
     live = {id(unit) for unit in live_units}
     dead_windows = {snap.codepoints for snap in capture if id(snap.unit) not in live}
@@ -289,6 +289,10 @@ def derive_premerge(capture: list[PremergeUnit], live_units: Sequence[Unit]) -> 
     flags: list[str] = []
     assigned: list[tuple[int, str]] = []
     for index, snap in enumerate(capture):
+        assert snap.class_id != UNMATCHED_CLASS or snap.deferred is not None or id(snap.unit) in live, (
+            f"window {snap.codepoints}: a default-novel UNMATCHED unit was folded away, so its family "
+            "cannot be read off its own phase-1 object"
+        )
         if id(snap.unit) in live:
             target = snap.unit
         else:

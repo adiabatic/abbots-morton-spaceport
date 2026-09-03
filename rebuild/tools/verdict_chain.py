@@ -1,6 +1,6 @@
 """The cycle's verdict plumbing as one process: carry, merge, echo fill, standing fill, their merges, the echo pass that witnesses the fixpoint, and the complaint docket, over one copy of the surface's unit index.
 
-Every one of those steps used to be its own `uv run` subprocess, and every one of them began by parsing all 1.9 GB of unit shards to reach a few slim fields — four full parses per cycle, twelve gigabytes of peak, and about fifty seconds of the chain's seventy. They read the index sidecar now (rebuild/review/unit_index), and reading it once and handing it down is the whole reason this module exists. The steps themselves are unchanged: each tool's `main` still does its own work and writes its own file, so `rebuild/tools/complaint_docket.py` and the rest remain runnable on their own for the sitting-prep targets in the Makefile. The standing fill runs in its `--open-only` form here, over the blanks and the units verdicted outside the accepting set, since those are the only units that can move what it writes or warns about; the full domain only ever bought report columns, and it bought them by matching every human unit on the surface.
+Every one of those steps used to be its own `uv run` subprocess, and every one of them began by parsing all 1.9 GB of unit shards to reach a few slim fields — four full parses per cycle, twelve gigabytes of peak, and about fifty seconds of the chain's seventy. They read the index sidecar now (rebuild/review/unit_index), and reading it once and handing it down is the whole reason this module exists. The steps themselves are unchanged: each tool's `main` still does its own work and writes its own file, so `rebuild/tools/complaint_docket.py` and the rest remain runnable on their own for the sitting-prep targets in the Makefile. The standing fill runs in its `--open-only --require-reach` form here. The narrowing is what it writes from — the blanks and the units verdicted outside the accepting set are the only units that can move a fill or a warning — while the reach check is a reading of the surface rather than of the queue, taken over the whole human domain against a blank store, and it is a refusal: a checked-in rule that reaches no window on this surface fails this step, which turns the plumbing red and `make verdict-ready` NOT READY, until the rule is deleted or the form it waits for migrates.
 
 The chain prints a `[chain] <step>` banner before each step and a `[t] <step> <secs>s` line after it, which is what keeps the driver's per-step report and the cycle-timings journal reading exactly as they did when these were seven subprocesses.
 
@@ -183,6 +183,7 @@ def main(argv: list[str] | None = None) -> int:
                 "--out",
                 str(args.standing_out),
                 "--open-only",
+                "--require-reach",
             ]
             code = _run("standing-fill", lambda: standing_verdicts.main(standing_argv, units=units))
             if code:

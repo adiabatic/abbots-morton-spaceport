@@ -2217,7 +2217,8 @@ def _surface(tmp_path, units, fonts=None):
     return surface
 
 
-def _run_main(tmp_path, monkeypatch, units, verdicts, rules_list=(RULE,), fonts=None, extra=()):
+def _invoke_main(tmp_path, monkeypatch, units, verdicts, rules_list=(RULE,), fonts=None, extra=()):
+    """The CLI as the chain spawns it, returning both its exit code and the fills it wrote. `_run_main` is this with the code dropped, which is what every test predating --require-reach wants."""
     surface = _surface(tmp_path, units, fonts)
     rules = _write_rules(tmp_path / "rules.yaml", list(rules_list))
     verdicts_path = tmp_path / "verdicts.json"
@@ -2240,8 +2241,13 @@ def _run_main(tmp_path, monkeypatch, units, verdicts, rules_list=(RULE,), fonts=
             *extra,
         ],
     )
-    sv.main()
-    return json.loads(out.read_text())
+    code = sv.main()
+    return code, json.loads(out.read_text())
+
+
+def _run_main(tmp_path, monkeypatch, units, verdicts, rules_list=(RULE,), fonts=None, extra=()):
+    _code, payload = _invoke_main(tmp_path, monkeypatch, units, verdicts, rules_list, fonts, extra)
+    return payload
 
 
 def test_main_fills_only_blank_matching_human_units(tmp_path, monkeypatch):
@@ -2466,7 +2472,7 @@ def test_open_only_keeps_the_tripwire_word_for_word(tmp_path, monkeypatch, capsy
 
 
 def test_open_only_drops_the_already_verdicted_column_and_the_rollup(tmp_path, monkeypatch, capsys):
-    """Both are readings of the store rather than of the fills, and a narrowed run has not read the store — the validators lane is what proves the checked-in rules still reach the live surface."""
+    """Both are readings of the store rather than of the fills, and a narrowed run has not read the store. `--require-reach` is how the cycle gets the rollup back — over the whole domain against a blank store, which is what reach means — and the tests below hold it to that."""
     units = [canonical("u-1"), canonical("u-2"), canonical("u-3", left="qsOut.ex-ext-1")]
     verdicts = [{"unit": "u-2", "verdict": "approve", "note": "", "at": "2026-07-11T00:00:00Z"}]
     _run_main(
@@ -2482,6 +2488,68 @@ def test_open_only_drops_the_already_verdicted_column_and_the_rollup(tmp_path, m
     assert not any("already verdicted" in line for line in lines)
     assert not any(line.startswith("  per-rule reach (") for line in lines)
     assert not any(line.startswith("  REACHED NOTHING:") for line in lines)
+
+
+def test_require_reach_prints_the_rollup_a_narrowed_run_would_have_dropped(tmp_path, monkeypatch, capsys):
+    """The narrowing drops the rollup because a narrowed run has read no store; `--require-reach` takes its own pass over the whole domain against a blank one and prints the rollup off that, so the cycle's form keeps both the cheap fills and the full reach reading. What stays dropped is the already-verdicted column, which is a reading of the real store and belongs to the run that made the fills."""
+    units = [canonical("u-1"), canonical("u-2")]
+    verdicts = [{"unit": "u-2", "verdict": "approve", "note": "", "at": "2026-07-11T00:00:00Z"}]
+    code, _payload = _invoke_main(
+        tmp_path, monkeypatch, units, verdicts, extra=("--open-only", "--require-reach")
+    )
+    lines = capsys.readouterr().out.splitlines()
+    assert code == 0
+    assert any(line.startswith("  per-rule reach (") for line in lines)
+    assert any(line.startswith(f"    {RULE['id']}: 2 on its own line,") for line in lines)
+    assert not any("already verdicted" in line for line in lines)
+
+
+def test_require_reach_counts_a_rule_whose_windows_are_all_verdicted_as_reaching(
+    tmp_path, monkeypatch, capsys
+):
+    """Reach is a reading of the surface, not of the queue: a rule every one of whose windows a human has already judged has still reached them, and the blank store this judges against is what says so. The narrowed run itself sees none of those units, writes nothing, and must not be what the refusal reads."""
+    units = [canonical("u-1")]
+    verdicts = [{"unit": "u-1", "verdict": "approve", "note": "", "at": "2026-07-11T00:00:00Z"}]
+    code, payload = _invoke_main(
+        tmp_path, monkeypatch, units, verdicts, extra=("--open-only", "--require-reach")
+    )
+    lines = capsys.readouterr().out.splitlines()
+    assert code == 0
+    assert payload["verdicts"] == []
+    assert not any(line.startswith("  REACHED NOTHING:") for line in lines)
+    assert any(line.startswith(f"    {RULE['id']}: 1 on its own line,") for line in lines)
+
+
+def test_require_reach_refuses_when_a_rule_reaches_nothing(tmp_path, monkeypatch, capsys):
+    """The refusal the deleted validators-lane test became: a checked-in rule matching no window on this surface fails the step, so the plumbing goes red and `make verdict-ready` reads NOT READY. It is a refusal rather than a skip — the fills the reaching rules earned are written first and in full, because the run that produced them is correct and only the rules file is out of date."""
+    units = [canonical("u-1"), canonical("u-2")]
+    code, payload = _invoke_main(
+        tmp_path,
+        monkeypatch,
+        units,
+        [],
+        rules_list=(RULE, SHORTENED_RULE),
+        extra=("--open-only", "--require-reach"),
+    )
+    lines = capsys.readouterr().out.splitlines()
+    assert code == 1
+    assert [record["unit"] for record in payload["verdicts"]] == ["u-1", "u-2"]
+    assert any(line.startswith(f"  REACHED NOTHING: {SHORTENED_RULE['id']} ") for line in lines)
+    assert any(
+        line.startswith(f"  the plumbing refuses: {SHORTENED_RULE['id']} reached no window") for line in lines
+    )
+    assert not any(RULE["id"] in line for line in lines if line.startswith("  the plumbing refuses:"))
+
+
+def test_without_require_reach_a_dead_rule_is_only_reported(tmp_path, monkeypatch, capsys):
+    """The bare tool still prints REACHED NOTHING and returns 0, which is what a dry run wants: the author asking what a candidate rule reaches must not be handed a nonzero exit for a rule they have not landed yet."""
+    code, _payload = _invoke_main(
+        tmp_path, monkeypatch, [canonical("u-1")], [], rules_list=(RULE, SHORTENED_RULE)
+    )
+    lines = capsys.readouterr().out.splitlines()
+    assert code == 0
+    assert any(line.startswith(f"  REACHED NOTHING: {SHORTENED_RULE['id']} ") for line in lines)
+    assert not any(line.startswith("  the plumbing refuses:") for line in lines)
 
 
 def test_open_only_reads_the_except_left_vocabulary_off_the_whole_surface(tmp_path, monkeypatch, capsys):
@@ -4842,30 +4910,3 @@ def test_the_composed_walk_credits_a_shape_exactly_where_its_own_matcher_does(sl
                 after,
                 window["id"],
             )
-
-
-def test_every_checked_in_rule_still_reaches_the_live_surface(live_artifacts, built_review_surface):
-    """The whole checked-in file against the surface the cycle actually built, through the same tally the dry run prints: every rule has to reach at least one real window, on its own line or as composed credit. A synthetic witness cannot say this — seven of the ten shapes only decide anything with a font pair behind them, and a witness copied out of the rule it is meant to test agrees with it by construction — so the corpus here is the surface's own windows and its own before/after fonts.
-
-    There is deliberately no retired marker and no allowance for a rule that has run out of windows. A rule whose swath legitimately disappears after a rune change turns this red, and the red is the signal to delete the rule from `rebuild/standing-approvals.yaml` — not a fault in the test, and not something to paper over with an exemption list. The blank verdict store this passes is what makes the number a reach rather than a backlog: a rule whose every window a human has already judged still reads as reaching them.
-    """
-    from rebuild.review import unit_index
-
-    surface = live_artifacts.surface
-    _, manifest = built_review_surface
-    units = [
-        record
-        for record in unit_index.iter_units(surface)
-        if not record.get("no_verdict")
-        and record.get("batch") is not None
-        and record.get("render_groups") == 1
-    ]
-    rules = sv.load_rules(sv.RULES)
-    context = sv.SlideContext(surface / "fonts" / "before.otf", surface / "fonts" / "after.otf")
-    run = sv.rule_reach(rules, units, {}, manifest["generated_at"], context=context)
-    unreached = [
-        rule["id"]
-        for rule in rules
-        if not (sv._own_line_total(run.reaches[rule["id"]]) + run.reaches[rule["id"]].composed_credit)
-    ]
-    assert unreached == []
