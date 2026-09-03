@@ -49,7 +49,9 @@ def test_skips_without_spawning_when_the_record_matches(green_store, monkeypatch
     spawned, _ = _pytest_stub(monkeypatch, returncode=0)
     assert mtg.main([]) == 0
     assert spawned == []
-    assert "SKIPPED" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "SKIPPED" in out
+    assert "make_test_exempt" in out
 
 
 def test_force_runs_despite_a_matching_record(green_store, monkeypatch):
