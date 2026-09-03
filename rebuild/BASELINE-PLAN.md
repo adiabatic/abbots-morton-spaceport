@@ -154,10 +154,9 @@ Two layers, both must pass before the extraction outputs are trusted.
 Collect every data-expect run from the three corpora (`site/index.html`, `site/the-manual.html`, `site/extra-senior-words.html`) using the existing collector and parser imported read-only from `test/test_shaping.py` / `conftest.py` (`parse_expect`, `_DataExpectCollector`, and `run_shaping_test_runs` are import-safe). For every senior-variant run whose input sequence consists solely of basis-alphabet symbols (44 runes, space, ZWNJ, namer dot — runs containing other Latin literals are out of scope and skipped, with a count reported):
 
 - Shape the run’s full sequence through the **extractor’s own library path** (same shaper, same classifier, same configuration dict derived from the run’s `data-stylistic-set`) and assert the pin’s per-seam expectations: join-at-height tokens (`~x~`/`~b~`/`~t~`/`~6~` = y5/y0/y8/y6), bare-adjacency joins (height unasserted, classification must be a join), `|`/`|?|` breaks (classification must be `break`), and `+`/`+?`/`+|` ligation per the parser’s interpretation expansion. Any disagreement is an **extractor bug until proven otherwise** — the pins are ground truth the existing suite already enforces against this exact font.
-- For runs of length ≤ 4, additionally assert the baseline table row for that exact string and configuration matches the live shaping byte-for-byte (glyphs, clusters, seams, positions) — this pins the serialization path, not just the shaping path.
-- For runs of length > 4, also look up each embedded length-4 window’s baseline row and report (not fail) any seam-classification difference between the long-context shaping and the window row, labeled as depth-2-horizon findings; these quantify §1’s accepted incompleteness rather than indicting the extractor.
+- The table side needs no row-by-row replay, because a baseline row is a pure function of the font bytes, the alphabet and the extractor code. The header’s `font_sha256` is weighed against the font that same header names by `baseline_subset.prove_font_provenance` on every `ensure_fresh`, so `run_m1` refuses to adjudicate against tables the site font on disk did not produce; the header’s `alphabet_sha256` pins the alphabet; and `rebuild/test_extractor.py`’s determinism and header tests pin the extractor.
 
-The replay result (pins checked / skipped / disagreements) is recorded in `SUMMARY.md`; the disagreement count must be zero to proceed.
+The replay is `rebuild/test_validation_suite.py::test_full_corpus_replay_live`, which runs in `make test-rebuild`’s contracts lane and fails it on any disagreement.
 
 ### Extractor unit tests
 
@@ -193,9 +192,8 @@ rebuild/
     rowmodel.py                    the §3 row contract as the validation suite implements it, plus table reading and chunking
     shaping.py                     hb.Font + TTFont name recovery, one reused buffer, per-row seam extraction
     classify.py                    the §4 black-box seam classifier
-    pins.py                        read-only import of test/ collector + parser; the §7 replay against library shaping and baseline rows
+    pins.py                        read-only import of test/ collector + parser; the §7 replay against library shaping
   check_determinism.py             the §2 and §8 diff-stability driver
-  validate_pins.py                 §7 CLI
   test_extractor.py                extractor unit tests
   test_validation_suite.py         the §7 validation-suite tests
   test_baseline_subset.py          baseline_subset filter tests
@@ -208,7 +206,7 @@ Public interfaces:
 - `shaper.Shaper` — `Shaper(font_path)`, `shape(text: str, features: dict[str, bool]) -> ShapeResult` (names via TTFont, clusters, positions).
 - `classify.SeamClassifier` — `SeamClassifier(font_path)`, `heights() -> tuple[int, ...]`, `classify(left_glyph: str, right_glyph: str) -> str`.
 - `extract.extract_config(config_token: str, out_dir: Path, workers: int = SHARD_WORKERS_DEFAULT) -> Digest` and `extract.run_all(out_dir, workers)`.
-- `validation.pins` exposes `collect_pin_runs`, `check_pin`, `check_against_baseline`, and `ReplayReport`. It consumes `validation.rowmodel.Row.from_tsv`, so the validation suite and the extractor cannot drift apart on the row format.
+- `validation.pins` exposes `collect_pin_runs`, `check_pin`, and `ReplayReport`. It consumes `validation.rowmodel.Row.from_tsv`, so the validation suite and the extractor cannot drift apart on the row format.
 
 CLI (all via `uv run`):
 
@@ -218,11 +216,11 @@ uv run python -m rebuild.baseline.cli extract --all --out rebuild/out
 uv run python -m rebuild.baseline.cli summarize --out rebuild/out
 ```
 
-The replay check lives under `validation/`, not `baseline/`; drive it and the determinism check from the top-level scripts:
+The replay check lives under `validation/`, not `baseline/`; it is a test rather than a CLI, and the determinism check is driven from its top-level script:
 
 ```sh
-uv run python rebuild/validate_pins.py --baseline rebuild/out/baseline-default.tsv.gz
+uv run pytest rebuild/test_validation_suite.py -n auto --dist worksteal
 uv run python rebuild/check_determinism.py --config default --lengths 1,2
 ```
 
-No invocation in either block states a `--workers`, and that is the point: the extractor and both validation CLIs default to the cores the running process may actually use, so a documented invocation no longer hands every box the width one box happened to want. Pass `--workers` only to say something the default cannot — a narrow width to leave the box free for other work, or `--workers 1` for an unscrambled traceback.
+No invocation in either block states a `--workers`, and that is the point: the extractor and the determinism CLI default to the cores the running process may actually use, so a documented invocation no longer hands every box the width one box happened to want. Pass `--workers` only to say something the default cannot — a narrow width to leave the box free for other work, or `--workers 1` for an unscrambled traceback.

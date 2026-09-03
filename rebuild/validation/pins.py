@@ -1,6 +1,6 @@
 """Corpus-pin replay per rebuild/BASELINE-PLAN.md §7.
 
-Collects every data-expect run from the three corpora with the existing test-suite collector and parser (imported read-only), filters to senior runs whose input falls inside the 47-symbol basis alphabet and whose stylistic-set configuration is one of the plan §5 eleven, and replays each pin's per-seam expectations against this suite's black-box shaping and seam classification. The pins are ground truth the existing test suite already enforces against this exact font, so any live disagreement is a validation-suite bug until proven otherwise.
+Collects every data-expect run from the three corpora with the existing test-suite collector and parser (imported read-only), filters to senior runs whose input falls inside the 47-symbol basis alphabet and whose stylistic-set configuration is one of the plan §5 eleven, and replays each pin's per-seam expectations against this suite's black-box shaping and seam classification. The pins are ground truth the existing test suite already enforces against this exact font, so any live disagreement is a validation-suite bug until proven otherwise. Nothing here reads a baseline table: the rows are a pure function of the font bytes, the alphabet and the extractor code, and `rebuild.pipeline.baseline_subset.prove_font_provenance` pins the font half by weighing every table header's `font_sha256` against the font that header names on every `ensure_fresh`, so a live shaping and a table row cannot be describing different fonts.
 
 Variant assertions other than the `half`/`alt` traits (which appear verbatim in compiled glyph names) check compiled-YAML compat metadata in the original suite; replaying them here would require old-pipeline archaeology, so they are skipped and counted instead — the existing suite keeps enforcing them.
 """
@@ -75,10 +75,7 @@ class ReplayReport:
     seam_assertions_checked: int = 0
     identity_assertions_checked: int = 0
     variant_assertions_skipped: int = 0
-    baseline_rows_checked: int = 0
-    baseline_windows_checked: int = 0
     disagreements: list[Disagreement] = field(default_factory=list)
-    horizon_findings: list[Disagreement] = field(default_factory=list)
 
     @property
     def failure_count(self) -> int:
@@ -274,78 +271,3 @@ def check_pin(shaper: Shaper, classifier: SeamClassifier, pin: PinRun, report: R
         )
     )
     return row
-
-
-def check_against_baseline(
-    pins_with_rows: list[tuple[PinRun, Row]],
-    tables: dict[str, Path],
-    report: ReplayReport,
-) -> None:
-    """Cross-check replayed pins against extracted baseline tables, one table per config token. Length ≤ 4 runs must match their table row byte-for-byte; longer runs only report seam differences for each embedded length-4 window (the accepted depth-2 horizon)."""
-    from .rowmodel import iter_rows
-
-    wanted: dict[str, dict[tuple[int, ...], list[tuple[PinRun, Row, int | None]]]] = {}
-    for pin, row in pins_with_rows:
-        table = tables.get(pin.config_token)
-        if table is None:
-            continue
-        per_config = wanted.setdefault(pin.config_token, {})
-        if len(row.codepoints) <= 4:
-            per_config.setdefault(row.codepoints, []).append((pin, row, None))
-        else:
-            for j in range(len(row.codepoints) - 3):
-                per_config.setdefault(row.codepoints[j : j + 4], []).append((pin, row, j))
-
-    for token, queries in wanted.items():
-        found: set[tuple[int, ...]] = set()
-        for table_row in iter_rows(tables[token]):
-            consumers = queries.get(table_row.codepoints)
-            if not consumers:
-                continue
-            found.add(table_row.codepoints)
-            for pin, live_row, window_start in consumers:
-                if window_start is None:
-                    report.baseline_rows_checked += 1
-                    if table_row != live_row:
-                        report.disagreements.append(
-                            Disagreement(
-                                kind="baseline-row-mismatch",
-                                source=pin.source,
-                                config=token,
-                                codepoints=format_codepoints(live_row.codepoints),
-                                expect=pin.expect,
-                                detail=f"live: {live_row.to_tsv()} // table: {table_row.to_tsv()}",
-                            )
-                        )
-                else:
-                    report.baseline_windows_checked += 1
-                    live_seams = live_row.seams[window_start : window_start + 3]
-                    if live_seams != table_row.seams:
-                        report.horizon_findings.append(
-                            Disagreement(
-                                kind="depth-2-horizon",
-                                source=pin.source,
-                                config=token,
-                                codepoints=format_codepoints(table_row.codepoints),
-                                expect=pin.expect,
-                                detail=(
-                                    f"window at {window_start}: long-context seams {','.join(live_seams)}"
-                                    f" vs window-row seams {','.join(table_row.seams)}"
-                                ),
-                            )
-                        )
-        for codepoints, consumers in queries.items():
-            if codepoints in found:
-                continue
-            for pin, _live_row, window_start in consumers:
-                report.disagreements.append(
-                    Disagreement(
-                        kind="baseline-row-missing",
-                        source=pin.source,
-                        config=token,
-                        codepoints=format_codepoints(codepoints),
-                        expect=pin.expect,
-                        detail="no table row for this string"
-                        + ("" if window_start is None else f" (window at {window_start})"),
-                    )
-                )
