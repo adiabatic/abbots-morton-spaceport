@@ -1,4 +1,4 @@
-"""Decision-table and treaty-table tests over the real M1 fixture spec, built through the crate (`kernel_exec.build_tables`): the enumeration's shape, rule-ordering discipline, joint flagging, configuration identities, the deep-class collapse, and diff-stable TSV output. Every table here is the crate's answer and every check is this side's own reading of it — `replay` below is the independent first-match-wins statement the fold's own `assert_outcome_partition` cannot make about itself. The claims that need the enumerated grain the artifacts drop, or a fold to perturb, are the crate's tests: `fold::tests::the_reduced_replay_catches_what_the_whole_table_replay_catches`, `the_prospect_pass_raises_joints_and_clears_none`, `treaty_rows_tying_on_the_triple_are_ordered_by_the_whole_row`, `a_rule_that_splits_a_deep_class_is_refused` and the E-STRANDED and cell-disagreement refusals beside them. The depth-3 class at the bottom runs on the real loaded rune YAML because the frozen fixture spec predates the depth-3 chain records."""
+"""Decision-table and treaty-table tests over the real M1 fixture spec, built through the crate (`kernel_exec.build_tables`): the enumeration's shape, rule-ordering discipline, joint flagging, configuration identities, the deep-class collapse, and diff-stable TSV output. Every table here is the crate's answer and every check is this side's own reading of it — `replay` below is the independent first-match-wins statement the fold's own `assert_outcome_partition` cannot make about itself. The claims that need the enumerated grain the artifacts drop, or a fold to perturb, are the crate's tests: `fold::tests::the_reduced_replay_catches_what_the_whole_table_replay_catches`, `the_prospect_pass_raises_joints_and_clears_none`, `treaty_rows_tying_on_the_triple_are_ordered_by_the_whole_row`, `a_rule_that_splits_a_deep_class_is_refused` and the E-STRANDED and cell-disagreement refusals beside them. The two deep-slot classes below run over synthetic ·Tea chains that `tea_chain_spec` hangs on the mini spec, since the fixture deliberately carries no chain of its own, and the live alphabet's own chain records are proven at every table build in the crate rather than here."""
 
 import dataclasses
 
@@ -38,6 +38,19 @@ def chain_inputs(spec, reach):
         for record in tuple(rune.policy.prefer) + tuple(rune.policy.resolve)
         if record.when.right is not None and hops(record.when.right) >= reach
     )
+
+
+def tea_chain_spec(reach):
+    """The mini spec with a synthetic `then:` chain hung on ·Tea, because the fixture deliberately carries none of its own (fixtures.py's docstring, and `test_the_fixture_spec_splits_no_third_slot` below): ·Tea is handed an absolute-stance `half` prefer whose right condition reads ·May for `reach` hops and then ·It, so `chain_inputs(spec, reach)` is exactly {"qsTea"} and the innermost hop distinguishes outcomes by the raw token `reach + 1` slots to the right. `reach=2` is the chain `TestDepthThreeTablesSynthetic` reads and `reach=3` the one `TestDepthFourTablesSynthetic` reads, which is the whole difference between the two classes."""
+    spec = fixtures.mini_spec()
+    tea = spec.runes["qsTea"]
+    chain = model.Condition(family=("qsIt",))
+    for _ in range(reach):
+        chain = model.Condition(family=("qsMay",), then=chain)
+    record = model.PolicyRecord(kind="prefer", stance="half", mode="absolute", when=model.When(right=chain))
+    runes = dict(spec.runes)
+    runes["qsTea"] = dataclasses.replace(tea, policy=dataclasses.replace(tea.policy, prefer=(record,)))
+    return dataclasses.replace(spec, runes=runes)
 
 
 @pytest.fixture(scope="module")
@@ -248,144 +261,104 @@ def test_cap_and_slot_arity_are_tied():
         table._assert_window_arity(model.RIGHT_WINDOW_SLOTS + 1)
 
 
-class TestDepthThreeTables:
-    """The lazy third and fourth lookahead slots over the real loaded rune YAML: only chain-bearing inputs get their windows split by right3, only the deeper-chain runes split on right4, the split rows compile to deeper-slot rules ordered ahead of their shallower fallbacks, and the hard invariants hold with the extra slots — which is also the corpus-wide proof that the depth-3 and depth-4 chain records introduce no E-INCOMPARABLE/E-AMBIGUOUS prefer conflict. Built via `candidacy_tables`: the class documents the chain arm, and under the shipping simulated-prospect default the prospect arm would open deep slots for every input."""
+class TestDepthThreeTablesSynthetic:
+    """The lazy third lookahead slot, exercised over a synthetic reach-2 record that `tea_chain_spec` hangs on the mini spec because the frozen fixture spec carries no chain of its own: only the chain-bearing input's windows get their third slot split, the split rows compile to three-slot rules ordered ahead of their shallower fallbacks, the hard invariants hold with the extra slot, and the fourth slot stays shut. The live alphabet's own depth-3 and depth-4 chain records need no test here, because every `run_m1` table build proves them in the crate: a prefer conflict is refused as E-INCOMPARABLE/E-AMBIGUOUS by `specificity::pick_most_specific` and the fixpoint's conflict pass, first-match-wins is `fold::assert_outcome_partition`, and either surfaces as a `KernelRunError`. Built via `candidacy_tables`: the class documents the chain arm, and under the shipping simulated-prospect default the prospect arm would open deep slots for every input."""
 
     @pytest.fixture(scope="class")
-    def real_spec(self):
-        import warnings
-
-        from rebuild.pipeline.spec_load import load_default_spec
-
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            return load_default_spec()
+    def synthetic_spec(self):
+        return tea_chain_spec(2)
 
     @pytest.fixture(scope="class")
-    def real_default_decision(self, real_spec):
-        decision, _treaty = candidacy_tables(real_spec, frozenset())
+    def synthetic_decision(self, synthetic_spec):
+        decision, _treaty = candidacy_tables(synthetic_spec, frozenset())
         return decision
 
-    def test_look3_enumerated_lazily(self, real_spec, real_default_decision):
-        deep = chain_inputs(real_spec, 2)
+    def test_the_synthetic_chain_is_the_only_deep_input(self, synthetic_spec, synthetic_decision):
+        assert chain_inputs(synthetic_spec, 2) == frozenset({"qsTea"})
+        assert chain_inputs(synthetic_spec, 3) == frozenset()
+        assert all(row.right4 == NA_LABEL for row in synthetic_decision.transitions)
+        assert all(rule.look4 is None for rule in synthetic_decision.rules)
+
+    def test_look3_enumerated_lazily(self, synthetic_spec, synthetic_decision):
+        deep = chain_inputs(synthetic_spec, 2)
         saw_enumerated = False
-        for row in real_default_decision.transitions:
-            if row.input_glyph.split(".")[0] not in deep or row.right2 in BOUNDARYISH:
+        for row in synthetic_decision.transitions:
+            if (
+                row.input_glyph.split(".")[0] not in deep
+                or row.right1 in BOUNDARYISH
+                or row.right2 in BOUNDARYISH
+            ):
                 assert row.right3 == NA_LABEL, row.key
             elif row.right3 != NA_LABEL:
                 saw_enumerated = True
         assert saw_enumerated
 
-    def test_hard_invariants_hold_with_the_third_slot(self, real_default_decision):
-        replay(real_default_decision)
+    def test_the_split_windows_are_the_chains_own(self, synthetic_decision):
+        """The chain reads ·May at both hops, so the only windows the kernel has any reason to split are the ones standing under that chain — which is what keeps the enumeration lazy rather than merely correct."""
+        for row in synthetic_decision.transitions:
+            if row.input_glyph.split(".")[0] != "qsTea":
+                continue
+            if row.right3 != NA_LABEL:
+                assert (row.right1, row.right2) == ("qsMay", "qsMay"), row.key
 
-    def test_three_slot_rules_only_for_chain_bearing_inputs(self, real_spec, real_default_decision):
-        deep = chain_inputs(real_spec, 2)
-        three_slot = [rule for rule in real_default_decision.rules if rule.look3 is not None]
+    def test_hard_invariants_hold_with_the_third_slot(self, synthetic_decision):
+        replay(synthetic_decision)
+
+    def test_three_slot_rules_only_for_chain_bearing_inputs(self, synthetic_spec, synthetic_decision):
+        deep = chain_inputs(synthetic_spec, 2)
+        three_slot = [rule for rule in synthetic_decision.rules if rule.look3 is not None]
         assert three_slot
         assert {rule.input_glyph.split(".")[0] for rule in three_slot} <= deep
 
-    def test_low_window_rule_and_ordering(self, real_default_decision):
-        rules = [rule for rule in real_default_decision.rules if rule.input_glyph == "qsDay"]
-        low_index = next(
+    def test_it_window_rule_and_ordering(self, synthetic_decision):
+        rules = [rule for rule in synthetic_decision.rules if rule.input_glyph == "qsTea"]
+        it_index = next(
             index
             for index, rule in enumerate(rules)
             if rule.backtrack is None
-            and rule.look1 == ("qsTea",)
-            and rule.look2 == ("qsUtter",)
-            and rule.look3 == ("qsLow",)
+            and rule.look1 == ("qsMay",)
+            and rule.look2 == ("qsMay",)
+            and rule.look3 == ("qsIt",)
         )
-        assert rules[low_index].outcome == "qsDay.full.ex-y0"
+        assert rules[it_index].outcome == "qsTea.half"
         boundary3_index = next(
             index
             for index, rule in enumerate(rules)
             if rule.backtrack is None
-            and rule.look1 == ("qsTea",)
-            and rule.look2 == ("qsUtter",)
+            and rule.look1 == ("qsMay",)
+            and rule.look2 == ("qsMay",)
             and rule.look3 == BOUNDARY_LOOKAHEAD_CLASS
         )
         fallback_index = next(
             index
             for index, rule in enumerate(rules)
             if rule.backtrack is None
-            and rule.look1 == ("qsTea",)
-            and rule.look2 == ("qsUtter",)
+            and rule.look1 == ("qsMay",)
+            and rule.look2 == ("qsMay",)
             and rule.look3 is None
         )
-        assert rules[boundary3_index].outcome == "qsDay.full"
-        assert rules[fallback_index].outcome == "qsDay.full"
-        assert boundary3_index < low_index < fallback_index
+        assert rules[boundary3_index].outcome == "qsTea.full.ex-y0"
+        assert rules[fallback_index].outcome == "qsTea.full.ex-y0"
+        assert "uni200C" in rules[boundary3_index].look3
+        assert boundary3_index < it_index < fallback_index
 
-    def test_orphan_window_rule_and_ordering(self, real_default_decision):
-        rules = [rule for rule in real_default_decision.rules if rule.input_glyph == "qsDay"]
-        orphans = ("qsAh", "qsDay", "qsDay_qsUtter", "qsIt", "qsLow", "qsMay", "qsNo", "qsUtter")
-        orphan_index = next(
-            index
-            for index, rule in enumerate(rules)
-            if rule.look1 == ("qsTea",)
-            and rule.look2 == ("qsUtter",)
-            and rule.look3 == ("qsTea",)
-            and rule.look4 == orphans
-            and "qsPea.full.ex-y0" in rule.backtrack
-        )
-        assert rules[orphan_index].outcome == "qsDay.half.en-y0"
-        backtrack = rules[orphan_index].backtrack
-        boundary4_index = next(
-            index
-            for index, rule in enumerate(rules)
-            if rule.backtrack == backtrack
-            and rule.look1 == ("qsTea",)
-            and rule.look2 == ("qsUtter",)
-            and rule.look3 == ("qsTea",)
-            and rule.look4 == BOUNDARY_LOOKAHEAD_CLASS
-        )
-        fallback_index = next(
-            index
-            for index, rule in enumerate(rules)
-            if rule.backtrack == backtrack
-            and rule.look1 == ("qsTea",)
-            and rule.look2 == ("qsUtter",)
-            and rule.look3 == ("qsTea",)
-            and rule.look4 is None
-        )
-        assert rules[boundary4_index].outcome == "qsDay.half.en-y0.ex-y0"
-        assert rules[fallback_index].outcome == "qsDay.half.en-y0.ex-y0"
-        assert boundary4_index < orphan_index < fallback_index
-
-    def test_tsv_carries_the_lookahead3_column(self, real_default_decision, tmp_path):
-        path = tmp_path / "settlement-default.tsv"
-        real_default_decision.write_tsv(path)
+    def test_tsv_carries_the_lookahead3_column(self, synthetic_decision, tmp_path):
+        path = tmp_path / "settlement-synthetic.tsv"
+        synthetic_decision.write_tsv(path)
         lines = path.read_text().splitlines()
         assert (
             lines[1]
             == "input\tbacktrack\tlookahead1\tlookahead2\tlookahead3\tlookahead4\toutcome\tjoint\tprovenance"
         )
-        assert any(line.split("\t")[4] == "qsLow" for line in lines[2:])
+        assert any(line.split("\t")[4] == "qsIt" for line in lines[2:])
 
 
 class TestDepthFourTablesSynthetic:
-    """The lazy fourth lookahead slot, exercised over a synthetic reach-3 record because the frozen fixture spec carries no depth-4 chain of its own (the real loaded YAML's chains are covered by TestDepthThreeTables). One fixture rune (·Tea) is handed an absolute-stance prefer whose right condition chains three `then:` hops, built straight from `model.Condition` objects, with the innermost hop distinguishing outcomes by the fourth raw token: only that input's windows get their fourth slot split, the split rows compile to four-slot rules ordered ahead of their three-slot fallbacks, and the hard invariants hold with the extra slot. Built via `candidacy_tables`, like TestDepthThreeTables and for the same reason."""
+    """The lazy fourth lookahead slot, exercised over a synthetic reach-3 record because the frozen fixture spec carries no depth-4 chain of its own (the depth-3 twin above is the same builder one hop shorter). One fixture rune (·Tea) is handed an absolute-stance prefer whose right condition chains three `then:` hops, built by `tea_chain_spec` from `model.Condition` objects, with the innermost hop distinguishing outcomes by the fourth raw token: only that input's windows get their fourth slot split, the split rows compile to four-slot rules ordered ahead of their three-slot fallbacks, and the hard invariants hold with the extra slot. Built via `candidacy_tables`, like TestDepthThreeTablesSynthetic and for the same reason."""
 
     @pytest.fixture(scope="class")
     def synthetic_spec(self):
-        spec = fixtures.mini_spec()
-        tea = spec.runes["qsTea"]
-        chain = model.Condition(
-            family=("qsMay",),
-            then=model.Condition(
-                family=("qsMay",),
-                then=model.Condition(
-                    family=("qsMay",),
-                    then=model.Condition(family=("qsIt",)),
-                ),
-            ),
-        )
-        record = model.PolicyRecord(
-            kind="prefer", stance="half", mode="absolute", when=model.When(right=chain)
-        )
-        runes = dict(spec.runes)
-        runes["qsTea"] = dataclasses.replace(tea, policy=dataclasses.replace(tea.policy, prefer=(record,)))
-        return dataclasses.replace(spec, runes=runes)
+        return tea_chain_spec(3)
 
     @pytest.fixture(scope="class")
     def synthetic_decision(self, synthetic_spec):
