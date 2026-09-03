@@ -1841,16 +1841,18 @@ def _scrape(lines: list[str], keep) -> list[str]:
 
 
 def _standing_fill_news(line: str) -> bool:
-    """Which of the standing fill's tally lines the summary keeps: the wrote-line, every per-rule line (linear in the rule count, and what lets a just-landed rule be quoted from the summary even at 0 filled), and only the composed-pair lines that actually filled or held something — the steady-state pairs grow quadratically in the rule set and their full roll call is standing_probe --coverage's job, not the summary's."""
+    """Which of the standing fill's tally lines the summary keeps: the wrote-line, the tripwire's WARNING (so an over-broad rule is read off cycle_summary.json rather than only out of the child's dump), every per-rule line (linear in the rule count, and what lets a just-landed rule be quoted from the summary even at 0 filled), and only the composed-pair lines that actually filled or held something — the steady-state pairs grow quadratically in the rule set and their full roll call is standing_probe --coverage's job, not the summary's. The reach rollup's REACHED NOTHING lines and the except_left vocabulary line stay out: the validators lane already proves every checked-in rule reaches the live surface, and the vocabulary line is informational. The already-verdicted column is optional because the chain runs the fill in its --open-only form, which drops it, while a dry run over the whole domain still prints it."""
     if line.startswith("wrote ") and "standing-approval verdicts" in line:
+        return True
+    if line.startswith("WARNING:"):
         return True
     if not line.endswith("held for review by except_left"):
         return False
     head, _, tail = line.partition(": ")
     if " + " not in head:
         return True
-    match = re.match(r"(\d+) filled, (\d+) already verdicted, (\d+) held", tail)
-    return match is not None and (int(match.group(1)) > 0 or int(match.group(3)) > 0)
+    match = re.match(r"(\d+) filled, (?:\d+ already verdicted, )?(\d+) held", tail)
+    return match is not None and (int(match.group(1)) > 0 or int(match.group(2)) > 0)
 
 
 def _do_plumbing(

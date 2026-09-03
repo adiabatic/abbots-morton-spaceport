@@ -13,14 +13,19 @@ import yaml
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from rebuild.tools.review_docket import RULED_STATUSES, latest_verdicts, load_units  # noqa: E402
+from rebuild.tools.review_docket import (  # noqa: E402
+    ACCEPTING_VERDICTS,
+    RULED_STATUSES,
+    latest_verdicts,
+    load_units,
+)
 from rebuild.tools.verdict_notes import strip_markers  # noqa: E402
 
 SURFACE = ROOT / "rebuild/out/review"
 AUTOSAVE = ROOT / "verdicts-autosave.json"
 DATA_OUT = ROOT / "tmp/complaints-data.json"
 COMPLAINT_KINDS = ("reject", "neither")
-CHURN_KINDS = ("approve", "either", "identical")
+CHURN_KINDS = tuple(sorted(ACCEPTING_VERDICTS))
 
 
 def _unit_number(unit_id):

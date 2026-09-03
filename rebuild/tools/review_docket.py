@@ -16,6 +16,7 @@ SURFACE = ROOT / "rebuild/out/review"
 DATA_OUT = ROOT / "tmp/docket-data.json"
 RULED_STATUSES = ("intended", "reviewed-approved", "reviewed-rejected")
 TRANCHE_SIZE = 25
+ACCEPTING_VERDICTS = frozenset({"approve", "either", "identical"})
 ACCEPTING_MIX = frozenset({"approve", "identical"})
 
 

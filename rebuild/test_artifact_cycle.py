@@ -734,7 +734,10 @@ _FULL_CHAIN = (
         "standing-fill",
         [
             "wrote verdicts-standing-fill.json: 25 standing-approval verdicts onto manifest S1",
-            "  tea-oy-ligature-break: 25 filled, 64 already verdicted, 0 held for review by except_left",
+            "  tea-oy-ligature-break: 25 filled, 0 held for review by except_left",
+            "  WARNING: a verdict outside approve/either/identical sits on 1 matched unit — u-9 under "
+            "tea-oy-ligature-break (reject); a rule reaching a window the user judged otherwise is the "
+            "shape an over-broad rule takes.",
         ],
     ),
     (
@@ -923,6 +926,7 @@ def test_the_driver_reads_a_line_per_step_out_of_one_child(capsys):
         for line in report.standing_fill_lines
     )
     assert any(line.endswith("held for review by except_left") for line in report.standing_fill_lines)
+    assert any(line.startswith("WARNING:") for line in report.standing_fill_lines)
     assert report.standing_merge_status == "merged"
     assert any(line.startswith("nothing changed") for line in report.standing_merge_lines)
     assert any("carried onto manifest" in line for line in report.carry_lines)
@@ -931,13 +935,27 @@ def test_the_driver_reads_a_line_per_step_out_of_one_child(capsys):
 
 
 def test_standing_fill_news_keeps_rules_and_drops_steady_state_composed_pairs():
-    """Per-rule lines survive whatever their counts — a just-landed rule gets quoted from the summary even at 0 filled — while a composed pair earns its summary line only by filling or holding something, so the quadratic steady-state roll call stays out of both the console block and cycle_summary.json."""
+    """Per-rule lines survive whatever their counts — a just-landed rule gets quoted from the summary even at 0 filled — while a composed pair earns its summary line only by filling or holding something, so the quadratic steady-state roll call stays out of both the console block and cycle_summary.json. The tripwire's WARNING is kept whatever else is dropped, and both line shapes are judged the same way: the chain runs the fill in its --open-only form, which prints no already-verdicted column, while a dry run over the whole domain still does."""
     news = ac._standing_fill_news
     assert news("wrote verdicts-standing-fill.json: 25 standing-approval verdicts onto manifest S1")
     assert news("quiet-rule: 0 filled, 12 already verdicted, 0 held for review by except_left")
+    assert news("quiet-rule: 0 filled, 0 held for review by except_left")
     assert news("rule-a + rule-b: 2 filled, 0 already verdicted, 0 held for review by except_left")
     assert news("rule-a + rule-b: 0 filled, 3 already verdicted, 1 held for review by except_left")
+    assert news("rule-a + rule-b: 2 filled, 0 held for review by except_left")
     assert not news("rule-a + rule-b: 0 filled, 9 already verdicted, 0 held for review by except_left")
+    assert not news("rule-a + rule-b: 0 filled, 0 held for review by except_left")
+    assert news(
+        "WARNING: a verdict outside approve/either/identical sits on 1 matched unit — u-9 under "
+        "quiet-rule (reject); a rule reaching a window the user judged otherwise is the shape an "
+        "over-broad rule takes."
+    )
+    assert not news(
+        "REACHED NOTHING: quiet-rule matched no window on its own and no composed line credited it."
+    )
+    assert not news(
+        "except_left vocabulary: quiet-rule guards against qsOut, which no window on this surface joins from."
+    )
     assert not news("per-rule reach (3 rules):")
 
 

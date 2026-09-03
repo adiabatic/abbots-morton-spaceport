@@ -77,7 +77,7 @@ sys.path.insert(0, str(ROOT))
 
 from rebuild.review.ink import IDENTITY_DIFF, InkComparator, delta_digest, features_for  # noqa: E402
 from rebuild.validation.classify import PIXEL_SIZE  # noqa: E402
-from rebuild.tools.review_docket import latest_verdicts, load_units  # noqa: E402
+from rebuild.tools.review_docket import ACCEPTING_VERDICTS, latest_verdicts, load_units  # noqa: E402
 
 SURFACE = ROOT / "rebuild/out/review"
 RULES = ROOT / "rebuild/standing-approvals.yaml"
@@ -2184,7 +2184,7 @@ def _matches(match, unit, *, guard=True, context=None):
 
 
 class Reach(NamedTuple):
-    """What one rule reached on a run: the unit ids its own matcher spoke for, split into the blanks it filled and the ones a verdict already covers, the ids its except_left held back, and — as their own numbers rather than folded into the rest — how many units a composed reading credited it at and how many composed lines those spread over. Composed credit has to stand apart because the composed pass claims a window before any single rule is asked about it, so a rule that only ever earns composed credit shows nothing at all on its own line and is not thereby dead."""
+    """What one rule reached on a run: the unit ids its own matcher spoke for, split into the blanks it filled and the ones a verdict already covers, the ids its except_left held back, and — as their own numbers rather than folded into the rest — how many units a composed reading credited it at and how many composed lines those spread over. Composed credit has to stand apart because the composed pass claims a window before any single rule is asked about it, so a rule that only ever earns composed credit shows nothing at all on its own line and is not thereby dead. Over a run narrowed by `open_units`, `verdicted` holds exactly the disputed matched units the tripwire names, since no accepted one was offered."""
 
     filled: list[str]
     verdicted: list[str]
@@ -2228,17 +2228,17 @@ def rule_reach(rules, units, records, stamp, context=None) -> Run:
                 verdict, note = _composed_verdict(rules, unit, events, context)
                 fills.append({"unit": unit["id"], "verdict": verdict, "note": note, "at": stamp})
 
-    open_units = [unit for unit in units if unit["id"] not in claimed]
+    unclaimed = [unit for unit in units if unit["id"] not in claimed]
     reaches: dict[str, Reach] = {}
     for rule in rules:
-        matched = [unit for unit in open_units if _matches(rule["match"], unit, context=context)]
+        matched = [unit for unit in unclaimed if _matches(rule["match"], unit, context=context)]
         if _guard_is_inert(rule["match"]):
             held = []
         else:
             matched_ids = {unit["id"] for unit in matched}
             held = [
                 unit
-                for unit in open_units
+                for unit in unclaimed
                 if unit["id"] not in matched_ids
                 and _matches(rule["match"], unit, guard=False, context=context)
             ]
@@ -2259,6 +2259,15 @@ def rule_reach(rules, units, records, stamp, context=None) -> Run:
     return Run(fills, {credited: composed_counts[credited] for credited in ordered}, reaches)
 
 
+def open_units(units, records):
+    """The units a run can still move, which is the whole of what a report's fill records and its warning are read off: a fill comes only from a blank, and every matcher decision is per-unit pure, so dropping a unit changes no other unit's result — the composed claim included, since a window is claimed on its own contents. The tripwire names only matched units carrying a verdict outside the accepting set, and those come along too. What the full domain buys over this is the already-verdicted column and the reach rollup, both of them readings of the store rather than of the fills."""
+    return [
+        unit
+        for unit in units
+        if unit["id"] not in records or records[unit["id"]]["verdict"] not in ACCEPTING_VERDICTS
+    ]
+
+
 def _count(number, noun):
     """`1 composed line`, `3 composed lines` — the report says its numbers in prose, and a plural s is the whole of the grammar it needs."""
     return f"{number} {noun}" if number == 1 else f"{number} {noun}s"
@@ -2267,6 +2276,25 @@ def _count(number, noun):
 def _own_line_total(reach):
     """Everything one rule's own report line accounts for: what it filled, what a verdict already covered, and what its except_left held."""
     return len(reach.filled) + len(reach.verdicted) + len(reach.held)
+
+
+def _tally_line(name, filled, verdicted, held, open_only):
+    """One report line for a rule or a credited tuple. Under a narrowed run the already-verdicted column is absent rather than zero, because the run was never offered the units it would have counted."""
+    column = "" if open_only else f"{verdicted} already verdicted, "
+    return f"  {name}: {filled} filled, {column}{held} held for review by except_left"
+
+
+def _tally_lines(rules, run, open_only):
+    """A line per rule in rules-file order, then a line per composed reading, which is what the run is read off at a glance."""
+    lines = []
+    for rule in rules:
+        reach = run.reaches[rule["id"]]
+        lines.append(
+            _tally_line(rule["id"], len(reach.filled), len(reach.verdicted), len(reach.held), open_only)
+        )
+    for credited, (filled, verdicted, held) in run.composed_counts.items():
+        lines.append(_tally_line(" + ".join(credited), filled, verdicted, held, open_only))
+    return lines
 
 
 def _rollup_lines(rules, reaches):
@@ -2295,17 +2323,17 @@ def _rollup_lines(rules, reaches):
 
 
 def _tripwire_lines(reaches, records):
-    """Matched units carrying a verdict outside the approve/either set, named on one line when there are any and silent when there are none: a standing rule reaching a window the user judged some other way is what an over-broad rule looks like from the outside, and the run says so where it cannot be missed."""
+    """Matched units carrying a verdict outside the accepting set, named on one line when there are any and silent when there are none: a standing rule reaching a window the user judged some other way is what an over-broad rule looks like from the outside, and the run says so where it cannot be missed. The blessed set is wider than the set a rule may write, because `identical` accepts the new rendering just as approve and either do — the reviewer merely found the highlighted portion visually unchanged — and a rule agreeing with such a verdict is no accident at all."""
     caught = [
         f"{unit_id} under {rule_id} ({records[unit_id]['verdict']})"
         for rule_id, reach in reaches.items()
         for unit_id in reach.verdicted
-        if records[unit_id]["verdict"] not in ALLOWED_VERDICTS
+        if records[unit_id]["verdict"] not in ACCEPTING_VERDICTS
     ]
     if not caught:
         return []
     return [
-        f"  WARNING: a verdict outside {'/'.join(ALLOWED_VERDICTS)} sits on "
+        f"  WARNING: a verdict outside {'/'.join(sorted(ACCEPTING_VERDICTS))} sits on "
         f"{_count(len(caught), 'matched unit')} — {', '.join(caught)}; a rule reaching a window the user "
         "judged otherwise is the shape an over-broad rule takes."
     ]
@@ -2350,7 +2378,16 @@ def main(argv=None, *, units=None):
         metavar="RULE",
         help="also print this rule's matched unit ids, split into the blanks it filled, the ones a verdict already covers, and the ones its except_left held",
     )
+    parser.add_argument(
+        "--open-only",
+        action="store_true",
+        help="run the rules over only the blanks and the units verdicted outside approve/either/identical — the artifact cycle's form. The fills are byte-identical and the WARNING reads the same; what goes is the already-verdicted column and the per-rule reach rollup, whose numbers are readings of the store rather than of the fills (the validators lane proves the checked-in rules still reach the live surface).",
+    )
     args = parser.parse_args(argv)
+    if args.open_only and args.explain is not None:
+        parser.error(
+            "--explain reads the whole domain's already-verdicted column and cannot be combined with --open-only"
+        )
 
     surface = pathlib.Path(args.surface)
     manifest = json.loads((surface / "manifest.json").read_text())
@@ -2391,21 +2428,12 @@ def main(argv=None, *, units=None):
             )
         context = SlideContext(before_font, after_font)
 
-    run = rule_reach(rules, units, records, manifest["generated_at"], context=context)
+    candidates = open_units(units, records) if args.open_only else units
+    run = rule_reach(rules, candidates, records, manifest["generated_at"], context=context)
 
-    lines = []
-    for rule in rules:
-        reach = run.reaches[rule["id"]]
-        lines.append(
-            f"  {rule['id']}: {len(reach.filled)} filled, {len(reach.verdicted)} already verdicted, "
-            f"{len(reach.held)} held for review by except_left"
-        )
-    for credited, (filled, verdicted, guarded) in run.composed_counts.items():
-        lines.append(
-            f"  {' + '.join(credited)}: {filled} filled, {verdicted} already verdicted, "
-            f"{guarded} held for review by except_left"
-        )
-    lines += _rollup_lines(rules, run.reaches)
+    lines = _tally_lines(rules, run, args.open_only)
+    if not args.open_only:
+        lines += _rollup_lines(rules, run.reaches)
     lines += _tripwire_lines(run.reaches, records)
     lines += _vocabulary_lines(rules, units)
     if args.explain is not None:
