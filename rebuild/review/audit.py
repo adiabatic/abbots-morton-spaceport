@@ -50,7 +50,7 @@ SLIM_CHANNELS = ("ink_identical", "junior_equivalent")
 
 
 def slim_detail(fragment) -> bool:
-    """Whether a unit's JSON fragment is written slim: `drafts: null` and a header-only explain, the shape `build.check_unit` demands on every SLIM_CHANNELS unit and forbids on every other."""
+    """Whether a unit's JSON fragment is written slim: `drafts: null` and a header-only explain, the shape `build.check_unit` demands on every SLIM_CHANNELS unit and forbids on every other — over the units a build computed, the cache-served ones carrying the same guarantee through the stamp of the build that computed them."""
     return any(fragment.get(channel) is True for channel in SLIM_CHANNELS)
 
 

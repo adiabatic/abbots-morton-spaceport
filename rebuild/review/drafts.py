@@ -40,6 +40,10 @@ _BOUNDARY_QS_TEXT = {SPACE: "space", ZWNJ: "ZWNJ", NAMER_DOT: "·"}
 _test_shaping: Any = None
 
 
+class DraftError(ValueError):
+    """A draft the build cannot stand behind: a pin the repo's own parser will not read or the after font refutes, a policy record the rune schema rejects, or an any-of candidate that does not parse. These used to be recorded as `fail: …` values on the fragment and rejected downstream by `check_unit`; the drafter refuses to produce one instead, so the only values a shipped fragment can carry are the passing ones and no re-read of the surface has to prove it."""
+
+
 def _import_test_shaping() -> Any:
     global _test_shaping
     if _test_shaping is None:
@@ -240,22 +244,28 @@ class Drafter:
         values = unit.codepoint_values
         expect = expect_string(values, enriched.after_spans, enriched.after_seams)
         ts = _import_test_shaping()
-        syntax = "pass"
+        text = "".join(chr(value) for value in values)
+        config_token = unit.configs[0]
         try:
             ts.parse_expect(expect)
         except ValueError as error:
-            syntax = f"fail: {error}"
-        text = "".join(chr(value) for value in values)
-        config_token = unit.configs[0]
+            raise DraftError(
+                f"{unit.codepoints} under {config_token}: the drafted pin {expect!r} does not parse: {error}"
+            ) from error
         semantics = self.validate_semantics(text, expect, features_dict(unit.configs) or None)
+        if semantics != "pass":
+            raise DraftError(
+                f"{unit.codepoints} under {config_token}: the after font refutes the drafted pin "
+                f"{expect!r}: {semantics}"
+            )
         hit = self.corpus_index.get((text, config_token))
         canonical = hit is not None and hit["attribute"] == "data-expect"
         return PinDraft(
             expect=expect,
             attribute="data-expect" if canonical else "data-expect-noncanonically",
             stylistic_set=stylistic_set_value(unit.configs),
-            syntax=syntax,
-            semantics_after_font=semantics,
+            syntax="pass",
+            semantics_after_font="pass",
             duplicate_of=hit["source"] if hit is not None else None,
         )
 
@@ -305,20 +315,20 @@ class Drafter:
             record["when"] = self._window_for_side(enriched, position, new_join_side)
             record["why"] = why
             keypath = "policy.refuse[+]"
-            schema_valid = not self._refuse_checker.check(record)
+            problems = self._refuse_checker.check(record)
         elif extension_side is not None and any("policy.extend" in p for p in enriched.provenance):
             side, height, amount = extension_side
             when = self._window_for_side(enriched, position, side)
             record = {side: height, "by": amount, "when": when, "why": why}
             keypath = "policy.contract[+]"
-            schema_valid = not self._contract_checker.check(record)
+            problems = self._contract_checker.check(record)
         elif enriched.provenance and self._seam_identical(enriched):
             pinned = self._baseline_cell_pin(enriched, position, cell, why)
             if pinned is None:
                 return None
             record = pinned
             keypath = "policy.prefer[+]"
-            schema_valid = not self._prefer_checker.check(record)
+            problems = self._prefer_checker.check(record)
         elif enriched.provenance:
             record = {}
             if cell.exit is not None:
@@ -328,13 +338,19 @@ class Drafter:
             record["when"] = self._window_when(enriched, position)
             record["why"] = why
             keypath = "policy.refuse[+]"
-            schema_valid = not self._refuse_checker.check(record)
+            problems = self._refuse_checker.check(record)
         else:
             baseline_exit = self._baseline_exit(enriched, position)
             when = self._window_when(enriched, position)
             record = {"cell": {"exit": baseline_exit}, "when": when, "why": why}
             keypath = "policy.prefer[+]"
-            schema_valid = not self._prefer_checker.check(record)
+            problems = self._prefer_checker.check(record)
+
+        if problems:
+            raise DraftError(
+                f"{unit.codepoints} under {unit.configs[0]}: the drafted {keypath} record for {rune} does "
+                f"not validate against the rune schema: " + ", ".join(str(problem) for problem in problems)
+            )
 
         return PolicyDraft(
             file=f"glyph_data/runes/{rune}.yaml",
@@ -344,7 +360,7 @@ class Drafter:
             ).strip(),
             names_provenance=enriched.provenance,
             decided_stage=enriched.report.positions[position].decided_stage,
-            schema_valid=schema_valid,
+            schema_valid=True,
             why_stub=why,
         )
 
@@ -482,6 +498,13 @@ class Drafter:
         before = expect_string(values, enriched.before_spans, enriched.before_seams)
         candidates: list[str] = [after]
         if before != after:
+            try:
+                _import_test_shaping().parse_expect(before)
+            except ValueError as error:
+                raise DraftError(
+                    f"{unit.codepoints} under {unit.configs[0]}: the drafted before-behavior candidate "
+                    f"{before!r} does not parse: {error}"
+                ) from error
             candidates.append(before)
         text_tokens = [LETTERS[value] if value in LETTERS else _BOUNDARY_QS_TEXT[value] for value in values]
         return AnyOfDraft(

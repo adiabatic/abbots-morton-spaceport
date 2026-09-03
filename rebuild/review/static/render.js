@@ -155,7 +155,7 @@ export function onlyHereSeamSpans(unit) {
 }
 
 export function needsNoVerdict(unit) {
-  // audit.assign_batches records the workload split as batch — null on exactly the machine-approved and no-verdict units, an integer on every human one — and build.check_unit enforces that equivalence on every built surface, so read the one recorded answer instead of re-deriving the disjunction from the flags.
+  // audit.assign_batches records the workload split as batch — null on exactly the machine-approved and no-verdict units, an integer on every human one — and build.check_unit enforces that equivalence on every unit a build computes, a cache-served one carrying it through the content-key stamp of the build that did, so read the one recorded answer instead of re-deriving the disjunction from the flags.
   return unit.batch === null;
 }
 

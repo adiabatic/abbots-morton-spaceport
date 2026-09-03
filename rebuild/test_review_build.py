@@ -1,6 +1,6 @@
 """Tests for the review-app build CLI: the §7 contract checker over rebuild/review/fixtures/ (the same checker `build_m1` runs over its own output, so fixtures and real output can never drift), the config-note badge vocabulary, the app shell and its shipped scripts, the export round-trip, and the table-diff build.
 
-What is asserted against the *live* surface is deliberately short, because `build_m1` proves the per-unit and per-shard contracts over every unit it writes and fails the build on any violation, and anything the manifest writer computes from its own inputs (the fingerprint, the feature descriptions, the sidebar order) is true by construction — re-walking the shards here to restate one of them bought nothing but seconds and gigabytes apiece. What no build check can make is a claim tying a *persisted* value back to a fresh re-shape of the fonts, so those stay: the shipped ink-delta digests against the comparator recipe (sampled from the smallest shards), the worked example of the ink-duplicate fold (looked up by codepoint rather than by parsing every shard), and the sidecars' byte addressing.
+What is asserted against the *live* surface is deliberately short, because `build_m1` proves the per-unit and per-shard contracts over every unit it writes and fails the build on any violation, and anything the manifest writer computes from its own inputs (the fingerprint, the feature descriptions, the sidebar order) is true by construction — re-walking the shards here to restate one of them bought nothing but seconds and gigabytes apiece. What stays is what no build check makes: the worked example of the ink-duplicate fold (looked up by codepoint rather than by parsing every shard) and the sidecars' byte addressing. The shipped ink deltas are not among them any more — the build's own served-vs-recomputed sample re-shapes the fonts for a couple of hundred served windows on every build and holds the persisted deltas against that recomputation, which is the same claim continuously rather than three windows a lane.
 
 The built surface comes from `built_review_surface` in rebuild/conftest.py — the artifact cycle's own rebuild/out/review, read-only, refused rather than rebuilt when it is stale.
 """
@@ -40,7 +40,6 @@ from rebuild.review.build import (
 )
 from rebuild.review.enrich import LETTERS
 from rebuild.review.export import _triage_projection, build_triage, load_units, load_verdicts
-from rebuild.review.ink import IDENTITY_DIFF, InkComparator, delta_digest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 FIXTURES = REPO_ROOT / "rebuild" / "review" / "fixtures"
@@ -286,36 +285,6 @@ def _units_with_codepoints(out_dir, manifest, wanted):
 def _non_ss10_units(units):
     """A window's units outside its ss10-only sibling: under ss10 every letter keeps its own cluster, so the same codepoints settle into a second, seamless unit that the worked examples below never mean."""
     return [unit for unit in units if unit["configs"] != ["ss10"]]
-
-
-def _smallest_shards_first(manifest):
-    """The classes in ascending unit_count, so a three-unit sample parses tens of megabytes instead of whichever largest shard happens to sort first."""
-    return sorted(manifest["classes"], key=lambda meta: meta["unit_count"])
-
-
-def test_built_ink_deltas_match_the_comparator_recipe(built):
-    """Locks the shipped digests to delta_digest over the same config_diff the cluster signature is built from, so a persisted value really is the delta's identity and a digest blessed once in rebuild/standing-approvals.yaml keeps matching after a rebuild. Sampled like test_cluster_id_recipe_matches_the_docket_tool, since re-shaping every window here would duplicate the build."""
-    out_dir, manifest = built
-    comparator = InkComparator(
-        out_dir / manifest["fonts"]["before"]["file"], out_dir / manifest["fonts"]["after"]["file"]
-    )
-    sampled = 0
-    for meta in _smallest_shards_first(manifest):
-        units = json.loads((out_dir / unit_index.class_shards(meta)[0]).read_text(encoding="utf-8"))
-        unit = next((entry for entry in units if entry["ink_deltas"]), None)
-        if unit is None:
-            continue
-        text = "".join(chr(int(part, 16)) for part in unit["codepoints"].split(":"))
-        expected = {}
-        for config in unit["configs"]:
-            diff = comparator.config_diff(text, config)
-            if diff != IDENTITY_DIFF:
-                expected[config] = delta_digest(diff)
-        assert unit["ink_deltas"] == expected, unit["id"]
-        sampled += 1
-        if sampled == 3:
-            break
-    assert sampled == 3
 
 
 def test_ink_duplicate_siblings_fold_in_the_built_output(built):

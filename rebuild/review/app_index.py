@@ -40,7 +40,7 @@ def artifact_path(surface: Path, name: str) -> Path:
 def app_row(fragment: dict, part: int, start: int, length: int) -> dict:
     """One human unit's shard fragment projected onto what the app draws, plus the address of the fragment itself. Key order is fixed and every key is always present, so two builds of the same surface write the same bytes and every row shares one hidden class in the browser.
 
-    The four machine-channel flags are asserted false rather than carried: `build.check_unit` enforces that a unit with any of them, or with `no_verdict`, has `batch: null`, so a row in this file provably has none. A reader finds them absent and falsy, which is what the shard's `false` already meant.
+    The four machine-channel flags are asserted false rather than carried: `build.check_unit` enforces that a unit with any of them, or with `no_verdict`, has `batch: null` — on the units its own build computed, and through the content-key stamp on the ones the unit cache served — so a row in this file provably has none. A reader finds them absent and falsy, which is what the shard's `false` already meant.
     """
     assert not any(fragment.get(flag) for flag in _SLIMMED_FLAGS), fragment.get("id")
     seams = fragment.get("secondary_seams")

@@ -20,6 +20,7 @@ import sys
 import time
 import traceback
 import warnings
+from collections.abc import Collection
 from dataclasses import dataclass, replace
 from functools import lru_cache
 from itertools import combinations
@@ -64,6 +65,7 @@ from rebuild.review.enrich import (
     EnrichedUnit,
     Enricher,
     SeamHomeUnit,
+    is_seam_token,
     load_spec,
     notation,
     notation_tokens,
@@ -696,7 +698,7 @@ def _resolve_signature_digests(
 
 
 def _surface_worker(conn, init: dict) -> None:
-    """A persistent, stateful surface worker (spawn-only: uharfbuzz/fontTools C objects are not fork-safe, and drafts._import_test_shaping mutates a module-global singleton). Phase 1 computes config_diff + enrich over its slice and retains each EnrichedUnit in-process; phase 2 injects the parent's global fields and emits the shard JSON from the retained enrichment. The third message, `verify`, recomputes both phases for a handful of units the cache served — units this worker never enriched — and answers with their content keys alone, which is what makes the served fragments continuously checkable against a fresh computation of the same window."""
+    """A persistent, stateful surface worker (spawn-only: uharfbuzz/fontTools C objects are not fork-safe, and drafts._import_test_shaping mutates a module-global singleton). Phase 1 computes config_diff + enrich over its slice and retains each EnrichedUnit in-process; phase 2 injects the parent's global fields and emits the shard JSON from the retained enrichment. The third message, `verify`, recomputes both phases for a handful of units the cache served — units this worker never enriched — and answers with each one's content key and its freshly computed ink deltas, which is what makes the served fragments continuously checkable against a fresh computation of the same window."""
     try:
         comparator = InkComparator(init["before_font"], init["after_font"], shaper_for)
         oracle = JuniorOracle(init["junior_font"], init["before_font"], init["after_font"], shaper_for)
@@ -732,10 +734,11 @@ def _surface_worker(conn, init: dict) -> None:
                     fragments[unit_id] = _phase2_unit(retained[unit_id], injection, drafter)
                 conn.send(("ok", fragments))
             elif message[0] == "verify":
-                keys: dict[str, str] = {}
+                keys: dict[str, tuple] = {}
                 for unit, injection in message[1]:
-                    _projection, enriched = _phase1_unit(unit, comparator, oracle, enricher, None)
-                    keys[unit.unit_id] = _phase2_unit(enriched, injection, drafter)["content_key"]
+                    projection, enriched = _phase1_unit(unit, comparator, oracle, enricher, None)
+                    fragment = _phase2_unit(enriched, injection, drafter)
+                    keys[unit.unit_id] = (fragment["content_key"], projection.ink_deltas)
                 conn.send(("ok", keys))
     except Exception:
         try:
@@ -874,9 +877,9 @@ class _FreshRunner:
             self._local = (comparator, oracle, enricher, drafter)
         return self._local
 
-    def verify(self, injections: dict[str, tuple]) -> dict[str, str]:
-        """Recompute both phases for the sampled units the cache served, and answer with their content keys. The units are recomputed from nothing — a fresh explain, a fresh config_diff, a fresh enrichment, fresh drafts — so the key that comes back is what this build would have written had the unit missed the cache, and the caller compares it against the key the served fragment carries."""
-        keys: dict[str, str] = {}
+    def verify(self, injections: dict[str, tuple]) -> dict[str, tuple[str, tuple[tuple[str, str], ...]]]:
+        """Recompute both phases for the sampled units the cache served, and answer with each one's content key beside the ink deltas the same recomputation produced. The units are recomputed from nothing — a fresh explain, a fresh config_diff, a fresh enrichment, fresh drafts — so what comes back is what this build would have written had the unit missed the cache, and the caller holds both halves against what the cache served: the key against the stamp on the served fragment, the deltas against the store record they were served from, since `ink_deltas` sits outside the key's projection."""
+        keys: dict[str, tuple[str, tuple[tuple[str, str], ...]]] = {}
         if not self._verify:
             return keys
         if self._conns:
@@ -898,8 +901,9 @@ class _FreshRunner:
         else:
             comparator, oracle, enricher, drafter = self._in_process()
             for unit in self._verify:
-                _projection, enriched = _phase1_unit(unit, comparator, oracle, enricher, None)
-                keys[unit.unit_id] = _phase2_unit(enriched, injections[unit.unit_id], drafter)["content_key"]
+                projection, enriched = _phase1_unit(unit, comparator, oracle, enricher, None)
+                fragment = _phase2_unit(enriched, injections[unit.unit_id], drafter)
+                keys[unit.unit_id] = (fragment["content_key"], projection.ink_deltas)
         return keys
 
     def close(self) -> None:
@@ -945,8 +949,9 @@ def _write_surface(
     repo_root: Path,
     static_dir: Path,
     mismatches: list,
+    served_ids: Collection[str] = (),
 ) -> dict:
-    """Reassemble the per-unit JSON fragments into shards (per class, triage order), copy fonts, and write the manifest with its parent-once `generated_at`/`repo_head` stamps. The contract check runs over the in-memory shards and manifest it just assembled — the same dicts the writer serialized — instead of re-parsing the hundreds of megabytes it just wrote."""
+    """Reassemble the per-unit JSON fragments into shards (per class, triage order), copy fonts, and write the manifest with its parent-once `generated_at`/`repo_head` stamps. The contract check runs over the in-memory shards and manifest it just assembled — the same dicts the writer serialized — instead of re-parsing the hundreds of megabytes it just wrote, and `served_ids` carries the cache's plan into it (see `check_shards`)."""
     classes_meta: list[dict] = []
     shards_by_class: dict[str, list[dict]] = {}
     spans_by_class: dict[str, list[tuple[int, int, int]]] = {}
@@ -1023,7 +1028,7 @@ def _write_surface(
             f"(first: {mismatches[0]})"
         )
     errors.extend(check_manifest(manifest))
-    errors.extend(check_shards(manifest, shards_by_class, repo_root))
+    errors.extend(check_shards(manifest, shards_by_class, repo_root, served_ids=served_ids))
     errors.extend(_check_output_files(out_dir, manifest, repo_root))
     if errors:
         raise SystemExit("contract check failed:\n" + "\n".join(errors[:20]))
@@ -1160,7 +1165,12 @@ def build_m1(
         for cached in candidates.values():
             wanted.setdefault(cached.prior_class, set()).add(cached.prior_id)
         prior_fragments = unit_cache.load_prior_fragments(out_dir, wanted)
-        served = {uid: cached for uid, cached in candidates.items() if cached.prior_id in prior_fragments}
+        # A candidate is served only when the fragment fetched by its prior id still carries the very stamp the store recorded for it. The fetch is an id lookup into files this build did not write, and everything that rides on a served fragment — that these are the bytes `check_unit` passed in the build that emitted them, so this build need not check them again — is only as good as that equality.
+        served = {
+            uid: cached
+            for uid, cached in candidates.items()
+            if prior_fragments.get(cached.prior_id, {}).get("content_key") == cached.content_key
+        }
     fresh = [unit for unit in workload.units if unit.unit_id not in served]
     sampled = set(_verification_sample(sorted(served), environment))
     # Copies, because recomputing a unit's phase 1 writes the ink flags onto it and phase 2 writes the injected batch and class; the originals are the ones the reduces and the store read.
@@ -1282,16 +1292,17 @@ def build_m1(
             fragments[unit.unit_id] = patch_cached_fragment(
                 prior_fragments[cached.prior_id], unit, cached.seams, assignments[unit.unit_id]
             )
-    # What the cache serves must be what a fresh computation of the same window writes, including every scaffold field `unit_scaffold` lists, which `patch_cached_fragment` re-stamps without recomputing the stamp. The content key is the whole of the claim: it hashes every adjudicable field of the fragment, so one comparison per sampled unit covers the ink flags, the enrichment, the seams, the geometry, and the drafts at once.
+    # What the cache serves must be what a fresh computation of the same window writes. The content key carries most of that claim: it hashes the fragment's adjudicable fields — the ink flag, both fonts' glyphs and cells, the seams, the highlight geometry, the notation — so one comparison per sampled unit covers all of them at once. Two things sit outside it and are answered elsewhere. `ink_deltas` is a carry-presentation key (`unit_cache.CARRY_PRESENTATION_KEYS`), so the recomputation hands it back beside the stamp and it is compared against the store record the unit was served from. The drafts, the explain text, and the secondary seams are outside it too, and they are guaranteed at production rather than sampled: the drafter raises on a pin or a policy record it cannot stand behind, the explain rides the same enrichment as the cells and seams the key does cover, and `patch_cached_fragment` re-emits the secondary seams from the cached rects under this build's own home assignments.
     stale = sorted(
         unit_id
-        for unit_id, key in verified.items()
+        for unit_id, (key, deltas) in verified.items()
         if key != prior_fragments[served[unit_id].prior_id].get("content_key")
+        or dict(deltas) != served[unit_id].ink_deltas
     )
     if stale:
         raise SystemExit(
-            f"the unit cache served {len(stale)} of {len(verified)} sampled units whose content key does "
-            f"not match a fresh recomputation: {', '.join(stale[:10])}"
+            f"the unit cache served {len(stale)} of {len(verified)} sampled units whose content key or ink "
+            f"deltas do not match a fresh recomputation: {', '.join(stale[:10])}"
         )
     mismatches = [line for unit in workload.units for line in states[unit.unit_id].mismatches]
     echo_count = len(echo_ids)
@@ -1322,6 +1333,7 @@ def build_m1(
         repo_root,
         static_dir,
         mismatches,
+        served_ids=frozenset(served),
     )
     print(f"[t] review.build manifest+check {time.perf_counter() - phase:.1f}s", file=sys.stderr, flush=True)
 
@@ -1354,6 +1366,7 @@ def build_m1(
                 key=keys[unit.unit_id],
                 prior_id=unit.unit_id,
                 prior_class=unit.class_id,
+                content_key=fragments[unit.unit_id]["content_key"],
                 ink_identical=unit.ink_identical,
                 picture_identical=unit.picture_identical,
                 junior_equivalent=unit.junior_equivalent,
@@ -1797,15 +1810,6 @@ def check_manifest(manifest: dict) -> list[str]:
     return errors
 
 
-_SEAM_RE_TOKENS = ("break", "lig", "absent")
-
-
-def _is_seam(token) -> bool:
-    return isinstance(token, str) and (
-        token in _SEAM_RE_TOKENS or (token.startswith("y") and token[1:].isdigit())
-    )
-
-
 def _is_delta_digest(token) -> bool:
     return (
         isinstance(token, str)
@@ -1973,9 +1977,9 @@ def check_unit(unit: dict, mode: str = "m1-audit") -> list[str]:
         "after.extensions must be a list",
     )
     if isinstance(before, dict) and isinstance(before.get("seams"), list):
-        need(all(_is_seam(seam) for seam in before["seams"]), "before.seams must be break/lig/yN tokens")
+        need(all(is_seam_token(seam) for seam in before["seams"]), "before.seams must be break/lig/yN tokens")
     if isinstance(after, dict) and isinstance(after.get("seams"), list):
-        need(all(_is_seam(seam) for seam in after["seams"]), "after.seams must be break/lig/yN tokens")
+        need(all(is_seam_token(seam) for seam in after["seams"]), "after.seams must be break/lig/yN tokens")
     if mode == "m1-audit" and isinstance(before, dict) and isinstance(after, dict):
         need(
             len(before.get("seams", ())) == max(len(before.get("glyphs", ())) - 1, 0),
@@ -2192,11 +2196,17 @@ def check_unit(unit: dict, mode: str = "m1-audit") -> list[str]:
 
 
 def check_shards(
-    manifest: dict, shards_by_class: dict[str, list[dict]], repo_root: Path | None = None
+    manifest: dict,
+    shards_by_class: dict[str, list[dict]],
+    repo_root: Path | None = None,
+    *,
+    served_ids: Collection[str] = (),
 ) -> list[str]:
     """The unit-grain half of the §7 contract check over in-memory shard payloads, keyed by class id — shared between the build's post-write self-check (which hands it the very dicts it serialized) and `check_output_dir` (which re-parses them from disk). Classes missing from the mapping are reported by the caller, which knows whether that means an unwritten file or an unassembled shard. `repo_root`, when given, also resolves the distinct policy-draft files once and checks they exist; every other predicate here is over the payload alone.
 
     Its second job is the cross-unit grain — the properties no single fragment can carry: that an echo group and a cluster each hold one class and one config set and that every echo nests inside one cluster, that the manifest's `human_unit_ids` really is the id-ordered human workload in contiguous batches, and that each secondary seam's home is a shorter unit of the same window where that adjacency is the primary judgment. Those were swept by tests over the live surface once a lane; here they run over every shipped unit on every build.
+
+    `served_ids` names the units the unit cache served this build, and `check_unit` is skipped for exactly those. A served fragment was fresh in the build that wrote it, where `check_unit` did run over it, and the build serves it only when the stamp on the shard equals the one its store record carries — so its adjudicable bytes are proven to be the bytes that passed. What the serving build then changes is the scaffold, and the scaffold comes from the same `unit_scaffold` a fresh emission reads; the cross-unit predicates below run over every unit either way, so the fields that relate a served unit to its neighbors are checked here on every build. A caller re-reading a finished surface (`check_output_dir`, the table-diff build) passes nothing and checks everything.
     """
     errors: list[str] = []
     mode = manifest.get("mode", "m1-audit")
@@ -2229,8 +2239,9 @@ def check_shards(
         machine_count = 0
         channel_counts = {channel: 0 for channel in MACHINE_CHANNELS}
         for unit in shard:
-            errors.extend(check_unit(unit, mode))
             unit_id = unit.get("id")
+            if unit_id not in served_ids:
+                errors.extend(check_unit(unit, mode))
             identity[unit_id] = (
                 unit.get("codepoints"),
                 unit.get("pair") is not None,
