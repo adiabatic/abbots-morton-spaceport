@@ -51,14 +51,15 @@ def ss03_tables():
 
 
 def replay(decision):
-    """First-match-wins over the crate's ordered rules, re-implemented on this side: every row of the enumeration it wrote must settle where its own rules say it does. The crate replays as it folds — one left per signature block, which `fold::assert_outcome_partition` argues is the same claim — so what this adds is independence, since a rule fold that derived its rules and replayed them consistently wrongly would satisfy its own check and fail this one. Whole-table and label-grain, which a fixture can afford and a live configuration cannot."""
+    """First-match-wins over the crate's ordered rules, re-implemented on this side, restating both claims the fold states under that name: every row of the enumeration it wrote settles where its own rules say it does, and every rule it wrote is the first match for some row. The crate replays as it folds — one left per signature block, which `fold::assert_outcome_partition` argues is the same claim — so what this adds is independence, since a rule fold that derived its rules and replayed them consistently wrongly would satisfy its own check and fail this one. Whole-table and label-grain, which a fixture can afford and a live configuration cannot; the reduction the crate replays is a subset of these rows, so a rule it found first for some row is first here too."""
     rules_by_input: dict[str, list] = {}
-    for rule in decision.rules:
-        rules_by_input.setdefault(rule.input_glyph, []).append(rule)
+    for seat, rule in enumerate(decision.rules):
+        rules_by_input.setdefault(rule.input_glyph, []).append((seat, rule))
     failures = []
+    first: set[int] = set()
     for row in decision.expanded_transitions():
         predicted = row.input_glyph
-        for rule in rules_by_input.get(row.input_glyph, ()):
+        for seat, rule in rules_by_input.get(row.input_glyph, ()):
             if rule.backtrack is not None and row.left not in rule.backtrack:
                 continue
             if rule.look1 is not None and row.right1 not in rule.look1:
@@ -70,12 +71,19 @@ def replay(decision):
             if rule.look4 is not None and row.right4 not in rule.look4:
                 continue
             predicted = rule.outcome
+            first.add(seat)
             break
         if predicted != row.outcome:
             failures.append((row.key, row.outcome, predicted))
     assert not failures, "; ".join(
         f"{key}: settlement says {expected}, rules say {predicted}"
         for key, expected, predicted in failures[:5]
+    )
+    never = [seat for seat in range(len(decision.rules)) if seat not in first]
+    assert first == set(range(len(decision.rules))), "; ".join(
+        f"no replayed row first-matches {rule.input_glyph} "
+        f"{(rule.backtrack, rule.look1, rule.look2, rule.look3, rule.look4)} -> {rule.outcome}"
+        for rule in (decision.rules[seat] for seat in never[:5])
     )
 
 

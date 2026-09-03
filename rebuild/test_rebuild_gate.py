@@ -16,6 +16,12 @@ def _checks():
     return ct.load_checks(ct.JOURNAL)
 
 
+@pytest.fixture(autouse=True)
+def stamped(monkeypatch):
+    """A stamped rebuild/out/m1 for every test but the ones about the stamp. This module is contracts-lane and reads no live artifact, so the real probe — which opens the six windows heads under rebuild/out — is stubbed out rather than consulted."""
+    monkeypatch.setattr(rg, "m1_tables_stamped", lambda: True)
+
+
 @pytest.fixture
 def green_store(tmp_path, monkeypatch):
     """Both lanes' records under tmp_path, keyed by lane. rebuild_lane_green resolves the module constants at call time, so redirecting them here is enough for both modules."""
@@ -247,3 +253,46 @@ def test_pyright_rides_into_the_validators_lane_when_contracts_skipped(green_sto
     assert rg.main([]) == 0
     assert _lanes(spawned) == ["validators"]
     assert spawned[0][2].get(rg.PYRIGHT_ENV) == "1"
+
+
+def test_a_stale_tables_stamp_refuses_the_validators_lane_before_spawning(green_store, monkeypatch, capsys):
+    """The lane's readers measure a live artifact, so tables the sources on disk no longer describe fail it on contents nobody edited. The refusal is filed as a red check of the lane's own name and costs the six windows heads rather than a whole collection."""
+    monkeypatch.setattr(rg, "m1_tables_stamped", lambda: False)
+    _fingerprints(monkeypatch, {"contracts": ["c-1"] * 2, "validators": ["v-1"]})
+    spawned = _suite_stub(monkeypatch, {"contracts": (0, "")})
+    assert rg.main([]) == 1
+    assert _lanes(spawned) == ["contracts"]
+    contracts = ac.read_green_record(green_store["contracts"])
+    assert contracts is not None
+    assert contracts["fingerprint"] == "c-1"
+    assert ac.read_green_record(green_store["validators"]) is None
+    assert "rebuild.pipeline.run_m1" in capsys.readouterr().out
+    checks = _checks()
+    assert len(checks) == 2
+    assert checks[1]["check"] == "rebuild-validators"
+    assert checks[1]["verdict"] == "red"
+    assert checks[1]["failed_ids"] == ["validators lane not spawned: stale tables stamp"]
+    assert "argv" not in checks[1]
+
+
+def test_force_does_not_bypass_the_stamp_refusal(green_store, monkeypatch):
+    """Forcing a lane to run says the closure fingerprint may not excuse it; it says nothing about whether there is anything current to run it against."""
+    monkeypatch.setattr(rg, "m1_tables_stamped", lambda: False)
+    _fingerprints(monkeypatch, {"contracts": ["c-1"] * 2, "validators": ["v-1"]})
+    spawned = _suite_stub(monkeypatch, {"contracts": (0, "")})
+    assert rg.main(["--force"]) == 1
+    assert _lanes(spawned) == ["contracts"]
+
+
+def test_a_matching_validators_record_skips_without_consulting_the_stamp(green_store, monkeypatch):
+    """The skip decision comes first: a lane whose closure is unchanged since its last green run is not being spawned, so what the tables on disk are stamped with is a question nobody has to ask."""
+
+    def refuse():
+        raise AssertionError("the stamp was read for a lane that skipped")
+
+    monkeypatch.setattr(rg, "m1_tables_stamped", refuse)
+    for lane, store in green_store.items():
+        ac.record_green(store, f"fp-{lane}")
+    _fingerprints(monkeypatch, {"contracts": ["fp-contracts"], "validators": ["fp-validators"]})
+    _suite_stub(monkeypatch, {})
+    assert rg.main([]) == 0

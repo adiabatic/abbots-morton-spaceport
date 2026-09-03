@@ -6,6 +6,8 @@ Contracts runs first, and a hard failure there returns immediately without start
 
 AMS_RUN_PYRIGHT rides the environment into whichever lane actually spawns first and is stripped from every lane after it: pyright checks the whole tree from `[tool.pyright] include` and its answer cannot change between two pytest invocations of the same working tree, so type-checking twice would only cost a second copy of the same verdict.
 
+The validators lane has one precondition the closure fingerprint cannot state: the window enumerations under rebuild/out/m1 have to be the ones the sources on disk describe, since that lane's readers measure a live artifact and a stale one fails them on contents nobody edited. The refusal for that fires before the lane spawns rather than after it has collected, because every red this journal has recorded against rebuild/test_rule_witnesses.py was a stale stamp rather than a defect, and a stamp that will fail the suite is worth naming in seconds instead of at the end of the long lane. The check is `run_m1.tables_inputs` against the six windows heads — `artifact_cycle.m1_tables_stamped`, one line read per configuration — and --force does not bypass it, because forcing a lane to run says nothing about whether there is anything current to run it against.
+
 AMS_POOL_UNIT goes the other way — each lane names its own pool (POOL_UNIT_BY_LANE), which is what has that lane's xdist controller append a kind:"pool" line to the cycle-timings journal recording every worker's peak, the measurement `make job-costs` holds VALIDATORS_WORKER_BYTES against. The name is written into a per-lane copy of the environment and never into the shared one, because the shared dict outlives the lane: writing it there would leave lane two spawning under lane one's name and file the validators pool as contracts.
 """
 
@@ -26,6 +28,7 @@ from rebuild.tools.artifact_cycle import (
     REBUILD_LANES,
     classify_rebuild_output,
     clear_contradicted_green,
+    m1_tables_stamped,
     read_green_record,
     rebuild_lane_argv,
     rebuild_lane_fingerprint,
@@ -67,6 +70,25 @@ def _run_lane(lane: str, env: dict[str, str], force: bool) -> tuple[int, bool]:
             CheckVerdict(check=check, verdict="skipped", status="skipped", failures=[], failed_ids=[])
         )
         return 0, False
+
+    if lane == "validators" and not m1_tables_stamped():
+        print(
+            "make test-rebuild: validators lane not spawned — no window enumeration under rebuild/out/m1 is stamped "
+            "with the current sources; run `uv run python -m rebuild.pipeline.run_m1` (or a `make review-cycle` pass) first"
+        )
+        record_check(
+            CheckVerdict(
+                check=check,
+                verdict="red",
+                status="FAILED (stale tables stamp)",
+                failures=[
+                    "rebuild suite: the window enumerations under rebuild/out/m1 are not stamped with the current sources"
+                ],
+                failed_ids=["validators lane not spawned: stale tables stamp"],
+            )
+        )
+        clear_contradicted_green(record_path, before)
+        return 1, False
 
     argv = rebuild_lane_argv(lane)
     lane_env = {**env, POOL_UNIT_ENV: check}

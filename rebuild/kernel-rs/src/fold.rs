@@ -12,7 +12,7 @@ use std::rc::Rc;
 use crate::index::SpecIndex;
 use crate::rulefold::rules_for_input;
 use crate::stream::{
-    FixpointProduct, TransitionRow, cell_key, cell_key_repr, key_repr, python_repr,
+    FixpointProduct, TransitionRow, cell_key, cell_key_repr, key_repr, python_repr, python_tuple,
 };
 use crate::types::{AdjustmentToken, CellId, Side};
 
@@ -471,17 +471,27 @@ fn assert_reachable_cells(
 /// The hard build invariant (prototype follow-up 1): replay reachable transitions against the ordered rules under first-match-wins semantics and require the rules to predict what settlement enumerated, `table.DecisionTable.assert_outcome_partition`.
 ///
 /// `lefts` is the reduction the rule fold hands back — one representative of every committed left block plus every member of the boundary block — and that docstring in `table.py` carries the argument for why replaying those lefts proves the same statement as replaying all of them, the ZWNJ backtrack guards included. `None` replays every row, which is what a fixture small enough to afford it is held to.
+///
+/// The same pass also tallies which rule each replayed row first-matches, and a rule no replayed row ever reaches is refused alongside an outcome mismatch: a rule the ordering has shadowed is dead GSUB, and this replay is the only place in the fold that knows which rule won a row. The tally costs nothing beyond a flag per rule, because the replay already stops at the first match and had only to say which one that was.
+///
+/// It is exact under the reduction rather than merely suggestive, for two reasons. A committed block's rules carry the whole block in `backtrack`, so every member of that block matches the same slots the representative does and its rows first-match the same rule — replaying one member decides the block. And every rule reachable only from a boundary left — the default rules, the ZWNJ backtrack replicas and the identity catch-all [`crate::rulefold`] mints, `uni200C` being boundaryish — is replayed against every member of the boundary block, which the reduction keeps whole rather than reducing to a representative. So a rule that is never first under the reduction is never first over the whole table either, and `rebuild/test_table.py`'s `replay` restates both claims on the mini fixture in its own implementation of first-match-wins.
+///
+/// [`fold_product`] runs this under the reduction, so `build-tables` refuses a never-first rule where it folds one rather than after Python has parsed the artifact back, and a Python caller sees a `KernelRunError`. There is no second replay.
 pub fn assert_outcome_partition(
     rows: &LabelRows<'_>,
     rules: &[Rule],
     lefts: Option<&ReplayLefts>,
 ) -> Result<(), String> {
-    let mut by_input: HashMap<&str, Vec<&Rule>> = HashMap::new();
-    for rule in rules {
-        by_input.entry(&rule.input_glyph).or_default().push(rule);
+    let mut by_input: HashMap<&str, Vec<(usize, &Rule)>> = HashMap::new();
+    for (seat, rule) in rules.iter().enumerate() {
+        by_input
+            .entry(&rule.input_glyph)
+            .or_default()
+            .push((seat, rule));
     }
     let mut failures: Vec<String> = Vec::new();
     let mut count = 0usize;
+    let mut was_first = vec![false; rules.len()];
     for row in 0..rows.len() {
         let key = rows.key(row);
         if let Some(lefts) = lefts
@@ -492,7 +502,7 @@ pub fn assert_outcome_partition(
             continue;
         }
         let mut predicted: &str = key[0];
-        for rule in by_input.get(key[0]).map_or(&[][..], Vec::as_slice) {
+        for (seat, rule) in by_input.get(key[0]).map_or(&[][..], Vec::as_slice) {
             if rule
                 .slots()
                 .iter()
@@ -505,6 +515,7 @@ pub fn assert_outcome_partition(
                 continue;
             }
             predicted = &rule.outcome;
+            was_first[*seat] = true;
             break;
         }
         let settled: &str = rows.outcome(row);
@@ -518,13 +529,51 @@ pub fn assert_outcome_partition(
             }
         }
     }
-    if count == 0 {
+    if count > 0 {
+        return Err(format!(
+            "{count} first-match-wins replay mismatches: {}",
+            failures.join("; ")
+        ));
+    }
+    let never: Vec<usize> = (0..rules.len()).filter(|seat| !was_first[*seat]).collect();
+    if never.is_empty() {
         return Ok(());
     }
+    let listed: Vec<String> = never
+        .iter()
+        .take(5)
+        .map(|seat| rule_repr(&rules[*seat]))
+        .collect();
     Err(format!(
-        "{count} first-match-wins replay mismatches: {}",
-        failures.join("; ")
+        "{} rule(s) no replayed row first-matches: {}",
+        never.len(),
+        listed.join("; ")
     ))
+}
+
+/// One rule as a refusal names it: the input it rewrites, its five constrained slots in the order a replay tests them with `any` for an unconstrained one, the outcome it would have written, and the first authored pointer that produced it.
+fn rule_repr(rule: &Rule) -> String {
+    let slots: Vec<String> = rule.slots().iter().map(|slot| slot_repr(slot)).collect();
+    let provenance = match rule.provenance.first() {
+        Some(line) => python_repr(line),
+        None => "no provenance".to_owned(),
+    };
+    format!(
+        "{} {} -> {}, from {provenance}",
+        python_repr(&rule.input_glyph),
+        python_tuple(&slots),
+        python_repr(&rule.outcome)
+    )
+}
+
+fn slot_repr(slot: &Option<Vec<Rc<str>>>) -> String {
+    match slot {
+        None => "any".to_owned(),
+        Some(members) => {
+            let names: Vec<&str> = members.iter().map(|member| &**member).collect();
+            python_str_list(&names)
+        }
+    }
 }
 
 /// Every emitted look3/look4 letter class holds each class row's member set all-in or all-out within the row's own context — the fold-output assertion that licenses conform's representative-membership tests as exact rather than heuristic.
@@ -670,6 +719,52 @@ mod tests {
             .expect("first-match-wins over the whole table");
         assert_outcome_partition(&rows, &folded.decision.rules, Some(&folded.replay_lefts))
             .expect("and over the reduction the build replays");
+    }
+
+    /// A rule nothing can reach is dead GSUB, and this replay is the only pass that knows which rule won a row — so it refuses one. A backtrack naming a left the fixture never enumerates matches nothing, which leaves every prediction and therefore the outcome partition exactly as it was: what fails is the tally alone.
+    #[test]
+    fn a_rule_no_replayed_row_first_matches_is_refused() {
+        let (_index, product, folded) = built();
+        let fold_rows = expand(&product);
+        let rows = LabelRows::new(&product.transitions, &fold_rows);
+        let input = Rc::clone(&folded.decision.rules[0].input_glyph);
+        let mut rules = folded.decision.rules.clone();
+        rules.push(Rule {
+            input_glyph: Rc::clone(&input),
+            backtrack: Some(vec![Rc::from("qsNever.loop")]),
+            look1: None,
+            look2: None,
+            look3: None,
+            look4: None,
+            outcome: Rc::clone(&input),
+            provenance: vec!["a dead rule".into()],
+            joint: false,
+        });
+        let message = assert_outcome_partition(&rows, &rules, Some(&folded.replay_lefts))
+            .expect_err("a rule no row reaches is refused");
+        assert!(
+            message.contains("1 rule(s) no replayed row first-matches"),
+            "{message}"
+        );
+        assert!(message.contains("qsNever.loop"), "{message}");
+        assert!(message.contains("a dead rule"), "{message}");
+    }
+
+    /// The tally's other half, the one an unreachable slot cannot stand for: a duplicate of a rule already in the list matches exactly what its twin matches and the twin precedes it, so first-match-wins reaches it never while predicting every row the way it always did.
+    #[test]
+    fn a_shadowed_duplicate_is_refused() {
+        let (_index, product, folded) = built();
+        let fold_rows = expand(&product);
+        let rows = LabelRows::new(&product.transitions, &fold_rows);
+        let mut rules = folded.decision.rules.clone();
+        let twin = rules.last().expect("the fixture folds rules").clone();
+        rules.push(twin);
+        let message = assert_outcome_partition(&rows, &rules, Some(&folded.replay_lefts))
+            .expect_err("a shadowed duplicate is refused");
+        assert!(
+            message.contains("no replayed row first-matches"),
+            "{message}"
+        );
     }
 
     /// The negative control the reduction owes: every single-rule drop, every adjacent swap and every widened first-lookahead class that the whole-table replay notices is noticed by the reduced replay too. Perturbations neither catches are redundant rules, which is a fact about the fold rather than about the reduction.
@@ -897,6 +992,32 @@ mod tests {
             }
         }
 
+        /// The rows a fixpoint enumerates beside one whose lookahead reaches the edge of the buffer: the same window with each real boundary glyph in that slot, settling the way the edge settles. `#EDGE` is a label no GSUB lookup can see, so the fold states the boundary case over [`BOUNDARY_LOOKAHEAD_CLASS`] instead — which means a hand-built product carrying the `#EDGE` row alone leaves that rule unreachable, and since the fold refuses a rule no replayed row first-matches, it is refused as the product no fixpoint would have produced.
+        fn edge_kin(&self, labels: [&str; 7]) -> Vec<TransitionRow> {
+            let slot = (2..6)
+                .find(|slot| labels[*slot] == "#EDGE")
+                .expect("the row reaches the edge of the buffer somewhere");
+            BOUNDARY_LOOKAHEAD_CLASS
+                .iter()
+                .map(|glyph| {
+                    let mut kin = labels;
+                    kin[slot] = glyph;
+                    self.row(kin, 0, false)
+                })
+                .collect()
+        }
+
+        /// The default block a fixpoint leaves behind every committed one: each boundary left — ZWNJ among them — carrying the same near lookahead and the same run edge, with that edge settling into the input's bare self. A hand-built product needs the whole block rather than one `#EDGE` left, because the rules the fold states over it are stated over the boundary glyphs and replicated under a `uni200C` backtrack, and the fold refuses any of those a replayed row cannot reach.
+        fn boundary_block(&self, input: &str, near: &str, outcome: &str) -> Vec<TransitionRow> {
+            let mut rows = Vec::new();
+            for left in ["#EDGE", "space", "periodcentered", "uni200C"] {
+                rows.push(self.row([input, left, near, "#NA", "#NA", "#NA", outcome], 0, false));
+                rows.push(self.row([input, left, "#EDGE", "#NA", "#NA", "#NA", input], 0, false));
+                rows.extend(self.edge_kin([input, left, "#EDGE", "#NA", "#NA", "#NA", input]));
+            }
+            rows
+        }
+
         /// The bench cell with adjustments of its own, which is what gives two rows under one left different entry extensions and so two treaty rows tying on the triple.
         fn adjusted(&self, adjustments: Vec<AdjustmentToken>) -> CellId {
             CellId {
@@ -1023,7 +1144,11 @@ mod tests {
                     0,
                     false,
                 ),
-            ],
+            ]
+            .into_iter()
+            .chain(bench.edge_kin(["qsIt", "#EDGE", "#EDGE", "#NA", "#NA", "#NA", "qsIt.b"]))
+            .chain(bench.edge_kin(["qsIt", "#EDGE", "qsMay", "#EDGE", "#NA", "#NA", "qsIt.z"]))
+            .collect(),
             vec![
                 (first.clone(), vec!["D".to_owned(), "E".to_owned()]),
                 (second.clone(), vec!["F".to_owned(), "G".to_owned()]),
@@ -1216,7 +1341,7 @@ mod tests {
         }
     }
 
-    /// The rows a chokepoint arm is stated over: one committed left carrying a two-slot split and a boundary row, and the boundary lefts — ZWNJ among them — sharing one default block.
+    /// The rows a chokepoint arm is stated over: one committed left carrying a two-slot split and a boundary row, and the boundary lefts — ZWNJ among them — sharing one default block whose run edge settles into the input's bare self. That last is what leaves the identity catch-all a rule with work to do: a default block whose slot-dropped row settles into the input is a fallback the dedup drops, so nothing shallower stands between a ZWNJ-backtrack row and the guard, and a guard the whole default block already answered for would be a rule no replayed row first-matches.
     fn chokepoint(bench: &Bench, input: &str) -> FixpointProduct {
         let outcome = |suffix: &str| format!("{input}.{suffix}");
         let mut rows = vec![
@@ -1260,18 +1385,16 @@ mod tests {
                 false,
             ),
         ];
-        for left in ["#EDGE", "space", "periodcentered", "uni200C"] {
-            rows.push(bench.row(
-                [input, left, "qsTea", "#NA", "#NA", "#NA", &outcome("e")],
-                0,
-                false,
-            ));
-            rows.push(bench.row(
-                [input, left, "#EDGE", "#NA", "#NA", "#NA", &outcome("f")],
-                0,
-                false,
-            ));
-        }
+        rows.extend(bench.edge_kin([
+            input,
+            "qsMay.x",
+            "#EDGE",
+            "#NA",
+            "#NA",
+            "#NA",
+            &outcome("d"),
+        ]));
+        rows.extend(bench.boundary_block(input, "qsTea", &outcome("e")));
         bench.product(rows, Vec::new())
     }
 
@@ -1369,17 +1492,10 @@ mod tests {
                     contracted.clone(),
                     4,
                 ),
-                bench.row(
-                    ["qsIt", "#EDGE", "qsTea", "#NA", "#NA", "#NA", "qsIt.a"],
-                    0,
-                    false,
-                ),
-                bench.row(
-                    ["qsIt", "#EDGE", "#EDGE", "#NA", "#NA", "#NA", "qsIt.a"],
-                    0,
-                    false,
-                ),
-            ],
+            ]
+            .into_iter()
+            .chain(bench.boundary_block("qsIt", "qsTea", "qsIt.a"))
+            .collect(),
             Vec::new(),
             vec![bench.cell.clone(), extended, contracted],
         );
@@ -1410,7 +1526,7 @@ mod tests {
     #[test]
     fn a_cell_counted_twice_is_spelled_once() {
         let bench = Bench::new();
-        let rows = vec![
+        let mut rows = vec![
             bench.row(
                 ["qsIt", "#EDGE", "qsTea", "#NA", "#NA", "#NA", "qsIt.a"],
                 0,
@@ -1422,6 +1538,7 @@ mod tests {
                 false,
             ),
         ];
+        rows.extend(bench.edge_kin(["qsIt", "#EDGE", "#EDGE", "#NA", "#NA", "#NA", "qsIt.a"]));
         let once = fold_product(&bench.index, bench.product(rows.clone(), Vec::new()))
             .expect("the product folds");
         let twice = fold_product(
