@@ -1,14 +1,13 @@
-"""Post-compile GSUB surgery: repack the settlement lookup's per-rule format-3 chained-context subtables into shared-ClassDef format-2 subtables, because feaLib has no syntax or knob that emits chain-context format 2 and its per-rule format-3 fallback costs ten uint16-space bytes per rule — which pushed the flag-on simulated-prospect table (issue #28 stage 2) to 5,096 subtables and 12,783 bytes of subtable-offset headroom, under the budget gate's 16,384 floor, with a measured ceiling proving no liveness-filter tightening can recover it. Packing is the design's sanctioned shape: section 7 draws the soundness line at subtables, never per-family lookups — subtables share the one left-to-right pass, so backtrack still sees settled neighbors — and format 2 spends its ten bytes per *group* of class-compatible rules rather than per rule, which also gives the alphabet's remaining migrations their growth runway.
+"""Post-compile GSUB surgery: repack the settlement lookup's per-rule format-3 chained-context subtables into shared-ClassDef format-2 subtables, because feaLib has no syntax or knob that emits chain-context format 2 and its per-rule format-3 fallback costs ten uint16-space bytes per rule — which pushed the flag-on simulated-prospect table (issue #28 stage 2) to 5,096 subtables and 12,783 bytes of subtable-offset headroom, under the 16,384-byte subtable-offset headroom floor read-back now holds the font to (`readback.SUBTABLE_OFFSET_HEADROOM_FLOOR`), with a measured ceiling proving no liveness-filter tightening can recover it. Packing is the design's sanctioned shape: section 7 draws the soundness line at subtables, never per-family lookups — subtables share the one left-to-right pass, so backtrack still sees settled neighbors — and format 2 spends its ten bytes per *group* of class-compatible rules rather than per rule, which also gives the alphabet's remaining migrations their growth runway.
 
 The pass is encoding-only by construction. It reads each qualifying lookup's format-3 subtables in order (each is one rule: coverage sets per slot plus SubstLookupRecords already pointing at feaLib's deduped inner lookups), groups consecutive-compatible rules with an order-preserving greedy — within a group every backtrack set must be equal-or-disjoint with every other (they share the group's backtrack ClassDef), likewise all lookahead sets against the single lookahead ClassDef and all input sets against the input ClassDef, and a rule may only land in a group at or after the last group any of its input glyphs used, so cross-subtable fallthrough preserves per-glyph first-match-wins — then replaces the lookup's SubTable array with one ChainContextSubst format 2 per group, reusing the original SubstLookupRecords verbatim and re-wrapping in Extension when the lookup rides type 7. A rule whose own slots defeat shared ClassDefs — the real table carries lookahead pairs like a {qsNo} singleton beside a broad class that also holds qsNo — is inexpressible in format 2 and passes through as its original format-3 subtable, a singleton group in sequence position (`_self_compatible`); the two formats mix freely inside one lookup. Rules never reference class 0 (the unclassed-glyph catch-all), every referenced glyph is explicitly classed, and rule order within a ChainSubClassSet is the original per-glyph order. A qualifying lookup is chained-context with every subtable format 3, a single input slot, and all substitutions at sequence index 0, at or above `min_subtables` — at M1 scale exactly `m1_settle`; the formation-guard lookup's multi-input forming rows disqualify it by shape.
 
-Verification is built in and empirical, not trusted: `pack_lookup` re-derives the per-input-glyph logical rule sequences from the packed subtables and raises `PackError` unless they equal the originals exactly, and the compiled font then faces the same conform sweep and budget gate as before — the packing changes what `budget.json` measures, never what shapes.
+Verification is read-back's, and empirical rather than trusted: `rebuild/pipeline/readback.py` decompiles the settlement lookup off the written font through `per_glyph_sequences` and holds every input glyph's ordered rule sequence to the plan's, so the packing is proven over the bytes that shipped rather than by replaying its own output in memory, and the compiled font then faces the same conform sweep as before — the packing changes what read-back measures, never what shapes.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
 MIN_SUBTABLES = 64
@@ -57,7 +56,7 @@ def _class_sets(class_defs: dict[str, int]) -> dict[int, frozenset[str]]:
 
 
 def _format2_rules(subtable: Any) -> dict[str, list[LogicalRule]]:
-    """The per-input-glyph logical rule sequences a format-2 subtable expresses, for the round-trip check: rules of one ChainSubClassSet apply, in order, to every covered glyph of that input class."""
+    """The per-input-glyph logical rule sequences a format-2 subtable expresses, which is what read-back decompiles the packed lookup back through: rules of one ChainSubClassSet apply, in order, to every covered glyph of that input class."""
     backtrack_sets = _class_sets(subtable.BacktrackClassDef.classDefs)
     input_sets = _class_sets(subtable.InputClassDef.classDefs)
     lookahead_sets = _class_sets(subtable.LookAheadClassDef.classDefs)
@@ -261,11 +260,10 @@ def _format2_subtable(group: _Group, order: dict[str, int]) -> Any:
 
 
 def pack_lookup(lookup: Any, glyph_order: list[str]) -> tuple[int, int, int]:
-    """Repack one qualifying lookup in place; returns (rule count, format-2 group count, kept format-3 count). Raises PackError unless the packed per-glyph rule sequences replay the originals exactly."""
+    """Repack one qualifying lookup in place; returns (rule count, format-2 group count, kept format-3 count)."""
     ot = _ot()
 
     order = {glyph: index for index, glyph in enumerate(glyph_order)}
-    before = per_glyph_sequences(lookup)
     inner = _inner_subtables(lookup)
     originals = list(lookup.SubTable)
     entries = [(_format3_rule(inner[index]), originals[index]) for index in range(len(inner))]
@@ -288,16 +286,11 @@ def pack_lookup(lookup: Any, glyph_order: list[str]) -> tuple[int, int, int]:
             packed_subtables.append(subtable)
     lookup.SubTable = packed_subtables
     lookup.SubTableCount = len(packed_subtables)
-    after = per_glyph_sequences(lookup)
-    if before != after:
-        raise PackError(
-            "packed per-glyph rule sequences diverge from the originals — refusing to write an unproven lookup"
-        )
     return len(entries), len(groups) - kept, kept
 
 
 def pack_font(font: Any, min_subtables: int = MIN_SUBTABLES) -> dict:
-    """Pack every qualifying chained-context lookup in the font's GSUB; returns the stats dict `budget.json` records under `measured.packing`."""
+    """Pack every qualifying chained-context lookup in the font's GSUB; returns the per-lookup packing stats — rules, format-2 groups, kept format-3 subtables — that the tests read."""
     packed: list[dict] = []
     if "GSUB" in font:
         lookups = font["GSUB"].table.LookupList.Lookup
@@ -321,17 +314,3 @@ def pack_font(font: Any, min_subtables: int = MIN_SUBTABLES) -> dict:
                 }
             )
     return {"packed_lookups": packed}
-
-
-def pack_font_file(font_path: Path, min_subtables: int = MIN_SUBTABLES) -> dict:
-    """Open, pack, and (when anything qualified) rewrite the font at `font_path`; the stats dict comes back either way."""
-    from fontTools.ttLib import TTFont
-
-    font = TTFont(str(font_path))
-    try:
-        stats = pack_font(font, min_subtables)
-        if stats["packed_lookups"]:
-            font.save(str(font_path))
-    finally:
-        font.close()
-    return stats

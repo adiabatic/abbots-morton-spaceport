@@ -96,6 +96,27 @@ class TestReadback:
         assert plan.formation_plain == ((("qsTea", "qsOy"), "qsTea_qsOy"),)
         assert plan.namer_dot_stage is not None and plan.namer_dot_stage[0] == "periodcentered"
 
+    def test_the_offset_budget_is_read_off_the_raw_table(self, built):
+        """The byte walk over the raw GSUB against the decoded table's own counts, which is the independent witness that it lands on the uint16 fields it means to; the settlement lookup's format census rides the same parse, so the packed reality stays legible in the summary."""
+        from fontTools.ttLib import TTFont
+
+        font_path, plan, cursive, _twins = built
+        report = readback.verify_font(font_path, plan, cursive)
+        budget = report["checked"]["gsub_budget"]
+        font = TTFont(str(font_path))
+        try:
+            lookup_list = font["GSUB"].table.LookupList
+            assert budget["lookups"] == lookup_list.LookupCount
+            assert budget["subtables"] == sum(lookup.SubTableCount for lookup in lookup_list.Lookup)
+            settle_subtables = lookup_list.Lookup[_stage_index(font, plan, "m1_settle")].SubTableCount
+        finally:
+            font.close()
+        assert 0 < budget["subtable_offset_headroom"] <= 65_535
+        assert budget["floor"] == readback.SUBTABLE_OFFSET_HEADROOM_FLOOR
+        formats = report["checked"]["settle_subtable_formats"]
+        assert formats["format2"] >= 1
+        assert formats["format2"] + formats["format3"] == settle_subtables
+
     def test_verification_is_deterministic(self, built):
         font_path, plan, cursive, _twins = built
         assert readback.verify_font(font_path, plan, cursive) == readback.verify_font(
@@ -160,6 +181,59 @@ class TestCorruptions:
         report = _corrupted_report(built, tmp_path, "short-formation", mutate)
         assert not report["pass"]
         assert _named(report, "formation guarded:")
+
+    def test_reordering_packed_settlement_rules(self, built, tmp_path):
+        """Rule order is the whole of first-match-wins, so a lookup that holds every planned rule in the wrong order is a font that shapes something else. The count stays honest and only the order lies, which is the corruption the packing itself could commit — and the one read-back's decompile through `per_glyph_sequences` exists to catch."""
+
+        def mutate(font, plan):
+            from rebuild.pipeline import pack_gsub
+
+            lookup = font["GSUB"].table.LookupList.Lookup[_stage_index(font, plan, "m1_settle")]
+            before = pack_gsub.per_glyph_sequences(lookup)
+            for subtable in lookup.SubTable:
+                inner = _inner(subtable)
+                if inner.Format != 2:
+                    continue
+                for class_set in inner.ChainSubClassSet or []:
+                    if class_set is None or len(class_set.ChainSubClassRule) < 2:
+                        continue
+                    class_set.ChainSubClassRule.reverse()
+                    if pack_gsub.per_glyph_sequences(lookup) != before:
+                        return
+                    class_set.ChainSubClassRule.reverse()
+            subtables = lookup.SubTable
+            format3 = [index for index, subtable in enumerate(subtables) if _inner(subtable).Format == 3]
+            for position, first in enumerate(format3):
+                for second in format3[position + 1 :]:
+                    one, other = _inner(subtables[first]), _inner(subtables[second])
+                    if not set(one.InputCoverage[0].glyphs) & set(other.InputCoverage[0].glyphs):
+                        continue
+                    if pack_gsub._format3_rule(one) == pack_gsub._format3_rule(other):
+                        continue
+                    subtables[first], subtables[second] = subtables[second], subtables[first]
+                    if pack_gsub.per_glyph_sequences(lookup) != before:
+                        return
+                    subtables[first], subtables[second] = subtables[second], subtables[first]
+            pytest.fail(
+                "the fixture's settlement lookup holds no two rules whose order any glyph can tell apart"
+            )
+
+        report = _corrupted_report(built, tmp_path, "reordered-settle", mutate)
+        _font_path, plan, _cursive, _twins = built
+        assert not report["pass"]
+        settled = _named(report, "settle:")
+        assert settled and any("expected" in line for line in settled)
+        assert report["checked"]["settle_rules"] == plan.rule_count
+
+    def test_a_headroom_under_the_floor_is_a_divergence(self, built, monkeypatch):
+        """Lifting the floor over the whole uint16 space makes a clean font breach it: the breach must read as one more divergence, named and alone, rather than as a raise."""
+        font_path, plan, cursive, _twins = built
+        monkeypatch.setattr(readback, "SUBTABLE_OFFSET_HEADROOM_FLOOR", 65_536)
+        report = readback.verify_font(font_path, plan, cursive)
+        assert not report["pass"]
+        breached = _named(report, "gsub budget:")
+        assert len(breached) == 1 and "65,536-byte floor" in breached[0]
+        assert report["divergences"] == breached
 
     def test_dropping_the_ss10_feature(self, built, tmp_path):
         def mutate(font, _plan):
