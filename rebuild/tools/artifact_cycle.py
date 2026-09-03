@@ -175,6 +175,7 @@ MAKE_TEST_EXEMPT_FILES = (
 )
 MAKE_TEST_EXEMPT_NAME_GLOBS = (("reference", "*.pdf"), ("reference", "*.png"), ("site", "*.svg"))
 MAKE_TEST_RECIPES = ("all", "test")
+MAKE_TEST_RECIPE_PINS = ("FORCE=",)
 
 
 def make_test_exempt(path: str) -> bool:
@@ -207,13 +208,17 @@ def make_test_closure_files(root: Path) -> list[str] | None:
 
 
 def make_test_recipe_lines(root: Path) -> list[str] | None:
-    """One hash line per rule the suite executes, standing in for the Makefile's bytes. What `make -n <target>` prints is the recipe the suite will run once every variable and function has expanded, so hashing that output keys the gate on the `all` and `test` rules and on nothing else in the file. stderr and the return code ride into the same digest, so a Makefile that has stopped parsing moves the key rather than silently hashing an empty recipe. MAKEFLAGS and MFLAGS come off the environment first: both the cycle's gate and `make test`'s own wrapper reach this as sub-makes, and GNU make forwards -j and command-line overrides such as FORCE=1 to its children through those variables, which would otherwise let one unchanged recipe hash two ways depending on who asked. None when make is missing, which is the same run-unconditionally path git's absence takes; a nonzero exit is never None, because a failing make is content."""
+    """One hash line per rule the suite executes, standing in for the Makefile's bytes. What `make -n <target>` prints is the recipe the suite will run once every variable and function has expanded, so hashing that output keys the gate on the `all` and `test` rules and on nothing else in the file. stderr and the return code ride into the same digest, so a Makefile that has stopped parsing moves the key rather than silently hashing an empty recipe. The probe has to answer the same way whoever asked, and GNU make gives a caller's override two routes into this child: MAKEFLAGS and MFLAGS, which carry -j and the command-line assignments down to a sub-make — both the cycle's gate and `make test`'s own wrapper reach this as sub-makes — and so come off the environment first; and the plain exported variable, which stripping those flags cannot reach, since `make test FORCE=1` also puts FORCE=1 in the recipe's own environment. So every variable the executed rules read is pinned on the probe's own command line (MAKE_TEST_RECIPE_PINS), where a command-line assignment outranks both the environment and MAKEFLAGS. Otherwise a forced run would record a fingerprint no bare run ever matches — re-arming the whole suite on the very override that exists to run it once — and a forced red would leave standing a green record it had just contradicted. None when make is missing, which is the same run-unconditionally path git's absence takes; a nonzero exit is never None, because a failing make is content."""
     env = {key: value for key, value in os.environ.items() if key not in ("MAKEFLAGS", "MFLAGS")}
     lines = []
     for target in MAKE_TEST_RECIPES:
         try:
             result = subprocess.run(
-                ["make", "-n", target], cwd=root, capture_output=True, check=False, env=env
+                ["make", "-n", target, *MAKE_TEST_RECIPE_PINS],
+                cwd=root,
+                capture_output=True,
+                check=False,
+                env=env,
             )
         except OSError:
             return None
