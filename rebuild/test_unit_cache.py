@@ -382,9 +382,8 @@ def test_an_absent_manifest_hashes_to_a_sentinel_rather_than_raising(tmp_path):
     assert unit_cache._sha256_file(tmp_path / "manifest.json") != "missing"
 
 
-def test_store_round_trip_and_invalidation(tmp_path):
-    (tmp_path / "manifest.json").write_text("{}", encoding="utf-8")
-    cached = unit_cache.CachedUnit(
+def _round_trip_unit() -> unit_cache.CachedUnit:
+    return unit_cache.CachedUnit(
         key="k1",
         prior_id="u-0001",
         prior_class="boundary-echo",
@@ -415,6 +414,11 @@ def test_store_round_trip_and_invalidation(tmp_path):
         ],
         mismatches=[],
     )
+
+
+def test_store_round_trip_and_invalidation(tmp_path):
+    (tmp_path / "manifest.json").write_text("{}", encoding="utf-8")
+    cached = _round_trip_unit()
     unit_cache.write_store(tmp_path, "env-a", [cached])
     loaded = unit_cache.load_store(tmp_path, "env-a")
     assert loaded is not None and loaded["k1"] == cached
@@ -422,11 +426,12 @@ def test_store_round_trip_and_invalidation(tmp_path):
     (tmp_path / "manifest.json").write_text('{"changed": true}', encoding="utf-8")
     assert unit_cache.load_store(tmp_path, "env-a") is None
 
-    # The store is stamped with the manifest's identity, so refreshing the copied UI assets over a served
-    # surface leaves it loadable while anything the served units depend on still drops it.
+
+def test_an_assets_refresh_leaves_the_store_loadable(tmp_path):
+    """The store is stamped with the manifest's identity rather than its bytes, so rewriting `inputs_fingerprint.static` over a served surface — the whole of what an assets refresh does — leaves the store describing the shards beside it, where anything the served units depend on still drops it and costs the next build a full pass."""
     manifest = {"generated_at": "2026-01-01T00:00:00Z", "inputs_fingerprint": {"data": "d", "static": "s"}}
     (tmp_path / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
-    unit_cache.write_store(tmp_path, "env-a", [cached])
+    unit_cache.write_store(tmp_path, "env-a", [_round_trip_unit()])
     refreshed = {**manifest, "inputs_fingerprint": {"data": "d", "static": "refreshed"}}
     (tmp_path / "manifest.json").write_text(json.dumps(refreshed, indent=2), encoding="utf-8")
     assert unit_cache.load_store(tmp_path, "env-a") is not None

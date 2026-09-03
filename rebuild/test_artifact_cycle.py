@@ -2965,8 +2965,13 @@ def test_only_the_validators_key_sees_the_build_artifacts(tmp_path):
     (tmp_path / "rebuild" / "test_x.py").write_text("x = 1\n")
     assert ac.rebuild_lane_fingerprint(tmp_path, "contracts") != contracts
 
-    # The app shell is the mirror image: nothing in the validators lane reads it, and the two tests that
-    # do — the index-html sanity check and the `node --check` pass — read it at its source in contracts.
+
+def test_only_the_contracts_key_sees_the_review_app_shell(tmp_path):
+    """The mirror image of the artifact split: nothing in the validators lane reads the copied app shell — its fixture already exempts the matching fingerprint component — while the two tests that do read it, the index-html sanity check and the `node --check` pass, read it at its source and sit in contracts. So an app JS/CSS/HTML edit re-runs one lane, and the pass that copies it over the surface skips the other."""
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    (tmp_path / "rebuild").mkdir()
+    (tmp_path / "rebuild" / "test_x.py").write_text("")
+    (tmp_path / ".gitignore").write_text("rebuild/out/\n")
     contracts = ac.rebuild_lane_fingerprint(tmp_path, "contracts")
     validators = ac.rebuild_lane_fingerprint(tmp_path, "validators")
     static = tmp_path / "rebuild" / "review" / "static"
