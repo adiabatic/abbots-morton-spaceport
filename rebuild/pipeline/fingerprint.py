@@ -58,8 +58,28 @@ def data_paths(repo_root: Path) -> list[Path]:
 COMPARISON_CODE_MODULES = frozenset({"oracle.py"})
 
 
+FONT_COMPILE_TOOL_MODULES = frozenset(
+    {
+        "build_font.py",
+        "departure_mono_import.py",
+        "glyph_compiler.py",
+        "quikscript_fea.py",
+        "quikscript_ir.py",
+        "quikscript_join_analysis.py",
+    }
+)
+
+
+def font_compile_tool_paths(repo_root: Path) -> list[Path]:
+    """The tools/ modules the M1 font compile runs: the import closure of tools/build_font.py inside tools/, which is what rebuild/pipeline/compile_font.py reaches when it hands the mini font's glyph data and FEA to `build_font` — the glyph compiler, the IR, the FEA emitter, the join analysis, and the Departure Mono import (compile_font puts tools/ on sys.path, so those modules import one another by bare name). A roster rather than the whole tree, because most of tools/ is authoring and audit scripts no build runs, and pinned to the walked closure by rebuild/test_build_code_closure.py so it can neither rot into an include-list nor miss a module the compile picked up. Returned unconditionally, the way the crate's paths are: `hash_paths` keeps whatever is a file."""
+    return sorted(Path(repo_root) / "tools" / name for name in FONT_COMPILE_TOOL_MODULES)
+
+
 def pipeline_code_paths(repo_root: Path) -> list[Path]:
-    """rebuild/validation and the kernel crate ride in this component: the shaper, row model, seam classifier, and Manual-pin replays are the before side of the M1 comparison, while the crate emits the transition stream and formation guard the font is built from. Both fingerprinted Python trees and the crate's complete build-input surface are included rather than tracking current imports or modules piecemeal; those lists go wrong the next time an import or Rust module is added, and over-invalidation is the safe direction."""
+    """rebuild/validation and the kernel crate ride in this component: the shaper, row model, seam classifier, and Manual-pin replays are the before side of the M1 comparison, while the crate emits the transition stream and formation guard the font is built from. Both fingerprinted Python trees and the crate's complete build-input surface are included rather than tracking current imports or modules piecemeal; those lists go wrong the next time an import or Rust module is added, and over-invalidation is the safe direction.
+
+    The font compile's tools/ closure rides here too (`font_compile_tool_paths`), because compile_font hands the mini font to tools/build_font.py: an edit to the glyph compiler, the IR, the FEA emitter or the join analysis moves M1.otf's bytes, and until they were stamped it moved them under a run_m1 green, a table stamp, a conform key, a surface stamp and a unit-cache environment stamp that all stayed put. That tree is named by roster rather than swept whole, since nearly all of it is authoring and audit scripts the build never runs, and the roster is held to the walked closure by a test rather than tracked by hand — conservative in the same direction as the crate's build-input surface. Being pipeline code, it rides `table_code_paths` and so `tables_value` as well, which is right: the compile is on the build side, and only `COMPARISON_CODE_MODULES` leaves that stamp.
+    """
     root = Path(repo_root)
     kernel = root / "rebuild" / "kernel-rs"
     return (
@@ -67,6 +87,7 @@ def pipeline_code_paths(repo_root: Path) -> list[Path]:
         + sorted((root / "rebuild" / "validation").glob("*.py"))
         + [kernel / "Cargo.toml", kernel / "Cargo.lock"]
         + sorted((kernel / "src").rglob("*.rs"))
+        + font_compile_tool_paths(root)
     )
 
 

@@ -25,6 +25,7 @@ def _fake_repo(tmp_path):
     (root / "rebuild" / "review" / "static").mkdir(parents=True)
     (root / "rebuild" / "out").mkdir(parents=True)
     (root / "site").mkdir(parents=True)
+    (root / "tools").mkdir(parents=True)
     (root / "glyph_data" / "runes" / "qsPea.yaml").write_text("family: qsPea\n")
     (root / "glyph_data" / "runes" / "qsBay.yaml").write_text("family: qsBay\n")
     (root / "glyph_data" / "punctuation.yaml").write_text("dots: []\n")
@@ -45,6 +46,8 @@ def _fake_repo(tmp_path):
     (root / "rebuild" / "review" / "build.py").write_text("BUILD = 1\n")
     (root / "rebuild" / "review" / "serve.py").write_text("SERVE = 1\n")
     (root / "rebuild" / "review" / "static" / "app.js").write_text("export const app = 1;\n")
+    (root / "tools" / "build_font.py").write_text("BUILD_FONT = 1\n")
+    (root / "tools" / "glyph_compiler.py").write_text("GLYPH_COMPILER = 1\n")
     (root / "rebuild" / "out" / "baseline-default.tsv.gz").write_bytes(b"x" * 64)
     (root / "rebuild" / "out" / "digests.tsv").write_text("default\tabc123\n")
     (root / "site" / "AbbotsMortonSpaceportSansSenior-Regular.otf").write_bytes(b"senior-font")
@@ -331,6 +334,8 @@ def test_pipeline_code_covers_validation_and_the_kernel_and_isolates_edits(tmp_p
     assert root / "rebuild" / "kernel-rs" / "Cargo.toml" in fingerprint.pipeline_code_paths(root)
     assert root / "rebuild" / "kernel-rs" / "Cargo.lock" in fingerprint.pipeline_code_paths(root)
     assert root / "rebuild" / "kernel-rs" / "src" / "guard.rs" in fingerprint.pipeline_code_paths(root)
+    assert root / "tools" / "build_font.py" in fingerprint.pipeline_code_paths(root)
+    assert root / "tools" / "glyph_compiler.py" in fingerprint.pipeline_code_paths(root)
     before = fingerprint.compute_all(root)
     (root / "rebuild" / "validation" / "shaping.py").write_text("SENIOR_FONT = 2\n")
     after = fingerprint.compute_all(root)
@@ -344,6 +349,25 @@ def test_pipeline_code_covers_validation_and_the_kernel_and_isolates_edits(tmp_p
     assert {key: after_kernel[key] for key in fingerprint.COMPONENTS if key != "pipeline_code"} == {
         key: after[key] for key in fingerprint.COMPONENTS if key != "pipeline_code"
     }
+
+
+def test_a_font_compile_tool_edit_moves_the_run_key_and_the_tables_stamp(tmp_path):
+    """The M1 font compile leaves rebuild/ behind: `compile_font` hands the mini font's glyph data and FEA to tools/build_font.py, which runs the glyph compiler, the IR and the FEA emitter beside it. That closure writes M1.otf's bytes, so an edit there has to move everything that decides whether the font on disk still answers for its sources — the Stage A record and with it the artifact cycle's run_m1 green, the stamp a serialized enumeration carries and so the conform sweep's key, the surface's stamp and the review unit cache's environment stamp, every one of them keyed on `pipeline_code_paths` or its build-side narrowing. Before the roster existed, all of them sat still while the font changed underneath."""
+    root = _fake_repo(tmp_path)
+    for name in ("build_font.py", "glyph_compiler.py"):
+        assert root / "tools" / name in fingerprint.pipeline_code_paths(root)
+        assert root / "tools" / name in fingerprint.table_code_paths(root)
+    before = fingerprint.compute_all(root)
+    before_tables = fingerprint.tables_value(root)
+    before_run = artifact_cycle.run_m1_skip_fingerprint(root)
+    (root / "tools" / "build_font.py").write_text("BUILD_FONT = 2\n")
+    after = fingerprint.compute_all(root)
+    assert after["pipeline_code"] != before["pipeline_code"]
+    assert {key: after[key] for key in fingerprint.COMPONENTS if key != "pipeline_code"} == {
+        key: before[key] for key in fingerprint.COMPONENTS if key != "pipeline_code"
+    }
+    assert fingerprint.tables_value(root) != before_tables
+    assert artifact_cycle.run_m1_skip_fingerprint(root) != before_run
 
 
 PROSE_RUNE = textwrap.dedent("""\

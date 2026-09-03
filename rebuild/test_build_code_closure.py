@@ -1,6 +1,8 @@
 """`fingerprint.COMPARISON_CODE_MODULES` is the roster of pipeline modules a serialized window enumeration's stamp leaves out (`fingerprint.table_code_paths`, the code half of `tables_value`), and every reuse that stamp licenses — `run_m1 --gates-only` re-adjudicating over the tables and M1.otf on disk, `--conform-only` sweeping them, the validators lane refusing a stale enumeration — rests on the claim that nothing on the roster can move a table or the font. A hand-written roster is only safe while something checks the claim, and this is that check, in two halves. The first walks the import graph from every build-side module and requires it to reach nothing on the roster: at module grain, the same approximation `rebuild/test_oracle_code_closure.py` makes, conservative in the safe direction, and following `if TYPE_CHECKING:` imports for the same reason that test does. The second is the driver, `rebuild/pipeline/run_m1.py`, which cannot be held to that rule — it imports the comparison side because it also runs the gates — so it is walked at function grain instead: from `run_m1.run`, the build entry, through every module-level function it calls, no expression may name a comparison-side module or anything imported from one.
 
 The reverse direction holds too: every roster entry must be a module the driver reaches, so the roster stays the set of modules the gates run and cannot grow a stray that nothing exercises. And because the whole point of splitting the classifier out of conform.py was to put it outside the oracle row cache's stamp as well as the tables', the roster is also checked against `oracle_cache.ORACLE_ROW_CODE_PATHS` — a comparison-side module named there would drop the store on every classifier edit for nothing.
+
+`fingerprint.FONT_COMPILE_TOOL_MODULES` is the mirror-image roster and is pinned here too, by the same argument run the other way: the M1 font compile leaves rebuild/ entirely when `compile_font` hands the mini font to tools/build_font.py, so the tools/ modules it reaches there can move M1.otf's bytes and every stamp keyed on `pipeline_code_paths` has to see them. That roster must equal the import closure inside tools/ and not merely contain it — a module missing from it is a font edit no key notices, a stray on it is a fixpoint spent on code the compile never runs — so the walk here resolves tools' bare imports (they are siblings on `sys.path`, not a package) at any nesting and the roster is asserted equal to what it finds.
 """
 
 from __future__ import annotations
@@ -14,6 +16,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 PIPELINE = REPO_ROOT / "rebuild" / "pipeline"
 BUILD_DRIVER = PIPELINE / "run_m1.py"
 BUILD_ENTRY = "run"
+TOOLS = REPO_ROOT / "tools"
+FONT_COMPILE_ENTRY = TOOLS / "build_font.py"
 
 
 def _module_path(module: str) -> Path | None:
@@ -68,6 +72,56 @@ def _build_side_paths() -> list[Path]:
         for path in fingerprint.table_code_paths(REPO_ROOT)
         if path.suffix == ".py" and path != BUILD_DRIVER
     ]
+
+
+def _tools_imports(tree: ast.AST) -> set[str]:
+    """Every name the tree imports, at any nesting: tools/ modules are siblings on `sys.path` rather than a package, so they import one another by bare name and several do it inside a function to break an import cycle."""
+    found: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            found.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module and not node.level:
+            found.add(node.module)
+    return found
+
+
+def _font_compile_closure() -> set[Path]:
+    """The tools/ modules reachable from tools/build_font.py by import. A name resolves only against tools/<head>.py, so stdlib, third-party, and `rebuild.*` imports drop out — the last of those on purpose, since the rebuild/ trees are hashed whole by the same component."""
+    seen: set[Path] = set()
+    queue = [FONT_COMPILE_ENTRY]
+    while queue:
+        path = queue.pop()
+        if path in seen:
+            continue
+        seen.add(path)
+        for name in _tools_imports(ast.parse(path.read_text(encoding="utf-8"))):
+            sibling = TOOLS / f"{name.split('.')[0]}.py"
+            if sibling.is_file():
+                queue.append(sibling)
+    return seen
+
+
+def test_the_font_compile_roster_is_the_import_closure_of_build_font_inside_tools():
+    """What the roster claims: exactly these tools/ modules run when rebuild/pipeline/compile_font.py compiles M1.otf, and so exactly these have to ride `pipeline_code_paths` — and through it `table_code_paths`, the tables' stamp, the run_m1 green, the conform key, the surface stamp and the unit cache's environment stamp. Equality in both directions is the point: a module the walk reaches and the roster misses is a font edit that moves no key, and a roster entry the walk never reaches is a fixpoint spent on code the compile never executes."""
+    assert FONT_COMPILE_ENTRY.is_file(), "tools/build_font.py moved; the walk has no entry point"
+    reached = {path.name for path in _font_compile_closure()}
+    assert reached == set(fingerprint.FONT_COMPILE_TOOL_MODULES), (
+        "FONT_COMPILE_TOOL_MODULES is no longer the import closure of tools/build_font.py inside tools/: the "
+        f"walk reaches {', '.join(sorted(reached))}, and an edit under that closure changes M1.otf, so the "
+        "roster in rebuild/pipeline/fingerprint.py has to name every one of them and nothing else."
+    )
+    strays = sorted(name for name in fingerprint.FONT_COMPILE_TOOL_MODULES if not (TOOLS / name).is_file())
+    assert (
+        strays == []
+    ), f"FONT_COMPILE_TOOL_MODULES names files that are not under tools/: {', '.join(strays)}"
+
+
+def test_the_font_compile_roster_rides_both_the_run_record_and_the_tables_stamp():
+    """The compile is on the build side, so its tools/ closure belongs in the narrow stamp as well as the wide one — `table_code_paths` subtracts only `COMPARISON_CODE_MODULES`, and a font-compile module left out of it would let a serialized enumeration claim to describe sources that had moved under it."""
+    paths = set(fingerprint.font_compile_tool_paths(REPO_ROOT))
+    assert paths
+    assert paths <= set(fingerprint.pipeline_code_paths(REPO_ROOT))
+    assert paths <= set(fingerprint.table_code_paths(REPO_ROOT))
 
 
 def test_every_roster_entry_is_a_pipeline_module_on_disk():
