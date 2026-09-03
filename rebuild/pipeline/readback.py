@@ -2,23 +2,25 @@
 
 The build stage before this one hands feaLib a block of FEA text and gets an OTF back, and everything between those two — feaLib's parse, its lookup and subtable format choices, `pack_gsub`'s repack of the settlement lookup, fontTools' serialization, and the re-parse — is machinery no gate downstream reads structurally. `gate:conform` proves the font *shapes* what settlement says, through HarfBuzz, which is the behavioral claim and the one that matters; but it can only see what its sweep reaches, and it says nothing about a rule that is present and inert, a feature registered under the wrong tag, or a lookupFlag that skips a class nobody probed. This stage makes the transcription claim instead: every lookup's decompiled content equals what the emitter planned, every feature and script registration is the one the plan implies, the cross-feature LookupList order that pins application order on both shapers is the definition order the emitters chose, and every lookupFlag is zero. Zero divergences means the compiled font provably holds the rules the plan intended.
 
-It is deliberately a transcription round-trip and nothing more — the `pack_gsub.pack_lookup` precedent, one stage further out. It predicts no cascade: it never asks what a buffer would do, never composes stages, never resolves which of two competing rules wins. Ordered rules are compared at the grain first-match-wins actually runs on (per input glyph for settlement, per lead glyph for formation), because rules that cannot share an input cannot compete and feaLib is free to regroup them — it picks whichever of the three chained-context subtable formats compiles smallest, so the guarded formation rides format 1 in a small font and format 3 in the shipped one, and the settlement lookup arrives packed into a format-2/format-3 mix. Shaping behavior stays gate:conform's.
+It is deliberately a transcription round-trip and nothing more. `pack_gsub`'s repack is proven here, over the written bytes, by decompiling the settlement lookup through `pack_gsub.per_glyph_sequences` and holding each input glyph's ordered rules to the plan the emitters held — the pass itself no longer replays its own output in memory. It predicts no cascade: it never asks what a buffer would do, never composes stages, never resolves which of two competing rules wins. Ordered rules are compared at the grain first-match-wins actually runs on (per input glyph for settlement, per lead glyph for formation), because rules that cannot share an input cannot compete and feaLib is free to regroup them — it picks whichever of the three chained-context subtable formats compiles smallest, so the guarded formation rides format 1 in a small font and format 3 in the shipped one, and the settlement lookup arrives packed into a format-2/format-3 mix. Shaping behavior stays gate:conform's.
 
-The failure contract matches the budget gate's: `verify_font` never raises for a divergence, it accumulates human-readable strings and reports `pass`; `run_m1` writes the whole report to `readback_summary.json` and only then raises `ReadbackError`, so the evidence outlives the failure.
+The failure contract: `verify_font` never raises for a divergence, it accumulates human-readable strings and reports `pass`; `run_m1` writes the whole report to `readback_summary.json` and only then raises `ReadbackError`, so the evidence outlives the failure. The GSUB offset budget rides that same contract — the uint16 subtable-offset headroom the packing exists to protect is read straight off the raw table bytes in the parse this stage already makes, recorded under `checked["gsub_budget"]`, and a headroom under `SUBTABLE_OFFSET_HEADROOM_FLOOR` is one more divergence. The overflow itself can never ship, because fontTools' save refuses a lookup-level offset-array overflow outright, so the floor is an early warning rather than the wall: in the Extension-promoted settlement lookup each subtable costs 2 bytes of offset entry plus an 8-byte ExtensionSubst record, which puts a 16,384-byte floor roughly 1,500 subtables ahead of the wall. It has fired for real twice — on the depth-4 rules, which is what moved the lookup to Extension, and on the flag-on prospect table, which is what produced the format-2 repack — both times on a font fontTools would have written silently, and it is held at that value on that record.
 """
 
 from __future__ import annotations
 
 import json
+import struct
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, cast
 
 from rebuild.pipeline import pack_gsub
 from rebuild.pipeline.emit_gpos import CURS_HEIGHT_YS, Anchor, Registration
 from rebuild.pipeline.emit_gsub import GsubPlan, SettleRule
 
 MAX_DIVERGENCES = 50
+SUBTABLE_OFFSET_HEADROOM_FLOOR = 16_384
 NO_REQUIRED_FEATURE = 0xFFFF
 
 Row = tuple[tuple[str, ...], tuple[frozenset[str], ...], str | None]
@@ -36,6 +38,44 @@ class _ChainRow:
     input: tuple[frozenset[str], ...]
     lookahead: tuple[frozenset[str], ...]
     records: tuple[tuple[int, int], ...]
+
+
+def gsub_offset_budget(data: bytes) -> dict:
+    """The uint16 offset space the raw GSUB table is living on, walked off its own bytes rather than a decoded table: the LookupList's offsets to each lookup and each lookup's offsets to its own subtables are uint16 fields, so the headroom left under 65,535 is what any further growth has to fit in. A table too short to hold a header reports empty counts and full headroom rather than raising — the decoded-table checks already speak for a malformed GSUB."""
+    if len(data) < 10:
+        return {
+            "gsub_bytes": len(data),
+            "lookups": 0,
+            "subtables": 0,
+            "lookuplist_offset_headroom": 65_535,
+            "subtable_offset_headroom": 65_535,
+            "tightest_lookup_index": None,
+        }
+    (lookup_list,) = struct.unpack_from(">H", data, 8)
+    (lookup_count,) = struct.unpack_from(">H", data, lookup_list)
+    lookup_offsets = [
+        struct.unpack_from(">H", data, lookup_list + 2 + 2 * index)[0] for index in range(lookup_count)
+    ]
+    subtables = 0
+    widest_subtable_offset = 0
+    tightest: int | None = None
+    for index, lookup_offset in enumerate(lookup_offsets):
+        lookup_table = lookup_list + lookup_offset
+        (subtable_count,) = struct.unpack_from(">H", data, lookup_table + 4)
+        subtables += subtable_count
+        for position in range(subtable_count):
+            (subtable_offset,) = struct.unpack_from(">H", data, lookup_table + 6 + 2 * position)
+            if subtable_offset > widest_subtable_offset:
+                widest_subtable_offset = subtable_offset
+                tightest = index
+    return {
+        "gsub_bytes": len(data),
+        "lookups": lookup_count,
+        "subtables": subtables,
+        "lookuplist_offset_headroom": 65_535 - max(lookup_offsets, default=0),
+        "subtable_offset_headroom": 65_535 - widest_subtable_offset,
+        "tightest_lookup_index": tightest,
+    }
 
 
 def _unwrapped(lookup: Any) -> list[Any]:
@@ -393,7 +433,7 @@ def _check_chokepoint(plan: GsubPlan, lookup: Any, lookups: list[Any], divergenc
 
 
 def _check_settle(plan: GsubPlan, lookup: Any, lookups: list[Any], divergences: list[str]) -> tuple[int, int]:
-    """Settlement compared per input glyph, the grain first-match-wins runs on and the one `pack_gsub` states its own round trip at: for each glyph the ordered (backtrack, lookahead, outcome) triples the font holds, against the ones the plan emitted."""
+    """Settlement compared per input glyph, the grain first-match-wins runs on: for each glyph the ordered (backtrack, lookahead, outcome) triples the font holds, against the ones the plan emitted. Decompiling the on-disk lookup through `pack_gsub.per_glyph_sequences` is also what proves the repack — over the written bytes, at the grain the packing had to preserve."""
     stage = "settle"
     expected: dict[str, list[tuple]] = {}
     for rule in plan.settle_rules:
@@ -555,7 +595,7 @@ def verify_font(
     plan: GsubPlan,
     cursive: Mapping[int, Mapping[str, Registration]],
 ) -> dict:
-    """Re-parse the font at `font_path` and compare every GSUB/GPOS registration, lookup order, lookupFlag and lookup body against the emitters' plan; returns the JSON-ready report `run_m1` writes to `readback_summary.json`. Divergences are collected, never raised."""
+    """Re-parse the font at `font_path` and compare every GSUB/GPOS registration, lookup order, lookupFlag and lookup body against the emitters' plan, and read the GSUB's uint16 offset budget off the raw table bytes in the same parse; returns the JSON-ready report `run_m1` writes to `readback_summary.json`. Divergences are collected, never raised."""
     from fontTools.ttLib import TTFont
 
     divergences: list[str] = []
@@ -566,6 +606,12 @@ def verify_font(
             divergences.append("feature list: the font carries no GSUB table")
         else:
             gsub = font["GSUB"].table
+            budget = gsub_offset_budget(cast(Any, font.reader)["GSUB"])
+            checked["gsub_budget"] = {**budget, "floor": SUBTABLE_OFFSET_HEADROOM_FLOOR}
+            if budget["subtable_offset_headroom"] < SUBTABLE_OFFSET_HEADROOM_FLOOR:
+                divergences.append(
+                    f"gsub budget: subtable offset headroom {budget['subtable_offset_headroom']:,} bytes in lookup {budget['tightest_lookup_index']}, under the {SUBTABLE_OFFSET_HEADROOM_FLOOR:,}-byte floor"
+                )
             lookups = list(gsub.LookupList.Lookup or [])
             _check_script_list(gsub, "GSUB", divergences)
             checked["gsub_features"] = len(gsub.FeatureList.FeatureRecord or [])
@@ -601,6 +647,11 @@ def verify_font(
                         settle_rules, settle_inputs = _check_settle(plan, lookup, lookups, divergences)
                         checked["settle_rules"] = settle_rules
                         checked["settle_input_glyphs"] = settle_inputs
+                        formats = [getattr(subtable, "Format", None) for subtable in _unwrapped(lookup)]
+                        checked["settle_subtable_formats"] = {
+                            "format2": formats.count(2),
+                            "format3": formats.count(3),
+                        }
                     elif stage_name == "m1_namer_dot_word_start":
                         checked["namer_rows"] = _check_namer_dot(plan, lookup, lookups, divergences)
         if "GPOS" not in font:

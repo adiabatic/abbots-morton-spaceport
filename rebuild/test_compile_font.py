@@ -1,6 +1,4 @@
-"""compile_font integration test: the prototype's verified senior_fea recipe end to end on a four-glyph mini-font, with the budget gate artifacts checked. Read-only with respect to the old pipeline."""
-
-import json
+"""compile_font integration test: the prototype's verified senior_fea recipe end to end on a four-glyph mini-font. Read-only with respect to the old pipeline."""
 
 import pytest
 
@@ -40,13 +38,6 @@ class TestBuildMiniFont:
         out_path, _names = built
         assert out_path.exists()
         assert out_path.with_suffix(".fea").exists()
-        assert (out_path.parent / "budget.json").exists()
-
-    def test_budget_gate_contents(self, built):
-        out_path, _names = built
-        budget = json.loads((out_path.parent / "budget.json").read_text())
-        assert budget["gate"]["failed"] is False
-        assert budget["measured"]["lookup_count"] >= 1
 
     def test_shaping_matches_the_settlement_rules(self, built):
         out_path, names = built

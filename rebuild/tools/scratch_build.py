@@ -3,7 +3,7 @@
 Usage:
     uv run python rebuild/tools/scratch_build.py <runes_dir> <out_dir>
 
-Prints a JSON line with oracle pass/unmatched/multi_matched/divergent_rows and the audit path. Mirrors rebuild.pipeline.run_m1.run() + run_oracle(), parameterized by spec.
+Prints a JSON line with oracle pass/unmatched/multi_matched/divergent_rows and the audit path. Mirrors rebuild.pipeline.run_m1.run() + run_oracle(), read-back included, parameterized by spec.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from rebuild.pipeline import compile_font, conform, defects, emit_gpos, emit_gsub, oracle, surface
+from rebuild.pipeline import compile_font, conform, defects, emit_gpos, emit_gsub, oracle, readback, surface
 from rebuild.pipeline import run_m1
 from rebuild.pipeline.spec_load import (
     DEFAULT_REGISTRY_PATH,
@@ -56,7 +56,18 @@ def build_and_oracle(runes_dir: Path, out_dir: Path) -> dict:
     gpos_fea = emit_gpos.emit_gpos({**cell_glyphs, **bare, **twins}, spec=spec)
     fea = gsub_plan.fea_text + "\n" + gpos_fea
     all_glyphs = {**cell_glyphs, **bare, **twins, **dots}
-    compile_font.build_mini_font(all_glyphs, fea, out_dir / "M1.otf")
+    font_path = compile_font.build_mini_font(all_glyphs, fea, out_dir / "M1.otf")
+
+    readback_report = readback.verify_font(
+        font_path,
+        gsub_plan,
+        emit_gpos.cursive_registrations({**cell_glyphs, **bare, **twins}, spec=spec),
+    )
+    (out_dir / "readback_summary.json").write_text(json.dumps(readback_report, indent=2) + "\n")
+    if not readback_report["pass"]:
+        raise readback.ReadbackError(
+            f"{len(readback_report['divergences'])} read-back divergence(s) between the scratch font and the plan; see {out_dir / 'readback_summary.json'}"
+        )
 
     report = oracle.compare_against_baseline(
         spec,
