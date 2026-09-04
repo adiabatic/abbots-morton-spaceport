@@ -317,7 +317,44 @@ REBUILD_GATE_EXEMPT_PREFIXES = (
     "rebuild/review-census-pins.json",
     "rebuild/m1-contact-allow.yaml",
 )
-VALIDATORS_EXEMPT_PREFIXES = ("rebuild/review/static/",)
+REBUILD_GATE_HARNESS_PATHS = (
+    "README.md",
+    "doc/glyph-names.md",
+    "postscript_glyph_names.yaml",
+    "site/extra-senior-words.html",
+    "site/index.html",
+    "site/the-manual.html",
+    "test/test_shaping.py",
+    "tools/audit_anchor_geometry.py",
+    "tools/build_check_html.py",
+    "tools/build_font.py",
+    "tools/build_kerning_hardcases.py",
+    "tools/departure_mono_import.py",
+    "tools/derived_demote_oracle.py",
+    "tools/extract_glyph.py",
+    "tools/glyph_compiler.py",
+    "tools/inspect_join.py",
+    "tools/leak_classify.py",
+    "tools/leak_contract_report.py",
+    "tools/leak_emergent_families.py",
+    "tools/leak_enforcement_oracle.py",
+    "tools/leak_snapshot.py",
+    "tools/leak_static_analysis.py",
+    "tools/leak_verdict_reconcile.py",
+    "tools/quikscript_fea.py",
+    "tools/quikscript_ir.py",
+    "tools/quikscript_join_analysis.py",
+    "tools/reflow_yaml.py",
+    "tools/review_scoped_anchor_selectors.py",
+    "tools/serve.py",
+    "tools/shape_sequences.py",
+    "tools/suggest_scoped_anchor_selectors.py",
+)
+VALIDATORS_EXEMPT_PREFIXES = (
+    "rebuild/fixtures/",
+    "rebuild/review/fixtures/units/",
+    "rebuild/review/static/",
+)
 
 
 def _sha256_path(path: Path) -> str:
@@ -591,7 +628,7 @@ def deep_sweep_status(root: Path = ROOT, horizon: int = DEEP_SWEEP_HORIZON_DEFAU
 
 
 def rebuild_gate_closure_files(root: Path) -> list[str] | None:
-    """Every tracked or untracked-unignored file the rebuild pytest suite can read from the repo, and the shared half of both lanes' input closures: rebuild/ and glyph_data/ (minus Markdown and the exempt paths in REBUILD_GATE_EXEMPT_PREFIXES: the carried-verdict evidence, the JS-only jstests, the census pins, and the contact allow-list) plus the root conftest.py, pyproject.toml, and uv.lock. The pins are out because the suite no longer reads them and the census step rewrites them mid-pass — they are the cycle's own diff artifact, so leaving them in would invalidate the key of every pass that refreshes them. The allow-list is out because no test in either lane reads the live file — only a fake repo writes one — so a bless would re-run the whole suite to prove nothing. The other two human-reviewed ledgers stay in, since tests in both lanes do read them, and buy the same saving a different way: `_closure_digest` hashes them prose-blind, so rewording a `why` or a `note` moves neither key while a structural edit still moves both. None when git is unavailable, in which case the caller must run the gate unconditionally."""
+    """Every tracked or untracked-unignored file the rebuild pytest suite can read from the repo, and the shared half of both lanes' input closures: rebuild/ and glyph_data/ (minus Markdown and the exempt paths in REBUILD_GATE_EXEMPT_PREFIXES: the carried-verdict evidence, the JS-only jstests, the census pins, and the contact allow-list), the root conftest.py, pyproject.toml and uv.lock, and the harness roster REBUILD_GATE_HARNESS_PATHS, which is what the suite reads outside those trees and why the Markdown filter has an exception: that filter is there for prose no test opens, and doc/glyph-names.md is a fixture rebuild/test_review_enrich.py holds the surface's letter table against. The roster is measured rather than inferred from the tree — issue #127 audited every file both lanes actually open over a green run of each — and every entry has a named reader: rebuild/validation/pins.py collects its pin runs from the three site corpora and puts test/ on sys.path to import test/test_shaping.py, which reads postscript_glyph_names.yaml at the repo root and pulls the tools/ compile modules in with it; rebuild/review/drafts.build_corpus_index reads the same three corpora; the unit-cache environment stamp hashes tools/*.py whole, which is why the roster is the tree rather than the compile modules alone; and rebuild/test_review_build.py pins the review surface's feature descriptions to README.md's stylistic-set list. Until they were keyed, editing any of them left both lanes' greens standing over code and data the suite had just been reading. The pins are out because the suite no longer reads them and the census step rewrites them mid-pass — they are the cycle's own diff artifact, so leaving them in would invalidate the key of every pass that refreshes them. The allow-list is out because no test in either lane reads the live file — only a fake repo writes one — so a bless would re-run the whole suite to prove nothing. The other two human-reviewed ledgers stay in, since tests in both lanes do read them, and buy the same saving a different way: `_closure_digest` hashes them prose-blind, so rewording a `why` or a `note` moves neither key while a structural edit still moves both. None when git is unavailable, in which case the caller must run the gate unconditionally."""
     try:
         result = subprocess.run(
             [
@@ -607,6 +644,7 @@ def rebuild_gate_closure_files(root: Path) -> list[str] | None:
                 "conftest.py",
                 "pyproject.toml",
                 "uv.lock",
+                *REBUILD_GATE_HARNESS_PATHS,
             ],
             cwd=root,
             capture_output=True,
@@ -616,16 +654,17 @@ def rebuild_gate_closure_files(root: Path) -> list[str] | None:
     except OSError, subprocess.SubprocessError:
         return None
     paths = {entry for entry in result.stdout.split("\0") if entry}
+    harness = set(REBUILD_GATE_HARNESS_PATHS)
     return sorted(
         path
         for path in paths
-        if not path.endswith(".md")
+        if (path in harness or not path.endswith(".md"))
         and not any(path.startswith(prefix) for prefix in REBUILD_GATE_EXEMPT_PREFIXES)
     )
 
 
 def rebuild_lane_fingerprint(root: Path, lane: str) -> str | None:
-    """Content key over one lane's full input closure, and the two closures are what make the lanes separately skippable. Contracts covers the repo files from rebuild_gate_closure_files, which has already dropped the exempt paths, so a bless of a contact signature moves neither lane's key — plus the site fonts, which are `make all` output its shaping tests measure against, moved by no rune edit, and whose Senior sha every baseline header records and `baseline_subset.prove_font_provenance` holds the oracle's tables to; it deliberately contains no build artifact at all, so a verdict-only or artifact-only cycle re-runs nothing here, and a live M1 rebuild — which writes only under rebuild/out — cannot invalidate the key mid-pass. Validators adds exactly what that lane reads on top: the out/m1 artifacts, the oracle's subset tables, and the baselines. It drops one tree more than the shared exemptions, too: rebuild/review/static/, the copied app shell, which nothing in that lane reads — the only tests that read the shell (the index-html sanity check and the `node --check` pass in rebuild/test_review_build.py) read it at its source and sit in the contracts lane, whose closure keeps it. Both contain the rune files and both human-reviewed ledgers that are still in the closure — the divergence ledger and the standing approvals — all three prose-blind, because several contracts tests load the live spec and the live ledgers, and every one of them reads structure rather than prose. The verdict store is absent from both — the suite exercises it only through fixtures — which is what lets a verdict-only cycle skip the suite entirely. None when git is unavailable, in which case the caller must run the lane unconditionally."""
+    """Content key over one lane's full input closure, and the two closures are what make the lanes separately skippable. Contracts covers the repo files from rebuild_gate_closure_files, which has already dropped the exempt paths, so a bless of a contact signature moves neither lane's key — plus the site fonts, which are `make all` output its shaping tests measure against, moved by no rune edit, and whose Senior sha every baseline header records and `baseline_subset.prove_font_provenance` holds the oracle's tables to; it deliberately contains no build artifact at all, so a verdict-only or artifact-only cycle re-runs nothing here, and a live M1 rebuild — which writes only under rebuild/out — cannot invalidate the key mid-pass. Validators adds exactly what that lane reads on top: the out/m1 artifacts, the oracle's subset tables, and the baselines. It drops three trees more than the shared exemptions, too, each of them checked-in source no arm of that lane opens: rebuild/review/static/, the copied app shell — the only tests that read the shell (the index-html sanity check and the `node --check` pass in rebuild/test_review_build.py) read it at its source and sit in the contracts lane, whose closure keeps it — and the fixture piles rebuild/fixtures/ and rebuild/review/fixtures/units/, whose readers sit in contracts as well. The rest of rebuild/review/fixtures/ stays in both keys, because rebuild/conftest.py imports the mini bundle's pin module at module scope, so every process of either lane reads it. The harness roster rides both lanes for the same reason the audit found it: collecting rebuild/ imports test/test_shaping.py in every process of both, and the tools/ modules come with it. Only the corpora and the two prose fixtures are over-inclusive there, their readers all sitting in contracts, and they are too few and too rarely edited to be worth a second exemption list. Both contain the rune files and both human-reviewed ledgers that are still in the closure — the divergence ledger and the standing approvals — all three prose-blind, because several contracts tests load the live spec and the live ledgers, and every one of them reads structure rather than prose. The verdict store is absent from both — the suite exercises it only through fixtures — which is what lets a verdict-only cycle skip the suite entirely. None when git is unavailable, in which case the caller must run the lane unconditionally."""
     from rebuild.pipeline import fingerprint
 
     files = rebuild_gate_closure_files(root)
