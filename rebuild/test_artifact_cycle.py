@@ -3044,7 +3044,7 @@ def test_m1_artifacts_present(tmp_path):
 
 
 def test_rebuild_gate_closure_scope_and_exemptions(tmp_path):
-    """The exempt paths are the ones no test in either lane reads: the carried-verdict evidence, the JS-only jstests, the census pins the cycle itself rewrites mid-pass, and the contact allow-list, whose only reader is the defect gate — so blessing a contact signature must not re-run the whole suite to prove nothing."""
+    """Both edges of the closure at once. The exempt paths are the ones no test in either lane reads: the carried-verdict evidence, the JS-only jstests, the census pins the cycle itself rewrites mid-pass, and the contact allow-list, whose only reader is the defect gate — so blessing a contact signature must not re-run the whole suite to prove nothing. The harness roster is the opposite edge: files the suite reads from outside rebuild/ and glyph_data/, named one at a time, so a tools/ script no test opens stays out while doc/glyph-names.md comes in despite the Markdown filter."""
     assert "rebuild/m1-contact-allow.yaml" in ac.REBUILD_GATE_EXEMPT_PREFIXES
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
     (tmp_path / "rebuild" / "evidence").mkdir(parents=True)
@@ -3061,14 +3061,25 @@ def test_rebuild_gate_closure_scope_and_exemptions(tmp_path):
     (tmp_path / "conftest.py").write_text("")
     (tmp_path / "pyproject.toml").write_text("")
     (tmp_path / "uv.lock").write_text("")
+    for rel in ac.REBUILD_GATE_HARNESS_PATHS:
+        harness_file = tmp_path / rel
+        harness_file.parent.mkdir(parents=True, exist_ok=True)
+        harness_file.write_text("")
     files = ac.rebuild_gate_closure_files(tmp_path)
-    assert files == [
-        "conftest.py",
-        "glyph_data/runes/qsX.yaml",
-        "pyproject.toml",
-        "rebuild/test_x.py",
-        "uv.lock",
-    ]
+    assert files is not None
+    assert files == sorted(
+        [
+            "conftest.py",
+            "glyph_data/runes/qsX.yaml",
+            "pyproject.toml",
+            "rebuild/test_x.py",
+            "uv.lock",
+            *ac.REBUILD_GATE_HARNESS_PATHS,
+        ]
+    )
+    assert "doc/glyph-names.md" in files
+    assert "tools/outside.py" not in files
+    assert "rebuild/NOTES.md" not in files
 
 
 def test_rebuild_gate_closure_none_outside_git(tmp_path):
@@ -3169,6 +3180,46 @@ def test_only_the_contracts_key_sees_the_review_app_shell(tmp_path):
     static = tmp_path / "rebuild" / "review" / "static"
     static.mkdir(parents=True)
     (static / "app.js").write_text("export const app = 1;\n")
+    assert ac.rebuild_lane_fingerprint(tmp_path, "contracts") != contracts
+    assert ac.rebuild_lane_fingerprint(tmp_path, "validators") == validators
+
+
+@pytest.mark.parametrize("lane", ac.REBUILD_LANES)
+def test_every_harness_file_moves_both_lane_keys(lane, tmp_path):
+    """The under-inclusive half the audit found: the shaping suite, the three corpora, the two prose fixtures and the tools/ tree are all read under `pytest rebuild/` — collection alone imports test/test_shaping.py in every process of both lanes, and the compile modules come with it — so editing one has to re-run the lane rather than skip on a green that never saw it."""
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    for rel in ac.REBUILD_GATE_HARNESS_PATHS:
+        harness_file = tmp_path / rel
+        harness_file.parent.mkdir(parents=True, exist_ok=True)
+        harness_file.write_text("")
+    previous = ac.rebuild_lane_fingerprint(tmp_path, lane)
+    for rel in ac.REBUILD_GATE_HARNESS_PATHS:
+        (tmp_path / rel).write_text(f"{rel} moved\n")
+        current = ac.rebuild_lane_fingerprint(tmp_path, lane)
+        assert current != previous, rel
+        previous = current
+
+
+def test_the_harness_roster_names_the_whole_tools_tree():
+    """A roster rather than a glob, because the closure is assembled from git pathspecs and a glob would sweep in whatever else lands under tools/ — but the read it stands for really is the whole tree, since `unit_cache.environment_stamp` hashes tools/*.py and the contracts tests that build a store recompute that stamp. So a new script there is a read both lane keys have to see, and this is what says so when one lands."""
+    assert {rel for rel in ac.REBUILD_GATE_HARNESS_PATHS if rel.startswith("tools/")} == {
+        f"tools/{path.name}" for path in (REPO_ROOT / "tools").glob("*.py")
+    }
+
+
+@pytest.mark.parametrize("tree", ("rebuild/fixtures/", "rebuild/review/fixtures/units/"))
+def test_only_the_contracts_key_sees_the_fixture_piles_the_validators_lane_never_opens(tree, tmp_path):
+    """The over-inclusive half. Both piles are checked-in source every reader of which sits in contracts — the validators lane opens neither, the way it opens no part of the copied app shell — so regenerating a fixture re-runs the short lane and leaves the long one's green standing. What is left of rebuild/review/fixtures/ stays in both keys, since rebuild/conftest.py imports the mini bundle's pin module at module scope."""
+    assert tree in ac.VALIDATORS_EXEMPT_PREFIXES
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    (tmp_path / "rebuild").mkdir()
+    (tmp_path / "rebuild" / "test_x.py").write_text("")
+    (tmp_path / ".gitignore").write_text("rebuild/out/\n")
+    contracts = ac.rebuild_lane_fingerprint(tmp_path, "contracts")
+    validators = ac.rebuild_lane_fingerprint(tmp_path, "validators")
+    fixture = tmp_path / tree / "sample.json"
+    fixture.parent.mkdir(parents=True, exist_ok=True)
+    fixture.write_text("{}")
     assert ac.rebuild_lane_fingerprint(tmp_path, "contracts") != contracts
     assert ac.rebuild_lane_fingerprint(tmp_path, "validators") == validators
 
@@ -3830,11 +3881,13 @@ def test_do_run_m1_skip_reads_recorded_summaries(monkeypatch, tmp_path):
 
 
 def test_do_run_m1_records_green_only_when_fingerprint_stable(monkeypatch, tmp_path):
+    """A green is recorded only when the inputs held still for the whole build. The record's file list is stubbed for the same reason its fingerprint is: `run_m1_skip_files(ROOT)` opens the live contact allow-list, and the closure exempts that file on the grounds that no test in either lane reads it."""
     files = {name: tmp_path / f"{name}.json" for name in ac.M1_SUMMARY_FILES}
     monkeypatch.setattr(ac, "M1_SUMMARY_FILES", files)
     green = tmp_path / "run-m1-green.json"
     monkeypatch.setattr(ac, "RUN_M1_GREEN", green)
     monkeypatch.setattr(ac, "run_m1_skip_fingerprint", lambda root=None: "fp-live")
+    monkeypatch.setattr(ac, "run_m1_skip_files", lambda root=None: {"rebuild/m1-divergences.yaml": "d1"})
 
     def write_summaries(*a, **k):
         files["pipeline"].write_text(json.dumps({"defect_errors": []}))
