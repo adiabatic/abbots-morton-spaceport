@@ -2697,7 +2697,7 @@ def _fake_run_m1_root(tmp_path):
         ("rebuild/script.yaml", "script: 1\n"),
         ("glyph_data/punctuation.yaml", "punctuation: 1\n"),
         ("rebuild/m1-aliases.yaml", "qsX: X\n"),
-        ("rebuild/m1-divergences.yaml", "divergences: []\n"),
+        ("rebuild/m1-divergences.yaml", "- id: x\n  status: intended\n  why: one\n"),
         ("glyph_data/senior_quikscript_kerning.yaml", "pairs: {}\n"),
         ("rebuild/m1-contact-allow.yaml", "- signature: seam-1\n  why: blessed once\n"),
         ("rebuild/pipeline/oracle.py", "verdict = 1\n"),
@@ -2778,6 +2778,21 @@ def test_the_allow_list_line_is_prose_blind(tmp_path):
     assert ac.run_m1_skip_fingerprint(root) != before
 
 
+def test_the_divergence_ledger_line_is_prose_blind(tmp_path):
+    """Reclassifying a divergence class has to move this key — the oracle reads the ledger to name and classify the rows it adjudicates — while rewording the class's `why` must not, since nothing that classifies anything reads that sentence. Its one reader is the surface's explain panel, and the Stage B `explain_prose` component is what stamps it, so a reword costs a cache-served surface rebuild and no re-adjudication at all."""
+    from rebuild.pipeline import fingerprint
+
+    root = _fake_run_m1_root(tmp_path)
+    ledger = root / fingerprint.DIVERGENCE_LEDGER_LABEL
+    before = ac.run_m1_skip_fingerprint(root)
+    ledger.write_text(
+        "# a header nobody classifies by\n- id: x\n  status: intended\n  why: one, at greater length\n"
+    )
+    assert ac.run_m1_skip_fingerprint(root) == before
+    ledger.write_text("- id: x\n  status: reviewed-approved\n  why: one, at greater length\n")
+    assert ac.run_m1_skip_fingerprint(root) != before
+
+
 def test_a_comparison_side_edit_moves_the_run_key_and_leaves_the_sweeps_alone(tmp_path):
     """Why the two keys had to stop being built from one another. The sweep shapes the compiled font and re-settles the windows beside it; it opens no ledger, no allow-list, no kern sidecar, no baseline and none of the oracle's code, so an edit to any of those can move the key that decides whether to rebuild without moving the key that decides whether to sweep. The second half is what keeps that honest: everything the sweep does read still moves it."""
     from rebuild.pipeline import kernel_exec
@@ -2786,7 +2801,7 @@ def test_a_comparison_side_edit_moves_the_run_key_and_leaves_the_sweeps_alone(tm
     conform = ac.conform_skip_fingerprint(root, 4)
     run_key = ac.run_m1_skip_fingerprint(root)
     for rel, text in (
-        ("rebuild/m1-divergences.yaml", "divergences: [{unit: u-1}]\n"),
+        ("rebuild/m1-divergences.yaml", "- id: y\n  status: intended\n  why: one\n"),
         ("rebuild/m1-aliases.yaml", "qsX: Y\n"),
         ("glyph_data/senior_quikscript_kerning.yaml", "pairs: {qsX_qsY: -1}\n"),
         ("rebuild/m1-contact-allow.yaml", "- signature: seam-2\n"),
@@ -3083,6 +3098,39 @@ def test_both_lane_fingerprints_are_prose_blind_for_runes(lane, tmp_path):
     assert ac.rebuild_lane_fingerprint(tmp_path, lane) != before
 
 
+@pytest.mark.parametrize("lane", ac.REBUILD_LANES)
+def test_both_lane_fingerprints_are_prose_blind_for_the_ledgers(lane, tmp_path):
+    """The two human-reviewed ledgers the closure still keeps, hashed the way a rune is. Tests in both lanes load them — the census facts and the audit's class ids from the divergence ledger, every standing rule's `match` from the approvals — and every one of those readers takes structure, so a reworded `why` or `note` would re-run both lanes to reproduce the same green. Reclassifying a class or flipping a rule's verdict still moves both keys, which is what the blindness is bought against."""
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    (tmp_path / "rebuild").mkdir()
+    ledger = tmp_path / "rebuild" / "m1-divergences.yaml"
+    ledger.write_text("- id: seam-moved\n  status: intended\n  no_verdict: true\n  why: one\n")
+    standing = tmp_path / "rebuild" / "standing-approvals.yaml"
+    standing.write_text(
+        "format: ams-standing-approvals/1\nrules:\n  - id: r1\n    verdict: approve\n    note: one\n"
+    )
+    before = ac.rebuild_lane_fingerprint(tmp_path, lane)
+
+    ledger.write_text(
+        "# a header nobody classifies by\n- id: seam-moved\n  status: intended\n  no_verdict: true\n  why: two, at greater length\n"
+    )
+    standing.write_text(
+        "format: ams-standing-approvals/1\n# a header nobody matches on\nrules:\n  - id: r1\n    verdict: approve\n    note: two, at greater length\n"
+    )
+    assert ac.rebuild_lane_fingerprint(tmp_path, lane) == before
+
+    ledger.write_text(
+        "- id: seam-moved\n  status: intended\n  no_verdict: false\n  why: two, at greater length\n"
+    )
+    reclassified = ac.rebuild_lane_fingerprint(tmp_path, lane)
+    assert reclassified != before
+
+    standing.write_text(
+        "format: ams-standing-approvals/1\nrules:\n  - id: r1\n    verdict: neither\n    note: two, at greater length\n"
+    )
+    assert ac.rebuild_lane_fingerprint(tmp_path, lane) != reclassified
+
+
 def test_only_the_validators_key_sees_the_build_artifacts(tmp_path):
     """The whole point of the split key: an artifact-only change re-runs the lane that reads artifacts and nothing else, so a live M1 rebuild can never invalidate the contracts key mid-cycle."""
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
@@ -3214,18 +3262,13 @@ def test_surface_build_skippable_matches_manifest(tmp_path):
 REFUSE_RUNE = "rune: qsX\npolicy:\n  refuse:\n  - {exit: baseline, why: two verticals render thick}\n"
 
 
-def test_a_refuse_why_edit_restamps_the_surface_and_nothing_upstream(tmp_path):
-    """The bargain issue #114 struck, stated over every key a cycle consults at once. A refusal's `why` is quoted into the explain text the surface serves, so the surface has to notice a rewording — but nothing that builds an artifact reads it, so run_m1's green, the conform sweep's key, the tables' own stamp, the Stage A record and both suite lanes must all stay exactly where they were, and the pass that follows the edit rebuilds the surface over artifacts it never touches."""
+def _stamped_surface(root):
+    """A review surface stamped for the inputs standing in `root` at the moment it is written, and skippable the moment it is. It is what lets a test ask a prose edit the one question no upstream key can answer for it: a refusal to skip afterwards says the wording reached the surface's stamp, and a skip that survives says it did not."""
     from rebuild.pipeline import fingerprint
     from rebuild.review import app_index, unit_index
 
-    root = _fake_run_m1_root(tmp_path)
-    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
-    (root / ".gitignore").write_text("rebuild/out/\n")
-    rune = root / "glyph_data" / "runes" / "qsX.yaml"
-    rune.write_text(REFUSE_RUNE)
-    m1 = root / "rebuild" / "out" / "m1"
     stage_a = fingerprint.stage_a(root)
+    m1 = root / "rebuild" / "out" / "m1"
     (m1 / fingerprint.STAGE_A_FILENAME).write_text(json.dumps({"format": fingerprint.FORMAT, **stage_a}))
     surface = root / "rebuild" / "out" / "review"
     surface.mkdir(parents=True)
@@ -3248,23 +3291,94 @@ def test_a_refuse_why_edit_restamps_the_surface_and_nothing_upstream(tmp_path):
     )
     unit_index.write_index(surface, [])
     app_index.write_app_artifacts(surface, {}, {})
-    assert ac.surface_build_skippable(root, surface)
-    upstream = {
+    return surface
+
+
+def _upstream_keys(root):
+    from rebuild.pipeline import fingerprint
+
+    return {
         "run_m1": ac.run_m1_skip_fingerprint(root),
         "conform": ac.conform_skip_fingerprint(root),
         "tables": fingerprint.tables_value(root),
         "stage_a": fingerprint.stage_a(root),
+        **{f"lane:{lane}": ac.rebuild_lane_fingerprint(root, lane) for lane in ac.REBUILD_LANES},
     }
-    lanes = {lane: ac.rebuild_lane_fingerprint(root, lane) for lane in ac.REBUILD_LANES}
-    assert all(value is not None for value in lanes.values())
+
+
+def test_a_refuse_why_edit_restamps_the_surface_and_nothing_upstream(tmp_path):
+    """The bargain issue #114 struck, stated over every key a cycle consults at once. A refusal's `why` is quoted into the explain text the surface serves, so the surface has to notice a rewording — but nothing that builds an artifact reads it, so run_m1's green, the conform sweep's key, the tables' own stamp, the Stage A record and both suite lanes must all stay exactly where they were, and the pass that follows the edit rebuilds the surface over artifacts it never touches."""
+    root = _fake_run_m1_root(tmp_path)
+    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+    (root / ".gitignore").write_text("rebuild/out/\n")
+    rune = root / "glyph_data" / "runes" / "qsX.yaml"
+    rune.write_text(REFUSE_RUNE)
+    surface = _stamped_surface(root)
+    assert ac.surface_build_skippable(root, surface)
+    upstream = _upstream_keys(root)
+    assert all(value is not None for value in upstream.values())
 
     rune.write_text(REFUSE_RUNE.replace("render thick", "render thin"))
     assert not ac.surface_build_skippable(root, surface)
-    assert ac.run_m1_skip_fingerprint(root) == upstream["run_m1"]
-    assert ac.conform_skip_fingerprint(root) == upstream["conform"]
-    assert fingerprint.tables_value(root) == upstream["tables"]
-    assert fingerprint.stage_a(root) == upstream["stage_a"]
-    assert {lane: ac.rebuild_lane_fingerprint(root, lane) for lane in ac.REBUILD_LANES} == lanes
+    assert _upstream_keys(root) == upstream
+
+
+def test_a_ledger_why_edit_restamps_the_surface_and_nothing_upstream(tmp_path):
+    """The same bargain, struck for the divergence ledger's class rationales — the whole of what issue #126 bought. The review build copies each class's `why` into the manifest, so the surface still has to notice a rewording; the oracle classifies rows by predicate, status and `no_verdict` and reads no rationale at all, so run_m1's green, the sweep's key, the tables' stamp, the Stage A record and both suite lanes stay exactly where they were. Reclassifying the class is the other half: that has to move the run key and both lanes, and it does."""
+    from rebuild.pipeline import fingerprint
+
+    root = _fake_run_m1_root(tmp_path)
+    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+    (root / ".gitignore").write_text("rebuild/out/\n")
+    ledger = root / fingerprint.DIVERGENCE_LEDGER_LABEL
+    surface = _stamped_surface(root)
+    assert ac.surface_build_skippable(root, surface)
+    upstream = _upstream_keys(root)
+    assert all(value is not None for value in upstream.values())
+
+    ledger.write_text("- id: x\n  status: intended\n  why: one, said at greater length\n")
+    assert not ac.surface_build_skippable(root, surface)
+    assert _upstream_keys(root) == upstream
+
+    ledger.write_text("- id: x\n  status: reviewed-approved\n  why: one, said at greater length\n")
+    reclassified = _upstream_keys(root)
+    assert reclassified["run_m1"] != upstream["run_m1"]
+    assert reclassified["stage_a"] != upstream["stage_a"]
+    for lane in ac.REBUILD_LANES:
+        assert reclassified[f"lane:{lane}"] != upstream[f"lane:{lane}"]
+
+
+def test_a_standing_note_reword_moves_the_chain_and_nothing_else(tmp_path):
+    """The standing approvals' half of the same bargain, and the one ledger whose prose still costs something. The fill quotes a rule's `note` verbatim into every verdict note it writes, so the plumbing chain has to re-run — while both suite lanes, which read the rules' `match` and never their prose, do not, and no build key reads the file at all. Flipping the rule's verdict is what the lanes are still there for."""
+    root = _fake_run_m1_root(tmp_path)
+    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+    (root / ".gitignore").write_text("rebuild/out/\n")
+    standing = root / "rebuild" / "standing-approvals.yaml"
+    standing.write_text(
+        "format: ams-standing-approvals/1\nrules:\n  - id: r1\n    verdict: approve\n    note: one\n"
+    )
+    master = root / "verdicts-autosave.json"
+    master.write_text("{}")
+    surface = _stamped_surface(root)
+    assert ac.surface_build_skippable(root, surface)
+    upstream = _upstream_keys(root)
+    chain = ac.plumbing_skip_fingerprint(root, surface, master)
+    assert chain is not None
+
+    standing.write_text(
+        "format: ams-standing-approvals/1\nrules:\n  - id: r1\n    verdict: approve\n    note: one, said at greater length\n"
+    )
+    assert ac.plumbing_skip_fingerprint(root, surface, master) != chain
+    assert ac.surface_build_skippable(root, surface)
+    assert _upstream_keys(root) == upstream
+
+    standing.write_text(
+        "format: ams-standing-approvals/1\nrules:\n  - id: r1\n    verdict: neither\n    note: one, said at greater length\n"
+    )
+    flipped = _upstream_keys(root)
+    assert flipped["run_m1"] == upstream["run_m1"]
+    for lane in ac.REBUILD_LANES:
+        assert flipped[f"lane:{lane}"] != upstream[f"lane:{lane}"]
 
 
 def test_the_census_pins_are_outside_the_rebuild_closure(tmp_path):
@@ -4314,6 +4428,7 @@ def test_run_m1_failure_still_leaves_both_rebuild_lanes_not_run(monkeypatch, cap
 
 
 def test_plumbing_skip_fingerprint_moves_with_every_input(tmp_path):
+    """Every input, and the standing approvals by raw bytes — alone among the ledgers the rebuild lanes hash prose-blind. The fill quotes each rule's `note` verbatim into the verdict note it writes, so a reword changes what the chain would put in the store and has to re-run it."""
     surface = tmp_path / "review"
     surface.mkdir()
     (surface / "manifest.json").write_text(
@@ -4335,6 +4450,15 @@ def test_plumbing_skip_fingerprint_moves_with_every_input(tmp_path):
     master.write_text("{}")
     (tmp_path / "rebuild" / "standing-approvals.yaml").write_text("rules: [{}]\n")
     assert ac.plumbing_skip_fingerprint(tmp_path, surface, master) != base
+
+    (tmp_path / "rebuild" / "standing-approvals.yaml").write_text(
+        "rules:\n  - id: r1\n    verdict: approve\n    note: one\n"
+    )
+    noted = ac.plumbing_skip_fingerprint(tmp_path, surface, master)
+    (tmp_path / "rebuild" / "standing-approvals.yaml").write_text(
+        "rules:\n  - id: r1\n    verdict: approve\n    note: two, at greater length\n"
+    )
+    assert ac.plumbing_skip_fingerprint(tmp_path, surface, master) != noted
 
     (tmp_path / "rebuild" / "standing-approvals.yaml").write_text("rules: []\n")
     (surface / "manifest.json").write_text(
