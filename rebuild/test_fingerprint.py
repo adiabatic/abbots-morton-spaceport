@@ -1,4 +1,4 @@
-"""Tests for the build-input fingerprint module: the streamed file digest and the sweep that keeps it the only way rebuild/ hashes a file, content sensitivity, order independence, missing-file tolerance, the stat-based baselines component, the Stage A record round trip, the serve.py exclusion, the two prose-blind digests — the rune files' and the contact allow-list's — and the explain-aware rune digest and `explain_prose` component that are where a refuse record's `why` lives instead of in any key a table build reads.
+"""Tests for the build-input fingerprint module: the streamed file digest and the sweep that keeps it the only way rebuild/ hashes a file, content sensitivity, order independence, missing-file tolerance, the stat-based baselines component, the Stage A record round trip, the serve.py exclusion, the four prose-blind digests — the rune files' and the three human-reviewed ledgers' — and the explain-aware rune digest and `explain_prose` component that are where a refuse record's `why` and a divergence class's `why` live instead of in any key a table build reads.
 
 The sweep is here rather than in prose because file_sha256 exists to stop a hash costing the file its size in RAM, and that claim only holds while every hash goes through it — which a roster of callers written into a docstring cannot keep, since nothing checks a roster and the next module to grow a file hash falsifies it in silence. The modules that cannot import fingerprint spell the same streamed read out inline instead; those are pinned against the helper by value here, so a copy cannot drift from the original unnoticed either.
 """
@@ -214,6 +214,8 @@ def test_a_comparison_side_data_edit_moves_the_run_key_but_not_the_tables_stamp(
     """The whole point of the narrowing, and the line it must not cross. All three files are read by gates that consume a decision table — the oracle's naming and classification from the alias map and the divergence ledger, its position channel from the kern sidecar — so a serialized enumeration built before the edit still describes the sources on disk and `--gates-only` may re-adjudicate against it. They stay in `data_value` and so in the artifact cycle's run_m1 key, which is what decides whether the comparison re-runs at all, so narrowing the stamp cannot skip a gate.
 
     The kern sidecar is the newest member and the one the roster has to keep honest: the font compile hands its builder an empty kerning map and never opens the file, so the only reader is `oracle.KernEvaluator`, and a sidecar edit that throws away an enumeration is spending a fixpoint on a table that would come back byte for byte.
+
+    The edit has to be structural rather than a comment, because one of the three hashes prose-blind now: a comment above the divergence ledger's entries moves nothing at all, which is the neighboring bargain and not a hole in this one.
     """
     root = _fake_repo(tmp_path)
     assert "glyph_data/senior_quikscript_kerning.yaml" in fingerprint.NON_TABLE_DATA_LABELS
@@ -223,7 +225,7 @@ def test_a_comparison_side_data_edit_moves_the_run_key_but_not_the_tables_stamp(
             fingerprint.tables_value(root),
             artifact_cycle.run_m1_skip_fingerprint(root),
         )
-        (root / label).write_text("# edited\n[]\n")
+        (root / label).write_text("# edited\n- {id: added}\n")
         assert fingerprint.data_value(root) != before[0]
         assert fingerprint.tables_value(root) == before[1]
         assert artifact_cycle.run_m1_skip_fingerprint(root) != before[2]
@@ -282,6 +284,98 @@ def test_contact_allow_digest_is_prose_blind_and_falls_back_to_bytes(tmp_path):
     assert broken_digest == hashlib.sha256(broken.encode()).hexdigest()
     path.write_text("- signature: [unclosed again\n")
     assert fingerprint.contact_allow_digest(path) not in (parsed, broken_digest)
+
+
+LEDGER = textwrap.dedent("""\
+    # The M1 divergence ledger: one entry per reviewed divergence class.
+    - id: boundary-echo
+      status: intended
+      no_verdict: true
+      match: {predicate: boundary_echo, configs: all}
+      count: 12
+      exemplars:
+        - {config: default, codepoints: "0020:E650", baseline: "space|qsPea", new: "space|qsPea.half"}
+      why: |
+        A window holding a run-splitting boundary never needs its own verdict.
+    - id: seam-moved
+      status: drift-accepted
+      match: {predicate: seam_moved, configs: all}
+      count: 3
+      exemplars:
+        - {config: default, codepoints: "E67A:E665", baseline: "qsUtter|qsMay.en-y5", new: "qsUtter|qsMay.en-y0"}
+      why: |
+        The old shadow stance joined at the x-height where word-initial settlement lands at the baseline.
+    """)
+
+
+STANDING = textwrap.dedent("""\
+    # Once-and-for-all pattern rules, so a blessed delta shape never reaches the docket again.
+    format: ams-standing-approvals/1
+    rules:
+      - id: tea-oy-ligature-break
+        verdict: approve
+        note: "never going to have a different opinion unless the left letter is \u00b7Out"
+        match:
+          before: {pivot: qsTea.half, follower: qsOy}
+          after: {ligature: qsTea_qsOy}
+          except_left: [qsOut]
+    """)
+
+REWORDED_CLASS = LEDGER.replace("never needs its own verdict", "wants no verdict of its own")
+REWORDED_RULE = STANDING.replace("never going to have a different opinion", "settled for good")
+
+
+def _ledger_digest(path, text):
+    path.write_text(text)
+    return fingerprint.divergence_ledger_digest(path)
+
+
+def test_divergence_ledger_digest_is_prose_blind_and_falls_back_to_bytes(tmp_path):
+    """The ledger digest on its own, away from the components that carry it. What stays inside is what someone reads to decide something: `audit.load_ledger` takes the id and the `no_verdict` flag, `oracle.classify_divergence` takes the predicate and the configs, and the census takes the status and the ink flag, so retriaging a class, moving its counts or swapping an exemplar all move the digest. A class's `why` is the reviewer's recorded rationale for the triage and reaches no gate, so rewording one may not — the same bargain the rune digest strikes with `ductus` and `notes`, and comments and reformatting go with it since the digest is taken over the parsed document. The raw fallback is the other half: a malformed ledger stops the oracle outright, so two broken drafts must not collapse onto one value."""
+    path = tmp_path / "m1-divergences.yaml"
+    parsed = _ledger_digest(path, LEDGER)
+    assert _ledger_digest(path, REWORDED_CLASS) == parsed
+    assert _ledger_digest(path, LEDGER.replace("# The M1", "# Retitled: the M1")) == parsed
+    reflowed = LEDGER.replace(
+        "match: {predicate: seam_moved, configs: all}",
+        "match:\n    predicate: seam_moved\n    configs: all",
+    )
+    assert _ledger_digest(path, reflowed) == parsed
+    assert _ledger_digest(path, LEDGER.replace("no_verdict: true", "no_verdict: false")) != parsed
+    assert (
+        _ledger_digest(path, LEDGER.replace("status: drift-accepted", "status: reviewed-approved")) != parsed
+    )
+    assert _ledger_digest(path, LEDGER.replace("count: 12", "count: 13")) != parsed
+    assert (
+        _ledger_digest(path, LEDGER.replace('new: "space|qsPea.half"', 'new: "space|qsPea.full"')) != parsed
+    )
+    assert _ledger_digest(path, LEDGER + "- id: added\n  status: intended\n  count: 0\n") != parsed
+    broken = "- id: boundary-echo\n  match: {predicate: unclosed\n"
+    broken_digest = _ledger_digest(path, broken)
+    assert broken_digest == hashlib.sha256(broken.encode()).hexdigest()
+    assert _ledger_digest(path, broken.replace("unclosed", "still unclosed")) not in (parsed, broken_digest)
+
+
+def _standing_digest(path, text):
+    path.write_text(text)
+    return fingerprint.standing_approvals_digest(path)
+
+
+def test_standing_approvals_digest_is_note_blind_and_falls_back_to_bytes(tmp_path):
+    """The third ledger's digest, note-blind for the allow-list's reason: `standing_verdicts` matches on a rule's `verdict`, `match` and `except_left`, and the `note` beside them is the user's sentence about why the shape is blessed forever. Only the artifact cycle's rebuild-lane closures read this digest — the plumbing key keeps the file's raw bytes, because the fill quotes that sentence into every verdict it writes — so what it has to answer is whether a lane could tell the difference, and a reworded note is one no lane can see."""
+    path = tmp_path / "standing-approvals.yaml"
+    parsed = _standing_digest(path, STANDING)
+    assert _standing_digest(path, REWORDED_RULE) == parsed
+    assert _standing_digest(path, STANDING.replace("# Once-and", "# Edited: once-and")) == parsed
+    assert _standing_digest(path, STANDING.replace("verdict: approve", "verdict: reject")) != parsed
+    assert _standing_digest(path, STANDING.replace("follower: qsOy", "follower: qsI")) != parsed
+    assert _standing_digest(path, STANDING.replace("except_left: [qsOut]", "except_left: []")) != parsed
+    added = STANDING + "  - id: added\n    verdict: approve\n    match: {before: {pivot: qsMay}}\n"
+    assert _standing_digest(path, added) != parsed
+    broken = "format: ams-standing-approvals/1\nrules: [unclosed\n"
+    broken_digest = _standing_digest(path, broken)
+    assert broken_digest == hashlib.sha256(broken.encode()).hexdigest()
+    assert _standing_digest(path, broken.replace("unclosed", "still unclosed")) not in (parsed, broken_digest)
 
 
 def test_the_tables_stamp_still_tracks_the_runes_and_the_pipeline_code(tmp_path):
@@ -495,6 +589,87 @@ def test_explain_prose_is_the_one_component_a_refuse_why_moves(tmp_path):
     assert {key: bitmap[key] for key in fingerprint.COMPONENTS if key != "data"} == {
         key: after[key] for key in fingerprint.COMPONENTS if key != "data"
     }
+
+
+def _ledger_components(root, text):
+    (root / fingerprint.DIVERGENCE_LEDGER_LABEL).write_text(text)
+    return fingerprint.compute_all(root)
+
+
+def test_the_divergence_ledger_line_carries_the_prose_blind_digest(tmp_path):
+    """Where the ledger sits among the data inputs: still in `data_lines`, hashed by its own digest rather than by raw bytes, and still exempt from the tables' stamp. The label is what routes it, so this is also what keeps `data_paths`' spelling of the path and `DIVERGENCE_LEDGER_LABEL` from drifting apart — a mismatch would silently hash the ledger raw again."""
+    root = _fake_repo(tmp_path)
+    ledger = root / fingerprint.DIVERGENCE_LEDGER_LABEL
+    ledger.write_text(LEDGER)
+    digests = dict(line.split("\t", 1) for line in fingerprint.data_lines(root))
+    assert digests[fingerprint.DIVERGENCE_LEDGER_LABEL] == fingerprint.divergence_ledger_digest(ledger)
+    assert fingerprint.DIVERGENCE_LEDGER_LABEL in fingerprint.NON_TABLE_DATA_LABELS
+
+
+def test_wording_a_divergence_class_moves_the_explain_component_alone(tmp_path):
+    """A class rationale reaches the surface — the review build copies it into the manifest's `classes[].why` — so it cannot simply leave the digests the way an allow-list `why` does; it moves to `explain_prose` instead, where a refuse record's rationale already lives. What that buys is the whole point of the change: rewording a class costs a surface rebuild, served from the unit cache because no shard carries the sentence, and leaves `data` alone and with it the artifact cycle's run_m1 green, the tables' stamp, the conform sweep's key and both suite lanes."""
+    root = _fake_repo(tmp_path)
+    (root / "glyph_data" / "runes" / "qsPea.yaml").write_text(PROSE_RUNE)
+    before = _ledger_components(root, LEDGER)
+    before_tables = fingerprint.tables_value(root)
+    after = _ledger_components(root, REWORDED_CLASS)
+    assert after["explain_prose"] != before["explain_prose"]
+    assert {key: after[key] for key in fingerprint.COMPONENTS if key != "explain_prose"} == {
+        key: before[key] for key in fingerprint.COMPONENTS if key != "explain_prose"
+    }
+    assert fingerprint.tables_value(root) == before_tables
+    (root / "glyph_data" / "runes" / "qsPea.yaml").write_text(
+        PROSE_RUNE.replace("render thick", "render thin")
+    )
+    both = fingerprint.compute_all(root)
+    assert both["explain_prose"] not in (before["explain_prose"], after["explain_prose"])
+
+
+def test_retriaging_a_divergence_class_moves_the_data_component_and_not_the_tables_stamp(tmp_path):
+    """The other side of the bargain, and the line it must not cross. Flipping `no_verdict` changes which units the surface offers a verdict on and which rows the audit calls adjudicated, so it has to move `data` and with it the run_m1 key — spent as a re-adjudication over the tables and font on disk, since the ledger is in `NON_TABLE_DATA_LABELS` — while leaving the enumeration's own stamp and the explain component alone."""
+    root = _fake_repo(tmp_path)
+    before = _ledger_components(root, LEDGER)
+    before_tables = fingerprint.tables_value(root)
+    before_run = artifact_cycle.run_m1_skip_fingerprint(root)
+    after = _ledger_components(root, LEDGER.replace("no_verdict: true", "no_verdict: false"))
+    assert after["data"] != before["data"]
+    assert after["explain_prose"] == before["explain_prose"]
+    assert fingerprint.tables_value(root) == before_tables
+    assert artifact_cycle.run_m1_skip_fingerprint(root) != before_run
+
+
+def test_ledger_prose_lines_name_the_class(tmp_path):
+    """The component's other input, spelled at the grain a reader can diff: one line per class that carries a rationale, keyed by the class id the manifest serves it under, with the literal `ledger` first field keeping it from colliding with a refuse line's family name. A ledger that will not parse contributes a raw-byte line instead, so a broken file reads as changed rather than as carrying no rationales at all."""
+    root = _fake_repo(tmp_path)
+    ledger = root / fingerprint.DIVERGENCE_LEDGER_LABEL
+    ledger.write_text(LEDGER)
+    assert fingerprint.ledger_prose_lines(root) == [
+        "ledger\tboundary-echo\tA window holding a run-splitting boundary never needs its own verdict.\n",
+        "ledger\tseam-moved\tThe old shadow stance joined at the x-height where word-initial settlement lands at the baseline.\n",
+    ]
+    combined = sorted(fingerprint.refuse_prose_lines(root) + fingerprint.ledger_prose_lines(root))
+    assert fingerprint.explain_prose_value(root) == hashlib.sha256("\n".join(combined).encode()).hexdigest()
+    broken = "- id: boundary-echo\n  match: {predicate: unclosed\n"
+    ledger.write_text(broken)
+    assert fingerprint.ledger_prose_lines(root) == [
+        f"ledger\t-\t{hashlib.sha256(broken.encode()).hexdigest()}"
+    ]
+
+
+def test_the_standing_approvals_reach_no_fingerprint_component(tmp_path):
+    """The standing approvals are the contact allow-list's neighbor here: no component carries them, so neither a reworded note nor a rewritten rule can restamp the surface or drop the review unit cache. What a rule change does move is the two rebuild-lane closures, through `standing_approvals_digest`, and the plumbing key, through the raw bytes the chain's own key still keeps — both of them the artifact cycle's, and neither of them a fingerprint component."""
+    root = _fake_repo(tmp_path)
+    rules = root / fingerprint.STANDING_APPROVALS_LABEL
+    rules.write_text(STANDING)
+    assert rules not in fingerprint.data_paths(root)
+    before = fingerprint.compute_all(root)
+    before_digest = fingerprint.standing_approvals_digest(rules)
+    rules.write_text(REWORDED_RULE)
+    assert fingerprint.compute_all(root) == before
+    assert fingerprint.standing_approvals_digest(rules) == before_digest
+    rules.write_text(STANDING.replace("verdict: approve", "verdict: reject"))
+    assert fingerprint.compute_all(root) == before
+    assert fingerprint.standing_approvals_digest(rules) != before_digest
 
 
 def test_data_value_tracks_semantic_edits(tmp_path):
