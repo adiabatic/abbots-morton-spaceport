@@ -6,7 +6,11 @@ Chain honesty: run_m1 persists the Stage A components (`data`, `baselines`, `pip
 
 `tables_value` serves the same honesty for a build artifact rather than a manifest: the serialized decision tables carry it, so the conformance sweep can tell a table its own sources produced from one it must rebuild. It is keyed on `table_data_value` rather than `data_value` — the alias map, the divergence ledger, and the kern sidecar are read by gates that consume a built table and by nothing that builds one, so they belong to the whole-run record and not to this stamp. Its code half is `table_code_paths` rather than `pipeline_code_paths` for the same reason: the oracle's own module (`COMPARISON_CODE_MODULES`) runs against tables and a font already built, so an edit to the classifier or the ledger match re-adjudicates over the enumeration on disk instead of throwing it away, and rebuild/test_build_code_closure.py is what proves the build never reaches it.
 
-The contact allow-list is in no component here at all, `data` included. The defect gate is the only stage that reads it, so a two-line bless has no business dropping the review unit cache and re-stamping the whole surface — which is what its old place in `data_paths` cost, through `unit_cache.environment_stamp` and `oracle_cache.stamped_data_paths` alike. It rides the artifact cycle's run_m1 skip key alone, under `CONTACT_ALLOW_LABEL`, hashed by `contact_allow_digest`: prose-blind in the same way a rune is, since a signature's `why:` is the reviewer's recorded rationale and can move no gate.
+The three human-reviewed ledgers hash prose-blind as well, for the rune files' reason below: what a reviewer wrote down is documentation, and only what a stage or a gate reads may move a key. The contact allow-list is the narrowest of them — in no component here at all, `data` included. The defect gate is the only stage that reads it, so a two-line bless has no business dropping the review unit cache and re-stamping the whole surface — which is what its old place in `data_paths` cost, through `unit_cache.environment_stamp` and `oracle_cache.stamped_data_paths` alike. It rides the artifact cycle's run_m1 skip key alone, under `CONTACT_ALLOW_LABEL`, hashed by `contact_allow_digest`: prose-blind in the same way a rune is, since a signature's `why:` is the reviewer's recorded rationale and can move no gate.
+
+The divergence ledger keeps its place in `data` and its exemption from `tables_value`, hashed by `divergence_ledger_digest` under `DIVERGENCE_LEDGER_LABEL`: a class's predicate, status, `no_verdict` flag, count and exemplars are what the audit, the classifier and the census read, so those still move the Stage A record and the artifact cycle's run_m1 key — spent as a re-adjudication over the tables and font already on disk — while rewording a class's `why` moves neither. That one rationale is read after all, the way a refusal's is: the review build writes it into the surface manifest's `classes[].why` and `check_manifest` requires it to be there. So it rides the Stage B `explain_prose` component through `ledger_prose_lines`, and rewording a class costs a cache-served surface rebuild and nothing else — no fixpoint, no sweep, no suite lane.
+
+The standing approvals are in no component here either; `standing_approvals_digest` exists for the artifact cycle's rebuild-lane closures alone, and it drops each rule's `note` because no lane reads one. The plumbing key deliberately does not use it: `standing_verdicts` quotes a rule's `note` verbatim into every verdict it fills, so a reword changes what the chain writes and `artifact_cycle.plumbing_skip_fingerprint` keeps the file's raw bytes.
 
 Rune files are hashed by `rune_file_digest`, a prose-blind digest over the parsed document rather than the raw bytes: YAML comments and formatting, the ductus prose, the notes prose, and every `why` rationale — refuse records' included — are documentation no stage that builds anything consumes, so editing them must not stale the surface or re-run a cycle. What stays in the digest is exactly what can move an output or a gate: every geometric and policy field, the ductus *keys* (motion names, which the parity and naming lints enforce), and the *presence* of every prose field (the schema requires `why` on absolute prefers).
 
@@ -138,10 +142,14 @@ POLICY_PROSE_KINDS = ("prefer", "extend", "contract", "resolve", "refuse")
 QUOTED_POLICY_PROSE_KINDS = ("refuse",)
 
 
-def _without_why(record: object) -> object:
-    if isinstance(record, dict) and isinstance(record.get("why"), str):
-        return {**record, "why": None}
+def _without_prose(record: object, key: str) -> object:
+    if isinstance(record, dict) and isinstance(record.get(key), str):
+        return {**record, key: None}
     return record
+
+
+def _without_why(record: object) -> object:
+    return _without_prose(record, "why")
 
 
 def _projected_stance(stance: object) -> object:
@@ -224,26 +232,66 @@ def contact_allow_digest(path: Path) -> str:
     return _projected_digest(path, _projected_allow_list)
 
 
+DIVERGENCE_LEDGER_LABEL = "rebuild/m1-divergences.yaml"
+STANDING_APPROVALS_LABEL = "rebuild/standing-approvals.yaml"
+
+
+def _projected_ledger(document: object) -> object:
+    """The prose-blind view of the parsed divergence ledger: every entry keeps its `id`, `status`, `match`, `no_verdict`, `ink_identical`, `count` and `exemplars` — which `audit.load_ledger`, `oracle.classify_divergence` and the census all read — and loses only its `why`, the reviewer's recorded rationale for the class. A document shaped in a way `audit.load_ledger` would refuse passes through unprojected, so the load failure it causes stays visible in the digest."""
+    if not isinstance(document, list):
+        return document
+    return [_without_why(entry) for entry in document]
+
+
+def divergence_ledger_digest(path: Path) -> str:
+    """The divergence ledger's prose-blind content digest, which is how `data_lines` hashes it. Retriaging a class moves it; rewording one does not, because that wording rides `explain_prose` through `ledger_prose_lines` instead."""
+    return _projected_digest(path, _projected_ledger)
+
+
+def _projected_standing_rules(document: object) -> object:
+    """The note-blind view of the parsed standing approvals: every rule keeps its `id`, `verdict`, `match` and `except_left`, and loses only its `note`. A document shaped in a way `standing_verdicts.load_rules` would refuse passes through unprojected, for the same reason the other two projections do."""
+    if not isinstance(document, dict):
+        return document
+    rules = document.get("rules")
+    if not isinstance(rules, list):
+        return document
+    return {**document, "rules": [_without_prose(rule, "note") for rule in rules]}
+
+
+def standing_approvals_digest(path: Path) -> str:
+    """The standing approvals' note-blind content digest. No component here carries it: the artifact cycle's rebuild-lane closures are its whole audience, since a rule's `note` is quoted into the verdicts the chain fills and so belongs in the plumbing key's raw bytes rather than here."""
+    return _projected_digest(path, _projected_standing_rules)
+
+
+def _data_digest(root: Path, path: Path, runes: set[Path]) -> str:
+    """How one data input is hashed for `data_lines`: a prose-blind digest where the input has one — the rune files' and the divergence ledger's — and raw bytes otherwise."""
+    if path in runes:
+        return rune_file_digest(path)
+    if _label(root, path) == DIVERGENCE_LEDGER_LABEL:
+        return divergence_ledger_digest(path)
+    return file_sha256(path)
+
+
 def data_lines(repo_root: Path) -> list[str]:
-    """The per-file `label\\tdigest` lines the `data` component is built from: rune files by their prose-blind digest, every other data input by raw bytes. Sorted, like `path_lines`, and exposed for the same reason."""
+    """The per-file `label\\tdigest` lines the `data` component is built from: rune files and the divergence ledger by their prose-blind digests, every other data input by raw bytes. Sorted, like `path_lines`, and exposed for the same reason."""
     root = Path(repo_root)
     runes = set(rune_paths(root))
     return sorted(
-        f"{_label(root, path)}\t" + (rune_file_digest(path) if path in runes else file_sha256(path))
+        f"{_label(root, path)}\t{_data_digest(root, path, runes)}"
         for path in data_paths(root)
         if path.is_file()
     )
 
 
 def data_value(repo_root: Path) -> str:
-    """The `data` component: rune files by their prose-blind digest, every other data input by raw bytes."""
+    """The `data` component: rune files and the divergence ledger by their prose-blind digests, every other data input by raw bytes."""
     return hashlib.sha256("\n".join(data_lines(repo_root)).encode()).hexdigest()
 
 
 NON_TABLE_DATA_LABELS = (
     "glyph_data/senior_quikscript_kerning.yaml",
     "rebuild/m1-aliases.yaml",
-    "rebuild/m1-divergences.yaml",
+    DIVERGENCE_LEDGER_LABEL,
 )
 
 
@@ -272,7 +320,7 @@ def rune_explain_digests(repo_root: Path) -> dict[str, str]:
 
 
 def refuse_prose_lines(repo_root: Path) -> list[str]:
-    """The `family\\tindex\\twhy` line of every refuse record carrying a `why`, sorted — the whole of the rune prose anything downstream reads, and so the whole of the `explain_prose` component. A rune that will not parse or decode contributes `family\\t-\\t<raw digest>` instead, the way `_projected_digest` falls back, so a broken file moves the value rather than silently contributing no refusals at all."""
+    """The `family\\tindex\\twhy` line of every refuse record carrying a `why`, sorted — the whole of the rune prose anything downstream reads, and one of the two inputs to the `explain_prose` component, `ledger_prose_lines` being the other. A rune that will not parse or decode contributes `family\\t-\\t<raw digest>` instead, the way `_projected_digest` falls back, so a broken file moves the value rather than silently contributing no refusals at all."""
     lines: list[str] = []
     for path in rune_paths(Path(repo_root)):
         if not path.is_file():
@@ -294,9 +342,33 @@ def refuse_prose_lines(repo_root: Path) -> list[str]:
     return sorted(lines)
 
 
+def ledger_prose_lines(repo_root: Path) -> list[str]:
+    """The `ledger\\t<id>\\t<why>` line of every divergence-ledger entry carrying a rationale, sorted — the `explain_prose` component's other input, and the reason the ledger's `why` can leave the `data` digest without the surface being able to serve a stale one. The review build copies that rationale into the manifest's `classes[].why`, which `check_manifest` requires, and nothing else downstream reads it: no shard and no sidecar carries it, so rewording a class re-stamps the surface and re-enriches nothing. A ledger that will not parse or decode, or that is not the list `audit.load_ledger` expects, contributes `ledger\\t-\\t<raw digest>` instead, the way `_projected_digest` falls back."""
+    path = Path(repo_root) / DIVERGENCE_LEDGER_LABEL
+    if not path.is_file():
+        return []
+    raw = path.read_bytes()
+    try:
+        document = yaml.load(raw.decode(), Loader=_SAFE_LOADER)
+    except yaml.YAMLError, UnicodeDecodeError:
+        document = None
+    if not isinstance(document, list):
+        return [f"ledger\t-\t{hashlib.sha256(raw).hexdigest()}"]
+    lines: list[str] = []
+    for index, entry in enumerate(document):
+        why = entry.get("why") if isinstance(entry, dict) else None
+        if not isinstance(why, str):
+            continue
+        identifier = entry.get("id")
+        lines.append(f"ledger\t{identifier if isinstance(identifier, str) else index}\t{why}")
+    return sorted(lines)
+
+
 def explain_prose_value(repo_root: Path) -> str:
-    """The `explain_prose` component: `refuse_prose_lines` hashed, so the surface's manifest can answer whether the explain text it serves is the wording on disk. Stage B rather than Stage A because no stage of the M1 build reads it — run_m1 could not record it honestly, and a stale value here is the surface's to fix rather than a rebuild's."""
-    return hashlib.sha256("\n".join(refuse_prose_lines(repo_root)).encode()).hexdigest()
+    """The `explain_prose` component: `refuse_prose_lines` and `ledger_prose_lines` concatenated and then sorted as one list, hashed, so the surface's manifest can answer whether the explain text and the class rationales it serves are the wording on disk. The two kinds cannot collide because a ledger line's first field is the literal `ledger` and a refuse line's is a family name. Stage B rather than Stage A because no stage of the M1 build reads any of it — run_m1 could not record it honestly, and a stale value here is the surface's to fix rather than a rebuild's."""
+    root = Path(repo_root)
+    lines = sorted(refuse_prose_lines(root) + ledger_prose_lines(root))
+    return hashlib.sha256("\n".join(lines).encode()).hexdigest()
 
 
 def table_code_paths(repo_root: Path) -> list[Path]:
