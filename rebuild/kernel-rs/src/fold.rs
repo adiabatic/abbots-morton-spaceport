@@ -14,7 +14,7 @@ use crate::rulefold::rules_for_input;
 use crate::stream::{
     FixpointProduct, TransitionRow, cell_key, cell_key_repr, key_repr, python_repr, python_tuple,
 };
-use crate::types::{AdjustmentToken, CellId, Side};
+use crate::types::{AdjustmentToken, CellId, Settled, Side};
 
 /// The label a slot the window does not carry is spelled with, `table.NA_LABEL`.
 pub const NA_LABEL: &str = "#NA";
@@ -69,6 +69,8 @@ pub struct TreatyRow {
 
 #[derive(Debug)]
 /// One configuration's decision table, `table.DecisionTable` as a freshly folded one stands: the class-grain rows with the fold's own joint flags, the ordered rules, and the head fields the windows artifact and every downstream consumer read.
+///
+/// The rows' two settled seats index the product's own seat table, which the decision table does not carry: nothing past the fold reads a settled record — the windows artifact and the digest spell a row's six labels and its outcome and no more — so the table would ride along unread.
 pub struct DecisionTable {
     pub config: String,
     pub transitions: Vec<TransitionRow>,
@@ -195,7 +197,7 @@ impl<'a> LabelRows<'a> {
 pub fn fold_product(index: &SpecIndex, mut product: FixpointProduct) -> Result<Folded, String> {
     assert_key_sorted(&product.transitions)?;
     let mut fold_rows = expand(&product);
-    flag_prospect_joints(&product.transitions, &mut fold_rows);
+    flag_prospect_joints(&product.transitions, &product.seats, &mut fold_rows);
     let mut class_joint: Vec<bool> = product.transitions.iter().map(|row| row.joint).collect();
     for row in &fold_rows {
         if row.joint {
@@ -227,7 +229,7 @@ pub fn fold_product(index: &SpecIndex, mut product: FixpointProduct) -> Result<F
         replay_lefts.insert(input_glyph, folded.replay_lefts);
     }
 
-    assert_reachable_cells(index, &rows, &product.cells)?;
+    assert_reachable_cells(index, &rows, &product.seats, &product.cells)?;
 
     let entry_extensions: HashMap<&CellId, i64> = product
         .cells
@@ -237,7 +239,7 @@ pub fn fold_product(index: &SpecIndex, mut product: FixpointProduct) -> Result<F
     let mut seen: HashSet<(Rc<str>, Rc<str>, String, i64)> = HashSet::new();
     for row in 0..rows.len() {
         let base = rows.base(row);
-        let Some(left_settled) = &base.left_settled else {
+        let Some(left_settled) = product.left_settled(base) else {
             continue;
         };
         match left_settled.seam {
@@ -254,7 +256,7 @@ pub fn fold_product(index: &SpecIndex, mut product: FixpointProduct) -> Result<F
                     Rc::clone(&base.left),
                     Rc::clone(&base.outcome),
                     index.resolve(seam).to_owned(),
-                    left_settled.extension + entry_extensions[&base.settled.cell],
+                    left_settled.extension + entry_extensions[&product.settled(base).cell],
                 ));
             }
         }
@@ -368,8 +370,8 @@ fn near_slots(row: &TransitionRow) -> [&str; 4] {
 
 /// Compare every row's optimistic prospect against the follower's actual settled choice and flag divergent rows joint (design section 6.1 step 4.2).
 ///
-/// The successor index is keyed on the follower's (left, input, right1), which is the row's own (outcome, right1, right2), so the scan never touches a window the first three slots already rule out. Nothing here reads a successor's joint flag, only the seam it settled, so the pass is order-free and the flags can be applied in one sweep afterwards.
-fn flag_prospect_joints(class: &[TransitionRow], fold: &mut [FoldRow]) {
+/// The successor index is keyed on the follower's (left, input, right1), which is the row's own (outcome, right1, right2), so the scan never touches a window the first three slots already rule out. Nothing here reads a successor's joint flag, only the seam it settled — read through `seats`, the product's table the follower's settled seat indexes — so the pass is order-free and the flags can be applied in one sweep afterwards.
+fn flag_prospect_joints(class: &[TransitionRow], seats: &[Settled], fold: &mut [FoldRow]) {
     let mut successors: HashMap<(&str, &str, &str), Vec<u32>> = HashMap::new();
     for (seat, row) in fold.iter().enumerate() {
         let base = &class[row.seat as usize];
@@ -400,7 +402,7 @@ fn flag_prospect_joints(class: &[TransitionRow], fold: &mut [FoldRow]) {
             if &*row.right4 != NA_LABEL && successor.right3 != row.right4 {
                 continue;
             }
-            if i64::from(followed.settled.seam.is_some()) != base.prospect {
+            if i64::from(seats[followed.settled.index()].seam.is_some()) != base.prospect {
                 flagged.push(seat as u32);
                 break;
             }
@@ -439,14 +441,15 @@ fn entry_extension(cell: &CellId) -> i64 {
     total
 }
 
-/// One cheap loud check that the two grains still agree: the cells the fold rows settle into are the product's own.
+/// One cheap loud check that the two grains still agree: the cells the fold rows settle into, read through the product's seat table, are the product's own.
 fn assert_reachable_cells(
     index: &SpecIndex,
     rows: &LabelRows<'_>,
+    seats: &[Settled],
     cells: &[CellId],
 ) -> Result<(), String> {
     let folded: HashSet<&CellId> = (0..rows.len())
-        .map(|row| &rows.base(row).settled.cell)
+        .map(|row| &seats[rows.base(row).settled.index()].cell)
         .collect();
     let counted: HashSet<&CellId> = cells.iter().collect();
     if folded == counted {
@@ -682,7 +685,8 @@ mod tests {
     use crate::artifacts;
     use crate::fixpoint::{EnumerationModes, deep_class_id, enumerate_transitions};
     use crate::index::fixtures;
-    use crate::types::Settled;
+    use crate::types::{SettledPool, SettledSeat};
+    use std::cell::RefCell;
 
     /// The world the fixture is folded in — the shipping one, where a class-grain row's representative is output-visible.
     const SHIPPING: EnumerationModes = EnumerationModes {
@@ -954,6 +958,7 @@ mod tests {
         index: SpecIndex,
         cell: CellId,
         seam: crate::model::Sym,
+        seats: RefCell<SettledPool>,
     }
 
     impl Bench {
@@ -967,7 +972,17 @@ mod tests {
                 adjustments: Vec::new(),
             };
             let seam = fixtures::sym(&index, "baseline");
-            Self { index, cell, seam }
+            Self {
+                index,
+                cell,
+                seam,
+                seats: RefCell::new(SettledPool::default()),
+            }
+        }
+
+        /// One settled record's seat in the bench's own table, which every product the bench builds carries.
+        fn seat(&self, settled: Settled) -> SettledSeat {
+            self.seats.borrow_mut().seat(&settled)
         }
 
         /// One row: its seven labels, the prospect its trace claimed, and whether it committed a seam.
@@ -980,11 +995,11 @@ mod tests {
                 right3: Rc::from(labels[4]),
                 right4: Rc::from(labels[5]),
                 outcome: Rc::from(labels[6]),
-                settled: Settled {
+                settled: self.seat(Settled {
                     cell: self.cell.clone(),
                     seam: joins.then_some(self.seam),
                     extension: 0,
-                },
+                }),
                 left_settled: None,
                 joint: false,
                 prospect,
@@ -1029,12 +1044,16 @@ mod tests {
         /// One row whose left committed a seam, which is the only shape the treaty fold reads: [`Bench::row`] leaves `left_settled` absent, so a product of those folds into no treaty rows at all.
         fn joined(&self, labels: [&str; 7], cell: CellId, left_extension: i64) -> TransitionRow {
             let mut row = self.row(labels, 0, false);
-            row.settled.cell = cell;
-            row.left_settled = Some(Settled {
+            row.settled = self.seat(Settled {
+                cell,
+                seam: None,
+                extension: 0,
+            });
+            row.left_settled = Some(self.seat(Settled {
                 cell: self.cell.clone(),
                 seam: Some(self.seam),
                 extension: left_extension,
-            });
+            }));
             row
         }
 
@@ -1061,6 +1080,7 @@ mod tests {
                 deep_classes,
                 cited_provenance: Vec::new(),
                 cells,
+                seats: self.seats.borrow().clone().into_table(),
             }
         }
     }

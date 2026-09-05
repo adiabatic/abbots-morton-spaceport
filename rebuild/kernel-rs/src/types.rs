@@ -6,6 +6,8 @@
 //!
 //! Nothing in this module reads the spec beyond resolving symbols for the two places settlement formats a name into prose — [`cell_label`], which the E-STRANDED message and the TSV artifacts read, and [`adjustment_text`], which spells the generated tokens. Both take the [`SpecIndex`] rather than a bare interner, because a label also needs the registry's height-to-y map, and because the index is what every caller already has in hand.
 
+use std::collections::HashMap;
+
 use crate::index::SpecIndex;
 use crate::model::{Provenance, Sym};
 
@@ -249,6 +251,64 @@ pub struct Settled {
     pub cell: CellId,
     pub seam: Option<Sym>,
     pub extension: i64,
+}
+
+/// The seat one distinct [`Settled`] record holds in the table a product carries, and what a recorded row holds in its place. A configuration reaches millions of rows over a few thousand distinct settled records, so a row that held the record by value was holding a copy hundreds of thousands of its neighbors held too — each with the cell's own heap allocation for the adjustments — where four bytes name the same record, and two rows' settled halves compare as one integer compare. A seat means nothing without the table it indexes, which is why it rides only inside a product and never in the stream: the head's cell seat is what the stream spells, resolved through the table on the way out.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct SettledSeat(pub u32);
+
+impl SettledSeat {
+    /// The seat as the table's index.
+    pub fn index(self) -> usize {
+        self.0 as usize
+    }
+}
+
+/// The table one fixpoint seats its settled records through: every distinct record once, in the order the enumeration first reached it, and the seat each one holds. The map answers a record's seat and the table answers a seat's record, and the two copies of each record it holds between them are a few thousand entries against the millions of rows the seats stand in for.
+#[derive(Clone, Debug, Default)]
+pub struct SettledPool {
+    seats: HashMap<Settled, SettledSeat>,
+    table: Vec<Settled>,
+}
+
+impl SettledPool {
+    /// This record's seat, minted on the first reach and answered from the map on every later one.
+    pub fn seat(&mut self, settled: &Settled) -> SettledSeat {
+        if let Some(&seat) = self.seats.get(settled) {
+            return seat;
+        }
+        let seat = SettledSeat(
+            u32::try_from(self.table.len())
+                .expect("a configuration reaches fewer than 2^32 distinct settled records"),
+        );
+        self.seats.insert(settled.clone(), seat);
+        self.table.push(settled.clone());
+        seat
+    }
+
+    /// The record one seat names.
+    pub fn get(&self, seat: SettledSeat) -> &Settled {
+        &self.table[seat.index()]
+    }
+
+    /// How many distinct records have been seated.
+    pub fn len(&self) -> usize {
+        self.table.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.table.is_empty()
+    }
+
+    /// How many the table has room for, which is what the cache census reports beside the length.
+    pub fn capacity(&self) -> usize {
+        self.table.capacity()
+    }
+
+    /// The table alone, which is the half a product carries: seats resolve by index from here on and nothing past the fixpoint mints one.
+    pub fn into_table(self) -> Vec<Settled> {
+        self.table
+    }
 }
 
 /// The resolved left neighbor a window is settled against, `settle.LeftContext`. The kind is never [`TokenKind::Unknown`] — a left is always already settled or already known to be a boundary — and `settled` is present exactly for a letter left and for the boundary cells the fold records.
