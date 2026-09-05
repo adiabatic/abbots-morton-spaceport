@@ -141,9 +141,9 @@ def test_explain_many_batches_same_config_sequences_by_position(monkeypatch):
     calls: list[tuple[frozenset[str], int]] = []
     original = kernel_exec.settle_cases
 
-    def recording(spec, cases, features, *, modes=None):
+    def recording(spec, cases, features, *, modes=None, decode=None):
         calls.append((features, len(cases)))
-        return original(spec, cases, features, modes)
+        return original(spec, cases, features, modes, decode)
 
     monkeypatch.setattr(kernel_exec, "settle_cases", recording)
     requests = [

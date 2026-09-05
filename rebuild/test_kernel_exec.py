@@ -76,7 +76,7 @@ class TestTheInvocationSeam:
 
         class Finished:
             returncode = 0
-            stdout = (json.dumps(answer) + "\n").encode()
+            stdout = (json.dumps(answer, separators=(",", ":")) + "\n").encode()
             stderr = b""
 
         def run(arguments, verb):
@@ -92,7 +92,7 @@ class TestTheInvocationSeam:
             [question],
             frozenset({"ss05", "ss03"}),
         )
-        assert got == [answer]
+        assert got == [answer["result"]]
         arguments = calls[0][0]
         assert arguments[1:4] == [
             "settle-cases",
@@ -157,7 +157,7 @@ class TestTheInvocationSeam:
 
         class Finished:
             returncode = 0
-            stdout = (json.dumps(answer) + "\n").encode()
+            stdout = (json.dumps(answer, separators=(",", ":")) + "\n").encode()
             stderr = b""
 
         def run(arguments, verb):
@@ -194,7 +194,7 @@ class TestTheInvocationSeam:
 
         class Finished:
             returncode = 0
-            stdout = (json.dumps(answer) + "\n").encode()
+            stdout = (json.dumps(answer, separators=(",", ":")) + "\n").encode()
             stderr = b""
 
         monkeypatch.setattr(kernel_exec, "_run_kernel", lambda *arguments, **rest: Finished())
@@ -239,7 +239,10 @@ class TestTheInvocationSeam:
         class Finished:
             returncode = 0
             stdout = (
-                "".join(json.dumps({**case, "result": result}) + "\n" for case, result in zip(cases, results))
+                "".join(
+                    json.dumps({**case, "result": result}, separators=(",", ":")) + "\n"
+                    for case, result in zip(cases, results)
+                )
             ).encode()
             stderr = b""
 
