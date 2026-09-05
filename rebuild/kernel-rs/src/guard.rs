@@ -266,6 +266,7 @@ pub fn sweep(index: &SpecIndex) -> Result<Vec<String>, SettleError> {
 mod tests {
     use super::*;
     use crate::index::fixtures;
+    use crate::model::Interner;
 
     /// A JSON object over already-built pieces, for the mappings the fixtures compose rather than spell.
     fn object(entries: &[(String, String)]) -> String {
@@ -449,8 +450,10 @@ mod tests {
 
     #[test]
     fn the_powerset_runs_size_ascending_and_by_seat_within_a_size() {
-        // Seats, not symbols: `capability_features` hands over the sorted list, and this is the arithmetic that walks it.
-        let features = [Sym(7), Sym(3), Sym(11)];
+        // Seats, not symbols: `capability_features` hands over the sorted list, and this is the arithmetic that walks it, so the list is deliberately out of minting order.
+        let mut symbols = Interner::new();
+        let [three, seven, eleven] = ["ss03", "ss07", "ss11"].map(|name| symbols.intern(name));
+        let features = [seven, three, eleven];
         let sizes: Vec<usize> = (0..=features.len())
             .flat_map(|size| combinations(&features, size))
             .map(|combination| combination.len())
@@ -458,11 +461,7 @@ mod tests {
         assert_eq!(sizes, [0, 1, 1, 1, 2, 2, 2, 3]);
         assert_eq!(
             combinations(&features, 2),
-            [
-                vec![Sym(7), Sym(3)],
-                vec![Sym(7), Sym(11)],
-                vec![Sym(3), Sym(11)],
-            ]
+            [vec![seven, three], vec![seven, eleven], vec![three, eleven]]
         );
         assert!(combinations(&features, 4).is_empty());
     }
