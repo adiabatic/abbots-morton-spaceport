@@ -25,7 +25,7 @@ from rebuild.review.enrich import (
     rune_display,
     text_entities,
 )
-from rebuild.review.ink import kern_neutral
+from rebuild.review.ink import kern_neutral, translate_outline
 from rebuild.validation.rowmodel import iter_rows
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -146,6 +146,59 @@ def test_pure_rename_unit_keeps_its_anchor(enricher, units_by_key):
     assert enriched.before_glyphs == ("qsIt.ex-y5", "qsIt")
     assert enriched.diff_positions == (0,)
     assert enriched.pair == (0, 1)
+
+
+@pytest.fixture(scope="module")
+def mini_units(mini_bundle):
+    """The frozen bundle's whole workload, settled under the pinned spec: about a thousand windows over four letters and the boundary tokens, every one of which the enricher can take end to end."""
+    from rebuild.review.audit import load_workload
+
+    return load_workload(MINI / "audit.tsv", mini_bundle.ledger, dict(LETTERS))
+
+
+def _geometry_segment(outlines, shaped, pens, spans, cp_start: int, cp_end: int) -> tuple:
+    """The geometry-first reading `_segment_pieces` replaced, kept here as the reference: every covering glyph's decomposed outline translated to its pen position, the leftmost point over all of them found by walking every point, and the sorted tuple of the outlines translated so that point sits at x=0."""
+    placed = []
+    for index, (start, end) in enumerate(spans):
+        if start < cp_end and cp_start < end:
+            x_offset, y_offset, _advance = shaped.positions[index]
+            value = outlines.outline(shaped.names[index])
+            if value:
+                placed.append((value, pens[index] + x_offset, y_offset))
+    xs = [
+        dx + point[0]
+        for value, dx, _dy in placed
+        for _operator, points in value
+        for point in points
+        if point is not None
+    ]
+    if not xs:
+        return ()
+    x0 = min(xs)
+    return tuple(sorted(translate_outline(value, dx - x0, dy) for value, dx, dy in placed))
+
+
+def test_segment_pieces_materialize_to_the_geometry_they_stand_in_for(spec, mini_units, monkeypatch):
+    """`_segment_pieces` compares (shape key, x, y) triples from the intern both fonts share where it used to build every covering outline through `translate_outline` and compare the sorted geometry, and `_ink_visible_positions` reads nothing but `before != after` over the result. What makes that a pure cost change is that the triple is the geometry under a different spelling: materializing each piece through the intern gives back exactly the sorted geometry the old form built, for every segment the enricher compares over the frozen workload — the same shaped runs, pens and spans, both fonts, every divergent position — so the ink-visible positions, the judged pair they anchor and the shard bytes rebuild/test_unit_cache.py pins cannot have moved. The reference is the geometry-first form kept beside the test, and the comparison it feeds is witnessed reaching both answers, so a segment that compared equal to everything would not pass unnoticed."""
+    enricher = Enricher(spec, MINI, MINI_FONT, repo_root=REPO_ROOT)
+    recorded: list[tuple] = []
+    original = enricher._segment_pieces
+
+    def recording(side, shaped, pens, spans, cp_start, cp_end):
+        pieces = original(side, shaped, pens, spans, cp_start, cp_end)
+        recorded.append((side, shaped, pens, spans, cp_start, cp_end, pieces))
+        return pieces
+
+    monkeypatch.setattr(enricher, "_segment_pieces", recording)
+    enricher.enrich_many(mini_units.units)
+    assert recorded
+    intern = enricher._intern
+    for side, shaped, pens, spans, cp_start, cp_end, pieces in recorded:
+        materialized = tuple(sorted(translate_outline(intern.value(key), x, y) for key, x, y in pieces))
+        reference = _geometry_segment(enricher._outlines[side], shaped, pens, spans, cp_start, cp_end)
+        assert materialized == reference, (side, shaped.names, cp_start, cp_end)
+    verdicts = {before[-1] != after[-1] for before, after in zip(recorded[::2], recorded[1::2])}
+    assert verdicts == {True, False}
 
 
 def test_zwnj_unit_carries_boundary_mark(enricher, units_by_key):

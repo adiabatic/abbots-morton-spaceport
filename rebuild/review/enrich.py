@@ -20,7 +20,7 @@ from rebuild.pipeline.explain import ExplainReport, explain_many
 from rebuild.pipeline.model import CellId, ResolvedSpec, Settled
 from rebuild.pipeline.settle import form_ligatures, is_boundary_settled, tokens_from_codepoints
 from rebuild.review.audit import Unit
-from rebuild.review.ink import OutlineCache, kern_neutral, translate_outline
+from rebuild.review.ink import OutlineCache, OutlineIntern, kern_neutral
 from rebuild.validation.rowmodel import iter_rows
 from rebuild.validation.shaping import SENIOR_FONT, Shaper
 
@@ -358,7 +358,11 @@ class Enricher:
         self.subset_dir = Path(subset_dir)
         self.after_shaper = shaper_factory(after_font)
         self.before_shaper = shaper_factory(before_font)
-        self._outlines = {"before": OutlineCache(before_font), "after": OutlineCache(after_font)}
+        self._intern = OutlineIntern()
+        self._outlines = {
+            "before": OutlineCache(before_font, self._intern),
+            "after": OutlineCache(after_font, self._intern),
+        }
         self.aliases = load_alias_map(alias_path or repo_root / "rebuild" / "m1-aliases.yaml")
         self._subset_rows: dict[str, dict[str, SubsetRow]] = {}
         self._guard_verdicts: kernel_exec.FormationGuard | None = None
@@ -625,25 +629,21 @@ class Enricher:
         return self.seam_token(settled[index].seam, False) if settled[index].seam is not None else "break"
 
     def _segment_pieces(self, side: str, shaped, pens: list[int], spans, cp_start: int, cp_end: int) -> tuple:
-        """The placed ink of one font's shaped glyphs covering codepoints [cp_start, cp_end), jointly translated so the segment's leftmost ink sits at x=0 (the config_diff normalization). Anchoring on the ink rather than on a pen position matters twice over: the two fonts compose the same absolute placement through different advance/offset mechanics, and divergent ink elsewhere in the window moves the absolute pens apart without touching this segment's drawing."""
+        """The placed ink of one font's shaped glyphs covering codepoints [cp_start, cp_end), as sorted (shape key, x, y) pieces from the intern both fonts share, jointly translated so the segment's leftmost ink sits at x=0 (the config_diff normalization). Anchoring on the ink rather than on a pen position matters twice over: the two fonts compose the same absolute placement through different advance/offset mechanics, and divergent ink elsewhere in the window moves the absolute pens apart without touching this segment's drawing. The tuple stands in for the translated geometry this used to build: a shape sits with its leftmost, lowest point at (0, 0) in its own canonical frame, so a placed piece's leftmost point is its absolute x and its translated outline is the canonical value moved by exactly (x - x0, y) — a map the geometry inverts (the leftmost, lowest point gives back the translation, and what remains is the canonical shape the key is derived from), so two pieces compare equal precisely when the translated outlines would, across fonts because both go through one intern. The one shape that map does not invert is one with no point at all, which every translation leaves alone; it is recorded at (0, 0) so its placement is as invisible to the comparison as it was to the translation. No translated outline is built on this path, which `_ink_visible_positions` walks twice per divergent position."""
+        outlines = self._outlines[side]
+        intern = self._intern
         placed = []
         for index, (start, end) in enumerate(spans):
             if start < cp_end and cp_start < end:
                 x_offset, y_offset, _advance = shaped.positions[index]
-                value = self._outlines[side].outline(shaped.names[index])
-                if value:
-                    placed.append((value, pens[index] + x_offset, y_offset))
-        xs = [
-            dx + point[0]
-            for value, dx, _dy in placed
-            for _operator, points in value
-            for point in points
-            if point is not None
-        ]
+                key, origin_x, origin_y = outlines.shape_key(shaped.names[index])
+                if key:
+                    placed.append((key, pens[index] + x_offset + origin_x, y_offset + origin_y))
+        xs = [x for key, x, _y in placed if intern.draws(key)]
         if not xs:
             return ()
         x0 = min(xs)
-        return tuple(sorted(translate_outline(value, dx - x0, dy) for value, dx, dy in placed))
+        return tuple(sorted((key, x - x0, y) if intern.draws(key) else (key, 0, 0) for key, x, y in placed))
 
     def _ink_visible_positions(
         self,
