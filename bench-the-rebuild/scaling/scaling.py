@@ -30,7 +30,7 @@ sys.path.insert(0, str(HERE.parents[2]))
 from rebuild.pipeline import kernel_exec, kernel_io, table
 from rebuild.pipeline.spec_load import load_default_spec
 from rebuild.tools import peak_rss, scaling_ladder
-from rebuild.tools.cycle_timings import _INNER_LINE
+from rebuild.tools.console import INNER_LINE
 
 
 def kernel_binary() -> Path:
@@ -88,7 +88,7 @@ def run_rung(binary: Path, spec_path: Path, out_dir: Path, stamp: str) -> dict:
     stray = [line for line in stderr.split("\n") if line and not line.startswith("[t] ")]
     if stray:
         raise SystemExit(f"the kernel wrote a non-timing line to stderr on a clean exit: {stray[0]}")
-    phases = {match.group(1): float(match.group(2)) for match in _INNER_LINE.finditer(stderr)}
+    phases = {match.group(1): float(match.group(2)) for match in INNER_LINE.finditer(stderr)}
     return {
         "wall": wall,
         "cpu": cpu,

@@ -57,9 +57,9 @@ def _tree(path: Path) -> dict[str, bytes]:
 
 
 def _served(capfd) -> tuple[int, int]:
-    match = re.search(r"served (\d+) of (\d+) units from cache", capfd.readouterr().err)
+    match = re.search(r"served (\d[\d,]*) of (\d[\d,]*) units from cache", capfd.readouterr().err)
     assert match, "the build did not report its cache plan"
-    return int(match.group(1)), int(match.group(2))
+    return int(match.group(1).replace(",", "")), int(match.group(2).replace(",", ""))
 
 
 def _copy(base: Path, tmp_path: Path) -> Path:
@@ -186,9 +186,9 @@ def test_serial_and_parallel_builds_are_byte_identical(base_surface, mini_bundle
 
 
 def _signatures(capfd) -> tuple[int, int]:
-    match = re.search(r"signatures: (\d+) cached, (\d+) shaped", capfd.readouterr().err)
+    match = re.search(r"signatures: (\d[\d,]*) cached, (\d[\d,]*) shaped", capfd.readouterr().err)
     assert match, "the build did not report its signature plan"
-    return int(match.group(1)), int(match.group(2))
+    return int(match.group(1).replace(",", "")), int(match.group(2).replace(",", ""))
 
 
 def test_no_change_rebuild_serves_every_signature(base_surface, mini_bundle, tmp_path, capfd):

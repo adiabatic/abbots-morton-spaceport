@@ -34,6 +34,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from rebuild.tools import memory_budget
+from rebuild.tools.console import INNER_LINE
 from rebuild.tools.peak_rss import format_gb
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -44,7 +45,6 @@ POOL_UNIT_ENV = "AMS_POOL_UNIT"
 # The one spelling of the variable a spawned check reads to learn that a cycle is already recording on its behalf. The cycle sets it when it arms its CycleTimings and every child inherits it; the gate wrappers that a cycle can spawn read it from here rather than typing the string, so the writer that sets the variable and the writers that stand down for it can never disagree about a name.
 CYCLE_RUN_ENV = "AMS_CYCLE_RUN"
 
-_INNER_LINE = re.compile(r"^\[t\] (.+?) (\d+(?:\.\d+)?)s(?:[ \t](.*))?$", re.MULTILINE)
 _RSS_TOKEN = re.compile(r"\brss_gb=(\d+(?:\.\d+)?)")
 
 _JOURNAL_LOCK = threading.Lock()
@@ -174,7 +174,7 @@ def record_check(
 
 def parse_inner_timings(text: str) -> list[dict]:
     entries: list[dict] = []
-    for match in _INNER_LINE.finditer(text):
+    for match in INNER_LINE.finditer(text):
         entry: dict = {"label": match.group(1), "elapsed_s": float(match.group(2))}
         rss = _RSS_TOKEN.search(match.group(3) or "")
         if rss:

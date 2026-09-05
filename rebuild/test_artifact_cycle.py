@@ -18,6 +18,7 @@ from rebuild.conftest import is_live_artifact_path
 from rebuild.review import journal
 from rebuild.tools import artifact_cycle as ac
 from rebuild.tools import calibrate_budgets as cb
+from rebuild.tools import console
 from rebuild.tools import cycle_timings as ct
 from rebuild.tools.cycle_timings import CycleTimings
 
@@ -69,6 +70,26 @@ def _redirect_contracts_lane_reads(monkeypatch, tmp_path):
         "baselines_value",
         lambda root: "contracts-lane" if root == REPO_ROOT else real_baselines(root),
     )
+
+
+def _plan_text(plan: ac.Plan) -> str:
+    """The plan block as one string, for the assertions that only care that a phrase is in it somewhere."""
+    return "\n".join(ac.render_plan(plan))
+
+
+_PLAN_ROW = r"^\s+\d+\s+(?:run\?|run|skip)\s+"
+
+
+def _step_lines(text: str, name: str) -> str:
+    """One step's row out of a plan block, with its `$ argv` line when it has one — the successor to grepping `<name>: <argv>` out of the old numbered plan, and the way a test says which step a phrase belongs to now that the row carries a status column and the argv sits on its own line."""
+    lines = text.splitlines()
+    for index, line in enumerate(lines):
+        if re.match(_PLAN_ROW + re.escape(name) + r"(?:\s|$)", line):
+            block = [line]
+            if index + 1 < len(lines) and lines[index + 1].lstrip().startswith("$ "):
+                block.append(lines[index + 1])
+            return "\n".join(block)
+    return ""
 
 
 def _pass_summaries():
@@ -466,6 +487,65 @@ def test_the_docket_headline_is_scraped_and_never_fails_the_cycle(tmp_path, monk
     assert failures == []
 
 
+def test_the_plumbing_row_counts_the_carry_and_the_summary_quotes_what_the_fills_wrote(tmp_path, monkeypatch):
+    """The chain runs as one child, so what its steps did reaches this process only as the lines they printed. Two of them are the pass's headline for anyone who has just finished a sitting — how many verdicts came forward and how much human queue that left — so they become the row's figure; the rest, a handful of lines each, are quoted under the two summary lines they belong to rather than left for `cycle_summary.json` and the step's own log."""
+    autosave = tmp_path / "verdicts-autosave.json"
+    autosave.write_text("{}")
+    monkeypatch.setattr(ac, "AUTOSAVE", autosave)
+    plan = _plan()
+
+    report, failures = _run_plumbing(
+        plan,
+        _chain_stdout(
+            (
+                "carry",
+                [
+                    "wrote verdicts-carried-testid.json: 15903 carried onto manifest 2026-09-04T12:00:00Z",
+                    "kinds: {'ok': 15903}",
+                    "human queue: 81 -> 12 still needing fresh verdicts",
+                ],
+            ),
+            ("merge", ["merged 15903 verdicts into verdicts-autosave.json"]),
+            ("echo-fill", ["wrote tmp/echo-fill.json: 4 echo-fill verdicts"]),
+            ("echo-merge", ["nothing changed: the autosave already holds all 4 verdicts"]),
+            ("standing-fill", ["wrote tmp/standing.json: 7 standing-approval verdicts"]),
+            ("standing-merge", ["merged 7 verdicts into verdicts-autosave.json"]),
+            ("complaints", ["wrote /x/tmp/complaints-data.json: 3 open complaints in 2 groups"]),
+        ),
+    )
+    assert failures == []
+    assert (
+        ac.step_figure(report, "plumbing") == "15,903 carried, queue 81 -> 12; 3 open complaints in 2 groups"
+    )
+
+    block = ac.summary_cycle_lines(report, plan, [])
+    assert "      human queue: 81 -> 12 still needing fresh verdicts" in block
+    assert "      wrote tmp/standing.json: 7 standing-approval verdicts" in block
+    assert "      wrote tmp/echo-fill.json: 4 echo-fill verdicts" in block
+    assert "      merged 15903 verdicts into verdicts-autosave.json" in block
+    carry = block.index("  carry output     : " + str(report.carry_out))
+    plumbing = next(index for index, line in enumerate(block) if line.startswith("  verdict plumbing"))
+    assert carry < block.index("      human queue: 81 -> 12 still needing fresh verdicts") < plumbing
+
+
+def test_the_plumbing_row_falls_back_to_the_merge_when_no_carry_ran(tmp_path, monkeypatch):
+    """The store-only route carries nothing — the surface did not move, so the carry would resolve every unit against itself — and there is no count to report. The row says what did happen instead of reading blank."""
+    autosave = tmp_path / "verdicts-autosave.json"
+    autosave.write_text("{}")
+    monkeypatch.setattr(ac, "AUTOSAVE", autosave)
+    plan = _plan(store_only=True)
+    report, failures = _run_plumbing(
+        plan,
+        _chain_stdout(
+            ("merge", ["merged 3 verdicts into verdicts-autosave.json"]),
+            ("complaints", ["no open complaints"]),
+        ),
+    )
+    assert failures == []
+    assert ac.carry_figure(report.carry_lines) == ""
+    assert ac.step_figure(report, "plumbing") == "merge merged; no open complaints"
+
+
 def test_dry_run_plan_skips_the_chain_without_a_carry():
     no_carry = ac.build_plan(
         verdicts=None,
@@ -551,9 +631,89 @@ def test_render_plan_is_stringable():
         first_run=False,
         short_id="abc1234",
     )
-    text = ac.render_plan(plan)
+    text = _plan_text(plan)
     assert "review-pre-abc1234" in text
     assert "rebuild.pipeline.run_m1" in text
+
+
+def test_every_plan_step_says_what_it_is_for():
+    """The banner prints a description on every run, so a step without one prints a bare rule and leaves the reader to guess. The reuse route is the one row whose description is not looked up under its own name: it spawns as run_m1:gates-only and reports under run_m1's row, and what it says has to be the re-adjudication's sentence rather than the build's."""
+    for plan in (_plan(), _plan(skip_gates=True), _plan(reuse_run_m1=True, run_m1_note="comparison-side")):
+        for step in plan.steps:
+            assert step.describe, step.name
+            assert step.describe in ac.STEP_DESCRIPTIONS.values(), step.name
+    reuse = _plan(reuse_run_m1=True, run_m1_note="comparison-side")
+    assert reuse.describe("run_m1") == ac.STEP_DESCRIPTIONS[ac.RUN_M1_REUSE_STEP]
+    assert "rebuilding nothing" in reuse.describe("run_m1")
+    assert _plan().describe("run_m1") == ac.STEP_DESCRIPTIONS["run_m1"]
+
+
+def test_a_step_that_spawns_nothing_is_not_automatically_a_skipped_one():
+    """The run/skip column reads `skipped`, not `argv is None`, because the snapshot and the retention pass do real work in this process and the `gates` placeholder stands in for five steps at once. Reading the column off argv would file all three under `skip` and make the counts line a lie."""
+    plan = _plan()
+    by_name = {step.name: step for step in plan.steps}
+    for name in ("snapshot", "retention"):
+        assert by_name[name].argv is None
+        assert by_name[name].skipped is False
+    for step in plan.steps:
+        if step.argv is not None:
+            assert step.skipped is False, step.name
+    gates_off = {step.name: step for step in _plan(skip_gates=True).steps}
+    assert gates_off["gates"].skipped is True
+
+
+def test_the_plan_block_counts_its_steps_and_leaves_the_sweep_undecided():
+    """gate:conform is the one row the plan cannot settle: its key is taken over the artifacts run_m1 leaves, so a pass that plans the sweep may still prove it unnecessary once the build has finished. That is why the counts line carries a range — a flat number there would be a promise a legitimate pass breaks. A pass that skips run_m1 outright is the exception in the other direction: nothing rebuilds, `main` has already compared that same key and found no green for it, so the sweep will certainly run and a range there would be a promise the pass could never reach the top of."""
+    plan = _plan()
+    rows = ac.plan_rows(plan)
+    by_name = {row.name: row for row in rows}
+    assert by_name["gate:conform"].status == console.STATUS_MAYBE
+    assert by_name["run_m1"].status == console.STATUS_RUN
+    assert by_name["gate:conform"].note == ac.CONFORM_MAYBE_NOTE
+    assert ac.CONFORM_MAYBE_NOTE in _step_lines(_plan_text(plan), "gate:conform")
+    assert console.counts_line(rows) == f"{len(rows)} steps: {len(rows) - 1}–{len(rows)} will run, 0 skipped"
+
+    settled = _plan(
+        skip_run_m1=True,
+        run_m1_note="build inputs unchanged",
+        skip_conform=True,
+        conform_note=ac.CONFORM_SKIP_NOTE,
+    )
+    settled_rows = ac.plan_rows(settled)
+    settled_by_name = {row.name: row for row in settled_rows}
+    assert settled_by_name["gate:conform"].status == console.STATUS_SKIP
+    assert settled_by_name["run_m1"].status == console.STATUS_SKIP
+    assert "–" not in console.counts_line(settled_rows)
+
+    text = _plan_text(settled)
+    assert console.counts_line(settled_rows) in text
+    assert f"SKIPPED ({ac.CONFORM_SKIP_NOTE})" in _step_lines(text, "gate:conform")
+
+    certain = _plan(skip_run_m1=True, run_m1_note="build inputs unchanged")
+    certain_rows = ac.plan_rows(certain)
+    assert {row.name: row for row in certain_rows}["gate:conform"].status == console.STATUS_RUN
+    assert "–" not in console.counts_line(certain_rows)
+
+    fresh = _plan(fresh=True)
+    fresh_rows = ac.plan_rows(fresh)
+    fresh_conform = {row.name: row for row in fresh_rows}["gate:conform"]
+    assert fresh_conform.status == console.STATUS_RUN
+    assert fresh_conform.note == ""
+    assert "–" not in console.counts_line(fresh_rows)
+
+
+def test_the_plan_block_leads_with_its_arithmetic_and_puts_the_paths_after_the_rows():
+    """What a reader came to the top of a pass for is how many steps there are and what each one will run, so the header goes straight into the count and the rows. The paths this pass resolved — where the snapshot lands, which master the carry reads, where the carried file goes — follow them rather than splitting the header from its own arithmetic, and the concurrency block, which answers how the steps share the box, still comes last."""
+    plan = _plan()
+    lines = ac.render_plan(plan)
+    assert lines[0].startswith("artifact cycle ")
+    counts = lines.index(console.counts_line(ac.plan_rows(plan)))
+    last_row = max(index for index, line in enumerate(lines) if re.match(_PLAN_ROW, line))
+    paths = next(index for index, line in enumerate(lines) if line.startswith("  first run "))
+    concurrency = next(index for index, line in enumerate(lines) if line.strip().startswith("Concurrency"))
+    assert 0 < counts < last_row < paths < concurrency
+    assert [line for line in lines if line.startswith("  snapshot dir ")]
+    assert [line for line in lines if line.startswith("  carry output ")]
 
 
 def _built_surface(tmp_path, **totals):
@@ -693,17 +853,17 @@ def _surface_ok(report, *, spawn, emit, registry, review_out, **_):
 
 
 def _chain_stdout(*sections, fixpoint=True, failed=None):
-    """A synthetic verdict_chain stdout: the `[chain] <step>` banners the driver splits on, each step's own lines, and the fixpoint or failure line the driver reads at the end."""
+    """A synthetic verdict_chain stdout: the `[phase] <step>` line each step opens with, that step's own lines, the `[t] <step>` that closes it, and the fixpoint or failure line the driver reads at the end. The two result lines keep the `[chain] ` prefix the chain gives them — they are what the cascade came to rather than work starting — which is what the driver's split relies on to keep a `failed:` line out of the complaints body."""
     lines = []
     for name, body in sections:
-        lines.append(f"[chain] {name}")
+        lines.append(console.PHASE + name)
         lines.extend(body)
         lines.append(f"[t] {name} 0.1s")
         if failed == name:
-            lines.append(f"[chain] failed: {name} (exit 1)")
+            lines.append(f"{console.FAILED_LINE}{name} (exit 1)")
             break
     if failed is None and fixpoint:
-        lines.append("[chain] fixpoint: witnessed — a re-run of the fill cascade writes nothing")
+        lines.append(f"{console.FIXPOINT_LINE}witnessed — a re-run of the fill cascade writes nothing")
     return "\n".join(lines) + "\n"
 
 
@@ -751,9 +911,13 @@ _FULL_CHAIN = (
 
 
 def _run_plumbing(plan, stdout, returncode=0, spy=None):
+    """The chain step over a canned stdout, spawned the way `_run_step` spawns it: every line goes through the digest on its way to the step's log, so what the terminal shows here is what a real pass would show — the warnings and the phase pairs, and nothing else."""
+
     def fake_spawn(name, argv, *, emit, registry, stream):
         if spy is not None:
             spy.append((name, argv))
+        for line in stdout.splitlines():
+            emit.child_line(name, console.STDOUT, line)
         return _step(name, returncode, stdout=stdout)
 
     report = ac.CycleReport()
@@ -978,8 +1142,8 @@ def test_the_disagreement_audit_reaches_the_console(capsys):
             [
                 "wrote verdicts-echo-fill.json: 0 echo-fill verdicts onto manifest S1",
                 "",
-                "2 echo groups hold disagreeing verdicts — the same change judged differently; "
-                "worth a re-check:",
+                console.WARN + "2 echo groups hold disagreeing verdicts — the same change judged "
+                "differently; worth a re-check:",
                 "  e-123  #units=u-1,u-2",
                 "    u-1       ·Day ~b~ ·Tea                approve   looks right",
                 "    u-2       ·Day ~b~ ·Tea                reject    stub too long",
@@ -988,8 +1152,9 @@ def test_the_disagreement_audit_reaches_the_console(capsys):
     )
     _run_plumbing(_plan(), stdout)
     out = capsys.readouterr().out
-    assert "2 echo groups hold disagreeing verdicts" in out
-    assert "e-123  #units=u-1,u-2" in out
+    assert "warn 2 echo groups hold disagreeing verdicts" in out
+    # The per-group roll call stays in the step's log: what the terminal owes a watcher is that the disagreement exists, and the names of the units are what the log is for.
+    assert "e-123  #units=u-1,u-2" not in out
 
 
 def test_the_executor_spawns_the_argv_the_plan_holds():
@@ -1344,6 +1509,7 @@ def test_summary_exact_under_out_of_order_completion(monkeypatch, capsys):
         report.surface_rows = 81894
         report.surface_batches = 16
         report.echo_groups = 42
+        report.step_seconds["surface-build"] = 61.0
         return True
 
     def fake_js(argv, spawn, emit, registry):
@@ -1400,8 +1566,7 @@ def test_summary_exact_under_out_of_order_completion(monkeypatch, capsys):
     assert report.gate_conform == "green"
     out = capsys.readouterr().out
     assert out.count("ARTIFACT CYCLE SUMMARY") == 1
-    assert "15903" in out
-    assert "81894" in out
+    assert "15,903 units, 81,894 rows" in out
     assert "green (annotated)" in out
 
 
@@ -1413,8 +1578,86 @@ _CHILD_SCRIPT = (
     "    print(f'{tag}-err-{i:04d}', file=sys.stderr, flush=True)\n"
 )
 
+_TWO_STREAM_CHILD = "import sys; print('on stdout'); print('on stderr', file=sys.stderr); sys.exit({rc})"
 
-def test_prefix_streaming_serialized_no_interleave(capsys):
+
+def _step_number(plan: ac.Plan, name: str) -> int:
+    return [step.name for step in plan.steps].index(name) + 1
+
+
+def test_a_pass_files_one_log_per_step_beside_its_plan_and_a_copy_of_the_terminal(tmp_path, capsys):
+    """What the terminal does not show still has to be somewhere, and that somewhere is one directory per run: the plan as it was printed, a byte copy of the terminal, and a log per step holding both of that child's streams in arrival order with the stderr ones tagged. `latest` points at it so an agent tailing a run never has to know the stamp."""
+    plan = _plan()
+    root = tmp_path / "build-logs"
+    log_dir = root / "20260101T000000Z-testid"
+    registry = ac._ChildRegistry()
+    with console.Digest(steps=[step.name for step in plan.steps], log_dir=log_dir) as digest:
+        digest.plan_block(ac.render_plan(plan))
+        ac._run_step(
+            "gate:js",
+            [sys.executable, "-c", _TWO_STREAM_CHILD.format(rc=0)],
+            emit=digest,
+            registry=registry,
+            stream=False,
+        )
+
+    assert (log_dir / console.PLAN_TXT).read_text().startswith("artifact cycle")
+    step_log = log_dir / f"{_step_number(plan, 'gate:js'):02d}-gate-js.log"
+    assert sorted(step_log.read_text().splitlines()) == ["on stdout", "stderr| on stderr"]
+    terminal = (log_dir / console.TERMINAL_LOG).read_text()
+    assert "gate:js" in terminal and "Runs the review app's node test suite" in terminal
+    assert (root / console.LATEST_LINK).resolve() == log_dir.resolve()
+
+
+def test_a_failed_step_replays_its_whole_output_under_its_own_banner(tmp_path, capsys):
+    """The path the captured-and-discarded gates never had. A child that fails has said everything it is going to say already, and a summary line naming an exit code sends the reader to a log they have to find; replaying it under the banner puts it where they are already looking. The dump comes out of the spawn and the closing line out of the stage that knows the figure, so the replay is above the close rather than after it."""
+    registry = ac._ChildRegistry()
+    report = ac.CycleReport()
+    with console.Digest(log_dir=tmp_path / "logs") as digest:
+        result = ac._run_step(
+            "gate:conform",
+            [sys.executable, "-c", _TWO_STREAM_CHILD.format(rc=3)],
+            emit=digest,
+            registry=registry,
+            stream=False,
+        )
+        ac._close_step(digest, report, "gate:conform", result)
+    assert result.returncode == 3
+    lines = capsys.readouterr().out.splitlines()
+    assert "on stdout" in lines
+    assert "stderr| on stderr" in lines
+    assert "FAILED (exit 3)" in lines[-1] and "gate:conform" in lines[-1]
+    assert lines.index("stderr| on stderr") < len(lines) - 1
+
+
+def test_the_reuse_route_banners_under_the_plans_run_m1_row(tmp_path, capsys):
+    """`make cycle-timings --by-step` buckets on the step name, so a seconds-long re-adjudication has to spawn under its own name or it lands in the row that says what a full M1 build costs. What a reader watching the pass wants is the opposite — the row the plan showed them — so the alias resolves the one to the other, banner, log filename and step column alike."""
+    plan = _plan(reuse_run_m1=True, run_m1_note="only comparison-side inputs moved")
+    log_dir = tmp_path / "logs"
+    registry = ac._ChildRegistry()
+    report = ac.CycleReport()
+    report.unmatched = 12
+    report.pins_pass = True
+    with console.Digest(
+        steps=[step.name for step in plan.steps], log_dir=log_dir, aliases=ac.STEP_ALIASES
+    ) as digest:
+        result = ac._run_step(
+            ac.RUN_M1_REUSE_STEP,
+            [sys.executable, "-c", "print('re-adjudicating')"],
+            emit=digest,
+            registry=registry,
+            stream=False,
+        )
+        ac._close_step(digest, report, ac.RUN_M1_REUSE_STEP, result, "ok")
+    out = capsys.readouterr().out
+    assert f"step {_step_number(plan, 'run_m1')} of {len(plan.steps)}  run_m1  step" in out
+    assert ac.RUN_M1_REUSE_STEP not in out
+    assert "ok  12 unmatched, pins pass" in out
+    assert (log_dir / f"{_step_number(plan, 'run_m1'):02d}-run_m1.log").read_text() == "re-adjudicating\n"
+
+
+def test_two_verbatim_children_interleave_between_lines_and_never_inside_one(capsys):
+    """Two real children, both surfacing verbatim, through one digest. Every line either arrives whole or does not arrive: cross-line interleave is expected and harmless, a line spliced into another is the failure this serialization exists to prevent."""
     emit = ac._Emitter()
     registry = ac._ChildRegistry()
 
@@ -1429,13 +1672,11 @@ def test_prefix_streaming_serialized_no_interleave(capsys):
             fut.result()
 
     out = capsys.readouterr().out
-    pattern = re.compile(r"^\[(childA|childB)\] (childA|childB)-(out|err)-\d{4}$")
-    body = [line for line in out.splitlines() if line.startswith("[child")]
+    pattern = re.compile(r"^(childA|childB)-(out|err)-\d{4}$")
+    body = [line for line in out.splitlines() if line.startswith("child")]
     assert len(body) == 800
     for line in body:
-        match = pattern.match(line)
-        assert match is not None, line
-        assert match.group(1) == match.group(2), line
+        assert pattern.match(line) is not None, line
 
 
 @pytest.mark.parametrize("lane", ac.REBUILD_LANES)
@@ -1480,6 +1721,62 @@ def test_a_rebuild_lane_stays_captured_and_parses_failures(lane, capsys):
     out = capsys.readouterr().out
     assert not any(line.startswith(f"[gate:rebuild-{lane}]") for line in out.splitlines())
     assert f"hard rebuild failure ({lane}): rebuild/test_boom.py::test_y" in out
+
+
+def test_gate_make_test_says_so_when_the_font_suite_stood_itself_down(capsys):
+    """`make test` exits zero whether it ran the suite or stood down on its own green record, so a row closed off the exit code alone tells a watcher the font suite ran on a pass where it tested nothing. The wrapper says which it did in its first line, and both the closing line and the table row carry that."""
+    stood_down = (
+        "make test: SKIPPED — input closure unchanged since its last green run (2026-09-04T12:00:00Z). "
+        "Run `make test FORCE=1` to run it anyway."
+    )
+    emit = ac._Emitter()
+    result = ac._gate_make_test_task(
+        ["make", "test"],
+        lambda name, argv, *, emit, registry, stream: _step(name, 0, stdout=stood_down),
+        emit,
+        ac._ChildRegistry(),
+    )
+    assert ac.make_test_self_skipped(result.stdout)
+    assert ac.MAKE_TEST_SELF_SKIP_STATUS in capsys.readouterr().out
+
+    report = ac.CycleReport()
+    failures: list[str] = []
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        ac._join_gates(report, failures, None, None, None, None, pool.submit(lambda: result), emit)
+    assert failures == []
+    assert report.gate_make_test == ac.MAKE_TEST_SELF_SKIP_STATUS
+    assert report.gate_make_test_green is True
+    row = {row.name: row for row in ac.summary_rows(report, _plan(), retention_ran=False)}
+    assert row["gate:make-test"].outcome == "ok"
+    assert row["gate:make-test"].figure == ac.MAKE_TEST_SELF_SKIP_STATUS
+
+    ran = ac._gate_make_test_task(
+        ["make", "test"],
+        lambda name, argv, *, emit, registry, stream: _step(
+            name, 0, stdout="make test: green — closure fingerprint recorded in .make-test-green.json"
+        ),
+        emit,
+        ac._ChildRegistry(),
+    )
+    assert not ac.make_test_self_skipped(ran.stdout)
+    assert ac.MAKE_TEST_SELF_SKIP_STATUS not in capsys.readouterr().out
+
+
+def test_a_failed_gate_never_restates_its_outcome_as_its_figure(capsys):
+    """`FAILED  FAILED (exit 1)` spent the table's widest column on the word already in the column beside it. What is left is the part the outcome never carried."""
+    emit = ac._Emitter()
+    ac._close_gate(emit, "gate:js", _step("gate:js", 1))
+    ac._close_gate(
+        emit,
+        "gate:rebuild-contracts",
+        _step("gate:rebuild-contracts", 1),
+        _lane_verdict("rebuild-contracts", "FAILED (3 unexplained)", failed_ids=["a", "b", "c"]),
+    )
+    ac._close_gate(emit, "gate:conform", _step("gate:conform", 0))
+    lines = [line for line in capsys.readouterr().out.splitlines() if line.startswith("  ")]
+    assert lines[0].endswith("FAILED  exit 1")
+    assert lines[1].endswith("FAILED  3 unexplained")
+    assert lines[2].rstrip().endswith("ok")
 
 
 def test_classify_rebuild_reads_colored_pytest_output():
@@ -1660,17 +1957,21 @@ def test_run_step_refuses_to_spawn_after_registry_closed(tmp_path):
 
 
 def test_run_step_measures_the_child_peak_rss(capsys):
+    emit = ac._Emitter()
     result = ac._run_step(
         "gate:js",
         [sys.executable, "-c", "x = bytearray(64 * 1024 * 1024)"],
-        emit=ac._Emitter(),
+        emit=emit,
         registry=ac._ChildRegistry(),
         stream=False,
     )
+    ac._close_gate(emit, "gate:js", result)
     assert result.returncode == 0
     assert result.peak_rss_bytes is not None and result.peak_rss_bytes > 64 * 1024 * 1024
-    timing_line = [line for line in capsys.readouterr().out.splitlines() if line.startswith("[t] ")]
-    assert len(timing_line) == 1 and "rss_gb=" in timing_line[0]
+    closing = [line for line in capsys.readouterr().out.splitlines() if "  ok  rss " in line]
+    assert len(closing) == 1
+    assert closing[0].endswith(f"ok  rss {console.fmt_rss(result.peak_rss_bytes)}")
+    assert "gate:js" in closing[0]
 
 
 def test_a_step_environment_is_an_overlay_and_not_a_replacement():
@@ -1816,7 +2117,7 @@ def test_dry_run_renders_concurrency():
         ncores=12,
         total_bytes=BOX_44_GB,
     )
-    text = ac.render_plan(plan)
+    text = _plan_text(plan)
     assert "pool policy: queue" in text
     assert "Lane t0" in text
     assert "Lane build" in text
@@ -1838,6 +2139,11 @@ def test_dry_run_renders_concurrency():
     )
     assert "run_m1 sweeps --jobs             : 6" in text
     assert "run_m1 --kernel-threads          : " in text
+    auto_skipped = _plan_text(_plan(skip_conform=True, conform_note=ac.CONFORM_SKIP_NOTE))
+    assert f"Lane conform                     : SKIPPED ({ac.CONFORM_SKIP_NOTE})" in auto_skipped
+    assert "Lane conform                     : SKIPPED (--skip-conform)" in _plan_text(
+        _plan(skip_conform=True)
+    )
     assert "surface-build --jobs             : 1" in text
     assert "less 23.60 GB co-resident" in text
 
@@ -1862,8 +2168,8 @@ def test_dry_run_skip_gates_appends_jobs_budgets():
     by_name = {step.name: step for step in plan.steps}
     assert _argv(by_name["run_m1"])[5:7] == ["--jobs", "6"]
     assert _argv(by_name["surface-build"])[-2:] == ["--jobs", "1"]
-    assert "run_m1 sweeps --jobs 6" in ac.render_plan(plan)
-    assert "surface-build --jobs 1" in ac.render_plan(plan)
+    assert "run_m1 sweeps --jobs 6" in _plan_text(plan)
+    assert "surface-build --jobs 1" in _plan_text(plan)
 
     default_plan = ac.build_plan(
         verdicts=Path("v.json"),
@@ -2462,7 +2768,7 @@ def test_dry_run_plan_skip_make_test():
     assert by_name["gate:make-test"].argv is None
     assert by_name["gate:make-test"].note == "SKIPPED (closure unchanged since its last green run)"
     assert by_name["gate:rebuild-contracts"].argv is not None
-    rendered = ac.render_plan(plan)
+    rendered = _plan_text(plan)
     assert "gate:make-test not running, so no queueing" in rendered
     assert "Lane t0   [from t=0, background]  : gate:js" in rendered
 
@@ -2479,7 +2785,7 @@ def test_skip_make_test_frees_the_surface_build_budget():
     assert plan.sweep_jobs == 6
     by_name = {step.name: step for step in plan.steps}
     assert _argv(by_name["surface-build"])[-2:] == ["--jobs", "1"]
-    rendered = ac.render_plan(plan)
+    rendered = _plan_text(plan)
     assert "surface-build --jobs             : 1" in rendered
     assert "less 23.00 GB co-resident" in rendered
     assert "gate:make-test skipped, so the surface build takes the whole box" in rendered
@@ -2491,7 +2797,7 @@ def test_skip_make_test_frees_the_surface_build_budget():
     assert _argv(gated_by_name["surface-build"])[-2:] == ["--jobs", "1"]
     assert (
         "surface-build --jobs             : 1  (gate:make-test's pytest pool held to 2 workers — its cores reserved here and its bytes off the box beside the build's own parent; 1 at 16.00 GB each out of 51.54 GB total, less a reserve of 8.00 GB, less 23.60 GB co-resident, capped at 8)"
-        in ac.render_plan(gated)
+        in _plan_text(gated)
     )
 
 
@@ -3475,7 +3781,7 @@ def test_dry_run_plan_skip_rebuild_lanes():
         assert by_name[name].argv is None
         assert "SKIPPED (input closure unchanged" in by_name[name].note
     assert by_name["gate:conform"].argv is not None
-    rendered = ac.render_plan(plan)
+    rendered = _plan_text(plan)
     assert "Lane rebuild-contracts           : SKIPPED" in rendered
     assert "Lane rebuild-validators          : SKIPPED" in rendered
 
@@ -3486,7 +3792,7 @@ def test_dry_run_plan_skips_only_the_contracts_lane():
     by_name = {step.name: step for step in plan.steps}
     assert by_name["gate:rebuild-contracts"].argv is None
     assert by_name["gate:rebuild-validators"].argv is not None
-    rendered = ac.render_plan(plan)
+    rendered = _plan_text(plan)
     assert "Lane rebuild-contracts           : SKIPPED" in rendered
     assert "QUEUED behind gate:conform (queue policy; the contracts lane is not running)" in rendered
 
@@ -3602,10 +3908,10 @@ def test_main_runs_every_heavy_gate_on_a_pass_that_rebuilds(tmp_path, monkeypatc
     _unsettled_repo(tmp_path, monkeypatch)
     assert ac.main(["--dry-run"]) == 0
     out = capsys.readouterr().out
-    assert "gate:rebuild-contracts: uv run pytest" in out
-    assert "gate:rebuild-validators: uv run pytest" in out
-    assert "gate:conform: uv run python -m rebuild.pipeline.run_m1 --conform-only" in out
-    assert "gate:make-test: make test" in out
+    assert "uv run pytest" in _step_lines(out, "gate:rebuild-contracts")
+    assert "uv run pytest" in _step_lines(out, "gate:rebuild-validators")
+    assert "uv run python -m rebuild.pipeline.run_m1 --conform-only" in _step_lines(out, "gate:conform")
+    assert "make test" in _step_lines(out, "gate:make-test")
 
 
 def test_main_auto_skips_the_contracts_lane_even_when_run_m1_runs_live(tmp_path, monkeypatch, capsys):
@@ -3616,11 +3922,9 @@ def test_main_auto_skips_the_contracts_lane_even_when_run_m1_runs_live(tmp_path,
     ac.record_green(ac.REBUILD_VALIDATORS_GREEN, "key-validators")
     assert ac.main(["--dry-run"]) == 0
     out = capsys.readouterr().out
-    assert "run_m1 auto-skipped" not in out
-    assert "gate:rebuild-contracts auto-skipped" in out
-    assert "gate:rebuild-validators auto-skipped" not in out
-    assert "gate:rebuild-contracts: SKIPPED (input closure unchanged" in out
-    assert "gate:rebuild-validators: uv run pytest" in out
+    assert "SKIPPED (build inputs unchanged" not in out
+    assert "SKIPPED (input closure unchanged" in _step_lines(out, "gate:rebuild-contracts")
+    assert "uv run pytest" in _step_lines(out, "gate:rebuild-validators")
 
 
 def test_main_auto_skips_both_lanes_once_the_artifacts_have_settled(tmp_path, monkeypatch, capsys):
@@ -3633,8 +3937,8 @@ def test_main_auto_skips_both_lanes_once_the_artifacts_have_settled(tmp_path, mo
     ac.record_green(ac.REBUILD_VALIDATORS_GREEN, "key-validators")
     assert ac.main(["--dry-run"]) == 0
     out = capsys.readouterr().out
-    assert "gate:rebuild-contracts auto-skipped" in out
-    assert "gate:rebuild-validators auto-skipped" in out
+    assert "SKIPPED (input closure unchanged" in _step_lines(out, "gate:rebuild-contracts")
+    assert "SKIPPED (input closure unchanged" in _step_lines(out, "gate:rebuild-validators")
 
 
 def test_main_forces_both_lanes_under_fresh(tmp_path, monkeypatch, capsys):
@@ -3643,16 +3947,16 @@ def test_main_forces_both_lanes_under_fresh(tmp_path, monkeypatch, capsys):
     ac.record_green(ac.REBUILD_CONTRACTS_GREEN, "key-contracts")
     assert ac.main(["--dry-run", "--fresh"]) == 0
     out = capsys.readouterr().out
-    assert "auto-skipped" not in out
-    assert "gate:rebuild-contracts: uv run pytest" in out
+    assert "SKIPPED" not in out
+    assert "uv run pytest" in _step_lines(out, "gate:rebuild-contracts")
 
 
 def _full_build_step(out: str):
     """The rendered run_m1 step of a plan that builds: the whole point of the negative cases is that this is what got planned instead of the gates-only argv. --jobs rides in front of --kernel-threads only on a box wide enough to want it, and --fresh-oracle-cache only when the caller asked for one."""
     return re.search(
-        r"^ +\d+\. run_m1: uv run python -m rebuild\.pipeline\.run_m1"
+        r"^ +\$ uv run python -m rebuild\.pipeline\.run_m1"
         r"( --jobs \d+)? --kernel-threads \d+( --fresh-oracle-cache)?$",
-        out,
+        _step_lines(out, "run_m1"),
         re.MULTILINE,
     )
 
@@ -3671,16 +3975,16 @@ def test_main_re_adjudicates_when_only_comparison_side_inputs_moved(tmp_path, mo
     _comparison_side_drift(tmp_path, monkeypatch)
     assert ac.main(["--dry-run"]) == 0
     out = capsys.readouterr().out
-    assert "run_m1 will re-adjudicate — only comparison-side inputs moved" in out
-    assert "rebuild/m1-divergences.yaml" in out
+    row = _step_lines(out, "run_m1")
+    assert "rebuild/m1-divergences.yaml" in row
     assert re.search(
-        r"^ +\d+\. run_m1: uv run python -m rebuild\.pipeline\.run_m1 --gates-only[^\n]*\n"
-        r" +\(only comparison-side inputs moved[^\n]*the tables and font are reused",
-        out,
+        r"^ +\d+ +run +run_m1 +only comparison-side inputs moved[^\n]*the tables and font are reused[^\n]*\n"
+        r" +\$ uv run python -m rebuild\.pipeline\.run_m1 --gates-only",
+        row,
         re.MULTILINE,
     )
     assert "run_m1 --kernel-threads          : not passed" in out
-    assert "run_m1 will rebuild" not in out
+    assert "inputs moved since its last green" not in row
 
 
 def test_a_plan_that_skips_run_m1_never_also_reuses_it():
@@ -3703,15 +4007,14 @@ def test_main_skips_the_surface_on_the_reuse_route_only_when_stage_a_already_sta
     monkeypatch.setattr(ac, "m1_stage_a_current", lambda root=None: True)
     assert ac.main(["--dry-run"]) == 0
     out = capsys.readouterr().out
-    assert "run_m1 will re-adjudicate" in out
-    assert "surface-build auto-skipped" in out
+    assert "--gates-only" in _step_lines(out, "run_m1")
+    assert "SKIPPED (the surface already reflects these inputs" in _step_lines(out, "surface-build")
 
     monkeypatch.setattr(ac, "m1_stage_a_current", lambda root=None: False)
     assert ac.main(["--dry-run"]) == 0
     out = capsys.readouterr().out
-    assert "run_m1 will re-adjudicate" in out
-    assert "surface-build auto-skipped" not in out
-    assert "surface-build: uv run python -m rebuild.review.build" in out
+    assert "--gates-only" in _step_lines(out, "run_m1")
+    assert "uv run python -m rebuild.review.build" in _step_lines(out, "surface-build")
 
 
 def test_m1_stage_a_current_compares_the_record_against_the_live_sources(tmp_path, monkeypatch):
@@ -3739,10 +4042,8 @@ def test_main_rebuilds_when_the_tables_on_disk_no_longer_carry_their_stamp(tmp_p
     monkeypatch.setattr(ac, "m1_tables_stamped", lambda root=None: False)
     assert ac.main(["--dry-run"]) == 0
     out = capsys.readouterr().out
-    assert "run_m1 will re-adjudicate" not in out
-    assert (
-        "run_m1 will rebuild — inputs moved since its last green: rebuild/m1-divergences.yaml (changed)"
-        in out
+    assert "inputs moved since its last green: rebuild/m1-divergences.yaml (changed)" in _step_lines(
+        out, "run_m1"
     )
     assert _full_build_step(out) is not None
     assert "--gates-only" not in out
@@ -3753,8 +4054,7 @@ def test_main_rebuilds_when_anything_build_side_moved(tmp_path, monkeypatch, cap
     _comparison_side_drift(tmp_path, monkeypatch, moved="glyph_data/runes/qsX.yaml")
     assert ac.main(["--dry-run"]) == 0
     out = capsys.readouterr().out
-    assert "run_m1 will re-adjudicate" not in out
-    assert "run_m1 will rebuild — inputs moved since its last green" in out
+    assert "inputs moved since its last green" in _step_lines(out, "run_m1")
     assert "--gates-only" not in out
 
 
@@ -3763,7 +4063,6 @@ def test_main_takes_no_route_at_all_under_fresh(tmp_path, monkeypatch, capsys):
     _comparison_side_drift(tmp_path, monkeypatch)
     assert ac.main(["--dry-run", "--fresh"]) == 0
     out = capsys.readouterr().out
-    assert "run_m1 will re-adjudicate" not in out
     assert "--gates-only" not in out
     assert _full_build_step(out) is not None
 
@@ -3796,7 +4095,8 @@ def test_run_cycle_skips_the_sweep_after_run_m1_on_the_key_the_finished_artifact
     assert swept == []
     assert report.conform_proven is True
     assert report.gate_conform == f"skipped ({ac.CONFORM_SKIP_NOTE})"
-    assert "gate:conform: SKIPPED after run_m1 — " in capsys.readouterr().out
+    skipped = [line for line in capsys.readouterr().out.splitlines() if "SKIPPED after run_m1 — " in line]
+    assert len(skipped) == 1 and "gate:conform" in skipped[0]
     payload = ac.cycle_summary_payload(report, [], plan, "ok")
     assert payload["gates"]["conform"]["skip"] == "proved"
     assert payload["gates"]["conform"]["green"] is False
@@ -4137,6 +4437,134 @@ def test_classify_rebuild_recordable_whenever_it_is_green():
     assert clean.recordable
     hard = ac.classify_rebuild_output("FAILED rebuild/test_settle.py::test_x", 1, "rebuild-contracts")
     assert not hard.recordable
+
+
+def test_the_census_diff_is_a_child_of_the_census_step_and_prints_in_full(tmp_path, capsys):
+    """The diff is what a commit accepts, so it is the one child whose plain lines belong on the terminal verbatim — copy-pasteable, with no step column in front of them. It is also not a step of the plan: registering it under census puts its lines in census's log and its own summary under census's column, without a second banner for a step that is already open. The step stays open until the diff has run, because a sub-step spawned under a closed parent opens a state nobody closes — a log handle held to the end of the pass and a heartbeat for a step that finished."""
+    plan = _plan()
+    log_dir = tmp_path / "logs"
+    registry = ac._ChildRegistry()
+    report = ac.CycleReport()
+    diff = '-  "rows": 1\n+  "rows": 2'
+
+    def spawn(name, argv, *, emit, registry, stream, **passthrough):
+        script = "pass" if name == "census" else f"print({diff!r})"
+        return ac._run_step(name, [sys.executable, "-c", script], emit=emit, registry=registry, stream=stream)
+
+    with console.Digest(steps=[step.name for step in plan.steps], log_dir=log_dir) as digest:
+        ac._do_census(report, spawn=spawn, emit=digest, registry=registry, plan=plan)
+        assert digest._open == {}
+
+    out = capsys.readouterr().out
+    assert '-  "rows": 1' in out.splitlines()
+    assert '+  "rows": 2' in out.splitlines()
+    assert out.count("---- step ") == 1
+    assert "review it at commit time" in report.census_status
+    census_log = (log_dir / f"{_step_number(plan, 'census'):02d}-census.log").read_text()
+    assert diff in census_log
+    assert not (log_dir / "00-git-diff.log").exists()
+
+
+def test_the_summary_table_carries_each_steps_figure_and_what_it_cost():
+    """The table is the pass in one screen: what ran, how it came out, its own headline number, and what it cost. A step that did not run contributes no figure — its reason is the plan block's, and a run_m1 the plan skipped would otherwise report the last build's unmatched count as though this pass had counted it. A failed gate's figure keeps only what the outcome column has not already said: `FAILED  3 unexplained`, never `FAILED  FAILED (3 unexplained)`. And the retention row tells the two ways it can be missing apart — `skipped` when the plan ruled it out, `not run` when a failure or a SIGINT stopped the pass before `_finish` reached it."""
+    plan = _plan(skip_conform=True, conform_note=ac.CONFORM_SKIP_NOTE)
+    report = ac.CycleReport()
+    report.unmatched = 8423
+    report.pins_pass = True
+    report.surface_units = 15903
+    report.surface_rows = 81894
+    report.gate_conform = f"skipped ({ac.CONFORM_SKIP_NOTE})"
+    report.gate_contracts = "FAILED (3 unexplained)"
+    report.gate_contracts_green = False
+    report.retention_figure = "removed 1 snapshot, 1 carried, 0 build logs, 0 stashes; journal intact"
+    report.step_seconds = {"run_m1": 1988.0, "surface-build": 61.0, "gate:rebuild-contracts": 92.0}
+    report.step_returncodes = {"run_m1": 0, "surface-build": 0, "gate:rebuild-contracts": 1}
+
+    rows = {row.name: row for row in ac.summary_rows(report, plan, retention_ran=False)}
+    assert rows["run_m1"].figure == "8,423 unmatched, pins pass"
+    assert rows["run_m1"].outcome == "ok"
+    assert rows["run_m1"].seconds == 1988.0
+    assert rows["surface-build"].figure == "15,903 units, 81,894 rows"
+    assert rows["gate:conform"].outcome == "skipped"
+    assert rows["gate:conform"].figure == ""
+    assert rows["gate:rebuild-contracts"].outcome == "FAILED"
+    assert rows["gate:rebuild-contracts"].figure == "3 unexplained"
+    assert rows["gate:js"].outcome == "not run"
+    assert rows["retention"].outcome == "not run"
+    assert [row.number for row in ac.summary_rows(report, plan, retention_ran=False)] == list(
+        range(1, len(plan.steps) + 1)
+    )
+    swept = {row.name: row for row in ac.summary_rows(report, plan, retention_ran=True)}
+    assert swept["retention"].outcome == "ok"
+    assert swept["retention"].figure == report.retention_figure
+
+    ruled_out = _plan(keep_history=True, skip_conform=True, conform_note=ac.CONFORM_SKIP_NOTE)
+    parked = {row.name: row for row in ac.summary_rows(report, ruled_out, retention_ran=False)}
+    assert parked["retention"].outcome == "skipped"
+
+    stale = _plan(
+        skip_run_m1=True,
+        run_m1_note="build inputs unchanged",
+        skip_conform=True,
+        conform_note=ac.CONFORM_SKIP_NOTE,
+    )
+    reused = {row.name: row for row in ac.summary_rows(report, stale, retention_ran=False)}
+    assert reused["run_m1"].outcome == "skipped"
+    assert reused["run_m1"].figure == ""
+
+    reuse = _plan(reuse_run_m1=True, run_m1_note="only comparison-side inputs moved")
+    reuse_report = ac.CycleReport()
+    ac._timed_spawn(lambda name, argv, **kw: ac._StepResult(name, 0, "", "", 4.0), reuse_report)(
+        ac.RUN_M1_REUSE_STEP,
+        ["uv", "run", "python", "-m", "rebuild.pipeline.run_m1", "--gates-only"],
+        emit=ac._Emitter(),
+        registry=ac._ChildRegistry(),
+        stream=False,
+    )
+    reused = {row.name: row for row in ac.summary_rows(reuse_report, reuse, retention_ran=False)}
+    assert reused["run_m1"].outcome == "ok"
+    assert reused["run_m1"].seconds == 4.0
+
+
+def test_a_step_that_came_back_nonzero_never_reads_as_an_ok_row():
+    """The outcome column used to be filled from the seconds a step cost, so every step that ran at all read `ok`: a run_m1 whose Manual pins failed reported `ok  5 unmatched, PINS FAILED`, and a surface build whose child died reported `ok` beside a blank figure. The two informational steps are the deliberate exception — neither gates anything, and each already says what went wrong in its own figure."""
+    plan = _plan()
+    report = ac.CycleReport()
+    report.unmatched = 5
+    report.pins_pass = False
+    report.run_m1_failed = True
+    report.census_status = "update FAILED (exit 2) — informational"
+    report.job_costs_status = "OVERRUN (a measured peak outruns its checked-in constant)"
+    report.step_seconds = {"run_m1": 9.0, "surface-build": 3.0, "census": 1.0, "job-costs": 1.0}
+    report.step_returncodes = {"run_m1": 0, "surface-build": 1, "census": 2, "job-costs": 1}
+
+    rows = {row.name: row for row in ac.summary_rows(report, plan, retention_ran=False)}
+    assert rows["run_m1"].outcome == "FAILED"
+    assert rows["run_m1"].figure == "5 unmatched, PINS FAILED"
+    assert rows["surface-build"].outcome == "FAILED"
+    assert rows["census"].outcome == "ok"
+    assert rows["job-costs"].outcome == "ok"
+
+
+def test_every_spawned_step_closes_with_its_own_figure_and_peak(capsys, tmp_path):
+    """`ok` on its own sends the reader to the summary table for the number they were waiting for. No stage knows its figure at the moment its child exits — run_m1 has three summaries to read, the surface build a manifest to open, the chain its sections to split — so the closing line waits for the stage that reads them, and every step signs off with the figure its row will carry."""
+    surface = _built_surface(tmp_path, units=15903, rows=81894, batches=16, echo_groups=402)
+
+    def spawn(name, argv, *, emit, registry, stream, **passthrough):
+        if name == "run_m1":
+            for key, payload in _pass_summaries().items():
+                ac.M1_SUMMARY_FILES[key].write_text(json.dumps(payload))
+            return ac._StepResult(name, 0, "", "", 1988.0, 19_600_000_000)
+        return ac._StepResult(name, 0, "", "", 1.0, 1_000_000_000)
+
+    plan = _plan(skip_gates=True, review_out=surface)
+    report = ac.CycleReport()
+    digest = console.Digest(steps=[step.name for step in plan.steps])
+    assert ac._run_cycle(plan, report, digest, ac._ChildRegistry(), spawn=spawn) == 0
+
+    closing = [line for line in capsys.readouterr().out.splitlines() if "  cycle " in line]
+    assert any(line.endswith("ok  8,423 unmatched, pins pass  rss 19.6G") for line in closing), closing
+    assert any("ok  15,903 units, 81,894 rows  rss 1.0G" in line for line in closing), closing
 
 
 def test_do_census_updates_the_pins_and_reports_the_diff():
@@ -4827,16 +5255,15 @@ def test_main_skips_the_plumbing_on_a_matching_record(tmp_path, monkeypatch, cap
     ac.record_plumbing_green("plu")
     assert ac.main(["--dry-run"]) == 0
     out = capsys.readouterr().out
-    assert "verdict plumbing auto-skipped" in out
-    assert f"plumbing: SKIPPED ({ac.PLUMBING_SKIP_NOTE})" in out
+    assert f"SKIPPED ({ac.PLUMBING_SKIP_NOTE})" in _step_lines(out, "plumbing")
 
     ac.record_plumbing_green("moved")
     assert ac.main(["--dry-run"]) == 0
     out = capsys.readouterr().out
-    assert "verdict plumbing auto-skipped" not in out
-    assert "plumbing: uv run python -m rebuild.tools.verdict_chain" in out
-    assert "--merge-master" in out
-    assert "snapshot: SKIPPED (the surface did not move" in out
+    row = _step_lines(out, "plumbing")
+    assert "uv run python -m rebuild.tools.verdict_chain" in row
+    assert "--merge-master" in row
+    assert "SKIPPED (the surface did not move" in _step_lines(out, "snapshot")
 
 
 def test_main_runs_the_census_on_the_pass_that_skips_the_plumbing(tmp_path, monkeypatch, capsys):
@@ -4845,8 +5272,8 @@ def test_main_runs_the_census_on_the_pass_that_skips_the_plumbing(tmp_path, monk
     ac.record_plumbing_green("plu")
     assert ac.main(["--dry-run"]) == 0
     out = capsys.readouterr().out
-    assert "verdict plumbing auto-skipped" in out
-    assert "census: uv run python -m rebuild.review.census --update" in out
+    assert f"SKIPPED ({ac.PLUMBING_SKIP_NOTE})" in _step_lines(out, "plumbing")
+    assert "uv run python -m rebuild.review.census --update" in _step_lines(out, "census")
 
 
 def test_main_never_skips_the_plumbing_on_a_pass_that_writes_the_surface(tmp_path, monkeypatch, capsys):
@@ -4856,7 +5283,7 @@ def test_main_never_skips_the_plumbing_on_a_pass_that_writes_the_surface(tmp_pat
     monkeypatch.setattr(ac, "plumbing_skip_fingerprint", lambda root=None, surface=None, master=None: "plu")
     ac.record_plumbing_green("plu")
     assert ac.main(["--dry-run"]) == 0
-    assert "verdict plumbing auto-skipped" not in capsys.readouterr().out
+    assert ac.PLUMBING_SKIP_NOTE not in capsys.readouterr().out
 
 
 def test_main_never_skips_the_plumbing_under_fresh_or_a_partial_chain(tmp_path, monkeypatch, capsys):
@@ -4872,7 +5299,7 @@ def test_main_never_skips_the_plumbing_under_fresh_or_a_partial_chain(tmp_path, 
         ["--dry-run", "--snapshot-dir", str(tmp_path / "snap")],
     ):
         assert ac.main(argv) == 0
-        assert "verdict plumbing auto-skipped" not in capsys.readouterr().out
+        assert ac.PLUMBING_SKIP_NOTE not in capsys.readouterr().out
 
 
 def test_main_skipping_the_plumbing_takes_the_snapshot_with_it(tmp_path, monkeypatch):
@@ -4901,19 +5328,17 @@ def test_main_refreshes_the_assets_when_only_the_static_component_moved(tmp_path
     ac.record_plumbing_green("plu")
     assert ac.main(["--dry-run"]) == 0
     out = capsys.readouterr().out
-    assert "surface-build auto-skipped: only the review UI assets moved" in out
-    assert "assets-refresh: uv run python -m rebuild.review.build refresh-assets" in out
-    assert "surface-build: SKIPPED (only the review UI assets moved" in out
-    assert "snapshot: SKIPPED" in out
-    assert "verdict plumbing auto-skipped" in out
+    assert "SKIPPED (only the review UI assets moved" in _step_lines(out, "surface-build")
+    assert "uv run python -m rebuild.review.build refresh-assets" in _step_lines(out, "assets-refresh")
+    assert "SKIPPED" in _step_lines(out, "snapshot")
+    assert f"SKIPPED ({ac.PLUMBING_SKIP_NOTE})" in _step_lines(out, "plumbing")
 
     ac.record_plumbing_green("moved")
     assert ac.main(["--dry-run"]) == 0
     out = capsys.readouterr().out
-    assert "assets-refresh: uv run python -m rebuild.review.build refresh-assets" in out
-    assert "verdict plumbing auto-skipped" not in out
-    assert "--merge-master" in out
-    assert "snapshot: SKIPPED (the surface did not move" in out
+    assert "uv run python -m rebuild.review.build refresh-assets" in _step_lines(out, "assets-refresh")
+    assert "--merge-master" in _step_lines(out, "plumbing")
+    assert "SKIPPED (the surface did not move" in _step_lines(out, "snapshot")
 
 
 def test_main_plans_no_assets_refresh_when_the_surface_already_matches(tmp_path, monkeypatch, capsys):
@@ -4922,7 +5347,7 @@ def test_main_plans_no_assets_refresh_when_the_surface_already_matches(tmp_path,
     assert ac.main(["--dry-run"]) == 0
     out = capsys.readouterr().out
     assert "assets-refresh" not in out
-    assert "the surface already reflects these inputs byte for byte" in out
+    assert "the surface already reflects these inputs byte for byte" in _step_lines(out, "surface-build")
 
     monkeypatch.setattr(
         ac, "surface_build_skippable", lambda root=None, review_out=None, ignore=(): bool(ignore)
@@ -4930,7 +5355,7 @@ def test_main_plans_no_assets_refresh_when_the_surface_already_matches(tmp_path,
     assert ac.main(["--dry-run", "--fresh"]) == 0
     out = capsys.readouterr().out
     assert "assets-refresh" not in out
-    assert "surface-build: uv run python -m rebuild.review.build" in out
+    assert "uv run python -m rebuild.review.build" in _step_lines(out, "surface-build")
 
 
 def test_server_may_stay_up_only_when_the_pass_writes_neither_of_the_apps_files():
@@ -5250,7 +5675,7 @@ def test_build_plan_retention_off_on_rehearsal(tmp_path):
 def test_retention_never_runs_for_real_during_the_suite(real_run_retention):
     """The tripwire on the autouse stub. Retention resolves its targets from ac.ROOT at call time — no fixture redirects that — so a real run from inside the suite deletes the live repo's snapshots and carried exports, and compacts its verdict journal. Any test reaching a green finish with record_greens set would do it, and one did: a suite run deleted a live cycle's only snapshot between its build and its carry, stranding the pass's verdicts."""
     assert ac.run_retention is not real_run_retention
-    assert ac.run_retention(_plan(record_greens=True)) is None
+    assert ac.run_retention(_plan(record_greens=True)) == []
 
 
 def test_the_gate_summaries_a_pass_clears_are_never_the_live_ones(tmp_path, live_deletion_targets):
@@ -5293,9 +5718,10 @@ def test_retention_leaves_the_snapshots_alone_when_the_pass_took_none(
     monkeypatch.setattr(ac, "prune_stashes", lambda root, journal_path: [])
     monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: False)
 
-    real_run_retention(skipping)
+    left_alone = real_run_retention(skipping)
+    assert any("snapshots : left intact" in line for line in left_alone.lines)
+    assert left_alone.figure.startswith("removed ") and "snapshots" in left_alone.figure
     assert survivor.is_dir()
-    assert "snapshots : left intact" in capsys.readouterr().out
 
     real_run_retention(ordinary)
     assert not survivor.exists()
@@ -5320,12 +5746,13 @@ def test_retention_leaves_the_journal_and_stashes_alone_while_the_server_is_up(
     monkeypatch.setattr(ac, "prune_stashes", lambda root, journal_path: swept.append(root) or [])
     monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: True)
 
-    real_run_retention(plan)
+    swept_up = real_run_retention(plan)
+    out = "\n".join(swept_up.lines)
 
-    out = capsys.readouterr().out
     assert compacted == [] and swept == []
     assert "journal   : left intact (the review server is up" in out
     assert "stashes   : left intact (the review server is up" in out
+    assert swept_up.figure.endswith("stashes and journal left intact")
     assert not (tmp_path / "verdicts-carried-old.json").exists()
 
 
@@ -5641,6 +6068,103 @@ def test_main_hands_its_run_id_to_every_child_through_the_environment(tmp_path, 
     monkeypatch.setattr(ac, "_run_cycle", fake_cycle)
     assert ac.main([]) == 0
     assert seen["env"] == seen["run_id"]
+
+
+def test_main_mints_one_run_directory_and_points_latest_at_it(tmp_path, monkeypatch):
+    """A pass's logs are addressed two ways: by its own stamp and sha, which is what a summary or a later reader cites, and through `latest`, which is what an agent tails while the pass is still running."""
+    _settled_repo(tmp_path, monkeypatch)
+    ac.record_plumbing_green("plu")
+    monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: False)
+    seen: dict[str, ac.Plan] = {}
+
+    def fake_cycle(plan, report, emit, registry, **kw):
+        seen["plan"] = plan
+        return 0
+
+    monkeypatch.setattr(ac, "_run_cycle", fake_cycle)
+    assert ac.main([]) == 0
+
+    plan = seen["plan"]
+    assert plan.log_dir is not None
+    assert plan.log_dir.parent == ac.BUILD_LOGS_ROOT
+    assert plan.log_dir.name == f"{plan.stamp}-{plan.short_id}"
+    assert (plan.log_dir / console.PLAN_TXT).exists()
+    assert (plan.log_dir / console.TERMINAL_LOG).exists()
+    assert (ac.BUILD_LOGS_ROOT / console.LATEST_LINK).resolve() == plan.log_dir.resolve()
+    payload = ac.cycle_summary_payload(ac.CycleReport(), [], plan, "ok")
+    assert payload["log_dir"] == str(plan.log_dir)
+
+
+def test_main_copies_what_it_said_before_the_digest_into_the_terminal_log(tmp_path, monkeypatch, capsys):
+    """Two of the pass's most consequential lines are printed before the plan is even resolved: which master the carry resolved to, and whether a red cycle's snapshot is being kept. terminal.log is meant to be a byte copy of the terminal, so they belong in it — once, on each side."""
+    _settled_repo(tmp_path, monkeypatch)
+    ac.record_plumbing_green("plu")
+    monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: False)
+    stranded = tmp_path / "tmp" / "review-pre-dead123"
+    stranded.mkdir()
+    monkeypatch.setattr(ac, "unfinished_cycle_snapshot", lambda summary_path=None: stranded)
+    seen: dict[str, ac.Plan] = {}
+
+    def fake_cycle(plan, report, emit, registry, **kw):
+        seen["plan"] = plan
+        return 0
+
+    monkeypatch.setattr(ac, "_run_cycle", fake_cycle)
+    assert ac.main([]) == 0
+
+    out = capsys.readouterr().out
+    log_dir = seen["plan"].log_dir
+    assert log_dir is not None
+    terminal = (log_dir / console.TERMINAL_LOG).read_text()
+    kept = f"keeping its snapshot at {stranded} as well as this pass's."
+    assert out.count(kept) == 1 and terminal.count(kept) == 1
+    assert out.count("Auto-resolved carry source") == 1
+    assert terminal.count("Auto-resolved carry source") == 1
+
+
+def test_a_dry_run_mints_no_run_directory():
+    """--dry-run resolves the plan and stops, so it prints the block with nothing to point at rather than creating a directory for a pass that never happens."""
+    plan = _plan()
+    assert plan.log_dir is None and plan.stamp == ""
+    assert "logs " not in _plan_text(plan)
+    assert "--dry-run: nothing executed" in _plan_text(plan)
+
+
+def test_prune_build_logs_keeps_the_newest_runs_and_never_the_pointer(tmp_path):
+    """The names are `<UTC stamp>-<short sha>`, so a lexical sort is chronological and no mtime is consulted. `latest` is a pointer rather than a run and is never a candidate — and what it points at, the newest run, is always kept."""
+    for stamp in ("20260101T000000Z-aaa", "20260102T000000Z-bbb", "20260103T000000Z-ccc"):
+        (tmp_path / stamp).mkdir()
+    os.symlink("20260103T000000Z-ccc", tmp_path / console.LATEST_LINK, target_is_directory=True)
+
+    assert ac.prune_build_logs(tmp_path, 5) == []
+    removed = ac.prune_build_logs(tmp_path, 2)
+    assert [path.name for path in removed] == ["20260101T000000Z-aaa"]
+    assert sorted(path.name for path in tmp_path.iterdir()) == [
+        "20260102T000000Z-bbb",
+        "20260103T000000Z-ccc",
+        console.LATEST_LINK,
+    ]
+    assert ac.prune_build_logs(tmp_path / "never-ran", 10) == []
+
+
+def test_retention_prunes_the_build_logs_under_a_live_server_too(tmp_path, monkeypatch, real_run_retention):
+    """The build logs sit beside the journal in the retention block but answer to nothing the app writes, so a listening review server — which parks the stash sweep and the compaction — leaves them prunable."""
+    plan = _plan(skip_plumbing=True, plumbing_note=ac.PLUMBING_SKIP_NOTE)
+    monkeypatch.setattr(ac, "ROOT", tmp_path)
+    monkeypatch.setattr(ac, "REVIEW_OUT", tmp_path / "review")
+    monkeypatch.setattr(ac, "BUILD_LOGS_ROOT", tmp_path / "tmp" / "build-logs")
+    (tmp_path / "tmp" / "build-logs").mkdir(parents=True)
+    for index in range(ac.BUILD_LOGS_KEEP + 3):
+        (tmp_path / "tmp" / "build-logs" / f"2026010{index // 9}T00000{index % 9}Z-abc").mkdir()
+    monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: True)
+
+    pruned = real_run_retention(plan)
+
+    assert any(
+        f"build logs: removed 3; kept the last {ac.BUILD_LOGS_KEEP} runs" in line for line in pruned.lines
+    )
+    assert "3 build logs" in pruned.figure
+    assert len(list((tmp_path / "tmp" / "build-logs").iterdir())) == ac.BUILD_LOGS_KEEP
 
 
 def test_failing_cycle_still_journals_a_run_line(monkeypatch, tmp_path):

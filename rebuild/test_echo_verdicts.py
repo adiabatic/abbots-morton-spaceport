@@ -105,7 +105,7 @@ def test_a_real_split_still_reports_and_fills_nothing(tmp_path, monkeypatch, cap
 
     assert json.loads(out.read_text())["verdicts"] == []
     printed = capsys.readouterr().out
-    assert "1 echo groups hold disagreeing verdicts" in printed
+    assert "[warn] 1 echo groups hold disagreeing verdicts" in printed
     assert "e-0001  #units=u-0001,u-0002,u-0003" in printed
 
 
