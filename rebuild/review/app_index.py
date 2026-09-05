@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import gzip
 import json
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -99,21 +99,27 @@ def header(surface: Path, fmt: str) -> dict:
     }
 
 
-def write_app_artifacts(
+def app_line(fragment: dict, part: int, start: int, length: int) -> bytes:
+    return _line(app_row(fragment, part, start, length))
+
+
+def locator_line(fragment: dict, part: int, start: int, length: int) -> bytes:
+    return _line(locator_row(fragment, part, start, length))
+
+
+def write_app_artifacts_lines(
     surface: Path,
-    shards: Mapping[str, list[dict]],
-    spans: Mapping[str, Sequence[Span]],
+    index_lines: Iterable[bytes],
+    locator_lines: Iterable[bytes],
+    *,
+    human: int,
+    machine: int,
 ) -> tuple[Path, Path]:
-    """Write both sidecars from the fragments and spans the build already holds, stamped with the manifest beside them — so this runs after the manifest is written. Classes are walked in `unit_index.class_shard_key` order, the order `write_index` and every shard walk use, and each class's fragments split into the app index or the locator on `batch is not None`. A pinned gzip mtime keeps consecutive builds of the same inputs byte-identical.
+    """Write both sidecars from already-projected lines in the order they arrive — the app index's rows, then the locator's — stamped with the manifest beside them, so this runs after the manifest is written; `human` and `machine` are the row counts the two headers carry. A pinned gzip mtime keeps consecutive builds of the same inputs byte-identical.
 
     Each file is staged under a sibling `.partial` name and renamed only once both have closed cleanly, exactly as `build._write_shard` stages its parts and for a sharper version of the same reason: `app_row` asserts on a fragment whose machine flags are not false, and the projection can raise partway through a file whose previous build's copy the app is still being served. In place, that leaves a truncated sidecar with a valid header — the app boots from it, Range-fetches offsets into shards it no longer describes, and the failure surfaces as garbled records rather than as the refusal `artifact_is_current` exists to make. Staged, a failed write leaves the last good pair in place and nothing beside it, and the two land together, which is what lets `artifact_cycle.surface_build_skippable` read their currency as a statement about the whole surface.
     """
     surface = Path(surface)
-    ordered = sorted(shards.items(), key=lambda item: unit_index.class_shard_key(item[0]))
-    human = sum(
-        1 for _class_id, fragments in ordered for fragment in fragments if fragment.get("batch") is not None
-    )
-    machine = sum(len(fragments) for _class_id, fragments in ordered) - human
     index_path = artifact_path(surface, APP_INDEX_NAME)
     locator_path = artifact_path(surface, LOCATOR_NAME)
     staged = (
@@ -130,19 +136,38 @@ def write_app_artifacts(
             ):
                 index.write(_line({**header(surface, APP_INDEX_FORMAT), "units": human}))
                 locator.write(_line({**header(surface, LOCATOR_FORMAT), "units": machine}))
-                for class_id, fragments in ordered:
-                    addresses = spans.get(class_id) or ()
-                    for fragment, (part, start, length) in zip(fragments, addresses, strict=True):
-                        if fragment.get("batch") is None:
-                            locator.write(_line(locator_row(fragment, part, start, length)))
-                        else:
-                            index.write(_line(app_row(fragment, part, start, length)))
+                for line in index_lines:
+                    index.write(line)
+                for line in locator_lines:
+                    locator.write(line)
         staged[0].replace(index_path)
         staged[1].replace(locator_path)
         return index_path, locator_path
     finally:
         for path in staged:
             path.unlink(missing_ok=True)
+
+
+def write_app_artifacts(
+    surface: Path,
+    shards: Mapping[str, list[dict]],
+    spans: Mapping[str, Sequence[Span]],
+) -> tuple[Path, Path]:
+    """Write both sidecars from fragments and spans a caller holds whole. Classes are walked in `unit_index.class_shard_key` order, the order `write_index` and every shard walk use, and each class's fragments split into the app index or the locator on `batch is not None` — the same projection, in the same order, that the build spools a fragment at a time, so the two write the same bytes."""
+    ordered = sorted(shards.items(), key=lambda item: unit_index.class_shard_key(item[0]))
+    rows = [
+        (fragment, address)
+        for class_id, fragments in ordered
+        for fragment, address in zip(fragments, spans.get(class_id) or (), strict=True)
+    ]
+    human = sum(1 for fragment, _address in rows if fragment.get("batch") is not None)
+    return write_app_artifacts_lines(
+        surface,
+        (app_line(fragment, *address) for fragment, address in rows if fragment.get("batch") is not None),
+        (locator_line(fragment, *address) for fragment, address in rows if fragment.get("batch") is None),
+        human=human,
+        machine=len(rows) - human,
+    )
 
 
 def _line(record: dict) -> bytes:

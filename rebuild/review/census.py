@@ -24,7 +24,7 @@ import json
 import sys
 import tempfile
 import warnings
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -350,8 +350,8 @@ def families_group_from(assignments: list[str]) -> dict:
     return {"census": census, "total": sum(census.values())}
 
 
-def built_group_from_memory(units: Sequence[Unit], fragments: dict) -> dict:
-    """`built_group` over the build's own in-memory state rather than the shards it wrote — the same three facts by the same rules, the None-when-absent worked-example contract included, so the surface build can report them without re-parsing hundreds of megabytes it just serialized."""
+def built_group_from_memory(units: Sequence[Unit], config_notes: Mapping[str, str | None]) -> dict:
+    """`built_group` over the build's own in-memory state rather than the shards it wrote — the same three facts by the same rules, the None-when-absent worked-example contract included, so the surface build can report them without re-parsing hundreds of megabytes it just serialized. `config_notes` is each unit's `config_note` by id, the one fragment field this group reads, kept by the build as the fragments went by rather than the fragments themselves."""
     human_units = 0
     distribution: dict[str | None, int] = {}
     example_echo: str | None = None
@@ -363,7 +363,7 @@ def built_group_from_memory(units: Sequence[Unit], fragments: dict) -> dict:
             codepoints_by_echo.setdefault(unit.echo, set()).add(unit.codepoints)
             if unit.codepoints == WORKED_EXAMPLE_CODEPOINTS:
                 example_echo = unit.echo
-        note = fragments[unit.unit_id]["config_note"]
+        note = config_notes[unit.unit_id]
         distribution[note] = distribution.get(note, 0) + 1
     return {
         "human_units": human_units,
@@ -377,7 +377,7 @@ def built_group_from_memory(units: Sequence[Unit], fragments: dict) -> dict:
 def build_facts(
     manifest: dict,
     units: Sequence[Unit],
-    fragments: dict,
+    config_notes: Mapping[str, str | None],
     capture: list[PremergeUnit],
     premerge: PremergeFacts,
     row_count: int,
@@ -395,7 +395,7 @@ def build_facts(
             "invariant": invariant_group(manifest, families["census"]),
             "volatile": {
                 "manifest": manifest_group(manifest),
-                "built": built_group_from_memory(units, fragments),
+                "built": built_group_from_memory(units, config_notes),
                 "audit": {"row_count": row_count, "units": len(capture)},
                 "ink": ink_group_from_flags(
                     [(snap.class_id, snap.no_verdict) for snap in capture], premerge.ink_flags

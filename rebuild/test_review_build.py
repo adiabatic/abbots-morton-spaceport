@@ -25,6 +25,7 @@ from rebuild.review.build import (
     FEATURE_DESCRIPTIONS,
     STATIC_DIR,
     _prune_orphan_shards,
+    _ShardWriter,
     _write_json,
     _write_shard,
     build_table_diff,
@@ -552,6 +553,88 @@ def test_write_shard_leaves_no_staging_file_behind_when_serializing_fails(tmp_pa
     with pytest.raises(TypeError):
         _write_shard(tmp_path, "big", [{"id": "u-0000"}, {"id": object()}])
     assert list((tmp_path / "units").iterdir()) == []
+
+
+def test_the_shard_writer_keeps_the_previous_surface_whole_until_commit(tmp_path):
+    """The m1 build reads its served units back out of the previous surface's shards by address while it writes this one, so a part is replaced only at `commit`, after every class has closed: until then the previous file is still the one on disk under its name, and `abort` sweeps the staged parts away without touching it."""
+    _write_shard(tmp_path, "a", [{"id": "u-0000"}])
+    units = tmp_path / "units"
+    before = (units / "a.json").read_bytes()
+    writer = _ShardWriter(tmp_path)
+    writer.open("a")
+    writer.add({"id": "u-0001"})
+    assert writer.close() == ["units/a.json"]
+    assert (units / "a.json").read_bytes() == before
+    assert (units / "a.000.json.partial").exists()
+    writer.abort()
+    assert sorted(entry.name for entry in units.iterdir()) == ["a.json"]
+    assert (units / "a.json").read_bytes() == before
+    writer = _ShardWriter(tmp_path)
+    writer.open("a")
+    writer.add({"id": "u-0001"})
+    writer.close()
+    writer.open("b")
+    writer.close()
+    assert (units / "a.json").read_bytes() == before
+    writer.commit()
+    assert json.loads((units / "a.json").read_text(encoding="utf-8")) == [{"id": "u-0001"}]
+    assert (units / "b.json").read_bytes() == b"[]\n"
+    assert sorted(entry.name for entry in units.iterdir()) == ["a.json", "b.json"]
+
+
+def test_fragments_pulls_in_the_order_asked_a_chunk_at_a_time(tmp_path, monkeypatch):
+    """Pooled, phase 2's output waits in the workers and the parent pulls it in shard order: consecutive ids on one worker go out as one `emit` request of at most `_EMIT_CHUNK`, the request after it is on the wire before the reply is consumed, and what comes back is exactly the fragments asked for in the order asked. Stub workers on real pipes stand in for the pool, answering each request from the ids it names."""
+    monkeypatch.setattr(review_build, "_EMIT_CHUNK", 2)
+    runner = review_build._FreshRunner(
+        [],
+        1,
+        tmp_path,
+        tmp_path / "before.otf",
+        tmp_path / "after.otf",
+        tmp_path / "junior.otf",
+        tmp_path,
+    )
+    order = ["u-0000", "u-0001", "u-0002", "u-0010", "u-0003", "u-0011", "u-0012"]
+    runner._worker_of = {unit_id: (0 if unit_id < "u-0010" else 1) for unit_id in order}
+    requests: list[tuple[int, list[str]]] = []
+    conns = []
+    threads = []
+    for index in range(2):
+        parent, child = multiprocessing.Pipe()
+
+        def serve(child=child, index=index) -> None:
+            while True:
+                try:
+                    message = child.recv()
+                except EOFError:
+                    return
+                assert message[0] == "emit"
+                requests.append((index, list(message[1])))
+                child.send(("ok", [{"id": unit_id} for unit_id in message[1]]))
+
+        thread = threading.Thread(target=serve, daemon=True)
+        thread.start()
+        conns.append(parent)
+        threads.append(thread)
+    runner._conns = conns
+    try:
+        pulled = [fragment["id"] for fragment in runner.fragments(order)]
+    finally:
+        for conn in conns:
+            conn.close()
+        for thread in threads:
+            thread.join(timeout=5)
+    assert pulled == order
+    assert sorted(requests) == sorted(
+        [
+            (0, ["u-0000", "u-0001"]),
+            (0, ["u-0002"]),
+            (1, ["u-0010"]),
+            (0, ["u-0003"]),
+            (1, ["u-0011", "u-0012"]),
+        ]
+    )
+    assert list(runner.fragments([])) == []
 
 
 def test_prune_orphan_shards_removes_only_unreferenced_json(tmp_path):

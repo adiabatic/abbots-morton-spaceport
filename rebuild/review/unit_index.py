@@ -111,18 +111,29 @@ def shard_paths(surface: Path) -> list[Path]:
     return [surface / part for meta in ordered for part in class_shards(meta)]
 
 
-def write_index(surface: Path, shards: Iterable[tuple[str, list[dict]]]) -> Path:
-    """Write the index from the fragments a build already holds, stamped with the manifest beside it — so this runs after the manifest is written. `shards` is (class id, fragments) in any order; the file is written in shard-path order. Level 1 and a pinned gzip mtime, like the unit store: written once and read once per cycle, where level 9's seconds cost more than its megabytes save."""
+def index_line(fragment: dict) -> bytes:
+    """One index record as the line the file holds it on. The build streams these into a spool as its fragments go by, so the whole of what `write_index` would have held is on disk instead."""
+    return (json.dumps(index_record(fragment), ensure_ascii=False) + "\n").encode()
+
+
+def write_index_lines(surface: Path, lines: Iterable[bytes]) -> Path:
+    """Write the index from already-projected lines in the order they arrive, stamped with the manifest beside it — so this runs after the manifest is written. Level 1 and a pinned gzip mtime, like the unit store: written once and read once per cycle, where level 9's seconds cost more than its megabytes save."""
     header = {"format": INDEX_FORMAT, "manifest_sha256": manifest_sha256(surface)}
-    ordered = sorted(shards, key=lambda item: class_shard_key(item[0]))
     path = index_path(surface)
     with open(path, "wb") as handle:
         with gzip.GzipFile(fileobj=handle, mode="wb", mtime=0, compresslevel=1) as stream:
             stream.write((json.dumps(header) + "\n").encode())
-            for _class_id, fragments in ordered:
-                for fragment in fragments:
-                    stream.write((json.dumps(index_record(fragment), ensure_ascii=False) + "\n").encode())
+            for line in lines:
+                stream.write(line)
     return path
+
+
+def write_index(surface: Path, shards: Iterable[tuple[str, list[dict]]]) -> Path:
+    """Write the index from fragments a caller holds whole. `shards` is (class id, fragments) in any order; the file is written in shard-path order, so it is `write_index_lines` over the same projection the build spools a fragment at a time, and the two write the same bytes."""
+    ordered = sorted(shards, key=lambda item: class_shard_key(item[0]))
+    return write_index_lines(
+        surface, (index_line(fragment) for _class_id, fragments in ordered for fragment in fragments)
+    )
 
 
 def index_header(surface: Path) -> dict | None:
