@@ -664,16 +664,28 @@ def test_a_step_that_spawns_nothing_is_not_automatically_a_skipped_one():
     assert gates_off["gates"].skipped is True
 
 
-def test_the_plan_block_counts_its_steps_and_leaves_the_sweep_undecided():
-    """gate:conform is the one row the plan cannot settle: its key is taken over the artifacts run_m1 leaves, so a pass that plans the sweep may still prove it unnecessary once the build has finished. That is why the counts line carries a range — a flat number there would be a promise a legitimate pass breaks. A pass that skips run_m1 outright is the exception in the other direction: nothing rebuilds, `main` has already compared that same key and found no green for it, so the sweep will certainly run and a range there would be a promise the pass could never reach the top of."""
+def test_the_plan_block_counts_its_steps_and_leaves_the_sweep_and_the_validators_lane_undecided():
+    """gate:conform and gate:rebuild-validators are the two rows the plan cannot settle: each one's key is taken over the artifacts run_m1 leaves, so a pass that plans the sweep or the lane may still prove it unnecessary once the build has finished. That is why the counts line carries a range — a flat number there would be a promise a legitimate pass breaks. A pass that skips run_m1 outright is the exception in the other direction: nothing rebuilds, `main` has already compared those same keys and found no green for them, so both will certainly run and a range there would be a promise the pass could never reach the top of. The reuse route is the one the validators row is undecided for: a gates-only pass over a contact-allow bless leaves the lane's whole closure where it was, and the plan cannot know that until the pass has run."""
     plan = _plan()
     rows = ac.plan_rows(plan)
     by_name = {row.name: row for row in rows}
     assert by_name["gate:conform"].status == console.STATUS_MAYBE
+    assert by_name["gate:rebuild-validators"].status == console.STATUS_MAYBE
+    assert by_name["gate:rebuild-contracts"].status == console.STATUS_RUN
     assert by_name["run_m1"].status == console.STATUS_RUN
     assert by_name["gate:conform"].note == ac.CONFORM_MAYBE_NOTE
-    assert ac.CONFORM_MAYBE_NOTE in _step_lines(_plan_text(plan), "gate:conform")
-    assert console.counts_line(rows) == f"{len(rows)} steps: {len(rows) - 1}–{len(rows)} will run, 0 skipped"
+    assert by_name["gate:rebuild-validators"].note == ac.VALIDATORS_MAYBE_NOTE
+    text = _plan_text(plan)
+    assert ac.CONFORM_MAYBE_NOTE in _step_lines(text, "gate:conform")
+    validators_row = _step_lines(text, "gate:rebuild-validators")
+    assert ac.VALIDATORS_MAYBE_NOTE in validators_row
+    assert "uv run pytest" in validators_row
+    assert console.counts_line(rows) == f"{len(rows)} steps: {len(rows) - 2}–{len(rows)} will run, 0 skipped"
+
+    reuse = _plan(reuse_run_m1=True, run_m1_note="only comparison-side inputs moved")
+    reuse_by_name = {row.name: row for row in ac.plan_rows(reuse)}
+    assert reuse_by_name["gate:rebuild-validators"].status == console.STATUS_MAYBE
+    assert reuse_by_name["gate:conform"].status == console.STATUS_MAYBE
 
     settled = _plan(
         skip_run_m1=True,
@@ -693,14 +705,19 @@ def test_the_plan_block_counts_its_steps_and_leaves_the_sweep_undecided():
 
     certain = _plan(skip_run_m1=True, run_m1_note="build inputs unchanged")
     certain_rows = ac.plan_rows(certain)
-    assert {row.name: row for row in certain_rows}["gate:conform"].status == console.STATUS_RUN
+    certain_by_name = {row.name: row for row in certain_rows}
+    assert certain_by_name["gate:conform"].status == console.STATUS_RUN
+    assert certain_by_name["gate:rebuild-validators"].status == console.STATUS_RUN
+    assert certain_by_name["gate:rebuild-validators"].note == "submitted once the surface build settles"
     assert "–" not in console.counts_line(certain_rows)
 
     fresh = _plan(fresh=True)
     fresh_rows = ac.plan_rows(fresh)
-    fresh_conform = {row.name: row for row in fresh_rows}["gate:conform"]
-    assert fresh_conform.status == console.STATUS_RUN
-    assert fresh_conform.note == ""
+    fresh_by_name = {row.name: row for row in fresh_rows}
+    assert fresh_by_name["gate:conform"].status == console.STATUS_RUN
+    assert fresh_by_name["gate:conform"].note == ""
+    assert fresh_by_name["gate:rebuild-validators"].status == console.STATUS_RUN
+    assert fresh_by_name["gate:rebuild-validators"].note == "submitted once the surface build settles"
     assert "–" not in console.counts_line(fresh_rows)
 
 
@@ -3989,7 +4006,7 @@ def test_main_runs_every_heavy_gate_on_a_pass_that_rebuilds(tmp_path, monkeypatc
 
 
 def test_main_auto_skips_the_contracts_lane_even_when_run_m1_runs_live(tmp_path, monkeypatch, capsys):
-    """The contracts closure holds no build artifact at all, so a live M1 rebuild cannot invalidate its key mid-pass — which is why that skip sits outside the run_m1-skipped block the validators skip has to ride in."""
+    """The contracts closure holds no build artifact at all, so a live M1 rebuild cannot invalidate its key mid-pass — which is why the preflight can settle that skip on every route. The validators closure holds the out/m1 artifacts the rebuild is about to write, so its skip is decided only once run_m1 has finished, and the plan a rebuilding pass prints shows the lane undecided rather than skipped, even over a record that matches the artifacts as they stand now."""
     _unsettled_repo(tmp_path, monkeypatch)
     monkeypatch.setattr(ac, "rebuild_lane_fingerprint", lambda root, lane: f"key-{lane}")
     ac.record_green(ac.REBUILD_CONTRACTS_GREEN, "key-contracts")
@@ -3998,7 +4015,10 @@ def test_main_auto_skips_the_contracts_lane_even_when_run_m1_runs_live(tmp_path,
     out = capsys.readouterr().out
     assert "SKIPPED (build inputs unchanged" not in out
     assert "SKIPPED (input closure unchanged" in _step_lines(out, "gate:rebuild-contracts")
-    assert "uv run pytest" in _step_lines(out, "gate:rebuild-validators")
+    validators_row = _step_lines(out, "gate:rebuild-validators")
+    assert "uv run pytest" in validators_row
+    assert "run?" in validators_row
+    assert ac.VALIDATORS_MAYBE_NOTE in validators_row
 
 
 def test_main_auto_skips_both_lanes_once_the_artifacts_have_settled(tmp_path, monkeypatch, capsys):
@@ -4089,6 +4109,28 @@ def test_main_skips_the_surface_on_the_reuse_route_only_when_stage_a_already_sta
     out = capsys.readouterr().out
     assert "--gates-only" in _step_lines(out, "run_m1")
     assert "uv run python -m rebuild.review.build" in _step_lines(out, "surface-build")
+
+
+def test_main_leaves_the_validators_lane_undecided_on_the_reuse_route(tmp_path, monkeypatch, capsys):
+    """A contact-allow bless is outside the lane's closure, so the record on disk matches the key the gates-only pass will leave — but the plan cannot promise that, because only the finished pass knows what the out/m1 artifacts came out as. The dry run shows the lane as `run?` with its condition, never as skipped; the skip itself is the pass's to prove (`test_run_cycle_skips_the_validators_lane_after_run_m1_on_the_key_the_finished_artifacts_carry`). --fresh reads no record at all, so under it the row is a plain `run`."""
+    _comparison_side_drift(tmp_path, monkeypatch, moved="rebuild/m1-contact-allow.yaml")
+    monkeypatch.setattr(ac, "rebuild_lane_fingerprint", lambda root, lane: f"key-{lane}")
+    ac.record_green(ac.REBUILD_VALIDATORS_GREEN, "key-validators")
+    assert ac.main(["--dry-run"]) == 0
+    out = capsys.readouterr().out
+    assert "--gates-only" in _step_lines(out, "run_m1")
+    validators_row = _step_lines(out, "gate:rebuild-validators")
+    assert "SKIPPED" not in validators_row
+    assert "run?" in validators_row
+    assert ac.VALIDATORS_MAYBE_NOTE in validators_row
+    assert "uv run pytest" in validators_row
+
+    assert ac.main(["--dry-run", "--fresh"]) == 0
+    out = capsys.readouterr().out
+    validators_row = _step_lines(out, "gate:rebuild-validators")
+    assert "run?" not in validators_row
+    assert ac.VALIDATORS_MAYBE_NOTE not in validators_row
+    assert "uv run pytest" in validators_row
 
 
 def test_m1_stage_a_current_compares_the_record_against_the_live_sources(tmp_path, monkeypatch):
@@ -4204,6 +4246,107 @@ def test_run_cycle_sweeps_when_the_finished_artifacts_carry_no_green(monkeypatch
     assert report.gate_conform == "green"
     assert "SKIPPED after run_m1" not in capsys.readouterr().out
     assert ac.cycle_summary_payload(report, [], plan, "ok")["gates"]["conform"]["skip"] is None
+
+
+def _validators_lane_repo(monkeypatch, tmp_path):
+    """The validators lane's skip decision in isolation: both gate keys stubbed, the conform record absent so the sweep's own decision cannot color the run, and every other stage green. The validators task is the one thing each test here supplies, since whether it was spawned is the question."""
+    monkeypatch.setattr(ac, "CONFORM_GREEN", tmp_path / "conform-green.json")
+    monkeypatch.setattr(ac, "REBUILD_VALIDATORS_GREEN", tmp_path / "rebuild-validators-green.json")
+    monkeypatch.setattr(ac, "REBUILD_CONTRACTS_GREEN", tmp_path / "rebuild-contracts-green.json")
+    _patch_gate_fingerprints(monkeypatch)
+    monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
+    monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
+    monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
+    monkeypatch.setattr(ac, "_gate_contracts_task", _contracts_green)
+    monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
+    _patch_build_chain(monkeypatch)
+
+
+def test_run_cycle_skips_the_validators_lane_after_run_m1_on_the_key_the_finished_artifacts_carry(
+    monkeypatch, tmp_path, capsys
+):
+    """The lane's key holds the out/m1 artifacts, so its skip is decided where conform's is — after run_m1, over the artifacts the pass is leaving — and the gates-only route is what that decision is for: a contact-allow bless re-adjudicates the tables and font on disk, moves nothing the lane reads, and the lane skips on its record. The skip is proved rather than forced, which is what `review/status.py` reads to call a surface sitting-ready, and the record it skipped on is left exactly as it was — a skip is not a green run and records nothing."""
+    _validators_lane_repo(monkeypatch, tmp_path)
+    ac.record_green(ac.REBUILD_VALIDATORS_GREEN, "rfp-validators")
+    ran: list[list[str]] = []
+
+    def validators_spy(pool_policy, conform_fut, contracts_fut, make_fut, spawn, emit, registry, argv):
+        ran.append(argv)
+        return _lane_verdict("rebuild-validators")
+
+    monkeypatch.setattr(ac, "_gate_validators_task", validators_spy)
+
+    plan = _plan(reuse_run_m1=True, run_m1_note="only comparison-side inputs moved", record_greens=True)
+    report = ac.CycleReport()
+    assert ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=lambda *a, **k: _step()) == 0
+    assert ran == []
+    assert report.validators_proven is True
+    assert report.gate_validators == f"skipped ({ac.VALIDATORS_SKIP_NOTE})"
+    assert report.gate_contracts == "green"
+    skipped = [line for line in capsys.readouterr().out.splitlines() if "SKIPPED after run_m1 — " in line]
+    assert len(skipped) == 1 and "gate:rebuild-validators" in skipped[0]
+    payload = ac.cycle_summary_payload(report, [], plan, "ok")
+    assert payload["gates"]["rebuild_validators"]["skip"] == "proved"
+    assert payload["gates"]["rebuild_validators"]["green"] is False
+    assert payload["gates"]["rebuild_contracts"]["skip"] is None
+    record = ac.read_green_record(ac.REBUILD_VALIDATORS_GREEN)
+    assert record is not None and record["fingerprint"] == "rfp-validators"
+    rows = {row.name: row for row in ac.summary_rows(report, plan, retention_ran=False)}
+    assert rows["gate:rebuild-validators"].outcome == "skipped"
+    assert rows["gate:rebuild-validators"].figure == ""
+
+
+def test_run_cycle_runs_the_validators_lane_when_the_finished_artifacts_carry_no_green(
+    monkeypatch, tmp_path, capsys
+):
+    """The same decision the other way: a pass whose run_m1 moved the out/m1 artifacts has to run the lane over them, and the plan was resolved before anything knew that. The green it then records is over the key the finished artifacts carry, which is the key the next pass will compare."""
+    _validators_lane_repo(monkeypatch, tmp_path)
+    ac.record_green(ac.REBUILD_VALIDATORS_GREEN, "an-artifact-ago")
+    ran: list[list[str]] = []
+
+    def validators_spy(pool_policy, conform_fut, contracts_fut, make_fut, spawn, emit, registry, argv):
+        ran.append(argv)
+        return _lane_verdict("rebuild-validators")
+
+    monkeypatch.setattr(ac, "_gate_validators_task", validators_spy)
+
+    plan = _plan(record_greens=True)
+    report = ac.CycleReport()
+    assert ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=lambda *a, **k: _step()) == 0
+    assert ran == [plan.argv("gate:rebuild-validators")]
+    assert report.validators_proven is False
+    assert report.gate_validators == "green"
+    assert "SKIPPED after run_m1 — input closure" not in capsys.readouterr().out
+    assert ac.cycle_summary_payload(report, [], plan, "ok")["gates"]["rebuild_validators"]["skip"] is None
+    record = ac.read_green_record(ac.REBUILD_VALIDATORS_GREEN)
+    assert record is not None and record["fingerprint"] == "rfp-validators"
+
+
+def test_fresh_runs_the_validators_lane_over_a_matching_record_and_a_red_result_deletes_it(
+    monkeypatch, tmp_path
+):
+    """--fresh reads no green, so a record that matches the finished artifacts still skips nothing — the lane runs. And a run that comes back red over the key its record claims is proof the record was wrong about this exact content, so the record goes with the failure rather than standing over it for the next pass to skip on."""
+    _validators_lane_repo(monkeypatch, tmp_path)
+    ac.record_green(ac.REBUILD_VALIDATORS_GREEN, "rfp-validators")
+    ran: list[list[str]] = []
+
+    def validators_red(pool_policy, conform_fut, contracts_fut, make_fut, spawn, emit, registry, argv):
+        ran.append(argv)
+        return _lane_verdict(
+            "rebuild-validators",
+            status="FAILED (1 unexplained)",
+            failed_ids=["rebuild/test_rule_witnesses.py::test_x"],
+        )
+
+    monkeypatch.setattr(ac, "_gate_validators_task", validators_red)
+
+    plan = _plan(fresh=True, record_greens=True)
+    report = ac.CycleReport()
+    assert ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=lambda *a, **k: _step()) != 0
+    assert len(ran) == 1
+    assert report.validators_proven is False
+    assert report.gate_validators_green is False
+    assert ac.read_green_record(ac.REBUILD_VALIDATORS_GREEN) is None
 
 
 def test_unfinished_cycle_snapshot_is_only_claimed_from_a_red_summary(tmp_path):

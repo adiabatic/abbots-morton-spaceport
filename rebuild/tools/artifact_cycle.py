@@ -22,7 +22,7 @@ The key is captured the moment the chain closes, not at the end of the pass, so 
 
 The skip demands that the surface build be skipping too, which is what makes the stamp knowable before the pass runs, and it takes the snapshot with it: the snapshot exists to survive this cycle's surface rewrite and to feed this cycle's carry, and a pass doing neither needs no copy. Such a pass also leaves the snapshot pile alone rather than pruning it to the copy it never made, so the stamp-aligned snapshot the last refreshing pass left stays on disk as the recovery source describe_carry_source points at. A flag that names a carry output or a snapshot directory refuses the skip outright, since honoring it would mean writing neither.
 
-The same provably-unchanged principle guards every other heavy stage, each keyed by a content fingerprint over that stage's full input closure and a green record written only after that exact content passed live: run_m1 skips on rebuild/out/run-m1-green.json (the Stage A fingerprint components plus the contact allow-list, the oracle's subset tables and uv.lock) and re-evaluates its gate from the summary JSONs already on disk; gate:conform skips on conform-green.json, keyed on the sweep's own closure rather than on run_m1's — the spec and build-side code the tables' stamp covers, the engine's semantics tokens, the M1.otf bytes, uv.lock for the shaper, and the sweep horizon — so a comparison-side edit that leaves the font byte-identical leaves that key unmoved; each rebuild lane skips on its own record (rebuild-contracts-green.json, rebuild-validators-green.json), keyed by rebuild_lane_fingerprint over that lane's own closure — both hold the suite's repo closure under rebuild/ and glyph_data/ plus conftest.py, pyproject.toml, uv.lock and the site fonts, and validators adds the out/m1 artifacts and the baselines it shapes against, which is exactly why the contracts key holds no artifact and the contracts lane can skip whether or not run_m1 rebuilt: a live M1 rebuild writes only under rebuild/out, which that closure does not contain. Both records are also written by rebuild.tools.rebuild_gate, the `make test-rebuild` entry point, so interactive suite greens and cycle greens share them; surface-build skips when the manifest's recorded inputs fingerprint already equals the one a build would stamp now (a rebuild would be byte-identical, mtime-floored generated_at included, so the autosave stays aligned). The census step is neither keyed nor skipped: it reads the surface build's census-facts.json sidecar and rewrites one small checked-in file in milliseconds, so it simply runs every pass. The rebuild-validators skip engages only on cycles where run_m1 itself skipped, so a live M1 rebuild can never invalidate a key mid-cycle; the surface skip engages there too, and on the gates-only route when the Stage A record on disk is already what that pass will rewrite (`m1_stage_a_current`), since the surface reads nothing else the pass touches — which is the contact-allow bless, the one comparison-side edit outside every Stage A component. Conform's is decided after run_m1 has finished instead, over the key the artifacts it left actually carry: a route that leaves the font byte-identical skips the sweep whether run_m1 skipped, re-adjudicated, or rebuilt, and the skip is recorded as proved because a matching green is proof about this exact content. The preflight still answers it ahead of the pass on the one route whose artifacts it can already see — run_m1 skipped, so nothing is about to move — and that is the route --dry-run can predict; on the reuse and rebuild routes the printed plan shows the conform lane live, because only a finished run_m1 knows what the font came out as, so a plan that promises the sweep may be answered by a pass that proves it unnecessary. Green records are written only when the key still matches after the work ran, and a red result whose key matches its record deletes the record. --fresh runs everything regardless.
+The same provably-unchanged principle guards every other heavy stage, each keyed by a content fingerprint over that stage's full input closure and a green record written only after that exact content passed live: run_m1 skips on rebuild/out/run-m1-green.json (the Stage A fingerprint components plus the contact allow-list, the oracle's subset tables and uv.lock) and re-evaluates its gate from the summary JSONs already on disk; gate:conform skips on conform-green.json, keyed on the sweep's own closure rather than on run_m1's — the spec and build-side code the tables' stamp covers, the engine's semantics tokens, the M1.otf bytes, uv.lock for the shaper, and the sweep horizon — so a comparison-side edit that leaves the font byte-identical leaves that key unmoved; each rebuild lane skips on its own record (rebuild-contracts-green.json, rebuild-validators-green.json), keyed by rebuild_lane_fingerprint over that lane's own closure — both hold the suite's repo closure under rebuild/ and glyph_data/ plus conftest.py, pyproject.toml, uv.lock and the site fonts, and validators adds the out/m1 artifacts and the baselines it shapes against, which is exactly why the contracts key holds no artifact and the contracts lane can skip whether or not run_m1 rebuilt: a live M1 rebuild writes only under rebuild/out, which that closure does not contain. Both records are also written by rebuild.tools.rebuild_gate, the `make test-rebuild` entry point, so interactive suite greens and cycle greens share them; surface-build skips when the manifest's recorded inputs fingerprint already equals the one a build would stamp now (a rebuild would be byte-identical, mtime-floored generated_at included, so the autosave stays aligned). The census step is neither keyed nor skipped: it reads the surface build's census-facts.json sidecar and rewrites one small checked-in file in milliseconds, so it simply runs every pass. The surface skip engages only on cycles where run_m1 itself skipped, and on the gates-only route when the Stage A record on disk is already what that pass will rewrite (`m1_stage_a_current`), since the surface reads nothing else the pass touches — which is the contact-allow bless, the one comparison-side edit outside every Stage A component. Conform's skip and the validators lane's are decided after run_m1 has finished instead, each over the key the artifacts it left actually carry: a route that leaves the font byte-identical skips the sweep, and one that leaves the out/m1 artifacts and the rest of the lane's closure unmoved skips the lane, whether run_m1 skipped, re-adjudicated, or rebuilt — so a contact-allow bless costs the gates-only re-adjudication and not the lane — and either skip is recorded as proved because a matching green is proof about this exact content. Taking those two keys only once run_m1 is over is also what keeps a live M1 rebuild from invalidating one mid-cycle: there is no key to invalidate until the artifacts have stopped moving. The preflight still answers both ahead of the pass on the one route whose artifacts it can already see — run_m1 skipped, so nothing is about to move — and that is the route --dry-run can predict; on the reuse and rebuild routes the printed plan shows the conform and validators lanes as undecided (`run?`), because only a finished run_m1 knows what the artifacts came out as, so a plan that promises either may be answered by a pass that proves it unnecessary. Green records are written only when the key still matches after the work ran, and a red result whose key matches its record deletes the record. --fresh runs everything regardless.
 
 Between the run_m1 skip and a full rebuild there is a third route. When the per-file diff against the run_m1 green is confined to comparison-side inputs — the alias map, the divergence ledger, the contact allow-list, the kern sidecar, the oracle's own module, the baselines and their subsets, every one of them outside the tables' stamp (`comparison_side_label` is the roster and argues each member) — and the tables on disk still carry that stamp and the artifacts are all present, the cycle spawns `run_m1 --gates-only` instead of a build: the defect gate, the Manual-pin gate and the oracle re-run over the tables and font already there, the ledgers' verdicts are re-adjudicated, and nothing is enumerated. The green that pass records covers the new inputs, so the next cycle skips run_m1 outright. `uv.lock` is deliberately not comparison-side — a fontTools or uharfbuzz bump can move the font's bytes and what the shaper makes of them — so a toolchain bump still rebuilds.
 
@@ -89,6 +89,12 @@ REBUILD_POOL_POLICY_DEFAULT = "queue"
 PLUMBING_SKIP_NOTE = "surface, verdicts master, live store, and standing approvals unchanged since the last complete plumbing pass; --fresh overrides"
 CONFORM_SKIP_NOTE = "font and sweep inputs unchanged since its last green sweep; --fresh overrides"
 CONFORM_MAYBE_NOTE = "runs unless run_m1 leaves the font and sweep inputs under the key of its last green sweep, in which case it is re-skipped after run_m1"
+VALIDATORS_SKIP_NOTE = "input closure unchanged since its last green run; --fresh overrides"
+VALIDATORS_MAYBE_NOTE = "submitted once the surface build settles, unless run_m1 leaves the out/m1 artifacts and the rest of the lane's closure under the key of its last green run, in which case it is re-skipped after run_m1"
+UNDECIDED_UNTIL_RUN_M1 = {
+    "gate:conform": CONFORM_MAYBE_NOTE,
+    "gate:rebuild-validators": VALIDATORS_MAYBE_NOTE,
+}
 ASSETS_REFRESH_NOTE = "only the review UI assets moved since the surface was stamped; they are copied over the served copy and the manifest's static component restamped in place — no shard, sidecar or generated_at moves; --fresh overrides"
 SERVER_STAYS_UP_NOTE = "rewrites no unit shard, moves no manifest stamp, and leaves the verdict store alone"
 SERVER_STOP_PATTERN = r"rebuild\.review\.serve"
@@ -1686,14 +1692,17 @@ def _render_concurrency(plan: Plan) -> list[str]:
 
 
 def plan_rows(plan: Plan) -> list[console.PlanRow]:
-    """The plan's steps as the digest's rows. gate:conform is the one step whose fate the plan cannot settle — the sweep's key is taken over the artifacts run_m1 leaves, so a pass that plans the sweep may still prove it unnecessary once the build has finished — and it is the only row that can read `run?`, which is what puts the range in the counts line. That row states the condition it turns on, because every other row's note says why it will or will not run and a `run?` with nothing beside it is the one row a reader cannot resolve.
+    """The plan's steps as the digest's rows. gate:conform and gate:rebuild-validators are the two steps whose fate the plan cannot settle — each one's key is taken over the artifacts run_m1 leaves, so a pass that plans the sweep or the lane may still prove it unnecessary once the build has finished — and they are the only rows that can read `run?`, which is what puts the range in the counts line. Such a row states the condition it turns on (`UNDECIDED_UNTIL_RUN_M1` holds the note for each), because every other row's note says why it will or will not run and a `run?` with nothing beside it is the one row a reader cannot resolve.
 
-    A pass that skips run_m1 outright is the exception: nothing rebuilds, so the key the mid-run re-decision would compare is the one `main` has already compared and found no green for, and the sweep will certainly run. So is a `--fresh` pass, which reads no green at all and so has nothing to prove the sweep unnecessary with. Either row reads `run`, and the counts line is a flat number rather than a range it could never reach the top of.
+    A pass that skips run_m1 outright is the exception: nothing rebuilds, so the key the mid-run re-decision would compare is the one `main` has already compared and found no green for, and the sweep or the lane will certainly run. So is a `--fresh` pass, which reads no green at all and so has nothing to prove either unnecessary with. Those rows read `run`, and the counts line is a flat number rather than a range it could never reach the top of.
     """
     rows: list[console.PlanRow] = []
     for index, step in enumerate(plan.steps, start=1):
         undecided = (
-            step.name == "gate:conform" and not step.skipped and not plan.skip_run_m1 and not plan.fresh
+            step.name in UNDECIDED_UNTIL_RUN_M1
+            and not step.skipped
+            and not plan.skip_run_m1
+            and not plan.fresh
         )
         status = (
             console.STATUS_SKIP
@@ -1705,7 +1714,7 @@ def plan_rows(plan: Plan) -> list[console.PlanRow]:
                 number=index,
                 status=status,
                 name=step.name,
-                note=step.note or (CONFORM_MAYBE_NOTE if status == console.STATUS_MAYBE else ""),
+                note=UNDECIDED_UNTIL_RUN_M1[step.name] if undecided else step.note,
                 argv="" if step.argv is None else " ".join(step.argv),
             )
         )
@@ -1779,6 +1788,7 @@ class CycleReport:
     contracts_recordable: bool = False
     validators_recordable: bool = False
     conform_proven: bool = False
+    validators_proven: bool = False
     interrupted: bool = False
     run_m1_failed: bool = False
     retention_figure: str = ""
@@ -2539,7 +2549,7 @@ def _plumbing_settled(report: CycleReport) -> bool:
 def _record_gate_greens(
     report: CycleReport, plan: Plan, gate_keys: dict[str, str], emit: console.Digest
 ) -> None:
-    """Persist the concurrent gates' green records after they joined. gate:conform's key is snapshotted right after run_m1 finished; both rebuild lanes' keys right after the surface build settles, which is where those gates are submitted — and the census pins are exempt from the rebuild closure, so the refresh later in the pass cannot invalidate either key. Each is recomputed here before recording, so a source file edited while the gates ran — content the gates never tested — can never be recorded green. A red gate whose key still matches its record deletes the falsified record."""
+    """Persist the concurrent gates' green records after they joined. gate:conform's and gate:rebuild-validators' keys are snapshotted right after run_m1 finished, where each one's skip is decided, and the contracts lane's right after the surface build settles, which is where both lanes are submitted — the surface build writes only under rebuild/out/review, which neither lane's closure holds, and the census pins are exempt from the rebuild closure, so neither the build between a snapshot and its submission nor the refresh later in the pass can invalidate a key. Each is recomputed here before recording, so a source file edited while the gates ran — content the gates never tested — can never be recorded green. A red gate whose key still matches its record deletes the falsified record."""
     key = gate_keys.get("conform")
     if key:
         if report.gate_conform_green is True:
@@ -2685,6 +2695,21 @@ def _run_cycle(
                     plan.argv("gate:conform"),
                 )
 
+        validators_pending = not plan.skip_gates and not plan.skip_validators
+        if validators_pending:
+            validators_key = rebuild_lane_fingerprint(ROOT, "validators")
+            green = None if plan.fresh else read_green_record(REBUILD_VALIDATORS_GREEN)
+            if validators_key is not None and green is not None and green["fingerprint"] == validators_key:
+                validators_pending = False
+                report.validators_proven = True
+                report.gate_validators = f"skipped ({VALIDATORS_SKIP_NOTE})"
+                emit.step_skipped(
+                    "gate:rebuild-validators",
+                    f"SKIPPED after run_m1 — {VALIDATORS_SKIP_NOTE}. The out/m1 artifacts this pass leaves and the rest of the lane's closure carry the key its last green run was taken over, so the lane would read the same tables and font against the same sources.",
+                )
+            elif plan.record_greens:
+                gate_keys["validators"] = validators_key or ""
+
         if plan.runs("assets-refresh") and not _do_assets_refresh(
             report, spawn=spawn, emit=emit, registry=registry, plan=plan
         ):
@@ -2692,7 +2717,7 @@ def _run_cycle(
             if not plan.skip_gates and not plan.skip_contracts:
                 report.gate_contracts = "not run (assets refresh failed)"
                 emit.step_not_run("gate:rebuild-contracts", "assets refresh failed")
-            if not plan.skip_gates and not plan.skip_validators:
+            if validators_pending:
                 report.gate_validators = "not run (assets refresh failed)"
                 emit.step_not_run("gate:rebuild-validators", "assets refresh failed")
             _join_gates(report, failures, js_fut, None, None, conform_fut, make_fut, emit, timings)
@@ -2713,7 +2738,7 @@ def _run_cycle(
             if not plan.skip_gates and not plan.skip_contracts:
                 report.gate_contracts = "not run (surface build failed)"
                 emit.step_not_run("gate:rebuild-contracts", "surface build failed")
-            if not plan.skip_gates and not plan.skip_validators:
+            if validators_pending:
                 report.gate_validators = "not run (surface build failed)"
                 emit.step_not_run("gate:rebuild-validators", "surface build failed")
             _join_gates(report, failures, js_fut, None, None, conform_fut, make_fut, emit, timings)
@@ -2733,9 +2758,7 @@ def _run_cycle(
                 registry,
                 plan.argv("gate:rebuild-contracts"),
             )
-        if not plan.skip_gates and not plan.skip_validators:
-            if plan.record_greens:
-                gate_keys["validators"] = rebuild_lane_fingerprint(ROOT, "validators") or ""
+        if validators_pending:
             validators_fut = pool.submit(
                 _gate_validators_task,
                 plan.pool_policy,
@@ -3044,7 +3067,7 @@ def cycle_summary_payload(report: CycleReport, failures: list[str], plan: Plan, 
             "rebuild_validators": _gate_entry(
                 report.gate_validators,
                 report.gate_validators_green,
-                _skip_kind(proved=plan.skip_validators),
+                _skip_kind(proved=plan.skip_validators or report.validators_proven),
             ),
             "conform": _gate_entry(
                 report.gate_conform,
@@ -3529,7 +3552,7 @@ def main(argv: list[str] | None = None) -> int:
             green = read_green_record(REBUILD_VALIDATORS_GREEN)
             if validators_key is not None and green is not None and green["fingerprint"] == validators_key:
                 skip_validators = True
-                validators_note = "input closure unchanged since its last green run; --fresh overrides"
+                validators_note = VALIDATORS_SKIP_NOTE
 
     preamble: list[str] = []
 
