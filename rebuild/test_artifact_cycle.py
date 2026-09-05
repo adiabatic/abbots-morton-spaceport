@@ -20,6 +20,7 @@ from rebuild.tools import artifact_cycle as ac
 from rebuild.tools import calibrate_budgets as cb
 from rebuild.tools import console
 from rebuild.tools import cycle_timings as ct
+from rebuild.tools.peak_rss import format_gb
 from rebuild.tools.cycle_timings import CycleTimings
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -2145,7 +2146,8 @@ def test_dry_run_renders_concurrency():
         _plan(skip_conform=True)
     )
     assert "surface-build --jobs             : 1" in text
-    assert "less 23.60 GB co-resident" in text
+    _per_unit, coresident, _cap = ac._surface_fit_terms(skip_gates=False, skip_make_test=False, ncores=12)
+    assert f"less {format_gb(coresident)} GB co-resident" in text
 
     by_name = {step.name: step for step in plan.steps}
     assert _argv(by_name["run_m1"])[1:6] == ["run", "python", "-m", "rebuild.pipeline.run_m1", "--jobs"]
@@ -2787,7 +2789,7 @@ def test_skip_make_test_frees_the_surface_build_budget():
     assert _argv(by_name["surface-build"])[-2:] == ["--jobs", "1"]
     rendered = _plan_text(plan)
     assert "surface-build --jobs             : 1" in rendered
-    assert "less 23.00 GB co-resident" in rendered
+    assert f"less {format_gb(ac.SURFACE_PARENT_BYTES)} GB co-resident" in rendered
     assert "gate:make-test skipped, so the surface build takes the whole box" in rendered
 
     gated = _plan(skip_make_test=False, ncores=10, total_bytes=BOX_48_GIB)
@@ -2795,8 +2797,12 @@ def test_skip_make_test_frees_the_surface_build_budget():
     assert gated.sweep_jobs == 6
     gated_by_name = {step.name: step for step in gated.steps}
     assert _argv(gated_by_name["surface-build"])[-2:] == ["--jobs", "1"]
+    _per_unit, gated_coresident, _cap = ac._surface_fit_terms(
+        skip_gates=False, skip_make_test=False, ncores=10
+    )
     assert (
-        "surface-build --jobs             : 1  (gate:make-test's pytest pool held to 2 workers — its cores reserved here and its bytes off the box beside the build's own parent; 1 at 16.00 GB each out of 51.54 GB total, less a reserve of 8.00 GB, less 23.60 GB co-resident, capped at 8)"
+        "surface-build --jobs             : 1  (gate:make-test's pytest pool held to 2 workers — its cores reserved here and its bytes off the box beside the build's own parent; "
+        f"1 at {format_gb(ac.SURFACE_WORKER_BYTES)} GB each out of 51.54 GB total, less a reserve of 8.00 GB, less {format_gb(gated_coresident)} GB co-resident, capped at 8)"
         in _plan_text(gated)
     )
 
