@@ -6,7 +6,7 @@
 //!
 //! A cell is spelled once, in the head, and every row names its settled cell by its seat there, which is why the emitter rather than the fixpoint owns the cell sort: a seat is an index into [`cell_key`] order and nothing else. A row naming a cell the product does not count among its reachable cells is refused here, at the boundary, exactly as `write_transitions` raises `PartitionError` rather than letting the fold meet the disagreement later.
 //!
-//! The product's own seats are a different table from the head's. A row holds its settled record and its left's as a [`SettledSeat`] apiece into [`FixpointProduct::seats`], in the order the fixpoint first reached each record, and that table never crosses the boundary: the writer resolves a row's seat to the record, and the record's cell to the head's seat, and spells only the latter. Two tables rather than one because they answer different questions — the head's is the cell vocabulary in `_cell_key` order, a contract Python reads, and the product's is every distinct settled triple, an economy the crate keeps to itself.
+//! The product's own seats are a different table from the head's. A row holds its settled record and its left's as a [`SettledSeat`] apiece into [`FixpointProduct::seats`], in the order the fixpoint first reached each record, and that table never crosses the boundary: the writer resolves a row's seat to the record, and the record's cell to the head's seat, and spells only the latter. Two tables rather than one because they answer different questions — the head's is the cell vocabulary in `_cell_key` order, a contract Python reads, and the product's is every distinct settled triple, an economy the crate keeps to itself. A row's provenance is seated the same way, as a [`NotesSeat`] into [`FixpointProduct::notes`], and that table stays on this side of the boundary too: the writer spells the list the seat names, in the order the trace left it.
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fmt::Write as _;
@@ -16,7 +16,7 @@ use std::rc::Rc;
 use crate::emit::{escape_into, json_string};
 use crate::index::SpecIndex;
 use crate::model::Sym;
-use crate::types::{CellId, Settled, SettledSeat, adjustment_text};
+use crate::types::{CellId, NotesSeat, Settled, SettledSeat, adjustment_text};
 
 /// The marker the head line carries, `kernel_io.TRANSITIONS_FORMAT`. A stream naming anything else is another format and not a newer spelling of this one.
 pub const TRANSITIONS_FORMAT: &str = "ams-m1-transitions/1";
@@ -25,7 +25,7 @@ pub const TRANSITIONS_FORMAT: &str = "ams-m1-transitions/1";
 ///
 /// Three of the fields are `frozenset`s and a `Mapping` on the Python side and vectors here, so their canonical order is the emitter's business rather than the fixpoint's: `cells` and `cited_provenance` are sorted (and repeats collapsed, which is what a frozenset does to them) and `deep_classes` is sorted by token. `deep_classes` is empty at label grain and at every grain of the pinned world, and the emitter spells it either way.
 ///
-/// `seats` has no Python counterpart at all: it is the table every row's [`SettledSeat`] indexes, one entry per distinct settled record in the order the fixpoint first reached it, and [`FixpointProduct::settled`] and [`FixpointProduct::left_settled`] are how a row's two records are read back. Python's `Transition` holds both by value, and so did this row until issue #162 seated them.
+/// `seats` and `notes` have no Python counterpart at all: they are the tables every row's [`SettledSeat`]s and [`NotesSeat`] index — one entry per distinct settled record, and one per distinct provenance list, each in the order the fixpoint first reached it — and [`FixpointProduct::settled`], [`FixpointProduct::left_settled`] and [`FixpointProduct::provenance`] are how a row's three are read back. Python's `Transition` holds all three by value, and so did this row until issues #162 and #163 seated them.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct FixpointProduct {
     pub config: String,
@@ -34,6 +34,7 @@ pub struct FixpointProduct {
     pub cited_provenance: Vec<String>,
     pub cells: Vec<CellId>,
     pub seats: Vec<Settled>,
+    pub notes: Vec<Vec<String>>,
 }
 
 impl FixpointProduct {
@@ -46,11 +47,16 @@ impl FixpointProduct {
     pub fn left_settled(&self, row: &TransitionRow) -> Option<&Settled> {
         row.left_settled.map(|seat| &self.seats[seat.index()])
     }
+
+    /// The pointers one row's trace noted, in the first-seen order the rule fold joins them in.
+    pub fn provenance(&self, row: &TransitionRow) -> &[String] {
+        &self.notes[row.provenance.index()]
+    }
 }
 
 /// One enriched row, `table.Transition`: the label view of a settled window plus the four fields only the fixpoint and the fold read. The seven labels are text rather than symbols because a window slot is not always a name the spec interned — `#EDGE`, `#NA`, and the ZWNJ twin's `.noentry` suffix are the kernel's own spellings — and nothing downstream keys on them as anything but text.
 ///
-/// They are shared handles rather than owned strings because a product holds millions of rows over a few tens of thousands of distinct spellings: the fixpoint interns each one once and every row that names it holds the same allocation. Sorting and every raise message read them as the `&str` they are, so nothing about the stream moves. The two settled records are seated the same way, by the same argument at a steeper ratio — a few thousand distinct records over those millions of rows — so a row holds a [`SettledSeat`] into the product's table for each and no cell of its own.
+/// They are shared handles rather than owned strings because a product holds millions of rows over a few tens of thousands of distinct spellings: the fixpoint interns each one once and every row that names it holds the same allocation. Sorting and every raise message read them as the `&str` they are, so nothing about the stream moves. The two settled records and the provenance are seated the same way, by the same argument at a steeper ratio — a few thousand distinct records and lists over those millions of rows — so a row holds a [`SettledSeat`] and a [`NotesSeat`] into the product's tables and no cell or string of its own. The prospect is a byte because the term it records is a seam count, zero or one in either candidacy world, and the joint flag sits beside it (issue #163).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TransitionRow {
     pub input_glyph: Rc<str>,
@@ -62,9 +68,9 @@ pub struct TransitionRow {
     pub outcome: Rc<str>,
     pub settled: SettledSeat,
     pub left_settled: Option<SettledSeat>,
+    pub provenance: NotesSeat,
+    pub prospect: i8,
     pub joint: bool,
-    pub prospect: i64,
-    pub provenance: Vec<String>,
 }
 
 impl TransitionRow {
@@ -273,7 +279,7 @@ fn row_into(
     out.push_str(if row.joint { ",true," } else { ",false," });
     let _ = write!(out, "{}", row.prospect);
     out.push(',');
-    strings_into(out, &row.provenance);
+    strings_into(out, product.provenance(row));
     out.push(']');
     Ok(())
 }
@@ -423,7 +429,20 @@ mod tests {
                 tea_locked(index),
             ],
             seats: seated(index),
+            notes: noted(),
         }
+    }
+
+    /// The provenance table the three worked rows index: the empty list, a two-pointer list in the order the trace left it, and a list of one.
+    fn noted() -> Vec<Vec<String>> {
+        vec![
+            Vec::new(),
+            vec![
+                "qsTea.yaml:policy.refuse[0]".to_owned(),
+                "qsPea.yaml:policy.prefer[0]".to_owned(),
+            ],
+            vec!["qsIt.yaml:policy.groups".to_owned()],
+        ]
     }
 
     /// The seat table the three worked rows index: their five distinct settled records, in the order the rows below name them.
@@ -499,11 +518,11 @@ mod tests {
             right3: Rc::from("#NA"),
             right4: Rc::from("#NA"),
             outcome: Rc::from("qsPea.half"),
-            settled: SettledSeat(0),
+            settled: SettledSeat::at(0),
             left_settled: None,
-            joint: false,
+            provenance: NotesSeat::at(0),
             prospect: 0,
-            provenance: Vec::new(),
+            joint: false,
         }
     }
 
@@ -516,14 +535,11 @@ mod tests {
             right3: Rc::from("qsPea"),
             right4: Rc::from("#NA"),
             outcome: Rc::from("qsTea.half.ex-y0.locked"),
-            settled: SettledSeat(1),
-            left_settled: Some(SettledSeat(2)),
-            joint: true,
+            settled: SettledSeat::at(1),
+            left_settled: Some(SettledSeat::at(2)),
+            provenance: NotesSeat::at(1),
             prospect: 3,
-            provenance: vec![
-                "qsTea.yaml:policy.refuse[0]".to_owned(),
-                "qsPea.yaml:policy.prefer[0]".to_owned(),
-            ],
+            joint: true,
         }
     }
 
@@ -536,11 +552,11 @@ mod tests {
             right3: Rc::from("#NA"),
             right4: Rc::from("#NA"),
             outcome: Rc::from("qsTea.half.en-y5.en-ext-1.ex-bind-pulled-back"),
-            settled: SettledSeat(3),
-            left_settled: Some(SettledSeat(4)),
-            joint: false,
+            settled: SettledSeat::at(3),
+            left_settled: Some(SettledSeat::at(4)),
+            provenance: NotesSeat::at(2),
             prospect: -2,
-            provenance: vec!["qsIt.yaml:policy.groups".to_owned()],
+            joint: false,
         }
     }
 
@@ -601,6 +617,7 @@ mod tests {
                 },
             ],
             seats: seated(&index),
+            notes: noted(),
         };
         let stream = emit_transitions(&index, &product).expect("every cell is seated");
         assert_eq!(
@@ -622,6 +639,7 @@ mod tests {
             cited_provenance: Vec::new(),
             cells: vec![pea_cell(&index)],
             seats: seated(&index),
+            notes: noted(),
         };
         assert_eq!(
             emit_transitions(&index, &product),
@@ -639,6 +657,7 @@ mod tests {
             cited_provenance: Vec::new(),
             cells: vec![tea_locked(&index)],
             seats: seated(&index),
+            notes: noted(),
         };
         assert_eq!(
             emit_transitions(&index, &product),

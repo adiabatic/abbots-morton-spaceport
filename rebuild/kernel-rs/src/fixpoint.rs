@@ -22,8 +22,8 @@ use crate::options::{FollowerMap, WindowOptions};
 use crate::sha256;
 use crate::stream::{FixpointProduct, TransitionRow, feature_config_token};
 use crate::types::{
-    CellId, EDGE, LeftContext, RightToken, Settled, SettledPool, SettledSeat, TokenKind,
-    TransitionTrace, cell_label,
+    CellId, EDGE, LeftContext, NotesPool, NotesSeat, RightToken, Settled, SettledPool, SettledSeat,
+    TokenKind, TransitionTrace, cell_label,
 };
 
 /// The label a slot the window does not carry is spelled with, `table.NA_LABEL`. A boundary at right1 puts it in the second slot as well: nothing follows a run edge inside one window.
@@ -175,14 +175,18 @@ struct Item {
     right3_allowed: Option<Allowed>,
 }
 
-/// What a recorded window carries beyond the six labels that key it — `table.Transition`'s remaining fields, kept apart from the key so the labels are stored once rather than in both the map's key and its value. The outcome is a pool id like the key's slots, resolved to its spelling with them when the product is materialized. The two settled records are seats into the run's [`SettledPool`] for the same reason at a steeper ratio: a configuration reaches a few thousand distinct records over millions of rows, so a row holding its record by value was holding a copy — adjustments allocation and all — that hundreds of thousands of its neighbors held too (issue #162).
+/// What a recorded window carries beyond the six labels that key it — `table.Transition`'s remaining fields, kept apart from the key so the labels are stored once rather than in both the map's key and its value. The two settled records are seats into the run's [`SettledPool`]: a configuration reaches a few thousand distinct records over millions of rows, so a row holding its record by value was holding a copy — adjustments allocation and all — that hundreds of thousands of its neighbors held too (issue #162). The provenance is a seat into the run's [`NotesPool`] by the same argument, the prospect is the byte its zero-or-one range needs, and the joint flag sits beside it, so the row is sixteen bytes with no padding and no heap of its own (issue #163). The outcome is not carried at all: it is the settled cell's label, a property of the seat, and is resolved once per seat when the product is materialized rather than once per row while the worklist runs.
 struct Row {
-    outcome: Label,
     settled: SettledSeat,
     left_settled: Option<SettledSeat>,
+    provenance: NotesSeat,
+    prospect: i8,
     joint: bool,
-    prospect: i64,
-    provenance: Vec<String>,
+}
+
+/// The prospect term as a row holds it. The engine answers in the `i64` its join-count arithmetic sums, but the term itself is a seam count — one when the follower's seam is claimed and zero otherwise, in either candidacy world — so a byte carries it, and a wider answer is an engine that stopped answering with a count.
+fn prospect_byte(prospect: i64) -> i8 {
+    i8::try_from(prospect).expect("a prospect is a seam count, zero or one")
 }
 
 /// One third-slot entry of a class-grain window: the boundary token where the entry is a boundary, the seat of the fiber where it is a fiber, and the members this item's pins admitted.
@@ -220,18 +224,18 @@ struct PendingDeepRow {
     rep4: Option<RightToken>,
     settled: SettledSeat,
     left_settled: Option<SettledSeat>,
+    provenance: NotesSeat,
+    prospect: i8,
     joint: bool,
-    prospect: i64,
-    provenance: Vec<String>,
 }
 
 impl PendingDeepRow {
-    /// Whether an echo trace's record is the representative's, over exactly the four fields a row carries: the settled triple — the representative's read back through the pool its seat names — the prospect, the joint-floor flag and the notes. Nothing about the ranking that reached them is compared, because nothing about it reaches the row.
-    fn echoes(&self, seats: &SettledPool, echo: &TransitionTrace) -> bool {
+    /// Whether an echo trace's record is the representative's, over exactly the four fields a row carries: the settled triple and the notes — the representative's, each read back through the pool its seat names — the prospect and the joint-floor flag. Nothing about the ranking that reached them is compared, because nothing about it reaches the row.
+    fn echoes(&self, seats: &SettledPool, notes: &NotesPool, echo: &TransitionTrace) -> bool {
         echo.settled == *seats.get(self.settled)
-            && echo.prospect == self.prospect
+            && echo.prospect == i64::from(self.prospect)
             && echo.joint_floor == self.joint
-            && echo.notes == self.provenance
+            && echo.notes == notes.get(self.provenance)
     }
 }
 
@@ -292,6 +296,7 @@ fn enumerate_seeded(
 
     let mut labels = LabelPool::default();
     let mut seats = SettledPool::default();
+    let mut notes = NotesPool::default();
     let mut transitions: HashMap<WindowKey, Row> = HashMap::new();
     // The pending class-grain rows, split from the seats their keys hold, so that the echo pass walks them in the order they were created.
     let mut pending_rows: Vec<PendingDeepRow> = Vec::new();
@@ -509,9 +514,9 @@ fn enumerate_seeded(
                                         rep4,
                                         settled: seats.seat(&trace.settled),
                                         left_settled: left_seat,
+                                        provenance: notes.seat(trace.notes),
+                                        prospect: prospect_byte(trace.prospect),
                                         joint: trace.joint_floor,
-                                        prospect: trace.prospect,
-                                        provenance: trace.notes,
                                     });
                                     trace.settled
                                 }
@@ -615,13 +620,11 @@ fn enumerate_seeded(
                             transitions.insert(
                                 window_key,
                                 Row {
-                                    outcome: labels
-                                        .intern_owned(cell_label(index, &trace.settled.cell)),
                                     settled: seats.seat(&trace.settled),
                                     left_settled: left_seat,
+                                    provenance: notes.seat(trace.notes),
+                                    prospect: prospect_byte(trace.prospect),
                                     joint: trace.joint_floor,
-                                    prospect: trace.prospect,
-                                    provenance: trace.notes,
                                 },
                             );
                             trace.settled
@@ -710,13 +713,14 @@ fn enumerate_seeded(
                     Slots::new(pending.right1, pending.right2, last3, rep4),
                 )
                 .map_err(complaint)?;
-            if !pending.echoes(&seats, &echo) {
+            if !pending.echoes(&seats, &notes, &echo) {
                 return Err(echo_mismatch(
                     index,
                     &labels.spelled(&window_key),
                     last3,
                     pending,
                     seats.get(pending.settled),
+                    notes.get(pending.provenance),
                     &echo,
                 ));
             }
@@ -733,13 +737,14 @@ fn enumerate_seeded(
                     Slots::new(pending.right1, pending.right2, pending.rep3, last4),
                 )
                 .map_err(complaint)?;
-            if !pending.echoes(&seats, &echo) {
+            if !pending.echoes(&seats, &notes, &echo) {
                 return Err(echo_mismatch(
                     index,
                     &labels.spelled(&window_key),
                     last4,
                     pending,
                     seats.get(pending.settled),
+                    notes.get(pending.provenance),
                     &echo,
                 ));
             }
@@ -753,12 +758,11 @@ fn enumerate_seeded(
         transitions.insert(
             window_key,
             Row {
-                outcome: labels.intern_owned(cell_label(index, &seats.get(pending.settled).cell)),
                 settled: pending.settled,
                 left_settled: pending.left_settled,
-                joint: pending.joint,
+                provenance: pending.provenance,
                 prospect: pending.prospect,
-                provenance: pending.provenance.clone(),
+                joint: pending.joint,
             },
         );
     }
@@ -769,6 +773,7 @@ fn enumerate_seeded(
         );
         lines.push(CacheSize::of("seen", seen.len(), seen.capacity()).line(&config));
         lines.push(CacheSize::of("settled_seats", seats.len(), seats.capacity()).line(&config));
+        lines.push(CacheSize::of("notes", notes.len(), notes.capacity()).line(&config));
         lines.push(
             CacheSize::of("labels", labels.texts.len(), labels.texts.capacity()).line(&config),
         );
@@ -812,6 +817,12 @@ fn enumerate_seeded(
         ));
     }
 
+    // A row's outcome is its settled cell's label, so the spelling is interned once per seat here rather than once per row in the loop above; every seat is a cell some row settled into, so nothing is interned that no row names.
+    let seat_table = seats.into_table();
+    let outcomes: Vec<Label> = seat_table
+        .iter()
+        .map(|settled| labels.intern_owned(cell_label(index, &settled.cell)))
+        .collect();
     // The sort runs over the ids, through the rank table, before a single spelling is resolved: a rank tuple compares as the key tuple does, because every id ranks as its text, and the keys are distinct, so the unstable sort reaches the one order a stable one would. Only then are the spellings put back, in the order the rows will be written in.
     let ranks = labels.ranks();
     let mut keyed: Vec<(WindowKey, Row)> = transitions.into_iter().collect();
@@ -828,12 +839,12 @@ fn enumerate_seeded(
                 right2,
                 right3,
                 right4,
-                outcome: Rc::clone(labels.text(row.outcome)),
+                outcome: Rc::clone(labels.text(outcomes[row.settled.index()])),
                 settled: row.settled,
                 left_settled: row.left_settled,
-                joint: row.joint,
-                prospect: row.prospect,
                 provenance: row.provenance,
+                prospect: row.prospect,
+                joint: row.joint,
             }
         })
         .collect();
@@ -849,7 +860,7 @@ fn enumerate_seeded(
     let mut cells: Vec<CellId> = Vec::new();
     for row in &rows {
         if seen_seats.insert(row.settled) {
-            let cell = &seats.get(row.settled).cell;
+            let cell = &seat_table[row.settled.index()].cell;
             if counted.insert(cell) {
                 cells.push(cell.clone());
             }
@@ -861,7 +872,8 @@ fn enumerate_seeded(
         deep_classes,
         cited_provenance,
         cells,
-        seats: seats.into_table(),
+        seats: seat_table,
+        notes: notes.into_table(),
     };
     if let Some(deriver) = deriver.as_mut() {
         let mut check = DeepPartitionCheck {
@@ -1035,13 +1047,14 @@ fn echo_member(members: &[RightToken], representative: RightToken) -> RightToken
     }
 }
 
-/// The echo check's `PartitionError` sentence: a member of a class row traced something the representative did not, which is the virtual-left fiber collapse failing at real-left grain. The representative's settled record arrives resolved, since the row holds only its seat.
+/// The echo check's `PartitionError` sentence: a member of a class row traced something the representative did not, which is the virtual-left fiber collapse failing at real-left grain. The representative's settled record and notes arrive resolved, since the row holds only their seats.
 fn echo_mismatch(
     index: &SpecIndex,
     key: &[&str; 6],
     member: RightToken,
     expected: &PendingDeepRow,
     expected_settled: &Settled,
+    expected_notes: &[String],
     got: &TransitionTrace,
 ) -> String {
     format!(
@@ -1057,9 +1070,9 @@ fn echo_mismatch(
         row_record_text(
             index,
             expected_settled,
-            expected.prospect,
+            i64::from(expected.prospect),
             expected.joint,
-            &expected.provenance
+            expected_notes
         )
     )
 }
@@ -1433,6 +1446,13 @@ mod tests {
 
     /// The two heights the ordinary fixtures join at.
     const HEIGHTS: &[(&str, &str)] = &[("baseline", "0"), ("x-height", "5")];
+
+    /// The row's whole point: sixteen bytes, four of them the absent-or-present left seat, with nothing padded and nothing on the heap.
+    #[test]
+    fn a_row_is_its_fields_and_no_padding() {
+        assert_eq!(std::mem::size_of::<Option<SettledSeat>>(), 4);
+        assert_eq!(std::mem::size_of::<Row>(), 16);
+    }
 
     /// The registry the fixpoint fixtures share — `fixtures::four_family_registry` with the height table left open, so the partition check can declare the aliasing pair it needs beside the ordinary heights.
     fn registry(heights: &[(&str, &str)]) -> String {
@@ -1925,11 +1945,11 @@ mod tests {
             right3,
             right4,
             outcome: Rc::from("qsMay.plain"),
-            settled: SettledSeat(0),
+            settled: SettledSeat::at(0),
             left_settled: None,
-            joint: false,
+            provenance: NotesSeat::at(0),
             prospect: 0,
-            provenance: Vec::new(),
+            joint: false,
         }
     }
 
@@ -1950,6 +1970,7 @@ mod tests {
             cited_provenance: Vec::new(),
             cells: Vec::new(),
             seats: Vec::new(),
+            notes: Vec::new(),
         }
     }
 

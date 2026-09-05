@@ -7,6 +7,7 @@
 //! Nothing in this module reads the spec beyond resolving symbols for the two places settlement formats a name into prose — [`cell_label`], which the E-STRANDED message and the TSV artifacts read, and [`adjustment_text`], which spells the generated tokens. Both take the [`SpecIndex`] rather than a bare interner, because a label also needs the registry's height-to-y map, and because the index is what every caller already has in hand.
 
 use std::collections::HashMap;
+use std::num::NonZeroU32;
 
 use crate::index::SpecIndex;
 use crate::model::{Provenance, Sym};
@@ -254,13 +255,24 @@ pub struct Settled {
 }
 
 /// The seat one distinct [`Settled`] record holds in the table a product carries, and what a recorded row holds in its place. A configuration reaches millions of rows over a few thousand distinct settled records, so a row that held the record by value was holding a copy hundreds of thousands of its neighbors held too — each with the cell's own heap allocation for the adjustments — where four bytes name the same record, and two rows' settled halves compare as one integer compare. A seat means nothing without the table it indexes, which is why it rides only inside a product and never in the stream: the head's cell seat is what the stream spells, resolved through the table on the way out.
+///
+/// The integer is the index's successor in a `NonZeroU32`, for the reason [`Sym`] is: a row's left seat is absent for a boundary left, and `Option<SettledSeat>` costs a whole word beside a plain `u32` where the zero niche folds `None` into the same four bytes (issue #163). The offset is this type's business alone — [`SettledSeat::at`] and [`SettledSeat::index`] are the two crossings, and nothing else reads the integer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct SettledSeat(pub u32);
+pub struct SettledSeat(NonZeroU32);
 
 impl SettledSeat {
+    /// The seat for the table's `index`-th record.
+    pub fn at(index: usize) -> Self {
+        let raw = u32::try_from(index)
+            .ok()
+            .and_then(|index| index.checked_add(1))
+            .expect("a configuration reaches fewer than 2^32 distinct settled records");
+        Self(NonZeroU32::new(raw).expect("an index's successor is never zero"))
+    }
+
     /// The seat as the table's index.
     pub fn index(self) -> usize {
-        self.0 as usize
+        (self.0.get() - 1) as usize
     }
 }
 
@@ -277,10 +289,7 @@ impl SettledPool {
         if let Some(&seat) = self.seats.get(settled) {
             return seat;
         }
-        let seat = SettledSeat(
-            u32::try_from(self.table.len())
-                .expect("a configuration reaches fewer than 2^32 distinct settled records"),
-        );
+        let seat = SettledSeat::at(self.table.len());
         self.seats.insert(settled.clone(), seat);
         self.table.push(settled.clone());
         seat
@@ -307,6 +316,69 @@ impl SettledPool {
 
     /// The table alone, which is the half a product carries: seats resolve by index from here on and nothing past the fixpoint mints one.
     pub fn into_table(self) -> Vec<Settled> {
+        self.table
+    }
+}
+
+/// The seat one distinct provenance list holds in the table a product carries, and what a recorded row holds as its provenance. A row's notes are the pointers of the records that eliminated, preferred and adjusted at its window, in first-seen order, and a configuration's millions of rows spell a few thousand distinct such lists between them — so a row that owned its list was holding a vector and one heap string per pointer that hundreds of thousands of its neighbors held too, where four bytes name the same list (issue #163). The rule fold reads a sample row's list back through the table, so what it joins is what it always joined.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct NotesSeat(u32);
+
+impl NotesSeat {
+    /// The seat for the table's `index`-th list.
+    pub fn at(index: usize) -> Self {
+        Self(
+            u32::try_from(index)
+                .expect("a configuration reaches fewer than 2^32 distinct provenance lists"),
+        )
+    }
+
+    /// The seat as the table's index.
+    pub fn index(self) -> usize {
+        self.0 as usize
+    }
+}
+
+/// The table one fixpoint seats its rows' provenance through, the same shape as [`SettledPool`] for the same reason: every distinct list once, in the order the enumeration first traced it, and the seat each one holds.
+#[derive(Clone, Debug, Default)]
+pub struct NotesPool {
+    seats: HashMap<Vec<String>, NotesSeat>,
+    table: Vec<Vec<String>>,
+}
+
+impl NotesPool {
+    /// This list's seat, minted on the first trace that carried it and answered from the map on every later one. The list arrives owned because the trace it came off is done with it: a miss keeps the allocation and a hit drops it, and neither copies a string.
+    pub fn seat(&mut self, notes: Vec<String>) -> NotesSeat {
+        if let Some(&seat) = self.seats.get(notes.as_slice()) {
+            return seat;
+        }
+        let seat = NotesSeat::at(self.table.len());
+        self.seats.insert(notes.clone(), seat);
+        self.table.push(notes);
+        seat
+    }
+
+    /// The list one seat names.
+    pub fn get(&self, seat: NotesSeat) -> &[String] {
+        &self.table[seat.index()]
+    }
+
+    /// How many distinct lists have been seated.
+    pub fn len(&self) -> usize {
+        self.table.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.table.is_empty()
+    }
+
+    /// How many the table has room for, which is what the cache census reports beside the length.
+    pub fn capacity(&self) -> usize {
+        self.table.capacity()
+    }
+
+    /// The table alone, which is the half a product carries.
+    pub fn into_table(self) -> Vec<Vec<String>> {
         self.table
     }
 }
