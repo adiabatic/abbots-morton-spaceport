@@ -301,7 +301,7 @@ pub struct Unlock {
 }
 
 /// Where an authored fact came from, spelled in the dump as the `[file, path]` pair — the tree's one hand-spelled leaf.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Provenance {
     pub file: Sym,
     pub path: Sym,
