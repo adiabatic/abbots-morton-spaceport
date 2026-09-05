@@ -536,18 +536,18 @@ class TestTheMemoryDerivedThreadDefault:
             kernel_exec.kernel_threads_default(total_bytes=34_359_738_368)
 
     @pytest.mark.parametrize(
-        "total, wanted", [(4_000_000_000, 1), (34_359_738_368, 4), (32_000_000_000, 4), (64_000_000_000, 9)]
+        "total, wanted", [(4_000_000_000, 1), (34_359_738_368, 6), (32_000_000_000, 6), (64_000_000_000, 13)]
     )
     def test_the_width_follows_the_box_and_never_falls_below_one(self, total, wanted):
-        """The whole point of the derivation: a 32 GB box gets the four the memo-side levers of issue #105 bought it, where sub-issue #46 shipped two at the divisor before them — in either spelling of 32 GB, so the answer does not rest on a unit convention — a box too small for one configuration gets one anyway, and a roomier box gets what it has room for instead of the constrained box's width."""
+        """The whole point of the derivation: a 32 GB box gets the six the trace memo's probe-cascade lever of issue #168 bought it — the whole acceptance set, where the memo-side levers of issue #105 bought four and sub-issue #46 shipped two at the divisor before them — in either spelling of 32 GB, so the answer does not rest on a unit convention — a box too small for one configuration gets one anyway, and a roomier box gets what it has room for instead of the constrained box's width."""
         assert kernel_exec.kernel_threads_default(total_bytes=total) == wanted
 
     def test_a_coresident_pool_comes_off_the_box_before_it_is_divided(self):
         """What a caller running the fan-out beside something else — the artifact cycle, beside its pytest pool — takes off the top, so the width answers for the machine the configurations will actually share rather than for an empty one. It is the caller's fact and defaults to nothing, because a bare run_m1 has nothing beside it."""
-        assert kernel_exec.kernel_threads_default(total_bytes=64_000_000_000) == 9
+        assert kernel_exec.kernel_threads_default(total_bytes=64_000_000_000) == 13
         assert (
             kernel_exec.kernel_threads_default(coresident_bytes=13_000_000_000, total_bytes=64_000_000_000)
-            == 7
+            == 10
         )
 
     def test_a_stated_width_outranks_a_coresident_reservation_too(self, monkeypatch):

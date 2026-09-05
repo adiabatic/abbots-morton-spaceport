@@ -509,7 +509,7 @@ pub struct Engine<'i> {
     /// Each of the small memos carries its own fired delta beside its verdict rather than in a shadow map on the same key: the delta is only ever read alongside the verdict it belongs to, and a second table would pay for the key and its hashbrown slack twice over. The closure, candidate and prospect memos hold theirs as seats into [`Engine::deltas`], as the trace memo does.
     closure_cache: HashMap<ClosureKey, (bool, DeltaSeat)>,
     candidates_cache: CandidatesMemo,
-    /// The prospect memo: the term as the byte its zero-or-one range needs, beside the seat of its fired delta (issue #166). Under a trace memo in simulated-prospect mode it holds only the asks whose cascade raised: a settling cascade's answer is one field of a window the trace memo holds, so [`Engine::prospect`] declines the entry and reads it there on the next ask.
+    /// The prospect memo: the term as the byte its zero-or-one range needs, beside the seat of its fired delta (issue #166). Under a trace memo in simulated-prospect mode it holds only the asks whose cascade raised: a settling cascade's answer is one field of a window the trace memo holds, so [`Engine::prospect`] declines the entry and reads it there on the next ask — or, for a probe's ask, whose window the trace memo declines in turn (issue #168), settles it again, which the probe arms' own memos make rare.
     prospect_cache: HashMap<ProspectKey, (i8, DeltaSeat)>,
     exit_sources_cache: HashMap<StanceId, (Vec<ExitSource<'i>>, Vec<Pointer>)>,
     virtual_left_cache: HashMap<(Sym, Candidate), LeftContext>,
@@ -1609,6 +1609,8 @@ impl<'i> Engine<'i> {
     /// A counterfactual cascade can raise where real settlement never would — a prefer conflict, or a definitively firing unlock scope, in a window whose candidate never wins — so a raising cascade falls back to the candidacy estimate, the honest cannot-rank answer, and counts in [`Engine::simulated_prospect_fallbacks`]. Python's catch there names all four settlement outcomes, which is every error this crate raises, so the fallback here is a plain catch-all; the one thing it swallows that Python's does not is the unresolvable-class spec defect, which `spec_load` refuses long before settlement.
     ///
     /// The memo holds a term beside the seat of its fired delta, and under a trace memo in simulated mode it holds only the asks whose cascade raised (issue #166). A settling cascade's delta is exactly the trace memo's delta for the follower's window: the virtual left journals nothing, and the capture's dedup of what [`Engine::with_settled`] journaled — a replayed trace delta, or the raw firings the trace memo deduplicated into that same delta — is that delta again. An entry for it would be a second copy of an entry the trace memo already holds, under a key that collapses this candidate's entry, so the capture is discarded instead, as [`Engine::abort_capture`] says, and the next ask with this key reads the trace memo through `with_settled`, which replays the same first-fired sequence into the same enclosing capture at the same point. The raising cascade is the one window the trace memo can never hold, so its fallback verdict is what this memo is for. Candidacy mode runs no cascade and memoizes every ask, and so does simulated mode without a trace memo, where nothing stands behind this memo to answer the next ask.
+    ///
+    /// A cascade asked for with no window under evaluation is a probe's ask — [`Engine::probe_prospect`] is the one caller that reaches the term that way, because the ranking only ever asks from inside a trace — and its follower window is settled through [`Engine::with_settled_unrecorded`]: read off the trace memo where the memo holds it, and left out of the memo where it does not (issue #168). The probe arms memoize their verdicts above this call on keys of their own, so nothing asks that window again except a row whose ranking reaches the same shifted window, and an instrumented run of the whole alphabet says how rarely that is: the probes' cascades wrote well over a third of the trace memo's entries, nearly every one of them was never read, and the fourth-slot probes' — a letter third and an unknown fourth, a window a row reaches only past a live fourth slot — all but never. Recording them is what carries the memo's bucket table past a power-of-two doubling at the whole alphabet, and leaving them out is what keeps it under. The cascades a probe's cascade runs in turn are recorded as any ranking's are, since those are the windows every ranking shares.
     fn prospect(
         &mut self,
         rune_name: Sym,
@@ -1652,18 +1654,20 @@ impl<'i> Engine<'i> {
             return Ok(i64::from(cached));
         }
         let capturing = self.fired_log.is_some();
+        let recorded = !self.capture_starts.is_empty();
         if capturing {
             self.begin_capture();
         }
-        let (result, term) = match self.prospect_uncached(rune_name, candidate, slots, follower) {
-            Ok(answer) => answer,
-            Err(error) => {
-                if capturing {
-                    self.abort_capture();
+        let (result, term) =
+            match self.prospect_uncached(rune_name, candidate, slots, follower, recorded) {
+                Ok(answer) => answer,
+                Err(error) => {
+                    if capturing {
+                        self.abort_capture();
+                    }
+                    return Err(error);
                 }
-                return Err(error);
-            }
-        };
+            };
         if capturing && term == ProspectTerm::Simulated {
             self.abort_capture();
             return Ok(result);
@@ -1679,13 +1683,14 @@ impl<'i> Engine<'i> {
         Ok(result)
     }
 
-    /// The term computed afresh, together with how it was answered: off the follower's simulated trace, or by the candidacy estimate — the mode's own term, or the fallback a raising cascade takes.
+    /// The term computed afresh, together with how it was answered: off the follower's simulated trace, or by the candidacy estimate — the mode's own term, or the fallback a raising cascade takes. `recorded` is whether the follower's window may enter the trace memo, which [`Engine::prospect`] withholds from a probe's ask.
     fn prospect_uncached(
         &mut self,
         rune_name: Sym,
         candidate: Candidate,
         slots: Slots,
         follower: Sym,
+        recorded: bool,
     ) -> Result<(i64, ProspectTerm), SettleError> {
         let virtual_left = self.virtual_left(rune_name, candidate);
         if !self.simulated_prospect {
@@ -1694,9 +1699,13 @@ impl<'i> Engine<'i> {
             return Ok((estimate, ProspectTerm::Estimated));
         }
         let shifted = Slots::new(slots.right2, slots.right3, slots.right4, UNKNOWN);
-        match self.with_settled(&virtual_left, slots.right1, shifted, |settled| {
-            i64::from(settled.seam.is_some())
-        }) {
+        let read_seam = |settled: &Settled| i64::from(settled.seam.is_some());
+        let simulated = if recorded {
+            self.with_settled(&virtual_left, slots.right1, shifted, read_seam)
+        } else {
+            self.with_settled_unrecorded(&virtual_left, slots.right1, shifted, read_seam)
+        };
+        match simulated {
             Ok(seam_bearing) => Ok((seam_bearing, ProspectTerm::Simulated)),
             Err(_) => {
                 self.simulated_prospect_fallbacks += 1;
@@ -2410,25 +2419,53 @@ impl<'i> Engine<'i> {
         left: &LeftContext,
         token: RightToken,
         slots: Slots,
-        read: impl FnOnce(&Settled) -> T,
+        read: impl Fn(&Settled) -> T,
     ) -> Result<T, SettleError> {
-        if token.kind() == TokenKind::Letter
-            && let Some(memo) = self.trace_cache.as_ref()
-            && let Some(&entry) = memo
-                .entries
-                .get(&Self::trace_key(left, token.letter(), slots))
-        {
-            let answer = read(memo.settled.get(entry.settled));
-            replay_into(
-                &mut self.fired,
-                &mut self.fired_log,
-                &self.capture_starts,
-                self.deltas.get(entry.delta),
-            );
+        if let Some(answer) = self.settled_from_memo(left, token, slots, &read) {
             return Ok(answer);
         }
         let trace = self.transition_trace(left, token, slots)?;
         Ok(read(&trace.settled))
+    }
+
+    /// [`Engine::with_settled`] for a letter window not worth a memo entry: a hit answers exactly as it does there, delta replayed and all, and a miss settles the window without recording it (issue #168). The miss opens no capture of its own, so what it fires journals straight into the enclosing capture — which is where a recorded miss's firings land too, replayed out of its fresh entry — and every window the evaluation asks for beneath it is memoized as usual. The one caller is the probe's cascade in [`Engine::prospect`], whose docstring carries the measurement that makes the window not worth an entry.
+    fn with_settled_unrecorded<T>(
+        &mut self,
+        left: &LeftContext,
+        token: RightToken,
+        slots: Slots,
+        read: impl Fn(&Settled) -> T,
+    ) -> Result<T, SettleError> {
+        if let Some(answer) = self.settled_from_memo(left, token, slots, &read) {
+            return Ok(answer);
+        }
+        let trace = self.transition_trace_uncached(left, token, slots)?;
+        Ok(read(&trace.settled))
+    }
+
+    /// The trace memo's answer for one window, where it holds one: the read applied to the settled record where it sits in the pool, with the entry's fired delta replayed. `None` is a miss — a non-letter token, an engine with no memo, or a window the memo has not seen — and says nothing about how the caller should settle it.
+    fn settled_from_memo<T>(
+        &mut self,
+        left: &LeftContext,
+        token: RightToken,
+        slots: Slots,
+        read: impl Fn(&Settled) -> T,
+    ) -> Option<T> {
+        if token.kind() != TokenKind::Letter {
+            return None;
+        }
+        let memo = self.trace_cache.as_ref()?;
+        let &entry = memo
+            .entries
+            .get(&Self::trace_key(left, token.letter(), slots))?;
+        let answer = read(memo.settled.get(entry.settled));
+        replay_into(
+            &mut self.fired,
+            &mut self.fired_log,
+            &self.capture_starts,
+            self.deltas.get(entry.delta),
+        );
+        Some(answer)
     }
 
     fn transition_trace_uncached(
