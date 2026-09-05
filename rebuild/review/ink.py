@@ -154,7 +154,7 @@ def outline_shape_key(value: tuple) -> tuple[bytes, int, int]:
 
 
 class OutlineIntern:
-    """The outline table the fonts of one comparison share: `place` interns an outline to its shape key, remembering the origin-normalized value so a surviving delta piece can be materialized back, and `value` reads that back. Interning by shape rather than by glyph name is what makes a key comparable across fonts, and it is what lets `config_diff` do all of its alignment, multiset subtraction, and normalization over small tuples of ints and bytes, building translated geometry only for the pieces that survive into the returned delta — which for most windows is none of them."""
+    """The outline table the fonts of one comparison share: `place` interns an outline to its shape key, remembering the origin-normalized value so a surviving delta piece can be materialized back, and `value` reads that back. Interning by shape rather than by glyph name is what makes a key comparable across fonts, and it is what lets `config_diff` do all of its alignment, multiset subtraction, and normalization over small tuples of ints and bytes, building translated geometry only for the pieces that survive into the returned delta — which for most windows is none of them — and what lets the enricher's `_segment_pieces` decide whether a divergent position is visible in ink over the same tuples without building any geometry at all."""
 
     def __init__(self) -> None:
         self._values: dict[bytes, tuple] = {}
