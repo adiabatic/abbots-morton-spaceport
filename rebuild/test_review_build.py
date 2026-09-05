@@ -8,6 +8,7 @@ import gc
 import hashlib
 import json
 import multiprocessing
+import re
 import shutil
 import subprocess
 import sys
@@ -44,7 +45,8 @@ from rebuild.review.build import (
 from rebuild.review.enrich import LETTERS, EnrichedUnit, SeamHomeUnit
 from rebuild.review.export import _triage_projection, build_triage, load_units, load_verdicts
 from rebuild.review.ink import shape_memo_census
-from rebuild.tools import console
+from rebuild.tools import console, pile_tally
+from rebuild.tools.cycle_timings import parse_inner_timings
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 FIXTURES = REPO_ROOT / "rebuild" / "review" / "fixtures"
@@ -684,8 +686,14 @@ def test_a_serial_surface_build_files_no_pool_record(tmp_path, monkeypatch):
     assert not journal.exists()
 
 
-def test_a_pooled_build_counts_its_units_and_closes_every_phase_it_opens(tmp_path, mini_bundle, capsys):
-    """The two things a watcher gets from a build that runs for minutes, over the one workload small enough to prove them on: which phase it is in, and how far through the corpus its pool has got. Every phase pairs — the `[t] review.build <phase>` line the timings journal has always read is what closes the `[phase]` line the terminal opens — and the counter is summed across the workers as each answers rather than after the last one finishes, which is what the two lines are: each of the two workers reports its own slice of the one pass over the fresh pile, which enriches and drafts in the same step. That the total is reached at all is the claim worth having, since a share left unread or a worker the parent stopped draining shows up here as a count that stops short of the units the manifest says this build wrote."""
+def test_a_pooled_build_counts_its_units_and_closes_every_phase_it_opens(
+    tmp_path, mini_bundle, capfd, monkeypatch
+):
+    """The two things a watcher gets from a build that runs for minutes, over the one workload small enough to prove them on: which phase it is in, and how far through the corpus its pool has got. Every phase pairs — the `[t] review.build <phase>` line the timings journal has always read is what closes the `[phase]` line the terminal opens — and the counter is summed across the workers as each answers rather than after the last one finishes, which is what the two lines are: each of the two workers reports its own slice of the one pass over the fresh pile, which enriches and drafts in the same step. That the total is reached at all is the claim worth having, since a share left unread or a worker the parent stopped draining shows up here as a count that stops short of the units the manifest says this build wrote.
+
+    Every phase line also carries the parent's peak RSS as the `rss_gb=` token `parse_inner_timings` reads, ahead of the phase's own note, so `make cycle-timings ARGS='--inner'` can say which phase reached the step's high-water mark. And with `AMS_SURFACE_PILE_TALLY=1` in the environment the workers inherit, each worker tallies its own piles at the end of its one phase onto stdout — the projections it is about to answer with and the spool address beside each, its subset tables and the shape memo, and no enrichment among them, since a fresh unit's fragment went to the spool as it was drafted — which is why this test captures at the file-descriptor grain: a spawn child writes past `sys.stdout`. The parent's own boundaries show the other half of that: the spool addresses every worker answered with are held per fresh unit from the units phase until the runner closes, and no pile of enrichments exists anywhere.
+    """
+    monkeypatch.setenv(pile_tally.TALLY_ENV, "1")
     out = tmp_path / "surface"
     manifest = review_build.build_m1(
         out,
@@ -696,7 +704,8 @@ def test_a_pooled_build_counts_its_units_and_closes_every_phase_it_opens(tmp_pat
         spec_root=mini_bundle.spec_root,
         jobs=2,
     )
-    events = [console.parse_line(line) for line in capsys.readouterr().err.splitlines()]
+    captured = capfd.readouterr()
+    events = [console.parse_line(line) for line in captured.err.splitlines()]
     phases = [
         "review.build load",
         "review.build plan",
@@ -709,13 +718,118 @@ def test_a_pooled_build_counts_its_units_and_closes_every_phase_it_opens(tmp_pat
     timings = {event.label: event for event in events if isinstance(event, console.Timing)}
     assert list(timings) == phases
     total = manifest["totals"]["units"]
-    assert timings["review.build units"].tail == f"(jobs=2, fresh={total:,}, verified=0 served)"
+    token, note = timings["review.build units"].tail.split("\t")
+    assert token.startswith("rss_gb=") and float(token.removeprefix("rss_gb=")) > 0
+    assert note == f"(jobs=2, fresh={total:,}, verified=0 served)"
+    inner = {entry["label"]: entry for entry in parse_inner_timings(captured.err)}
+    assert list(inner) == phases
+    assert all(inner[phase]["rss_gb"] > 0 for phase in phases)
     counters = [event for event in events if isinstance(event, console.Progress)]
     assert counters and all(event.total == total for event in counters)
     assert all(event.done is not None and 0 < event.done <= total for event in counters)
     assert len(counters) == 2
     assert all(event.unit == review_build.PHASE1_UNITS for event in counters)
     assert [event.done for event in counters].count(total) == 1
+    tallies = _tally_lines(captured.out)
+    assert sorted(name for name in tallies if "/" in name) == ["w0/phase1", "w1/phase1"]
+    for worker in ("w0", "w1"):
+        after_phase1 = tallies[f"{worker}/phase1"]
+        assert after_phase1["worker.projections"] > 0
+        assert after_phase1["worker.spooled"] == after_phase1["worker.projections"]
+        assert "worker.subset_rows" in after_phase1 and "ink.shape_memo" in after_phase1
+    assert sum(tallies[f"{worker}/phase1"]["worker.spooled"] for worker in ("w0", "w1")) == total
+    assert not _enrichment_piles(tallies)
+    parent_only = _tally_lines(captured.out, parent=True)
+    assert list(parent_only) == ["load", "plan", "units", "manifest+check", "census-facts", "cache"]
+    assert parent_only["units"]["runner.spooled"] == total and parent_only["units"]["runner.subset_rows"] == 0
+    assert parent_only["manifest+check"]["runner.spooled"] == total
+    assert parent_only["census-facts"]["runner.spooled"] == 0 and parent_only["cache"]["runner.spooled"] == 0
+
+
+_TALLY_PILE = re.compile(r"^\[tally\] (\S+) (\S+) count=(\d+) est_bytes=(\d+) est_gb=\d+\.\d\d$")
+_TALLY_LARGEST = re.compile(r"^\[tally\] (\S+) largest=(\S+)$")
+
+
+def _enrichment_piles(tallies: dict[str, dict[str, int]]) -> list[str]:
+    """Every pile name in `tallies` that claims to hold an enrichment — none should, since no process keeps an EnrichedUnit past the batch that drafted its fragment."""
+    return sorted(
+        f"{boundary}/{pile}"
+        for boundary, piles in tallies.items()
+        for pile in piles
+        if "retained" in pile or "emitted" in pile or "enriched" in pile
+    )
+
+
+def _tally_lines(text: str, parent: bool = False) -> dict[str, dict[str, int]]:
+    """Every `[tally]` boundary in `text` as {boundary: {pile: count}}, in first-seen order, with each boundary's `largest=` line held to the pile its own count lines put first — the whole of the format rebuild/tools/pile_tally.py documents. `parent` keeps only the parent's boundaries, whose names carry no worker prefix."""
+    boundaries: dict[str, dict[str, int]] = {}
+    sizes: dict[str, list[int]] = {}
+    for line in text.splitlines():
+        pile = _TALLY_PILE.match(line)
+        if pile:
+            boundaries.setdefault(pile.group(1), {})[pile.group(2)] = int(pile.group(3))
+            sizes.setdefault(pile.group(1), []).append(int(pile.group(4)))
+            continue
+        largest = _TALLY_LARGEST.match(line)
+        if largest:
+            piles = boundaries.setdefault(largest.group(1), {})
+            expected = next(iter(piles)) if piles else "-"
+            assert largest.group(2) == expected, line
+            assert sizes.get(largest.group(1), []) == sorted(sizes.get(largest.group(1), []), reverse=True)
+        else:
+            assert not line.startswith("[tally]"), line
+    if parent:
+        return {name: piles for name, piles in boundaries.items() if "/" not in name}
+    return boundaries
+
+
+def test_a_serial_build_tallies_its_piles_at_every_phase_boundary_and_writes_the_same_bytes(
+    tmp_path, mini_bundle, capsys, monkeypatch
+):
+    """The tally is an instrument and nothing else: with `AMS_SURFACE_PILE_TALLY=1` in the environment a serial build prints one boundary per phase onto stdout, each naming the piles the parent holds at that moment with the counts the build's own figures corroborate — every unit in the workload, its audit rows at load and none once the content keys have read them, a spool address per fresh unit from the units phase until the runner closes and none after, the state record and the checker's identity for every unit written, and no pile of enrichments at any boundary — and the shards and manifest it writes are byte-for-byte the ones the same build writes with the variable unset."""
+
+    def build(out: Path) -> dict:
+        return review_build.build_m1(
+            out,
+            audit_path=MINI / "audit.tsv",
+            ledger_path=mini_bundle.ledger,
+            subset_dir=MINI,
+            after_font=MINI / "M1.otf",
+            spec_root=mini_bundle.spec_root,
+            fresh_unit_cache=True,
+        )
+
+    monkeypatch.delenv(pile_tally.TALLY_ENV, raising=False)
+    silent = tmp_path / "silent"
+    build(silent)
+    assert "[tally]" not in capsys.readouterr().out
+
+    monkeypatch.setenv(pile_tally.TALLY_ENV, "1")
+    tallied = tmp_path / "tallied"
+    manifest = build(tallied)
+    captured = capsys.readouterr()
+    tallies = _tally_lines(captured.out)
+    assert list(tallies) == ["load", "plan", "units", "manifest+check", "census-facts", "cache"]
+    total = manifest["totals"]["units"]
+    assert tallies["load"]["workload.units"] == total
+    assert tallies["load"]["workload.rows"] == manifest["totals"]["rows"]
+    assert tallies["plan"]["workload.rows"] == 0
+    assert "ink.shape_memo" in tallies["load"] and "signatures" in tallies["load"]
+    assert tallies["plan"]["unit_cache.keys"] == total and tallies["plan"]["unit_cache.served"] == 0
+    assert tallies["units"]["states"] == total and tallies["units"]["runner.spooled"] == total
+    assert tallies["units"]["runner.subset_rows"] > 0
+    assert tallies["manifest+check"]["runner.spooled"] == total
+    assert tallies["census-facts"]["runner.spooled"] == 0 and tallies["cache"]["runner.spooled"] == 0
+    assert tallies["manifest+check"]["checker.identity"] == total
+    assert tallies["manifest+check"]["written.content_keys"] == total
+    assert tallies["cache"]["unit_cache.records"] == total
+    for name in tallies:
+        assert "/" not in name
+    assert not _enrichment_piles(tallies)
+    assert "[tally]" not in captured.err
+
+    for relative in sorted(path.relative_to(tallied) for path in tallied.rglob("*.json")):
+        assert (silent / relative).read_bytes() == (tallied / relative).read_bytes(), relative
 
 
 def test_close_finds_the_peak_behind_an_unconsumed_phase_reply(tmp_path, monkeypatch):
