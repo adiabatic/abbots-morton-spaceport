@@ -22,7 +22,8 @@ use crate::options::{FollowerMap, WindowOptions};
 use crate::sha256;
 use crate::stream::{FixpointProduct, TransitionRow, feature_config_token};
 use crate::types::{
-    CellId, EDGE, LeftContext, RightToken, Settled, TokenKind, TransitionTrace, cell_label,
+    CellId, EDGE, LeftContext, RightToken, Settled, SettledPool, SettledSeat, TokenKind,
+    TransitionTrace, cell_label,
 };
 
 /// The label a slot the window does not carry is spelled with, `table.NA_LABEL`. A boundary at right1 puts it in the second slot as well: nothing follows a run edge inside one window.
@@ -174,11 +175,11 @@ struct Item {
     right3_allowed: Option<Allowed>,
 }
 
-/// What a recorded window carries beyond the six labels that key it — `table.Transition`'s remaining fields, kept apart from the key so the labels are stored once rather than in both the map's key and its value. The outcome is a pool id like the key's slots, resolved to its spelling with them when the product is materialized.
+/// What a recorded window carries beyond the six labels that key it — `table.Transition`'s remaining fields, kept apart from the key so the labels are stored once rather than in both the map's key and its value. The outcome is a pool id like the key's slots, resolved to its spelling with them when the product is materialized. The two settled records are seats into the run's [`SettledPool`] for the same reason at a steeper ratio: a configuration reaches a few thousand distinct records over millions of rows, so a row holding its record by value was holding a copy — adjustments allocation and all — that hundreds of thousands of its neighbors held too (issue #162).
 struct Row {
     outcome: Label,
-    settled: Settled,
-    left_settled: Option<Settled>,
+    settled: SettledSeat,
+    left_settled: Option<SettledSeat>,
     joint: bool,
     prospect: i64,
     provenance: Vec<String>,
@@ -217,17 +218,17 @@ struct PendingDeepRow {
     members4: Slot4Entry,
     rep3: RightToken,
     rep4: Option<RightToken>,
-    settled: Settled,
-    left_settled: Option<Settled>,
+    settled: SettledSeat,
+    left_settled: Option<SettledSeat>,
     joint: bool,
     prospect: i64,
     provenance: Vec<String>,
 }
 
 impl PendingDeepRow {
-    /// Whether an echo trace's record is the representative's, over exactly the four fields a row carries: the settled triple, the prospect, the joint-floor flag and the notes. Nothing about the ranking that reached them is compared, because nothing about it reaches the row.
-    fn echoes(&self, echo: &TransitionTrace) -> bool {
-        echo.settled == self.settled
+    /// Whether an echo trace's record is the representative's, over exactly the four fields a row carries: the settled triple — the representative's read back through the pool its seat names — the prospect, the joint-floor flag and the notes. Nothing about the ranking that reached them is compared, because nothing about it reaches the row.
+    fn echoes(&self, seats: &SettledPool, echo: &TransitionTrace) -> bool {
+        echo.settled == *seats.get(self.settled)
             && echo.prospect == self.prospect
             && echo.joint_floor == self.joint
             && echo.notes == self.provenance
@@ -290,6 +291,7 @@ fn enumerate_seeded(
     let mut deriver = class_grain.then(DeepFiberDeriver::new);
 
     let mut labels = LabelPool::default();
+    let mut seats = SettledPool::default();
     let mut transitions: HashMap<WindowKey, Row> = HashMap::new();
     // The pending class-grain rows, split from the seats their keys hold, so that the echo pass walks them in the order they were created.
     let mut pending_rows: Vec<PendingDeepRow> = Vec::new();
@@ -324,6 +326,9 @@ fn enumerate_seeded(
         } else {
             labels.intern(boundary_left_label(left.kind))
         };
+        // A letter left is the settled record of a row already recorded, so this is a hit on every item past the seeds; it is asked once per item and compared by integer on every window the item reaches.
+        let left_seat: Option<SettledSeat> =
+            left.settled.as_ref().map(|settled| seats.seat(settled));
         // The trace reads the raw letter whatever the label says: locking is a fact about the glyph the emitted lookup substitutes, not about what settles.
         let token = RightToken::Letter(rune);
         let right1_options: Vec<RightToken> = match right1_constraint {
@@ -462,7 +467,7 @@ fn enumerate_seeded(
                             let settled = match pending_seats.get(&pending_key) {
                                 Some(&seat) => {
                                     let record = &mut pending_rows[seat];
-                                    if record.left_settled != left.settled {
+                                    if record.left_settled != left_seat {
                                         let display: WindowKey = [
                                             input_label,
                                             left_label,
@@ -474,12 +479,12 @@ fn enumerate_seeded(
                                         return Err(partition_complaint(
                                             index,
                                             &labels.spelled(&display),
-                                            record.left_settled.as_ref(),
+                                            record.left_settled.map(|seat| seats.get(seat)),
                                             left.settled.as_ref(),
                                         ));
                                     }
                                     record.admitted3.extend(admitted3.iter().copied());
-                                    record.settled.clone()
+                                    seats.get(record.settled).clone()
                                 }
                                 None => {
                                     let trace = engine
@@ -489,7 +494,6 @@ fn enumerate_seeded(
                                             Slots::new(right1, right2, rep3, rep4.unwrap_or(EDGE)),
                                         )
                                         .map_err(complaint)?;
-                                    let settled = trace.settled.clone();
                                     pending_seats.insert(pending_key, pending_rows.len());
                                     pending_rows.push(PendingDeepRow {
                                         left_context: left.clone(),
@@ -503,13 +507,13 @@ fn enumerate_seeded(
                                         members4: members4.clone(),
                                         rep3,
                                         rep4,
-                                        settled: trace.settled,
-                                        left_settled: left.settled.clone(),
+                                        settled: seats.seat(&trace.settled),
+                                        left_settled: left_seat,
                                         joint: trace.joint_floor,
                                         prospect: trace.prospect,
                                         provenance: trace.notes,
                                     });
-                                    settled
+                                    trace.settled
                                 }
                             };
                             worklist.push(Item {
@@ -586,15 +590,15 @@ fn enumerate_seeded(
                         ];
                         // A worklist item with different pins can re-reach a window key already recorded; the recorded row's settled state is what a re-trace would return, because the left label is injective into the trace's inputs, so a hit skips straight to the successor enqueue — whose pins still differ per item. The left-state comparison is that premise made executable, and can only fire if `cell_label` stops being injective over settled lefts.
                         let settled = if let Some(existing) = transitions.get(&window_key) {
-                            if existing.left_settled != left.settled {
+                            if existing.left_settled != left_seat {
                                 return Err(partition_complaint(
                                     index,
                                     &labels.spelled(&window_key),
-                                    existing.left_settled.as_ref(),
+                                    existing.left_settled.map(|seat| seats.get(seat)),
                                     left.settled.as_ref(),
                                 ));
                             }
-                            existing.settled.clone()
+                            seats.get(existing.settled).clone()
                         } else {
                             let trace = engine
                                 .transition_trace(
@@ -608,20 +612,19 @@ fn enumerate_seeded(
                                     ),
                                 )
                                 .map_err(complaint)?;
-                            let settled = trace.settled.clone();
                             transitions.insert(
                                 window_key,
                                 Row {
                                     outcome: labels
                                         .intern_owned(cell_label(index, &trace.settled.cell)),
-                                    settled: trace.settled,
-                                    left_settled: left.settled.clone(),
+                                    settled: seats.seat(&trace.settled),
+                                    left_settled: left_seat,
                                     joint: trace.joint_floor,
                                     prospect: trace.prospect,
                                     provenance: trace.notes,
                                 },
                             );
-                            settled
+                            trace.settled
                         };
 
                         if right1.kind() == TokenKind::Letter {
@@ -707,12 +710,13 @@ fn enumerate_seeded(
                     Slots::new(pending.right1, pending.right2, last3, rep4),
                 )
                 .map_err(complaint)?;
-            if !pending.echoes(&echo) {
+            if !pending.echoes(&seats, &echo) {
                 return Err(echo_mismatch(
                     index,
                     &labels.spelled(&window_key),
                     last3,
                     pending,
+                    seats.get(pending.settled),
                     &echo,
                 ));
             }
@@ -729,12 +733,13 @@ fn enumerate_seeded(
                     Slots::new(pending.right1, pending.right2, pending.rep3, last4),
                 )
                 .map_err(complaint)?;
-            if !pending.echoes(&echo) {
+            if !pending.echoes(&seats, &echo) {
                 return Err(echo_mismatch(
                     index,
                     &labels.spelled(&window_key),
                     last4,
                     pending,
+                    seats.get(pending.settled),
                     &echo,
                 ));
             }
@@ -748,9 +753,9 @@ fn enumerate_seeded(
         transitions.insert(
             window_key,
             Row {
-                outcome: labels.intern_owned(cell_label(index, &pending.settled.cell)),
-                settled: pending.settled.clone(),
-                left_settled: pending.left_settled.clone(),
+                outcome: labels.intern_owned(cell_label(index, &seats.get(pending.settled).cell)),
+                settled: pending.settled,
+                left_settled: pending.left_settled,
                 joint: pending.joint,
                 prospect: pending.prospect,
                 provenance: pending.provenance.clone(),
@@ -763,6 +768,7 @@ fn enumerate_seeded(
             CacheSize::of("transitions", transitions.len(), transitions.capacity()).line(&config),
         );
         lines.push(CacheSize::of("seen", seen.len(), seen.capacity()).line(&config));
+        lines.push(CacheSize::of("settled_seats", seats.len(), seats.capacity()).line(&config));
         lines.push(
             CacheSize::of("labels", labels.texts.len(), labels.texts.capacity()).line(&config),
         );
@@ -837,12 +843,16 @@ fn enumerate_seeded(
             resident_kb()
         ));
     }
-    // The product's cells are a set rather than a per-row list; collapsing the repeats here rather than at the emitter keeps one cell per seat out of one clone per row.
+    // The product's cells are a set rather than a per-row list; collapsing the repeats here rather than at the emitter keeps one cell per seat out of one clone per row. A row's seat is checked before its cell because most rows share a seat already seen, and an integer set answers that without touching the cell at all.
+    let mut seen_seats: HashSet<SettledSeat> = HashSet::new();
     let mut counted: HashSet<&CellId> = HashSet::new();
     let mut cells: Vec<CellId> = Vec::new();
     for row in &rows {
-        if counted.insert(&row.settled.cell) {
-            cells.push(row.settled.cell.clone());
+        if seen_seats.insert(row.settled) {
+            let cell = &seats.get(row.settled).cell;
+            if counted.insert(cell) {
+                cells.push(cell.clone());
+            }
         }
     }
     let product = FixpointProduct {
@@ -851,6 +861,7 @@ fn enumerate_seeded(
         deep_classes,
         cited_provenance,
         cells,
+        seats: seats.into_table(),
     };
     if let Some(deriver) = deriver.as_mut() {
         let mut check = DeepPartitionCheck {
@@ -1024,12 +1035,13 @@ fn echo_member(members: &[RightToken], representative: RightToken) -> RightToken
     }
 }
 
-/// The echo check's `PartitionError` sentence: a member of a class row traced something the representative did not, which is the virtual-left fiber collapse failing at real-left grain.
+/// The echo check's `PartitionError` sentence: a member of a class row traced something the representative did not, which is the virtual-left fiber collapse failing at real-left grain. The representative's settled record arrives resolved, since the row holds only its seat.
 fn echo_mismatch(
     index: &SpecIndex,
     key: &[&str; 6],
     member: RightToken,
     expected: &PendingDeepRow,
+    expected_settled: &Settled,
     got: &TransitionTrace,
 ) -> String {
     format!(
@@ -1044,7 +1056,7 @@ fn echo_mismatch(
         ),
         row_record_text(
             index,
-            &expected.settled,
+            expected_settled,
             expected.prospect,
             expected.joint,
             &expected.provenance
@@ -1902,19 +1914,8 @@ mod tests {
         )
     }
 
-    /// One hand-built row. The partition assertion reads the six window labels and nothing else, so every row here settles into the same cell.
-    fn deep_row(index: &SpecIndex, labels: [&str; 6]) -> TransitionRow {
-        let settled = Settled {
-            cell: CellId {
-                rune: fixtures::sym(index, "qsMay"),
-                stance: fixtures::sym(index, "plain"),
-                entry: None,
-                exit: None,
-                adjustments: Vec::new(),
-            },
-            seam: None,
-            extension: 0,
-        };
+    /// One hand-built row. The partition assertion reads the six window labels and nothing else, so every row here names the same settled seat, into a table the product below does not bother to carry.
+    fn deep_row(labels: [&str; 6]) -> TransitionRow {
         let [input_glyph, left, right1, right2, right3, right4] = labels.map(Rc::from);
         TransitionRow {
             input_glyph,
@@ -1924,7 +1925,7 @@ mod tests {
             right3,
             right4,
             outcome: Rc::from("qsMay.plain"),
-            settled,
+            settled: SettledSeat(0),
             left_settled: None,
             joint: false,
             prospect: 0,
@@ -1948,6 +1949,7 @@ mod tests {
                 .collect(),
             cited_provenance: Vec::new(),
             cells: Vec::new(),
+            seats: Vec::new(),
         }
     }
 
@@ -2052,10 +2054,9 @@ mod tests {
     fn the_third_slot_is_enumerated_exactly_where_the_filters_say_live() {
         let index = deep_alphabet();
         let dead = hand_product(
-            vec![deep_row(
-                &index,
-                ["qsPea", "#EDGE", "qsPea", "qsMay", "qsTea", "#NA"],
-            )],
+            vec![deep_row([
+                "qsPea", "#EDGE", "qsPea", "qsMay", "qsTea", "#NA",
+            ])],
             &[],
         );
         assert!(
@@ -2064,10 +2065,7 @@ mod tests {
                 .ends_with(": right3 enumerated where the filters say dead"),
         );
         let live = hand_product(
-            vec![deep_row(
-                &index,
-                ["qsPea", "#EDGE", "qsTea", "qsMay", "#NA", "#NA"],
-            )],
+            vec![deep_row(["qsPea", "#EDGE", "qsTea", "qsMay", "#NA", "#NA"])],
             &[],
         );
         assert!(
@@ -2082,10 +2080,14 @@ mod tests {
     fn a_class_token_the_map_never_names_stops_the_build() {
         let index = deep_alphabet();
         let product = hand_product(
-            vec![deep_row(
-                &index,
-                ["qsPea", "#EDGE", "qsTea", "qsMay", "#Cfeedfacefeed", "#NA"],
-            )],
+            vec![deep_row([
+                "qsPea",
+                "#EDGE",
+                "qsTea",
+                "qsMay",
+                "#Cfeedfacefeed",
+                "#NA",
+            ])],
             &[],
         );
         let complaint = checked(&index, &product, &[]).expect_err("the map is empty");
@@ -2100,10 +2102,9 @@ mod tests {
     fn a_boundary_third_slot_carries_no_fourth() {
         let index = deep_alphabet();
         let product = hand_product(
-            vec![deep_row(
-                &index,
-                ["qsPea", "#EDGE", "qsTea", "qsMay", "#EDGE", "qsPea"],
-            )],
+            vec![deep_row([
+                "qsPea", "#EDGE", "qsTea", "qsMay", "#EDGE", "qsPea",
+            ])],
             &[],
         );
         assert!(
@@ -2119,10 +2120,7 @@ mod tests {
         let index = deep_alphabet();
         let orphan = class_of(&["qsPea", "qsTea"]);
         let product = hand_product(
-            vec![deep_row(
-                &index,
-                ["qsPea", "#EDGE", "qsPea", "qsMay", "#NA", "#NA"],
-            )],
+            vec![deep_row(["qsPea", "#EDGE", "qsPea", "qsMay", "#NA", "#NA"])],
             &[(&orphan, &["qsPea", "qsTea"])],
         );
         assert_eq!(
@@ -2137,10 +2135,9 @@ mod tests {
         let index = deep_alphabet();
         let token = class_of(&["qsPea", "qsTea"]);
         let product = hand_product(
-            vec![deep_row(
-                &index,
-                ["qsPea", "#EDGE", "qsTea", "qsMay", &token, "#NA"],
-            )],
+            vec![deep_row([
+                "qsPea", "#EDGE", "qsTea", "qsMay", &token, "#NA",
+            ])],
             &[(&token, &["qsPea", "qsTea"])],
         );
         let outside = checked(&index, &product, &[(LIVE, &[&["qsPea"]])])
@@ -2163,10 +2160,9 @@ mod tests {
         let index = deep_alphabet();
         let token = class_of(&["qsPea", "qsTea"]);
         let product = hand_product(
-            vec![deep_row(
-                &index,
-                ["qsPea", "#EDGE", "qsTea", "qsMay", &token, "#NA"],
-            )],
+            vec![deep_row([
+                "qsPea", "#EDGE", "qsTea", "qsMay", &token, "#NA",
+            ])],
             &[(&token, &["qsPea", "qsTea"])],
         );
         let complaint = checked(&index, &product, &[(LIVE, &[&["qsPea", "qsTea"]])])
@@ -2184,10 +2180,9 @@ mod tests {
     fn the_fourth_slot_is_enumerated_exactly_where_the_filters_say_live() {
         let index = deep_alphabet();
         let live = hand_product(
-            vec![deep_row(
-                &index,
-                ["qsPea", "#EDGE", "qsTea", "qsMay", "qsPea", "#NA"],
-            )],
+            vec![deep_row([
+                "qsPea", "#EDGE", "qsTea", "qsMay", "qsPea", "#NA",
+            ])],
             &[],
         );
         assert!(
@@ -2196,10 +2191,9 @@ mod tests {
                 .ends_with(": right4 #NA where the filters say live"),
         );
         let dead = hand_product(
-            vec![deep_row(
-                &index,
-                ["qsPea", "#EDGE", "qsTea", "qsMay", "qsTea", "qsPea"],
-            )],
+            vec![deep_row([
+                "qsPea", "#EDGE", "qsTea", "qsMay", "qsTea", "qsPea",
+            ])],
             &[],
         );
         assert!(
@@ -2215,10 +2209,9 @@ mod tests {
         let index = liga_alphabet();
         let token = class_of(&["qsPea", "qsTea"]);
         let product = hand_product(
-            vec![deep_row(
-                &index,
-                ["qsPea", "#EDGE", "qsTea", "qsMay", &token, "qsTea"],
-            )],
+            vec![deep_row([
+                "qsPea", "#EDGE", "qsTea", "qsMay", &token, "qsTea",
+            ])],
             &[(&token, &["qsPea", "qsTea"])],
         );
         let complaint = checked(&index, &product, &[(LIVE, &[&["qsPea", "qsTea"]])]).expect_err(

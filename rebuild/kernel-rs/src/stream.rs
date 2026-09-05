@@ -5,6 +5,8 @@
 //! The stream this module builds is uncompressed. Python's writer gzips it with a zeroed stamp into a file; the kernel writes the identical bytes to stdout and the harness that runs it does the gzipping, so the crate carries no compressor and the boundary stays one format rather than two.
 //!
 //! A cell is spelled once, in the head, and every row names its settled cell by its seat there, which is why the emitter rather than the fixpoint owns the cell sort: a seat is an index into [`cell_key`] order and nothing else. A row naming a cell the product does not count among its reachable cells is refused here, at the boundary, exactly as `write_transitions` raises `PartitionError` rather than letting the fold meet the disagreement later.
+//!
+//! The product's own seats are a different table from the head's. A row holds its settled record and its left's as a [`SettledSeat`] apiece into [`FixpointProduct::seats`], in the order the fixpoint first reached each record, and that table never crosses the boundary: the writer resolves a row's seat to the record, and the record's cell to the head's seat, and spells only the latter. Two tables rather than one because they answer different questions — the head's is the cell vocabulary in `_cell_key` order, a contract Python reads, and the product's is every distinct settled triple, an economy the crate keeps to itself.
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fmt::Write as _;
@@ -14,7 +16,7 @@ use std::rc::Rc;
 use crate::emit::{escape_into, json_string};
 use crate::index::SpecIndex;
 use crate::model::Sym;
-use crate::types::{CellId, Settled, adjustment_text};
+use crate::types::{CellId, Settled, SettledSeat, adjustment_text};
 
 /// The marker the head line carries, `kernel_io.TRANSITIONS_FORMAT`. A stream naming anything else is another format and not a newer spelling of this one.
 pub const TRANSITIONS_FORMAT: &str = "ams-m1-transitions/1";
@@ -22,6 +24,8 @@ pub const TRANSITIONS_FORMAT: &str = "ams-m1-transitions/1";
 /// Everything one configuration's fixpoint produces, `table.FixpointProduct`. The rows arrive already sorted on [`TransitionRow::key`] — that order is the product's own and the stream keeps it, because `assemble_tables` expands and flags in it.
 ///
 /// Three of the fields are `frozenset`s and a `Mapping` on the Python side and vectors here, so their canonical order is the emitter's business rather than the fixpoint's: `cells` and `cited_provenance` are sorted (and repeats collapsed, which is what a frozenset does to them) and `deep_classes` is sorted by token. `deep_classes` is empty at label grain and at every grain of the pinned world, and the emitter spells it either way.
+///
+/// `seats` has no Python counterpart at all: it is the table every row's [`SettledSeat`] indexes, one entry per distinct settled record in the order the fixpoint first reached it, and [`FixpointProduct::settled`] and [`FixpointProduct::left_settled`] are how a row's two records are read back. Python's `Transition` holds both by value, and so did this row until issue #162 seated them.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct FixpointProduct {
     pub config: String,
@@ -29,11 +33,24 @@ pub struct FixpointProduct {
     pub deep_classes: Vec<(String, Vec<String>)>,
     pub cited_provenance: Vec<String>,
     pub cells: Vec<CellId>,
+    pub seats: Vec<Settled>,
+}
+
+impl FixpointProduct {
+    /// The record one row settled into.
+    pub fn settled(&self, row: &TransitionRow) -> &Settled {
+        &self.seats[row.settled.index()]
+    }
+
+    /// The record the row's left settled into — present for a letter left and for the boundary cells the fold records, absent otherwise.
+    pub fn left_settled(&self, row: &TransitionRow) -> Option<&Settled> {
+        row.left_settled.map(|seat| &self.seats[seat.index()])
+    }
 }
 
 /// One enriched row, `table.Transition`: the label view of a settled window plus the four fields only the fixpoint and the fold read. The seven labels are text rather than symbols because a window slot is not always a name the spec interned — `#EDGE`, `#NA`, and the ZWNJ twin's `.noentry` suffix are the kernel's own spellings — and nothing downstream keys on them as anything but text.
 ///
-/// They are shared handles rather than owned strings because a product holds millions of rows over a few tens of thousands of distinct spellings: the fixpoint interns each one once and every row that names it holds the same allocation. Sorting and every raise message read them as the `&str` they are, so nothing about the stream moves.
+/// They are shared handles rather than owned strings because a product holds millions of rows over a few tens of thousands of distinct spellings: the fixpoint interns each one once and every row that names it holds the same allocation. Sorting and every raise message read them as the `&str` they are, so nothing about the stream moves. The two settled records are seated the same way, by the same argument at a steeper ratio — a few thousand distinct records over those millions of rows — so a row holds a [`SettledSeat`] into the product's table for each and no cell of its own.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TransitionRow {
     pub input_glyph: Rc<str>,
@@ -43,8 +60,8 @@ pub struct TransitionRow {
     pub right3: Rc<str>,
     pub right4: Rc<str>,
     pub outcome: Rc<str>,
-    pub settled: Settled,
-    pub left_settled: Option<Settled>,
+    pub settled: SettledSeat,
+    pub left_settled: Option<SettledSeat>,
     pub joint: bool,
     pub prospect: i64,
     pub provenance: Vec<String>,
@@ -137,8 +154,9 @@ pub fn write_transitions(
         .collect();
 
     for row in &product.transitions {
-        seat_of(index, &seats, &row.settled, row, "settles into").map_err(WriteFailure::Refused)?;
-        if let Some(left) = &row.left_settled {
+        seat_of(index, &seats, product.settled(row), row, "settles into")
+            .map_err(WriteFailure::Refused)?;
+        if let Some(left) = product.left_settled(row) {
             seat_of(index, &seats, left, row, "carries the left-settled cell")
                 .map_err(WriteFailure::Refused)?;
         }
@@ -154,7 +172,7 @@ pub fn write_transitions(
     out.write_all(line.as_bytes()).map_err(WriteFailure::Sink)?;
     for row in &product.transitions {
         line.clear();
-        row_into(&mut line, index, &seats, row).map_err(WriteFailure::Refused)?;
+        row_into(&mut line, index, &seats, product, row).map_err(WriteFailure::Refused)?;
         line.push('\n');
         out.write_all(line.as_bytes()).map_err(WriteFailure::Sink)?;
     }
@@ -229,6 +247,7 @@ fn row_into(
     out: &mut String,
     index: &SpecIndex,
     seats: &HashMap<&CellId, usize>,
+    product: &FixpointProduct,
     row: &TransitionRow,
 ) -> Result<(), String> {
     out.push('[');
@@ -238,9 +257,9 @@ fn row_into(
     }
     escape_into(out, &row.outcome);
     out.push(',');
-    settled_into(out, index, seats, &row.settled, row, "settles into")?;
+    settled_into(out, index, seats, product.settled(row), row, "settles into")?;
     out.push(',');
-    match &row.left_settled {
+    match product.left_settled(row) {
         Some(left) => settled_into(
             out,
             index,
@@ -390,11 +409,7 @@ mod tests {
     fn worked_product(index: &SpecIndex) -> FixpointProduct {
         FixpointProduct {
             config: "ss03+ss05".to_owned(),
-            transitions: vec![
-                edge_row(index),
-                left_settled_row(index),
-                boundary_left_row(index),
-            ],
+            transitions: vec![edge_row(), left_settled_row(), boundary_left_row()],
             deep_classes: Vec::new(),
             cited_provenance: vec![
                 "qsTea.yaml:policy.refuse[0]".to_owned(),
@@ -407,7 +422,39 @@ mod tests {
                 boundary_cell(index.vocab(), TokenKind::Space),
                 tea_locked(index),
             ],
+            seats: seated(index),
         }
+    }
+
+    /// The seat table the three worked rows index: their five distinct settled records, in the order the rows below name them.
+    fn seated(index: &SpecIndex) -> Vec<Settled> {
+        vec![
+            Settled {
+                cell: pea_cell(index),
+                seam: None,
+                extension: 0,
+            },
+            Settled {
+                cell: tea_locked(index),
+                seam: Some(fixtures::sym(index, "baseline")),
+                extension: 2,
+            },
+            Settled {
+                cell: pea_cell(index),
+                seam: Some(fixtures::sym(index, "x-height")),
+                extension: 1,
+            },
+            Settled {
+                cell: tea_bound(index),
+                seam: None,
+                extension: -1,
+            },
+            Settled {
+                cell: boundary_cell(index.vocab(), TokenKind::Space),
+                seam: None,
+                extension: 0,
+            },
+        ]
     }
 
     fn pea_cell(index: &SpecIndex) -> CellId {
@@ -443,7 +490,7 @@ mod tests {
         }
     }
 
-    fn edge_row(index: &SpecIndex) -> TransitionRow {
+    fn edge_row() -> TransitionRow {
         TransitionRow {
             input_glyph: Rc::from("qsPea"),
             left: Rc::from("#EDGE"),
@@ -452,11 +499,7 @@ mod tests {
             right3: Rc::from("#NA"),
             right4: Rc::from("#NA"),
             outcome: Rc::from("qsPea.half"),
-            settled: Settled {
-                cell: pea_cell(index),
-                seam: None,
-                extension: 0,
-            },
+            settled: SettledSeat(0),
             left_settled: None,
             joint: false,
             prospect: 0,
@@ -464,7 +507,7 @@ mod tests {
         }
     }
 
-    fn left_settled_row(index: &SpecIndex) -> TransitionRow {
+    fn left_settled_row() -> TransitionRow {
         TransitionRow {
             input_glyph: Rc::from("qsTea.noentry"),
             left: Rc::from("qsPea.half.en-y0.ex-y5"),
@@ -473,16 +516,8 @@ mod tests {
             right3: Rc::from("qsPea"),
             right4: Rc::from("#NA"),
             outcome: Rc::from("qsTea.half.ex-y0.locked"),
-            settled: Settled {
-                cell: tea_locked(index),
-                seam: Some(fixtures::sym(index, "baseline")),
-                extension: 2,
-            },
-            left_settled: Some(Settled {
-                cell: pea_cell(index),
-                seam: Some(fixtures::sym(index, "x-height")),
-                extension: 1,
-            }),
+            settled: SettledSeat(1),
+            left_settled: Some(SettledSeat(2)),
             joint: true,
             prospect: 3,
             provenance: vec![
@@ -492,7 +527,7 @@ mod tests {
         }
     }
 
-    fn boundary_left_row(index: &SpecIndex) -> TransitionRow {
+    fn boundary_left_row() -> TransitionRow {
         TransitionRow {
             input_glyph: Rc::from("qsTea"),
             left: Rc::from("space"),
@@ -501,16 +536,8 @@ mod tests {
             right3: Rc::from("#NA"),
             right4: Rc::from("#NA"),
             outcome: Rc::from("qsTea.half.en-y5.en-ext-1.ex-bind-pulled-back"),
-            settled: Settled {
-                cell: tea_bound(index),
-                seam: None,
-                extension: -1,
-            },
-            left_settled: Some(Settled {
-                cell: boundary_cell(index.vocab(), TokenKind::Space),
-                seam: None,
-                extension: 0,
-            }),
+            settled: SettledSeat(3),
+            left_settled: Some(SettledSeat(4)),
             joint: false,
             prospect: -2,
             provenance: vec!["qsIt.yaml:policy.groups".to_owned()],
@@ -554,7 +581,7 @@ mod tests {
         let index = fixtures::mini();
         let product = FixpointProduct {
             config: "ss10".to_owned(),
-            transitions: vec![edge_row(&index)],
+            transitions: vec![edge_row()],
             deep_classes: vec![
                 (
                     "#Cbbb".to_owned(),
@@ -573,6 +600,7 @@ mod tests {
                     adjustments: Vec::new(),
                 },
             ],
+            seats: seated(&index),
         };
         let stream = emit_transitions(&index, &product).expect("every cell is seated");
         assert_eq!(
@@ -589,10 +617,11 @@ mod tests {
         let index = fixtures::mini();
         let product = FixpointProduct {
             config: "default".to_owned(),
-            transitions: vec![left_settled_row(&index)],
+            transitions: vec![left_settled_row()],
             deep_classes: Vec::new(),
             cited_provenance: Vec::new(),
             cells: vec![pea_cell(&index)],
+            seats: seated(&index),
         };
         assert_eq!(
             emit_transitions(&index, &product),
@@ -605,10 +634,11 @@ mod tests {
         let index = fixtures::mini();
         let product = FixpointProduct {
             config: "default".to_owned(),
-            transitions: vec![left_settled_row(&index)],
+            transitions: vec![left_settled_row()],
             deep_classes: Vec::new(),
             cited_provenance: Vec::new(),
             cells: vec![tea_locked(&index)],
+            seats: seated(&index),
         };
         assert_eq!(
             emit_transitions(&index, &product),
