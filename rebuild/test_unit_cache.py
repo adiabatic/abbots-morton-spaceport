@@ -256,6 +256,51 @@ def test_unit_store_environment_ignores_the_contact_allow_list(tmp_path):
     assert stamp() != base
 
 
+SURFACE_UNREAD_CODE = (
+    "rebuild/pipeline/run_m1.py",
+    "rebuild/pipeline/oracle.py",
+    "rebuild/pipeline/defects.py",
+    "rebuild/pipeline/compile_font.py",
+    "rebuild/kernel-rs/src/fixpoint.rs",
+    "rebuild/kernel-rs/src/fold.rs",
+    "rebuild/kernel-rs/src/fanout.rs",
+)
+SURFACE_READ_CODE = (
+    "rebuild/pipeline/kernel_exec.py",
+    "rebuild/validation/shaping.py",
+    "rebuild/review/enrich.py",
+    "rebuild/kernel-rs/src/engine.rs",
+    "rebuild/kernel-rs/Cargo.lock",
+)
+
+
+def test_both_store_stamps_survive_a_pipeline_or_crate_edit_the_surface_never_reads(tmp_path):
+    """The narrowing both stamps' code line makes (`unit_cache.surface_code_paths`), stated as the cost it removes: an edit to the driver, the oracle, a gate, the font compile or the crate's enumeration and fold — code the surface build never executes — used to drop both stores through the whole-tree `pipeline_code` component and cost the next build a cold units phase. Now it moves neither stamp, while an edit to a module the build does run — the kernel seam, the shaper, the enricher, the crate's engine, the crate's lock file — moves both. A hand-built root, so the edits are real files and the assertion is about the rosters rather than about this checkout; rebuild/test_review_code_closure.py is what holds those rosters to the walked closure."""
+    spec = fixtures.mini_spec()
+    root = tmp_path / "repo"
+    for relative in SURFACE_UNREAD_CODE + SURFACE_READ_CODE:
+        (root / relative).parent.mkdir(parents=True, exist_ok=True)
+        (root / relative).write_text(f"{relative}\n", encoding="utf-8")
+
+    def stamps() -> tuple[str, str]:
+        return (
+            unit_cache.environment_stamp(root, spec, MINI, MINI_FONT, MINI_FONT, "after-helpers"),
+            unit_cache.signature_environment(root, MINI_FONT, "after-helpers"),
+        )
+
+    base = stamps()
+    for relative in SURFACE_UNREAD_CODE:
+        (root / relative).write_text(f"{relative} edited\n", encoding="utf-8")
+        assert stamps() == base, relative
+    previous = base
+    for relative in SURFACE_READ_CODE:
+        (root / relative).write_text(f"{relative} edited\n", encoding="utf-8")
+        current = stamps()
+        assert current[0] != previous[0], relative
+        assert current[1] != previous[1], relative
+        previous = current
+
+
 REFUSE_RUNE = """\
 rune: qsPea
 policy:

@@ -1,12 +1,12 @@
 """The persisted per-unit surface cache (issue 20): the review build's phase-1/phase-2 products carried across builds, keyed by per-unit content keys, so a one-rune edit re-enriches the windows that could feel it and serves everything else from the previous surface's shards.
 
-A unit's expensive products — the ink diffs and machine-approval flags, the enrichment (cells, seams, highlights, explain, provenance), and the three drafts — are a pure function of a nameable closure, and the cache's soundness is exactly the claim that the content key covers that closure. The key is two-grained: per unit, the audit rows (which pin the window, its configs, both fonts' rendered names, and the matched ledger classes) plus a per-family digest for every window letter — the family's explain-aware rune digest expanded by its static `resolve.against` closure, joined with a digest of the after font's compiled glyphs for that family (outlines, advances, and cursive anchors, so a drawing or anchor change invalidates even when no name in the rows moves) — with ligature families included whenever all their components appear in the window. Whole store, everything that can move a unit's products without moving a named family: the pipeline and review code, the non-rune data files, the engine's semantics flags, the resolved spec structure and capability-feature universe (cross-rune routes: predicate-class and group memberships, ligature sequences, the formation guard's feature combos), the before and Junior fonts wholesale, the acceptance configs' subset tables, the draft harness (test/test_shaping.py, tools/, postscript_glyph_names.yaml) and the three site corpus files it validates pins against, and the after font's non-family glyphs, cmap, and GPOS wiring. What is deliberately outside every stamp is the after font's GSUB wiring; `after_font_glyph_digests` carries the argument for why a window's glyph selection is covered without it. The divergence ledger is deliberately not in the store stamp: its per-unit effects reach the shards only through the audit's matched_entry column (in the rows) or through fields the build re-derives and re-patches on every pass (no_verdict, exemplar, class promotion), so a ledger edit invalidates exactly the units whose rows it moved. The refuse prose the explain panel quotes is deliberately not in the store stamp either, for the same reason it is in the family keys: rewording one re-enriches the windows holding that family and leaves every other unit served.
+A unit's expensive products — the ink diffs and machine-approval flags, the enrichment (cells, seams, highlights, explain, provenance), and the three drafts — are a pure function of a nameable closure, and the cache's soundness is exactly the claim that the content key covers that closure. The key is two-grained: per unit, the audit rows (which pin the window, its configs, both fonts' rendered names, and the matched ledger classes) plus a per-family digest for every window letter — the family's explain-aware rune digest expanded by its static `resolve.against` closure, joined with a digest of the after font's compiled glyphs for that family (outlines, advances, and cursive anchors, so a drawing or anchor change invalidates even when no name in the rows moves) — with ligature families included whenever all their components appear in the window. Whole store, everything that can move a unit's products without moving a named family: the code the surface build runs (`surface_code_paths` — the review modules the build imports, the pipeline and validation modules those reach, and the crate modules the `settle-cases` and `guard-sweep` verbs run, a walked closure rebuild/test_review_code_closure.py holds the rosters to, so an edit to the driver, a gate, the oracle, the font compile or the crate's enumeration and fold keeps the store), the non-rune data files, the engine's semantics flags, the resolved spec structure and capability-feature universe (cross-rune routes: predicate-class and group memberships, ligature sequences, the formation guard's feature combos), the before and Junior fonts wholesale, the acceptance configs' subset tables, the draft harness (test/test_shaping.py, tools/, postscript_glyph_names.yaml) and the three site corpus files it validates pins against, and the after font's non-family glyphs, cmap, and GPOS wiring. What is deliberately outside every stamp is the after font's GSUB wiring; `after_font_glyph_digests` carries the argument for why a window's glyph selection is covered without it. The divergence ledger is deliberately not in the store stamp: its per-unit effects reach the shards only through the audit's matched_entry column (in the rows) or through fields the build re-derives and re-patches on every pass (no_verdict, exemplar, class promotion), so a ledger edit invalidates exactly the units whose rows it moved. The refuse prose the explain panel quotes is deliberately not in the store stamp either, for the same reason it is in the family keys: rewording one re-enriches the windows holding that family and leaves every other unit served.
 
 What the store serves is the previous build's emitted fragment (read back from the shards it lives in) plus the slim projection the parent's global reduces need: the machine flags and ink deltas, the verdict family, the judged pair, the ink-diff digest for echo grouping, the seam-home projection and per-seam rects, and the unit's mismatch lines. Everything order-derived or ledger-derived — id, batch, echo, class, no_verdict, exemplar, the secondary-seam homes — is recomputed over the full universe every build and patched into served fragments, so a cache hit never freezes a global field; the cluster id alone is trusted from the served fragment, because its inputs (configs, final class, ink diffs) are all under the key. The byte-identity gate (rebuild/test_unit_cache.py::test_incremental_rebuild_matches_a_from_scratch_build_after_an_edit) is the standing proof: an incrementally rebuilt live surface must match a from-scratch build byte for byte.
 
 This module also owns the carry content key (the render identity rebuild/tools/carry_verdicts.py resolves prior verdicts against), so the build can stamp each unit's `content_key` at emission time and carry can probe stamped hashes instead of re-serializing every unit — one definition, shared by both sides, with the stamp itself excluded from the projection it hashes.
 
-Beside the per-unit store lives the ink-signature store (issue 18), which does for the ink-duplicate merge what the unit store does for enrichment: the merge needs one rendered-outcome signature per (window, config) over every relabel-split window — the one per-unit product computed before the unit universe exists, so the unit store can never serve it — and re-shaping those serially was the load phase's floor. Each entry's key follows the unit key's two-grained soundness argument exactly: the audit row pins the window, the config, the before font's rendered names, and the settled cells the after font is compiled to reproduce, and the per-family digests pin the after font's outlines, advances, and cursive anchors for every family the window can touch. The whole-store stamp carries what signatures depend on beyond that: the shaping code and the before font wholesale, plus the after font's non-family glyphs, cmap, and GPOS wiring. Deliberately absent: the ledger, the subsets, the Junior font, the corpus, and the draft harness — signatures read none of them, so this store survives edits that drop the unit store, and a build that re-enriches everything can still skip re-shaping the merge.
+Beside the per-unit store lives the ink-signature store (issue 18), which does for the ink-duplicate merge what the unit store does for enrichment: the merge needs one rendered-outcome signature per (window, config) over every relabel-split window — the one per-unit product computed before the unit universe exists, so the unit store can never serve it — and re-shaping those serially was the load phase's floor. Each entry's key follows the unit key's two-grained soundness argument exactly: the audit row pins the window, the config, the before font's rendered names, and the settled cells the after font is compiled to reproduce, and the per-family digests pin the after font's outlines, advances, and cursive anchors for every family the window can touch. The whole-store stamp carries what signatures depend on beyond that: the code the surface build runs (the same `surface_code_paths` closure the unit store keys on — the Shaper lives in rebuild/validation and the comparator in rebuild/review, and nothing narrower is proved) and the before font wholesale, plus the after font's non-family glyphs, cmap, and GPOS wiring. Deliberately absent: the ledger, the subsets, the Junior font, the corpus, and the draft harness — signatures read none of them, so this store survives edits that drop the unit store, and a build that re-enriches everything can still skip re-shaping the merge.
 """
 
 from __future__ import annotations
@@ -159,6 +159,59 @@ def after_font_glyph_digests(after_font: Path) -> tuple[dict[str, str], str]:
     return family_digests, helpers
 
 
+# The rebuild/pipeline modules the surface build never imports: the driver, the defect and Manual-pin gates it runs, the baseline oracle, the GPOS emitter, the GSUB packer, read-back, the font compile, the CoreText smoke and the cell enumeration the driver realizes glyphs from. Every other pipeline module is in build.py's walked import closure and rides `surface_code_paths`. An exclusion roster rather than an inclusion one, so a module that lands in the tree is hashed until rebuild/test_review_code_closure.py says the build never reaches it.
+PIPELINE_NON_SURFACE_MODULES = frozenset(
+    {
+        "compile_font.py",
+        "coretext_smoke.py",
+        "defects.py",
+        "emit_gpos.py",
+        "manual_pins.py",
+        "oracle.py",
+        "pack_gsub.py",
+        "readback.py",
+        "run_m1.py",
+        "surface.py",
+    }
+)
+
+# The crate modules the surface build never executes: the enumeration, its deep-fiber and third- and fourth-slot machinery, the liveness probes, the window options, the fold and its rule fold, the artifact writers and digests, the stream, and the fan-out. The surface reaches the crate through `settle-cases` and `guard-sweep` alone, and those two verbs' handlers in main.rs reach the parser, the index, the engine and its specificity order, the case replay, the guard, the emitter and the error and type vocabularies — which is what stays hashed, beside main.rs and lib.rs themselves. The same exclusion shape as the pipeline roster, held by the same test to the `crate::` references the two handlers reach outside the crate's test modules.
+KERNEL_NON_SURFACE_MODULES = frozenset(
+    {
+        "artifacts.rs",
+        "census.rs",
+        "fanout.rs",
+        "fiber.rs",
+        "fixpoint.rs",
+        "fold.rs",
+        "liveness.rs",
+        "options.rs",
+        "rulefold.rs",
+        "sha256.rs",
+        "stream.rs",
+    }
+)
+
+
+def surface_code_paths(repo_root: Path) -> list[Path]:
+    """The code whose edit drops both per-unit stores: what the surface build actually runs, rather than every tree it might. The review side is `fingerprint.review_code_paths`, already held to build.py's import graph. The pipeline side is rebuild/pipeline minus `PIPELINE_NON_SURFACE_MODULES` and rebuild/validation whole, every module of which the build reaches. The crate side is rebuild/kernel-rs/src minus `KERNEL_NON_SURFACE_MODULES`, plus both Cargo files, since the crate's dependencies and profile shape every verb it answers. Before this closure existed the stamps folded `fingerprint.pipeline_code_paths` whole — every pipeline module, every Rust source, the font-compile tools — so an edit to the driver, a gate, the oracle or the crate's fold dropped the store and the next build paid a cold units phase for code it never executed.
+
+    Module grain, which over-invalidates in the safe direction: a module imported for something the build never calls is still stamped, and the served-vs-recomputed sample inside every build stays the check that a served fragment equals a fresh computation. Two things are left out on purpose. The width and telemetry modules under rebuild/tools that the build takes its fan-out and its cost readings from cannot move a byte of a unit's products — rebuild/test_unit_cache.py's serial-and-parallel byte identity holds the width half — and the test that pins the rosters also pins that those are the only modules the build reaches outside the three trees. The font-compile tools roster is code the build never runs, and the draft harness line hashes tools/*.py anyway.
+    """
+    root = Path(repo_root)
+    kernel = root / "rebuild" / "kernel-rs"
+    pipeline = [
+        path
+        for path in sorted((root / "rebuild" / "pipeline").glob("*.py"))
+        if path.name not in PIPELINE_NON_SURFACE_MODULES
+    ]
+    validation = sorted((root / "rebuild" / "validation").glob("*.py"))
+    crate = [kernel / "Cargo.toml", kernel / "Cargo.lock"] + [
+        path for path in sorted((kernel / "src").rglob("*.rs")) if path.name not in KERNEL_NON_SURFACE_MODULES
+    ]
+    return pipeline + validation + crate + fingerprint.review_code_paths(root)
+
+
 def environment_stamp(
     repo_root: Path,
     spec: ResolvedSpec,
@@ -167,7 +220,7 @@ def environment_stamp(
     junior_font: Path,
     after_helpers_digest: str,
 ) -> str:
-    """The whole-store stamp: any of these moving drops the cache entirely, and over-invalidation is the safe direction. The rune files are absent on purpose — they invalidate at per-unit grain through the family keys — and so is the divergence ledger (see the module docstring for why its reach is already covered)."""
+    """The whole-store stamp: any of these moving drops the cache entirely, and over-invalidation is the safe direction. The code line is `surface_code_paths`, the code the build runs and nothing more, so a pipeline or crate edit outside that closure — the driver, a gate, the oracle, the font compile, the crate's enumeration and fold — leaves the stamp where it was and the store serving. The rune files are absent on purpose — they invalidate at per-unit grain through the family keys — and so is the divergence ledger (see the module docstring for why its reach is already covered)."""
     root = Path(repo_root)
     runes = set(fingerprint.rune_paths(root))
     ledger = root / "rebuild" / "m1-divergences.yaml"
@@ -180,8 +233,7 @@ def environment_stamp(
     harness_paths += sorted((root / "tools").glob("*.py"))
     lines = [
         f"format\t{STORE_FORMAT}",
-        f"pipeline_code\t{fingerprint.hash_paths(root, fingerprint.pipeline_code_paths(root))}",
-        f"review_code\t{fingerprint.hash_paths(root, fingerprint.review_code_paths(root))}",
+        f"surface_code\t{fingerprint.hash_paths(root, surface_code_paths(root))}",
         "data\t" + hashlib.sha256("\n".join(data_lines).encode()).hexdigest(),
         "settlement_flags\t" + json.dumps(kernel_exec.settlement_flags()),
         f"spec_structure\t{spec_load.spec_structure_digest(spec)}",
@@ -361,12 +413,11 @@ def signature_store_path(out_dir: Path) -> Path:
 
 
 def signature_environment(repo_root: Path, before_font: Path, after_helpers_digest: str) -> str:
-    """The ink-signature store's whole-store stamp: only what a signature reads that the per-entry keys do not cover — the shaping code (both fingerprinted trees, since the Shaper lives in rebuild/validation and the comparator in rebuild/review), the before font wholesale, and the after font's non-family glyphs, cmap, and layout wiring. See the module docstring for why this is narrower than `environment_stamp`."""
+    """The ink-signature store's whole-store stamp: only what a signature reads that the per-entry keys do not cover — the shaping code (`surface_code_paths`, the closure the unit store keys on: the Shaper lives in rebuild/validation and the comparator in rebuild/review, and a narrower closure than the build's is not proved), the before font wholesale, and the after font's non-family glyphs, cmap, and layout wiring. See the module docstring for why this is narrower than `environment_stamp`."""
     root = Path(repo_root)
     lines = [
         f"format\t{SIGNATURE_STORE_FORMAT}",
-        f"pipeline_code\t{fingerprint.hash_paths(root, fingerprint.pipeline_code_paths(root))}",
-        f"review_code\t{fingerprint.hash_paths(root, fingerprint.review_code_paths(root))}",
+        f"surface_code\t{fingerprint.hash_paths(root, surface_code_paths(root))}",
         f"before_font\t{_sha256_file(Path(before_font))}",
         f"after_helpers\t{after_helpers_digest}",
     ]
