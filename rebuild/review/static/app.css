@@ -627,6 +627,12 @@ details.group.machine-group {
   > summary .group-counts {
     color: var(--approve);
   }
+
+  > .fold-more {
+    display: block;
+    margin: 0.7rem 1rem;
+    font-size: 13px;
+  }
 }
 
 .col-headers {

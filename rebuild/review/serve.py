@@ -9,7 +9,7 @@ import json
 import os
 from pathlib import Path
 
-from rebuild.review import journal
+from rebuild.review import app_index, journal
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 REVIEW_DIR = REPO_ROOT / "rebuild" / "out" / "review"
@@ -23,9 +23,9 @@ PORT = 7294
 
 
 def static_headers_for(path: str) -> dict[str, str]:
-    """The headers every static file goes out with. `Cache-Control: no-store` on everything, because a rebuild reuses every name; and the precompressed NDJSON sidecars beside the manifest go out as gzip-encoded `application/x-ndjson`, so the browser decompresses them on arrival while the file on disk keeps an honest name. The shards are deliberately not in that set: the explain panel addresses them by byte range, which only means anything while they are served identity-encoded."""
+    """The headers every static file goes out with. `Cache-Control: no-store` on everything, because a rebuild reuses every name; and the precompressed NDJSON sidecars beside the manifest go out as gzip-encoded `application/x-ndjson`, so the browser decompresses them on arrival while the file on disk keeps an honest name. The shards are deliberately not in that set: the app addresses them by byte range, which only means anything while they are served identity-encoded. The locator's rows file is out of it for the same reason — the app fetches one gzip member of it at a time by the span the locator table names, and Chrome refuses a partial response that declares a content encoding — so that file goes out as the bytes on disk and the app decompresses the member itself."""
     headers = {"Cache-Control": "no-store"}
-    if path.endswith(NDJSON_SUFFIX):
+    if path.endswith(NDJSON_SUFFIX) and not path.endswith(app_index.LOCATOR_ROWS_NAME):
         headers["Content-Type"] = "application/x-ndjson"
         headers["Content-Encoding"] = "gzip"
     return headers

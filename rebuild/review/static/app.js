@@ -57,18 +57,26 @@ import {
 import {
   APP_INDEX_FORMAT,
   APP_INDEX_NAME,
+  BLOCK_CACHE_CAP,
   LOCATOR_FORMAT,
   LOCATOR_NAME,
+  LOCATOR_ROWS_NAME,
+  MACHINE_FOLD_WINDOW,
+  candidateBlocks,
+  carriesSamples,
   checkIndexHeader,
+  coalesceSpans,
   createLineSplitter,
   createRecordCache,
   finishLines,
   hasExplainSource,
+  indexLocatorBlocks,
   isSlimFragment,
   looksGzipped,
   machineFoldPlan,
   rangeHeader,
   shardPartPath,
+  sliceRecordText,
   splitLines,
 } from './slim.js';
 import {
@@ -108,14 +116,16 @@ const NEITHER_MENU_CHOICES = [
 
 const manifest = await (await fetch('manifest.json')).json();
 const store = createStore();
-// The only corpus-scaled retention in the tab: one slim row per unit awaiting a verdict. Machine-approved and no-verdict units are never resident — their full records arrive a class at a time for the show-machine folds (machineClass, single-slot), a worklist at a time while that worklist is the view (worklist.records), or one at a time for a deep link (fullRecords, bounded).
+// The only queue-scaled retention in the tab: one slim row per unit awaiting a verdict, holding what the docket, search, filters and progress read across the whole queue. What a card draws — the sample text, the pair band, the settled cells — is Range-fetched from the shard record as the card renders, and the explain table when its panel opens, through fullRecords, which is bounded. Machine-approved and no-verdict units are never resident as a class: a show-machine fold reads its class's locator rows one block at a time and draws them a window at a time, keeping the records of the rows on screen (foldRecords, dropped with the view), a worklist keeps its own machine records while it is the view (worklist.records), and a deep link keeps the one unit it revealed (transientMachineUnit). The locator's block table is the one thing retained on the machine side, and it is the machine workload divided by the block size.
 const humanRows = new Map();
 const humanList = [];
 const rowsByClass = new Map();
 const echoIndex = new Map();
 const fullRecords = createRecordCache();
+const foldRecords = new Map();
+const locatorBlocks = createRecordCache(BLOCK_CACHE_CAP);
+let locatorReady = null;
 let familyOptions = [];
-let machineClass = null;
 let worklist = null;
 let indexReady = null;
 let indexLoaded = false;
@@ -160,6 +170,7 @@ let state = withDefaults(parseHash(location.hash));
 let visibleUnits = [];
 let machineUnits = [];
 let transientMachineUnitId = null;
+let transientMachineUnit = null;
 let renderedKey = null;
 let renderToken = 0;
 const machineFoldBuilders = new Map();
@@ -284,41 +295,17 @@ function unitFor(unitId) {
   return (
     humanRows.get(unitId) ??
     worklist?.records.get(unitId) ??
-    machineClass?.units.get(unitId) ??
+    foldRecords.get(unitId) ??
+    (transientMachineUnit?.id === unitId ? transientMachineUnit : null) ??
     fullRecords.get(unitId) ??
     null
   );
 }
 
-// One class of machine-approved / no-verdict records at a time. Asking for a second class drops the first outright, which is what keeps the show-machine folds a transient cost rather than a cumulative one.
-function machineUnitsOf(classId) {
-  if (!machineClass || machineClass.id !== classId) {
-    const units = new Map();
-    const cls = manifest.classes.find((entry) => entry.id === classId);
-    const slot = { id: classId, units, promise: null };
-    slot.promise = Promise.all((cls?.shards ?? []).map((part) => fetch(part).then((response) => response.json())))
-      .then((parts) => {
-        for (const shard of parts) {
-          for (const unit of shard) if (needsNoVerdict(unit)) units.set(unit.id, unit);
-        }
-        return units;
-      })
-      .catch((error) => {
-        console.warn('machine class load failed', error);
-        toast(`Could not load the ${classId} shards.`);
-        return units;
-      });
-    machineClass = slot;
-  }
-  return machineClass.promise;
-}
-
-// The locator names every unit the slim index leaves out, so a deep link to a machine-approved unit still resolves. It is streamed and discarded rather than retained: a lookup keeps the rows it asked for and nothing else, which bounds the rarest path in the app instead of paying for it forever.
-async function resolveMachineIds(unitIds) {
-  const wanted = new Set(unitIds);
-  const found = new Map();
-  if (wanted.size === 0) return found;
-  try {
+// The locator's block table: which gzip member of the rows file holds which class's rows and which unit numbers, loaded once on first need. A fold reads its class's blocks in order, a deep link binary-searches every class's blocks for the one that can hold its id, and neither reads a row outside the block it asked for.
+function loadLocator() {
+  locatorReady ??= (async () => {
+    const blocks = [];
     let header = null;
     for await (const line of streamNdjson(LOCATOR_NAME)) {
       if (header === null) {
@@ -327,48 +314,131 @@ async function resolveMachineIds(unitIds) {
         if (!check.ok) throw new Error(check.reason);
         continue;
       }
-      const row = JSON.parse(line);
-      if (!wanted.has(row.id)) continue;
-      found.set(row.id, row);
-      if (found.size === wanted.size) break;
+      blocks.push(JSON.parse(line));
     }
+    if (header === null) throw new Error('it carries no lines at all, so the build that wrote it did not finish');
+    return indexLocatorBlocks(blocks);
+  })().catch((error) => {
+    console.warn('machine locator load failed', error);
+    toast(`Could not load the machine locator (${LOCATOR_NAME}): ${error.message}.`);
+    locatorReady = null;
+    return new Map();
+  });
+  return locatorReady;
+}
+
+// A Range response's body as text. A block of the rows file arrives as its own gzip member's bytes — the file goes out identity-encoded, since Chrome refuses a partial response that declares a content encoding — and is decompressed here; the magic number is what says so, in case a server decoded it anyway.
+async function readMaybeGzipped(response) {
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  if (!looksGzipped(bytes) || typeof DecompressionStream !== 'function') return new TextDecoder().decode(bytes);
+  return new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'))).text();
+}
+
+// One block of locator rows, fetched by the span the table names and held in a small cache so a fold's next window and a deep link's neighbors read it back without another request.
+async function fetchLocatorBlock(block) {
+  const key = `${block.class}\u0000${block.byte_start}`;
+  const cached = locatorBlocks.get(key);
+  if (cached) return cached;
+  let text = null;
+  try {
+    const response = await fetch(LOCATOR_ROWS_NAME, { headers: { Range: rangeHeader(block) } });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    if (response.status !== 206 && Number(response.headers.get('Content-Length')) > block.byte_length) {
+      throw new Error('the server ignored the byte range');
+    }
+    text = await readMaybeGzipped(response);
   } catch (error) {
-    console.warn('machine locator lookup failed', error);
+    console.warn('locator block fetch failed', error);
+    toast(`Could not read the ${block.class} locator rows at ${block.byte_start}: ${error.message}`);
+    return null;
   }
+  const rows = [];
+  try {
+    for (const line of text.split('\n')) if (line) rows.push(JSON.parse(line));
+  } catch {
+    rows.length = 0;
+  }
+  // The table and the rows file land together, so a block that does not start where the table says is a rows file this table was not written for.
+  if (rows.length !== block.units || rows[0]?.id !== block.first) {
+    toast(`The ${block.class} locator rows are not where this page was told they would be — the surface was rebuilt; reload.`);
+    return null;
+  }
+  locatorBlocks.set(key, rows);
+  return rows;
+}
+
+// The addresses of machine-approved or no-verdict units, for a deep link or a worklist: each id names at most one candidate block per class, those blocks are fetched once each, and only the rows asked for are kept.
+async function resolveMachineIds(unitIds) {
+  const wanted = new Set(unitIds);
+  const found = new Map();
+  if (wanted.size === 0) return found;
+  const byClass = await loadLocator();
+  const byBlock = new Map();
+  for (const unitId of wanted) {
+    for (const block of candidateBlocks(byClass, unitId)) {
+      const key = `${block.class}\u0000${block.byte_start}`;
+      if (!byBlock.has(key)) byBlock.set(key, { block, ids: new Set() });
+      byBlock.get(key).ids.add(unitId);
+    }
+  }
+  await Promise.all(
+    [...byBlock.values()].map(async ({ block, ids }) => {
+      const rows = await fetchLocatorBlock(block);
+      if (!rows) return;
+      for (const row of rows) if (ids.has(row.id)) found.set(row.id, row);
+    }),
+  );
+  return found;
+}
+
+// The shard records behind a set of addresses, as few Range requests as their spans allow: neighbors in a part share one request, and each record is sliced out of the returned text at its own span. Every record read is cached, so a card's fetch also serves the explain panel that opens on it.
+async function fetchRecordsBySpans(rows) {
+  const found = new Map();
+  const wanted = [];
+  for (const row of rows) {
+    const cached = fullRecords.get(row.id);
+    if (cached) found.set(row.id, cached);
+    else wanted.push(row);
+  }
+  await Promise.all(
+    coalesceSpans(wanted).map(async (run) => {
+      const path = shardPartPath(manifest, run);
+      if (!path) return;
+      let text = null;
+      try {
+        const response = await fetch(path, { headers: { Range: rangeHeader(run) } });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        if (response.status !== 206 && Number(response.headers.get('Content-Length')) > run.byte_length) {
+          throw new Error('the server ignored the byte range');
+        }
+        text = await response.text();
+      } catch (error) {
+        console.warn('record fetch failed', error);
+        toast(`Could not read ${run.rows[0].id} out of ${path}: ${error.message}`);
+        return;
+      }
+      for (const row of run.rows) {
+        let record = null;
+        try {
+          record = JSON.parse(sliceRecordText(text, run, row));
+        } catch {
+          record = null;
+        }
+        // A surface rebuilt under this tab renumbers its units, so a stale span can land on a neighboring record rather than on nothing; the id is what says which happened.
+        if (!record || record.id !== row.id) {
+          toast(`${row.id} is not where this page was told it would be — the surface was rebuilt; reload.`);
+          continue;
+        }
+        fullRecords.set(record.id, record);
+        found.set(record.id, record);
+      }
+    }),
+  );
   return found;
 }
 
 async function fetchFullRecord(locator) {
-  const cached = fullRecords.get(locator.id);
-  if (cached) return cached;
-  const path = shardPartPath(manifest, locator);
-  if (!path) return null;
-  let text = null;
-  try {
-    const response = await fetch(path, { headers: { Range: rangeHeader(locator) } });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    if (response.status !== 206 && Number(response.headers.get('Content-Length')) > locator.byte_length) {
-      throw new Error('the server ignored the byte range');
-    }
-    text = await response.text();
-  } catch (error) {
-    console.warn('record fetch failed', error);
-    toast(`Could not read ${locator.id} out of ${path}: ${error.message}`);
-    return null;
-  }
-  let record = null;
-  try {
-    record = JSON.parse(text);
-  } catch {
-    record = null;
-  }
-  // A surface rebuilt under this tab renumbers its units, so a stale span can land on a neighboring record rather than on nothing; the id is what says which happened.
-  if (!record || record.id !== locator.id) {
-    toast(`${locator.id} is not where this page was told it would be — the surface was rebuilt; reload.`);
-    return null;
-  }
-  fullRecords.set(record.id, record);
-  return record;
+  return (await fetchRecordsBySpans([locator])).get(locator.id) ?? null;
 }
 
 async function resolveWorklist(key, records) {
@@ -399,7 +469,7 @@ async function resolveWorklist(key, records) {
   return units;
 }
 
-// A worklist resolves once and stays resolved for as long as it is the view. The locator is a corpus-scaled file and an id that names no unit in this build can never end its scan early, so re-deriving the list per call would put a whole-file stream behind every cursor move and every verdict — applyHashState runs on all of them. Pinning the records it found does the second job too: a worklist longer than the record cache's cap would otherwise evict its own earlier units, and a machine unit the app cannot look up is one it can neither cursor to nor copy.
+// A worklist resolves once and stays resolved for as long as it is the view. Resolving a machine id is a locator block per candidate class and a shard fetch per unit, so re-deriving the list per call would put those requests behind every cursor move and every verdict — applyHashState runs on all of them. Pinning the records it found does the second job too: a worklist longer than the record cache's cap would otherwise evict its own earlier units, and a machine unit the app cannot look up is one it can neither cursor to nor copy.
 function worklistFor(key) {
   if (!worklist || worklist.key !== key) {
     const records = new Map();
@@ -441,11 +511,14 @@ function el(tag, className, text) {
   return node;
 }
 
+// One side's sample cell. A row out of the app index has no text to draw yet — the cell is built empty and hydrateSamples rebuilds it from the record, which is why the cell remembers its side and its feature settings.
 function buildSample(unit, side, featureSettings) {
   const cell = el('div', `qs ${side}`);
   cell.style.fontFeatureSettings = featureSettings;
+  cell.dataset.side = side;
+  cell.dataset.features = featureSettings;
   const run = el('span', 'run');
-  run.innerHTML = unit.text_entities;
+  if (carriesSamples(unit)) run.innerHTML = unit.text_entities;
   cell.append(run);
   const upem = manifest.fonts[side].upem;
   const rect = pairBand(unit, side, FONT_SIZE, upem);
@@ -526,6 +599,19 @@ function buildCodepointsCode(unit) {
   const separators = tokens.map((_token, index) => (index === 0 ? '' : ':'));
   appendMarkedTokens(code, tokens, separators, unit);
   return code;
+}
+
+// A card built from a slim row draws its label at once and its samples once the unit's record arrives — one Range request against the class shard, the same one the explain panel makes. The marked runs on the text lines come back with the record too, since the seam underline reads the settled cells.
+async function hydrateSamples(container, unit) {
+  const record = await fetchFullRecord(unit);
+  if (!record || !container.isConnected) return;
+  const notation = container.querySelector(':scope > .label > .notation');
+  if (notation) notation.replaceWith(buildNotationLine(record));
+  const code = container.querySelector(':scope > .label > .codepoints > code');
+  if (code) code.replaceWith(buildCodepointsCode(record));
+  for (const cell of container.querySelectorAll('.qs[data-side]')) {
+    cell.replaceWith(buildSample(record, cell.dataset.side, cell.dataset.features));
+  }
 }
 
 function buildRow(unit) {
@@ -638,6 +724,7 @@ function buildRow(unit) {
   row.append(buildExplainPanel(unit));
 
   syncRowVerdict(unit.id, row);
+  if (!carriesSamples(unit)) hydrateSamples(row, unit);
   return row;
 }
 
@@ -770,7 +857,7 @@ function renderBatch(units, machine, plan) {
   const container = document.getElementById('batch');
   container.textContent = '';
   machineFoldBuilders.clear();
-  if (machineClass && !plan.some((fold) => fold.classId === machineClass.id)) machineClass = null;
+  foldRecords.clear();
   if (units.length === 0 && machine.length === 0 && plan.length === 0) {
     container.append(el('p', 'empty', 'No units match the current batch and filters.'));
     return;
@@ -857,33 +944,109 @@ function buildMachineFold(classId, total, badge, records, pinned, foldFilters, {
   const counts = el('span', 'group-counts', provisional ? `up to ${total} units — ${badge}` : `${total} units — ${badge}`);
   summary.append(counts);
   fold.append(summary);
-  const fill = async () => {
-    let units = records;
-    if (units === null) {
-      const resident = await machineUnitsOf(classId);
-      const pinnedIds = new Set(pinned.map((unit) => unit.id));
-      units = [];
-      for (const unit of resident.values()) {
-        if (pinnedIds.has(unit.id) || unitMatchesFilters(unit, foldFilters, undefined)) units.push(unit);
-      }
-      for (const unit of pinned) if (!resident.has(unit.id)) units.push(unit);
+  const rendered = new Set();
+  const render = (units) => {
+    for (const unit of units) {
+      if (rendered.has(unit.id)) continue;
+      rendered.add(unit.id);
+      foldRecords.set(unit.id, unit);
+      fold.append(buildRow(unit));
     }
-    for (const unit of units) fold.append(buildRow(unit));
-    if (provisional || units.length !== total) setText(counts, `${units.length} of ${total} units — ${badge}`);
+  };
+  if (records !== null) {
+    let building = null;
+    const build = () => {
+      if (!building) {
+        render(records);
+        if (records.length !== total) setText(counts, `${records.length} of ${total} units — ${badge}`);
+        building = Promise.resolve();
+      }
+      return building;
+    };
+    machineFoldBuilders.set(fold, build);
+    fold.addEventListener('toggle', () => {
+      if (fold.open) build();
+    });
+    if (state.units) {
+      fold.open = true;
+      build();
+    }
+    return fold;
+  }
+  // The class's rows come off the locator a block at a time and its records off the shard a window at a time, so opening the fold costs one window whatever the class holds, and every further window is asked for. The filters a fold applies are per record, so under one a window shows the rows it read that match and says how many it has read.
+  const pinnedIds = new Set(pinned.map((unit) => unit.id));
+  const more = el('button', 'fold-more');
+  more.type = 'button';
+  let blocks = null;
+  let classRows = 0;
+  let cursor = { block: 0, row: 0 };
+  let read = 0;
+  let shown = 0;
+  let loading = null;
+  // The count line speaks of the windows alone: a pinned row is the unit the reader deep-linked to, drawn ahead of the windows whether or not its window has been read yet.
+  const describe = () => {
+    const unread = classRows - read;
+    if (unread <= 0) {
+      setText(counts, provisional || shown !== total ? `${shown} of ${total} units — ${badge}` : `${total} units — ${badge}`);
+      more.remove();
+      return;
+    }
+    setText(counts, `${shown} shown of the first ${read} of ${total} units — ${badge}`);
+    setText(more, `Show ${Math.min(MACHINE_FOLD_WINDOW, unread)} more (${formatCount(unread)} not yet read)`);
+    more.disabled = false;
+    fold.append(more);
+  };
+  const nextWindow = async () => {
+    if (blocks === null) {
+      blocks = (await loadLocator()).get(classId) ?? [];
+      for (const block of blocks) classRows += block.units;
+    }
+    const rows = [];
+    while (rows.length < MACHINE_FOLD_WINDOW && cursor.block < blocks.length) {
+      const block = await fetchLocatorBlock(blocks[cursor.block]);
+      if (!block) {
+        classRows = read;
+        break;
+      }
+      const take = Math.min(MACHINE_FOLD_WINDOW - rows.length, block.length - cursor.row);
+      for (const row of block.slice(cursor.row, cursor.row + take)) rows.push(row);
+      cursor = cursor.row + take >= block.length ? { block: cursor.block + 1, row: 0 } : { block: cursor.block, row: cursor.row + take };
+    }
+    const fetched = await fetchRecordsBySpans(rows.filter((row) => !pinnedIds.has(row.id)));
+    const units = [];
+    for (const row of rows) {
+      const unit = fetched.get(row.id);
+      if (unit && unitMatchesFilters(unit, foldFilters, undefined)) units.push(unit);
+    }
+    read += rows.length;
+    shown += units.length;
+    render(units);
+    describe();
+  };
+  const advance = () => {
+    if (loading) return loading;
+    more.disabled = true;
+    loading = nextWindow().finally(() => {
+      loading = null;
+    });
+    return loading;
   };
   let building = null;
   const build = () => {
-    if (!building) building = fill();
+    if (!building) {
+      render(pinned);
+      building = advance();
+    }
     return building;
   };
   machineFoldBuilders.set(fold, build);
   fold.addEventListener('toggle', () => {
     if (fold.open) build();
   });
-  if (state.units) {
-    fold.open = true;
-    build();
-  }
+  more.addEventListener('click', (event) => {
+    event.preventDefault();
+    advance();
+  });
   return fold;
 }
 
@@ -940,8 +1103,9 @@ async function ensureCursor() {
   if (state.unit && !inView(state.unit)) {
     const unit = await findUnitAnywhere(state.unit);
     if (unit && needsNoVerdict(unit)) {
-      // Deep-linking to a machine-approved or no-verdict unit reveals just that unit transiently; the persistent toggle stays off and any navigation away hides it again.
+      // Deep-linking to a machine-approved or no-verdict unit reveals just that unit transiently; the persistent toggle stays off and any navigation away hides it again. The record is held here rather than left to the record cache, which the cards' own fetches churn through.
       transientMachineUnitId = unit.id;
+      transientMachineUnit = unit;
       setStateReplace({});
       return false;
     }
@@ -1200,6 +1364,7 @@ function buildClusterCard(cluster, position) {
     pair.append(buildSample(cluster.exemplar, 'after', group.featureSettings));
     card.append(pair);
   }
+  if (!carriesSamples(cluster.exemplar)) hydrateSamples(card, cluster.exemplar);
   const reps = el('p', 'reps');
   reps.append(
     appButton(docketWorklistHref(cluster.reps), `Judge ${cluster.reps.length} rep${cluster.reps.length === 1 ? '' : 's'}`),
@@ -1447,7 +1612,7 @@ async function applyHashState(resume = false) {
     closeNeitherMenu();
     visibleUnits = [];
     machineUnits = [];
-    machineClass = null;
+    foldRecords.clear();
     renderedKey = null;
     renderDocket();
     updateProgress();
@@ -1475,7 +1640,10 @@ async function applyHashState(resume = false) {
   if (token !== renderToken) return;
   const { human, machine } = partitionUnits(units, state, (unitId) => store.records.get(unitId));
   const plan = machineFoldPlan(manifest, state);
-  if (transientMachineUnitId && state.unit !== transientMachineUnitId) transientMachineUnitId = null;
+  if (transientMachineUnitId && state.unit !== transientMachineUnitId) {
+    transientMachineUnitId = null;
+    transientMachineUnit = null;
+  }
   if (transientMachineUnitId && !machine.some((unit) => unit.id === transientMachineUnitId)) {
     const transient = unitFor(transientMachineUnitId);
     if (transient) machine.push(transient);
@@ -1919,7 +2087,7 @@ function undoLast() {
   toast(`Undid ${result.units.length === 1 ? result.cursor : `${result.units.length} verdicts`}`);
 }
 
-// A slim row carries no explain material, so opening the panel is where its shard record gets read back — one Range request against the class shard, cached so a second open is instant. Machine rows are built from their shard record — a slim fragment, whose panel fills with the note saying what the build left out — and open with the panel already filled, as they always did.
+// A slim row carries no explain material, so opening the panel is where its shard record gets read back — one Range request against the class shard, or none when the card's own fetch of the same record is still in the cache. Machine rows are built from their shard record — a slim fragment, whose panel fills with the note saying what the build left out — and open with the panel already filled, as they always did.
 async function toggleExplain(unitId) {
   const row = rowFor(unitId);
   if (!row) return;
@@ -2509,7 +2677,7 @@ function wireEvents() {
     }
     const copy = event.target.closest('.copy-unit');
     if (copy && row) {
-      // Only one machine class stays resident, so a row left on screen from a fold opened before another one has no record behind it any more; re-opening its fold brings it back.
+      // A fold's records stay resident while its rows are on screen, so a row without one behind it is one from a view that has since re-rendered; re-opening its fold brings it back.
       const unit = unitFor(row.dataset.unit);
       if (unit) copyToClipboard(copyPreamble(unit), copy);
       else toast(`${row.dataset.unit} is no longer loaded — re-open its fold and copy again.`);

@@ -165,8 +165,16 @@ def test_the_precompressed_sidecars_go_out_gzip_encoded():
 
 
 def test_everything_else_is_served_uncompressed_and_uncached():
-    """The shards especially: the explain panel addresses one record inside a part by byte range, which only means anything while the part is served identity-encoded. And `no-store` stays on everything, because a rebuild reuses every name."""
-    for path in ("index.html", "app.js", "manifest.json", "units/boundary-echo.000.json", "fonts/after.otf"):
+    """The shards especially: the app addresses one record inside a part by byte range, which only means anything while the part is served identity-encoded — and the locator's rows file with them, since the app fetches one gzip member of it by the span the table names and Chrome refuses a partial response that declares a content encoding. And `no-store` stays on everything, because a rebuild reuses every name."""
+    for path in (
+        "index.html",
+        "app.js",
+        "manifest.json",
+        "units/boundary-echo.000.json",
+        "fonts/after.otf",
+        app_index.LOCATOR_ROWS_NAME,
+        f"/{app_index.LOCATOR_ROWS_NAME}",
+    ):
         assert static_headers_for(path) == {"Cache-Control": "no-store"}
 
 

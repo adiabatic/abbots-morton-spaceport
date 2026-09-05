@@ -4,18 +4,26 @@ import { readFile } from 'node:fs/promises';
 import {
   APP_INDEX_FORMAT,
   LOCATOR_FORMAT,
+  MACHINE_FOLD_WINDOW,
   RECORD_CACHE_CAP,
+  SPAN_GAP_BYTES,
+  candidateBlocks,
+  carriesSamples,
   checkIndexHeader,
+  coalesceSpans,
   createLineSplitter,
   createRecordCache,
   finishLines,
   hasExplainSource,
+  indexLocatorBlocks,
   isSlimFragment,
   looksGzipped,
   machineFoldPlan,
   rangeHeader,
   shardPartPath,
+  sliceRecordText,
   splitLines,
+  unitNumber,
 } from '../static/slim.js';
 
 const fixtureDir = new URL('./fixtures/', import.meta.url);
@@ -88,7 +96,7 @@ test('checkIndexHeader refuses another format, so the locator can never be read 
   const header = { format: LOCATOR_FORMAT, generated_at: manifest.generated_at };
   const check = checkIndexHeader(header, manifest, APP_INDEX_FORMAT);
   assert.equal(check.ok, false);
-  assert.match(check.reason, /ams-review-app-locator\/1/);
+  assert.match(check.reason, /ams-review-app-locator\/2/);
 });
 
 test('checkIndexHeader refuses an index stamped for another build, whose ids name other units', () => {
@@ -139,6 +147,109 @@ test('isSlimFragment reads the shape off a machine fragment and nothing else', (
   assert.equal(isSlimFragment({ ...machineFragment, explain: null }), false, 'an emptied field is a blank on a whole record, never the slim shape');
   assert.equal(isSlimFragment(null), false);
   assert.equal(isSlimFragment(undefined), false);
+});
+
+test('carriesSamples tells a shard record, slim fragment included, from an app-index row', () => {
+  assert.equal(carriesSamples(shardA[0]), true);
+  assert.equal(carriesSamples(machineFragment), true, 'a slim fragment still carries its text and cells');
+  const row = { ...shardA[0] };
+  delete row.text_entities;
+  delete row.highlight;
+  delete row.after;
+  assert.equal(carriesSamples(row), false);
+  assert.equal(carriesSamples({ text_entities: null }), false);
+  assert.equal(carriesSamples(null), false);
+});
+
+test('unitNumber reads the digits of a unit id and nothing else', () => {
+  assert.equal(unitNumber('u-0000'), 0);
+  assert.equal(unitNumber('u-0042'), 42);
+  assert.equal(unitNumber('u-1080063'), 1080063);
+  for (const bad of ['e-0001', 'u-', 'u-12a', '0001', 'c-aaaaaaaa', null, undefined, 7]) {
+    assert.ok(Number.isNaN(unitNumber(bad)), String(bad));
+  }
+});
+
+// A table in the shape the build writes: shard order, so each class's blocks are contiguous and ascending, while the classes' id ranges overlap one another.
+const locatorTable = [
+  { class: 'alpha', byte_start: 0, byte_length: 100, first: 'u-0000', last: 'u-0009', units: 4 },
+  { class: 'alpha', byte_start: 100, byte_length: 100, first: 'u-0012', last: 'u-0020', units: 4 },
+  { class: 'beta', byte_start: 200, byte_length: 100, first: 'u-0005', last: 'u-0030', units: 4 },
+  { class: 'beta', byte_start: 300, byte_length: 50, first: 'u-0031', last: 'u-0031', units: 1 },
+];
+
+test('indexLocatorBlocks groups the table by class in file order and parses the unit numbers once', () => {
+  const byClass = indexLocatorBlocks(locatorTable);
+  assert.deepEqual([...byClass.keys()], ['alpha', 'beta']);
+  assert.deepEqual(
+    byClass.get('alpha').map((block) => [block.firstNumber, block.lastNumber, block.byte_start]),
+    [
+      [0, 9, 0],
+      [12, 20, 100],
+    ],
+  );
+  assert.equal(byClass.get('beta').length, 2);
+});
+
+test('candidateBlocks names at most one block per class, by binary search over that class alone', () => {
+  const byClass = indexLocatorBlocks(locatorTable);
+  const found = (id) => candidateBlocks(byClass, id).map((block) => `${block.class}@${block.byte_start}`);
+  assert.deepEqual(found('u-0007'), ['alpha@0', 'beta@200'], 'an id inside two overlapping class ranges is a candidate in both');
+  assert.deepEqual(found('u-0012'), ['alpha@100', 'beta@200']);
+  assert.deepEqual(found('u-0031'), ['beta@300']);
+  assert.deepEqual(found('u-0010'), ['beta@200'], 'a number between two of a class\'s blocks is in neither');
+  assert.deepEqual(found('u-0011'), ['beta@200']);
+  assert.deepEqual(found('u-0099'), [], 'past every block');
+  assert.deepEqual(found('e-0001'), [], 'not a unit id');
+  assert.deepEqual(candidateBlocks(new Map(), 'u-0000'), []);
+});
+
+test('coalesceSpans shares one Range request among neighbors in a part and splits at a gap or a part boundary', () => {
+  const rows = [
+    { id: 'c', shard_part: 0, byte_start: 100, byte_length: 10 },
+    { id: 'a', shard_part: 0, byte_start: 0, byte_length: 10 },
+    { id: 'far', shard_part: 0, byte_start: 110 + SPAN_GAP_BYTES + 1, byte_length: 5 },
+    { id: 'other-part', shard_part: 1, byte_start: 0, byte_length: 3 },
+  ];
+  const runs = coalesceSpans(rows);
+  assert.deepEqual(
+    runs.map((run) => [run.shard_part, run.byte_start, run.byte_length, run.rows.map((row) => row.id)]),
+    [
+      [0, 0, 110, ['a', 'c']],
+      [0, 110 + SPAN_GAP_BYTES + 1, 5, ['far']],
+      [1, 0, 3, ['other-part']],
+    ],
+  );
+  assert.equal(rangeHeader(runs[0]), 'bytes=0-109');
+  assert.deepEqual(coalesceSpans([]), []);
+});
+
+test('coalesceSpans joins two spans exactly a gap apart and keeps the class the part path needs', () => {
+  const rows = [
+    { class: 'k', shard_part: 2, byte_start: 0, byte_length: 10 },
+    { class: 'k', shard_part: 2, byte_start: 10 + SPAN_GAP_BYTES, byte_length: 10 },
+  ];
+  const runs = coalesceSpans(rows);
+  assert.equal(runs.length, 1);
+  assert.equal(runs[0].class, 'k');
+  assert.equal(runs[0].byte_length, 20 + SPAN_GAP_BYTES);
+  assert.equal(coalesceSpans(rows, 0).length, 2, 'a gap of zero shares nothing but abutting spans');
+});
+
+test('sliceRecordText cuts each row back out of the text its run returned', () => {
+  const text = '{"id":"a"},{"id":"bb"}';
+  const rows = [
+    { id: 'a', shard_part: 0, byte_start: 1000, byte_length: 10 },
+    { id: 'bb', shard_part: 0, byte_start: 1011, byte_length: 11 },
+  ];
+  const [run] = coalesceSpans(rows);
+  assert.equal(run.byte_length, text.length);
+  assert.deepEqual(JSON.parse(sliceRecordText(text, run, rows[0])), { id: 'a' });
+  assert.deepEqual(JSON.parse(sliceRecordText(text, run, rows[1])), { id: 'bb' });
+});
+
+test('a fold window is a positive count', () => {
+  assert.ok(Number.isInteger(MACHINE_FOLD_WINDOW) && MACHINE_FOLD_WINDOW > 0);
 });
 
 test('shardPartPath resolves a row to the part its bytes are in, for both spellings _write_shard produces', () => {

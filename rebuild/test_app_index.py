@@ -1,6 +1,6 @@
-"""The two sidecars the review app boots from, and the byte spans that address the shards they were projected out of.
+"""The sidecars the review app boots from, and the byte spans that address the shards they were projected out of.
 
-Three claims carry the change and each is checked here rather than in the browser. The projection is faithful: `app_row` is held against the shard fragment field for field, the standard `rebuild/test_unit_index.py` sets for the plumbing's index, because a field that silently drifts out does not read as an error — a card simply stops drawing something. The spans are real addresses: every fragment of every class is sliced back out of the bytes `_write_shard` wrote, including across a forced part split and around a fragment too large to share a part, which is what would catch a change to the dump's framing that leaves the offsets pointing at garbage. And the two files partition the corpus: the app index is exactly the manifest's `human_unit_ids`, in shard order, and the locator is exactly the rest, so no id the app can be linked to is unresolvable.
+Four claims carry the change and each is checked here rather than in the browser. The projection is faithful: `app_row` is held against the shard fragment field for field, the standard `rebuild/test_unit_index.py` sets for the plumbing's index, because a field that silently drifts out does not read as an error — a card simply stops drawing something. The spans are real addresses: every fragment of every class is sliced back out of the bytes `_write_shard` wrote, including across a forced part split and around a fragment too large to share a part, which is what would catch a change to the dump's framing that leaves the offsets pointing at garbage. The two files partition the corpus: the app index is exactly the manifest's `human_unit_ids`, in shard order, and the locator is exactly the rest, so no id the app can be linked to is unresolvable. And the locator's blocks are real addresses too: every block the table names slices out of the rows file as a gzip member that decodes on its own to exactly the rows the table says, never spanning a class, so a fold's window and a deep link's binary search read what the app expects them to.
 
 Nothing here reads the live surface. The fixture units are rewritten through the real writer in a temp directory, and the end-to-end arm is a mini build over the frozen bundle — seconds, contracts lane, full width.
 """
@@ -32,13 +32,10 @@ APP_ROW_KEYS = {
     "notation",
     "notation_tokens",
     "codepoints",
-    "text_entities",
     "pair",
     "pair_codepoints",
-    "highlight",
     "boundary_marks",
     "secondary_seams",
-    "after",
     "configs",
     "config_gate",
     "config_note",
@@ -52,8 +49,12 @@ APP_ROW_KEYS = {
     "byte_length",
 }
 LOCATOR_ROW_KEYS = {"id", "class", "shard_part", "byte_start", "byte_length"}
+LOCATOR_BLOCK_KEYS = {"class", "byte_start", "byte_length", "first", "last", "units"}
+# Read by the card from the record it Range-fetches, never from the resident row.
+CARD_RECORD_KEYS = ("text_entities", "highlight", "after")
 ADDRESS_KEYS = {"shard_part", "byte_start", "byte_length"}
 LIST_DEFAULTED = ("notation_tokens", "boundary_marks", "configs", "kinds")
+_SIDECAR_NAMES = (app_index.APP_INDEX_NAME, app_index.LOCATOR_NAME, app_index.LOCATOR_ROWS_NAME)
 
 
 def _class_fragments(root: Path, meta: dict) -> list[dict]:
@@ -70,7 +71,7 @@ def _surface_shards(surface: Path) -> tuple[dict, dict[str, list[dict]]]:
 
 
 def _rewrite_fixture_surface(tmp_path: Path) -> Path:
-    """The checked-in fixture units, rewritten through the real shard writer into a temp directory so their spans are captured over real fragments, with both sidecars beside them."""
+    """The checked-in fixture units, rewritten through the real shard writer into a temp directory so their spans are captured over real fragments, with the sidecars beside them."""
     surface = tmp_path / "surface"
     surface.mkdir(parents=True, exist_ok=True)
     manifest = json.loads((FIXTURES / "manifest.json").read_text(encoding="utf-8"))
@@ -82,6 +83,21 @@ def _rewrite_fixture_surface(tmp_path: Path) -> Path:
         shards[meta["id"]] = fragments
     (surface / "manifest.json").write_text(json.dumps(manifest, indent=1) + "\n", encoding="utf-8")
     app_index.write_app_artifacts(surface, shards, spans)
+    return surface
+
+
+def _rewrite_fragments(tmp_path: Path, fragments: dict[str, list[dict]]) -> Path:
+    """Arbitrary fragments written through the real shard writer, under a manifest that names them, with the sidecars beside them."""
+    surface = tmp_path / "surface"
+    surface.mkdir(parents=True, exist_ok=True)
+    manifest = json.loads((FIXTURES / "manifest.json").read_text(encoding="utf-8"))
+    manifest["classes"] = []
+    spans: dict[str, list[tuple[int, int, int]]] = {}
+    for class_id, units in fragments.items():
+        parts, spans[class_id] = _write_shard(surface, class_id, units)
+        manifest["classes"].append({"id": class_id, "shards": parts})
+    (surface / "manifest.json").write_text(json.dumps(manifest, indent=1) + "\n", encoding="utf-8")
+    app_index.write_app_artifacts(surface, fragments, spans)
     return surface
 
 
@@ -165,11 +181,7 @@ def _assert_row_projects(row: dict, fragment: dict) -> None:
     for field, value in row.items():
         if field in ADDRESS_KEYS:
             continue
-        if field == "after":
-            homeless = any(seam.get("home") is None for seam in fragment.get("secondary_seams") or ())
-            expected = {"cells": list((fragment.get("after") or {}).get("cells") or [])} if homeless else None
-            assert value == expected, f"{row['id']}.after"
-        elif field in LIST_DEFAULTED:
+        if field in LIST_DEFAULTED:
             assert value == (fragment.get(field) or []), f"{row['id']}.{field}"
         else:
             assert value == fragment.get(field), f"{row['id']}.{field}"
@@ -186,8 +198,10 @@ def test_the_app_index_is_the_shards_field_for_field(fixture_surface):
 
 def test_every_row_addresses_the_fragment_it_was_projected_from(fixture_surface):
     manifest, _shards = _surface_shards(fixture_surface)
-    for name in (app_index.APP_INDEX_NAME, app_index.LOCATOR_NAME):
-        rows = app_index.load_rows(fixture_surface, name)
+    for rows in (
+        app_index.load_rows(fixture_surface, app_index.APP_INDEX_NAME),
+        app_index.load_locator_rows(fixture_surface),
+    ):
         assert rows
         for row in rows:
             assert _addressed(fixture_surface, manifest, row)["id"] == row["id"]
@@ -210,52 +224,161 @@ def test_a_row_whose_flags_are_not_false_refuses_to_be_written():
         app_index.app_row(fragment, 0, 0, 10)
 
 
-@pytest.mark.parametrize(
-    ("seams", "carries_cells"),
-    (
-        (None, False),
-        ([{"pair": {"left": 0, "right": 1}, "home": "u-0009"}], False),
-        ([{"pair": {"left": 0, "right": 1}, "home": None}], True),
-        (
-            [
-                {"pair": {"left": 0, "right": 1}, "home": "u-0009"},
-                {"pair": {"left": 1, "right": 2}, "home": None},
-            ],
-            True,
-        ),
-    ),
-)
-def test_after_cells_ship_only_where_a_homeless_seam_needs_them(seams, carries_cells):
-    """`onlyHereSeamSpans` reads `after.cells` to place the homeless secondary seams and answers `[]` for every other unit, so a row with no homeless seam behaves identically with the cells dropped — and the cells are the largest field the row would otherwise carry."""
+def test_what_a_card_draws_from_its_record_is_not_in_the_row():
+    """`text_entities`, `highlight` and `after.cells` are what the sample cells and the seam underlines draw, and the card Range-fetches its record for them the way the explain panel already does — so the resident row carries none of the three, and a fragment that has them all still projects to a row without them."""
     fragment = {
         "id": "u-0000",
         "batch": 0,
-        "secondary_seams": seams,
+        "text_entities": "&#xe652;&#xe679;",
+        "highlight": {"before": {"x_min": 0, "x_max": 1}, "after": {"x_min": 0, "x_max": 1}},
+        "secondary_seams": [{"pair": {"left": 0, "right": 1}, "home": None}],
         "after": {"cells": ["a", "b", "c"], "seams": [], "extensions": []},
     }
     row = app_index.app_row(fragment, 0, 0, 10)
-    assert row["after"] == ({"cells": ["a", "b", "c"]} if carries_cells else None)
-    assert row["secondary_seams"] == seams
+    for key in CARD_RECORD_KEYS:
+        assert key not in row
+    assert row["secondary_seams"] == fragment["secondary_seams"]
 
 
 def test_the_locator_carries_an_address_and_nothing_else(fixture_surface):
-    rows = app_index.load_rows(fixture_surface, app_index.LOCATOR_NAME)
+    rows = app_index.load_locator_rows(fixture_surface)
     assert rows
     for row in rows:
         assert set(row) == LOCATOR_ROW_KEYS
+
+
+# --- the locator's blocks -------------------------------------------------------------------------
+
+
+def _blocks_address_their_rows(surface: Path) -> None:
+    """Every claim the app makes of the table: each block is a gzip member decodable alone out of its own span, holding exactly the rows the table counts, all of one class, first and last as named, in unit-number order; the spans tile the rows file exactly; and within a class the blocks are disjoint and ordered, which is what the deep link's binary search over them assumes."""
+    blocks = app_index.load_rows(surface, app_index.LOCATOR_NAME)
+    rows = app_index.load_locator_rows(surface)
+    assert blocks is not None and rows is not None
+    header = app_index.artifact_header(surface, app_index.LOCATOR_NAME)
+    assert header is not None
+    assert header["blocks"] == len(blocks)
+    assert (
+        header["rows_bytes"] == app_index.artifact_path(surface, app_index.LOCATOR_ROWS_NAME).stat().st_size
+    )
+    offset = 0
+    replayed: list[dict] = []
+    by_class: dict[str | None, list[dict]] = {}
+    for block in blocks:
+        assert set(block) == LOCATOR_BLOCK_KEYS
+        assert block["byte_start"] == offset
+        member = gzip.decompress(app_index.locator_block_bytes(surface, block))
+        held = [json.loads(line) for line in member.splitlines()]
+        assert 0 < len(held) == block["units"] <= app_index.LOCATOR_BLOCK_ROWS
+        assert {row["class"] for row in held} == {block["class"]}
+        assert held[0]["id"] == block["first"] and held[-1]["id"] == block["last"]
+        numbers = [app_index.unit_number(row["id"]) for row in held]
+        assert numbers == sorted(numbers)
+        replayed.extend(held)
+        by_class.setdefault(block["class"], []).append(block)
+        offset += block["byte_length"]
+    assert offset == header["rows_bytes"]
+    assert replayed == rows
+    for class_blocks in by_class.values():
+        for earlier, later in zip(class_blocks, class_blocks[1:], strict=False):
+            assert app_index.unit_number(earlier["last"]) < app_index.unit_number(later["first"])
+
+
+def test_every_block_slices_out_of_the_rows_file_as_its_own_member(fixture_surface):
+    _blocks_address_their_rows(fixture_surface)
+
+
+def test_blocks_close_at_the_row_cap_and_at_every_class_change(tmp_path):
+    """The two cuts the writer makes, over more rows than one block holds: a class of two blocks and a bit, then a class of one row, then a class that starts a fresh block rather than sharing the previous class's last one."""
+    cap = app_index.LOCATOR_BLOCK_ROWS
+    counts = {"a": 2 * cap + 3, "b": 1, "c": cap}
+    fragments = {
+        class_id: [
+            {"id": f"u-{index:04d}", "batch": None, "class": class_id}
+            for index in range(offset, offset + count)
+        ]
+        for class_id, count, offset in zip(counts, counts.values(), (0, 10 * cap, 20 * cap), strict=True)
+    }
+    surface = _rewrite_fragments(tmp_path, fragments)
+    _blocks_address_their_rows(surface)
+    blocks = app_index.load_rows(surface, app_index.LOCATOR_NAME)
+    assert blocks is not None
+    assert [(block["class"], block["units"]) for block in blocks] == [
+        ("a", cap),
+        ("a", cap),
+        ("a", 3),
+        ("b", 1),
+        ("c", cap),
+    ]
+
+
+def test_a_locator_id_resolves_to_exactly_one_block_of_its_class(fixture_surface):
+    """What the deep link does in the browser, replayed here: for a machine id, the block of its class whose first and last bracket it by unit number is the one block that holds it — and no other class's blocks are consulted for it."""
+    blocks = app_index.load_rows(fixture_surface, app_index.LOCATOR_NAME)
+    rows = app_index.load_locator_rows(fixture_surface)
+    assert blocks and rows
+    for row in rows:
+        number = app_index.unit_number(row["id"])
+        holders = [
+            block
+            for block in blocks
+            if block["class"] == row["class"]
+            and app_index.unit_number(block["first"]) <= number <= app_index.unit_number(block["last"])
+        ]
+        assert len(holders) == 1, row["id"]
+        member = gzip.decompress(app_index.locator_block_bytes(fixture_surface, holders[0]))
+        assert row in [json.loads(line) for line in member.splitlines()]
+
+
+def test_a_class_whose_rows_do_not_ascend_is_refused(tmp_path):
+    """The deep link's binary search reads a class's blocks as ascending by unit number, and the writer is where that is made true rather than assumed."""
+    fragments = {
+        "a": [{"id": "u-0002", "batch": None, "class": "a"}, {"id": "u-0001", "batch": None, "class": "a"}]
+    }
+    with pytest.raises(ValueError, match="must ascend"):
+        _rewrite_fragments(tmp_path, fragments)
+
+
+def test_unit_number_reads_the_digits_and_refuses_anything_else():
+    assert app_index.unit_number("u-0000") == 0
+    assert app_index.unit_number("u-1080063") == 1080063
+    for bad in ("e-0001", "u-", "u-12a", "0001", "c-aaaaaaaa"):
+        with pytest.raises(ValueError):
+            app_index.unit_number(bad)
+
+
+def test_a_rows_file_of_another_length_makes_the_locator_stale(fixture_surface):
+    """The rows file has no header of its own; the table's `rows_bytes` is its stamp. A rows file truncated, missing, or left by another build under a current table would send every block fetch to the wrong bytes, so the pair reads as stale together."""
+    rows_path = app_index.artifact_path(fixture_surface, app_index.LOCATOR_ROWS_NAME)
+    intact = rows_path.read_bytes()
+    assert app_index.artifact_is_current(fixture_surface, app_index.LOCATOR_NAME, app_index.LOCATOR_FORMAT)
+    rows_path.write_bytes(intact[:-1])
+    assert not app_index.artifact_is_current(
+        fixture_surface, app_index.LOCATOR_NAME, app_index.LOCATOR_FORMAT
+    )
+    rows_path.unlink()
+    assert not app_index.artifact_is_current(
+        fixture_surface, app_index.LOCATOR_NAME, app_index.LOCATOR_FORMAT
+    )
+    rows_path.write_bytes(intact)
+    assert app_index.artifact_is_current(fixture_surface, app_index.LOCATOR_NAME, app_index.LOCATOR_FORMAT)
 
 
 # --- the partition and the stamps ------------------------------------------------------------------
 
 
 def _ids(surface: Path, name: str) -> list[str]:
-    rows = app_index.load_rows(surface, name)
+    rows = (
+        app_index.load_locator_rows(surface)
+        if name == app_index.LOCATOR_NAME
+        else app_index.load_rows(surface, name)
+    )
     assert rows is not None
     return [row["id"] for row in rows]
 
 
 def _shard_order_ids(manifest: dict, shards: dict[str, list[dict]], *, human: bool) -> list[str]:
-    """The ids a shard walk hands over, which is the order both sidecars are written in — classes by `class_shard_key`, each class's fragments as the shard lists them. Deliberately not `human_unit_ids`, which is the workload's own id order and runs the classes in ledger order instead."""
+    """The ids a shard walk hands over, which is the order every sidecar is written in — classes by `class_shard_key`, each class's fragments as the shard lists them. Deliberately not `human_unit_ids`, which is the workload's own id order and runs the classes in ledger order instead."""
     return [
         fragment["id"]
         for meta in sorted(manifest["classes"], key=lambda entry: unit_index.class_shard_key(entry["id"]))
@@ -281,19 +404,25 @@ def test_the_headers_stamp_the_manifest_beside_them(fixture_surface):
         app_index.APP_INDEX_NAME: len(_ids(fixture_surface, app_index.APP_INDEX_NAME)),
         app_index.LOCATOR_NAME: len(_ids(fixture_surface, app_index.LOCATOR_NAME)),
     }
+    blocks = app_index.load_rows(fixture_surface, app_index.LOCATOR_NAME)
+    assert blocks is not None
+    rows_bytes = app_index.artifact_path(fixture_surface, app_index.LOCATOR_ROWS_NAME).stat().st_size
     for name, fmt in app_index.ARTIFACTS:
         header = app_index.artifact_header(fixture_surface, name)
-        assert header == {
+        stamp = {
             "format": fmt,
             "manifest_sha256": digest,
             "generated_at": generated_at,
             "units": counts[name],
         }
+        if name == app_index.LOCATOR_NAME:
+            stamp.update(blocks=len(blocks), block_rows=app_index.LOCATOR_BLOCK_ROWS, rows_bytes=rows_bytes)
+        assert header == stamp
         assert app_index.artifact_is_current(fixture_surface, name, fmt)
 
 
 def test_a_refreshed_assets_component_leaves_both_sidecars_current(fixture_surface):
-    """The stamp is the manifest's identity, not its bytes, so rewriting `inputs_fingerprint.static` in place — which is the whole of what an assets refresh does to a served surface — leaves both sidecars describing the manifest beside them. Without that, a CSS edit would orphan the two files the app boots from and send every reader back to the shards."""
+    """The stamp is the manifest's identity, not its bytes, so rewriting `inputs_fingerprint.static` in place — which is the whole of what an assets refresh does to a served surface — leaves every sidecar describing the manifest beside them. Without that, a CSS edit would orphan the files the app boots from and send every reader back to the shards."""
     manifest_path = fixture_surface / "manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     manifest["inputs_fingerprint"] = {**manifest["inputs_fingerprint"], "static": "refreshed"}
@@ -322,12 +451,9 @@ def test_a_truncated_or_foreign_sidecar_is_refused(fixture_surface):
         assert app_index.load_rows(fixture_surface, name) == []
 
 
-def test_a_failed_projection_leaves_the_previous_pair_intact(fixture_surface, monkeypatch):
-    """`app_row` asserts, so the projection can raise partway through a rewrite of a surface the app is still being served. Staged and renamed, that failure costs nothing: both sidecars keep the bytes the last good write left, and no `.partial` survives to be mistaken for one of them."""
-    intact = {
-        name: app_index.artifact_path(fixture_surface, name).read_bytes()
-        for name, _fmt in app_index.ARTIFACTS
-    }
+def test_a_failed_projection_leaves_the_previous_set_intact(fixture_surface, monkeypatch):
+    """`app_row` asserts, so the projection can raise partway through a rewrite of a surface the app is still being served. Staged and renamed, that failure costs nothing: every sidecar keeps the bytes the last good write left, and no `.partial` survives to be mistaken for one of them."""
+    intact = {name: app_index.artifact_path(fixture_surface, name).read_bytes() for name in _SIDECAR_NAMES}
     _manifest, shards = _surface_shards(fixture_surface)
     spans = {class_id: [(0, 0, 1)] * len(fragments) for class_id, fragments in shards.items()}
 
@@ -337,7 +463,7 @@ def test_a_failed_projection_leaves_the_previous_pair_intact(fixture_surface, mo
     monkeypatch.setattr(app_index, "app_row", boom)
     with pytest.raises(AssertionError):
         app_index.write_app_artifacts(fixture_surface, shards, spans)
-    for name, _fmt in app_index.ARTIFACTS:
+    for name in _SIDECAR_NAMES:
         assert app_index.artifact_path(fixture_surface, name).read_bytes() == intact[name]
     assert not list(fixture_surface.glob("*.partial"))
 
@@ -346,7 +472,7 @@ def test_writing_the_sidecars_twice_writes_the_same_bytes(tmp_path):
     """A pinned gzip mtime, so a rebuild of unchanged inputs leaves the whole output tree byte-identical — which is what `test_builds_are_byte_identical` reads the tree for."""
     first = _rewrite_fixture_surface(tmp_path / "a")
     second = _rewrite_fixture_surface(tmp_path / "b")
-    for name, _fmt in app_index.ARTIFACTS:
+    for name in _SIDECAR_NAMES:
         assert (
             app_index.artifact_path(first, name).read_bytes()
             == app_index.artifact_path(second, name).read_bytes()
@@ -356,7 +482,8 @@ def test_writing_the_sidecars_twice_writes_the_same_bytes(tmp_path):
 # --- the contract check ---------------------------------------------------------------------------
 
 
-def test_the_contract_check_requires_both_sidecars(tmp_path):
+def test_the_contract_check_requires_every_sidecar(tmp_path):
+    """The rows file is checked through the locator's currency, so its absence reads as the locator being stale rather than as a missing file of its own."""
     surface = _rewrite_fixture_surface(tmp_path)
     (surface / "index.html").write_text("<html></html>", encoding="utf-8")
     unit_index.write_index(surface, [])
@@ -366,6 +493,8 @@ def test_the_contract_check_requires_both_sidecars(tmp_path):
         app_index.artifact_path(surface, name).unlink()
         assert any(f"{name} is missing" in line for line in _check_output_files(surface, manifest))
         app_index.write_app_artifacts(surface, {}, {})
+    app_index.artifact_path(surface, app_index.LOCATOR_ROWS_NAME).unlink()
+    assert any(app_index.LOCATOR_NAME in line for line in _check_output_files(surface, manifest))
 
 
 def test_the_contract_check_refuses_a_sidecar_stamped_for_another_manifest(tmp_path):
@@ -381,7 +510,7 @@ def test_the_contract_check_refuses_a_sidecar_stamped_for_another_manifest(tmp_p
 # --- what a real build writes ------------------------------------------------------------------------
 
 
-def test_a_build_writes_both_sidecars_over_its_own_shards(mini_surface):
+def test_a_build_writes_every_sidecar_over_its_own_shards(mini_surface):
     """The end-to-end arm: the sidecars a build emits, held against the shards that same build wrote — every row projecting its fragment, every span slicing it back out, and the partition falling exactly where the manifest says it does."""
     manifest, shards = _surface_shards(mini_surface)
     by_id = {fragment["id"]: fragment for shard in shards.values() for fragment in shard}
@@ -393,12 +522,13 @@ def test_a_build_writes_both_sidecars_over_its_own_shards(mini_surface):
         fragment = by_id[row["id"]]
         _assert_row_projects(row, fragment)
         assert _addressed(mini_surface, manifest, row) == fragment
-    locator = app_index.load_rows(mini_surface, app_index.LOCATOR_NAME)
+    locator = app_index.load_locator_rows(mini_surface)
     assert locator is not None
     assert [row["id"] for row in locator] == _shard_order_ids(manifest, shards, human=False)
     assert set(row["id"] for row in locator) == set(by_id) - set(manifest["human_unit_ids"])
     for row in locator:
         assert _addressed(mini_surface, manifest, row) == by_id[row["id"]]
+    _blocks_address_their_rows(mini_surface)
 
 
 def test_a_build_satisfies_the_whole_surface_contract(mini_surface):
