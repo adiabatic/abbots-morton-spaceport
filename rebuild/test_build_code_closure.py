@@ -102,7 +102,7 @@ def _font_compile_closure() -> set[Path]:
 
 
 def test_the_font_compile_roster_is_the_import_closure_of_build_font_inside_tools():
-    """What the roster claims: exactly these tools/ modules run when rebuild/pipeline/compile_font.py compiles M1.otf, and so exactly these have to ride `pipeline_code_paths` — and through it `table_code_paths`, the tables' stamp, the run_m1 green, the conform key, the surface stamp and the unit cache's environment stamp. Equality in both directions is the point: a module the walk reaches and the roster misses is a font edit that moves no key, and a roster entry the walk never reaches is a fixpoint spent on code the compile never executes."""
+    """What the roster claims: exactly these tools/ modules run when rebuild/pipeline/compile_font.py compiles M1.otf, and so exactly these have to ride `pipeline_code_paths` — and through it `table_code_paths`, the tables' stamp, the run_m1 green, the conform key and the surface stamp. Equality in both directions is the point: a module the walk reaches and the roster misses is a font edit that moves no key, and a roster entry the walk never reaches is a fixpoint spent on code the compile never executes."""
     assert FONT_COMPILE_ENTRY.is_file(), "tools/build_font.py moved; the walk has no entry point"
     reached = {path.name for path in _font_compile_closure()}
     assert reached == set(fingerprint.FONT_COMPILE_TOOL_MODULES), (
