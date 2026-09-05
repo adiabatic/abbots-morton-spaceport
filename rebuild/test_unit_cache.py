@@ -251,6 +251,100 @@ def test_a_fragment_whose_stamp_moved_is_not_served(base_surface, mini_bundle, t
     assert _tree(surface) == _tree(base_surface)
 
 
+def _rewrite_store(surface: Path, edit) -> None:
+    """The store rewritten in place with `edit` applied to every record, the header kept."""
+    path = unit_cache.store_path(surface)
+    with gzip.open(path, "rt", encoding="utf-8") as stream:
+        lines = stream.read().splitlines()
+    edited = [lines[0]] + [json.dumps(edit(json.loads(line))) for line in lines[1:]]
+    with gzip.open(path, "wt", encoding="utf-8") as stream:
+        stream.write("\n".join(edited) + "\n")
+
+
+def _walked(monkeypatch) -> list[dict[str, set[str]]]:
+    """Every `wanted` map the build hands the walk, so a test can say whether the shards were parsed to place a unit."""
+    calls: list[dict[str, set[str]]] = []
+    real = unit_cache.locate_prior_fragments
+
+    def spy(out_dir, wanted):
+        calls.append({class_id: set(ids) for class_id, ids in wanted.items()})
+        return real(out_dir, wanted)
+
+    monkeypatch.setattr(unit_cache, "locate_prior_fragments", spy)
+    return calls
+
+
+def test_a_served_build_places_every_unit_from_the_store_without_walking_the_shards(
+    base_surface, mini_bundle, tmp_path, capfd, monkeypatch
+):
+    """The store record carries the address the shard writer returned for its fragment, so a no-change rebuild's plan is a lookup into the store: the previous surface's shards are never parsed to find a unit, and each served fragment is parsed exactly once, at the write, where the reader holds it to the record's id and stamp."""
+    surface = _copy(base_surface, tmp_path)
+    store = unit_cache.load_store(surface, _environment(surface))
+    assert store is not None and all(cached.address is not None for cached in store.values())
+    calls = _walked(monkeypatch)
+    _build(surface, mini_bundle, jobs=1)
+    served, total = _served(capfd)
+    assert served == total
+    assert calls == []
+    assert _tree(surface) == _tree(base_surface)
+
+
+def _environment(surface: Path) -> str:
+    with gzip.open(unit_cache.store_path(surface), "rt", encoding="utf-8") as stream:
+        return json.loads(next(stream))["environment"]
+
+
+def test_a_store_without_addresses_still_serves_every_unit_through_the_walk(
+    base_surface, mini_bundle, tmp_path, capfd, monkeypatch
+):
+    """A store written before addresses were recorded names each unit's fragment by id and class alone, and the build still serves from it — the walk over the previous surface's shards places what the store cannot — and lands byte for byte on the surface an addressed store serves, the rewritten store's addresses included."""
+    surface = _copy(base_surface, tmp_path)
+    _rewrite_store(surface, lambda record: {key: value for key, value in record.items() if key != "address"})
+    store = unit_cache.load_store(surface, _environment(surface))
+    assert store is not None and all(cached.address is None for cached in store.values())
+    calls = _walked(monkeypatch)
+    capfd.readouterr()
+    _build(surface, mini_bundle, jobs=1)
+    served, total = _served(capfd)
+    assert served == total
+    assert sum(len(ids) for call in calls for ids in call.values()) == total
+    assert _tree(surface) == _tree(base_surface)
+
+
+def test_a_shard_rewritten_underneath_the_store_is_walked_rather_than_trusted(
+    base_surface, mini_bundle, tmp_path, capfd, monkeypatch
+):
+    """An address is only as good as the bytes it was taken over, and the manifest stamp says nothing about a shard's bytes. The store records each part's size instead, so a part rewritten underneath it — here compactly, every stamp intact — is placed by the walk again and every unit still serves, while the parts that did not move are trusted as before."""
+    surface = _copy(base_surface, tmp_path)
+    path = next(path for path in _shard_paths(surface) if json.loads(path.read_text(encoding="utf-8")))
+    fragments = json.loads(path.read_text(encoding="utf-8"))
+    path.write_text(json.dumps(fragments), encoding="utf-8")
+    calls = _walked(monkeypatch)
+    capfd.readouterr()
+    _build(surface, mini_bundle, jobs=1)
+    served, total = _served(capfd)
+    assert served == total
+    assert sum(len(ids) for call in calls for ids in call.values()) == len(fragments)
+    assert _tree(surface) == _tree(base_surface)
+
+
+def test_an_edit_in_place_under_a_trusted_address_is_refused_at_the_write(
+    base_surface, mini_bundle, tmp_path
+):
+    """The size guard cannot see an edit that leaves a part exactly as long as it was, so such a fragment is trusted into the plan and caught where every served fragment is held to its record: the reader refuses it at the write, loudly, rather than serving bytes the store does not describe."""
+    surface = _copy(base_surface, tmp_path)
+    path = next(path for path in _shard_paths(surface) if json.loads(path.read_text(encoding="utf-8")))
+    fragments = json.loads(path.read_text(encoding="utf-8"))
+    stamp = fragments[0]["content_key"]
+    raw = path.read_bytes()
+    edited = raw.replace(stamp.encode(), ("0" * len(stamp)).encode(), 1)
+    assert len(edited) == len(raw)
+    path.write_bytes(edited)
+    with pytest.raises(SystemExit) as raised:
+        _build(surface, mini_bundle, jobs=1)
+    assert "cannot be read back" in str(raised.value)
+
+
 def test_a_store_whose_ink_deltas_moved_fails_the_verification_sample(base_surface, mini_bundle, tmp_path):
     """The ink deltas sit outside the content key (they are a carry-presentation field), so the stamp cannot speak for them and the served-vs-recomputed sample compares them beside it. A store whose deltas no longer describe the fonts is exactly the drift that would otherwise ship silently."""
     surface = _copy(base_surface, tmp_path)
@@ -582,6 +676,7 @@ def _round_trip_unit() -> unit_cache.CachedUnit:
         prior_class="boundary-echo",
         content_key="f" * 64,
         slim=False,
+        address=None,
         ink_identical=False,
         picture_identical=False,
         junior_equivalent=False,
@@ -623,6 +718,26 @@ def test_store_round_trip_and_invalidation(tmp_path):
     assert unit_cache.load_store(tmp_path, "env-b") is None
     (tmp_path / "manifest.json").write_text('{"changed": true}', encoding="utf-8")
     assert unit_cache.load_store(tmp_path, "env-a") is None
+
+
+def test_a_record_keeps_its_address_only_while_its_part_is_the_size_the_store_recorded(tmp_path):
+    """The address round-trips beside the stamp, and `load_store` drops it — the record itself surviving — once the part it points into is no longer the size the header recorded, which is what routes a rewritten part to the walk; a record written without an address loads with none."""
+    fragments = [{"id": "u-0000", "content_key": "k0"}, {"id": "u-0001", "content_key": "f" * 64}]
+    parts, spans = _write_shard(tmp_path, "small", fragments)
+    (tmp_path / "manifest.json").write_text("{}", encoding="utf-8")
+    addressed = replace(_round_trip_unit(), address=(parts[0], spans[1][1], spans[1][2]))
+    unaddressed = replace(_round_trip_unit(), key="k2", prior_id="u-0002")
+    unit_cache.write_store(tmp_path, "env-a", [addressed, unaddressed])
+    loaded = unit_cache.load_store(tmp_path, "env-a")
+    assert loaded is not None and loaded["k1"] == addressed and loaded["k2"].address is None
+    located = loaded["k1"].located()
+    assert located is not None and (located.unit_id, located.content_key) == ("u-0001", "f" * 64)
+    with unit_cache.PriorFragmentReader(tmp_path) as reader:
+        assert reader.read(located) == fragments[1]
+    (tmp_path / parts[0]).write_text(json.dumps(fragments), encoding="utf-8")
+    loaded = unit_cache.load_store(tmp_path, "env-a")
+    assert loaded is not None and loaded["k1"] == replace(addressed, address=None)
+    assert loaded["k1"].located() is None
 
 
 def test_an_assets_refresh_leaves_the_store_loadable(tmp_path):
