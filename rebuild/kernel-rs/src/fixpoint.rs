@@ -76,38 +76,73 @@ pub fn deep_class_id(members: &[String]) -> String {
 /// What a worklist pin allows: a set compared and hashed by content so two items pinned to the same tokens are one item, behind an [`Rc`] so an item is cheap to clone into the `seen` set. The ordering the `BTreeSet` imposes is interning order and is never read — membership, intersection and equality are the only questions asked.
 type Allowed = Rc<BTreeSet<RightToken>>;
 
-/// The six labels one window is keyed by, `table.Window.key`: the input glyph, the left, and the four right slots.
-type WindowKey = [Rc<str>; 6];
+/// The six labels one window is keyed by, `table.Window.key`: the input glyph, the left, and the four right slots, each as the id the pool minted for its spelling.
+type WindowKey = [Label; 6];
 
-/// The pool one enumeration interns its window labels through: every distinct spelling allocated once and shared by every row that names it.
+/// One window label's id in the [`LabelPool`]: the position its spelling was minted at, and nothing about the text. Two ids are equal exactly when their spellings are, because the pool mints each spelling once; their order is minting order, which no consumer reads — the product's lexicographic order is reached through [`LabelPool::ranks`] instead.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+struct Label(u32);
+
+/// The pool one enumeration interns its window labels through: every distinct spelling allocated once, minted a [`Label`] on first sight, and named by that id in every key and row until the run is over.
 ///
-/// A configuration reaches millions of windows over a few tens of thousands of distinct labels, so an owned `String` per slot was both the largest allocation count in the run and a needless copy of the same handful of names in every key. A shared handle still compares, hashes and sorts as the text it is, which is what keeps the product's key order the lexicographic one the stream contracts and leaves every raise message spelled exactly as it was.
+/// A configuration reaches millions of windows over a few tens of thousands of distinct labels, so an owned `String` per slot was both the largest allocation count in the run and a needless copy of the same handful of names in every key, and the shared handle that replaced it was still a fat pointer per slot per row and a cache miss per slot per compare in the sort. A `u32` per slot is a quarter of that, hashes as the integer it is, and costs the run one rank table at the end: the ids sorted by their text once, so the rows can be ordered by rank tuple and come out in exactly the lexicographic order the stream contracts. The spellings are only resolved back to shared handles when the sorted product is materialized, so every raise message and every row reads as it always did.
 #[derive(Default)]
-struct LabelPool(HashSet<Rc<str>>);
+struct LabelPool {
+    ids: HashMap<Rc<str>, Label>,
+    texts: Vec<Rc<str>>,
+}
 
 impl LabelPool {
-    /// The pool's handle on this spelling, minting one only where the pool has none.
-    fn intern(&mut self, text: &str) -> Rc<str> {
-        if let Some(found) = self.0.get(text) {
-            return Rc::clone(found);
+    /// The pool's id for this spelling, minting one only where the pool has none.
+    fn intern(&mut self, text: &str) -> Label {
+        if let Some(&found) = self.ids.get(text) {
+            return found;
         }
-        let shared: Rc<str> = Rc::from(text);
-        self.0.insert(Rc::clone(&shared));
-        shared
+        self.mint(Rc::from(text))
     }
 
     /// The same for a spelling the caller had to build anyway, so that a miss reuses the buffer rather than copying it a second time.
-    fn intern_owned(&mut self, text: String) -> Rc<str> {
-        if let Some(found) = self.0.get(text.as_str()) {
-            return Rc::clone(found);
+    fn intern_owned(&mut self, text: String) -> Label {
+        if let Some(&found) = self.ids.get(text.as_str()) {
+            return found;
         }
-        let shared: Rc<str> = Rc::from(text);
-        self.0.insert(Rc::clone(&shared));
-        shared
+        self.mint(Rc::from(text))
+    }
+
+    /// A spelling the pool has never seen, seated at the next id.
+    fn mint(&mut self, shared: Rc<str>) -> Label {
+        let id = Label(
+            u32::try_from(self.texts.len())
+                .expect("a configuration's distinct labels number in the tens of thousands, nowhere near the u32 ids can seat"),
+        );
+        self.ids.insert(Rc::clone(&shared), id);
+        self.texts.push(shared);
+        id
+    }
+
+    /// The spelling one id was minted for, as the shared handle the product's rows carry.
+    fn text(&self, label: Label) -> &Rc<str> {
+        &self.texts[label.0 as usize]
+    }
+
+    /// One key's six spellings, which is how a complaint names the window it is about: the `Debug` form of six `&str`s is the form the same six shared handles printed as, so the sentences read as they always did.
+    fn spelled(&self, key: &WindowKey) -> [&str; 6] {
+        key.map(|label| &**self.text(label))
+    }
+
+    /// Each id's position among every spelling the pool holds, sorted as text: `ranks[id]` compares as the spelling does, so ordering rows by their rank tuple is ordering them by their key tuple without touching a string.
+    fn ranks(&self) -> Vec<u32> {
+        let mut by_text: Vec<usize> = (0..self.texts.len()).collect();
+        by_text.sort_unstable_by(|&left, &right| self.texts[left].cmp(&self.texts[right]));
+        let mut ranks = vec![0u32; self.texts.len()];
+        for (rank, id) in by_text.into_iter().enumerate() {
+            ranks[id] = u32::try_from(rank).expect("a rank is one of the ids it ranks");
+        }
+        ranks
     }
 
     /// One right slot's label, interned — [`right_token_label`] without minting the `String` that function returns.
-    fn token(&mut self, index: &SpecIndex, token: RightToken) -> Rc<str> {
+    fn token(&mut self, index: &SpecIndex, token: RightToken) -> Label {
         match token {
             RightToken::Letter(rune) => {
                 let name = index.resolve(rune);
@@ -121,7 +156,7 @@ impl LabelPool {
     }
 
     /// A deep slot's label, interned, with an absent slot spelling [`NA_LABEL`].
-    fn slot(&mut self, index: &SpecIndex, token: Option<RightToken>) -> Rc<str> {
+    fn slot(&mut self, index: &SpecIndex, token: Option<RightToken>) -> Label {
         match token {
             Some(token) => self.token(index, token),
             None => self.intern(NA_LABEL),
@@ -139,9 +174,9 @@ struct Item {
     right3_allowed: Option<Allowed>,
 }
 
-/// What a recorded window carries beyond the six labels that key it — `table.Transition`'s remaining fields, kept apart from the key so the labels are stored once rather than in both the map's key and its value.
+/// What a recorded window carries beyond the six labels that key it — `table.Transition`'s remaining fields, kept apart from the key so the labels are stored once rather than in both the map's key and its value. The outcome is a pool id like the key's slots, resolved to its spelling with them when the product is materialized.
 struct Row {
-    outcome: Rc<str>,
+    outcome: Label,
     settled: Settled,
     left_settled: Option<Settled>,
     joint: bool,
@@ -156,7 +191,7 @@ type Slot3Entry = (Option<RightToken>, Option<usize>, Vec<RightToken>);
 type Slot4Entry = Option<Vec<RightToken>>;
 
 /// What an in-flight class-grain row is keyed by while the worklist runs: the four near labels, the third slot's identity, and the fourth's full member group.
-type PendingKey = (Rc<str>, Rc<str>, Rc<str>, Rc<str>, Identity3, Slot4Entry);
+type PendingKey = (Label, Label, Label, Label, Identity3, Slot4Entry);
 
 /// The third slot's identity inside a [`PendingKey`]: the boundary token itself where the entry is a boundary, and the fiber's full member tuple where it is a fiber. Naming the two alternatives is that distinction made checkable rather than left to a coincidence of representation.
 ///
@@ -172,8 +207,8 @@ enum Identity3 {
 /// The r4 members carry no pins and so are full from the first item, which is why they are a plain group here where the third slot's are a set.
 struct PendingDeepRow {
     left_context: LeftContext,
-    left_label: Rc<str>,
-    input_label: Rc<str>,
+    left_label: Label,
+    input_label: Label,
     token: RightToken,
     right1: RightToken,
     right2: RightToken,
@@ -417,8 +452,8 @@ fn enumerate_seeded(
                             let rep3 = admitted3[0];
                             let rep4 = members4.as_ref().map(|group| group[0]);
                             let pending_key: PendingKey = (
-                                Rc::clone(&input_label),
-                                Rc::clone(&left_label),
+                                input_label,
+                                left_label,
                                 labels.token(index, right1),
                                 labels.token(index, right2),
                                 identity3.clone(),
@@ -429,8 +464,8 @@ fn enumerate_seeded(
                                     let record = &mut pending_rows[seat];
                                     if record.left_settled != left.settled {
                                         let display: WindowKey = [
-                                            Rc::clone(&input_label),
-                                            Rc::clone(&left_label),
+                                            input_label,
+                                            left_label,
                                             labels.token(index, right1),
                                             labels.token(index, right2),
                                             labels.token(index, rep3),
@@ -438,7 +473,7 @@ fn enumerate_seeded(
                                         ];
                                         return Err(partition_complaint(
                                             index,
-                                            &display,
+                                            &labels.spelled(&display),
                                             record.left_settled.as_ref(),
                                             left.settled.as_ref(),
                                         ));
@@ -458,8 +493,8 @@ fn enumerate_seeded(
                                     pending_seats.insert(pending_key, pending_rows.len());
                                     pending_rows.push(PendingDeepRow {
                                         left_context: left.clone(),
-                                        left_label: Rc::clone(&left_label),
-                                        input_label: Rc::clone(&input_label),
+                                        left_label,
+                                        input_label,
                                         token,
                                         right1,
                                         right2,
@@ -538,8 +573,8 @@ fn enumerate_seeded(
 
                     for right4 in right4_slots {
                         let window_key: WindowKey = [
-                            Rc::clone(&input_label),
-                            Rc::clone(&left_label),
+                            input_label,
+                            left_label,
                             labels.token(index, right1),
                             if right1.kind() == TokenKind::Letter {
                                 labels.token(index, right2)
@@ -554,7 +589,7 @@ fn enumerate_seeded(
                             if existing.left_settled != left.settled {
                                 return Err(partition_complaint(
                                     index,
-                                    &window_key,
+                                    &labels.spelled(&window_key),
                                     existing.left_settled.as_ref(),
                                     left.settled.as_ref(),
                                 ));
@@ -655,8 +690,8 @@ fn enumerate_seeded(
             )),
         };
         let window_key: WindowKey = [
-            Rc::clone(&pending.input_label),
-            Rc::clone(&pending.left_label),
+            pending.input_label,
+            pending.left_label,
             labels.token(index, pending.right1),
             labels.token(index, pending.right2),
             label3,
@@ -673,7 +708,13 @@ fn enumerate_seeded(
                 )
                 .map_err(complaint)?;
             if !pending.echoes(&echo) {
-                return Err(echo_mismatch(index, &window_key, last3, pending, &echo));
+                return Err(echo_mismatch(
+                    index,
+                    &labels.spelled(&window_key),
+                    last3,
+                    pending,
+                    &echo,
+                ));
             }
         }
         if let Some(group) = pending.members4.as_deref()
@@ -689,12 +730,19 @@ fn enumerate_seeded(
                 )
                 .map_err(complaint)?;
             if !pending.echoes(&echo) {
-                return Err(echo_mismatch(index, &window_key, last4, pending, &echo));
+                return Err(echo_mismatch(
+                    index,
+                    &labels.spelled(&window_key),
+                    last4,
+                    pending,
+                    &echo,
+                ));
             }
         }
         if transitions.contains_key(&window_key) {
             return Err(format!(
-                "deep-class window {window_key:?} collides with an existing row"
+                "deep-class window {:?} collides with an existing row",
+                labels.spelled(&window_key)
             ));
         }
         transitions.insert(
@@ -715,6 +763,9 @@ fn enumerate_seeded(
             CacheSize::of("transitions", transitions.len(), transitions.capacity()).line(&config),
         );
         lines.push(CacheSize::of("seen", seen.len(), seen.capacity()).line(&config));
+        lines.push(
+            CacheSize::of("labels", labels.texts.len(), labels.texts.capacity()).line(&config),
+        );
         lines.push(
             CacheSize::of("pending_rows", pending_rows.len(), pending_rows.capacity())
                 .line(&config),
@@ -755,10 +806,15 @@ fn enumerate_seeded(
         ));
     }
 
-    let mut rows: Vec<TransitionRow> = transitions
+    // The sort runs over the ids, through the rank table, before a single spelling is resolved: a rank tuple compares as the key tuple does, because every id ranks as its text, and the keys are distinct, so the unstable sort reaches the one order a stable one would. Only then are the spellings put back, in the order the rows will be written in.
+    let ranks = labels.ranks();
+    let mut keyed: Vec<(WindowKey, Row)> = transitions.into_iter().collect();
+    keyed.sort_unstable_by_key(|(key, _)| key.map(|label| ranks[label.0 as usize]));
+    let rows: Vec<TransitionRow> = keyed
         .into_iter()
         .map(|(key, row)| {
-            let [input_glyph, left, right1, right2, right3, right4] = key;
+            let [input_glyph, left, right1, right2, right3, right4] =
+                key.map(|label| Rc::clone(labels.text(label)));
             TransitionRow {
                 input_glyph,
                 left,
@@ -766,7 +822,7 @@ fn enumerate_seeded(
                 right2,
                 right3,
                 right4,
-                outcome: row.outcome,
+                outcome: Rc::clone(labels.text(row.outcome)),
                 settled: row.settled,
                 left_settled: row.left_settled,
                 joint: row.joint,
@@ -775,7 +831,6 @@ fn enumerate_seeded(
             }
         })
         .collect();
-    rows.sort_by(|left, right| left.key().cmp(&right.key()));
     if let Some(lines) = census.as_mut() {
         lines.push(format!(
             "[c] {config} resident_after_sort kb={}",
@@ -914,7 +969,7 @@ fn complaint(error: SettleError) -> String {
 /// The partition premise's sentence: one window label reached from two different left states, which means `cell_label` has stopped telling those states apart. The window and the two states are spelled in the crate's own idiom — nothing compares this text, and a `Settled` printed structurally would name its heights by interning id.
 fn partition_complaint(
     index: &SpecIndex,
-    key: &WindowKey,
+    key: &[&str; 6],
     existing: Option<&Settled>,
     arriving: Option<&Settled>,
 ) -> String {
@@ -972,7 +1027,7 @@ fn echo_member(members: &[RightToken], representative: RightToken) -> RightToken
 /// The echo check's `PartitionError` sentence: a member of a class row traced something the representative did not, which is the virtual-left fiber collapse failing at real-left grain.
 fn echo_mismatch(
     index: &SpecIndex,
-    key: &WindowKey,
+    key: &[&str; 6],
     member: RightToken,
     expected: &PendingDeepRow,
     got: &TransitionTrace,
