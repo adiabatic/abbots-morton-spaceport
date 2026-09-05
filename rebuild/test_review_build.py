@@ -9,6 +9,7 @@ import json
 import multiprocessing
 import shutil
 import subprocess
+import threading
 from html.parser import HTMLParser
 from pathlib import Path
 
@@ -37,6 +38,7 @@ from rebuild.review.build import (
 )
 from rebuild.review.enrich import LETTERS
 from rebuild.review.export import _triage_projection, build_triage, load_units, load_verdicts
+from rebuild.review.ink import shape_memo_census
 from rebuild.tools import console
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -671,6 +673,70 @@ def test_close_finds_the_peak_behind_an_unconsumed_phase_reply(tmp_path, monkeyp
     assert proc.joined
     record = json.loads(journal.read_text(encoding="utf-8").splitlines()[0])
     assert record["worker_peak_rss_bytes"] == {"w0": 1_500_000}
+
+
+def _spy_on_releases(monkeypatch) -> list[int]:
+    """Watch the build's unit batch boundary: every `release_shape_memos` call is recorded with the entry count the memo held the moment before, then delegated, so a test can see both that the boundary is reached with a loaded memo and that nothing is left in it afterward."""
+    seen: list[int] = []
+    release = review_build.release_shape_memos
+
+    def spy() -> None:
+        seen.append(shape_memo_census().entries)
+        release()
+
+    monkeypatch.setattr(review_build, "release_shape_memos", spy)
+    return seen
+
+
+def test_an_in_process_build_releases_the_shape_memo_behind_each_batch(mini_bundle, tmp_path, monkeypatch):
+    """The serial build's memo is bounded by a unit batch, not by the build: the shared shapers reach the boundary loaded — the signature pass and phase 1 both shape through them — and every boundary empties them, so a build that has finished writing holds no shape at all. The mini bundle fits one batch, so what this proves is the shape of the bound rather than its width; `EXPLAIN_UNIT_BATCH_SIZE` is the width."""
+    seen = _spy_on_releases(monkeypatch)
+    review_build.build_m1(
+        tmp_path / "surface",
+        audit_path=MINI / "audit.tsv",
+        ledger_path=mini_bundle.ledger,
+        subset_dir=MINI,
+        after_font=MINI / "M1.otf",
+        spec_root=mini_bundle.spec_root,
+        jobs=1,
+    )
+    assert seen and max(seen) > 0
+    assert shape_memo_census().entries == 0
+
+
+def test_a_pool_worker_releases_the_shape_memo_behind_each_batch(mini_bundle, monkeypatch):
+    """The pooled build's worker takes the same boundary, and it is held here in-process: `_surface_worker` is driven over a pipe from a thread rather than a spawn, so the spy on the build module's `release_shape_memos` is the one the worker's `_phase1_batches` reaches. Phase 1 over the mini workload loads the memo before its first boundary, and the worker answers its stop with the memo empty. The phase's `progress` counts arrive ahead of its `ok` and are read past here the way the parent reads them, never decreasing and reaching the slice."""
+    seen = _spy_on_releases(monkeypatch)
+    units = load_workload(MINI / "audit.tsv", mini_bundle.ledger, dict(LETTERS)).units
+    init = {
+        "before_font": review_build.SITE_BEFORE_FONT,
+        "after_font": MINI / "M1.otf",
+        "junior_font": review_build.SITE_JUNIOR_FONT,
+        "subset_dir": MINI,
+        "repo_root": REPO_ROOT,
+        "spec_root": mini_bundle.spec_root,
+    }
+    parent, child = multiprocessing.Pipe()
+    worker = threading.Thread(target=review_build._surface_worker, args=(child, init), daemon=True)
+    worker.start()
+    try:
+        parent.send(("phase1", units))
+        counts: list[int] = []
+        reply = parent.recv()
+        while reply[0] == "progress":
+            counts.append(reply[1])
+            reply = parent.recv()
+        assert reply[0] == "ok", reply[1]
+        assert len(reply[1]) == len(units)
+        assert counts == sorted(counts) and counts[-1] == len(units)
+        parent.send(("stop",))
+        assert parent.recv()[0] == "peak"
+    finally:
+        parent.close()
+        worker.join(timeout=60)
+    assert not worker.is_alive()
+    assert seen and seen[0] > 0
+    assert shape_memo_census().entries == 0
 
 
 @pytest.mark.parametrize(

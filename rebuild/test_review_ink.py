@@ -22,6 +22,8 @@ from rebuild.review.ink import (
     features_for,
     kern_neutral,
     rectilinear_cells,
+    release_shape_memos,
+    shape_memo_census,
     shaper_for,
     signature_digest,
 )
@@ -363,6 +365,27 @@ def test_shaper_for_rekeys_when_the_font_changes_on_disk(tmp_path):
     shutil.copyfile(JUNIOR_FONT, target)
     second = shaper_for(target)
     assert second is not first
+
+
+def test_the_shape_memo_reports_what_it_holds_and_releases_it_whole():
+    """The memo's two instruments, and the bound they serve. `shape_memo_census` counts every entry `shaper_for`'s shapers hold between them, with an approximate byte figure that grows with the entries and answers zero for nothing; a repeated shape is a memo hit and moves neither. `release_shape_memos` empties every one of them at once — the build calls it behind each unit batch — and a shape after the release is HarfBuzz again: an equal result, but a fresh object rather than the one the memo held, which is the difference between a served shape and a recomputed one."""
+    release_shape_memos()
+    assert shape_memo_census() == (0, 0)
+    shared = shaper_for(BEFORE_FONT)
+    text = "".join(chr(value) for value in (0xE650, 0xE665, 0xE667))
+    held = shared.shape(text)
+    one = shape_memo_census()
+    assert one.entries == 1 and one.approx_bytes > 0
+    assert shared.shape(text) is held
+    assert shape_memo_census() == one
+    shared.shape(text, {"ss03": True, "kern": False})
+    two = shape_memo_census()
+    assert two.entries == 2 and two.approx_bytes > one.approx_bytes
+    release_shape_memos()
+    assert shape_memo_census() == (0, 0)
+    fresh = shared.shape(text)
+    assert fresh == held and fresh is not held
+    assert shape_memo_census().entries == 1
 
 
 @pytest.fixture(scope="module")
