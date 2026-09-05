@@ -61,6 +61,7 @@ from rebuild.review.ink import (
     JuniorOracle,
     delta_digest,
     release_shape_memos,
+    shape_memo_census,
     shaper_for,
     signature_digest,
 )
@@ -78,9 +79,9 @@ from rebuild.review.enrich import (
     seam_home_projection,
     text_entities,
 )
-from rebuild.tools import console
+from rebuild.tools import console, pile_tally
 from rebuild.tools.cycle_timings import record_pool
-from rebuild.tools.peak_rss import peak_rss_self_bytes
+from rebuild.tools.peak_rss import peak_rss_self_bytes, rss_token
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 DEFAULT_OUT = REPO_ROOT / "rebuild" / "out" / "review"
@@ -857,6 +858,10 @@ def _surface_worker(conn, init: dict) -> None:
             shaper_factory=shaper_for,
         )
         drafter = Drafter(init["after_font"], repo_root=init["repo_root"], shaper_factory=shaper_for)
+        tally = pile_tally.from_environment()
+        if tally:
+            tally.hold("worker.subset_rows", enricher._subset_rows, nested=True)
+            tally.hold_reading("ink.shape_memo", shape_memo_census)
         while True:
             message = conn.recv()
             if message[0] == "stop":
@@ -874,7 +879,15 @@ def _surface_worker(conn, init: dict) -> None:
                         spool.add(fragment)
                         results.append(projection)
                     conn.send(("progress", len(results)))
-                conn.send(("ok", results, spool.close() if spool is not None else {}))
+                spooled = spool.close() if spool is not None else {}
+                if tally:
+                    tally.hold("worker.projections", results)
+                    tally.hold("worker.spooled", spooled)
+                    tally.boundary(f"{message[2]}/phase1")
+                conn.send(("ok", results, spooled))
+                if tally:
+                    tally.release("worker.projections")
+                    tally.release("worker.spooled")
             elif message[0] == "verify":
                 keys: dict[str, tuple] = {}
                 for chunk in _released_batches(message[1]):
@@ -912,6 +925,14 @@ def _partition(items: list, parts: int) -> list[list]:
 
 
 PHASE1_UNITS = "units enriched"
+
+
+def _phase_timing(label: str, started: float, note: str = "") -> None:
+    """Close one `review.build` phase on the `[t]` line the timings journal reads, stamped with this process's peak RSS so far (`peak_rss.rss_token`, the same token run_m1's phase lines carry) ahead of whatever note the phase hangs off the line. `make cycle-timings ARGS='--inner'` renders the token per phase, which is what says where in a build the step's high-water mark is reached — a peak only ever rises, so the phase whose token first shows the step's figure is the phase that made it."""
+    tail = rss_token(peak_rss_self_bytes())
+    if note:
+        tail += f"\t{note}"
+    console.timing(label, time.perf_counter() - started, tail, file=sys.stderr)
 
 
 class _FreshRunner:
@@ -963,7 +984,7 @@ class _FreshRunner:
                 "out_dir": self._out_dir,
             }
             ctx = multiprocessing.get_context("spawn")
-            for _ in range(nworkers):
+            for index in range(nworkers):
                 parent_conn, child_conn = ctx.Pipe()
                 proc = ctx.Process(target=_surface_worker, args=(child_conn, init))
                 proc.start()
@@ -1001,6 +1022,11 @@ class _FreshRunner:
 
     def _count(self, done: int) -> None:
         console.progress(done, len(self._fresh), PHASE1_UNITS, file=sys.stderr)
+
+    def hold_piles(self, tally: pile_tally.PileTally) -> None:
+        """Hand the debug tally the piles this runner holds in the parent: the spool address kept per fresh unit from phase 1 until `close` sweeps the spool — pooled, the addresses every worker answered with; serial, the one spool's — and, once the serial path has built its enricher, that enricher's projected subset tables. Pooled, the tables live in the workers, which tally their own at their own phase ends; the parent's hold then reads as empty, which is the honest reading rather than a gap."""
+        tally.hold("runner.spooled", self._spooled)
+        tally.hold("runner.subset_rows", self._local[2]._subset_rows if self._local else {}, nested=True)
 
     def _collect(self, label: str) -> list:
         """Every worker's answer to one phase, read as it arrives rather than one worker at a time — which is what lets a counter reach the terminal while the phase is still running, since a parent blocked on `recv` in submission order says nothing until its first worker has finished. `wait` hands back whichever connections have something; a `progress` tag replaces that worker's share of the count and reprints the sum, and the phase is over once every connection has answered with the payload after its `ok`. An error raises here exactly as it did when the parent recv'd in turn, and the replies queued behind it are drained by `close()`."""
@@ -1096,6 +1122,7 @@ class _FreshRunner:
             self._reader.close()
             self._reader = None
         shutil.rmtree(self._out_dir / FRESH_SPOOL_NAME, ignore_errors=True)
+        self._spooled.clear()
 
 
 class _SidecarSpool:
@@ -1172,6 +1199,7 @@ def _write_surface(
     mismatches: list,
     font_digests: Mapping[str, str],
     served_ids: Collection[str] = (),
+    tally: pile_tally.PileTally | None = None,
 ) -> _WrittenSurface:
     """Stream the per-unit JSON fragments into shards (per class, triage order within each), copy fonts, and write the manifest with its parent-once `generated_at`/`repo_head` stamps. `fragments` is asked once, for every unit in the order the shards will take them — classes in `unit_index.class_shard_key` order, which is the order the sidecars are written in anyway, and each class's units in triage order — and each fragment it yields is written, checked, projected onto the sidecar spools and released before the next is pulled, so the parent holds one fragment at a time rather than every unit's from the moment they exist until the manifest. What survives a fragment is slim: its shard address and the checker's per-unit identity for the cross-unit predicates, its sidecar lines on disk, and the two values `_WrittenSurface` carries. `check_shards`' predicates run over the fragments as they go by, through the same `_SurfaceCheck` the whole-surface form feeds, and `served_ids` carries the cache's plan into it (see `check_shards`). The manifest-shape predicates (`check_manifest`) and the beside-the-manifest file predicates (`_check_output_files`) do not run per build: every field they read is written right here out of this function's own inputs, and the fonts are held instead by the digest taken at load and asserted at `_copy_font`. `check_output_dir` proves them over a real build once per contracts run — `rebuild/test_app_index.py` over the mini bundle, `rebuild/test_review_build.py` over a table diff — and `refresh_assets` still runs the file predicates over the surface it restamps."""
     ordered = sorted(classes, key=lambda entry: unit_index.class_shard_key(entry.id))
@@ -1186,6 +1214,10 @@ def _write_surface(
         repo_root=repo_root,
         served_ids=served_ids,
     )
+    if tally:
+        tally.hold("checker.identity", check._identity)
+        tally.hold("written.config_notes", config_notes)
+        tally.hold("written.content_keys", content_keys)
     writer = _ShardWriter(out_dir)
     spool = _SidecarSpool(out_dir)
     try:
@@ -1387,9 +1419,16 @@ def build_m1(
             f"missing or empty baseline subset tables under {subset_dir}: {', '.join(missing_subsets)}"
         )
 
+    tally = pile_tally.from_environment()
     console.phase("review.build load", file=sys.stderr)
     phase = time.perf_counter()
     workload = load_workload(audit_path, ledger_path, dict(LETTERS))
+    if tally:
+        tally.hold("workload.units", workload.units, leaf_types=(AuditRow,))
+        tally.hold_reading(
+            "workload.rows",
+            lambda: pile_tally.estimate([row for unit in workload.units for row in unit.rows]),
+        )
     if not workload.units:
         raise SystemExit(
             f"{audit_path} records no divergent rows, so there is nothing to build a review surface over"
@@ -1420,11 +1459,14 @@ def build_m1(
     merge_ink_duplicate_units(workload.units, ink_sig, exempt_classes)
     present = {unit.class_id for unit in workload.units}
     workload.classes_present = [entry for entry in workload.ledger if entry.id in present]
-    print(
-        f"[t] review.build load {time.perf_counter() - phase:.1f}s"
-        f"\t(signatures: {len(signatures) - signatures_shaped:,} cached, {signatures_shaped:,} shaped)",
-        file=sys.stderr,
-        flush=True,
+    if tally:
+        tally.hold("signatures", signatures)
+        tally.hold_reading("ink.shape_memo", shape_memo_census)
+        tally.boundary("load")
+    _phase_timing(
+        "review.build load",
+        phase,
+        f"(signatures: {len(signatures) - signatures_shaped:,} cached, {signatures_shaped:,} shaped)",
     )
 
     # The incremental plan (issue 20; rebuild/review/unit_cache.py is the contract): key every unit over its content closure, serve what the previous surface already computed, and hand the runner only the remainder. The reduces below always run over the full universe, so every order- or ledger-derived field is this build's own.
@@ -1456,11 +1498,14 @@ def build_m1(
     sampled = set(_verification_sample(sorted(served), environment))
     # Copies, because recomputing a unit's phase 1 writes the ink flags onto it and the verification patch writes the injected batch and class; the originals are the ones the reduces and the store read.
     verify_units = [replace(unit) for unit in workload.units if unit.unit_id in sampled]
-    print(
-        f"[t] review.build plan {time.perf_counter() - phase:.1f}s"
-        f"\t(served {len(served):,} of {len(workload.units):,} units from cache)",
-        file=sys.stderr,
-        flush=True,
+    if tally:
+        tally.hold("unit_cache.keys", keys)
+        tally.hold("unit_cache.store", store or {})
+        tally.hold("unit_cache.served", served)
+        tally.hold("unit_cache.located", located)
+        tally.boundary("plan")
+    _phase_timing(
+        "review.build plan", phase, f"(served {len(served):,} of {len(workload.units):,} units from cache)"
     )
 
     console.phase("review.build units", file=sys.stderr)
@@ -1573,11 +1618,15 @@ def build_m1(
             )
         mismatches = [line for unit in workload.units for line in states[unit.unit_id].mismatches]
         echo_count = len(echo_ids)
-        print(
-            f"[t] review.build units {time.perf_counter() - phase:.1f}s"
-            f"\t(jobs={jobs}, fresh={len(fresh):,}, verified={len(verified):,} served)",
-            file=sys.stderr,
-            flush=True,
+        if tally:
+            tally.hold("states", states)
+            tally.hold("verified", verified)
+            runner.hold_piles(tally)
+            tally.boundary("units")
+        _phase_timing(
+            "review.build units",
+            phase,
+            f"(jobs={jobs}, fresh={len(fresh):,}, verified={len(verified):,} served)",
         )
 
         # The write is phase 2, and it is one pass over both kinds of unit: each fragment is read back by address as the shard that takes it goes down — a served one out of the previous surface at the address the locate pass recorded, a fresh one out of the runner's spool at the address phase 1 recorded — patched with this build's scaffold and seam homes through `patch_fragment`, stamped if it is fresh, and gone from the parent once the shard, the checker and the sidecar spools have had it. It runs under the runner because the spool is the runner's.
@@ -1623,13 +1672,16 @@ def build_m1(
                 mismatches,
                 font_digests,
                 served_ids=frozenset(served),
+                tally=tally,
             )
         finally:
             reader.close()
+        if tally:
+            tally.boundary("manifest+check")
     finally:
         runner.close()
     manifest = written.manifest
-    print(f"[t] review.build manifest+check {time.perf_counter() - phase:.1f}s", file=sys.stderr, flush=True)
+    _phase_timing("review.build manifest+check", phase)
 
     console.phase("review.build census-facts", file=sys.stderr)
     phase = time.perf_counter()
@@ -1654,7 +1706,9 @@ def build_m1(
             workload.row_count,
         ),
     )
-    print(f"[t] review.build census-facts {time.perf_counter() - phase:.1f}s", file=sys.stderr, flush=True)
+    if tally:
+        tally.boundary("census-facts")
+    _phase_timing("review.build census-facts", phase)
 
     console.phase("review.build cache", file=sys.stderr)
     phase = time.perf_counter()
@@ -1683,7 +1737,10 @@ def build_m1(
         )
     unit_cache.write_store(out_dir, environment, records)
     unit_cache.write_signature_store(out_dir, signature_environment, signature_entries)
-    print(f"[t] review.build cache {time.perf_counter() - phase:.1f}s", file=sys.stderr, flush=True)
+    if tally:
+        tally.hold("unit_cache.records", records)
+        tally.boundary("cache")
+    _phase_timing("review.build cache", phase)
     return manifest
 
 

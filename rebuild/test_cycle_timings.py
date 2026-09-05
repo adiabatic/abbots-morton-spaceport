@@ -70,6 +70,20 @@ def test_parse_inner_timings_reads_a_trailing_rss_token():
     ]
 
 
+def test_parse_inner_timings_reads_the_surface_builds_phase_lines():
+    """The surface build's phase lines carry the token ahead of a tab-separated note, which is the shape `--inner` has to read a per-phase peak out of for the step whose high-water mark issue #156 wants attributed."""
+    text = (
+        "[t] review.build load 12.3s rss_gb=1.23\t(signatures: 40 cached, 2 shaped)\n"
+        "[t] review.build units 900.0s rss_gb=15.40\t(jobs=1, fresh=1,000,000, verified=0 served)\n"
+        "[t] review.build manifest+check 300.5s rss_gb=17.10\n"
+    )
+    assert ct.parse_inner_timings(text) == [
+        {"label": "review.build load", "elapsed_s": 12.3, "rss_gb": 1.23},
+        {"label": "review.build units", "elapsed_s": 900.0, "rss_gb": 15.4},
+        {"label": "review.build manifest+check", "elapsed_s": 300.5, "rss_gb": 17.1},
+    ]
+
+
 def test_parse_inner_timings_ignores_lines_without_seconds():
     assert ct.parse_inner_timings("[t] build_tables[default] done") == []
     assert ct.parse_inner_timings("plain noise\nnot a [t] line 3.0s") == []
