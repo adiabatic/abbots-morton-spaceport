@@ -170,20 +170,39 @@ def guard_blocks(verdicts: FormationGuard, liga: str, right1: RightToken, right2
     return verdicts[(liga, right1, right2)]
 
 
-def form_ligatures(
-    spec: ResolvedSpec, tokens: list[RightToken], guard_verdicts: FormationGuard
-) -> list[RightToken]:
-    """Type-4 formation over the modeled ligature runes, greedy left to right, longest sequence first — staged before everything else, markers included, each match yielding per window to the section 5.7 late-formation guard over the two raw tokens past the sequence (design section 5.7). `guard_verdicts` is the crate's complete verdict surface for this spec, which `kernel_exec.guard_sweep` answers in one invocation. It is required rather than optional because a caller with no sweep in hand would otherwise form every ligature the emitted lookup withholds, and form it silently."""
+# The modeled ligature runes' sequences in the order formation tries them, keyed by the rune a sequence opens on and held per spec identity. Formation asks for the order at every position of every text, and a sweep or a surface build forms texts by the hundred thousand under one spec, so the sort is paid once and a position reads only the sequences its own rune can open; an entry holds the spec strongly so its id is never recycled underneath it, and the table keeps the last few specs a process formed under.
+_LIGATURE_ORDERS: dict[int, tuple[ResolvedSpec, dict[str, list[tuple[Sequence[str], str]]]]] = {}
+_LIGATURE_ORDERS_CAP = 4
+
+
+def _ligature_order(spec: ResolvedSpec) -> dict[str, list[tuple[Sequence[str], str]]]:
+    held = _LIGATURE_ORDERS.get(id(spec))
+    if held is not None and held[0] is spec:
+        return held[1]
     sequences = sorted(
         ((rune.sequence, name) for name, rune in spec.runes.items() if rune.sequence),
         key=lambda item: -len(item[0]),
     )
+    by_lead: dict[str, list[tuple[Sequence[str], str]]] = {}
+    for sequence, name in sequences:
+        by_lead.setdefault(sequence[0], []).append((sequence, name))
+    if len(_LIGATURE_ORDERS) >= _LIGATURE_ORDERS_CAP:
+        _LIGATURE_ORDERS.clear()
+    _LIGATURE_ORDERS[id(spec)] = (spec, by_lead)
+    return by_lead
+
+
+def form_ligatures(
+    spec: ResolvedSpec, tokens: list[RightToken], guard_verdicts: FormationGuard
+) -> list[RightToken]:
+    """Type-4 formation over the modeled ligature runes, greedy left to right, longest sequence first — staged before everything else, markers included, each match yielding per window to the section 5.7 late-formation guard over the two raw tokens past the sequence (design section 5.7). `guard_verdicts` is the crate's complete verdict surface for this spec, which `kernel_exec.guard_sweep` answers in one invocation. It is required rather than optional because a caller with no sweep in hand would otherwise form every ligature the emitted lookup withholds, and form it silently."""
+    by_lead = _ligature_order(spec)
     formed: list[RightToken] = []
     i = 0
     while i < len(tokens):
         match = None
         if tokens[i].kind == "letter":
-            for sequence, name in sequences:
+            for sequence, name in by_lead.get(tokens[i].letter, ()):
                 end = i + len(sequence)
                 if end <= len(tokens) and all(
                     tokens[i + k].kind == "letter" and tokens[i + k].rune == part
