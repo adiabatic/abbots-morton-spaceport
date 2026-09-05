@@ -85,9 +85,9 @@ GUARD_TAIL_TOKENS = {
     token.kind: token for token in (settle.EDGE, settle.SPACE, settle.ZWNJ, settle.NAMER_DOT, settle.UNKNOWN)
 }
 FormationGuard = settle.FormationGuard
-# How many windows ride one `settle-cases` invocation on the sequence path, where every answer comes back as a whole decoded trace. A spawn costs about a third of a second and a case about sixteen microseconds, so the batch is sized to keep the spawn a rounding error while the decoded traces — some kilobytes each — stay a bounded pile.
+# How many windows ride one `settle-cases` invocation on the sequence path, where every answer comes back as a whole decoded trace. A spawn with its spec load costs about nine milliseconds and a case about fifteen microseconds to settle and serialize, so at this size the spawn is a small fraction of a batch's kernel time while the decoded traces — under a kilobyte of text each — stay a bounded pile.
 SETTLE_CASE_BATCH_SIZE = 2048
-# The same bound for `settle_windows`, where an answer decodes to a `Settled` and nothing else. Eight times the trace batch, because the resident cost per case is a fraction of a trace's and the conform walker has hundreds of thousands of distinct windows to get through.
+# The same bound for `settle_windows`, where an answer decodes to a `Settled` and nothing else. Eight times the trace batch, because the resident cost per case is a fraction of a trace's and the conform walker has more than a million distinct windows per configuration to get through. At this size the spawn is under a twentieth of a batch's kernel time, so a larger batch buys nothing measurable (issue #153 priced it).
 SETTLE_WINDOW_BATCH = 16384
 
 _BUILT = False
