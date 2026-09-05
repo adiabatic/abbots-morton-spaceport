@@ -436,7 +436,7 @@ def _settle_cases(
         raise KernelRunError(f"settle-cases returned {len(lines)} answers for {len(cases)} questions")
     answers = []
     decoded: dict[str, object] = {}
-    for line_number, (line, (_case, head)) in enumerate(zip(lines, spelled), 1):
+    for line_number, (line, (_question, head)) in enumerate(zip(lines, spelled), 1):
         if not line.startswith(head) or not line.endswith("}"):
             raise KernelRunError(f"settle-cases line {line_number} changed or reordered its question")
         text = line[len(head) : -1]
