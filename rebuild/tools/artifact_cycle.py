@@ -974,6 +974,7 @@ class Plan:
     surface_dir: Path = REVIEW_OUT
     complaints_note: str = ""
     retention: bool = False
+    recipe_serves: bool = False
     stamp: str = ""
     log_dir: Path | None = None
     steps: list[Step] = field(default_factory=list)
@@ -1148,6 +1149,7 @@ def build_plan(
     preserve_snapshot: Path | None = None,
     record_greens: bool = False,
     keep_history: bool = False,
+    recipe_serves: bool = False,
 ) -> Plan:
     resolved_snapshot = (
         snapshot_dir if snapshot_dir is not None else resolve_snapshot_dir(ROOT / "tmp", short_id)
@@ -1223,6 +1225,7 @@ def build_plan(
         preserve_snapshot=preserve_snapshot,
         record_greens=record_greens,
         retention=do_retention,
+        recipe_serves=recipe_serves,
         pool_policy=pool_policy,
         surface_jobs=surface_jobs,
         surface_reason=surface_reason,
@@ -2953,7 +2956,7 @@ def summary_rows(report: CycleReport, plan: Plan, *, retention_ran: bool) -> lis
 
 
 def summary_cycle_lines(report: CycleReport, plan: Plan, retention_lines: list[str]) -> list[str]:
-    """What the table cannot hold: the paths a reader goes to next, the verdict chain's step-by-step outcome, the out-of-band deep sweep's standing, and what retention pruned. `next:` is the only instruction, and it appears only when the pass is green, because a red pass's next command is whatever the failure block names.
+    """What the table cannot hold: the paths a reader goes to next, the verdict chain's step-by-step outcome, the out-of-band deep sweep's standing, and what retention pruned. There is no instruction here: a green pass follows these lines with the readiness checklist itself (`readiness_block`), and a red pass's next command is whatever the failure block names.
 
     The chain's own news is indented under the two lines it belongs to — what the carry landed and how much queue it left, then what each fill and merge wrote. Those are the lines a reader came for after a sitting: which rule filled what, and whether the queue moved. They reach this process only as the chain's printed output, and `_standing_fill_news` and the scrapes beside it have already cut them down to a handful, so the summary carries them rather than sending a reader to `cycle_summary.json` and the plumbing step's own log for the one number that says whether the pass was worth running.
     """
@@ -3438,7 +3441,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--stop-server",
         action="store_true",
-        help="stop a listening review server instead of refusing, but only when this pass writes under it — the served surface's units or stamp, or the verdict store it holds. A pass that writes neither leaves the server up whether or not this is passed, so the letters stay on screen through it — an assets refresh is such a pass, since it moves no unit and no stamp and livereload simply reloads the tab onto the new shell; `make review-cycle` passes this, which is what makes a pass with no artifact work background verification rather than a lockout",
+        help="stop a listening review server instead of refusing, but only when this pass writes under it — the served surface's units or stamp, or the verdict store it holds. A pass that writes neither leaves the server up whether or not this is passed, so the letters stay on screen through it — an assets refresh is such a pass, since it moves no unit and no stamp and livereload simply reloads the tab onto the new shell; `make review-cycle` passes this, which is what makes a pass with no artifact work background verification rather than a lockout. It also says the recipe answers the server question after the pass, so the readiness checklist a green finish prints leaves the server row to it",
     )
     parser.add_argument(
         "--dry-run",
@@ -3612,6 +3615,7 @@ def main(argv: list[str] | None = None) -> int:
         preserve_snapshot=preserve_snapshot,
         record_greens=not args.dry_run,
         keep_history=args.keep_history,
+        recipe_serves=args.stop_server,
     )
 
     if args.dry_run:
@@ -3663,6 +3667,26 @@ def main(argv: list[str] | None = None) -> int:
         return _run_cycle(plan, report, digest, registry, timings=timings)
 
 
+def readiness_block(plan: Plan) -> list[str]:
+    """The checklist `make verdict-ready` prints, computed here so a green pass ends on the answer rather than on an instruction to go and ask for it. It reads the cycle summary this pass has just written, so it runs after `_emit_cycle_summary`. A rehearsal pass prints nothing, since its surface is never the one served. Under `make review-cycle` the server row is left out: the recipe stops the server ahead of a pass that writes under it and answers for it on the line after this one — restarting it, or saying it was left down — so a row read here would call a server the recipe is about to start absent. The suite stubs this to nothing beside `run_retention`, because the real thing reads the live surface, which a contracts-lane test may not."""
+    if plan.review_out is not None:
+        return []
+    from rebuild.tools import verdict_ready
+
+    try:
+        result, ready = verdict_ready.readiness(
+            with_server=not plan.recipe_serves,
+            repo_root=ROOT,
+            review_dir=plan.surface_dir,
+            m1_out=M1_OUT,
+            autosave_path=AUTOSAVE,
+            cycle_summary_path=CYCLE_SUMMARY,
+        )
+    except Exception as exc:
+        return [f"readiness: the checklist could not be computed ({exc!r})"]
+    return verdict_ready.checklist(result, ready)
+
+
 def _finish(
     report: CycleReport,
     failures: list[str],
@@ -3670,7 +3694,7 @@ def _finish(
     timings: CycleTimings | None = None,
     emit: console.Digest | None = None,
 ) -> int:
-    """Close the pass: run retention when a green finish has earned it, then write the one summary block. Retention goes first so its row has an outcome, a figure and lines with somewhere to land — printing them after the table would put the pass's last word below the verdict it belongs to. A retention pass that answers with nothing still leaves the row an outcome: that is the suite's stub, which is what keeps a test reaching a green finish from sweeping the live repo."""
+    """Close the pass: run retention when a green finish has earned it, then write the one summary block. Retention goes first so its row has an outcome, a figure and lines with somewhere to land — printing them after the table would put the pass's last word below the verdict it belongs to. A retention pass that answers with nothing still leaves the row an outcome: that is the suite's stub, which is what keeps a test reaching a green finish from sweeping the live repo. A green pass closes on the readiness checklist, read after the cycle summary it reads has landed."""
     digest = console.Digest() if emit is None else emit
     retention_lines: list[str] = []
     retention_ran = False
@@ -3687,10 +3711,10 @@ def _finish(
         report.step_seconds["retention"] = time.perf_counter() - started
         digest.step_end("retention", None, "ok" if retention_ran else "FAILED", report.retention_figure)
     _emit_cycle_summary(report, failures, plan, "failed" if failures else "ok", timings)
+    readiness = [] if failures else readiness_block(plan)
     digest.summary(
         summary_rows(report, plan, retention_ran=retention_ran),
-        summary_cycle_lines(report, plan, retention_lines)
-        + ([] if failures else ["", "next: make verdict-ready"]),
+        summary_cycle_lines(report, plan, retention_lines) + (["", *readiness] if readiness else []),
         console.VERDICT_FAILED if failures else console.VERDICT_OK,
         failures,
     )

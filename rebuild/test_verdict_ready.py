@@ -13,6 +13,7 @@ from rebuild.review.status import (
     pick_frontier,
     resolve_carry_source,
 )
+from rebuild.tools import verdict_ready
 
 STAMP = "2026-07-17T20:24:44Z"
 OTHER_STAMP = "2026-07-10T00:00:00Z"
@@ -696,3 +697,45 @@ def test_aligned_empty_autosave_warns_toward_the_frontier(tmp_path):
     assert "rebuild/evidence/verdicts-carried-abc1234.json" in store["remedy"]
     assert result["ready"] is True
     assert result["checks"]["blanks"]["count"] == 3
+
+
+def _readiness(repo, **kwargs):
+    return verdict_ready.readiness(
+        repo_root=repo,
+        review_dir=repo / "rebuild" / "out" / "review",
+        m1_out=repo / "rebuild" / "out" / "m1",
+        autosave_path=repo / "verdicts-autosave.json",
+        cycle_summary_path=repo / "rebuild" / "out" / "cycle_summary.json",
+        recompute=recompute,
+        **kwargs,
+    )
+
+
+def test_readiness_adds_the_server_row_and_gates_ready_on_it(tmp_path):
+    setup_green(tmp_path)
+    result, ready = _readiness(tmp_path, listening=lambda: False)
+    assert ready is False
+    assert result["ready"] is True
+    assert result["checks"]["server"]["level"] == "fail"
+    assert result["checks"]["server"]["remedy"] == "make review-serve"
+    lines = verdict_ready.checklist(result, ready)
+    assert "  ✗ server: not listening on port 7294" in lines
+    assert "      remedy: make review-serve" in lines
+    assert lines[-1] == "NOT READY"
+
+    result, ready = _readiness(tmp_path, listening=lambda: True)
+    assert ready is True
+    lines = verdict_ready.checklist(result, ready)
+    assert "  ✓ server: listening on port 7294" in lines
+    assert lines[-1] == f"READY - adjudicate at {verdict_ready.DOCKET_URL}"
+
+
+def test_readiness_without_the_server_row_answers_for_the_surface_alone(tmp_path):
+    """The cycle's form under `make review-cycle`, where the recipe answers the server question on the next line: no server row, and READY is the surface's own answer whether or not anything is listening yet."""
+    setup_green(tmp_path)
+    result, ready = _readiness(tmp_path, with_server=False, listening=lambda: False)
+    assert ready is True
+    assert "server" not in result["checks"]
+    lines = verdict_ready.checklist(result, ready)
+    assert not any("server" in line for line in lines)
+    assert lines[-1] == f"READY - adjudicate at {verdict_ready.DOCKET_URL}"

@@ -551,12 +551,12 @@ def test_the_summary_prints_the_table_the_cycle_lines_and_the_verdict(capsys):
         console.SummaryRow(2, "run_m1", "ok", "7 unmatched", 1988.0),
         console.SummaryRow(3, "surface-build", "skipped", "", None),
     ]
-    digest.summary(rows, ["census pins  : unchanged", "next: make verdict-ready"], console.VERDICT_OK)
+    digest.summary(rows, ["census pins  : unchanged", "READY - adjudicate at the docket"], console.VERDICT_OK)
     out = capsys.readouterr().out
     assert console.SUMMARY_BANNER in out
     assert "  1  snapshot       ok       15,903 units    0.4s" in out
     assert "  3  surface-build  skipped" in out
-    assert "next: make verdict-ready" in out
+    assert "READY - adjudicate at the docket" in out
     assert out.rstrip().endswith("Cycle complete.")
 
 
