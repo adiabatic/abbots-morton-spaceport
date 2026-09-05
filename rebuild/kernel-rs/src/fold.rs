@@ -109,22 +109,24 @@ pub struct FoldRow {
     pub joint: bool,
 }
 
-/// The label-grain stream as the fold and the rule fold read it: the class rows a seat indexes into, and the expanded rows themselves. Sliced by input, which is what [`rules_for_input`] is handed.
+/// The label-grain stream as the fold and the rule fold read it: the class rows a seat indexes into, the provenance table those rows' notes seats index, and the expanded rows themselves. Sliced by input, which is what [`rules_for_input`] is handed.
 #[derive(Clone, Copy)]
 pub struct LabelRows<'a> {
     class: &'a [TransitionRow],
+    notes: &'a [Vec<String>],
     fold: &'a [FoldRow],
 }
 
 impl<'a> LabelRows<'a> {
-    pub fn new(class: &'a [TransitionRow], fold: &'a [FoldRow]) -> Self {
-        Self { class, fold }
+    pub fn new(class: &'a [TransitionRow], notes: &'a [Vec<String>], fold: &'a [FoldRow]) -> Self {
+        Self { class, notes, fold }
     }
 
     /// The rows between two seats of the expansion, over the same class rows.
     pub fn slice(&self, start: usize, end: usize) -> Self {
         Self {
             class: self.class,
+            notes: self.notes,
             fold: &self.fold[start..end],
         }
     }
@@ -174,7 +176,7 @@ impl<'a> LabelRows<'a> {
     }
 
     pub fn provenance(&self, row: usize) -> &'a [String] {
-        &self.base(row).provenance
+        &self.notes[self.base(row).provenance.index()]
     }
 
     /// The six labels one row is keyed by, in `table.Window.key` order.
@@ -208,7 +210,7 @@ pub fn fold_product(index: &SpecIndex, mut product: FixpointProduct) -> Result<F
         row.joint = *joint;
     }
 
-    let rows = LabelRows::new(&product.transitions, &fold_rows);
+    let rows = LabelRows::new(&product.transitions, &product.notes, &fold_rows);
     let mut rules: Vec<Rule> = Vec::new();
     let mut identity_guards: i64 = 0;
     let mut replay_lefts: ReplayLefts = HashMap::new();
@@ -402,7 +404,7 @@ fn flag_prospect_joints(class: &[TransitionRow], seats: &[Settled], fold: &mut [
             if &*row.right4 != NA_LABEL && successor.right3 != row.right4 {
                 continue;
             }
-            if i64::from(seats[followed.settled.index()].seam.is_some()) != base.prospect {
+            if i8::from(seats[followed.settled.index()].seam.is_some()) != base.prospect {
                 flagged.push(seat as u32);
                 break;
             }
@@ -685,7 +687,7 @@ mod tests {
     use crate::artifacts;
     use crate::fixpoint::{EnumerationModes, deep_class_id, enumerate_transitions};
     use crate::index::fixtures;
-    use crate::types::{SettledPool, SettledSeat};
+    use crate::types::{NotesSeat, SettledPool, SettledSeat};
     use std::cell::RefCell;
 
     /// The world the fixture is folded in — the shipping one, where a class-grain row's representative is output-visible.
@@ -718,7 +720,7 @@ mod tests {
     fn every_enumerated_row_is_what_the_ordered_rules_predict() {
         let (_index, product, folded) = built();
         let fold_rows = expand(&product);
-        let rows = LabelRows::new(&product.transitions, &fold_rows);
+        let rows = LabelRows::new(&product.transitions, &product.notes, &fold_rows);
         assert_outcome_partition(&rows, &folded.decision.rules, None)
             .expect("first-match-wins over the whole table");
         assert_outcome_partition(&rows, &folded.decision.rules, Some(&folded.replay_lefts))
@@ -730,7 +732,7 @@ mod tests {
     fn a_rule_no_replayed_row_first_matches_is_refused() {
         let (_index, product, folded) = built();
         let fold_rows = expand(&product);
-        let rows = LabelRows::new(&product.transitions, &fold_rows);
+        let rows = LabelRows::new(&product.transitions, &product.notes, &fold_rows);
         let input = Rc::clone(&folded.decision.rules[0].input_glyph);
         let mut rules = folded.decision.rules.clone();
         rules.push(Rule {
@@ -759,7 +761,7 @@ mod tests {
     fn a_shadowed_duplicate_is_refused() {
         let (_index, product, folded) = built();
         let fold_rows = expand(&product);
-        let rows = LabelRows::new(&product.transitions, &fold_rows);
+        let rows = LabelRows::new(&product.transitions, &product.notes, &fold_rows);
         let mut rules = folded.decision.rules.clone();
         let twin = rules.last().expect("the fixture folds rules").clone();
         rules.push(twin);
@@ -776,7 +778,7 @@ mod tests {
     fn the_reduced_replay_catches_what_the_whole_table_replay_catches() {
         let (_index, product, folded) = built();
         let fold_rows = expand(&product);
-        let rows = LabelRows::new(&product.transitions, &fold_rows);
+        let rows = LabelRows::new(&product.transitions, &product.notes, &fold_rows);
         let rules = &folded.decision.rules;
         let mut perturbations: Vec<Vec<Rule>> = Vec::new();
         for seat in 0..rules.len() {
@@ -986,7 +988,7 @@ mod tests {
         }
 
         /// One row: its seven labels, the prospect its trace claimed, and whether it committed a seam.
-        fn row(&self, labels: [&str; 7], prospect: i64, joins: bool) -> TransitionRow {
+        fn row(&self, labels: [&str; 7], prospect: i8, joins: bool) -> TransitionRow {
             TransitionRow {
                 input_glyph: Rc::from(labels[0]),
                 left: Rc::from(labels[1]),
@@ -1001,9 +1003,9 @@ mod tests {
                     extension: 0,
                 }),
                 left_settled: None,
-                joint: false,
+                provenance: NotesSeat::at(0),
                 prospect,
-                provenance: Vec::new(),
+                joint: false,
             }
         }
 
@@ -1057,7 +1059,7 @@ mod tests {
             row
         }
 
-        /// The rows as a product settling into the bench's one cell, sorted into the key order the fixpoint would have left them in.
+        /// The rows as a product settling into the bench's one cell, sorted into the key order the fixpoint would have left them in. Every bench row's trace noted nothing, so the provenance table is the empty list alone.
         fn product(
             &self,
             rows: Vec<TransitionRow>,
@@ -1081,6 +1083,7 @@ mod tests {
                 cited_provenance: Vec::new(),
                 cells,
                 seats: self.seats.borrow().clone().into_table(),
+                notes: vec![Vec::new()],
             }
         }
     }
