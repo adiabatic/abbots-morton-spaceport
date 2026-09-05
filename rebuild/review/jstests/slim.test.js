@@ -10,6 +10,7 @@ import {
   createRecordCache,
   finishLines,
   hasExplainSource,
+  isSlimFragment,
   looksGzipped,
   machineFoldPlan,
   rangeHeader,
@@ -113,8 +114,31 @@ test('hasExplainSource separates a slim row from a whole shard record', () => {
   delete slim.drafts;
   assert.equal(hasExplainSource(slim), false);
   assert.equal(hasExplainSource({ explain: null }), true, 'a record whose explain is empty is still a whole record');
-  assert.equal(hasExplainSource({ explain: 'sequence E650:E665   config ss02', provenance: [], drafts: null }), true, 'a slim machine record fills its own panel');
+  assert.equal(hasExplainSource(machineFragment), true, 'a slim machine fragment fills its own panel');
   assert.equal(hasExplainSource(null), false);
+});
+
+const machineFragment = shardA.find((unit) => unit.batch === null);
+
+test('the fixture carries one machine fragment in the slim shape the build writes', () => {
+  assert.ok(machineFragment, 'the fixtures must carry a machine-approved or no-verdict unit');
+  for (const key of ['explain', 'drafts', 'highlight']) assert.equal(key in machineFragment, false, key);
+  assert.ok('provenance' in machineFragment && 'summary' in machineFragment && 'after' in machineFragment);
+});
+
+test('isSlimFragment reads the shape off a machine fragment and nothing else', () => {
+  assert.equal(isSlimFragment(machineFragment), true);
+  const human = shardA.find((unit) => unit.batch !== null);
+  assert.equal(isSlimFragment(human), false, 'a whole human record');
+  const row = { ...human };
+  delete row.explain;
+  delete row.drafts;
+  delete row.highlight;
+  assert.equal(isSlimFragment(row), false, 'a slim app-index row still takes a verdict, so its explain lives in its shard');
+  assert.equal(isSlimFragment({ ...machineFragment, explain: 'sequence E653:E67A:E667   config ss02', drafts: null }), false, 'a machine record carrying the fields is whole, not slim');
+  assert.equal(isSlimFragment({ ...machineFragment, explain: null }), false, 'an emptied field is a blank on a whole record, never the slim shape');
+  assert.equal(isSlimFragment(null), false);
+  assert.equal(isSlimFragment(undefined), false);
 });
 
 test('shardPartPath resolves a row to the part its bytes are in, for both spellings _write_shard produces', () => {

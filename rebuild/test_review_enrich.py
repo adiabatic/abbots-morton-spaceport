@@ -304,18 +304,14 @@ def test_explain_text_keeps_header_and_divergent_positions(enricher, units_by_ke
     assert "position 0: qsTea" not in enriched.explain_text
 
 
-@pytest.mark.parametrize("channel", ("ink_identical", "junior_equivalent"))
-def test_a_slim_unit_keeps_the_explain_header_only(enricher, units_by_key, channel):
-    unit = dataclasses.replace(units_by_key[("E652:E670", "default")], **{channel: True})
+@pytest.mark.parametrize("flag", ("ink_identical", "picture_identical", "junior_equivalent", "no_verdict"))
+def test_a_slim_unit_renders_no_explain(enricher, units_by_key, flag):
+    """A machine-approved or exempt unit ships without an explain, so the enricher renders it none rather than a candidate table the fragment would only drop; the summary the row shows still comes off the same report, and the cells, seams and highlight geometry are computed as for any unit."""
+    unit = dataclasses.replace(units_by_key[("E652:E670", "default")], **{flag: True})
     enriched = enricher.enrich(unit)
-    assert enriched.explain_text.startswith("sequence E652:E670")
-    assert "\nsettled: " in enriched.explain_text
-    assert "position " not in enriched.explain_text
-
-
-def test_a_picture_identical_unit_keeps_its_candidate_table(enricher, units_by_key):
-    unit = dataclasses.replace(units_by_key[("E652:E670", "default")], picture_identical=True)
-    assert "position 1: qsIt" in enricher.enrich(unit).explain_text
+    assert enriched.explain_text == ""
+    assert enriched.summary.startswith("New: ")
+    assert enriched.after_cells and enriched.highlight_after
 
 
 def _stub_enriched(

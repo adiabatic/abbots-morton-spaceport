@@ -22,6 +22,7 @@ import {
   explainRuns,
   renderGroupsOf,
   highlightRect,
+  pairBand,
   markOffset,
   secondarySeamsOf,
   seamChip,
@@ -63,6 +64,7 @@ import {
   createRecordCache,
   finishLines,
   hasExplainSource,
+  isSlimFragment,
   looksGzipped,
   machineFoldPlan,
   rangeHeader,
@@ -130,6 +132,8 @@ const JUNIOR_TITLE =
   "Divergent only under ss10, whose ratified meaning is fully isolated letters, and the rebuild's ss10 rendering is pixel-identical to the Junior font's isolated rendering of the same string (minus Junior's one-pixel letter tracking) — so the new behavior is the spec by construction.";
 const NO_VERDICT_TITLE =
   "This unit's class is adjudicated wholesale at the ledger level (hover its sidebar entry for the rationale); no unit in it ever needs an individual verdict.";
+const SLIM_FRAGMENT_NOTE =
+  'Machine-approved or in a no-verdict class: the build wrote no candidate table, no drafts and no pair band for this unit, since nothing here is for a reviewer to act on — the settled cells and seams above are the whole of what it carries.';
 
 function machineChannelOf(unit) {
   if (unit.ink_identical) return { badge: MACHINE_BADGE, title: MACHINE_TITLE };
@@ -444,8 +448,8 @@ function buildSample(unit, side, featureSettings) {
   run.innerHTML = unit.text_entities;
   cell.append(run);
   const upem = manifest.fonts[side].upem;
-  if (unit.pair !== null && unit.highlight && unit.highlight[side]) {
-    const rect = highlightRect(unit.highlight[side], FONT_SIZE, upem);
+  const rect = pairBand(unit, side, FONT_SIZE, upem);
+  if (rect) {
     const band = el('span', 'pair-band');
     band.style.left = `${rect.left}px`;
     band.style.width = `${rect.width}px`;
@@ -656,6 +660,7 @@ function buildExplainPanel(unit) {
 function fillExplainPanel(panel, unit) {
   panel.dataset.filled = '1';
   for (const pending of panel.querySelectorAll('.explain-pending')) pending.remove();
+  if (isSlimFragment(unit)) panel.append(el('p', 'explain-intro', SLIM_FRAGMENT_NOTE));
   if (unit.explain) {
     panel.append(el('h4', null, 'Explain'));
     const dump = el('pre');
@@ -681,15 +686,6 @@ function fillExplainPanel(panel, unit) {
       list.append(item);
     }
     panel.append(list);
-  }
-  if (unit.drafts === null) {
-    panel.append(
-      el(
-        'p',
-        'explain-intro',
-        'Machine-approved on the ink-identical or Junior-equivalent channel: the build kept the settled names above and wrote no drafts, since nothing here is for a reviewer to act on.',
-      ),
-    );
   }
   if (unit.drafts) {
     panel.append(el('h4', null, 'Drafts'));
@@ -1923,7 +1919,7 @@ function undoLast() {
   toast(`Undid ${result.units.length === 1 ? result.cursor : `${result.units.length} verdicts`}`);
 }
 
-// A slim row carries no explain material, so opening the panel is where its shard record gets read back — one Range request against the class shard, cached so a second open is instant. Machine rows are built from their whole record and open with the panel already filled, as they always did.
+// A slim row carries no explain material, so opening the panel is where its shard record gets read back — one Range request against the class shard, cached so a second open is instant. Machine rows are built from their shard record — a slim fragment, whose panel fills with the note saying what the build left out — and open with the panel already filled, as they always did.
 async function toggleExplain(unitId) {
   const row = rowFor(unitId);
   if (!row) return;

@@ -50,13 +50,13 @@ def machine_approved(fragment) -> bool:
     return any(fragment.get(channel) is True for channel in MACHINE_CHANNELS)
 
 
-# The two channels whose units the build writes slim — `drafts: null`, and an explain cut to its header (the settled names per position, which on an ink-identical window is the whole of what changed). Nothing on them is ever paged to a human, so the drafts a reviewer would act on and the candidate table behind them were bytes nobody opened, over half of every shard. Picture identity is not here: its units are the machine-approved ones whose ink actually moved, the occasional human look is at exactly them, and its flag sits outside the content key (`CARRY_PRESENTATION_KEYS` in unit_cache.py) — both slim channels sit inside it, which is what lets a cache-served fragment be slim exactly when a fresh emission would be.
-SLIM_CHANNELS = ("ink_identical", "junior_equivalent")
+# What a slim fragment leaves out. A unit the build machine-approves (any of MACHINE_CHANNELS) or the ledger exempts (`no_verdict`) is never paged to a human, and the app reaches its fragment only from a show-machine fold or a deep link, where it draws the window, both fonts' cells and seams, the badge and the summary — never the explain panel's candidate table, the drafts a reviewer would act on, or the pair band. Those three fields were the bulk of every shard's bytes and largest on exactly the shards nobody opens, and the pin draft replayed a shaping per unit besides, so the build omits them outright: absent keys rather than emptied values, which is what lets the app tell a slim fragment from a full one with a blank field. `build.check_unit` holds the shape exact in both directions, `build.unit_to_json` is the one writer, and `rebuild/review/static/slim.js` is the app's reader of the same rule.
+SLIM_OMITTED_KEYS = ("highlight", "explain", "drafts")
 
 
-def slim_detail(fragment) -> bool:
-    """Whether a unit's JSON fragment is written slim: `drafts: null` and a header-only explain, the shape `build.check_unit` demands on every SLIM_CHANNELS unit and forbids on every other — over the units a build computed, the cache-served ones carrying the same guarantee through the stamp of the build that computed them."""
-    return any(fragment.get(channel) is True for channel in SLIM_CHANNELS)
+def slim_fragment(fragment) -> bool:
+    """Whether a unit's JSON fragment is written slim — every machine-approved or verdict-exempt unit, and no other. Read off the flags the fragment carries rather than off which keys it lacks, so the checker can hold a fragment to the shape its flags demand; the unit-cache store record carries the same answer as its `slim` flag, since two of its inputs (picture identity and the exemption) sit outside the content key and a served fragment has to be the shape this build would write."""
+    return machine_approved(fragment) or fragment.get("no_verdict") is True
 
 
 @dataclass(slots=True)
@@ -99,8 +99,8 @@ class Unit:
         return any(getattr(self, channel) for channel in MACHINE_CHANNELS)
 
     @property
-    def slim_detail(self) -> bool:
-        return any(getattr(self, channel) for channel in SLIM_CHANNELS)
+    def slim_fragment(self) -> bool:
+        return self.machine_approved or self.no_verdict
 
 
 def parse_codepoints(codepoints: str) -> tuple[int, ...]:

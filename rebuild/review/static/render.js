@@ -100,6 +100,13 @@ export function highlightRect(highlight, fontSize, upem) {
   return { left: highlight.x_min * scale, width: (highlight.x_max - highlight.x_min) * scale };
 }
 
+// The amber band over the judged pair on one side, or null when there is none to draw: a unit with no primary pair has no band, and neither has a slim fragment, which carries no highlight at all rather than an empty one — so a show-machine fold draws its rows from the cells and seams alone and never reaches for geometry the build left out.
+export function pairBand(unit, side, fontSize, upem) {
+  const highlight = unit.highlight?.[side];
+  if (unit.pair === null || !highlight) return null;
+  return highlightRect(highlight, fontSize, upem);
+}
+
 export function markOffset(x, fontSize, upem) {
   return (x * fontSize) / upem;
 }

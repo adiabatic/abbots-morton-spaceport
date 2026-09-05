@@ -1,4 +1,4 @@
-"""The review-app generation CLI (rebuild/REVIEW-PLAN.md §1.3): assemble units, precompute enrichment and all three verdict drafts, and write the self-contained rebuild/out/review/ directory — manifest.json, one unit shard per class (in byte-capped parts when a class outgrows one file), the census-facts.json sidecar the artifact cycle's census refresh copies into the checked-in pins, copied fonts, and the static app files. Also the `snapshot` subcommand for accepted-state baselines, and `refresh-assets`, which copies the static app files over an already-built surface and restamps that one fingerprint component without rebuilding a unit.
+"""The review-app generation CLI (rebuild/REVIEW-PLAN.md §1.3): assemble units, precompute enrichment and — for every unit that takes a verdict — all three verdict drafts, and write the self-contained rebuild/out/review/ directory — manifest.json, one unit shard per class (in byte-capped parts when a class outgrows one file), the census-facts.json sidecar the artifact cycle's census refresh copies into the checked-in pins, copied fonts, and the static app files. Also the `snapshot` subcommand for accepted-state baselines, and `refresh-assets`, which copies the static app files over an already-built surface and restamps that one fingerprint component without rebuilding a unit.
 
 Usage:
     uv run python -m rebuild.review.build
@@ -35,6 +35,7 @@ from rebuild.review.audit import (
     ACCEPTANCE_CONFIGS,
     BATCH_SIZE,
     MACHINE_CHANNELS,
+    SLIM_OMITTED_KEYS,
     UNMATCHED_CLASS,
     AuditRow,
     Unit,
@@ -47,7 +48,7 @@ from rebuild.review.audit import (
     parse_codepoints,
     release_rows,
     signature_rows,
-    slim_detail,
+    slim_fragment,
     synthesize_family_classes,
 )
 from rebuild.review.drafts import Drafter, _import_test_shaping
@@ -382,10 +383,10 @@ def stamp_fragment(fragment: dict) -> dict:
 
 
 def unit_to_json(enriched: EnrichedUnit, drafter: Drafter, full_configs=ACCEPTANCE_CONFIGS) -> dict:
-    """The shard fragment for one enriched unit as phase 1 drafts it, at the moment the unit is enriched and while its batch's shapes are still in the memo: everything the enrichment and the drafter say, with the order- and ledger-derived fields carrying whatever the unit holds now — no batch, no echo, the pre-promotion class, every secondary seam homeless — and `content_key` None. Those are placeholders in the same sense a served fragment's are: `patch_fragment` writes over all of them when the fragment is written, and `stamp_fragment` writes the key last, so nothing the drafter or the enricher produces may depend on them (the drafter reads the window, its configs, the spans, seams and trace, and nothing else). A slim unit (`audit.slim_detail`) is written with `drafts: null` and never visits the drafter — whose pin draft replays a shaping per unit — because nothing on its channel reaches a reviewer; its explain was already cut to the header by the enricher."""
+    """The shard fragment for one enriched unit as phase 1 drafts it, at the moment the unit is enriched and while its batch's shapes are still in the memo: everything the enrichment and the drafter say, with the order- and ledger-derived fields carrying whatever the unit holds now — no batch, no echo, the pre-promotion class, every secondary seam homeless — and `content_key` None. Those are placeholders in the same sense a served fragment's are: `patch_fragment` writes over all of them when the fragment is written, and `stamp_fragment` writes the key last, so nothing the drafter or the enricher produces may depend on them (the drafter reads the window, its configs, the spans, seams and trace, and nothing else). A slim unit (`audit.slim_fragment`: machine-approved or verdict-exempt) never visits the drafter — whose pin draft replays a shaping per unit — and its fragment omits `SLIM_OMITTED_KEYS` outright, keys absent rather than null, because nothing under them reaches a reviewer; the enricher already rendered it no explain. Both of the fields that decide the shape are settled before this runs: the machine flags by the comparator and oracle in the same phase-1 step, the exemption by the ledger at load."""
     unit = enriched.unit
     drafts = None
-    if not unit.slim_detail:
+    if not unit.slim_fragment:
         pin = drafter.draft_pin(enriched)
         policy = drafter.draft_policy(enriched)
         any_of = drafter.draft_any_of(enriched)
@@ -429,6 +430,9 @@ def unit_to_json(enriched: EnrichedUnit, drafter: Drafter, full_configs=ACCEPTAN
         "drafts": drafts,
         "content_key": None,
     }
+    if unit.slim_fragment:
+        for key in SLIM_OMITTED_KEYS:
+            del fragment[key]
     return fragment
 
 
@@ -1358,6 +1362,11 @@ def _pooled_seam_home(seam_home: SeamHomeUnit, pool: dict) -> SeamHomeUnit:
     )
 
 
+def _slim_for(unit: Unit, cached: unit_cache.CachedUnit) -> bool:
+    """Whether this build would write the unit slim, answered before phase 1 runs from what the store already knows: the machine flags are the record's — pure functions of the fonts and the window, everything under the key, so the store's answer is this build's answer — and the exemption is this build's ledger's, which is the one input that can flip under a key-stable unit. Held against the record's own `slim` flag to decide whether the fragment it names is servable at all."""
+    return cached.ink_identical or cached.picture_identical or cached.junior_equivalent or unit.no_verdict
+
+
 def _cached_seam_home(unit, cached: unit_cache.CachedUnit) -> SeamHomeUnit:
     proj = cached.proj
     return SeamHomeUnit(
@@ -1481,6 +1490,7 @@ def build_m1(
     served: dict[str, unit_cache.CachedUnit] = {}
     located: dict[str, unit_cache.PriorFragment] = {}
     if store:
+        units_by_id = {unit.unit_id: unit for unit in workload.units}
         candidates = {
             unit.unit_id: store[keys[unit.unit_id]] for unit in workload.units if keys[unit.unit_id] in store
         }
@@ -1488,11 +1498,13 @@ def build_m1(
         for cached in candidates.values():
             wanted.setdefault(cached.prior_class, set()).add(cached.prior_id)
         located = unit_cache.locate_prior_fragments(out_dir, wanted)
-        # A candidate is served only when the fragment found under its prior id still carries the very stamp the store recorded for it. The locate pass is an id lookup into files this build did not write, and everything that rides on a served fragment — that these are the bytes `check_unit` passed in the build that emitted them, so this build need not check them again — is only as good as that equality. What the pass keeps is the fragment's address, not the fragment: the bytes are read back through it when the shard that takes them is being written, and held against the same stamp again then.
+        # A candidate is served only when the fragment found under its prior id still carries the very stamp the store recorded for it. The locate pass is an id lookup into files this build did not write, and everything that rides on a served fragment — that these are the bytes `check_unit` passed in the build that emitted them, so this build need not check them again — is only as good as that equality. What the pass keeps is the fragment's address, not the fragment: the bytes are read back through it when the shard that takes them is being written, and held against the same stamp again then. The second condition is the shape: a fragment is served only when it is the slim or full fragment this build would write for the unit, because the exemption that decides it is the ledger's and sits outside the key — a unit crossing into the human workload on a ledger edit is re-enriched in full rather than served the slim fragment its class used to earn, and one crossing out is re-drafted slim rather than served with drafts nobody will read.
         served = {
             uid: cached
             for uid, cached in candidates.items()
-            if cached.prior_id in located and located[cached.prior_id].content_key == cached.content_key
+            if cached.prior_id in located
+            and located[cached.prior_id].content_key == cached.content_key
+            and cached.slim == _slim_for(units_by_id[uid], cached)
         }
     fresh = [unit for unit in workload.units if unit.unit_id not in served]
     sampled = set(_verification_sample(sorted(served), environment))
@@ -1605,7 +1617,7 @@ def build_m1(
             if unit.unit_id in sampled
         }
         verified = runner.verify(injections)
-        # What the cache serves must be what a fresh computation of the same window writes. The content key carries most of that claim: it hashes the fragment's adjudicable fields — the ink flag, both fonts' glyphs and cells, the seams, the highlight geometry, the notation — so one comparison per sampled unit covers all of them at once, against the stamp the served fragment was proved to carry when it was located. Two things sit outside it and are answered elsewhere. `ink_deltas` is a carry-presentation key (`unit_cache.CARRY_PRESENTATION_KEYS`), so the recomputation hands it back beside the stamp and it is compared against the store record the unit was served from. The drafts, the explain text, and the secondary seams are outside it too, and they are guaranteed at production rather than sampled: the drafter raises on a pin or a policy record it cannot stand behind, the explain rides the same enrichment as the cells and seams the key does cover, and `patch_fragment` re-emits the secondary seams from the stored rects under this build's own home assignments.
+        # What the cache serves must be what a fresh computation of the same window writes. The content key carries most of that claim: it hashes the fragment's adjudicable fields — the ink flag, both fonts' glyphs and cells, the seams, the notation, and on a full fragment the highlight geometry — so one comparison per sampled unit covers all of them at once, against the stamp the served fragment was proved to carry when it was located. The recomputation writes the slim or full shape from the unit's own flags and exemption, exactly as the write did, so a served fragment of the wrong shape would miss the key here as well as at the plan. Two things sit outside it and are answered elsewhere. `ink_deltas` is a carry-presentation key (`unit_cache.CARRY_PRESENTATION_KEYS`), so the recomputation hands it back beside the stamp and it is compared against the store record the unit was served from. The drafts, the explain text, and the secondary seams are outside it too, and they are guaranteed at production rather than sampled: the drafter raises on a pin or a policy record it cannot stand behind, the explain rides the same enrichment as the cells and seams the key does cover, and `patch_fragment` re-emits the secondary seams from the stored rects under this build's own home assignments.
         stale = sorted(
             unit_id
             for unit_id, (key, deltas) in verified.items()
@@ -1722,6 +1734,7 @@ def build_m1(
                 prior_id=unit.unit_id,
                 prior_class=unit.class_id,
                 content_key=written.content_keys[unit.unit_id],
+                slim=unit.slim_fragment,
                 ink_identical=unit.ink_identical,
                 picture_identical=unit.picture_identical,
                 junior_equivalent=unit.junior_equivalent,
@@ -2227,14 +2240,17 @@ def check_unit(unit: dict, mode: str = "m1-audit") -> list[str]:
             need(isinstance(cluster, str), "human-workload units must carry a cluster signature id")
         else:
             need(cluster is None, "units outside the human workload must carry cluster null")
-    for key in ("class", "group", "notation", "summary", "explain"):
+    for key in ("class", "group", "notation", "summary"):
         need(isinstance(unit.get(key), str) and unit.get(key) != "", f"{key} must be a nonempty string")
-    # Slim is a shape the checker holds exact in both directions, like batch null: a slim unit carrying a candidate table or drafts is bytes the build promised not to write, and a human unit without them is a reviewer with nothing to act on.
-    slim = mode == "m1-audit" and slim_detail(unit)
-    if slim and isinstance(unit.get("explain"), str):
+    # Slim is a shape the checker holds exact in both directions, like batch null: a slim unit carrying an explain, drafts or a highlight is bytes the build promised not to write, and a human unit without any of them is a reviewer with nothing to act on. Absence is the test, not emptiness — a slim fragment omits the keys, and a human fragment with a null under one of them is the blank the app must never mistake for slim.
+    slim = mode == "m1-audit" and slim_fragment(unit)
+    if slim:
+        for key in SLIM_OMITTED_KEYS:
+            need(key not in unit, f"machine-approved and no-verdict units omit {key}")
+    else:
         need(
-            "\nposition " not in unit["explain"],
-            "units on the ink-identical and Junior-equivalent channels keep the explain header only",
+            isinstance(unit.get("explain"), str) and unit.get("explain") != "",
+            "explain must be a nonempty string",
         )
     summary = unit.get("summary")
     if mode == "m1-audit" and isinstance(summary, str):
@@ -2381,7 +2397,7 @@ def check_unit(unit: dict, mode: str = "m1-audit") -> list[str]:
         need(isinstance(span, list), "pair_codepoints must be non-null when pair is present")
 
     highlight = unit.get("highlight")
-    if mode == "m1-audit":
+    if mode == "m1-audit" and not slim:
         need(highlight is not None, "highlight must be present in m1-audit mode")
     if highlight is not None:
         for side in ("before", "after"):
@@ -2447,9 +2463,7 @@ def check_unit(unit: dict, mode: str = "m1-audit") -> list[str]:
             )
 
     drafts = unit.get("drafts")
-    if slim:
-        need(drafts is None, "units on the ink-identical and Junior-equivalent channels carry drafts null")
-    else:
+    if not slim:
         need(
             isinstance(drafts, dict) and {"pin", "policy", "any_of"} <= set(drafts or ()),
             "drafts must carry pin/policy/any_of",
@@ -2770,6 +2784,8 @@ def check_shards(
     """The unit-grain half of the §7 contract check over shard payloads a caller holds whole, keyed by class id — `check_output_dir` re-parses them from disk, the table-diff build hands over the dicts it serialized, and the m1 build runs the same predicates through `_SurfaceCheck` directly, a fragment at a time as each is written. Classes missing from the mapping are reported by the caller, which knows whether that means an unwritten file or an unassembled shard. `repo_root`, when given, also resolves the distinct policy-draft files once and checks they exist; every other predicate here is over the payload alone.
 
     Its second job is the cross-unit grain — the properties no single fragment can carry: that an echo group and a cluster each hold one class and one config set and that every echo nests inside one cluster, that the manifest's `human_unit_ids` really is the id-ordered human workload in contiguous batches, and that each secondary seam's home is a shorter unit of the same window where that adjacency is the primary judgment. Those were swept by tests over the live surface once a lane; here they run over every shipped unit on every build.
+
+    A slim fragment (`audit.slim_fragment`) is complete for its kind: `check_unit` demands the omitted keys stay absent on it and present on every human fragment, and every cross-unit predicate reads fields both kinds carry — the flags, the window, the pair, the cells and seams, the batch and group ids — so the census the manifest states is counted over slim and full fragments alike.
 
     `served_ids` names the units the unit cache served this build, and `check_unit` is skipped for exactly those. A served fragment was fresh in the build that wrote it, where `check_unit` did run over it, and the build serves it only when the stamp on the shard equals the one its store record carries — so its adjudicable bytes are proven to be the bytes that passed. What the serving build then changes is the scaffold, and the scaffold comes from the same `unit_scaffold` a fresh emission reads; the cross-unit predicates below run over every unit either way, so the fields that relate a served unit to its neighbors are checked here on every build. A caller re-reading a finished surface (`check_output_dir`, the table-diff build) passes nothing and checks everything.
     """

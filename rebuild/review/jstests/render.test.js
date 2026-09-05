@@ -9,6 +9,7 @@ import {
   explainRuns,
   renderGroupsOf,
   highlightRect,
+  pairBand,
   markOffset,
   secondarySeamsOf,
   seamChip,
@@ -401,6 +402,40 @@ test('highlightRect converts font units at font-size / upem', () => {
   const inset = highlightRect({ x_min: 275, x_max: 1375 }, 88, 550);
   assert.equal(inset.left, 44);
   assert.equal(inset.width, 176);
+});
+
+test('pairBand draws the judged pair from a whole record and nothing from a slim fragment', () => {
+  const human = shardA.find((unit) => unit.batch !== null && unit.pair !== null);
+  const upem = manifest.fonts.after.upem;
+  assert.deepEqual(pairBand(human, 'after', 88, upem), highlightRect(human.highlight.after, 88, upem));
+  assert.deepEqual(pairBand(human, 'before', 88, upem), highlightRect(human.highlight.before, 88, upem));
+  assert.equal(pairBand({ ...human, pair: null }, 'after', 88, upem), null, 'no primary pair, no band');
+  const slim = shardA.find((unit) => unit.batch === null);
+  assert.equal('highlight' in slim, false, 'the fixture machine fragment is slim');
+  assert.equal(pairBand(slim, 'after', 88, upem), null);
+  assert.equal(pairBand(slim, 'before', 88, upem), null);
+});
+
+test('a slim fragment reaching the fold renderer yields a row from its cells and seams alone', () => {
+  // Every pure piece of buildRow, run over the fixture's machine fragment exactly as the app runs them over a fold's rows: none may throw on the absent explain, drafts and highlight, and what they yield is the badge, the sample cells and the summary the fold shows.
+  const slim = shardA.find((unit) => unit.batch === null);
+  for (const key of ['explain', 'drafts', 'highlight']) assert.equal(key in slim, false, key);
+  assert.equal(needsNoVerdict(slim), true);
+  const groups = renderGroupsOf(slim);
+  assert.equal(groups.length, 1);
+  assert.deepEqual(groups[0].configs, slim.configs);
+  assert.deepEqual(secondarySeamsOf(slim), []);
+  assert.deepEqual(onlyHereSeamSpans(slim), []);
+  assert.equal(pairBand(slim, 'after', 88, manifest.fonts.after.upem), null);
+  const separators = tokenSeparators(slim.notation_tokens);
+  assert.equal(separators.map((sep, index) => sep + slim.notation_tokens[index]).join(''), slim.notation);
+  const runs = tokenMarkRuns(slim.notation_tokens, separators, slim.pair_codepoints, []);
+  assert.equal(runs.map((run) => run.text).join(''), slim.notation);
+  assert.ok(runs.some((run) => run.pair), 'the judged pair still underlines on the text lines');
+  assert.deepEqual(configGateChips(slim, manifest.feature_descriptions).map((chip) => chip.text), [slim.config_note]);
+  assert.ok(searchHaystack(slim).includes(slim.id));
+  assert.ok(typeof slim.summary === 'string' && slim.summary.startsWith('New: '));
+  assert.ok(slim.after.cells.length > 0 && slim.after.seams.length > 0);
 });
 
 test('markOffset converts a boundary mark x position', () => {
@@ -1073,9 +1108,16 @@ test('fixture units satisfy the contract fields the frontend relies on', () => {
     }
     assert.ok(Array.isArray(unit.render_groups) && unit.render_groups.length >= 1);
     assert.ok(typeof unit.summary === 'string' && unit.summary.length > 0);
-    if (unit.pair !== null) {
-      assert.ok(unit.highlight.before.x_max > unit.highlight.before.x_min);
-      assert.ok(unit.highlight.after.x_max > unit.highlight.after.x_min);
+    // A unit that takes no verdict ships slim: the build omits the three fields the fold never draws, keys absent rather than null, and a human unit is whole.
+    if (needsNoVerdict(unit)) {
+      for (const key of ['explain', 'drafts', 'highlight']) assert.equal(key in unit, false, `${unit.id} carries ${key}`);
+    } else {
+      assert.equal(typeof unit.explain, 'string');
+      assert.ok(unit.drafts && typeof unit.drafts === 'object');
+      if (unit.pair !== null) {
+        assert.ok(unit.highlight.before.x_max > unit.highlight.before.x_min);
+        assert.ok(unit.highlight.after.x_max > unit.highlight.after.x_min);
+      }
     }
     for (const mark of unit.boundary_marks) {
       assert.equal(typeof mark.x, 'number');

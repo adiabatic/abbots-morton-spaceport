@@ -1,6 +1,6 @@
 // The app boots from the build's slim human-units index rather than from the class shards, so the tab's resident set is the queue awaiting a verdict rather than the whole corpus. This module holds the pure parts of that: the incremental NDJSON split, the header stamp check, the byte-span addressing that fetches a unit's explain material back out of its shard, the bounded record cache, and the manifest-derived plan for the show-machine folds. They live here rather than in app.js because app.js top-level-awaits its manifest fetch and so can never be imported by node --test.
 
-import { machineFoldChannel, machineFoldTotal } from './render.js';
+import { machineFoldChannel, machineFoldTotal, needsNoVerdict } from './render.js';
 
 export const APP_INDEX_NAME = 'app-units.ndjson.gz';
 export const APP_INDEX_FORMAT = 'ams-review-app-index/1';
@@ -43,9 +43,14 @@ export function checkIndexHeader(header, manifest, format) {
   return { ok: true, reason: null };
 }
 
-// A slim row carries none of the three fields the explain panel renders, so their absence is what says the panel has to be filled from the unit's shard record; a machine unit built from that record already has them and opens as it always did.
+// The build writes a machine-approved or no-verdict unit's shard fragment slim: `explain`, `drafts` and `highlight` are absent — never null — because the fold that draws it renders the cells, the seams and the summary, not the explain table, the drafts or the pair band (`SLIM_OMITTED_KEYS` in rebuild/review/audit.py is the authority on the list, `check_unit` there holds the shape exact). Absent rather than empty is what tells a slim fragment from a whole record with a blank field, and a human row out of the app index is neither: it takes a verdict, so its explain material is in its shard and fetched on open.
+export function isSlimFragment(unit) {
+  return Boolean(unit) && needsNoVerdict(unit) && !('explain' in unit) && !('drafts' in unit);
+}
+
+// A slim row carries none of the three fields the explain panel renders, so their absence is what says the panel has to be filled from the unit's shard record; a machine unit built from that record already has everything the build wrote for it — a slim fragment included, whose panel says what was left out — and opens as it always did.
 export function hasExplainSource(unit) {
-  return Boolean(unit) && ('explain' in unit || 'provenance' in unit || 'drafts' in unit);
+  return Boolean(unit) && (isSlimFragment(unit) || 'explain' in unit || 'provenance' in unit || 'drafts' in unit);
 }
 
 export function shardPartPath(manifest, row) {

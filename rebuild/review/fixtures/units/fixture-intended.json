@@ -482,23 +482,9 @@
    0,
    1
   ],
-  "highlight": {
-   "before": {
-    "x_min": 0,
-    "x_max": 550,
-    "advance_total": 550
-   },
-   "after": {
-    "x_min": 0,
-    "x_max": 550,
-    "advance_total": 550
-   }
-  },
   "boundary_marks": [],
-  "explain": "sequence E650:E665   config ss02\nsettled: qsPea qsMay.loop.en-y0.en-ext-1",
   "summary": "New: \u00b7Pea\u00b7May settles differently from the baseline \u2014 decided by fixture data (open the explain panel for the candidate table).",
   "provenance": [],
-  "drafts": null,
-  "content_key": "9863258626bb229ef4c4aa2a0bfadad15a385ac9f099840a1cb438dffd7eff6c"
+  "content_key": "f1b02f8c54f8efa615676e57f64cf840585e2e26c1f0d7afd8e74618da4e8f3e"
  }
 ]

@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 
 from rebuild.review import app_index, census, drafts, unit_index
-from rebuild.review.audit import AUDIT_HEADER, UNMATCHED_CLASS, Unit, load_workload
+from rebuild.review.audit import AUDIT_HEADER, SLIM_OMITTED_KEYS, UNMATCHED_CLASS, Unit, load_workload
 from rebuild.review.build import (
     _check_output_files,
     _copy_font,
@@ -160,36 +160,48 @@ def test_a_policy_draft_naming_a_file_that_is_not_in_the_repo_fails_the_build():
     _complaint(check_shards(manifest, shards, REPO_ROOT), "which is not a file in the repo")
 
 
-# --- the slim machine-approved shape ------------------------------------------------------------
+# --- the slim machine-approved and no-verdict shape ----------------------------------------------
 
 SLIM_UNIT = "u-0003"
 
 
-def test_a_slim_unit_carrying_drafts_fails_the_build():
+@pytest.mark.parametrize("key", SLIM_OMITTED_KEYS)
+def test_a_slim_unit_carrying_explain_material_fails_the_build(key):
     unit = _one(SLIM_UNIT)
-    unit["drafts"] = _one()["drafts"]
-    _complaint(check_unit(unit), "carry drafts null")
+    assert key not in unit
+    unit[key] = _one()[key]
+    _complaint(check_unit(unit), f"omit {key}")
 
 
-def test_a_slim_unit_carrying_a_candidate_table_fails_the_build():
+@pytest.mark.parametrize("key", SLIM_OMITTED_KEYS)
+def test_a_slim_unit_carrying_an_emptied_field_fails_the_build(key):
+    """Absent is the shape, never null: an emptied field on a slim fragment is exactly what the app would read as a whole record with a blank in it."""
     unit = _one(SLIM_UNIT)
-    unit["explain"] += "\n\nposition 0: qsPea\n  decided by: join-count"
-    _complaint(check_unit(unit), "explain header only")
+    unit[key] = None
+    _complaint(check_unit(unit), f"omit {key}")
 
 
-def test_a_human_unit_without_drafts_fails_the_build():
+@pytest.mark.parametrize("key", SLIM_OMITTED_KEYS)
+def test_a_human_unit_without_its_explain_material_fails_the_build(key):
+    unit = _one()
+    del unit[key]
+    _complaint(check_unit(unit), key)
+
+
+def test_a_human_unit_with_drafts_null_fails_the_build():
     unit = _one()
     unit["drafts"] = None
     _complaint(check_unit(unit), "drafts must carry pin/policy/any_of")
 
 
-def test_a_picture_identical_unit_keeps_its_drafts_and_candidate_table():
-    """Picture identity is machine approval too, but its units are the ones whose ink moved and the ones a human occasionally opens, so the checker wants them whole — the slim shape is a property of the two channels alone."""
-    unit = _one()
-    unit.update(picture_identical=True, batch=None, echo=None, cluster=None)
+@pytest.mark.parametrize("flag", ("picture_identical", "junior_equivalent", "no_verdict"))
+def test_every_machine_channel_and_the_exemption_take_the_slim_shape(flag):
+    """Slim is a property of taking no verdict rather than of one channel: a picture-identical unit, a Junior-equivalent one and a unit in a no-verdict class each ship without the explain material, and each fails the build carrying it."""
+    unit = _one(SLIM_UNIT)
+    unit.update(ink_identical=False, ink_deltas={"ss02": "d-000000000000"}, **{flag: True})
     assert check_unit(unit) == []
-    unit["drafts"] = None
-    _complaint(check_unit(unit), "drafts must carry pin/policy/any_of")
+    unit["drafts"] = _one()["drafts"]
+    _complaint(check_unit(unit), "omit drafts")
 
 
 # --- the fields the app draws ------------------------------------------------------------------
