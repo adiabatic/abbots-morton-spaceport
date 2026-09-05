@@ -538,7 +538,7 @@ class _ShardWriter:
 
     The framing is `_write_json`'s, for the reasons its docstring gives: each fragment is serialized inside a one-element list whose framing is peeled back off, so a part's bytes are the one-shot `json.dumps(part, indent=1, ensure_ascii=True) + "\\n"` bytes by construction. Every part lands within the cap except one holding a single fragment that exceeds it alone, which nothing here can make smaller.
 
-    That framing is a byte-addressing contract as well as a serialization one, and the spans returned here are what the review app's explain panel Range-fetches against — and what the next build reads its served units back through, since `unit_cache.locate_prior_fragments` records the same address off the written part: no punctuation is interleaved with a fragment's own bytes, and `ensure_ascii=True` under a utf-8 handle makes the running character count the byte offset, so `bytes[start:start + length]` is a standalone JSON element. A change to the `indent`, `ensure_ascii` or `separators` of the dump below breaks that silently — `rebuild/test_app_index.py` slices every fragment back out to catch it.
+    That framing is a byte-addressing contract as well as a serialization one, and the spans returned here are what the review app's explain panel Range-fetches against — and what the next build reads its served units back through, since the unit store records each fragment's span as its address and `unit_cache.locate_prior_fragments` re-derives the same address off the written part for a record that lacks one: no punctuation is interleaved with a fragment's own bytes, and `ensure_ascii=True` under a utf-8 handle makes the running character count the byte offset, so `bytes[start:start + length]` is a standalone JSON element. A change to the `indent`, `ensure_ascii` or `separators` of the dump below breaks that silently — `rebuild/test_app_index.py` slices every fragment back out to catch it.
 
     Every part is staged under a sibling name and renamed only at `commit`, after the last class has closed, rather than as each class finishes. The build reads its served units out of the previous surface's shards by address while it writes this one, so a shard replaced class by class could put a unit's bytes under a new file before a later class asked for them; deferring the sweep keeps the previous surface whole until this one is entirely on disk, and it keeps what per-class renaming already gave: a failed encode or a build killed mid-write leaves the previous build's units in place rather than a truncated part, with `abort` sweeping the staging names away.
     """
@@ -1175,11 +1175,12 @@ class _SidecarSpool:
 
 @dataclass(frozen=True)
 class _WrittenSurface:
-    """What `_write_surface` hands back beside the manifest: the two per-unit values the build still reads after the fragments are gone — each unit's `config_note`, which the census facts histogram, and its `content_key`, which the unit store records."""
+    """What `_write_surface` hands back beside the manifest: the three per-unit values the build still reads after the fragments are gone — each unit's `config_note`, which the census facts histogram, and its `content_key` and shard address, which the unit store records so the next build's plan can serve the fragment without walking the shard to find it. An address is the writer's own span resolved to the part name the manifest lists, one tuple per unit over a part name shared by every unit in the part."""
 
     manifest: dict
     config_notes: dict[str, str | None]
     content_keys: dict[str, str]
+    addresses: dict[str, tuple[str, int, int]]
 
 
 def _write_surface(
@@ -1211,6 +1212,7 @@ def _write_surface(
     meta_by_id: dict[str, dict] = {}
     config_notes: dict[str, str | None] = {}
     content_keys: dict[str, str] = {}
+    addresses: dict[str, tuple[str, int, int]] = {}
     check = _SurfaceCheck(
         mode="m1-audit",
         descriptions=FEATURE_DESCRIPTIONS,
@@ -1222,6 +1224,7 @@ def _write_surface(
         tally.hold("checker.identity", check._identity)
         tally.hold("written.config_notes", config_notes)
         tally.hold("written.content_keys", content_keys)
+        tally.hold("written.addresses", addresses)
     writer = _ShardWriter(out_dir)
     spool = _SidecarSpool(out_dir)
     try:
@@ -1246,15 +1249,19 @@ def _write_surface(
             }
             check.class_start(meta)
             writer.open(entry.id)
+            spans: list[tuple[int, int, int]] = []
             for unit in units:
                 fragment = next(stream)
                 assert fragment["id"] == unit.unit_id, (fragment["id"], unit.unit_id)
                 span = writer.add(fragment)
                 check.unit(fragment)
                 spool.unit(fragment, span)
+                spans.append(span)
                 config_notes[unit.unit_id] = fragment["config_note"]
                 content_keys[unit.unit_id] = fragment["content_key"]
             meta["shards"] = writer.close()
+            for unit, (part, start, length) in zip(units, spans, strict=True):
+                addresses[unit.unit_id] = (meta["shards"][part], start, length)
             check.class_end()
             meta_by_id[entry.id] = meta
         assert next(stream, None) is None, "fragments yielded more units than the classes hold"
@@ -1316,7 +1323,7 @@ def _write_surface(
     errors.extend(check.finish(manifest))
     if errors:
         raise SystemExit("contract check failed:\n" + "\n".join(errors[:20]))
-    return _WrittenSurface(manifest, config_notes, content_keys)
+    return _WrittenSurface(manifest, config_notes, content_keys, addresses)
 
 
 @dataclass(slots=True)
@@ -1494,11 +1501,16 @@ def build_m1(
         candidates = {
             unit.unit_id: store[keys[unit.unit_id]] for unit in workload.units if keys[unit.unit_id] in store
         }
+        # A candidate's address is its store record's, the span the shard writer returned for the fragment when the previous surface was written, so placing it costs nothing: the walk over the previous surface's shards is asked only for the records the store handed back without an address (see `unit_cache.load_store` for when that is), and on a surface this code wrote that is no record at all. Either way a candidate is served only when the fragment at its address carries the very stamp the store recorded for it — the walk reads the stamp as it goes, and a store address is stamped with the record's own — and everything that rides on a served fragment, that these are the bytes `check_unit` passed in the build that emitted them, so this build need not check them again, is only as good as that equality. What the plan keeps is the fragment's address, not the fragment: the bytes are read back through it when the shard that takes them is being written, and held against the same id and stamp then, which for a store-addressed fragment is the one time it is parsed. The second condition is the shape: a fragment is served only when it is the slim or full fragment this build would write for the unit, because the exemption that decides it is the ledger's and sits outside the key — a unit crossing into the human workload on a ledger edit is re-enriched in full rather than served the slim fragment its class used to earn, and one crossing out is re-drafted slim rather than served with drafts nobody will read.
         wanted: dict[str, set[str]] = {}
         for cached in candidates.values():
-            wanted.setdefault(cached.prior_class, set()).add(cached.prior_id)
-        located = unit_cache.locate_prior_fragments(out_dir, wanted)
-        # A candidate is served only when the fragment found under its prior id still carries the very stamp the store recorded for it. The locate pass is an id lookup into files this build did not write, and everything that rides on a served fragment — that these are the bytes `check_unit` passed in the build that emitted them, so this build need not check them again — is only as good as that equality. What the pass keeps is the fragment's address, not the fragment: the bytes are read back through it when the shard that takes them is being written, and held against the same stamp again then. The second condition is the shape: a fragment is served only when it is the slim or full fragment this build would write for the unit, because the exemption that decides it is the ledger's and sits outside the key — a unit crossing into the human workload on a ledger edit is re-enriched in full rather than served the slim fragment its class used to earn, and one crossing out is re-drafted slim rather than served with drafts nobody will read.
+            found = cached.located()
+            if found is None:
+                wanted.setdefault(cached.prior_class, set()).add(cached.prior_id)
+            else:
+                located[cached.prior_id] = found
+        if wanted:
+            located.update(unit_cache.locate_prior_fragments(out_dir, wanted))
         served = {
             uid: cached
             for uid, cached in candidates.items()
@@ -1735,6 +1747,7 @@ def build_m1(
                 prior_class=unit.class_id,
                 content_key=written.content_keys[unit.unit_id],
                 slim=unit.slim_fragment,
+                address=written.addresses[unit.unit_id],
                 ink_identical=unit.ink_identical,
                 picture_identical=unit.picture_identical,
                 junior_equivalent=unit.junior_equivalent,
