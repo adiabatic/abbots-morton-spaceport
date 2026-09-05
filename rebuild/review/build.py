@@ -45,6 +45,7 @@ from rebuild.review.audit import (
     machine_approved,
     merge_ink_duplicate_units,
     parse_codepoints,
+    release_rows,
     signature_rows,
     slim_detail,
     synthesize_family_classes,
@@ -287,10 +288,10 @@ def _machine_approved_meta(machine_units, junior_font: Path, repo_root: Path) ->
     rows = 0
     for unit in machine_units:
         by_class[unit.class_id] = by_class.get(unit.class_id, 0) + 1
-        rows += len(unit.rows)
+        rows += unit.row_count
         channel = channels[next(name for name in MACHINE_CHANNELS if getattr(unit, name))]
         channel["units"] += 1
-        channel["rows"] += len(unit.rows)
+        channel["rows"] += unit.row_count
     return {
         "units": len(machine_units),
         "rows": rows,
@@ -635,28 +636,30 @@ def _prune_orphan_shards(out_dir: Path, manifest: dict) -> list[str]:
     return sorted(removed)
 
 
-def _cluster_id_from_repr(configs, class_id, diffs_repr: str) -> str:
-    """`_cluster_id` over a pre-rendered ink-diff repr, so the unit cache can carry the diffs across builds as the repr string instead of the (large, tuple-shaped) diffs themselves. The composed string is byte-for-byte `repr((tuple(configs), class_id, diffs))` — CPython renders a 3-tuple as exactly this join — which `rebuild/test_unit_cache.py::test_cluster_id_from_repr_matches_the_tuple_recipe` pins against the tuple form."""
-    key = f"({tuple(configs)!r}, {class_id!r}, {diffs_repr})"
-    return "c-" + hashlib.sha1(key.encode()).hexdigest()[:8]
+def _cluster_id_from_repr(configs, class_id, diffs_repr: bytes) -> str:
+    """`_cluster_id` over the ink diffs' repr as bytes, fed to the hash in three pieces — the head of the tuple, the diffs, the closing parenthesis — so the composed key never exists as one string and the diffs' bytes can be dropped the moment they have been hashed. What is hashed is byte-for-byte `repr((tuple(configs), class_id, diffs))` — CPython renders a 3-tuple as exactly this join — which `rebuild/test_unit_cache.py::test_cluster_id_from_repr_matches_the_tuple_recipe` pins against the tuple form."""
+    key = hashlib.sha1(f"({tuple(configs)!r}, {class_id!r}, ".encode())
+    key.update(diffs_repr)
+    key.update(b")")
+    return "c-" + key.hexdigest()[:8]
 
 
 def _cluster_id(configs, class_id, diffs) -> str:
     """The blank-queue cluster signature the in-app docket view groups by: the echo key minus the judged pair, so every echo group nests inside exactly one cluster. The repr recipe must stay byte-compatible with rebuild/tools/review_docket.py's historical ids so recorded c- references keep resolving."""
-    return _cluster_id_from_repr(configs, class_id, repr(diffs))
+    return _cluster_id_from_repr(configs, class_id, repr(diffs).encode())
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class _UnitProjection:
-    """The slim, picklable phase-1 result a surface worker returns per unit: everything the parent's serial reduces read plus everything the unit cache persists, and never the EnrichedUnit (which stays alive worker-side for phase 2). The ink diffs travel as their repr string and its digest — the repr feeds the cluster id byte-contract, the digest is the echo key's diff component — so the parent never round-trips the tuple form."""
+    """The slim, picklable phase-1 result a surface worker returns per unit: everything the parent's serial reduces read plus everything the unit cache persists, and never the EnrichedUnit (which stays alive worker-side for phase 2). The ink diffs travel as two digests over their repr and nothing else — `diffs_digest` is the echo key's diff component, and `cluster` is the blank-queue cluster signature, computed here rather than in the parent because everything it keys on is known the moment the family is assigned: the configs, the diffs, and the unit's final class, which is the verdict family for an UNMATCHED unit and the ledger class otherwise, exactly what the parent's family promotion writes onto the unit. It is computed for every unit, machine-approved ones included, because the store carries it forward: a served unit can cross into the human workload on a ledger edit alone (no_verdict flipping), and its cluster must already exist. So the parent holds a short id per unit where it once held the diffs' repr — a string as long as the diffs themselves — for the whole units phase."""
 
     unit_id: str
     ink_identical: bool
     picture_identical: bool
     junior_equivalent: bool
     ink_deltas: tuple[tuple[str, str], ...]
-    diffs_repr: str
     diffs_digest: str
+    cluster: str
     family: str
     pair_codepoints: tuple[int, int] | None
     seam_home: SeamHomeUnit
@@ -678,15 +681,17 @@ def _phase1_unit(unit, comparator, oracle, enricher, report=None) -> tuple[_Unit
     mismatch_mark = len(enricher.mismatches)
     enriched = enricher.enrich(unit, report)
     family = assign_family(enriched) if unit.class_id == UNMATCHED_CLASS else ""
-    diffs_repr = repr(diffs)
+    diffs_repr = repr(diffs).encode()
     projection = _UnitProjection(
         unit_id=unit.unit_id,
         ink_identical=unit.ink_identical,
         picture_identical=unit.picture_identical,
         junior_equivalent=unit.junior_equivalent,
         ink_deltas=tuple(unit.ink_deltas.items()),
-        diffs_repr=diffs_repr,
-        diffs_digest=hashlib.sha1(diffs_repr.encode()).hexdigest(),
+        diffs_digest=hashlib.sha1(diffs_repr).hexdigest(),
+        cluster=_cluster_id_from_repr(
+            unit.configs, family if unit.class_id == UNMATCHED_CLASS else unit.class_id, diffs_repr
+        ),
         family=family,
         pair_codepoints=enriched.pair_codepoints,
         seam_home=seam_home_projection(enriched),
@@ -1197,7 +1202,7 @@ def _write_surface(
                 "no_verdict": entry.no_verdict,
                 "why": entry.why,
                 "unit_count": len(units),
-                "row_count": sum(len(unit.rows) for unit in units),
+                "row_count": sum(unit.row_count for unit in units),
                 "machine_approved_count": sum(1 for unit in units if unit.machine_approved),
                 # The app draws a class's machine fold — its count and its badge — before opening it, and under the slim app index those units are not resident to be counted. So the split the badge cascades over is recorded here rather than re-derived from records the tab no longer holds.
                 "machine_channels": {
@@ -1284,20 +1289,45 @@ def _write_surface(
 
 @dataclass(slots=True)
 class _UnitState:
-    """One unit's phase-1 products in the parent, served from the cache or returned by the runner, in the one shape the global reduces and the store writer read."""
+    """One unit's phase-1 products in the parent, served from the cache or returned by the runner, in the one shape the global reduces and the store writer read. Every string in it that repeats across units — the digests, the cluster, the family, the config names and delta digests — is interned into the one `sys.intern` table `audit.load_audit` describes, and the seam-home projection's tuples are pooled through `_pooled_seam_home`, because a pooled worker's reply and the store's JSON alike hand the parent a fresh copy of every name per unit, and this record is what the parent holds per unit for the rest of the build. The unit's own `ink_deltas` is this record's dict rather than a copy of it: nothing writes to it once it is here."""
 
     ink_identical: bool
     picture_identical: bool
     junior_equivalent: bool
     ink_deltas: dict[str, str]
     diffs_digest: str
-    diffs_repr: str | None
-    cluster: str | None
+    cluster: str
     family: str
     pair_codepoints: tuple[int, int] | None
     seam_home: SeamHomeUnit
     seam_rects: list[dict]
     mismatches: list[str]
+
+
+def _pooled_seam_home(seam_home: SeamHomeUnit, pool: dict) -> SeamHomeUnit:
+    """`seam_home` with every tuple it carries pooled to one instance per distinct value and every name inside them interned. The secondary-home reduce reads these for every unit of the corpus, so the parent holds one per unit — and their values are drawn from a small vocabulary: a handful of span layouts, a few hundred glyph and cell names, five seam tokens, the alphabet's codepoints. The codepoint values are pooled as ints and not as a window tuple, since a window repeats only across the siblings of one window while its letters repeat across the corpus. `pool` is the caller's and lives exactly as long as the ingestion that fills it."""
+
+    def pooled(value):
+        return pool.setdefault(value, value)
+
+    def names(values: tuple[str, ...]) -> tuple[str, ...]:
+        return pooled(tuple(sys.intern(value) for value in values))
+
+    def pairs(values: tuple[tuple[int, int], ...]) -> tuple[tuple[int, int], ...]:
+        return pooled(tuple(pooled(value) for value in values))
+
+    return replace(
+        seam_home,
+        codepoint_values=tuple(pooled(value) for value in seam_home.codepoint_values),
+        pair=pooled(seam_home.pair) if seam_home.pair else None,
+        after_spans=pairs(seam_home.after_spans),
+        after_cells=names(seam_home.after_cells),
+        after_seams=names(seam_home.after_seams),
+        before_spans=pairs(seam_home.before_spans),
+        before_glyphs=names(seam_home.before_glyphs),
+        before_seams=names(seam_home.before_seams),
+        seam_pairs=pairs(seam_home.seam_pairs),
+    )
 
 
 def _cached_seam_home(unit, cached: unit_cache.CachedUnit) -> SeamHomeUnit:
@@ -1408,6 +1438,7 @@ def build_m1(
         repo_root, spec, subset_dir, before_font, junior_font, helpers_digest
     )
     keys = {unit.unit_id: keyer.key(unit) for unit in workload.units}
+    release_rows(workload.units)
     store = None if fresh_unit_cache else unit_cache.load_store(out_dir, environment)
     served: dict[str, unit_cache.CachedUnit] = {}
     located: dict[str, unit_cache.PriorFragment] = {}
@@ -1453,6 +1484,7 @@ def build_m1(
         projections = runner.phase1()
 
         states: dict[str, _UnitState] = {}
+        pool: dict = {}
         for unit in workload.units:
             cached = served.get(unit.unit_id)
             if cached is not None:
@@ -1460,55 +1492,50 @@ def build_m1(
                     ink_identical=cached.ink_identical,
                     picture_identical=cached.picture_identical,
                     junior_equivalent=cached.junior_equivalent,
-                    ink_deltas=dict(cached.ink_deltas),
+                    ink_deltas=cached.ink_deltas,
                     diffs_digest=cached.diffs_digest,
-                    diffs_repr=None,
                     cluster=cached.cluster,
                     family=cached.family,
                     pair_codepoints=cached.pair_codepoints,
-                    seam_home=_cached_seam_home(unit, cached),
+                    seam_home=_pooled_seam_home(_cached_seam_home(unit, cached), pool),
                     seam_rects=cached.seams,
                     mismatches=cached.mismatches,
                 )
             else:
-                projection = projections[unit.unit_id]
+                projection = projections.pop(unit.unit_id)
                 states[unit.unit_id] = _UnitState(
                     ink_identical=projection.ink_identical,
                     picture_identical=projection.picture_identical,
                     junior_equivalent=projection.junior_equivalent,
-                    ink_deltas=dict(projection.ink_deltas),
-                    diffs_digest=projection.diffs_digest,
-                    diffs_repr=projection.diffs_repr,
-                    cluster=None,
-                    family=projection.family,
+                    ink_deltas={
+                        sys.intern(config): sys.intern(delta) for config, delta in projection.ink_deltas
+                    },
+                    diffs_digest=sys.intern(projection.diffs_digest),
+                    cluster=sys.intern(projection.cluster),
+                    family=sys.intern(projection.family),
                     pair_codepoints=projection.pair_codepoints,
-                    seam_home=projection.seam_home,
+                    seam_home=_pooled_seam_home(projection.seam_home, pool),
                     seam_rects=[
                         {"pair": list(pair), "before": before, "after": after}
                         for pair, before, after in projection.seam_rects
                     ],
                     mismatches=list(projection.mismatches),
                 )
+        del pool
 
         for unit in workload.units:
             state = states[unit.unit_id]
             unit.ink_identical = state.ink_identical
             unit.picture_identical = state.picture_identical
             unit.junior_equivalent = state.junior_equivalent
-            unit.ink_deltas = dict(state.ink_deltas)
+            unit.ink_deltas = state.ink_deltas
         total_batches = assign_batches(workload.units, batch_size)
 
-        # Promote each UNMATCHED unit's verdict family to its class so the per-class shard loop shards it under that family.
+        # Promote each UNMATCHED unit's verdict family to its class so the per-class shard loop shards it under that family. The cluster signature already keys on that final class: the runner computed it where the family was assigned, and a served unit trusts the stored value, whose inputs (configs, final class, the ink diffs) are all under the content key.
         for unit in workload.units:
             if unit.class_id == UNMATCHED_CLASS:
                 unit.family_id = states[unit.unit_id].family
                 unit.class_id = unit.family_id
-
-        # The cluster signature is computed for every unit, machine-approved ones included, because the store carries it forward: a served unit can cross into the human workload on a ledger edit alone (no_verdict flipping), and its cluster must already exist. Served units trust the stored value — its inputs (configs, final class, the ink diffs) are all under the content key.
-        for unit in workload.units:
-            state = states[unit.unit_id]
-            if state.diffs_repr is not None:
-                state.cluster = _cluster_id_from_repr(unit.configs, unit.class_id, state.diffs_repr)
 
         # Echo groups: human units whose judged pair, class, config set, and per-config ink deltas all agree show the same change in different surroundings, so one verdict answers all of them. Keyed after family promotion so the class component is final; ids are assigned in triage order.
         echo_ids: dict[tuple, str] = {}

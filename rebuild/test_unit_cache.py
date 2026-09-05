@@ -8,6 +8,7 @@ import hashlib
 import json
 import re
 import shutil
+import sys
 from dataclasses import replace
 from pathlib import Path
 
@@ -20,6 +21,7 @@ from rebuild.review.build import (
     SITE_BEFORE_FONT,
     SITE_JUNIOR_FONT,
     _cluster_id,
+    _cluster_id_from_repr,
     _write_shard,
     build_m1,
 )
@@ -406,7 +408,7 @@ def test_signature_store_round_trip_and_invalidation(tmp_path):
 
 
 def test_cluster_id_from_repr_matches_the_tuple_recipe():
-    """The c- ids recorded in rebuild/standing-approvals.yaml and prior verdicts are hashes of `repr((tuple(configs), class_id, diffs))`; the repr-string composition the cache rides must reproduce that byte stream exactly, empty diffs and one-element config tuples included."""
+    """The c- ids recorded in rebuild/standing-approvals.yaml and prior verdicts are hashes of `repr((tuple(configs), class_id, diffs))`; the piecewise hashing the runner does over the diffs' repr bytes must reproduce that byte stream exactly, empty diffs and one-element config tuples included."""
     piece = ((("moveTo", ((0, 0),)), ("lineTo", ((5, 0),))),)
     for configs, class_id, diffs in (
         (("default",), "seam-loss-withdrawal", ((), (), 0)),
@@ -415,6 +417,46 @@ def test_cluster_id_from_repr_matches_the_tuple_recipe():
     ):
         expected = "c-" + hashlib.sha1(repr((tuple(configs), class_id, diffs)).encode()).hexdigest()[:8]
         assert _cluster_id(configs, class_id, diffs) == expected
+        assert _cluster_id_from_repr(configs, class_id, repr(diffs).encode()) == expected
+
+
+def test_the_cluster_a_fresh_unit_carries_keys_on_its_final_class(base_surface):
+    """The runner computes a unit's cluster where it assigns the verdict family, so an UNMATCHED unit's cluster must key on that family — the class its fragment is sharded under — and a ledger-classed unit's on its ledger class. Every fragment carries its class, a human fragment carries its cluster, and the diffs behind the id are gone with the worker, so the witness is the store: every unit's record carries a cluster, machine-approved ones included, a served unit's cluster is trusted from it, and that is only sound if the fresh computation keyed on the same class the store records as the unit's."""
+    manifest = json.loads((base_surface / "manifest.json").read_text(encoding="utf-8"))
+    with gzip.open(unit_cache.store_path(base_surface), "rt", encoding="utf-8") as stream:
+        environment = json.loads(next(stream))["environment"]
+    store = unit_cache.load_store(base_surface, environment)
+    assert store
+    by_id = {cached.prior_id: cached for cached in store.values()}
+    seen_family = False
+    for meta in manifest["classes"]:
+        for part in unit_index.class_shards(meta):
+            for fragment in json.loads((base_surface / part).read_text(encoding="utf-8")):
+                cached = by_id[fragment["id"]]
+                assert cached.cluster.startswith("c-")
+                if fragment["batch"] is not None:
+                    assert fragment["cluster"] == cached.cluster
+                assert cached.prior_class == meta["id"]
+                if cached.family:
+                    seen_family = True
+                    assert meta["id"] == cached.family
+    assert seen_family
+
+
+def test_from_record_interns_what_repeats_across_records():
+    """Two records that name the same class, cluster, family, config, delta, cell name or seam token parse to the same string objects, so a million-record store costs one instance per distinct name; the per-record keys, which never repeat, are left alone."""
+    first = unit_cache.CachedUnit.from_record(json.loads(json.dumps(_round_trip_unit().to_record())))
+    second = unit_cache.CachedUnit.from_record(json.loads(json.dumps(_round_trip_unit().to_record())))
+    assert first.prior_class is second.prior_class is sys.intern("boundary-echo")
+    assert first.cluster is second.cluster
+    assert first.diffs_digest is second.diffs_digest
+    assert first.family is second.family
+    assert next(iter(first.ink_deltas)) is next(iter(second.ink_deltas)) is sys.intern("default")
+    assert first.ink_deltas["default"] is second.ink_deltas["default"]
+    for name in ("after_cells", "after_seams", "before_glyphs", "before_seams"):
+        assert all(a is b for a, b in zip(first.proj[name], second.proj[name], strict=True)), name
+    assert first.proj["after_seams"][0] is sys.intern("y5")
+    assert first == second
 
 
 def test_an_absent_manifest_hashes_to_a_sentinel_rather_than_raising(tmp_path):
