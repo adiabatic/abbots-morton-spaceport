@@ -26,6 +26,7 @@ from rebuild.pipeline.conform import (
     ACCEPTANCE_CONFIGS,
     BOUNDARY_GLYPH_NAMES,
     DivergentRow,
+    SettleMemoFile,
     Shaper,
     _cached_verdict,
     _compare_row,
@@ -609,14 +610,15 @@ def _compare_config(
     *,
     store: "oracle_cache.RowStore | None" = None,
     writer: "oracle_cache.RowWriter | None" = None,
+    settle_memo: SettleMemoFile | None = None,
 ) -> OracleConfigResult:
     result = OracleConfigResult(config=config)
     table_path = Path(subset_tables_dir) / f"baseline-{config}.subset.tsv.gz"
     if not table_path.exists():
         result.notes.append(f"{config}: subset table missing at {table_path}")
         return result
-    # The oracle's rows are the same texts the belt sweeps, so they settle through a window memo of their own rather than from scratch a row at a time: a chunk of rows walks in waves, and each row is compared against the settled stream that walk already handed back rather than being walked a second time. Names go unread here — the row's own cells are what `_compare_row` reads — so the walk gets no glyph inventory and keys its lefts on the generated display names, which are as injective as the minted ones.
-    walker = _SettledWindowWalk(spec, features, {}, guard_verdicts)
+    # The oracle's rows are the same texts the belt sweeps, so they settle through the window memo the belt's walk shares by file (`settle_memo`) rather than from scratch a row at a time: a chunk of rows walks in waves, and each row is compared against the settled stream that walk already handed back rather than being walked a second time. Names go unread here — the row's own cells are what `_compare_row` reads — so the walk gets no glyph inventory; its keys are the same either way.
+    walker = _SettledWindowWalk(spec, features, {}, guard_verdicts, memo=settle_memo)
     config_started = time.perf_counter()
     rows = iter_rows(table_path)
     # Only the stale rows are walked; a served row's pre-position verdict comes back off the store and enters `_match_ledger` in the same state a fresh one does, and the chunk is re-read in table order afterward so the audit's bytes cannot depend on the partition. The verification sample rides on serving rather than on writing, because a pass that may read the store and not write one (`--gates-only`) is exactly a pass whose verdicts all came out of it.
@@ -737,6 +739,9 @@ def _compare_config(
     served_rows = 0 if store is None else store.served
     if store is not None and sample is not None:
         _verify_served_sample(spec, aliases, config, features, walker, table_path, store, sample)
+    memo_line = walker.memo_line(config, walker.save_memo())
+    if memo_line is not None:
+        print(memo_line, file=sys.stderr, flush=True)
     print(
         f"[t] oracle {config} {time.perf_counter() - config_started:.2f}s rows={result.rows_compared} positions={result.positions_compared} served={served_rows}",
         file=sys.stderr,
@@ -755,8 +760,9 @@ def oracle_config_worker(
     kern_sidecar_path: Path | None,
     audit_dir: Path,
     row_cache: "OracleRowCache | None" = None,
+    settle_memo: SettleMemoFile | None = None,
 ) -> OracleConfigResult:
-    """One config's oracle compare in its own process, its audit rows written to this configuration's shard under `audit_dir` so only counts ride the result home. The section 5.7 verdict surface is swept here, once per worker, exactly as the belt's worker sweeps its own. The row cache is opened here rather than handed in already open for the same reason the shard is: a spawned worker inherits no file handles, and opening it on this side of the pipe is what keeps this path and the serial one byte-equal."""
+    """One config's oracle compare in its own process, its audit rows written to this configuration's shard under `audit_dir` so only counts ride the result home. The section 5.7 verdict surface is swept here, once per worker, exactly as the belt's worker sweeps its own. The row cache is opened here rather than handed in already open for the same reason the shard is: a spawned worker inherits no file handles, and opening it on this side of the pipe is what keeps this path and the serial one byte-equal. `settle_memo` is the belt's shared settle memo file for this configuration, read and written on this side of the pipe for the same reason."""
     aliases = load_alias_map(alias_path)
     ledger = yaml.safe_load(Path(ledger_path).read_text()) or []
     ink_identical_ids = {entry.get("id") for entry in ledger if entry.get("ink_identical")}
@@ -784,6 +790,7 @@ def oracle_config_worker(
             audit,
             store=store,
             writer=writer,
+            settle_memo=settle_memo,
         )
 
 
@@ -813,6 +820,7 @@ def compare_against_baseline(
     font_path: Path | None = None,
     kern_sidecar_path: Path | None = None,
     row_cache: "OracleRowCache | None" = None,
+    settle_memos: Mapping[str, SettleMemoFile] | None = None,
 ) -> BaselineReport:
     aliases = load_alias_map(alias_path)
     ledger = yaml.safe_load(Path(ledger_path).read_text()) or []
@@ -849,6 +857,7 @@ def compare_against_baseline(
                         audit,
                         store=store,
                         writer=writer,
+                        settle_memo=(settle_memos or {}).get(config),
                     )
                 )
     report = merge_oracle_results(results)

@@ -1649,3 +1649,191 @@ class TestWitnessHints:
         assert rows
         for index in sorted(rows)[:: max(1, len(rows) // 8)]:
             assert conform._first_match_rows(decision, only={index}) == {index: rows[index]}
+
+
+class TestSettleMemoFile:
+    """The belt and the oracle walk the same texts per configuration, and the memo file is how the second of them settles nothing: written by whichever walk settled anything the file lacked, read lazily by the next, keyed on the display name so a walk with a minted inventory and a walk with none share every key. A file under another stamp, or one that will not decode, costs the walk only the windows it would have settled anyway."""
+
+    STAMP = "tables-stamp-a"
+
+    def _texts(self, spec, max_length=3):
+        import itertools
+
+        alphabet = conform.spec_alphabet(spec)
+        return [
+            "".join(combo)
+            for length in range(1, max_length + 1)
+            for combo in itertools.product(alphabet, repeat=length)
+        ]
+
+    def _memo(self, tmp_path, stamp=STAMP):
+        return conform.settle_memo_files(tmp_path, stamp)["default"]
+
+    def test_the_second_walk_over_the_same_texts_never_reaches_the_crate(self, spec, guard, tmp_path):
+        texts = self._texts(spec)
+        memo = self._memo(tmp_path)
+        first = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
+        walked = first.walk_many(texts)
+        assert first.memo_windows == 0
+        assert first.fresh_windows == len(first.windows)
+        assert first.save_memo()
+        written = memo.path.read_bytes()
+
+        minted = {item.cell: f"minted.{name}" for item, name, _left in first._outcomes.values()}
+        second = conform._SettledWindowWalk(spec, frozenset(), minted, guard, memo=memo)
+        again = second.walk_many(texts)
+        assert second._settle_calls == 0
+        assert second.fresh_windows == 0
+        assert second.memo_windows == len(first.windows)
+        assert second.windows.keys() == first.windows.keys()
+        boundaries = set(conform._BOUNDARY_KIND_LABELS.values())
+        for (settled, names), (expected, expected_names) in zip(again, walked):
+            assert settled == expected
+            assert names == [name if name in boundaries else f"minted.{name}" for name in expected_names]
+        assert not second.save_memo()
+        assert memo.path.read_bytes() == written
+
+    def test_another_stamp_reads_as_no_file_and_is_overwritten(self, spec, guard, tmp_path):
+        texts = self._texts(spec, 2)
+        first = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=self._memo(tmp_path))
+        first.walk_many(texts)
+        assert first.save_memo()
+
+        restamped = self._memo(tmp_path, "tables-stamp-b")
+        second = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=restamped)
+        assert second.walk_many(texts) == first.walk_many(texts)
+        assert second.memo_windows == 0
+        assert second.fresh_windows == len(second.windows)
+        assert second.save_memo()
+
+        third = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=restamped)
+        third.walk_many(texts)
+        assert third.memo_windows == len(second.windows)
+        assert third._settle_calls == 0
+
+    def test_a_walk_with_nothing_to_settle_never_opens_the_file(self, spec, guard, tmp_path):
+        memo = self._memo(tmp_path)
+        memo.path.write_bytes(b"not a memo")
+        splitter = sorted(conform.splitting_boundary_chars(spec))[0]
+        walker = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
+        walker.walk_many([splitter, splitter * 2])
+        assert walker.memo_windows == 0
+        assert walker.memo_seconds == 0.0
+        assert not walker.save_memo()
+        assert memo.path.read_bytes() == b"not a memo"
+
+    def test_a_file_that_will_not_decode_costs_a_warning_and_nothing_else(
+        self, spec, guard, tmp_path, capsys
+    ):
+        texts = self._texts(spec, 2)
+        memo = self._memo(tmp_path)
+        with gzip.open(memo.path, "wb") as handle:
+            handle.write(b"\x80\x05not a pickle stream")
+        reference = conform._SettledWindowWalk(spec, frozenset(), {}, guard)
+        walker = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
+        assert walker.walk_many(texts) == reference.walk_many(texts)
+        assert walker.memo_windows == 0
+        assert walker.fresh_windows == len(walker.windows)
+        assert "[warn] settle memo:" in capsys.readouterr().err
+        assert walker.save_memo()
+        third = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
+        third.walk_many(texts)
+        assert third._settle_calls == 0
+
+    def test_a_truncated_file_yields_the_whole_blocks_it_kept(self, spec, guard, tmp_path, monkeypatch):
+        monkeypatch.setattr(conform, "SETTLE_MEMO_BLOCK", 64)
+        texts = self._texts(spec)
+        memo = self._memo(tmp_path)
+        first = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
+        walked = first.walk_many(texts)
+        assert first.save_memo()
+        assert len(first.windows) > 3 * conform.SETTLE_MEMO_BLOCK
+        stream = gzip.decompress(memo.path.read_bytes())
+        with gzip.open(memo.path, "wb") as handle:
+            handle.write(stream[: len(stream) // 2])
+
+        second = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
+        assert second.walk_many(texts) == walked
+        assert 0 < second.memo_windows < len(first.windows)
+        assert second.memo_windows % conform.SETTLE_MEMO_BLOCK == 0
+        assert second.fresh_windows == len(first.windows) - second.memo_windows
+        assert second.save_memo()
+        third = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
+        third.walk_many(texts)
+        assert third.memo_windows == len(first.windows)
+        assert third._settle_calls == 0
+
+    def test_a_refusal_is_not_written_and_is_asked_again(self, spec, guard, tmp_path, monkeypatch):
+        """A refusal is memoized for the tolerant walk that met it and for nobody else: the file holds outcomes only, so the next walk to reach that window asks the crate and gets whatever the crate says then."""
+        clean, refusing_text = chr(0xE665) + chr(0xE670), chr(0xE665) + chr(0xE652)
+        original = kernel_exec.settle_windows
+
+        def injecting(asked_spec, cases, features, **rest):
+            answers = original(asked_spec, cases, features, **rest)
+            for index, case in enumerate(cases):
+                if case["input"] == "qsTea":
+                    answers[index] = None
+            return answers
+
+        monkeypatch.setattr(kernel_exec, "settle_windows", injecting)
+        memo = self._memo(tmp_path)
+        walker = conform._SettledWindowWalk(spec, frozenset(), {}, guard, on_error="drop", memo=memo)
+        walker.prefill([clean, refusing_text])
+        refused = [key for key, value in walker.windows.items() if isinstance(value, conform._RefusedWindow)]
+        assert refused
+        assert walker.save_memo()
+
+        monkeypatch.setattr(kernel_exec, "settle_windows", original)
+        again = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
+        again.walk_many([clean])
+        assert again.memo_windows == len(walker.windows) - len(refused)
+        assert not any(key in again.windows for key in refused)
+        settled, _names = again.walk(refusing_text)
+        assert [item.cell.rune for item in settled] == ["qsMay", "qsTea"]
+        assert again.fresh_windows == len(refused)
+
+    def test_the_belt_writes_the_file_the_oracle_reads(self, spec, guard, tmp_path, monkeypatch, capsys):
+        """The two phases end to end, in the order a cycle runs them reversed — the belt over the mini alphabet at horizon 2 with the font faked out, then the oracle over rows whose texts that belt swept, with the crate taken away: every window the oracle needs is already in the file, and the `[t]` line each phase prints says which of them wrote it."""
+        memo = self._memo(tmp_path)
+        belt = conform._conformance_config(
+            _SilentShaper(),  # pyright: ignore[reportArgumentType]
+            spec,
+            "default",
+            conform.spec_alphabet(spec),
+            conform.splitting_boundary_chars(spec),
+            {},
+            None,
+            2,
+            guard,
+            settle_memo=memo,
+        )
+        assert belt.sequences and memo.path.is_file()
+        belt_line = [
+            line for line in capsys.readouterr().err.splitlines() if line.startswith("[t] settle_memo")
+        ]
+        assert len(belt_line) == 1 and belt_line[0].endswith("written=yes")
+
+        tables = tmp_path / "tables"
+        tables.mkdir()
+        rows = [
+            "E652\tqsTea.noentry\t0\t\t0,0,150",
+            "0020:E652\tspace|qsTea\t0,1\tbreak\t0,0,150|0,0,150",
+            "E652:E652\tqsTea|qsTea\t0,1\tbreak\t0,0,150|0,0,150",
+        ]
+        with gzip.open(tables / "baseline-default.subset.tsv.gz", "wt", encoding="utf-8") as handle:
+            handle.write("# config: default\n")
+            for row in rows:
+                handle.write(row + "\n")
+
+        def crate_is_gone(*args, **kwargs):
+            raise AssertionError("the oracle reached the crate for a window the belt had already settled")
+
+        monkeypatch.setattr(conform.kernel_exec, "settle_windows", crate_is_gone)
+        result = oracle._compare_config(
+            spec, tables, "default", frozenset(), {}, [], set(), None, None, guard, None, settle_memo=memo
+        )
+        assert result.rows_compared == len(rows)
+        oracle_line = [
+            line for line in capsys.readouterr().err.splitlines() if line.startswith("[t] settle_memo")
+        ]
+        assert len(oracle_line) == 1 and oracle_line[0].endswith("fresh=0 written=no")

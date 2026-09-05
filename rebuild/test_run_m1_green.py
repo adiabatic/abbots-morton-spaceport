@@ -445,6 +445,7 @@ class TestOracleFanIn:
             kern_sidecar_path,
             audit_dir,
             row_cache=None,
+            settle_memo=None,
         ):
             if record is not None:
                 record.append(row_cache)

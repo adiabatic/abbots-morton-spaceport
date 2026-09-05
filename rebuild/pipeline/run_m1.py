@@ -353,6 +353,8 @@ def run_font_conformance(
     """The exhaustive font-vs-settle sweep — the per-edit belt at `max_length` 4, and the same sweep deeper when rebuild.tools.deep_sweep asks for it under its own `summary_name`. The tables the build stage left under `out_dir` are read back here for one reason only, the glyph inventory `mint_cell_glyphs` needs to name settled cells and read their anchors; the sweep itself takes no table, because what it proves is HarfBuzz's behavior against the kernel's, and read-back already proved the font holds the rules the build planned. A stamp that fails to match is a hard stop rather than a rebuild: the enumeration costs a whole kernel fan-out, and a sweep that quietly built its own inventory would be measuring a font against runes that have since moved. The split-buffer structural check rides this sweep, on every text that carries a splitter.
 
     The fan-out spends the section 5.7 verdict surface once for the whole run rather than once per worker: a spawned worker inherits nothing, so each would otherwise build the crate it found and sweep the spec for itself. The mapping pickles, so it rides the submission; the serial arm sweeps inside `run_conformance` as before.
+
+    At the per-edit horizon each configuration's walk shares its settle memo with the oracle's walk over the same texts, through a file under `out_dir` stamped with the tables' stamp (`conform.settle_memo_files`): whichever phase runs first settles and writes, and the other loads. A deeper sweep shares nothing — its memo is a multiple of the belt's, and a file that size would cost the next belt and oracle workers more to decode than they save.
     """
     inputs = tables_inputs()
     spec = load_default_spec()
@@ -365,6 +367,7 @@ def run_font_conformance(
     decisions: Mapping[str, DecisionTable | tuple[DecisionTable, ...]] = serialized
     print(f"[t] load_tables {time.perf_counter() - start:.1f}s", flush=True)
     cell_glyphs = mint_cell_glyphs(spec, decisions)
+    settle_memos = conform.settle_memo_files(out_dir, inputs) if max_length == conform.BELT_HORIZON else {}
     if jobs > 1:
         collected: dict[str, conform.ConformanceConfigResult] = {}
         kernel_exec.ensure_built()
@@ -379,6 +382,7 @@ def run_font_conformance(
                     max_length,
                     cell_glyphs,
                     guard_verdicts,
+                    settle_memos.get(config),
                 ): config
                 for config in conform.ACCEPTANCE_CONFIGS
             }
@@ -397,6 +401,7 @@ def run_font_conformance(
             max_length=max_length,
             out_dir=out_dir,
             summary_name=summary_name,
+            settle_memos=settle_memos,
         )
     summary = {
         "sequences": report.sequences,
@@ -517,8 +522,9 @@ def run_oracle(
     jobs: int = 1,
     write_cache: bool = True,
     fresh_cache: bool = False,
+    inputs: str | None = None,
 ) -> dict:
-    """The section 6 oracle over the subset tables, one worker per `conform.ACCEPTANCE_CONFIGS` entry when `jobs` allows, with the row cache read before the first row and written after the last.
+    """The section 6 oracle over the subset tables, one worker per `conform.ACCEPTANCE_CONFIGS` entry when `jobs` allows, with the row cache read before the first row and written after the last. `inputs` is the tables' stamp the caller already holds, and it names the settle memo files this pass shares with the belt (`conform.settle_memo_files`): the oracle's rows are the belt's texts, so a configuration whose file the belt wrote under this stamp settles nothing, and one the belt has not reached yet writes the file the belt will load. A caller with no stamp shares nothing.
 
     The cache's keys are cut once here, from the same read of the rune tree that produced this `spec`, and handed to the workers — and then cut a second time at promotion, where a store is written only if neither the stamp nor a single family key moved while the run held them. That second cut is the point: `fingerprint.rune_digests` reads the rune files off disk, a full run takes minutes, and the house style is to detach a long run and keep editing — so a rune touched mid-run would otherwise be recorded under a digest the verdicts on disk were never built from, and the next pass would serve pre-edit verdicts as fresh, green, forever. `_settle_green`'s recompute-before-recording and `artifact_cycle`'s green keys are the same discipline for the same reason.
 
@@ -553,6 +559,7 @@ def run_oracle(
             write_dir=scratch if write_cache else None,
             rotation=0 if write_cache else int(time.time()),
         )
+    settle_memos = conform.settle_memo_files(out_dir, inputs) if inputs is not None else {}
     try:
         if jobs > 1:
             collected: dict[str, oracle.OracleConfigResult] = {}
@@ -569,6 +576,7 @@ def run_oracle(
                         KERN_SIDECAR_YAML,
                         audit_dir=scratch,
                         row_cache=row_cache,
+                        settle_memo=settle_memos.get(config),
                     ): config
                     for config in conform.ACCEPTANCE_CONFIGS
                 }
@@ -589,6 +597,7 @@ def run_oracle(
                 font_path=out_dir / "M1.otf",
                 kern_sidecar_path=KERN_SIDECAR_YAML,
                 row_cache=row_cache,
+                settle_memos=settle_memos,
             )
         if write_cache and keys is not None and stamps is not None:
             _promote_oracle_row_cache(spec, out_dir, scratch, keys, stamps)
@@ -739,7 +748,7 @@ def run_gates_only(out_dir: Path = OUT_DIR, jobs: int = 1, fresh_cache: bool = F
     console.phase("run_oracle")
     start = time.perf_counter()
     oracle_summary = run_oracle(
-        out_dir=out_dir, spec=spec, jobs=jobs, write_cache=False, fresh_cache=fresh_cache
+        out_dir=out_dir, spec=spec, jobs=jobs, write_cache=False, fresh_cache=fresh_cache, inputs=inputs
     )
     print(f"[t] run_oracle {time.perf_counter() - start:.1f}s", flush=True)
     print(json.dumps(oracle_summary, indent=2))
@@ -911,7 +920,7 @@ def main(argv: list[str] | None = None) -> None:
             raise SystemExit(f"{pin_failure}; see manual_pins_summary.json")
         console.phase("run_oracle")
         start = time.perf_counter()
-        oracle_summary = run_oracle(spec=spec, jobs=jobs, fresh_cache=args.fresh_oracle_cache)
+        oracle_summary = run_oracle(spec=spec, jobs=jobs, fresh_cache=args.fresh_oracle_cache, inputs=inputs)
         print(f"[t] run_oracle {time.perf_counter() - start:.1f}s", flush=True)
         print(json.dumps(oracle_summary, indent=2))
     except (SystemExit, readback.ReadbackError, emit_gsub.EmitError) as error:

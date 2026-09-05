@@ -1,6 +1,6 @@
 """Conformance gates (M1-PLAN sections 5 and 6, Group 3): HarfBuzz vs the settlement function, and the settlement function vs the section 13.1 baseline oracle.
 
-`run_conformance` promotes prototype/conform.py: the Shaper (MONOTONE_CHARACTERS cluster level; names via TTFont, never HarfBuzz's truncating API), the exhaustive length-1..horizon enumeration per acceptance configuration (the per-edit belt, horizon 4 by default), split-buffer equivalence, gap-0 pen positions, and the font-vs-settle oracle diff, which takes no ledger: any divergence is a compiler defect by definition. Coverage is deliberately not this sweep's job: read-back (rebuild/pipeline/readback.py) proves per build that the compiled font holds every emitted rule at its planned position, and the dead-rule alarm is split between the crate's fold, which refuses at table-build time any rule no replayed row first-matches (`fold::assert_outcome_partition`), and rebuild/test_rule_witnesses.py, which keeps the realizability half — whether a string exists at all — and reaches it hint-first off the verified witness texts a previous run cached, so the sweep's remaining unique charter is what only shaping the real binary can test — HarfBuzz's application semantics (lookup interaction across features, backtrack-sees-settled across subtable breaks, default-ignorable skipping, class matching, Extension indirection) and the sufficiency of the 6-slot window abstraction itself, which witness-constructed strings structurally cannot probe because witnesses are built from that abstraction. The deep form of the same sweep runs at horizon 5 or deeper on demand (`make conform-deep`, rebuild/tools/deep_sweep.py), armed by the behavior-class enumeration `emit_gsub.behavior_classes` plus the font-compilation code and the uharfbuzz version, so a rune edit that introduces no novel rule shape never stales it. The split-buffer check rides the belt itself, on the texts it can say anything about, which is where the standalone horizon-5 boundary gate's charter now lives: proven per build at the belt's horizon and periodically deeper by `make conform-deep`. The ZWNJ slot's own structure — zero advance, no ink — is read-back's static boundary-glyphs stage now, proven off the font bytes once per build rather than at every shaped slot. Settlement rides `_SettledWindowWalk`'s per-config window memo, so a distinct raw window costs one batched crate answer and every recurrence across the sweep's texts costs a dict probe, and the oracle's rows settle through a walk of their own.
+`run_conformance` promotes prototype/conform.py: the Shaper (MONOTONE_CHARACTERS cluster level; names via TTFont, never HarfBuzz's truncating API), the exhaustive length-1..horizon enumeration per acceptance configuration (the per-edit belt, horizon 4 by default), split-buffer equivalence, gap-0 pen positions, and the font-vs-settle oracle diff, which takes no ledger: any divergence is a compiler defect by definition. Coverage is deliberately not this sweep's job: read-back (rebuild/pipeline/readback.py) proves per build that the compiled font holds every emitted rule at its planned position, and the dead-rule alarm is split between the crate's fold, which refuses at table-build time any rule no replayed row first-matches (`fold::assert_outcome_partition`), and rebuild/test_rule_witnesses.py, which keeps the realizability half — whether a string exists at all — and reaches it hint-first off the verified witness texts a previous run cached, so the sweep's remaining unique charter is what only shaping the real binary can test — HarfBuzz's application semantics (lookup interaction across features, backtrack-sees-settled across subtable breaks, default-ignorable skipping, class matching, Extension indirection) and the sufficiency of the 6-slot window abstraction itself, which witness-constructed strings structurally cannot probe because witnesses are built from that abstraction. The deep form of the same sweep runs at horizon 5 or deeper on demand (`make conform-deep`, rebuild/tools/deep_sweep.py), armed by the behavior-class enumeration `emit_gsub.behavior_classes` plus the font-compilation code and the uharfbuzz version, so a rune edit that introduces no novel rule shape never stales it. The split-buffer check rides the belt itself, on the texts it can say anything about, which is where the standalone horizon-5 boundary gate's charter now lives: proven per build at the belt's horizon and periodically deeper by `make conform-deep`. The ZWNJ slot's own structure — zero advance, no ink — is read-back's static boundary-glyphs stage now, proven off the font bytes once per build rather than at every shaped slot. Settlement rides `_SettledWindowWalk`'s per-config window memo, so a distinct raw window costs one batched crate answer and every recurrence across the sweep's texts costs a dict probe; the oracle's rows are these same texts, and the two phases share that memo through one file per configuration under rebuild/out/m1 (`SettleMemoFile`), so a window either of them settles is settled once per configuration per table stamp.
 
 The section 6 oracle gate itself lives in rebuild/pipeline/oracle.py (`compare_against_baseline`, the ledger classifier, the position channel), which is the comparison side the enumeration's stamp leaves out. What stays here is its producer: `_compare_row` compares one baseline row's ligation (clusters), per-seam classification, and cell identity against the settled stream through the hand-written alias map and answers the `DivergentRow` the oracle classifies; `_cached_verdict` and `_served_verdict` are the codec between that answer and the oracle row cache's record, and `_verify_served_sample` re-derives a pass's served sample against the store. Those, with the walk, are the two entry points `oracle_cache.ORACLE_ROW_CODE_PATHS` is cut from, which is why they and not the classifier live in this file.
 
@@ -9,11 +9,14 @@ Settlement itself is the crate's, reached through `kernel_exec`: `_SettledWindow
 
 from __future__ import annotations
 
+import gzip
 import itertools
 import json
 import os
+import pickle
 import sys
 import time
+from array import array
 from contextlib import suppress
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -44,6 +47,19 @@ BOUNDARY_GLYPH_NAMES = {"space", "uni200C", "periodcentered", "periodcentered.lo
 ACCEPTANCE_CONFIGS = ("default", "ss03", "ss04", "ss05", "ss03+ss05", "ss10")
 # How many of a belt bucket's texts one walk holds at a time. The bucket itself is streamed, never materialized: horizon 5's length-5 bucket is millions of texts, while a chunk's states cost tens of megabytes whatever the horizon.
 TEXT_CHUNK = 65536
+BELT_HORIZON = 4
+SETTLE_MEMO_FORMAT = "ams-settle-memo/1"
+# Windows per block of the settle memo file; each block is its own pickle, so a writer streams the memo out and a reader decodes it in with this many entries in flight rather than the whole memo twice over.
+SETTLE_MEMO_BLOCK = 65536
+_SETTLE_MEMO_READ_ERRORS = (
+    OSError,
+    EOFError,
+    pickle.UnpicklingError,
+    ValueError,
+    TypeError,
+    LookupError,
+    AttributeError,
+)
 
 
 @dataclass
@@ -551,6 +567,7 @@ class _DeepTokenIndex:
 
 
 _Window = tuple[str, str, str, str, str, str]
+_Outcome = tuple[Settled, str, str]
 
 
 @dataclass
@@ -562,6 +579,7 @@ class _WalkState:
     labels: list[str]
     settled: list[Settled]
     names: list[str]
+    lefts: list[str]
     left: settle.LeftContext
     index: int = 0
 
@@ -573,8 +591,26 @@ class _RefusedWindow:
     message: str
 
 
+@dataclass(frozen=True)
+class SettleMemoFile:
+    """Where one configuration's settle memo lives between phases and what it must be stamped with to be read. The belt and the oracle each hold a walk over the same texts, so whichever runs first writes the file and the other loads it instead of settling; `stamp` is the tables' stamp (`run_m1.tables_inputs`), which covers everything a settlement depends on — the spec structure, the crate and the pipeline's build side — so a file that carries another stamp is treated as absent rather than trusted."""
+
+    path: Path
+    stamp: str
+
+
+def settle_memo_files(out_dir: Path, stamp: str) -> dict[str, SettleMemoFile]:
+    """One `SettleMemoFile` per acceptance configuration under `out_dir`, all stamped alike."""
+    return {
+        config: SettleMemoFile(Path(out_dir) / f"settle-memo-{config}.gz", stamp)
+        for config in ACCEPTANCE_CONFIGS
+    }
+
+
 class _SettledWindowWalk:
-    """The memoized settle walk one conformance config runs over every swept text: a left-to-right pass computes each letter slot's raw window key — exactly `_matched_windows`' slots, with the left read from the just-settled stream — and resolves it through `windows`, a window -> (Settled, glyph name) memo; only a miss reaches the crate. The memo is a pure speed device and nothing else: it records no coverage, and the sweep's verdict is the same whether every window misses or every window hits. Sound because every memoized outcome is a pure function of the window as keyed: the left label is the settled cell's glyph name (injective over every CellId field, whether minted by `cell_label` or `geometry.display_name`), and the right slots are the raw tokens a case row carries, all of them and none beyond. That last point is why the walk needs no liveness oracle at all — it once blanked the deep slots wherever the table's relevance filters proved nothing could read them, and paid more for the probes than the blanking ever saved. `windows` is deliberately unbounded; the interned labels plus deduplicated outcome tuples keep the residual cost to the key tuples themselves. The walk-equivalence sweeps in rebuild/test_conform.py are the standing alarm on all of it.
+    """The memoized settle walk one conformance config runs over every swept text: a left-to-right pass computes each letter slot's raw window key — exactly `_matched_windows`' slots, with the left read from the just-settled stream — and resolves it through `windows`, a window -> (Settled, glyph name, left label) memo; only a miss reaches the crate. The memo is a pure speed device and nothing else: it records no coverage, and the sweep's verdict is the same whether every window misses or every window hits. Sound because every memoized outcome is a pure function of the window as keyed: the left label is the settled cell's display name (`geometry.display_name`, injective over every CellId field), and the right slots are the raw tokens a case row carries, all of them and none beyond. The key never reads the glyph inventory: a walk with minted names and a walk with none key alike and differ only in the name each hands back, which is what lets the oracle and the belt share one memo file. That last point about the right slots is why the walk needs no liveness oracle at all: blanking the deep slots wherever the table's relevance filters prove nothing could read them costs more in probes than the blanking saves. `windows` is deliberately unbounded; the interned labels plus deduplicated outcome tuples keep the residual cost to the key tuples themselves. The walk-equivalence sweeps in rebuild/test_conform.py are the standing alarm on all of it.
+
+    `memo` names the file this walk shares with the other phase's walk over the same texts. It is read lazily, on the first wave that would otherwise reach the crate, so a walk that settles nothing — an oracle pass whose rows are all served — never pays to decode it; and `save_memo` writes it back only when this walk settled at least one window the file did not hold, so the second phase over a complete file rewrites nothing. The file is a gzip stream of pickles: a header carrying the format and the stamp, then blocks of `SETTLE_MEMO_BLOCK` windows, each block the labels and outcomes it introduces plus its keys as columns of indexes into them. Writer and reader both work one block at a time — the memo is never in memory twice — and the outcome objects are shared with the memo dict itself, so a loaded memo costs what the same windows would have cost to settle: the key tuples and nothing else.
 
     Batching is what makes the crate affordable here. `settle-cases` answers independent windows, but a text's next left is the previous window's answer, so `_run` advances a whole pile of texts in waves: every state runs forward to its first memo miss, the misses contribute one case row each — deduplicated by memo key, since a key that two states reach in the same wave is one question — and one `kernel_exec.settle_windows` invocation answers up to `batch` of them before every state advances again. A wave collects at most `batch` new keys and parks the rest for the next one, so a caller's chunk size bounds its own resident cost rather than the invocation's. `walk` is the same loop over a single text, which means a miss there spends a whole kernel spawn on one window; `single_settles` counts those, so a caller that forgot to `prefill` can see what it is paying.
 
@@ -593,6 +629,7 @@ class _SettledWindowWalk:
         batch: int = kernel_exec.SETTLE_WINDOW_BATCH,
         audit_dedupe: bool = False,
         on_error: str = "raise",
+        memo: SettleMemoFile | None = None,
     ):
         self.spec = spec
         self.features = features
@@ -601,11 +638,17 @@ class _SettledWindowWalk:
         self.batch = max(1, batch)
         self.audit_dedupe = audit_dedupe
         self.on_error = on_error
-        self.windows: dict[_Window, tuple[Settled, str] | _RefusedWindow] = {}
+        self.memo = memo
+        self.windows: dict[_Window, _Outcome | _RefusedWindow] = {}
         self.single_settles = 0
         self.audit_extra_rows = 0
         self.audit_multi_keys: set[_Window] = set()
-        self._outcomes: dict[tuple[Settled, str], tuple[Settled, str]] = {}
+        self.memo_windows = 0
+        self.fresh_windows = 0
+        self.memo_seconds = 0.0
+        self._memo_loaded = False
+        self._refused = 0
+        self._outcomes: dict[Settled, _Outcome] = {}
         self._settle_calls = 0
         self._audit_seen: set[tuple[settle.LeftContext, settle.RightToken, tuple[settle.RightToken, ...]]] = (
             set()
@@ -640,6 +683,7 @@ class _SettledWindowWalk:
             labels=formed_labels(spec, tokens, self.features),
             settled=[],
             names=[],
+            lefts=[],
             left=settle.LeftContext("edge"),
         )
 
@@ -650,7 +694,7 @@ class _SettledWindowWalk:
         elif labels[index - 1] in _WINDOW_BOUNDARIES:
             left = labels[index - 1]
         else:
-            left = state.names[index - 1]
+            left = state.lefts[index - 1]
         return (labels[index], left, *_window_rights(labels, index))
 
     def _rights(self, state: _WalkState) -> tuple[settle.RightToken, ...]:
@@ -659,10 +703,11 @@ class _SettledWindowWalk:
             tokens[slot] if slot < len(tokens) else settle.EDGE for slot in range(index + 1, index + 5)
         )
 
-    def _commit(self, state: _WalkState, outcome: tuple[Settled, str]) -> None:
-        item, name = outcome
+    def _commit(self, state: _WalkState, outcome: _Outcome) -> None:
+        item, name, left = outcome
         state.settled.append(item)
         state.names.append(name)
+        state.lefts.append(left)
         state.left = settle.LeftContext("letter", item)
         state.index += 1
 
@@ -673,6 +718,7 @@ class _SettledWindowWalk:
             if token.kind != "letter":
                 state.settled.append(settle.boundary_settled(token.kind))
                 state.names.append(_BOUNDARY_KIND_LABELS[token.kind])
+                state.lefts.append(_BOUNDARY_KIND_LABELS[token.kind])
                 state.left = settle.LeftContext(token.kind)
                 state.index += 1
                 continue
@@ -690,14 +736,124 @@ class _SettledWindowWalk:
         return False
 
     def _record(self, window: _Window, item: Settled | None, text: str) -> None:
+        self.fresh_windows += 1
         if item is None:
+            self._refused += 1
             self.windows[window] = _RefusedWindow(
                 f"the kernel refused the window {window!r}, reached in {text!r}"
             )
             return
-        name = self.glyph_names.get(item.cell) or geometry.display_name(self.spec, item.cell)
-        fresh = (item, name)
-        self.windows[window] = self._outcomes.setdefault(fresh, fresh)
+        self.windows[window] = self._outcome(item)
+
+    def _outcome(self, item: Settled) -> _Outcome:
+        """The one memo value standing for `item` in this walk: the settled item, the name this walk's inventory gives it, and the display name every walk keys the next window's left slot on."""
+        outcome = self._outcomes.get(item)
+        if outcome is None:
+            left = sys.intern(geometry.display_name(self.spec, item.cell))
+            name = self.glyph_names.get(item.cell)
+            outcome = (item, sys.intern(name) if name else left, left)
+            self._outcomes[item] = outcome
+        return outcome
+
+    def _load_memo(self) -> None:
+        """Read the shared memo file into `windows`, once, on the first wave that would otherwise reach the crate. A file that is missing, carries another stamp, or will not decode loads nothing — or as many whole blocks as decoded before it broke, every one of which is a valid memo entry on its own — and the walk settles the rest as it always has."""
+        self._memo_loaded = True
+        if self.memo is None:
+            return
+        started = time.perf_counter()
+        labels: list[str] = []
+        outcomes: list[_Outcome] = []
+        loaded = 0
+        try:
+            with gzip.open(self.memo.path, "rb") as handle:
+                header = pickle.load(handle)
+                if (
+                    not isinstance(header, dict)
+                    or header.get("format") != SETTLE_MEMO_FORMAT
+                    or header.get("stamp") != self.memo.stamp
+                ):
+                    return
+                while True:
+                    try:
+                        new_labels, new_items, columns, values = pickle.load(handle)
+                    except EOFError:
+                        break
+                    labels.extend(map(sys.intern, new_labels))
+                    outcomes.extend(self._outcome(item) for item in new_items)
+                    self.windows.update(
+                        zip(
+                            zip(*(map(labels.__getitem__, column) for column in columns)),
+                            map(outcomes.__getitem__, values),
+                        )
+                    )
+                    loaded += len(values)
+        except FileNotFoundError:
+            return
+        except _SETTLE_MEMO_READ_ERRORS as error:
+            print(
+                f"[warn] settle memo: {self.memo.path} stopped reading after {loaded} windows ({error}); the rest are settled again",
+                file=sys.stderr,
+                flush=True,
+            )
+        finally:
+            self.memo_windows = loaded
+            self.memo_seconds += time.perf_counter() - started
+
+    def save_memo(self) -> bool:
+        """Write `windows` to the shared memo file when this walk settled a window the file did not hold, replacing the file atomically so a reader in another process sees either the old file or the new one. Refusals are not outcomes and are not written; a walk that reaches one of those windows asks the crate again. True when a file was written."""
+        if self.memo is None or not self.fresh_windows:
+            return False
+        started = time.perf_counter()
+        path = self.memo.path
+        staged = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+        items: Iterable[tuple[_Window, _Outcome | _RefusedWindow]] = self.windows.items()
+        if self._refused:
+            items = (entry for entry in items if not isinstance(entry[1], _RefusedWindow))
+        items = iter(items)
+        label_index: dict[str, int] = {}
+        outcome_index: dict[int, int] = {}
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with gzip.open(staged, "wb", compresslevel=1) as handle:
+                pickle.dump({"format": SETTLE_MEMO_FORMAT, "stamp": self.memo.stamp}, handle, protocol=5)
+                while True:
+                    rows = list(itertools.islice(items, SETTLE_MEMO_BLOCK))
+                    if not rows:
+                        break
+                    keys, values = zip(*rows)
+                    columns = list(zip(*keys))
+                    new_labels: list[str] = []
+                    for label in dict.fromkeys(itertools.chain.from_iterable(columns)):
+                        if label not in label_index:
+                            label_index[label] = len(label_index)
+                            new_labels.append(label)
+                    new_items: list[Settled] = []
+                    for outcome in dict.fromkeys(values):
+                        if id(outcome) not in outcome_index:
+                            outcome_index[id(outcome)] = len(outcome_index)
+                            new_items.append(outcome[0])
+                    block = (
+                        new_labels,
+                        new_items,
+                        [array("I", map(label_index.__getitem__, column)) for column in columns],
+                        array("I", map(outcome_index.__getitem__, map(id, values))),
+                    )
+                    pickle.dump(block, handle, protocol=5)
+            os.replace(staged, path)
+        except OSError as error:
+            with suppress(OSError):
+                staged.unlink()
+            print(f"[warn] settle memo: {path} not written ({error})", file=sys.stderr, flush=True)
+            return False
+        finally:
+            self.memo_seconds += time.perf_counter() - started
+        return True
+
+    def memo_line(self, config: str, written: bool) -> str | None:
+        """The `[t]` line a phase prints for its share of the memo file, or None for a walk that has none."""
+        if self.memo is None:
+            return None
+        return f"[t] settle_memo {config} {self.memo_seconds:.2f}s loaded={self.memo_windows} fresh={self.fresh_windows} written={'yes' if written else 'no'}"
 
     def _settle(self, cases: list[dict]) -> list[Settled | None]:
         self._settle_calls += 1
@@ -729,6 +885,9 @@ class _SettledWindowWalk:
         tolerant = self.on_error == "drop" and not collect
         states = [self._state(text) for text in texts]
         pending = [state for state in states if self._advance(state, tolerant)]
+        if pending and not self._memo_loaded:
+            self._load_memo()
+            pending = [state for state in pending if self._advance(state, tolerant)]
         while pending:
             keys: list[_Window] = []
             reached_in: list[str] = []
@@ -1339,8 +1498,9 @@ def run_conformance(
     max_length: int = 4,
     out_dir: Path | None = None,
     summary_name: str = "conform_summary.json",
+    settle_memos: Mapping[str, SettleMemoFile] | None = None,
 ) -> ConformReport:
-    """The serial conformance entry point: one shared Shaper, each config's belt run in turn through `_conformance_config`, results merged by `merge_conformance_results`. The per-config fan-out lives in run_m1.run_font_conformance, which submits `conformance_config_worker` per config instead. No decision table reaches this sweep at all — it shapes the font and settles the same texts through the kernel, and read-back owns the claim that the font holds the planned rules. `summary_name` is the file written under `out_dir`, which the deep sweep names differently so its own run never overwrites the belt's record."""
+    """The serial conformance entry point: one shared Shaper, each config's belt run in turn through `_conformance_config`, results merged by `merge_conformance_results`. The per-config fan-out lives in run_m1.run_font_conformance, which submits `conformance_config_worker` per config instead. No decision table reaches this sweep at all — it shapes the font and settles the same texts through the kernel, and read-back owns the claim that the font holds the planned rules. `summary_name` is the file written under `out_dir`, which the deep sweep names differently so its own run never overwrites the belt's record. `settle_memos` names each config's shared settle memo file; a config with none walks from scratch."""
     shaper = Shaper(Path(font_path))
     alphabet = spec_alphabet(spec)
     splitters = splitting_boundary_chars(spec)
@@ -1360,6 +1520,7 @@ def run_conformance(
             anchors_of,
             max_length,
             guard_verdicts,
+            settle_memo=(settle_memos or {}).get(config),
         )
         for config in configs
     ]
@@ -1389,8 +1550,9 @@ def _conformance_config(
     anchors_of: Callable[[str], dict | None] | None,
     max_length: int,
     guard_verdicts: settle.FormationGuard | None = None,
+    settle_memo: SettleMemoFile | None = None,
 ) -> ConformanceConfigResult:
-    """One config's belt run: every string of length 1..max_length over the alphabet, shaped against the font and diffed against the settled stream, with split-buffer equivalence and gap-0 pen positions riding along. Configs share nothing, so this is the unit both the serial wrapper and the process-pool worker call. Settlement rides `_SettledWindowWalk`'s per-config memo, which is a speed device only — the sweep's verdict does not depend on which windows it has already seen. Each length's texts are streamed through the walk `TEXT_CHUNK` at a time rather than enumerated whole, because a bucket at any interesting horizon is millions of strings and only the chunk in flight need be resident; the swept order is the product's own either way. The one structural check runs here on the texts it can say anything about — a splitter-free text is trivially identical to its own single segment — which is the whole of its coverage now that the standalone horizon-5 boundary pass has gone; the deep sweep takes it past this horizon on its own arming key. The ZWNJ slot's own structure — zero advance, no ink — is read-back's static boundary-glyphs stage, proven off the font bytes once per build."""
+    """One config's belt run: every string of length 1..max_length over the alphabet, shaped against the font and diffed against the settled stream, with split-buffer equivalence and gap-0 pen positions riding along. Configs share nothing, so this is the unit both the serial wrapper and the process-pool worker call. Settlement rides `_SettledWindowWalk`'s per-config memo, which is a speed device only — the sweep's verdict does not depend on which windows it has already seen — and `settle_memo` is where that memo is shared with the oracle's walk over the same texts: loaded on the first miss, written back at the end when this sweep settled anything the file lacked. Each length's texts are streamed through the walk `TEXT_CHUNK` at a time rather than enumerated whole, because a bucket at any interesting horizon is millions of strings and only the chunk in flight need be resident; the swept order is the product's own either way. The one structural check runs here on the texts it can say anything about — a splitter-free text is trivially identical to its own single segment — which is the whole of its coverage now that the standalone horizon-5 boundary pass has gone; the deep sweep takes it past this horizon on its own arming key. The ZWNJ slot's own structure — zero advance, no ink — is read-back's static boundary-glyphs stage, proven off the font bytes once per build."""
     features = features_for_config(config)
     if guard_verdicts is None:
         guard_verdicts = kernel_exec.guard_sweep(spec)
@@ -1398,7 +1560,7 @@ def _conformance_config(
     result = ConformanceConfigResult(config=config)
     modes: set[str] = set()
     overlay = isolated_overlay_active(spec, features)
-    walker = _SettledWindowWalk(spec, features, glyph_names, guard_verdicts)
+    walker = _SettledWindowWalk(spec, features, glyph_names, guard_verdicts, memo=settle_memo)
 
     def sweep_text(text: str, settled: list[Settled], names: list[str]) -> None:
         shaped = shaper.shape(text, features)
@@ -1420,6 +1582,9 @@ def _conformance_config(
             for text, (settled, names) in zip(chunk, walker.walk_many(chunk)):
                 sweep_text(text, settled, names)
 
+    memo_line = walker.memo_line(config, walker.save_memo())
+    if memo_line is not None:
+        print(memo_line, file=sys.stderr, flush=True)
     result.modes = sorted(modes)
     return result
 
@@ -1431,8 +1596,9 @@ def conformance_config_worker(
     max_length: int = 4,
     glyphs: Mapping[CellId, GlyphRecord] | None = None,
     guard_verdicts: settle.FormationGuard | None = None,
+    settle_memo: SettleMemoFile | None = None,
 ) -> ConformanceConfigResult:
-    """One config's sweep in its own process, everything it needs rebuilt here from the spec and the font. The section 5.7 verdict surface is one of those things: a fan-out hands each worker its own spec, so each sweeps once for itself unless the caller has one to pass down — a fifth of a second against a sweep that runs for a minute."""
+    """One config's sweep in its own process, everything it needs rebuilt here from the spec and the font. The section 5.7 verdict surface is one of those things: a fan-out hands each worker its own spec, so each sweeps once for itself unless the caller has one to pass down — a fifth of a second against a sweep that runs for a minute. `settle_memo` rides the submission the same way; it is a path and a stamp, and the worker is where the file is read and written."""
     shaper = Shaper(Path(font_path))
     alphabet = spec_alphabet(spec)
     splitters = splitting_boundary_chars(spec)
@@ -1451,6 +1617,7 @@ def conformance_config_worker(
         anchors_of,
         max_length,
         guard_verdicts,
+        settle_memo=settle_memo,
     )
 
 
