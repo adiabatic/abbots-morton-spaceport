@@ -492,26 +492,76 @@ def _prior_surface(root: Path, classes: list[dict], *, legacy: bool) -> None:
     (root / "manifest.json").write_text(json.dumps({"classes": entries}), encoding="utf-8")
 
 
-def test_load_prior_fragments_reads_a_class_the_last_build_split(tmp_path, monkeypatch):
-    """The cache asks the prior manifest which files a class was written as, because a class large enough to be split has no single name to guess at. A class the manifest does not list contributes nothing, exactly as a missing file does."""
+def _sliced(root: Path, located: unit_cache.PriorFragment) -> dict:
+    """The fragment at a located address, read the way the browser's Range request and `PriorFragmentReader` both read it: that slice of the part's bytes, parsed alone."""
+    raw = (root / located.part).read_bytes()
+    return json.loads(raw[located.start : located.start + located.length])
+
+
+def test_locate_prior_fragments_addresses_a_class_the_last_build_split(tmp_path, monkeypatch):
+    """The cache asks the prior manifest which files a class was written as, because a class large enough to be split has no single name to guess at — and what it keeps of each wanted fragment is an address and the stamp found there, never the fragment, so the plan can be made without holding the previous surface. A class the manifest does not list contributes nothing, exactly as a missing file does."""
     monkeypatch.setattr("rebuild.review.build.SHARD_PART_BYTES", 32)
-    fragments = [{"id": f"u-{index:04d}"} for index in range(6)]
+    fragments = [{"id": f"u-{index:04d}", "content_key": f"k{index}"} for index in range(6)]
     parts, _spans = _write_shard(tmp_path, "big", fragments)
     assert len(parts) > 1
     _prior_surface(tmp_path, [{"id": "big", "shards": parts}], legacy=False)
-    found = unit_cache.load_prior_fragments(tmp_path, {"big": {"u-0001", "u-0005"}, "gone": {"u-0000"}})
-    assert found == {"u-0001": fragments[1], "u-0005": fragments[5]}
+    located = unit_cache.locate_prior_fragments(tmp_path, {"big": {"u-0001", "u-0005"}, "gone": {"u-0000"}})
+    assert set(located) == {"u-0001", "u-0005"}
+    assert {found.part for found in located.values()} <= set(parts)
+    for index in (1, 5):
+        found = located[f"u-{index:04d}"]
+        assert (found.unit_id, found.content_key) == (f"u-{index:04d}", f"k{index}")
+        assert _sliced(tmp_path, found) == fragments[index]
+    with unit_cache.PriorFragmentReader(tmp_path) as reader:
+        assert [reader.read(located[uid]) for uid in ("u-0001", "u-0005")] == [fragments[1], fragments[5]]
 
 
-def test_load_prior_fragments_reads_a_format_1_prior_surface(tmp_path):
-    """The surface on disk the first time this lands is still `ams-review-manifest/1`, one `shard` string per class, and the cache has to serve from it or the next build re-enriches every unit it could have carried."""
-    fragments = [{"id": "u-0000"}, {"id": "u-0001"}]
+def test_locate_prior_fragments_reads_a_format_1_prior_surface(tmp_path):
+    """A prior surface may still be `ams-review-manifest/1`, one `shard` string per class, and the cache has to serve from it or the next build re-enriches every unit it could have carried."""
+    fragments = [{"id": "u-0000"}, {"id": "u-0001", "content_key": "k1"}]
     parts, _spans = _write_shard(tmp_path, "small", fragments)
     assert parts == ["units/small.json"]
     _prior_surface(tmp_path, [{"id": "small", "shards": parts}], legacy=True)
-    assert unit_cache.load_prior_fragments(tmp_path, {"small": {"u-0001"}}) == {"u-0001": fragments[1]}
+    located = unit_cache.locate_prior_fragments(tmp_path, {"small": {"u-0001"}})
+    assert list(located) == ["u-0001"]
+    assert located["u-0001"].content_key == "k1"
+    with unit_cache.PriorFragmentReader(tmp_path) as reader:
+        assert reader.read(located["u-0001"]) == fragments[1]
 
 
-def test_load_prior_fragments_with_no_manifest_contributes_nothing(tmp_path):
+def test_locate_prior_fragments_with_no_manifest_contributes_nothing(tmp_path):
     """A first build, or a prior surface deleted by hand, has no manifest to read — its units fall back to a fresh computation rather than raising."""
-    assert unit_cache.load_prior_fragments(tmp_path, {"small": {"u-0000"}}) == {}
+    assert unit_cache.locate_prior_fragments(tmp_path, {"small": {"u-0000"}}) == {}
+
+
+def test_locate_prior_fragments_walks_a_shard_rewritten_by_hand(tmp_path):
+    """The address is taken off the part's own text rather than assumed from the writer's framing, so a shard something rewrote compactly — the shape `test_a_fragment_whose_stamp_moved_is_not_served` leaves on disk — still locates every fragment, and the recorded bytes still parse to it."""
+    fragments = [{"id": "u-0000", "content_key": "k0"}, {"id": "u-0001", "content_key": "k1"}]
+    (tmp_path / "units").mkdir()
+    (tmp_path / "units" / "small.json").write_text(json.dumps(fragments), encoding="utf-8")
+    _prior_surface(tmp_path, [{"id": "small", "shards": ["units/small.json"]}], legacy=False)
+    located = unit_cache.locate_prior_fragments(tmp_path, {"small": {"u-0000", "u-0001"}})
+    assert [_sliced(tmp_path, located[fragment["id"]]) for fragment in fragments] == fragments
+
+
+def test_a_part_that_is_not_ascii_is_not_addressable(tmp_path):
+    """A character offset is a byte offset only under `ensure_ascii`, which every part this build writes shares and a hand-edited one may not. Rather than record an address that would read the wrong bytes, the locate pass declines such a part, and its units fall back to a fresh computation — over-invalidation being the safe direction here as everywhere in the cache."""
+    fragments = [{"id": "u-0000", "content_key": "k0", "notation": "·Tea"}]
+    (tmp_path / "units").mkdir()
+    (tmp_path / "units" / "small.json").write_text(
+        json.dumps(fragments, ensure_ascii=False), encoding="utf-8"
+    )
+    _prior_surface(tmp_path, [{"id": "small", "shards": ["units/small.json"]}], legacy=False)
+    assert unit_cache.locate_prior_fragments(tmp_path, {"small": {"u-0000"}}) == {}
+
+
+def test_the_reader_refuses_a_fragment_that_moved_under_its_address(tmp_path):
+    """An address is recorded at plan time and read at write time. The shard writer keeps the previous surface whole between the two by deferring its renames, and the reader holds every read against the id and stamp the address was located with, so anything that slips past that discipline is a refusal rather than another unit's bytes served under this one's id."""
+    fragments = [{"id": "u-0000", "content_key": "k0"}, {"id": "u-0001", "content_key": "k1"}]
+    parts, _spans = _write_shard(tmp_path, "small", fragments)
+    _prior_surface(tmp_path, [{"id": "small", "shards": parts}], legacy=False)
+    located = unit_cache.locate_prior_fragments(tmp_path, {"small": {"u-0001"}})
+    _write_shard(tmp_path, "small", [fragments[0], {"id": "u-0009", "content_key": "k1"}])
+    with unit_cache.PriorFragmentReader(tmp_path) as reader:
+        with pytest.raises(ValueError, match="changed underneath"):
+            reader.read(located["u-0001"])

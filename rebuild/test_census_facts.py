@@ -246,33 +246,33 @@ def _example_records():
         _stub_unit("u-0003", "E650:E651", None, None),
     ]
     notes = [None, None, "only under ss10", "only when ss03 is on"]
-    fragments = {unit.unit_id: {"config_note": note} for unit, note in zip(units, notes, strict=True)}
+    config_notes = {unit.unit_id: note for unit, note in zip(units, notes, strict=True)}
     records = [
         {
             "batch": unit.batch,
             "echo": unit.echo,
             "codepoints": unit.codepoints,
-            "config_note": fragments[unit.unit_id]["config_note"],
+            "config_note": config_notes[unit.unit_id],
         }
         for unit in units
     ]
-    return units, fragments, records
+    return units, config_notes, records
 
 
 def test_built_group_from_memory_mirrors_the_shard_walk(tmp_path):
-    """The built group computed off the build's own units and fragments has to equal the one computed by re-reading the shards it wrote — same human-workload size, same echo-sibling count for the worked example, same encoded config-note histogram."""
-    units, fragments, records = _example_records()
+    """The built group computed off the build's own units and per-unit notes has to equal the one computed by re-reading the shards it wrote — same human-workload size, same echo-sibling count for the worked example, same encoded config-note histogram."""
+    units, config_notes, records = _example_records()
     manifest = _write_shard(tmp_path, records)
-    assert built_group_from_memory(units, fragments) == built_group(tmp_path, manifest)
+    assert built_group_from_memory(units, config_notes) == built_group(tmp_path, manifest)
 
 
 def test_built_group_reports_a_missing_worked_example_as_none(tmp_path):
     """A workload that never pages the worked example to a human — every mini surface a test builds — reports its echo-sibling count as None rather than refusing to build, and both formulations agree on that too; over the live corpus it is the pins diff — an accepted count replaced by a null — that surfaces the loss."""
-    units, fragments, records = _example_records()
+    units, config_notes, records = _example_records()
     units[0].batch = None
     records[0]["batch"] = None
     manifest = _write_shard(tmp_path, records)
-    from_memory = built_group_from_memory(units, fragments)
+    from_memory = built_group_from_memory(units, config_notes)
     assert from_memory["worked_example_echo_siblings"] is None
     assert from_memory == built_group(tmp_path, manifest)
 
@@ -342,7 +342,7 @@ def test_invariant_group_keeps_each_sources_own_order():
 
 def test_build_facts_reduces_its_own_premerge_records(tmp_path):
     """The pins the sidecar carries are reductions of the records it carries beside them, so a reader can recompute either group and get the same answer. The invariant block is a reduction too — of the same manifest and the same family census the volatile groups came from, which is why the two blocks can restate each other without any risk of disagreeing."""
-    units, fragments, records = _example_records()
+    units, config_notes, records = _example_records()
     manifest = _write_shard(tmp_path, records)
     capture = capture_premerge(
         build_units(
@@ -360,7 +360,7 @@ def test_build_facts_reduces_its_own_premerge_records(tmp_path):
         ink_flags="10",
         families=[(_index_of(capture, FOLD_WINDOW, "default"), "no-chain-gains")],
     )
-    facts = build_facts(manifest, units, fragments, capture, premerge, row_count=2)
+    facts = build_facts(manifest, units, config_notes, capture, premerge, row_count=2)
     assert facts["format"] == FACTS_FORMAT
     assert facts["surface"]["generated_at"] == manifest["generated_at"]
     volatile = facts["pins"]["volatile"]
@@ -422,7 +422,7 @@ def test_update_copies_the_sidecars_pins_verbatim(tmp_path, monkeypatch):
 
 def test_from_scratch_recomputes_from_sources_without_the_sidecar(tmp_path, monkeypatch):
     """`--from-scratch` is the standalone re-derivation the sidecar traded away: it re-reads the source artifacts for the pre-merge groups and never touches census-facts.json, which here is deliberately unreadable. It reaches the same two-block shape, the invariant block reading the families it just re-derived rather than any the sidecar might have held."""
-    _units, _fragments, records = _example_records()
+    _units, _config_notes, records = _example_records()
     surface = tmp_path / "surface"
     surface.mkdir()
     manifest = _write_shard(surface, records)

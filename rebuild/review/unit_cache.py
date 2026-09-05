@@ -14,9 +14,10 @@ from __future__ import annotations
 import gzip
 import hashlib
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Mapping
+from typing import BinaryIO, Iterable, Mapping
 
 from rebuild.pipeline import fingerprint, kernel_exec, spec_load
 from rebuild.pipeline.model import ResolvedSpec
@@ -453,15 +454,49 @@ def load_signature_store(out_dir: Path, environment: str) -> dict[str, str] | No
         return None
 
 
-def load_prior_fragments(out_dir: Path, wanted: Mapping[str, set[str]]) -> dict[str, dict]:
-    """The prior shards' emitted fragments for the given {class id: prior unit ids}, keyed by prior id. The prior manifest says which parts a class was written as — a class large enough to be split has no single file to guess at — and a missing or unreadable manifest or part simply contributes nothing, its units falling back to a fresh computation."""
+@dataclass(frozen=True)
+class PriorFragment:
+    """Where one of the prior surface's fragments lives and the stamp it carries: the shard part it was written to (the manifest's relative spelling), the byte offset and length of its own JSON element there, and its `content_key`. The address is the same `(part, start, length)` the app's sidecars carry for a Range fetch, and it is recorded by `locate_prior_fragments` off the part's own text, so it stays right for a shard something rewrote by hand as long as the part is still ASCII."""
+
+    part: str
+    start: int
+    length: int
+    unit_id: str
+    content_key: str | None
+
+
+_JSON_WHITESPACE = re.compile(r"[ \t\n\r]*")
+
+
+def _skip_whitespace(text: str, index: int) -> int:
+    match = _JSON_WHITESPACE.match(text, index)
+    return match.end() if match else index
+
+
+def _walk_elements(text: str):
+    """The elements of one shard part, each with the character offset and length of its own bytes: the `[`, then one `raw_decode` per element with the commas and whitespace between them skipped, so a fragment is parsed and released before the next is read and the whole part is never resident as objects at once. The framing `_write_shard` lays down is what an address is later read back through, but nothing here assumes it — a compact `json.dumps` of the same list walks the same way — and a part that is not a JSON array raises out to the caller, which treats it as unreadable."""
+    decoder = json.JSONDecoder()
+    index = _skip_whitespace(text, 0)
+    if index >= len(text) or text[index] != "[":
+        raise ValueError("a shard part is a JSON array")
+    index = _skip_whitespace(text, index + 1)
+    while index < len(text) and text[index] != "]":
+        fragment, end = decoder.raw_decode(text, index)
+        yield index, end - index, fragment
+        index = _skip_whitespace(text, end)
+        if index < len(text) and text[index] == ",":
+            index = _skip_whitespace(text, index + 1)
+
+
+def locate_prior_fragments(out_dir: Path, wanted: Mapping[str, set[str]]) -> dict[str, PriorFragment]:
+    """Where the prior shards hold each of the given {class id: prior unit ids}, keyed by prior id, with the stamp each fragment carries — one pass over the parts the prior manifest names for those classes, parsing one fragment at a time and keeping an address rather than the fragment, so the build decides what to serve without ever holding the previous surface's units. The prior manifest says which parts a class was written as — a class large enough to be split has no single file to guess at — and a missing or unreadable manifest or part simply contributes nothing, its units falling back to a fresh computation. So does a part that is not pure ASCII: the address is a character offset read back as a byte offset, which only `ensure_ascii` makes the same thing, and no part this build writes is anything else."""
     out_dir = Path(out_dir)
     try:
         manifest = json.loads((out_dir / "manifest.json").read_text(encoding="utf-8"))
         by_id = {meta.get("id"): meta for meta in manifest["classes"]}
     except OSError, ValueError, KeyError, TypeError, AttributeError:
         return {}
-    fragments: dict[str, dict] = {}
+    located: dict[str, PriorFragment] = {}
     for class_id, ids in wanted.items():
         meta = by_id.get(class_id)
         if meta is None:
@@ -472,10 +507,56 @@ def load_prior_fragments(out_dir: Path, wanted: Mapping[str, set[str]]) -> dict[
             continue
         for part in parts:
             try:
-                shard = json.loads((out_dir / part).read_text(encoding="utf-8"))
+                raw = (out_dir / part).read_bytes()
+                if not raw.isascii():
+                    continue
+                text = raw.decode("ascii")
+                del raw
+                for start, length, fragment in _walk_elements(text):
+                    unit_id = fragment.get("id") if isinstance(fragment, dict) else None
+                    if unit_id in ids:
+                        located[unit_id] = PriorFragment(
+                            part, start, length, unit_id, fragment.get("content_key")
+                        )
             except OSError, ValueError:
                 continue
-            for fragment in shard:
-                if fragment.get("id") in ids:
-                    fragments[fragment["id"]] = fragment
-    return fragments
+    return located
+
+
+class PriorFragmentReader:
+    """Reads served fragments back out of the prior shards by the addresses `locate_prior_fragments` recorded, one open part at a time — the build reads them in shard order, so the handle changes once per class rather than once per unit. Each read is held against the address it was made from: the element must still be the unit with the stamp the locate pass saw, or the file has changed underneath this build, which is a refusal rather than a fragment."""
+
+    def __init__(self, out_dir: Path) -> None:
+        self._out_dir = Path(out_dir)
+        self._part: str | None = None
+        self._handle: BinaryIO | None = None
+
+    def read(self, located: PriorFragment) -> dict:
+        if self._handle is None or self._part != located.part:
+            self.close()
+            self._handle = (self._out_dir / located.part).open("rb")
+            self._part = located.part
+        self._handle.seek(located.start)
+        fragment = json.loads(self._handle.read(located.length))
+        if (
+            not isinstance(fragment, dict)
+            or fragment.get("id") != located.unit_id
+            or fragment.get("content_key") != located.content_key
+        ):
+            raise ValueError(
+                f"{located.part} no longer holds unit {located.unit_id} at bytes "
+                f"{located.start}+{located.length}: the prior surface changed underneath this build"
+            )
+        return fragment
+
+    def close(self) -> None:
+        if self._handle is not None:
+            self._handle.close()
+            self._handle = None
+            self._part = None
+
+    def __enter__(self) -> "PriorFragmentReader":
+        return self
+
+    def __exit__(self, *_exc) -> None:
+        self.close()

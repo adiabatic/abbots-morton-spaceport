@@ -21,7 +21,7 @@ import sys
 import time
 import traceback
 import warnings
-from collections.abc import Collection, Mapping
+from collections.abc import Callable, Collection, Iterator, Mapping
 from dataclasses import dataclass, replace
 from functools import lru_cache
 from itertools import batched, combinations
@@ -37,6 +37,7 @@ from rebuild.review.audit import (
     MACHINE_CHANNELS,
     UNMATCHED_CLASS,
     AuditRow,
+    Unit,
     _config_index,
     assign_batches,
     format_codepoints,
@@ -516,64 +517,108 @@ def _write_json(path: Path, payload) -> None:
         staging.unlink(missing_ok=True)
 
 
-def _write_shard(
-    out_dir: Path, class_id: str, fragments: list[dict]
-) -> tuple[list[str], list[tuple[int, int, int]]]:
-    """One class's units, written as byte-capped parts, returning the relative paths the manifest lists in part order and, aligned index-for-index with `fragments`, each fragment's (part index, byte start, byte length).
+class _ShardWriter:
+    """Streams classes into byte-capped shard parts, one fragment at a time, in the order the build hands them over: `open` a class, `add` each of its fragments and get back that fragment's (part index, byte start, byte length), `close` it for the relative paths the manifest lists in part order, and `commit` once every class is on disk. Nothing is held between calls but the open handle and the running byte count, which is what lets phase 2 stream into the shards instead of being assembled in the parent first.
 
     The cap exists for the browser: the app parses each part as one JSON string, and V8's `String::kMaxLength` under pointer compression is 2**29 - 24 bytes. Blink hands `JSON.parse` an empty string rather than an error when it cannot materialize a body that long, so an oversized shard surfaces as "Unexpected end of JSON input" from a fetch that looked like it succeeded. `SHARD_PART_BYTES` is half that ceiling, and the other half is headroom.
 
     A class that fits in one part keeps the bare `units/<class-id>.json` name, so the small classes, the checked-in fixtures, and the archived surfaces never churn. A class that does not is written as `units/<class-id>.000.json`, `units/<class-id>.001.json`, … — contiguous from zero, three digits, every part numbered, never a bare name beside numbered ones. Both spellings sort where `unit_index.class_shard_key` puts the class, because the character after the class id is `.` either way.
 
-    The framing is `_write_json`'s, for the reasons its docstring gives: each fragment is serialized inside a one-element list whose framing is peeled back off, so a part's bytes are the one-shot `json.dumps(part, indent=1, ensure_ascii=True) + "\\n"` bytes by construction. Every part lands within the cap except one holding a single fragment that exceeds it alone, which nothing here can make smaller. Each part is staged under a sibling name and renamed, so a failed encode leaves the previous build's units in place rather than a truncated part.
+    The framing is `_write_json`'s, for the reasons its docstring gives: each fragment is serialized inside a one-element list whose framing is peeled back off, so a part's bytes are the one-shot `json.dumps(part, indent=1, ensure_ascii=True) + "\\n"` bytes by construction. Every part lands within the cap except one holding a single fragment that exceeds it alone, which nothing here can make smaller.
 
-    That framing is a byte-addressing contract as well as a serialization one, and the spans returned here are what the review app's explain panel Range-fetches against: no punctuation is interleaved with a fragment's own bytes, and `ensure_ascii=True` under a utf-8 handle makes the running character count the byte offset, so `bytes[start:start + length]` is a standalone JSON element. A change to the `indent`, `ensure_ascii` or `separators` of the dump below breaks that silently — `rebuild/test_app_index.py` slices every fragment back out to catch it.
+    That framing is a byte-addressing contract as well as a serialization one, and the spans returned here are what the review app's explain panel Range-fetches against — and what the next build reads its served units back through, since `unit_cache.locate_prior_fragments` records the same address off the written part: no punctuation is interleaved with a fragment's own bytes, and `ensure_ascii=True` under a utf-8 handle makes the running character count the byte offset, so `bytes[start:start + length]` is a standalone JSON element. A change to the `indent`, `ensure_ascii` or `separators` of the dump below breaks that silently — `rebuild/test_app_index.py` slices every fragment back out to catch it.
+
+    Every part is staged under a sibling name and renamed only at `commit`, after the last class has closed, rather than as each class finishes. The build reads its served units out of the previous surface's shards by address while it writes this one, so a shard replaced class by class could put a unit's bytes under a new file before a later class asked for them; deferring the sweep keeps the previous surface whole until this one is entirely on disk, and it keeps what per-class renaming already gave: a failed encode or a build killed mid-write leaves the previous build's units in place rather than a truncated part, with `abort` sweeping the staging names away.
     """
-    units_dir = Path(out_dir) / "units"
-    units_dir.mkdir(parents=True, exist_ok=True)
-    staged: list[Path] = []
-    spans: list[tuple[int, int, int]] = []
-    handle: TextIO | None = None
-    try:
-        size = 0
-        for fragment in fragments:
-            body = json.dumps([fragment], indent=1, ensure_ascii=True)[1:-2]
-            if handle is not None and size + len(body) + len(",\n]\n") > SHARD_PART_BYTES:
-                handle.write("\n]\n")
-                handle.close()
-                handle = None
-            if handle is None:
-                staged.append(units_dir / f"{class_id}.{len(staged):03d}.json.partial")
-                handle = staged[-1].open("w", encoding="utf-8", newline="\n")
-                handle.write("[")
-                size = 1
-            else:
-                handle.write(",")
-                size += 1
-            spans.append((len(staged) - 1, size, len(body)))
-            handle.write(body)
-            size += len(body)
-        if handle is None:
-            staged.append(units_dir / f"{class_id}.000.json.partial")
-            handle = staged[-1].open("w", encoding="utf-8", newline="\n")
-            handle.write("[]\n")
+
+    def __init__(self, out_dir: Path) -> None:
+        self._units_dir = Path(out_dir) / "units"
+        self._units_dir.mkdir(parents=True, exist_ok=True)
+        self._pending: list[tuple[Path, Path]] = []
+        self._class_id: str | None = None
+        self._staged: list[Path] = []
+        self._handle: TextIO | None = None
+        self._size = 0
+
+    def open(self, class_id: str) -> None:
+        assert self._class_id is None, "close the open class first"
+        self._class_id = class_id
+        self._staged = []
+        self._size = 0
+
+    def add(self, fragment: dict) -> tuple[int, int, int]:
+        body = json.dumps([fragment], indent=1, ensure_ascii=True)[1:-2]
+        if self._handle is not None and self._size + len(body) + len(",\n]\n") > SHARD_PART_BYTES:
+            self._handle.write("\n]\n")
+            self._handle.close()
+            self._handle = None
+        if self._handle is None:
+            self._staged.append(self._units_dir / f"{self._class_id}.{len(self._staged):03d}.json.partial")
+            self._handle = self._staged[-1].open("w", encoding="utf-8", newline="\n")
+            self._handle.write("[")
+            self._size = 1
         else:
-            handle.write("\n]\n")
-        handle.close()
-        handle = None
+            self._handle.write(",")
+            self._size += 1
+        span = (len(self._staged) - 1, self._size, len(body))
+        self._handle.write(body)
+        self._size += len(body)
+        return span
+
+    def close(self) -> list[str]:
+        class_id = self._class_id
+        assert class_id is not None, "no class is open"
+        if self._handle is None:
+            self._staged.append(self._units_dir / f"{class_id}.000.json.partial")
+            self._handle = self._staged[-1].open("w", encoding="utf-8", newline="\n")
+            self._handle.write("[]\n")
+        else:
+            self._handle.write("\n]\n")
+        self._handle.close()
+        self._handle = None
         names = (
             [f"{class_id}.json"]
-            if len(staged) == 1
-            else [f"{class_id}.{index:03d}.json" for index in range(len(staged))]
+            if len(self._staged) == 1
+            else [f"{class_id}.{index:03d}.json" for index in range(len(self._staged))]
         )
-        for staging, name in zip(staged, names, strict=True):
-            staging.replace(units_dir / name)
-        return [f"units/{name}" for name in names], spans
-    finally:
-        if handle is not None:
-            handle.close()
-        for staging in staged:
+        self._pending.extend(
+            (staging, self._units_dir / name) for staging, name in zip(self._staged, names, strict=True)
+        )
+        self._class_id = None
+        self._staged = []
+        return [f"units/{name}" for name in names]
+
+    def commit(self) -> None:
+        for staging, target in self._pending:
+            staging.replace(target)
+        self._pending = []
+
+    def abort(self) -> None:
+        if self._handle is not None:
+            self._handle.close()
+            self._handle = None
+        for staging in self._staged:
             staging.unlink(missing_ok=True)
+        for staging, _target in self._pending:
+            staging.unlink(missing_ok=True)
+        self._staged = []
+        self._pending = []
+        self._class_id = None
+
+
+def _write_shard(
+    out_dir: Path, class_id: str, fragments: list[dict]
+) -> tuple[list[str], list[tuple[int, int, int]]]:
+    """One class's units a caller holds whole, written and renamed into place at once: `_ShardWriter` over the list, returning the relative paths the manifest lists in part order and, aligned index-for-index with `fragments`, each fragment's (part index, byte start, byte length). The table-diff build and the tests write their classes this way; the m1 build streams through the writer itself."""
+    writer = _ShardWriter(out_dir)
+    try:
+        writer.open(class_id)
+        spans = [writer.add(fragment) for fragment in fragments]
+        parts = writer.close()
+        writer.commit()
+        return parts, spans
+    finally:
+        writer.abort()
 
 
 def _prune_orphan_shards(out_dir: Path, manifest: dict) -> list[str]:
@@ -753,7 +798,7 @@ def _resolve_signature_digests(
 
 
 def _surface_worker(conn, init: dict) -> None:
-    """A persistent, stateful surface worker (spawn-only: uharfbuzz/fontTools C objects are not fork-safe, and drafts._import_test_shaping mutates a module-global singleton). Phase 1 computes config_diff + enrich over its slice, batch by batch with the shared shape memo released behind each (`_phase1_batches`), and retains each EnrichedUnit in-process; phase 2 injects the parent's global fields and emits the shard JSON from the retained enrichment. The third message, `verify`, recomputes both phases for a handful of units the cache served — units this worker never enriched — and answers with each one's content key and its freshly computed ink deltas, which is what makes the served fragments continuously checkable against a fresh computation of the same window.
+    """A persistent, stateful surface worker (spawn-only: uharfbuzz/fontTools C objects are not fork-safe, and drafts._import_test_shaping mutates a module-global singleton). Phase 1 computes config_diff + enrich over its slice, batch by batch with the shared shape memo released behind each (`_phase1_batches`), and retains each EnrichedUnit in-process; phase 2 injects the parent's global fields and emits the shard JSON from the retained enrichment at the same batch width (`_released_batches`), releasing each EnrichedUnit as its fragment replaces it, and holds the fragments here rather than returning them: the parent pulls them with `emit` messages, a chunk at a time in the order it writes the shards, so the pile a phase-2 reply used to pickle whole never exists in the parent and each fragment leaves this process the moment it is asked for. The remaining message, `verify`, recomputes both phases for a handful of units the cache served — units this worker never enriched — and answers with each one's content key and its freshly computed ink deltas, which is what makes the served fragments continuously checkable against a fresh computation of the same window.
 
     Both working phases answer with a running count as each batch lands, ahead of the one `ok` that ends the phase, which is what lets the parent say how far through the corpus the pool is while it is still working rather than only once a worker has finished. `verify` sends none: it is a couple of hundred units against tens of thousands, and a counter nobody would read costs a message per unit.
     """
@@ -773,6 +818,7 @@ def _surface_worker(conn, init: dict) -> None:
         )
         drafter = Drafter(init["after_font"], repo_root=init["repo_root"], shaper_factory=shaper_for)
         retained: dict[str, EnrichedUnit] = {}
+        emitted: dict[str, dict] = {}
         while True:
             message = conn.recv()
             if message[0] == "stop":
@@ -788,12 +834,13 @@ def _surface_worker(conn, init: dict) -> None:
                     conn.send(("progress", len(results)))
                 conn.send(("ok", results))
             elif message[0] == "phase2":
-                fragments: dict[str, dict] = {}
                 for chunk in _released_batches(message[1].items()):
                     for unit_id, injection in chunk:
-                        fragments[unit_id] = _phase2_unit(retained[unit_id], injection, drafter)
-                    conn.send(("progress", len(fragments)))
-                conn.send(("ok", fragments))
+                        emitted[unit_id] = _phase2_unit(retained.pop(unit_id), injection, drafter)
+                    conn.send(("progress", len(emitted)))
+                conn.send(("ok", len(emitted)))
+            elif message[0] == "emit":
+                conn.send(("ok", [emitted.pop(unit_id) for unit_id in message[1]]))
             elif message[0] == "verify":
                 keys: dict[str, tuple] = {}
                 for chunk in _released_batches(message[1]):
@@ -818,6 +865,10 @@ def _record_surface_pool(width: int, peaks: dict[str, int]) -> None:
     record_pool("surface", width=width, worker_peaks=peaks, controller_peak_bytes=peak_rss_self_bytes())
 
 
+# How many fragments one `emit` pull carries. The parent holds at most two chunks of phase-2 output at a time, so this bounds that residue; it is large enough that the pipe round trips are a rounding error against the write they overlap.
+_EMIT_CHUNK = 1024
+
+
 def _partition(items: list, parts: int) -> list[list]:
     """Contiguous, near-even slices of `items` in order — the first `len % parts` slices carry one extra so ids stay in triage order across the whole partition."""
     size, extra = divmod(len(items), parts)
@@ -835,7 +886,7 @@ PHASE2_UNITS = "units drafted"
 
 
 class _FreshRunner:
-    """Phases 1–2 over the units the cache could not serve — in-process when `jobs` is 1, across persistent spawn workers otherwise, with identical per-unit semantics either way, which is what lets the serial and parallel builds share every reduce and stay byte-identical. The parent keeps the frozen ids/triage order and every order-sensitive reduce (batches, family promotion, echo numbering, secondary-home resolution); the runner holds the EnrichedUnits and emits the shard JSON."""
+    """Phases 1–2 over the units the cache could not serve — in-process when `jobs` is 1, across persistent spawn workers otherwise, with identical per-unit semantics either way, which is what lets the serial and parallel builds share every reduce and stay byte-identical. The parent keeps the frozen ids/triage order and every order-sensitive reduce (batches, family promotion, echo numbering, secondary-home resolution); the runner holds the EnrichedUnits and emits the shard JSON — through `fragments`, which hands them over in whatever order the shard writer asks for, one chunk in flight, so the parent never holds phase 2's output whole. Pooled, the fragments wait in the worker that made them until they are pulled; serial, each is made from its retained EnrichedUnit at the moment it is pulled, which is the shape at which a fragment exists exactly once."""
 
     def __init__(
         self,
@@ -858,15 +909,20 @@ class _FreshRunner:
         self._repo_root = repo_root
         self._spec_root = Path(spec_root) if spec_root is not None else Path(repo_root)
         self._retained: dict[str, EnrichedUnit] = {}
+        self._injections: dict[str, tuple] = {}
         self._local: tuple | None = None
         self._procs: list = []
         self._conns: list = []
         self._slices: list[list] = []
+        self._worker_of: dict[str, int] = {}
         # The verification sample is worker work too, and it is the whole of the work when the cache served every unit: a pool sized on the fresh pile alone leaves a no-change rebuild recomputing its sample in the parent, which is both slower (200 units serially against eight workers' worth of them: measured 55.6 s against 42.4 s for the units phase of a fully-served build) and much heavier, since the parent that already holds every served fragment then builds an enricher and its per-config subset tables on top (18.9 GB peak against 8.8 GB, where a worker's copy would have been its own process's).
         workload_size = max(len(fresh), len(self._verify))
         if jobs > 1 and workload_size > 1:
             nworkers = min(jobs, workload_size)
             self._slices = _partition(fresh, nworkers)
+            self._worker_of = {
+                unit.unit_id: index for index, chunk in enumerate(self._slices) for unit in chunk
+            }
             init = {
                 "before_font": before_font,
                 "after_font": after_font,
@@ -902,23 +958,48 @@ class _FreshRunner:
                 self._count(len(projections), PHASE1_UNITS)
         return projections
 
-    def phase2(self, injections: dict[str, tuple]) -> dict[str, dict]:
-        fragments: dict[str, dict] = {}
+    def phase2(self, injections: dict[str, tuple]) -> None:
+        """Hand every fresh unit its injected global fields. Pooled, each worker emits its whole slice now, in parallel with the others, and holds the result for `fragments` to pull; serial, the injections are kept and the emission waits for the pull, so the parent's retained EnrichedUnits turn into fragments one at a time as the shards take them."""
+        self._injections = {unit.unit_id: injections[unit.unit_id] for unit in self._fresh}
         if self._conns:
             for conn, chunk in zip(self._conns, self._slices):
-                payload = {unit.unit_id: injections[unit.unit_id] for unit in chunk}
-                conn.send(("phase2", payload))
-            for answered in self._collect("phase 2", PHASE2_UNITS):
-                fragments.update(answered)
-        else:
+                conn.send(("phase2", {unit.unit_id: self._injections[unit.unit_id] for unit in chunk}))
+            self._collect("phase 2", PHASE2_UNITS)
+
+    def fragments(self, order: list[str]) -> Iterator[dict]:
+        """The fresh units' fragments, yielded in exactly `order` — every fresh id once, in the order the shard writer will take them. Pooled, consecutive ids on one worker are pulled as a chunk of at most `_EMIT_CHUNK`, with the next chunk's request already sent while the current one is consumed, so a worker pickles its next reply while the parent writes and no more than two chunks are ever on the wire or in hand. The chunk is the whole of what phase 2 costs the parent now. Serial, this is where phase 2 actually runs: each fragment is drafted from its retained EnrichedUnit as it is pulled, at the enricher's batch width, and the shared shape memo is released — and the count printed — as each batch's last fragment is drafted, before it is handed over, rather than behind the batch as `_released_batches` does it: a generator's behind-the-batch boundary fires only when the consumer asks past the batch, and the shard writer asks for exactly as many fragments as there are units, so the release has to ride the drafting itself for a build that has finished writing to hold no shape."""
+        if not order:
+            return
+        if not self._conns:
             _comparator, _oracle, _enricher, drafter = self._in_process()
-            for chunk in _released_batches(self._fresh):
-                for unit in chunk:
-                    fragments[unit.unit_id] = _phase2_unit(
-                        self._retained[unit.unit_id], injections[unit.unit_id], drafter
-                    )
-                self._count(len(fragments), PHASE2_UNITS)
-        return fragments
+            done = 0
+            for chunk in batched(order, EXPLAIN_UNIT_BATCH_SIZE):
+                for position, unit_id in enumerate(chunk, 1):
+                    fragment = _phase2_unit(self._retained.pop(unit_id), self._injections[unit_id], drafter)
+                    if position == len(chunk):
+                        release_shape_memos()
+                        done += position
+                        self._count(done, PHASE2_UNITS)
+                    yield fragment
+            return
+        chunks: list[tuple[int, list[str]]] = []
+        for unit_id in order:
+            worker = self._worker_of[unit_id]
+            if chunks and chunks[-1][0] == worker and len(chunks[-1][1]) < _EMIT_CHUNK:
+                chunks[-1][1].append(unit_id)
+            else:
+                chunks.append((worker, [unit_id]))
+        sent = 0
+        for index, (worker, ids) in enumerate(chunks):
+            while sent < len(chunks) and sent <= index + 1:
+                self._conns[chunks[sent][0]].send(("emit", chunks[sent][1]))
+                sent += 1
+            reply = self._conns[worker].recv()
+            if reply[0] == "error":
+                raise RuntimeError("surface worker failed while emitting a fragment:\n" + reply[1])
+            if len(reply[1]) != len(ids):
+                raise RuntimeError(f"surface worker answered {len(reply[1])} fragments for {len(ids)} asked")
+            yield from reply[1]
 
     def _count(self, done: int, unit: str) -> None:
         """Each phase counts under a unit name of its own, because both passes cover the same fresh pile in turn: one name for both would show a watcher a counter that reached the total and then, a minute later, fell back to a worker's first batch, with nothing on the terminal saying a second pass had begun."""
@@ -1016,12 +1097,65 @@ class _FreshRunner:
         _record_surface_pool(len(self._procs), peaks)
 
 
+class _SidecarSpool:
+    """The three sidecars' lines, spooled to disk as the shards stream out and replayed into the stamped files once the manifest exists. Each sidecar carries the manifest's identity in its header, and the manifest cannot be written until every class's part list is known, so a build that no longer holds its fragments has to keep the projected lines somewhere until then: on disk under `.partial` names beside the files they become, which is bounded by the projection's own size and never by the corpus in the parent. `finish` writes the real files through the same writers `write_index` and `write_app_artifacts` reach, so the bytes are the ones a build holding every fragment would have written; `discard` sweeps the spools whether or not it did."""
+
+    def __init__(self, out_dir: Path) -> None:
+        self._paths = {
+            name: Path(out_dir) / f"{name}.spool.partial"
+            for name in (unit_index.INDEX_NAME, app_index.APP_INDEX_NAME, app_index.LOCATOR_NAME)
+        }
+        self._handles = {name: path.open("wb") for name, path in self._paths.items()}
+        self.human = 0
+        self.machine = 0
+
+    def unit(self, fragment: dict, span: tuple[int, int, int]) -> None:
+        self._handles[unit_index.INDEX_NAME].write(unit_index.index_line(fragment))
+        if fragment.get("batch") is None:
+            self._handles[app_index.LOCATOR_NAME].write(app_index.locator_line(fragment, *span))
+            self.machine += 1
+        else:
+            self._handles[app_index.APP_INDEX_NAME].write(app_index.app_line(fragment, *span))
+            self.human += 1
+
+    def _lines(self, name: str) -> Iterator[bytes]:
+        with self._paths[name].open("rb") as handle:
+            yield from handle
+
+    def finish(self, out_dir: Path) -> None:
+        for handle in self._handles.values():
+            handle.close()
+        unit_index.write_index_lines(out_dir, self._lines(unit_index.INDEX_NAME))
+        app_index.write_app_artifacts_lines(
+            out_dir,
+            self._lines(app_index.APP_INDEX_NAME),
+            self._lines(app_index.LOCATOR_NAME),
+            human=self.human,
+            machine=self.machine,
+        )
+
+    def discard(self) -> None:
+        for handle in self._handles.values():
+            handle.close()
+        for path in self._paths.values():
+            path.unlink(missing_ok=True)
+
+
+@dataclass(frozen=True)
+class _WrittenSurface:
+    """What `_write_surface` hands back beside the manifest: the two per-unit values the build still reads after the fragments are gone — each unit's `config_note`, which the census facts histogram, and its `content_key`, which the unit store records."""
+
+    manifest: dict
+    config_notes: dict[str, str | None]
+    content_keys: dict[str, str]
+
+
 def _write_surface(
     out_dir: Path,
     workload,
     classes: list,
     by_class: dict,
-    fragments: dict,
+    fragments: Callable[[list[Unit]], Iterator[dict]],
     seam_census: dict,
     echo_count: int,
     total_batches: int,
@@ -1037,18 +1171,26 @@ def _write_surface(
     mismatches: list,
     font_digests: Mapping[str, str],
     served_ids: Collection[str] = (),
-) -> dict:
-    """Reassemble the per-unit JSON fragments into shards (per class, triage order), copy fonts, and write the manifest with its parent-once `generated_at`/`repo_head` stamps. `check_shards` runs over the in-memory shards and manifest it just assembled — the same dicts the writer serialized — instead of re-parsing the hundreds of megabytes it just wrote, and `served_ids` carries the cache's plan into it (see `check_shards`). The manifest-shape predicates (`check_manifest`) and the beside-the-manifest file predicates (`_check_output_files`) do not run per build: every field they read is written right here out of this function's own inputs, and the fonts are held instead by the digest taken at load and asserted at `_copy_font`. `check_output_dir` proves them over a real build once per contracts run — `rebuild/test_app_index.py` over the mini bundle, `rebuild/test_review_build.py` over a table diff — and `refresh_assets` still runs the file predicates over the surface it restamps."""
-    classes_meta: list[dict] = []
-    shards_by_class: dict[str, list[dict]] = {}
-    spans_by_class: dict[str, list[tuple[int, int, int]]] = {}
-    for entry in classes:
-        units = by_class[entry.id]
-        shard = [fragments[unit.unit_id] for unit in units]
-        shards_by_class[entry.id] = shard
-        parts, spans_by_class[entry.id] = _write_shard(out_dir, entry.id, shard)
-        classes_meta.append(
-            {
+) -> _WrittenSurface:
+    """Stream the per-unit JSON fragments into shards (per class, triage order within each), copy fonts, and write the manifest with its parent-once `generated_at`/`repo_head` stamps. `fragments` is asked once, for every unit in the order the shards will take them — classes in `unit_index.class_shard_key` order, which is the order the sidecars are written in anyway, and each class's units in triage order — and each fragment it yields is written, checked, projected onto the sidecar spools and released before the next is pulled, so the parent holds one fragment of phase 2's output at a time rather than all of them from the moment phase 2 returns until the manifest. What survives a fragment is slim: its shard address and the checker's per-unit identity for the cross-unit predicates, its sidecar lines on disk, and the two values `_WrittenSurface` carries. `check_shards`' predicates run over the fragments as they go by, through the same `_SurfaceCheck` the whole-surface form feeds, and `served_ids` carries the cache's plan into it (see `check_shards`). The manifest-shape predicates (`check_manifest`) and the beside-the-manifest file predicates (`_check_output_files`) do not run per build: every field they read is written right here out of this function's own inputs, and the fonts are held instead by the digest taken at load and asserted at `_copy_font`. `check_output_dir` proves them over a real build once per contracts run — `rebuild/test_app_index.py` over the mini bundle, `rebuild/test_review_build.py` over a table diff — and `refresh_assets` still runs the file predicates over the surface it restamps."""
+    ordered = sorted(classes, key=lambda entry: unit_index.class_shard_key(entry.id))
+    stream = fragments([unit for entry in ordered for unit in by_class[entry.id]])
+    meta_by_id: dict[str, dict] = {}
+    config_notes: dict[str, str | None] = {}
+    content_keys: dict[str, str] = {}
+    check = _SurfaceCheck(
+        mode="m1-audit",
+        descriptions=FEATURE_DESCRIPTIONS,
+        batch_size=batch_size,
+        repo_root=repo_root,
+        served_ids=served_ids,
+    )
+    writer = _ShardWriter(out_dir)
+    spool = _SidecarSpool(out_dir)
+    try:
+        for entry in ordered:
+            units = by_class[entry.id]
+            meta = {
                 "id": entry.id,
                 "status": entry.status,
                 "ink_identical": entry.ink_identical,
@@ -1062,55 +1204,71 @@ def _write_surface(
                     channel: sum(1 for unit in units if getattr(unit, channel))
                     for channel in MACHINE_CHANNELS
                 },
-                "shards": parts,
+                "shards": [],
                 "batches": sorted({unit.batch for unit in units if unit.batch is not None}),
             }
-        )
+            check.class_start(meta)
+            writer.open(entry.id)
+            for unit in units:
+                fragment = next(stream)
+                assert fragment["id"] == unit.unit_id, (fragment["id"], unit.unit_id)
+                span = writer.add(fragment)
+                check.unit(fragment)
+                spool.unit(fragment, span)
+                config_notes[unit.unit_id] = fragment["config_note"]
+                content_keys[unit.unit_id] = fragment["content_key"]
+            meta["shards"] = writer.close()
+            check.class_end()
+            meta_by_id[entry.id] = meta
+        assert next(stream, None) is None, "fragments yielded more units than the classes hold"
+        writer.commit()
 
-    fonts = {
-        "before": _copy_font(
-            before_font, out_dir, "before.otf", "AMS Review Before", repo_root, font_digests["before"]
-        ),
-        "after": _copy_font(
-            after_font, out_dir, "after.otf", "AMS Review After", repo_root, font_digests["after"]
-        ),
-    }
-    machine_units = [unit for unit in workload.units if unit.machine_approved]
-    manifest = {
-        "format": MANIFEST_FORMAT,
-        "mode": "m1-audit",
-        "generated_at": _generated_at(audit_path, ledger_path, before_font, after_font),
-        "repo_head": _repo_head(repo_root),
-        "inputs_fingerprint": _inputs_fingerprint(repo_root, subset_dir, before_font, junior_font),
-        "source": {
-            "audit": _relative(audit_path, repo_root),
-            "ledger": _relative(ledger_path, repo_root),
-        },
-        "fonts": fonts,
-        "alphabet": _alphabet_meta(),
-        "configs": list(ACCEPTANCE_CONFIGS),
-        "feature_descriptions": dict(FEATURE_DESCRIPTIONS),
-        "batch_size": batch_size,
-        "human_unit_ids": [unit.unit_id for unit in workload.units if unit.batch is not None],
-        "totals": {
-            "units": len(workload.units),
-            "rows": workload.row_count,
-            "batches": total_batches,
-            "echo_groups": echo_count,
-        },
-        "machine_approved": _machine_approved_meta(machine_units, junior_font, repo_root),
-        "secondary_seams": seam_census,
-        "classes": classes_meta,
-        "build_command": BUILD_COMMAND,
-        "serve_command": SERVE_COMMAND,
-    }
-    _write_json(out_dir / "manifest.json", manifest)
-    pruned = _prune_orphan_shards(out_dir, manifest)
-    if pruned:
-        print(f"Pruned {len(pruned)} orphan shard(s): {', '.join(pruned)}", file=sys.stderr)
-    copy_static(out_dir, static_dir)
-    unit_index.write_index(out_dir, shards_by_class.items())
-    app_index.write_app_artifacts(out_dir, shards_by_class, spans_by_class)
+        fonts = {
+            "before": _copy_font(
+                before_font, out_dir, "before.otf", "AMS Review Before", repo_root, font_digests["before"]
+            ),
+            "after": _copy_font(
+                after_font, out_dir, "after.otf", "AMS Review After", repo_root, font_digests["after"]
+            ),
+        }
+        machine_units = [unit for unit in workload.units if unit.machine_approved]
+        manifest = {
+            "format": MANIFEST_FORMAT,
+            "mode": "m1-audit",
+            "generated_at": _generated_at(audit_path, ledger_path, before_font, after_font),
+            "repo_head": _repo_head(repo_root),
+            "inputs_fingerprint": _inputs_fingerprint(repo_root, subset_dir, before_font, junior_font),
+            "source": {
+                "audit": _relative(audit_path, repo_root),
+                "ledger": _relative(ledger_path, repo_root),
+            },
+            "fonts": fonts,
+            "alphabet": _alphabet_meta(),
+            "configs": list(ACCEPTANCE_CONFIGS),
+            "feature_descriptions": dict(FEATURE_DESCRIPTIONS),
+            "batch_size": batch_size,
+            "human_unit_ids": [unit.unit_id for unit in workload.units if unit.batch is not None],
+            "totals": {
+                "units": len(workload.units),
+                "rows": workload.row_count,
+                "batches": total_batches,
+                "echo_groups": echo_count,
+            },
+            "machine_approved": _machine_approved_meta(machine_units, junior_font, repo_root),
+            "secondary_seams": seam_census,
+            "classes": [meta_by_id[entry.id] for entry in classes],
+            "build_command": BUILD_COMMAND,
+            "serve_command": SERVE_COMMAND,
+        }
+        _write_json(out_dir / "manifest.json", manifest)
+        pruned = _prune_orphan_shards(out_dir, manifest)
+        if pruned:
+            print(f"Pruned {len(pruned)} orphan shard(s): {', '.join(pruned)}", file=sys.stderr)
+        copy_static(out_dir, static_dir)
+        spool.finish(out_dir)
+    finally:
+        writer.abort()
+        spool.discard()
     # A unit whose re-settled cells disagree with the audit it was built from is a surface describing a font nobody compiled, which is the one thing this directory exists not to be. It used to print and carry on; the divergence is empty today and a build that makes it non-empty should stop rather than ship.
     errors: list[str] = []
     if mismatches:
@@ -1118,10 +1276,10 @@ def _write_surface(
             f"enricher: re-settled cells diverge from the audit in {len(mismatches)} units "
             f"(first: {mismatches[0]})"
         )
-    errors.extend(check_shards(manifest, shards_by_class, repo_root, served_ids=served_ids))
+    errors.extend(check.finish(manifest))
     if errors:
         raise SystemExit("contract check failed:\n" + "\n".join(errors[:20]))
-    return manifest
+    return _WrittenSurface(manifest, config_notes, content_keys)
 
 
 @dataclass(slots=True)
@@ -1252,7 +1410,7 @@ def build_m1(
     keys = {unit.unit_id: keyer.key(unit) for unit in workload.units}
     store = None if fresh_unit_cache else unit_cache.load_store(out_dir, environment)
     served: dict[str, unit_cache.CachedUnit] = {}
-    prior_fragments: dict[str, dict] = {}
+    located: dict[str, unit_cache.PriorFragment] = {}
     if store:
         candidates = {
             unit.unit_id: store[keys[unit.unit_id]] for unit in workload.units if keys[unit.unit_id] in store
@@ -1260,12 +1418,12 @@ def build_m1(
         wanted: dict[str, set[str]] = {}
         for cached in candidates.values():
             wanted.setdefault(cached.prior_class, set()).add(cached.prior_id)
-        prior_fragments = unit_cache.load_prior_fragments(out_dir, wanted)
-        # A candidate is served only when the fragment fetched by its prior id still carries the very stamp the store recorded for it. The fetch is an id lookup into files this build did not write, and everything that rides on a served fragment — that these are the bytes `check_unit` passed in the build that emitted them, so this build need not check them again — is only as good as that equality.
+        located = unit_cache.locate_prior_fragments(out_dir, wanted)
+        # A candidate is served only when the fragment found under its prior id still carries the very stamp the store recorded for it. The locate pass is an id lookup into files this build did not write, and everything that rides on a served fragment — that these are the bytes `check_unit` passed in the build that emitted them, so this build need not check them again — is only as good as that equality. What the pass keeps is the fragment's address, not the fragment: the bytes are read back through it when the shard that takes them is being written, and held against the same stamp again then.
         served = {
             uid: cached
             for uid, cached in candidates.items()
-            if prior_fragments.get(cached.prior_id, {}).get("content_key") == cached.content_key
+            if cached.prior_id in located and located[cached.prior_id].content_key == cached.content_key
         }
     fresh = [unit for unit in workload.units if unit.unit_id not in served]
     sampled = set(_verification_sample(sorted(served), environment))
@@ -1378,62 +1536,74 @@ def build_m1(
             unit.unit_id: (unit.batch, unit.echo, unit.cluster, unit.class_id, assignments[unit.unit_id])
             for unit in workload.units
         }
-        fragments = runner.phase2({unit.unit_id: injections[unit.unit_id] for unit in fresh})
+        runner.phase2(injections)
         verified = runner.verify(injections)
+        # What the cache serves must be what a fresh computation of the same window writes. The content key carries most of that claim: it hashes the fragment's adjudicable fields — the ink flag, both fonts' glyphs and cells, the seams, the highlight geometry, the notation — so one comparison per sampled unit covers all of them at once, against the stamp the served fragment was proved to carry when it was located. Two things sit outside it and are answered elsewhere. `ink_deltas` is a carry-presentation key (`unit_cache.CARRY_PRESENTATION_KEYS`), so the recomputation hands it back beside the stamp and it is compared against the store record the unit was served from. The drafts, the explain text, and the secondary seams are outside it too, and they are guaranteed at production rather than sampled: the drafter raises on a pin or a policy record it cannot stand behind, the explain rides the same enrichment as the cells and seams the key does cover, and `patch_cached_fragment` re-emits the secondary seams from the cached rects under this build's own home assignments.
+        stale = sorted(
+            unit_id
+            for unit_id, (key, deltas) in verified.items()
+            if key != served[unit_id].content_key or dict(deltas) != served[unit_id].ink_deltas
+        )
+        if stale:
+            raise SystemExit(
+                f"the unit cache served {len(stale)} of {len(verified)} sampled units whose content key or "
+                f"ink deltas do not match a fresh recomputation: {', '.join(stale[:10])}"
+            )
+        mismatches = [line for unit in workload.units for line in states[unit.unit_id].mismatches]
+        echo_count = len(echo_ids)
+        print(
+            f"[t] review.build units {time.perf_counter() - phase:.1f}s"
+            f"\t(jobs={jobs}, fresh={len(fresh):,}, verified={len(verified):,} served)",
+            file=sys.stderr,
+            flush=True,
+        )
+
+        # The write runs under the runner, because the fragments it takes are pulled out of the workers as the shards go down: a served unit is read back out of the previous surface by the address the locate pass recorded and re-stamped through `patch_cached_fragment`, a fresh one comes off the runner in the same order, and neither exists in the parent past the shard, the checker and the sidecar spools taking it.
+        console.phase("review.build manifest+check", file=sys.stderr)
+        phase = time.perf_counter()
+        reader = unit_cache.PriorFragmentReader(out_dir)
+
+        def fragments_in(ordered_units: list[Unit]) -> Iterator[dict]:
+            stream = runner.fragments([unit.unit_id for unit in ordered_units if unit.unit_id not in served])
+            for unit in ordered_units:
+                cached = served.get(unit.unit_id)
+                if cached is None:
+                    yield next(stream)
+                    continue
+                try:
+                    prior = reader.read(located[cached.prior_id])
+                except ValueError as error:
+                    raise SystemExit(f"the unit cache cannot serve {unit.unit_id}: {error}") from None
+                yield patch_cached_fragment(prior, unit, cached.seams, assignments[unit.unit_id])
+
+        try:
+            written = _write_surface(
+                out_dir,
+                workload,
+                classes,
+                by_class,
+                fragments_in,
+                seam_census,
+                echo_count,
+                total_batches,
+                batch_size,
+                audit_path,
+                ledger_path,
+                subset_dir,
+                before_font,
+                after_font,
+                junior_font,
+                repo_root,
+                static_dir,
+                mismatches,
+                font_digests,
+                served_ids=frozenset(served),
+            )
+        finally:
+            reader.close()
     finally:
         runner.close()
-
-    for unit in workload.units:
-        cached = served.get(unit.unit_id)
-        if cached is not None:
-            fragments[unit.unit_id] = patch_cached_fragment(
-                prior_fragments[cached.prior_id], unit, cached.seams, assignments[unit.unit_id]
-            )
-    # What the cache serves must be what a fresh computation of the same window writes. The content key carries most of that claim: it hashes the fragment's adjudicable fields — the ink flag, both fonts' glyphs and cells, the seams, the highlight geometry, the notation — so one comparison per sampled unit covers all of them at once. Two things sit outside it and are answered elsewhere. `ink_deltas` is a carry-presentation key (`unit_cache.CARRY_PRESENTATION_KEYS`), so the recomputation hands it back beside the stamp and it is compared against the store record the unit was served from. The drafts, the explain text, and the secondary seams are outside it too, and they are guaranteed at production rather than sampled: the drafter raises on a pin or a policy record it cannot stand behind, the explain rides the same enrichment as the cells and seams the key does cover, and `patch_cached_fragment` re-emits the secondary seams from the cached rects under this build's own home assignments.
-    stale = sorted(
-        unit_id
-        for unit_id, (key, deltas) in verified.items()
-        if key != prior_fragments[served[unit_id].prior_id].get("content_key")
-        or dict(deltas) != served[unit_id].ink_deltas
-    )
-    if stale:
-        raise SystemExit(
-            f"the unit cache served {len(stale)} of {len(verified)} sampled units whose content key or ink "
-            f"deltas do not match a fresh recomputation: {', '.join(stale[:10])}"
-        )
-    mismatches = [line for unit in workload.units for line in states[unit.unit_id].mismatches]
-    echo_count = len(echo_ids)
-    print(
-        f"[t] review.build units {time.perf_counter() - phase:.1f}s"
-        f"\t(jobs={jobs}, fresh={len(fresh):,}, verified={len(verified):,} served)",
-        file=sys.stderr,
-        flush=True,
-    )
-
-    console.phase("review.build manifest+check", file=sys.stderr)
-    phase = time.perf_counter()
-    manifest = _write_surface(
-        out_dir,
-        workload,
-        classes,
-        by_class,
-        fragments,
-        seam_census,
-        echo_count,
-        total_batches,
-        batch_size,
-        audit_path,
-        ledger_path,
-        subset_dir,
-        before_font,
-        after_font,
-        junior_font,
-        repo_root,
-        static_dir,
-        mismatches,
-        font_digests,
-        served_ids=frozenset(served),
-    )
+    manifest = written.manifest
     print(f"[t] review.build manifest+check {time.perf_counter() - phase:.1f}s", file=sys.stderr, flush=True)
 
     console.phase("review.build census-facts", file=sys.stderr)
@@ -1451,7 +1621,12 @@ def build_m1(
     census.write_facts(
         out_dir,
         census.build_facts(
-            manifest, workload.units, fragments, premerge_capture, premerge_facts, workload.row_count
+            manifest,
+            workload.units,
+            written.config_notes,
+            premerge_capture,
+            premerge_facts,
+            workload.row_count,
         ),
     )
     print(f"[t] review.build census-facts {time.perf_counter() - phase:.1f}s", file=sys.stderr, flush=True)
@@ -1467,7 +1642,7 @@ def build_m1(
                 key=keys[unit.unit_id],
                 prior_id=unit.unit_id,
                 prior_class=unit.class_id,
-                content_key=fragments[unit.unit_id]["content_key"],
+                content_key=written.content_keys[unit.unit_id],
                 ink_identical=unit.ink_identical,
                 picture_identical=unit.picture_identical,
                 junior_equivalent=unit.junior_equivalent,
@@ -2284,6 +2459,225 @@ def check_unit(unit: dict, mode: str = "m1-audit") -> list[str]:
     return errors
 
 
+class _SurfaceCheck:
+    """The unit-grain and cross-unit halves of the §7 contract check as an accumulator fed one fragment at a time: `class_start` with the manifest's class record, `unit` per fragment in shard order, `class_end` when the class's last fragment has gone by, and `finish` with the manifest for the predicates that read its totals. It exists so the build can run the whole of `check_shards` over fragments it releases as it writes them — what it keeps per unit is the slim identity the cross-unit predicates read (codepoints, whether there is a primary pair, whether anything visible changed) and the grouping keys, never the fragment — and `check_shards` is this class fed from a mapping a caller holds whole. `check_unit` runs inside `unit` for every fragment not in `served_ids`, so the per-unit complaints land as the fragment goes by and the cross-unit ones at `finish`."""
+
+    def __init__(
+        self,
+        *,
+        mode: str,
+        descriptions: Mapping,
+        batch_size: object,
+        repo_root: Path | None,
+        served_ids: Collection[str],
+    ) -> None:
+        self._mode = mode
+        self._descriptions = descriptions
+        self._batch_size = batch_size
+        self._repo_root = repo_root
+        self._served_ids = served_ids
+        self.errors: list[str] = []
+        self._seen_units = 0
+        self._seen_rows = 0
+        self._seen_ids: set[str | None] = set()
+        self._seen_human_ids: set[str] = set()
+        self._seen_machine_by_class: dict[str, int] = {}
+        self._seam_homes: list[tuple[str | None, str]] = []
+        self._seam_units = 0
+        self._seams_homed = 0
+        self._seams_homeless = 0
+        self._echo_keys: dict[str | None, set[tuple]] = {}
+        self._cluster_keys: dict[str | None, set[tuple]] = {}
+        self._echo_cluster: dict[str | None, str | None] = {}
+        self._human_batches: list[tuple[int, str, object]] = []
+        self._identity: dict[str | None, tuple] = {}
+        self._policy_files: set[str] = set()
+        self._meta: Mapping = {}
+        self._class_units = 0
+        self._machine_count = 0
+        self._channel_counts: dict[str, int] = {}
+
+    def class_start(self, meta: Mapping) -> None:
+        self._meta = meta
+        self._class_units = 0
+        self._machine_count = 0
+        self._channel_counts = {channel: 0 for channel in MACHINE_CHANNELS}
+        if meta.get("no_verdict") and meta.get("batches"):
+            self.errors.append(f"class {meta.get('id')}: a no-verdict class must carry no batches")
+
+    def unit(self, unit: dict) -> None:
+        errors = self.errors
+        meta = self._meta
+        mode = self._mode
+        self._class_units += 1
+        unit_id = unit.get("id")
+        if unit_id not in self._served_ids:
+            errors.extend(check_unit(unit, mode))
+        self._identity[unit_id] = (
+            unit.get("codepoints"),
+            unit.get("pair") is not None,
+            unit.get("ink_identical") is True or unit.get("picture_identical") is True,
+        )
+        policy = (unit.get("drafts") or {}).get("policy") or {}
+        if isinstance(policy.get("file"), str):
+            self._policy_files.add(policy["file"])
+        for clause in unit.get("config_gate") or ():
+            if isinstance(clause, dict) and not self._descriptions.get(clause.get("feature")):
+                errors.append(
+                    f"unit {unit_id}: config_gate names {clause.get('feature')!r}, which the manifest's "
+                    "feature_descriptions does not gloss"
+                )
+        # Echo and cluster are m1-audit grains; a table-diff unit carries null for both, and reading them as group ids would put every one of its units in the same nonexistent group.
+        if mode == "m1-audit" and unit.get("batch") is not None and isinstance(unit_id, str):
+            key = (unit.get("class"), tuple(unit.get("configs") or ()))
+            self._echo_keys.setdefault(unit.get("echo"), set()).add(key)
+            self._cluster_keys.setdefault(unit.get("cluster"), set()).add(key)
+            if self._echo_cluster.setdefault(unit.get("echo"), unit.get("cluster")) != unit.get("cluster"):
+                errors.append(f"unit {unit_id}: echo {unit.get('echo')} spans two clusters")
+            if unit_id[2:].isdigit():
+                self._human_batches.append((int(unit_id[2:]), unit_id, unit.get("batch")))
+        if unit.get("class") != meta.get("id"):
+            errors.append(f"unit {unit.get('id')}: class {unit.get('class')} in shard {meta.get('id')}")
+        if unit.get("id") in self._seen_ids:
+            errors.append(f"duplicate unit id {unit.get('id')}")
+        self._seen_ids.add(unit.get("id"))
+        if unit.get("batch") is not None and isinstance(unit.get("id"), str):
+            self._seen_human_ids.add(unit["id"])
+        if unit.get("no_verdict") != bool(meta.get("no_verdict")):
+            errors.append(
+                f"unit {unit.get('id')}: no_verdict {unit.get('no_verdict')} in a class "
+                f"whose no_verdict is {meta.get('no_verdict')}"
+            )
+        if machine_approved(unit):
+            self._machine_count += 1
+            for channel in MACHINE_CHANNELS:
+                if unit.get(channel) is True:
+                    self._channel_counts[channel] += 1
+        elif (
+            mode == "m1-audit"
+            and unit.get("no_verdict") is not True
+            and unit.get("batch") not in meta.get("batches", ())
+        ):
+            errors.append(f"unit {unit.get('id')}: batch {unit.get('batch')} not in class batches")
+        if unit.get("secondary_seams"):
+            self._seam_units += 1
+            for seam in unit["secondary_seams"]:
+                if not isinstance(seam, dict):
+                    continue
+                if seam.get("home") is None:
+                    self._seams_homeless += 1
+                else:
+                    self._seams_homed += 1
+                    self._seam_homes.append((unit.get("id"), seam["home"]))
+
+    def class_end(self) -> None:
+        meta = self._meta
+        errors = self.errors
+        if self._class_units != meta.get("unit_count"):
+            errors.append(
+                f"shard {meta['id']}: {self._class_units} units, manifest says {meta.get('unit_count')}"
+            )
+        if self._machine_count != meta.get("machine_approved_count"):
+            errors.append(
+                f"class {meta.get('id')}: {self._machine_count} machine-approved units, "
+                f"manifest says {meta.get('machine_approved_count')}"
+            )
+        # The app renders a machine fold's badge from this record alone, so a stale count would mislabel a fold no reader can check against the units it summarizes.
+        declared_channels = meta.get("machine_channels")
+        if isinstance(declared_channels, dict) and dict(declared_channels) != self._channel_counts:
+            errors.append(
+                f"class {meta.get('id')}: machine_channels {dict(declared_channels)} != "
+                f"{self._channel_counts} in the shards"
+            )
+        if self._machine_count:
+            self._seen_machine_by_class[meta["id"]] = self._machine_count
+        self._seen_units += self._class_units
+        self._seen_rows += meta.get("row_count", 0)
+
+    def finish(self, manifest: Mapping) -> list[str]:
+        errors = self.errors
+        mode = self._mode
+        seen_ids = self._seen_ids
+        identity = self._identity
+        totals = manifest.get("totals", {})
+        if self._seen_units != totals.get("units"):
+            errors.append(f"totals.units {totals.get('units')} != {self._seen_units} shard units")
+        if self._seen_rows != totals.get("rows"):
+            errors.append(f"totals.rows {totals.get('rows')} != {self._seen_rows} summed class rows")
+        human_unit_ids = manifest.get("human_unit_ids")
+        if isinstance(human_unit_ids, list) and all(isinstance(unit, str) for unit in human_unit_ids):
+            if set(human_unit_ids) != self._seen_human_ids:
+                errors.append("human_unit_ids does not match the shards' non-null batches")
+        machine = manifest.get("machine_approved") or {}
+        if sum(self._seen_machine_by_class.values()) != machine.get("units"):
+            errors.append(
+                f"machine_approved.units {machine.get('units')} != "
+                f"{sum(self._seen_machine_by_class.values())} machine-approved shard units"
+            )
+        if self._seen_machine_by_class != {
+            key: value for key, value in (machine.get("by_class") or {}).items()
+        }:
+            errors.append("machine_approved.by_class does not match the shards' machine-approved counts")
+        for echo, keys in self._echo_keys.items():
+            if len(keys) > 1:
+                errors.append(f"echo {echo}: one group spans {sorted(keys)[:2]}")
+        for cluster, keys in self._cluster_keys.items():
+            if len(keys) > 1:
+                errors.append(f"cluster {cluster}: one signature spans {sorted(keys)[:2]}")
+        batch_size = self._batch_size
+        if mode == "m1-audit" and isinstance(batch_size, int) and batch_size > 0:
+            human_batches = self._human_batches
+            human_batches.sort()
+            ordered = [unit_id for _number, unit_id, _batch in human_batches]
+            if ordered != manifest.get("human_unit_ids"):
+                errors.append("human_unit_ids is not the id-ordered sequence of the shards' batched units")
+            expected = [index // batch_size for index in range(len(human_batches))]
+            if [batch for _number, _unit_id, batch in human_batches] != expected:
+                errors.append(
+                    f"batches are not contiguous slices of {batch_size} over the id-ordered workload"
+                )
+            if manifest.get("totals", {}).get("batches") != len({b for _n, _u, b in human_batches}):
+                errors.append("totals.batches does not count the distinct batches in the shards")
+        for unit_id, home in self._seam_homes:
+            if home == unit_id:
+                errors.append(f"unit {unit_id}: a secondary seam names itself as home")
+            elif home not in seen_ids:
+                errors.append(f"unit {unit_id}: secondary seam home {home} is not a unit in this output")
+        seam_census = manifest.get("secondary_seams")
+        # The home relation's own shape, checkable only where the resolver assigned it — which is exactly where it wrote the census. A home is a shorter window contained in this one, judging the same adjacency as its own primary pair; and it is never ink-identical, because a home with nothing to see is what `seams_suppressed_invisible` counts instead of homing.
+        if isinstance(seam_census, dict):
+            for unit_id, home in self._seam_homes:
+                if home not in identity or unit_id not in identity:
+                    continue
+                tokens = (identity[unit_id][0] or "").split(":")
+                home_tokens = (identity[home][0] or "").split(":")
+                contained = len(home_tokens) <= len(tokens) and any(
+                    tokens[offset : offset + len(home_tokens)] == home_tokens
+                    for offset in range(len(tokens) - len(home_tokens) + 1)
+                )
+                if not contained:
+                    errors.append(f"unit {unit_id}: secondary seam home {home} is not a substring window")
+                if not identity[home][1]:
+                    errors.append(f"unit {unit_id}: secondary seam home {home} has no primary pair")
+                if identity[home][2]:
+                    errors.append(f"unit {unit_id}: secondary seam home {home} shows no visible change")
+                if identity[unit_id][2]:
+                    errors.append(f"unit {unit_id}: a unit with no visible change carries a secondary seam")
+        if isinstance(seam_census, dict):
+            for key, observed in (
+                ("units_with_markers", self._seam_units),
+                ("seams_homed", self._seams_homed),
+                ("seams_homeless", self._seams_homeless),
+            ):
+                if seam_census.get(key) != observed:
+                    errors.append(f"secondary_seams.{key} {seam_census.get(key)} != {observed} in the shards")
+        if self._repo_root is not None:
+            for name in sorted(self._policy_files):
+                if not (Path(self._repo_root) / name).is_file():
+                    errors.append(f"drafts.policy names {name}, which is not a file in the repo")
+        return errors
+
+
 def check_shards(
     manifest: dict,
     shards_by_class: dict[str, list[dict]],
@@ -2291,189 +2685,28 @@ def check_shards(
     *,
     served_ids: Collection[str] = (),
 ) -> list[str]:
-    """The unit-grain half of the §7 contract check over in-memory shard payloads, keyed by class id — shared between the build's post-write self-check (which hands it the very dicts it serialized) and `check_output_dir` (which re-parses them from disk). Classes missing from the mapping are reported by the caller, which knows whether that means an unwritten file or an unassembled shard. `repo_root`, when given, also resolves the distinct policy-draft files once and checks they exist; every other predicate here is over the payload alone.
+    """The unit-grain half of the §7 contract check over shard payloads a caller holds whole, keyed by class id — `check_output_dir` re-parses them from disk, the table-diff build hands over the dicts it serialized, and the m1 build runs the same predicates through `_SurfaceCheck` directly, a fragment at a time as each is written. Classes missing from the mapping are reported by the caller, which knows whether that means an unwritten file or an unassembled shard. `repo_root`, when given, also resolves the distinct policy-draft files once and checks they exist; every other predicate here is over the payload alone.
 
     Its second job is the cross-unit grain — the properties no single fragment can carry: that an echo group and a cluster each hold one class and one config set and that every echo nests inside one cluster, that the manifest's `human_unit_ids` really is the id-ordered human workload in contiguous batches, and that each secondary seam's home is a shorter unit of the same window where that adjacency is the primary judgment. Those were swept by tests over the live surface once a lane; here they run over every shipped unit on every build.
 
     `served_ids` names the units the unit cache served this build, and `check_unit` is skipped for exactly those. A served fragment was fresh in the build that wrote it, where `check_unit` did run over it, and the build serves it only when the stamp on the shard equals the one its store record carries — so its adjudicable bytes are proven to be the bytes that passed. What the serving build then changes is the scaffold, and the scaffold comes from the same `unit_scaffold` a fresh emission reads; the cross-unit predicates below run over every unit either way, so the fields that relate a served unit to its neighbors are checked here on every build. A caller re-reading a finished surface (`check_output_dir`, the table-diff build) passes nothing and checks everything.
     """
-    errors: list[str] = []
-    mode = manifest.get("mode", "m1-audit")
-    descriptions = manifest.get("feature_descriptions") or {}
-    batch_size = manifest.get("batch_size")
-
-    seen_units = 0
-    seen_rows = 0
-    seen_ids: set[str | None] = set()
-    seen_human_ids: set[str] = set()
-    seen_machine_by_class: dict[str, int] = {}
-    seam_homes: list[tuple[str | None, str]] = []
-    seam_units = 0
-    seams_homed = 0
-    seams_homeless = 0
-    echo_keys: dict[str | None, set[tuple]] = {}
-    cluster_keys: dict[str | None, set[tuple]] = {}
-    echo_cluster: dict[str | None, str | None] = {}
-    human_batches: list[tuple[int, str, object]] = []
-    identity: dict[str | None, tuple] = {}
-    policy_files: set[str] = set()
+    check = _SurfaceCheck(
+        mode=manifest.get("mode", "m1-audit"),
+        descriptions=manifest.get("feature_descriptions") or {},
+        batch_size=manifest.get("batch_size"),
+        repo_root=repo_root,
+        served_ids=served_ids,
+    )
     for meta in manifest.get("classes", ()):
         shard = shards_by_class.get(meta.get("id", ""))
         if shard is None:
             continue
-        if len(shard) != meta.get("unit_count"):
-            errors.append(f"shard {meta['id']}: {len(shard)} units, manifest says {meta.get('unit_count')}")
-        if meta.get("no_verdict") and meta.get("batches"):
-            errors.append(f"class {meta.get('id')}: a no-verdict class must carry no batches")
-        machine_count = 0
-        channel_counts = {channel: 0 for channel in MACHINE_CHANNELS}
+        check.class_start(meta)
         for unit in shard:
-            unit_id = unit.get("id")
-            if unit_id not in served_ids:
-                errors.extend(check_unit(unit, mode))
-            identity[unit_id] = (
-                unit.get("codepoints"),
-                unit.get("pair") is not None,
-                unit.get("ink_identical") is True or unit.get("picture_identical") is True,
-            )
-            policy = (unit.get("drafts") or {}).get("policy") or {}
-            if isinstance(policy.get("file"), str):
-                policy_files.add(policy["file"])
-            for clause in unit.get("config_gate") or ():
-                if isinstance(clause, dict) and not descriptions.get(clause.get("feature")):
-                    errors.append(
-                        f"unit {unit_id}: config_gate names {clause.get('feature')!r}, which the manifest's "
-                        "feature_descriptions does not gloss"
-                    )
-            # Echo and cluster are m1-audit grains; a table-diff unit carries null for both, and reading them as group ids would put every one of its units in the same nonexistent group.
-            if mode == "m1-audit" and unit.get("batch") is not None and isinstance(unit_id, str):
-                key = (unit.get("class"), tuple(unit.get("configs") or ()))
-                echo_keys.setdefault(unit.get("echo"), set()).add(key)
-                cluster_keys.setdefault(unit.get("cluster"), set()).add(key)
-                if echo_cluster.setdefault(unit.get("echo"), unit.get("cluster")) != unit.get("cluster"):
-                    errors.append(f"unit {unit_id}: echo {unit.get('echo')} spans two clusters")
-                if unit_id[2:].isdigit():
-                    human_batches.append((int(unit_id[2:]), unit_id, unit.get("batch")))
-            if unit.get("class") != meta.get("id"):
-                errors.append(f"unit {unit.get('id')}: class {unit.get('class')} in shard {meta.get('id')}")
-            if unit.get("id") in seen_ids:
-                errors.append(f"duplicate unit id {unit.get('id')}")
-            seen_ids.add(unit.get("id"))
-            if unit.get("batch") is not None and isinstance(unit.get("id"), str):
-                seen_human_ids.add(unit["id"])
-            if unit.get("no_verdict") != bool(meta.get("no_verdict")):
-                errors.append(
-                    f"unit {unit.get('id')}: no_verdict {unit.get('no_verdict')} in a class "
-                    f"whose no_verdict is {meta.get('no_verdict')}"
-                )
-            if machine_approved(unit):
-                machine_count += 1
-                for channel in MACHINE_CHANNELS:
-                    if unit.get(channel) is True:
-                        channel_counts[channel] += 1
-            elif (
-                mode == "m1-audit"
-                and unit.get("no_verdict") is not True
-                and unit.get("batch") not in meta.get("batches", ())
-            ):
-                errors.append(f"unit {unit.get('id')}: batch {unit.get('batch')} not in class batches")
-            if unit.get("secondary_seams"):
-                seam_units += 1
-                for seam in unit["secondary_seams"]:
-                    if not isinstance(seam, dict):
-                        continue
-                    if seam.get("home") is None:
-                        seams_homeless += 1
-                    else:
-                        seams_homed += 1
-                        seam_homes.append((unit.get("id"), seam["home"]))
-        if machine_count != meta.get("machine_approved_count"):
-            errors.append(
-                f"class {meta.get('id')}: {machine_count} machine-approved units, "
-                f"manifest says {meta.get('machine_approved_count')}"
-            )
-        # The app renders a machine fold's badge from this record alone, so a stale count would mislabel a fold no reader can check against the units it summarizes.
-        declared_channels = meta.get("machine_channels")
-        if isinstance(declared_channels, dict) and dict(declared_channels) != channel_counts:
-            errors.append(
-                f"class {meta.get('id')}: machine_channels {dict(declared_channels)} != "
-                f"{channel_counts} in the shards"
-            )
-        if machine_count:
-            seen_machine_by_class[meta["id"]] = machine_count
-        seen_units += len(shard)
-        seen_rows += meta.get("row_count", 0)
-    totals = manifest.get("totals", {})
-    if seen_units != totals.get("units"):
-        errors.append(f"totals.units {totals.get('units')} != {seen_units} shard units")
-    if seen_rows != totals.get("rows"):
-        errors.append(f"totals.rows {totals.get('rows')} != {seen_rows} summed class rows")
-    human_unit_ids = manifest.get("human_unit_ids")
-    if isinstance(human_unit_ids, list) and all(isinstance(unit, str) for unit in human_unit_ids):
-        if set(human_unit_ids) != seen_human_ids:
-            errors.append("human_unit_ids does not match the shards' non-null batches")
-    machine = manifest.get("machine_approved") or {}
-    if sum(seen_machine_by_class.values()) != machine.get("units"):
-        errors.append(
-            f"machine_approved.units {machine.get('units')} != "
-            f"{sum(seen_machine_by_class.values())} machine-approved shard units"
-        )
-    if seen_machine_by_class != {key: value for key, value in (machine.get("by_class") or {}).items()}:
-        errors.append("machine_approved.by_class does not match the shards' machine-approved counts")
-    for echo, keys in echo_keys.items():
-        if len(keys) > 1:
-            errors.append(f"echo {echo}: one group spans {sorted(keys)[:2]}")
-    for cluster, keys in cluster_keys.items():
-        if len(keys) > 1:
-            errors.append(f"cluster {cluster}: one signature spans {sorted(keys)[:2]}")
-    if mode == "m1-audit" and isinstance(batch_size, int) and batch_size > 0:
-        human_batches.sort()
-        ordered = [unit_id for _number, unit_id, _batch in human_batches]
-        if ordered != manifest.get("human_unit_ids"):
-            errors.append("human_unit_ids is not the id-ordered sequence of the shards' batched units")
-        expected = [index // batch_size for index in range(len(human_batches))]
-        if [batch for _number, _unit_id, batch in human_batches] != expected:
-            errors.append(f"batches are not contiguous slices of {batch_size} over the id-ordered workload")
-        if manifest.get("totals", {}).get("batches") != len({b for _n, _u, b in human_batches}):
-            errors.append("totals.batches does not count the distinct batches in the shards")
-    for unit_id, home in seam_homes:
-        if home == unit_id:
-            errors.append(f"unit {unit_id}: a secondary seam names itself as home")
-        elif home not in seen_ids:
-            errors.append(f"unit {unit_id}: secondary seam home {home} is not a unit in this output")
-    seam_census = manifest.get("secondary_seams")
-    # The home relation's own shape, checkable only where the resolver assigned it — which is exactly where it wrote the census. A home is a shorter window contained in this one, judging the same adjacency as its own primary pair; and it is never ink-identical, because a home with nothing to see is what `seams_suppressed_invisible` counts instead of homing.
-    if isinstance(seam_census, dict):
-        for unit_id, home in seam_homes:
-            if home not in identity or unit_id not in identity:
-                continue
-            tokens = (identity[unit_id][0] or "").split(":")
-            home_tokens = (identity[home][0] or "").split(":")
-            contained = len(home_tokens) <= len(tokens) and any(
-                tokens[offset : offset + len(home_tokens)] == home_tokens
-                for offset in range(len(tokens) - len(home_tokens) + 1)
-            )
-            if not contained:
-                errors.append(f"unit {unit_id}: secondary seam home {home} is not a substring window")
-            if not identity[home][1]:
-                errors.append(f"unit {unit_id}: secondary seam home {home} has no primary pair")
-            if identity[home][2]:
-                errors.append(f"unit {unit_id}: secondary seam home {home} shows no visible change")
-            if identity[unit_id][2]:
-                errors.append(f"unit {unit_id}: a unit with no visible change carries a secondary seam")
-    if isinstance(seam_census, dict):
-        for key, observed in (
-            ("units_with_markers", seam_units),
-            ("seams_homed", seams_homed),
-            ("seams_homeless", seams_homeless),
-        ):
-            if seam_census.get(key) != observed:
-                errors.append(f"secondary_seams.{key} {seam_census.get(key)} != {observed} in the shards")
-    if repo_root is not None:
-        for name in sorted(policy_files):
-            if not (Path(repo_root) / name).is_file():
-                errors.append(f"drafts.policy names {name}, which is not a file in the repo")
-    return errors
+            check.unit(unit)
+        check.class_end()
+    return check.finish(manifest)
 
 
 def _check_output_files(out_dir: Path, manifest: dict, repo_root: Path | None = None) -> list[str]:
