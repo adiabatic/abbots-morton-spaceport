@@ -215,6 +215,8 @@ struct TraceKey {
 }
 
 /// The prospect memo's key, in the two shapes the two candidacy worlds need. An engine's mode is fixed at construction, so only one of them ever occurs on any given engine, and one map holds both; the asymmetry between them is the terms' own — the candidacy key ends in `right2.letter`, because the estimate reads nothing past the follower's own right, while the simulated key carries the whole token and the two slots behind it, because the cascade it runs does.
+///
+/// The simulated key's three slots ride as their kinds beside their `Option<Sym>` runes, the way [`TraceKey`] carries its four (issue #166): the pair spells each token exactly once, so two asks collide exactly when their slots are equal, in four bytes a slot instead of the eight a tagged enum pads to, which is what brings the key down to thirty-six bytes. Nothing reads a key back: it is compared and hashed and never resolved.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 enum ProspectKey {
     Candidacy {
@@ -231,10 +233,16 @@ enum ProspectKey {
         entry: Option<Sym>,
         seam: Option<Sym>,
         right1: Sym,
-        right2: RightToken,
-        right3: RightToken,
-        right4: RightToken,
+        kinds: [TokenKind; 3],
+        runes: [Option<Sym>; 3],
     },
+}
+
+/// How one prospect ask was answered, which [`Engine::prospect`] reads to decide whether the answer is worth an entry of its own (issue #166). A term read off the follower's simulated trace left that trace in the trace memo, in a mode that has one, and the next ask reads it there; a term the candidacy estimate answered — because the mode asks for nothing else, or because the cascade raised and fell back — left nothing behind that a later ask could read, so the memo keeps it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ProspectTerm {
+    Simulated,
+    Estimated,
 }
 
 /// Which of a rune's two adjustment lists an adjustment is picked from. Python passes the kind as a string and chooses the list from it.
@@ -275,6 +283,9 @@ impl DeltaSeat {
     fn index(self) -> usize {
         self.0 as usize
     }
+
+    /// The seat a prospect entry carries outside trace-memo mode, where no capture opens, the delta is empty by construction and there is no pool to seat it in (issue #166). It names that emptiness rather than a row of any table: a hit replays a seat only through a pool that exists, so nothing ever reads it back.
+    const UNJOURNALED: Self = Self(0);
 }
 
 /// The table the trace memo seats its fired deltas through, the same shape as [`NotesPool`] for the same reason: every distinct delta once, in the order a window first journaled it, and the seat each one holds. A replay reads the delta where it sits, so seating it moves nothing about what a hit fires.
@@ -378,7 +389,8 @@ pub struct Engine<'i> {
     /// Each of the small memos carries its own fired delta beside its verdict rather than in a shadow map on the same key: the delta is only ever read alongside the verdict it belongs to, and a second table would pay for the key and its hashbrown slack twice over. The trace memo keeps the delta beside the verdict too, as a seat into its own pool.
     closure_cache: HashMap<ClosureKey, (bool, Box<[Pointer]>)>,
     candidates_cache: HashMap<CandidatesKey, Rc<CandidatesEntry>>,
-    prospect_cache: HashMap<ProspectKey, (i64, Box<[Pointer]>)>,
+    /// The prospect memo: the term as the byte its zero-or-one range needs, beside the seat its fired delta holds in the trace memo's delta pool (issue #166). The seat indexes that pool rather than one of this memo's own because a prospect entry carries a delta only in trace-memo mode — the only mode with a journal — which is exactly when the trace memo and its pool exist, and [`Engine::release_memos`] empties the two memos in the same call, so no seat outlives the table it names; outside trace-memo mode the delta is empty by construction and the entry carries [`DeltaSeat::UNJOURNALED`], which no hit reads. Under a trace memo in simulated-prospect mode the memo holds only the asks whose cascade raised: a settling cascade's answer is one field of a window the trace memo holds, so [`Engine::prospect`] declines the entry and reads it there on the next ask.
+    prospect_cache: HashMap<ProspectKey, (i8, DeltaSeat)>,
     exit_sources_cache: HashMap<StanceId, (Vec<ExitSource<'i>>, Vec<Pointer>)>,
     virtual_left_cache: HashMap<(Sym, Candidate), LeftContext>,
     pairing_sets: HashMap<StanceId, PairingSets>,
@@ -615,7 +627,7 @@ impl<'i> Engine<'i> {
         delta.into_boxed_slice()
     }
 
-    /// Abandon the innermost capture. A raising evaluation records no delta — it is never cached — but its firings stay journaled for any enclosing capture, because they demonstrably fired during that evaluation and a fresh replay would fire them again.
+    /// Abandon the innermost capture. A raising evaluation records no delta — it is never cached — but its firings stay journaled for any enclosing capture, because they demonstrably fired during that evaluation and a fresh replay would fire them again. A settling simulated prospect declines its memo entry the same way (issue #166): everything its capture journaled is the follower's window, which the trace memo now holds under a delta of its own, so the capture is discarded rather than closed and the enclosing window's delta is exactly what it was.
     fn abort_capture(&mut self) {
         self.capture_starts.pop();
         if self.capture_starts.is_empty() {
@@ -1462,6 +1474,8 @@ impl<'i> Engine<'i> {
     /// With `simulated_prospect` on (issue 28's shipping default) the term is the follower's *actual* simulated transition: the whole cascade run one position over, with this candidate standing as the follower's left and the window shifted right, scoring 1 exactly when the simulated winner carries a seam. The recursion that opens only ever moves rightward with strictly shrinking slots and bottoms out at the window edge, where a non-letter slot answers 0 — today's epistemic state, kept on purpose, so beyond-window text stays exactly as unknowable as it is. With the mode off (the section 5.7 guard's pin and the comparison state) the term is the pre-issue-28 optimistic candidacy estimate: 1 when any seam-bearing follower cell survives enumeration, refusal-aware but blind to the follower's prefers and ordering.
     ///
     /// A counterfactual cascade can raise where real settlement never would — a prefer conflict, or a definitively firing unlock scope, in a window whose candidate never wins — so a raising cascade falls back to the candidacy estimate, the honest cannot-rank answer, and counts in [`Engine::simulated_prospect_fallbacks`]. Python's catch there names all four settlement outcomes, which is every error this crate raises, so the fallback here is a plain catch-all; the one thing it swallows that Python's does not is the unresolvable-class spec defect, which `spec_load` refuses long before settlement.
+    ///
+    /// The memo holds a term beside the seat of its fired delta, and under a trace memo in simulated mode it holds only the asks whose cascade raised (issue #166). A settling cascade's delta is exactly the trace memo's delta for the follower's window: the virtual left journals nothing, and the capture's dedup of what [`Engine::with_settled`] journaled — a replayed trace delta, or the raw firings the trace memo deduplicated into that same delta — is that delta again. An entry for it would be a second copy of an entry the trace memo already holds, under a key that collapses this candidate's entry, so the capture is discarded instead, as [`Engine::abort_capture`] says, and the next ask with this key reads the trace memo through `with_settled`, which replays the same first-fired sequence into the same enclosing capture at the same point. The raising cascade is the one window the trace memo can never hold, so its fallback verdict is what this memo is for. Candidacy mode runs no cascade and memoizes every ask, and so does simulated mode without a trace memo, where nothing stands behind this memo to answer the next ask.
     fn prospect(
         &mut self,
         rune_name: Sym,
@@ -1475,15 +1489,15 @@ impl<'i> Engine<'i> {
             return Ok(0);
         }
         let key = if self.simulated_prospect {
+            let deep = [slots.right2, slots.right3, slots.right4];
             ProspectKey::Simulated {
                 rune: rune_name,
                 stance: candidate.stance,
                 entry: candidate.entry,
                 seam: candidate.seam,
                 right1: follower,
-                right2: slots.right2,
-                right3: slots.right3,
-                right4: slots.right4,
+                kinds: deep.map(RightToken::kind),
+                runes: deep.map(RightToken::rune),
             }
         } else {
             ProspectKey::Candidacy {
@@ -1495,22 +1509,23 @@ impl<'i> Engine<'i> {
                 right2: slots.right2.letter(),
             }
         };
-        if let Some((cached, delta)) = self.prospect_cache.get(&key) {
-            let cached = *cached;
-            replay_into(
-                &mut self.fired,
-                &mut self.fired_log,
-                &self.capture_starts,
-                delta,
-            );
-            return Ok(cached);
+        if let Some(&(cached, seat)) = self.prospect_cache.get(&key) {
+            if let Some(memo) = self.trace_cache.as_ref() {
+                replay_into(
+                    &mut self.fired,
+                    &mut self.fired_log,
+                    &self.capture_starts,
+                    memo.deltas.get(seat),
+                );
+            }
+            return Ok(i64::from(cached));
         }
         let capturing = self.fired_log.is_some();
         if capturing {
             self.begin_capture();
         }
-        let result = match self.prospect_uncached(rune_name, candidate, slots, follower) {
-            Ok(result) => result,
+        let (result, term) = match self.prospect_uncached(rune_name, candidate, slots, follower) {
+            Ok(answer) => answer,
             Err(error) => {
                 if capturing {
                     self.abort_capture();
@@ -1518,34 +1533,49 @@ impl<'i> Engine<'i> {
                 return Err(error);
             }
         };
-        let delta = if capturing {
-            self.end_capture()
+        if capturing && term == ProspectTerm::Simulated {
+            self.abort_capture();
+            return Ok(result);
+        }
+        let seat = if capturing {
+            let delta = self.end_capture();
+            self.trace_cache
+                .as_mut()
+                .expect("a capture only opens in trace-memo mode")
+                .deltas
+                .seat(delta)
         } else {
-            Box::default()
+            DeltaSeat::UNJOURNALED
         };
-        self.prospect_cache.insert(key, (result, delta));
+        let prospect = i8::try_from(result).expect("a prospect is a seam count, zero or one");
+        self.prospect_cache.insert(key, (prospect, seat));
         Ok(result)
     }
 
+    /// The term computed afresh, together with how it was answered: off the follower's simulated trace, or by the candidacy estimate — the mode's own term, or the fallback a raising cascade takes.
     fn prospect_uncached(
         &mut self,
         rune_name: Sym,
         candidate: Candidate,
         slots: Slots,
         follower: Sym,
-    ) -> Result<i64, SettleError> {
+    ) -> Result<(i64, ProspectTerm), SettleError> {
         let virtual_left = self.virtual_left(rune_name, candidate);
         if !self.simulated_prospect {
-            return self.seam_bearing_follower_exists(&virtual_left, follower, slots.right2);
+            let estimate =
+                self.seam_bearing_follower_exists(&virtual_left, follower, slots.right2)?;
+            return Ok((estimate, ProspectTerm::Estimated));
         }
         let shifted = Slots::new(slots.right2, slots.right3, slots.right4, UNKNOWN);
         match self.with_settled(&virtual_left, slots.right1, shifted, |settled| {
             i64::from(settled.seam.is_some())
         }) {
-            Ok(seam_bearing) => Ok(seam_bearing),
+            Ok(seam_bearing) => Ok((seam_bearing, ProspectTerm::Simulated)),
             Err(_) => {
                 self.simulated_prospect_fallbacks += 1;
-                self.seam_bearing_follower_exists(&virtual_left, follower, slots.right2)
+                let estimate =
+                    self.seam_bearing_follower_exists(&virtual_left, follower, slots.right2)?;
+                Ok((estimate, ProspectTerm::Estimated))
             }
         }
     }
@@ -5430,6 +5460,128 @@ mod tests {
             .expect("the estimate never opens a cascade at all");
         assert_eq!(estimated, trace, "the fallback is the estimate, exactly");
         assert_eq!(estimating.simulated_prospect_fallbacks(), 0);
+    }
+
+    /// The prospect memo's whole point (issue #166): a key packed to thirty-six bytes, the simulated shape's slots as kinds beside runes, over a value that is the term's byte and a seat.
+    #[test]
+    fn a_memoized_prospect_is_eight_bytes_under_a_thirty_six_byte_key() {
+        assert_eq!(std::mem::size_of::<ProspectKey>(), 36);
+        assert_eq!(std::mem::size_of::<(i8, DeltaSeat)>(), 8);
+    }
+
+    /// Under a trace memo a settling cascade leaves its window there and declines its prospect entry, so a second window asking the same prospects reads them through the trace memo and journals exactly the delta the first did; a raising cascade's fallback is the entry the memo keeps, and the second window's asks hit it rather than re-running the cascade that raised.
+    #[test]
+    fn a_prospect_keeps_its_entry_only_where_its_cascade_raised() {
+        let modes = EngineModes {
+            trace_memo: true,
+            ..EngineModes::default()
+        };
+        let edge = LeftContext::boundary(TokenKind::Edge);
+        let space = LeftContext::boundary(TokenKind::Space);
+
+        let index = prospect_spec();
+        let token = letter_token(&index, "qsPea");
+        let slots = Slots::new(
+            letter_token(&index, "qsTea"),
+            letter_token(&index, "qsMay"),
+            letter_token(&index, "qsIt"),
+            EDGE,
+        );
+        let mut settling = Engine::with_modes(&index, no_features(), modes);
+        settling
+            .transition_trace(&edge, token, slots)
+            .expect("the fixture settles");
+        assert_eq!(settling.simulated_prospect_fallbacks(), 0);
+        assert!(
+            settling.prospect_cache.is_empty(),
+            "every cascade settled, so every prospect is the trace memo's to answer"
+        );
+        let windows = settling
+            .trace_cache
+            .as_ref()
+            .expect("trace-memo memoizes")
+            .entries
+            .len();
+        settling
+            .transition_trace(&space, token, slots)
+            .expect("the fixture settles");
+        assert!(settling.prospect_cache.is_empty());
+        assert_eq!(
+            settling
+                .trace_cache
+                .as_ref()
+                .expect("trace-memo memoizes")
+                .entries
+                .len(),
+            windows + 1,
+            "the second window added itself and nothing else: its prospects were read off windows already there"
+        );
+        assert_eq!(
+            settling.trace_delta(&edge, token, slots),
+            settling.trace_delta(&space, token, slots),
+            "a prospect read through the trace memo replays what its own entry would have"
+        );
+
+        let index = raising_follower_spec();
+        let token = letter_token(&index, "qsTea");
+        let slots = Slots::pair(letter_token(&index, "qsPea"), letter_token(&index, "qsMay"));
+        let mut raising = Engine::with_modes(&index, no_features(), modes);
+        raising
+            .transition_trace(&edge, token, slots)
+            .expect("the window qsTea settles is not the window that raised");
+        assert_eq!(raising.simulated_prospect_fallbacks(), 2);
+        assert_eq!(
+            raising.prospect_cache.len(),
+            2,
+            "both cascades raised, and a raising window is the one the trace memo cannot hold"
+        );
+        raising
+            .transition_trace(&space, token, slots)
+            .expect("the window qsTea settles is not the window that raised");
+        assert_eq!(
+            raising.simulated_prospect_fallbacks(),
+            2,
+            "the second window's asks hit the memo instead of re-running the cascade that raised"
+        );
+        assert_eq!(
+            raising.trace_delta(&edge, token, slots),
+            raising.trace_delta(&space, token, slots)
+        );
+    }
+
+    /// Without a trace memo, or in candidacy mode, nothing stands behind the prospect memo to answer a next ask, so every ask is memoized as before — and outside trace-memo mode the entry seats nothing, because nothing was journaled.
+    #[test]
+    fn a_prospect_with_no_trace_memo_behind_it_is_memoized_however_it_was_answered() {
+        let index = prospect_spec();
+        let slots = Slots::new(
+            letter_token(&index, "qsTea"),
+            letter_token(&index, "qsMay"),
+            letter_token(&index, "qsIt"),
+            EDGE,
+        );
+        let mut simulating = Engine::new(&index, no_features());
+        settle_pea(&mut simulating, slots).expect("the fixture settles");
+        assert!(!simulating.prospect_cache.is_empty());
+        assert!(
+            simulating
+                .prospect_cache
+                .values()
+                .all(|&(_, seat)| seat == DeltaSeat::UNJOURNALED)
+        );
+        let mut estimating = Engine::with_modes(
+            &index,
+            no_features(),
+            EngineModes {
+                trace_memo: true,
+                simulated_prospect: false,
+                ..EngineModes::default()
+            },
+        );
+        settle_pea(&mut estimating, slots).expect("the fixture settles");
+        assert!(
+            !estimating.prospect_cache.is_empty(),
+            "the estimate runs no cascade, so no trace memo could answer its next ask"
+        );
     }
 
     #[test]
