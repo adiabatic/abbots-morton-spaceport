@@ -226,7 +226,7 @@ def test_blank_only_says_it_cannot_be_answered_under_a_stale_stamp(tmp_path, cap
 
 
 def test_a_missing_font_pair_says_what_it_costs(tmp_path, capsys):
-    """The rendered-grain columns and the composed line used to just disappear, which reads as a window with nothing to say at that grain rather than as a surface that cannot be asked."""
+    """Silently dropping the rendered-grain columns and the composed line would read as a window with nothing to say at that grain rather than as a surface that cannot be asked."""
     units = [tea_window("u-1", "qsVie", "qsVie/normal/baseline/None/", deltas={"default": DELTA})]
     out = _run(tmp_path, capsys, units, ["u-1"])
     assert probe.NO_FONTS in out

@@ -118,7 +118,7 @@ class TestReadback:
         assert formats["format2"] + formats["format3"] == settle_subtables
 
     def test_the_boundary_glyphs_are_inert_on_the_bytes(self, built):
-        """The claim the belt used to make per shaped ZWNJ slot, made once off the written font: every substituted position of every lookup was examined and none of them admits a boundary glyph, `uni200C` carries no advance, and neither glyph draws an outline."""
+        """The boundary claim, made once off the written font rather than per shaped ZWNJ slot: every substituted position of every lookup was examined and none of them admits a boundary glyph, `uni200C` carries no advance, and neither glyph draws an outline."""
         font_path, plan, cursive, _twins = built
         report = readback.verify_font(font_path, plan, cursive)
         boundary = report["checked"]["boundary_glyphs"]

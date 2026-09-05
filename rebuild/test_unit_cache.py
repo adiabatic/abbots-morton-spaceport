@@ -438,7 +438,7 @@ def test_unit_store_environment_tracks_each_kernel_settlement_mode(monkeypatch):
 
 
 def test_unit_store_environment_ignores_the_contact_allow_list(tmp_path):
-    """The store this stamp guards is the expensive one — dropping it rebuilds every unit of the surface cold — and the contact allow-list is the input least entitled to drop it: the defect gate is its only reader, nothing under the review build opens it, and a bless is two lines. It used to reach the stamp anyway, because the `data` line folds `fingerprint.data_paths` and the allow-list sat in that list; it now sits outside it, so the fold cannot reach it by any door. A hand-built root rather than the repo's, so the edit is a real one and the assertion is not about a file this suite may not write."""
+    """The store this stamp guards is the expensive one — dropping it rebuilds every unit of the surface cold — and the contact allow-list is the input least entitled to drop it: the defect gate is its only reader, nothing under the review build opens it, and a bless is two lines. The `data` line folds `fingerprint.data_paths`, and the allow-list sits outside that list, so the fold cannot reach it by any door. A hand-built root rather than the repo's, so the edit is a real one and the assertion is not about a file this suite may not write."""
     spec = fixtures.mini_spec()
     root = tmp_path / "repo"
     (root / "rebuild").mkdir(parents=True)
@@ -477,7 +477,7 @@ SURFACE_READ_CODE = (
 
 
 def test_both_store_stamps_survive_a_pipeline_or_crate_edit_the_surface_never_reads(tmp_path):
-    """The narrowing both stamps' code line makes (`unit_cache.surface_code_paths`), stated as the cost it removes: an edit to the driver, the oracle, a gate, the font compile or the crate's enumeration and fold — code the surface build never executes — used to drop both stores through the whole-tree `pipeline_code` component and cost the next build a cold units phase. Now it moves neither stamp, while an edit to a module the build does run — the kernel seam, the shaper, the enricher, the crate's engine, the crate's lock file — moves both. A hand-built root, so the edits are real files and the assertion is about the rosters rather than about this checkout; rebuild/test_review_code_closure.py is what holds those rosters to the walked closure."""
+    """The narrowing both stamps' code line makes (`unit_cache.surface_code_paths`), stated as the cost it avoids: an edit to the driver, the oracle, a gate, the font compile or the crate's enumeration and fold — code the surface build never executes — would drop both stores through a whole-tree `pipeline_code` component and cost the next build a cold units phase. It moves neither stamp, while an edit to a module the build does run — the kernel seam, the shaper, the enricher, the crate's engine, the crate's lock file — moves both. A hand-built root, so the edits are real files and the assertion is about the rosters rather than about this checkout; rebuild/test_review_code_closure.py is what holds those rosters to the walked closure."""
     spec = fixtures.mini_spec()
     root = tmp_path / "repo"
     for relative in SURFACE_UNREAD_CODE + SURFACE_READ_CODE:

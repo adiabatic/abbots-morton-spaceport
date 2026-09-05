@@ -124,7 +124,7 @@ def test_gate_fails_on_defect_errors():
 
 
 def test_gate_fails_on_a_manual_pin_gate_with_nothing_in_scope():
-    """The vacuous pass the cycle used to accept: `pass` is `not disagreements`, so a gate that replayed no pin reports green. The verdict here is run_m1's own, scope included."""
+    """The vacuous pass: `pass` is `not disagreements`, so a gate that replayed no pin reports green. The verdict here is run_m1's own, scope included, and it refuses that."""
     s = _pass_summaries()
     s["manual_pins"] = {"pass": True, "disagreements": [], "pins_in_scope": 0, "replayed": 0}
     outcome = ac.evaluate_run_m1_gate(s["pipeline"], s["manual_pins"], s["oracle"])
@@ -1072,7 +1072,7 @@ def test_a_carry_only_chain_reports_the_fills_as_never_run():
 
 
 def test_the_driver_reads_a_line_per_step_out_of_one_child(capsys):
-    """One subprocess prints what seven used to, and every line the summary showed still reaches it, scraped out of that step's own section."""
+    """One subprocess prints for seven steps, and every line the summary shows for a step reaches it, scraped out of that step's own section."""
     spy: list = []
     report, failures = _run_plumbing(_plan(), _chain_stdout(*_FULL_CHAIN), spy=spy)
     assert failures == []
@@ -2051,7 +2051,7 @@ class TestTheSurfaceBuildWidth:
 
 
 def test_both_job_budgets_answer_the_cgroup_allowance_rather_than_the_hosts_core_count(monkeypatch):
-    """A CPU quota is invisible to `os.cpu_count()`, so a two-core allowance on a many-core host used to get a sweep process per acceptance configuration and a surface build at the cap — every one of them a core the process may not run on. Both budgets probe through `usable_cores` now, and what stands in for the box here is the real probe over an invented cgroup root, so the allowance is a fixture rather than a stub: two cores sits under both caps, so each budget answers the allowance itself. The surface budget also divides an invented terabyte box, so its memory arithmetic never binds and the core clamp is the whole assertion. A stated `ncores` still outranks the probe, which is what keeps `build_plan`'s explicit threading its own."""
+    """A CPU quota is invisible to `os.cpu_count()`, so a budget that read it would give a two-core allowance on a many-core host a sweep process per acceptance configuration and a surface build at the cap — every one of them a core the process may not run on. Both budgets probe through `usable_cores`, and what stands in for the box here is the real probe over an invented cgroup root, so the allowance is a fixture rather than a stub: two cores sits under both caps, so each budget answers the allowance itself. The surface budget also divides an invented terabyte box, so its memory arithmetic never binds and the core clamp is the whole assertion. A stated `ncores` still outranks the probe, which is what keeps `build_plan`'s explicit threading its own."""
     from rebuild.pipeline.conform import ACCEPTANCE_CONFIGS
     from rebuild.tools import memory_budget
 
@@ -2158,7 +2158,7 @@ def test_dry_run_renders_concurrency():
 
     by_name = {step.name: step for step in plan.steps}
     assert _argv(by_name["run_m1"])[1:6] == ["run", "python", "-m", "rebuild.pipeline.run_m1", "--jobs"]
-    # Every width is stated on the command line, one included. One used to be the width that emitted no flag, which handed the child its own default — the unreserved arm of the same budget, a different number wherever the pool subtraction changes the answer — and the memory term makes one a width the arithmetic actually reaches.
+    # Every width is stated on the command line, one included. A width of one that emitted no flag would hand the child its own default — the unreserved arm of the same budget, a different number wherever the pool subtraction changes the answer — and the memory term makes one a width the arithmetic actually reaches.
     assert _argv(by_name["surface-build"])[-2:] == ["--jobs", str(surface_width)]
 
 
@@ -4601,7 +4601,7 @@ def test_the_summary_table_carries_each_steps_figure_and_what_it_cost():
 
 
 def test_a_step_that_came_back_nonzero_never_reads_as_an_ok_row():
-    """The outcome column used to be filled from the seconds a step cost, so every step that ran at all read `ok`: a run_m1 whose Manual pins failed reported `ok  5 unmatched, PINS FAILED`, and a surface build whose child died reported `ok` beside a blank figure. The two informational steps are the deliberate exception — neither gates anything, and each already says what went wrong in its own figure."""
+    """The outcome column is filled from what the step's child came to, never from the seconds it cost — a column filled from seconds reads `ok` for every step that ran at all: `ok  5 unmatched, PINS FAILED` for a run_m1 whose Manual pins failed, and `ok` beside a blank figure for a surface build whose child died. The two informational steps are the deliberate exception — neither gates anything, and each already says what went wrong in its own figure."""
     plan = _plan()
     report = ac.CycleReport()
     report.unmatched = 5
@@ -5397,7 +5397,7 @@ def _assets_only_repo(tmp_path, monkeypatch):
 
 
 def test_main_refreshes_the_assets_when_only_the_static_component_moved(tmp_path, monkeypatch, capsys):
-    """An app JS/CSS/HTML edit plans a copy and a restamp where it used to plan a whole surface build. Everything downstream inherits the skip: no snapshot, and — on a matching plumbing record — no chain either, since the manifest line the key hashes drops the component the refresh rewrites."""
+    """An app JS/CSS/HTML edit plans a copy and a restamp, never a whole surface build. Everything downstream inherits the skip: no snapshot, and — on a matching plumbing record — no chain either, since the manifest line the key hashes drops the component the refresh rewrites."""
     _assets_only_repo(tmp_path, monkeypatch)
     ac.record_plumbing_green("plu")
     assert ac.main(["--dry-run"]) == 0

@@ -1,6 +1,6 @@
 """Manual-pin gate tests: the spec-based trait and exact-glyph semantics must resolve through stance declarations rather than glyph-name substrings, `summarize` must project a report faithfully, and the gate must actually fail on a pin that contradicts the font.
 
-The standing conformance guarantee itself — every corpus pin the migrated alphabet can express replays cleanly, over a gate that really had pins in scope — is `run_m1.main()`'s, which raises on it. Re-running the identical `run_gate` call in a test afterwards proved nothing the build had not already refused to ship without.
+The standing conformance guarantee itself — every corpus pin the migrated alphabet can express replays cleanly, over a gate that really had pins in scope — is `run_m1.main()`'s, which raises on it. Re-running the identical `run_gate` call in a test afterwards would prove nothing the build has not already refused to ship without.
 """
 
 from pathlib import Path

@@ -96,7 +96,7 @@ export function createRecordCache(cap = RECORD_CACHE_CAP) {
   };
 }
 
-// Which show-machine folds the current view carries, and what each one's summary line says before it is opened. Mirrors unitsForView's class selection, so a fold appears exactly where a class's machine units used to arrive with the batch; a worklist supplies its machine records explicitly and needs no plan.
+// Which show-machine folds the current view carries, and what each one's summary line says before it is opened. Mirrors unitsForView's class selection, so a fold appears exactly where a class's machine units would sit in the batch; a worklist supplies its machine records explicitly and needs no plan.
 //
 // The class filter is the only one the manifest can answer. Family, group, and config are per-unit, so while any of them is set a fold's total is an upper bound rather than a count, and `provisional` is what tells the view to say so instead of reporting a whole class's units as matching a filter that may exclude every one of them.
 export function machineFoldPlan(manifest, state) {

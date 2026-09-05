@@ -113,7 +113,7 @@ def record_transition(
 
 
 def _iter_entries(journal_path):
-    """The journal's parseable entries, a line at a time off the open handle so only one is ever resident: every reader here walks the file once and keeps a handful of events or one store's worth of records out of it, where slurping the file first cost its whole size again as a str and again as a list of lines before yielding anything. Scanning stops at the first line that will not decode or parse, so a tail torn by a crashed append is never reinterpreted — and reading bytes rather than text is what extends that tolerance to a tail torn mid-character, which the notes' non-ASCII makes reachable and which used to raise out of every reader at once, the restore path included. `compact` splits the file the same way for the same reason, so the two never disagree about where a line begins."""
+    """The journal's parseable entries, a line at a time off the open handle so only one is ever resident: every reader here walks the file once and keeps a handful of events or one store's worth of records out of it, where slurping the file first would cost its whole size again as a str and again as a list of lines before yielding anything. Scanning stops at the first line that will not decode or parse, so a tail torn by a crashed append is never reinterpreted — and reading bytes rather than text is what extends that tolerance to a tail torn mid-character, which the notes' non-ASCII makes reachable and which a text-mode read raises on before any reader sees a line, the restore path included. `compact` splits the file the same way for the same reason, so the two never disagree about where a line begins."""
     try:
         handle = Path(journal_path).open("rb")
     except OSError:

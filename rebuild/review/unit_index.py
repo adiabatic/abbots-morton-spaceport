@@ -1,6 +1,6 @@
 """The surface's slim per-unit index: one record per unit carrying exactly the fields the verdict plumbing reads, written beside the manifest as `units-index.ndjson.gz`.
 
-The shards are the authority and this file is a projection of them — never a second source. It exists because the four plumbing tools (carry, echo fill, standing fill, the complaint docket) and the two sitting-prep tools (the docket data, the novelty order) each reach a few slim fields per unit and used to `json.loads` all 1.9 GB of shards to get at them, four times over per cycle: two thirds of those bytes are `explain`, `drafts` and `summary` prose that no plumbing consumer opens. `index_record` is the whole of the projection and `rebuild/test_unit_index.py` holds it against the shipped shards field for field, so a field added to a shard and wanted by a tool has to be added here rather than silently read as absent.
+The shards are the authority and this file is a projection of them — never a second source. It exists because the four plumbing tools (carry, echo fill, standing fill, the complaint docket) and the two sitting-prep tools (the docket data, the novelty order) each reach a few slim fields per unit, and reading them off the shards means `json.loads` over gigabytes, once per tool per cycle, two thirds of it `explain`, `drafts` and `summary` prose that no plumbing consumer opens. `index_record` is the whole of the projection and `rebuild/test_unit_index.py` holds it against the shipped shards field for field, so a field added to a shard and wanted by a tool has to be added here rather than silently read as absent.
 
 Two fields are counted rather than copied, because counting is all any reader does with them: `render_groups` is the number of groups (standing fill wants "exactly one") and `secondary_seams` the number of seams (standing fill wants "none"). Everything else is the shard's own value.
 
@@ -173,7 +173,7 @@ def load_index(surface: Path) -> list[dict] | None:
 
 
 def iter_shard_fragments(surface: Path) -> Iterator[dict]:
-    """The fallback source: the shards' own fragments, one part at a time so only one is ever resident. That bound is the whole of the improvement here — the corpus runs to gigabytes and no one part is larger than `build.SHARD_PART_BYTES` — and it is what the plumbing used to pay ten gigabytes for by concatenating them all."""
+    """The fallback source: the shards' own fragments, one part at a time so only one is ever resident. That bound is the whole point — the corpus runs to gigabytes and no one part is larger than `build.SHARD_PART_BYTES` — where concatenating them all would hold the whole corpus at once."""
     for path in shard_paths(surface):
         shard = json.loads(path.read_text(encoding="utf-8"))
         yield from shard

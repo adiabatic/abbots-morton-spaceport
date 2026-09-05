@@ -41,7 +41,7 @@ _test_shaping: Any = None
 
 
 class DraftError(ValueError):
-    """A draft the build cannot stand behind: a pin the repo's own parser will not read or the after font refutes, a policy record the rune schema rejects, or an any-of candidate that does not parse. These used to be recorded as `fail: …` values on the fragment and rejected downstream by `check_unit`; the drafter refuses to produce one instead, so the only values a shipped fragment can carry are the passing ones and no re-read of the surface has to prove it."""
+    """A draft the build cannot stand behind: a pin the repo's own parser will not read or the after font refutes, a policy record the rune schema rejects, or an any-of candidate that does not parse. The drafter raises where the draft is made rather than recording a `fail: …` value on the fragment for `check_unit` to reject downstream, so the only values a shipped fragment can carry are the passing ones and no re-read of the surface has to prove it."""
 
 
 def _import_test_shaping() -> Any:

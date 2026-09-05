@@ -198,7 +198,7 @@ def test_the_stamp_folds_none_of_the_inputs_the_comparison_re_reads_every_pass(r
 
 
 def test_blessing_a_contact_signature_leaves_the_whole_store_stamp_untouched(repo):
-    """The allow-list is the input this stamp used to pay the most for and read the least: no oracle stage opens it — it is the defect gate's — and it moves often enough that stamping it collapsed the whole store on a two-line bless. It needs no exclusion here any more, because it left `fingerprint.data_paths` outright, which is asserted rather than assumed: an exclusion list naming a path the fold can no longer reach would go on reading as protection long after the fold had grown a second door."""
+    """The allow-list is the input this stamp reads the least and would pay the most for: no oracle stage opens it — it is the defect gate's — and it moves often enough that stamping it would collapse the whole store on a two-line bless. It needs no exclusion here, because it sits outside `fingerprint.data_paths` outright, which is asserted rather than assumed: an exclusion list naming a path the fold can no longer reach would go on reading as protection long after the fold had grown a second door."""
     spec = fixtures.mini_spec()
     allow = repo / fingerprint.CONTACT_ALLOW_LABEL
     allow.write_text("- {signature: 'contact:qsPea.full.ex-y0:qsTea.full.en-y0:y1'}\n", encoding="utf-8")

@@ -1302,7 +1302,7 @@ def test_way_does_not_join_tea_under_ss03():
 
 
 def test_fee_may_uses_extension_pair():
-    """·Fee→·May used to be a hand-drawn ligature (qsFee_qsMay); the visual is now reconstructed by extending ·Fee's exit at the x-height and pairing it with ·May's narrower "pulled-back-more" entry shape. If a future change forgets to fire the before-may stance on ·Fee or the after-fee stance on ·May, this test catches it. The exact extension rung (currently `ext-3`) is left out of the assertion since it is a geometric tuning knob — the join Y and the stance pair are the invariants worth pinning."""
+    """·Fee→·May is not a ligature; the visual is built by extending ·Fee's exit at the x-height and pairing it with ·May's narrower "pulled-back-more" entry shape. If a change forgets to fire the before-may stance on ·Fee or the after-fee stance on ·May, this test catches it. The exact extension rung (currently `ext-3`) is left out of the assertion since it is a geometric tuning knob — the join Y and the stance pair are the invariants worth pinning."""
     _assert_expect_any(
         _qs_text("qsFee", "qsMay"),
         ["·Fee.before-may ~x~ ·May.after-fee"],
@@ -2883,7 +2883,7 @@ def test_i_before_tea_unchanged_by_forward_extension():
 # ---------------------------------------------------------------------------
 # ·Way·Day must always use full-height ·Way and full-height ·Day.
 #
-# Regression guard against a 2-glyph preferred-lookahead FEA rule that used to substitute qsWay.half whenever the third glyph had only a y=5 entry, even if the middle glyph (qsDay) could not actually bridge qsWay.half's y=0 exit to the third glyph's y=5 entry. That produced qsWay.half·qsDay.half·X with no cursive join between Day.half and X.
+# Guards against a 2-glyph preferred-lookahead FEA rule substituting qsWay.half whenever the third glyph has only a y=5 entry, even when the middle glyph (qsDay) cannot bridge qsWay.half's y=0 exit to the third glyph's y=5 entry. That would produce qsWay.half·qsDay.half·X with no cursive join between Day.half and X.
 # ---------------------------------------------------------------------------
 
 

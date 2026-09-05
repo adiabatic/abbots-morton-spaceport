@@ -2,7 +2,7 @@
 
 `bench-the-rebuild/scaling/scaling.py` and `bench-the-rebuild/levers/kernel_all_configs.py` both import this, so the sweep and the lever cut the same rungs rather than two ladders that could drift apart: a lever reading is comparable with a sweep reading only because rung k means one alphabet and not two. Nesting is what makes the rungs comparable to each other as well — rung k is rung k-2 plus two more runes, never a different alphabet.
 
-The spec-ingest parity check that used to live beside the ladder is `rebuild/test_kernel_io.py`'s spec-echo test now, in the contracts lane of every `make test-rebuild`.
+The spec-ingest parity check is `rebuild/test_kernel_io.py`'s spec-echo test, in the contracts lane of every `make test-rebuild`, not part of the ladder.
 """
 
 from __future__ import annotations

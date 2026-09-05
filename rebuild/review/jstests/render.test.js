@@ -652,7 +652,7 @@ test('machineFoldTotal counts what a class fold will hold before the class is fe
   assert.equal(machineFoldTotal({ no_verdict: false, unit_count: 9 }), 0, 'a countless class folds nothing');
 });
 
-test('machineFoldChannel reproduces the badge cascade the app used to run over the loaded class', () => {
+test('machineFoldChannel picks the narrowest channel that accounts for every machine unit', () => {
   const cls = (over) => ({ no_verdict: false, unit_count: 10, machine_approved_count: 10, ...over });
   assert.equal(
     machineFoldChannel(cls({ machine_channels: { ink_identical: 10, picture_identical: 0, junior_equivalent: 0 } })),

@@ -238,7 +238,7 @@ export function machineFoldTotal(cls) {
   return cls.no_verdict ? cls.unit_count : (cls.machine_approved_count ?? 0);
 }
 
-// The badge that fold wears, from the same cascade the app used to run over the class's loaded units: the narrowest channel that accounts for every one of them, and the no-verdict badge when none does.
+// The badge that fold wears, from the manifest's per-class channel counts rather than from the class's loaded units: the narrowest channel that accounts for every one of them, and the no-verdict badge when none does.
 export function machineFoldChannel(cls) {
   const total = machineFoldTotal(cls);
   const channels = cls.machine_channels ?? {};

@@ -808,7 +808,7 @@ fn enumerate_seeded(
         .iter()
         .map(|pointer| pointer.text(index))
         .collect();
-    // The drain and the sort below are the run's other working set, and the memos that answered the worklist are of no further use to them. Releasing here rather than at the end of the function is what keeps the two from coexisting, which is where the enumeration's peak used to sit.
+    // The drain and the sort below are the run's other working set, and the memos that answered the worklist are of no further use to them. Releasing here rather than at the end of the function is what keeps the two from coexisting, which would otherwise be the enumeration's peak.
     engine.release_memos();
     if let Some(lines) = census.as_mut() {
         lines.push(format!(

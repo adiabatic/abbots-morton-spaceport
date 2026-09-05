@@ -725,7 +725,7 @@ fn python_set(values: &[&str]) -> String {
 mod tests {
     use super::*;
 
-    /// What the replay's disjoint-cover half used to re-derive over every row of every configuration and could never catch: [`signature_blocks`] groups its values in a map keyed by signature, so the blocks partition the values and each one is exactly one signature's preimage. Stated here over hand-made signatures, at no cost to a build.
+    /// What no replay over every row of every configuration could catch, since it is a property of the grouping and not of any input: [`signature_blocks`] groups its values in a map keyed by signature, so the blocks partition the values and each one is exactly one signature's preimage. Stated here over hand-made signatures, at no cost to a build.
     #[test]
     fn the_blocks_are_a_disjoint_cover_grouped_by_signature() {
         let signatures: Vec<(&str, u32)> =
