@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, field
 from itertools import batched
@@ -20,7 +21,7 @@ from rebuild.pipeline.model import CellId, ResolvedSpec, Settled
 from rebuild.pipeline.settle import form_ligatures, is_boundary_settled, tokens_from_codepoints
 from rebuild.review.audit import Unit
 from rebuild.review.ink import OutlineCache, kern_neutral, translate_outline
-from rebuild.validation.rowmodel import Row, iter_rows
+from rebuild.validation.rowmodel import iter_rows
 from rebuild.validation.shaping import SENIOR_FONT, Shaper
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -265,9 +266,20 @@ def is_seam_token(token) -> bool:
     )
 
 
-def load_subset_rows(path: Path) -> dict[str, Row]:
-    """One baseline subset table keyed by colon-joined uppercase codepoints, with every row's seams held to `is_seam_token` as they are read. The vocabulary check belongs here rather than downstream on the emitted fragment: these rows are the sole source of a unit's `before.seams`, they are read once per config per process, and a table the classifier wrote a compound token into is a bad input rather than a bad fragment."""
-    table: dict[str, Row] = {}
+@dataclass(frozen=True, slots=True)
+class SubsetRow:
+    """What the enricher reads off one baseline subset row, and nothing else: the old font's glyph names, which the kern-neutral re-shape is checked against; the cluster starts, which are the before spans; and the seams, which are the before seams and the seam-grain half of the divergence. The full `rowmodel.Row` carries two fields more, and this path reads neither — `positions` is dead here by design, since the subset was extracted with the old font's kerning on and the before pens come from a live kern-neutral re-shape instead, and `codepoints` is the key the table is looked up by. The narrowing is priced per configuration per worker: a surface worker holds one whole table for every configuration its slice reaches (`SURFACE_WORKER_BYTES` in rebuild/tools/artifact_cycle.py is where that shows up), so a field a row does not carry is a field no worker holds a table's worth of."""
+
+    glyphs: tuple[str, ...]
+    clusters: tuple[int, ...]
+    seams: tuple[str, ...]
+
+
+def load_subset_rows(path: Path) -> dict[str, SubsetRow]:
+    """One baseline subset table keyed by colon-joined uppercase codepoints, each row projected to a `SubsetRow` as it is read, with every row's seams held to `is_seam_token` on the way. The vocabulary check belongs here rather than downstream on the emitted fragment: these rows are the sole source of a unit's `before.seams`, they are read once per config per process, and a table the classifier wrote a compound token into is a bad input rather than a bad fragment. It is also why the table is projected rather than parsed lazily off the raw lines — a check that ran only on the rows the enricher happened to look up would say nothing about the table. A table repeats the same few dozen glyph names and the same handful of seam tokens across every row, and nearly every row's cluster starts are the plain run `0, 1, …` and its seams one of a few short tuples, so glyph and seam strings are interned and the cluster and seam tuples memoized: a repeat costs a pointer rather than a copy, and the parsed `Row` this projects from is released as soon as the projection exists."""
+    table: dict[str, SubsetRow] = {}
+    clusters_memo: dict[tuple[int, ...], tuple[int, ...]] = {}
+    seams_memo: dict[tuple[str, ...], tuple[str, ...]] = {}
     for row in iter_rows(path):
         codepoints = ":".join(f"{value:04X}" for value in row.codepoints)
         for token in row.seams:
@@ -276,7 +288,12 @@ def load_subset_rows(path: Path) -> dict[str, Row]:
                     f"{path}: the baseline row for {codepoints} carries the seam token {token!r}, which is "
                     "not one of break/lig/absent/yN"
                 )
-        table[codepoints] = row
+        seams = tuple(sys.intern(token) for token in row.seams)
+        table[codepoints] = SubsetRow(
+            glyphs=tuple(sys.intern(name) for name in row.glyphs),
+            clusters=clusters_memo.setdefault(row.clusters, row.clusters),
+            seams=seams_memo.setdefault(seams, seams),
+        )
     return table
 
 
@@ -343,11 +360,11 @@ class Enricher:
         self.before_shaper = shaper_factory(before_font)
         self._outlines = {"before": OutlineCache(before_font), "after": OutlineCache(after_font)}
         self.aliases = load_alias_map(alias_path or repo_root / "rebuild" / "m1-aliases.yaml")
-        self._subset_rows: dict[str, dict[str, Row]] = {}
+        self._subset_rows: dict[str, dict[str, SubsetRow]] = {}
         self._guard_verdicts: kernel_exec.FormationGuard | None = None
         self.mismatches: list[str] = []
 
-    def subset_row(self, config: str, codepoints: str) -> Row | None:
+    def subset_row(self, config: str, codepoints: str) -> SubsetRow | None:
         if config not in self._subset_rows:
             path = self.subset_dir / f"baseline-{config}.subset.tsv.gz"
             self._subset_rows[config] = load_subset_rows(path) if path.exists() else {}
@@ -569,7 +586,7 @@ class Enricher:
     def _diff_codepoints(
         self,
         values: tuple[int, ...],
-        row: Row,
+        row: SubsetRow,
         before_spans: list[tuple[int, int]],
         settled: list[Settled],
         after_spans: list[tuple[int, int]],

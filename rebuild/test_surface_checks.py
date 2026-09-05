@@ -29,8 +29,8 @@ from rebuild.review.build import (
     check_unit,
 )
 from rebuild.review.drafts import DraftError, Drafter
-from rebuild.review.enrich import LETTERS, Enricher, _highlight, load_spec, load_subset_rows
-from rebuild.validation.rowmodel import Row
+from rebuild.review.enrich import LETTERS, Enricher, SubsetRow, _highlight, load_spec, load_subset_rows
+from rebuild.validation.rowmodel import Row, iter_rows
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 FIXTURES = REPO_ROOT / "rebuild" / "review" / "fixtures"
@@ -536,28 +536,74 @@ def test_a_highlight_rect_is_refused_where_the_pens_run_backwards():
     }
 
 
-def _subset_table(path: Path, seams: tuple[str, ...]) -> Path:
-    row = Row(
-        codepoints=(0xE650, 0xE652),
-        glyphs=("qsPea", "qsTea"),
-        clusters=(0, 1),
+def _subset_row(codepoints: tuple[int, ...], seams: tuple[str, ...]) -> Row:
+    return Row(
+        codepoints=codepoints,
+        glyphs=tuple({0xE650: "qsPea", 0xE652: "qsTea"}[value] for value in codepoints),
+        clusters=tuple(range(len(codepoints))),
         seams=seams,
-        positions=((0, 0, 10), (0, 0, 12)),
+        positions=tuple((0, 0, 10 + 2 * index) for index in range(len(codepoints))),
     )
+
+
+def _subset_table(path: Path, *rows: Row) -> Path:
     with gzip.open(path, "wt", encoding="utf-8") as stream:
         stream.write("# config: default\n")
-        stream.write(row.to_tsv() + "\n")
+        for row in rows:
+            stream.write(row.to_tsv() + "\n")
     return path
 
 
 def test_a_baseline_row_outside_the_seam_vocabulary_is_refused_at_load(tmp_path):
-    """`SeamClassifier.classify` can name two heights at once, and a shard's `before.seams` cannot say that. The refusal belongs where the table is read — a compound token there is a bad input, and one config's table is read once per process rather than once per unit."""
-    clean = _subset_table(tmp_path / "baseline-clean.subset.tsv.gz", ("y0",))
+    """`SeamClassifier.classify` can name two heights at once, and a shard's `before.seams` cannot say that. The refusal belongs where the table is read — a compound token there is a bad input, and one config's table is read once per process rather than once per unit — and it is a refusal of the table, not of a row the enricher happened to ask for: a compound token on any row fails the load before anything is looked up."""
+    pair = (0xE650, 0xE652)
+    clean = _subset_table(tmp_path / "baseline-clean.subset.tsv.gz", _subset_row(pair, ("y0",)))
     assert list(load_subset_rows(clean)) == ["E650:E652"]
-    compound = _subset_table(tmp_path / "baseline-compound.subset.tsv.gz", ("y0+y5",))
+    compound = _subset_table(
+        tmp_path / "baseline-compound.subset.tsv.gz",
+        _subset_row(pair, ("y0",)),
+        _subset_row((0xE650, 0xE652, 0xE650), ("y0", "y0+y5")),
+    )
     with pytest.raises(ValueError) as raised:
         load_subset_rows(compound)
     assert "'y0+y5'" in str(raised.value)
+    assert "E650:E652:E650" in str(raised.value)
+
+
+def test_a_loaded_subset_row_is_the_projection_the_enricher_reads(tmp_path):
+    """What `load_subset_rows` hands back is a `SubsetRow` — the glyphs, clusters and seams of the parsed `Row` and nothing else, since `positions` is dead on this path and `codepoints` is the key — and a table's worth of them shares its strings: a glyph name or a seam token is one object however many rows carry it, and so are the cluster and seam tuples that recur row after row. The identity assertions are what pin the interning, because two equal strings parsed from two lines are two objects until something makes them one."""
+    first = _subset_row((0xE650, 0xE652), ("y0",))
+    second = _subset_row((0xE652, 0xE650), ("y0",))
+    table = load_subset_rows(_subset_table(tmp_path / "baseline-two.subset.tsv.gz", first, second))
+    projected = table["E650:E652"]
+    assert isinstance(projected, SubsetRow)
+    assert (projected.glyphs, projected.clusters, projected.seams) == (
+        first.glyphs,
+        first.clusters,
+        first.seams,
+    )
+    assert not hasattr(projected, "positions")
+    assert not hasattr(projected, "codepoints")
+    other = table["E652:E650"]
+    assert other.glyphs[0] is projected.glyphs[1]
+    assert other.seams[0] is projected.seams[0]
+    assert other.seams is projected.seams
+    assert other.clusters is projected.clusters
+
+
+def test_the_projection_drops_nothing_the_enricher_reads_from_a_real_table():
+    """Over the frozen bundle's default table, every row `iter_rows` parses is in the projection under its codepoint key with the same glyphs, clusters and seams. A synthetic two-row table pins the shape; this pins it against a table the extractor actually wrote, ligature rows and boundary tokens included."""
+    path = MINI / "baseline-default.subset.tsv.gz"
+    table = load_subset_rows(path)
+    parsed = list(iter_rows(path))
+    assert len(table) == len(parsed)
+    for row in parsed:
+        projected = table[":".join(f"{value:04X}" for value in row.codepoints)]
+        assert (projected.glyphs, projected.clusters, projected.seams) == (
+            row.glyphs,
+            row.clusters,
+            row.seams,
+        )
 
 
 def test_a_served_unit_skips_check_unit_but_not_the_cross_unit_grain():
