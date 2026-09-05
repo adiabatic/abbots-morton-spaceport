@@ -276,12 +276,12 @@ class SubsetRow:
 
 
 def load_subset_rows(path: Path) -> dict[str, SubsetRow]:
-    """One baseline subset table keyed by colon-joined uppercase codepoints, each row projected to a `SubsetRow` as it is read, with every row's seams held to `is_seam_token` on the way. The vocabulary check belongs here rather than downstream on the emitted fragment: these rows are the sole source of a unit's `before.seams`, they are read once per config per process, and a table the classifier wrote a compound token into is a bad input rather than a bad fragment. It is also why the table is projected rather than parsed lazily off the raw lines — a check that ran only on the rows the enricher happened to look up would say nothing about the table. A table repeats the same few dozen glyph names and the same handful of seam tokens across every row, and nearly every row's cluster starts are the plain run `0, 1, …` and its seams one of a few short tuples, so glyph and seam strings are interned and the cluster and seam tuples memoized: a repeat costs a pointer rather than a copy, and the parsed `Row` this projects from is released as soon as the projection exists."""
+    """One baseline subset table keyed by colon-joined uppercase codepoints, each row projected to a `SubsetRow` as it is read, with every row's seams held to `is_seam_token` on the way. The vocabulary check belongs here rather than downstream on the emitted fragment: these rows are the sole source of a unit's `before.seams`, they are read once per config per process, and a table the classifier wrote a compound token into is a bad input rather than a bad fragment. It is also why the table is projected rather than parsed lazily off the raw lines — a check that ran only on the rows the enricher happened to look up would say nothing about the table. A table repeats the same few dozen glyph names and the same handful of seam tokens across every row, and nearly every row's cluster starts are the plain run `0, 1, …` and its seams one of a few short tuples, so glyph and seam strings are interned and the cluster and seam tuples memoized: a repeat costs a pointer rather than a copy, and the parsed `Row` this projects from is released as soon as the projection exists. The codepoint key is interned too, through the same `sys.intern` table `audit.load_audit` puts the audit's window strings in, so every configuration's table keys one window on the one string the unit already holds rather than on a copy per table."""
     table: dict[str, SubsetRow] = {}
     clusters_memo: dict[tuple[int, ...], tuple[int, ...]] = {}
     seams_memo: dict[tuple[str, ...], tuple[str, ...]] = {}
     for row in iter_rows(path):
-        codepoints = ":".join(f"{value:04X}" for value in row.codepoints)
+        codepoints = sys.intern(":".join(f"{value:04X}" for value in row.codepoints))
         for token in row.seams:
             if not is_seam_token(token):
                 raise ValueError(

@@ -5,6 +5,7 @@ None of it needs the live audit. Ordering, id assignment, batch slicing, config 
 The live counts belong to the census the surface build emits and the artifact cycle diffs into rebuild/review-census-pins.json, never to an assertion here — they move with every migrated letter.
 """
 
+import sys
 from pathlib import Path
 
 import pytest
@@ -22,6 +23,7 @@ from rebuild.review.audit import (
     load_workload,
     merge_ink_duplicate_units,
     parse_codepoints,
+    release_rows,
     render_groups_for_rows,
 )
 from rebuild.review.enrich import LETTERS
@@ -45,6 +47,21 @@ def test_load_audit_parses_fixture(tmp_path):
     assert rows[0].config == "default"
     assert rows[0].baseline == ("qsPea", "qsMay.en-y0")
     assert rows[2].kinds == ("cell", "seam")
+
+
+def test_load_audit_interns_every_label_and_pools_every_name_tuple(tmp_path):
+    """Every label the audit states is the `sys.intern` instance of itself, so a config name, a class id or a glyph name is one object across the rows, the subset tables and the cache alike, and a name tuple two rows state the same is one tuple."""
+    path = tmp_path / "audit.tsv"
+    path.write_text(FIXTURE_AUDIT)
+    rows = load_audit(path)
+    assert rows[0].config is sys.intern("default") is rows[2].config
+    assert rows[0].matched_entry is sys.intern("dangling-anchor-dropped") is rows[1].matched_entry
+    assert rows[0].codepoints is sys.intern("E650:E665") is rows[1].codepoints
+    assert rows[0].baseline is rows[1].baseline
+    assert rows[0].new is rows[1].new
+    assert rows[0].kinds is rows[1].kinds
+    assert rows[0].baseline[0] is sys.intern("qsPea")
+    assert rows[2].kinds[1] is sys.intern("seam")
 
 
 def test_load_audit_rejects_wrong_header(tmp_path):
@@ -95,6 +112,34 @@ def test_render_groups_split_by_rendered_outcome_identity():
 def mini(mini_bundle):
     """The frozen mini-M1 audit under rebuild/review/fixtures/mini/, loaded against the bundle's pinned ledger — a thousand-odd real windows over four letters, which is what these properties want: enough classes to order, enough per-config splits to dedupe, and not one byte of rebuild/out/. Regenerating it is `fixtures/mini/regenerate.py`."""
     return load_workload(MINI_AUDIT, mini_bundle.ledger, dict(LETTERS))
+
+
+def test_build_units_pools_the_per_unit_tuples_and_interns_the_group(mini):
+    """A unit's config set, kinds and render groups are drawn from a few dozen distinct tuples over the whole audit and its group from a few thousand family pairs, so two units that state the same value hold the same object rather than one built apiece."""
+    by_value: dict[str, dict] = {"configs": {}, "kinds": {}, "render_groups": {}}
+    for unit in mini.units:
+        assert unit.group is sys.intern(unit.group)
+        for name, seen in by_value.items():
+            value = getattr(unit, name)
+            assert seen.setdefault(value, value) is value, (name, value)
+    assert all(len(seen) < len(mini.units) for seen in by_value.values())
+
+
+def test_release_rows_leaves_the_count_behind(tmp_path, mini_bundle):
+    """A unit's row count is stated once, off the rows it was built from, and survives their release; releasing empties the rows and nothing else."""
+    path = tmp_path / "audit.tsv"
+    path.write_text(FIXTURE_AUDIT)
+    units = build_units(load_audit(path), load_ledger(mini_bundle.ledger), dict(LETTERS))
+    counts = {unit.codepoints: unit.row_count for unit in units}
+    assert counts == {"E650:E665": 2, "E652:E670": 1}
+    assert all(unit.row_count == len(unit.rows) for unit in units)
+    release_rows(units)
+    assert all(unit.rows == () for unit in units)
+    assert {unit.codepoints: unit.row_count for unit in units} == counts
+    assert {unit.codepoints: unit.configs for unit in units} == {
+        "E650:E665": ("default", "ss02"),
+        "E652:E670": ("default",),
+    }
 
 
 def test_every_unit_has_exactly_one_render_group(mini):
@@ -229,6 +274,7 @@ def test_ink_duplicate_siblings_fold_to_one_unit(mini_bundle):
     assert [unit.unit_id for unit in units] == ["u-0000", "u-0001"]
     merged = next(unit for unit in units if unit.codepoints == "E650:E665")
     assert merged.configs == ("default", "ss03", "ss04")
+    assert merged.row_count == len(merged.rows) == 3
     assert merged.baseline == ("qsPea", "qsMay.en-y0")
     assert merged.kinds == ("cell", "seam")
     assert merged.render_groups == (merged.configs,)

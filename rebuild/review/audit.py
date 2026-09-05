@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from collections.abc import Collection
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -60,11 +61,14 @@ def slim_detail(fragment) -> bool:
 
 @dataclass(slots=True)
 class Unit:
+    """One (codepoints, baseline, new) triple of the audit and everything the build derives per unit. `rows` is the triple's audit rows from load until `release_rows` drops them — the build's content key is the last reader of a row's fields, and what the manifest tallies afterward is `row_count`, which holds the count on its own so a released unit still answers it. The count defaults to the rows handed in, so a caller that never releases never has to state it."""
+
     codepoints: str
     baseline: tuple[str, ...]
     new: tuple[str, ...]
     class_id: str
     rows: tuple[AuditRow, ...]
+    row_count: int = 0
     configs: tuple[str, ...] = ()
     kinds: tuple[str, ...] = ()
     group: str = ""
@@ -81,6 +85,10 @@ class Unit:
     family_id: str = ""
     echo: str | None = None
     cluster: str | None = None
+
+    def __post_init__(self) -> None:
+        if not self.row_count:
+            self.row_count = len(self.rows)
 
     @property
     def codepoint_values(self) -> tuple[int, ...]:
@@ -104,16 +112,13 @@ def format_codepoints(values: tuple[int, ...]) -> str:
 
 
 def load_audit(path: Path) -> list[AuditRow]:
-    """Every row the divergence audit states, in file order. Each label and each name tuple is pooled to one instance the way `kernel_io.read_transitions` pools its own, because the audit restates one small vocabulary of glyph names and the acceptance configurations on every one of its rows, and the surface build's parent holds the whole list alive through `unit.rows` for its entire length. Pooling the tuples keys on the built tuple rather than on the raw field text, so the split strings the file states are the only thing the reader drops."""
+    """Every row the divergence audit states, in file order. Every label — a config name, a class id, a glyph name, a kind, a window's codepoint string — goes through `sys.intern`, the one table the whole surface build shares: the subset tables' glyph names, seam tokens and codepoint keys (`enrich.load_subset_rows`), the unit store's records (`unit_cache.CachedUnit.from_record`) and the parent's per-unit state all intern through it too, so a name the audit states and a name a worker or the cache hands back are one object rather than one per site. The audit restates that small vocabulary on every row and the parent holds every row alive through `unit.rows` until `release_rows`, which is why the name tuples pool as well, keyed on the built tuple rather than on the raw field text, so the split strings the file states are the only thing the reader drops."""
     rows: list[AuditRow] = []
-    labels: dict[str, str] = {}
     names: dict[tuple[str, ...], tuple[str, ...]] = {}
-
-    def label(value: str) -> str:
-        return labels.setdefault(value, value)
+    label = sys.intern
 
     def name_tuple(value: str, separator: str) -> tuple[str, ...]:
-        built = tuple(labels.setdefault(part, part) for part in value.split(separator))
+        built = tuple(label(part) for part in value.split(separator))
         return names.setdefault(built, built)
 
     with open(path, encoding="utf-8") as handle:
@@ -216,11 +221,16 @@ def build_units(
     ledger: list[LedgerClass],
     family_of: dict[int, str],
 ) -> list[Unit]:
-    """Dedupe to (codepoints, baseline, new) units and return them in triage order with ids assigned; batch indices are assigned later by `assign_batches`, once the build has computed each unit's ink_identical flag. A triple's matched ledger class can vary by config — most often a window already blessed under ss03 but UNMATCHED (novel) under the default config — so each unit carries the full per-config class map in `config_classes`, and its own `class_id` is the single matched class when the triple is everywhere-matched, or the UNMATCHED sentinel when any config leaves it unmatched (UNMATCHED-wins, so the novel default behavior is what gets adjudicated; the blessed configs ride along in `config_classes` for display). A triple resolving to two distinct *matched* classes would be a genuine classification bug and still raises."""
+    """Dedupe to (codepoints, baseline, new) units and return them in triage order with ids assigned; batch indices are assigned later by `assign_batches`, once the build has computed each unit's ink_identical flag. A triple's matched ledger class can vary by config — most often a window already blessed under ss03 but UNMATCHED (novel) under the default config — so each unit carries the full per-config class map in `config_classes`, and its own `class_id` is the single matched class when the triple is everywhere-matched, or the UNMATCHED sentinel when any config leaves it unmatched (UNMATCHED-wins, so the novel default behavior is what gets adjudicated; the blessed configs ride along in `config_classes` for display). A triple resolving to two distinct *matched* classes would be a genuine classification bug and still raises. A unit's config set, its kinds and its render groups are each drawn from a vocabulary of a few dozen tuples over the whole audit, and its group name from a few thousand family pairs, so each is pooled to one instance rather than built once per unit."""
     exempt_classes = {entry.id for entry in ledger if entry.no_verdict}
     by_triple: dict[tuple[str, tuple[str, ...], tuple[str, ...]], list[AuditRow]] = {}
     for row in rows:
         by_triple.setdefault((row.codepoints, row.baseline, row.new), []).append(row)
+
+    pool: dict[tuple, tuple] = {}
+
+    def pooled(value: tuple) -> tuple:
+        return pool.setdefault(value, value)
 
     units: list[Unit] = []
     for (codepoints, baseline, new), members in by_triple.items():
@@ -239,10 +249,10 @@ def build_units(
                 new=new,
                 class_id=class_id,
                 rows=ordered,
-                configs=tuple(member.config for member in ordered),
-                kinds=kinds,
-                group=group_for(parse_codepoints(codepoints), family_of),
-                render_groups=render_groups_for_rows(ordered),
+                configs=pooled(tuple(member.config for member in ordered)),
+                kinds=pooled(kinds),
+                group=sys.intern(group_for(parse_codepoints(codepoints), family_of)),
+                render_groups=pooled(render_groups_for_rows(ordered)),
                 no_verdict=class_id in exempt_classes,
                 config_classes=config_classes,
             )
@@ -309,6 +319,7 @@ def merge_ink_duplicate_units(
                     continue
                 rows = tuple(sorted(survivor.rows + unit.rows, key=lambda row: _config_index(row.config)))
                 survivor.rows = rows
+                survivor.row_count = len(rows)
                 survivor.configs = tuple(row.config for row in rows)
                 survivor.kinds = tuple(sorted(set(survivor.kinds) | set(unit.kinds)))
                 survivor.config_classes = {**survivor.config_classes, **unit.config_classes}
@@ -327,6 +338,12 @@ def merge_ink_duplicate_units(
             unit.unit_id = f"u-{index:04d}"
     stats["units_folded"] = len(folded)
     return stats
+
+
+def release_rows(units: list[Unit]) -> None:
+    """Drop every unit's parsed audit rows, leaving `row_count` to answer for them. The rows exist to be deduped into units, folded by the ink-duplicate merge, and read into the unit content key and the ink-signature keys, all of which the build does before its first unit is enriched; past that point nothing reads a row's fields, only how many there were, and the parent otherwise holds the audit's whole row pile — the largest per-row object it has — through the units phase and the shard write for the sake of a count. Load still parses and validates every row the audit states; this only stops keeping them once they have been read."""
+    for unit in units:
+        unit.rows = ()
 
 
 def assign_batches(units: list[Unit], batch_size: int = BATCH_SIZE) -> int:

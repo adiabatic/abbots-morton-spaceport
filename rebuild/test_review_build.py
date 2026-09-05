@@ -9,6 +9,7 @@ import json
 import multiprocessing
 import shutil
 import subprocess
+import sys
 import threading
 from html.parser import HTMLParser
 from pathlib import Path
@@ -24,6 +25,7 @@ from rebuild.review.audit import ACCEPTANCE_CONFIGS, load_workload, machine_appr
 from rebuild.review.build import (
     FEATURE_DESCRIPTIONS,
     STATIC_DIR,
+    _pooled_seam_home,
     _prune_orphan_shards,
     _ShardWriter,
     _write_json,
@@ -37,7 +39,7 @@ from rebuild.review.build import (
     config_gate,
     config_note,
 )
-from rebuild.review.enrich import LETTERS
+from rebuild.review.enrich import LETTERS, SeamHomeUnit
 from rebuild.review.export import _triage_projection, build_triage, load_units, load_verdicts
 from rebuild.review.ink import shape_memo_census
 from rebuild.tools import console
@@ -130,7 +132,7 @@ def test_fixture_sources_derive_the_checked_in_shards():
     for meta in manifest["classes"]:
         members = by_class[meta["id"]]
         assert len(members) == meta["unit_count"]
-        assert sum(len(member.rows) for member in members) == meta["row_count"]
+        assert sum(member.row_count for member in members) == meta["row_count"]
     assert len(workload.units) == manifest["totals"]["units"]
     assert workload.row_count == manifest["totals"]["rows"]
 
@@ -1157,3 +1159,45 @@ def test_table_diff_build(tmp_path):
     assert "synthetic-pointer" in shard[0]["explain"] or "synthetic-pointer" in " ".join(
         shard[0]["provenance"]
     )
+
+
+def _seam_home(unit_id: str, codepoints: tuple[int, ...]) -> SeamHomeUnit:
+    """A projection whose names are split out of one string per call, so two calls hold distinct string objects the way two unpickled replies or two parsed records do."""
+    return SeamHomeUnit(
+        unit_id=unit_id,
+        codepoint_values=codepoints,
+        ink_identical=False,
+        picture_identical=False,
+        pair=(0, 1),
+        after_spans=((0, 1), (1, 2)),
+        after_cells=tuple("qsTea/half/None/x-height/ qsIt/hapax/x-height/None/".split()),
+        after_seams=tuple("y5".split()),
+        before_spans=((0, 1), (1, 2)),
+        before_glyphs=tuple("qsTea.half.ex-y5 qsIt.en-y5".split()),
+        before_seams=tuple("break".split()),
+        seam_pairs=((0, 1),),
+    )
+
+
+def test_pooled_seam_homes_share_every_tuple_and_name_across_units():
+    """The parent holds one seam-home projection per unit of the corpus, and a pooled worker's reply or the store's JSON hands it a fresh copy of every tuple and every name inside them; `_pooled_seam_home` is what makes two units that say the same thing hold the same objects. Equality is untouched — the reduce reads values — and the window itself stays the unit's own tuple, with only its letters pooled, since a window repeats across the siblings of one window while its letters repeat across the corpus."""
+    pool: dict = {}
+    first = _pooled_seam_home(_seam_home("u-0000", (0xE652, 0xE670)), pool)
+    second = _pooled_seam_home(_seam_home("u-0001", (0xE652, 0xE670, 0xE652)), pool)
+    assert first == _seam_home("u-0000", (0xE652, 0xE670))
+    for name in (
+        "pair",
+        "after_spans",
+        "after_cells",
+        "after_seams",
+        "before_spans",
+        "before_glyphs",
+        "before_seams",
+        "seam_pairs",
+    ):
+        assert getattr(first, name) is getattr(second, name), name
+    assert first.after_spans[0] is first.before_spans[0] is second.seam_pairs[0]
+    assert first.codepoint_values is not second.codepoint_values
+    assert first.codepoint_values[0] is second.codepoint_values[2]
+    assert first.after_cells[1] is sys.intern("qsIt/hapax/x-height/None/")
+    assert first.before_seams[0] is sys.intern("break")

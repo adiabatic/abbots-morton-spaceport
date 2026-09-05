@@ -15,6 +15,7 @@ import gzip
 import hashlib
 import json
 import re
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import BinaryIO, Iterable, Mapping
@@ -357,21 +358,27 @@ class CachedUnit:
 
     @classmethod
     def from_record(cls, record: dict) -> "CachedUnit":
+        """The record parsed back, with every string the parent holds per served unit and that repeats across units — the class, the cluster and diff digests, the config names and delta digests, the projection's glyph names, cell names and seam tokens — interned through the `sys.intern` table `audit.load_audit` describes, so a store of a million records costs one instance per distinct name rather than one per record."""
         pair = record["pair_codepoints"]
+        proj = record["proj"]
+        for name in ("after_cells", "after_seams", "before_glyphs", "before_seams"):
+            proj[name] = [sys.intern(value) for value in proj[name]]
         return cls(
             key=record["key"],
             prior_id=record["id"],
-            prior_class=record["class"],
+            prior_class=sys.intern(record["class"]),
             content_key=record["content_key"],
             ink_identical=record["ink_identical"],
             picture_identical=record["picture_identical"],
             junior_equivalent=record["junior_equivalent"],
-            ink_deltas=dict(record["ink_deltas"]),
-            diffs_digest=record["diffs_digest"],
-            cluster=record["cluster"],
-            family=record["family"],
+            ink_deltas={
+                sys.intern(config): sys.intern(delta) for config, delta in record["ink_deltas"].items()
+            },
+            diffs_digest=sys.intern(record["diffs_digest"]),
+            cluster=sys.intern(record["cluster"]),
+            family=sys.intern(record["family"]),
             pair_codepoints=(pair[0], pair[1]) if pair else None,
-            proj=record["proj"],
+            proj=proj,
             seams=record["seams"],
             mismatches=list(record["mismatches"]),
         )
