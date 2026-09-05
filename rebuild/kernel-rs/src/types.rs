@@ -474,7 +474,7 @@ impl EliminationStage {
 }
 
 /// One candidate that did not survive enumeration, `settle.Elimination`. The description is a formatted sentence rather than a structure because it is read by people — explain output and the decision-rule TSVs — and its exact wording is contract against the Python original; the provenance is the authored record that did the killing, where one did.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Elimination {
     pub stage: EliminationStage,
     pub description: String,
