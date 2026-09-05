@@ -4,6 +4,7 @@ Nothing here reads the live surface any more, and nothing needs to. `build_m1` p
 """
 
 import copy
+import gc
 import hashlib
 import json
 import multiprocessing
@@ -11,6 +12,7 @@ import shutil
 import subprocess
 import sys
 import threading
+from dataclasses import replace
 from html.parser import HTMLParser
 from pathlib import Path
 
@@ -18,7 +20,7 @@ import pytest
 import yaml
 
 from rebuild.pipeline import fingerprint
-from rebuild.review import app_index
+from rebuild.review import app_index, unit_cache
 from rebuild.review import build as review_build
 from rebuild.review import unit_index
 from rebuild.review.audit import ACCEPTANCE_CONFIGS, load_workload, machine_approved
@@ -39,7 +41,7 @@ from rebuild.review.build import (
     config_gate,
     config_note,
 )
-from rebuild.review.enrich import LETTERS, SeamHomeUnit
+from rebuild.review.enrich import LETTERS, EnrichedUnit, SeamHomeUnit
 from rebuild.review.export import _triage_projection, build_triage, load_units, load_verdicts
 from rebuild.review.ink import shape_memo_census
 from rebuild.tools import console
@@ -584,59 +586,55 @@ def test_the_shard_writer_keeps_the_previous_surface_whole_until_commit(tmp_path
     assert sorted(entry.name for entry in units.iterdir()) == ["a.json", "b.json"]
 
 
-def test_fragments_pulls_in_the_order_asked_a_chunk_at_a_time(tmp_path, monkeypatch):
-    """Pooled, phase 2's output waits in the workers and the parent pulls it in shard order: consecutive ids on one worker go out as one `emit` request of at most `_EMIT_CHUNK`, the request after it is on the wire before the reply is consumed, and what comes back is exactly the fragments asked for in the order asked. Stub workers on real pipes stand in for the pool, answering each request from the ids it names."""
-    monkeypatch.setattr(review_build, "_EMIT_CHUNK", 2)
+def test_the_fresh_spool_reads_every_fragment_back_by_address(tmp_path):
+    """A fresh fragment waits on disk between phase 1 and the write, and it comes back through the same reader that serves a prior fragment out of the previous surface: the spool is shard-framed, each address names the part the writer settled on at close, and a fragment drafted with `content_key` None is read back under that placeholder stamp. Reading is by address, so the write may ask in any order — shard order interleaves the workers' slices — and asking under a stamp the fragment does not carry is the same refusal a moved prior fragment gets."""
+    spool = review_build._FragmentSpool(tmp_path, "w0")
+    fragments = [{"id": f"u-{index:04d}", "content_key": None, "text": "x" * index} for index in range(5)]
+    for fragment in fragments:
+        spool.add(fragment)
+    spooled = spool.close()
+    assert sorted(spooled) == [fragment["id"] for fragment in fragments]
+    assert {located.part for located in spooled.values()} == {"units/w0.json"}
+    assert all(located.content_key is None for located in spooled.values())
+    with unit_cache.PriorFragmentReader(tmp_path / review_build.FRESH_SPOOL_NAME) as reader:
+        for fragment in reversed(fragments):
+            assert reader.read(spooled[fragment["id"]]) == fragment
+        with pytest.raises(ValueError):
+            reader.read(replace(spooled["u-0001"], content_key="stamped"))
+
+
+def _live_enriched_units() -> int:
+    gc.collect()
+    return sum(1 for candidate in gc.get_objects() if isinstance(candidate, EnrichedUnit))
+
+
+def test_the_serial_runner_spools_every_fragment_and_keeps_no_enrichment(tmp_path, mini_bundle):
+    """No EnrichedUnit outlives the batch that produced it: once phase 1 returns, the runner holds a spool address per fresh unit and nothing enriched, each address reads back as that unit's drafted fragment, and closing the runner sweeps the spool from under the surface."""
+    units = load_workload(MINI / "audit.tsv", mini_bundle.ledger, dict(LETTERS)).units
     runner = review_build._FreshRunner(
-        [],
+        units,
         1,
-        tmp_path,
-        tmp_path / "before.otf",
-        tmp_path / "after.otf",
-        tmp_path / "junior.otf",
-        tmp_path,
+        MINI,
+        review_build.SITE_BEFORE_FONT,
+        MINI / "M1.otf",
+        review_build.SITE_JUNIOR_FONT,
+        REPO_ROOT,
+        spec_root=mini_bundle.spec_root,
+        out_dir=tmp_path,
     )
-    order = ["u-0000", "u-0001", "u-0002", "u-0010", "u-0003", "u-0011", "u-0012"]
-    runner._worker_of = {unit_id: (0 if unit_id < "u-0010" else 1) for unit_id in order}
-    requests: list[tuple[int, list[str]]] = []
-    conns = []
-    threads = []
-    for index in range(2):
-        parent, child = multiprocessing.Pipe()
-
-        def serve(child=child, index=index) -> None:
-            while True:
-                try:
-                    message = child.recv()
-                except EOFError:
-                    return
-                assert message[0] == "emit"
-                requests.append((index, list(message[1])))
-                child.send(("ok", [{"id": unit_id} for unit_id in message[1]]))
-
-        thread = threading.Thread(target=serve, daemon=True)
-        thread.start()
-        conns.append(parent)
-        threads.append(thread)
-    runner._conns = conns
     try:
-        pulled = [fragment["id"] for fragment in runner.fragments(order)]
+        projections = runner.phase1()
+        assert _live_enriched_units() == 0
+        assert sorted(projections) == sorted(unit.unit_id for unit in units)
+        assert (tmp_path / review_build.FRESH_SPOOL_NAME).is_dir()
+        for unit in units:
+            fragment = runner.fragment(unit.unit_id)
+            assert fragment["id"] == unit.unit_id
+            assert fragment["content_key"] is None
+            assert fragment["batch"] is None and fragment["echo"] is None
     finally:
-        for conn in conns:
-            conn.close()
-        for thread in threads:
-            thread.join(timeout=5)
-    assert pulled == order
-    assert sorted(requests) == sorted(
-        [
-            (0, ["u-0000", "u-0001"]),
-            (0, ["u-0002"]),
-            (1, ["u-0010"]),
-            (0, ["u-0003"]),
-            (1, ["u-0011", "u-0012"]),
-        ]
-    )
-    assert list(runner.fragments([])) == []
+        runner.close()
+    assert not (tmp_path / review_build.FRESH_SPOOL_NAME).exists()
 
 
 def test_prune_orphan_shards_removes_only_unreferenced_json(tmp_path):
@@ -687,7 +685,7 @@ def test_a_serial_surface_build_files_no_pool_record(tmp_path, monkeypatch):
 
 
 def test_a_pooled_build_counts_its_units_and_closes_every_phase_it_opens(tmp_path, mini_bundle, capsys):
-    """The two things a watcher gets from a build that runs for minutes, over the one workload small enough to prove them on: which phase it is in, and how far through the corpus its pool has got. Every phase pairs — the `[t] review.build <phase>` line the timings journal has always read is what closes the `[phase]` line the terminal opens — and the counter is summed across the workers as each answers rather than after the last one finishes, which is what the four lines are: each of the two workers reports its own slice in each of the two passes over the fresh pile. The two passes count under names of their own, so each name climbs to the total exactly once and the second pass reads as a second pass rather than as the first one's counter falling back. That the total is reached at all is the claim worth having, since a share left unread or a worker the parent stopped draining shows up here as a count that stops short of the units the manifest says this build wrote."""
+    """The two things a watcher gets from a build that runs for minutes, over the one workload small enough to prove them on: which phase it is in, and how far through the corpus its pool has got. Every phase pairs — the `[t] review.build <phase>` line the timings journal has always read is what closes the `[phase]` line the terminal opens — and the counter is summed across the workers as each answers rather than after the last one finishes, which is what the two lines are: each of the two workers reports its own slice of the one pass over the fresh pile, which enriches and drafts in the same step. That the total is reached at all is the claim worth having, since a share left unread or a worker the parent stopped draining shows up here as a count that stops short of the units the manifest says this build wrote."""
     out = tmp_path / "surface"
     manifest = review_build.build_m1(
         out,
@@ -715,10 +713,9 @@ def test_a_pooled_build_counts_its_units_and_closes_every_phase_it_opens(tmp_pat
     counters = [event for event in events if isinstance(event, console.Progress)]
     assert counters and all(event.total == total for event in counters)
     assert all(event.done is not None and 0 < event.done <= total for event in counters)
-    assert len(counters) == 4
-    for unit in (review_build.PHASE1_UNITS, review_build.PHASE2_UNITS):
-        climbed = [event.done for event in counters if event.unit == unit]
-        assert len(climbed) == 2 and climbed.count(total) == 1
+    assert len(counters) == 2
+    assert all(event.unit == review_build.PHASE1_UNITS for event in counters)
+    assert [event.done for event in counters].count(total) == 1
 
 
 def test_close_finds_the_peak_behind_an_unconsumed_phase_reply(tmp_path, monkeypatch):
@@ -744,9 +741,10 @@ def test_close_finds_the_peak_behind_an_unconsumed_phase_reply(tmp_path, monkeyp
         tmp_path / "after.otf",
         tmp_path / "junior.otf",
         tmp_path,
+        out_dir=tmp_path,
     )
     parent, child = multiprocessing.Pipe()
-    child.send(("ok", ["projection-a", "projection-b"]))
+    child.send(("ok", ["projection-a", "projection-b"], {}))
     child.send(("peak", 1_500_000))
     proc = _StubProc()
     runner._conns = [parent]
@@ -789,8 +787,8 @@ def test_an_in_process_build_releases_the_shape_memo_behind_each_batch(mini_bund
     assert shape_memo_census().entries == 0
 
 
-def test_a_pool_worker_releases_the_shape_memo_behind_each_batch(mini_bundle, monkeypatch):
-    """The pooled build's worker takes the same boundary, and it is held here in-process: `_surface_worker` is driven over a pipe from a thread rather than a spawn, so the spy on the build module's `release_shape_memos` is the one the worker's `_phase1_batches` reaches. Phase 1 over the mini workload loads the memo before its first boundary, and the worker answers its stop with the memo empty. The phase's `progress` counts arrive ahead of its `ok` and are read past here the way the parent reads them, never decreasing and reaching the slice."""
+def test_a_pool_worker_releases_the_shape_memo_behind_each_batch(mini_bundle, monkeypatch, tmp_path):
+    """The pooled build's worker takes the same boundary, and it is held here in-process: `_surface_worker` is driven over a pipe from a thread rather than a spawn, so the spy on the build module's `release_shape_memos` is the one the worker's `_phase1_batches` reaches. Phase 1 over the mini workload loads the memo before its first boundary, and the worker answers its stop with the memo empty and no EnrichedUnit alive in the process — its slice went to the spool as it was drafted, and the addresses come back beside the projections. The phase's `progress` counts arrive ahead of its `ok` and are read past here the way the parent reads them, never decreasing and reaching the slice."""
     seen = _spy_on_releases(monkeypatch)
     units = load_workload(MINI / "audit.tsv", mini_bundle.ledger, dict(LETTERS)).units
     init = {
@@ -800,12 +798,13 @@ def test_a_pool_worker_releases_the_shape_memo_behind_each_batch(mini_bundle, mo
         "subset_dir": MINI,
         "repo_root": REPO_ROOT,
         "spec_root": mini_bundle.spec_root,
+        "out_dir": tmp_path,
     }
     parent, child = multiprocessing.Pipe()
     worker = threading.Thread(target=review_build._surface_worker, args=(child, init), daemon=True)
     worker.start()
     try:
-        parent.send(("phase1", units))
+        parent.send(("phase1", units, "w0"))
         counts: list[int] = []
         reply = parent.recv()
         while reply[0] == "progress":
@@ -813,6 +812,7 @@ def test_a_pool_worker_releases_the_shape_memo_behind_each_batch(mini_bundle, mo
             reply = parent.recv()
         assert reply[0] == "ok", reply[1]
         assert len(reply[1]) == len(units)
+        assert sorted(reply[2]) == sorted(unit.unit_id for unit in units)
         assert counts == sorted(counts) and counts[-1] == len(units)
         parent.send(("stop",))
         assert parent.recv()[0] == "peak"
@@ -820,6 +820,7 @@ def test_a_pool_worker_releases_the_shape_memo_behind_each_batch(mini_bundle, mo
         parent.close()
         worker.join(timeout=60)
     assert not worker.is_alive()
+    assert _live_enriched_units() == 0
     assert seen and seen[0] > 0
     assert shape_memo_census().entries == 0
 

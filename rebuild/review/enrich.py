@@ -224,7 +224,7 @@ class TracePosition:
 
 @dataclass(frozen=True)
 class TraceReport:
-    """What an enriched unit keeps of its `ExplainReport` once `enrich` is done with it: one `TracePosition` per position, which is the whole of what the three drafters read (`positions[i].settled`, `.settled.cell`, `.decided_stage`, and how many there are). The report itself never leaves `enrich` — the explain text is rendered and filtered there and the summary is written from it — because a surface worker holds every unit it enriched from phase 1 until the parent's global reduces finish, and full reports were by far the largest thing in that pile."""
+    """What an enriched unit keeps of its `ExplainReport` once `enrich` is done with it: one `TracePosition` per position, which is the whole of what the three drafters read (`positions[i].settled`, `.settled.cell`, `.decided_stage`, and how many there are). The report itself never leaves `enrich` — the explain text is rendered and filtered there and the summary is written from it — so what an enriched unit carries until its fragment is drafted is the trace the drafters read and not the full report, which is by far the largest thing an enrichment produces."""
 
     positions: tuple[TracePosition, ...]
 
