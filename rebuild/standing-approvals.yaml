@@ -540,3 +540,22 @@ rules:
         added: []
         shift: -1
       except_left: []
+  - id: ah-gay-xheight-join-created
+    verdict: approve
+    note: "·Ah joins ·Gay at the x-height where the old font left a break, and ·Gay closes three columns onto it, dropping the stub cell its x-height entry only inks when withdrawn — qsGay's x-height entry has taken ·Ah on its from-list since “Bring back the ·Ah ~x~ ·Gay join”, which also put the ·Ah-led preference on qsGay's policy, and every window that reached a sitting approved the join"
+    match:
+      before:
+        pivot: qsAh
+        seam_out: break
+        follower: qsGay
+      after:
+        joined: y5
+        pivot_cells:
+          - qsAh/hapax/None/x-height/
+          - qsAh/hapax/baseline/x-height/
+          - qsAh/hapax/baseline/x-height/en-con-1
+        receiver_cells:
+          - qsGay/hapax/x-height/None/
+          - qsGay/hapax/x-height/baseline/
+        shift: -3
+      except_left: []

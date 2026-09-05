@@ -225,6 +225,22 @@ CREATED_JOIN_RULE = {
     },
 }
 
+CONTRACTED_CREATED_JOIN_RULE = {
+    "id": "fixture-join-created-behind-a-contraction",
+    "verdict": "approve",
+    "note": "·May joins ·F3 at the x-height where the old font left a break",
+    "match": {
+        "before": {"pivot": "qsMay", "seam_out": "break", "follower": "qsF3"},
+        "after": {
+            "joined": "y5",
+            "pivot_cells": ["qsMay/loop/baseline/x-height/en-con-1"],
+            "receiver_cells": ["qsF3/full/x-height/None/"],
+            "shift": -2,
+        },
+        "except_left": [],
+    },
+}
+
 REDRAWN_RULE = {
     "id": "fixture-redrawn",
     "verdict": "approve",
@@ -1386,6 +1402,7 @@ register_glyph("after", "qsVie.normal", TWO_COLUMNS, 100)
 register_glyph("after", "qsVie_qsUtter.hapax", TWO_COLUMNS, 100)
 register_glyph("after", "qsMay.loop", TWO_COLUMNS, 100)
 register_glyph("after", "qsMay.loop.en-y0.en-con-1", CONTRACTED_ENTRY_MAY, 150)
+register_glyph("after", "qsMay.loop.en-y0.ex-y5.en-con-1", CONTRACTED_ENTRY_MAY, 50)
 register_glyph("after", "qsMay.loop.unchanged-fixture", TWO_COLUMNS, 100)
 register_glyph("after", "qsBay.contract-lead", TWO_COLUMNS, 50)
 register_glyph("after", "qsFcovered.hapax", TWO_COLUMNS, 100)
@@ -1432,6 +1449,9 @@ VIE = register_pair("qsVie.en-ext-1", "qsVie.normal")
 VIE_UTTER = register_pair("qsVie_qsUtter.en-ext-1", "qsVie_qsUtter.hapax")
 MAY = register_pair("qsMay.en-y0.ex-y5.en-ext-1", "qsMay.loop")
 CONTRACTED_MAY = register_pair("qsMay.en-y0.ex-y5.contract-fixture", "qsMay.loop.en-y0.en-con-1")
+CONTRACTED_JOINING_MAY = register_pair(
+    "qsMay.en-y0.ex-y5.contract-fixture", "qsMay.loop.en-y0.ex-y5.en-con-1"
+)
 UNCHANGED_MAY = register_pair("qsMay.en-y0.ex-y5.unchanged-fixture", "qsMay.loop.unchanged-fixture")
 CONTRACTION_LEAD = register_pair("qsBay.contract-lead", "qsBay.contract-lead")
 COVERED_FOLLOWER = register_pair("qsFcovered.en-ext-1", "qsFcovered.hapax")
@@ -4130,6 +4150,10 @@ CREATED_JOIN_CODEPOINTS = spell(LEAD, PIVOT_SHORTENED, FOLLOWER_3)
 COMPOSED_CREATED_JOIN_GLYPHS = ["qsL", "qsSee.ex-y0", "qsJ.ex-y0.ex-ext-3.long", "qsF3"]
 COMPOSED_CREATED_JOIN_CODEPOINTS = spell(LEAD, SEE, PIVOT_SHORTENED, FOLLOWER_3)
 COMPOSED_CREATED_JOIN_RULES = [SLIDE_RULE, CREATED_JOIN_RULE]
+CONTRACTED_CREATED_JOIN_GLYPHS = ["qsBay.contract-lead", "qsMay.en-y0.ex-y5.contract-fixture", "qsF3"]
+CONTRACTED_CREATED_JOIN_CODEPOINTS = spell(CONTRACTION_LEAD, CONTRACTED_JOINING_MAY, FOLLOWER_3)
+CONTRACTED_UNMOVED_JOIN_CODEPOINTS = spell(CONTRACTION_LEAD, CONTRACTED_MAY, FOLLOWER_3)
+CONTRACTED_CREATED_JOIN_RULES = [CONTRACTED_ENTRY_RULE, CONTRACTED_CREATED_JOIN_RULE]
 JOIN_RETARGET_GLYPHS = ["qsL", "qsAt", "qsIt", "qsTea.half.ex-y5", "qsNo.en-ext-1"]
 JOIN_RETARGET_CODEPOINTS = spell(LEAD, AT, IT, TEA, NO)
 JOIN_RETARGET_RULES = [JOIN_RULE, RETARGET_RULE]
@@ -4207,6 +4231,24 @@ def composed_created_join_window(uid="ccj-1"):
         configs=("default",),
         ink_deltas={"default": SLIDE_DELTA},
         pair={"left": 2, "right": 3},
+    )
+
+
+def contracted_created_join_window(uid="ccjc-1", codepoints=CONTRACTED_CREATED_JOIN_CODEPOINTS):
+    return unit(
+        uid,
+        list(CONTRACTED_CREATED_JOIN_GLYPHS),
+        ["y0", "break"],
+        [
+            "qsBay/full/None/None/",
+            "qsMay/loop/baseline/x-height/en-con-1",
+            "qsF3/full/x-height/None/",
+        ],
+        ["y0", "y5"],
+        codepoints=codepoints,
+        configs=("default",),
+        ink_deltas={"default": SLIDE_DELTA},
+        pair={"left": 1, "right": 2},
     )
 
 
@@ -4474,6 +4516,30 @@ def test_a_slide_and_a_join_retarget_in_one_window_compose(slide_context):
 def test_a_slide_and_a_created_join_in_one_window_compose(slide_context):
     events = sv._composed(COMPOSED_CREATED_JOIN_RULES, composed_created_join_window(), slide_context())
     assert events == {SLIDE_RULE["id"]: [1], CREATED_JOIN_RULE["id"]: [2]}
+
+
+def test_a_created_join_chains_behind_an_entry_contraction_on_its_pivot(slide_context):
+    events = sv._composed(CONTRACTED_CREATED_JOIN_RULES, contracted_created_join_window(), slide_context())
+    assert events == {CONTRACTED_ENTRY_RULE["id"]: [1], CONTRACTED_CREATED_JOIN_RULE["id"]: [1]}
+
+
+def test_neither_rule_alone_reads_a_created_join_behind_a_contraction(slide_context):
+    window = contracted_created_join_window()
+    for rule in CONTRACTED_CREATED_JOIN_RULES:
+        assert not sv._matches(rule["match"], window, context=slide_context())
+        assert sv._composed_walk([rule], window, slide_context()) is None
+
+
+def test_a_created_join_whose_pivot_moved_its_origin_is_no_event_without_the_contraction(slide_context):
+    events = sv._composed_walk(
+        [SLIDE_RULE, CONTRACTED_CREATED_JOIN_RULE], contracted_created_join_window(), slide_context()
+    )
+    assert events is None
+
+
+def test_a_chained_created_join_still_needs_its_follower_moved_by_both_shifts(slide_context):
+    window = contracted_created_join_window(codepoints=CONTRACTED_UNMOVED_JOIN_CODEPOINTS)
+    assert sv._composed(CONTRACTED_CREATED_JOIN_RULES, window, slide_context()) is None
 
 
 def test_a_join_drop_and_a_join_retarget_in_one_window_compose(slide_context):
@@ -4879,6 +4945,15 @@ COMPOSED_WALK_CORPORA = {
         CREATED_JOIN_RULE,
         lambda: [created_join_window(), composed_created_join_window(), founding_window()],
         ("after", "after-created-join-unmoved"),
+    ),
+    "join-created-behind-a-contraction": (
+        CONTRACTED_CREATED_JOIN_RULE,
+        lambda: [
+            contracted_created_join_window(),
+            contracted_created_join_window(codepoints=CONTRACTED_UNMOVED_JOIN_CODEPOINTS),
+            contracted_entry_window(),
+        ],
+        ("after",),
     ),
     "redrawn": (
         REDRAWN_RULE,
