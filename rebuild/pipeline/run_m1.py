@@ -57,6 +57,7 @@ from rebuild.pipeline.model import (
 from rebuild.pipeline.settle import cell_label
 from rebuild.pipeline.spec_load import load_default_spec
 from rebuild.pipeline.table import DecisionTable
+from rebuild.tools import console
 from rebuild.tools.cycle_timings import CYCLE_RUN_ENV, CheckVerdict, record_check
 from rebuild.tools.memory_budget import describe_fit, usable_cores
 from rebuild.tools.peak_rss import process_peak_rss_bytes, rss_token
@@ -136,6 +137,7 @@ def build_tables(
                 config, tables, digest = finished.result()
                 built[config] = tables
                 digests[config] = digest
+                console.progress(len(built), len(configs), "configurations")
     return {config: built[config] for config in configs}, {config: digests[config] for config in configs}
 
 
@@ -240,11 +242,13 @@ def run(
 ) -> dict:
     """`inputs` is `tables_inputs` over the sources `spec` was loaded from, snapshotted before the load so it can only ever name content the tables are at least as new as. Supplying it serializes the window enumeration under `out_dir` for the conformance sweep; a caller running a spec of its own leaves it out. `kernel_threads` reaches the table build and nothing else."""
     out_dir.mkdir(parents=True, exist_ok=True)
+    console.phase("spec_load")
     start = time.perf_counter()
     if spec is None:
         spec = load_default_spec()
     print(f"[t] spec_load {time.perf_counter() - start:.1f}s", flush=True)
 
+    console.phase("build_tables_total")
     start = time.perf_counter()
     tables, _digests = build_tables(spec, out_dir, inputs=inputs, kernel_threads=kernel_threads)
     print(
@@ -252,16 +256,19 @@ def run(
         flush=True,
     )
 
+    console.phase("glyph_minting")
     start = time.perf_counter()
     cell_glyphs = mint_cell_glyphs(spec, tables)
     bare, twins, ss10_twins = mint_raw_glyphs(spec)
     dots = namer_dot_glyphs()
     print(f"[t] glyph_minting {time.perf_counter() - start:.1f}s", flush=True)
 
+    console.phase("defect_gates")
     start = time.perf_counter()
     defect_report = _run_defect_gates(spec, tables, cell_glyphs)
     print(f"[t] defect_gates {time.perf_counter() - start:.1f}s", flush=True)
 
+    console.phase("emit_gsub_gpos")
     start = time.perf_counter()
     curs_glyphs = {**cell_glyphs, **bare, **twins}
     gsub_plan = emit_gsub.emit_gsub(spec, tables, glyphs={**cell_glyphs, **bare}, ss10_twins=ss10_twins)
@@ -277,12 +284,14 @@ def run(
     fea = gsub_plan.fea_text + "\n" + gpos_fea
     print(f"[t] emit_gsub_gpos {time.perf_counter() - start:.1f}s", flush=True)
 
+    console.phase("compile_font")
     start = time.perf_counter()
     all_glyphs = {**curs_glyphs, **dots}
     font_path = compile_font.build_mini_font(all_glyphs, fea, out_dir / "M1.otf")
     print(f"[t] compile_font {time.perf_counter() - start:.1f}s", flush=True)
     (out_dir / "M1.generated.fea").write_text(fea)
 
+    console.phase("readback")
     start = time.perf_counter()
     readback_report = readback.verify_font(
         font_path, gsub_plan, emit_gpos.cursive_registrations(curs_glyphs, spec=spec)
@@ -376,6 +385,7 @@ def run_font_conformance(
             for future in as_completed(futures):
                 result = future.result()
                 collected[result.config] = result
+                console.progress(len(collected), len(conform.ACCEPTANCE_CONFIGS), "configurations")
         ordered = [collected[config] for config in conform.ACCEPTANCE_CONFIGS]
         report = conform.merge_conformance_results(out_dir / "M1.otf", ordered)
         report.write(out_dir / summary_name)
@@ -435,7 +445,7 @@ def _promote_oracle_row_cache(
     try:
         keys_now, stamps_now = oracle_row_cache_keys(spec, out_dir)
     except (OSError, ValueError, yaml.YAMLError) as error:
-        print(f"oracle row cache: not written — its inputs would not re-read ({error})", flush=True)
+        console.warn(f"oracle row cache: not written — its inputs would not re-read ({error})")
         return
     moved = oracle_cache.moved_note(dict(keys), keys_now)
     if moved is None:
@@ -445,16 +455,15 @@ def _promote_oracle_row_cache(
                 moved = f"{config} {moved}"
                 break
     if moved is not None:
-        print(
-            f"oracle row cache: not written — its inputs moved while the oracle ran ({moved}), so nothing it derived describes what is on disk",
-            flush=True,
+        console.warn(
+            f"oracle row cache: not written — its inputs moved while the oracle ran ({moved}), so nothing it derived describes what is on disk"
         )
         return
     promoted = oracle_cache.promote_stores(scratch, out_dir, conform.ACCEPTANCE_CONFIGS)
     if promoted:
         print(f"oracle row cache: written for {', '.join(promoted)}", flush=True)
     else:
-        print("oracle row cache: not written — a configuration staged no store", flush=True)
+        console.warn("oracle row cache: not written — a configuration staged no store")
 
 
 def oracle_row_cache_keys(
@@ -492,14 +501,14 @@ def _report_oracle_cache(
     }
     moved_stamp = oracle_cache.moved_note(stored_lines, stamp.labels)
     if moved_stamp is not None:
-        print(f"oracle row cache: dropped — the stamp moved at {moved_stamp}", flush=True)
+        console.warn(f"oracle row cache: dropped — the stamp moved at {moved_stamp}")
         return
     stored_keys = {str(name): str(value) for name, value in (recorded.get("family_keys") or {}).items()}
     moved_keys = oracle_cache.moved_note(stored_keys, dict(keys))
     if moved_keys is None:
         print("oracle row cache: the stamp and every family key still stand", flush=True)
     else:
-        print(f"oracle row cache: re-deriving the rows that reach {moved_keys}", flush=True)
+        console.warn(f"oracle row cache: re-deriving the rows that reach {moved_keys}")
 
 
 def run_oracle(
@@ -529,9 +538,8 @@ def run_oracle(
     try:
         keys, stamps = oracle_row_cache_keys(spec, out_dir)
     except (OSError, ValueError, yaml.YAMLError) as error:
-        print(
-            f"oracle row cache: unavailable for this pass — its keys would not cut ({error}); every row is derived and no store is written",
-            flush=True,
+        console.warn(
+            f"oracle row cache: unavailable for this pass — its keys would not cut ({error}); every row is derived and no store is written"
         )
     else:
         if fresh_cache:
@@ -567,6 +575,7 @@ def run_oracle(
                 for future in as_completed(futures):
                     result = future.result()
                     collected[result.config] = result
+                    console.progress(len(collected), len(conform.ACCEPTANCE_CONFIGS), "configurations")
             ordered = [collected[config] for config in conform.ACCEPTANCE_CONFIGS]
             report = oracle.merge_oracle_results(ordered)
             oracle.join_oracle_audit(out_dir, scratch, conform.ACCEPTANCE_CONFIGS, report.divergent_rows)
@@ -622,6 +631,7 @@ def _failed_check(check: str, message: str) -> CheckVerdict:
 
 def _run_pregate_guards() -> None:
     """The three things proven before anything is adjudicated, on the build path and on the `--gates-only` path alike: every source baseline table shaped by the site font on disk (its header's font_sha256 weighed against the font that header names, which `baseline_subset.ensure_fresh` does on every call because `make all` rewrites that font under a stamp key that never moves), the subset baselines refiltered when they no longer describe the sources on disk, and every old glyph name in those subsets carrying an alias. All three belong to the oracle rather than to the build — rows some other font shaped and an unaliased name each make every oracle number quietly wrong — so a pass that re-runs the oracle over a build it did not make has to run them exactly as the pass that built does. The ss06/ss07/ss06+ss07 identity is proven inside that refilter rather than here, since only a refilter can change the answer; a diverged configuration is never stamped fresh, so the refusal it raises surfaces as this guard's refusal on every run until it is dealt with."""
+    console.phase("baseline_subset")
     start = time.perf_counter()
     try:
         refiltered = baseline_subset.ensure_fresh(REPO_ROOT)
@@ -631,6 +641,7 @@ def _run_pregate_guards() -> None:
         f"[t] baseline_subset {time.perf_counter() - start:.1f}s ({'refiltered' if refiltered else 'fresh'})",
         flush=True,
     )
+    console.phase("alias_completeness")
     start = time.perf_counter()
     missing_aliases = oracle.unaliased_subset_names(OUT_DIR, ALIAS_YAML)
     print(f"[t] alias_completeness {time.perf_counter() - start:.1f}s", flush=True)
@@ -700,6 +711,7 @@ def run_gates_only(out_dir: Path = OUT_DIR, jobs: int = 1, fresh_cache: bool = F
                 f"{treaty_path} is missing or unreadable ({error}) — the defect gate reads the treaty tables beside the enumeration, so this build is not one this pass can adjudicate; run `uv run python -m rebuild.pipeline.run_m1` first"
             )
 
+    console.phase("defect_gates")
     start = time.perf_counter()
     cell_glyphs = mint_cell_glyphs(spec, tables)
     defect_fields = _defect_summary_fields(_run_defect_gates(spec, tables, cell_glyphs))
@@ -713,6 +725,7 @@ def run_gates_only(out_dir: Path = OUT_DIR, jobs: int = 1, fresh_cache: bool = F
         _record_cli_check(_failed_check("run_m1", message), started)
         raise SystemExit(message)
 
+    console.phase("run_manual_pin_gate")
     start = time.perf_counter()
     pin_gate = run_manual_pin_gate(out_dir=out_dir, spec=spec)
     print(f"[t] run_manual_pin_gate {time.perf_counter() - start:.1f}s", flush=True)
@@ -723,6 +736,7 @@ def run_gates_only(out_dir: Path = OUT_DIR, jobs: int = 1, fresh_cache: bool = F
         _record_cli_check(_failed_check("run_m1", pin_failure), started)
         raise SystemExit(f"{pin_failure}; see manual_pins_summary.json")
 
+    console.phase("run_oracle")
     start = time.perf_counter()
     oracle_summary = run_oracle(
         out_dir=out_dir, spec=spec, jobs=jobs, write_cache=False, fresh_cache=fresh_cache
@@ -754,7 +768,7 @@ def run_gates_only(out_dir: Path = OUT_DIR, jobs: int = 1, fresh_cache: bool = F
         why = "the last green M1 build predates the per-file record this decision is taken over"
     else:
         why = "nothing has moved since the last green M1 build, so that green already stands"
-    print(f"run_m1: green, but this pass recorded no green — {why}", flush=True)
+    console.warn(f"run_m1: green, but this pass recorded no green — {why}")
 
 
 def _settle_green(
@@ -772,7 +786,7 @@ def _settle_green(
         clear_contradicted_green(green_path, key)
         return
     if recompute() != key:
-        print(f"{label}: green, but its inputs changed while it ran — green not recorded", flush=True)
+        console.warn(f"{label}: green, but its inputs changed while it ran — green not recorded")
         return
     record_green(green_path, key, files=files_of() if files_of is not None else None)
     where = green_path.relative_to(REPO_ROOT) if green_path.is_relative_to(REPO_ROOT) else green_path
@@ -840,6 +854,7 @@ def main(argv: list[str] | None = None) -> None:
             return conform_skip_fingerprint(REPO_ROOT, args.conform_horizon)
 
         before = conform_key()
+        console.phase("run_font_conformance")
         start = time.perf_counter()
         conformance = run_font_conformance(max_length=args.conform_horizon, jobs=jobs)
         print(
@@ -876,6 +891,7 @@ def main(argv: list[str] | None = None) -> None:
     spec = load_default_spec()
     before = run_m1_key()
     try:
+        console.phase("run_total")
         start = time.perf_counter()
         summary = run(spec=spec, inputs=inputs, kernel_threads=args.kernel_threads)
         print(
@@ -885,6 +901,7 @@ def main(argv: list[str] | None = None) -> None:
         print(json.dumps(summary, indent=2))
         if summary["defect_errors"]:
             raise SystemExit(f"{len(summary['defect_errors'])} defect-gate errors; see pipeline_summary.json")
+        console.phase("run_manual_pin_gate")
         start = time.perf_counter()
         pin_gate = run_manual_pin_gate(spec=spec)
         print(f"[t] run_manual_pin_gate {time.perf_counter() - start:.1f}s", flush=True)
@@ -892,6 +909,7 @@ def main(argv: list[str] | None = None) -> None:
         pin_failure = manual_pin_gate_failure(pin_gate)
         if pin_failure is not None:
             raise SystemExit(f"{pin_failure}; see manual_pins_summary.json")
+        console.phase("run_oracle")
         start = time.perf_counter()
         oracle_summary = run_oracle(spec=spec, jobs=jobs, fresh_cache=args.fresh_oracle_cache)
         print(f"[t] run_oracle {time.perf_counter() - start:.1f}s", flush=True)

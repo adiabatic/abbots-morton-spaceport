@@ -3,7 +3,7 @@
 import json
 import pathlib
 
-from rebuild.tools import verdict_chain as vc
+from rebuild.tools import console, verdict_chain as vc
 
 STAMP = "S1"
 
@@ -20,6 +20,17 @@ def _payload():
 def _write_out(argv):
     pathlib.Path(argv[argv.index("--out") + 1]).write_text(json.dumps(_payload()))
     return 0
+
+
+def test_a_step_opens_a_phase_and_the_timing_that_follows_closes_it(capsys):
+    """The cycle surfaces the chain's steps the way it surfaces every other child's: the phase line says which step is running and the `[t]` line carrying the same label closes it with the duration, which is the pairing `console.Digest` prints one line for. A step that refused keeps the `[chain] ` prefix instead, because that is a result rather than a phase and it is what the driver still splits the plumbing report on."""
+    assert vc._run("carry", lambda: 0) == 0
+    assert vc._run("merge", lambda: 3) == 3
+    lines = capsys.readouterr().out.splitlines()
+    events = [console.parse_line(line) for line in lines]
+    assert [event.name for event in events if isinstance(event, console.Phase)] == ["carry", "merge"]
+    assert [event.label for event in events if isinstance(event, console.Timing)] == ["carry", "merge"]
+    assert lines[-1] == f"{console.FAILED_LINE}merge (exit 3)"
 
 
 def test_the_chain_runs_the_standing_fill_in_its_open_only_form(tmp_path, monkeypatch):

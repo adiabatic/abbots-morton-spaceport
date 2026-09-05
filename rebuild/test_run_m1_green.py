@@ -6,6 +6,7 @@ import pytest
 
 from rebuild.pipeline import conform, defects, oracle, oracle_cache, run_m1
 from rebuild.tools import artifact_cycle as ac
+from rebuild.tools import console
 from rebuild.tools import cycle_timings as ct
 
 
@@ -17,6 +18,14 @@ def green_store(tmp_path):
 def _checks():
     """The check lines this run filed. The journal constant is read here rather than captured, because rebuild/conftest.py's autouse redirect is what points it under tmp_path and record_check resolves it at call time for exactly that reason — the same fixture that takes the cycle's run id off the environment, without which a run of this suite inside a real cycle would see every one of these entry points stand down."""
     return ct.load_checks(ct.JOURNAL)
+
+
+def _phases(output):
+    """What this run opened as a phase and what its `[t]` lines closed, read off the stream the way the cycle's digest reads a child's: an opened phase whose label no timing carries would reach the terminal with no duration behind it, and a timing whose label no phase opened is a line the digest keeps to the log."""
+    events = [console.parse_line(line) for line in output.splitlines()]
+    opened = [event.name for event in events if isinstance(event, console.Phase)]
+    closed = [event.label for event in events if isinstance(event, console.Timing)]
+    return opened, closed
 
 
 def _keys(values):
@@ -179,7 +188,15 @@ def test_main_refreshes_the_baseline_subset_before_anything_reads_it(monkeypatch
     )
     run_m1.main([])
     assert events == ["subset", "run", "oracle"]
-    assert "[t] baseline_subset" in capsys.readouterr().out
+    opened, closed = _phases(capsys.readouterr().out)
+    assert opened == [
+        "baseline_subset",
+        "alias_completeness",
+        "run_total",
+        "run_manual_pin_gate",
+        "run_oracle",
+    ]
+    assert set(opened) <= set(closed)
     record = ac.read_green_record(store)
     assert record is not None
     assert record["fingerprint"] == "fp-post-refilter"
@@ -463,6 +480,17 @@ class TestOracleFanIn:
         assert standing.read_bytes() == b"the audit of the last green run\n"
         assert [path.name for path in tmp_path.iterdir()] == ["divergence-audit.tsv"]
 
+    def test_the_fan_in_counts_the_configurations_as_they_land(self, monkeypatch, tmp_path, capsys):
+        """The oracle is the longest stretch of a pass that prints nothing else while it runs, and its acceptance configurations are the only honest denominator it has — so each one that lands says so, in the counter shape the cycle throttles onto the terminal. A count that stops short of the roster is a future the fan-in never collected."""
+        self._pool(monkeypatch, self._worker())
+        run_m1.run_oracle(out_dir=tmp_path, jobs=6)
+        events = [console.parse_line(line) for line in capsys.readouterr().out.splitlines()]
+        counters = [event for event in events if isinstance(event, console.Progress)]
+        assert [event.text for event in counters] == [
+            f"{landed}/{len(conform.ACCEPTANCE_CONFIGS)} configurations"
+            for landed in range(1, len(conform.ACCEPTANCE_CONFIGS) + 1)
+        ]
+
     def test_a_key_that_will_not_cut_costs_the_cache_and_not_the_gate(self, monkeypatch, tmp_path, capsys):
         """`alias_family_digests` refuses an alias head no rune digest stands behind, and a hand-edited alias map arrives one typo from that refusal — but the oracle is the gate that adjudicates the ledger, and whether it can run at all must not turn on a file the comparison never reads. A key that will not cut leaves the pass with no cache and nothing else: every row derived, no store written, the gate doing exactly what it did before there was a cache."""
         seen: list = []
@@ -474,7 +502,7 @@ class TestOracleFanIn:
         monkeypatch.setattr(run_m1, "oracle_row_cache_keys", refuse)
         run_m1.run_oracle(out_dir=tmp_path, jobs=6)
         assert len(seen) == len(conform.ACCEPTANCE_CONFIGS) and set(seen) == {None}
-        assert "oracle row cache: unavailable" in capsys.readouterr().out
+        assert "[warn] oracle row cache: unavailable" in capsys.readouterr().out
         assert (tmp_path / "divergence-audit.tsv").is_file()
 
     def test_a_pass_that_may_not_write_a_store_rotates_its_coverage(self, monkeypatch, tmp_path):
@@ -616,11 +644,15 @@ class TestGatesOnly:
         self._gates(monkeypatch, ran)
         run_m1.main(["--gates-only", "--jobs", "6"])
         assert ran == ["subset", "aliases", "defects", "stage_a", "pins", "oracle"]
-        output = capsys.readouterr().out
-        assert "[t] baseline_subset" in output
-        assert "[t] alias_completeness" in output
-        assert "[t] defect_gates" in output
-        assert "[t] run_oracle" in output
+        opened, closed = _phases(capsys.readouterr().out)
+        assert opened == [
+            "baseline_subset",
+            "alias_completeness",
+            "defect_gates",
+            "run_manual_pin_gate",
+            "run_oracle",
+        ]
+        assert set(opened) <= set(closed)
 
     def test_it_rewrites_only_the_defect_fields_of_the_builds_summary(self, monkeypatch, tmp_path):
         """The gate the allow-list feeds writes its answer back into the summary the build left, so the judge reads this pass's defect verdict rather than the one a build reached before the bless. Everything else in that summary belongs to the build and survives untouched — nothing here recompiled a font or counted a GSUB rule."""

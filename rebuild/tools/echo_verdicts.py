@@ -9,6 +9,7 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
+from rebuild.tools import console  # noqa: E402
 from rebuild.tools.review_docket import load_units, verdicts_agree  # noqa: E402
 from rebuild.tools.verdict_notes import cap_markers  # noqa: E402
 
@@ -79,8 +80,9 @@ def main(argv=None, *, units=None):
     print(f"wrote {out.name}: {len(fills)} echo-fill verdicts onto manifest {manifest['generated_at']}")
 
     if conflicts:
-        print(
-            f"\n{len(conflicts)} echo groups hold disagreeing verdicts — the same change judged differently; worth a re-check:"
+        print()
+        console.warn(
+            f"{len(conflicts)} echo groups hold disagreeing verdicts — the same change judged differently; worth a re-check:"
         )
         for echo_id, members, judged in conflicts:
             ids = ",".join(unit["id"] for unit in members)

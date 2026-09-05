@@ -2,7 +2,7 @@
 
 Every one of those steps used to be its own `uv run` subprocess, and every one of them began by parsing all 1.9 GB of unit shards to reach a few slim fields — four full parses per cycle, twelve gigabytes of peak, and about fifty seconds of the chain's seventy. They read the index sidecar now (rebuild/review/unit_index), and reading it once and handing it down is the whole reason this module exists. The steps themselves are unchanged: each tool's `main` still does its own work and writes its own file, so `rebuild/tools/complaint_docket.py` and the rest remain runnable on their own for the sitting-prep targets in the Makefile. The standing fill runs in its `--open-only --require-reach` form here. The narrowing is what it writes from — the blanks and the units verdicted outside the accepting set are the only units that can move a fill or a warning — while the reach check is a reading of the surface rather than of the queue, taken over the whole human domain against a blank store, and it is a refusal: a checked-in rule that reaches no window on this surface fails this step, which turns the plumbing red and `make verdict-ready` NOT READY, until the rule is deleted or the form it waits for migrates.
 
-The chain prints a `[chain] <step>` banner before each step and a `[t] <step> <secs>s` line after it, which is what keeps the driver's per-step report and the cycle-timings journal reading exactly as they did when these were seven subprocesses.
+The chain opens each step with `rebuild.tools.console`'s `[phase] <step>` line and closes it with `[t] <step> <secs>s`, so the cycle surfaces the step it is on and the duration it took exactly as it does for every other child, and the cycle-timings journal reads what it always did. The `[chain] ` prefix is left to the two lines that are results rather than phases — the fixpoint witness and a step's failure — which is what still delimits the sections the driver reads its per-step report out of.
 
 The echo pass runs twice. Standing fills can make an echo group unanimous and leave a blank sibling, which is why a pass whose standing merge moved anything used to refuse the plumbing green and hand the cascade to the next cycle; holding the index in memory makes a second echo pass cost a second, so the chain closes the cascade itself and the green is witnessed — "a re-run would write nothing" — rather than inferred from an ordering argument. The echo-fill file holds every echo fill the chain landed, later rounds included, so the artifact and the store still say the same thing.
 """
@@ -24,6 +24,7 @@ from rebuild.review import unit_index  # noqa: E402
 from rebuild.tools import (  # noqa: E402
     carry_verdicts,
     complaint_docket,
+    console,
     echo_verdicts,
     merge_verdicts,
     standing_verdicts,
@@ -33,16 +34,13 @@ SURFACE = ROOT / "rebuild/out/review"
 AUTOSAVE = ROOT / "verdicts-autosave.json"
 ECHO_FILL = ROOT / "verdicts-echo-fill.json"
 STANDING_FILL = ROOT / "verdicts-standing-fill.json"
-BANNER = "[chain] "
-FIXPOINT_LINE = BANNER + "fixpoint: "
-FAILED_LINE = BANNER + "failed: "
 # Two rounds close the cascade by construction — standing can only feed echo, and an echo fill only ever removes blanks — so a third is the belt to that argument's braces and a fourth would mean the argument is wrong.
 MAX_ECHO_ROUNDS = 4
 
 
 def _run(name: str, call: Callable[[], int | None]) -> int:
-    """One step, banner-delimited and timed. A tool that fails by `SystemExit` — which is how the stamp guards and the rules-file validation refuse — reports its message and its code here rather than taking the whole chain down, so the steps after it can be reported as not run."""
-    print(BANNER + name, flush=True)
+    """One step, opened as a phase and timed. A tool that fails by `SystemExit` — which is how the stamp guards and the rules-file validation refuse — reports its message and its code here rather than taking the whole chain down, so the steps after it can be reported as not run."""
+    console.phase(name)
     started = time.perf_counter()
     try:
         code = call() or 0
@@ -54,7 +52,7 @@ def _run(name: str, call: Callable[[], int | None]) -> int:
         code = int(code or 0)
     print(f"[t] {name} {time.perf_counter() - started:.1f}s", flush=True)
     if code:
-        print(f"{FAILED_LINE}{name} (exit {code})", flush=True)
+        print(f"{console.FAILED_LINE}{name} (exit {code})", flush=True)
     return code
 
 
@@ -198,7 +196,7 @@ def main(argv: list[str] | None = None) -> int:
             if code:
                 return code
     print(
-        FIXPOINT_LINE
+        console.FIXPOINT_LINE
         + (
             "witnessed — a re-run of the fill cascade writes nothing"
             if settled

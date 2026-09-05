@@ -37,6 +37,7 @@ from rebuild.review.build import (
 )
 from rebuild.review.enrich import LETTERS
 from rebuild.review.export import _triage_projection, build_triage, load_units, load_verdicts
+from rebuild.tools import console
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 FIXTURES = REPO_ROOT / "rebuild" / "review" / "fixtures"
@@ -596,6 +597,41 @@ def test_a_serial_surface_build_files_no_pool_record(tmp_path, monkeypatch):
     monkeypatch.setattr("rebuild.tools.cycle_timings.JOURNAL", journal)
     review_build._record_surface_pool(0, {})
     assert not journal.exists()
+
+
+def test_a_pooled_build_counts_its_units_and_closes_every_phase_it_opens(tmp_path, mini_bundle, capsys):
+    """The two things a watcher gets from a build that runs for minutes, over the one workload small enough to prove them on: which phase it is in, and how far through the corpus its pool has got. Every phase pairs — the `[t] review.build <phase>` line the timings journal has always read is what closes the `[phase]` line the terminal opens — and the counter is summed across the workers as each answers rather than after the last one finishes, which is what the four lines are: each of the two workers reports its own slice in each of the two passes over the fresh pile. The two passes count under names of their own, so each name climbs to the total exactly once and the second pass reads as a second pass rather than as the first one's counter falling back. That the total is reached at all is the claim worth having, since a share left unread or a worker the parent stopped draining shows up here as a count that stops short of the units the manifest says this build wrote."""
+    out = tmp_path / "surface"
+    manifest = review_build.build_m1(
+        out,
+        audit_path=MINI / "audit.tsv",
+        ledger_path=mini_bundle.ledger,
+        subset_dir=MINI,
+        after_font=MINI / "M1.otf",
+        spec_root=mini_bundle.spec_root,
+        jobs=2,
+    )
+    events = [console.parse_line(line) for line in capsys.readouterr().err.splitlines()]
+    phases = [
+        "review.build load",
+        "review.build plan",
+        "review.build units",
+        "review.build manifest+check",
+        "review.build census-facts",
+        "review.build cache",
+    ]
+    assert [event.name for event in events if isinstance(event, console.Phase)] == phases
+    timings = {event.label: event for event in events if isinstance(event, console.Timing)}
+    assert list(timings) == phases
+    total = manifest["totals"]["units"]
+    assert timings["review.build units"].tail == f"(jobs=2, fresh={total:,}, verified=0 served)"
+    counters = [event for event in events if isinstance(event, console.Progress)]
+    assert counters and all(event.total == total for event in counters)
+    assert all(event.done is not None and 0 < event.done <= total for event in counters)
+    assert len(counters) == 4
+    for unit in (review_build.PHASE1_UNITS, review_build.PHASE2_UNITS):
+        climbed = [event.done for event in counters if event.unit == unit]
+        assert len(climbed) == 2 and climbed.count(total) == 1
 
 
 def test_close_finds_the_peak_behind_an_unconsumed_phase_reply(tmp_path, monkeypatch):

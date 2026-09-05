@@ -87,9 +87,9 @@ def _content_keys(surface: Path) -> dict[str, str]:
 
 
 def _served(capfd) -> tuple[int, int]:
-    match = re.search(r"served (\d+) of (\d+) units from cache", capfd.readouterr().err)
+    match = re.search(r"served (\d[\d,]*) of (\d[\d,]*) units from cache", capfd.readouterr().err)
     assert match, "the build did not report its cache plan"
-    return int(match.group(1)), int(match.group(2))
+    return int(match.group(1).replace(",", "")), int(match.group(2).replace(",", ""))
 
 
 @pytest.fixture(scope="module")

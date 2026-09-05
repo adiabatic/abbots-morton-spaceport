@@ -13,7 +13,7 @@ import argparse
 import datetime
 import hashlib
 import json
-import multiprocessing
+import multiprocessing.connection
 import random
 import shutil
 import subprocess
@@ -24,9 +24,9 @@ import warnings
 from collections.abc import Collection, Mapping
 from dataclasses import dataclass, replace
 from functools import lru_cache
-from itertools import combinations
+from itertools import batched, combinations
 from pathlib import Path
-from typing import TextIO
+from typing import TextIO, cast
 
 from rebuild.pipeline import fingerprint
 from rebuild.pipeline.baseline_subset import M1_ALPHABET
@@ -62,6 +62,7 @@ from rebuild.review.ink import (
     signature_digest,
 )
 from rebuild.review.enrich import (
+    EXPLAIN_UNIT_BATCH_SIZE,
     LETTERS,
     EnrichedUnit,
     Enricher,
@@ -74,6 +75,7 @@ from rebuild.review.enrich import (
     seam_home_projection,
     text_entities,
 )
+from rebuild.tools import console
 from rebuild.tools.cycle_timings import record_pool
 from rebuild.tools.peak_rss import peak_rss_self_bytes
 
@@ -735,7 +737,10 @@ def _resolve_signature_digests(
 
 
 def _surface_worker(conn, init: dict) -> None:
-    """A persistent, stateful surface worker (spawn-only: uharfbuzz/fontTools C objects are not fork-safe, and drafts._import_test_shaping mutates a module-global singleton). Phase 1 computes config_diff + enrich over its slice and retains each EnrichedUnit in-process; phase 2 injects the parent's global fields and emits the shard JSON from the retained enrichment. The third message, `verify`, recomputes both phases for a handful of units the cache served — units this worker never enriched — and answers with each one's content key and its freshly computed ink deltas, which is what makes the served fragments continuously checkable against a fresh computation of the same window."""
+    """A persistent, stateful surface worker (spawn-only: uharfbuzz/fontTools C objects are not fork-safe, and drafts._import_test_shaping mutates a module-global singleton). Phase 1 computes config_diff + enrich over its slice and retains each EnrichedUnit in-process; phase 2 injects the parent's global fields and emits the shard JSON from the retained enrichment. The third message, `verify`, recomputes both phases for a handful of units the cache served — units this worker never enriched — and answers with each one's content key and its freshly computed ink deltas, which is what makes the served fragments continuously checkable against a fresh computation of the same window.
+
+    Both working phases answer with a running count as each batch lands, ahead of the one `ok` that ends the phase, which is what lets the parent say how far through the corpus the pool is while it is still working rather than only once a worker has finished. `verify` sends none: it is a couple of hundred units against tens of thousands, and a counter nobody would read costs a message per unit.
+    """
     try:
         comparator = InkComparator(init["before_font"], init["after_font"], shaper_for)
         oracle = JuniorOracle(init["junior_font"], init["before_font"], init["after_font"], shaper_for)
@@ -764,11 +769,14 @@ def _surface_worker(conn, init: dict) -> None:
                         projection, enriched = _phase1_unit(unit, comparator, oracle, enricher, report)
                         retained[unit.unit_id] = enriched
                         results.append(projection)
+                    conn.send(("progress", len(results)))
                 conn.send(("ok", results))
             elif message[0] == "phase2":
                 fragments: dict[str, dict] = {}
-                for unit_id, injection in message[1].items():
-                    fragments[unit_id] = _phase2_unit(retained[unit_id], injection, drafter)
+                for batch in batched(message[1].items(), EXPLAIN_UNIT_BATCH_SIZE):
+                    for unit_id, injection in batch:
+                        fragments[unit_id] = _phase2_unit(retained[unit_id], injection, drafter)
+                    conn.send(("progress", len(fragments)))
                 conn.send(("ok", fragments))
             elif message[0] == "verify":
                 keys: dict[str, tuple] = {}
@@ -803,6 +811,10 @@ def _partition(items: list, parts: int) -> list[list]:
         slices.append(items[start : start + length])
         start += length
     return slices
+
+
+PHASE1_UNITS = "units enriched"
+PHASE2_UNITS = "units drafted"
 
 
 class _FreshRunner:
@@ -860,11 +872,8 @@ class _FreshRunner:
         if self._conns:
             for conn, chunk in zip(self._conns, self._slices):
                 conn.send(("phase1", chunk))
-            for conn in self._conns:
-                reply = conn.recv()
-                if reply[0] == "error":
-                    raise RuntimeError("surface worker failed in phase 1:\n" + reply[1])
-                for projection in reply[1]:
+            for results in self._collect("phase 1", PHASE1_UNITS):
+                for projection in results:
                     projections[projection.unit_id] = projection
         elif self._fresh:
             comparator, oracle, enricher, _drafter = self._in_process()
@@ -873,6 +882,7 @@ class _FreshRunner:
                     projection, enriched = _phase1_unit(unit, comparator, oracle, enricher, report)
                     self._retained[unit.unit_id] = enriched
                     projections[projection.unit_id] = projection
+                self._count(len(projections), PHASE1_UNITS)
         return projections
 
     def phase2(self, injections: dict[str, tuple]) -> dict[str, dict]:
@@ -881,18 +891,39 @@ class _FreshRunner:
             for conn, chunk in zip(self._conns, self._slices):
                 payload = {unit.unit_id: injections[unit.unit_id] for unit in chunk}
                 conn.send(("phase2", payload))
-            for conn in self._conns:
-                reply = conn.recv()
-                if reply[0] == "error":
-                    raise RuntimeError("surface worker failed in phase 2:\n" + reply[1])
-                fragments.update(reply[1])
+            for answered in self._collect("phase 2", PHASE2_UNITS):
+                fragments.update(answered)
         else:
             _comparator, _oracle, _enricher, drafter = self._in_process()
-            for unit in self._fresh:
-                fragments[unit.unit_id] = _phase2_unit(
-                    self._retained[unit.unit_id], injections[unit.unit_id], drafter
-                )
+            for batch in batched(self._fresh, EXPLAIN_UNIT_BATCH_SIZE):
+                for unit in batch:
+                    fragments[unit.unit_id] = _phase2_unit(
+                        self._retained[unit.unit_id], injections[unit.unit_id], drafter
+                    )
+                self._count(len(fragments), PHASE2_UNITS)
         return fragments
+
+    def _count(self, done: int, unit: str) -> None:
+        """Each phase counts under a unit name of its own, because both passes cover the same fresh pile in turn: one name for both would show a watcher a counter that reached the total and then, a minute later, fell back to a worker's first batch, with nothing on the terminal saying a second pass had begun."""
+        console.progress(done, len(self._fresh), unit, file=sys.stderr)
+
+    def _collect(self, label: str, unit: str) -> list:
+        """Every worker's answer to one phase, read as it arrives rather than one worker at a time — which is what lets a counter reach the terminal while the phase is still running, since a parent blocked on `recv` in submission order says nothing until its first worker has finished. `wait` hands back whichever connections have something; a `progress` tag replaces that worker's share of the count and reprints the sum, and the phase is over once every connection has answered. An error raises here exactly as it did when the parent recv'd in turn, and the replies queued behind it are drained by `close()`."""
+        share = dict.fromkeys(self._conns, 0)
+        waiting = list(self._conns)
+        answered: list = []
+        while waiting:
+            for conn in cast(list, multiprocessing.connection.wait(waiting)):
+                reply = conn.recv()
+                if reply[0] == "progress":
+                    share[conn] = reply[1]
+                    self._count(sum(share.values()), unit)
+                    continue
+                if reply[0] == "error":
+                    raise RuntimeError(f"surface worker failed in {label}:\n" + reply[1])
+                answered.append(reply[1])
+                waiting.remove(conn)
+        return answered
 
     def _in_process(self) -> tuple:
         """The comparator, oracle, enricher, and drafter the serial path works through, built once and on first use. Lazy because the verification sample can be the only work there is — a rebuild the cache served whole still recomputes its sample, and it must not pay for these until it does."""
@@ -1154,6 +1185,7 @@ def build_m1(
             f"missing or empty baseline subset tables under {subset_dir}: {', '.join(missing_subsets)}"
         )
 
+    console.phase("review.build load", file=sys.stderr)
     phase = time.perf_counter()
     workload = load_workload(audit_path, ledger_path, dict(LETTERS))
     if not workload.units:
@@ -1188,12 +1220,13 @@ def build_m1(
     workload.classes_present = [entry for entry in workload.ledger if entry.id in present]
     print(
         f"[t] review.build load {time.perf_counter() - phase:.1f}s"
-        f"\t(signatures: {len(signatures) - signatures_shaped} cached, {signatures_shaped} shaped)",
+        f"\t(signatures: {len(signatures) - signatures_shaped:,} cached, {signatures_shaped:,} shaped)",
         file=sys.stderr,
         flush=True,
     )
 
     # The incremental plan (issue 20; rebuild/review/unit_cache.py is the contract): key every unit over its content closure, serve what the previous surface already computed, and hand the runner only the remainder. The reduces below always run over the full universe, so every order- or ledger-derived field is this build's own.
+    console.phase("review.build plan", file=sys.stderr)
     phase = time.perf_counter()
     environment = unit_cache.environment_stamp(
         repo_root, spec, subset_dir, before_font, junior_font, helpers_digest
@@ -1222,11 +1255,12 @@ def build_m1(
     verify_units = [replace(unit) for unit in workload.units if unit.unit_id in sampled]
     print(
         f"[t] review.build plan {time.perf_counter() - phase:.1f}s"
-        f"\t(served {len(served)} of {len(workload.units)} units from cache)",
+        f"\t(served {len(served):,} of {len(workload.units):,} units from cache)",
         file=sys.stderr,
         flush=True,
     )
 
+    console.phase("review.build units", file=sys.stderr)
     phase = time.perf_counter()
     runner = _FreshRunner(
         fresh,
@@ -1353,11 +1387,12 @@ def build_m1(
     echo_count = len(echo_ids)
     print(
         f"[t] review.build units {time.perf_counter() - phase:.1f}s"
-        f"\t(jobs={jobs}, fresh={len(fresh)}, verified={len(verified)} served)",
+        f"\t(jobs={jobs}, fresh={len(fresh):,}, verified={len(verified):,} served)",
         file=sys.stderr,
         flush=True,
     )
 
+    console.phase("review.build manifest+check", file=sys.stderr)
     phase = time.perf_counter()
     manifest = _write_surface(
         out_dir,
@@ -1383,6 +1418,7 @@ def build_m1(
     )
     print(f"[t] review.build manifest+check {time.perf_counter() - phase:.1f}s", file=sys.stderr, flush=True)
 
+    console.phase("review.build census-facts", file=sys.stderr)
     phase = time.perf_counter()
     premerge_facts = census.derive_premerge(premerge_capture, workload.units)
     # An UNMATCHED window is a real new join under review, so it is never ink-identical — a whole-corpus fact rather than a property of the projection, which is why it is asserted over the live workload here and not inside `derive_premerge`, where synthetic callers legitimately build the shape it forbids.
@@ -1402,6 +1438,7 @@ def build_m1(
     )
     print(f"[t] review.build census-facts {time.perf_counter() - phase:.1f}s", file=sys.stderr, flush=True)
 
+    console.phase("review.build cache", file=sys.stderr)
     phase = time.perf_counter()
     records = []
     for unit in workload.units:

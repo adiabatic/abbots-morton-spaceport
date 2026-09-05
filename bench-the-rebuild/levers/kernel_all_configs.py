@@ -4,7 +4,7 @@ Read-only on the repo. The spec dump and the transition streams are all this wri
 
   kernel_all_configs.py [--mode serial|parallel] [--threads N] [--configs a,b] [--spec <dump>] [--rung N] [--reps N]
 
-Two modes, because the port's claim has two halves. `serial` is `--threads=1`, every configuration in listed order, the default, and the arm whose per-configuration walls sum; `parallel` is the fan-out, `--threads` wide, defaulting to as many as the machine will give. The kernel caps whatever it is asked for at the number of configurations there are to answer, so a row's `threads` is the width that actually ran and `threads_requested` is the number that was asked for — a `--threads=32` over the whole acceptance set is a run at one thread per configuration. Either way the streams land in files rather than coming back through a pipe, so neither arm is charged for stdout plumbing, and the per-configuration walls are the child's own `[t]` lines rather than anything this process could time from outside — at the one decimal the kernel prints them in, and null rather than 0.0 for a phase the child never reported, since a zero there would read as a measurement. What a `[t]` line looks like is `cycle_timings._INNER_LINE`, imported rather than copied, so this harness and the artifact cycle's own reader cannot come to disagree about the shape.
+Two modes, because the port's claim has two halves. `serial` is `--threads=1`, every configuration in listed order, the default, and the arm whose per-configuration walls sum; `parallel` is the fan-out, `--threads` wide, defaulting to as many as the machine will give. The kernel caps whatever it is asked for at the number of configurations there are to answer, so a row's `threads` is the width that actually ran and `threads_requested` is the number that was asked for — a `--threads=32` over the whole acceptance set is a run at one thread per configuration. Either way the streams land in files rather than coming back through a pipe, so neither arm is charged for stdout plumbing, and the per-configuration walls are the child's own `[t]` lines rather than anything this process could time from outside — at the one decimal the kernel prints them in, and null rather than 0.0 for a phase the child never reported, since a zero there would read as a measurement. What a `[t]` line looks like is `console.INNER_LINE`, imported rather than copied, so this harness and the artifact cycle's own reader cannot come to disagree about the shape.
 
 The child is what gets measured, never this process: `/usr/bin/time` wraps the invocation for the peak resident set (darwin reports bytes where Linux reports KiB, and `peak_rss.parse_time_output` normalizes both dialects back to bytes), `resource.getrusage(RUSAGE_CHILDREN)` deltas carry the CPU, and the wall covers the whole invocation. The `[t]` lines and `/usr/bin/time`'s own report share the one stderr, and both are parsed back out of the single capture. A box with no `/usr/bin/time` still gets its walls and its CPU, and reports a null peak rather than a guessed one.
 
@@ -41,7 +41,7 @@ sys.path.insert(0, str(ROOT))
 from rebuild.pipeline import conform, kernel_exec, kernel_io
 from rebuild.pipeline.spec_load import load_default_spec
 from rebuild.tools import peak_rss, scaling_ladder
-from rebuild.tools.cycle_timings import _INNER_LINE
+from rebuild.tools.console import INNER_LINE
 
 
 def cpu_children() -> float:
@@ -55,7 +55,7 @@ def peak_rss_gb(text: str) -> float | None:
 
 
 def phase_times(text: str) -> dict[str, float]:
-    return {match.group(1): float(match.group(2)) for match in _INNER_LINE.finditer(text)}
+    return {match.group(1): float(match.group(2)) for match in INNER_LINE.finditer(text)}
 
 
 def digest_of(path: Path) -> str:
