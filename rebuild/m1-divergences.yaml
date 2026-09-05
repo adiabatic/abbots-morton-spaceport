@@ -58,7 +58,7 @@
   exemplars:
     - {config: default, codepoints: "E652:E670:E652:E679", baseline: "qsTea|qsIt|qsTea_qsOy (Tea.It break)", new: "qsTea.half.ex-y5|qsIt.hapax.en-y5|qsTea_qsOy (y5 join kept)"}
   why: |
-    Today's calt_post_liga_left_cleanup_pred reverts the pre-predecessor's join whenever the predecessor withdraws before the entryless ligature, over-reaching onto seams the withdrawal never touched (the never-ported demote/cleanup mechanism, recon section 13.4). Settlement withdraws exactly the one declined exit; the unrelated join one position left survives. Round-1 verdict: 6 approvals; u-0272's kept join lost the rejected en-ext-1 pixel when qsIt's halves entry-extension record was deleted (exemplar refreshed accordingly).
+    Today's calt_post_liga_left_cleanup_pred reverts the pre-predecessor's join whenever the predecessor withdraws before the entryless ligature, over-reaching onto seams the withdrawal never touched (the never-ported demote/cleanup mechanism, recon section 13.4). Settlement withdraws exactly the one declined exit; the unrelated join one position left survives. Round-1 verdict: 6 approvals; u-0272's kept join lost the rejected en-ext-1 pixel when qsIt's halves entry-extension record was deleted (the exemplar was refreshed accordingly).
 
 - id: regrouping-floor-drift
   status: reviewed-rejected
