@@ -5,9 +5,10 @@ from __future__ import annotations
 import hashlib
 import logging
 import marshal
+import sys
 from collections import Counter
 from pathlib import Path
-from typing import Callable
+from typing import Callable, NamedTuple
 
 from fontTools.pens.recordingPen import DecomposingRecordingPen
 from fontTools.ttLib import TTFont
@@ -69,8 +70,31 @@ def signature_digest(signature: tuple) -> str:
     return hashlib.sha256(marshal.dumps(signature, 2)).hexdigest()
 
 
+class ShapeMemoCensus(NamedTuple):
+    """What a shape memo holds: its entry count, and an approximate byte figure for the keys and results behind them — approximate because it is `sys.getsizeof` summed over the containers and the ints they hold, so it neither follows the glyph names (which are the font's own glyph-order strings, shared by every entry that shapes the same glyph) nor discounts the small ints CPython interns. Cheap enough to take at a batch boundary; it is the instrument issue #150's measurement reads beside a worker's peak, never something the build consults."""
+
+    entries: int
+    approx_bytes: int
+
+
+def _approx_entry_bytes(key: tuple, result: ShapeResult) -> int:
+    text, features = key
+    size = sys.getsizeof(key) + sys.getsizeof(text)
+    if features is not None:
+        size += sys.getsizeof(features) + sum(
+            sys.getsizeof(pair) + sys.getsizeof(pair[0]) for pair in features
+        )
+    size += sys.getsizeof(result) + sys.getsizeof(result.__dict__)
+    size += sys.getsizeof(result.names) + sys.getsizeof(result.clusters) + sys.getsizeof(result.positions)
+    size += sum(sys.getsizeof(cluster) for cluster in result.clusters)
+    size += sum(
+        sys.getsizeof(position) + sum(sys.getsizeof(v) for v in position) for position in result.positions
+    )
+    return size
+
+
 class _MemoizedShaper(Shaper):
-    """A Shaper whose `shape` memoizes by (text, features): the surface build shapes the same (text, config) for `config_diff`, again in `Enricher.enrich`, again in the JuniorOracle, and a fourth time in the Drafter's semantics replay, and the memo collapses those to one HarfBuzz call per process. Unbounded on purpose — only the surface build opts in (via `shaper_for`), its working set is bounded by the fresh-unit slice, and the retained EnrichedUnits dominate worker memory anyway."""
+    """A Shaper whose `shape` memoizes by (text, features): the surface build shapes the same (text, config) for `config_diff`, again in `Enricher.enrich`, again in the JuniorOracle, and once more in the Drafter's semantics replay, and the memo collapses the first three to one HarfBuzz call. Bounded by the unit batch rather than by the build: the surface build releases every registered memo behind each unit batch (`release_shape_memos`, which rebuild/review/build.py's `_phase1_batches` and `_released_batches` call in the pool worker and the in-process runner alike, and which the parent's serial signature pass calls once it is done), so what a memo holds at any moment is one batch's windows, and the price of the bound is one re-shape per unit for the drafter's phase-2 replay, which runs after every phase-1 batch has been released. Only the surface build opts in, via `shaper_for`. What the bound is worth in a process's peak is not yet measured: the premise an unbounded memo rests on, that the retained EnrichedUnits dominate worker memory anyway, has never been read off a build — the reading that settles it is the `surface-build` step peak and a pooled build's kind:"pool" worker peaks with and without the release, on one tree and one pass apart, with `census` taken at the boundary beside them (issue #150), and it belongs in this sentence when it exists."""
 
     def __init__(self, font_path: Path | str) -> None:
         super().__init__(font_path)
@@ -83,8 +107,33 @@ class _MemoizedShaper(Shaper):
             result = self._memo[key] = super().shape(text, features)
         return result
 
+    def release(self) -> None:
+        """Forget every shape held, so the next `shape` of any text pays HarfBuzz again. The whole of the bound is this one statement: an A/B of the build with and without it replaces the `clear()` line with `pass` and touches nothing else, since every path reaches the release through here."""
+        self._memo.clear()
+
+    def census(self) -> ShapeMemoCensus:
+        return ShapeMemoCensus(
+            len(self._memo), sum(_approx_entry_bytes(key, result) for key, result in self._memo.items())
+        )
+
 
 _shaper_registry: dict[tuple[str, int, int], _MemoizedShaper] = {}
+
+
+def release_shape_memos() -> None:
+    """Release every memo `shaper_for` has handed out in this process — the surface build's unit batch boundary, called behind each batch in every path the build has. The shapers themselves stay registered, so the font loads they collapsed are never repeated; only their shapes go."""
+    for shaper in _shaper_registry.values():
+        shaper.release()
+
+
+def shape_memo_census() -> ShapeMemoCensus:
+    """What every registered memo holds between them, summed: the figure a measurement reads at a batch boundary, or at a worker's stop with the release disabled, beside the process's peak RSS."""
+    entries = approx_bytes = 0
+    for shaper in _shaper_registry.values():
+        census = shaper.census()
+        entries += census.entries
+        approx_bytes += census.approx_bytes
+    return ShapeMemoCensus(entries, approx_bytes)
 
 
 def shaper_for(font_path: Path | str) -> Shaper:

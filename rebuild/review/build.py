@@ -58,6 +58,7 @@ from rebuild.review.ink import (
     InkComparator,
     JuniorOracle,
     delta_digest,
+    release_shape_memos,
     shaper_for,
     signature_digest,
 )
@@ -664,6 +665,20 @@ def _phase2_unit(enriched: EnrichedUnit, injection, drafter: Drafter) -> dict:
     return unit_to_json(enriched, drafter)
 
 
+def _phase1_batches(enricher: Enricher, units):
+    """Phase 1's unit batches, released as each one closes. The enricher's settlement batches (`Enricher.explain_unit_batches`) are the build's unit batch boundary, and the shared shape memo (`ink.release_shape_memos`) is released behind every one of them, so what the comparator, the oracle and the enricher share across a batch — each (text, config) shaped once for the three of them — is what a process holds at any moment, rather than everything its slice ever shaped. The pool worker and the in-process runner both iterate this rather than the enricher's batches directly, which is what makes the bound a fact about the build and not about one of its paths."""
+    for unit_batch, reports in enricher.explain_unit_batches(units):
+        yield unit_batch, reports
+        release_shape_memos()
+
+
+def _released_batches(items):
+    """The same boundary for the loops that settle nothing and so have no enricher batch to ride: phase 2, where the drafter's replay shapes each unit once more because phase 1's batches were released behind it, and the verification sample, which recomputes both phases per unit. Chunked at the enricher's own batch width so the memo has one bound across the whole build."""
+    for chunk in batched(items, EXPLAIN_UNIT_BATCH_SIZE):
+        yield chunk
+        release_shape_memos()
+
+
 VERIFICATION_SAMPLE = 200
 
 
@@ -700,7 +715,7 @@ def _resolve_signature_digests(
     jobs: int,
     fresh: bool,
 ) -> tuple[dict[tuple[str, str], str], dict[str, str], str, int]:
-    """The ink-duplicate merge's signature digests, one per row of `signature_rows`, served from the persisted store where the content key still holds and shaped live for the remainder — across a spawn pool when the miss pile is deep enough to amortize its startup, else serially through the parent's shared shapers. Returns the digests keyed (codepoints, config), the store records to persist after the build, the store's environment stamp, and the count actually shaped."""
+    """The ink-duplicate merge's signature digests, one per row of `signature_rows`, served from the persisted store where the content key still holds and shaped live for the remainder — across a spawn pool when the miss pile is deep enough to amortize its startup, else serially through the parent's shared shapers, whose memo is released once the pass is done so the parent carries no shape from it into the units phase. Returns the digests keyed (codepoints, config), the store records to persist after the build, the store's environment stamp, and the count actually shaped."""
     environment = unit_cache.signature_environment(repo_root, before_font, helpers_digest)
     prior = None if fresh else unit_cache.load_signature_store(out_dir, environment)
     keys = {(row.codepoints, row.config): keyer.signature_key(row) for row in rows}
@@ -730,6 +745,7 @@ def _resolve_signature_digests(
         else:
             comparator = InkComparator(before_font, after_font, shaper_for)
             digests = [signature_digest(comparator.signature(text, config)) for text, config in pairs]
+            release_shape_memos()
         for row, digest in zip(misses, digests):
             signatures[(row.codepoints, row.config)] = digest
             entries[keys[(row.codepoints, row.config)]] = digest
@@ -737,7 +753,7 @@ def _resolve_signature_digests(
 
 
 def _surface_worker(conn, init: dict) -> None:
-    """A persistent, stateful surface worker (spawn-only: uharfbuzz/fontTools C objects are not fork-safe, and drafts._import_test_shaping mutates a module-global singleton). Phase 1 computes config_diff + enrich over its slice and retains each EnrichedUnit in-process; phase 2 injects the parent's global fields and emits the shard JSON from the retained enrichment. The third message, `verify`, recomputes both phases for a handful of units the cache served — units this worker never enriched — and answers with each one's content key and its freshly computed ink deltas, which is what makes the served fragments continuously checkable against a fresh computation of the same window.
+    """A persistent, stateful surface worker (spawn-only: uharfbuzz/fontTools C objects are not fork-safe, and drafts._import_test_shaping mutates a module-global singleton). Phase 1 computes config_diff + enrich over its slice, batch by batch with the shared shape memo released behind each (`_phase1_batches`), and retains each EnrichedUnit in-process; phase 2 injects the parent's global fields and emits the shard JSON from the retained enrichment. The third message, `verify`, recomputes both phases for a handful of units the cache served — units this worker never enriched — and answers with each one's content key and its freshly computed ink deltas, which is what makes the served fragments continuously checkable against a fresh computation of the same window.
 
     Both working phases answer with a running count as each batch lands, ahead of the one `ok` that ends the phase, which is what lets the parent say how far through the corpus the pool is while it is still working rather than only once a worker has finished. `verify` sends none: it is a couple of hundred units against tens of thousands, and a counter nobody would read costs a message per unit.
     """
@@ -764,7 +780,7 @@ def _surface_worker(conn, init: dict) -> None:
                 return
             if message[0] == "phase1":
                 results: list[_UnitProjection] = []
-                for unit_batch, reports in enricher.explain_unit_batches(message[1]):
+                for unit_batch, reports in _phase1_batches(enricher, message[1]):
                     for unit, report in zip(unit_batch, reports):
                         projection, enriched = _phase1_unit(unit, comparator, oracle, enricher, report)
                         retained[unit.unit_id] = enriched
@@ -773,17 +789,18 @@ def _surface_worker(conn, init: dict) -> None:
                 conn.send(("ok", results))
             elif message[0] == "phase2":
                 fragments: dict[str, dict] = {}
-                for batch in batched(message[1].items(), EXPLAIN_UNIT_BATCH_SIZE):
-                    for unit_id, injection in batch:
+                for chunk in _released_batches(message[1].items()):
+                    for unit_id, injection in chunk:
                         fragments[unit_id] = _phase2_unit(retained[unit_id], injection, drafter)
                     conn.send(("progress", len(fragments)))
                 conn.send(("ok", fragments))
             elif message[0] == "verify":
                 keys: dict[str, tuple] = {}
-                for unit, injection in message[1]:
-                    projection, enriched = _phase1_unit(unit, comparator, oracle, enricher, None)
-                    fragment = _phase2_unit(enriched, injection, drafter)
-                    keys[unit.unit_id] = (fragment["content_key"], projection.ink_deltas)
+                for chunk in _released_batches(message[1]):
+                    for unit, injection in chunk:
+                        projection, enriched = _phase1_unit(unit, comparator, oracle, enricher, None)
+                        fragment = _phase2_unit(enriched, injection, drafter)
+                        keys[unit.unit_id] = (fragment["content_key"], projection.ink_deltas)
                 conn.send(("ok", keys))
     except Exception:
         try:
@@ -877,7 +894,7 @@ class _FreshRunner:
                     projections[projection.unit_id] = projection
         elif self._fresh:
             comparator, oracle, enricher, _drafter = self._in_process()
-            for unit_batch, reports in enricher.explain_unit_batches(self._fresh):
+            for unit_batch, reports in _phase1_batches(enricher, self._fresh):
                 for unit, report in zip(unit_batch, reports):
                     projection, enriched = _phase1_unit(unit, comparator, oracle, enricher, report)
                     self._retained[unit.unit_id] = enriched
@@ -895,8 +912,8 @@ class _FreshRunner:
                 fragments.update(answered)
         else:
             _comparator, _oracle, _enricher, drafter = self._in_process()
-            for batch in batched(self._fresh, EXPLAIN_UNIT_BATCH_SIZE):
-                for unit in batch:
+            for chunk in _released_batches(self._fresh):
+                for unit in chunk:
                     fragments[unit.unit_id] = _phase2_unit(
                         self._retained[unit.unit_id], injections[unit.unit_id], drafter
                     )
@@ -968,10 +985,11 @@ class _FreshRunner:
                 keys.update(reply[1])
         else:
             comparator, oracle, enricher, drafter = self._in_process()
-            for unit in self._verify:
-                projection, enriched = _phase1_unit(unit, comparator, oracle, enricher, None)
-                fragment = _phase2_unit(enriched, injections[unit.unit_id], drafter)
-                keys[unit.unit_id] = (fragment["content_key"], projection.ink_deltas)
+            for chunk in _released_batches(self._verify):
+                for unit in chunk:
+                    projection, enriched = _phase1_unit(unit, comparator, oracle, enricher, None)
+                    fragment = _phase2_unit(enriched, injections[unit.unit_id], drafter)
+                    keys[unit.unit_id] = (fragment["content_key"], projection.ink_deltas)
         return keys
 
     def close(self) -> None:
