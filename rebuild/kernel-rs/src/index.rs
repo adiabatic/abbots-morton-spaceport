@@ -75,10 +75,8 @@ impl SpecIndex {
             withdrawn.insert(height, spec.symbols.intern(&composed));
         }
         let mut ids = HashMap::with_capacity(spec.symbols.len());
-        for raw in 0..spec.symbols.len() {
-            let symbol = Sym(u32::try_from(raw)
-                .expect("a spec dump interns far fewer than four billion strings"));
-            ids.insert(spec.symbols.resolve(symbol).to_owned(), symbol);
+        for (symbol, text) in spec.symbols.iter() {
+            ids.insert(text.to_owned(), symbol);
         }
         let mut runes = HashMap::with_capacity(spec.root.runes.len());
         let mut rune_index = Vec::with_capacity(spec.root.runes.len());

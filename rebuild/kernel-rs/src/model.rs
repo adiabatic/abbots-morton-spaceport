@@ -5,16 +5,35 @@
 //! Heights stay ordinary symbols at this stage. The registry's `heights` mapping is the authority on what each one means, and the deeper packing belongs to the sub-issues after this one; enum-ifying the vocabulary now would freeze something the dump is allowed to grow. The prior art's derived accelerators — feature masks, entry-bearing flags, letter bitmasks — are likewise absent on purpose: ingest is faithful and lossless and nothing more.
 
 use std::collections::HashMap;
+use std::num::NonZeroU32;
 
-/// An interned vocabulary string, valid only against the [`Interner`] that minted it. Comparison, hashing, and later packing all happen on the `u32`, never on the text.
+/// An interned vocabulary string, valid only against the [`Interner`] that minted it. Comparison, hashing, and later packing all happen on the integer, never on the text.
+///
+/// The integer is a `NonZeroU32` rather than a `u32` so that `Option<Sym>` is four bytes: zero is the niche the compiler folds `None` into, and a side that did not join — `CellId.entry`, `Settled.seam`, `Candidate.entry`, the engine's left-context fields — costs no discriminant beside the value (issue #164). The pool mints from one to keep zero free, and that offset is the interner's business alone: nothing outside it reads the integer, and a symbol's order is still its minting order, so anything sorted on symbols sorts as it did.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Sym(pub u32);
+pub struct Sym(NonZeroU32);
 
 /// The one string pool a parsed dump resolves through: a `Vec<String>` for `Sym` to text and a `HashMap` for text to `Sym`, both on the standard SipHash hasher. A finalizer-less fast hasher measured far slower than SipHash on this project's keys, whose low bits are a five-value alphabet, so the standard hasher is a measured choice rather than a default left in place.
 #[derive(Clone, Debug, Default)]
 pub struct Interner {
     strings: Vec<String>,
     ids: HashMap<String, Sym>,
+}
+
+impl Sym {
+    /// The symbol for the pool's `seat`-th string. The seat's successor is the integer, which is what keeps zero free for the niche.
+    fn at(seat: usize) -> Self {
+        let raw = u32::try_from(seat)
+            .ok()
+            .and_then(|seat| seat.checked_add(1))
+            .expect("a spec dump interns far fewer than four billion strings");
+        Self(NonZeroU32::new(raw).expect("a seat's successor is never zero"))
+    }
+
+    /// The seat this symbol's text sits at in the pool that minted it.
+    fn seat(self) -> usize {
+        (self.0.get() - 1) as usize
+    }
 }
 
 impl Interner {
@@ -28,8 +47,7 @@ impl Interner {
         if let Some(&known) = self.ids.get(value) {
             return known;
         }
-        let minted = Sym(u32::try_from(self.strings.len())
-            .expect("a spec dump interns far fewer than four billion strings"));
+        let minted = Sym::at(self.strings.len());
         self.strings.push(value.to_owned());
         self.ids.insert(value.to_owned(), minted);
         minted
@@ -37,7 +55,15 @@ impl Interner {
 
     /// The text `symbol` stands for. An out-of-range symbol panics; an in-range symbol minted by another interner resolves, silently, to whatever this pool holds at that seat — nothing detects the crossing, which is why a [`Spec`] carries its own `Interner` and the two only ever travel together.
     pub fn resolve(&self, symbol: Sym) -> &str {
-        &self.strings[symbol.0 as usize]
+        &self.strings[symbol.seat()]
+    }
+
+    /// Every symbol the pool has minted beside its text, in minting order — the one way to enumerate a pool, so that no caller has to know where the seats start.
+    pub fn iter(&self) -> impl Iterator<Item = (Sym, &str)> {
+        self.strings
+            .iter()
+            .enumerate()
+            .map(|(seat, text)| (Sym::at(seat), text.as_str()))
     }
 
     /// How many distinct strings the pool holds.
@@ -344,6 +370,31 @@ mod tests {
         assert_eq!(symbols.resolve(empty), "");
         assert_eq!(symbols.resolve(dot), "\u{b7}Zoo");
         assert!(!symbols.is_empty());
+    }
+
+    #[test]
+    fn an_absent_symbol_costs_no_more_than_a_present_one() {
+        assert_eq!(std::mem::size_of::<Sym>(), 4);
+        assert_eq!(std::mem::size_of::<Option<Sym>>(), 4);
+    }
+
+    #[test]
+    fn symbols_order_and_enumerate_in_minting_order() {
+        let mut symbols = Interner::new();
+        let minted: Vec<Sym> = ["top", "x-height", "baseline"]
+            .into_iter()
+            .map(|name| symbols.intern(name))
+            .collect();
+        assert!(minted[0] < minted[1] && minted[1] < minted[2]);
+        let walked: Vec<(Sym, &str)> = symbols.iter().collect();
+        assert_eq!(
+            walked,
+            [
+                (minted[0], "top"),
+                (minted[1], "x-height"),
+                (minted[2], "baseline")
+            ]
+        );
     }
 
     #[test]

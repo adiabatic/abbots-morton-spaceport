@@ -775,14 +775,16 @@ fn verdict(live: bool) -> String {
 
 /// The rune names a key spells, resolved against the spec that will answer for it. A name the spec never modeled is a hard error rather than a `dead` answer: the key was cut against some other spec, and answering it would compare two different questions.
 fn families<const N: usize>(index: &SpecIndex, names: [&&str; N]) -> Result<[Sym; N], String> {
-    let mut out = [Sym(0); N];
+    let mut out = [None; N];
     for (seat, name) in names.iter().enumerate() {
-        out[seat] = index
-            .sym_of(name)
-            .filter(|rune| index.is_modeled(*rune))
-            .ok_or_else(|| format!("{name} is not a rune this spec models"))?;
+        out[seat] = Some(
+            index
+                .sym_of(name)
+                .filter(|rune| index.is_modeled(*rune))
+                .ok_or_else(|| format!("{name} is not a rune this spec models"))?,
+        );
     }
-    Ok(out)
+    Ok(out.map(|rune| rune.expect("every seat was filled before the loop ended")))
 }
 
 /// One context's fiber partition as compact JSON: the boundary options, then one object per fiber carrying its members, its fourth-slot verdict and its r4 groups.
