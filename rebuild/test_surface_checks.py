@@ -603,15 +603,38 @@ def test_a_loaded_subset_row_is_the_projection_the_enricher_reads(tmp_path):
     assert other.clusters is projected.clusters
 
 
-def test_the_projection_drops_nothing_the_enricher_reads_from_a_real_table():
-    """Over the frozen bundle's default table, every row `iter_rows` parses is in the projection under its codepoint key with the same glyphs, clusters and seams. A synthetic two-row table pins the shape; this pins it against a table the extractor actually wrote, ligature rows and boundary tokens included."""
-    path = MINI / "baseline-default.subset.tsv.gz"
+@pytest.mark.parametrize(
+    "path", sorted(MINI.glob("baseline-*.subset.tsv.gz")), ids=lambda path: path.name.split(".")[0]
+)
+def test_the_projection_drops_nothing_the_enricher_reads_from_a_real_table(path: Path):
+    """Over every table the frozen bundle ships, the projection is row for row what `rowmodel.Row` would have parsed: the same codepoint keys in file order, and under each the same glyphs, clusters and seams. `iter_rows` is the oracle here on purpose — `load_subset_rows` never builds a `Row`, it splits a line once and reads three of its fields, so the row model's parse is the independent reading this holds it to. A synthetic two-row table pins the shape; this pins it against tables the extractor actually wrote, ligature rows and boundary tokens included."""
     table = load_subset_rows(path)
     parsed = list(iter_rows(path))
-    assert len(table) == len(parsed)
+    assert list(table) == [":".join(f"{value:04X}" for value in row.codepoints) for row in parsed]
     for row in parsed:
         projected = table[":".join(f"{value:04X}" for value in row.codepoints)]
         assert (projected.glyphs, projected.clusters, projected.seams) == (
+            row.glyphs,
+            row.clusters,
+            row.seams,
+        )
+
+
+def test_a_subset_key_is_spelled_the_way_the_row_model_spells_it(tmp_path):
+    """The key is the codepoint field's own text only when that text already has the uppercase four-digit spelling `Row.to_tsv` writes; any other spelling `int` accepts — lowercase, unpadded — lands under the same normalized key the row model would have produced, so a table's provenance never decides which key a window is found under. Header and blank lines are skipped the way `iter_rows` skips them."""
+    path = tmp_path / "baseline-spelled.subset.tsv.gz"
+    with gzip.open(path, "wt", encoding="utf-8") as stream:
+        stream.write("# config: default\n")
+        stream.write("# rows: 2\n")
+        stream.write("\n")
+        stream.write("e650:e652\tqsPea|qsTea\t0,1\ty0\t0,0,10|0,0,12\n")
+        stream.write("E650:E652:E650\tqsPea|qsTea|qsPea\t0,1,2\ty0,y0\t0,0,10|0,0,12|0,0,14\n")
+    table = load_subset_rows(path)
+    assert list(table) == ["E650:E652", "E650:E652:E650"]
+    parsed = {":".join(f"{value:04X}" for value in row.codepoints): row for row in iter_rows(path)}
+    assert list(parsed) == list(table)
+    for key, row in parsed.items():
+        assert (table[key].glyphs, table[key].clusters, table[key].seams) == (
             row.glyphs,
             row.clusters,
             row.seams,
