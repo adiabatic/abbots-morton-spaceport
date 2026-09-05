@@ -26,7 +26,7 @@ from rebuild.tools.cycle_timings import CycleTimings
 REPO_ROOT = Path(__file__).resolve().parents[1]
 # The box every plan here is resolved against. A width asserted in this file has to be a fact about an invented machine rather than about whichever one is running the suite, and 44 GB is chosen for what it separates: the fan-out fits three configurations there alone and two beside gate:make-test's pytest pool, so a reservation that stopped happening would show up as a changed number rather than as the same one twice. Both spellings of 32 GB sit on an edge that answers 2 and 2 or 2 and 1 depending on the unit convention, which is a worse box to reason about.
 BOX_44_GB = 44_000_000_000
-# The fleet's two real machines, for the surface width's assertions. With a worker priced at its width-two peak, no box either machine offers separates the build's arms — both answer serial alone and beside gate:make-test's pool — so the reservation arithmetic is asserted at the `_surface_fit_terms` seam, where no box enters at all, and the widths here are asserted against the machines that actually run them rather than against one invented to sit where the subtraction would move a floor: 51_539_607_552 is the 48 GiB box whose width-two pool outran the eight-wide worker seed, and 34_359_738_368 is the 32 GiB Mac the eight-wide core clamp drove into swap.
+# The fleet's two real machines, for the surface width's assertions. With a worker priced at its width-two peak, no box either machine offers separates the build's arms — the pool's bytes come off a box with a worker's worth of slack left over on both — so the reservation arithmetic is asserted at the `_surface_fit_terms` seam, where no box enters at all, and the widths here are asserted against the machines that actually run them rather than against one invented to sit where the subtraction would move a width: 51_539_607_552 is the 48 GiB box whose width-two pool outran the eight-wide worker seed, and 34_359_738_368 is the 32 GiB Mac the eight-wide core clamp drove into swap.
 BOX_48_GIB = 51_539_607_552
 BOX_32_GIB = 34_359_738_368
 
@@ -2015,9 +2015,9 @@ class TestTheSurfaceBuildWidth:
         assert ac.surface_job_budget(skip_gates=False, ncores=5, total_bytes=1_000_000_000_000) == 3
 
     def test_memory_binds_before_the_cap_once_the_box_is_small_enough(self):
-        """The direction that makes deriving this width worth doing: the 48 GiB box has twelve cores' worth of permission and room for exactly one worker once the parent's own pile is off it, so it builds serially rather than at the eight a core clamp handed every box alike."""
-        assert ac.surface_job_budget(skip_gates=True, ncores=12, total_bytes=BOX_48_GIB) == 1
-        assert ac.surface_job_budget(skip_gates=True, ncores=12, total_bytes=BOX_48_GIB) < ac.SURFACE_JOBS_CAP
+        """The direction that makes deriving this width worth doing: the 48 GiB box has twelve cores' worth of permission, and what it runs is the pool that fits beside the parent's own pile rather than the eight a core clamp handed every box alike. Both bounds are inequalities because both surface constants are readings to keep current: a re-seed may move the width, but it must neither floor this box nor hand it the cap."""
+        width = ac.surface_job_budget(skip_gates=True, ncores=12, total_bytes=BOX_48_GIB)
+        assert 1 < width < ac.SURFACE_JOBS_CAP
 
     def test_the_pytest_pool_comes_off_the_box_before_the_division(self):
         """A cycle runs this build beside gate:make-test's pool rather than alone, so the pool's bytes join the co-resident term and its two cores come off the cap before anything divides. Asserted at the fit-terms seam rather than over an invented box: with a worker priced at its width-two peak, no machine in the fleet is roomy enough for the subtraction to move the resulting width, and a box invented to sit exactly where it would is a magic number every re-seed has to re-tune."""
@@ -2145,14 +2145,15 @@ def test_dry_run_renders_concurrency():
     assert "Lane conform                     : SKIPPED (--skip-conform)" in _plan_text(
         _plan(skip_conform=True)
     )
-    assert "surface-build --jobs             : 1" in text
+    surface_width = ac.surface_job_budget(skip_gates=False, ncores=12, total_bytes=BOX_44_GB)
+    assert f"surface-build --jobs             : {surface_width}" in text
     _per_unit, coresident, _cap = ac._surface_fit_terms(skip_gates=False, skip_make_test=False, ncores=12)
     assert f"less {format_gb(coresident)} GB co-resident" in text
 
     by_name = {step.name: step for step in plan.steps}
     assert _argv(by_name["run_m1"])[1:6] == ["run", "python", "-m", "rebuild.pipeline.run_m1", "--jobs"]
-    # A width of one is stated on the command line like any other. It used to be the one width that emitted no flag, which handed the child its own default — the unreserved arm of the same budget, a different number wherever the pool subtraction changes the answer — and the memory term makes one a width the arithmetic actually reaches.
-    assert _argv(by_name["surface-build"])[-2:] == ["--jobs", "1"]
+    # Every width is stated on the command line, one included. One used to be the width that emitted no flag, which handed the child its own default — the unreserved arm of the same budget, a different number wherever the pool subtraction changes the answer — and the memory term makes one a width the arithmetic actually reaches.
+    assert _argv(by_name["surface-build"])[-2:] == ["--jobs", str(surface_width)]
 
 
 def test_dry_run_skip_gates_appends_jobs_budgets():
@@ -2168,10 +2169,11 @@ def test_dry_run_skip_gates_appends_jobs_budgets():
         total_bytes=BOX_44_GB,
     )
     by_name = {step.name: step for step in plan.steps}
+    solo_width = ac.surface_job_budget(skip_gates=True, ncores=12, total_bytes=BOX_44_GB)
     assert _argv(by_name["run_m1"])[5:7] == ["--jobs", "6"]
-    assert _argv(by_name["surface-build"])[-2:] == ["--jobs", "1"]
+    assert _argv(by_name["surface-build"])[-2:] == ["--jobs", str(solo_width)]
     assert "run_m1 sweeps --jobs 6" in _plan_text(plan)
-    assert "surface-build --jobs 1" in _plan_text(plan)
+    assert f"surface-build --jobs {solo_width}" in _plan_text(plan)
 
     default_plan = ac.build_plan(
         verdicts=Path("v.json"),
@@ -2185,8 +2187,9 @@ def test_dry_run_skip_gates_appends_jobs_budgets():
         total_bytes=BOX_44_GB,
     )
     default_by_name = {step.name: step for step in default_plan.steps}
+    gated_width = ac.surface_job_budget(skip_gates=False, ncores=12, total_bytes=BOX_44_GB)
     assert _argv(default_by_name["run_m1"])[5:7] == ["--jobs", "6"]
-    assert _argv(default_by_name["surface-build"])[-2:] == ["--jobs", "1"]
+    assert _argv(default_by_name["surface-build"])[-2:] == ["--jobs", str(gated_width)]
 
 
 def test_review_out_rehearsal_plan(monkeypatch, tmp_path):
@@ -2776,33 +2779,37 @@ def test_dry_run_plan_skip_make_test():
 
 
 def test_skip_make_test_frees_the_surface_build_budget():
-    """The sweeps' width is the configuration count either way — nothing about make-test bears on it — while the surface build is the stage that gives both cores and bytes back to a pytest pool that is actually running. On the 48 GiB box both arms answer serial — the pair separating is the fit-terms seam's assertion — so what this checks is that the plan resolves each arm's own terms and its reason line says which one it resolved: the gated arm's derivation carries the pool's bytes in its co-resident clause, and the skip arm says the build takes the whole box."""
+    """The sweeps' width is the configuration count either way — nothing about make-test bears on it — while the surface build is the stage that gives both cores and bytes back to a pytest pool that is actually running. On the 48 GiB box the pool's bytes sit inside a worker's worth of slack, so both arms answer the same width — the pair separating is the fit-terms seam's assertion — and what this checks is that the plan resolves each arm's own terms and its reason line says which one it resolved: the gated arm's derivation carries the pool's bytes in its co-resident clause, and the skip arm says the build takes the whole box. The widths are read off the budget rather than written here, so a re-seed of either surface constant never has to come back to this test."""
     plan = _plan(
         skip_make_test=True,
         make_test_note="closure unchanged since its last green run",
         ncores=10,
         total_bytes=BOX_48_GIB,
     )
-    assert plan.surface_jobs == 1
+    solo_width = ac.surface_job_budget(
+        skip_gates=False, skip_make_test=True, ncores=10, total_bytes=BOX_48_GIB
+    )
+    assert plan.surface_jobs == solo_width
     assert plan.sweep_jobs == 6
     by_name = {step.name: step for step in plan.steps}
-    assert _argv(by_name["surface-build"])[-2:] == ["--jobs", "1"]
+    assert _argv(by_name["surface-build"])[-2:] == ["--jobs", str(solo_width)]
     rendered = _plan_text(plan)
-    assert "surface-build --jobs             : 1" in rendered
+    assert f"surface-build --jobs             : {solo_width}" in rendered
     assert f"less {format_gb(ac.SURFACE_PARENT_BYTES)} GB co-resident" in rendered
     assert "gate:make-test skipped, so the surface build takes the whole box" in rendered
 
     gated = _plan(skip_make_test=False, ncores=10, total_bytes=BOX_48_GIB)
-    assert gated.surface_jobs == 1
+    gated_width = ac.surface_job_budget(skip_gates=False, ncores=10, total_bytes=BOX_48_GIB)
+    assert gated.surface_jobs == gated_width
     assert gated.sweep_jobs == 6
     gated_by_name = {step.name: step for step in gated.steps}
-    assert _argv(gated_by_name["surface-build"])[-2:] == ["--jobs", "1"]
+    assert _argv(gated_by_name["surface-build"])[-2:] == ["--jobs", str(gated_width)]
     _per_unit, gated_coresident, _cap = ac._surface_fit_terms(
         skip_gates=False, skip_make_test=False, ncores=10
     )
     assert (
-        "surface-build --jobs             : 1  (gate:make-test's pytest pool held to 2 workers — its cores reserved here and its bytes off the box beside the build's own parent; "
-        f"1 at {format_gb(ac.SURFACE_WORKER_BYTES)} GB each out of 51.54 GB total, less a reserve of 8.00 GB, less {format_gb(gated_coresident)} GB co-resident, capped at 8)"
+        f"surface-build --jobs             : {gated_width}  (gate:make-test's pytest pool held to 2 workers — its cores reserved here and its bytes off the box beside the build's own parent; "
+        f"{gated_width} at {format_gb(ac.SURFACE_WORKER_BYTES)} GB each out of 51.54 GB total, less a reserve of 8.00 GB, less {format_gb(gated_coresident)} GB co-resident, capped at 8)"
         in _plan_text(gated)
     )
 

@@ -289,7 +289,7 @@ class TestTheHandRunDefaults:
     def test_the_surface_build_takes_the_unreserved_arm_of_its_own_budget(
         self, monkeypatch: pytest.MonkeyPatch
     ):
-        """A hand run has no co-resident `make test` pool to leave cores or bytes to, which is the whole content of the `skip_gates=True` arm, so that arm is what the default is taken at. The second assertion is not decoration: this budget floors at one on the box that wrote these lines, where a revert to a checked-in 1 would pass the first assertion while saying nothing, so the box is moved to one with room and the answer is held at the other bound — the cap, which is where a roomy box stops. Both bounds get an assertion for the reason the validators lane's two do: which one binds is the design."""
+        """A hand run has no co-resident `make test` pool to leave cores or bytes to, which is the whole content of the `skip_gates=True` arm, so that arm is what the default is taken at. The second assertion is not decoration: on either box in the fleet memory binds this budget below the cap, where a revert to a checked-in width would pass the first assertion while saying nothing, so the box is moved to one with room and the answer is held at the other bound — the cap, which is where a roomy box stops. Both bounds get an assertion for the reason the validators lane's two do: which one binds is the design."""
         import rebuild.tools.artifact_cycle as ac
         from rebuild.review import build
 
