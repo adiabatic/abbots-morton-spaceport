@@ -50,6 +50,20 @@ The rebuild tends to generate far more notes than a forward-working agent ever r
 - Prefer for-of loops to `.forEach()`.
 - Use modern range syntax for media/container queries: `(width > 40em)` not `(max-width: 40em)`.
 
+## Performance
+
+The Python and Rust in this repository run against hard CPU and RAM limits, not comfortable headroom. The M1 table build holds a whole configuration's working set in memory until its artifacts are written, the review-surface build holds the whole corpus in its parent at any width, and every fan-out width in the repo is a division of the box's memory by a measured per-unit peak (`rebuild/tools/memory_budget.py`, and the `*_BYTES` constants at each call site). On the CPU side, a full artifact cycle already outgrows a ten-minute shell window; `make cycle-timings` is the record of what each step costs, host-tagged against the machines listed in `doc/fleet.md`. So a routine that is a little slower or holds a little more per unit is not a rounding error here: it moves a per-unit peak, which narrows a fan-out, which lengthens every cycle after it.
+
+Write Python and Rust with that in mind, and not necessarily the first way that comes to mind:
+
+- **Think about the working set before the algorithm.** Ask what the code holds live at its peak and for how long, and whether that is the whole corpus, one configuration, one unit, or one row. Stream and iterate where a list would materialize; release a large structure as soon as its last reader is done rather than at function exit; prefer one pass that folds over several that each re-read.
+- **Price the hot path in the units it runs at.** A cost that is negligible per call becomes the build when the call runs per window, per candidate, or per row. Move invariant work out of the loop, memoize on the key the caller actually varies, and avoid building intermediate strings, dicts, or `Vec`s that the next line only takes apart.
+- **In Python, reach for the idiom that stays in C.** Comprehensions, `dict`/`set` lookups, `bytes`/`memoryview`, tuple keys, and the standard library's compiled paths over a hand-rolled loop; and when a Python-side pass is still the bottleneck, the answer is usually the crate, not a cleverer loop.
+- **In Rust, mind allocation and cloning as much as asymptotics.** Borrow where you would `.clone()`, size a `Vec` or map up front when the count is known, keep per-entry structures flat, and prefer iterators that fuse over collecting between stages.
+- **Measure, and let the measurement drive the width.** `make cycle-timings ARGS='--by-step'` and the kernel's `--cache-census` are the instruments; a change that moves a per-unit peak must revise the `*_BYTES` constant and the docstring that argues it at the same call site, because the widths derive from those numbers and nothing else checks them.
+
+Clarity still wins ties, and a performance change with no measurement behind it is a guess. But a routine that is correct and simple and materially increases a peak is not done.
+
 ## Python
 
 IMPORTANT: Always use `uv run` instead of `python` or `python3` directly. The project pins `cache-dir = ".uv-cache"` under `[tool.uv]` in `pyproject.toml` so the cache stays inside the repo, which is needed in sandboxed environments where the default `uv` cache (`~/.cache/uv` or `~/Library/Caches/uv`) isn’t writable. For example:
