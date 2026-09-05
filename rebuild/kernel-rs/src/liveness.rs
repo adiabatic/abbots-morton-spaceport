@@ -714,7 +714,7 @@ fn seat_outcome(
     token: RightToken,
     slots: Slots,
 ) -> SeatOutcome {
-    match engine.with_trace(left, token, slots, |trace| trace.settled.cell.clone()) {
+    match engine.with_settled(left, token, slots, |settled| settled.cell.clone()) {
         Ok(cell) => SeatOutcome::Cell(cell),
         Err(error) => match error.kind() {
             SettleErrorKind::Incomparable | SettleErrorKind::Ambiguous => SeatOutcome::Raised,

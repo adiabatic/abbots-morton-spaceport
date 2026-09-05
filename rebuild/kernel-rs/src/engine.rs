@@ -21,8 +21,9 @@ use crate::model::{
 use crate::specificity;
 use crate::types::{
     AdjustmentToken, Candidate, CellId, DecidedStage, Elimination, EliminationStage, LeftContext,
-    RankedCandidate, RightToken, Settled, Side, TokenKind, TraceLadder, TransitionTrace, UNKNOWN,
-    Vocab, boundary_settled, cell_label, provenance_pointer, word_position,
+    NotesPool, NotesSeat, RankedCandidate, RightToken, Settled, SettledPool, SettledSeat, Side,
+    TokenKind, TraceLadder, TransitionTrace, UNKNOWN, Vocab, boundary_settled, cell_label,
+    provenance_pointer, word_position,
 };
 
 /// Where a candidate enumeration's eliminations go, together with whether their sentences are wanted at all. Separating the two is what lets the table fixpoint keep every elimination's stage and pointer — the notes on a row are built from those — while formatting none of the prose that names them.
@@ -199,15 +200,18 @@ struct ClosureKey {
 }
 
 /// The trace memo's key: the collapsed left with its extension, the input rune, and all four raw slots. Every window read the kernel makes goes through these fields, which is why lefts differing only in their cell's entry or adjustments may share one entry.
+///
+/// It is packed to forty bytes because the memo holds one per window over a million and more windows a configuration (issue #165). The four slots ride as their kinds beside their `Option<Sym>` runes, which is what a [`RightToken`] is — a letter is its kind with a rune, and every other kind carries none — so the pair spells each token exactly once and two windows collide exactly when their slots are equal, in four bytes a slot instead of the eight a tagged enum pads to. The extension is an `i16` because it is a count of connector pixels. Nothing reads a key back: it is compared and hashed and never resolved.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 struct TraceKey {
     left_kind: TokenKind,
     left_rune: Option<Sym>,
     left_stance: Option<Sym>,
     left_seam: Option<Sym>,
-    left_extension: i64,
+    left_extension: i16,
     token: Sym,
-    slots: Slots,
+    kinds: [TokenKind; 4],
+    runes: [Option<Sym>; 4],
 }
 
 /// The prospect memo's key, in the two shapes the two candidacy worlds need. An engine's mode is fixed at construction, so only one of them ever occurs on any given engine, and one map holds both; the asymmetry between them is the terms' own — the candidacy key ends in `right2.letter`, because the estimate reads nothing past the follower's own right, while the simulated key carries the whole token and the two slots behind it, because the cascade it runs does.
@@ -254,8 +258,111 @@ struct Applicable<'i> {
     favored: HashSet<Candidate>,
 }
 
-/// The window memo and its fired journal in one table: a shadow map on the same 72-byte key would cost the key and its hashbrown slack a second time, for a value that is only ever read alongside the trace it belongs to.
-type TraceMemo = HashMap<TraceKey, (TransitionTrace, Box<[Pointer]>)>;
+/// The seat one distinct fired delta holds in the trace memo's delta pool, and what a memoized window holds in place of its delta. A configuration's million and more memoized windows journal a few tens of thousands of distinct deltas between them, so an entry that owned its delta was holding a boxed slice hundreds of its neighbors held too, where four bytes name the same one (issue #165). The offset is the pool's business alone: [`DeltaSeat::at`] and [`DeltaSeat::index`] are the two crossings.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+struct DeltaSeat(u32);
+
+impl DeltaSeat {
+    /// The seat for the pool's `index`-th delta.
+    fn at(index: usize) -> Self {
+        Self(
+            u32::try_from(index)
+                .expect("a configuration journals fewer than 2^32 distinct fired deltas"),
+        )
+    }
+
+    /// The seat as the pool's index.
+    fn index(self) -> usize {
+        self.0 as usize
+    }
+}
+
+/// The table the trace memo seats its fired deltas through, the same shape as [`NotesPool`] for the same reason: every distinct delta once, in the order a window first journaled it, and the seat each one holds. A replay reads the delta where it sits, so seating it moves nothing about what a hit fires.
+#[derive(Clone, Debug, Default)]
+struct DeltaPool {
+    seats: HashMap<Box<[Pointer]>, DeltaSeat>,
+    table: Vec<Box<[Pointer]>>,
+}
+
+impl DeltaPool {
+    /// This delta's seat, minted on the first window that journaled it and answered from the map on every later one. The delta arrives owned because the capture that produced it is closed: a miss keeps the allocation and a hit drops it.
+    fn seat(&mut self, delta: Box<[Pointer]>) -> DeltaSeat {
+        if let Some(&seat) = self.seats.get(&*delta) {
+            return seat;
+        }
+        let seat = DeltaSeat::at(self.table.len());
+        self.seats.insert(delta.clone(), seat);
+        self.table.push(delta);
+        seat
+    }
+
+    /// The delta one seat names.
+    fn get(&self, seat: DeltaSeat) -> &[Pointer] {
+        &self.table[seat.index()]
+    }
+
+    /// How many distinct deltas have been seated.
+    fn len(&self) -> usize {
+        self.table.len()
+    }
+
+    /// How many the table has room for, which is what the cache census reports beside the length.
+    fn capacity(&self) -> usize {
+        self.table.capacity()
+    }
+}
+
+/// What the trace memo holds per window: seats into the memo's three pools for the settled record, the notes and the fired delta, the prospect as the byte its zero-or-one range needs, the joint flag and the stage — sixteen bytes and no heap. The whole [`TransitionTrace`] used to sit here by value beside a boxed delta, and an instrumented run said what that was holding: over a million entries a configuration naming a couple of hundred distinct settled records, about a hundred distinct notes lists and a few tens of thousands of distinct deltas, so nearly every entry held by value what hundreds of its neighbors held too (issue #165). The ladder is not here at all: it exists only where the engine was built with [`EngineModes::explain_ladder`], which the fixpoint never is, so it lives in [`TraceMemo::ladders`] rather than as an empty slot on every entry the fixpoint records.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct TraceEntry {
+    settled: SettledSeat,
+    notes: NotesSeat,
+    delta: DeltaSeat,
+    prospect: i8,
+    joint_floor: bool,
+    decided_stage: DecidedStage,
+}
+
+/// The window memo and its fired journal in one table, with the pools its entries seat into beside it. The delta rides in the entry as a seat rather than in a shadow map on the same forty-byte key, which would cost the key and its hashbrown slack a second time for a value that is only ever read alongside the trace it belongs to; the pools are the memo's own rather than a fixpoint's because the memo outlives no fixpoint and is released as one piece. The ladders map is keyed on the same key and is populated only in explain-ladder mode, so a fixpoint's memo carries no ladder slot per entry and an explain-mode hit still answers with the ladder its miss recorded.
+#[derive(Clone, Debug, Default)]
+struct TraceMemo {
+    entries: HashMap<TraceKey, TraceEntry>,
+    settled: SettledPool,
+    notes: NotesPool,
+    deltas: DeltaPool,
+    ladders: HashMap<TraceKey, Box<TraceLadder>>,
+}
+
+impl TraceMemo {
+    /// Record one settled window: the trace's three heavy halves seated, the ladder set aside where the trace carries one, and the delta the capture journaled for it.
+    fn insert(&mut self, key: TraceKey, trace: &TransitionTrace, delta: Box<[Pointer]>) {
+        let entry = TraceEntry {
+            settled: self.settled.seat(&trace.settled),
+            notes: self.notes.seat(trace.notes.clone()),
+            delta: self.deltas.seat(delta),
+            prospect: i8::try_from(trace.prospect)
+                .expect("a prospect is a seam count, zero or one"),
+            joint_floor: trace.joint_floor,
+            decided_stage: trace.decided_stage,
+        };
+        self.entries.insert(key, entry);
+        if let Some(ladder) = &trace.ladder {
+            self.ladders.insert(key, ladder.clone());
+        }
+    }
+
+    /// The trace one entry stands for, rebuilt out of the pools exactly as its miss returned it — the settled record and the notes cloned out, the prospect widened back to the `i64` the ranking sums, and the ladder read back from the side map where one was recorded.
+    fn trace(&self, key: &TraceKey, entry: TraceEntry) -> TransitionTrace {
+        TransitionTrace {
+            settled: self.settled.get(entry.settled).clone(),
+            joint_floor: entry.joint_floor,
+            prospect: i64::from(entry.prospect),
+            decided_stage: entry.decided_stage,
+            notes: self.notes.get(entry.notes).to_vec(),
+            ladder: self.ladders.get(key).cloned(),
+        }
+    }
+}
 
 /// One settlement engine per (spec, feature configuration).
 pub struct Engine<'i> {
@@ -268,7 +375,7 @@ pub struct Engine<'i> {
     fired: HashSet<Pointer>,
     fired_log: Option<Vec<Pointer>>,
     capture_starts: Vec<usize>,
-    /// Each memo carries its own fired delta beside its verdict rather than in a shadow map on the same key: the delta is only ever read alongside the verdict it belongs to, and a second table would pay for the key and its hashbrown slack twice over.
+    /// Each of the small memos carries its own fired delta beside its verdict rather than in a shadow map on the same key: the delta is only ever read alongside the verdict it belongs to, and a second table would pay for the key and its hashbrown slack twice over. The trace memo keeps the delta beside the verdict too, as a seat into its own pool.
     closure_cache: HashMap<ClosureKey, (bool, Box<[Pointer]>)>,
     candidates_cache: HashMap<CandidatesKey, Rc<CandidatesEntry>>,
     prospect_cache: HashMap<ProspectKey, (i64, Box<[Pointer]>)>,
@@ -276,6 +383,7 @@ pub struct Engine<'i> {
     virtual_left_cache: HashMap<(Sym, Candidate), LeftContext>,
     pairing_sets: HashMap<StanceId, PairingSets>,
     explain_ladder: bool,
+    /// The window memo, present in trace-memo mode alone. It is the engine's largest pile and the enumeration's high-water mark, which is why its entries are seats into the pools the [`TraceMemo`] carries beside them rather than whole traces (issue #165): a hit rebuilds the trace out of the pools, and everything a caller sees is what it saw when the entry held the trace by value.
     trace_cache: Option<TraceMemo>,
 }
 
@@ -308,7 +416,7 @@ impl<'i> Engine<'i> {
             virtual_left_cache: HashMap::new(),
             pairing_sets: HashMap::new(),
             explain_ladder: modes.explain_ladder,
-            trace_cache: modes.trace_memo.then(HashMap::new),
+            trace_cache: modes.trace_memo.then(TraceMemo::default),
         }
     }
 
@@ -349,9 +457,9 @@ impl<'i> Engine<'i> {
 
     /// Drop every memo this engine holds, keeping the fired set and the small per-spec tables. What follows a fixpoint's last trace is a drain and a sort of the whole product, and holding the window memos alive across it is the enumeration's peak — two working sets that never need to coexist.
     ///
-    /// A memo is a pure cache here: every entry replays the pointers its computation fired, so a cleared one re-fires them rather than swallowing them, and nothing a later evaluation decides can move. Callers still snapshot [`Engine::fired`] before releasing, because re-firing after the snapshot is what makes the release invisible rather than merely harmless.
+    /// A memo is a pure cache here: every entry replays the pointers its computation fired, so a cleared one re-fires them rather than swallowing them, and nothing a later evaluation decides can move. Callers still snapshot [`Engine::fired`] before releasing, because re-firing after the snapshot is what makes the release invisible rather than merely harmless. The trace memo's pools and its ladders go with its entries, since a seat means nothing without the table it indexes.
     pub fn release_memos(&mut self) {
-        self.trace_cache = self.trace_cache.as_ref().map(|_| HashMap::new());
+        self.trace_cache = self.trace_cache.as_ref().map(|_| TraceMemo::default());
         self.candidates_cache = HashMap::new();
         self.prospect_cache = HashMap::new();
         self.closure_cache = HashMap::new();
@@ -369,13 +477,14 @@ impl<'i> Engine<'i> {
         token: RightToken,
         slots: Slots,
     ) -> Option<&[Pointer]> {
-        self.trace_cache
-            .as_ref()?
-            .get(&Self::trace_key(left, token.rune()?, slots))
-            .map(|(_, delta)| &**delta)
+        let memo = self.trace_cache.as_ref()?;
+        let entry = memo
+            .entries
+            .get(&Self::trace_key(left, token.rune()?, slots))?;
+        Some(memo.deltas.get(entry.delta))
     }
 
-    /// Every memo this engine holds, as `--cache-census` reports them: the entries each one carries and the buckets it carries them in. The order is the declaration order of the fields, so two runs' censuses line up row for row.
+    /// Every memo this engine holds, as `--cache-census` reports them: the entries each one carries and the buckets it carries them in. The order is the declaration order of the fields, with the trace memo's pools following its entries in their own declaration order, so two runs' censuses line up row for row.
     pub fn cache_census(&self) -> Vec<CacheSize> {
         let mut out = vec![
             CacheSize::of("fired", self.fired.len(), self.fired.capacity()),
@@ -410,8 +519,32 @@ impl<'i> Engine<'i> {
                 self.pairing_sets.capacity(),
             ),
         ];
-        if let Some(cache) = self.trace_cache.as_ref() {
-            out.push(CacheSize::of("trace_cache", cache.len(), cache.capacity()));
+        if let Some(memo) = self.trace_cache.as_ref() {
+            out.push(CacheSize::of(
+                "trace_cache",
+                memo.entries.len(),
+                memo.entries.capacity(),
+            ));
+            out.push(CacheSize::of(
+                "trace_settled",
+                memo.settled.len(),
+                memo.settled.capacity(),
+            ));
+            out.push(CacheSize::of(
+                "trace_notes",
+                memo.notes.len(),
+                memo.notes.capacity(),
+            ));
+            out.push(CacheSize::of(
+                "trace_deltas",
+                memo.deltas.len(),
+                memo.deltas.capacity(),
+            ));
+            out.push(CacheSize::of(
+                "trace_ladders",
+                memo.ladders.len(),
+                memo.ladders.capacity(),
+            ));
         }
         out
     }
@@ -427,8 +560,8 @@ impl<'i> Engine<'i> {
         let traced: usize = self
             .trace_cache
             .iter()
-            .flat_map(HashMap::values)
-            .flat_map(|(trace, _)| trace.ladder().eliminations.iter())
+            .flat_map(|memo| memo.ladders.values())
+            .flat_map(|ladder| ladder.eliminations.iter())
             .map(|elimination| elimination.description.len())
             .sum();
         cached + traced
@@ -1306,14 +1439,19 @@ impl<'i> Engine<'i> {
 
     /// The trace memo's key. `token` is the input rune rather than the whole token, because a non-letter input short-circuits to the boundary trace before any key is built and therefore has no memo entry to name.
     fn trace_key(left: &LeftContext, token: Sym, slots: Slots) -> TraceKey {
+        let tokens = slots.as_array();
         TraceKey {
             left_kind: left.kind,
             left_rune: left.settled.as_ref().map(|settled| settled.cell.rune),
             left_stance: left.settled.as_ref().map(|settled| settled.cell.stance),
             left_seam: left.settled.as_ref().and_then(|settled| settled.seam),
-            left_extension: left.settled.as_ref().map_or(0, |settled| settled.extension),
+            left_extension: i16::try_from(
+                left.settled.as_ref().map_or(0, |settled| settled.extension),
+            )
+            .expect("an extension is a count of connector pixels"),
             token,
-            slots,
+            kinds: tokens.map(RightToken::kind),
+            runes: tokens.map(RightToken::rune),
         }
     }
 
@@ -1401,8 +1539,8 @@ impl<'i> Engine<'i> {
             return self.seam_bearing_follower_exists(&virtual_left, follower, slots.right2);
         }
         let shifted = Slots::new(slots.right2, slots.right3, slots.right4, UNKNOWN);
-        match self.with_trace(&virtual_left, slots.right1, shifted, |trace| {
-            i64::from(trace.settled.seam.is_some())
+        match self.with_settled(&virtual_left, slots.right1, shifted, |settled| {
+            i64::from(settled.seam.is_some())
         }) {
             Ok(seam_bearing) => Ok(seam_bearing),
             Err(_) => {
@@ -2057,7 +2195,7 @@ impl<'i> Engine<'i> {
 
     /// Settle one window — the rich form the table builder and the explain CLI read.
     ///
-    /// In trace-memo mode the result is memoized over the collapsed left key: every left read the kernel makes goes through the kind and the settled cell's rune, stance, seam and extension — condition matching consults the rune and the stance, the stroke axis the committed seam, the scoring the seam's presence, and the same-seam suppression the extension — and never the left cell's entry or its adjustments, so two settled lefts differing only there trace identically and share one entry. Raising windows are never cached: the E-STRANDED sentence reads the left's full label, and the liveness probes that trip settlement errors memoize their own verdicts above this call. Python's two further layers, the persisted store and the cross-configuration share, are deliberately absent — the cutover deleted `trace_memo.py`, so neither survives on either side.
+    /// In trace-memo mode the result is memoized over the collapsed left key: every left read the kernel makes goes through the kind and the settled cell's rune, stance, seam and extension — condition matching consults the rune and the stance, the stroke axis the committed seam, the scoring the seam's presence, and the same-seam suppression the extension — and never the left cell's entry or its adjustments, so two settled lefts differing only there trace identically and share one entry. What the memo holds is seats rather than the trace (issue #165), so a hit is rebuilt out of the memo's pools — the settled record and the notes cloned out, the ladder read back where one was recorded — and returns what its miss returned, with the miss's fired delta replayed. Raising windows are never cached: the E-STRANDED sentence reads the left's full label, and the liveness probes that trip settlement errors memoize their own verdicts above this call. Python's two further layers, the persisted store and the cross-configuration share, are deliberately absent — the cutover deleted `trace_memo.py`, so neither survives on either side.
     pub fn transition_trace(
         &mut self,
         left: &LeftContext,
@@ -2078,13 +2216,15 @@ impl<'i> Engine<'i> {
             return self.transition_trace_uncached(left, token, slots);
         }
         let key = Self::trace_key(left, token.letter(), slots);
-        if let Some((trace, delta)) = self.trace_cache.as_ref().and_then(|cache| cache.get(&key)) {
-            let trace = trace.clone();
+        if let Some(memo) = self.trace_cache.as_ref()
+            && let Some(&entry) = memo.entries.get(&key)
+        {
+            let trace = memo.trace(&key, entry);
             replay_into(
                 &mut self.fired,
                 &mut self.fired_log,
                 &self.capture_starts,
-                delta,
+                memo.deltas.get(entry.delta),
             );
             return Ok(trace);
         }
@@ -2100,39 +2240,37 @@ impl<'i> Engine<'i> {
         self.trace_cache
             .as_mut()
             .expect("the memo is what brought us here")
-            .insert(key, (trace.clone(), delta));
+            .insert(key, &trace, delta);
         Ok(trace)
     }
 
-    /// One field or two off a window's trace, read where the trace already sits in the memo rather than through a copy of it. [`Engine::transition_trace`] answers with a whole owned record, and most of its callers inside this engine want a seam or a cell out of it — so a hit on the memo would otherwise deep-copy a settled cell, its notes and its adjustment list to answer a question about one `Option`.
+    /// One field or two off a window's settled record, read where the record already sits in the memo rather than through a copy of it. [`Engine::transition_trace`] answers with a whole owned trace, and the two callers that come through here want a seam or a cell out of the settled record and nothing else — so a hit on the memo would otherwise rebuild a whole trace, notes and adjustment list cloned out of the pools, to answer a question about one `Option`. It reads the settled record rather than the trace because the memo holds no trace any more, only seats (issue #165), and the record is the one half its callers ever asked for.
     ///
     /// The fired delta is replayed on a hit exactly as [`Engine::transition_trace`] replays it, because that is what makes a warm engine's fired set equal a cold one's, and no reading shortcut may skip it.
-    pub(crate) fn with_trace<T>(
+    pub(crate) fn with_settled<T>(
         &mut self,
         left: &LeftContext,
         token: RightToken,
         slots: Slots,
-        read: impl FnOnce(&TransitionTrace) -> T,
+        read: impl FnOnce(&Settled) -> T,
     ) -> Result<T, SettleError> {
         if token.kind() == TokenKind::Letter
-            && let Some(key) = self
-                .trace_cache
-                .is_some()
-                .then(|| Self::trace_key(left, token.letter(), slots))
-            && let Some((trace, delta)) =
-                self.trace_cache.as_ref().and_then(|cache| cache.get(&key))
+            && let Some(memo) = self.trace_cache.as_ref()
+            && let Some(&entry) = memo
+                .entries
+                .get(&Self::trace_key(left, token.letter(), slots))
         {
-            let answer = read(trace);
+            let answer = read(memo.settled.get(entry.settled));
             replay_into(
                 &mut self.fired,
                 &mut self.fired_log,
                 &self.capture_starts,
-                delta,
+                memo.deltas.get(entry.delta),
             );
             return Ok(answer);
         }
         let trace = self.transition_trace(left, token, slots)?;
-        Ok(read(&trace))
+        Ok(read(&trace.settled))
     }
 
     fn transition_trace_uncached(
@@ -4102,6 +4240,52 @@ mod tests {
         assert!(!Engine::new(&index, no_features()).trace_memo());
     }
 
+    /// The memo's whole point (issue #165): an entry is its three seats, the prospect byte, the joint flag and the stage in sixteen bytes with nothing on the heap, under a key packed to forty.
+    #[test]
+    fn a_memoized_window_is_sixteen_bytes_under_a_forty_byte_key() {
+        assert_eq!(std::mem::size_of::<TraceEntry>(), 16);
+        assert_eq!(std::mem::size_of::<TraceKey>(), 40);
+    }
+
+    /// The ladder lives beside the memo rather than in it: a fixpoint-mode engine records none at all, and an explain-mode hit answers with the one its miss recorded.
+    #[test]
+    fn a_hit_reads_its_ladder_back_only_where_its_miss_recorded_one() {
+        let index = firing_spec();
+        let ss03 = fixtures::sym(&index, "ss03");
+        let left = settled_left(&index, "qsTea", "plain", Some("baseline"));
+        let token = letter_token(&index, "qsPea");
+        let slots = Slots::pair(letter_token(&index, "qsTea"), EDGE);
+        for explain_ladder in [false, true] {
+            let mut engine = Engine::with_modes(
+                &index,
+                [ss03],
+                EngineModes {
+                    trace_memo: true,
+                    explain_ladder,
+                    ..EngineModes::default()
+                },
+            );
+            let miss = engine
+                .transition_trace(&left, token, slots)
+                .expect("the fixture settles");
+            let hit = engine
+                .transition_trace(&left, token, slots)
+                .expect("the fixture settles");
+            assert_eq!(miss.ladder.is_some(), explain_ladder);
+            assert_eq!(hit, miss);
+            let memo = engine.trace_cache.as_ref().expect("trace-memo memoizes");
+            assert!(!memo.entries.is_empty());
+            assert_eq!(
+                memo.ladders.len(),
+                if explain_ladder {
+                    memo.entries.len()
+                } else {
+                    0
+                }
+            );
+        }
+    }
+
     /// The ranking testbed, `rebuild/pipeline/fixtures.py`'s `synthetic_spec` in this crate's four-family vocabulary.
     ///
     /// `qsPea` draws `stroke`, which exits at the x-height, and then `flourish`, which offers no surface at all. `qsTea` enters at the x-height and exits at the baseline but forbids pairing the two, so an entered `qsTea` is exitless; `qsMay` enters at the baseline. Every way the qsPea·qsTea seam can go is therefore worth exactly one window join, which is what leaves the stages past the join count something to decide.
@@ -5287,6 +5471,7 @@ mod tests {
                 .trace_cache
                 .as_ref()
                 .expect("trace-memo memoizes")
+                .entries
                 .contains_key(&key),
             "the raising window itself is not cached, though the simulated windows it opened are"
         );
@@ -5294,7 +5479,7 @@ mod tests {
             engine
                 .trace_cache
                 .as_ref()
-                .is_none_or(|cache| !cache.contains_key(&key))
+                .is_none_or(|memo| !memo.entries.contains_key(&key))
         );
         assert!(
             engine.fired().contains(&Pointer {
