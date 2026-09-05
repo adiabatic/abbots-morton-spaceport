@@ -81,13 +81,13 @@ artifact-cycle:
 # The whole loop in one command: run the artifact cycle (whose merge step lands the carried verdicts in the autosave — no browser import), then serve the surface. A failed cycle stops before serving.
 # --stop-server hands the server question to the driver, which alone knows whether this pass writes under it. A pass that rebuilds the surface or moves the verdict store stops the server first, as this recipe always did; a pass that writes neither leaves it up, so the letters stay on screen through the whole verification pass instead of vanishing for it. Whichever happened, the serve step below only binds the port when nothing already holds it.
 # SERVE=0 runs the same cycle but prints the restart command instead of serving, so the target terminates. That is what any non-interactive caller wants: served in the foreground, the recipe never exits and the cycle summary never lands as a completed command. It costs that caller nothing on a pass that wrote neither the surface nor the store, since the server it never stopped is still up. Either way the pass keeps its own record: tmp/build-logs/latest/ holds the plan, a byte copy of the terminal and one log per step, so a caller that never watched the terminal can still read the run back.
-# SERVE=bg is for the caller that wants both: a recipe that terminates and the letters on screen after it. The server module has no daemon flag, so the recipe detaches it here (nohup, log to tmp/review-serve.log) and it outlives the shell that started it — including an agent harness's, which kills its own shell after each command. The wait is the point: the recipe does not return until the port answers, so a `make verdict-ready` on the next line reads a server that is up rather than racing one that is still importing tornado. Stop it the way the cycle does, with pkill -f 'rebuild\.review\.serve'.
+# SERVE=bg is for the caller that wants both: a recipe that terminates and the letters on screen after it. The server module has no daemon flag, so the recipe detaches it here (nohup, log to tmp/review-serve.log) and it outlives the shell that started it — including an agent harness's, which kills its own shell after each command. The wait is the point: the recipe does not return until the port answers, so the readiness checklist the cycle closed on — which leaves the server row to this recipe — is true by the time the recipe returns, rather than racing a server that is still importing tornado. Stop it the way the cycle does, with pkill -f 'rebuild\.review\.serve'.
 review-cycle:
 	uv run python rebuild/tools/artifact_cycle.py --stop-server $(ARGS)
 	@if lsof -ti tcp:7294 -sTCP:LISTEN >/dev/null 2>&1; then \
 		printf '\nThe review server stayed up through this pass — the letters were on screen for all of it.\n'; \
 	elif [ "$(SERVE)" = "0" ]; then \
-		printf '\nThe review server was left stopped (SERVE=0). To look at the letters:\n    make review-serve\n\nUntil it is up, `make verdict-ready` reports the server down.\n'; \
+		printf '\nThe review server was left stopped (SERVE=0). To look at the letters:\n    make review-serve\n'; \
 	elif [ "$(SERVE)" = "bg" ]; then \
 		mkdir -p tmp; \
 		nohup uv run python -m rebuild.review.serve < /dev/null > tmp/review-serve.log 2>&1 & \
@@ -106,7 +106,7 @@ review-cycle:
 		uv run python -m rebuild.review.serve; \
 	fi
 
-# Answer "am I ready to verdict?": surface freshness, gate greenness, verdict-store alignment, server, blanks. Exit 0 when ready.
+# Answer "am I ready to verdict?": surface freshness, gate greenness, verdict-store alignment, server, blanks. Exit 0 when ready. Every green artifact cycle already closes on this checklist, so this is the form for asking on its own, not a step after a cycle.
 verdict-ready:
 	uv run python -m rebuild.tools.verdict_ready $(ARGS)
 

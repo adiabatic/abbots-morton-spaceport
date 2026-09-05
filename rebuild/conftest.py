@@ -21,6 +21,7 @@ from rebuild.review.fixtures.mini import pin
 from rebuild.tools import artifact_cycle, cycle_timings, memory_budget
 
 REAL_RUN_RETENTION = artifact_cycle.run_retention
+REAL_READINESS_BLOCK = artifact_cycle.readiness_block
 LIVE_DELETION_TARGETS = (
     *artifact_cycle.M1_SUMMARY_FILES.values(),
     artifact_cycle.CONFORM_SUMMARY,
@@ -288,7 +289,7 @@ def _redirect_cycle_writes(monkeypatch, tmp_path):
 
     The cycle's run id comes off the environment on the same standard, because two of this suite's subjects read AMS_CYCLE_RUN to decide whether to record anything at all and the variable arrives from both directions. From outside: the rebuild lanes are themselves cycle children, so a real pass's run id is in the environment every one of these tests inherits, and a test asserting that an interactive gate files its verdict would fail for a reason that has nothing to do with the code. From inside: `artifact_cycle.main` sets the variable on this process, so a test that drives a cycle leaves it set for whatever that xdist worker picks up next, silencing every check-recording test after it in a way that depends on how the pool happened to steal the work. The delete is preceded by a set because monkeypatch registers no undo for a name that was already absent, and it is that set which puts the restore on the stack. A test that wants to be a cycle's child sets the variable itself, and that per-test monkeypatch lands after this one and wins.
 
-    The deletes are the three stages that clear stale artifacts before rebuilding them: run_m1's four gate summaries and the summary gate:conform writes, each unlinked just before its subprocess spawns so the verdict can only come from this cycle, and the retention pass. Redirecting a constant is enough for the first two; retention takes one and resolves every other target from ROOT at call time, so it is stubbed out instead — with the empty line list a green finish now folds into its summary. Any test reaching a green finish with record_greens set would otherwise sweep the repo: every tmp/review-pre-* snapshot, the root's verdicts-carried-*.json exports, the autosave stashes, and a compaction of the verdict journal. That is destructive against a cycle running in another terminal — it deleted a live pass's only snapshot out from under its carry, stranding the pass's verdicts — and doubly so now that the rebuild gate is meant to run beside a live review server. A test that wants the real retention takes the `real_run_retention` fixture and points ROOT somewhere disposable; a test asserting that _finish reaches retention patches run_retention itself.
+    The deletes are the three stages that clear stale artifacts before rebuilding them: run_m1's four gate summaries and the summary gate:conform writes, each unlinked just before its subprocess spawns so the verdict can only come from this cycle, and the retention pass. Redirecting a constant is enough for the first two; retention takes one and resolves every other target from ROOT at call time, so it is stubbed out instead — with the empty line list a green finish now folds into its summary. Any test reaching a green finish with record_greens set would otherwise sweep the repo: every tmp/review-pre-* snapshot, the root's verdicts-carried-*.json exports, the autosave stashes, and a compaction of the verdict journal. That is destructive against a cycle running in another terminal — it deleted a live pass's only snapshot out from under its carry, stranding the pass's verdicts — and doubly so now that the rebuild gate is meant to run beside a live review server. A test that wants the real retention takes the `real_run_retention` fixture and points ROOT somewhere disposable; a test asserting that _finish reaches retention patches run_retention itself. The readiness checklist a green finish closes on is stubbed to nothing on the same standard, since the real one reads the served surface and the root autosave, which no contracts-lane test may; a test asserting that _finish prints it patches readiness_block itself.
     """
     monkeypatch.setattr(artifact_cycle, "CYCLE_SUMMARY", tmp_path / "cycle_summary.json")
     for name in GREEN_RECORDS:
@@ -301,6 +302,7 @@ def _redirect_cycle_writes(monkeypatch, tmp_path):
     monkeypatch.setattr(artifact_cycle, "CONFORM_SUMMARY", tmp_path / artifact_cycle.CONFORM_SUMMARY.name)
     monkeypatch.setattr(artifact_cycle, "BUILD_LOGS_ROOT", tmp_path / "build-logs")
     monkeypatch.setattr(artifact_cycle, "run_retention", lambda plan: [])
+    monkeypatch.setattr(artifact_cycle, "readiness_block", lambda plan: [])
     monkeypatch.setattr(cycle_timings, "JOURNAL", tmp_path / "cycle-timings.ndjson")
     monkeypatch.setenv(cycle_timings.CYCLE_RUN_ENV, "")
     monkeypatch.delenv(cycle_timings.CYCLE_RUN_ENV)
@@ -310,6 +312,12 @@ def _redirect_cycle_writes(monkeypatch, tmp_path):
 def real_run_retention():
     """The unstubbed retention pass, for the three tests that are about retention itself. Captured at import, before the autouse stub can land."""
     return REAL_RUN_RETENTION
+
+
+@pytest.fixture
+def real_readiness_block():
+    """The unstubbed readiness checklist, for the tests that are about the checklist itself. Captured at import, before the autouse stub can land."""
+    return REAL_READINESS_BLOCK
 
 
 @pytest.fixture

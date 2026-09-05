@@ -3878,6 +3878,61 @@ def test_finish_says_the_cycle_is_complete(monkeypatch, capsys):
     assert "Cycle complete." in capsys.readouterr().out
 
 
+def test_a_green_finish_closes_on_the_readiness_checklist_instead_of_naming_the_command(monkeypatch, capsys):
+    """The answer `make verdict-ready` gives, printed by the pass itself, so nobody is sent to run it after a cycle. A red pass prints none of it: its next command is whatever the failure block names."""
+    seen: list[ac.Plan] = []
+
+    def block(plan):
+        seen.append(plan)
+        return ["Review surface: here", "  ✓ gates: green", "", "READY - adjudicate at the docket"]
+
+    monkeypatch.setattr(ac, "readiness_block", block)
+    plan = _plan()
+    assert ac._finish(_green_report(), [], plan) == 0
+    out = capsys.readouterr().out
+    assert seen == [plan]
+    assert "READY - adjudicate at the docket" in out
+    assert "make verdict-ready" not in out
+    assert out.index("  ✓ gates: green") < out.index("Cycle complete.")
+
+    assert ac._finish(_green_report(), ["boom"], plan) == 1
+    out = capsys.readouterr().out
+    assert seen == [plan]
+    assert "READY" not in out and "make verdict-ready" not in out
+
+
+def test_the_readiness_block_leaves_the_server_row_to_the_recipe_that_serves(
+    monkeypatch, real_readiness_block
+):
+    """`--stop-server` is `make review-cycle` saying it owns the server after the pass, so the checklist the pass closes on must not call a server the recipe is about to start absent. A bare `make artifact-cycle` has no recipe behind it, and its checklist carries the row."""
+    from rebuild.tools import verdict_ready
+
+    asked: list[bool] = []
+
+    def fake_readiness(*, with_server, **kwargs):
+        asked.append(with_server)
+        return {"surface": {"dir": "d", "generated_at": "g", "repo_head": "h"}, "checks": {}}, True
+
+    monkeypatch.setattr(verdict_ready, "readiness", fake_readiness)
+
+    assert real_readiness_block(_plan(recipe_serves=True))[-1].startswith("READY")
+    assert real_readiness_block(_plan())[-1].startswith("READY")
+    assert asked == [False, True]
+    assert real_readiness_block(_plan(review_out=Path("/tmp/rehearsal"))) == []
+    assert asked == [False, True]
+
+
+def test_the_readiness_block_reports_a_checklist_it_could_not_compute(monkeypatch, real_readiness_block):
+    from rebuild.tools import verdict_ready
+
+    def boom(**kwargs):
+        raise RuntimeError("no manifest")
+
+    monkeypatch.setattr(verdict_ready, "readiness", boom)
+    lines = real_readiness_block(_plan())
+    assert lines == ["readiness: the checklist could not be computed (RuntimeError('no manifest'))"]
+
+
 def test_resolve_snapshot_dir_takes_the_first_free_name(tmp_path):
     assert ac.resolve_snapshot_dir(tmp_path, "abc1234") == tmp_path / "review-pre-abc1234"
     (tmp_path / "review-pre-abc1234").mkdir()
