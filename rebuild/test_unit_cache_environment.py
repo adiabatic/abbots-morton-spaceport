@@ -132,7 +132,7 @@ def test_a_widened_family_moves_that_family_key_and_leaves_the_environment(tmp_p
 def test_a_recompiled_font_serves_the_untouched_units_and_lands_on_a_from_scratch_build(
     base_surface, mini_bundle, tmp_path, capfd
 ):
-    """The end-to-end claim, at the only scale a test can afford: rebuild the mini surface over a font recompiled the way a rune edit recompiles one, and the store must serve the windows the moved family cannot reach — some, not all, and not none — while the tree it writes stays byte-for-byte what a cache-blind build of the same inputs writes. The content keys are asserted first and on their own, because they are what carry a recorded verdict across the cycle: a served fragment whose key drifted would strand every verdict recorded against it, and `patch_cached_fragment` re-stamps twelve fields over a served fragment without recomputing that key."""
+    """The end-to-end claim, at the only scale a test can afford: rebuild the mini surface over a font recompiled the way a rune edit recompiles one, and the store must serve the windows the moved family cannot reach — some, not all, and not none — while the tree it writes stays byte-for-byte what a cache-blind build of the same inputs writes. The content keys are asserted first and on their own, because they are what carry a recorded verdict across the cycle: a served fragment whose key drifted would strand every verdict recorded against it, and `patch_fragment` re-stamps twelve fields over a served fragment without recomputing that key."""
     incremental = tmp_path / "surface"
     shutil.copytree(base_surface, incremental)
     recompiled = _recompiled(MINI_FONT, tmp_path / "recompiled.otf")
