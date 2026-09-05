@@ -448,24 +448,10 @@
    0,
    2
   ],
-  "highlight": {
-   "before": {
-    "x_min": 220,
-    "x_max": 1320,
-    "advance_total": 1870
-   },
-   "after": {
-    "x_min": 220,
-    "x_max": 1375,
-    "advance_total": 1925
-   }
-  },
   "boundary_marks": [],
-  "explain": "sequence E653:E67A:E667   config ss02\nsettled: qsDay_qsUtter.loop.ex-ext-1 qsLow.en-y5",
   "summary": "New: \u00b7Day\u00b7Utter\u00b7Low settles differently from the baseline \u2014 decided by fixture data (open the explain panel for the candidate table).",
   "provenance": [
    "glyph_data/runes/qsDay.yaml:policy.extend[3]"
-  ],
-  "drafts": null
+  ]
  }
 ]

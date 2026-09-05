@@ -13,10 +13,11 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
+import yaml
 
 from rebuild.pipeline import fixtures, kernel_exec, spec_load
 from rebuild.review import unit_cache, unit_index
-from rebuild.review.audit import AuditRow, Unit
+from rebuild.review.audit import SLIM_OMITTED_KEYS, AuditRow, Unit
 from rebuild.review.build import (
     SITE_BEFORE_FONT,
     SITE_JUNIOR_FONT,
@@ -32,12 +33,12 @@ MINI_AUDIT = MINI / "audit.tsv"
 MINI_FONT = MINI / "M1.otf"
 
 
-def _build(out, bundle, audit_path=MINI_AUDIT, **kwargs):
-    """One mini surface, always over the frozen bundle: its subset tables, its after-font, and the ledger and spec the `mini_bundle` fixture materializes from the bundle's pin. That pinned spec is what keeps the bundle hermetic — the enricher re-settles every window from it, so reading the repo's live runes would make a rune edit break this module until the bundle was regenerated."""
+def _build(out, bundle, audit_path=MINI_AUDIT, ledger_path=None, **kwargs):
+    """One mini surface, always over the frozen bundle: its subset tables, its after-font, and the ledger and spec the `mini_bundle` fixture materializes from the bundle's pin. That pinned spec is what keeps the bundle hermetic — the enricher re-settles every window from it, so reading the repo's live runes would make a rune edit break this module until the bundle was regenerated. A `ledger_path` stands in for the pinned ledger when a test edits one."""
     return build_m1(
         out,
         audit_path=audit_path,
-        ledger_path=bundle.ledger,
+        ledger_path=ledger_path or bundle.ledger,
         subset_dir=MINI,
         after_font=MINI_FONT,
         spec_root=bundle.spec_root,
@@ -123,6 +124,111 @@ def test_incremental_rebuild_matches_a_from_scratch_build_after_an_edit(
     assert 0 < total - served <= 2
     scratch = tmp_path / "scratch"
     _build(scratch, mini_bundle, audit_path=edited, jobs=1)
+    assert _tree(incremental) == _tree(scratch)
+
+
+def _class_meta(surface: Path, class_id: str) -> dict:
+    manifest = json.loads((surface / "manifest.json").read_text(encoding="utf-8"))
+    return next(meta for meta in manifest["classes"] if meta["id"] == class_id)
+
+
+def _class_fragments(surface: Path, class_id: str) -> list[dict]:
+    return [
+        fragment
+        for part in unit_index.class_shards(_class_meta(surface, class_id))
+        for fragment in json.loads((surface / part).read_text(encoding="utf-8"))
+    ]
+
+
+def _ledger_with(bundle, tmp_path: Path, class_id: str, *, no_verdict: bool) -> Path:
+    """The bundle's pinned ledger with one class's exemption set as asked — the ledger edit that moves a key-stable unit between the slim and the full fragment shape without moving its content key."""
+    entries = yaml.safe_load(bundle.ledger.read_text(encoding="utf-8"))
+    entry = next(entry for entry in entries if entry["id"] == class_id)
+    assert entry.get("no_verdict", False) != no_verdict
+    entry["no_verdict"] = no_verdict
+    path = tmp_path / f"ledger-{class_id}.yaml"
+    path.write_text(yaml.safe_dump(entries, sort_keys=False, allow_unicode=True), encoding="utf-8")
+    return path
+
+
+def test_a_slim_fragment_is_the_shape_of_every_unit_that_takes_no_verdict(base_surface):
+    """Over the whole mini surface: a fragment omits the explain, the drafts and the highlight exactly when its unit is machine-approved or in a no-verdict class, and carries all three otherwise — and the store records which shape it wrote for each."""
+    manifest = json.loads((base_surface / "manifest.json").read_text(encoding="utf-8"))
+    store = unit_cache.load_store(base_surface, _store_environment(base_surface))
+    assert store is not None
+    slim_by_id = {record.prior_id: record.slim for record in store.values()}
+    shapes = {True: 0, False: 0}
+    for meta in manifest["classes"]:
+        for fragment in _class_fragments(base_surface, meta["id"]):
+            slim = fragment["batch"] is None
+            assert slim == (
+                bool(meta["no_verdict"])
+                or any(fragment[c] for c in ("ink_identical", "picture_identical", "junior_equivalent"))
+            )
+            assert [key in fragment for key in SLIM_OMITTED_KEYS] == [not slim] * len(
+                SLIM_OMITTED_KEYS
+            ), fragment["id"]
+            assert slim_by_id[fragment["id"]] is slim
+            shapes[slim] += 1
+    assert shapes[True] and shapes[False], "the mini surface must hold both fragment shapes"
+
+
+def _store_environment(surface: Path) -> str:
+    with gzip.open(unit_cache.store_path(surface), "rt", encoding="utf-8") as stream:
+        return json.loads(next(stream))["environment"]
+
+
+def _crossing_class(surface: Path, *, no_verdict: bool) -> tuple[str, int]:
+    """A class of the mini surface whose exemption is as asked and which holds units no machine channel approves — the units a flip of that exemption moves between the fragment shapes — with their count."""
+    manifest = json.loads((surface / "manifest.json").read_text(encoding="utf-8"))
+    for meta in manifest["classes"]:
+        crossing = meta["unit_count"] - meta["machine_approved_count"]
+        if bool(meta["no_verdict"]) is no_verdict and crossing > 0:
+            return meta["id"], crossing
+    raise AssertionError(
+        f"the mini surface holds no {'exempt' if no_verdict else 'human'} class a flip could move"
+    )
+
+
+def test_a_unit_crossing_into_the_human_workload_is_re_enriched_in_full(
+    base_surface, mini_bundle, tmp_path, capfd
+):
+    """The exemption is the ledger's and sits outside the content key, so a key-stable unit can be served a fragment of the wrong shape unless the store says which it holds: when a class loses its `no_verdict`, every unit of it that no machine channel approves is a miss — drafted in full rather than served slim — while the machine-approved ones stay served, and the surface lands byte-for-byte on a from-scratch build under the edited ledger."""
+    EXEMPT_CLASS, crossing = _crossing_class(base_surface, no_verdict=True)
+    assert not _class_meta(base_surface, EXEMPT_CLASS)["batches"]
+    ledger = _ledger_with(mini_bundle, tmp_path, EXEMPT_CLASS, no_verdict=False)
+    incremental = _copy(base_surface, tmp_path)
+    capfd.readouterr()
+    _build(incremental, mini_bundle, ledger_path=ledger, jobs=1)
+    served, total = _served(capfd)
+    assert total - served == crossing
+    for fragment in _class_fragments(incremental, EXEMPT_CLASS):
+        assert fragment["no_verdict"] is False
+        whole = fragment["batch"] is not None
+        assert all((key in fragment) == whole for key in SLIM_OMITTED_KEYS), fragment["id"]
+        if whole:
+            assert fragment["drafts"]["pin"]["expect"]
+    scratch = tmp_path / "scratch"
+    _build(scratch, mini_bundle, ledger_path=ledger, jobs=1)
+    assert _tree(incremental) == _tree(scratch)
+
+
+def test_a_unit_crossing_out_of_the_human_workload_is_written_slim(
+    base_surface, mini_bundle, tmp_path, capfd
+):
+    """The other direction of the same flip: a class that gains `no_verdict` has its human units re-drafted slim rather than served whole with drafts nobody will read, so a served surface is the surface a cache-blind build writes."""
+    HUMAN_CLASS, crossing = _crossing_class(base_surface, no_verdict=False)
+    ledger = _ledger_with(mini_bundle, tmp_path, HUMAN_CLASS, no_verdict=True)
+    incremental = _copy(base_surface, tmp_path)
+    capfd.readouterr()
+    _build(incremental, mini_bundle, ledger_path=ledger, jobs=1)
+    served, total = _served(capfd)
+    assert total - served == crossing
+    for fragment in _class_fragments(incremental, HUMAN_CLASS):
+        assert fragment["no_verdict"] is True and fragment["batch"] is None
+        assert not any(key in fragment for key in SLIM_OMITTED_KEYS), fragment["id"]
+    scratch = tmp_path / "scratch"
+    _build(scratch, mini_bundle, ledger_path=ledger, jobs=1)
     assert _tree(incremental) == _tree(scratch)
 
 
@@ -475,6 +581,7 @@ def _round_trip_unit() -> unit_cache.CachedUnit:
         prior_id="u-0001",
         prior_class="boundary-echo",
         content_key="f" * 64,
+        slim=False,
         ink_identical=False,
         picture_identical=False,
         junior_equivalent=False,
@@ -509,6 +616,10 @@ def test_store_round_trip_and_invalidation(tmp_path):
     unit_cache.write_store(tmp_path, "env-a", [cached])
     loaded = unit_cache.load_store(tmp_path, "env-a")
     assert loaded is not None and loaded["k1"] == cached
+    slim = replace(cached, key="k2", slim=True)
+    unit_cache.write_store(tmp_path, "env-a", [cached, slim])
+    loaded = unit_cache.load_store(tmp_path, "env-a")
+    assert loaded is not None and loaded["k2"].slim is True and loaded["k1"].slim is False
     assert unit_cache.load_store(tmp_path, "env-b") is None
     (tmp_path / "manifest.json").write_text('{"changed": true}', encoding="utf-8")
     assert unit_cache.load_store(tmp_path, "env-a") is None

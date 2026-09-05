@@ -14,7 +14,7 @@ from pathlib import Path
 import yaml
 
 from rebuild.review import unit_index
-from rebuild.review.audit import machine_approved
+from rebuild.review.audit import SLIM_OMITTED_KEYS, machine_approved, slim_fragment
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 DEFAULT_REVIEW_DIR = REPO_ROOT / "rebuild" / "out" / "review"
@@ -41,14 +41,15 @@ TRIAGE_KEYS = (
 
 
 def _triage_projection(unit: dict, shard: str) -> dict:
-    """One shard unit narrowed to the fields the triage YAML is written from. A key this file reads but the shard does not carry is a build and this reader disagreeing about the unit shape, which as a silent `.get(...) or None` writes a triage YAML that is wrong rather than missing — so it stops here instead, naming the key. `TRIAGE_KEYS` is the export's read-set exactly and not a safe-to-pad allowlist in either direction: a key declared but never read costs a refusal on any surface that legitimately omits it, and a key read but never declared is the null this refusal exists to prevent. `test_load_units_keeps_exactly_the_fields_the_triage_export_reads` names the set independently, and `test_export_round_trip` runs `build_triage` over the projection so the reads and the declaration are held together."""
-    missing = [key for key in TRIAGE_KEYS if key not in unit]
+    """One shard unit narrowed to the fields the triage YAML is written from. A key this file reads but the shard does not carry is a build and this reader disagreeing about the unit shape, which as a silent `.get(...) or None` writes a triage YAML that is wrong rather than missing — so it stops here instead, naming the key. `TRIAGE_KEYS` is the export's read-set exactly and not a safe-to-pad allowlist in either direction: a key declared but never read costs a refusal on any surface that legitimately omits it, and a key read but never declared is the null this refusal exists to prevent. The one legitimate omission is a slim fragment's (`audit.slim_fragment`): a machine-approved or exempt unit ships without `drafts`, and the export never drafts from one — its verdicts are counted as inert history — so that key is read as null there rather than refused. `test_load_units_keeps_exactly_the_fields_the_triage_export_reads` names the set independently, and `test_export_round_trip` runs `build_triage` over the projection so the reads and the declaration are held together."""
+    omitted = set(SLIM_OMITTED_KEYS) if slim_fragment(unit) else set()
+    missing = [key for key in TRIAGE_KEYS if key not in unit and key not in omitted]
     if missing:
         raise SystemExit(
             f"{shard}: unit {unit.get('id')} carries no {', '.join(missing)}; "
             "the triage export reads that field, so this surface was built by a version this reader does not understand"
         )
-    return {key: unit[key] for key in TRIAGE_KEYS}
+    return {key: unit.get(key) if key in omitted else unit[key] for key in TRIAGE_KEYS}
 
 
 def load_units(review_dir: Path) -> tuple[dict, dict[str, dict]]:

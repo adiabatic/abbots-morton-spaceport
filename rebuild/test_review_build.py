@@ -24,7 +24,7 @@ from rebuild.pipeline import fingerprint
 from rebuild.review import app_index, unit_cache
 from rebuild.review import build as review_build
 from rebuild.review import unit_index
-from rebuild.review.audit import ACCEPTANCE_CONFIGS, load_workload, machine_approved
+from rebuild.review.audit import ACCEPTANCE_CONFIGS, SLIM_OMITTED_KEYS, load_workload, machine_approved
 from rebuild.review.build import (
     FEATURE_DESCRIPTIONS,
     STATIC_DIR,
@@ -82,7 +82,7 @@ def test_fixture_units_exercise_the_contract_branches():
     assert any(unit["pair"] is None for unit in units)
     assert any(unit["drafts"] and unit["drafts"]["pin"]["duplicate_of"] for unit in units)
     assert any(
-        unit["drafts"] is None and "\nposition " not in unit["explain"] for unit in units
+        unit["batch"] is None and not any(key in unit for key in SLIM_OMITTED_KEYS) for unit in units
     ), "a fixture unit must exercise the slim machine-approved shape"
     assert any(
         seam["home"] for unit in units for seam in unit.get("secondary_seams") or ()
@@ -206,7 +206,7 @@ def test_check_unit_admits_one_machine_channel_at_most():
 
 
 def test_check_unit_nulls_batch_on_picture_identical_units():
-    """A picture-identical unit leaves the human workload exactly as an ink-identical one does, while keeping the nonempty ink_deltas its name-grain change records."""
+    """A picture-identical unit leaves the human workload exactly as an ink-identical one does — batch null, and the slim fragment shape with it — while keeping the nonempty ink_deltas its name-grain change records."""
     unit = _fixture_unit(ink_identical=False)
     unit["picture_identical"] = True
     assert any("batch null" in error for error in check_unit(unit, "m1-audit"))
@@ -214,6 +214,9 @@ def test_check_unit_nulls_batch_on_picture_identical_units():
     unit["echo"] = None
     unit["cluster"] = None
     unit["secondary_seams"] = None
+    assert any("omit drafts" in error for error in check_unit(unit, "m1-audit"))
+    for key in SLIM_OMITTED_KEYS:
+        del unit[key]
     assert check_unit(unit, "m1-audit") == []
     assert unit["ink_deltas"]
 
@@ -610,8 +613,16 @@ def _live_enriched_units() -> int:
     return sum(1 for candidate in gc.get_objects() if isinstance(candidate, EnrichedUnit))
 
 
-def test_the_serial_runner_spools_every_fragment_and_keeps_no_enrichment(tmp_path, mini_bundle):
-    """No EnrichedUnit outlives the batch that produced it: once phase 1 returns, the runner holds a spool address per fresh unit and nothing enriched, each address reads back as that unit's drafted fragment, and closing the runner sweeps the spool from under the surface."""
+def test_the_serial_runner_spools_every_fragment_and_keeps_no_enrichment(tmp_path, mini_bundle, monkeypatch):
+    """No EnrichedUnit outlives the batch that produced it: once phase 1 returns, the runner holds a spool address per fresh unit and nothing enriched, each address reads back as that unit's drafted fragment, and closing the runner sweeps the spool from under the surface. The fragments come in two shapes and the drafter sees one of them: a unit the build machine-approves or the ledger exempts is spooled slim, without the explain, the drafts or the highlight, and was never drafted; every human unit is whole, and was."""
+    drafted: set[str] = set()
+    draft_pin = review_build.Drafter.draft_pin
+
+    def counting_draft_pin(self, enriched, *args, **kwargs):
+        drafted.add(enriched.unit.unit_id)
+        return draft_pin(self, enriched, *args, **kwargs)
+
+    monkeypatch.setattr(review_build.Drafter, "draft_pin", counting_draft_pin)
     units = load_workload(MINI / "audit.tsv", mini_bundle.ledger, dict(LETTERS)).units
     runner = review_build._FreshRunner(
         units,
@@ -629,11 +640,20 @@ def test_the_serial_runner_spools_every_fragment_and_keeps_no_enrichment(tmp_pat
         assert _live_enriched_units() == 0
         assert sorted(projections) == sorted(unit.unit_id for unit in units)
         assert (tmp_path / review_build.FRESH_SPOOL_NAME).is_dir()
+        shapes = {True: 0, False: 0}
         for unit in units:
             fragment = runner.fragment(unit.unit_id)
             assert fragment["id"] == unit.unit_id
             assert fragment["content_key"] is None
             assert fragment["batch"] is None and fragment["echo"] is None
+            slim = unit.slim_fragment
+            assert slim == (unit.machine_approved or unit.no_verdict)
+            assert [key in fragment for key in SLIM_OMITTED_KEYS] == [not slim] * len(
+                SLIM_OMITTED_KEYS
+            ), unit.unit_id
+            assert (unit.unit_id in drafted) == (not slim), unit.unit_id
+            shapes[slim] += 1
+        assert shapes[True] and shapes[False], "the mini workload must hold both fragment shapes"
     finally:
         runner.close()
     assert not (tmp_path / review_build.FRESH_SPOOL_NAME).exists()
@@ -1058,7 +1078,7 @@ def test_load_units_keeps_exactly_the_fields_the_triage_export_reads():
             "provenance",
             "drafts",
         }
-        assert projected == {key: fixture_units[unit_id][key] for key in projected}
+        assert projected == {key: fixture_units[unit_id].get(key) for key in projected}
 
 
 def test_load_units_refuses_a_shard_missing_a_field_the_export_reads(tmp_path):
