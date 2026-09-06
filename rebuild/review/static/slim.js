@@ -65,36 +65,34 @@ export function carriesSamples(unit) {
   return Boolean(unit) && typeof unit.text_entities === 'string';
 }
 
-// The integer a unit id counts, which is the order ids were assigned in and the order every class's locator blocks are searched by; NaN for anything that is not a unit id, which no block brackets.
-export function unitNumber(unitId) {
-  if (typeof unitId !== 'string' || !unitId.startsWith('u-')) return Number.NaN;
-  const digits = unitId.slice(2);
-  return /^\d+$/.test(digits) ? Number(digits) : Number.NaN;
+// Whether a string is a unit id: `u-` and eleven base58 symbols (the alphabet without 0, O, I and l), the build's content-addressed shape. Ids have no order but their own string order, which is the order the build writes a class's fragments and locator rows in.
+const UNIT_ID = /^u-[1-9A-HJ-NP-Za-km-z]{11}$/;
+export function isUnitId(unitId) {
+  return typeof unitId === 'string' && UNIT_ID.test(unitId);
 }
 
-// The locator's block table grouped by class, each class's blocks in the order the file lists them, which is ascending by the unit numbers they hold — the shape both the folds and the deep-link search read.
+// The locator's block table grouped by class, each class's blocks in the order the file lists them, which is ascending by the ids they hold — the shape both the folds and the deep-link search read.
 export function indexLocatorBlocks(blocks) {
   const byClass = new Map();
   for (const block of blocks) {
     if (!byClass.has(block.class)) byClass.set(block.class, []);
-    byClass.get(block.class).push({ ...block, firstNumber: unitNumber(block.first), lastNumber: unitNumber(block.last) });
+    byClass.get(block.class).push(block);
   }
   return byClass;
 }
 
-// The blocks that can hold a unit id: at most one per class, found by binary search over that class's blocks, since a class's blocks are disjoint and ascending while the classes' id ranges overlap one another. A deep link fetches these and no others.
+// The blocks that can hold a unit id: at most one per class, found by binary search over that class's blocks comparing ids as strings, since a class's blocks are disjoint and ascending while the classes' id ranges overlap one another. A deep link fetches these and no others.
 export function candidateBlocks(byClass, unitId) {
-  const number = unitNumber(unitId);
   const found = [];
-  if (Number.isNaN(number)) return found;
+  if (!isUnitId(unitId)) return found;
   for (const blocks of byClass.values()) {
     let low = 0;
     let high = blocks.length - 1;
     while (low <= high) {
       const mid = (low + high) >> 1;
       const block = blocks[mid];
-      if (block.lastNumber < number) low = mid + 1;
-      else if (block.firstNumber > number) high = mid - 1;
+      if (block.last < unitId) low = mid + 1;
+      else if (block.first > unitId) high = mid - 1;
       else {
         found.push(block);
         break;

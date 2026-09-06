@@ -31,6 +31,7 @@ def unit(uid, provenance=(), policy=None, batch: int | None = 1, no_verdict=Fals
     number = uid.split("-")[1]
     return {
         "id": uid,
+        "order": None if no_verdict or batch is None else int(number),
         "batch": None if no_verdict else batch,
         "no_verdict": no_verdict,
         "echo": f"e-{number}",

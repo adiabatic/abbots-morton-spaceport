@@ -17,6 +17,7 @@ from rebuild.review.audit import (
     AuditRow,
     LedgerClass,
     assign_batches,
+    batch_of,
     build_units,
     load_audit,
     load_ledger,
@@ -25,6 +26,7 @@ from rebuild.review.audit import (
     parse_codepoints,
     release_rows,
     render_groups_for_rows,
+    sort_for_triage,
 )
 from rebuild.review.enrich import LETTERS
 
@@ -180,16 +182,18 @@ def test_triage_order_follows_ledger_then_group_then_codepoints(mini):
                 )
 
 
-def test_unit_ids_are_sequential_and_batches_unassigned_until_ink_is_known(mini):
-    for index, unit in enumerate(mini.units):
-        assert unit.unit_id == f"u-{index:04d}"
+def test_unit_ids_batches_and_positions_are_unassigned_until_the_build_knows_them(mini):
+    """An id is the content key's, stamped at enrichment, and a batch is a slice of the index the build lays down once every unit has its ink flags and its family — so the loaded workload carries none of them."""
+    for unit in mini.units:
+        assert unit.unit_id == ""
+        assert unit.order is None
         assert unit.batch is None
         assert unit.ink_identical is False
         assert unit.picture_identical is False
 
 
-def test_assign_batches_slices_the_human_workload_and_nulls_machine_units(mini):
-    """`assign_batches` is pure over a unit list, so the mini workload witnesses it exactly as the live one did — and without the live graph there is no longer a test that mutates a shared session fixture and has to put it back."""
+def test_assign_batches_indexes_the_human_workload_and_nulls_machine_units(mini):
+    """`assign_batches` is pure over a unit list, so the mini workload witnesses it exactly as the live one did — and without the live graph there is no longer a test that mutates a shared session fixture and has to put it back. Every human unit takes its position in the list of human units and the slice that position falls in; every other unit takes neither."""
     units = mini.units
     for index, unit in enumerate(units):
         unit.ink_identical = index % 3 == 0
@@ -198,9 +202,38 @@ def test_assign_batches_slices_the_human_workload_and_nulls_machine_units(mini):
     total = assign_batches(units, batch_size=300)
     human = [unit for unit in units if not unit.machine_approved and not unit.no_verdict]
     assert human
-    assert [unit.batch for unit in human] == [index // 300 for index in range(len(human))]
-    assert all(unit.batch is None for unit in units if unit.machine_approved or unit.no_verdict)
+    assert [unit.order for unit in human] == list(range(len(human)))
+    assert [unit.batch for unit in human] == [batch_of(index, 300) for index in range(len(human))]
+    assert all(
+        unit.batch is None and unit.order is None
+        for unit in units
+        if unit.machine_approved or unit.no_verdict
+    )
     assert total == (len(human) + 299) // 300
+
+
+def test_sort_for_triage_orders_by_class_group_window_then_id():
+    """The order the manifest's index takes, with the id as the last term so sibling units of one window — which share class, group and codepoints — fall into an order that is the same on every surface rather than the audit's."""
+    rows = [
+        AuditRow("default", "E650:E652", ("cell",), "class-b", ("a",), ("b",)),
+        AuditRow("default", "E650:E652", ("cell",), "class-b", ("a",), ("c",)),
+        AuditRow("default", "E650:E650", ("cell",), "class-a", ("a",), ("b",)),
+        AuditRow("default", "E650:E652:E650", ("cell",), "class-b", ("a",), ("b",)),
+    ]
+    ledger = [
+        LedgerClass("class-b", "intended", "", False, False, 0, frozenset()),
+        LedgerClass("class-a", "intended", "", False, False, 0, frozenset()),
+    ]
+    units = build_units(rows, ledger, dict(LETTERS))
+    for unit in units:
+        unit.unit_id = "u-" + ("z" if unit.new == ("b",) else "a") + unit.codepoints.replace(":", "")
+    sort_for_triage(units, {"class-a": 0, "class-b": 1}, dict(LETTERS))
+    assert [(unit.class_id, unit.codepoints, unit.unit_id) for unit in units] == [
+        ("class-a", "E650:E650", "u-zE650E650"),
+        ("class-b", "E650:E652", "u-aE650E652"),
+        ("class-b", "E650:E652", "u-zE650E652"),
+        ("class-b", "E650:E652:E650", "u-zE650E652E650"),
+    ]
 
 
 def test_no_verdict_flag_mirrors_the_ledger_class():
@@ -271,7 +304,6 @@ def test_ink_duplicate_siblings_fold_to_one_unit(mini_bundle):
     stats = merge_ink_duplicate_units(units, lambda text, config: text)
     assert stats == {"windows_folded": 1, "units_folded": 1, "kept_split_matched_classes": 0}
     assert len(units) == 2
-    assert [unit.unit_id for unit in units] == ["u-0000", "u-0001"]
     merged = next(unit for unit in units if unit.codepoints == "E650:E665")
     assert merged.configs == ("default", "ss03", "ss04")
     assert merged.row_count == len(merged.rows) == 3

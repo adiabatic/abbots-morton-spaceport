@@ -40,27 +40,31 @@ TRIAGE_KEYS = (
 )
 
 
-def _triage_projection(unit: dict, shard: str) -> dict:
-    """One shard unit narrowed to the fields the triage YAML is written from. A key this file reads but the shard does not carry is a build and this reader disagreeing about the unit shape, which as a silent `.get(...) or None` writes a triage YAML that is wrong rather than missing — so it stops here instead, naming the key. `TRIAGE_KEYS` is the export's read-set exactly and not a safe-to-pad allowlist in either direction: a key declared but never read costs a refusal on any surface that legitimately omits it, and a key read but never declared is the null this refusal exists to prevent. The one legitimate omission is a slim fragment's (`audit.slim_fragment`): a machine-approved or exempt unit ships without `drafts`, and the export never drafts from one — its verdicts are counted as inert history — so that key is read as null there rather than refused. `test_load_units_keeps_exactly_the_fields_the_triage_export_reads` names the set independently, and `test_export_round_trip` runs `build_triage` over the projection so the reads and the declaration are held together."""
+def _triage_projection(unit: dict, shard: str, *, batch: int | None = None) -> dict:
+    """One shard unit narrowed to the fields the triage YAML is written from. A key this file reads but the shard does not carry is a build and this reader disagreeing about the unit shape, which as a silent `.get(...) or None` writes a triage YAML that is wrong rather than missing — so it stops here instead, naming the key. `TRIAGE_KEYS` is the export's read-set exactly and not a safe-to-pad allowlist in either direction: a key declared but never read costs a refusal on any surface that legitimately omits it, and a key read but never declared is the null this refusal exists to prevent. Two keys are read from somewhere other than the fragment: `batch` is the manifest's triage index speaking (`unit_index.slot_reader`), handed in by the caller, since a fragment carries no batch; and a slim fragment's (`audit.slim_fragment`) omitted keys — a machine-approved or exempt unit ships without `drafts`, and the export never drafts from one, its verdicts being counted as inert history — are read as null there rather than refused. `test_load_units_keeps_exactly_the_fields_the_triage_export_reads` names the set independently, and `test_export_round_trip` runs `build_triage` over the projection so the reads and the declaration are held together."""
     omitted = set(SLIM_OMITTED_KEYS) if slim_fragment(unit) else set()
-    missing = [key for key in TRIAGE_KEYS if key not in unit and key not in omitted]
+    missing = [key for key in TRIAGE_KEYS if key != "batch" and key not in unit and key not in omitted]
     if missing:
         raise SystemExit(
             f"{shard}: unit {unit.get('id')} carries no {', '.join(missing)}; "
             "the triage export reads that field, so this surface was built by a version this reader does not understand"
         )
-    return {key: unit.get(key) if key in omitted else unit[key] for key in TRIAGE_KEYS}
+    return {
+        key: batch if key == "batch" else unit.get(key) if key in omitted else unit[key]
+        for key in TRIAGE_KEYS
+    }
 
 
 def load_units(review_dir: Path) -> tuple[dict, dict[str, dict]]:
-    """The manifest and every unit on the surface, narrowed to `TRIAGE_KEYS` one shard part at a time. The corpus runs to gigabytes, of which the triage export reads under a third — `explain` alone is two fifths of it and nothing here opens it — so each part is released before the next is parsed and only the projection is kept."""
+    """The manifest and every unit on the surface, narrowed to `TRIAGE_KEYS` one shard part at a time, each unit's batch read off the manifest's triage index. The corpus runs to gigabytes, of which the triage export reads under a third — `explain` alone is two fifths of it and nothing here opens it — so each part is released before the next is parsed and only the projection is kept."""
     manifest = json.loads((review_dir / "manifest.json").read_text(encoding="utf-8"))
+    slot = unit_index.slot_reader(review_dir)
     units: dict[str, dict] = {}
     for meta in manifest.get("classes", ()):
         for part in unit_index.class_shards(meta):
             shard = json.loads((review_dir / part).read_text(encoding="utf-8"))
             for unit in shard:
-                units[unit["id"]] = _triage_projection(unit, part)
+                units[unit["id"]] = _triage_projection(unit, part, batch=slot(unit)["batch"])
             del shard
     return manifest, units
 
@@ -94,28 +98,13 @@ def rows_covered(unit: dict) -> int:
     return len(unit.get("configs", ()))
 
 
-def _compact_id_ranges(unit_ids: list[str]) -> list[str]:
-    """Collapse sorted u-NNNN ids into "u-0000..u-0024"-style range strings so the machine-approved id list stays readable in the triage YAML."""
-    numbers = sorted(int(unit_id.split("-", 1)[1]) for unit_id in unit_ids)
-    ranges: list[str] = []
-    start = previous = None
-    for number in numbers:
-        if start is None:
-            start = previous = number
-            continue
-        assert previous is not None
-        if number == previous + 1:
-            previous = number
-            continue
-        ranges.append(f"u-{start:04d}" if start == previous else f"u-{start:04d}..u-{previous:04d}")
-        start = previous = number
-    if start is not None:
-        ranges.append(f"u-{start:04d}" if start == previous else f"u-{start:04d}..u-{previous:04d}")
-    return ranges
+def _machine_unit_ids(unit_ids: list[str]) -> list[str]:
+    """The machine-approved ids in id order — content ids have no runs to collapse, so the list is the list."""
+    return sorted(unit_ids)
 
 
 def machine_approved_section(manifest: dict, units: dict[str, dict]) -> dict:
-    """The triage YAML's machine_approved record: machine-verdicted units (ink-identical, picture-identical, or junior-equivalent) are reported as counts, per-class counts, the verification method, and compact unit-id ranges — never as drafted pins, which remain a human-verdict artifact."""
+    """The triage YAML's machine_approved record: machine-verdicted units (ink-identical, picture-identical, or junior-equivalent) are reported as counts, per-class counts, the verification method, and their ids — never as drafted pins, which remain a human-verdict artifact."""
     machine = [unit for unit in units.values() if machine_approved(unit)]
     by_class: dict[str, int] = {}
     for unit in machine:
@@ -127,7 +116,7 @@ def machine_approved_section(manifest: dict, units: dict[str, dict]) -> dict:
         "by_class": by_class,
         "method": meta.get("method")
         or "Both fonts shape and place identical outlines for these units under every config in their sets.",
-        "unit_ids": _compact_id_ranges([unit["id"] for unit in machine]),
+        "unit_ids": _machine_unit_ids([unit["id"] for unit in machine]),
     }
 
 

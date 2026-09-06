@@ -24,7 +24,13 @@ from rebuild.pipeline import fingerprint
 from rebuild.review import app_index, unit_cache
 from rebuild.review import build as review_build
 from rebuild.review import unit_index
-from rebuild.review.audit import ACCEPTANCE_CONFIGS, SLIM_OMITTED_KEYS, load_workload, machine_approved
+from rebuild.review.audit import (
+    ACCEPTANCE_CONFIGS,
+    SLIM_OMITTED_KEYS,
+    load_workload,
+    machine_approved,
+    slim_fragment,
+)
 from rebuild.review.build import (
     FEATURE_DESCRIPTIONS,
     STATIC_DIR,
@@ -82,7 +88,7 @@ def test_fixture_units_exercise_the_contract_branches():
     assert any(unit["pair"] is None for unit in units)
     assert any(unit["drafts"] and unit["drafts"]["pin"]["duplicate_of"] for unit in units)
     assert any(
-        unit["batch"] is None and not any(key in unit for key in SLIM_OMITTED_KEYS) for unit in units
+        slim_fragment(unit) and not any(key in unit for key in SLIM_OMITTED_KEYS) for unit in units
     ), "a fixture unit must exercise the slim machine-approved shape"
     assert any(
         seam["home"] for unit in units for seam in unit.get("secondary_seams") or ()
@@ -205,12 +211,11 @@ def test_check_unit_admits_one_machine_channel_at_most():
     assert any("at most one machine channel" in error for error in check_unit(unit, "m1-audit"))
 
 
-def test_check_unit_nulls_batch_on_picture_identical_units():
-    """A picture-identical unit leaves the human workload exactly as an ink-identical one does — batch null, and the slim fragment shape with it — while keeping the nonempty ink_deltas its name-grain change records."""
+def test_check_unit_takes_picture_identical_units_out_of_the_human_workload():
+    """A picture-identical unit leaves the human workload exactly as an ink-identical one does — no echo, no cluster, and the slim fragment shape — while keeping the nonempty ink_deltas its name-grain change records."""
     unit = _fixture_unit(ink_identical=False)
     unit["picture_identical"] = True
-    assert any("batch null" in error for error in check_unit(unit, "m1-audit"))
-    unit["batch"] = None
+    assert any("echo null" in error for error in check_unit(unit, "m1-audit"))
     unit["echo"] = None
     unit["cluster"] = None
     unit["secondary_seams"] = None
@@ -246,7 +251,13 @@ def test_check_manifest_flags_a_malformed_inputs_fingerprint():
 
 @pytest.mark.parametrize(
     "human_unit_ids",
-    ("u-0000", ["u-0000", ["u-0001"]], ["not-a-unit"], ["u-0000", "u-0000"]),
+    (
+        "u-0000",
+        ["u-DdcTojn1hba", ["u-8nacGTcgMRS"]],
+        ["not-a-unit"],
+        ["u-0000"],
+        ["u-DdcTojn1hba", "u-DdcTojn1hba"],
+    ),
 )
 def test_check_manifest_flags_malformed_human_unit_ids(human_unit_ids):
     manifest = json.loads((FIXTURES / "manifest.json").read_text(encoding="utf-8"))
@@ -624,6 +635,8 @@ def test_the_serial_runner_spools_every_fragment_and_keeps_no_enrichment(tmp_pat
 
     monkeypatch.setattr(review_build.Drafter, "draft_pin", counting_draft_pin)
     units = load_workload(MINI / "audit.tsv", mini_bundle.ledger, dict(LETTERS)).units
+    for index, unit in enumerate(units):
+        unit.input_key = f"k{index}"
     runner = review_build._FreshRunner(
         units,
         1,
@@ -638,14 +651,15 @@ def test_the_serial_runner_spools_every_fragment_and_keeps_no_enrichment(tmp_pat
     try:
         projections = runner.phase1()
         assert _live_enriched_units() == 0
-        assert sorted(projections) == sorted(unit.unit_id for unit in units)
+        assert sorted(projections) == sorted(unit.input_key for unit in units)
         assert (tmp_path / review_build.FRESH_SPOOL_NAME).is_dir()
         shapes = {True: 0, False: 0}
         for unit in units:
+            assert projections[unit.input_key].unit_id == unit.unit_id
             fragment = runner.fragment(unit.unit_id)
-            assert fragment["id"] == unit.unit_id
-            assert fragment["content_key"] is None
-            assert fragment["batch"] is None and fragment["echo"] is None
+            assert fragment["id"] == unit.unit_id == unit_cache.unit_id_for(fragment["content_key"])
+            assert fragment["content_key"] == unit_cache.carry_content_hash(fragment)
+            assert "batch" not in fragment and fragment["echo"] is None
             slim = unit.slim_fragment
             assert slim == (unit.machine_approved or unit.no_verdict)
             assert [key in fragment for key in SLIM_OMITTED_KEYS] == [not slim] * len(
@@ -946,7 +960,9 @@ def test_a_pool_worker_releases_the_shape_memo_behind_each_batch(mini_bundle, mo
             reply = parent.recv()
         assert reply[0] == "ok", reply[1]
         assert len(reply[1]) == len(units)
-        assert sorted(reply[2]) == sorted(unit.unit_id for unit in units)
+        # The units crossed the pipe as copies, so the ids the worker's drafting stamped come back on its projections rather than on the units held here.
+        assert sorted(reply[2]) == sorted(projection.unit_id for projection in reply[1])
+        assert all(unit_cache.is_content_id(unit_id) for unit_id in reply[2])
         assert counts == sorted(counts) and counts[-1] == len(units)
         parent.send(("stop",))
         assert parent.recv()[0] == "peak"
@@ -1010,7 +1026,7 @@ def _export_surface():
     """
     manifest = copy.deepcopy(json.loads((FIXTURES / "manifest.json").read_text(encoding="utf-8")))
     units = {unit["id"]: unit for unit in _load_fixture_units()}
-    template = units["u-0004"]
+    template = units["u-WJSK8gMxjxy"]
 
     def clone(unit_id, **changes):
         clone = copy.deepcopy(template)
@@ -1018,16 +1034,19 @@ def _export_surface():
         clone.update(changes)
         units[unit_id] = clone
 
-    clone("u-0006", no_verdict=True, batch=None)
-    clone("u-0007", drafts={**copy.deepcopy(template["drafts"]), "policy": None})
-    clone("u-0008")
+    clone("u-clone6exempt", no_verdict=True)
+    clone("u-clone7nopol", drafts={**copy.deepcopy(template["drafts"]), "policy": None})
+    clone("u-clone8plain")
     manifest["totals"]["units"] = len(units)
-    manifest["human_unit_ids"] = sorted(
-        (unit["id"] for unit in units.values() if unit["batch"] is not None),
-        key=lambda unit_id: int(unit_id[2:]),
-    )
+    manifest["human_unit_ids"] = sorted(unit["id"] for unit in units.values() if not slim_fragment(unit))
+    positions = {unit_id: position for position, unit_id in enumerate(manifest["human_unit_ids"])}
     return manifest, {
-        unit_id: _triage_projection(unit, "the export fixture") for unit_id, unit in units.items()
+        unit_id: _triage_projection(
+            unit,
+            "the export fixture",
+            batch=None if unit_id not in positions else positions[unit_id] // manifest["batch_size"],
+        )
+        for unit_id, unit in units.items()
     }
 
 
@@ -1062,6 +1081,7 @@ def test_load_units_keeps_exactly_the_fields_the_triage_export_reads():
     fixture_units = {unit["id"]: unit for unit in _load_fixture_units()}
     assert set(units) == set(fixture_units)
     assert manifest == json.loads((FIXTURES / "manifest.json").read_text(encoding="utf-8"))
+    positions = {unit_id: position for position, unit_id in enumerate(manifest["human_unit_ids"])}
     for unit_id, projected in units.items():
         assert set(projected) == {
             "id",
@@ -1078,7 +1098,11 @@ def test_load_units_keeps_exactly_the_fields_the_triage_export_reads():
             "provenance",
             "drafts",
         }
-        assert projected == {key: fixture_units[unit_id].get(key) for key in projected}
+        # The batch is the manifest's index speaking, since a fragment carries none; everything else is the fragment's own.
+        expected_batch = None if unit_id not in positions else positions[unit_id] // manifest["batch_size"]
+        assert projected == {
+            key: expected_batch if key == "batch" else fixture_units[unit_id].get(key) for key in projected
+        }
 
 
 def test_load_units_refuses_a_shard_missing_a_field_the_export_reads(tmp_path):
@@ -1097,13 +1121,15 @@ def test_load_units_refuses_a_shard_missing_a_field_the_export_reads(tmp_path):
 
 def test_export_round_trip(tmp_path):
     manifest, units = _export_surface()
-    ids = sorted(uid for uid, unit in units.items() if not unit["no_verdict"])
+    ids = sorted(
+        uid for uid, unit in units.items() if not unit["no_verdict"] and not machine_approved(units[uid])
+    )
     exempt_unit = next(uid for uid in sorted(units) if units[uid]["no_verdict"])
-    drafted_reject = next(uid for uid in ids[4:] if units[uid]["drafts"]["policy"])
-    manual_reject = next(uid for uid in ids[4:] if units[uid]["drafts"]["policy"] is None)
-    identical_unit = next(uid for uid in ids[4:] if uid not in (drafted_reject, manual_reject))
-    human_skip = next(uid for uid in ids[4:] if uid not in (drafted_reject, manual_reject, identical_unit))
-    machine_unit = next(uid for uid in ids if machine_approved(units[uid]))
+    drafted_reject = next(uid for uid in ids[3:] if units[uid]["drafts"]["policy"])
+    manual_reject = next(uid for uid in ids[3:] if units[uid]["drafts"]["policy"] is None)
+    identical_unit = next(uid for uid in ids[3:] if uid not in (drafted_reject, manual_reject))
+    human_skip = next(uid for uid in ids[3:] if uid not in (drafted_reject, manual_reject, identical_unit))
+    machine_unit = next(uid for uid in sorted(units) if machine_approved(units[uid]))
     verdicts_path = tmp_path / "verdicts.json"
     payload = {
         "format": "ams-review-verdicts/1",
@@ -1167,17 +1193,8 @@ def test_export_round_trip(tmp_path):
     assert machine["rows_covered"] == sum(
         len(unit["configs"]) for unit in units.values() if machine_approved(unit)
     )
-    expanded = []
-    for token in machine["unit_ids"]:
-        if ".." in token:
-            start, end = token.split("..")
-            expanded.extend(range(int(start[2:]), int(end[2:]) + 1))
-        else:
-            expanded.append(int(token[2:]))
-    assert len(expanded) == manifest["machine_approved"]["units"]
-    assert {f"u-{number:04d}" for number in expanded} == {
-        unit_id for unit_id, unit in units.items() if machine_approved(unit)
-    }
+    assert machine["unit_ids"] == sorted(uid for uid in units if machine_approved(units[uid]))
+    assert len(machine["unit_ids"]) == manifest["machine_approved"]["units"]
     assert counts["rows_covered"] == sum(
         len(units[uid]["configs"])
         for uid in (ids[0], drafted_reject, manual_reject, ids[2], human_skip, ids[1], identical_unit)
@@ -1290,7 +1307,7 @@ def test_table_diff_build(tmp_path):
     assert shard[0]["class"] == "changed"
     assert "ink_deltas" not in shard[0]
     assert check_unit(shard[0], "table-diff") == []
-    assert manifest["human_unit_ids"] == [unit["id"] for unit in shard if unit["batch"] is not None]
+    assert manifest["human_unit_ids"] == [unit["id"] for unit in shard if not slim_fragment(unit)]
     assert "synthetic-pointer" in shard[0]["explain"] or "synthetic-pointer" in " ".join(
         shard[0]["provenance"]
     )

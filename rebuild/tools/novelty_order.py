@@ -19,11 +19,10 @@ AUTOSAVE = ROOT / "verdicts-autosave.json"
 RECENT_WINDOW = 3
 
 
-def _unit_number(unit_id):
-    try:
-        return int(unit_id.split("-", 1)[1])
-    except IndexError, ValueError:
-        return 0
+def _triage_position(unit):
+    """Where the unit sits in the surface's triage index (the index record's `order`): the order a rep is chosen and the walk breaks ties in."""
+    order = unit.get("order")
+    return order if isinstance(order, int) else sys.maxsize
 
 
 def blank_reps(units, records):
@@ -32,8 +31,8 @@ def blank_reps(units, records):
     groups = collections.defaultdict(list)
     for unit in blanks:
         groups[unit.get("echo") or unit["id"]].append(unit)
-    reps = [min(members, key=lambda u: _unit_number(u["id"])) for members in groups.values()]
-    reps.sort(key=lambda u: _unit_number(u["id"]))
+    reps = [min(members, key=_triage_position) for members in groups.values()]
+    reps.sort(key=_triage_position)
     return reps, len(blanks)
 
 
@@ -93,8 +92,9 @@ def novelty_order(reps):
     if not reps:
         return []
     feats = {unit["id"]: features(unit) for unit in reps}
+    position = {unit["id"]: _triage_position(unit) for unit in reps}
     rarity = collections.Counter(f["class"] for f in feats.values())
-    seed = min(reps, key=lambda u: (rarity[feats[u["id"]]["class"]], _unit_number(u["id"])))
+    seed = min(reps, key=lambda u: (rarity[feats[u["id"]]["class"]], position[u["id"]]))
     order = [seed["id"]]
     remaining = {unit["id"] for unit in reps} - {seed["id"]}
     while remaining:
@@ -104,7 +104,7 @@ def novelty_order(reps):
             key=lambda uid: (
                 min(distance(feats[uid], feats[prev]) for prev in window),
                 -rarity[feats[uid]["class"]],
-                -_unit_number(uid),
+                -position[uid],
             ),
         )
         order.append(best)

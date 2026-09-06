@@ -2,7 +2,7 @@
 
 The shards are the authority and this file is a projection of them — never a second source. It exists because the four plumbing tools (carry, echo fill, standing fill, the complaint docket) and the two sitting-prep tools (the docket data, the novelty order) each reach a few slim fields per unit, and reading them off the shards means `json.loads` over gigabytes, once per tool per cycle, two thirds of it `explain`, `drafts` and `summary` prose that no plumbing consumer opens. `index_record` is the whole of the projection and `rebuild/test_unit_index.py` holds it against the shipped shards field for field, so a field added to a shard and wanted by a tool has to be added here rather than silently read as absent.
 
-Two fields are counted rather than copied, because counting is all any reader does with them: `render_groups` is the number of groups (standing fill wants "exactly one") and `secondary_seams` the number of seams (standing fill wants "none"). Everything else is the shard's own value.
+Two fields are counted rather than copied, because counting is all any reader does with them: `render_groups` is the number of groups (standing fill wants "exactly one") and `secondary_seams` the number of seams (standing fill wants "none"). Two more are the manifest's rather than the shard's: `order` is the unit's position in the manifest's triage index (`human_unit_ids`) and `batch` the slice of `batch_size` that position falls in, both null for a unit outside the index — a fragment carries neither, because a unit's place in the queue is not a fact about the unit, and `human_positions` is how every reader derives them. Everything else is the shard's own value.
 
 The file is stamped with the manifest's identity digest (`manifest_sha256`), exactly as the unit store is, so a surface half-written by a crashed build can never be read as describing the shards beside it — and a reader that finds no index, or one stamped for another manifest, falls back to streaming the shards through the same projection. That fallback is what lets carry resolve verdicts against the archived snapshots under tmp/review-pre-*, every one of which predates this file.
 """
@@ -38,14 +38,30 @@ def class_shards(meta: Mapping[str, Any]) -> list[str]:
     return [str(part) for part in shards]
 
 
-def index_record(fragment: dict) -> dict:
-    """One shard fragment projected onto the fields the plumbing reads. Key order is fixed so two builds of the same surface write the same bytes."""
+def human_positions(manifest: Mapping[str, Any]) -> dict[str, int]:
+    """Each human unit's position in the manifest's triage index, keyed by id — the one place a unit's `order` comes from, with `audit.batch_of` turning a position into its batch. A manifest without the index (none this build writes) puts every unit outside it."""
+    return {unit_id: position for position, unit_id in enumerate(manifest.get("human_unit_ids") or ())}
+
+
+def workload_slot(
+    positions: Mapping[str, int], batch_size: int, fragment: Mapping[str, Any]
+) -> dict[str, int | None]:
+    """A unit's `order` and `batch` as the index states them, both None for a unit the index does not hold — unless the fragment itself carries a `batch`, which only a surface written before fragments stopped carrying one does (the archived snapshots the carry resolves against), and then that batch stands with no `order`, since such a surface paged in id order and its index, where it has one, says the same."""
+    order = positions.get(fragment["id"])
+    if order is not None:
+        return {"order": order, "batch": order // batch_size}
+    return {"order": None, "batch": fragment.get("batch") if "batch" in fragment else None}
+
+
+def index_record(fragment: dict, *, order: int | None = None, batch: int | None = None) -> dict:
+    """One shard fragment projected onto the fields the plumbing reads, with the unit's place in the manifest's triage index handed in beside it. Key order is fixed so two builds of the same surface write the same bytes."""
     before = fragment.get("before") or {}
     after = fragment.get("after") or {}
     policy = (fragment.get("drafts") or {}).get("policy")
     return {
         "id": fragment["id"],
-        "batch": fragment.get("batch"),
+        "order": order,
+        "batch": batch,
         "class": fragment.get("class"),
         "cluster": fragment.get("cluster"),
         "echo": fragment.get("echo"),
@@ -111,9 +127,31 @@ def shard_paths(surface: Path) -> list[Path]:
     return [surface / part for meta in ordered for part in class_shards(meta)]
 
 
-def index_line(fragment: dict) -> bytes:
+def index_line(fragment: dict, *, order: int | None = None, batch: int | None = None) -> bytes:
     """One index record as the line the file holds it on. The build streams these into a spool as its fragments go by, so the whole of what `write_index` would have held is on disk instead."""
-    return (json.dumps(index_record(fragment), ensure_ascii=False) + "\n").encode()
+    return (json.dumps(index_record(fragment, order=order, batch=batch), ensure_ascii=False) + "\n").encode()
+
+
+def _manifest(surface: Path) -> dict:
+    try:
+        document = json.loads((Path(surface) / "manifest.json").read_text(encoding="utf-8"))
+    except OSError, ValueError:
+        return {}
+    return document if isinstance(document, dict) else {}
+
+
+def slot_reader(surface: Path):
+    """A function from a fragment to its `order`/`batch` pair on this surface, the index read once off the manifest beside it."""
+    manifest = _manifest(surface)
+    positions = human_positions(manifest)
+    batch_size = manifest.get("batch_size")
+    if not isinstance(batch_size, int) or batch_size <= 0:
+        batch_size = 1
+
+    def slot(fragment: Mapping[str, Any]) -> dict[str, int | None]:
+        return workload_slot(positions, batch_size, fragment)
+
+    return slot
 
 
 def write_index_lines(surface: Path, lines: Iterable[bytes]) -> Path:
@@ -129,10 +167,16 @@ def write_index_lines(surface: Path, lines: Iterable[bytes]) -> Path:
 
 
 def write_index(surface: Path, shards: Iterable[tuple[str, list[dict]]]) -> Path:
-    """Write the index from fragments a caller holds whole. `shards` is (class id, fragments) in any order; the file is written in shard-path order, so it is `write_index_lines` over the same projection the build spools a fragment at a time, and the two write the same bytes."""
+    """Write the index from fragments a caller holds whole. `shards` is (class id, fragments) in any order; the file is written in shard-path order, each unit's place in the queue read off the manifest beside it, so it is `write_index_lines` over the same projection the build spools a fragment at a time, and the two write the same bytes."""
     ordered = sorted(shards, key=lambda item: class_shard_key(item[0]))
+    slot = slot_reader(surface)
     return write_index_lines(
-        surface, (index_line(fragment) for _class_id, fragments in ordered for fragment in fragments)
+        surface,
+        (
+            index_line(fragment, **slot(fragment))
+            for _class_id, fragments in ordered
+            for fragment in fragments
+        ),
     )
 
 
@@ -180,9 +224,10 @@ def iter_shard_fragments(surface: Path) -> Iterator[dict]:
 
 
 def stream_shards(surface: Path) -> Iterator[dict]:
-    """The fallback: the shards themselves, projected the way the sidecar would have been."""
+    """The fallback: the shards themselves, projected the way the sidecar would have been, each unit's place in the queue read off the manifest."""
+    slot = slot_reader(surface)
     for fragment in iter_shard_fragments(surface):
-        yield index_record(fragment)
+        yield index_record(fragment, **slot(fragment))
 
 
 def iter_units(surface: Path) -> Iterator[dict]:

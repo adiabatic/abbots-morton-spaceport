@@ -41,6 +41,7 @@ from rebuild.review.audit import (
     load_workload,
     parse_codepoints,
     render_groups_for_rows,
+    slim_fragment,
 )
 from rebuild.review.enrich import LETTERS, Enricher, load_spec
 from rebuild.review.families import FAMILY_ORDER, assign_family, deferred_family
@@ -107,7 +108,7 @@ def built_group(out_dir: Path, manifest: dict) -> dict:
     codepoints_by_echo: dict[str, set[str]] = {}
     for meta in manifest["classes"]:
         for unit in _shard_units(out_dir, meta):
-            if unit["batch"] is not None:
+            if not slim_fragment(unit):
                 human_units += 1
                 codepoints_by_echo.setdefault(unit["echo"], set()).add(unit["codepoints"])
                 if unit["codepoints"] == WORKED_EXAMPLE_CODEPOINTS:

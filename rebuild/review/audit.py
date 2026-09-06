@@ -1,9 +1,9 @@
-"""M1-mode unit assembly for the review surface (rebuild/REVIEW-PLAN.md §1.1, §2.1): load rebuild/out/m1/divergence-audit.tsv and rebuild/m1-divergences.yaml, dedupe the audit rows to (codepoints, baseline, new) units, and order them for triage — ledger class in ledger file order, then lead-family-pair group in code-point order, then codepoints — with fixed batch slices assigned over the global order. The name-grain dedupe key can split one visual question into sibling units when a config merely relabels a glyph without moving ink; the build folds those back together with `merge_ink_duplicate_units` before enrichment and batching."""
+"""M1-mode unit assembly for the review surface (rebuild/REVIEW-PLAN.md §1.1, §2.1): load rebuild/out/m1/divergence-audit.tsv and rebuild/m1-divergences.yaml, dedupe the audit rows to (codepoints, baseline, new) units, and order them for triage — ledger class in ledger file order, then lead-family-pair group in code-point order, then codepoints, then the unit's own id (`triage_key`) — with fixed batch slices assigned over that order (`assign_batches`). A unit's id is not assigned here: it is `unit_cache.unit_id_for` over the content key the build stamps once the unit is enriched, so it names what the reviewer judges and nothing about where the unit sits. The name-grain dedupe key can split one visual question into sibling units when a config merely relabels a glyph without moving ink; the build folds those back together with `merge_ink_duplicate_units` before enrichment and batching."""
 
 from __future__ import annotations
 
 import sys
-from collections.abc import Collection
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -61,7 +61,7 @@ def slim_fragment(fragment) -> bool:
 
 @dataclass(slots=True)
 class Unit:
-    """One (codepoints, baseline, new) triple of the audit and everything the build derives per unit. `rows` is the triple's audit rows from load until `release_rows` drops them — the build's content key is the last reader of a row's fields, and what the manifest tallies afterward is `row_count`, which holds the count on its own so a released unit still answers it. The count defaults to the rows handed in, so a caller that never releases never has to state it."""
+    """One (codepoints, baseline, new) triple of the audit and everything the build derives per unit. `rows` is the triple's audit rows from load until `release_rows` drops them — the build's content key is the last reader of a row's fields, and what the manifest tallies afterward is `row_count`, which holds the count on its own so a released unit still answers it. The count defaults to the rows handed in, so a caller that never releases never has to state it. `input_key` is the unit cache's content key over the unit's inputs (`unit_cache.UnitKeyer.key`), the handle the build joins its per-unit state by until the unit is enriched; `unit_id` is the content id that enrichment stamps (`unit_cache.unit_id_for`), empty until then for a unit the cache does not serve. `order` and `batch` are the unit's place in the manifest's triage index — its position among the human units and the batch that position falls in — and null for a unit that takes no verdict; neither is written into the unit's fragment."""
 
     codepoints: str
     baseline: tuple[str, ...]
@@ -74,6 +74,8 @@ class Unit:
     group: str = ""
     exemplar: bool = False
     unit_id: str = ""
+    input_key: str = ""
+    order: int | None = None
     batch: int | None = None
     render_groups: tuple[tuple[str, ...], ...] = ()
     ink_identical: bool = False
@@ -221,7 +223,7 @@ def build_units(
     ledger: list[LedgerClass],
     family_of: dict[int, str],
 ) -> list[Unit]:
-    """Dedupe to (codepoints, baseline, new) units and return them in triage order with ids assigned; batch indices are assigned later by `assign_batches`, once the build has computed each unit's ink_identical flag. A triple's matched ledger class can vary by config — most often a window already blessed under ss03 but UNMATCHED (novel) under the default config — so each unit carries the full per-config class map in `config_classes`, and its own `class_id` is the single matched class when the triple is everywhere-matched, or the UNMATCHED sentinel when any config leaves it unmatched (UNMATCHED-wins, so the novel default behavior is what gets adjudicated; the blessed configs ride along in `config_classes` for display). A triple resolving to two distinct *matched* classes would be a genuine classification bug and still raises. A unit's config set, its kinds and its render groups are each drawn from a vocabulary of a few dozen tuples over the whole audit, and its group name from a few thousand family pairs, so each is pooled to one instance rather than built once per unit."""
+    """Dedupe to (codepoints, baseline, new) units and return them in load order — ledger class, group, codepoints, with the UNMATCHED units behind every ledger class since their families are assigned only at enrichment; the build re-sorts by `triage_key` once every unit has its family and its id, and assigns batches then. A triple's matched ledger class can vary by config — most often a window already blessed under ss03 but UNMATCHED (novel) under the default config — so each unit carries the full per-config class map in `config_classes`, and its own `class_id` is the single matched class when the triple is everywhere-matched, or the UNMATCHED sentinel when any config leaves it unmatched (UNMATCHED-wins, so the novel default behavior is what gets adjudicated; the blessed configs ride along in `config_classes` for display). A triple resolving to two distinct *matched* classes would be a genuine classification bug and still raises. A unit's config set, its kinds and its render groups are each drawn from a vocabulary of a few dozen tuples over the whole audit, and its group name from a few thousand family pairs, so each is pooled to one instance rather than built once per unit."""
     exempt_classes = {entry.id for entry in ledger if entry.no_verdict}
     by_triple: dict[tuple[str, tuple[str, ...], tuple[str, ...]], list[AuditRow]] = {}
     for row in rows:
@@ -260,23 +262,55 @@ def build_units(
 
     class_order = {entry.id: index for index, entry in enumerate(ledger)}
     exemplar_keys = {key for entry in ledger for key in entry.exemplar_keys}
-    family_rank = {name: value for value, name in family_of.items()}
-
-    def group_key(unit: Unit) -> tuple:
-        return tuple(family_rank.get(name, 10**6) for name in unit.group.split(":"))
-
+    family_rank = family_ranks(family_of)
     units.sort(
-        key=lambda unit: (
+        key=lambda unit: triage_key(
             class_order.get(unit.class_id, len(class_order)),
-            group_key(unit),
-            len(unit.codepoint_values),
+            unit.group,
             unit.codepoint_values,
+            unit.unit_id,
+            family_rank,
         )
     )
-    for index, unit in enumerate(units):
-        unit.unit_id = f"u-{index:04d}"
+    for unit in units:
         unit.exemplar = any((row.config, row.codepoints) in exemplar_keys for row in unit.rows)
     return units
+
+
+def family_ranks(family_of: Mapping[int, str]) -> dict[str, int]:
+    """Each family's rank in code-point order, the order a group's two families sort by."""
+    return {name: value for value, name in family_of.items()}
+
+
+def triage_key(
+    class_index: int,
+    group: str,
+    codepoint_values: tuple[int, ...],
+    unit_id: str,
+    family_rank: Mapping[str, int],
+) -> tuple:
+    """The order a surface pages its human units in — the manifest's `human_unit_ids` — as a sort key over what any reader of a unit holds: the class's index in the manifest's class list, the group's families in code-point order, the window's length and codepoints, and last the unit's own id, which breaks the tie between sibling units of one window (different name tuples, different ink) on content rather than on the order the audit happened to state them in. Every term is a function of the unit and the ledger, so the order is the same on every surface the same units appear on, and `build.check_shards` holds every manifest's index to it."""
+    return (
+        class_index,
+        tuple(family_rank.get(name, 10**6) for name in group.split(":")),
+        len(codepoint_values),
+        codepoint_values,
+        unit_id,
+    )
+
+
+def sort_for_triage(units: list[Unit], class_order: Mapping[str, int], family_of: Mapping[int, str]) -> None:
+    """Put `units` into triage order in place, by `triage_key` over each unit's final class — the ledger class, or the verdict family the build promoted an UNMATCHED unit to — with `class_order` mapping every class the manifest lists to its index."""
+    family_rank = family_ranks(family_of)
+    units.sort(
+        key=lambda unit: triage_key(
+            class_order.get(unit.class_id, len(class_order)),
+            unit.group,
+            unit.codepoint_values,
+            unit.unit_id,
+            family_rank,
+        )
+    )
 
 
 def _sibling_windows(units: list[Unit]) -> dict[str, list[Unit]]:
@@ -294,7 +328,7 @@ def signature_rows(units: list[Unit]) -> list[AuditRow]:
 def merge_ink_duplicate_units(
     units: list[Unit], ink_sig, exempt_classes: Collection[str] = frozenset()
 ) -> dict:
-    """Fold sibling units of the same window whose placed ink is identical in both fonts across every config they cover. The (codepoints, baseline, new) dedupe key is name-grain, so a config that merely relabels a glyph — the old font's ss04 lookups rename word-initial ·It without changing its ink — splits one visual question into two units and asks it twice. `ink_sig(text, config)` supplies the rendered-outcome identity (see InkComparator.signature, which is the pair of run-order ink lists `config_diff` itself consumes); units are only folded when every config on both sides yields the same signature, so a fold leaves every downstream reading of the ink — the delta, its digest, the ink verdict — identical between the survivor and what it absorbed, by definition rather than by resemblance. The survivor is the sibling with the earliest config; it absorbs the others' rows, configs, kinds, and config_classes, keeps its own (earliest-config) baseline/new name tuples for display, re-resolves its class with the same UNMATCHED-wins rule as build_units, and collapses to a single render group (ink identity is exactly render-group identity). A fold that would put two distinct matched ledger classes on one unit is skipped — different names legitimately hit different ledger predicates — and counted in the returned stats. Mutates `units` in place and renumbers unit ids to stay contiguous; run before enrichment and batch assignment."""
+    """Fold sibling units of the same window whose placed ink is identical in both fonts across every config they cover. The (codepoints, baseline, new) dedupe key is name-grain, so a config that merely relabels a glyph — the old font's ss04 lookups rename word-initial ·It without changing its ink — splits one visual question into two units and asks it twice. `ink_sig(text, config)` supplies the rendered-outcome identity (see InkComparator.signature, which is the pair of run-order ink lists `config_diff` itself consumes); units are only folded when every config on both sides yields the same signature, so a fold leaves every downstream reading of the ink — the delta, its digest, the ink verdict — identical between the survivor and what it absorbed, by definition rather than by resemblance. The survivor is the sibling with the earliest config; it absorbs the others' rows, configs, kinds, and config_classes, keeps its own (earliest-config) baseline/new name tuples for display, re-resolves its class with the same UNMATCHED-wins rule as build_units, and collapses to a single render group (ink identity is exactly render-group identity). A fold that would put two distinct matched ledger classes on one unit is skipped — different names legitimately hit different ledger predicates — and counted in the returned stats. Mutates `units` in place; run before enrichment and batch assignment."""
     folded: set[int] = set()
     stats = {"windows_folded": 0, "units_folded": 0, "kept_split_matched_classes": 0}
     for codepoints, siblings in _sibling_windows(units).items():
@@ -334,8 +368,6 @@ def merge_ink_duplicate_units(
                 stats["windows_folded"] += 1
     if folded:
         units[:] = [unit for unit in units if id(unit) not in folded]
-        for index, unit in enumerate(units):
-            unit.unit_id = f"u-{index:04d}"
     stats["units_folded"] = len(folded)
     return stats
 
@@ -347,15 +379,21 @@ def release_rows(units: list[Unit]) -> None:
 
 
 def assign_batches(units: list[Unit], batch_size: int = BATCH_SIZE) -> int:
-    """Batches cover the human workload only: the remaining units get fixed slices of batch_size in triage order, while machine-approved units (ink-identical, picture-identical, or junior-equivalent) and units of no-verdict ledger classes carry batch None — none is ever paged to a human. Returns the batch count."""
+    """The manifest's triage index over `units` as they stand in the list: every human unit — one no machine channel approves and no ledger class exempts — takes its position among the human units as `order` and the fixed slice of `batch_size` that position falls in as `batch`, while machine-approved units (ink-identical, picture-identical, or junior-equivalent) and units of no-verdict ledger classes carry None for both, since none is ever paged to a human. Neither value is written into a fragment: the manifest's `human_unit_ids` is the index, and a batch is a partition of it. Returns the batch count."""
     index = 0
     for unit in units:
         if unit.machine_approved or unit.no_verdict:
-            unit.batch = None
+            unit.order = unit.batch = None
         else:
+            unit.order = index
             unit.batch = index // batch_size
             index += 1
     return (index + batch_size - 1) // batch_size
+
+
+def batch_of(order: int | None, batch_size: int) -> int | None:
+    """The batch a triage-index position falls in, or None for a unit outside the index — the one rule every reader of a surface's index derives a batch by, so the manifest's `human_unit_ids` and `batch_size` are all a batch number ever comes from."""
+    return None if order is None else order // batch_size
 
 
 @dataclass

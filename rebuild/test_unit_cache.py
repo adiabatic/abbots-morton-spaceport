@@ -17,7 +17,7 @@ import yaml
 
 from rebuild.pipeline import fixtures, kernel_exec, spec_load
 from rebuild.review import unit_cache, unit_index
-from rebuild.review.audit import SLIM_OMITTED_KEYS, AuditRow, Unit
+from rebuild.review.audit import SLIM_OMITTED_KEYS, AuditRow, Unit, slim_fragment
 from rebuild.review.build import (
     SITE_BEFORE_FONT,
     SITE_JUNIOR_FONT,
@@ -160,7 +160,7 @@ def test_a_slim_fragment_is_the_shape_of_every_unit_that_takes_no_verdict(base_s
     shapes = {True: 0, False: 0}
     for meta in manifest["classes"]:
         for fragment in _class_fragments(base_surface, meta["id"]):
-            slim = fragment["batch"] is None
+            slim = slim_fragment(fragment)
             assert slim == (
                 bool(meta["no_verdict"])
                 or any(fragment[c] for c in ("ink_identical", "picture_identical", "junior_equivalent"))
@@ -204,7 +204,7 @@ def test_a_unit_crossing_into_the_human_workload_is_re_enriched_in_full(
     assert total - served == crossing
     for fragment in _class_fragments(incremental, EXEMPT_CLASS):
         assert fragment["no_verdict"] is False
-        whole = fragment["batch"] is not None
+        whole = not slim_fragment(fragment)
         assert all((key in fragment) == whole for key in SLIM_OMITTED_KEYS), fragment["id"]
         if whole:
             assert fragment["drafts"]["pin"]["expect"]
@@ -225,7 +225,7 @@ def test_a_unit_crossing_out_of_the_human_workload_is_written_slim(
     served, total = _served(capfd)
     assert total - served == crossing
     for fragment in _class_fragments(incremental, HUMAN_CLASS):
-        assert fragment["no_verdict"] is True and fragment["batch"] is None
+        assert fragment["no_verdict"] is True and "batch" not in fragment
         assert not any(key in fragment for key in SLIM_OMITTED_KEYS), fragment["id"]
     scratch = tmp_path / "scratch"
     _build(scratch, mini_bundle, ledger_path=ledger, jobs=1)
@@ -634,7 +634,7 @@ def test_the_cluster_a_fresh_unit_carries_keys_on_its_final_class(base_surface):
             for fragment in json.loads((base_surface / part).read_text(encoding="utf-8")):
                 cached = by_id[fragment["id"]]
                 assert cached.cluster.startswith("c-")
-                if fragment["batch"] is not None:
+                if not slim_fragment(fragment):
                     assert fragment["cluster"] == cached.cluster
                 assert cached.prior_class == meta["id"]
                 if cached.family:
@@ -833,3 +833,53 @@ def test_the_reader_refuses_a_fragment_that_moved_under_its_address(tmp_path):
     with unit_cache.PriorFragmentReader(tmp_path) as reader:
         with pytest.raises(ValueError, match="changed underneath"):
             reader.read(located["u-0001"])
+
+
+# --- the content-addressed ids --------------------------------------------------------------------
+
+
+def test_base58_64_spells_the_first_64_bits_in_eleven_fixed_symbols():
+    """The id alphabet and width as decided: Bitcoin's base58 (no 0, O, I or l), eleven symbols for 64 bits, most significant first, zero-padded with the alphabet's first symbol, and the bits taken from the front of the digest so the id is a prefix of the key's identity rather than its tail."""
+    assert len(unit_cache.BASE58_ALPHABET) == 58
+    assert not set("0OIl") & set(unit_cache.BASE58_ALPHABET)
+    assert 58**10 < 2**64 <= 58**11
+    assert unit_cache.base58_64("0" * 64) == "1" * 11
+    assert unit_cache.base58_64("0000000000000001" + "f" * 48) == "1" * 10 + "2"
+    assert unit_cache.base58_64("0000000000000039" + "0" * 48) == "1" * 10 + "z"
+    assert unit_cache.base58_64("000000000000003a" + "0" * 48) == "1" * 9 + "21"
+    assert unit_cache.base58_64("f" * 64) == "jpXCZedGfVQ"
+    digest = hashlib.sha256(b"a window").hexdigest()
+    assert unit_cache.base58_64(digest) == unit_cache.base58_64(digest[:16] + "0" * 48)
+    assert unit_cache.base58_64(digest) != unit_cache.base58_64("0" * 16 + digest[16:])
+
+
+def test_unit_and_echo_ids_carry_the_prefix_and_the_shape():
+    key = hashlib.sha256(b"a window").hexdigest()
+    unit_id = unit_cache.unit_id_for(key)
+    assert unit_id == "u-" + unit_cache.base58_64(key)
+    assert unit_cache.is_content_id(unit_id)
+    echo = unit_cache.echo_id_for(repr((("default",), (0xE650, 0xE652), "a-class", "deadbeef")))
+    assert echo.startswith("e-") and unit_cache.is_content_id(echo)
+    assert echo != unit_cache.echo_id_for(repr((("default",), (0xE650, 0xE652), "a-class", "deadbeee")))
+    for bad in ("u-0000", "u-3mJ7kPq2Xw", "u-3mJ7kPq2Xw9Z", "u-0O0O0O0O0O0", "3mJ7kPq2Xw9", None, 7):
+        assert not unit_cache.is_content_id(bad), bad
+    assert unit_cache.is_positional_id("u-0000") and unit_cache.is_positional_id("u-1080063")
+    assert not unit_cache.is_positional_id(unit_id) and not unit_cache.is_positional_id("e-0001")
+
+
+def test_a_units_id_is_its_stamps_and_moves_only_with_its_content(base_surface):
+    """Over the whole mini surface: every fragment's id is `unit_id_for` of its `content_key`, the key is the hash of the fragment's carry projection, no fragment carries a batch, and no two fragments share an id — which is what makes the id an identity a verdict can follow across surfaces rather than a position it can lose."""
+    manifest = json.loads((base_surface / "manifest.json").read_text(encoding="utf-8"))
+    seen: set[str] = set()
+    slim_ids: set[str] = set()
+    for meta in manifest["classes"]:
+        for fragment in _class_fragments(base_surface, meta["id"]):
+            assert fragment["content_key"] == unit_cache.carry_content_hash(fragment)
+            assert fragment["id"] == unit_cache.unit_id_for(fragment["content_key"])
+            assert "batch" not in fragment
+            assert fragment["id"] not in seen
+            seen.add(fragment["id"])
+            if slim_fragment(fragment):
+                slim_ids.add(fragment["id"])
+    assert seen == set(manifest["human_unit_ids"]) | slim_ids
+    assert not slim_ids & set(manifest["human_unit_ids"])

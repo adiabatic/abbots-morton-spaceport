@@ -4,7 +4,9 @@ They exist because the app's resident set had grown with the corpus rather than 
 
 What replaces the dropped fields is an address rather than a copy. Every row carries the part index, byte offset and byte length of its own record inside the class shard it was written to, captured while `build._write_shard` streamed that shard out — so a rendered card fetches its record with an HTTP Range request against a static file, with no server-side logic and no endpoint: the sample text, the pair band and the settled cells the moment the card is drawn, and the explain table when its panel opens. That makes `_write_shard`'s framing a byte-addressing contract as well as a serialization one: each fragment's bytes are a standalone JSON element, pure ASCII so a character offset is a byte offset.
 
-The locator is the same address without the row, for every unit the app index does not hold, and it is addressed the same way its rows address the shards. The rows file is a sequence of gzip members, one per block of at most `LOCATOR_BLOCK_ROWS` rows, no block spanning two classes, in shard order — classes by `unit_index.class_shard_key`, each class's rows in triage order, which is unit-number order within the class because ids are assigned in that order. The table file lists those blocks: the byte span of each member inside the rows file, its class, and the first and last id it holds. So a show-machine fold reads its class's rows one block at a time and draws them a window at a time, and a deep link to a machine unit binary-searches each class's blocks by unit number and Range-fetches the one member that can hold the id — a block is decodable on its own, so neither path ever reads the whole file. Ids are assigned over the whole workload in triage order, so a class's ids ascend while the classes' id ranges overlap one another, which is why the order is shard order with the table rather than one global unit-number order: that would interleave the classes and cost a fold a scan of blocks it mostly discards. The table is the only part a tab retains, and it is the machine workload divided by the block size.
+The locator is the same address without the row, for every unit the app index does not hold, and it is addressed the same way its rows address the shards. The rows file is a sequence of gzip members, one per block of at most `LOCATOR_BLOCK_ROWS` rows, no block spanning two classes, in shard order — classes by `unit_index.class_shard_key`, each class's rows in id order, which is the order the build writes a class's fragments in. The table file lists those blocks: the byte span of each member inside the rows file, its class, and the first and last id it holds. So a show-machine fold reads its class's rows one block at a time and draws them a window at a time, and a deep link to a machine unit binary-searches each class's blocks by id — ids are content-derived strings with no order but their own, so the search compares strings — and Range-fetches the one member that can hold the id; a block is decodable on its own, so neither path ever reads the whole file. Within a class the blocks are disjoint and ascending while the classes' id ranges overlap one another, which is why the order is shard order with the table rather than one global id order: that would interleave the classes and cost a fold a scan of blocks it mostly discards. The table is the only part a tab retains, and it is the machine workload divided by the block size.
+
+The app index's rows carry two values the fragment does not: `order`, the unit's position in the manifest's triage index (`human_unit_ids`), and `batch`, the slice that position falls in. Those are facts about the queue rather than about the unit, which is why a fragment never carries them and why the app pages by them: the batch view is the rows whose `batch` matches, in `order`.
 
 All three files are stamped for the manifest's sha256 exactly as `unit_index` is, and carry the manifest's `generated_at` besides, so a tab that fetched an index written for another build refuses it at boot rather than Range-fetching offsets into rewritten shards; the rows file carries no header of its own and is stamped through the table, which records the byte length the rows file must have and whose blocks each name the id their member starts with.
 """
@@ -40,15 +42,16 @@ def artifact_path(surface: Path, name: str) -> Path:
     return Path(surface) / name
 
 
-def app_row(fragment: dict, part: int, start: int, length: int) -> dict:
-    """One human unit's shard fragment projected onto what the app reads without the record in hand, plus the address of the fragment itself. Key order is fixed and every key is always present, so two builds of the same surface write the same bytes and every row shares one hidden class in the browser.
+def app_row(fragment: dict, part: int, start: int, length: int, *, order: int, batch: int) -> dict:
+    """One human unit's shard fragment projected onto what the app reads without the record in hand, plus its place in the manifest's triage index and the address of the fragment itself. Key order is fixed and every key is always present, so two builds of the same surface write the same bytes and every row shares one hidden class in the browser.
 
-    What a card draws from the record itself — `text_entities`, `highlight`, and `after.cells` — is not here: the app Range-fetches the record for each card it renders, the way it already does for the explain panel, so the resident row holds only what the docket, search, filters, echo groups and progress read over the whole queue at once. The four machine-channel flags are asserted false rather than carried: `build.check_unit` enforces that a unit with any of them, or with `no_verdict`, has `batch: null` — on the units its own build computed, and through the content-key stamp on the ones the unit cache served — so a row in this file provably has none. A reader finds them absent and falsy, which is what the shard's `false` already meant.
+    What a card draws from the record itself — `text_entities`, `highlight`, and `after.cells` — is not here: the app Range-fetches the record for each card it renders, the way it already does for the explain panel, so the resident row holds only what the docket, search, filters, echo groups and progress read over the whole queue at once. The four machine-channel flags are asserted false rather than carried: `build.check_unit` enforces that a unit with any of them, or with `no_verdict`, is outside the manifest's index — on the units its own build computed, and through the content-key stamp on the ones the unit cache served — so a row in this file provably has none. A reader finds them absent and falsy, which is what the shard's `false` already meant.
     """
     assert not any(fragment.get(flag) for flag in _SLIMMED_FLAGS), fragment.get("id")
     return {
         "id": fragment["id"],
-        "batch": fragment.get("batch"),
+        "order": order,
+        "batch": batch,
         "class": fragment.get("class"),
         "group": fragment.get("group"),
         "echo": fragment.get("echo"),
@@ -85,14 +88,6 @@ def locator_row(fragment: dict, part: int, start: int, length: int) -> dict:
     }
 
 
-def unit_number(unit_id: str) -> int:
-    """The integer a unit id counts, the order the locator's blocks are searched by: `build.check_unit` holds every id to the `u-NNNN` shape, and the app derives the same number from the same digits."""
-    prefix, _dash, digits = unit_id.partition("-")
-    if prefix != "u" or not digits.isdigit():
-        raise ValueError(f"not a unit id: {unit_id!r}")
-    return int(digits)
-
-
 def locator_block(class_id: str | None, start: int, length: int, first: str, last: str, units: int) -> dict:
     """One line of the table: the byte span of a gzip member inside the rows file, the class every row in it belongs to, the ids of its first and last rows, and how many it holds."""
     return {
@@ -116,8 +111,8 @@ def header(surface: Path, fmt: str) -> dict:
     }
 
 
-def app_line(fragment: dict, part: int, start: int, length: int) -> bytes:
-    return _line(app_row(fragment, part, start, length))
+def app_line(fragment: dict, part: int, start: int, length: int, *, order: int, batch: int) -> bytes:
+    return _line(app_row(fragment, part, start, length, order=order, batch=batch))
 
 
 def locator_line(fragment: dict, part: int, start: int, length: int) -> bytes:
@@ -173,12 +168,11 @@ def write_app_artifacts_lines(
 
 
 def _write_locator_blocks(rows, lines: Iterable[bytes]) -> list[dict]:
-    """Cut the locator's lines into gzip members on `rows`, one per block, and return the table entry for each. Only the block being filled is held; a line is read for its id and class and released with the block it joins. A class's rows must arrive in ascending unit-number order, which is what the app's binary search over the class's blocks assumes, so a row out of that order is refused here rather than found nowhere in the browser."""
+    """Cut the locator's lines into gzip members on `rows`, one per block, and return the table entry for each. Only the block being filled is held; a line is read for its id and class and released with the block it joins. A class's rows must arrive in ascending id order — the order the build writes a class's fragments in — which is what the app's binary search over the class's blocks assumes, so a row out of that order is refused here rather than found nowhere in the browser."""
     blocks: list[dict] = []
     pending: list[bytes] = []
     pending_class: str | None = None
     first = last = None
-    last_number = -1
 
     def close() -> None:
         assert first is not None and last is not None
@@ -190,21 +184,19 @@ def _write_locator_blocks(rows, lines: Iterable[bytes]) -> list[dict]:
     for line in lines:
         row = json.loads(line)
         unit_id = row["id"]
-        number = unit_number(unit_id)
         class_id = row.get("class")
         if pending and class_id != pending_class:
             close()
-            last_number = -1
+            last = None
         elif pending and len(pending) >= LOCATOR_BLOCK_ROWS:
             close()
-        if number <= last_number:
-            raise ValueError(f"{unit_id} follows u-{last_number} in {class_id}: a class's rows must ascend")
+        if last is not None and unit_id <= last:
+            raise ValueError(f"{unit_id} follows {last} in {class_id}: a class's rows must ascend")
         if not pending:
             pending_class = class_id
             first = unit_id
         pending.append(line)
         last = unit_id
-        last_number = number
     if pending:
         close()
     return blocks
@@ -215,20 +207,28 @@ def write_app_artifacts(
     shards: Mapping[str, list[dict]],
     spans: Mapping[str, Sequence[Span]],
 ) -> tuple[Path, Path]:
-    """Write the sidecars from fragments and spans a caller holds whole. Classes are walked in `unit_index.class_shard_key` order, the order `write_index` and every shard walk use, and each class's fragments split into the app index or the locator on `batch is not None` — the same projection, in the same order, that the build spools a fragment at a time, so the two write the same bytes."""
+    """Write the sidecars from fragments and spans a caller holds whole. Classes are walked in `unit_index.class_shard_key` order, the order `write_index` and every shard walk use, and each class's fragments split into the app index or the locator on whether the manifest's triage index holds the unit — the same projection, in the same order, that the build spools a fragment at a time, so the two write the same bytes."""
     ordered = sorted(shards.items(), key=lambda item: unit_index.class_shard_key(item[0]))
-    rows = [
-        (fragment, address)
-        for class_id, fragments in ordered
-        for fragment, address in zip(fragments, spans.get(class_id) or (), strict=True)
-    ]
-    human = sum(1 for fragment, _address in rows if fragment.get("batch") is not None)
+    slot = unit_index.slot_reader(surface)
+    human_rows: list[tuple[dict, Span, int, int]] = []
+    machine_rows: list[tuple[dict, Span]] = []
+    for class_id, fragments in ordered:
+        for fragment, address in zip(fragments, spans.get(class_id) or (), strict=True):
+            place = slot(fragment)
+            order, batch = place["order"], place["batch"]
+            if order is None or batch is None:
+                machine_rows.append((fragment, address))
+            else:
+                human_rows.append((fragment, address, order, batch))
     return write_app_artifacts_lines(
         surface,
-        (app_line(fragment, *address) for fragment, address in rows if fragment.get("batch") is not None),
-        (locator_line(fragment, *address) for fragment, address in rows if fragment.get("batch") is None),
-        human=human,
-        machine=len(rows) - human,
+        (
+            app_line(fragment, *address, order=order, batch=batch)
+            for fragment, address, order, batch in human_rows
+        ),
+        (locator_line(fragment, *address) for fragment, address in machine_rows),
+        human=len(human_rows),
+        machine=len(machine_rows),
     )
 
 

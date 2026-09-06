@@ -23,8 +23,9 @@ import {
   shardPartPath,
   sliceRecordText,
   splitLines,
-  unitNumber,
+  isUnitId,
 } from '../static/slim.js';
+import { needsNoVerdict } from '../static/render.js';
 
 const fixtureDir = new URL('./fixtures/', import.meta.url);
 const manifest = JSON.parse(await readFile(new URL('manifest.json', fixtureDir), 'utf8'));
@@ -126,7 +127,7 @@ test('hasExplainSource separates a slim row from a whole shard record', () => {
   assert.equal(hasExplainSource(null), false);
 });
 
-const machineFragment = shardA.find((unit) => unit.batch === null);
+const machineFragment = shardA.find((unit) => needsNoVerdict(unit));
 
 test('the fixture carries one machine fragment in the slim shape the build writes', () => {
   assert.ok(machineFragment, 'the fixtures must carry a machine-approved or no-verdict unit');
@@ -136,7 +137,7 @@ test('the fixture carries one machine fragment in the slim shape the build write
 
 test('isSlimFragment reads the shape off a machine fragment and nothing else', () => {
   assert.equal(isSlimFragment(machineFragment), true);
-  const human = shardA.find((unit) => unit.batch !== null);
+  const human = shardA.find((unit) => !needsNoVerdict(unit));
   assert.equal(isSlimFragment(human), false, 'a whole human record');
   const row = { ...human };
   delete row.explain;
@@ -161,31 +162,30 @@ test('carriesSamples tells a shard record, slim fragment included, from an app-i
   assert.equal(carriesSamples(null), false);
 });
 
-test('unitNumber reads the digits of a unit id and nothing else', () => {
-  assert.equal(unitNumber('u-0000'), 0);
-  assert.equal(unitNumber('u-0042'), 42);
-  assert.equal(unitNumber('u-1080063'), 1080063);
-  for (const bad of ['e-0001', 'u-', 'u-12a', '0001', 'c-aaaaaaaa', null, undefined, 7]) {
-    assert.ok(Number.isNaN(unitNumber(bad)), String(bad));
+test('isUnitId accepts exactly the content-addressed shape: u- and eleven base58 symbols', () => {
+  assert.equal(isUnitId('u-3mJ7kPq2Xw9'), true);
+  assert.equal(isUnitId('u-11111111111'), true, 'the zero-padded value');
+  for (const bad of ['u-0000', 'u-0O0O0O0O0O0', 'u-3mJ7kPq2Xw', 'u-3mJ7kPq2Xw9Z', 'e-3mJ7kPq2Xw9', 'u-', '3mJ7kPq2Xw9', 'c-aaaaaaaa', null, undefined, 7]) {
+    assert.equal(isUnitId(bad), false, String(bad));
   }
 });
 
-// A table in the shape the build writes: shard order, so each class's blocks are contiguous and ascending, while the classes' id ranges overlap one another.
+// A table in the shape the build writes: shard order, so each class's blocks are contiguous and ascending by id, while the classes' id ranges overlap one another. Ids are content-derived strings, so the order is string order and nothing else.
 const locatorTable = [
-  { class: 'alpha', byte_start: 0, byte_length: 100, first: 'u-0000', last: 'u-0009', units: 4 },
-  { class: 'alpha', byte_start: 100, byte_length: 100, first: 'u-0012', last: 'u-0020', units: 4 },
-  { class: 'beta', byte_start: 200, byte_length: 100, first: 'u-0005', last: 'u-0030', units: 4 },
-  { class: 'beta', byte_start: 300, byte_length: 50, first: 'u-0031', last: 'u-0031', units: 1 },
+  { class: 'alpha', byte_start: 0, byte_length: 100, first: 'u-1111111111A', last: 'u-1111111111K', units: 4 },
+  { class: 'alpha', byte_start: 100, byte_length: 100, first: 'u-1111111111P', last: 'u-1111111111Z', units: 4 },
+  { class: 'beta', byte_start: 200, byte_length: 100, first: 'u-1111111111F', last: 'u-1111111111a', units: 4 },
+  { class: 'beta', byte_start: 300, byte_length: 50, first: 'u-1111111111b', last: 'u-1111111111b', units: 1 },
 ];
 
-test('indexLocatorBlocks groups the table by class in file order and parses the unit numbers once', () => {
+test('indexLocatorBlocks groups the table by class in file order', () => {
   const byClass = indexLocatorBlocks(locatorTable);
   assert.deepEqual([...byClass.keys()], ['alpha', 'beta']);
   assert.deepEqual(
-    byClass.get('alpha').map((block) => [block.firstNumber, block.lastNumber, block.byte_start]),
+    byClass.get('alpha').map((block) => [block.first, block.last, block.byte_start]),
     [
-      [0, 9, 0],
-      [12, 20, 100],
+      ['u-1111111111A', 'u-1111111111K', 0],
+      ['u-1111111111P', 'u-1111111111Z', 100],
     ],
   );
   assert.equal(byClass.get('beta').length, 2);
@@ -194,14 +194,15 @@ test('indexLocatorBlocks groups the table by class in file order and parses the 
 test('candidateBlocks names at most one block per class, by binary search over that class alone', () => {
   const byClass = indexLocatorBlocks(locatorTable);
   const found = (id) => candidateBlocks(byClass, id).map((block) => `${block.class}@${block.byte_start}`);
-  assert.deepEqual(found('u-0007'), ['alpha@0', 'beta@200'], 'an id inside two overlapping class ranges is a candidate in both');
-  assert.deepEqual(found('u-0012'), ['alpha@100', 'beta@200']);
-  assert.deepEqual(found('u-0031'), ['beta@300']);
-  assert.deepEqual(found('u-0010'), ['beta@200'], 'a number between two of a class\'s blocks is in neither');
-  assert.deepEqual(found('u-0011'), ['beta@200']);
-  assert.deepEqual(found('u-0099'), [], 'past every block');
-  assert.deepEqual(found('e-0001'), [], 'not a unit id');
-  assert.deepEqual(candidateBlocks(new Map(), 'u-0000'), []);
+  assert.deepEqual(found('u-1111111111H'), ['alpha@0', 'beta@200'], 'an id inside two overlapping class ranges is a candidate in both');
+  assert.deepEqual(found('u-1111111111P'), ['alpha@100', 'beta@200']);
+  assert.deepEqual(found('u-1111111111b'), ['beta@300']);
+  assert.deepEqual(found('u-1111111111L'), ['beta@200'], "an id between two of a class's blocks is in neither");
+  assert.deepEqual(found('u-1111111111N'), ['beta@200']);
+  assert.deepEqual(found('u-1111111111z'), [], 'past every block');
+  assert.deepEqual(found('u-0007'), [], 'not a unit id');
+  assert.deepEqual(found('e-1111111111H'), [], 'not a unit id');
+  assert.deepEqual(candidateBlocks(new Map(), 'u-1111111111A'), []);
 });
 
 test('coalesceSpans shares one Range request among neighbors in a part and splits at a gap or a part boundary', () => {

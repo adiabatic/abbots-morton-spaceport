@@ -10,7 +10,12 @@ sys.path.insert(0, str(ROOT))
 
 from rebuild.review import unit_index  # noqa: E402
 from rebuild.review.ink import InkComparator  # noqa: E402
-from rebuild.review.unit_cache import CARRY_PRESENTATION_KEYS, carry_projection  # noqa: E402
+from rebuild.review.unit_cache import (  # noqa: E402
+    CARRY_PRESENTATION_KEYS,
+    carry_projection,
+    is_positional_id,
+    unit_id_for,
+)
 from rebuild.tools.verdict_notes import cap_markers  # noqa: E402
 
 OUT = ROOT / "verdicts-carried-forward.json"
@@ -20,15 +25,25 @@ PRESENTATION_KEYS = CARRY_PRESENTATION_KEYS
 
 
 def iter_surface(root):
-    """Every unit on a surface, in the slim shape rebuild.review.unit_index defines: the sidecar the build writes beside the manifest, or — for an archived snapshot, which is every surface older than the sidecar — the shards themselves, a shard at a time. On that fallback the projection also fills in the `content_key` a pre-stamp surface never carried, because it is the one field the whole fragment is needed to compute and the one field the carry cannot proceed without."""
+    """Every unit on a surface, in the slim shape rebuild.review.unit_index defines: the sidecar the build writes beside the manifest, or — for an archived snapshot, which is every surface older than the sidecar — the shards themselves, a shard at a time, each unit's batch read off that manifest's index. On that fallback the projection also fills in the `content_key` a pre-stamp surface never carried, because it is the one field the whole fragment is needed to compute and the one field the carry cannot proceed without."""
     if unit_index.index_is_current(root):
         yield from unit_index.iter_units(root)
         return
+    slot = unit_index.slot_reader(root)
     for fragment in unit_index.iter_shard_fragments(root):
-        record = unit_index.index_record(fragment)
+        record = unit_index.index_record(fragment, **slot(fragment))
         if not record["content_key"]:
             record["content_key"] = hashlib.sha256(content_key(fragment).encode()).hexdigest()
         yield record
+
+
+def id_migration(root):
+    """The rewrite that carries a surface's positional unit ids onto content ids: for every unit of the surface under `root` whose id is of the positional shape (`unit_cache.is_positional_id`), the content id its carry key names (`unit_cache.unit_id_for`), keyed by the positional id. Empty for a surface already content-addressed, which is what makes the cutover a one-time event: the chain runs this over the snapshot it carries from, and once every snapshot carries content ids there is nothing to rewrite. The content key is the same on both sides of the cutover — only the id scheme moved — so the mapping is exact for every unit whose content did not move in the same cycle, and a unit whose content did move maps to the id of what was judged, which is the identity the journal should keep."""
+    return {
+        unit["id"]: unit_id_for(content_hash(unit))
+        for unit in iter_surface(root)
+        if is_positional_id(unit["id"])
+    }
 
 
 def load_surface(root):

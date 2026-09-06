@@ -8,20 +8,22 @@ export function isBlank(record) {
   return !record || record.verdict === 'skip';
 }
 
-function unitNumber(unitId) {
-  return Number.parseInt(unitId.slice(2), 10);
+// A human row's place in the manifest's triage index, the order the app pages in; a row without one sorts last, and ties (none among human rows) break on the id.
+function triageOrder(unit) {
+  return typeof unit?.order === 'number' ? unit.order : Number.POSITIVE_INFINITY;
+}
+
+function byTriageOrder(a, b) {
+  return triageOrder(a) - triageOrder(b) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 }
 
 export function buildClusters(units, recordOf) {
-  // Triage order: within a class (and every cluster is single-class) the docket tool's shard order is ascending unit number, and exemplars, representatives, and evidence samples are all "first in that order". The number is parsed once per unit rather than twice per comparison, which is the difference between one pass over the queue and an n log n pile of temporary strings.
-  const keyed = [];
+  // Triage order: within a class (and every cluster is single-class) the docket tool orders human units by their place in the manifest's index, and exemplars, representatives, and evidence samples are all "first in that order".
+  const human = [];
   for (const unit of units) {
-    if (unit.batch !== null && unit.batch !== undefined && typeof unit.cluster === 'string') {
-      keyed.push({ number: unitNumber(unit.id), unit });
-    }
+    if (unit.batch !== null && unit.batch !== undefined && typeof unit.cluster === 'string') human.push(unit);
   }
-  keyed.sort((a, b) => a.number - b.number);
-  const human = keyed.map((entry) => entry.unit);
+  human.sort(byTriageOrder);
 
   const membersByCluster = new Map();
   const judgedByCluster = new Map();
@@ -114,8 +116,8 @@ export function echoConflicts(echoIndex, unitsById, recordOf) {
   for (const echo of [...echoIndex.keys()].sort()) {
     const unitIds = echoIndex
       .get(echo)
-      .map((id) => ({ id, number: unitNumber(id) }))
-      .sort((a, b) => a.number - b.number)
+      .map((id) => ({ id, order: triageOrder(unitsById.get(id)) }))
+      .sort(byTriageOrder)
       .map((entry) => entry.id);
     const records = new Map();
     for (const id of unitIds) {
@@ -177,7 +179,7 @@ export function nextDocketDecision(units, recordOf, ruledIds) {
   return null;
 }
 
-// A docket-launched worklist names units by their per-build ids, which renumber whenever the artifact cycle rebuilds the surface — so a tab resuming an old worklist hash would otherwise show whatever units now happen to bear those ids, a plausible-looking screenful that has nothing to do with the docket queue. The stamp pins the worklist to the surface it was stacked for: a mismatch (including the stampless hash of an older tab) means the id list is meaningless and the flow should restack from the live queue, and a current worklist whose every listed unit already carries a real verdict is a finished screenful being resumed, which advances exactly as finishing it live would have. A skip is a record but not a verdict: a skipped-through cluster keeps its docket card, and clicking that card means "show me the deferred reps again", never "teleport to a different decision" — so a worklist holding any skip renders. A current worklist with blanks left renders as-is.
+// A docket-launched worklist names units by id, and a unit whose content moved under a rebuild carries a new one — so a tab resuming an old worklist hash could otherwise show a queue that no longer holds those units, or holds them under other batches, a plausible-looking screenful that has nothing to do with the docket queue. The stamp pins the worklist to the surface it was stacked for: a mismatch (including the stampless hash of an older tab) means the id list is meaningless and the flow should restack from the live queue, and a current worklist whose every listed unit already carries a real verdict is a finished screenful being resumed, which advances exactly as finishing it live would have. A skip is a record but not a verdict: a skipped-through cluster keeps its docket card, and clicking that card means "show me the deferred reps again", never "teleport to a different decision" — so a worklist holding any skip renders. A current worklist with blanks left renders as-is.
 export function docketResumeAction({ stamp, manifestStamp, unitIds, recordOf }) {
   if (stamp !== manifestStamp) return 'restack';
   const judged = (id) => {

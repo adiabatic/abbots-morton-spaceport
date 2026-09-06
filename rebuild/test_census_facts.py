@@ -249,7 +249,10 @@ def _example_records():
     config_notes = {unit.unit_id: note for unit, note in zip(units, notes, strict=True)}
     records = [
         {
-            "batch": unit.batch,
+            "ink_identical": unit.batch is None,
+            "picture_identical": False,
+            "junior_equivalent": False,
+            "no_verdict": False,
             "echo": unit.echo,
             "codepoints": unit.codepoints,
             "config_note": config_notes[unit.unit_id],
@@ -270,7 +273,7 @@ def test_built_group_reports_a_missing_worked_example_as_none(tmp_path):
     """A workload that never pages the worked example to a human — every mini surface a test builds — reports its echo-sibling count as None rather than refusing to build, and both formulations agree on that too; over the live corpus it is the pins diff — an accepted count replaced by a null — that surfaces the loss."""
     units, config_notes, records = _example_records()
     units[0].batch = None
-    records[0]["batch"] = None
+    records[0]["ink_identical"] = True
     manifest = _write_shard(tmp_path, records)
     from_memory = built_group_from_memory(units, config_notes)
     assert from_memory["worked_example_echo_siblings"] is None

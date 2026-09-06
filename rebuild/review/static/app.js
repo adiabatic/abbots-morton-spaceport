@@ -35,6 +35,7 @@ import {
   unitMatchesFilters,
   unitWorklist,
   orderWorklist,
+  triageOrder,
   partitionUnits,
   humanClassCount,
   humanTotal,
@@ -424,7 +425,7 @@ async function fetchRecordsBySpans(rows) {
         } catch {
           record = null;
         }
-        // A surface rebuilt under this tab renumbers its units, so a stale span can land on a neighboring record rather than on nothing; the id is what says which happened.
+        // A surface rebuilt under this tab moves its shards, so a stale span can land on a neighboring record rather than on nothing; the id is what says which happened.
         if (!record || record.id !== row.id) {
           toast(`${row.id} is not where this page was told it would be — the surface was rebuilt; reload.`);
           continue;
@@ -484,7 +485,7 @@ async function unitsForView(batch, classFilter) {
   await indexReady;
   if (state.units) return orderWorklist(await worklistFor(state.units), state.order);
   worklist = null;
-  // Manifest-class order, not index order: the batch's rows arrive grouped exactly as they did when each class's shard was concatenated in turn, so the group folds and the default cursor land where they always did. The class selection is the same one too, which is what keeps a walk over the batches from touching every class's rows on every step.
+  // The batch's rows in the manifest's triage order — each row carries its position in that index — so the group folds and the default cursor land where the queue puts them rather than where the shards, which are written in id order, happen to. The class selection is what keeps a walk over the batches from touching every class's rows on every step.
   const units = [];
   for (const cls of manifest.classes) {
     if (classFilter) {
@@ -492,6 +493,7 @@ async function unitsForView(batch, classFilter) {
     } else if (!cls.batches.includes(batch)) continue;
     for (const row of rowsByClass.get(cls.id) ?? []) if (row.batch === batch) units.push(row);
   }
+  units.sort((a, b) => triageOrder(a) - triageOrder(b));
   return units;
 }
 

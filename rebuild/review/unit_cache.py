@@ -31,7 +31,7 @@ STORE_NAME = "unit-cache.ndjson.gz"
 SIGNATURE_STORE_FORMAT = "ams-review-ink-signatures/2"
 SIGNATURE_STORE_NAME = "ink-signatures.tsv.gz"
 
-# The carry identity's non-participating fields (rebuild/tools/carry_verdicts.py imports this): id, batch, no_verdict, exemplar, echo, and cluster are order- or ledger-derived and churn whenever the surface renumbers; explain, drafts, provenance, and secondary_seams are derived presentation whose adjudicable content is already covered by the window plus both fonts' glyphs, cells, and seams; ink_deltas is the same delta identity persisted per config; content_key is the stamp of this very projection and must not feed itself. The highlight is inside the projection, and a slim fragment (`audit.slim_fragment`) omits it, so a slim fragment's stamp is over what it carries and is not the stamp the same window's full fragment would have borne — which strands nothing, because the units written slim are the ones that take no verdict, and the exclusions here are what keep every human unit's stamp where it was. picture_identical is a pure function of the window and both fonts' placed glyphs, which the projection already covers through codepoints, configs, and both sides' glyphs, cells, and seams, so excluding it changes nothing the key says — while including it would restamp every unit whose flag flips the day the channel lands and strand the verdicts recorded against them; ink_identical is the one derived flag inside the key, kept there only as the byte-identity contract with every prior snapshot.
+# The carry identity's non-participating fields (rebuild/tools/carry_verdicts.py imports this): no_verdict, exemplar, echo, and cluster are ledger- or reduce-derived, and id — the projection's own digest, so it cannot feed itself — and batch, which no fragment carries, are excluded so a surface that still carries them hashes the same; explain, drafts, provenance, and secondary_seams are derived presentation whose adjudicable content is already covered by the window plus both fonts' glyphs, cells, and seams; ink_deltas is the same delta identity persisted per config; content_key is the stamp of this very projection and must not feed itself. The highlight is inside the projection, and a slim fragment (`audit.slim_fragment`) omits it, so a slim fragment's stamp is over what it carries and is not the stamp the same window's full fragment would have borne — which strands nothing, because the units written slim are the ones that take no verdict, and the exclusions here are what keep every human unit's stamp where it was. picture_identical is a pure function of the window and both fonts' placed glyphs, which the projection already covers through codepoints, configs, and both sides' glyphs, cells, and seams, so excluding it changes nothing the key says — while including it would restamp every unit whose flag flips the day the channel lands and strand the verdicts recorded against them; ink_identical is the one derived flag inside the key, kept there only as the byte-identity contract with every prior snapshot.
 CARRY_PRESENTATION_KEYS = frozenset(
     {
         "id",
@@ -61,6 +61,43 @@ def carry_projection(unit: Mapping) -> str:
 
 def carry_content_hash(unit: Mapping) -> str:
     return hashlib.sha256(carry_projection(unit).encode()).hexdigest()
+
+
+# Bitcoin's base58 alphabet: the digits and both cases minus 0, O, I and l, so the glyphs that confuse each other never appear, with mixed case kept as distinct symbols so an id stays short — ids are copied and pasted rather than transcribed.
+BASE58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+# 58**10 < 2**64 <= 58**11, so eleven symbols hold any 64-bit value and the width never varies.
+ID_SYMBOLS = 11
+_ID_PATTERN = re.compile(rf"^[ue]-[{BASE58_ALPHABET}]{{{ID_SYMBOLS}}}$")
+
+
+def base58_64(digest_hex: str) -> str:
+    """The first 64 bits of a hex digest as `ID_SYMBOLS` base58 symbols, most significant first, padded with the alphabet's zero symbol (`1`) to the fixed width — case-significant, and a total order that is nothing more than the string's."""
+    value = int(digest_hex[:16], 16)
+    symbols = []
+    for _ in range(ID_SYMBOLS):
+        value, remainder = divmod(value, 58)
+        symbols.append(BASE58_ALPHABET[remainder])
+    return "".join(reversed(symbols))
+
+
+def unit_id_for(content_key: str) -> str:
+    """A unit's identity: its carry content key — the sha256 of `carry_projection`, the stamp every m1-audit fragment carries — truncated to its first 64 bits and spelled in base58 behind the `u-` prefix, `u-3mJ7kPq2Xw9` being the shape. Two units with one projection are one unit, so the id is a function of what the reviewer judges and of nothing that renumbers: neither the order the surface pages in nor any other unit's presence moves it, which is what lets a served fragment keep its bytes across builds and a verdict keep its unit across surfaces."""
+    return "u-" + base58_64(content_key)
+
+
+def echo_id_for(key_repr: str) -> str:
+    """An echo group's identity, derived the same way from the group's key — the configs, the judged pair's codepoints, the final class and the ink-diff digest, as `repr` renders them — so one group carries one id on every surface it appears on, however many other groups exist beside it."""
+    return "e-" + base58_64(hashlib.sha256(key_repr.encode()).hexdigest())
+
+
+def is_content_id(value: object) -> bool:
+    """Whether `value` is a unit or echo id of the content-addressed shape: the prefix, then exactly `ID_SYMBOLS` base58 symbols."""
+    return isinstance(value, str) and _ID_PATTERN.match(value) is not None
+
+
+def is_positional_id(value: object) -> bool:
+    """Whether `value` is a unit id of the shape a surface carried before ids were content-addressed — `u-` followed by digits, assigned in triage order — which is what a journal or verdict store written against such a surface names its units by, and what the cutover migration rewrites."""
+    return isinstance(value, str) and value.startswith("u-") and value[2:].isdigit()
 
 
 def store_path(out_dir: Path) -> Path:

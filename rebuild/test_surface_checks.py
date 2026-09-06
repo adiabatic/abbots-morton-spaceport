@@ -39,8 +39,11 @@ MINI_AUDIT = MINI / "audit.tsv"
 MINI_FONT = MINI / "M1.otf"
 # Enough of the bundle's windows for each shape the drafter tests ask for to be among them, and few enough that one settlement pass covers the slice.
 MINI_SLICE = 64
-SEAM_BEARER = "u-0004"
-SEAM_HOME = "u-0005"
+SEAM_BEARER = "u-WJSK8gMxjxy"
+SEAM_HOME = "u-Ng8Npb18Kha"
+PLAIN_UNIT = "u-DdcTojn1hba"
+ECHO_MATE = "u-8nacGTcgMRS"
+THIRD_UNIT = "u-2WvdGAWe6bX"
 
 
 def _surface() -> tuple[dict, dict[str, list[dict]]]:
@@ -60,7 +63,7 @@ def _unit(shards: dict[str, list[dict]], unit_id: str) -> dict:
     return next(unit for shard in shards.values() for unit in shard if unit["id"] == unit_id)
 
 
-def _one(unit_id: str = "u-0000") -> dict:
+def _one(unit_id: str = PLAIN_UNIT) -> dict:
     _manifest, shards = _surface()
     return _unit(shards, unit_id)
 
@@ -156,13 +159,13 @@ def test_an_any_of_candidate_that_does_not_parse_is_never_drafted(monkeypatch, m
 
 def test_a_policy_draft_naming_a_file_that_is_not_in_the_repo_fails_the_build():
     manifest, shards = _surface()
-    _unit(shards, "u-0000")["drafts"]["policy"]["file"] = "glyph_data/runes/qsNotAletter.yaml"
+    _unit(shards, PLAIN_UNIT)["drafts"]["policy"]["file"] = "glyph_data/runes/qsNotAletter.yaml"
     _complaint(check_shards(manifest, shards, REPO_ROOT), "which is not a file in the repo")
 
 
 # --- the slim machine-approved and no-verdict shape ----------------------------------------------
 
-SLIM_UNIT = "u-0003"
+SLIM_UNIT = "u-hRgMc2EJjbs"
 
 
 @pytest.mark.parametrize("key", SLIM_OMITTED_KEYS)
@@ -241,7 +244,7 @@ def test_a_secondary_seam_rect_reaching_past_the_run_fails_the_build():
 
 def test_a_gate_clause_the_manifest_does_not_gloss_fails_the_build():
     manifest, shards = _surface()
-    _unit(shards, "u-0000")["config_gate"][0]["feature"] = "ss99"
+    _unit(shards, PLAIN_UNIT)["config_gate"][0]["feature"] = "ss99"
     _complaint(check_shards(manifest, shards), "feature_descriptions does not gloss")
 
 
@@ -250,13 +253,13 @@ def test_a_gate_clause_the_manifest_does_not_gloss_fails_the_build():
 
 def test_an_echo_group_spanning_two_config_sets_fails_the_build():
     manifest, shards = _surface()
-    _unit(shards, "u-0001")["echo"] = _unit(shards, "u-0000")["echo"]
+    _unit(shards, ECHO_MATE)["echo"] = _unit(shards, PLAIN_UNIT)["echo"]
     _complaint(check_shards(manifest, shards), "one group spans")
 
 
 def test_an_echo_group_spanning_two_clusters_fails_the_build():
     manifest, shards = _surface()
-    left, right = _unit(shards, "u-0001"), _unit(shards, "u-0002")
+    left, right = _unit(shards, ECHO_MATE), _unit(shards, THIRD_UNIT)
     right["echo"] = left["echo"]
     right["cluster"] = "c-0badc0de"
     _complaint(check_shards(manifest, shards), "spans two clusters")
@@ -264,29 +267,43 @@ def test_an_echo_group_spanning_two_clusters_fails_the_build():
 
 def test_a_cluster_spanning_two_classes_fails_the_build():
     manifest, shards = _surface()
-    _unit(shards, SEAM_BEARER)["cluster"] = _unit(shards, "u-0001")["cluster"]
+    _unit(shards, SEAM_BEARER)["cluster"] = _unit(shards, ECHO_MATE)["cluster"]
     _complaint(check_shards(manifest, shards), "one signature spans")
 
 
-def test_human_unit_ids_out_of_id_order_fails_the_build():
+def test_human_unit_ids_out_of_triage_order_fails_the_build():
+    """The index is the queue's order — class, group, window, id — and a fragment carries no position, so the checker re-derives the order from the fragments and holds the manifest to it."""
     manifest, shards = _surface()
     manifest["human_unit_ids"] = list(reversed(manifest["human_unit_ids"]))
-    _complaint(check_shards(manifest, shards), "not the id-ordered sequence")
+    _complaint(check_shards(manifest, shards), "not the triage-ordered sequence")
 
 
-def test_a_batch_that_is_not_a_contiguous_slice_fails_the_build():
+def test_a_class_claiming_a_batch_its_units_do_not_occupy_fails_the_build():
     manifest, shards = _surface()
-    unit = _unit(shards, "u-0002")
-    unit["batch"] = 4
     manifest["classes"][0]["batches"] = [0, 4]
-    manifest["totals"]["batches"] = 2
-    _complaint(check_shards(manifest, shards), "not contiguous slices")
+    _complaint(check_shards(manifest, shards), "are not the slices")
 
 
-def test_a_batch_count_the_shards_do_not_bear_out_fails_the_build():
+def test_a_batch_count_the_index_does_not_bear_out_fails_the_build():
     manifest, shards = _surface()
     manifest["totals"]["batches"] = 7
     _complaint(check_shards(manifest, shards), "totals.batches does not count")
+
+
+def test_a_fragment_carrying_a_batch_fails_the_build():
+    """A fragment's bytes depend on its content and the ledger alone, which is what lets a served fragment be copied verbatim; a batch is a fact about the queue and lives in the manifest's index."""
+    unit = _one()
+    unit["batch"] = 0
+    _complaint(check_unit(unit), "carries no batch")
+
+
+def test_an_id_that_is_not_its_stamps_fails_the_build():
+    """The id is the content key's first 64 bits in base58, so a fragment whose id names other content than its stamp describes is refused, as is one of any other shape."""
+    unit = _one()
+    unit["id"] = _one(ECHO_MATE)["id"]
+    _complaint(check_unit(unit), "must be the content key's own")
+    unit["id"] = "u-0000"
+    _complaint(check_unit(unit), "base58")
 
 
 def test_a_no_verdict_class_carrying_batches_fails_the_build():
@@ -339,7 +356,6 @@ def test_a_home_with_nothing_to_see_fails_the_build():
     home = _unit(shards, SEAM_HOME)
     home["ink_identical"] = True
     home["ink_deltas"] = {}
-    home["batch"] = None
     home["echo"] = None
     home["cluster"] = None
     manifest["human_unit_ids"] = [uid for uid in manifest["human_unit_ids"] if uid != SEAM_HOME]
@@ -351,7 +367,6 @@ def test_a_picture_identical_home_fails_the_build_the_same_way():
     manifest, shards = _homed_surface()
     home = _unit(shards, SEAM_HOME)
     home["picture_identical"] = True
-    home["batch"] = None
     home["echo"] = None
     home["cluster"] = None
     manifest["human_unit_ids"] = [uid for uid in manifest["human_unit_ids"] if uid != SEAM_HOME]
@@ -644,11 +659,11 @@ def test_a_subset_key_is_spelled_the_way_the_row_model_spells_it(tmp_path):
 def test_a_served_unit_skips_check_unit_but_not_the_cross_unit_grain():
     """What `served_ids` buys and what it must not: the per-unit predicates are the ones a served fragment's stamp already answers for, while the predicates that relate a unit to its shard and to its neighbors run over every unit on every build, served or not."""
     manifest, shards = _surface()
-    _unit(shards, "u-0000")["drafts"]["pin"]["syntax"] = "fail: Expected glyph token at pos 0"
+    _unit(shards, PLAIN_UNIT)["drafts"]["pin"]["syntax"] = "fail: Expected glyph token at pos 0"
     _complaint(check_shards(manifest, shards, REPO_ROOT), "drafts.pin.syntax")
-    assert check_shards(manifest, shards, REPO_ROOT, served_ids={"u-0000"}) == []
-    _unit(shards, "u-0000")["class"] = "a-class-of-its-own"
-    _complaint(check_shards(manifest, shards, REPO_ROOT, served_ids={"u-0000"}), "in shard")
+    assert check_shards(manifest, shards, REPO_ROOT, served_ids={PLAIN_UNIT}) == []
+    _unit(shards, PLAIN_UNIT)["class"] = "a-class-of-its-own"
+    _complaint(check_shards(manifest, shards, REPO_ROOT, served_ids={PLAIN_UNIT}), "in shard")
 
 
 # --- the census projection ----------------------------------------------------------------------

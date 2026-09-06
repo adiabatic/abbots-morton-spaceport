@@ -7,6 +7,7 @@ from pathlib import Path
 
 from rebuild.pipeline import fingerprint
 from rebuild.review import app_index, unit_index
+from rebuild.review.audit import slim_fragment
 from rebuild.review.serve import parse_autosave_payload
 
 SURFACE_REMEDY = "uv run python -m rebuild.review.build"
@@ -116,7 +117,9 @@ def load_human_unit_ids(review_dir) -> frozenset[str]:
             continue
         for shard in unit_index.class_shards(entry):
             for unit in json.loads((review_dir / shard).read_text()):
-                if unit.get("batch") is not None:
+                # A manifest without the index is one written before it existed, whose fragments carried the batch themselves; read that where it is, and the flags otherwise.
+                human = unit["batch"] is not None if "batch" in unit else not slim_fragment(unit)
+                if human:
                     ids.add(unit["id"])
     return frozenset(ids)
 

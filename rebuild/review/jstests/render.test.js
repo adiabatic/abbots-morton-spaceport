@@ -21,6 +21,7 @@ import {
   unitMatchesFilters,
   unitWorklist,
   orderWorklist,
+  triageOrder,
   partitionUnits,
   humanClassCount,
   humanTotal,
@@ -352,31 +353,31 @@ test('renderGroupsOf collapses a single-group unit and tolerates missing render_
 });
 
 test('echoChip appears only for multi-member echo groups and deep-links the worklist', () => {
-  const unit = { id: 'u-0005', echo: 'e-0000', class: 'dangling-anchor-dropped' };
-  assert.equal(echoChip(unit, ['u-0005']), null);
-  assert.equal(echoChip({ ...unit, echo: null }, ['u-0005', 'u-0006']), null);
-  const chip = echoChip(unit, ['u-0005', 'u-0006', 'u-0007']);
+  const unit = { id: 'u-JSRuJ51yvVj', echo: 'e-0000', class: 'dangling-anchor-dropped' };
+  assert.equal(echoChip(unit, ['u-JSRuJ51yvVj']), null);
+  assert.equal(echoChip({ ...unit, echo: null }, ['u-JSRuJ51yvVj', 'u-CKS1rpqQsLb']), null);
+  const chip = echoChip(unit, ['u-JSRuJ51yvVj', 'u-CKS1rpqQsLb', 'u-0007']);
   assert.equal(chip.label, 'echo ×3');
-  assert.equal(chip.href, '#units=u-0005,u-0006,u-0007');
+  assert.equal(chip.href, '#units=u-JSRuJ51yvVj,u-CKS1rpqQsLb,u-0007');
   assert.ok(chip.title.includes('dangling-anchor-dropped'));
 });
 
 test('echoFillTargets excludes the unit itself and anything already verdicted', () => {
-  const unit = { id: 'u-0005', echo: 'e-0000' };
+  const unit = { id: 'u-JSRuJ51yvVj', echo: 'e-0000' };
   const verdicted = new Set(['u-0007']);
   assert.deepEqual(
-    echoFillTargets(unit, ['u-0005', 'u-0006', 'u-0007'], (id) => verdicted.has(id)),
-    ['u-0006'],
+    echoFillTargets(unit, ['u-JSRuJ51yvVj', 'u-CKS1rpqQsLb', 'u-0007'], (id) => verdicted.has(id)),
+    ['u-CKS1rpqQsLb'],
   );
-  assert.deepEqual(echoFillTargets({ id: 'u-0005', echo: null }, ['u-0005', 'u-0006'], () => false), []);
-  assert.deepEqual(echoFillTargets(undefined, ['u-0005'], () => false), []);
+  assert.deepEqual(echoFillTargets({ id: 'u-JSRuJ51yvVj', echo: null }, ['u-JSRuJ51yvVj', 'u-CKS1rpqQsLb'], () => false), []);
+  assert.deepEqual(echoFillTargets(undefined, ['u-JSRuJ51yvVj'], () => false), []);
 });
 
 test('fixture echo ids group only within a shard and singletons carry their own id', () => {
   const members = new Map();
   for (const unit of [...shardA, ...shardB]) {
     if (unit.echo === null) {
-      assert.equal(unit.batch, null, unit.id);
+      assert.equal(needsNoVerdict(unit), true, unit.id);
       continue;
     }
     if (!members.has(unit.echo)) members.set(unit.echo, []);
@@ -405,12 +406,12 @@ test('highlightRect converts font units at font-size / upem', () => {
 });
 
 test('pairBand draws the judged pair from a whole record and nothing from a slim fragment', () => {
-  const human = shardA.find((unit) => unit.batch !== null && unit.pair !== null);
+  const human = shardA.find((unit) => !needsNoVerdict(unit) && unit.pair !== null);
   const upem = manifest.fonts.after.upem;
   assert.deepEqual(pairBand(human, 'after', 88, upem), highlightRect(human.highlight.after, 88, upem));
   assert.deepEqual(pairBand(human, 'before', 88, upem), highlightRect(human.highlight.before, 88, upem));
   assert.equal(pairBand({ ...human, pair: null }, 'after', 88, upem), null, 'no primary pair, no band');
-  const slim = shardA.find((unit) => unit.batch === null);
+  const slim = shardA.find((unit) => needsNoVerdict(unit));
   assert.equal('highlight' in slim, false, 'the fixture machine fragment is slim');
   assert.equal(pairBand(slim, 'after', 88, upem), null);
   assert.equal(pairBand(slim, 'before', 88, upem), null);
@@ -418,7 +419,7 @@ test('pairBand draws the judged pair from a whole record and nothing from a slim
 
 test('a slim fragment reaching the fold renderer yields a row from its cells and seams alone', () => {
   // Every pure piece of buildRow, run over the fixture's machine fragment exactly as the app runs them over a fold's rows: none may throw on the absent explain, drafts and highlight, and what they yield is the badge, the sample cells and the summary the fold shows.
-  const slim = shardA.find((unit) => unit.batch === null);
+  const slim = shardA.find((unit) => needsNoVerdict(unit));
   for (const key of ['explain', 'drafts', 'highlight']) assert.equal(key in slim, false, key);
   assert.equal(needsNoVerdict(slim), true);
   const groups = renderGroupsOf(slim);
@@ -433,7 +434,7 @@ test('a slim fragment reaching the fold renderer yields a row from its cells and
   assert.equal(runs.map((run) => run.text).join(''), slim.notation);
   assert.ok(runs.some((run) => run.pair), 'the judged pair still underlines on the text lines');
   assert.deepEqual(configGateChips(slim, manifest.feature_descriptions).map((chip) => chip.text), [slim.config_note]);
-  assert.ok(searchHaystack(slim).includes(slim.id));
+  assert.ok(searchHaystack(slim).includes(slim.id.toLowerCase()), 'the haystack is lowercase; the search lowercases the query to match');
   assert.ok(typeof slim.summary === 'string' && slim.summary.startsWith('New: '));
   assert.ok(slim.after.cells.length > 0 && slim.after.seams.length > 0);
 });
@@ -449,7 +450,7 @@ test('familiesOfGroup splits the lead pair', () => {
 });
 
 test('unitMatchesFilters covers class, group, family, config, and status', () => {
-  const unit = shardA[0];
+  const unit = shardA.find((candidate) => candidate.id === 'u-5vrBNy2RYrJ');
   const empty = { class: null, group: null, family: null, config: null, status: null };
   assert.equal(unitMatchesFilters(unit, empty, undefined), true);
   assert.equal(unitMatchesFilters(unit, { ...empty, class: 'marker-staging-ligature-formation' }, undefined), true);
@@ -468,21 +469,21 @@ test('unitMatchesFilters covers class, group, family, config, and status', () =>
 
 test('orderWorklist sorts by family-pair group then id by default', () => {
   const units = [
-    { id: 'u-0003', group: 'qsTea:qsOy' },
-    { id: 'u-0002', group: 'qsMay:qsNo' },
-    { id: 'u-0001', group: 'qsTea:qsOy' },
+    { id: 'u-3S9VGa388F8', group: 'qsTea:qsOy' },
+    { id: 'u-fyt9pUaPbr6', group: 'qsMay:qsNo' },
+    { id: 'u-5vrBNy2RYrJ', group: 'qsTea:qsOy' },
   ];
-  assert.deepEqual(orderWorklist(units, null).map((u) => u.id), ['u-0002', 'u-0001', 'u-0003']);
-  assert.deepEqual(units.map((u) => u.id), ['u-0003', 'u-0002', 'u-0001'], 'the default sort must not mutate the given list');
+  assert.deepEqual(orderWorklist(units, null).map((u) => u.id), ['u-fyt9pUaPbr6', 'u-3S9VGa388F8', 'u-5vrBNy2RYrJ']);
+  assert.deepEqual(units.map((u) => u.id), ['u-3S9VGa388F8', 'u-fyt9pUaPbr6', 'u-5vrBNy2RYrJ'], 'the default sort must not mutate the given list');
 });
 
 test('orderWorklist preserves the given order under order=given', () => {
   const units = [
-    { id: 'u-0003', group: 'qsTea:qsOy' },
-    { id: 'u-0002', group: 'qsMay:qsNo' },
-    { id: 'u-0001', group: 'qsTea:qsOy' },
+    { id: 'u-3S9VGa388F8', group: 'qsTea:qsOy' },
+    { id: 'u-fyt9pUaPbr6', group: 'qsMay:qsNo' },
+    { id: 'u-5vrBNy2RYrJ', group: 'qsTea:qsOy' },
   ];
-  assert.deepEqual(orderWorklist(units, 'given').map((u) => u.id), ['u-0003', 'u-0002', 'u-0001']);
+  assert.deepEqual(orderWorklist(units, 'given').map((u) => u.id), ['u-3S9VGa388F8', 'u-fyt9pUaPbr6', 'u-5vrBNy2RYrJ']);
 });
 
 test('unitWorklist splits, trims, and drops empties', () => {
@@ -564,11 +565,25 @@ test('ink-identical units are hidden unless the machine toggle is on', () => {
   assert.ok(on.machine.length >= 1);
 });
 
-test('needsNoVerdict reads the batch assignment', () => {
-  assert.equal(needsNoVerdict({ batch: null }), true);
-  assert.equal(needsNoVerdict({ batch: 0 }), false, 'batch 0 is a human unit, not an exemption');
-  assert.equal(needsNoVerdict({ batch: 7 }), false);
-  assert.equal(needsNoVerdict({}), false, 'a unit without the field stays human');
+test('needsNoVerdict reads the machine channels and the exemption, never a batch', () => {
+  for (const flag of ['ink_identical', 'picture_identical', 'junior_equivalent', 'no_verdict']) {
+    assert.equal(needsNoVerdict({ [flag]: true }), true, flag);
+    assert.equal(needsNoVerdict({ [flag]: false }), false, flag);
+  }
+  assert.equal(needsNoVerdict({ batch: null }), false, 'a fragment carries no batch, so one says nothing');
+  assert.equal(needsNoVerdict({ order: 0, batch: 0 }), false, 'an app-index row carries no flags and is human');
+  assert.equal(needsNoVerdict({}), false, 'a unit without any flag stays human');
+  assert.equal(needsNoVerdict(null), false);
+});
+
+test('triageOrder reads a row\'s place in the manifest index and puts a record without one last', () => {
+  assert.equal(triageOrder({ order: 0 }), 0);
+  assert.equal(triageOrder({ order: 41 }), 41);
+  assert.equal(triageOrder({}), Number.POSITIVE_INFINITY);
+  assert.equal(triageOrder(null), Number.POSITIVE_INFINITY);
+  const rows = [{ id: 'b', order: 2, group: 'x' }, { id: 'a', group: 'x' }, { id: 'c', order: 0, group: 'y' }];
+  assert.deepEqual(orderWorklist(rows, null).map((row) => row.id), ['c', 'b', 'a']);
+  assert.deepEqual(orderWorklist(rows, 'given').map((row) => row.id), ['b', 'a', 'c']);
 });
 
 // The app index drops the four machine-channel flags because a unit carrying a batch is provably not machine-approved and not exempt; these pin that the readers behave the same over a row that lacks them as over a whole shard record that carries them false.
@@ -581,7 +596,7 @@ const slimRow = (unit) => {
 };
 
 test('a slim row missing the machine flags reads as human wherever a whole record does', () => {
-  const human = allUnits.filter((unit) => unit.batch !== null);
+  const human = allUnits.filter((unit) => !needsNoVerdict(unit));
   assert.ok(human.length >= 2);
   for (const unit of human) {
     const row = slimRow(unit);
@@ -595,7 +610,7 @@ test('a slim row missing the machine flags reads as human wherever a whole recor
 });
 
 test('partitionUnits over slim rows queues exactly the units it queues over whole records', () => {
-  const human = allUnits.filter((unit) => unit.batch !== null);
+  const human = allUnits.filter((unit) => !needsNoVerdict(unit));
   const overRows = partitionUnits(human.map(slimRow), { ...emptyFilters, machine: '1' }, noRecords);
   const overRecords = partitionUnits(human, { ...emptyFilters, machine: '1' }, noRecords);
   assert.deepEqual(overRows.human.map((unit) => unit.id), overRecords.human.map((unit) => unit.id));
@@ -604,7 +619,7 @@ test('partitionUnits over slim rows queues exactly the units it queues over whol
 });
 
 test('a no-verdict unit leaves the human queue and appears with the machine toggle', () => {
-  const exemptUnit = { ...allUnits.find((unit) => !unit.ink_identical), id: 'u-8888', no_verdict: true, batch: null };
+  const exemptUnit = { ...allUnits.find((unit) => !unit.ink_identical), id: 'u-8888', no_verdict: true };
   const units = [...allUnits, exemptUnit];
   const off = partitionUnits(units, emptyFilters, noRecords);
   assert.ok(!off.human.some((unit) => unit.id === 'u-8888'));
@@ -615,7 +630,7 @@ test('a no-verdict unit leaves the human queue and appears with the machine togg
 });
 
 test('a picture-identical unit leaves the human queue and appears with the machine toggle', () => {
-  const pictureUnit = { ...allUnits.find((unit) => !unit.ink_identical), id: 'u-7777', picture_identical: true, batch: null };
+  const pictureUnit = { ...allUnits.find((unit) => !unit.ink_identical), id: 'u-7777', picture_identical: true };
   const units = [...allUnits, pictureUnit];
   const off = partitionUnits(units, emptyFilters, noRecords);
   assert.ok(!off.human.some((unit) => unit.id === 'u-7777'));
@@ -935,8 +950,8 @@ test('classesInBatch names the classes with units in a batch, batchless classes 
 });
 
 test('copyPreamble names only the unit, codepoints, and notation — the rest is looked up from the shards', () => {
-  const text = copyPreamble(shardB[0]);
-  assert.match(text, /rebuild\/out\/review\/ unit u-0005/);
+  const text = copyPreamble(shardB.find((unit) => unit.id === 'u-JSRuJ51yvVj'));
+  assert.match(text, /rebuild\/out\/review\/ unit u-JSRuJ51yvVj/);
   assert.match(text, /E668:E665:E657/);
   assert.match(text, /·Roe·May·They/);
   assert.doesNotMatch(text, /dangling-anchor-dropped/);
@@ -976,16 +991,16 @@ test('every fixture unit joins its notation tokens back into its notation string
 });
 
 test('secondarySeamsOf returns seams for human units and nothing for machine-approved or legacy units', () => {
-  const homed = shardB.find((unit) => unit.id === 'u-0005');
+  const homed = shardB.find((unit) => unit.id === 'u-JSRuJ51yvVj');
   assert.equal(secondarySeamsOf(homed).length, 1);
-  assert.equal(secondarySeamsOf(homed)[0].home, 'u-0003');
+  assert.equal(secondarySeamsOf(homed)[0].home, 'u-3S9VGa388F8');
   const legacy = { ink_identical: false };
   assert.deepEqual(secondarySeamsOf(legacy), []);
   const nulled = { ink_identical: false, secondary_seams: null };
   assert.deepEqual(secondarySeamsOf(nulled), []);
-  const machine = { ink_identical: true, secondary_seams: [{ home: 'u-0003' }] };
+  const machine = { ink_identical: true, secondary_seams: [{ home: 'u-3S9VGa388F8' }] };
   assert.deepEqual(secondarySeamsOf(machine), [], 'machine-approved renderings never show seam markers');
-  const picture = { picture_identical: true, secondary_seams: [{ home: 'u-0003' }] };
+  const picture = { picture_identical: true, secondary_seams: [{ home: 'u-3S9VGa388F8' }] };
   assert.deepEqual(secondarySeamsOf(picture), [], 'picture identity is a whole-window property, so it hides them too');
 });
 
@@ -1016,7 +1031,7 @@ const onlyHereUnit = {
   },
   secondary_seams: [
     { pair: { left: 1, right: 2 }, home: null },
-    { pair: { left: 2, right: 3 }, home: 'u-0001' },
+    { pair: { left: 2, right: 3 }, home: 'u-5vrBNy2RYrJ' },
   ],
 };
 
@@ -1046,7 +1061,7 @@ test('onlyHereSeamSpans yields nothing for machine-approved units, missing cells
 test('onlyHereSeamSpans reads a homed-only row the same with cells present and with after nulled', () => {
   const homedOnly = {
     ...onlyHereUnit,
-    secondary_seams: [{ pair: { left: 1, right: 2 }, home: 'u-0001' }],
+    secondary_seams: [{ pair: { left: 1, right: 2 }, home: 'u-5vrBNy2RYrJ' }],
   };
   assert.deepEqual(onlyHereSeamSpans(homedOnly), []);
   assert.deepEqual(onlyHereSeamSpans({ ...homedOnly, after: null }), []);
@@ -1057,7 +1072,7 @@ test('onlyHereSeamSpans reads a homed-only row the same with cells present and w
 });
 
 test('the only-here fixture unit underlines its seam tokens', () => {
-  const unit = shardB.find((entry) => entry.id === 'u-0006');
+  const unit = shardB.find((entry) => entry.id === 'u-CKS1rpqQsLb');
   assert.deepEqual(onlyHereSeamSpans(unit), [[1, 2]]);
 });
 
@@ -1085,14 +1100,13 @@ test('tokenMarkRuns without seam spans reproduces the single pair-mark split', (
 
 test('fixture units satisfy the contract fields the frontend relies on', () => {
   for (const unit of [...shardA, ...shardB]) {
-    assert.match(unit.id, /^u-\d{4}$/);
+    assert.match(unit.id, /^u-[1-9A-HJ-NP-Za-km-z]{11}$/);
     assert.equal(typeof unit.ink_identical, 'boolean');
     assert.equal(typeof unit.picture_identical, 'boolean');
     assert.equal(typeof unit.junior_equivalent, 'boolean');
     assert.equal(typeof unit.no_verdict, 'boolean');
     const machineApproved = unit.ink_identical || unit.picture_identical || unit.junior_equivalent;
-    if (machineApproved || unit.no_verdict) assert.equal(unit.batch, null);
-    else assert.equal(typeof unit.batch, 'number');
+    assert.equal('batch' in unit, false, 'a fragment carries no batch; the manifest index does');
     assert.equal(typeof unit.text_entities, 'string');
     assert.doesNotMatch(unit.text_entities, /[\u200C\uE650-\uE67E]/);
     assert.ok(Array.isArray(unit.configs) && unit.configs.length >= 1);
@@ -1136,7 +1150,7 @@ test('fixture units satisfy the contract fields the frontend relies on', () => {
           assert.ok(seam[side].x_min <= seam[side].x_max);
           assert.ok(Number.isInteger(seam[side].advance_total));
         }
-        assert.ok(seam.home === null || /^u-\d{4}$/.test(seam.home));
+        assert.ok(seam.home === null || /^u-[1-9A-HJ-NP-Za-km-z]{11}$/.test(seam.home));
       }
     }
   }
@@ -1151,8 +1165,8 @@ test('fixture units satisfy the contract fields the frontend relies on', () => {
 });
 
 test('searchHaystack folds id, notation, codepoints, class, group, echo, cluster, and kinds into one lowercase string', () => {
-  const haystack = searchHaystack(shardA[0]);
-  assert.ok(haystack.includes('u-0001'));
+  const haystack = searchHaystack(shardA.find((unit) => unit.id === 'u-5vrBNy2RYrJ'));
+  assert.ok(haystack.includes('u-5vrbny2ryrj'), 'the id, folded to lowercase like everything else');
   assert.ok(haystack.includes('·tea·oy'));
   assert.ok(haystack.includes('teaoy'), 'notation with the namer dots stripped is searchable');
   assert.ok(haystack.includes('200c:e652:e679'));
@@ -1178,53 +1192,53 @@ test('searchHaystack is memoized per unit, so a keystroke folds each row at most
 test('searchUnits finds units by echo group id and by cluster id', () => {
   assert.deepEqual(
     searchUnits(allUnits, 'e-0000').matches.map((unit) => unit.id).sort(),
-    ['u-0005', 'u-0006'],
+    ['u-CKS1rpqQsLb', 'u-JSRuJ51yvVj'],
   );
   assert.deepEqual(
     searchUnits(allUnits, 'c-0da49c11').matches.map((unit) => unit.id).sort(),
-    ['u-0005', 'u-0006'],
+    ['u-CKS1rpqQsLb', 'u-JSRuJ51yvVj'],
   );
 });
 
 test('searchUnits finds a unit by its exact id across every shard', () => {
-  const { matches, total } = searchUnits(allUnits, 'u-0006');
+  const { matches, total } = searchUnits(allUnits, 'u-CKS1rpqQsLb');
   assert.equal(total, 1);
-  assert.equal(matches[0].id, 'u-0006');
+  assert.equal(matches[0].id, 'u-CKS1rpqQsLb');
 });
 
 test('searchUnits matches notation with and without the namer dots, case-insensitively', () => {
   assert.deepEqual(
     searchUnits(allUnits, '·Pea·May').matches.map((unit) => unit.id),
-    ['u-0003'],
+    ['u-3S9VGa388F8'],
   );
   assert.deepEqual(
     searchUnits(allUnits, 'peamay').matches.map((unit) => unit.id),
-    ['u-0003'],
+    ['u-3S9VGa388F8'],
   );
 });
 
 test('searchUnits matches codepoints with and without the colons', () => {
-  assert.deepEqual(searchUnits(allUnits, 'E66C').matches.map((unit) => unit.id), ['u-0006']);
-  assert.deepEqual(searchUnits(allUnits, 'e670e653').matches.map((unit) => unit.id), ['u-0006']);
+  assert.deepEqual(searchUnits(allUnits, 'E66C').matches.map((unit) => unit.id), ['u-CKS1rpqQsLb']);
+  assert.deepEqual(searchUnits(allUnits, 'e670e653').matches.map((unit) => unit.id), ['u-CKS1rpqQsLb']);
 });
 
 test('searchUnits matches class, group, and kind, and includes machine-approved units', () => {
   const byClass = searchUnits(allUnits, 'dangling-anchor-dropped');
-  assert.deepEqual(byClass.matches.map((unit) => unit.id).sort(), ['u-0005', 'u-0006']);
+  assert.deepEqual(byClass.matches.map((unit) => unit.id).sort(), ['u-CKS1rpqQsLb', 'u-JSRuJ51yvVj']);
   const extension = searchUnits(allUnits, 'extension');
-  assert.deepEqual(extension.matches.map((unit) => unit.id), ['u-0004']);
+  assert.deepEqual(extension.matches.map((unit) => unit.id), ['u-RNA7DFboKfW']);
   assert.equal(extension.matches[0].ink_identical, true, 'a machine-approved unit is still findable');
 });
 
 test('searchUnits requires every whitespace-separated token to match (AND)', () => {
-  assert.deepEqual(searchUnits(allUnits, 'tea oy').matches.map((unit) => unit.id).sort(), ['u-0001', 'u-0002']);
+  assert.deepEqual(searchUnits(allUnits, 'tea oy').matches.map((unit) => unit.id).sort(), ['u-5vrBNy2RYrJ', 'u-fyt9pUaPbr6']);
   assert.equal(searchUnits(allUnits, 'tea exam').total, 0);
 });
 
 test('searchUnits ranks an exact id hit ahead of incidental substring hits', () => {
-  // "u-0005" appears verbatim only in u-0005, but a 3-codepoint substring could in principle collide; the exact-id rank keeps it first.
-  const { matches } = searchUnits(allUnits, 'u-0005');
-  assert.equal(matches[0].id, 'u-0005');
+  // "u-JSRuJ51yvVj" appears verbatim only in u-JSRuJ51yvVj, but a 3-codepoint substring could in principle collide; the exact-id rank keeps it first.
+  const { matches } = searchUnits(allUnits, 'u-JSRuJ51yvVj');
+  assert.equal(matches[0].id, 'u-JSRuJ51yvVj');
 });
 
 test('searchUnits caps the matches at the limit but reports the true total', () => {

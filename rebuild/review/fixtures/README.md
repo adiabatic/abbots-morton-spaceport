@@ -38,7 +38,7 @@ That script is the authority on what the bundle holds and how the filter is draw
 
 1. Add the window's rows to `fixture-audit.tsv`, one per (unit, config). Rows are grouped by unit rather than by config — `load_audit` is order-blind, and contiguity is what a hand-editor wants. The dedupe key is (`codepoints`, `baseline`, `new`), so one unit's rows share a triple and no two units may share one.
 2. For a new class, add an entry to `fixture-ledger.yaml` and a matching entry to the manifest's `classes`; the two mirror each other field for field, in the same order.
-3. Hand-write the unit into its class shard under `units/`, in the builder's emission shape — copy the nearest neighbor and change what differs.
-4. Stamp the unit's `content_key` with `carry_content_hash` applied to the unit with its `content_key` key removed.
-5. Update `unit_count`, `row_count`, `machine_approved_count`, `human_unit_ids`, and `totals` in `manifest.json`.
+3. Hand-write the unit into its class shard under `units/`, in the builder's emission shape — copy the nearest neighbor and change what differs. A fragment carries no `batch`: whether it takes a verdict is its flags, and where it sits in the queue is the manifest's `human_unit_ids`.
+4. Stamp the unit's `content_key` with `carry_content_hash` applied to the unit with its `content_key` key removed, and give it the id `unit_id_for` derives from that stamp; keep each shard sorted by id.
+5. Update `unit_count`, `row_count`, `machine_approved_count`, `human_unit_ids` (the human units in `audit.triage_key` order — manifest class order, group, window, id), each class's `batches`, and `totals` in `manifest.json`.
 6. Run `uv run pytest rebuild/test_review_build.py rebuild/test_carry_verdicts.py -n auto --dist worksteal`.

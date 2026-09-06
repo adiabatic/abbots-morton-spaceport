@@ -16,8 +16,10 @@ import {
   SINGLETON_CHUNK,
 } from '../static/docket.js';
 
+// Ids here are synthetic; what orders them is `order`, the row's place in the manifest's triage index, which the digits stand in for.
 const makeUnit = (id, over = {}) => ({
   id,
+  order: Number.parseInt(id.slice(2), 10),
   batch: 0,
   echo: `e-${id.slice(2)}`,
   cluster: 'c-aaaaaaaa',
@@ -151,7 +153,7 @@ test('buildClusters sorts clusters by descending size, then class, then id', () 
   );
 });
 
-test('buildClusters is order-independent and sorts members by numeric id so u-10000 follows u-9999', () => {
+test('buildClusters is order-independent and sorts members by their triage position so u-10000 follows u-9999', () => {
   const units = [
     makeUnit('u-0001', { echo: 'e-0001' }),
     makeUnit('u-9999', { echo: 'e-0001' }),
@@ -167,8 +169,8 @@ test('buildClusters is order-independent and sorts members by numeric id so u-10
   assert.deepEqual(forward[0].reps, ['u-0001']);
 });
 
-// The precomputed sort key must stay numeric: ids are not fixed-width, so any lexicographic shortcut would put u-10 ahead of u-9 and hand the cluster a different exemplar, a different rep, and a different evidence sample.
-test('buildClusters orders ids of differing widths by number, not by text', () => {
+// The sort key is the row's triage position, never anything read off the id: content ids carry no order, and a lexicographic shortcut over these synthetic ones would put u-10 ahead of u-9 and hand the cluster a different exemplar, a different rep, and a different evidence sample.
+test('buildClusters orders members by triage position, not by id text', () => {
   const ids = ['u-9', 'u-10', 'u-100', 'u-2', 'u-1078641', 'u-21'];
   const units = ids.map((id) => makeUnit(id, { echo: 'e-0001' }));
   const [cluster] = buildClusters([...units].reverse(), blank);
@@ -177,12 +179,12 @@ test('buildClusters orders ids of differing widths by number, not by text', () =
   assert.deepEqual(cluster.reps, ['u-2']);
 });
 
-test('echoConflicts orders a group of differing id widths by number too', () => {
+test('echoConflicts orders a group by triage position too', () => {
   const ids = ['u-9', 'u-10', 'u-2'];
   const members = ['u-10', 'u-2', 'u-9'];
   const echoIndex = new Map([['e-0001', members]]);
   const records = { 'u-2': { verdict: 'approve' }, 'u-9': { verdict: 'reject' } };
-  const unitsById = new Map(ids.map((id) => [id, { id, class: 'cls-a' }]));
+  const unitsById = new Map(ids.map((id) => [id, { id, class: 'cls-a', order: Number.parseInt(id.slice(2), 10) }]));
   const [conflict] = echoConflicts(echoIndex, unitsById, (id) => records[id]);
   assert.deepEqual(conflict.unitIds, ['u-2', 'u-9', 'u-10']);
   assert.deepEqual(members, ['u-10', 'u-2', 'u-9'], 'the echo index itself is never reordered under the app');

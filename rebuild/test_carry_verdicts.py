@@ -63,9 +63,17 @@ def test_content_hash_reads_the_stamp_or_computes_the_same_value():
 
 
 def _write_surface(root, stamp, units):
+    """A surface skeleton the carry reads: the manifest's stamp, its one class, and its triage index — every unit here is human, and the index is what says so, since a fragment carries no batch."""
     (root / "units").mkdir(parents=True)
     (root / "manifest.json").write_text(
-        json.dumps({"generated_at": stamp, "classes": [{"id": "units", "shards": ["units/units.json"]}]})
+        json.dumps(
+            {
+                "generated_at": stamp,
+                "batch_size": 300,
+                "human_unit_ids": [unit["id"] for unit in units],
+                "classes": [{"id": "units", "shards": ["units/units.json"]}],
+            }
+        )
     )
     (root / "units" / "units.json").write_text(json.dumps(units))
 
@@ -130,8 +138,8 @@ def test_a_change_to_the_judged_window_moves_the_content_key():
     for key, replacement in (
         ("codepoints", "E650:E650"),
         ("configs", ["ss07"]),
-        ("after", {**unit["after"], "seams": ["break"]}),
-        ("before", {**unit["before"], "seams": ["break"]}),
+        ("after", {**unit["after"], "seams": [*unit["after"]["seams"], "break"]}),
+        ("before", {**unit["before"], "seams": [*unit["before"]["seams"], "break"]}),
         ("ink_identical", not unit["ink_identical"]),
     ):
         assert content_key({**unit, key: replacement}) != content_key(unit), key

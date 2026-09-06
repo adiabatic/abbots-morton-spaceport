@@ -28,11 +28,10 @@ COMPLAINT_KINDS = ("reject", "neither")
 CHURN_KINDS = tuple(sorted(ACCEPTING_VERDICTS))
 
 
-def _unit_number(unit_id):
-    try:
-        return int(unit_id.split("-", 1)[1])
-    except IndexError, ValueError:
-        return 0
+def _triage_position(unit):
+    """Where the unit sits in the surface's triage index (the index record's `order`), which is the order the docket lists lookalikes in; a unit outside the index sorts last."""
+    order = unit.get("order")
+    return order if isinstance(order, int) else sys.maxsize
 
 
 def _marker_safe(text):
@@ -140,8 +139,9 @@ def _park_naming(group):
 
 
 def _split_by_freshness(members, threshold):
-    entries = [_complaint_entry(unit, record) for unit, record in members]
-    entries.sort(key=lambda entry: (entry["at"], _unit_number(entry["unit"])), reverse=True)
+    entries = [(_complaint_entry(unit, record), _triage_position(unit)) for unit, record in members]
+    entries.sort(key=lambda item: (item[0]["at"], item[1]), reverse=True)
+    entries = [entry for entry, _position in entries]
     return {
         "fresh": [entry for entry in entries if entry["at"] >= threshold],
         "standing": [entry for entry in entries if entry["at"] < threshold],
@@ -166,7 +166,7 @@ def finalize_groups(groups, *, threshold, human, records, ruled_ids):
                 record = records.get(unit["id"])
                 if record and record["verdict"] in CHURN_KINDS and prov_sets[unit["id"]] & basis:
                     churn[record["verdict"]] += 1
-        candidates.sort(key=lambda unit: _unit_number(unit["id"]))
+        candidates.sort(key=_triage_position)
         suggested = sorted(
             {
                 _elide_why(policy["suggested_record"])
@@ -297,7 +297,13 @@ def main(argv=None, *, units=None):
 
     complaints = [
         (units_by_id[unit_id], record)
-        for unit_id, record in sorted(records.items(), key=lambda item: _unit_number(item[0]))
+        for unit_id, record in sorted(
+            records.items(),
+            key=lambda item: (
+                _triage_position(units_by_id[item[0]]) if item[0] in units_by_id else -1,
+                item[0],
+            ),
+        )
         if record["verdict"] in COMPLAINT_KINDS and unit_id in human_ids
     ]
     threshold = args.since or stamp

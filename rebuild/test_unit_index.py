@@ -79,10 +79,13 @@ def test_the_index_is_the_shards_field_for_field(tmp_path):
     fragments = _shard_units(surface)
     assert len(records) == len(fragments)
     by_id = {fragment["id"]: fragment for fragment in fragments}
+    slot = unit_index.slot_reader(surface)
     for record in records:
         fragment = by_id[record["id"]]
         for field, value in record.items():
-            if field == "render_groups":
+            if field in ("order", "batch"):
+                assert value == slot(fragment)[field], f"{record['id']}.{field}"
+            elif field == "render_groups":
                 assert value == len(fragment.get("render_groups") or []), record["id"]
             elif field == "secondary_seams":
                 assert value == len(fragment.get("secondary_seams") or []), record["id"]
@@ -116,6 +119,7 @@ def test_the_index_covers_every_field_the_plumbing_reads(tmp_path):
     assert records is not None
     assert set(records[0]) == {
         "id",
+        "order",
         "batch",
         "class",
         "cluster",
@@ -162,7 +166,8 @@ def test_a_surface_with_no_index_falls_back_to_the_shards(tmp_path):
 def test_an_index_stamped_for_another_manifest_is_refused(tmp_path):
     surface = _fixture_surface(tmp_path)
     _write(surface)
-    fallback = [unit_index.index_record(unit) for unit in _shard_units(surface)]
+    slot = unit_index.slot_reader(surface)
+    fallback = [unit_index.index_record(unit, **slot(unit)) for unit in _shard_units(surface)]
     assert unit_index.load_index(surface) == fallback
 
     manifest = json.loads((surface / "manifest.json").read_text(encoding="utf-8"))

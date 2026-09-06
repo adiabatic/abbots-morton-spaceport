@@ -361,7 +361,7 @@ def _coverage(units, blankness, rules, rule_id):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=(__doc__ or "").split(":")[0] + ".")
-    parser.add_argument("units", nargs="*", help="unit ids to explain (u-NNNNNN)")
+    parser.add_argument("units", nargs="*", help="unit ids to explain (u-3mJ7kPq2Xw9)")
     parser.add_argument("--verdicts", default=str(VERDICTS), help="the verdicts file that defines blankness")
     parser.add_argument("--surface", default=str(SURFACE))
     parser.add_argument("--rules", default=str(sv.RULES))

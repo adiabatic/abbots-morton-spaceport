@@ -41,6 +41,8 @@ from rebuild.review.audit import (
     Unit,
     _config_index,
     assign_batches,
+    batch_of,
+    family_ranks,
     format_codepoints,
     load_workload,
     machine_approved,
@@ -49,7 +51,9 @@ from rebuild.review.audit import (
     release_rows,
     signature_rows,
     slim_fragment,
+    sort_for_triage,
     synthesize_family_classes,
+    triage_key,
 )
 from rebuild.review.drafts import Drafter, _import_test_shaping
 from rebuild.review.families import assign_family
@@ -151,11 +155,11 @@ def _repo_head(repo_root: Path) -> str:
         return "unknown"
 
 
-UNIT_ASSEMBLY_EPOCH = "2026-07-21T00:00:00Z"
+UNIT_ASSEMBLY_EPOCH = "2026-09-05T00:00:00Z"
 
 
 def _generated_at(*inputs: Path) -> str:
-    """Deterministic across consecutive builds of the same inputs (the §6 byte-identity gate), and different whenever an input changes: the latest input mtime as UTC ISO, floored at UNIT_ASSEMBLY_EPOCH. Bump the epoch whenever a build-code change re-keys or renumbers units with no input change (the ink-duplicate merge did this on 2026-07-04) — unit ids must never be joined across manifests, and without the floor a code-only change would leave the stamp unchanged, letting the app silently restore a stale autosave or import an old export by id onto the wrong units."""
+    """Deterministic across consecutive builds of the same inputs (the §6 byte-identity gate), and different whenever an input changes: the latest input mtime as UTC ISO, floored at UNIT_ASSEMBLY_EPOCH. Bump the epoch whenever a build-code change re-keys units with no input change (the ink-duplicate merge did this on 2026-07-04, the content-addressed ids on 2026-09-05) — a verdict store is joined to a surface by this stamp, and without the floor a code-only change would leave the stamp unchanged, letting the app silently restore a stale autosave or import an old export by id onto the wrong units."""
     latest = max(path.stat().st_mtime for path in inputs if path.exists())
     stamp = (
         datetime.datetime.fromtimestamp(latest, tz=datetime.timezone.utc)
@@ -305,7 +309,6 @@ def _machine_approved_meta(machine_units, junior_font: Path, repo_root: Path) ->
 
 _SCAFFOLD_HEAD = (
     "id",
-    "batch",
     "ink_identical",
     "picture_identical",
     "junior_equivalent",
@@ -330,11 +333,10 @@ _SCAFFOLD_TAIL = (
 
 
 def unit_scaffold(unit, full_configs=ACCEPTANCE_CONFIGS) -> dict:
-    """Every fragment field the build re-derives from the workload on each pass — the order- and ledger-derived values plus the phase-1 machine flags carried on the unit. One definition serves both moments a fragment carries it: `unit_to_json` lays it down as the unit stands at drafting, and `patch_fragment` writes it over every fragment, fresh or served, as the shard that takes it is written, so no fragment can freeze a field a full build would have moved."""
+    """Every fragment field the build derives from the workload rather than from the enrichment — the unit's identity and its ledger-derived values plus the phase-1 machine flags carried on the unit. Nothing here says where the unit sits in the queue: a fragment carries no batch, because a batch is a partition of the manifest's triage index and a fragment's bytes depend on its own content and the ledger alone. One definition serves both moments a fragment carries it: `unit_to_json` lays it down as the unit stands at drafting, and `patch_fragment` writes it over a fragment the write cannot copy verbatim, so no fragment can freeze a field a full build would have moved."""
     gate, note = config_badge(unit.configs, full_configs)
     return {
         "id": unit.unit_id,
-        "batch": unit.batch,
         "ink_identical": unit.ink_identical,
         "picture_identical": unit.picture_identical,
         "junior_equivalent": unit.junior_equivalent,
@@ -359,7 +361,7 @@ def unit_scaffold(unit, full_configs=ACCEPTANCE_CONFIGS) -> dict:
 def patch_fragment(
     fragment: dict, unit, seams: list[dict], seam_assign, full_configs=ACCEPTANCE_CONFIGS
 ) -> dict:
-    """The one pass every fragment takes as its shard is written, whether it was drafted by this build's phase 1 or served out of the previous surface: re-stamp every scaffold field from the current workload and re-emit the secondary seams from the unit's rects — the projection's for a fresh unit, the store record's for a served one — under this build's home assignments. In-place key assignment keeps the fragment's key order, so the two kinds write the same bytes for the same unit. A fresh fragment is then stamped by `stamp_fragment`; a served one keeps the stamp it was located under."""
+    """The pass a fragment takes when its shard is written from the fragment rather than from its bytes on disk — every fresh fragment out of the spool, and a served one whose patched fields moved: re-stamp every scaffold field from the current workload and re-emit the secondary seams from the unit's rects — the projection's for a fresh unit, the store record's for a served one — under this build's home assignments. In-place key assignment keeps the fragment's key order, so a patched fragment writes the same bytes a from-scratch build writes for the unit, which is also what lets a served fragment whose patched fields did not move be copied byte for byte instead. `hold_stamp` then proves the stamp still describes the fragment."""
     for key, value in unit_scaffold(unit, full_configs).items():
         fragment[key] = value
     entries = [
@@ -376,26 +378,30 @@ def patch_fragment(
     return fragment
 
 
-def stamp_fragment(fragment: dict) -> dict:
-    """Write a fresh fragment's `content_key` over the placeholder it was drafted with, once `patch_fragment` has given it this build's scaffold: the key hashes the promoted class among the fragment's adjudicable fields, so it can only be taken after the patch. A served fragment is never re-stamped — the stamp it carries is the one the store record was checked against."""
-    fragment["content_key"] = unit_cache.carry_content_hash(fragment)
+def hold_stamp(fragment: dict) -> dict:
+    """Prove that a fragment's `content_key` is the hash of the fragment as it stands at the write, once `patch_fragment` has given it this build's scaffold. The stamp was taken at drafting (`unit_to_json`), over the same adjudicable fields the patch leaves where they were — the promoted class the draft already carried, and nothing the patch writes is inside the projection — so this is a check rather than a stamping: a difference means the id the fragment was drafted under names other content than the fragment carries, which is a bug in the projection's exclusions rather than a fragment to ship."""
+    stamp = fragment.get("content_key")
+    recomputed = unit_cache.carry_content_hash(fragment)
+    if stamp != recomputed:
+        raise SystemExit(
+            f"unit {fragment.get('id')}: the content key stamped at drafting ({stamp}) is not the key of the "
+            f"fragment as written ({recomputed}); a field outside the carry projection moved between the two"
+        )
     return fragment
 
 
-def unit_to_json(enriched: EnrichedUnit, drafter: Drafter, full_configs=ACCEPTANCE_CONFIGS) -> dict:
-    """The shard fragment for one enriched unit as phase 1 drafts it, at the moment the unit is enriched and while its batch's shapes are still in the memo: everything the enrichment and the drafter say, with the order- and ledger-derived fields carrying whatever the unit holds now — no batch, no echo, the pre-promotion class, every secondary seam homeless — and `content_key` None. Those are placeholders in the same sense a served fragment's are: `patch_fragment` writes over all of them when the fragment is written, and `stamp_fragment` writes the key last, so nothing the drafter or the enricher produces may depend on them (the drafter reads the window, its configs, the spans, seams and trace, and nothing else). A slim unit (`audit.slim_fragment`: machine-approved or verdict-exempt) never visits the drafter — whose pin draft replays a shaping per unit — and its fragment omits `SLIM_OMITTED_KEYS` outright, keys absent rather than null, because nothing under them reaches a reviewer; the enricher already rendered it no explain. Both of the fields that decide the shape are settled before this runs: the machine flags by the comparator and oracle in the same phase-1 step, the exemption by the ledger at load."""
+def unit_to_json(
+    enriched: EnrichedUnit,
+    drafter: Drafter,
+    full_configs=ACCEPTANCE_CONFIGS,
+    *,
+    final_class: str | None = None,
+) -> dict:
+    """The shard fragment for one enriched unit as phase 1 drafts it, at the moment the unit is enriched and while its batch's shapes are still in the memo: everything the enrichment and the drafter say, under the unit's own identity. The fragment is laid down first without its drafts and with `final_class` — the verdict family an UNMATCHED unit is promoted to, which the runner knows the moment it assigns the family — as its class, then stamped: `content_key` is the hash of that projection and the unit's id is `unit_cache.unit_id_for` over it, written onto the unit as well as the fragment, so what the drafter says (the policy stub quotes the id) and what the seam-home projection carries are already under the final id. The ledger-derived fields carry whatever the unit holds now — no echo, no cluster, every secondary seam homeless — and those are placeholders: `patch_fragment` writes over them when the fragment is written, and every one of them sits outside the carry projection, so the stamp taken here is the stamp the written fragment carries (`hold_stamp` proves it), and nothing the drafter or the enricher produces may depend on them (the drafter reads the window, its configs, the spans, seams and trace, and nothing else). A slim unit (`audit.slim_fragment`: machine-approved or verdict-exempt) never visits the drafter — whose pin draft replays a shaping per unit — and its fragment omits `SLIM_OMITTED_KEYS` outright, keys absent rather than null, because nothing under them reaches a reviewer; the enricher already rendered it no explain. Both of the fields that decide the shape are settled before this runs: the machine flags by the comparator and oracle in the same phase-1 step, the exemption by the ledger at load."""
     unit = enriched.unit
-    drafts = None
-    if not unit.slim_fragment:
-        pin = drafter.draft_pin(enriched)
-        policy = drafter.draft_policy(enriched)
-        any_of = drafter.draft_any_of(enriched)
-        drafts = {
-            "pin": pin.to_json(),
-            "policy": policy.to_json() if policy else None,
-            "any_of": any_of.to_json(),
-        }
     scaffold = unit_scaffold(unit, full_configs)
+    if final_class is not None:
+        scaffold["class"] = final_class
     fragment = {
         **{key: scaffold[key] for key in _SCAFFOLD_HEAD},
         "text_entities": enriched.text_entities,
@@ -427,12 +433,23 @@ def unit_to_json(enriched: EnrichedUnit, drafter: Drafter, full_configs=ACCEPTAN
         "summary": enriched.summary,
         "explain": enriched.explain_text,
         "provenance": list(enriched.provenance),
-        "drafts": drafts,
+        "drafts": None,
         "content_key": None,
     }
     if unit.slim_fragment:
         for key in SLIM_OMITTED_KEYS:
             del fragment[key]
+    fragment["content_key"] = unit_cache.carry_content_hash(fragment)
+    unit.unit_id = fragment["id"] = unit_cache.unit_id_for(fragment["content_key"])
+    if not unit.slim_fragment:
+        pin = drafter.draft_pin(enriched)
+        policy = drafter.draft_policy(enriched)
+        any_of = drafter.draft_any_of(enriched)
+        fragment["drafts"] = {
+            "pin": pin.to_json(),
+            "policy": policy.to_json() if policy else None,
+            "any_of": any_of.to_json(),
+        }
     return fragment
 
 
@@ -637,22 +654,22 @@ FRESH_SPOOL_NAME = "fresh.spool.partial"
 
 
 class _FragmentSpool:
-    """Where one process's freshly drafted fragments wait between phase 1 and the write: a `_ShardWriter` over `<out_dir>/fresh.spool.partial`, one class named for the process that drafts into it (`serial`, or the pool's `w<index>`), so the parts carry the shard framing and each fragment's address reads back through `unit_cache.PriorFragmentReader` exactly as a served fragment's does out of the previous surface. That is the whole point of spooling rather than retaining: a fresh unit's `EnrichedUnit` dies the moment its fragment is on disk, and the write treats the two kinds of fragment alike — read by address, patched, released. `add` spools one fragment; `close` seals the parts and resolves every address to a `PriorFragment` carrying no stamp, since a fresh fragment is drafted with `content_key` None and stamped only once it is patched. The spool root is the runner's to sweep, on success and failure alike."""
+    """Where one process's freshly drafted fragments wait between phase 1 and the write: a `_ShardWriter` over `<out_dir>/fresh.spool.partial`, one class named for the process that drafts into it (`serial`, or the pool's `w<index>`), so the parts carry the shard framing and each fragment's address reads back through `unit_cache.PriorFragmentReader` exactly as a served fragment's does out of the previous surface. That is the whole point of spooling rather than retaining: a fresh unit's `EnrichedUnit` dies the moment its fragment is on disk, and the write treats the two kinds of fragment alike — read by address, patched, released. `add` spools one fragment; `close` seals the parts and resolves every address to a `PriorFragment` carrying the stamp the drafting wrote, so the read back holds a fresh fragment to its own key exactly as it holds a served one. The spool root is the runner's to sweep, on success and failure alike."""
 
     def __init__(self, out_dir: Path, name: str) -> None:
         self._writer = _ShardWriter(Path(out_dir) / FRESH_SPOOL_NAME)
         self._writer.open(name)
-        self._spans: dict[str, tuple[int, int, int]] = {}
+        self._spans: dict[str, tuple[tuple[int, int, int], str | None]] = {}
 
     def add(self, fragment: dict) -> None:
-        self._spans[fragment["id"]] = self._writer.add(fragment)
+        self._spans[fragment["id"]] = (self._writer.add(fragment), fragment.get("content_key"))
 
     def close(self) -> dict[str, unit_cache.PriorFragment]:
         parts = self._writer.close()
         self._writer.commit()
         return {
-            unit_id: unit_cache.PriorFragment(parts[part], start, length, unit_id, None)
-            for unit_id, (part, start, length) in self._spans.items()
+            unit_id: unit_cache.PriorFragment(parts[part], start, length, unit_id, stamp)
+            for unit_id, ((part, start, length), stamp) in self._spans.items()
         }
 
 
@@ -685,9 +702,11 @@ def _cluster_id(configs, class_id, diffs) -> str:
 
 @dataclass(frozen=True, slots=True)
 class _UnitProjection:
-    """The slim, picklable phase-1 result a surface worker returns per unit: everything the parent's serial reduces read plus everything the unit cache persists, and never the EnrichedUnit, which no process keeps past the batch that made it — its fragment is drafted and spooled in the same step, and the address comes back beside the projections. The ink diffs travel as two digests over their repr and nothing else — `diffs_digest` is the echo key's diff component, and `cluster` is the blank-queue cluster signature, computed here rather than in the parent because everything it keys on is known the moment the family is assigned: the configs, the diffs, and the unit's final class, which is the verdict family for an UNMATCHED unit and the ledger class otherwise, exactly what the parent's family promotion writes onto the unit. It is computed for every unit, machine-approved ones included, because the store carries it forward: a served unit can cross into the human workload on a ledger edit alone (no_verdict flipping), and its cluster must already exist. So the parent holds a short id per unit where it once held the diffs' repr — a string as long as the diffs themselves — for the whole units phase."""
+    """The slim, picklable phase-1 result a surface worker returns per unit: everything the parent's serial reduces read plus everything the unit cache persists, and never the EnrichedUnit, which no process keeps past the batch that made it — its fragment is drafted and spooled in the same step, and the address comes back beside the projections. `input_key` is the unit's cache key over its inputs, the handle the parent joins the projection back to its unit by, since the unit had no id when it was handed over; `unit_id` and `content_key` are what the drafting stamped. The ink diffs travel as two digests over their repr and nothing else — `diffs_digest` is the echo key's diff component, and `cluster` is the blank-queue cluster signature, computed here rather than in the parent because everything it keys on is known the moment the family is assigned: the configs, the diffs, and the unit's final class, which is the verdict family for an UNMATCHED unit and the ledger class otherwise, exactly what the parent's family promotion writes onto the unit. It is computed for every unit, machine-approved ones included, because the store carries it forward: a served unit can cross into the human workload on a ledger edit alone (no_verdict flipping), and its cluster must already exist. So the parent holds a short id per unit where it once held the diffs' repr — a string as long as the diffs themselves — for the whole units phase."""
 
     unit_id: str
+    input_key: str
+    content_key: str
     ink_identical: bool
     picture_identical: bool
     junior_equivalent: bool
@@ -719,8 +738,11 @@ def _phase1_unit(
     enriched = enricher.enrich(unit, report)
     family = assign_family(enriched) if unit.class_id == UNMATCHED_CLASS else ""
     diffs_repr = repr(diffs).encode()
+    fragment = unit_to_json(enriched, drafter, final_class=family or None)
     projection = _UnitProjection(
         unit_id=unit.unit_id,
+        input_key=unit.input_key,
+        content_key=fragment["content_key"],
         ink_identical=unit.ink_identical,
         picture_identical=unit.picture_identical,
         junior_equivalent=unit.junior_equivalent,
@@ -737,7 +759,7 @@ def _phase1_unit(
         ),
         mismatches=tuple(enricher.mismatches[mismatch_mark:]),
     )
-    return projection, unit_to_json(enriched, drafter)
+    return projection, fragment
 
 
 def _seam_records(seam_rects) -> list[dict]:
@@ -748,10 +770,10 @@ def _seam_records(seam_rects) -> list[dict]:
 def _recompute_fragment(
     unit, injection, comparator, oracle, enricher, drafter: Drafter
 ) -> tuple[str, tuple[tuple[str, str], ...]]:
-    """One sampled served unit recomputed from nothing and carried through the same patch the write gives a fresh fragment, with the parent's global fields — batch, echo, cluster, promoted class, seam homes — injected onto the unit copy first, since the copy was taken before the reduces ran. Answers with the content key the recomputation stamps and the ink deltas it found, which is what the caller holds against what the cache served."""
+    """One sampled served unit recomputed from nothing and carried through the same patch the write gives a fresh fragment, with the parent's global fields — echo, cluster, promoted class, seam homes — injected onto the unit copy first, since the copy was taken before the reduces ran. Answers with the content key the recomputation stamps and the ink deltas it found, which is what the caller holds against what the cache served; the id follows from the key."""
     projection, fragment = _phase1_unit(unit, comparator, oracle, enricher, drafter, None)
-    unit.batch, unit.echo, unit.cluster, unit.class_id, seam_assign = injection
-    stamp_fragment(patch_fragment(fragment, unit, _seam_records(projection.seam_rects), seam_assign))
+    unit.echo, unit.cluster, unit.class_id, seam_assign = injection
+    hold_stamp(patch_fragment(fragment, unit, _seam_records(projection.seam_rects), seam_assign))
     return fragment["content_key"], projection.ink_deltas
 
 
@@ -940,7 +962,7 @@ def _phase_timing(label: str, started: float, note: str = "") -> None:
 
 
 class _FreshRunner:
-    """Phase 1 over the units the cache could not serve — in-process when `jobs` is 1, across persistent spawn workers otherwise, with identical per-unit semantics either way, which is what lets the serial and parallel builds share every reduce and stay byte-identical. The parent keeps the frozen ids/triage order and every order-sensitive reduce (batches, family promotion, echo numbering, secondary-home resolution); the runner enriches and drafts, spooling each fragment to disk as it is drafted (`_FragmentSpool`, under `out_dir`) so that no EnrichedUnit outlives the batch that produced it in either path, and hands the fragments back one at a time through `fragment`, read by address out of the spool exactly as a served fragment is read out of the previous surface. The spool is swept at `close`, whichever way the build ends."""
+    """Phase 1 over the units the cache could not serve — in-process when `jobs` is 1, across persistent spawn workers otherwise, with identical per-unit semantics either way, which is what lets the serial and parallel builds share every reduce and stay byte-identical. The parent keeps the triage order and every order-sensitive reduce (the index and its batches, family promotion, echo grouping, secondary-home resolution) and takes each fresh unit's id off the projection its drafting stamped; the runner enriches and drafts, spooling each fragment to disk as it is drafted (`_FragmentSpool`, under `out_dir`) so that no EnrichedUnit outlives the batch that produced it in either path, and hands the fragments back one at a time through `fragment`, read by address out of the spool exactly as a served fragment is read out of the previous surface. The spool is swept at `close`, whichever way the build ends."""
 
     def __init__(
         self,
@@ -997,14 +1019,14 @@ class _FreshRunner:
                 self._conns.append(parent_conn)
 
     def phase1(self) -> dict[str, _UnitProjection]:
-        """Enrich and draft every fresh unit, returning the projections the parent's reduces read and keeping each fragment's spool address for `fragment`. Pooled, each worker spools its own slice under its own class name and answers with the addresses beside its projections; serial, the same loop runs here over one spool, at the enricher's batch width with the memo released behind each batch, and either way the EnrichedUnit is gone by the time its batch closes."""
+        """Enrich and draft every fresh unit, returning the projections the parent's reduces read — keyed by the unit's input key, since a fresh unit has no id until its drafting stamps one — and keeping each fragment's spool address for `fragment`. Pooled, each worker spools its own slice under its own class name and answers with the addresses beside its projections; serial, the same loop runs here over one spool, at the enricher's batch width with the memo released behind each batch, and either way the EnrichedUnit is gone by the time its batch closes."""
         projections: dict[str, _UnitProjection] = {}
         if self._conns:
             for index, (conn, chunk) in enumerate(zip(self._conns, self._slices)):
                 conn.send(("phase1", chunk, f"w{index}"))
             for results, spooled in self._collect("phase 1"):
                 for projection in results:
-                    projections[projection.unit_id] = projection
+                    projections[projection.input_key] = projection
                 self._spooled.update(spooled)
         elif self._fresh:
             comparator, oracle, enricher, drafter = self._in_process()
@@ -1013,7 +1035,7 @@ class _FreshRunner:
                 for unit, report in zip(unit_batch, reports):
                     projection, fragment = _phase1_unit(unit, comparator, oracle, enricher, drafter, report)
                     spool.add(fragment)
-                    projections[projection.unit_id] = projection
+                    projections[projection.input_key] = projection
                 self._count(len(projections))
             self._spooled = spool.close()
         return projections
@@ -1141,13 +1163,15 @@ class _SidecarSpool:
         self.human = 0
         self.machine = 0
 
-    def unit(self, fragment: dict, span: tuple[int, int, int]) -> None:
-        self._handles[unit_index.INDEX_NAME].write(unit_index.index_line(fragment))
-        if fragment.get("batch") is None:
+    def unit(self, fragment: dict, span: tuple[int, int, int], order: int | None, batch: int | None) -> None:
+        self._handles[unit_index.INDEX_NAME].write(unit_index.index_line(fragment, order=order, batch=batch))
+        if order is None or batch is None:
             self._handles[app_index.LOCATOR_NAME].write(app_index.locator_line(fragment, *span))
             self.machine += 1
         else:
-            self._handles[app_index.APP_INDEX_NAME].write(app_index.app_line(fragment, *span))
+            self._handles[app_index.APP_INDEX_NAME].write(
+                app_index.app_line(fragment, *span, order=order, batch=batch)
+            )
             self.human += 1
 
     def _lines(self, name: str) -> Iterator[bytes]:
@@ -1206,8 +1230,9 @@ def _write_surface(
     served_ids: Collection[str] = (),
     tally: pile_tally.PileTally | None = None,
 ) -> _WrittenSurface:
-    """Stream the per-unit JSON fragments into shards (per class, triage order within each), copy fonts, and write the manifest with its parent-once `generated_at`/`repo_head` stamps. `fragments` is asked once, for every unit in the order the shards will take them — classes in `unit_index.class_shard_key` order, which is the order the sidecars are written in anyway, and each class's units in triage order — and each fragment it yields is written, checked, projected onto the sidecar spools and released before the next is pulled, so the parent holds one fragment at a time rather than every unit's from the moment they exist until the manifest. What survives a fragment is slim: its shard address and the checker's per-unit identity for the cross-unit predicates, its sidecar lines on disk, and the two values `_WrittenSurface` carries. `check_shards`' predicates run over the fragments as they go by, through the same `_SurfaceCheck` the whole-surface form feeds, and `served_ids` carries the cache's plan into it (see `check_shards`). The manifest-shape predicates (`check_manifest`) and the beside-the-manifest file predicates (`_check_output_files`) do not run per build: every field they read is written right here out of this function's own inputs, and the fonts are held instead by the digest taken at load and asserted at `_copy_font`. `check_output_dir` proves them over a real build once per contracts run — `rebuild/test_app_index.py` over the mini bundle, `rebuild/test_review_build.py` over a table diff — and `refresh_assets` still runs the file predicates over the surface it restamps."""
+    """Stream the per-unit JSON fragments into shards (per class, id order within each), copy fonts, and write the manifest with its parent-once `generated_at`/`repo_head` stamps and the triage index (`human_unit_ids`, in the order `workload.units` stands in, which `build_m1` has sorted by `audit.triage_key`; a batch is a slice of it). `fragments` is asked once, for every unit in the order the shards will take them — classes in `unit_index.class_shard_key` order, which is the order the sidecars are written in anyway, and each class's units by id, so a class's fragments and its locator rows ascend together and a fresh unit lands where its content puts it rather than where the queue does — and each fragment it yields is written, checked, projected onto the sidecar spools and released before the next is pulled, so the parent holds one fragment at a time rather than every unit's from the moment they exist until the manifest. What survives a fragment is slim: its shard address and the checker's per-unit identity for the cross-unit predicates, its sidecar lines on disk, and the two values `_WrittenSurface` carries. `check_shards`' predicates run over the fragments as they go by, through the same `_SurfaceCheck` the whole-surface form feeds, and `served_ids` carries the cache's plan into it (see `check_shards`). The manifest-shape predicates (`check_manifest`) and the beside-the-manifest file predicates (`_check_output_files`) do not run per build: every field they read is written right here out of this function's own inputs, and the fonts are held instead by the digest taken at load and asserted at `_copy_font`. `check_output_dir` proves them over a real build once per contracts run — `rebuild/test_app_index.py` over the mini bundle, `rebuild/test_review_build.py` over a table diff — and `refresh_assets` still runs the file predicates over the surface it restamps."""
     ordered = sorted(classes, key=lambda entry: unit_index.class_shard_key(entry.id))
+    by_class = {entry.id: sorted(by_class[entry.id], key=lambda unit: unit.unit_id) for entry in ordered}
     stream = fragments([unit for entry in ordered for unit in by_class[entry.id]])
     meta_by_id: dict[str, dict] = {}
     config_notes: dict[str, str | None] = {}
@@ -1255,7 +1280,7 @@ def _write_surface(
                 assert fragment["id"] == unit.unit_id, (fragment["id"], unit.unit_id)
                 span = writer.add(fragment)
                 check.unit(fragment)
-                spool.unit(fragment, span)
+                spool.unit(fragment, span, unit.order, unit.batch)
                 spans.append(span)
                 config_notes[unit.unit_id] = fragment["config_note"]
                 content_keys[unit.unit_id] = fragment["content_key"]
@@ -1491,17 +1516,17 @@ def build_m1(
     environment = unit_cache.environment_stamp(
         repo_root, spec, subset_dir, before_font, junior_font, helpers_digest
     )
-    keys = {unit.unit_id: keyer.key(unit) for unit in workload.units}
+    for unit in workload.units:
+        unit.input_key = keyer.key(unit)
     release_rows(workload.units)
     store = None if fresh_unit_cache else unit_cache.load_store(out_dir, environment)
     served: dict[str, unit_cache.CachedUnit] = {}
     located: dict[str, unit_cache.PriorFragment] = {}
     if store:
-        units_by_id = {unit.unit_id: unit for unit in workload.units}
         candidates = {
-            unit.unit_id: store[keys[unit.unit_id]] for unit in workload.units if keys[unit.unit_id] in store
+            unit.input_key: store[unit.input_key] for unit in workload.units if unit.input_key in store
         }
-        # A candidate's address is its store record's, the span the shard writer returned for the fragment when the previous surface was written, so placing it costs nothing: the walk over the previous surface's shards is asked only for the records the store handed back without an address (see `unit_cache.load_store` for when that is), and on a surface this code wrote that is no record at all. Either way a candidate is served only when the fragment at its address carries the very stamp the store recorded for it — the walk reads the stamp as it goes, and a store address is stamped with the record's own — and everything that rides on a served fragment, that these are the bytes `check_unit` passed in the build that emitted them, so this build need not check them again, is only as good as that equality. What the plan keeps is the fragment's address, not the fragment: the bytes are read back through it when the shard that takes them is being written, and held against the same id and stamp then, which for a store-addressed fragment is the one time it is parsed. The second condition is the shape: a fragment is served only when it is the slim or full fragment this build would write for the unit, because the exemption that decides it is the ledger's and sits outside the key — a unit crossing into the human workload on a ledger edit is re-enriched in full rather than served the slim fragment its class earned before the edit, and one crossing out is re-drafted slim rather than served with drafts nobody will read.
+        # A candidate's address is its store record's, the span the shard writer returned for the fragment when the previous surface was written, so placing it costs nothing: the walk over the previous surface's shards is asked only for the records the store handed back without an address (see `unit_cache.load_store` for when that is), and on a surface this code wrote that is no record at all. Either way a candidate is served only when the fragment at its address carries the very stamp the store recorded for it — the walk reads the stamp as it goes, and a store address is stamped with the record's own — and everything that rides on a served fragment, that these are the bytes `check_unit` passed in the build that emitted them, so this build need not check them again, is only as good as that equality. What the plan keeps is the fragment's address, not the fragment: the bytes are read back through it when the shard that takes them is being written, and held against the same id and stamp then, which for a store-addressed fragment is the one time it is read. The second condition is the shape: a fragment is served only when it is the slim or full fragment this build would write for the unit, because the exemption that decides it is the ledger's and sits outside the key — a unit crossing into the human workload on a ledger edit is re-enriched in full rather than served the slim fragment its class earned before the edit, and one crossing out is re-drafted slim rather than served with drafts nobody will read.
         wanted: dict[str, set[str]] = {}
         for cached in candidates.values():
             found = cached.located()
@@ -1512,18 +1537,27 @@ def build_m1(
         if wanted:
             located.update(unit_cache.locate_prior_fragments(out_dir, wanted))
         served = {
-            uid: cached
-            for uid, cached in candidates.items()
-            if cached.prior_id in located
+            unit.input_key: cached
+            for unit in workload.units
+            if (cached := candidates.get(unit.input_key)) is not None
+            and cached.prior_id in located
             and located[cached.prior_id].content_key == cached.content_key
-            and cached.slim == _slim_for(units_by_id[uid], cached)
+            and cached.slim == _slim_for(unit, cached)
         }
-    fresh = [unit for unit in workload.units if unit.unit_id not in served]
-    sampled = set(_verification_sample(sorted(served), environment))
-    # Copies, because recomputing a unit's phase 1 writes the ink flags onto it and the verification patch writes the injected batch and class; the originals are the ones the reduces and the store read.
+    # A served unit's identity is its content key's, and the store record carries the key, so the id is known before phase 1; a fresh unit's is stamped by its drafting and comes back with the projection.
+    for unit in workload.units:
+        cached = served.get(unit.input_key)
+        if cached is not None:
+            unit.unit_id = unit_cache.unit_id_for(cached.content_key)
+            assert unit.unit_id == cached.prior_id, (unit.unit_id, cached.prior_id)
+    fresh = [unit for unit in workload.units if unit.input_key not in served]
+    sampled = set(
+        _verification_sample(sorted(unit.unit_id for unit in workload.units if unit.unit_id), environment)
+    )
+    # Copies, because recomputing a unit's phase 1 writes the ink flags onto it and the verification patch writes the injected echo and class; the originals are the ones the reduces and the store read.
     verify_units = [replace(unit) for unit in workload.units if unit.unit_id in sampled]
     if tally:
-        tally.hold("unit_cache.keys", keys)
+        tally.hold("unit_cache.keys", {unit.input_key: unit.unit_id for unit in workload.units})
         tally.hold("unit_cache.store", store or {})
         tally.hold("unit_cache.served", served)
         tally.hold("unit_cache.located", located)
@@ -1549,10 +1583,23 @@ def build_m1(
     try:
         projections = runner.phase1()
 
+        # Every fresh unit's id arrives with its projection; the universe is then checked for a repeated id, which the 64-bit truncation makes vanishingly unlikely and which would put two windows under one fragment address, so it is a refusal rather than a merge.
+        for unit in fresh:
+            unit.unit_id = projections[unit.input_key].unit_id
+        ids_seen: dict[str, Unit] = {}
+        for unit in workload.units:
+            other = ids_seen.setdefault(unit.unit_id, unit)
+            if other is not unit:
+                raise SystemExit(
+                    f"two units share the id {unit.unit_id}: {other.codepoints} and {unit.codepoints}; "
+                    "their carry projections hash to one 64-bit prefix"
+                )
+        del ids_seen
+
         states: dict[str, _UnitState] = {}
         pool: dict = {}
         for unit in workload.units:
-            cached = served.get(unit.unit_id)
+            cached = served.get(unit.input_key)
             if cached is not None:
                 states[unit.unit_id] = _UnitState(
                     ink_identical=cached.ink_identical,
@@ -1568,7 +1615,7 @@ def build_m1(
                     mismatches=cached.mismatches,
                 )
             else:
-                projection = projections.pop(unit.unit_id)
+                projection = projections.pop(unit.input_key)
                 states[unit.unit_id] = _UnitState(
                     ink_identical=projection.ink_identical,
                     picture_identical=projection.picture_identical,
@@ -1592,7 +1639,6 @@ def build_m1(
             unit.picture_identical = state.picture_identical
             unit.junior_equivalent = state.junior_equivalent
             unit.ink_deltas = state.ink_deltas
-        total_batches = assign_batches(workload.units, batch_size)
 
         # Promote each UNMATCHED unit's verdict family to its class so the per-class shard loop shards it under that family. The cluster signature already keys on that final class: the runner computed it where the family was assigned, and a served unit trusts the stored value, whose inputs (configs, final class, the ink diffs) are all under the content key.
         for unit in workload.units:
@@ -1600,8 +1646,17 @@ def build_m1(
                 unit.family_id = states[unit.unit_id].family
                 unit.class_id = unit.family_id
 
-        # Echo groups: human units whose judged pair, class, config set, and per-config ink deltas all agree show the same change in different surroundings, so one verdict answers all of them. Keyed after family promotion so the class component is final; ids are assigned in triage order.
-        echo_ids: dict[tuple, str] = {}
+        # The triage index: the human units in `audit.triage_key` order — the manifest's class order, which puts every family's units behind the ledger classes and together, then the group, the window and the id — sliced into batches. Ids are content and so is every other term, so the index is the one place the queue's order lives: no fragment carries a position in it.
+        classes = workload.classes_present + synthesize_family_classes(
+            workload.units, families.FAMILY_ORDER, families.FAMILY_WHY
+        )
+        sort_for_triage(
+            workload.units, {entry.id: index for index, entry in enumerate(classes)}, dict(LETTERS)
+        )
+        total_batches = assign_batches(workload.units, batch_size)
+
+        # Echo groups: human units whose judged pair, class, config set, and per-config ink deltas all agree show the same change in different surroundings, so one verdict answers all of them. Keyed after family promotion so the class component is final; the id is the key's own digest (`unit_cache.echo_id_for`), so a group keeps its id on every surface it recurs on.
+        echo_ids: set[str] = set()
         for unit in workload.units:
             if unit.batch is None:
                 continue
@@ -1611,12 +1666,10 @@ def build_m1(
                 values = unit.codepoint_values
                 pair = (values[state.pair_codepoints[0]], values[state.pair_codepoints[1]])
             key = (unit.configs, pair, unit.class_id, state.diffs_digest)
-            unit.echo = echo_ids.setdefault(key, f"e-{len(echo_ids):04d}")
+            unit.echo = unit_cache.echo_id_for(repr(key))
+            echo_ids.add(unit.echo)
             unit.cluster = state.cluster
 
-        classes = workload.classes_present + synthesize_family_classes(
-            workload.units, families.FAMILY_ORDER, families.FAMILY_WHY
-        )
         by_class = workload.units_by_class()
         assignments, seam_census = resolve_home_assignments(
             [states[unit.unit_id].seam_home for unit in workload.units]
@@ -1624,16 +1677,19 @@ def build_m1(
 
         # The verification sample recomputes served units on copies taken before the reduces ran, so the global fields every other unit already carries are handed to it explicitly.
         injections = {
-            unit.unit_id: (unit.batch, unit.echo, unit.cluster, unit.class_id, assignments[unit.unit_id])
+            unit.unit_id: (unit.echo, unit.cluster, unit.class_id, assignments[unit.unit_id])
             for unit in workload.units
             if unit.unit_id in sampled
         }
         verified = runner.verify(injections)
-        # What the cache serves must be what a fresh computation of the same window writes. The content key carries most of that claim: it hashes the fragment's adjudicable fields — the ink flag, both fonts' glyphs and cells, the seams, the notation, and on a full fragment the highlight geometry — so one comparison per sampled unit covers all of them at once, against the stamp the served fragment was proved to carry when it was located. The recomputation writes the slim or full shape from the unit's own flags and exemption, exactly as the write did, so a served fragment of the wrong shape would miss the key here as well as at the plan. Two things sit outside it and are answered elsewhere. `ink_deltas` is a carry-presentation key (`unit_cache.CARRY_PRESENTATION_KEYS`), so the recomputation hands it back beside the stamp and it is compared against the store record the unit was served from. The drafts, the explain text, and the secondary seams are outside it too, and they are guaranteed at production rather than sampled: the drafter raises on a pin or a policy record it cannot stand behind, the explain rides the same enrichment as the cells and seams the key does cover, and `patch_fragment` re-emits the secondary seams from the stored rects under this build's own home assignments.
+        served_by_id = {
+            unit.unit_id: cached for unit in workload.units if (cached := served.get(unit.input_key))
+        }
+        # What the cache serves must be what a fresh computation of the same window writes. The content key carries most of that claim: it hashes the fragment's adjudicable fields — the ink flag, both fonts' glyphs and cells, the seams, the notation, and on a full fragment the highlight geometry — so one comparison per sampled unit covers all of them at once, against the stamp the served fragment was proved to carry when it was located, and the id with it. The recomputation writes the slim or full shape from the unit's own flags and exemption, exactly as the write did, so a served fragment of the wrong shape would miss the key here as well as at the plan. Two things sit outside it and are answered elsewhere. `ink_deltas` is a carry-presentation key (`unit_cache.CARRY_PRESENTATION_KEYS`), so the recomputation hands it back beside the stamp and it is compared against the store record the unit was served from. The drafts, the explain text, and the secondary seams are outside it too, and they are guaranteed at production rather than sampled: the drafter raises on a pin or a policy record it cannot stand behind, the explain rides the same enrichment as the cells and seams the key does cover, and `patch_fragment` re-emits the secondary seams from the stored rects under this build's own home assignments.
         stale = sorted(
             unit_id
             for unit_id, (key, deltas) in verified.items()
-            if key != served[unit_id].content_key or dict(deltas) != served[unit_id].ink_deltas
+            if key != served_by_id[unit_id].content_key or dict(deltas) != served_by_id[unit_id].ink_deltas
         )
         if stale:
             raise SystemExit(
@@ -1660,7 +1716,7 @@ def build_m1(
 
         def fragments_in(ordered_units: list[Unit]) -> Iterator[dict]:
             for unit in ordered_units:
-                cached = served.get(unit.unit_id)
+                cached = served.get(unit.input_key)
                 try:
                     if cached is None:
                         fragment = runner.fragment(unit.unit_id)
@@ -1672,7 +1728,7 @@ def build_m1(
                     ) from None
                 seams = states[unit.unit_id].seam_rects if cached is None else cached.seams
                 fragment = patch_fragment(fragment, unit, seams, assignments[unit.unit_id])
-                yield fragment if cached is not None else stamp_fragment(fragment)
+                yield fragment if cached is not None else hold_stamp(fragment)
 
         try:
             written = _write_surface(
@@ -1695,7 +1751,7 @@ def build_m1(
                 static_dir,
                 mismatches,
                 font_digests,
-                served_ids=frozenset(served),
+                served_ids=frozenset(served_by_id),
                 tally=tally,
             )
         finally:
@@ -1742,7 +1798,7 @@ def build_m1(
         assert state.cluster is not None
         records.append(
             unit_cache.CachedUnit(
-                key=keys[unit.unit_id],
+                key=unit.input_key,
                 prior_id=unit.unit_id,
                 prior_class=unit.class_id,
                 content_key=written.content_keys[unit.unit_id],
@@ -1782,12 +1838,11 @@ def _relative(path: Path, repo_root: Path) -> str:
 
 def _table_diff_unit_json(
     entry: tablediff.DiffEntry,
-    unit_id: str,
-    batch: int | None,
     full_configs,
     ink_identical: bool,
     picture_identical: bool,
 ) -> dict:
+    """One table-diff entry's fragment, under the same content identity an m1-audit unit carries: the fragment is laid down with `id` and `content_key` None, stamped over its carry projection, and given `unit_cache.unit_id_for` of the stamp as its id."""
     witness = entry.witness
     gate, note = config_badge((entry.config,), full_configs)
     if entry.table == "treaty":
@@ -1838,9 +1893,8 @@ def _table_diff_unit_json(
                 if pointer.strip()
             }
         )
-    return {
-        "id": unit_id,
-        "batch": batch,
+    fragment = {
+        "id": None,
         "ink_identical": ink_identical,
         "picture_identical": picture_identical,
         "junior_equivalent": False,
@@ -1870,7 +1924,11 @@ def _table_diff_unit_json(
         "explain": explain,
         "provenance": provenance,
         "drafts": {"pin": None, "policy": None, "any_of": None},
+        "content_key": None,
     }
+    fragment["content_key"] = unit_cache.carry_content_hash(fragment)
+    fragment["id"] = unit_cache.unit_id_for(fragment["content_key"])
+    return fragment
 
 
 def _settlement_explain(entry: tablediff.SettlementDiffEntry) -> str:
@@ -1948,6 +2006,7 @@ def build_table_diff(
     machine_units = 0
     machine_rows = 0
     machine_by_class: dict[str, int] = {}
+    ids_seen: set[str] = set()
     for bucket in tablediff.DIFF_BUCKETS:
         members = by_bucket.get(bucket, [])
         if not members:
@@ -1963,22 +2022,22 @@ def build_table_diff(
             picture_identical = (
                 bool(text) and not ink_identical and comparator.picture_identical(text, (entry.config,))
             )
+            fragment = _table_diff_unit_json(entry, all_configs, ink_identical, picture_identical)
+            if fragment["id"] in ids_seen:
+                raise SystemExit(f"two table-diff entries share the id {fragment['id']}: {entry.key.label()}")
+            ids_seen.add(fragment["id"])
             if ink_identical or picture_identical:
-                batch = None
                 machine_count += 1
                 channel_counts["ink_identical" if ink_identical else "picture_identical"] += 1
                 machine_rows += max(len(entry.paired), 1)
             else:
-                batch = human_index // batch_size
-                batches.add(batch)
+                batches.add(human_index // batch_size)
                 human_index += 1
-            unit_id = f"u-{index:04d}"
-            if batch is not None:
-                human_unit_ids.append(unit_id)
-            shard.append(
-                _table_diff_unit_json(entry, unit_id, batch, all_configs, ink_identical, picture_identical)
-            )
+                human_unit_ids.append(fragment["id"])
+            shard.append(fragment)
             index += 1
+        # Id order within the bucket, the order every m1-audit shard takes as well, so the locator's blocks ascend.
+        shard.sort(key=lambda fragment: fragment["id"])
         parts, spans_by_class[bucket] = _write_shard(out_dir, bucket, shard)
         shards_by_class[bucket] = shard
         machine_units += machine_count
@@ -2066,7 +2125,7 @@ def check_manifest(manifest: dict) -> list[str]:
     need(isinstance(manifest.get("source"), dict), "source must be a mapping")
     human_unit_ids = manifest.get("human_unit_ids")
     valid_human_unit_ids = isinstance(human_unit_ids, list) and all(
-        isinstance(unit, str) and unit.startswith("u-") for unit in human_unit_ids
+        unit_cache.is_content_id(unit) and unit.startswith("u-") for unit in human_unit_ids
     )
     need(valid_human_unit_ids, "human_unit_ids must be a list of u- ids")
     if isinstance(human_unit_ids, list) and all(isinstance(unit, str) for unit in human_unit_ids):
@@ -2199,7 +2258,10 @@ def check_unit(unit: dict, mode: str = "m1-audit") -> list[str]:
         if not condition:
             errors.append(f"unit {identifier}: {message}")
 
-    need(isinstance(unit.get("id"), str) and unit.get("id", "").startswith("u-"), "id must look like u-NNNN")
+    need(
+        unit_cache.is_content_id(unit.get("id")) and str(unit.get("id")).startswith("u-"),
+        f"id must be u- and {unit_cache.ID_SYMBOLS} base58 symbols",
+    )
     need(isinstance(unit.get("ink_identical"), bool), "ink_identical must be a bool")
     need(isinstance(unit.get("picture_identical"), bool), "picture_identical must be a bool")
     need(isinstance(unit.get("junior_equivalent", False), bool), "junior_equivalent must be a bool")
@@ -2218,27 +2280,28 @@ def check_unit(unit: dict, mode: str = "m1-audit") -> list[str]:
                 need(not deltas, "ink-identical units must carry empty ink_deltas")
             elif unit.get("ink_identical") is False:
                 need(bool(deltas), "units with ink changes must carry a nonempty ink_deltas")
-        stamp = unit.get("content_key")
-        need(
-            isinstance(stamp, str) and len(stamp) == 64 and all(ch in "0123456789abcdef" for ch in stamp),
-            "content_key must be a sha256 hex stamp in m1-audit mode",
-        )
+    stamp = unit.get("content_key")
+    need(
+        isinstance(stamp, str) and len(stamp) == 64 and all(ch in "0123456789abcdef" for ch in stamp),
+        "content_key must be a sha256 hex stamp",
+    )
+    # The id is the stamp's: the first 64 bits of the content key in base58, so a fragment whose id and stamp disagree names one window and describes another.
+    if isinstance(stamp, str) and len(stamp) == 64:
+        need(unit.get("id") == unit_cache.unit_id_for(stamp), "id must be the content key's own")
     need(isinstance(unit.get("no_verdict"), bool), "no_verdict must be a bool")
-    # This equivalence is what lets every consumer read batch alone rather than re-deriving the disjunction: render.js's needsNoVerdict, export's human_units_total, complaint_docket, and carry_verdicts all split the workload on batch being null.
+    # A fragment carries no batch: whether a unit takes a verdict is read off its flags (`audit.slim_fragment`), and where it sits in the queue is the manifest's triage index. render.js's needsNoVerdict, export's human_units_total, complaint_docket, and carry_verdicts split the workload on the same disjunction, or on the index's `batch` where they read the sidecars.
+    need("batch" not in unit, "a fragment carries no batch; the manifest's human_unit_ids is the index")
     approving = [channel for channel in MACHINE_CHANNELS if unit.get(channel) is True]
     need(len(approving) <= 1, "at most one machine channel may approve a unit")
-    if approving or unit.get("no_verdict") is True:
-        need(unit.get("batch") is None, "machine-approved and no-verdict units must carry batch null")
-    else:
-        need(isinstance(unit.get("batch"), int), "batch must be an integer on human-workload units")
+    human = not approving and unit.get("no_verdict") is not True
     need("echo" in unit, "echo must be present")
     echo = unit.get("echo")
     need(
         echo is None or (isinstance(echo, str) and echo.startswith("e-")),
-        "echo must be null or an e-NNNN group id",
+        "echo must be null or an e- group id",
     )
     if mode == "m1-audit":
-        if isinstance(unit.get("batch"), int):
+        if human:
             need(isinstance(echo, str), "human-workload units must carry an echo group id")
         else:
             need(echo is None, "units outside the human workload must carry echo null")
@@ -2249,7 +2312,7 @@ def check_unit(unit: dict, mode: str = "m1-audit") -> list[str]:
         "cluster must be null or a c-XXXXXXXX signature id",
     )
     if mode == "m1-audit":
-        if isinstance(unit.get("batch"), int):
+        if human:
             need(isinstance(cluster, str), "human-workload units must carry a cluster signature id")
         else:
             need(cluster is None, "units outside the human workload must carry cluster null")
@@ -2589,7 +2652,6 @@ class _SurfaceCheck:
         self._seen_units = 0
         self._seen_rows = 0
         self._seen_ids: set[str | None] = set()
-        self._seen_human_ids: set[str] = set()
         self._seen_machine_by_class: dict[str, int] = {}
         self._seam_homes: list[tuple[str | None, str]] = []
         self._seam_units = 0
@@ -2598,7 +2660,7 @@ class _SurfaceCheck:
         self._echo_keys: dict[str | None, set[tuple]] = {}
         self._cluster_keys: dict[str | None, set[tuple]] = {}
         self._echo_cluster: dict[str | None, str | None] = {}
-        self._human_batches: list[tuple[int, str, object]] = []
+        self._human_units: dict[str, tuple[str, str, str]] = {}
         self._identity: dict[str | None, tuple] = {}
         self._policy_files: set[str] = set()
         self._meta: Mapping = {}
@@ -2636,22 +2698,25 @@ class _SurfaceCheck:
                     f"unit {unit_id}: config_gate names {clause.get('feature')!r}, which the manifest's "
                     "feature_descriptions does not gloss"
                 )
+        human = not slim_fragment(unit)
         # Echo and cluster are m1-audit grains; a table-diff unit carries null for both, and reading them as group ids would put every one of its units in the same nonexistent group.
-        if mode == "m1-audit" and unit.get("batch") is not None and isinstance(unit_id, str):
+        if mode == "m1-audit" and human and isinstance(unit_id, str):
             key = (unit.get("class"), tuple(unit.get("configs") or ()))
             self._echo_keys.setdefault(unit.get("echo"), set()).add(key)
             self._cluster_keys.setdefault(unit.get("cluster"), set()).add(key)
             if self._echo_cluster.setdefault(unit.get("echo"), unit.get("cluster")) != unit.get("cluster"):
                 errors.append(f"unit {unit_id}: echo {unit.get('echo')} spans two clusters")
-            if unit_id[2:].isdigit():
-                self._human_batches.append((int(unit_id[2:]), unit_id, unit.get("batch")))
         if unit.get("class") != meta.get("id"):
             errors.append(f"unit {unit.get('id')}: class {unit.get('class')} in shard {meta.get('id')}")
         if unit.get("id") in self._seen_ids:
             errors.append(f"duplicate unit id {unit.get('id')}")
         self._seen_ids.add(unit.get("id"))
-        if unit.get("batch") is not None and isinstance(unit.get("id"), str):
-            self._seen_human_ids.add(unit["id"])
+        if human and isinstance(unit_id, str):
+            self._human_units[unit_id] = (
+                str(unit.get("class")),
+                str(unit.get("group") or ""),
+                str(unit.get("codepoints") or ""),
+            )
         if unit.get("no_verdict") != bool(meta.get("no_verdict")):
             errors.append(
                 f"unit {unit.get('id')}: no_verdict {unit.get('no_verdict')} in a class "
@@ -2662,12 +2727,6 @@ class _SurfaceCheck:
             for channel in MACHINE_CHANNELS:
                 if unit.get(channel) is True:
                     self._channel_counts[channel] += 1
-        elif (
-            mode == "m1-audit"
-            and unit.get("no_verdict") is not True
-            and unit.get("batch") not in meta.get("batches", ())
-        ):
-            errors.append(f"unit {unit.get('id')}: batch {unit.get('batch')} not in class batches")
         if unit.get("secondary_seams"):
             self._seam_units += 1
             for seam in unit["secondary_seams"]:
@@ -2713,10 +2772,15 @@ class _SurfaceCheck:
             errors.append(f"totals.units {totals.get('units')} != {self._seen_units} shard units")
         if self._seen_rows != totals.get("rows"):
             errors.append(f"totals.rows {totals.get('rows')} != {self._seen_rows} summed class rows")
-        human_unit_ids = manifest.get("human_unit_ids")
-        if isinstance(human_unit_ids, list) and all(isinstance(unit, str) for unit in human_unit_ids):
-            if set(human_unit_ids) != self._seen_human_ids:
-                errors.append("human_unit_ids does not match the shards' non-null batches")
+        recorded_index = manifest.get("human_unit_ids")
+        human_unit_ids: list[str] = (
+            [unit for unit in recorded_index if isinstance(unit, str)]
+            if isinstance(recorded_index, list)
+            else []
+        )
+        index_valid = isinstance(recorded_index, list) and len(human_unit_ids) == len(recorded_index)
+        if index_valid and set(human_unit_ids) != set(self._human_units):
+            errors.append("human_unit_ids does not match the shards' human workload")
         machine = manifest.get("machine_approved") or {}
         if sum(self._seen_machine_by_class.values()) != machine.get("units"):
             errors.append(
@@ -2733,20 +2797,38 @@ class _SurfaceCheck:
         for cluster, keys in self._cluster_keys.items():
             if len(keys) > 1:
                 errors.append(f"cluster {cluster}: one signature spans {sorted(keys)[:2]}")
+        # The triage index is the manifest's and every batch is a slice of it, so both are checked against the index rather than against a field on a fragment: the index holds the human units in `audit.triage_key` order (m1-audit, where every term of the key is a fragment field or a manifest fact), every class's `batches` are the slices its units occupy in it, and the total is how many slices it has.
         batch_size = self._batch_size
-        if mode == "m1-audit" and isinstance(batch_size, int) and batch_size > 0:
-            human_batches = self._human_batches
-            human_batches.sort()
-            ordered = [unit_id for _number, unit_id, _batch in human_batches]
-            if ordered != manifest.get("human_unit_ids"):
-                errors.append("human_unit_ids is not the id-ordered sequence of the shards' batched units")
-            expected = [index // batch_size for index in range(len(human_batches))]
-            if [batch for _number, _unit_id, batch in human_batches] != expected:
-                errors.append(
-                    f"batches are not contiguous slices of {batch_size} over the id-ordered workload"
-                )
-            if manifest.get("totals", {}).get("batches") != len({b for _n, _u, b in human_batches}):
-                errors.append("totals.batches does not count the distinct batches in the shards")
+        if index_valid and mode == "m1-audit":
+            class_index: dict[str, int] = {
+                str(meta.get("id")): index for index, meta in enumerate(manifest.get("classes") or ())
+            }
+            rank = family_ranks(dict(LETTERS))
+            expected = sorted(
+                self._human_units,
+                key=lambda unit_id: triage_key(
+                    class_index.get(self._human_units[unit_id][0], len(class_index)),
+                    self._human_units[unit_id][1],
+                    parse_codepoints(self._human_units[unit_id][2]),
+                    unit_id,
+                    rank,
+                ),
+            )
+            if human_unit_ids != expected:
+                errors.append("human_unit_ids is not the triage-ordered sequence of the shards' human units")
+        if index_valid and isinstance(batch_size, int) and batch_size > 0:
+            occupied: dict[str, set[int]] = {}
+            for position, unit_id in enumerate(human_unit_ids):
+                if unit_id in self._human_units:
+                    occupied.setdefault(self._human_units[unit_id][0], set()).add(position // batch_size)
+            for meta in manifest.get("classes") or ():
+                if meta.get("batches") != sorted(occupied.get(str(meta.get("id")), ())):
+                    errors.append(
+                        f"class {meta.get('id')}: batches {meta.get('batches')} are not the slices of "
+                        f"{batch_size} its units occupy in human_unit_ids"
+                    )
+            if totals.get("batches") != (len(human_unit_ids) + batch_size - 1) // batch_size:
+                errors.append("totals.batches does not count the slices human_unit_ids partitions into")
         for unit_id, home in self._seam_homes:
             if home == unit_id:
                 errors.append(f"unit {unit_id}: a secondary seam names itself as home")
@@ -2796,7 +2878,7 @@ def check_shards(
 ) -> list[str]:
     """The unit-grain half of the §7 contract check over shard payloads a caller holds whole, keyed by class id — `check_output_dir` re-parses them from disk, the table-diff build hands over the dicts it serialized, and the m1 build runs the same predicates through `_SurfaceCheck` directly, a fragment at a time as each is written. Classes missing from the mapping are reported by the caller, which knows whether that means an unwritten file or an unassembled shard. `repo_root`, when given, also resolves the distinct policy-draft files once and checks they exist; every other predicate here is over the payload alone.
 
-    Its second job is the cross-unit grain — the properties no single fragment can carry: that an echo group and a cluster each hold one class and one config set and that every echo nests inside one cluster, that the manifest's `human_unit_ids` really is the id-ordered human workload in contiguous batches, and that each secondary seam's home is a shorter unit of the same window where that adjacency is the primary judgment. Those were swept by tests over the live surface once a lane; here they run over every shipped unit on every build.
+    Its second job is the cross-unit grain — the properties no single fragment can carry: that an echo group and a cluster each hold one class and one config set and that every echo nests inside one cluster, that the manifest's `human_unit_ids` really is the human workload in `audit.triage_key` order and every class's `batches` the slices its units occupy in it, and that each secondary seam's home is a shorter unit of the same window where that adjacency is the primary judgment. Those were swept by tests over the live surface once a lane; here they run over every shipped unit on every build.
 
     A slim fragment (`audit.slim_fragment`) is complete for its kind: `check_unit` demands the omitted keys stay absent on it and present on every human fragment, and every cross-unit predicate reads fields both kinds carry — the flags, the window, the pair, the cells and seams, the batch and group ids — so the census the manifest states is counted over slim and full fragments alike.
 

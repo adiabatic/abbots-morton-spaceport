@@ -25,6 +25,7 @@ def unit(
 ):
     return {
         "id": uid,
+        "order": None if batch is None else int(uid.split("-")[1]),
         "batch": batch,
         "echo": echo,
         "class": cls,

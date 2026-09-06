@@ -1,7 +1,118 @@
 [
  {
-  "id": "u-0004",
-  "batch": 0,
+  "id": "u-Ng8Npb18Kha",
+  "ink_identical": false,
+  "picture_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "ss03": "d-5b399cc0bcf1",
+   "ss10": "d-5281ac12b1b3"
+  },
+  "no_verdict": false,
+  "echo": "e-0004",
+  "cluster": "c-0d41f7a5",
+  "class": "fixture-drift",
+  "group": "qsTea:qsOy",
+  "codepoints": "E652:E679",
+  "text_entities": "&#xE652;&#xE679;",
+  "notation": "\u00b7Tea\u00b7Oy",
+  "notation_tokens": [
+   "\u00b7Tea",
+   "\u00b7Oy"
+  ],
+  "configs": [
+   "ss03",
+   "ss02+ss03",
+   "ss02+ss03+ss05",
+   "ss10"
+  ],
+  "config_note": "only under: ss03, ss02+ss03, ss02+ss03+ss05, ss10",
+  "config_gate": null,
+  "render_groups": [
+   {
+    "configs": [
+     "ss03",
+     "ss02+ss03",
+     "ss02+ss03+ss05",
+     "ss10"
+    ]
+   }
+  ],
+  "kinds": [
+   "ligation"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsTea",
+    "qsOy"
+   ],
+   "seams": [
+    "break"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsTea_qsOy/hapax/None/None/"
+   ],
+   "seams": [],
+   "extensions": []
+  },
+  "diff_positions": [
+   0
+  ],
+  "pair": null,
+  "pair_codepoints": null,
+  "highlight": {
+   "before": {
+    "x_min": 0,
+    "x_max": 500,
+    "advance_total": 500
+   },
+   "after": {
+    "x_min": 0,
+    "x_max": 500,
+    "advance_total": 500
+   }
+  },
+  "boundary_marks": [],
+  "explain": "sequence E652:E679   config ss03\nsettled: qsTea_qsOy.hapax\n\nposition 0: qsTea_qsOy\n  decided by: only-candidate",
+  "summary": "New: \u00b7Tea\u00b7Oy settles differently from the baseline \u2014 decided by fixture data (open the explain panel for the candidate table).",
+  "provenance": [],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7Tea+Oy",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": "03",
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsTea_qsOy.yaml",
+    "keypath": "policy.refuse[+]",
+    "suggested_record": "{stance: hapax, when: {word: isolated}, why: 'Reviewer rejected the M1 outcome for E652:E679 (\u00b7Tea\u00b7Oy)'}",
+    "names_provenance": [],
+    "decided_stage": "only-candidate",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E652:E679 (\u00b7Tea\u00b7Oy)"
+   },
+   "any_of": {
+    "text": "qsTea qsOy",
+    "features": {
+     "ss03": true
+    },
+    "candidates": [
+     "\u00b7Tea+Oy",
+     "\u00b7Tea | \u00b7Oy"
+    ]
+   }
+  },
+  "content_key": "819581611ce75f518bf58ccd3b8c87b9fa14abe58006ac17d4acea53a019c935"
+ },
+ {
+  "id": "u-WJSK8gMxjxy",
   "ink_identical": false,
   "picture_identical": false,
   "junior_equivalent": false,
@@ -127,7 +238,7 @@
      "x_max": 550,
      "advance_total": 1100
     },
-    "home": "u-0005"
+    "home": "u-Ng8Npb18Kha"
    }
   ],
   "explain": "sequence 00B7:E679:E652   config default\nsettled: periodcentered qsOy.hapax.ex-y0 qsTea.full.en-y0\n\nposition 1: qsOy\n  decided by: join-count",
@@ -161,118 +272,5 @@
    }
   },
   "content_key": "af2d50791eff138e4107c714df8c353e5ab073aeb071bfd782099b0f9ff8a48d"
- },
- {
-  "id": "u-0005",
-  "batch": 0,
-  "ink_identical": false,
-  "picture_identical": false,
-  "junior_equivalent": false,
-  "ink_deltas": {
-   "ss03": "d-5b399cc0bcf1",
-   "ss10": "d-5281ac12b1b3"
-  },
-  "no_verdict": false,
-  "echo": "e-0004",
-  "cluster": "c-0d41f7a5",
-  "class": "fixture-drift",
-  "group": "qsTea:qsOy",
-  "codepoints": "E652:E679",
-  "text_entities": "&#xE652;&#xE679;",
-  "notation": "\u00b7Tea\u00b7Oy",
-  "notation_tokens": [
-   "\u00b7Tea",
-   "\u00b7Oy"
-  ],
-  "configs": [
-   "ss03",
-   "ss02+ss03",
-   "ss02+ss03+ss05",
-   "ss10"
-  ],
-  "config_note": "only under: ss03, ss02+ss03, ss02+ss03+ss05, ss10",
-  "config_gate": null,
-  "render_groups": [
-   {
-    "configs": [
-     "ss03",
-     "ss02+ss03",
-     "ss02+ss03+ss05",
-     "ss10"
-    ]
-   }
-  ],
-  "kinds": [
-   "ligation"
-  ],
-  "exemplar": false,
-  "before": {
-   "glyphs": [
-    "qsTea",
-    "qsOy"
-   ],
-   "seams": [
-    "break"
-   ]
-  },
-  "after": {
-   "cells": [
-    "qsTea_qsOy/hapax/None/None/"
-   ],
-   "seams": [],
-   "extensions": []
-  },
-  "diff_positions": [
-   0
-  ],
-  "pair": null,
-  "pair_codepoints": null,
-  "highlight": {
-   "before": {
-    "x_min": 0,
-    "x_max": 500,
-    "advance_total": 500
-   },
-   "after": {
-    "x_min": 0,
-    "x_max": 500,
-    "advance_total": 500
-   }
-  },
-  "boundary_marks": [],
-  "explain": "sequence E652:E679   config ss03\nsettled: qsTea_qsOy.hapax\n\nposition 0: qsTea_qsOy\n  decided by: only-candidate",
-  "summary": "New: \u00b7Tea\u00b7Oy settles differently from the baseline \u2014 decided by fixture data (open the explain panel for the candidate table).",
-  "provenance": [],
-  "drafts": {
-   "pin": {
-    "expect": "\u00b7Tea+Oy",
-    "attribute": "data-expect-noncanonically",
-    "stylistic_set": "03",
-    "syntax": "pass",
-    "semantics_after_font": "pass",
-    "duplicate_of": null,
-    "suggested_home": "site/the-manual.html"
-   },
-   "policy": {
-    "file": "glyph_data/runes/qsTea_qsOy.yaml",
-    "keypath": "policy.refuse[+]",
-    "suggested_record": "{stance: hapax, when: {word: isolated}, why: 'Reviewer rejected the M1 outcome for E652:E679 (\u00b7Tea\u00b7Oy)'}",
-    "names_provenance": [],
-    "decided_stage": "only-candidate",
-    "schema_valid": true,
-    "why_stub": "Reviewer rejected the M1 outcome for E652:E679 (\u00b7Tea\u00b7Oy)"
-   },
-   "any_of": {
-    "text": "qsTea qsOy",
-    "features": {
-     "ss03": true
-    },
-    "candidates": [
-     "\u00b7Tea+Oy",
-     "\u00b7Tea | \u00b7Oy"
-    ]
-   }
-  },
-  "content_key": "819581611ce75f518bf58ccd3b8c87b9fa14abe58006ac17d4acea53a019c935"
  }
 ]

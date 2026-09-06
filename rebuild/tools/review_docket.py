@@ -26,6 +26,12 @@ def verdicts_agree(verdicts):
     return len(kinds) <= 1 or kinds == ACCEPTING_MIX
 
 
+def triage_position(unit):
+    """Where a unit sits in the surface's triage index — the index record's `order` — as a sort key, with a record that carries none (a surface written before the index) falling back to its id, so the order is total either way."""
+    order = unit.get("order")
+    return (order is None, order if isinstance(order, int) else 0, unit["id"])
+
+
 def load_units(surface):
     """Every unit on the surface in the slim index shape (rebuild.review.unit_index owns the projection and the shard fallback). The tools that share this loader — the docket data, the novelty order, the standing fill, the complaint docket — between them read a couple of dozen fields per unit, and reading the shards for them meant parsing 1.9 GB to reach a few hundred bytes each."""
     return unit_index.load_units(surface)
@@ -61,7 +67,8 @@ def main(argv=None, *, units=None):
     records = latest_verdicts(verdicts_path)
 
     units = load_units(surface) if units is None else units
-    human = [unit for unit in units if unit["batch"] is not None]
+    # In triage order — the index record's `order` — so an exemplar, a representative and an evidence sample are each the first in the order the app pages, which is what docket.js reads too.
+    human = sorted((unit for unit in units if unit["batch"] is not None), key=triage_position)
     unclustered = [unit["id"] for unit in human if not unit.get("cluster")]
     if unclustered:
         raise SystemExit(

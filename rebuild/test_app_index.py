@@ -24,6 +24,7 @@ MINI = FIXTURES / "mini"
 # Named rather than derived, for the reason `rebuild/test_unit_index.py` names its own: adding a field to what the app carries should be a deliberate act, and dropping one the app draws should fail here rather than as a blank line on a card.
 APP_ROW_KEYS = {
     "id",
+    "order",
     "batch",
     "class",
     "group",
@@ -53,6 +54,8 @@ LOCATOR_BLOCK_KEYS = {"class", "byte_start", "byte_length", "first", "last", "un
 # Read by the card from the record it Range-fetches, never from the resident row.
 CARD_RECORD_KEYS = ("text_entities", "highlight", "after")
 ADDRESS_KEYS = {"shard_part", "byte_start", "byte_length"}
+# Read off the manifest's triage index rather than the fragment: a fragment carries neither.
+INDEX_KEYS = {"order", "batch"}
 LIST_DEFAULTED = ("notation_tokens", "boundary_marks", "configs", "kinds")
 _SIDECAR_NAMES = (app_index.APP_INDEX_NAME, app_index.LOCATOR_NAME, app_index.LOCATOR_ROWS_NAME)
 
@@ -179,7 +182,7 @@ def test_an_empty_class_addresses_nothing(tmp_path):
 def _assert_row_projects(row: dict, fragment: dict) -> None:
     assert set(row) == APP_ROW_KEYS, row["id"]
     for field, value in row.items():
-        if field in ADDRESS_KEYS:
+        if field in ADDRESS_KEYS or field in INDEX_KEYS:
             continue
         if field in LIST_DEFAULTED:
             assert value == (fragment.get(field) or []), f"{row['id']}.{field}"
@@ -219,22 +222,21 @@ def test_the_slimmed_flags_are_absent_and_every_row_carries_an_integer_batch(fix
 
 def test_a_row_whose_flags_are_not_false_refuses_to_be_written():
     """The argument for dropping them stays executable: a build that ever put a machine-approved unit into the human workload fails loudly here rather than shipping a row the app would draw as human."""
-    fragment = {"id": "u-0000", "batch": 3, "picture_identical": True}
+    fragment = {"id": "u-0000", "picture_identical": True}
     with pytest.raises(AssertionError):
-        app_index.app_row(fragment, 0, 0, 10)
+        app_index.app_row(fragment, 0, 0, 10, order=3, batch=0)
 
 
 def test_what_a_card_draws_from_its_record_is_not_in_the_row():
     """`text_entities`, `highlight` and `after.cells` are what the sample cells and the seam underlines draw, and the card Range-fetches its record for them the way the explain panel already does — so the resident row carries none of the three, and a fragment that has them all still projects to a row without them."""
     fragment = {
         "id": "u-0000",
-        "batch": 0,
         "text_entities": "&#xe652;&#xe679;",
         "highlight": {"before": {"x_min": 0, "x_max": 1}, "after": {"x_min": 0, "x_max": 1}},
         "secondary_seams": [{"pair": {"left": 0, "right": 1}, "home": None}],
         "after": {"cells": ["a", "b", "c"], "seams": [], "extensions": []},
     }
-    row = app_index.app_row(fragment, 0, 0, 10)
+    row = app_index.app_row(fragment, 0, 0, 10, order=0, batch=0)
     for key in CARD_RECORD_KEYS:
         assert key not in row
     assert row["secondary_seams"] == fragment["secondary_seams"]
@@ -272,8 +274,8 @@ def _blocks_address_their_rows(surface: Path) -> None:
         assert 0 < len(held) == block["units"] <= app_index.LOCATOR_BLOCK_ROWS
         assert {row["class"] for row in held} == {block["class"]}
         assert held[0]["id"] == block["first"] and held[-1]["id"] == block["last"]
-        numbers = [app_index.unit_number(row["id"]) for row in held]
-        assert numbers == sorted(numbers)
+        ids = [row["id"] for row in held]
+        assert ids == sorted(ids)
         replayed.extend(held)
         by_class.setdefault(block["class"], []).append(block)
         offset += block["byte_length"]
@@ -281,7 +283,7 @@ def _blocks_address_their_rows(surface: Path) -> None:
     assert replayed == rows
     for class_blocks in by_class.values():
         for earlier, later in zip(class_blocks, class_blocks[1:], strict=False):
-            assert app_index.unit_number(earlier["last"]) < app_index.unit_number(later["first"])
+            assert earlier["last"] < later["first"]
 
 
 def test_every_block_slices_out_of_the_rows_file_as_its_own_member(fixture_surface):
@@ -318,12 +320,10 @@ def test_a_locator_id_resolves_to_exactly_one_block_of_its_class(fixture_surface
     rows = app_index.load_locator_rows(fixture_surface)
     assert blocks and rows
     for row in rows:
-        number = app_index.unit_number(row["id"])
         holders = [
             block
             for block in blocks
-            if block["class"] == row["class"]
-            and app_index.unit_number(block["first"]) <= number <= app_index.unit_number(block["last"])
+            if block["class"] == row["class"] and block["first"] <= row["id"] <= block["last"]
         ]
         assert len(holders) == 1, row["id"]
         member = gzip.decompress(app_index.locator_block_bytes(fixture_surface, holders[0]))
@@ -339,12 +339,15 @@ def test_a_class_whose_rows_do_not_ascend_is_refused(tmp_path):
         _rewrite_fragments(tmp_path, fragments)
 
 
-def test_unit_number_reads_the_digits_and_refuses_anything_else():
-    assert app_index.unit_number("u-0000") == 0
-    assert app_index.unit_number("u-1080063") == 1080063
-    for bad in ("e-0001", "u-", "u-12a", "0001", "c-aaaaaaaa"):
-        with pytest.raises(ValueError):
-            app_index.unit_number(bad)
+def test_every_row_carries_its_place_in_the_manifests_triage_index(fixture_surface):
+    """`order` is the row's position in `human_unit_ids` and `batch` the slice of `batch_size` it falls in — read off the manifest, since a fragment carries neither — so the app pages the queue in the manifest's order whatever order the shards are written in."""
+    manifest, _shards = _surface_shards(fixture_surface)
+    rows = app_index.load_rows(fixture_surface, app_index.APP_INDEX_NAME)
+    assert rows
+    positions = {unit_id: position for position, unit_id in enumerate(manifest["human_unit_ids"])}
+    for row in rows:
+        assert row["order"] == positions[row["id"]]
+        assert row["batch"] == positions[row["id"]] // manifest["batch_size"]
 
 
 def test_a_rows_file_of_another_length_makes_the_locator_stale(fixture_surface):
@@ -383,7 +386,7 @@ def _shard_order_ids(manifest: dict, shards: dict[str, list[dict]], *, human: bo
         fragment["id"]
         for meta in sorted(manifest["classes"], key=lambda entry: unit_index.class_shard_key(entry["id"]))
         for fragment in shards[meta["id"]]
-        if (fragment["batch"] is not None) is human
+        if (fragment["id"] in manifest["human_unit_ids"]) is human
     ]
 
 

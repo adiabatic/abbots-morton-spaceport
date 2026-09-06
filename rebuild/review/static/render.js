@@ -161,9 +161,16 @@ export function onlyHereSeamSpans(unit) {
   return result;
 }
 
+const MACHINE_CHANNELS = ['ink_identical', 'picture_identical', 'junior_equivalent'];
+
 export function needsNoVerdict(unit) {
-  // audit.assign_batches records the workload split as batch — null on exactly the machine-approved and no-verdict units, an integer on every human one — and build.check_unit enforces that equivalence on every unit a build computes, a cache-served one carrying it through the content-key stamp of the build that did, so read the one recorded answer instead of re-deriving the disjunction from the flags.
-  return unit.batch === null;
+  // The disjunction audit.slim_fragment reads on the build side: a unit any machine channel approved, or one of a no-verdict ledger class, takes no verdict. It is read off the flags rather than off a batch because a fragment carries no batch — a unit's place in the queue is the manifest's triage index, and only the app index's rows carry it — and those rows, which are human by construction, carry none of the flags either, so they read as human here.
+  return Boolean(unit) && (unit.no_verdict === true || MACHINE_CHANNELS.some((channel) => unit[channel] === true));
+}
+
+// A human row's place in the manifest's triage index — the order the app pages in — or Infinity for a record that carries none.
+export function triageOrder(unit) {
+  return typeof unit?.order === 'number' ? unit.order : Number.POSITIVE_INFINITY;
 }
 
 export function echoChip(unit, memberIds) {
@@ -193,7 +200,10 @@ export function unitWorklist(value) {
 
 export function orderWorklist(units, order) {
   if (order === 'given') return units;
-  return [...units].sort((a, b) => a.group.localeCompare(b.group) || a.id.localeCompare(b.id));
+  // Triage order where the rows carry it; the group and the id order the records that do not (a worklist's machine records).
+  return [...units].sort(
+    (a, b) => triageOrder(a) - triageOrder(b) || a.group.localeCompare(b.group) || a.id.localeCompare(b.id),
+  );
 }
 
 export function unitMatchesFilters(unit, filters, record) {
