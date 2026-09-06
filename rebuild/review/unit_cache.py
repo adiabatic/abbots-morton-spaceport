@@ -146,6 +146,7 @@ KERNEL_NON_SURFACE_MODULES = frozenset(
         "fold.rs",
         "liveness.rs",
         "options.rs",
+        "replay.rs",
         "rulefold.rs",
         "sha256.rs",
         "stream.rs",

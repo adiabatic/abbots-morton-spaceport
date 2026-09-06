@@ -572,3 +572,166 @@ class TestTheMemoryDerivedThreadDefault:
             kernel_exec.kernel_threads_default(coresident_bytes=60_000_000_000, total_bytes=64_000_000_000)
             == 4
         )
+
+
+class TestTheStringReplay:
+    """The `replay-strings` seam over the fixture's own tables: the crate reads the settlement TSVs a build left and holds them to its engine over every string, so what this side checks is that a clean walk answers per configuration, that a family list narrows the universe, and that a table edited behind the engine's back is refused naming the text."""
+
+    @pytest.fixture(scope="class")
+    def tables_dir(self, tmp_path_factory):
+        out_dir = tmp_path_factory.mktemp("tables")
+        run_m1.build_tables(SPEC, out_dir)
+        return out_dir
+
+    def test_a_clean_walk_answers_every_configuration_over_one_universe(self, tables_dir):
+        answered = kernel_exec.replay_strings(
+            SPEC, tables_dir, conform.SETTLEMENT_CONFIGS, horizon=3, families=None, threads=2
+        )
+        assert sorted(answered) == sorted(conform.SETTLEMENT_CONFIGS)
+        texts = {counts["texts"] for counts in answered.values()}
+        assert len(texts) == 1
+        alphabet = len(conform.spec_alphabet(SPEC))
+        assert texts == {alphabet + alphabet**2 + alphabet**3}
+        assert all(counts["skipped"] == 0 and counts["windows"] > 0 for counts in answered.values())
+
+    def test_a_family_list_walks_only_the_texts_naming_it(self, tables_dir):
+        whole = kernel_exec.replay_strings(
+            SPEC, tables_dir, ["default"], horizon=3, families=None, threads=1
+        )["default"]
+        narrowed = kernel_exec.replay_strings(
+            SPEC, tables_dir, ["default"], horizon=3, families=["qsPea"], threads=1
+        )["default"]
+        assert 0 < narrowed["texts"] < whole["texts"]
+        assert narrowed["texts"] + narrowed["skipped"] == whole["texts"]
+        with pytest.raises(ValueError):
+            kernel_exec.replay_strings(SPEC, tables_dir, ["default"], horizon=3, families=[], threads=1)
+
+    def test_a_table_edited_behind_the_engine_is_refused_naming_the_text(self, tables_dir, tmp_path):
+        for name in ("settlement-default.tsv", "settlement-ss03.tsv"):
+            (tmp_path / name).write_text((tables_dir / name).read_text())
+        lines = (tmp_path / "settlement-default.tsv").read_text().splitlines()
+        fields = lines[2].split("\t")
+        fields[6] = f"{fields[0]}.perturbed"
+        lines[2] = "\t".join(fields)
+        (tmp_path / "settlement-default.tsv").write_text("\n".join(lines) + "\n")
+        with pytest.raises(kernel_exec.ReplayDisagreement) as caught:
+            kernel_exec.replay_strings(
+                SPEC, tmp_path, ["default", "ss03"], horizon=3, families=None, threads=2
+            )
+        assert "default" in str(caught.value)
+        assert "replay disagreement" in str(caught.value)
+        assert "at position" in str(caught.value)
+        assert ".perturbed" in str(caught.value)
+
+
+class TestTheReplayStage:
+    """The stage `run_m1.run` puts between the table build and the minting: which texts it walks, what it records, and how a disagreement reaches the build's verdict. The crate is stubbed here — the seam above is where the real one is exercised — so what these test is the delta arithmetic and the record."""
+
+    def _record(self, structure, runes, **overrides):
+        record = {
+            "format": run_m1.REPLAY_FORMAT,
+            "horizon": run_m1.REPLAY_HORIZON,
+            "families": None,
+            "walked": True,
+            "configs": {},
+            "structure": structure,
+            "runes": dict(runes),
+            "pass": True,
+            "complaint": None,
+        }
+        record.update(overrides)
+        return record
+
+    def test_no_green_record_or_a_moved_structure_walks_the_whole_universe(self):
+        runes = {name: f"d-{name}" for name in SPEC.runes}
+        assert run_m1.replay_families(SPEC, None, "s1", runes) is None
+        assert run_m1.replay_families(SPEC, self._record("s0", runes), "s1", runes) is None
+        assert run_m1.replay_families(SPEC, self._record("s1", runes, **{"pass": False}), "s1", runes) is None
+        assert run_m1.replay_families(SPEC, self._record("s1", runes, format="other"), "s1", runes) is None
+        gone = self._record("s1", {**runes, "qsGone": "d"})
+        assert run_m1.replay_families(SPEC, gone, "s1", runes) is None
+
+    def test_nothing_moved_walks_nothing(self):
+        runes = {name: f"d-{name}" for name in SPEC.runes}
+        assert run_m1.replay_families(SPEC, self._record("s1", runes), "s1", runes) == []
+
+    def test_a_moved_rune_walks_itself_and_every_rune_that_reads_it(self):
+        from rebuild.pipeline import spec_load
+
+        runes = {name: f"d-{name}" for name in SPEC.runes}
+        moved = {**runes, "qsPea": "d-qsPea-2", "qsNew": "d-new"}
+        closure = spec_load.rune_closure(SPEC)
+        readers = {name for name, reads in closure.items() if "qsPea" in reads}
+        edited = run_m1.replay_families(SPEC, self._record("s1", runes), "s1", moved)
+        assert edited is not None
+        assert set(edited) == readers | {"qsPea"}
+        assert "qsNew" not in edited
+        assert edited == sorted(edited)
+
+    def test_the_structure_stamp_moves_with_the_horizon_and_the_semantics(self, monkeypatch):
+        base = run_m1.replay_structure_stamp(SPEC)
+        assert run_m1.replay_structure_stamp(SPEC) == base
+        monkeypatch.setattr(run_m1, "REPLAY_HORIZON", run_m1.REPLAY_HORIZON + 1)
+        assert run_m1.replay_structure_stamp(SPEC) != base
+        monkeypatch.setattr(run_m1, "REPLAY_HORIZON", run_m1.REPLAY_HORIZON - 1)
+        monkeypatch.setattr(kernel_exec, "enumeration_tokens", lambda: ["other-world"])
+        assert run_m1.replay_structure_stamp(SPEC) != base
+
+    def test_the_stage_records_what_it_walked_and_walks_the_delta_next_time(self, monkeypatch, tmp_path):
+        asked: list = []
+
+        def replay_strings(spec, out_dir, configs, *, horizon, families, threads, timings=False):
+            asked.append((tuple(configs), horizon, families, threads))
+            return {config: {"texts": 1, "windows": 1, "skipped": 0} for config in configs}
+
+        monkeypatch.setattr(kernel_exec, "replay_strings", replay_strings)
+        monkeypatch.setattr(run_m1, "replay_structure_stamp", lambda spec, root=None: "s1")
+        digests = {name: f"d-{name}" for name in SPEC.runes}
+        monkeypatch.setattr(run_m1.fingerprint, "rune_digests", lambda root: dict(digests))
+        first = run_m1.run_replay_strings(SPEC, tmp_path, "stamp", kernel_threads=2)
+        assert first["pass"] and first["families"] is None and first["walked"]
+        assert asked == [(tuple(conform.SETTLEMENT_CONFIGS), run_m1.REPLAY_HORIZON, None, 2)]
+        assert run_m1.read_replay_record(tmp_path) == first
+        assert first["runes"] == digests and first["structure"] == "s1"
+
+        again = run_m1.run_replay_strings(SPEC, tmp_path, "stamp", kernel_threads=2)
+        assert again["families"] == [] and not again["walked"] and again["pass"]
+        assert len(asked) == 1
+        assert run_m1.read_replay_record(tmp_path) == again
+
+        digests["qsPea"] = "d-qsPea-2"
+        third = run_m1.run_replay_strings(SPEC, tmp_path, "stamp", kernel_threads=2)
+        assert third["families"] is not None and "qsPea" in third["families"] and third["walked"]
+        assert asked[-1][2] == third["families"]
+
+    def test_a_caller_with_no_stamp_walks_everything_and_records_nothing(self, monkeypatch, tmp_path):
+        asked: list = []
+
+        def replay_strings(spec, out_dir, configs, *, horizon, families, threads, timings=False):
+            asked.append(families)
+            return {config: {"texts": 1, "windows": 1, "skipped": 0} for config in configs}
+
+        monkeypatch.setattr(kernel_exec, "replay_strings", replay_strings)
+        summary = run_m1.run_replay_strings(SPEC, tmp_path, None)
+        assert asked == [None]
+        assert summary["structure"] is None and summary["runes"] == {}
+        assert run_m1.read_replay_record(tmp_path) is None
+
+    def test_a_disagreement_is_recorded_red_and_stops_the_build(self, monkeypatch, tmp_path):
+        def replay_strings(spec, out_dir, configs, **rest):
+            raise kernel_exec.ReplayDisagreement(
+                "default: 1 first-match-wins replay disagreement(s): (qsPea, …)"
+            )
+
+        monkeypatch.setattr(kernel_exec, "replay_strings", replay_strings)
+        monkeypatch.setattr(run_m1, "replay_structure_stamp", lambda spec, root=None: "s1")
+        monkeypatch.setattr(run_m1.fingerprint, "rune_digests", lambda root: {})
+        summary = run_m1.run_replay_strings(SPEC, tmp_path, "stamp")
+        assert not summary["pass"]
+        assert "qsPea" in summary["complaint"]
+        assert run_m1.read_replay_record(tmp_path) == summary
+        assert run_m1.replay_families(SPEC, summary, "s1", {}) is None
+
+        monkeypatch.setattr(run_m1, "build_tables", lambda spec, out_dir, **rest: ({}, {}))
+        with pytest.raises(SystemExit, match="tables incomplete"):
+            run_m1.run(out_dir=tmp_path, spec=SPEC, inputs="stamp")

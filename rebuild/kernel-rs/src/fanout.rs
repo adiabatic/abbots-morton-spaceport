@@ -11,10 +11,12 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use crate::artifacts;
+use crate::engine::EngineModes;
 use crate::fixpoint::{self, EnumerationModes};
 use crate::fold;
 use crate::index::SpecIndex;
 use crate::model::Sym;
+use crate::replay;
 use crate::stream;
 
 /// One configuration a run answers: the token it is spelled by — the filename, the stream head's `config`, and the label of its timing lines — and the features that token resolved to.
@@ -262,6 +264,61 @@ pub fn run_config_tables(
         timed.push(timing_line(&format!("fold[{token}]"), started.elapsed()));
     }
     Ok(TableAnswer { digest, timed })
+}
+
+/// What one configuration's string replay answered: the walk's counts, and its timing line when one was asked for.
+pub struct ReplayAnswer {
+    pub report: replay::Report,
+    pub timed: Vec<String>,
+}
+
+/// Every configuration's persisted rules replayed over `universe`, at most `workers` at a time: each one reads `<outdir>/settlement-<config>.tsv` back, walks the universe's texts, and holds the rules' first-match answer to the engine's own settlement window by window. The world is the enumeration's, minus the grain: a replay settles single windows, which have no grain to name.
+pub fn run_configs_replay(
+    index: &SpecIndex,
+    configs: &[Configuration<'_>],
+    modes: EnumerationModes,
+    outdir: &Path,
+    universe: replay::Universe<'_>,
+    workers: usize,
+    report: Report,
+) -> Result<Vec<ReplayAnswer>, String> {
+    claim_all(configs, workers, |config| {
+        run_config_replay(index, config, modes, outdir, universe, report)
+            .map_err(|complaint| format!("{}: {complaint}", config.token))
+    })
+}
+
+/// One configuration replayed: its rules read back, the walk run, and the phase named `replay[<config>]` when the caller wants it timed.
+pub fn run_config_replay(
+    index: &SpecIndex,
+    config: &Configuration<'_>,
+    modes: EnumerationModes,
+    outdir: &Path,
+    universe: replay::Universe<'_>,
+    report: Report,
+) -> Result<ReplayAnswer, String> {
+    let token = config.token;
+    let started = Instant::now();
+    let settlement = outdir.join(format!("settlement-{token}.tsv"));
+    let text = std::fs::read_to_string(&settlement)
+        .map_err(|error| format!("{}: {error}", settlement.display()))?;
+    let rules = artifacts::read_settlement_tsv(&text)
+        .map_err(|complaint| format!("{}: {complaint}", settlement.display()))?;
+    let engine_modes = EngineModes {
+        simulated_prospect: modes.simulated_prospect,
+        vote_slots: modes.vote_slots,
+        ..EngineModes::default()
+    };
+    let mut walk = replay::Replay::new(index, config.features.clone(), engine_modes, &rules);
+    let walked = walk.walk_universe(universe)?;
+    let mut timed: Vec<String> = Vec::new();
+    if report.timings {
+        timed.push(timing_line(&format!("replay[{token}]"), started.elapsed()));
+    }
+    Ok(ReplayAnswer {
+        report: walked,
+        timed,
+    })
 }
 
 fn write_text(path: &Path, text: &str) -> Result<(), String> {

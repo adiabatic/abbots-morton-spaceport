@@ -8,7 +8,7 @@ The build is `cargo build --release` against the crate's own manifest and nothin
 
 `build_tables` and `enumerate_transitions` are the single-configuration forms in memory, each writing nothing that outlives the call: one spec dumped to a scratch directory, and then either the two tables — `build-tables` into that directory, read back through `table.read_windows` and `table.read_treaty_tsv` — or the raw product, enumerated as a stream and parsed into a `table.FixpointProduct`. The first is how a test, a tool or a hand-assembled spec reaches a table; the second is the raw product a fold consumes, which no build stage and no tool asks for any more, and `rebuild/test_kernel_exec.py` is what keeps that path exercised.
 
-`guard_sweep` is one other in-memory form: one crate invocation and one complete mapping from `(ligature, first raw slot, second raw slot)` to the config-blind formation verdict, memoized per spec identity so a process sweeps one spec once however many callers ask. `guard_sweep_under` is the same surface answered by one named configuration instead of the powerset — unmemoized, because nothing that ships reads it; it exists for the rebuild suite's pin of where each configuration's own surface stands against the quantified one. The settlement verbs sit beside it and share its spec dump. `settle_cases` is the raw form — a file of independent `ams-m1-corpus/3` windows in, the full Rust trace objects out, with count and question echo checked, by the bytes, before anything decodes, and each distinct result decoded once for however many windows answered it. `settle_windows` decodes each answer straight to a `Settled`, for the conform walker, which wants outcomes by the tens of thousands rather than traces; like `settle_sequences` it takes an `on_error`, so a caller prefilling windows it may never read can take `None` for a refusal and leave the rest of the batch standing. `settle_sequences` is what explain, the probe and the review surface reach for: the verb takes independent windows, while a sequence's next left context is the previous window's answer, so a batch of whole sequences advances in waves — all first positions, then all second positions off the first wave's answers — with boundary positions answered locally because they are model constants. `settle_codepoints` is the one-line form over a text. The CLI spells boundary tokens as `edge`, `space`, `zwnj`, `namer-dot`, and `unknown`; the guard mapping converts them to Python's `RightToken` constants at the boundary so consumers never confuse those model tokens with glyph names such as `uni200C` or `periodcentered`.
+`guard_sweep` is one other in-memory form: one crate invocation and one complete mapping from `(ligature, first raw slot, second raw slot)` to the config-blind formation verdict, memoized per spec identity so a process sweeps one spec once however many callers ask. `guard_sweep_under` is the same surface answered by one named configuration instead of the powerset — unmemoized, because nothing that ships reads it; it exists for the rebuild suite's pin of where each configuration's own surface stands against the quantified one. The settlement verbs sit beside it and share its spec dump, and so does `replay_strings`, the enumeration-completeness check `run_m1.run_replay_strings` runs after every table build: one `replay-strings` invocation over the settlement TSVs a build left, every text of the string universe — or only the texts naming the families the caller knows moved — walked in the crate against the crate's own settlement, and a disagreement is a `ReplayDisagreement` carrying the crate's sentence naming the configuration, the window and the text. `settle_cases` is the raw form — a file of independent `ams-m1-corpus/3` windows in, the full Rust trace objects out, with count and question echo checked, by the bytes, before anything decodes, and each distinct result decoded once for however many windows answered it. `settle_windows` decodes each answer straight to a `Settled`, for the conform walker, which wants outcomes by the tens of thousands rather than traces; like `settle_sequences` it takes an `on_error`, so a caller prefilling windows it may never read can take `None` for a refusal and leave the rest of the batch standing. `settle_sequences` is what explain, the probe and the review surface reach for: the verb takes independent windows, while a sequence's next left context is the previous window's answer, so a batch of whole sequences advances in waves — all first positions, then all second positions off the first wave's answers — with boundary positions answered locally because they are model constants. `settle_codepoints` is the one-line form over a text. The CLI spells boundary tokens as `edge`, `space`, `zwnj`, `namer-dot`, and `unknown`; the guard mapping converts them to Python's `RightToken` constants at the boundary so consumers never confuse those model tokens with glyph names such as `uni200C` or `periodcentered`.
 
 The codecs between the transport rows and the pipeline's model types live here as well — `case_row` and `settled_row` on the way out, `trace_of` on the way back — because every settlement caller needs them and none of them should be reaching into another consumer's module for one. A window the crate refuses answers `{raise, message}`, and that becomes a `settle.SettleError` carrying the crate's bucket and its sentence verbatim, so a caller can sort refusals without reading prose; an answer malformed in any other way is the boundary itself being wrong and stays a `KernelRunError`.
 
@@ -352,6 +352,72 @@ def build_table_files(
             f"build-tables answered for {sorted(digests)} where {sorted(configs)} were asked for"
         )
     return digests
+
+
+class ReplayDisagreement(KernelRunError):
+    """The `replay-strings` verb found a window its rules and its engine answer differently, or one the engine refuses: the crate's own sentence, which names the configuration, the window and the text it was reached in. Its own class so a build can tell the finding from a boundary failure — the first is a red build naming a text, the second is the seam being wrong."""
+
+
+def replay_strings(
+    spec: ResolvedSpec,
+    out_dir: Path,
+    configs: Sequence[str],
+    *,
+    horizon: int,
+    families: Sequence[str] | None,
+    threads: int,
+    timings: bool = False,
+) -> dict[str, dict[str, int]]:
+    """Every named configuration's persisted rules under `out_dir` replayed over the string universe to `horizon` — every text, or with `families` only the texts naming one of those runes — first-match with the settled left fed forward, each window held to the crate's own settlement; `{config: {texts, windows, skipped}}` on a clean walk. The spec rides the same memoized dump the settlement verbs and the guard sweep read. A disagreement or a refused window is a `ReplayDisagreement` carrying the crate's sentence; every other refusal the CLI contract distinguishes is a plain `KernelRunError`, as is a clean exit whose answer does not name every configuration exactly once. An empty `families` is refused here rather than handed across, because the verb reads it as a usage error and the caller that has nothing to walk has nothing to ask."""
+    if families is not None and not families:
+        raise ValueError("replay_strings takes a non-empty family list or None for the whole universe")
+    spec_path = _spec_dump(spec)
+    ensure_built()
+    arguments = [
+        str(BINARY),
+        "replay-strings",
+        str(spec_path),
+        str(out_dir),
+        f"--configs={','.join(configs)}",
+        f"--horizon={horizon}",
+        f"--threads={threads}",
+        *settlement_flags(),
+    ]
+    if families is not None:
+        arguments.append(f"--families={','.join(families)}")
+    if timings:
+        arguments.append("--timings")
+    finished = _run_kernel(arguments, "replay-strings")
+    errors = finished.stderr.decode(errors="replace").strip()
+    if finished.returncode == 2:
+        raise KernelRunError(
+            f"kernel does not support replay-strings yet, or rejected the invocation as a usage error: {errors} ({' '.join(arguments)})"
+        )
+    if finished.returncode != 0:
+        if "replay disagreement" in errors or "the engine refused the window" in errors:
+            raise ReplayDisagreement(errors)
+        raise KernelRunError(f"the kernel exited {finished.returncode} on replay-strings: {errors}")
+    _forward_stderr(errors, timings, arguments, verb="replay-strings")
+    try:
+        lines = finished.stdout.decode().splitlines()
+    except UnicodeDecodeError as error:
+        raise KernelRunError(f"the kernel wrote non-UTF-8 replay-strings output: {error}") from None
+    answered: dict[str, dict[str, int]] = {}
+    for number, line in enumerate(lines, 1):
+        try:
+            answer = json.loads(line)
+        except json.JSONDecodeError as error:
+            raise KernelRunError(f"replay-strings line {number} is not JSON: {error.msg}") from None
+        if not isinstance(answer, dict) or set(answer) != {"config", "texts", "windows", "skipped"}:
+            raise KernelRunError(
+                f"replay-strings line {number} is not a {{config, texts, windows, skipped}} answer"
+            )
+        answered[answer["config"]] = {key: int(answer[key]) for key in ("texts", "windows", "skipped")}
+    if sorted(answered) != sorted(configs):
+        raise KernelRunError(
+            f"replay-strings answered for {sorted(answered)} where {sorted(configs)} were asked for"
+        )
+    return answered
 
 
 def _forward_stderr(

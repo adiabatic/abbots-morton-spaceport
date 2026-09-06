@@ -20,6 +20,7 @@ pub mod liveness;
 pub mod model;
 pub mod options;
 pub mod parse;
+pub mod replay;
 pub mod rulefold;
 pub(crate) mod sha256;
 pub mod specificity;

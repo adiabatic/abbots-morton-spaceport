@@ -30,7 +30,7 @@ use crate::types::{
 const NA_LABEL: &str = "#NA";
 
 /// The label the run edge carries, `table.EDGE_LABEL`. The other three boundaries label as the glyphs they ship as, which is why only this one needs a name of its own.
-const EDGE_LABEL: &str = "#EDGE";
+pub const EDGE_LABEL: &str = "#EDGE";
 
 /// The prefix every deep-class id carries, `table.DEEP_CLASS_PREFIX`. The `#` keeps ids outside the glyph namespace, which is what lets a slot label be read as "class or letter" by looking at its first character.
 const DEEP_CLASS_PREFIX: &str = "#C";
@@ -957,8 +957,8 @@ fn singleton(token: RightToken) -> Allowed {
     Rc::new(BTreeSet::from([token]))
 }
 
-/// The ZWNJ chokepoint twin's display name for a raw input glyph, `model.locked_glyph_name`.
-fn locked_glyph_name(raw_name: &str) -> String {
+/// The ZWNJ chokepoint twin's display name for a raw input glyph, `model.locked_glyph_name`. Public because the string replay labels an entry-bearing input after a ZWNJ the way the enumeration does.
+pub fn locked_glyph_name(raw_name: &str) -> String {
     format!("{raw_name}.noentry")
 }
 

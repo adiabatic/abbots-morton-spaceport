@@ -8,6 +8,7 @@ use std::collections::HashSet;
 use std::fmt::Write as _;
 use std::io::Write as _;
 use std::path::Path;
+use std::rc::Rc;
 
 use crate::emit::{escape_into, json_string};
 use crate::fold::{DecisionTable, Rule, TreatyTable};
@@ -31,7 +32,7 @@ const WINDOWS_COLUMNS: [&str; 7] = [
 ];
 
 /// One slot as the TSV and the digest spell it: the members joined by spaces, and `-` for a slot the rule leaves unconstrained. An empty class spells `-` too, which is what Python's truthiness test on the tuple does.
-fn slot_text(slot: &Option<Vec<std::rc::Rc<str>>>) -> String {
+fn slot_text(slot: &Option<Vec<Rc<str>>>) -> String {
     match slot {
         Some(members) if !members.is_empty() => members
             .iter()
@@ -80,6 +81,78 @@ pub fn settlement_tsv(decision: &DecisionTable) -> String {
         out.push('\n');
     }
     out
+}
+
+/// The column line every settlement TSV carries after its config comment, which [`read_settlement_tsv`] holds a file to before reading a row.
+const SETTLEMENT_COLUMNS: &str =
+    "input\tbacktrack\tlookahead1\tlookahead2\tlookahead3\tlookahead4\toutcome\tjoint\tprovenance";
+
+/// [`settlement_tsv`]'s inverse: the ordered rules a persisted `settlement-<config>.tsv` spells, in file order, which is the emission order the shipped GSUB carries. The string replay ([`crate::replay`]) reads a build's rules back through this rather than re-costing the fixpoint they fold from, so the reader is held to the writer by a round trip over the fixture's own tables and refuses anything the writer would not have written — a missing config comment, a column line that is not the one above, a row that is not nine fields. `-` reads back as the unconstrained slot the writer spells it for, so a rule whose class was empty reads back unconstrained as well: the two are one slot to a first-match replay, because a rule matching no label at a slot never wins a window and the fold refuses a rule no row first-matches.
+pub fn read_settlement_tsv(text: &str) -> Result<Vec<Rule>, String> {
+    let mut lines = text.lines();
+    match lines.next() {
+        Some(head) if head.starts_with("# settlement table, config ") => {}
+        _ => return Err("not a settlement table: no config comment on the first line".to_owned()),
+    }
+    if lines.next() != Some(SETTLEMENT_COLUMNS) {
+        return Err("not a settlement table: the second line is not the column line".to_owned());
+    }
+    let mut rules: Vec<Rule> = Vec::new();
+    for (seat, line) in lines.enumerate() {
+        let fields: Vec<&str> = line.split('\t').collect();
+        let [
+            input,
+            backtrack,
+            look1,
+            look2,
+            look3,
+            look4,
+            outcome,
+            joint,
+            provenance,
+        ] = fields.as_slice()
+        else {
+            return Err(format!(
+                "settlement row {} has {} tab-separated fields, expected 9",
+                seat + 1,
+                fields.len()
+            ));
+        };
+        let joint = match *joint {
+            "joint" => true,
+            "-" => false,
+            other => {
+                return Err(format!(
+                    "settlement row {} has joint flag {other:?}, expected joint or -",
+                    seat + 1
+                ));
+            }
+        };
+        rules.push(Rule {
+            input_glyph: Rc::from(*input),
+            backtrack: slot_members(backtrack),
+            look1: slot_members(look1),
+            look2: slot_members(look2),
+            look3: slot_members(look3),
+            look4: slot_members(look4),
+            outcome: Rc::from(*outcome),
+            provenance: provenance
+                .split("; ")
+                .filter(|pointer| !pointer.is_empty())
+                .map(str::to_owned)
+                .collect(),
+            joint,
+        });
+    }
+    Ok(rules)
+}
+
+/// One slot's members as [`slot_text`] spelled them, `None` for the `-` that stands for an unconstrained slot.
+fn slot_members(text: &str) -> Option<Vec<Rc<str>>> {
+    if text == "-" {
+        return None;
+    }
+    Some(text.split(' ').map(Rc::from).collect())
 }
 
 /// `TreatyTable.write_tsv`.
@@ -317,6 +390,49 @@ fn window_line(row: &TransitionRow) -> String {
 mod tests {
     use super::*;
     use crate::index::fixtures;
+
+    /// The reader is the writer's inverse over a real fold: every rule of the fixture's table comes back as it went out, in order, and the bytes it writes again are the bytes it read.
+    #[test]
+    fn a_settlement_table_reads_back_into_the_rules_that_wrote_it() {
+        use crate::fixpoint::{EnumerationModes, enumerate_transitions};
+        use crate::fold::fold_product;
+
+        let index = fixtures::mini();
+        let product = enumerate_transitions(&index, &[], EnumerationModes::default())
+            .expect("the fixture's fixpoint closes");
+        let folded = fold_product(&index, product).expect("and folds");
+        let text = settlement_tsv(&folded.decision);
+        let rules = read_settlement_tsv(&text).expect("the writer's own bytes read back");
+        assert_eq!(rules, folded.decision.rules);
+        let again = DecisionTable {
+            rules,
+            ..folded.decision
+        };
+        assert_eq!(settlement_tsv(&again), text);
+    }
+
+    /// What the reader refuses: a file with no config comment, one whose column line is not the writer's, and a row short of its nine fields.
+    #[test]
+    fn a_settlement_table_the_writer_could_not_have_written_is_refused() {
+        let good = "# settlement table, config default\n".to_owned()
+            + SETTLEMENT_COLUMNS
+            + "\nqsPea\t-\tqsTea qsIt\t-\t-\t-\tqsPea.half\t-\ta:b\n";
+        let rules = read_settlement_tsv(&good).expect("one rule");
+        assert_eq!(rules.len(), 1);
+        assert_eq!(rules[0].backtrack, None);
+        assert_eq!(
+            rules[0].look1,
+            Some(vec![Rc::from("qsTea"), Rc::from("qsIt")])
+        );
+        assert_eq!(rules[0].provenance, vec!["a:b".to_owned()]);
+        assert!(!rules[0].joint);
+        assert!(read_settlement_tsv("input\tbacktrack\n").is_err());
+        assert!(read_settlement_tsv("# settlement table, config default\ninput\n").is_err());
+        let short = "# settlement table, config default\n".to_owned()
+            + SETTLEMENT_COLUMNS
+            + "\nqsPea\t-\t-\n";
+        assert!(read_settlement_tsv(&short).unwrap_err().contains("row 1"));
+    }
 
     /// The cell vocabulary the windows head and the digest share is `DecisionTable._cells`, a frozenset: sorted into `_cell_key` order and spelling a repeated cell once.
     #[test]

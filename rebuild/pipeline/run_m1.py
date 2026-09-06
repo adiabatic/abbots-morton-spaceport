@@ -1,6 +1,6 @@
 """The M1 integration driver (M1-PLAN Phase 5): the full pipeline run over the real rune files, writing every section 8 artifact under rebuild/out/m1/.
 
-Stages: load_default_spec -> per-configuration decision/treaty tables, one pair per settlement configuration (`conform.SETTLEMENT_CONFIGS`; enumerated and folded in the kernel crate, one process per configuration: the first-match-wins replay asserted as each one folds, TSVs written, and the window enumeration serialized under the fingerprint of the sources it came from, so `--conform-only` mints its glyph inventory from it and refuses to run against a stale or missing one) -> glyph inventory minting (settled cells named by the table's own cell labels, plus the raw cmap glyphs, marker twins, chokepoint twins, and the namer dot pair) -> defect gates (defects.run_gates under the reviewed allow-list) -> emit_gsub/emit_gpos (whose plan also enumerates the emitted lookup's HarfBuzz-facing shapes into behavior_classes.json, the arming key rebuild/tools/deep_sweep.py reads) -> build_mini_font -> read-back (the font just written, re-parsed from its own bytes and structurally proven against the plan the emitters held, with the GSUB's uint16 subtable-offset headroom read off the raw table bytes in that same parse and held to its floor, and that plan's settlement rows recorded beside the summary with their per-configuration sources for the witness gate to count coverage over; rebuild/pipeline/readback.py).
+Stages: load_default_spec -> per-configuration decision/treaty tables, one pair per settlement configuration (`conform.SETTLEMENT_CONFIGS`; enumerated and folded in the kernel crate, one process per configuration: the first-match-wins replay asserted as each one folds, TSVs written, and the window enumeration serialized under the fingerprint of the sources it came from, so `--conform-only` mints its glyph inventory from it and refuses to run against a stale or missing one) -> the string replay (`run_replay_strings`: every settlement configuration's persisted rules walked in the crate over the string universe against the crate's own settlement, whole-universe on a code or structure change and only over the texts naming an edited family on a rune edit, red naming the offending text; `rebuild/out/m1/replay_summary.json` is its record) -> glyph inventory minting (settled cells named by the table's own cell labels, plus the raw cmap glyphs, marker twins, chokepoint twins, and the namer dot pair) -> defect gates (defects.run_gates under the reviewed allow-list) -> emit_gsub/emit_gpos (whose plan also enumerates the emitted lookup's HarfBuzz-facing shapes into behavior_classes.json, the arming key rebuild/tools/deep_sweep.py reads) -> build_mini_font -> read-back (the font just written, re-parsed from its own bytes and structurally proven against the plan the emitters held, with the GSUB's uint16 subtable-offset headroom read off the raw table bytes in that same parse and held to its floor, and that plan's settlement rows recorded beside the summary with their per-configuration sources for the witness gate to count coverage over; rebuild/pipeline/readback.py).
 
 The glyph-name contract this driver pins: settlement-lookup outcomes are `settle.cell_label` names, so the decision-table rules and the compiled glyph set agree by construction; the raw cmap glyph for each rune is the bare rune name drawn as the isolated cell but carrying no curs anchors; marker, chokepoint, and ss10 twins reuse the bare drawing (under ss10 the pre-empt lookup substitutes every letter's cmap glyph by its anchor-free `.ss10` twin before formation, so no ligature ever forms, nothing settles, each letter keeps its own cluster, and every seam is a break). That is why the overlay configuration (`conform.OVERLAY_CONFIGS`) has no table of its own: read-back proves the pre-empt covers every letter cmap glyph and keeps the twins out of every other stage, the belt sweeps it at `conform.OVERLAY_HORIZON`, and the oracle holds its rows against the bare stream with the twins' `hmtx` advances for positions.
 
@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import gc
 import gzip
+import hashlib
 import json
 import multiprocessing
 import os
@@ -268,6 +269,18 @@ def run(
         flush=True,
     )
 
+    console.phase("replay_strings")
+    start = time.perf_counter()
+    replay = run_replay_strings(spec, out_dir, inputs, kernel_threads=kernel_threads)
+    walked = "whole universe" if replay["families"] is None else f"{len(replay['families'])} families"
+    print(
+        f"[t] replay_strings {time.perf_counter() - start:.1f}s {rss_token(process_peak_rss_bytes())}",
+        flush=True,
+    )
+    print(f"replay_strings: horizon {replay['horizon']}, {walked}", flush=True)
+    if not replay["pass"]:
+        raise SystemExit(f"the string replay found the tables incomplete: {replay['complaint']}")
+
     console.phase("glyph_minting")
     start = time.perf_counter()
     cell_glyphs = mint_cell_glyphs(spec, tables)
@@ -326,6 +339,112 @@ def run(
     }
     (out_dir / "pipeline_summary.json").write_text(json.dumps(summary, indent=2) + "\n")
     fingerprint.write_stage_a(REPO_ROOT, out_dir)
+    return summary
+
+
+# The belt's own horizon (`conform.BELT_HORIZON`), not one past it. The walk is priced in distinct raw windows, and every first-position window of a length-N text is its own — the alphabet to the Nth per configuration, each a full settlement, since the engine's trace memo is keyed on the raw slots — so one letter deeper multiplies the walk by the alphabet: on the whole alphabet a whole-universe walk at horizon 5 outran `kernel_exec.TIMEOUT`, and narrowed to one family it would still cost more than the belt whose skip it licenses. Completeness past this depth is the periodic deep sweep's (`make conform-deep`), which settles every text it shapes.
+REPLAY_HORIZON = conform.BELT_HORIZON
+REPLAY_FORMAT = "ams-m1-replay/1"
+REPLAY_SUMMARY = "replay_summary.json"
+RUNE_LABEL_PREFIX = "glyph_data/runes/"
+
+
+def replay_structure_stamp(spec: ResolvedSpec, root: Path = REPO_ROOT) -> str:
+    """Everything the string replay's answer depends on apart from the rune files themselves, hashed: the non-rune data the tables' stamp covers (the script registry, the schema, the punctuation), the build side of the pipeline code and the crate, the engine's semantics tokens, the cross-rune structure `spec_load.spec_structure_digest` states (the alphabet and its ligature sequences, the predicate classes' membership, the resolved rune-local groups), the capability features, and the horizon. This is the whole-store half of the locality theorem's key (`doc/rebuild-design.md` §10): while it holds, a window's answer is a function of the rune files it names and their `resolve.against` closure alone, so a build whose stamp matches the last green record's walks only the texts naming a rune whose digest moved; a build whose stamp differs walks the whole universe."""
+    from rebuild.pipeline import spec_load
+
+    lines = [line for line in fingerprint.table_data_lines(root) if not line.startswith(RUNE_LABEL_PREFIX)]
+    lines += fingerprint.path_lines(root, fingerprint.table_code_paths(root))
+    lines.append("semantics\t" + "+".join(kernel_exec.enumeration_tokens()))
+    lines.append(f"structure\t{spec_load.spec_structure_digest(spec)}")
+    lines.append("capabilities\t" + ",".join(spec_load.capability_features(spec)))
+    lines.append(f"horizon\t{REPLAY_HORIZON}")
+    return hashlib.sha256("\n".join(lines).encode()).hexdigest()
+
+
+def replay_families(
+    spec: ResolvedSpec, previous: Mapping | None, structure: str, runes: Mapping[str, str]
+) -> list[str] | None:
+    """Which runes' texts this build's replay has to walk, given the last green replay record, this build's structure stamp and its per-rune digests: None for the whole universe, the empty list when nothing moved, else the runes whose digest moved closed under `spec_load.rune_closure` — every rune whose records read a moved rune's content — sorted. The whole universe is the answer whenever the record is absent, is not a green record of this format, was walked under another structure stamp, or names a rune this spec no longer models; the induction the localized walk rests on needs a green whole-universe base and an unchanged structure at every step."""
+    from rebuild.pipeline import spec_load
+
+    if (
+        previous is None
+        or previous.get("format") != REPLAY_FORMAT
+        or not previous.get("pass")
+        or previous.get("structure") != structure
+    ):
+        return None
+    recorded = previous.get("runes")
+    if not isinstance(recorded, dict) or recorded.keys() - runes.keys():
+        return None
+    moved = {name for name, digest in runes.items() if recorded.get(name) != digest}
+    if not moved:
+        return []
+    closure = spec_load.rune_closure(spec)
+    edited = {name for name, reads in closure.items() if reads & moved} | (moved & spec.runes.keys())
+    return sorted(edited)
+
+
+def read_replay_record(out_dir: Path) -> dict | None:
+    """The last replay's record under `out_dir`, or None when there is none or it will not parse."""
+    try:
+        record = json.loads((out_dir / REPLAY_SUMMARY).read_text())
+    except OSError, ValueError:
+        return None
+    return record if isinstance(record, dict) else None
+
+
+def run_replay_strings(
+    spec: ResolvedSpec,
+    out_dir: Path,
+    inputs: str | None,
+    kernel_threads: int | None = None,
+) -> dict:
+    """The enumeration-completeness check every build runs right after its tables land: the crate's `replay-strings` verb over the settlement TSVs under `out_dir`, walking the string universe to `REPLAY_HORIZON` and holding every window's first-match rule outcome to the engine's own settlement (`rebuild/kernel-rs/src/replay.rs`). The universe is O(delta) on a rune edit: `replay_families` reads the last green record beside the tables, and while `replay_structure_stamp` holds, only the texts naming a moved rune or a rune whose records read one are walked; a build with no green record or a moved structure walks everything, and a build where nothing moved walks nothing and carries the record forward. A caller with no stamp — a spec of its own, whose rune files are not the repo's — walks the whole universe and records nothing.
+
+    The record written beside the tables is what the next build's delta is cut against, so it carries the structure stamp and every rune digest as well as the counts, and it is written green or red: a disagreement lands in it with the crate's sentence and raises `SystemExit` naming the text. The fan-out width is the table build's: a replay's engine holds a subset of what the enumeration's holds — the same trace memo over the windows the texts reach, with no liveness probe cascade beyond the prospect's own — so `kernel_exec.CONFIG_PEAK_BYTES` bounds it from above and the division that width came from still answers.
+    """
+    configs = conform.SETTLEMENT_CONFIGS
+    threads = max(
+        1,
+        min(kernel_threads or kernel_exec.KERNEL_THREADS_DEFAULT, len(configs), usable_cores()),
+    )
+    recordable = inputs is not None
+    structure = replay_structure_stamp(spec) if recordable else None
+    runes = fingerprint.rune_digests(REPO_ROOT) if recordable else {}
+    families = (
+        replay_families(spec, read_replay_record(out_dir), structure, runes)
+        if recordable and structure is not None
+        else None
+    )
+    summary: dict = {
+        "format": REPLAY_FORMAT,
+        "horizon": REPLAY_HORIZON,
+        "families": families,
+        "walked": families is None or bool(families),
+        "configs": {},
+        "structure": structure,
+        "runes": runes,
+        "pass": True,
+        "complaint": None,
+    }
+    if families is None or families:
+        try:
+            summary["configs"] = kernel_exec.replay_strings(
+                spec,
+                out_dir,
+                configs,
+                horizon=REPLAY_HORIZON,
+                families=families,
+                threads=threads,
+                timings=True,
+            )
+        except kernel_exec.ReplayDisagreement as error:
+            summary["pass"] = False
+            summary["complaint"] = str(error)
+    if recordable:
+        (out_dir / REPLAY_SUMMARY).write_text(json.dumps(summary, indent=2) + "\n")
     return summary
 
 
