@@ -451,3 +451,61 @@ def test_compact_stops_scanning_at_a_torn_line_before_the_last_base(tmp_path):
     events = list(journal.iter_events(path))
     assert events[0]["stamp"] == "S2"
     assert len(events) == 1
+
+
+def test_migrate_unit_ids_rewrites_only_the_lines_under_the_snapshots_stamp(tmp_path):
+    """The cutover's journal rewrite: every set and clear under an event carrying the snapshot's stamp is renamed through the mapping, lines under any other stamp are copied as they lie — their ids were never joinable across stamps — and so are the events, blank lines and a torn tail; replay then names the units the surface names from here on. A mapping that renames nothing leaves the file's bytes alone, and so does an empty one."""
+    path = tmp_path / "verdicts-journal.ndjson"
+    record = lambda unit, at: {"unit": unit, "verdict": "approve", "note": "", "at": at}
+    journal.record_transition(
+        path,
+        source="merge",
+        stamp="S0",
+        old_stamp=None,
+        old_verdicts=[],
+        new_verdicts=[record("u-0001", "t1")],
+        at="t1",
+    )
+    journal.record_transition(
+        path,
+        source="autosave",
+        stamp="S0",
+        old_stamp="S0",
+        old_verdicts=[record("u-0001", "t1")],
+        new_verdicts=[record("u-0002", "t2")],
+        at="t2",
+    )
+    journal.record_transition(
+        path,
+        source="merge",
+        stamp="S1",
+        old_stamp="S0",
+        old_verdicts=[],
+        new_verdicts=[record("u-0001", "t3")],
+        at="t3",
+    )
+    with path.open("ab") as handle:
+        handle.write(b'{"kind": "set", "unit": "u-00')
+    before = path.read_bytes()
+    mapping = {"u-0001": "u-DdcTojn1hba", "u-0002": "u-8nacGTcgMRS"}
+    assert journal.migrate_unit_ids(path, stamp="S0", mapping=mapping) == {"events": 2, "rewritten": 3}
+    after = path.read_bytes()
+    lines = after.decode("utf-8").split("\n")
+    assert lines[-1] == '{"kind": "set", "unit": "u-00"}'[:-2]
+    entries = [json.loads(line) for line in lines[:-1]]
+    assert [entry.get("unit") for entry in entries if entry["kind"] != "event"] == [
+        "u-DdcTojn1hba",
+        "u-8nacGTcgMRS",
+        "u-DdcTojn1hba",
+        "u-0001",
+    ]
+    assert [entry["stamp"] for entry in entries if entry["kind"] == "event"] == ["S0", "S0", "S1"]
+    assert journal.replay(path, as_of="t2") == ("S0", {"u-8nacGTcgMRS": record("u-8nacGTcgMRS", "t2")})
+    assert journal.migrate_unit_ids(path, stamp="S0", mapping=mapping) == {"events": 2, "rewritten": 0}
+    assert journal.migrate_unit_ids(path, stamp="S0", mapping={}) == {"events": 0, "rewritten": 0}
+    assert path.read_bytes() == after and after != before
+    assert not path.with_name(path.name + ".tmp").exists()
+    assert journal.migrate_unit_ids(tmp_path / "missing", stamp="S0", mapping=mapping) == {
+        "events": 0,
+        "rewritten": 0,
+    }

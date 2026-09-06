@@ -20,7 +20,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from rebuild.review import unit_index  # noqa: E402
+from rebuild.review import journal, unit_index  # noqa: E402
 from rebuild.tools import (  # noqa: E402
     carry_verdicts,
     complaint_docket,
@@ -54,6 +54,26 @@ def _run(name: str, call: Callable[[], int | None]) -> int:
     if code:
         print(f"{console.FAILED_LINE}{name} (exit {code})", flush=True)
     return code
+
+
+def _carry(carry_argv: list[str], units: list[dict], sources, journal_path: pathlib.Path) -> int:
+    """The carry step: the carry itself, then the one-time id migration the cutover to content-addressed unit ids owes the journal. A snapshot that still names its units positionally yields the mapping from each positional id to the content id its stamp names (`carry_verdicts.id_migration`), and the journal's lines under that snapshot's stamp are rewritten through it (`journal.migrate_unit_ids`), in the same cycle the ids change, so the history a `--restore-as-of` replays names the units the surface names from here on. A content-addressed snapshot maps nothing after a manifest read, which is what makes the migration a one-time event rather than a per-cycle cost."""
+    code = carry_verdicts.main(carry_argv, current_units=units)
+    if code:
+        return code
+    for source_dir, _verdicts in sources:
+        snapshot = pathlib.Path(source_dir)
+        mapping = carry_verdicts.id_migration(snapshot)
+        if not mapping:
+            continue
+        stamp = json.loads((snapshot / "manifest.json").read_text())["generated_at"]
+        result = journal.migrate_unit_ids(journal_path, stamp=stamp, mapping=mapping)
+        print(
+            f"journal: {result['rewritten']} lines under {result['events']} events stamped {stamp} "
+            f"carried onto content ids ({len(mapping)} units mapped from {snapshot.name})",
+            flush=True,
+        )
+    return 0
 
 
 def _write_fills(path: pathlib.Path, stamp: str, fills: list[dict]) -> None:
@@ -143,7 +163,10 @@ def main(argv: list[str] | None = None) -> int:
         for source in args.source:
             carry_argv += ["--source", *source]
         carry_argv += ["--out", str(args.carry_out), "--current-surface", str(surface)]
-        code = _run("carry", lambda: carry_verdicts.main(carry_argv, current_units=units))
+        if args.no_merge:
+            code = _run("carry", lambda: carry_verdicts.main(carry_argv, current_units=units))
+        else:
+            code = _run("carry", lambda: _carry(carry_argv, units, args.source, args.journal))
         if code:
             return code
     if args.no_merge:

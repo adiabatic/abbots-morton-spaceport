@@ -217,6 +217,51 @@ def compact(journal_path, *, cutoff: str) -> dict:
     }
 
 
+def migrate_unit_ids(journal_path, *, stamp: str, mapping) -> dict:
+    """Rewrite the unit ids the journal names under the events stamped `stamp` through `mapping`, the positional-to-content rewrite the cutover to content-addressed ids runs once, in the cycle whose surface changes the scheme. Only the `set` and `clear` lines under an event carrying that stamp are touched, and only where the mapping names their unit: the stamp is what makes a unit id meaningful at all, and the mapping is drawn from the snapshot of the surface that stamp names, so a line under any other stamp — an older surface, whose snapshot is gone and whose ids were never joinable across stamps — is copied as it lies. So is everything else: events, blank lines, and the torn tail `_iter_entries` stops at, which is carried byte for byte from the first line that will not parse. The rewrite is atomic and leaves the file untouched when it would change nothing."""
+    journal_path = Path(journal_path)
+    result = {"events": 0, "rewritten": 0}
+    if not mapping:
+        return result
+    try:
+        source = journal_path.open("rb")
+    except OSError:
+        return result
+    tmp = journal_path.with_name(journal_path.name + ".tmp")
+    active = False
+    with source, tmp.open("wb") as target:
+        for line in source:
+            if not line.strip():
+                target.write(line)
+                continue
+            try:
+                entry = json.loads(line.decode("utf-8"))
+            except ValueError:
+                target.write(line)
+                shutil.copyfileobj(source, target)
+                break
+            if not isinstance(entry, dict):
+                target.write(line)
+                continue
+            kind = entry.get("kind")
+            if kind == "event":
+                active = entry.get("stamp") == stamp
+                result["events"] += active
+            elif active and kind in ("set", "clear"):
+                unit = entry.get("unit")
+                if isinstance(unit, str) and unit in mapping:
+                    entry["unit"] = mapping[unit]
+                    target.write(json.dumps(entry, ensure_ascii=False).encode("utf-8") + b"\n")
+                    result["rewritten"] += 1
+                    continue
+            target.write(line)
+    if result["rewritten"]:
+        os.replace(tmp, journal_path)
+    else:
+        tmp.unlink(missing_ok=True)
+    return result
+
+
 def payload_for(stamp: str, records: dict[str, dict], exported_at: str | None = None) -> dict:
     verdicts = [
         {
