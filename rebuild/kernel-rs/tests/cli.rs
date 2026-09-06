@@ -391,6 +391,94 @@ fn a_seeded_table_build_files_the_bytes_a_from_scratch_one_files() {
     }
 }
 
+/// The seed across builds through the binary: a build over an edited spec, reading the previous build's memo files with the edited rune named, files the bytes a from-scratch build of the edited spec files — for every configuration, the deltas included — and leaves memo files of its own under the stamp it was handed.
+#[test]
+fn a_build_seeded_from_the_previous_memo_files_the_bytes_a_from_scratch_one_files() {
+    let root = scratch("cli-memo-seed");
+    let before = spec_at(&root);
+    let after = root.join("edited.json");
+    let refusal = format!(
+        "\"refuse\":{}",
+        fixtures::seq(&[&fixtures::record(&[
+            ("kind", "\"refuse\""),
+            (
+                "provenance",
+                &fixtures::names(&["qsTea.yaml", "policy.refuse[0]"])
+            ),
+        ])])
+    );
+    let edited = fixtures::mini_dump().replacen(&refusal, "\"refuse\":[]", 1);
+    assert_ne!(
+        edited,
+        fixtures::mini_dump(),
+        "the edit lands on qsTea's refusal"
+    );
+    std::fs::write(&after, edited).expect("the edited spec writes");
+    let previous = root.join("previous");
+    let output = run(&[
+        "build-tables",
+        word(&before),
+        word(&previous),
+        "--configs=default,ss03",
+        "--inputs=cli-stamp",
+        "--memo-stamp=before",
+    ]);
+    assert!(output.status.success(), "{}", complaint(&output));
+    for (token, _) in CONFIGS {
+        assert!(previous.join(format!("memo-{token}.tsv")).is_file());
+    }
+    let seeded = root.join("seeded");
+    let output = run(&[
+        "build-tables",
+        word(&after),
+        word(&seeded),
+        "--configs=default,ss03",
+        "--inputs=cli-stamp",
+        &format!("--seed={}", word(&previous)),
+        "--edited=qsTea",
+        "--memo-stamp=after",
+        "--timings",
+    ]);
+    assert!(output.status.success(), "{}", complaint(&output));
+    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+    let phases: Vec<&str> = stderr.lines().map(timing_phase).collect();
+    assert!(phases.contains(&"memo[default]"), "{phases:?}");
+    let scratch_built = root.join("scratch");
+    let output = run(&[
+        "build-tables",
+        word(&after),
+        word(&scratch_built),
+        "--configs=default,ss03",
+        "--inputs=cli-stamp",
+    ]);
+    assert!(output.status.success(), "{}", complaint(&output));
+    for (token, _) in CONFIGS {
+        for family in ["settlement", "treaties", "windows"] {
+            let name = format!("{family}-{token}.tsv");
+            assert_eq!(
+                std::fs::read(seeded.join(&name)).expect("the seeded build filed it"),
+                std::fs::read(scratch_built.join(&name)).expect("and so did the other"),
+                "{name}"
+            );
+        }
+        assert!(seeded.join(format!("memo-{token}.tsv")).is_file());
+        assert!(!scratch_built.join(format!("memo-{token}.tsv")).exists());
+    }
+    let output = run(&[
+        "build-tables",
+        word(&after),
+        word(&root.join("misuse")),
+        "--configs=default",
+        "--inputs=cli-stamp",
+        "--edited=qsTea",
+    ]);
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "--edited= without --seed= is a usage error"
+    );
+}
+
 /// The word each TSV's own comment line uses for itself.
 fn family_word(family: &str) -> &str {
     match family {

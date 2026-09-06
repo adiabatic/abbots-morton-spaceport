@@ -4,7 +4,7 @@ The semantics defaults live here too, beside the flags that carry them across th
 
 The build is `cargo build --release` against the crate's own manifest and nothing else, because release is the only profile anything in this repo runs: the pipeline and the spec-echo parity test in `rebuild/test_kernel_io.py` both reach for `target/release/ams-m1-kernel`, and a debug binary that answered would answer far too slowly to be the same instrument. A box with no `cargo` is a `KernelBuildError` carrying the remedy rather than a stack trace, since that is the one failure a reader can fix in a minute; `ensure_built` is the memoized form every caller in a process shares, so a suite that builds a hundred tables pays for one build.
 
-`build_table_files` is the verb `run_m1` needs: one process enumerates every settlement configuration and folds each in place, writing its settlement TSV, its treaty TSV and its plain window enumeration, and answering with the contract digest of each pair. There is no stream on that path at all — the fold reads the product the worklist still holds — so the several hundred megabytes a configuration's transitions would cost to write, read and hold parsed are never spent. The configurations past `default` are deltas over it: `default` enumerates first and keeps its trace memo, each other configuration reads that memo for every window naming none of its own unlocking runes and traces only the rest (`rebuild/kernel-rs/src/memo.rs` carries the argument). `enumerate_configs` is the stream fan-out beside it, which nothing on a build's path and no tool asks for: one process answers every named configuration, writing each one's stream to a file of its own, and the streams are byte-identical to what the same binary emits one configuration at a time at any thread width (sub-issue #46's exit bar). Threads are the caller's to choose because the ceiling is memory rather than CPU — a live configuration holds its whole working set until it has emitted — so `CONFIG_PEAK_BYTES` is what one of them costs and `KERNEL_THREADS_DEFAULT` is `memory_budget.how_many_fit` over it: the box's own total, less the reserve that policy states and less the memo `default` keeps alive for the wave, divided by a configuration and floored at one, resolved once at import rather than asked again per build. A roomier box gets the width it actually has room for and a container gets the width its cgroup allows, neither of them by editing a constant. `AMS_KERNEL_THREADS` short-circuits ahead of the arithmetic in either direction, and since the artifacts are byte-identical at any width that override is purely a memory knob. Callers cap whatever width they are handed at the number of settlement configurations there are to answer (`conform.SETTLEMENT_CONFIGS`; the overlay configuration is never enumerated) and at the CPUs there are to answer them with.
+`build_table_files` is the verb `run_m1` needs: one process enumerates every settlement configuration and folds each in place, writing its settlement TSV, its treaty TSV and its plain window enumeration, and answering with the contract digest of each pair. There is no stream on that path at all — the fold reads the product the worklist still holds — so the several hundred megabytes a configuration's transitions would cost to write, read and hold parsed are never spent. The configurations past `default` are deltas over it: `default` enumerates first and keeps its trace memo, each other configuration reads that memo for every window naming none of its own unlocking runes and traces only the rest, and the same memo crosses builds through the `memo-<config>.tsv.gz` files packed beside the tables, read behind the runes whose content moved (`rebuild/kernel-rs/src/memo.rs` carries the argument, `run_m1.memo_seed` the decision). `enumerate_configs` is the stream fan-out beside it, which nothing on a build's path and no tool asks for: one process answers every named configuration, writing each one's stream to a file of its own, and the streams are byte-identical to what the same binary emits one configuration at a time at any thread width (sub-issue #46's exit bar). Threads are the caller's to choose because the ceiling is memory rather than CPU — a live configuration holds its whole working set until it has emitted — so `CONFIG_PEAK_BYTES` is what one of them costs and `KERNEL_THREADS_DEFAULT` is `memory_budget.how_many_fit` over it: the box's own total, less the reserve that policy states and less the memo `default` keeps alive for the wave, divided by a configuration and floored at one, resolved once at import rather than asked again per build. A roomier box gets the width it actually has room for and a container gets the width its cgroup allows, neither of them by editing a constant. `AMS_KERNEL_THREADS` short-circuits ahead of the arithmetic in either direction, and since the artifacts are byte-identical at any width that override is purely a memory knob. Callers cap whatever width they are handed at the number of settlement configurations there are to answer (`conform.SETTLEMENT_CONFIGS`; the overlay configuration is never enumerated) and at the CPUs there are to answer them with.
 
 `build_tables` and `enumerate_transitions` are the single-configuration forms in memory, each writing nothing that outlives the call: one spec dumped to a scratch directory, and then either the two tables — `build-tables` into that directory, read back through `table.read_windows` and `table.read_treaty_tsv` — or the raw product, enumerated as a stream and parsed into a `table.FixpointProduct`. The first is how a test, a tool or a hand-assembled spec reaches a table; the second is the raw product a fold consumes, which no build stage and no tool asks for any more, and `rebuild/test_kernel_exec.py` is what keeps that path exercised.
 
@@ -18,6 +18,7 @@ The invocation is read strictly, on the CLI contract's own terms: exit 2 is the 
 from __future__ import annotations
 
 import fcntl
+import gzip
 import json
 import os
 import subprocess
@@ -93,6 +94,8 @@ SETTLE_CASE_BATCH_SIZE = 2048
 SETTLE_WINDOW_BATCH = 16384
 
 _BUILT = False
+# The marker a memo file's head line carries (`rebuild/kernel-rs/src/memo.rs`'s `MEMO_FORMAT`); a file naming anything else is not read.
+MEMO_FORMAT = "ams-m1-memo/1"
 # The stamp a window enumeration nobody will keep is written under. `build-tables` always writes the payload — it is where the head a caller reads its rules and cells back out of comes from — and always demands a stamp for its head, but a caller with no fingerprint over the repo's rune files has none to give and deletes the payload unread rather than packing it, so the word it carried never reaches an artifact.
 UNSTAMPED_WINDOWS = "unstamped"
 
@@ -309,12 +312,17 @@ def build_table_files(
     timings: bool = False,
     timings_tag: str | None = None,
     config_seed: bool = True,
+    seed: Path | None = None,
+    edited: Sequence[str] = (),
+    memo_stamp: str | None = None,
 ) -> dict[str, str]:
     """Every named configuration folded in the crate: its settlement TSV, its treaty TSV, its plain window enumeration stamped `inputs`, and the contract digest of the pair, returned as `{config: digest}`.
 
     This is `enumerate-configs` plus the fold, in one process, and the reason there is no stream between them: the fold runs on the product the worklist still holds, so the several hundred megabytes a configuration's stream would cost to write, to read and to hold parsed are never spent. The windows payload lands uncompressed because the compressor stays on this side of the boundary — the crate carries serde_json and nothing else — and `run_m1.build_tables` is what packs it into the `.gz` the artifact is.
 
     One process answers every configuration named, because the configurations past `default` are enumerated as deltas over it: `default` runs first and keeps its trace memo, and each other configuration then reads that memo for every window naming none of its own unlocking runes and settles only the rest, `threads` of them at a time (`rebuild/kernel-rs/src/memo.rs` carries the argument; the configuration corollary of the window-locality theorem is what makes the shared answers exact). `config_seed=False` is the from-scratch arm — every configuration enumerated on its own — which the contracts lane holds byte-identical to the delta.
+
+    The same memo crosses builds. `seed` is a directory of a previous build's plain `memo-<config>.tsv` files, read behind `edited`, the runes whose content moved since, so a window naming none of them settles as it settled then; `memo_stamp` is the stamp this build writes its own memo files under, plain `memo-<config>.tsv` beside the tables, which `run_m1.build_tables` packs into the `.gz` the artifact is. Which files may be read at all, and which runes count as edited, is decided on this side (`run_m1.memo_seed`) from the stamp the head carries; the crate holds a file to its configuration and world alone.
 
     The digests ride stdout as one JSON object per line, in the order the configurations were named, because a digest is a scalar its caller holds and reports rather than an artifact family of its own. Raises `KernelRunError` for every shape of refusal the CLI contract distinguishes, and for a clean exit whose answer does not name every configuration exactly once.
     """
@@ -330,6 +338,12 @@ def build_table_files(
     ]
     if not config_seed:
         arguments.append("--config-seed-off")
+    if seed is not None:
+        arguments.append(f"--seed={seed}")
+        if edited:
+            arguments.append(f"--edited={','.join(edited)}")
+    if memo_stamp is not None:
+        arguments.append(f"--memo-stamp={memo_stamp}")
     if timings:
         arguments.append("--timings")
     finished = _run_kernel(arguments, "build-tables")
@@ -359,6 +373,36 @@ def build_table_files(
             f"build-tables answered for {sorted(digests)} where {sorted(configs)} were asked for"
         )
     return digests
+
+
+def memo_path(out_dir: Path, config: str) -> Path:
+    """Where one configuration's packed memo sits beside its tables."""
+    return Path(out_dir) / f"memo-{config}.tsv.gz"
+
+
+@dataclass(frozen=True)
+class MemoHead:
+    """What a memo file's head line says: the configuration and the world it was traced in, which the crate holds a file to, and the opaque stamp its writer chose, which `run_m1.memo_edited` reads."""
+
+    config: str
+    world: str
+    stamp: str
+
+
+def read_memo_head(path: Path) -> MemoHead | None:
+    """The head of one packed memo, or None when there is no readable memo there — no file, another format, or a head short of its three fields."""
+    try:
+        with gzip.open(path, "rt", encoding="utf-8") as handle:
+            first = handle.readline()
+    except OSError, EOFError, UnicodeDecodeError:
+        return None
+    marker, _tab, rest = first.rstrip("\n").partition("\t")
+    if marker != f"# {MEMO_FORMAT}":
+        return None
+    fields = rest.split("\t", 2)
+    if len(fields) != 3:
+        return None
+    return MemoHead(*fields)
 
 
 class ReplayDisagreement(KernelRunError):

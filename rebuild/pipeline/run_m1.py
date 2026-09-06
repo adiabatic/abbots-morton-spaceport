@@ -23,7 +23,7 @@ import sys
 import tempfile
 import time
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Callable, Mapping, NoReturn
 
@@ -79,6 +79,98 @@ def _spawn_pool(jobs: int) -> ProcessPoolExecutor:
     return ProcessPoolExecutor(max_workers=workers, mp_context=multiprocessing.get_context("spawn"))
 
 
+MEMO_STAMP_FORMAT = "ams-m1-memo-stamp/1"
+# The keys of a rune's dump that are prose and nothing the engine reads: a record's or an unlock's `why`, and the rune's notes and ductus. `rune_content_digests` drops them so a reworded rationale moves no memo, which is the prose-blindness every other digest in this tree keeps.
+PROSE_KEYS = frozenset({"why", "notes", "ductus"})
+
+
+def _without_prose(payload):
+    if isinstance(payload, dict):
+        return {key: _without_prose(value) for key, value in payload.items() if key not in PROSE_KEYS}
+    if isinstance(payload, list):
+        return [_without_prose(value) for value in payload]
+    return payload
+
+
+def rune_content_digests(spec: ResolvedSpec) -> dict[str, str]:
+    """Every modeled rune's digest over its resolved content, prose-blind: the dump the crate reads (`kernel_io.rune_payload`) less `PROSE_KEYS`, hashed. Resolved rather than the file, because the engine reads the resolved rune — a cross-file `against:` target's content lands in the record that names it, and a ligature registration rewrites every left condition its trailing component reaches — so this digest moves exactly when what the engine reads of the rune moves, and `spec_load.rune_closure` needs no second pass over it. It is computable for any spec, a fixture's included, which is what lets the memo stamp be one function over the spec in hand."""
+    return {
+        name: hashlib.sha256(
+            json.dumps(
+                _without_prose(kernel_io.rune_payload(rune)), sort_keys=True, separators=(",", ":")
+            ).encode()
+        ).hexdigest()
+        for name, rune in spec.runes.items()
+    }
+
+
+def memo_stamp(spec: ResolvedSpec, root: Path = REPO_ROOT) -> str:
+    """The stamp a build's memo files carry in their heads and the next build reads them against: the locality theorem's whole-store half — `locality_structure_stamp`, the same lines the string replay's stamp is cut from less the horizon — and every rune's `rune_content_digests` entry, as compact sorted JSON on one line, which is the shape the crate's head line takes verbatim. `memo_edited` is its reader."""
+    return json.dumps(
+        {
+            "format": MEMO_STAMP_FORMAT,
+            "structure": locality_structure_stamp(spec, root),
+            "runes": rune_content_digests(spec),
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+
+
+def memo_edited(previous: str, current: str) -> list[str] | None:
+    """Which runes a memo written under the stamp `previous` may not answer for under `current`, sorted, or None when it may not be read at all: another stamp format, a moved structure (the crate, the build-side code, the registry, the alphabet and its ligatures, the classes and groups, the semantics tokens), or a recorded rune this spec no longer models. A rune new to the spec since the memo counts as edited, though the structure stamp has already refused such a memo; the empty list is a memo every window of which still holds."""
+    try:
+        before = json.loads(previous)
+        after = json.loads(current)
+    except ValueError:
+        return None
+    if not isinstance(before, dict) or not isinstance(after, dict):
+        return None
+    if before.get("format") != after.get("format") or before.get("structure") != after.get("structure"):
+        return None
+    recorded = before.get("runes")
+    runes = after.get("runes")
+    if not isinstance(recorded, dict) or not isinstance(runes, dict) or recorded.keys() - runes.keys():
+        return None
+    return sorted(name for name, digest in runes.items() if recorded.get(name) != digest)
+
+
+@dataclass(frozen=True)
+class MemoSeed:
+    """What a table build reads before it settles a window itself: the directory holding the previous build's unpacked memo files, and every rune any of them must not answer for."""
+
+    directory: Path
+    edited: tuple[str, ...]
+
+
+def memo_seed(out_dir: Path, stamp: str, scratch: Path) -> MemoSeed | None:
+    """The previous build's memos under `out_dir` that this build may read, unpacked into `scratch`, or None when none may be: each configuration's packed memo is read for its head, held to this process's world and to `stamp` through `memo_edited`, and unpacked plain for the crate only where it passes; the edited runes are the union over every memo unpacked, so a rune one memo must not answer for is answered by no memo. A memo that fails — its head, its stamp, or a gzip that will not unpack whole — is left where it is and simply not read, and this build's own memo replaces it on the way out."""
+    world = "+".join(kernel_exec.enumeration_tokens()) or "pinned"
+    edited: set[str] = set()
+    unpacked = False
+    for config in conform.SETTLEMENT_CONFIGS:
+        packed = kernel_exec.memo_path(out_dir, config)
+        head = kernel_exec.read_memo_head(packed)
+        if head is None or head.config != config or head.world != world:
+            continue
+        moved = memo_edited(head.stamp, stamp)
+        if moved is None:
+            continue
+        scratch.mkdir(parents=True, exist_ok=True)
+        plain_path = scratch / f"memo-{config}.tsv"
+        try:
+            with gzip.open(packed, "rb") as source, plain_path.open("wb") as plain:
+                shutil.copyfileobj(source, plain, length=1 << 20)
+        except OSError, EOFError, gzip.BadGzipFile:
+            plain_path.unlink(missing_ok=True)
+            continue
+        edited.update(moved)
+        unpacked = True
+    if not unpacked:
+        return None
+    return MemoSeed(directory=scratch, edited=tuple(sorted(edited)))
+
+
 def build_tables(
     spec: ResolvedSpec,
     out_dir: Path | None = None,
@@ -88,6 +180,8 @@ def build_tables(
     """Every settlement configuration's decision and treaty tables: the resolved spec dumped once, then one `build-tables` process over every configuration, which enumerates `default`'s fixpoint, folds it in place, and enumerates each other configuration as a delta over `default`'s finished memo (`kernel_exec.build_table_files`), folding each as it lands. An overlay configuration gets none, and any table files a build once left under its name are removed first, so a directory globbed after a build holds this build's tables and nothing else. There is no stream and no fold on this side at all — the crate writes the settlement TSV, the treaty TSV and the window enumeration itself, so the several hundred megabytes a configuration's transitions cost to write, to read and to hold parsed are never spent.
 
     What Python does per configuration is small and is what only Python can do: pack the plain window payload into the `.gz` the artifact is (the compressor never crossed the boundary), read the head back for the rules, the reachable cells and the fired provenance every downstream stage needs, and parse the treaty TSV back for the defect gates. That runs in a thread per configuration behind the one kernel process, since the compressor releases the interpreter lock.
+
+    A build with an `out_dir` also carries its trace memos across builds: the previous build's `memo-<config>.tsv.gz` files under it are read through `memo_seed` — unpacked for the crate wherever their stamp still holds, with the runes whose content moved named as edited — so a window naming no edited rune settles as it settled last time, and this build's own memos are packed into the same names on the way out, under `memo_stamp` over the spec in hand. A caller with no `out_dir` reads and writes none.
 
     `out_dir`, when given, gets the section 8 TSVs. The second returned mapping is each configuration's `table.table_digest` as the crate reported it — taken in the crate while the window rows are still in hand, which is the grain the rest of the rebuild states table identity at and the only moment it can be taken without re-costing the fixpoint; the crate also prints it on stdout, which is where `rebuild/tools/scaling_sweep.py` reads it. Both returned mappings are rebuilt in `conform.SETTLEMENT_CONFIGS` order however the configurations finish, so completion order can never reach an artifact.
 
@@ -113,6 +207,15 @@ def build_tables(
             for path in overlay_table_files(tables_dir, config):
                 path.unlink(missing_ok=True)
 
+        stamp = memo_stamp(spec) if out_dir is not None else None
+        seed = None
+        if out_dir is not None and stamp is not None:
+            start = time.perf_counter()
+            seed = memo_seed(out_dir, stamp, directory / "seed")
+            print(
+                f"[t] memo_seed {time.perf_counter() - start:.1f}s edited={','.join(seed.edited) if seed else '-'}",
+                flush=True,
+            )
         start = time.perf_counter()
         digests = kernel_exec.build_table_files(
             spec_path,
@@ -121,6 +224,9 @@ def build_tables(
             inputs=inputs if inputs is not None else kernel_exec.UNSTAMPED_WINDOWS,
             threads=threads,
             timings=True,
+            seed=seed.directory if seed else None,
+            edited=seed.edited if seed else (),
+            memo_stamp=stamp,
         )
         print(f"[t] kernel_build_tables {time.perf_counter() - start:.1f}s", flush=True)
 
@@ -133,6 +239,10 @@ def build_tables(
             if inputs is not None and out_dir is not None:
                 _pack_windows(payload, table_module.windows_path(tables_dir, config))
             payload.unlink()
+            memo = tables_dir / f"memo-{config}.tsv"
+            if memo.is_file():
+                _pack_windows(memo, kernel_exec.memo_path(tables_dir, config))
+                memo.unlink()
             print(f"[t] pack_windows[{config}] {time.perf_counter() - start:.1f}s", flush=True)
             return config, (decision, treaty)
 
@@ -154,7 +264,7 @@ def overlay_table_files(tables_dir: Path, config: str) -> tuple[Path, ...]:
 
 
 def _pack_windows(payload: Path, path: Path) -> None:
-    """The plain window enumeration the kernel wrote, packed into the artifact beside the TSVs — a zeroed gzip stamp so two builds of one table are byte-identical, and level 6 rather than zlib's maximum, which is a wall-clock choice and not a contract one: what anything states identity at is the decompressed bytes. The crate's `artifacts::write_windows` carries the same note beside the payload it writes."""
+    """The plain window enumeration the kernel wrote, packed into the artifact beside the TSVs — a zeroed gzip stamp so two builds of one table are byte-identical, and level 6 rather than zlib's maximum, which is a wall-clock choice and not a contract one: what anything states identity at is the decompressed bytes. The crate's `artifacts::write_windows` carries the same note beside the payload it writes, and the memo files are packed the same way for the same reason."""
     with (
         payload.open("rb") as source,
         path.open("wb") as raw,
@@ -358,8 +468,8 @@ REPLAY_SUMMARY = "replay_summary.json"
 RUNE_LABEL_PREFIX = "glyph_data/runes/"
 
 
-def replay_structure_stamp(spec: ResolvedSpec, root: Path = REPO_ROOT) -> str:
-    """Everything the string replay's answer depends on apart from the rune files themselves, hashed: the non-rune data the tables' stamp covers (the script registry, the schema, the punctuation), the build side of the pipeline code and the crate, the engine's semantics tokens, the cross-rune structure `spec_load.spec_structure_digest` states (the alphabet and its ligature sequences, the predicate classes' membership, the resolved rune-local groups), the capability features, and the horizon. This is the whole-store half of the locality theorem's key (`doc/rebuild-design.md` §10): while it holds, a window's answer is a function of the rune files it names and their `resolve.against` closure alone, so a build whose stamp matches the last green record's walks only the texts naming a rune whose digest moved; a build whose stamp differs walks the whole universe."""
+def locality_lines(spec: ResolvedSpec, root: Path = REPO_ROOT) -> list[str]:
+    """The whole-store half of the locality theorem's key (`doc/rebuild-design.md` §10), as lines: the non-rune data the tables' stamp covers (the script registry, the schema, the punctuation), the build side of the pipeline code and the crate, the engine's semantics tokens, the cross-rune structure `spec_load.spec_structure_digest` states (the alphabet and its ligature sequences, the predicate classes' membership, the resolved rune-local groups), and the capability features. While these hold, a window's answer is a function of the runes it names alone; the string replay's stamp and the memo stamp are both cut from them."""
     from rebuild.pipeline import spec_load
 
     lines = [line for line in fingerprint.table_data_lines(root) if not line.startswith(RUNE_LABEL_PREFIX)]
@@ -367,7 +477,17 @@ def replay_structure_stamp(spec: ResolvedSpec, root: Path = REPO_ROOT) -> str:
     lines.append("semantics\t" + "+".join(kernel_exec.enumeration_tokens()))
     lines.append(f"structure\t{spec_load.spec_structure_digest(spec)}")
     lines.append("capabilities\t" + ",".join(spec_load.capability_features(spec)))
-    lines.append(f"horizon\t{REPLAY_HORIZON}")
+    return lines
+
+
+def locality_structure_stamp(spec: ResolvedSpec, root: Path = REPO_ROOT) -> str:
+    """`locality_lines` hashed: what a trace memo is stamped with beside its rune digests."""
+    return hashlib.sha256("\n".join(locality_lines(spec, root)).encode()).hexdigest()
+
+
+def replay_structure_stamp(spec: ResolvedSpec, root: Path = REPO_ROOT) -> str:
+    """Everything the string replay's answer depends on apart from the rune files themselves, hashed: `locality_lines` and the horizon. While it holds, a build whose stamp matches the last green record's walks only the texts naming a rune whose digest moved, closed under `spec_load.rune_closure`; a build whose stamp differs walks the whole universe."""
+    lines = [*locality_lines(spec, root), f"horizon\t{REPLAY_HORIZON}"]
     return hashlib.sha256("\n".join(lines).encode()).hexdigest()
 
 

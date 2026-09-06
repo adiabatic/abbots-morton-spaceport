@@ -2,7 +2,7 @@
 //!
 //! The worklist is the exactness argument rather than a traversal detail, and what follows is its specification, ported from the Python fixpoint retired at issue #78; git history holds it. An item is a left state together with the pins that left was reached under: a settled left is reachable only alongside the right1 that was the producing window's right2, because an entry refusal or an unlock conditioned on the follower makes any other combination contradictory — the left would never have committed there. The right2 allowed-set carries the late-formation guard's second slot onto a surviving pair's trail window, and the right3 allowed-set carries a producing window's enumerated right4 the same way, pinning a depth-4-decided left's successor windows to the third lookahead that was actually behind them. `None` is unrestricted in both, and both are frozen sets compared by content, never by identity.
 //!
-//! LIFO discipline with the `seen` check at pop time is contract rather than convenience. In the pinned candidacy world the product is order-independent — the dedup is by window key, a hit reuses the recorded settled because the left label is injective into the trace's inputs, and the fired set is the union over a window set no traversal order can change — but under class grain the first visitor of a fiber fixes its representative, so the order rows are traced in reaches the output there. Holding the push order fixed is cheaper than re-deriving, on every later reading, whether it still matters.
+//! The product is a function of the row set and not of the traversal that reached it, at either grain. At label grain the dedup is by window key, a hit reuses the recorded settled because the left label is injective into the trace's inputs, and the fired set is the union over a window set no traversal order can change. At class grain the row a fiber writes is traced at the fiber's canonical representative — the least member under the label order, which is the first member of the fiber's own sorted list — whichever worklist item reaches the fiber first and whatever subset of it that item's pins admit, so the set of windows traced, and with it the fired set, is the same under every order; the admitted members accumulate as a union across items, which is order-blind too. LIFO discipline with the `seen` check at pop time is still held fixed, because a traversal that is a function of the plan is cheaper to reason about than one that is merely equivalent, and the permuted-seed tests below are what hold the claim at both grains.
 //!
 //! Both grains live here. Where the deep world holds and the deep-classes flag is on, the deep slots enumerate at class grain (issue 26): the same static option lists, their letters split by [`crate::fiber::DeepFiberDeriver`]'s outcome fibers, one in-flight row per `(base, fiber identity pair)` accumulating the union of admitted members across worklist items, successor pins carrying those member sets instead of singletons, and a content-addressed id per multi-member set in the product's `deep_classes` map. Two standing guards ride with it: the section 2.6 echo check re-traces a second member of every multi-member row at the row's real left and demands the identical row-visible record, and the class-grain partition assertion `DeepPartitionCheck` runs is replayed over the finished product before it is handed back. Where the flag is off, or in the pinned world where class grain cannot arise at all, the label-grain path is the whole function and the deep slots still enumerate — the censuses and the filters are what decide that, not the grain.
 //!
@@ -47,7 +47,7 @@ const SEED_KINDS: [TokenKind; 4] = [
     TokenKind::NamerDot,
 ];
 
-/// The world one enumeration answers, and at which grain. Python reads all three from module-level defaults an environment variable moves — `kernel_exec.SIMULATED_PROSPECT_DEFAULT`, `kernel_exec.VOTE_SLOTS_DEFAULT` and `kernel_exec.DEEP_CLASSES_DEFAULT` — and this crate has no environment, so the caller passes them and [`Default`] is the shipping configuration.
+/// The world one enumeration answers, and at which grain. Python reads all three from module-level defaults an environment variable moves — `kernel_exec.SIMULATED_PROSPECT_DEFAULT`, `kernel_exec.VOTE_SLOTS_DEFAULT` and `kernel_exec.DEEP_CLASSES_DEFAULT` — and this crate has no environment, so the caller passes them and [`Default`] is the shipping configuration. [`EnumerationModes::world_token`] is the world's one spelling, `kernel_exec.enumeration_tokens` joined, which a memo file's head carries so a memo traced in one world is never read in another.
 ///
 /// The two engine modes are also the deep-world verdict: either one on widens both deep-slot censuses to every rune and hands the filters their liveness arm. `deep_classes` is the issue-26 flag and is an intersection with that verdict rather than a switch, so in the pinned world it is accepted and does nothing, there being no fiber source there to enumerate at class grain.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -64,6 +64,26 @@ impl Default for EnumerationModes {
             vote_slots: true,
             deep_classes: true,
         }
+    }
+}
+
+impl EnumerationModes {
+    /// The world spelled as `kernel_exec.enumeration_tokens` spells it — each flag's token while it is on, `+`-joined, and `pinned` where none is — so the two sides name a world with one string.
+    pub fn world_token(self) -> String {
+        let mut tokens: Vec<&str> = Vec::new();
+        if self.simulated_prospect {
+            tokens.push("simulated-prospect");
+        }
+        if self.vote_slots {
+            tokens.push("vote-slots");
+        }
+        if self.deep_classes && (self.simulated_prospect || self.vote_slots) {
+            tokens.push("deep-classes");
+        }
+        if tokens.is_empty() {
+            return "pinned".to_owned();
+        }
+        tokens.join("+")
     }
 }
 
@@ -217,7 +237,7 @@ enum Identity3 {
 
 /// One in-flight class-grain row: the representative trace's row-visible record, the r3 members accumulating across worklist items, and the frame the echo traces replay after the drain.
 ///
-/// The r4 members carry no pins and so are full from the first item, which is why they are a plain group here where the third slot's are a set.
+/// The representative is the fiber's least member under the label order, [`crate::fiber::Fiber::members`]' first entry, whether or not the first item to reach the row admitted it; the r4 members carry no pins and so are full from the first item, which is why they are a plain group here where the third slot's are a set.
 struct PendingDeepRow {
     left_context: LeftContext,
     left_label: Label,
@@ -495,8 +515,12 @@ fn enumerate_seeded<'i>(
                                 context.fibers[seat].members.clone()
                             })),
                         };
+                        // The row is traced at the fiber's least member whether or not this item's pins admit it: the fiber invariant makes every member's record the same, and tracing the canonical one is what makes the traced window set, and so the fired set, a function of the row set rather than of which item reached the fiber first.
+                        let rep3 = match fiber3 {
+                            Some(seat) => context.fibers[seat].members[0],
+                            None => admitted3[0],
+                        };
                         for members4 in slot4_entries {
-                            let rep3 = admitted3[0];
                             let rep4 = members4.as_ref().map(|group| group[0]);
                             let pending_key: PendingKey = (
                                 input_label,
@@ -1083,7 +1107,7 @@ fn deep_label(
     token
 }
 
-/// The member a class row's echo re-traces: the last of the admitted members, or the first of them where that last one is the representative the row was built from. A class whose last member is its representative would otherwise echo the very window the row already carries, which would check nothing at all.
+/// The member a class row's echo re-traces: the last of the admitted members, or the first of them where that last one is the representative the row was built from. A class whose last member is its representative would otherwise echo the very window the row already carries, which would check nothing at all. A representative the pins never admitted is echoed against an admitted member, which is the same check at real-left grain across the fiber's full membership.
 fn echo_member(members: &[RightToken], representative: RightToken) -> RightToken {
     let last = members[members.len() - 1];
     if last == representative {
@@ -2322,7 +2346,28 @@ mod tests {
                 .any(|row| &*row.right4 != NA_LABEL),
             "and the product both orders reached is the one carrying the pinned deep windows, not a trivially equal pair"
         );
-        // Order-independence here is a fact about this world, not about the discipline: the dedup is by window key, a re-reached window reuses the settled a re-trace would return, and the fired set is a union over a window set no traversal can change. Under class grain the first visitor of a fiber fixes its representative, and the push order becomes output-visible.
+        // Order-independence here is a fact about this world, not about the discipline: the dedup is by window key, a re-reached window reuses the settled a re-trace would return, and the fired set is a union over a window set no traversal can change. The class-grain half of the claim is the next test's.
+    }
+
+    /// The class-grain half of order-independence (issue #179): the fiber's canonical representative makes the row a fiber writes, and the windows traced to write it, a function of the fiber and not of which item reached it first, so the deepest seed permutation reaches the same stream — deep classes, cells and fired provenance included — from a product that really carries multi-member class rows.
+    #[test]
+    fn a_permuted_seed_order_reaches_the_same_class_grain_product() {
+        let index = crate::liveness::tests::prospect_spec();
+        let modes = EnumerationModes::default();
+        let (contract, _, _) =
+            enumerate_seeded(&index, &[], modes, contract_seeds, None, Seed::default())
+                .expect("the fixpoint closes");
+        let (reversed, _, _) =
+            enumerate_seeded(&index, &[], modes, reversed_seeds, None, Seed::default())
+                .expect("the fixpoint closes");
+        assert!(
+            !contract.deep_classes.is_empty(),
+            "the product carries class rows, so the claim is about class grain"
+        );
+        assert_eq!(
+            emit_transitions(&index, &contract),
+            emit_transitions(&index, &reversed)
+        );
     }
 
     /// The configuration delta's whole claim (issue #178): an `ss03` enumeration reading `default`'s finished memo for every window naming no unlocking rune of `ss03` reaches the from-scratch product byte for byte — rows, classes, cells and fired provenance, which is what the stream spells — while actually answering windows out of the base. The exclusion is what makes it so: the same base read without one hands `ss03` the wrong answers for `qsMay`'s windows, which is the counterexample that gives the identity teeth.

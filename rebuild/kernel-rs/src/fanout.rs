@@ -1,8 +1,8 @@
 //! Running configurations: one of them into whatever sink a verb hands over, and a whole named set of them concurrently into a directory of streams (sub-issue #46). This is where `enumerate` and `enumerate-configs` become the same answer written twice — both turn a configuration into bytes here and nowhere else, so a file the fan-out wrote and the stdout one enumeration writes cannot drift apart.
 //!
-//! Byte-identity across thread counts is a property of the arrangement rather than of a comparison. One [`SpecIndex`] is shared, and it can only be shared: nothing on it is mutable and nothing in it has interior mutability, so every configuration reads the same spec and none can disturb it. Everything else — the engine, the window options, the two slot filters, the liveness probe, the fiber deriver — is built inside [`crate::fixpoint::enumerate_transitions`], per call, which is to say per configuration. No state crosses, so no schedule can be observed in the output.
+//! Byte-identity across thread counts is a property of the arrangement rather than of a comparison. One [`SpecIndex`] is shared, and it can only be shared: nothing on it is mutable and nothing in it has interior mutability, so every configuration reads the same spec and none can disturb it. Everything else — the engine, the window options, the two slot filters, the liveness probe, the fiber deriver — is built inside [`crate::fixpoint::enumerate_transitions`], per call, which is to say per configuration. The one thing that crosses between configurations is a finished memo, read-only behind an [`Arc`] and behind the exclusion that says which of its windows the reader may take ([`crate::memo`]), and it crosses only from `default`, which has finished before any reader starts; so no schedule can be observed in the output.
 //!
-//! Parallelism stops at the configuration, and declining to go finer is a decision rather than an omission: the worklist's LIFO drain order is contract — the first visitor of a class-grain fiber fixes the representative every row of that fiber is written from, and `cited_provenance` is what the one engine fired while tracing that configuration's windows — so a worklist split across threads could not be both deterministic and identical to the sequential answer.
+//! Parallelism stops at the configuration, and declining to go finer is a decision rather than an omission: the product is a function of the row set — a class-grain row is traced at its fiber's canonical representative, so no traversal order reaches the bytes — but the worklist's LIFO drain order is held as contract anyway, and `cited_provenance` is what the one engine fired while tracing that configuration's windows, so a worklist split across threads would have to reproduce one engine's memo and journal across several to give the sequential answer, which is the whole cost the split would have been trying to avoid.
 
 use std::collections::BTreeSet;
 use std::io::Write;
@@ -16,7 +16,9 @@ use crate::engine::EngineModes;
 use crate::fixpoint::{self, EnumerationModes, Seed};
 use crate::fold;
 use crate::index::SpecIndex;
-use crate::memo::{Exclusion, MemoBase, MemoSnapshot, unlocking_runes};
+use crate::memo::{
+    Exclusion, MemoBase, MemoHead, MemoSnapshot, memo_path, read_memo, unlocking_runes, write_memo,
+};
 use crate::model::Sym;
 use crate::replay;
 use crate::stream;
@@ -28,16 +30,81 @@ pub struct Configuration<'a> {
     pub features: Vec<Sym>,
 }
 
-/// What a table build may read before it settles a window itself. `config_seed` is the per-configuration delta of issue #178: `default` enumerates first, alone, and every other configuration then reads its finished memo for the windows naming none of its own unlocking runes ([`crate::memo`]). Off, every configuration enumerates from scratch, which is the from-scratch arm the delta is held byte-identical to.
-#[derive(Clone, Copy, Debug)]
+/// What a table build may read before it settles a window itself, and what it leaves for the next one ([`crate::memo`]). `config_seed` is the per-configuration delta: `default` enumerates first, alone, and every other configuration then reads its finished memo for the windows naming none of its own unlocking runes; off, every configuration enumerates from scratch, which is the from-scratch arm the delta is held byte-identical to. `seed_dir` is a previous build's memo files, read as a base per configuration behind an exclusion naming `edited`, the runes that moved since that build; a configuration with no file there reads nothing. `memo_stamp` is the stamp under which this build writes its own memo files beside its tables, and a build handed none writes none.
+#[derive(Clone, Debug)]
 pub struct Seeding {
     pub config_seed: bool,
+    pub seed_dir: Option<PathBuf>,
+    pub edited: Vec<Sym>,
+    pub memo_stamp: Option<String>,
 }
 
 impl Default for Seeding {
     fn default() -> Self {
-        Self { config_seed: true }
+        Self {
+            config_seed: true,
+            seed_dir: None,
+            edited: Vec::new(),
+            memo_stamp: None,
+        }
     }
+}
+
+/// The memo file one configuration's build writes when it is done: where, under which head, and which bases' admitted windows ride along with its own so the file is the union a later build reads.
+pub struct MemoFile {
+    pub path: PathBuf,
+    pub head: MemoHead,
+    pub carried: Vec<MemoBase>,
+}
+
+/// A previous build's memo for one configuration, read from the seed directory through `keep`, or `None` where the directory holds no file for it. A file that is there but is not this configuration's, or not this world's, is a refusal rather than a silent miss, because a seed handed over by name was meant to be read.
+fn load_seed(
+    index: &SpecIndex,
+    seeding: &Seeding,
+    token: &str,
+    world: &str,
+    keep: impl Fn(&crate::engine::TraceKey) -> bool,
+) -> Result<Option<Arc<MemoSnapshot>>, String> {
+    let Some(dir) = &seeding.seed_dir else {
+        return Ok(None);
+    };
+    let path = memo_path(dir, token);
+    if !path.is_file() {
+        return Ok(None);
+    }
+    let expected = MemoHead {
+        config: token.to_owned(),
+        world: world.to_owned(),
+        stamp: String::new(),
+    };
+    read_memo(index, &path, &expected, keep).map(|memo| Some(Arc::new(memo)))
+}
+
+/// The memo file one configuration writes under this seeding, or `None` when the build was handed no stamp to write under.
+fn memo_file(
+    seeding: &Seeding,
+    outdir: &Path,
+    token: &str,
+    world: &str,
+    carried: Vec<MemoBase>,
+) -> Option<MemoFile> {
+    seeding.memo_stamp.as_ref().map(|stamp| MemoFile {
+        path: memo_path(outdir, token),
+        head: MemoHead {
+            config: token.to_owned(),
+            world: world.to_owned(),
+            stamp: stamp.clone(),
+        },
+        carried,
+    })
+}
+
+/// A base over a previous memo behind an exclusion, or nothing where there is no previous memo.
+fn base_over(memo: Option<&Arc<MemoSnapshot>>, excluded: Exclusion) -> Option<MemoBase> {
+    memo.map(|memo| MemoBase {
+        memo: Arc::clone(memo),
+        excluded,
+    })
 }
 
 /// Why one configuration did not answer, told apart rather than worded here, because who a failure blames is the caller's knowledge: the verb writing to stdout blames the spec for a refusal and the stream itself for a write that failed, and the verb writing files names the configuration for either.
@@ -221,9 +288,9 @@ pub struct TableAnswer {
     pub timed: Vec<String>,
 }
 
-/// Every configuration's two tables, its window enumeration and its digest, written under `outdir` at most `workers` at a time.
+/// Every configuration's two tables, its window enumeration and its digest, written under `outdir` at most `workers` at a time, each configuration reading what the seeding lets it read and leaving the memo file it says to leave.
 ///
-/// Under the configuration seed, the no-feature configuration runs first and alone, keeping its memo; the rest then run at the given width, each reading that memo behind an exclusion naming its own unlocking runes, so the wall is one full enumeration plus one wave of deltas and the memo is held once, shared. A set without the no-feature configuration, or one configuration alone, has nothing to seed from and runs as it would with the seed off. Answers come back seated in the order the configurations were named, whatever order they ran in.
+/// Under the configuration seed, the no-feature configuration runs first and alone, keeping its memo; the rest then run at the given width, each reading that memo behind an exclusion naming its own unlocking runes, so the wall is one full enumeration plus one wave of deltas and the memo is held once, shared. A previous build's memo, where the seeding names one, is read behind the edited runes: `default` reads its own previous file whole, and a delta configuration reads `default`'s previous file behind the edited runes and its own unlocking runes together, and its own previous file only for the windows naming one of its unlocking runes, which is the one part of it the in-process memo cannot answer. A set without the no-feature configuration, or one configuration alone, has no in-process memo to seed from and every configuration reads its own previous file whole. Answers come back seated in the order the configurations were named, whatever order they ran in.
 ///
 /// Nothing is swept first, unlike the stream fan-out: `run_m1.build_tables` writes into the build's own artifact directory beside a dozen other families, and a run that deleted the tables of a configuration set the build no longer names would be answering a question nobody asked it.
 #[allow(clippy::too_many_arguments)]
@@ -238,6 +305,8 @@ pub fn run_configs_tables(
     seeding: Seeding,
 ) -> Result<Vec<TableAnswer>, String> {
     std::fs::create_dir_all(outdir).map_err(|error| format!("{}: {error}", outdir.display()))?;
+    let world = modes.world_token();
+    let edited = Exclusion::of(seeding.edited.iter().copied());
     let default_seat = seeding
         .config_seed
         .then(|| configs.iter().position(|config| config.features.is_empty()))
@@ -245,20 +314,25 @@ pub fn run_configs_tables(
         .filter(|_| configs.len() > 1);
     let Some(default_seat) = default_seat else {
         return claim_all(configs, workers, |config| {
-            run_config_tables(
-                index,
-                config,
-                modes,
-                outdir,
-                inputs,
-                report,
-                Seed::default(),
-            )
-            .map(|(answer, _)| answer)
-            .map_err(|complaint| format!("{}: {complaint}", config.token))
+            let previous = load_seed(index, &seeding, config.token, &world, |_| true)?;
+            let seed = Seed {
+                bases: base_over(previous.as_ref(), edited.clone())
+                    .into_iter()
+                    .collect(),
+                keep_memo: false,
+            };
+            let carried = base_over(previous.as_ref(), edited.clone())
+                .into_iter()
+                .collect();
+            let file = memo_file(&seeding, outdir, config.token, &world, carried);
+            run_config_tables(index, config, modes, outdir, inputs, report, seed, file)
+                .map(|(answer, _)| answer)
+                .map_err(|complaint| format!("{}: {complaint}", config.token))
         });
     };
     let default = &configs[default_seat];
+    let previous_default = load_seed(index, &seeding, default.token, &world, |_| true)
+        .map_err(|complaint| format!("{}: {complaint}", default.token))?;
     let (default_answer, memo) = run_config_tables(
         index,
         default,
@@ -267,9 +341,20 @@ pub fn run_configs_tables(
         inputs,
         report,
         Seed {
-            bases: Vec::new(),
+            bases: base_over(previous_default.as_ref(), edited.clone())
+                .into_iter()
+                .collect(),
             keep_memo: true,
         },
+        memo_file(
+            &seeding,
+            outdir,
+            default.token,
+            &world,
+            base_over(previous_default.as_ref(), edited.clone())
+                .into_iter()
+                .collect(),
+        ),
     )
     .map_err(|complaint| format!("{}: {complaint}", default.token))?;
     let memo: Arc<MemoSnapshot> =
@@ -281,14 +366,28 @@ pub fn run_configs_tables(
         .map(|(_, config)| config.clone())
         .collect();
     let mut answers = claim_all(&rest, workers, |config| {
+        let unlocking = unlocking_runes(index, &config.features);
+        let previous_own = load_seed(index, &seeding, config.token, &world, |key| {
+            key.runes_named().any(|rune| unlocking.contains(&rune))
+        })?;
+        let mut bases = vec![MemoBase {
+            memo: Arc::clone(&memo),
+            excluded: Exclusion::of(unlocking.iter().copied()),
+        }];
+        bases.extend(base_over(
+            previous_default.as_ref(),
+            Exclusion::of(unlocking.iter().chain(edited.runes()).copied()),
+        ));
+        bases.extend(base_over(previous_own.as_ref(), edited.clone()));
+        let carried = base_over(previous_own.as_ref(), edited.clone())
+            .into_iter()
+            .collect();
+        let file = memo_file(&seeding, outdir, config.token, &world, carried);
         let seed = Seed {
-            bases: vec![MemoBase {
-                memo: Arc::clone(&memo),
-                excluded: Exclusion::of(unlocking_runes(index, &config.features)),
-            }],
+            bases,
             keep_memo: false,
         };
-        run_config_tables(index, config, modes, outdir, inputs, report, seed)
+        run_config_tables(index, config, modes, outdir, inputs, report, seed, file)
             .map(|(answer, _)| answer)
             .map_err(|complaint| format!("{}: {complaint}", config.token))
     })?;
@@ -296,7 +395,7 @@ pub fn run_configs_tables(
     Ok(answers)
 }
 
-/// One configuration folded in place: its fixpoint over whatever the seed lets it read, the fold over the product that fixpoint still holds — the rule certificates closed over the enumeration's own [`crate::options::WindowOptions`], so the guard is swept once — the three artifact files, and the digest of the pair, with the finished memo beside the answer when the seed asked to keep it. The two phases are named `enumerate[<config>]` and `fold[<config>]` when the caller wants them timed, the census's `[c]` lines riding ahead of them as they do for a stream run.
+/// One configuration folded in place: its fixpoint over whatever the seed lets it read, the fold over the product that fixpoint still holds — the rule certificates closed over the enumeration's own [`crate::options::WindowOptions`], so the guard is swept once — the three artifact files, and the digest of the pair, with the finished memo beside the answer when the seed asked to keep it and written to `file` when one is named. The phases are named `enumerate[<config>]`, `memo[<config>]` and `fold[<config>]` when the caller wants them timed, the census's `[c]` lines riding ahead of them as they do for a stream run.
 #[allow(clippy::too_many_arguments)]
 pub fn run_config_tables(
     index: &SpecIndex,
@@ -306,11 +405,17 @@ pub fn run_config_tables(
     inputs: &str,
     report: Report,
     seed: Seed,
+    file: Option<MemoFile>,
 ) -> Result<(TableAnswer, Option<MemoSnapshot>), String> {
     let token = config.token;
     let mut timed: Vec<String> = Vec::new();
     let mut census: Vec<String> = Vec::new();
     let started = Instant::now();
+    let keep_memo = seed.keep_memo;
+    let seed = Seed {
+        bases: seed.bases,
+        keep_memo: keep_memo || file.is_some(),
+    };
     let (product, mut options, memo) = fixpoint::enumerate_for_tables(
         index,
         &config.features,
@@ -325,6 +430,20 @@ pub fn run_config_tables(
             started.elapsed(),
         ));
     }
+    let memo = match file {
+        Some(file) => {
+            let started = Instant::now();
+            let own = memo
+                .as_ref()
+                .expect("a memo file is written from a kept memo");
+            write_memo(index, &file.path, &file.head, own, &file.carried)?;
+            if report.timings {
+                timed.push(timing_line(&format!("memo[{token}]"), started.elapsed()));
+            }
+            memo.filter(|_| keep_memo)
+        }
+        None => memo,
+    };
     let started = Instant::now();
     let folded = fold::fold_with(index, product, &mut options)?;
     let settlement = outdir.join(format!("settlement-{token}.tsv"));

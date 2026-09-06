@@ -3,9 +3,11 @@
 Nothing skips. A box without `cargo` fails these tests with the remedy `KernelBuildError` carries, and that is the honest signal now that no in-process fixpoint exists to fall back to: the M1 build itself cannot run there either.
 """
 
+import gzip
 import itertools
 import json
 from collections import OrderedDict
+from dataclasses import replace
 
 import pytest
 
@@ -432,6 +434,7 @@ class TestTheKernelInvocation:
             timings=False,
             timings_tag=None,
             config_seed=True,
+            **memo,
         ):
             seen.append((tuple(configs), threads, timings_tag, inputs, config_seed))
             raise Reached
@@ -469,6 +472,49 @@ class TestTheKernelInvocation:
         monkeypatch.setattr(run_m1, "usable_cores", lambda: allowance)
         seen = self._observe_build(monkeypatch, tmp_path, len(conform.SETTLEMENT_CONFIGS))
         assert seen[0][1] == min(len(conform.SETTLEMENT_CONFIGS), allowance)
+
+    def test_a_build_seeded_from_the_previous_memo_files_the_bytes_a_from_scratch_build_files(
+        self, tmp_path, monkeypatch
+    ):
+        """The seed across builds, held at the artifacts: a build over an edited spec into the directory a previous build left its memos in reads them behind the edited rune and files the same packed windows, settlement TSVs and treaty TSVs, byte for byte, as a build of the edited spec into an empty directory, while actually seeding — the previous memos are unpacked and the edited rune named — and leaves memos of its own under the edited spec's stamp."""
+        asked = []
+        real = kernel_exec.build_table_files
+
+        def build_table_files(*args, **rest):
+            asked.append((rest.get("seed"), rest.get("edited"), rest.get("memo_stamp")))
+            return real(*args, **rest)
+
+        monkeypatch.setattr(kernel_exec, "build_table_files", build_table_files)
+        tea = SPEC.runes["qsTea"]
+        edited = replace(
+            SPEC, runes={**SPEC.runes, "qsTea": replace(tea, policy=replace(tea.policy, refuse=()))}
+        )
+        assert run_m1.memo_edited(run_m1.memo_stamp(SPEC), run_m1.memo_stamp(edited)) == ["qsTea"]
+        seeded = tmp_path / "seeded"
+        run_m1.build_tables(SPEC, seeded, inputs=STAMP)
+        assert asked[-1] == (None, (), run_m1.memo_stamp(SPEC))
+        for config in conform.SETTLEMENT_CONFIGS:
+            assert kernel_exec.read_memo_head(kernel_exec.memo_path(seeded, config)) == kernel_exec.MemoHead(
+                config, "+".join(kernel_exec.enumeration_tokens()), run_m1.memo_stamp(SPEC)
+            )
+        before = {path.name: path.read_bytes() for path in seeded.iterdir()}
+        run_m1.build_tables(edited, seeded, inputs=STAMP)
+        seed, named, stamp = asked[-1]
+        assert seed is not None and named == ("qsTea",) and stamp == run_m1.memo_stamp(edited)
+        scratch = tmp_path / "scratch"
+        run_m1.build_tables(edited, scratch, inputs=STAMP)
+        assert asked[-1] == (None, (), run_m1.memo_stamp(edited))
+        moved = False
+        for path in sorted(scratch.iterdir()):
+            if path.name.startswith("memo-"):
+                continue
+            expected = path.read_bytes()
+            assert (seeded / path.name).read_bytes() == expected, path.name
+            moved |= before[path.name] != expected
+        assert moved, "striking the refusal moves the tables, so the identity is not trivial"
+        for config in conform.SETTLEMENT_CONFIGS:
+            head = kernel_exec.read_memo_head(kernel_exec.memo_path(seeded, config))
+            assert head is not None and head.stamp == run_m1.memo_stamp(edited)
 
     def test_a_configuration_delta_files_the_bytes_a_from_scratch_build_files(self, tmp_path):
         """The configuration corollary of the window-locality theorem, held at the artifact: every configuration past `default` enumerated as a delta over `default`'s memo files the same settlement TSV, treaty TSV and window enumeration, byte for byte, as the same configuration enumerated on its own, and answers the same digest. The mini fixture unlocks a `qsMay` entry under `ss03`, so the delta has both windows to share and windows to settle itself."""
@@ -541,6 +587,59 @@ class TestTheKernelInvocation:
             run_m1.main(argv)
         assert seen["kernel_threads"] == threads
         assert "fold_jobs" not in seen
+
+
+class TestTheMemoStamp:
+    """What decides whether a previous build's memo may be read, and for which runes: `run_m1.memo_stamp` over the spec in hand and `run_m1.memo_edited` between two of them."""
+
+    def test_a_reworded_rationale_moves_no_rune_digest(self):
+        tea = SPEC.runes["qsTea"]
+        record = tea.policy.refuse[0]
+        reworded = replace(
+            SPEC,
+            runes={
+                **SPEC.runes,
+                "qsTea": replace(
+                    tea,
+                    notes="reworded",
+                    policy=replace(
+                        tea.policy, refuse=(replace(record, why="because"), *tea.policy.refuse[1:])
+                    ),
+                ),
+            },
+        )
+        assert run_m1.rune_content_digests(reworded) == run_m1.rune_content_digests(SPEC)
+        assert run_m1.memo_edited(run_m1.memo_stamp(SPEC), run_m1.memo_stamp(reworded)) == []
+
+    def test_a_moved_structure_or_another_format_refuses_the_memo_and_a_new_rune_is_edited(self):
+        stamp = json.loads(run_m1.memo_stamp(SPEC))
+        moved = json.dumps({**stamp, "structure": "elsewhere"})
+        assert run_m1.memo_edited(moved, run_m1.memo_stamp(SPEC)) is None
+        assert run_m1.memo_edited(json.dumps({**stamp, "format": "other"}), run_m1.memo_stamp(SPEC)) is None
+        assert run_m1.memo_edited("not json", run_m1.memo_stamp(SPEC)) is None
+        fewer = json.dumps(
+            {**stamp, "runes": {name: digest for name, digest in list(stamp["runes"].items())[1:]}}
+        )
+        assert run_m1.memo_edited(fewer, run_m1.memo_stamp(SPEC)) == [next(iter(stamp["runes"]))]
+        more = json.dumps({**stamp, "runes": {**stamp["runes"], "qsGone": "digest"}})
+        assert run_m1.memo_edited(more, run_m1.memo_stamp(SPEC)) is None
+
+    def test_the_seed_reads_only_memos_whose_head_and_stamp_hold(self, tmp_path):
+        stamp = run_m1.memo_stamp(SPEC)
+        world = "+".join(kernel_exec.enumeration_tokens())
+        wrong = json.dumps({**json.loads(stamp), "structure": "elsewhere"})
+        for config, head in (
+            ("default", f"# {kernel_exec.MEMO_FORMAT}\tdefault\t{world}\t{stamp}\n"),
+            ("ss03", f"# {kernel_exec.MEMO_FORMAT}\tss03\t{world}\t{wrong}\n"),
+            ("ss04", f"# {kernel_exec.MEMO_FORMAT}\tss04\tanother-world\t{stamp}\n"),
+        ):
+            with gzip.open(kernel_exec.memo_path(tmp_path, config), "wt") as handle:
+                handle.write(head)
+        seed = run_m1.memo_seed(tmp_path, stamp, tmp_path / "seed")
+        assert seed is not None
+        assert seed.edited == ()
+        assert sorted(path.name for path in seed.directory.iterdir()) == ["memo-default.tsv"]
+        assert run_m1.memo_seed(tmp_path / "empty", stamp, tmp_path / "seed2") is None
 
 
 class TestTheMemoryDerivedThreadDefault:

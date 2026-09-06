@@ -24,7 +24,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import IO, Any
 
-from rebuild.pipeline.model import CellId, Provenance, ResolvedSpec, Settled
+from rebuild.pipeline.model import CellId, Provenance, ResolvedSpec, Rune, Settled
 from rebuild.pipeline.table import FixpointProduct, PartitionError, Transition, _cell_key
 
 SPEC_FORMAT = "ams-m1-spec/1"
@@ -162,6 +162,11 @@ def _decode(hint: Any, value: Any) -> Any:
             raise _unserializable(hint)
         return {key: _decode(args[1], item) for key, item in value.items()}
     raise _unserializable(hint)
+
+
+def rune_payload(rune: Rune) -> Any:
+    """One rune as the dump spells it — the codec's own view, mappings in their own order — for a caller that wants to hash a rune's resolved content rather than its file: `run_m1.rune_content_digests` reads records with every cross-file `against:` already resolved in and every ligature-transparent left already expanded, which is exactly what the crate reads, so a digest over this moves when what the engine reads moves and not otherwise."""
+    return _encode(Rune, rune)
 
 
 def spec_json(spec: ResolvedSpec) -> str:

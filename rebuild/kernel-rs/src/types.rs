@@ -236,6 +236,27 @@ pub fn adjustment_text(index: &SpecIndex, token: AdjustmentToken) -> String {
     }
 }
 
+/// The reader half of [`adjustment_text`]: the token one spelling names, or `None` for text that is not one — a side prefix the grammar does not spell, a count that is not a number, or a bitmap name this spec never interned. The one caller is the memo file's reader, which meets these as the text the writer spelled.
+pub fn adjustment_from_text(index: &SpecIndex, text: &str) -> Option<AdjustmentToken> {
+    if text == "locked" {
+        return Some(AdjustmentToken::Locked);
+    }
+    let (prefix, rest) = text.split_once('-')?;
+    let side = match prefix {
+        "en" => Side::Entry,
+        "ex" => Side::Exit,
+        _ => return None,
+    };
+    let (kind, value) = rest.split_once('-')?;
+    match kind {
+        "ext" => Some(AdjustmentToken::Extend(side, value.parse().ok()?)),
+        "con" => Some(AdjustmentToken::Contract(side, value.parse().ok()?)),
+        "trim" => Some(AdjustmentToken::Trim(side, value.parse().ok()?)),
+        "bind" => Some(AdjustmentToken::Bind(side, index.sym_of(value)?)),
+        _ => None,
+    }
+}
+
 /// One cell's identity, `model.CellId`. `entry` and `exit` are the live heights of the two sides, `None` meaning the side did not join; the adjustments are ordered and generated, never authored.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct CellId {
@@ -502,6 +523,21 @@ pub enum DecidedStage {
 }
 
 impl DecidedStage {
+    /// The stage one spelling names, or `None` for text that is not one of the seven — the reader half of [`DecidedStage::as_str`], for the memo file that carries a stage per entry.
+    pub fn from_text(text: &str) -> Option<Self> {
+        [
+            Self::Boundary,
+            Self::OnlyCandidate,
+            Self::AbsolutePrefer,
+            Self::JoinCount,
+            Self::YieldingPrefer,
+            Self::Order,
+            Self::Floor,
+        ]
+        .into_iter()
+        .find(|stage| stage.as_str() == text)
+    }
+
     /// The stage's spelling, as the trace carries it.
     pub fn as_str(self) -> &'static str {
         match self {
