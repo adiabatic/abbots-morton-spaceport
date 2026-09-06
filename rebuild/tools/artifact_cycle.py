@@ -919,7 +919,7 @@ def conform_gate_argv(jobs: int, horizon: int = CONFORM_HORIZON_DEFAULT) -> list
 
 STEP_DESCRIPTIONS = {
     "snapshot": "Copies the review surface that is currently served to tmp/review-pre-<sha> before anything overwrites it. The carry reads this copy to bring your verdicts forward onto the new surface.",
-    "run_m1": "Builds the M1 tables for every acceptance configuration in the Rust kernel, mints the glyphs, emits GSUB and GPOS, compiles the font, and reads it back. Then runs the defect gates, the Manual-pin gate, and the oracle over what it built.",
+    "run_m1": "Builds the M1 tables for every settlement configuration in the Rust kernel (the ss10 overlay settles nothing and gets none), mints the glyphs, emits GSUB and GPOS, compiles the font, and reads it back. Then runs the defect gates, the Manual-pin gate, and the oracle over what it built.",
     "run_m1:gates-only": "Re-adjudicates the tables and font already on disk with the defect gates, the Manual-pin gate, and the oracle, rebuilding nothing. Taken when only comparison-side inputs moved since the last green build.",
     "surface-build": "Rebuilds the review surface: every unit the tables reach is drafted, enriched, and checked, with cache-served units re-verified by content key. Writes the shards, manifest, and census sidecar that the app and the verdict plumbing read.",
     "assets-refresh": "Overwrites the served copy of the review app's JS, CSS, and HTML and restamps only the manifest's static component. No shard or sidecar moves, so the open tab's store stays aligned.",
@@ -927,7 +927,7 @@ STEP_DESCRIPTIONS = {
     "census": "Rewrites rebuild/review-census-pins.json from the census sidecar the surface build emitted and prints its git diff in full. Committing that diff is how the census is accepted.",
     "gates": "The five post-build gates, skipped together under --skip-gates.",
     "gate:js": "Runs the review app's node test suite over its JavaScript. Fast, and independent of every build artifact.",
-    "gate:conform": "Shapes the compiled font with HarfBuzz over the swept texts and checks it against a fresh re-settlement window by window, the split-buffer check at horizon 4 included. The end-to-end proof that the font does what the tables say.",
+    "gate:conform": "Shapes the compiled font with HarfBuzz over the swept texts and checks it against a fresh re-settlement window by window, the split-buffer check at horizon 4 included; the ss10 overlay takes its own two-letter arm against the bare rendering. The end-to-end proof that the font does what the tables say.",
     "gate:rebuild-contracts": "Runs the rebuild suite's contracts lane: every test whose subject is the code, over checked-in fixtures and the hermetic mini bundle. Reads no live build artifact.",
     "gate:rebuild-validators": "Runs the rebuild suite's validators lane: the per-configuration rule-witness arms over the tables this pass built. Refuses a window enumeration stamped from other sources than the ones on disk.",
     "gate:make-test": "Runs the main font suite and pyright over the whole tree, the same make test you run by hand. Skips when its input closure is unchanged since its last green run.",

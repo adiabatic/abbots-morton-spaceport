@@ -78,7 +78,7 @@ class TestRoundTrip:
     def test_two_builds_of_one_spec_write_the_same_bytes(self, build_a, build_b):
         """Diff-stability where it is actually stated — over two whole builds rather than over two calls to one writer — since the settlement and treaty TSVs are the crate's bytes and the enumeration is the crate's payload under this side's zeroed gzip stamp."""
         first, _tables, _digests = build_a
-        for config in conform.ACCEPTANCE_CONFIGS:
+        for config in conform.SETTLEMENT_CONFIGS:
             for name in (f"settlement-{config}.tsv", f"treaties-{config}.tsv"):
                 assert (first / name).read_bytes() == (build_b / name).read_bytes(), name
             packed = table_module.windows_path(first, config)
@@ -138,7 +138,7 @@ class TestFingerprintGuard:
     def stamped(self, build_a, tmp_path):
         source, _tables, _digests = build_a
 
-        def write(inputs, configs=conform.ACCEPTANCE_CONFIGS):
+        def write(inputs, configs=conform.SETTLEMENT_CONFIGS):
             for config in configs:
                 restamp(
                     table_module.windows_path(source, config),
@@ -153,7 +153,7 @@ class TestFingerprintGuard:
         out_dir = stamped("fp-sources")
         tables = run_m1.serialized_tables(out_dir, "fp-sources")
         assert tables is not None
-        assert sorted(tables) == sorted(conform.ACCEPTANCE_CONFIGS)
+        assert sorted(tables) == sorted(conform.SETTLEMENT_CONFIGS)
 
     def test_one_configuration_written_from_other_sources_rejects_the_set(self, stamped):
         out_dir = stamped("fp-sources")
@@ -162,7 +162,7 @@ class TestFingerprintGuard:
 
     def test_one_missing_configuration_rejects_the_set(self, stamped):
         out_dir = stamped("fp-sources")
-        table_module.windows_path(out_dir, "ss10").unlink()
+        table_module.windows_path(out_dir, "ss04").unlink()
         assert run_m1.serialized_tables(out_dir, "fp-sources") is None
 
     def test_one_unreadable_configuration_rejects_the_set(self, stamped):
@@ -177,10 +177,10 @@ class TestFingerprintGuard:
 class TestBuildStageHandoff:
     """What the build stage hands its parent since the fold moved into the crate: the head of each configuration's enumeration and its treaty rows, with the enumeration itself on disk under the stamp that names its sources. The rows never cross into the parent at all — a million per configuration is a resident peak nothing after the build spends — so what the parent holds is what `read_windows(windows=False)` answers."""
 
-    def test_a_stamped_build_serializes_every_configuration_and_keeps_none(self, build_a):
+    def test_a_stamped_build_serializes_every_settlement_configuration_and_keeps_none(self, build_a):
         out_dir, tables, digests = build_a
-        assert list(tables) == list(conform.ACCEPTANCE_CONFIGS)
-        assert list(digests) == list(conform.ACCEPTANCE_CONFIGS)
+        assert list(tables) == list(conform.SETTLEMENT_CONFIGS)
+        assert list(digests) == list(conform.SETTLEMENT_CONFIGS)
         for config, (decision, treaty) in tables.items():
             assert decision.transitions == ()
             assert decision.rules
@@ -194,6 +194,20 @@ class TestBuildStageHandoff:
         run_m1.build_tables(SPEC, tmp_path)
         assert not list(tmp_path.glob("windows-*"))
         assert sorted(path.name for path in tmp_path.glob("settlement-*"))
+
+    def test_the_overlay_configuration_gets_no_table_and_a_stale_one_is_swept(self, build_a, tmp_path):
+        """Nothing settles under the overlay, so no table is enumerated for it — and a table left under its name by an earlier build is removed before this one writes, so a directory globbed afterward holds this build's tables alone."""
+        out_dir, _tables, _digests = build_a
+        for config in conform.OVERLAY_CONFIGS:
+            assert not [path.name for path in out_dir.glob(f"*-{config}.tsv*")]
+        stale = run_m1.overlay_table_files(tmp_path, conform.OVERLAY_CONFIGS[0])
+        for path in stale:
+            path.write_bytes(b"a table an earlier build left behind\n")
+        run_m1.build_tables(SPEC, tmp_path, inputs="fp-sources")
+        assert not any(path.exists() for path in stale)
+        assert sorted(path.name for path in tmp_path.glob("windows-*")) == sorted(
+            table_module.windows_path(tmp_path, config).name for config in conform.SETTLEMENT_CONFIGS
+        )
 
     def test_the_crates_artifacts_are_what_this_sides_writers_write_back(self, build_a, tmp_path):
         """Both TSVs are the crate's bytes now, so what keeps this side's copies of those writers and of `table_digest` honest is that they reproduce them: read the enumeration and the treaty rows back, write them out again here, and require the same bytes and the same digest the crate reported at build time. A rule-ordering divergence between the two sides shows in the settlement TSV, which is the shipped GSUB order."""

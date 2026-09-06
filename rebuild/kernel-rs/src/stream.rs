@@ -596,7 +596,7 @@ mod tests {
     fn a_deep_class_map_rides_the_head_sorted_by_token() {
         let index = fixtures::mini();
         let product = FixpointProduct {
-            config: "ss10".to_owned(),
+            config: "ss04".to_owned(),
             transitions: vec![edge_row()],
             deep_classes: vec![
                 (
@@ -623,7 +623,7 @@ mod tests {
         assert_eq!(
             stream,
             concat!(
-                "# ams-m1-transitions/1\t{\"config\":\"ss10\",\"cells\":[[\"qsPea\",\"half\",\"baseline\",\"x-height\",[]],[\"qsTea\",\"full\",null,null,[]]],\"deep_classes\":[[\"#Caaa\",[\"qsMay\"]],[\"#Cbbb\",[\"qsPea\",\"qsTea\"]]],\"cited_provenance\":[]}\n",
+                "# ams-m1-transitions/1\t{\"config\":\"ss04\",\"cells\":[[\"qsPea\",\"half\",\"baseline\",\"x-height\",[]],[\"qsTea\",\"full\",null,null,[]]],\"deep_classes\":[[\"#Caaa\",[\"qsMay\"]],[\"#Cbbb\",[\"qsPea\",\"qsTea\"]]],\"cited_provenance\":[]}\n",
                 "[\"qsPea\",\"#EDGE\",\"space\",\"#NA\",\"#NA\",\"#NA\",\"qsPea.half\",[0,null,0],null,false,0,[]]\n",
             )
         );

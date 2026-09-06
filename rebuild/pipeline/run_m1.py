@@ -1,8 +1,8 @@
 """The M1 integration driver (M1-PLAN Phase 5): the full pipeline run over the real rune files, writing every section 8 artifact under rebuild/out/m1/.
 
-Stages: load_default_spec -> per-configuration decision/treaty tables (enumerated and folded in the kernel crate, one process per configuration: the first-match-wins replay asserted as each one folds, TSVs written, and the window enumeration serialized under the fingerprint of the sources it came from, so `--conform-only` mints its glyph inventory from it and refuses to run against a stale or missing one) -> glyph inventory minting (settled cells named by the table's own cell labels, plus the raw cmap glyphs, marker twins, chokepoint twins, and the namer dot pair) -> defect gates (defects.run_gates under the reviewed allow-list) -> emit_gsub/emit_gpos (whose plan also enumerates the emitted lookup's HarfBuzz-facing shapes into behavior_classes.json, the arming key rebuild/tools/deep_sweep.py reads) -> build_mini_font -> read-back (the font just written, re-parsed from its own bytes and structurally proven against the plan the emitters held, with the GSUB's uint16 subtable-offset headroom read off the raw table bytes in that same parse and held to its floor, and that plan's settlement rows recorded beside the summary with their per-configuration sources for the witness gate to count coverage over; rebuild/pipeline/readback.py).
+Stages: load_default_spec -> per-configuration decision/treaty tables, one pair per settlement configuration (`conform.SETTLEMENT_CONFIGS`; enumerated and folded in the kernel crate, one process per configuration: the first-match-wins replay asserted as each one folds, TSVs written, and the window enumeration serialized under the fingerprint of the sources it came from, so `--conform-only` mints its glyph inventory from it and refuses to run against a stale or missing one) -> glyph inventory minting (settled cells named by the table's own cell labels, plus the raw cmap glyphs, marker twins, chokepoint twins, and the namer dot pair) -> defect gates (defects.run_gates under the reviewed allow-list) -> emit_gsub/emit_gpos (whose plan also enumerates the emitted lookup's HarfBuzz-facing shapes into behavior_classes.json, the arming key rebuild/tools/deep_sweep.py reads) -> build_mini_font -> read-back (the font just written, re-parsed from its own bytes and structurally proven against the plan the emitters held, with the GSUB's uint16 subtable-offset headroom read off the raw table bytes in that same parse and held to its floor, and that plan's settlement rows recorded beside the summary with their per-configuration sources for the witness gate to count coverage over; rebuild/pipeline/readback.py).
 
-The glyph-name contract this driver pins: settlement-lookup outcomes are `settle.cell_label` names, so the decision-table rules and the compiled glyph set agree by construction; the raw cmap glyph for each rune is the bare rune name drawn as the isolated cell but carrying no curs anchors; marker, chokepoint, and ss10 twins reuse the bare drawing (under ss10 the pre-empt lookup substitutes every letter's cmap glyph by its anchor-free `.ss10` twin before formation, so no ligature ever forms, nothing settles, each letter keeps its own cluster, and every seam is a break).
+The glyph-name contract this driver pins: settlement-lookup outcomes are `settle.cell_label` names, so the decision-table rules and the compiled glyph set agree by construction; the raw cmap glyph for each rune is the bare rune name drawn as the isolated cell but carrying no curs anchors; marker, chokepoint, and ss10 twins reuse the bare drawing (under ss10 the pre-empt lookup substitutes every letter's cmap glyph by its anchor-free `.ss10` twin before formation, so no ligature ever forms, nothing settles, each letter keeps its own cluster, and every seam is a break). That is why the overlay configuration (`conform.OVERLAY_CONFIGS`) has no table of its own: read-back proves the pre-empt covers every letter cmap glyph and keeps the twins out of every other stage, the belt sweeps it at `conform.OVERLAY_HORIZON`, and the oracle holds its rows against the bare stream with the twins' `hmtx` advances for positions.
 
 The split-buffer check that once had a standalone horizon-5 gate of its own now rides gate:conform's belt, so it is proven per build at horizon 4 and periodically at 5 or deeper by `make conform-deep` — the same charter the belt already has, over a rule whose closure property makes a horizon-4 proof cover every window the oracle absorbs. The ZWNJ slot's own structure — zero advance, no ink — is read-back's static boundary-glyphs stage, proven off the written font bytes rather than at every shaped slot.
 
@@ -84,17 +84,17 @@ def build_tables(
     inputs: str | None = None,
     kernel_threads: int | None = None,
 ) -> tuple[dict[str, tuple], dict[str, str]]:
-    """Every acceptance configuration's decision and treaty tables: the resolved spec dumped once, then one `build-tables` process per configuration, each of which enumerates its fixpoint and folds it in place. There is no stream and no fold on this side at all — the crate writes the settlement TSV, the treaty TSV and the window enumeration itself, so the several hundred megabytes a configuration's transitions cost to write, to read and to hold parsed are never spent.
+    """Every settlement configuration's decision and treaty tables: the resolved spec dumped once, then one `build-tables` process per configuration, each of which enumerates its fixpoint and folds it in place. An overlay configuration gets none, and any table files a build once left under its name are removed first, so a directory globbed after a build holds this build's tables and nothing else. There is no stream and no fold on this side at all — the crate writes the settlement TSV, the treaty TSV and the window enumeration itself, so the several hundred megabytes a configuration's transitions cost to write, to read and to hold parsed are never spent.
 
     What Python does per configuration is small and is what only Python can do: pack the plain window payload into the `.gz` the artifact is (the compressor never crossed the boundary), read the head back for the rules, the reachable cells and the fired provenance every downstream stage needs, and parse the treaty TSV back for the defect gates.
 
-    `out_dir`, when given, gets the section 8 TSVs. The second returned mapping is each configuration's `table.table_digest` as the crate reported it — taken in the crate while the window rows are still in hand, which is the grain the rest of the rebuild states table identity at and the only moment it can be taken without re-costing the fixpoint; the crate also prints it on stdout, which is where `rebuild/tools/scaling_sweep.py` reads it. Both returned mappings are rebuilt in `conform.ACCEPTANCE_CONFIGS` order however the configurations finish, so completion order can never reach an artifact.
+    `out_dir`, when given, gets the section 8 TSVs. The second returned mapping is each configuration's `table.table_digest` as the crate reported it — taken in the crate while the window rows are still in hand, which is the grain the rest of the rebuild states table identity at and the only moment it can be taken without re-costing the fixpoint; the crate also prints it on stdout, which is where `rebuild/tools/scaling_sweep.py` reads it. Both returned mappings are rebuilt in `conform.SETTLEMENT_CONFIGS` order however the configurations finish, so completion order can never reach an artifact.
 
     `inputs` is `tables_inputs` over the sources this spec was loaded from. Supplying it alongside `out_dir` keeps each configuration's window enumeration next to the TSVs — where `run_font_conformance` picks it up rather than rebuilding anything — under the stamp that names those sources; omit it and the payload is read for its head and deleted, which is what a caller building a spec of its own must have, since the fingerprint names the repo's rune files and cannot vouch for tables they did not produce.
 
     `kernel_threads` is how many configurations are in flight at once, capped here at the configuration count and the cores this process may actually run on — neither of which is a memory bound — while the default it falls back to is the memory one: `kernel_exec.KERNEL_THREADS_DEFAULT` is this box's own memory divided by what a configuration costs while it holds its whole working set, from the first window it reaches to the last artifact it writes. So this `min()` only ever narrows a memory-derived width and never widens one, and nothing about memory belongs inside it. The fold's own width went with the Python fold: it runs inside the enumerating process now, and there is nothing left on this side to widen.
     """
-    configs = conform.ACCEPTANCE_CONFIGS
+    configs = conform.SETTLEMENT_CONFIGS
     threads = max(
         1,
         min(kernel_threads or kernel_exec.KERNEL_THREADS_DEFAULT, len(configs), usable_cores()),
@@ -108,6 +108,9 @@ def build_tables(
         kernel_io.write_spec(spec, spec_path)
         tables_dir = directory / "tables" if out_dir is None else out_dir
         tables_dir.mkdir(parents=True, exist_ok=True)
+        for config in conform.OVERLAY_CONFIGS:
+            for path in overlay_table_files(tables_dir, config):
+                path.unlink(missing_ok=True)
 
         def build_one(config: str) -> tuple[str, tuple, str]:
             start = time.perf_counter()
@@ -139,6 +142,15 @@ def build_tables(
                 digests[config] = digest
                 console.progress(len(built), len(configs), "configurations")
     return {config: built[config] for config in configs}, {config: digests[config] for config in configs}
+
+
+def overlay_table_files(tables_dir: Path, config: str) -> tuple[Path, ...]:
+    """The three table files a settlement configuration leaves under `tables_dir`, named for an overlay configuration that leaves none: what `build_tables` sweeps so a stale table can never stand in for a configuration nothing settles under."""
+    return (
+        tables_dir / f"settlement-{config}.tsv",
+        tables_dir / f"treaties-{config}.tsv",
+        table_module.windows_path(tables_dir, config),
+    )
 
 
 def _pack_windows(payload: Path, path: Path) -> None:
@@ -318,9 +330,9 @@ def run(
 
 
 def serialized_tables(out_dir: Path, inputs: str) -> dict[str, DecisionTable] | None:
-    """Every acceptance configuration's decision table as the build stage left it under `out_dir`, minus the window enumeration — or None the moment one file is missing, unreadable, or was written from sources other than the ones `inputs` names. Nothing partial: a mixed set would sweep some configurations against tables the runes on disk no longer produce."""
+    """Every settlement configuration's decision table as the build stage left it under `out_dir`, minus the window enumeration — or None the moment one file is missing, unreadable, or was written from sources other than the ones `inputs` names. Nothing partial: a mixed set would sweep some configurations against tables the runes on disk no longer produce."""
     tables: dict[str, DecisionTable] = {}
-    for config in conform.ACCEPTANCE_CONFIGS:
+    for config in conform.SETTLEMENT_CONFIGS:
         try:
             stamp, decision = table_module.read_windows(
                 table_module.windows_path(out_dir, config), windows=False
@@ -355,7 +367,7 @@ def run_font_conformance(
     jobs: int = 1,
     summary_name: str = "conform_summary.json",
 ) -> dict:
-    """The exhaustive font-vs-settle sweep — the per-edit belt at `max_length` 4, and the same sweep deeper when rebuild.tools.deep_sweep asks for it under its own `summary_name`. The tables the build stage left under `out_dir` are read back here for one reason only, the glyph inventory `mint_cell_glyphs` needs to name settled cells and read their anchors; the sweep itself takes no table, because what it proves is HarfBuzz's behavior against the kernel's, and read-back already proved the font holds the rules the build planned. A stamp that fails to match is a hard stop rather than a rebuild: the enumeration costs a whole kernel fan-out, and a sweep that quietly built its own inventory would be measuring a font against runes that have since moved. The split-buffer structural check rides this sweep, on every text that carries a splitter.
+    """The exhaustive font-vs-settle sweep — the per-edit belt at `max_length` 4 over every settlement configuration, the overlay configuration's arm at `conform.OVERLAY_HORIZON` beside it whatever `max_length` says, and the same sweep deeper when rebuild.tools.deep_sweep asks for it under its own `summary_name`. The tables the build stage left under `out_dir` are read back here for one reason only, the glyph inventory `mint_cell_glyphs` needs to name settled cells and read their anchors; the sweep itself takes no table, because what it proves is HarfBuzz's behavior against the kernel's, and read-back already proved the font holds the rules the build planned. A stamp that fails to match is a hard stop rather than a rebuild: the enumeration costs a whole kernel fan-out, and a sweep that quietly built its own inventory would be measuring a font against runes that have since moved. The split-buffer structural check rides this sweep, on every text that carries a splitter.
 
     The fan-out spends the section 5.7 verdict surface once for the whole run rather than once per worker: a spawned worker inherits nothing, so each would otherwise build the crate it found and sweep the spec for itself. The mapping pickles, so it rides the submission; the serial arm sweeps inside `run_conformance` as before.
 
@@ -580,7 +592,7 @@ def run_oracle(
     fresh_cache: bool = False,
     memo_inputs: oracle_cache.SettleMemoInputs | None = None,
 ) -> dict:
-    """The section 6 oracle over the subset tables, one worker per `conform.ACCEPTANCE_CONFIGS` entry when `jobs` allows, with the row cache read before the first row and written after the last. `memo_inputs` is `settle_memo_inputs` as the caller snapshotted it before loading `spec`, and names the settle memo files this pass shares with the belt (`conform.settle_memo_files`): the oracle's rows are the belt's texts, so a configuration whose file the belt wrote under these keys settles nothing, and one the belt has not reached yet writes the file the belt will load. A caller with no inputs shares nothing.
+    """The section 6 oracle over the subset tables, one worker per `conform.ACCEPTANCE_CONFIGS` entry when `jobs` allows, with the row cache read before the first row and written after the last. `memo_inputs` is `settle_memo_inputs` as the caller snapshotted it before loading `spec`, and names the settle memo files this pass shares with the belt (`conform.settle_memo_files`): the oracle's rows are the belt's texts, so a settlement configuration whose file the belt wrote under these keys settles nothing, and one the belt has not reached yet writes the file the belt will load. A caller with no inputs shares nothing, and the overlay configuration has no memo to share, since its worker settles nothing at all.
 
     The cache's keys are cut once here — the row keys from the rune tree, the position keys from the compiled font and the kern sidecar — and handed to the workers, and then cut a second time at promotion, where a store is written only if neither a stamp nor a single key moved while the run held them. That second cut is the point: `fingerprint.rune_digests` reads the rune files off disk, a full run takes minutes, and the house style is to detach a long run and keep editing — so a rune touched mid-run would otherwise be recorded under a digest the verdicts on disk were never built from, and the next pass would serve pre-edit verdicts as fresh, green, forever. `_settle_green`'s recompute-before-recording and `artifact_cycle`'s green keys are the same discipline for the same reason.
 
@@ -901,7 +913,7 @@ def main(argv: list[str] | None = None) -> None:
         "--conform-horizon",
         type=int,
         default=4,
-        help="exhaustive sweep length for --conform-only (the per-edit belt); `make conform-deep` runs the same sweep deeper on demand",
+        help="exhaustive sweep length for --conform-only (the per-edit belt over the settlement configurations; the overlay configuration's arm stays at its own horizon); `make conform-deep` runs the same sweep deeper on demand",
     )
     parser.add_argument(
         "--kernel-threads",

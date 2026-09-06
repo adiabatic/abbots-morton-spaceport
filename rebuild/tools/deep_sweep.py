@@ -95,7 +95,8 @@ def main(argv: list[str] | None = None) -> int:
     belt_key = conform_skip_fingerprint(ROOT, CONFORM_HORIZON_DEFAULT)
     jobs = max(1, args.jobs)
     print(
-        f"deep sweep: horizon {args.horizon} over every acceptance configuration at {jobs} jobs", flush=True
+        f"deep sweep: horizon {args.horizon} over every settlement configuration at {jobs} jobs (the ss10 overlay's arm stays at its own horizon)",
+        flush=True,
     )
     summary = run_m1.run_font_conformance(max_length=args.horizon, jobs=jobs, summary_name=SUMMARY_NAME)
     print(json.dumps(summary, indent=2))

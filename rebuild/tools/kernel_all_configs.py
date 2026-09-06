@@ -1,4 +1,4 @@
-"""The Rust kernel over the acceptance configurations (`conform.ACCEPTANCE_CONFIGS`): one `ams-m1-kernel enumerate-configs` run, serially or fanned out over threads, with the rows named the way the retired Python endpoint (`m1_all_configs.py`, in git history) named its rows, so an old row and a new one still read side by side. It is the direct measurement behind `CONFIG_PEAK_BYTES` in `rebuild/pipeline/kernel_exec.py`: one child on its own, with the crate's `--cache-census` beside it for where the memo sits.
+"""The Rust kernel over the settlement configurations (`conform.SETTLEMENT_CONFIGS`; the ss10 overlay settles nothing and has no enumeration to time): one `ams-m1-kernel enumerate-configs` run, serially or fanned out over threads, with the rows named the way the retired Python endpoint (`m1_all_configs.py`, in git history) named its rows, so an old row and a new one still read side by side. It is the direct measurement behind `CONFIG_PEAK_BYTES` in `rebuild/pipeline/kernel_exec.py`: one child on its own, with the crate's `--cache-census` beside it for where the memo sits.
 
 Read-only on the repo. The spec dump and the transition streams are all this writes, both under rebuild/out/kernel-all/, and an `--out-dir` resolving anywhere else is refused: a scratch directory that resolved into `rebuild/out/m1` would overwrite the artifact cycle's tables.
 
@@ -16,7 +16,7 @@ Every configuration's row carries the sha256 of its stream file, so two runs at 
 
 What this harness times is the enumeration and the stream, which is what `enumerate-configs` does and no longer the whole of what a build's table stage does: since the crate grew its `build-tables` verb a build folds in the same process and writes tables rather than a stream, so `make cycle-timings`'s `build_tables_total` now covers a fold this arm does not. The two still compare on the enumeration, which is where the growth is.
 
-`--rung N` swaps the live alphabet for one rung of the nested ladder `rebuild/tools/scaling_ladder.py` cuts — the ladder `scaling_sweep.py` sweeps whole through this same binary — and times the default configuration alone on it, which is how one rung is re-timed, or timed at every acceptance configuration with `--configs`, without re-running the sweep. `--spec` measures a dump already written instead of writing a fresh one, which is how a rung gets a second run without re-resolving the spec, and `scaling_sweep.py` leaves one per rung under `AMS_SCALING_DUMP=<dir>` — but it names a spec, not a set of configurations, so a bare `--spec` over a rung dump times the whole acceptance set where the `--rung` that wrote it timed one. `--configs=default` beside it is what repeats the rung's own measurement; `--configs` narrows any run the same way, and refuses a token the acceptance sweep does not spell.
+`--rung N` swaps the live alphabet for one rung of the nested ladder `rebuild/tools/scaling_ladder.py` cuts — the ladder `scaling_sweep.py` sweeps whole through this same binary — and times the default configuration alone on it, which is how one rung is re-timed, or timed at every settlement configuration with `--configs`, without re-running the sweep. `--spec` measures a dump already written instead of writing a fresh one, which is how a rung gets a second run without re-resolving the spec, and `scaling_sweep.py` leaves one per rung under `AMS_SCALING_DUMP=<dir>` — but it names a spec, not a set of configurations, so a bare `--spec` over a rung dump times the whole acceptance set where the `--rung` that wrote it timed one. `--configs=default` beside it is what repeats the rung's own measurement; `--configs` narrows any run the same way, and refuses a token the acceptance sweep does not spell.
 """
 
 from __future__ import annotations
@@ -58,8 +58,8 @@ def digest_of(path: Path) -> str:
 
 
 def configs_from(requested: str) -> list[str]:
-    """The configurations a `--configs=` names, in the order it named them. A token the acceptance sweep does not spell is refused here rather than left to the kernel, which would refuse it too but only after the spec had been resolved and dumped — and this way the complaint can list what there is."""
-    offered = dict.fromkeys((*conform.ACCEPTANCE_CONFIGS, "default"))
+    """The configurations a `--configs=` names, in the order it named them. A token the table build does not enumerate is refused here rather than left to the kernel, which would refuse it too but only after the spec had been resolved and dumped — and this way the complaint can list what there is."""
+    offered = dict.fromkeys((*conform.SETTLEMENT_CONFIGS, "default"))
     tokens = [token.strip() for token in requested.split(",") if token.strip()]
     unknown = [token for token in tokens if token not in offered]
     if not tokens:
@@ -125,7 +125,7 @@ def main() -> int:
     if args.configs:
         tokens = configs_from(args.configs)
     else:
-        tokens = ["default"] if args.rung else list(conform.ACCEPTANCE_CONFIGS)
+        tokens = ["default"] if args.rung else list(conform.SETTLEMENT_CONFIGS)
     requested = (
         1 if args.mode == "serial" else (args.threads or min(len(tokens), os.process_cpu_count() or 1))
     )

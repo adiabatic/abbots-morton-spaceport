@@ -415,8 +415,8 @@ class TestTheKernelInvocation:
         """A caller with no `out_dir` gets the tables and leaves nothing behind: the kernel's artifacts land in a scratch directory that goes with the frame, and what comes back is the head every downstream stage reads plus the treaty rows the defect gates want."""
         monkeypatch.chdir(tmp_path)
         tables, digests = run_m1.build_tables(SPEC)
-        assert list(tables) == list(conform.ACCEPTANCE_CONFIGS)
-        assert list(digests) == list(conform.ACCEPTANCE_CONFIGS)
+        assert list(tables) == list(conform.SETTLEMENT_CONFIGS)
+        assert list(digests) == list(conform.SETTLEMENT_CONFIGS)
         assert all(decision.rules and treaty.rows for decision, treaty in tables.values())
         assert not sorted(tmp_path.iterdir())
 
@@ -451,17 +451,17 @@ class TestTheKernelInvocation:
         [
             (None, kernel_exec.KERNEL_THREADS_DEFAULT),
             (2, 2),
-            (99, len(conform.ACCEPTANCE_CONFIGS)),
+            (99, len(conform.SETTLEMENT_CONFIGS)),
         ],
     )
     def test_the_thread_width_is_how_many_configurations_run_at_once(
         self, monkeypatch, tmp_path, asked, wanted
     ):
-        """The width is not a flag on one invocation: every configuration gets a single-threaded process of its own that enumerates and folds it, tagged so its timing lines stay attributable, and the width is how many of those the build keeps in flight."""
+        """The width is not a flag on one invocation: every settlement configuration gets a single-threaded process of its own that enumerates and folds it, tagged so its timing lines stay attributable, and the width is how many of those the build keeps in flight; the overlay configuration is never asked for."""
         peak, seen = self._observe_fan_out(monkeypatch, tmp_path, asked)
-        assert peak == min(wanted, len(conform.ACCEPTANCE_CONFIGS), run_m1.usable_cores())
+        assert peak == min(wanted, len(conform.SETTLEMENT_CONFIGS), run_m1.usable_cores())
         assert sorted(config for (config,), _threads, _tag, _stamp in seen) == sorted(
-            conform.ACCEPTANCE_CONFIGS
+            conform.SETTLEMENT_CONFIGS
         )
         assert {threads for _configs, threads, _tag, _stamp in seen} == {1}
         assert all(tag == config for (config,), _threads, tag, _stamp in seen)
@@ -471,8 +471,8 @@ class TestTheKernelInvocation:
         """The third term is the cores this process may actually run on rather than the cores the box has, so a container held to a slice of its host keeps its width down to the slice however much memory the default was divided out of. The allowance is invented because the box running the suite is whatever it is — asking for every configuration against an allowance narrower than that is what makes a pass proof the term fired at all."""
         allowance = 2
         monkeypatch.setattr(run_m1, "usable_cores", lambda: allowance)
-        peak, _seen = self._observe_fan_out(monkeypatch, tmp_path, len(conform.ACCEPTANCE_CONFIGS))
-        assert peak == min(len(conform.ACCEPTANCE_CONFIGS), allowance)
+        peak, _seen = self._observe_fan_out(monkeypatch, tmp_path, len(conform.SETTLEMENT_CONFIGS))
+        assert peak == min(len(conform.SETTLEMENT_CONFIGS), allowance)
 
     def test_an_unstamped_build_names_a_stamp_the_kernel_will_accept(self, monkeypatch, tmp_path):
         """The verb requires a stamp, and a build with none still has to name one: the payload it writes is where the head comes from, and it is deleted unread rather than kept, so the word it carried never reaches an artifact."""

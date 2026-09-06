@@ -38,7 +38,7 @@ def stamped_decision(config: str, windows: bool = True) -> DecisionTable:
     return decision
 
 
-@pytest.mark.parametrize("config", conform.ACCEPTANCE_CONFIGS)
+@pytest.mark.parametrize("config", conform.SETTLEMENT_CONFIGS)
 def test_every_rule_has_a_witness(spec, config, live_artifacts):
     features = conform.features_for_config(config)
     decision = stamped_decision(config)
