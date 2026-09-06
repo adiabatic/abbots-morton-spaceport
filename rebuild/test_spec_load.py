@@ -1,5 +1,7 @@
 """spec_load unit tests: the real spec loads with class and group memberships that re-derive from the raw sources, every lint fires with a file/path/line error, and the built-in schema evaluator agrees with jsonschema when it is available."""
 
+import itertools
+import json
 import textwrap
 import warnings
 from dataclasses import replace
@@ -8,7 +10,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from rebuild.pipeline import fixtures, model, spec_load
+from rebuild.pipeline import conform, fixtures, model, spec_load
 from rebuild.pipeline.model import Condition, PolicyRecord
 from rebuild.pipeline.spec_load import SpecError, SpecWarning, load_default_spec, load_spec
 
@@ -925,3 +927,167 @@ class TestRuneClosure:
         spec = replace(MINI_SPEC, runes={**MINI_SPEC.runes, owner: patched})
         assert spec_load.rune_closure(spec)[owner] == {owner, target}
         assert spec_load.rune_closure(MINI_SPEC)[owner] == {owner}
+
+
+def _unlocked(stance: model.Stance, features: frozenset[str]) -> model.Stance:
+    """The stance with every unlock whose feature is on folded into its rows the way the engine reads them: an unlocked entry height is a selectable row whether or not one is declared, an unlocked exit height is a row where none is declared, and a pairing unlock moves no row."""
+    entries = dict(stance.surface.entries)
+    exits = dict(stance.surface.exits)
+    for unlock in stance.surface.unlocks:
+        if unlock.feature not in features:
+            continue
+        if unlock.entry is not None:
+            declared = entries.get(unlock.entry)
+            entries[unlock.entry] = (
+                replace(declared, selectable=True)
+                if declared is not None
+                else model.SurfaceRow(height=unlock.entry, x=0)
+            )
+        if unlock.exit is not None and unlock.exit not in exits:
+            exits[unlock.exit] = model.SurfaceRow(height=unlock.exit, x=0)
+    return replace(stance, surface=replace(stance.surface, entries=entries, exits=exits))
+
+
+def _capability_powerset(spec: model.ResolvedSpec) -> list[frozenset[str]]:
+    features = spec_load.capability_features(spec)
+    return [
+        frozenset(subset)
+        for size in range(len(features) + 1)
+        for subset in itertools.combinations(features, size)
+    ]
+
+
+def _configurations(spec: model.ResolvedSpec) -> dict[str, frozenset[str]]:
+    """Every acceptance configuration by its token, plus every subset of the capability features the guard quantifies over, by the token `emit_gsub` would spell it with."""
+    configurations = {config: conform.features_for_config(config) for config in conform.ACCEPTANCE_CONFIGS}
+    for subset in _capability_powerset(spec):
+        configurations.setdefault("+".join(sorted(subset)) or "default", subset)
+    return configurations
+
+
+def _feature_conditioned_records(spec: model.ResolvedSpec) -> list[tuple[str, str, PolicyRecord]]:
+    return [
+        (rune.name, kind, record)
+        for rune in spec.runes.values()
+        for kind in ("refuse", "prefer", "extend", "contract", "resolve")
+        for record in getattr(rune.policy, kind)
+        if record.when.feature is not None
+    ]
+
+
+def _unlocking_runes(spec: model.ResolvedSpec) -> dict[str, frozenset[str]]:
+    """Per feature, the runes some stance of which carries an unlock gated on it."""
+    by_feature: dict[str, set[str]] = {}
+    for rune in spec.runes.values():
+        for stance in rune.stances.values():
+            for unlock in stance.surface.unlocks:
+                by_feature.setdefault(unlock.feature, set()).add(rune.name)
+    return {feature: frozenset(runes) for feature, runes in by_feature.items()}
+
+
+def _feature_scoped_runes(spec: model.ResolvedSpec) -> dict[str, frozenset[str]]:
+    """Per feature, the runes a configuration naming it can move at all: the unlocking runes plus the owners of a record conditioned on it. A window naming none of a configuration's runes settles as `default` does (the tracking issue's configuration corollary)."""
+    scoped = {feature: set(runes) for feature, runes in _unlocking_runes(spec).items()}
+    for rune_name, _kind, record in _feature_conditioned_records(spec):
+        assert record.when.feature is not None
+        scoped.setdefault(record.when.feature, set()).add(rune_name)
+    return {feature: frozenset(runes) for feature, runes in scoped.items()}
+
+
+def _scoped_under(spec: model.ResolvedSpec, features: frozenset[str]) -> frozenset[str]:
+    """The runes one configuration can move, read off the records the way the engine reads them: an unlock or a record whose feature is on."""
+    return frozenset(
+        rune.name
+        for rune in spec.runes.values()
+        if any(
+            unlock.feature in features
+            for stance in rune.stances.values()
+            for unlock in stance.surface.unlocks
+        )
+        or any(
+            record.when.feature in features
+            for kind in ("refuse", "prefer", "extend", "contract", "resolve")
+            for record in getattr(rune.policy, kind)
+        )
+    )
+
+
+class TestConfigurationBlindness:
+    """The pins a configuration-delta enumeration rests on (issue #185): what a stylistic set can move is confined to unlock rows and feature-conditioned policy records, so everything else the engine reads is identical under every configuration. The formation guard's half of the same claim is pinned in rebuild/test_settle.py, where the crate answers it."""
+
+    def test_predicate_class_membership_is_identical_under_every_configuration(self, spec):
+        """`_evaluate_predicate_classes` reads declared rows and never an unlock, so membership is feature-blind by construction; this pins that folding every active unlock in — under each acceptance configuration and under every subset of the capability features the guard quantifies over — derives the same classes. A configuration does move a surface at stance grain (qsTea.full takes an x-height entry under ss03), but classes are rune-grain sets and another stance of the same rune already declares that row, so no rune's membership moves. The tripwire is an unlock granting a rune a height none of its stances declares."""
+        declared = yaml.safe_load(spec_load.DEFAULT_REGISTRY_PATH.read_text())["predicate_classes"]
+        everything = frozenset(spec_load.capability_features(spec))
+        assert any(
+            _unlocked(stance, everything) != stance
+            for rune in spec.runes.values()
+            for stance in rune.stances.values()
+        ), "the fold has to move some stance for the pin to have teeth"
+        for label, features in _configurations(spec).items():
+            for class_name, expression in declared.items():
+                derived = {
+                    rune.name
+                    for rune in spec.runes.values()
+                    if any(
+                        _resolved_stance_satisfies(expression, rune, _unlocked(stance, features))
+                        for stance in rune.stances.values()
+                    )
+                }
+                assert derived == spec.registry.predicate_classes[class_name], (label, class_name)
+
+    def test_feature_conditions_live_on_unlock_rows_and_on_refuse_and_extend_records_only(self, spec):
+        """Issue #185 states the claim as unlock rows and refuse records, and that fails today on the extend side: the ss03 by-1 x-height extensions toward ·Tea (qsFee.policy.extend[2] and its siblings on qsI, qsLow, qsMay, qsUtter, qsDay_qsUtter, qsJai_qsUtter, qsSee_qsUtter, qsVie_qsUtter) carry `feature: ss03`. So the pin is what holds: refuse and extend are the record kinds that read a feature, prefer, contract, and resolve never do, an unlock's own `when:` never names one (its `feature` is the gate), and every feature named anywhere is registered. `Condition` carries no feature axis, so a scope (`from:`, `toward:`) or a left or right condition cannot read one at all."""
+        conditioned = _feature_conditioned_records(spec)
+        assert {kind for _rune, kind, _record in conditioned} == {"refuse", "extend"}
+        extends = {
+            (rune_name, record.provenance.path if record.provenance else None)
+            for rune_name, kind, record in conditioned
+            if kind == "extend"
+        }
+        assert ("qsFee", "policy.extend[2]") in extends
+        assert {record.when.feature for _rune, kind, record in conditioned if kind == "extend"} == {"ss03"}
+        assert not any(
+            unlock.when is not None and unlock.when.feature is not None
+            for rune in spec.runes.values()
+            for stance in rune.stances.values()
+            for unlock in stance.surface.unlocks
+        )
+        named = {record.when.feature for _rune, _kind, record in conditioned} | set(_unlocking_runes(spec))
+        assert named <= set(spec.registry.features)
+        assert not hasattr(Condition(), "feature")
+
+    def test_a_feature_condition_names_one_feature(self):
+        """A `when.feature` is one tag, never a list: the schema's `featureTag` is a string, so no record can be written that wakes only under a pair of sets, which is what makes a joint configuration's reach the union of its members' below."""
+        schema = json.loads((spec_load.DEFAULT_SCHEMA_DIR / "rune.schema.json").read_text())
+        assert schema["$defs"]["featureTag"]["type"] == "string"
+        assert schema["$defs"]["when"]["properties"]["feature"] == {"$ref": "#/$defs/featureTag"}
+        assert schema["$defs"]["unlock"]["properties"]["feature"]["$ref"] == "#/$defs/featureTag"
+
+    def test_each_interaction_is_covered_by_the_union_of_its_members_unlocking_runes(self, spec):
+        """`features.interactions` in rebuild/script.yaml names the set combinations the acceptance matrix enumerates jointly, and each is covered: every member is a capability feature some rune unlocks, the joint token is an acceptance configuration, the runes the joint configuration can move are exactly the union of the runes each member moves, and the members unlock a rune in common (qsTea's full stance takes both the ss03 x-height entry and the ss05 both-baseline pairing), which is what makes the pair worth enumerating jointly. The converse holds too: every pair of capability features that unlock a rune in common is a declared interaction, so no interacting pair ships outside the acceptance matrix."""
+        unlocking = _unlocking_runes(spec)
+        scoped = _feature_scoped_runes(spec)
+        capability = [tag for tag, info in spec.registry.features.items() if info.kind == "capability"]
+        assert set(spec_load.capability_features(spec)) == set(unlocking) <= set(capability)
+        assert spec.registry.interactions
+        for group in spec.registry.interactions:
+            assert all(member in unlocking for member in group), group
+            token = "+".join(sorted(group))
+            assert token in conform.ACCEPTANCE_CONFIGS
+            assert conform.features_for_config(token) == frozenset(group)
+            assert _scoped_under(spec, frozenset(group)) == frozenset().union(
+                *(scoped[member] for member in group)
+            )
+            assert frozenset.intersection(*(unlocking[member] for member in group)), group
+        for config in conform.ACCEPTANCE_CONFIGS:
+            features = conform.features_for_config(config)
+            assert _scoped_under(spec, features) == frozenset().union(
+                *(scoped.get(feature, frozenset()) for feature in features)
+            ), config
+        interacting = {
+            (first, second)
+            for first, second in itertools.combinations(sorted(unlocking), 2)
+            if unlocking[first] & unlocking[second]
+        }
+        assert {tuple(sorted(group)) for group in spec.registry.interactions} == interacting

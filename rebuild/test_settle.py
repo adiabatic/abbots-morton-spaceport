@@ -5,9 +5,11 @@ Expectations marked AUTHORED-DATA FINDING assert the authored rune files' actual
 Two claims about the retired Python engine's own internals went with it rather than moving to the crate. The candidate cache's aliasing — a warm engine handing back the very list it built before, unmutated by a settlement in between — is a statement about a shared Python list the crate has no counterpart for; what the memo owes is pinned instead by engine.rs's only_a_trace_memo_engine_memoizes_an_enumeration_and_a_hit_replays_its_delta and a_warm_engine_fires_exactly_what_a_cold_one_fires. The pairing-set cache's bound went with the cache: the crate keys pairing sets on StanceId, so a spec has exactly as many as it has stances and there is nothing left to cap.
 """
 
+import itertools
+
 import pytest
 
-from rebuild.pipeline import fixtures, kernel_exec
+from rebuild.pipeline import conform, fixtures, kernel_exec, spec_load
 from rebuild.pipeline.model import CellId, Condition, PolicyRecord, Settled, When
 from rebuild.pipeline.settle import (
     EDGE,
@@ -513,6 +515,54 @@ def test_formation_blocked_verdicts_are_config_blind(real_spec, real_guard):
     assert not real_guard[("qsDay_qsUtter", utter, tea)]
     for follower in real_spec.runes:
         assert not real_guard[("qsTea_qsOy", RightToken("letter", follower), EDGE)]
+
+
+@pytest.fixture(scope="module")
+def guard_by_configuration(real_spec) -> dict[frozenset[str], kernel_exec.FormationGuard]:
+    """One single-engine sweep per configuration: every subset of the capability features the quantified guard's engines walk, plus every acceptance configuration, so the taste set rides too."""
+    features = spec_load.capability_features(real_spec)
+    subsets = {
+        frozenset(subset)
+        for size in range(len(features) + 1)
+        for subset in itertools.combinations(features, size)
+    }
+    subsets |= {conform.features_for_config(config) for config in conform.ACCEPTANCE_CONFIGS}
+    return {subset: kernel_exec.guard_sweep_under(real_spec, subset) for subset in subsets}
+
+
+def test_no_configuration_frees_a_window_the_quantified_guard_blocks(real_guard, guard_by_configuration):
+    """Every configuration's surface walks the quantified surface's keys, and the quantified verdict blocks only where every configuration blocks, so a single configuration's own surface is stricter or the same and never looser."""
+    assert len(guard_by_configuration) > len(conform.ACCEPTANCE_CONFIGS)
+    for features, surface in guard_by_configuration.items():
+        assert surface.keys() == real_guard.keys(), sorted(features)
+        assert all(surface[key] for key, blocked in real_guard.items() if blocked), sorted(features)
+
+
+def test_ss03_is_the_one_set_the_guard_surface_depends_on(real_spec, real_guard, guard_by_configuration):
+    """Issue #185's claim that the surface is identical across configurations fails today, and the way it fails is what this pins. Every configuration with ss03 on sweeps exactly the quantified surface. Every configuration without it — default, ss04, ss05, ss04+ss05, ss10 — sweeps one and the same stricter surface, blocking exactly the windows where the ss03 x-height entry into full ·Tea is the only seam a qsUtter-trailing ligature can offer a ·Tea follower: `(X_qsUtter, ·Tea, r2)` for the ligatures qsTea's ss03 unlocks name as lefts, and no other. The font is right either way, because formation stages before the ss markers and `settle.form_ligatures` reads the quantified sweep in every configuration: ·Day·Utter·Tea forms the ligature under default with ·Tea unjoined, and ·Tea joins it only under ss03 (`real_labels` above pins both). What a configuration delta may lean on is therefore narrower than the issue stated and is pinned here: ss04, ss05 and ss10 move no formation verdict even at single-engine grain, and ss03 moves only these. If the disagreement ever empties, the claim as issued holds and this test is what tightens to say so."""
+    tea = RightToken("letter", "qsTea")
+    ligatures_ss03_names = {
+        name
+        for stance in real_spec.runes["qsTea"].stances.values()
+        for unlock in stance.surface.unlocks
+        if unlock.feature == "ss03" and unlock.when is not None and unlock.when.left is not None
+        for name in unlock.when.left.family
+        if name in real_spec.runes and real_spec.runes[name].sequence
+    }
+    assert ligatures_ss03_names
+    without_ss03: dict[frozenset[str], frozenset] = {}
+    for features, surface in guard_by_configuration.items():
+        disagreements = frozenset(key for key, blocked in surface.items() if blocked != real_guard[key])
+        if "ss03" in features:
+            assert not disagreements, sorted(features)
+        else:
+            without_ss03[features] = disagreements
+    assert {frozenset(), frozenset({"ss04"}), frozenset({"ss05"}), frozenset({"ss10"})} <= without_ss03.keys()
+    (disagreements,) = set(without_ss03.values())
+    assert disagreements, "the finding has dissolved: every configuration sweeps the quantified surface"
+    assert {right1 for _ligature, right1, _right2 in disagreements} == {tea}
+    assert {ligature for ligature, _right1, _right2 in disagreements} == ligatures_ss03_names
+    assert not any(real_guard[key] for key in disagreements)
 
 
 def test_the_guard_reads_letters_only_and_indexes_the_surface_it_was_given(real_guard):

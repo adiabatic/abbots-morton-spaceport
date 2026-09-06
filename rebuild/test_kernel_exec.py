@@ -3,6 +3,7 @@
 Nothing skips. A box without `cargo` fails these tests with the remedy `KernelBuildError` carries, and that is the honest signal now that no in-process fixpoint exists to fall back to: the M1 build itself cannot run there either.
 """
 
+import itertools
 import json
 import threading
 import time
@@ -10,7 +11,7 @@ from collections import OrderedDict
 
 import pytest
 
-from rebuild.pipeline import conform, fixtures, kernel_exec, run_m1
+from rebuild.pipeline import conform, fixtures, kernel_exec, run_m1, spec_load
 from rebuild.pipeline import table as table_module
 from rebuild.pipeline.settle import (
     EDGE,
@@ -324,6 +325,20 @@ class TestTheInvocationSeam:
         for ligature in ligatures:
             assert (ligature, first, ZWNJ) in verdicts
             assert (ligature, first, NAMER_DOT) in verdicts
+
+    def test_one_configuration_sweeps_the_same_keys_and_the_quantified_verdict_needs_every_one_to_block(self):
+        """`guard_sweep_under` is the verb's other answer: one configuration's surface over exactly the quantified surface's keys, spawned per call because nothing that ships reads it. The quantified verdict blocks exactly where every subset of the capability-unlock features blocks — the powerset `guard.rs` quantifies over, walked here as the crate walks it."""
+        quantified = kernel_exec.guard_sweep(SPEC)
+        features = spec_load.capability_features(SPEC)
+        surfaces = [
+            kernel_exec.guard_sweep_under(SPEC, frozenset(subset))
+            for size in range(len(features) + 1)
+            for subset in itertools.combinations(features, size)
+        ]
+        assert len(surfaces) == 2 ** len(features)
+        assert all(surface.keys() == quantified.keys() for surface in surfaces)
+        for key, blocked in quantified.items():
+            assert blocked == all(surface[key] for surface in surfaces), key
 
 
 @pytest.mark.parametrize(
