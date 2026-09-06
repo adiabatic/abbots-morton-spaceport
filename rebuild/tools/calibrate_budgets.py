@@ -50,6 +50,10 @@ class Unit:
     note: str
 
 
+# The kernel's two constants live in one file: the per-configuration figure the fan-out width is divided out of, and the whole-process figure the run_m1 step is watched against.
+KERNEL_SOURCE = "rebuild/pipeline/kernel_exec.py"
+KERNEL_CONFIG_NAME = "CONFIG_PEAK_BYTES"
+
 UNITS: tuple[Unit, ...] = (
     Unit(
         name="font-suite",
@@ -70,13 +74,13 @@ UNITS: tuple[Unit, ...] = (
         note="The rebuild suite's width is the cores this process may actually run on, and nothing divides the box by a per-worker cost to reach it — no test in it reads a live build artifact, so no worker holds a working set worth bounding — and there is nothing here to calibrate. The observations are collected and reported anyway, so that if the suite ever grows a memory-derived width the figure to seed it with is already on the record rather than a measurement someone still has to go and take.",
     ),
     Unit(
-        name="kernel-config",
-        constant="CONFIG_PEAK_BYTES",
-        source="rebuild/pipeline/kernel_exec.py",
+        name="kernel-build",
+        constant="TABLE_BUILD_PEAK_BYTES",
+        source=KERNEL_SOURCE,
         pool_units=(),
         step_names=("run_m1",),
-        step_caveat="run_m1's peak is the widest single process in its tree, and that is one configuration child — the parent holds only heads, and every child is handed threads=1 — so the step peak reads one configuration however wide the fan-out was. The approximation runs in one direction that matters: it is the widest configuration of the ones that ran, and a solo direct measurement has been observed higher than the journal's rows, which is why the constant carries headroom past them.",
-        note="The direct measurement is rebuild/tools/kernel_all_configs.py plus the crate's --cache-census, which is what to reach for before re-seeding; this row is the cheap standing watch beside it rather than a replacement for it.",
+        step_caveat="run_m1's peak is the widest single process in its tree, and that is the one build-tables child holding every settlement configuration — default's retained memo beside every delta in flight — so the step peak reads the whole table build at whatever width the cycle handed it, never one configuration. CONFIG_PEAK_BYTES, the per-configuration figure the width is divided out of, is not measured by any step here: its reading is the crate's own --cache-census on default, and the bound it states is that this unit's peak stays under one configuration more than the delta width.",
+        note="The direct measurement is one build-tables over every settlement configuration under /usr/bin/time -l with --cache-census, which is what to reach for before re-seeding either constant; this row is the cheap standing watch beside it rather than a replacement for it.",
     ),
     Unit(
         name="surface-parent",
@@ -364,9 +368,12 @@ def _width_clause(unit: Unit, constant_bytes: int, *, total_bytes: int, cores: i
     if unit.name == "font-suite":
         allowed = memory_budget.describe_fit(constant_bytes, total_bytes=total_bytes)
         return f"the font suite takes the cores this process may run on ({cores}), not the division; memory would allow {allowed}"
-    if unit.name == "kernel-config":
-        fit = memory_budget.describe_fit(constant_bytes, total_bytes=total_bytes)
-        return f"{fit}; run_m1.build_tables then narrows that by the configurations there are to answer and the cores there are to answer them with"
+    if unit.name == "kernel-build":
+        configuration = _int_constant(root / KERNEL_SOURCE, KERNEL_CONFIG_NAME)
+        fit = memory_budget.describe_fit(
+            configuration, coresident_bytes=configuration, total_bytes=total_bytes
+        )
+        return f"the whole table build is watched here and divides nothing; its delta wave runs {fit} ({KERNEL_CONFIG_NAME}, one taken off first for default's memo), which run_m1.build_tables then narrows by the configurations there are to answer and the cores there are to answer them with"
     if unit.name == "surface-parent":
         worker = _int_constant(root / SURFACE_SOURCE, SURFACE_WORKER_NAME)
         cap = min(_int_constant(root / SURFACE_SOURCE, SURFACE_CAP_NAME), cores)

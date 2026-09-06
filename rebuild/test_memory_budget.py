@@ -146,9 +146,13 @@ class TestTheWidthsAlreadyOnRecord:
         )
 
     @pytest.mark.parametrize("total", SPELLINGS_OF_32_GB)
-    def test_the_shipped_divisor_holds_the_32_gb_box_at_the_width_the_memo_levers_bought(self, total: int):
-        """The forward direction, and the only comparison left that means anything once `KERNEL_THREADS_DEFAULT` is derived: the left side is the divisor this repo actually ships run through the policy this repo actually ships, against a box that is stated rather than probed, and the right side is the width the trace memo's probe-cascade lever of issue #168 bought that box — six configurations in flight, the whole acceptance set, where the memo-side levers of issue #105 bought four and #46 recorded two at the divisor before them. Re-measuring `CONFIG_PEAK_BYTES` is meant to move this number, and pinning it here is what makes a re-seed say so in the same commit rather than widen a box quietly."""
-        assert memory_budget.how_many_fit(CONFIG_PEAK_BYTES, total_bytes=total) == 6
+    def test_the_shipped_divisor_holds_the_32_gb_box_at_the_width_the_delta_wave_needs(self, total: int):
+        """The forward direction, and the only comparison left that means anything once `KERNEL_THREADS_DEFAULT` is derived: the left side is the divisor this repo actually ships run through the derivation this repo actually ships — a configuration's peak taken off the box for `default`'s retained memo and then divided into what is left — against a box that is stated rather than probed, and the right side is more deltas in flight than the whole acceptance set has, so the box runs its delta wave at once. Re-measuring `CONFIG_PEAK_BYTES` is meant to move this number, and pinning it here is what makes a re-seed say so in the same commit rather than widen a box quietly. The second assertion is the bound the process constant states against the per-configuration one: the whole table build, at the delta width the acceptance set can reach, fits under one configuration more than that width."""
+        from rebuild.pipeline.conform import SETTLEMENT_CONFIGS
+        from rebuild.pipeline.kernel_exec import TABLE_BUILD_PEAK_BYTES, kernel_threads_default
+
+        assert kernel_threads_default(total_bytes=total) == 5
+        assert TABLE_BUILD_PEAK_BYTES <= CONFIG_PEAK_BYTES * len(SETTLEMENT_CONFIGS)
 
     def test_the_shipped_surface_divisor_narrows_the_32_gib_box_below_its_core_clamp(self):
         """The forward direction for the third width, against the box that reported it. The ten-core 32 GiB Mac that ran the 2026-08-27 full-fresh surface build got eight workers out of the core clamp this replaced — ten cores less gate:make-test's two, which met `SURFACE_JOBS_CAP` exactly — and the only reading anyone had of that build's footprint was a step peak, which maxes over the process tree instead of summing it and so could see the parent alone. Deriving the width instead is what puts the workers in the number. The assertion is an inequality because both surface constants are readings to keep current: re-seeding either is free as long as it does not hand this box back its eight."""

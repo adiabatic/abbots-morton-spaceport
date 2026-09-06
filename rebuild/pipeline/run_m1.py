@@ -1,6 +1,6 @@
 """The M1 integration driver (M1-PLAN Phase 5): the full pipeline run over the real rune files, writing every section 8 artifact under rebuild/out/m1/.
 
-Stages: load_default_spec -> per-configuration decision/treaty tables, one pair per settlement configuration (`conform.SETTLEMENT_CONFIGS`; enumerated and folded in the kernel crate, one process per configuration: the first-match-wins replay asserted as each one folds, TSVs written, one realizing certificate per rule closed off the rows' own producer chains, and the window enumeration serialized under the fingerprint of the sources it came from, so `--conform-only` mints its glyph inventory from it and refuses to run against a stale or missing one) -> the string replay (`run_replay_strings`: every settlement configuration's persisted rules walked in the crate over the string universe against the crate's own settlement, whole-universe on a code or structure change and only over the texts naming an edited family on a rune edit, red naming the offending text; `rebuild/out/m1/replay_summary.json` is its record) -> the witness stage (`run_rule_witnesses`: every certificate settled through the crate and its rule asserted to fire, the realizability half of the dead-rule alarm, written to witness_summary.json) -> glyph inventory minting (settled cells named by the table's own cell labels, plus the raw cmap glyphs, marker twins, chokepoint twins, and the namer dot pair) -> defect gates (defects.run_gates under the reviewed allow-list) -> emit_gsub/emit_gpos (whose plan also enumerates the emitted lookup's HarfBuzz-facing shapes into behavior_classes.json, the arming key rebuild/tools/deep_sweep.py reads) -> build_mini_font -> read-back (the font just written, re-parsed from its own bytes and structurally proven against the plan the emitters held, with the GSUB's uint16 subtable-offset headroom read off the raw table bytes in that same parse and held to its floor, and that plan's settlement rows recorded beside the summary with their per-configuration sources for the witness gate to count coverage over; rebuild/pipeline/readback.py).
+Stages: load_default_spec -> per-configuration decision/treaty tables, one pair per settlement configuration (`conform.SETTLEMENT_CONFIGS`; enumerated and folded in the kernel crate in one process, `default` first and the rest as deltas over its memo: the first-match-wins replay asserted as each one folds, TSVs written, one realizing certificate per rule closed off the rows' own producer chains, and the window enumeration serialized under the fingerprint of the sources it came from, so `--conform-only` mints its glyph inventory from it and refuses to run against a stale or missing one) -> the string replay (`run_replay_strings`: every settlement configuration's persisted rules walked in the crate over the string universe against the crate's own settlement, whole-universe on a code or structure change and only over the texts naming an edited family on a rune edit, red naming the offending text; `rebuild/out/m1/replay_summary.json` is its record) -> the witness stage (`run_rule_witnesses`: every certificate settled through the crate and its rule asserted to fire, the realizability half of the dead-rule alarm, written to witness_summary.json) -> glyph inventory minting (settled cells named by the table's own cell labels, plus the raw cmap glyphs, marker twins, chokepoint twins, and the namer dot pair) -> defect gates (defects.run_gates under the reviewed allow-list) -> emit_gsub/emit_gpos (whose plan also enumerates the emitted lookup's HarfBuzz-facing shapes into behavior_classes.json, the arming key rebuild/tools/deep_sweep.py reads) -> build_mini_font -> read-back (the font just written, re-parsed from its own bytes and structurally proven against the plan the emitters held, with the GSUB's uint16 subtable-offset headroom read off the raw table bytes in that same parse and held to its floor, and that plan's settlement rows recorded beside the summary with their per-configuration sources for the witness gate to count coverage over; rebuild/pipeline/readback.py).
 
 The glyph-name contract this driver pins: settlement-lookup outcomes are `settle.cell_label` names, so the decision-table rules and the compiled glyph set agree by construction; the raw cmap glyph for each rune is the bare rune name drawn as the isolated cell but carrying no curs anchors; marker, chokepoint, and ss10 twins reuse the bare drawing (under ss10 the pre-empt lookup substitutes every letter's cmap glyph by its anchor-free `.ss10` twin before formation, so no ligature ever forms, nothing settles, each letter keeps its own cluster, and every seam is a break). That is why the overlay configuration (`conform.OVERLAY_CONFIGS`) has no table of its own: read-back proves the pre-empt covers every letter cmap glyph and keeps the twins out of every other stage, the belt sweeps it at `conform.OVERLAY_HORIZON`, and the oracle holds its rows against the bare stream with the twins' `hmtx` advances for positions.
 
@@ -85,15 +85,15 @@ def build_tables(
     inputs: str | None = None,
     kernel_threads: int | None = None,
 ) -> tuple[dict[str, tuple], dict[str, str]]:
-    """Every settlement configuration's decision and treaty tables: the resolved spec dumped once, then one `build-tables` process per configuration, each of which enumerates its fixpoint and folds it in place. An overlay configuration gets none, and any table files a build once left under its name are removed first, so a directory globbed after a build holds this build's tables and nothing else. There is no stream and no fold on this side at all — the crate writes the settlement TSV, the treaty TSV and the window enumeration itself, so the several hundred megabytes a configuration's transitions cost to write, to read and to hold parsed are never spent.
+    """Every settlement configuration's decision and treaty tables: the resolved spec dumped once, then one `build-tables` process over every configuration, which enumerates `default`'s fixpoint, folds it in place, and enumerates each other configuration as a delta over `default`'s finished memo (`kernel_exec.build_table_files`), folding each as it lands. An overlay configuration gets none, and any table files a build once left under its name are removed first, so a directory globbed after a build holds this build's tables and nothing else. There is no stream and no fold on this side at all — the crate writes the settlement TSV, the treaty TSV and the window enumeration itself, so the several hundred megabytes a configuration's transitions cost to write, to read and to hold parsed are never spent.
 
-    What Python does per configuration is small and is what only Python can do: pack the plain window payload into the `.gz` the artifact is (the compressor never crossed the boundary), read the head back for the rules, the reachable cells and the fired provenance every downstream stage needs, and parse the treaty TSV back for the defect gates.
+    What Python does per configuration is small and is what only Python can do: pack the plain window payload into the `.gz` the artifact is (the compressor never crossed the boundary), read the head back for the rules, the reachable cells and the fired provenance every downstream stage needs, and parse the treaty TSV back for the defect gates. That runs in a thread per configuration behind the one kernel process, since the compressor releases the interpreter lock.
 
     `out_dir`, when given, gets the section 8 TSVs. The second returned mapping is each configuration's `table.table_digest` as the crate reported it — taken in the crate while the window rows are still in hand, which is the grain the rest of the rebuild states table identity at and the only moment it can be taken without re-costing the fixpoint; the crate also prints it on stdout, which is where `rebuild/tools/scaling_sweep.py` reads it. Both returned mappings are rebuilt in `conform.SETTLEMENT_CONFIGS` order however the configurations finish, so completion order can never reach an artifact.
 
     `inputs` is `tables_inputs` over the sources this spec was loaded from. Supplying it alongside `out_dir` keeps each configuration's window enumeration next to the TSVs — where `run_font_conformance` picks it up rather than rebuilding anything — under the stamp that names those sources; omit it and the payload is read for its head and deleted, which is what a caller building a spec of its own must have, since the fingerprint names the repo's rune files and cannot vouch for tables they did not produce.
 
-    `kernel_threads` is how many configurations are in flight at once, capped here at the configuration count and the cores this process may actually run on — neither of which is a memory bound — while the default it falls back to is the memory one: `kernel_exec.KERNEL_THREADS_DEFAULT` is this box's own memory divided by what a configuration costs while it holds its whole working set, from the first window it reaches to the last artifact it writes. So this `min()` only ever narrows a memory-derived width and never widens one, and nothing about memory belongs inside it. The fold's own width went with the Python fold: it runs inside the enumerating process now, and there is nothing left on this side to widen.
+    `kernel_threads` is how many delta configurations are in flight at once behind `default`, capped here at the configuration count and the cores this process may actually run on — neither of which is a memory bound — while the default it falls back to is the memory one: `kernel_exec.KERNEL_THREADS_DEFAULT` is this box's own memory, less what `default`'s finished memo holds, divided by what one delta costs while it holds its own working set. So this `min()` only ever narrows a memory-derived width and never widens one, and nothing about memory belongs inside it. The fold's own width went with the Python fold: it runs inside the enumerating process, and there is nothing left on this side to widen.
     """
     configs = conform.SETTLEMENT_CONFIGS
     threads = max(
@@ -113,18 +113,18 @@ def build_tables(
             for path in overlay_table_files(tables_dir, config):
                 path.unlink(missing_ok=True)
 
-        def build_one(config: str) -> tuple[str, tuple, str]:
-            start = time.perf_counter()
-            answered = kernel_exec.build_table_files(
-                spec_path,
-                tables_dir,
-                [config],
-                inputs=inputs if inputs is not None else kernel_exec.UNSTAMPED_WINDOWS,
-                threads=1,
-                timings=True,
-                timings_tag=config,
-            )
-            print(f"[t] kernel_enumerate[{config}] {time.perf_counter() - start:.1f}s", flush=True)
+        start = time.perf_counter()
+        digests = kernel_exec.build_table_files(
+            spec_path,
+            tables_dir,
+            list(configs),
+            inputs=inputs if inputs is not None else kernel_exec.UNSTAMPED_WINDOWS,
+            threads=threads,
+            timings=True,
+        )
+        print(f"[t] kernel_build_tables {time.perf_counter() - start:.1f}s", flush=True)
+
+        def read_one(config: str) -> tuple[str, tuple]:
             start = time.perf_counter()
             payload = tables_dir / f"windows-{config}.tsv"
             with payload.open("rt", encoding="utf-8") as handle:
@@ -134,13 +134,12 @@ def build_tables(
                 _pack_windows(payload, table_module.windows_path(tables_dir, config))
             payload.unlink()
             print(f"[t] pack_windows[{config}] {time.perf_counter() - start:.1f}s", flush=True)
-            return config, (decision, treaty), answered[config]
+            return config, (decision, treaty)
 
-        with ThreadPoolExecutor(max_workers=threads) as kernels:
-            for finished in as_completed([kernels.submit(build_one, config) for config in configs]):
-                config, tables, digest = finished.result()
+        with ThreadPoolExecutor(max_workers=threads) as packers:
+            for finished in as_completed([packers.submit(read_one, config) for config in configs]):
+                config, tables = finished.result()
                 built[config] = tables
-                digests[config] = digest
                 console.progress(len(built), len(configs), "configurations")
     return {config: built[config] for config in configs}, {config: digests[config] for config in configs}
 
@@ -1086,8 +1085,8 @@ def main(argv: list[str] | None = None) -> None:
         type=int,
         default=None,
         help=(
-            "how many configurations the kernel enumerates and folds at once, capped at the configuration count and the cores this process may actually run on; the ceiling is memory rather than CPU, so the default is derived from the box in hand rather than checked in — on this one "
-            f"{describe_fit(kernel_exec.CONFIG_PEAK_BYTES)} — which AMS_KERNEL_THREADS short-circuits and this flag beats in turn"
+            "how many delta configurations the kernel enumerates and folds at once beside default's memo, capped at the configuration count and the cores this process may actually run on; the ceiling is memory rather than CPU, so the default is derived from the box in hand rather than checked in — on this one "
+            f"{describe_fit(kernel_exec.CONFIG_PEAK_BYTES, coresident_bytes=kernel_exec.CONFIG_PEAK_BYTES)} — which AMS_KERNEL_THREADS short-circuits and this flag beats in turn"
         ),
     )
     args = parser.parse_args(argv)

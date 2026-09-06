@@ -356,6 +356,41 @@ fn a_table_build_files_three_artifacts_and_answers_one_digest_per_configuration(
     }
 }
 
+/// The configuration delta is invisible in the artifacts: a table build reading `default`'s memo for the other configurations files the same three artifacts per configuration, byte for byte, as one told to enumerate every configuration from scratch, and answers the same digests.
+#[test]
+fn a_seeded_table_build_files_the_bytes_a_from_scratch_one_files() {
+    let root = scratch("cli-config-seed");
+    let spec = spec_at(&root);
+    let seeded = root.join("seeded");
+    let scratch_built = root.join("scratch");
+    let mut answers: Vec<String> = Vec::new();
+    for (outdir, extra) in [(&seeded, None), (&scratch_built, Some("--config-seed-off"))] {
+        let mut arguments = vec![
+            "build-tables",
+            word(&spec),
+            word(outdir),
+            "--configs=default,ss03",
+            "--inputs=cli-stamp",
+            "--threads=2",
+        ];
+        arguments.extend(extra);
+        let output = run(&arguments);
+        assert!(output.status.success(), "{}", complaint(&output));
+        answers.push(String::from_utf8(output.stdout).expect("the digests are text"));
+    }
+    assert_eq!(answers[0], answers[1]);
+    for (token, _) in CONFIGS {
+        for family in ["settlement", "treaties", "windows"] {
+            let name = format!("{family}-{token}.tsv");
+            assert_eq!(
+                std::fs::read(seeded.join(&name)).expect("the seeded build filed it"),
+                std::fs::read(scratch_built.join(&name)).expect("and so did the other"),
+                "{name}"
+            );
+        }
+    }
+}
+
 /// The word each TSV's own comment line uses for itself.
 fn family_word(family: &str) -> &str {
     match family {

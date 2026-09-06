@@ -7,22 +7,37 @@
 use std::collections::BTreeSet;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use crate::artifacts;
 use crate::engine::EngineModes;
-use crate::fixpoint::{self, EnumerationModes};
+use crate::fixpoint::{self, EnumerationModes, Seed};
 use crate::fold;
 use crate::index::SpecIndex;
+use crate::memo::{Exclusion, MemoBase, MemoSnapshot, unlocking_runes};
 use crate::model::Sym;
 use crate::replay;
 use crate::stream;
 
 /// One configuration a run answers: the token it is spelled by — the filename, the stream head's `config`, and the label of its timing lines — and the features that token resolved to.
+#[derive(Clone)]
 pub struct Configuration<'a> {
     pub token: &'a str,
     pub features: Vec<Sym>,
+}
+
+/// What a table build may read before it settles a window itself. `config_seed` is the per-configuration delta of issue #178: `default` enumerates first, alone, and every other configuration then reads its finished memo for the windows naming none of its own unlocking runes ([`crate::memo`]). Off, every configuration enumerates from scratch, which is the from-scratch arm the delta is held byte-identical to.
+#[derive(Clone, Copy, Debug)]
+pub struct Seeding {
+    pub config_seed: bool,
+}
+
+impl Default for Seeding {
+    fn default() -> Self {
+        Self { config_seed: true }
+    }
 }
 
 /// Why one configuration did not answer, told apart rather than worded here, because who a failure blames is the caller's knowledge: the verb writing to stdout blames the spec for a refusal and the stream itself for a write that failed, and the verb writing files names the configuration for either.
@@ -208,7 +223,10 @@ pub struct TableAnswer {
 
 /// Every configuration's two tables, its window enumeration and its digest, written under `outdir` at most `workers` at a time.
 ///
+/// Under the configuration seed, the no-feature configuration runs first and alone, keeping its memo; the rest then run at the given width, each reading that memo behind an exclusion naming its own unlocking runes, so the wall is one full enumeration plus one wave of deltas and the memo is held once, shared. A set without the no-feature configuration, or one configuration alone, has nothing to seed from and runs as it would with the seed off. Answers come back seated in the order the configurations were named, whatever order they ran in.
+///
 /// Nothing is swept first, unlike the stream fan-out: `run_m1.build_tables` writes into the build's own artifact directory beside a dozen other families, and a run that deleted the tables of a configuration set the build no longer names would be answering a question nobody asked it.
+#[allow(clippy::too_many_arguments)]
 pub fn run_configs_tables(
     index: &SpecIndex,
     configs: &[Configuration<'_>],
@@ -217,15 +235,69 @@ pub fn run_configs_tables(
     inputs: &str,
     workers: usize,
     report: Report,
+    seeding: Seeding,
 ) -> Result<Vec<TableAnswer>, String> {
     std::fs::create_dir_all(outdir).map_err(|error| format!("{}: {error}", outdir.display()))?;
-    claim_all(configs, workers, |config| {
-        run_config_tables(index, config, modes, outdir, inputs, report)
+    let default_seat = seeding
+        .config_seed
+        .then(|| configs.iter().position(|config| config.features.is_empty()))
+        .flatten()
+        .filter(|_| configs.len() > 1);
+    let Some(default_seat) = default_seat else {
+        return claim_all(configs, workers, |config| {
+            run_config_tables(
+                index,
+                config,
+                modes,
+                outdir,
+                inputs,
+                report,
+                Seed::default(),
+            )
+            .map(|(answer, _)| answer)
             .map_err(|complaint| format!("{}: {complaint}", config.token))
-    })
+        });
+    };
+    let default = &configs[default_seat];
+    let (default_answer, memo) = run_config_tables(
+        index,
+        default,
+        modes,
+        outdir,
+        inputs,
+        report,
+        Seed {
+            bases: Vec::new(),
+            keep_memo: true,
+        },
+    )
+    .map_err(|complaint| format!("{}: {complaint}", default.token))?;
+    let memo: Arc<MemoSnapshot> =
+        Arc::new(memo.expect("a kept memo comes back from a trace-memo enumeration"));
+    let rest: Vec<Configuration<'_>> = configs
+        .iter()
+        .enumerate()
+        .filter(|(seat, _)| *seat != default_seat)
+        .map(|(_, config)| config.clone())
+        .collect();
+    let mut answers = claim_all(&rest, workers, |config| {
+        let seed = Seed {
+            bases: vec![MemoBase {
+                memo: Arc::clone(&memo),
+                excluded: Exclusion::of(unlocking_runes(index, &config.features)),
+            }],
+            keep_memo: false,
+        };
+        run_config_tables(index, config, modes, outdir, inputs, report, seed)
+            .map(|(answer, _)| answer)
+            .map_err(|complaint| format!("{}: {complaint}", config.token))
+    })?;
+    answers.insert(default_seat, default_answer);
+    Ok(answers)
 }
 
-/// One configuration folded in place: its fixpoint, the fold over the product that fixpoint still holds — the rule certificates closed over the enumeration's own [`crate::options::WindowOptions`], so the guard is swept once — the three artifact files, and the digest of the pair. The two phases are named `enumerate[<config>]` and `fold[<config>]` when the caller wants them timed, the census's `[c]` lines riding ahead of them as they do for a stream run.
+/// One configuration folded in place: its fixpoint over whatever the seed lets it read, the fold over the product that fixpoint still holds — the rule certificates closed over the enumeration's own [`crate::options::WindowOptions`], so the guard is swept once — the three artifact files, and the digest of the pair, with the finished memo beside the answer when the seed asked to keep it. The two phases are named `enumerate[<config>]` and `fold[<config>]` when the caller wants them timed, the census's `[c]` lines riding ahead of them as they do for a stream run.
+#[allow(clippy::too_many_arguments)]
 pub fn run_config_tables(
     index: &SpecIndex,
     config: &Configuration<'_>,
@@ -233,16 +305,18 @@ pub fn run_config_tables(
     outdir: &Path,
     inputs: &str,
     report: Report,
-) -> Result<TableAnswer, String> {
+    seed: Seed,
+) -> Result<(TableAnswer, Option<MemoSnapshot>), String> {
     let token = config.token;
     let mut timed: Vec<String> = Vec::new();
     let mut census: Vec<String> = Vec::new();
     let started = Instant::now();
-    let (product, mut options) = fixpoint::enumerate_for_tables(
+    let (product, mut options, memo) = fixpoint::enumerate_for_tables(
         index,
         &config.features,
         modes,
         report.census.then_some(&mut census),
+        seed,
     )?;
     timed.append(&mut census);
     if report.timings {
@@ -264,7 +338,7 @@ pub fn run_config_tables(
     if report.timings {
         timed.push(timing_line(&format!("fold[{token}]"), started.elapsed()));
     }
-    Ok(TableAnswer { digest, timed })
+    Ok((TableAnswer { digest, timed }, memo))
 }
 
 /// What one configuration's string replay answered: the walk's counts, and its timing line when one was asked for.

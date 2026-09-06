@@ -17,6 +17,7 @@ use crate::error::SettleError;
 use crate::fiber::DeepFiberDeriver;
 use crate::index::SpecIndex;
 use crate::liveness::ProspectLiveness;
+use crate::memo::{MemoBase, MemoSnapshot};
 use crate::model::Sym;
 use crate::options::{FollowerMap, WindowOptions};
 use crate::sha256;
@@ -64,6 +65,13 @@ impl Default for EnumerationModes {
             deep_classes: true,
         }
     }
+}
+
+/// What one enumeration may read before it settles a window itself, and whether it hands its own memo back when it is done ([`crate::memo`]). The bases answer windows in the order given; `keep_memo` is what a configuration other enumerations will read sets, at the cost of holding the memo through the drain and the sort rather than releasing it ahead of them.
+#[derive(Debug, Default)]
+pub struct Seed {
+    pub bases: Vec<MemoBase>,
+    pub keep_memo: bool,
 }
 
 /// The content-addressed id one deep-slot member set carries, `table.deep_class_id`: `#C` plus the first twelve hex digits of the SHA-256 of the tab-joined members.
@@ -247,17 +255,26 @@ pub fn enumerate_transitions(
     features: &[Sym],
     modes: EnumerationModes,
 ) -> Result<FixpointProduct, String> {
-    enumerate_seeded(index, features, modes, contract_seeds, None).map(|(product, _)| product)
+    enumerate_seeded(
+        index,
+        features,
+        modes,
+        contract_seeds,
+        None,
+        Seed::default(),
+    )
+    .map(|(product, _, _)| product)
 }
 
-/// [`enumerate_transitions`] handing back the [`WindowOptions`] it ran over as well, with the census lines when `census` is given: the table build folds the product it still holds, and the fold's certificates read the formation guard through the same options — whose verdict memo the worklist already warmed — rather than sweeping the guard a second time.
+/// [`enumerate_transitions`] handing back the [`WindowOptions`] it ran over as well, with the census lines when `census` is given, and the engine's finished memo when the seed asked for it: the table build folds the product it still holds, and the fold's certificates read the formation guard through the same options — whose verdict memo the worklist already warmed — rather than sweeping the guard a second time. The seed is what lets one configuration's enumeration answer another's windows ([`crate::memo`]).
 pub fn enumerate_for_tables<'i>(
     index: &'i SpecIndex,
     features: &[Sym],
     modes: EnumerationModes,
     census: Option<&mut Vec<String>>,
-) -> Result<(FixpointProduct, WindowOptions<'i>), String> {
-    enumerate_seeded(index, features, modes, contract_seeds, census)
+    seed: Seed,
+) -> Result<(FixpointProduct, WindowOptions<'i>, Option<MemoSnapshot>), String> {
+    enumerate_seeded(index, features, modes, contract_seeds, census, seed)
 }
 
 /// [`enumerate_transitions`] with the `--cache-census` diagnostic switched on: the same product, plus a `[c]` line per collection on the way past the drain saying how many entries it held and in how many buckets, the elimination text the memos were carrying, and the process's resident size sampled either side of the drain and the sort. Nothing here reaches the stream — the lines are the caller's to put on stderr — and nothing is computed unless the caller asked, so the shipping path pays nothing for it.
@@ -269,8 +286,15 @@ pub fn enumerate_censused(
     modes: EnumerationModes,
     census: &mut Vec<String>,
 ) -> Result<FixpointProduct, String> {
-    enumerate_seeded(index, features, modes, contract_seeds, Some(census))
-        .map(|(product, _)| product)
+    enumerate_seeded(
+        index,
+        features,
+        modes,
+        contract_seeds,
+        Some(census),
+        Seed::default(),
+    )
+    .map(|(product, _, _)| product)
 }
 
 /// [`enumerate_transitions`] with the seeding left open, which is how the order-independence of the pinned world is testable at all. Production always passes [`contract_seeds`]; a test passes a permutation and asserts the same product, which is a statement about that world rather than about the discipline, since class grain makes the first visitor of a fiber decide its representative.
@@ -280,7 +304,8 @@ fn enumerate_seeded<'i>(
     modes: EnumerationModes,
     seeds: fn(&WindowOptions<'_>) -> Vec<Item>,
     mut census: Option<&mut Vec<String>>,
-) -> Result<(FixpointProduct, WindowOptions<'i>), String> {
+    seed: Seed,
+) -> Result<(FixpointProduct, WindowOptions<'i>, Option<MemoSnapshot>), String> {
     let mut engine = Engine::with_modes(
         index,
         features.iter().copied(),
@@ -293,6 +318,7 @@ fn enumerate_seeded<'i>(
             ..EngineModes::default()
         },
     );
+    engine.seed_bases(seed.bases);
     let config = feature_config_token(index, features.iter().copied());
     let mut options = WindowOptions::new(index).map_err(complaint)?;
     // The deep-world verdict over this engine's own modes, which is the one place the two flags are read as a single question.
@@ -808,6 +834,10 @@ fn enumerate_seeded<'i>(
             engine.elimination_text_bytes()
         ));
         lines.push(format!(
+            "[c] {config} memo_base_hits count={}",
+            engine.base_hits()
+        ));
+        lines.push(format!(
             "[c] {config} resident_before_release kb={}",
             resident_kb()
         ));
@@ -819,8 +849,13 @@ fn enumerate_seeded<'i>(
         .iter()
         .map(|pointer| pointer.text(index))
         .collect();
-    // The drain and the sort below are the run's other working set, and the memos that answered the worklist are of no further use to them. Releasing here rather than at the end of the function is what keeps the two from coexisting, which would otherwise be the enumeration's peak.
-    engine.release_memos();
+    // The drain and the sort below are the run's other working set, and the memos that answered the worklist are of no further use to them. Releasing here rather than at the end of the function is what keeps the two from coexisting, which would otherwise be the enumeration's peak — except for the one configuration other enumerations will read, whose trace memo leaves the engine as a snapshot instead and is held through both.
+    let memo = if seed.keep_memo {
+        engine.take_memo()
+    } else {
+        engine.release_memos();
+        None
+    };
     if let Some(lines) = census.as_mut() {
         lines.push(format!(
             "[c] {config} resident_after_release kb={}",
@@ -901,7 +936,7 @@ fn enumerate_seeded<'i>(
         };
         check.run(&product)?;
     }
-    Ok((product, options))
+    Ok((product, options, memo))
 }
 
 /// The seeds the fixpoint starts from: every letter against every boundary left, boundary-major, unpinned. Pushed in this order and popped from the back, which is the traversal class grain reads: the first item to reach a fiber fixes that row's representative.
@@ -1451,8 +1486,11 @@ impl DeepPartitionCheck<'_, '_> {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::*;
     use crate::index::fixtures;
+    use crate::memo::{Exclusion, unlocking_runes};
     use crate::stream::emit_transitions;
 
     /// The two heights the ordinary fixtures join at.
@@ -2266,10 +2304,12 @@ mod tests {
     #[test]
     fn a_permuted_seed_order_reaches_the_same_pinned_world_product() {
         let index = deep_alphabet();
-        let (contract, _) = enumerate_seeded(&index, &[], PINNED, contract_seeds, None)
-            .expect("the fixpoint closes");
-        let (reversed, _) = enumerate_seeded(&index, &[], PINNED, reversed_seeds, None)
-            .expect("the fixpoint closes");
+        let (contract, _, _) =
+            enumerate_seeded(&index, &[], PINNED, contract_seeds, None, Seed::default())
+                .expect("the fixpoint closes");
+        let (reversed, _, _) =
+            enumerate_seeded(&index, &[], PINNED, reversed_seeds, None, Seed::default())
+                .expect("the fixpoint closes");
         // Compared as the stream rather than as the product, because two of the product's fields are sets whose vector spelling is the emitter's business: `cited_provenance` comes out of a hash set and has no order of its own.
         assert_eq!(
             emit_transitions(&index, &contract),
@@ -2283,6 +2323,74 @@ mod tests {
             "and the product both orders reached is the one carrying the pinned deep windows, not a trivially equal pair"
         );
         // Order-independence here is a fact about this world, not about the discipline: the dedup is by window key, a re-reached window reuses the settled a re-trace would return, and the fired set is a union over a window set no traversal can change. Under class grain the first visitor of a fiber fixes its representative, and the push order becomes output-visible.
+    }
+
+    /// The configuration delta's whole claim (issue #178): an `ss03` enumeration reading `default`'s finished memo for every window naming no unlocking rune of `ss03` reaches the from-scratch product byte for byte — rows, classes, cells and fired provenance, which is what the stream spells — while actually answering windows out of the base. The exclusion is what makes it so: the same base read without one hands `ss03` the wrong answers for `qsMay`'s windows, which is the counterexample that gives the identity teeth.
+    #[test]
+    fn a_configuration_seeded_from_default_reaches_its_from_scratch_product() {
+        let index = fixtures::mini();
+        let ss03 = fixtures::sym(&index, "ss03");
+        let modes = EnumerationModes::default();
+        let (_, _, memo) = enumerate_seeded(
+            &index,
+            &[],
+            modes,
+            contract_seeds,
+            None,
+            Seed {
+                bases: Vec::new(),
+                keep_memo: true,
+            },
+        )
+        .expect("default closes");
+        let memo = Arc::new(memo.expect("a kept memo comes back"));
+        assert!(!memo.is_empty());
+        let (scratch, _, _) = enumerate_seeded(
+            &index,
+            &[ss03],
+            modes,
+            contract_seeds,
+            None,
+            Seed::default(),
+        )
+        .expect("ss03 closes from scratch");
+        let seeded_with = |excluded: Exclusion| {
+            let mut census: Vec<String> = Vec::new();
+            let (product, _, _) = enumerate_seeded(
+                &index,
+                &[ss03],
+                modes,
+                contract_seeds,
+                Some(&mut census),
+                Seed {
+                    bases: vec![MemoBase {
+                        memo: Arc::clone(&memo),
+                        excluded,
+                    }],
+                    keep_memo: false,
+                },
+            )
+            .expect("ss03 closes over a base");
+            let hits = census
+                .iter()
+                .find_map(|line| line.strip_prefix("[c] ss03 memo_base_hits count="))
+                .expect("the census reports the base hits")
+                .parse::<u64>()
+                .expect("as a count");
+            (product, hits)
+        };
+        let (seeded, hits) = seeded_with(Exclusion::of(unlocking_runes(&index, &[ss03])));
+        assert!(hits > 0, "the base answered windows");
+        assert_eq!(
+            emit_transitions(&index, &scratch),
+            emit_transitions(&index, &seeded)
+        );
+        let (unfiltered, _) = seeded_with(Exclusion::none());
+        assert_ne!(
+            emit_transitions(&index, &scratch),
+            emit_transitions(&index, &unfiltered),
+            "without the exclusion the base answers qsMay's windows as default settles them"
+        );
     }
 
     #[test]

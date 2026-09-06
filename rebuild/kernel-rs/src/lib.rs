@@ -18,6 +18,7 @@ pub mod fold;
 pub mod guard;
 pub mod index;
 pub mod liveness;
+pub mod memo;
 pub mod model;
 pub mod options;
 pub mod parse;

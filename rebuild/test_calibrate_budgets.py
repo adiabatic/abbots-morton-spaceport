@@ -100,7 +100,7 @@ def test_a_surface_pool_record_prices_the_worker_constant():
 
 def test_a_named_step_peak_supplies_an_observation():
     steps = {"r1": [_step("run_m1", 9_000_000_000)]}
-    observed, _, _ = cb.observations(_unit("kernel-config"), [], steps, host=HOST, recent=20)
+    observed, _, _ = cb.observations(_unit("kernel-build"), [], steps, host=HOST, recent=20)
     assert [(item.peak_bytes, item.source) for item in observed] == [(9_000_000_000, "step:run_m1")]
 
 
@@ -126,7 +126,7 @@ def test_check_is_green_when_every_observed_peak_fits(tmp_path, capsys):
         tmp_path,
         [
             _pool("font-suite", [CONSTANTS["font-suite"] // 2]),
-            _step("run_m1", CONSTANTS["kernel-config"] // 2),
+            _step("run_m1", CONSTANTS["kernel-build"] // 2),
         ],
     )
     code, out = _run(capsys, path, "--check")
@@ -193,18 +193,18 @@ def test_the_recency_bound_ages_out_a_peak_a_memory_saver_retired(tmp_path, caps
 
 
 def test_a_record_older_than_the_constants_commit_is_never_held_against_it(tmp_path, capsys):
-    over = CONSTANTS["kernel-config"] * 3
-    under = CONSTANTS["kernel-config"] // 2
+    over = CONSTANTS["kernel-build"] * 3
+    under = CONSTANTS["kernel-build"] // 2
     path = _journal(
         tmp_path,
         [_step("run_m1", over, at="2026-09-04T08:00:00Z", run="old")]
         + [_step("run_m1", under, at="2026-09-06T08:00:00Z", run="new")],
     )
-    seeded = {"kernel-config": "2026-09-05T20:18:22Z"}
+    seeded = {"kernel-build": "2026-09-05T20:18:22Z"}
     assert _main(path, "--host", HOST, "--check", seed_stamps=seeded) == 0
     out = capsys.readouterr().out
     assert (
-        "since     : 2026-09-05T20:18:22Z, the commit that set CONFIG_PEAK_BYTES to its current value; 1 older record set aside"
+        "since     : 2026-09-05T20:18:22Z, the commit that set TABLE_BUILD_PEAK_BYTES to its current value; 1 older record set aside"
         in out
     )
     assert _main(path, "--host", HOST, "--check") == 1
@@ -212,9 +212,9 @@ def test_a_record_older_than_the_constants_commit_is_never_held_against_it(tmp_p
 
 
 def test_the_archaeology_pass_reads_past_the_constants_commit(tmp_path, capsys):
-    over = CONSTANTS["kernel-config"] * 3
+    over = CONSTANTS["kernel-build"] * 3
     path = _journal(tmp_path, [_step("run_m1", over, at="2026-09-04T08:00:00Z")])
-    seeded = {"kernel-config": "2026-09-05T20:18:22Z"}
+    seeded = {"kernel-build": "2026-09-05T20:18:22Z"}
     assert _main(path, "--host", HOST, "--check", seed_stamps=seeded) == 0
     capsys.readouterr()
     assert _main(path, "--host", HOST, "--check", "--recent", "0", seed_stamps=seeded) == 1
@@ -224,7 +224,7 @@ def test_a_record_with_no_stamp_is_kept_under_the_seed_bound():
     record = _step("run_m1", 1)
     del record["finished_at"]
     observed, _, older = cb.observations(
-        _unit("kernel-config"), [], {"r1": [record]}, host=HOST, recent=20, since="2026-09-05T00:00:00Z"
+        _unit("kernel-build"), [], {"r1": [record]}, host=HOST, recent=20, since="2026-09-05T00:00:00Z"
     )
     assert [item.peak_bytes for item in observed] == [1]
     assert older == 0
@@ -334,10 +334,15 @@ def test_the_width_clauses_answer_for_the_box_and_the_tree_they_are_given(tmp_pa
         f"{cb.SURFACE_CAP_NAME} = 3\n{cb.SURFACE_PARENT_NAME} = 10_000_000_000\n{cb.SURFACE_WORKER_NAME} = 5_000_000_000\n",
         encoding="utf-8",
     )
+    (tree / "rebuild" / "pipeline").mkdir(parents=True)
+    (tree / "rebuild" / "pipeline" / "kernel_exec.py").write_text(
+        f"{cb.KERNEL_CONFIG_NAME} = 8_000_000_000\n", encoding="utf-8"
+    )
     rows = cb.build_rows([], {}, constants=CONSTANTS, host=HOST, recent=20, tolerance=0.0, seeded_at={})
     out = "\n".join(cb.render_rows(rows, host=HOST, total_bytes=48_000_000_000, cores=12, root=tree))
     assert "48.00 GB total" in out
     assert "capped at 3" in out
+    assert "its delta wave runs 4 at 8.00 GB each out of 48.00 GB total" in out
     assert "the font suite takes the cores this process may run on (12), not the division" in out
     assert "the surface build's parent is subtracted from the box rather than divided into it" in out
 

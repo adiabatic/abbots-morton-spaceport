@@ -2,7 +2,7 @@
 //!
 //! The ranking's stages are lexicographic and each one narrows the survivor list the next reads, so the order they run in is the whole semantics and `decided_stage` names the stage that got the list down to one. Two of them can refuse to decide rather than guess: prefer records that demand different outcomes at non-nested specificity are E-AMBIGUOUS within one rune and E-INCOMPARABLE across two, and the messages those raise are contract down to the paste-ready `resolve:` stub they print, because the author's next move is to copy it into the rune's YAML.
 //!
-//! An engine is one (spec, feature configuration) pair, and the spec arrives as a [`SpecIndex`] the engine borrows rather than owns, so the guard's whole engine powerset and every replay share one index and one string pool. Everything the engine itself holds is cache: the caches exist because the table build's fixpoint asks the same questions about the same windows thousands of times, and Python's engine is exactly the same shape. What is *not* ported is the persisted trace memo and the cross-configuration share — the cutover deleted `trace_memo.py` — and the module-level `id()`-keyed dictionaries Python uses to fake per-spec state, which become ordinary fields here because [`StanceId`] is a stable seat pair rather than a recyclable address and therefore needs neither an identity re-check nor an LRU cap.
+//! An engine is one (spec, feature configuration) pair, and the spec arrives as a [`SpecIndex`] the engine borrows rather than owns, so the guard's whole engine powerset and every replay share one index and one string pool. Everything the engine itself holds is cache: the caches exist because the table build's fixpoint asks the same questions about the same windows thousands of times. The trace memo is also what one engine may read of another's: a finished memo leaves its engine as a [`crate::memo::MemoSnapshot`] and enters another as a base, read behind an exclusion naming the runes the two engines do not settle alike ([`Engine::seed_bases`]), which is how a configuration enumerates as a delta over `default`. The module-level `id()`-keyed dictionaries Python used to fake per-spec state are ordinary fields here, because [`StanceId`] is a stable seat pair rather than a recyclable address and therefore needs neither an identity re-check nor an LRU cap.
 //!
 //! The fired-provenance journal is the subtle part and is contract rather than bookkeeping. `fired` is the set of authored records that demonstrably fired under this configuration, and the dead-policy gate reads it, so a memoized sub-result must not silently swallow the firings its first evaluation performed: every cache entry stores the delta its computation journaled, and every hit replays that delta. That is what makes each entry's delta order-independent and a warm engine's `fired` equal to a cold one's. The journal only runs in trace-memo mode, because that is the only mode where anything asks for a per-evaluation delta; outside it there is no journal, and — following Python exactly — [`Engine::candidates`] does not consult its cache at all, since the entry it would store could not carry a delta to replay.
 //!
@@ -14,6 +14,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::error::SettleError;
 use crate::index::{SpecIndex, StanceId};
+use crate::memo::{MemoBase, MemoSnapshot};
 use crate::model::{
     Condition, PolicyRecord, Provenance, Rune, Stance, SurfaceRow, Sym, Table, When,
 };
@@ -324,16 +325,41 @@ struct ClosureKey {
 /// The trace memo's key: the collapsed left with its extension, the input rune, and all four raw slots. Every window read the kernel makes goes through these fields, which is why lefts differing only in their cell's entry or adjustments may share one entry.
 ///
 /// It is packed to forty bytes because the memo holds one per window over a million and more windows a configuration (issue #165). The four slots ride as their kinds beside their `Option<Sym>` runes, which is what a [`RightToken`] is — a letter is its kind with a rune, and every other kind carries none — so the pair spells each token exactly once and two windows collide exactly when their slots are equal, in four bytes a slot instead of the eight a tagged enum pads to. The extension is an `i16` because it is a count of connector pixels. Nothing reads a key back: it is compared and hashed and never resolved.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-struct TraceKey {
-    left_kind: TokenKind,
-    left_rune: Option<Sym>,
-    left_stance: Option<Sym>,
-    left_seam: Option<Sym>,
-    left_extension: i16,
-    token: Sym,
-    kinds: [TokenKind; 4],
-    runes: [Option<Sym>; 4],
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub(crate) struct TraceKey {
+    pub(crate) left_kind: TokenKind,
+    pub(crate) left_rune: Option<Sym>,
+    pub(crate) left_stance: Option<Sym>,
+    pub(crate) left_seam: Option<Sym>,
+    pub(crate) left_extension: i16,
+    pub(crate) token: Sym,
+    pub(crate) kinds: [TokenKind; 4],
+    pub(crate) runes: [Option<Sym>; 4],
+}
+
+impl TraceKey {
+    /// Every rune this key names — the left cell's, the input, and each letter slot's — which is every rune file the engine reads while settling the window, and so the whole of what a [`crate::memo::Exclusion`] tests.
+    pub(crate) fn runes_named(&self) -> impl Iterator<Item = Sym> + '_ {
+        self.left_rune
+            .into_iter()
+            .chain(std::iter::once(self.token))
+            .chain(self.runes.iter().flatten().copied())
+    }
+
+    /// A key over a boundary left and the given slots, for a test that wants one without an engine.
+    #[cfg(test)]
+    pub(crate) fn for_test(token: Sym, runes: [Option<Sym>; 4]) -> Self {
+        Self {
+            left_kind: TokenKind::Edge,
+            left_rune: None,
+            left_stance: None,
+            left_seam: None,
+            left_extension: 0,
+            token,
+            kinds: runes.map(|rune| rune.map_or(TokenKind::Edge, |_| TokenKind::Letter)),
+            runes,
+        }
+    }
 }
 
 /// The prospect memo's key, in the two shapes the two candidacy worlds need. An engine's mode is fixed at construction, so only one of them ever occurs on any given engine, and one map holds both; the asymmetry between them is the terms' own — the candidacy key ends in `right2.letter`, because the estimate reads nothing past the follower's own right, while the simulated key carries the whole token and the two slots behind it, because the cascade it runs does.
@@ -390,11 +416,11 @@ struct Applicable<'i> {
 
 /// The seat one distinct fired delta holds in the engine's delta pool, and what a memoized window, enumeration, prospect or closure verdict holds in place of its delta. A configuration's million and more memoized windows journal a few tens of thousands of distinct deltas between them, so an entry that owned its delta was holding a boxed slice hundreds of its neighbors held too, where four bytes name the same one (issue #165). The offset is the pool's business alone: [`DeltaSeat::at`] and [`DeltaSeat::index`] are the two crossings.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-struct DeltaSeat(u32);
+pub(crate) struct DeltaSeat(u32);
 
 impl DeltaSeat {
     /// The seat for the pool's `index`-th delta.
-    fn at(index: usize) -> Self {
+    pub(crate) fn at(index: usize) -> Self {
         Self(
             u32::try_from(index)
                 .expect("a configuration journals fewer than 2^32 distinct fired deltas"),
@@ -402,7 +428,7 @@ impl DeltaSeat {
     }
 
     /// The seat as the pool's index.
-    fn index(self) -> usize {
+    pub(crate) fn index(self) -> usize {
         self.0 as usize
     }
 }
@@ -444,13 +470,13 @@ impl DeltaPool {
 
 /// What the trace memo holds per window: seats into the memo's two pools for the settled record and the notes and into [`Engine::deltas`] for the fired delta, the prospect as the byte its zero-or-one range needs, the joint flag and the stage — sixteen bytes and no heap. An entry holding the whole [`TransitionTrace`] by value beside a boxed delta is what an instrumented run of that layout measured: over a million entries a configuration naming a couple of hundred distinct settled records, about a hundred distinct notes lists and a few tens of thousands of distinct deltas, so nearly every entry held by value what hundreds of its neighbors held too (issue #165). The ladder is not here at all: it exists only where the engine was built with [`EngineModes::explain_ladder`], which the fixpoint never is, so it lives in [`TraceMemo::ladders`] rather than as an empty slot on every entry the fixpoint records.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct TraceEntry {
-    settled: SettledSeat,
-    notes: NotesSeat,
-    delta: DeltaSeat,
-    prospect: i8,
-    joint_floor: bool,
-    decided_stage: DecidedStage,
+pub(crate) struct TraceEntry {
+    pub(crate) settled: SettledSeat,
+    pub(crate) notes: NotesSeat,
+    pub(crate) delta: DeltaSeat,
+    pub(crate) prospect: i8,
+    pub(crate) joint_floor: bool,
+    pub(crate) decided_stage: DecidedStage,
 }
 
 /// The window memo and its fired journal in one table, with the settled and notes pools its entries seat into beside it. The delta rides in the entry as a seat rather than in a shadow map on the same forty-byte key, which would cost the key and its hashbrown slack a second time for a value that is only ever read alongside the trace it belongs to; it resolves through [`Engine::deltas`] rather than a pool of this memo's own because the candidate and closure memos seat their deltas in the same table (issue #167). The two pools here are the memo's own rather than a fixpoint's because the memo outlives no fixpoint and is released as one piece. The ladders map is keyed on the same key and is populated only in explain-ladder mode, so a fixpoint's memo carries no ladder slot per entry and an explain-mode hit still answers with the ladder its miss recorded.
@@ -517,6 +543,10 @@ pub struct Engine<'i> {
     explain_ladder: bool,
     /// The window memo, present in trace-memo mode alone. It is the engine's largest pile and the enumeration's high-water mark, which is why its entries are seats into the pools the [`TraceMemo`] carries beside them rather than whole traces (issue #165): a hit rebuilds the trace out of the pools, and everything a caller sees is what it saw when the entry held the trace by value.
     trace_cache: Option<TraceMemo>,
+    /// The finished memos of other enumerations this engine may read, in the order it reads them, each behind the exclusion that says which keys it may not answer ([`crate::memo`]). A window the engine's own memo misses is looked up here before it is settled, and a hit is answered — delta replayed — exactly as an own hit is, without being copied into the own memo: the bases are shared read-only across a whole fan-out, and a copy per hit would rebuild the pile the sharing exists to avoid.
+    bases: Vec<MemoBase>,
+    /// How many windows the bases answered, for the cache census.
+    base_hits: u64,
 }
 
 impl<'i> Engine<'i> {
@@ -550,7 +580,39 @@ impl<'i> Engine<'i> {
             pairing_sets: HashMap::new(),
             explain_ladder: modes.explain_ladder,
             trace_cache: modes.trace_memo.then(TraceMemo::default),
+            bases: Vec::new(),
+            base_hits: 0,
         }
+    }
+
+    /// Hand this engine the finished memos it may read windows out of, in lookup order. Only a trace-memo engine reads them — outside that mode nothing journals, and a base hit has a delta to replay — so seeding any other engine is refused rather than quietly ignored.
+    pub fn seed_bases(&mut self, bases: Vec<MemoBase>) {
+        assert!(
+            self.trace_cache.is_some(),
+            "a memo base can only answer an engine that journals, which is the trace-memo engine"
+        );
+        self.bases = bases;
+    }
+
+    /// How many windows the bases answered so far.
+    pub fn base_hits(&self) -> u64 {
+        self.base_hits
+    }
+
+    /// This engine's trace memo, detached: the entries and the tables their seats index, together with every fired delta the engine seated. Every other memo is released at the same time, as [`Engine::release_memos`] releases it, because the candidate, closure and prospect memos seat their deltas in the table that leaves with the snapshot. `None` for an engine without a trace memo. The bases are not folded in: a snapshot is what this engine settled itself, and a caller that wants the union reads the bases beside it.
+    pub fn take_memo(&mut self) -> Option<MemoSnapshot> {
+        let memo = self.trace_cache.take()?;
+        let deltas = std::mem::take(&mut self.deltas);
+        self.trace_cache = Some(TraceMemo::default());
+        self.candidates_cache = CandidatesMemo::default();
+        self.prospect_cache = HashMap::new();
+        self.closure_cache = HashMap::new();
+        Some(MemoSnapshot {
+            entries: memo.entries,
+            settled: memo.settled.into_table(),
+            notes: memo.notes.into_table(),
+            deltas: deltas.table,
+        })
     }
 
     /// The indexed spec this engine settles against.
@@ -2361,7 +2423,7 @@ impl<'i> Engine<'i> {
 
     /// Settle one window — the rich form the table builder and the explain CLI read.
     ///
-    /// In trace-memo mode the result is memoized over the collapsed left key: every left read the kernel makes goes through the kind and the settled cell's rune, stance, seam and extension — condition matching consults the rune and the stance, the stroke axis the committed seam, the scoring the seam's presence, and the same-seam suppression the extension — and never the left cell's entry or its adjustments, so two settled lefts differing only there trace identically and share one entry. What the memo holds is seats rather than the trace (issue #165), so a hit is rebuilt out of the memo's pools — the settled record and the notes cloned out, the ladder read back where one was recorded — and returns what its miss returned, with the miss's fired delta replayed. Raising windows are never cached: the E-STRANDED sentence reads the left's full label, and the liveness probes that trip settlement errors memoize their own verdicts above this call. Python's two further layers, the persisted store and the cross-configuration share, are deliberately absent — the cutover deleted `trace_memo.py`, so neither survives on either side.
+    /// In trace-memo mode the result is memoized over the collapsed left key: every left read the kernel makes goes through the kind and the settled cell's rune, stance, seam and extension — condition matching consults the rune and the stance, the stroke axis the committed seam, the scoring the seam's presence, and the same-seam suppression the extension — and never the left cell's entry or its adjustments, so two settled lefts differing only there trace identically and share one entry. What the memo holds is seats rather than the trace (issue #165), so a hit is rebuilt out of the memo's pools — the settled record and the notes cloned out, the ladder read back where one was recorded — and returns what its miss returned, with the miss's fired delta replayed. A window the own memo misses is looked up in the bases next, and answered from there on the same terms where a base holds it and admits it; only then is it settled. Raising windows are never cached: the E-STRANDED sentence reads the left's full label, and the liveness probes that trip settlement errors memoize their own verdicts above this call.
     pub fn transition_trace(
         &mut self,
         left: &LeftContext,
@@ -2392,6 +2454,17 @@ impl<'i> Engine<'i> {
                 &self.capture_starts,
                 self.deltas.get(entry.delta),
             );
+            return Ok(trace);
+        }
+        if let Some((base, entry)) = base_entry(&self.bases, &key) {
+            let trace = base.memo.trace(entry);
+            replay_into(
+                &mut self.fired,
+                &mut self.fired_log,
+                &self.capture_starts,
+                base.memo.delta(entry),
+            );
+            self.base_hits += 1;
             return Ok(trace);
         }
         self.begin_capture();
@@ -2455,16 +2528,26 @@ impl<'i> Engine<'i> {
             return None;
         }
         let memo = self.trace_cache.as_ref()?;
-        let &entry = memo
-            .entries
-            .get(&Self::trace_key(left, token.letter(), slots))?;
-        let answer = read(memo.settled.get(entry.settled));
+        let key = Self::trace_key(left, token.letter(), slots);
+        if let Some(&entry) = memo.entries.get(&key) {
+            let answer = read(memo.settled.get(entry.settled));
+            replay_into(
+                &mut self.fired,
+                &mut self.fired_log,
+                &self.capture_starts,
+                self.deltas.get(entry.delta),
+            );
+            return Some(answer);
+        }
+        let (base, entry) = base_entry(&self.bases, &key)?;
+        let answer = read(base.memo.settled(entry));
         replay_into(
             &mut self.fired,
             &mut self.fired_log,
             &self.capture_starts,
-            self.deltas.get(entry.delta),
+            base.memo.delta(entry),
         );
+        self.base_hits += 1;
         Some(answer)
     }
 
@@ -2671,6 +2754,17 @@ fn record_elimination(
             provenance: provenance.cloned(),
         });
     }
+}
+
+/// The first base holding `key` and admitting it, with the entry it holds. A base holding the key under an exclusion that names one of its runes is passed over rather than answered, because what it recorded was settled under runes this engine does not share.
+fn base_entry<'b>(bases: &'b [MemoBase], key: &TraceKey) -> Option<(&'b MemoBase, TraceEntry)> {
+    bases.iter().find_map(|base| {
+        base.memo
+            .entries
+            .get(key)
+            .filter(|_| base.excluded.admits(key))
+            .map(|&entry| (base, entry))
+    })
 }
 
 /// One memo entry's fired delta replayed into the journal, spelled over the three fields it touches rather than over the whole engine. That is what lets a hit replay the delta where it sits in the memo instead of copying it out first: the memo and the journal are disjoint fields, and only a receiver that named the whole engine made them look otherwise.

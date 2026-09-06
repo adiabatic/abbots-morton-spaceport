@@ -5,13 +5,11 @@ Nothing skips. A box without `cargo` fails these tests with the remedy `KernelBu
 
 import itertools
 import json
-import threading
-import time
 from collections import OrderedDict
 
 import pytest
 
-from rebuild.pipeline import conform, fixtures, kernel_exec, run_m1, spec_load
+from rebuild.pipeline import conform, fixtures, kernel_exec, kernel_io, run_m1, spec_load
 from rebuild.pipeline import table as table_module
 from rebuild.pipeline.settle import (
     EDGE,
@@ -420,31 +418,29 @@ class TestTheKernelInvocation:
         assert all(decision.rules and treaty.rows for decision, treaty in tables.values())
         assert not sorted(tmp_path.iterdir())
 
-    def _observe_fan_out(self, monkeypatch, tmp_path, asked):
-        """Everything `build_tables` asks of the kernel, and the most it ever has in flight at once. The stub holds its slot open long enough that any sibling admitted beside it is counted there, then raises, so a run ends as soon as the fan-out has been observed."""
-        live = 0
-        peak = 0
+    def _observe_build(self, monkeypatch, tmp_path, asked):
+        """Everything `build_tables` asks of the kernel: the one invocation, with the configurations it named, the width it handed over, the tag and the stamp. The stub raises, so a run ends as soon as the invocation has been observed."""
         seen = []
-        lock = threading.Lock()
 
         def build_table_files(
-            spec_path, out_dir, configs, *, inputs, threads, timings=False, timings_tag=None
+            spec_path,
+            out_dir,
+            configs,
+            *,
+            inputs,
+            threads,
+            timings=False,
+            timings_tag=None,
+            config_seed=True,
         ):
-            nonlocal live, peak
-            with lock:
-                live += 1
-                peak = max(peak, live)
-                seen.append((tuple(configs), threads, timings_tag, inputs))
-            time.sleep(0.05)
-            with lock:
-                live -= 1
+            seen.append((tuple(configs), threads, timings_tag, inputs, config_seed))
             raise Reached
 
         monkeypatch.setattr(kernel_exec, "ensure_built", lambda: None)
         monkeypatch.setattr(kernel_exec, "build_table_files", build_table_files)
         with pytest.raises(Reached):
             run_m1.build_tables(SPEC, tmp_path, inputs=STAMP, kernel_threads=asked)
-        return peak, seen
+        return seen
 
     @pytest.mark.parametrize(
         "asked, wanted",
@@ -457,22 +453,45 @@ class TestTheKernelInvocation:
     def test_the_thread_width_is_how_many_configurations_run_at_once(
         self, monkeypatch, tmp_path, asked, wanted
     ):
-        """The width is not a flag on one invocation: every settlement configuration gets a single-threaded process of its own that enumerates and folds it, tagged so its timing lines stay attributable, and the width is how many of those the build keeps in flight; the overlay configuration is never asked for."""
-        peak, seen = self._observe_fan_out(monkeypatch, tmp_path, asked)
-        assert peak == min(wanted, len(conform.SETTLEMENT_CONFIGS), run_m1.usable_cores())
-        assert sorted(config for (config,), _threads, _tag, _stamp in seen) == sorted(
-            conform.SETTLEMENT_CONFIGS
-        )
-        assert {threads for _configs, threads, _tag, _stamp in seen} == {1}
-        assert all(tag == config for (config,), _threads, tag, _stamp in seen)
-        assert {stamp for _configs, _threads, _tag, stamp in seen} == {STAMP}
+        """One process answers every settlement configuration, `default` first and the rest as deltas over its memo, and the width is how many of those deltas the crate keeps in flight; the crate labels every configuration's timing lines itself, so nothing is tagged, and the overlay configuration is never asked for."""
+        seen = self._observe_build(monkeypatch, tmp_path, asked)
+        assert len(seen) == 1
+        configs, threads, tag, stamp, config_seed = seen[0]
+        assert configs == conform.SETTLEMENT_CONFIGS
+        assert threads == min(wanted, len(conform.SETTLEMENT_CONFIGS), run_m1.usable_cores())
+        assert tag is None
+        assert stamp == STAMP
+        assert config_seed
 
     def test_a_narrowed_cpu_allowance_narrows_the_fan_out(self, monkeypatch, tmp_path):
         """The third term is the cores this process may actually run on rather than the cores the box has, so a container held to a slice of its host keeps its width down to the slice however much memory the default was divided out of. The allowance is invented because the box running the suite is whatever it is — asking for every configuration against an allowance narrower than that is what makes a pass proof the term fired at all."""
         allowance = 2
         monkeypatch.setattr(run_m1, "usable_cores", lambda: allowance)
-        peak, _seen = self._observe_fan_out(monkeypatch, tmp_path, len(conform.SETTLEMENT_CONFIGS))
-        assert peak == min(len(conform.SETTLEMENT_CONFIGS), allowance)
+        seen = self._observe_build(monkeypatch, tmp_path, len(conform.SETTLEMENT_CONFIGS))
+        assert seen[0][1] == min(len(conform.SETTLEMENT_CONFIGS), allowance)
+
+    def test_a_configuration_delta_files_the_bytes_a_from_scratch_build_files(self, tmp_path):
+        """The configuration corollary of the window-locality theorem, held at the artifact: every configuration past `default` enumerated as a delta over `default`'s memo files the same settlement TSV, treaty TSV and window enumeration, byte for byte, as the same configuration enumerated on its own, and answers the same digest. The mini fixture unlocks a `qsMay` entry under `ss03`, so the delta has both windows to share and windows to settle itself."""
+        spec_path = tmp_path / "spec.json"
+        kernel_io.write_spec(SPEC, spec_path)
+        kernel_exec.ensure_built()
+        answers = {}
+        for name, config_seed in (("seeded", True), ("scratch", False)):
+            answers[name] = kernel_exec.build_table_files(
+                spec_path,
+                tmp_path / name,
+                conform.SETTLEMENT_CONFIGS,
+                inputs=STAMP,
+                threads=2,
+                config_seed=config_seed,
+            )
+        assert answers["seeded"] == answers["scratch"]
+        for config in conform.SETTLEMENT_CONFIGS:
+            for family in ("settlement", "treaties", "windows"):
+                name = f"{family}-{config}.tsv"
+                assert (tmp_path / "seeded" / name).read_bytes() == (
+                    tmp_path / "scratch" / name
+                ).read_bytes(), name
 
     def test_an_unstamped_build_names_a_stamp_the_kernel_will_accept(self, monkeypatch, tmp_path):
         """The verb requires a stamp, and a build with none still has to name one: the payload it writes is where the head comes from, and it is deleted unread rather than kept, so the word it carried never reaches an artifact."""
@@ -525,7 +544,7 @@ class TestTheKernelInvocation:
 
 
 class TestTheMemoryDerivedThreadDefault:
-    """The width the fan-out falls back to is the box divided by `CONFIG_PEAK_BYTES` (issue #63, sub-issue #86), so what can be asserted about it here is its shape and its branches, never its value — the value is whatever machine is running the suite. Every branch is exercised through `kernel_threads_default`'s `total_bytes` keyword, which is a pure function over an invented box; `KERNEL_THREADS_DEFAULT` itself is resolved at import and could only be moved by reloading the module, which would reset `_BUILT` and drop the live spec dumps underneath whatever else the session is holding."""
+    """The width the fan-out falls back to is the box, less `default`'s retained memo, divided by `CONFIG_PEAK_BYTES` (issue #63, sub-issue #86), so what can be asserted about it here is its shape and its branches, never its value — the value is whatever machine is running the suite. Every branch is exercised through `kernel_threads_default`'s `total_bytes` keyword, which is a pure function over an invented box; `KERNEL_THREADS_DEFAULT` itself is resolved at import and could only be moved by reloading the module, which would reset `_BUILT` and drop the live spec dumps underneath whatever else the session is holding."""
 
     @pytest.fixture(autouse=True)
     def _no_inherited_override(self, monkeypatch):
@@ -551,18 +570,18 @@ class TestTheMemoryDerivedThreadDefault:
             kernel_exec.kernel_threads_default(total_bytes=34_359_738_368)
 
     @pytest.mark.parametrize(
-        "total, wanted", [(4_000_000_000, 1), (34_359_738_368, 6), (32_000_000_000, 6), (64_000_000_000, 13)]
+        "total, wanted", [(4_000_000_000, 1), (34_359_738_368, 5), (32_000_000_000, 5), (64_000_000_000, 12)]
     )
     def test_the_width_follows_the_box_and_never_falls_below_one(self, total, wanted):
-        """The whole point of the derivation: a 32 GB box gets the six the trace memo's probe-cascade lever of issue #168 bought it — the whole acceptance set, where the memo-side levers of issue #105 bought four and sub-issue #46 shipped two at the divisor before them — in either spelling of 32 GB, so the answer does not rest on a unit convention — a box too small for one configuration gets one anyway, and a roomier box gets what it has room for instead of the constrained box's width."""
+        """The whole point of the derivation: a 32 GB box holds its whole delta wave at once — five deltas beside `default`'s memo, one more than the acceptance set has — in either spelling of 32 GB, so the answer does not rest on a unit convention; a box too small for one configuration gets one anyway, and a roomier box gets what it has room for instead of the constrained box's width."""
         assert kernel_exec.kernel_threads_default(total_bytes=total) == wanted
 
     def test_a_coresident_pool_comes_off_the_box_before_it_is_divided(self):
         """What a caller running the fan-out beside something else — the artifact cycle, beside its pytest pool — takes off the top, so the width answers for the machine the configurations will actually share rather than for an empty one. It is the caller's fact and defaults to nothing, because a bare run_m1 has nothing beside it."""
-        assert kernel_exec.kernel_threads_default(total_bytes=64_000_000_000) == 13
+        assert kernel_exec.kernel_threads_default(total_bytes=64_000_000_000) == 12
         assert (
             kernel_exec.kernel_threads_default(coresident_bytes=13_000_000_000, total_bytes=64_000_000_000)
-            == 10
+            == 9
         )
 
     def test_a_stated_width_outranks_a_coresident_reservation_too(self, monkeypatch):
