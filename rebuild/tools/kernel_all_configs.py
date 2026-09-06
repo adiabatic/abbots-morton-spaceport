@@ -1,14 +1,14 @@
-"""The Rust kernel over the acceptance configurations (`conform.ACCEPTANCE_CONFIGS`): one `ams-m1-kernel enumerate-configs` run, serially or fanned out over threads, with the rows named the way the Python endpoint it replaced named its rows — `m1_all_configs.py`, retired at #77 and preserved in git — so an old row and a new one still read side by side (issue #40, sub-issue #46).
+"""The Rust kernel over the acceptance configurations (`conform.ACCEPTANCE_CONFIGS`): one `ams-m1-kernel enumerate-configs` run, serially or fanned out over threads, with the rows named the way the retired Python endpoint (`m1_all_configs.py`, in git history) named its rows, so an old row and a new one still read side by side. It is the direct measurement behind `CONFIG_PEAK_BYTES` in `rebuild/pipeline/kernel_exec.py`: one child on its own, with the crate's `--cache-census` beside it for where the memo sits.
 
-Read-only on the repo. The spec dump and the transition streams are all this writes, both under bench-the-rebuild/levers/out/, and an `--out-dir` resolving anywhere else is refused: a scratch directory that resolved into `rebuild/out/m1` would overwrite the artifact cycle's tables.
+Read-only on the repo. The spec dump and the transition streams are all this writes, both under rebuild/out/kernel-all/, and an `--out-dir` resolving anywhere else is refused: a scratch directory that resolved into `rebuild/out/m1` would overwrite the artifact cycle's tables.
 
-  kernel_all_configs.py [--mode serial|parallel] [--threads N] [--configs a,b] [--spec <dump>] [--rung N] [--reps N]
+  uv run python -m rebuild.tools.kernel_all_configs [--mode serial|parallel] [--threads N] [--configs a,b] [--spec <dump>] [--rung N] [--reps N]
 
 Two modes, because the port's claim has two halves. `serial` is `--threads=1`, every configuration in listed order, the default, and the arm whose per-configuration walls sum; `parallel` is the fan-out, `--threads` wide, defaulting to as many as the machine will give. The kernel caps whatever it is asked for at the number of configurations there are to answer, so a row's `threads` is the width that actually ran and `threads_requested` is the number that was asked for — a `--threads=32` over the whole acceptance set is a run at one thread per configuration. Either way the streams land in files rather than coming back through a pipe, so neither arm is charged for stdout plumbing, and the per-configuration walls are the child's own `[t]` lines rather than anything this process could time from outside — at the one decimal the kernel prints them in, and null rather than 0.0 for a phase the child never reported, since a zero there would read as a measurement. What a `[t]` line looks like is `console.INNER_LINE`, imported rather than copied, so this harness and the artifact cycle's own reader cannot come to disagree about the shape.
 
 The child is what gets measured, never this process: `/usr/bin/time` wraps the invocation for the peak resident set (darwin reports bytes where Linux reports KiB, and `peak_rss.parse_time_output` normalizes both dialects back to bytes), `resource.getrusage(RUSAGE_CHILDREN)` deltas carry the CPU, and the wall covers the whole invocation. The `[t]` lines and `/usr/bin/time`'s own report share the one stderr, and both are parsed back out of the single capture. A box with no `/usr/bin/time` still gets its walls and its CPU, and reports a null peak rather than a guessed one.
 
-The kernel is told which world to enumerate, through `kernel_exec.world_flags()` — the pipeline's own reflection off the three module defaults `kernel_exec` now holds, the very list `run_m1` hands the kernel, so `AMS_SIMULATED_PROSPECT`, `AMS_VOTE_SLOTS` and `AMS_DEEP_CLASSES` move this arm exactly as they move a build. A subprocess inherits none of that implicitly, so every row carries `world` in the flag spelling, `shipping defaults` when nothing is off — the spelling `scaling/scaling.py` prints too. A wall clock means as little as a byte comparison until you know which fixpoint produced it.
+The kernel is told which world to enumerate, through `kernel_exec.world_flags()` — the pipeline's own reflection off the three module defaults `kernel_exec` now holds, the very list `run_m1` hands the kernel, so `AMS_SIMULATED_PROSPECT`, `AMS_VOTE_SLOTS` and `AMS_DEEP_CLASSES` move this arm exactly as they move a build. A subprocess inherits none of that implicitly, so every row carries `world` in the flag spelling, `shipping defaults` when nothing is off — the spelling `scaling_sweep.py` prints too. A wall clock means as little as a byte comparison until you know which fixpoint produced it.
 
 Peak resident set is per configuration and a fixpoint's working set lives until it has emitted, so a parallel run wants roughly the serial peak times the configurations in flight. `--threads` is the knob on a box with less memory than that.
 
@@ -16,7 +16,7 @@ Every configuration's row carries the sha256 of its stream file, so two runs at 
 
 What this harness times is the enumeration and the stream, which is what `enumerate-configs` does and no longer the whole of what a build's table stage does: since the crate grew its `build-tables` verb a build folds in the same process and writes tables rather than a stream, so `make cycle-timings`'s `build_tables_total` now covers a fold this arm does not. The two still compare on the enumeration, which is where the growth is.
 
-`--rung N` swaps the live alphabet for one rung of the nested ladder `rebuild/tools/scaling_ladder.py` cuts — the ladder `scaling/scaling.py` now sweeps whole through this same binary — and times the default configuration alone on it, which is how one rung is re-timed, or timed at every acceptance configuration with `--configs`, without re-running the sweep. `--spec` measures a dump already written instead of writing a fresh one, which is how a rung gets a second run without re-resolving the spec, and `scaling.py` leaves one per rung under `AMS_SCALING_DUMP=<dir>` — but it names a spec, not a set of configurations, so a bare `--spec` over a rung dump times the whole acceptance set where the `--rung` that wrote it timed one. `--configs=default` beside it is what repeats the rung's own measurement; `--configs` narrows any run the same way, and refuses a token the acceptance sweep does not spell.
+`--rung N` swaps the live alphabet for one rung of the nested ladder `rebuild/tools/scaling_ladder.py` cuts — the ladder `scaling_sweep.py` sweeps whole through this same binary — and times the default configuration alone on it, which is how one rung is re-timed, or timed at every acceptance configuration with `--configs`, without re-running the sweep. `--spec` measures a dump already written instead of writing a fresh one, which is how a rung gets a second run without re-resolving the spec, and `scaling_sweep.py` leaves one per rung under `AMS_SCALING_DUMP=<dir>` — but it names a spec, not a set of configurations, so a bare `--spec` over a rung dump times the whole acceptance set where the `--rung` that wrote it timed one. `--configs=default` beside it is what repeats the rung's own measurement; `--configs` narrows any run the same way, and refuses a token the acceptance sweep does not spell.
 """
 
 from __future__ import annotations
@@ -27,21 +27,15 @@ import json
 import os
 import resource
 import subprocess
-import sys
 import time
 from pathlib import Path
-
-HERE = Path(__file__).resolve()
-ROOT = HERE.parents[2]
-LEVERS_OUT = HERE.parent / "out"
-BINARY = ROOT / "rebuild" / "kernel-rs" / "target" / "release" / "ams-m1-kernel"
-
-sys.path.insert(0, str(ROOT))
 
 from rebuild.pipeline import conform, kernel_exec, kernel_io
 from rebuild.pipeline.spec_load import load_default_spec
 from rebuild.tools import peak_rss, scaling_ladder
 from rebuild.tools.console import INNER_LINE
+
+SCRATCH_OUT = Path(__file__).resolve().parents[2] / "rebuild" / "out" / "kernel-all"
 
 
 def cpu_children() -> float:
@@ -78,9 +72,9 @@ def configs_from(requested: str) -> list[str]:
 
 
 def scratch_out_dir(requested: str, arm: str) -> Path:
-    out_dir = Path(requested).resolve() if requested else (LEVERS_OUT / "kernel-all" / arm).resolve()
-    if LEVERS_OUT not in out_dir.parents:
-        raise SystemExit(f"refusing out_dir {out_dir}: it must resolve under {LEVERS_OUT}")
+    out_dir = Path(requested).resolve() if requested else (SCRATCH_OUT / arm).resolve()
+    if SCRATCH_OUT not in out_dir.parents:
+        raise SystemExit(f"refusing out_dir {out_dir}: it must resolve under {SCRATCH_OUT}")
     return out_dir
 
 
@@ -115,7 +109,7 @@ def main() -> int:
     ap.add_argument("--rung", type=int, default=0)
     ap.add_argument("--reps", type=int, default=1)
     ap.add_argument("--out-dir", default="")
-    ap.add_argument("--binary", default=str(BINARY))
+    ap.add_argument("--binary", default=str(kernel_exec.BINARY))
     ap.add_argument("--label", default="")
     args = ap.parse_args()
 
@@ -127,6 +121,7 @@ def main() -> int:
     if args.threads and args.mode == "serial":
         raise SystemExit("--mode serial is --threads=1; pass --mode parallel to widen it")
 
+    tokens: list[str]
     if args.configs:
         tokens = configs_from(args.configs)
     else:

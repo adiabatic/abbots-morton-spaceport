@@ -68,7 +68,7 @@ make verdict-ready
 - The probe battery is one window per invocation: every joining pair in both directions, the yield chains, and must-not-move neighbors — every divergence from the old font must be one the user designed.
 - Green looks like: defects 0/0, conform exact, read-back clean with its GSUB headroom inside the floor, Manual pins clean; the oracle-unmatched delta is the score — new rows either disappear with your records or land under existing ledger classes as designed divergences.
 - `make prettier` after any Python edit. Review `git diff -- rebuild/review-census-pins.json` at commit time — anything moving in its `invariant` block wants real attention.
-- Re-run the scaling ladder (`uv run python bench-the-rebuild/scaling/scaling.py`), refresh `bench-the-rebuild/scaling/scaling.txt` with the run's output, and read the whole-ladder fit against `bench-the-rebuild/RUST-PORT-PLAN.md`'s thresholds — a tripped threshold goes to the speed-up tracker, not this batch.
+- Re-run the scaling ladder (`uv run python -m rebuild.tools.scaling_sweep | tee rebuild/scaling-ladder.txt`, which refreshes the checked-in record) and read the whole-ladder fit against the threshold in `scaling_sweep.py`'s docstring — a tripped threshold goes to the speed-up tracker, not this batch.
 
 ## 6 — land and hand off
 

@@ -87,7 +87,7 @@ UNITS: tuple[Unit, ...] = (
         pool_units=(),
         step_names=("run_m1",),
         step_caveat="run_m1's peak is the widest single process in its tree, and that is one configuration child — the parent holds only heads, and every child is handed threads=1 — so the step peak reads one configuration however wide the fan-out was. The approximation runs in one direction that matters: it is the widest configuration of the ones that ran, and a solo direct measurement has been observed higher than the journal's rows, which is why the constant carries headroom past them.",
-        note="The direct measurement is bench-the-rebuild/levers/kernel_all_configs.py plus the crate's --cache-census, which is what to reach for before re-seeding; this row is the cheap standing watch beside it rather than a replacement for it.",
+        note="The direct measurement is rebuild/tools/kernel_all_configs.py plus the crate's --cache-census, which is what to reach for before re-seeding; this row is the cheap standing watch beside it rather than a replacement for it.",
     ),
     Unit(
         name="surface-parent",

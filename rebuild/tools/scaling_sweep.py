@@ -1,14 +1,14 @@
-"""How steeply does the M1 fixpoint grow with the modeled alphabet? Only part of the 44-letter target is modeled today, so what this sweep bears on is how far the port's constant factor reaches toward it: a workload that grows steeply in the alphabet spends a constant factor quickly. It is the migration's early-warning system rather than a one-time measurement — a port moves the constant and not the exponent, so a ladder that steepens between batches makes work avoidance due regardless of language, and `bench-the-rebuild/RUST-PORT-PLAN.md`'s threshold rows are stated against what this prints. The top rung is the whole current alphabet, which is the check that the sweep measures the real kernel rather than a subset of it.
+"""How steeply does the M1 fixpoint grow with the modeled alphabet? Only part of the 44-letter target is modeled today, so what this sweep bears on is how far the port's constant factor reaches toward it: a workload that grows steeply in the alphabet spends a constant factor quickly. It is the migration's early-warning system rather than a one-time measurement — a port moves the constant and not the exponent, so a ladder that steepens between batches makes work avoidance due regardless of language, and the threshold the whole-ladder fit is read against is stated below. The top rung is the whole current alphabet, which is the check that the sweep measures the real kernel rather than a subset of it.
 
-Every rung goes through the kernel crate: one `build-tables --configs=default --threads=1` child per rung — the verb a build runs, enumerating the rung and folding it in place — so the ladder times the whole of what a build spends on a configuration. That is also what makes a row's `rss_high_water_gb` the rung's own figure — the child's process high-water, reaped with it through `peak_rss.reap_peak_rss_bytes` — rather than the cumulative maximum an in-process sweep charged every rung with once the tallest rung had run. `cpu` and `wall` cover the whole child: spec parse, enumerate, fold and the artifacts it writes. Twice now that total has changed what it covers — at #77 when the arm stopped being Python's, and here when the fold came inside the child and the stream stopped being written — so a row from an earlier run compares on exponent and not on constant. The `[t]` lines split it into `spec_parse_s`, `enumerate_s` and `fold_s`, null rather than 0.0 for a phase the child did not report, since a zero there would read as a measurement.
+Every rung goes through the kernel crate: one `build-tables --configs=default --threads=1` child per rung — the verb a build runs, enumerating the rung and folding it in place — so the ladder times the whole of what a build spends on a configuration. That is also what makes a row's `rss_high_water_gb` the rung's own figure — the child's process high-water, reaped with it through `peak_rss.reap_peak_rss_bytes` — rather than the cumulative maximum an in-process sweep charged every rung with once the tallest rung had run. `cpu` and `wall` cover the whole child: spec parse, enumerate, fold and the artifacts it writes. A row recorded under an earlier arm — the Python fixpoint, or the enumerate-and-emit crate verb before the fold came inside the child — covers a different total, so it compares with a current row on exponent and not on constant. The `[t]` lines split it into `spec_parse_s`, `enumerate_s` and `fold_s`, null rather than 0.0 for a phase the child did not report, since a zero there would read as a measurement.
 
 `windows`, `rules` and `cells` are then read off the artifacts the child wrote — the head of its window payload for the rules and the reachable cells, its body counted a line at a time — and `digest` is the contract-grain scalar the child reports on stdout, at exactly `table.table_digest`'s grain, so a rung whose seconds drifted and a rung whose answer changed are two different events. Nothing here folds anything: the counts cost a streamed read of a file the child has already written, where deriving them from a fold on this side would cost a parsed product and several gigabytes.
 
-The report is the consecutive-pair exponents against runes, as before, plus a least-squares fit of ln count on ln alphabet over the whole ladder in both denominators. Fit the whole ladder and state the denominator: a single pair swings by a large fraction of the threshold on ordinary scatter and on which letters that rung happened to add, and a rune exponent is the letter exponent times `d ln letters / d ln runes`, which the nested ladder drives from below 1 to above 1 as it stops adding ligatures and starts adding letters. RUST-PORT-PLAN.md states its threshold in this fitted form and in both bases — about 4.5 in letters, about 5.5 in runes — and those are one threshold rather than two.
+The report is the consecutive-pair exponents against runes, as before, plus a least-squares fit of ln count on ln alphabet over the whole ladder in both denominators. Fit the whole ladder and state the denominator: a single pair swings by a large fraction of the threshold on ordinary scatter and on which letters that rung happened to add, and a rune exponent is the letter exponent times `d ln letters / d ln runes`, which the nested ladder drives from below 1 to above 1 as it stops adding ligatures and starts adding letters. The threshold is stated in this fitted form and in both bases — about 4.5 in letters, about 5.5 in runes — and those are one threshold rather than two; a fit past it means work avoidance (the coverage levers in `doc/rebuild-design.md` §14.1) is due before the next batch, whatever the language.
 
-The knobs. Positional arguments are the rune counts to cut rungs at, any k rather than only a ladder rung, and default to the full ladder from `scaling_ladder.ladder_rungs`, which is the ladder's one authority now that this script imports it instead of reproducing it. `AMS_SCALING_DUMP=<dir>` keeps each rung's spec dump and the artifacts its child wrote instead of letting a temporary directory take them, which is how `levers/kernel_all_configs.py --spec <dir>/spec-rN.json` re-times one rung, or times all six configurations on it. `AMS_SCALING_BINARY=<path>` measures that binary as-is rather than building the crate — the arm-at-another-revision knob, in the seat `AMS_SCALING_ROOT` held when the arm was a Python tree to import from. `AMS_DEEP_CLASSES=0`, `AMS_SIMULATED_PROSPECT=0` and `AMS_VOTE_SLOTS=0` reach the child through `kernel_exec.world_flags()`, and every row's `world` names the flags that rode, `shipping defaults` when none did.
+The knobs. Positional arguments are the rune counts to cut rungs at, any k rather than only a ladder rung, and default to the full ladder from `scaling_ladder.ladder_rungs`, which is the ladder's one authority now that this script imports it instead of reproducing it. `AMS_SCALING_DUMP=<dir>` keeps each rung's spec dump and the artifacts its child wrote instead of letting a temporary directory take them, which is how `kernel_all_configs.py --spec <dir>/spec-rN.json` re-times one rung, or times all six configurations on it. `AMS_SCALING_BINARY=<path>` measures that binary as-is rather than building the crate — the arm-at-another-revision knob. `AMS_DEEP_CLASSES=0`, `AMS_SIMULATED_PROSPECT=0` and `AMS_VOTE_SLOTS=0` reach the child through `kernel_exec.world_flags()`, and every row's `world` names the flags that rode, `shipping defaults` when none did.
 
-Rows print as they land and the whole set is written to `scaling.json` beside this file. Run it from anywhere: `uv run python bench-the-rebuild/scaling/scaling.py [k ...]`.
+Rows print as they land and the whole set is written to `rebuild/out/scaling-ladder.json`. `rebuild/scaling-ladder.txt` is the checked-in record of the last run — the rows and the report as printed — and the add-a-new-letter checklist refreshes it after every migration batch. Run from the repo root: `uv run python -m rebuild.tools.scaling_sweep [k ...] | tee rebuild/scaling-ladder.txt`.
 """
 
 from __future__ import annotations
@@ -24,13 +24,13 @@ import time
 from contextlib import ExitStack
 from pathlib import Path
 
-HERE = Path(__file__).resolve()
-sys.path.insert(0, str(HERE.parents[2]))
-
 from rebuild.pipeline import kernel_exec, kernel_io, table
 from rebuild.pipeline.spec_load import load_default_spec
 from rebuild.tools import peak_rss, scaling_ladder
 from rebuild.tools.console import INNER_LINE
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+ROWS_PATH = REPO_ROOT / "rebuild" / "out" / "scaling-ladder.json"
 
 
 def kernel_binary() -> Path:
@@ -197,7 +197,9 @@ def main() -> int:
             }
             rows.append(row)
             print(json.dumps(row), flush=True)
-    json.dump(rows, open(HERE.parent / "scaling.json", "w"), indent=1)
+    ROWS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with ROWS_PATH.open("w") as handle:
+        json.dump(rows, handle, indent=1)
     report(rows)
     return 0
 

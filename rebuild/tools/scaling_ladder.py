@@ -1,6 +1,6 @@
 """The nested scaling ladder's one authority: the rune order the rungs are cut from, the rung sizes, and the sub-spec one rung stands for. Ligature closure first — every ligature preceded by the components it names — and then the remaining runes alphabetically, with rungs at `sorted({*range(6, len(order), 2), len(order)})` and each rung's keep-set filtered so a ligature rides only when every component it names rides with it.
 
-`bench-the-rebuild/scaling/scaling.py` and `bench-the-rebuild/levers/kernel_all_configs.py` both import this, so the sweep and the lever cut the same rungs rather than two ladders that could drift apart: a lever reading is comparable with a sweep reading only because rung k means one alphabet and not two. Nesting is what makes the rungs comparable to each other as well — rung k is rung k-2 plus two more runes, never a different alphabet.
+`scaling_sweep.py` and `kernel_all_configs.py` beside this both import it, so the sweep and the lever cut the same rungs rather than two ladders that could drift apart: a lever reading is comparable with a sweep reading only because rung k means one alphabet and not two. Nesting is what makes the rungs comparable to each other as well — rung k is rung k-2 plus two more runes, never a different alphabet.
 
 The spec-ingest parity check is `rebuild/test_kernel_io.py`'s spec-echo test, in the contracts lane of every `make test-rebuild`, not part of the ladder.
 """
