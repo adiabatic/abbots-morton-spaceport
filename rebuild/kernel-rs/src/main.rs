@@ -10,7 +10,7 @@
 //!
 //! - `ams-m1-kernel spec-echo <spec>` writes the canonical dump plus one newline.
 //! - `ams-m1-kernel settle-cases <spec> <cases> [--features=a,b,…] [--candidacy-prospect] [--vote-slots-off]` replays a plain-text `ams-m1-corpus/3` case file — one JSON case per line, which is what `kernel_exec.case_row` writes and `kernel_exec.trace_of` reads the answers of — through one engine in file order and writes one re-emitted case line per case. A window that raises a settlement error is a normal result line and never a nonzero exit.
-//! - `ams-m1-kernel guard-sweep <spec>` writes the whole section 5.7 late-formation surface, one tab-separated verdict per line.
+//! - `ams-m1-kernel guard-sweep <spec> [--config=<token>]` writes the whole section 5.7 late-formation surface, one tab-separated verdict per line: quantified over the capability-unlock powerset, which is the surface the font ships, or answered by the one configuration `--config=` names — a token spelled as `--configs=` spells one, `default` included, so the no-feature configuration is nameable where an empty `--features=` could not name it — which is what the rebuild suite holds against the quantified one per configuration. The guard pins its own engine modes, so the two mode flags are a usage error here rather than a world to answer in.
 //! - `ams-m1-kernel enumerate <spec> [--features=a,b,…] [--candidacy-prospect] [--vote-slots-off] [--deep-classes-off] [--timings]` runs one configuration's whole table-build fixpoint and writes the uncompressed `ams-m1-transitions/1` stream — the head line and one row per window. `--deep-classes-off` is Python's `AMS_DEEP_CLASSES=0`, the label-grain arm; in the pinned candidacy world enumeration is label-grain regardless, so the flag is accepted and does nothing there. The stream is written plain, which is what `kernel_exec.read_stream` parses back.
 //! - `ams-m1-kernel enumerate-configs <spec> <outdir> --configs=a,b,… [--threads=N] [--candidacy-prospect] [--vote-slots-off] [--deep-classes-off] [--timings]` runs several configurations' fixpoints in one process and writes each one's stream to `<outdir>/transitions-<config>.ndjson`, creating the directory with its parents and overwriting what it finds. stdout stays silent, because here the answer is the files — and they mean nothing except on exit 0, since a configuration that fails exits 1 naming itself and leaves whatever the other configurations had already written behind. A run that does reach exit 0 leaves that promise glob-safe: any `transitions-*.ndjson` already in the directory naming a configuration this run was not asked about is swept before the first one is written, so the whole set a consumer finds there is the set the command line named. `--configs=` is required and spells the configurations the way Python does, `conform.ACCEPTANCE_CONFIGS`'s own tokens: `default` for no features, anything else a `+`-joined feature list whose names are checked against the spec exactly as `--features=` checks them. A token that is not the canonical spelling of the features it names — out of order, repeated, empty, or empty between two `+` — is a usage error rather than a configuration, which is what keeps the filename, the stream head's `config` and the caller's own word for it in agreement by construction. The world flags name one world for the whole invocation, as they do for one `enumerate`.
 //! - `ams-m1-kernel build-tables <spec> <outdir> --configs=a,b,… --inputs=<stamp> [--threads=N] [--candidacy-prospect] [--vote-slots-off] [--deep-classes-off] [--timings] [--cache-census]` runs the same fixpoints and then folds each one in place, writing `<outdir>/settlement-<config>.tsv`, `<outdir>/treaties-<config>.tsv` and the uncompressed `<outdir>/windows-<config>.tsv` under the fingerprint `--inputs` names, and writing one `{"config":…,"digest":…}` line per configuration to stdout in the order the command line named them. No stream is written and none is read: the fold runs on the product the worklist still holds, so the several hundred megabytes a stream would cost to write and read back are never spent. The harness gzips the windows payload, as it gzips the stream, for the same reason. The directory is created and nothing in it is swept — a build writes into its own artifact directory beside a dozen other families. `--inputs=` is required, because a serialized enumeration is trusted or refused on the stamp it carries.
@@ -43,13 +43,14 @@ use ams_m1_kernel::options::WindowOptions;
 use ams_m1_kernel::stream::feature_config_token;
 use ams_m1_kernel::{cases, emit, fanout, guard, parse, stream};
 
-const USAGE: &str = "usage: ams-m1-kernel spec-echo <spec>\n       ams-m1-kernel settle-cases <spec> <cases> [--features=a,b] [--candidacy-prospect] [--vote-slots-off]\n       ams-m1-kernel guard-sweep <spec>\n       ams-m1-kernel enumerate <spec> [--features=a,b] [--candidacy-prospect] [--vote-slots-off] [--deep-classes-off] [--timings] [--cache-census]\n       ams-m1-kernel enumerate-configs <spec> <outdir> --configs=default,ss03 [--threads=N] [--candidacy-prospect] [--vote-slots-off] [--deep-classes-off] [--timings] [--cache-census]\n       ams-m1-kernel build-tables <spec> <outdir> --configs=default,ss03 --inputs=<stamp> [--threads=N] [--candidacy-prospect] [--vote-slots-off] [--deep-classes-off] [--timings] [--cache-census]\n       ams-m1-kernel liveness-cases <spec> <keys> [--features=a,b] [--candidacy-prospect] [--vote-slots-off]";
+const USAGE: &str = "usage: ams-m1-kernel spec-echo <spec>\n       ams-m1-kernel settle-cases <spec> <cases> [--features=a,b] [--candidacy-prospect] [--vote-slots-off]\n       ams-m1-kernel guard-sweep <spec> [--config=default|ss03+ss05]\n       ams-m1-kernel enumerate <spec> [--features=a,b] [--candidacy-prospect] [--vote-slots-off] [--deep-classes-off] [--timings] [--cache-census]\n       ams-m1-kernel enumerate-configs <spec> <outdir> --configs=default,ss03 [--threads=N] [--candidacy-prospect] [--vote-slots-off] [--deep-classes-off] [--timings] [--cache-census]\n       ams-m1-kernel build-tables <spec> <outdir> --configs=default,ss03 --inputs=<stamp> [--threads=N] [--candidacy-prospect] [--vote-slots-off] [--deep-classes-off] [--timings] [--cache-census]\n       ams-m1-kernel liveness-cases <spec> <keys> [--features=a,b] [--candidacy-prospect] [--vote-slots-off]";
 
 /// What a command line named, before any verb has said how many positionals it wants. The three mode flags are spelled as negations because all three modes ship on, so a plain invocation is the shipping configuration.
 struct Flags<'a> {
     positionals: Vec<&'a str>,
     features: Vec<&'a str>,
     configs: Option<Vec<&'a str>>,
+    config: Option<&'a str>,
     inputs: Option<&'a str>,
     threads: Option<usize>,
     timings: bool,
@@ -66,6 +67,8 @@ struct Vocabulary {
     features: bool,
     /// The two flags of a multi-configuration run, `--configs=` and `--threads=`, which only ever arrive together.
     configs: bool,
+    /// `--config=`, one configuration token in `--configs=`'s spelling, for the verb that answers a single named configuration or the powerset.
+    config: bool,
     /// `--inputs=`, the fingerprint stamp a windows head carries, which only the table build writes one of.
     inputs: bool,
     /// `--timings` and `--cache-census`, the two stderr diagnostics, which the same verbs spell.
@@ -76,6 +79,7 @@ struct Vocabulary {
 const CASES_FLAGS: Vocabulary = Vocabulary {
     grain: false,
     features: true,
+    config: false,
     configs: false,
     inputs: false,
     timings: false,
@@ -83,6 +87,7 @@ const CASES_FLAGS: Vocabulary = Vocabulary {
 const ENUMERATE_FLAGS: Vocabulary = Vocabulary {
     grain: true,
     features: true,
+    config: false,
     configs: false,
     inputs: false,
     timings: true,
@@ -90,6 +95,7 @@ const ENUMERATE_FLAGS: Vocabulary = Vocabulary {
 const CONFIGS_FLAGS: Vocabulary = Vocabulary {
     grain: true,
     features: false,
+    config: false,
     configs: true,
     inputs: false,
     timings: true,
@@ -97,9 +103,19 @@ const CONFIGS_FLAGS: Vocabulary = Vocabulary {
 const TABLES_FLAGS: Vocabulary = Vocabulary {
     grain: true,
     features: false,
+    config: false,
     configs: true,
     inputs: true,
     timings: true,
+};
+/// `guard-sweep` names one configuration or none; its world is pinned in `guard.rs`, so [`plan_guard`] refuses the mode flags [`scan_flags`] accepts for every other verb.
+const GUARD_FLAGS: Vocabulary = Vocabulary {
+    grain: false,
+    features: false,
+    config: true,
+    configs: false,
+    inputs: false,
+    timings: false,
 };
 
 /// What a `settle-cases` invocation asked for.
@@ -109,6 +125,12 @@ struct CasesPlan<'a> {
     features: Vec<&'a str>,
     simulated_prospect: bool,
     vote_slots: bool,
+}
+
+/// What a `guard-sweep` invocation asked for: the spec, and the one configuration to answer for instead of the powerset, or none for the quantified surface.
+struct GuardPlan<'a> {
+    spec: &'a str,
+    config: Option<ConfigRequest<'a>>,
 }
 
 /// What an `enumerate` invocation asked for — [`CasesPlan`]'s flag vocabulary over one positional, plus the grain, since a fixpoint is one configuration's whole answer and the configuration is named the same way.
@@ -189,10 +211,10 @@ fn main() -> ExitCode {
             settle_cases(&plan)
         }
         "guard-sweep" => {
-            let [path] = rest else {
+            let Some(plan) = plan_guard(rest) else {
                 return usage();
             };
-            guard_sweep(path)
+            guard_sweep(&plan)
         }
         "enumerate" => {
             let Some(plan) = plan_enumerate(rest) else {
@@ -241,6 +263,7 @@ fn scan_flags(rest: &[String], vocabulary: Vocabulary) -> Option<Flags<'_>> {
     let mut positionals: Vec<&str> = Vec::new();
     let mut features: Option<Vec<&str>> = None;
     let mut configs: Option<Vec<&str>> = None;
+    let mut config: Option<&str> = None;
     let mut inputs: Option<&str> = None;
     let mut threads: Option<usize> = None;
     let mut timings = false;
@@ -273,6 +296,13 @@ fn scan_flags(rest: &[String], vocabulary: Vocabulary) -> Option<Flags<'_>> {
                 return None;
             }
             configs = Some(list.split(',').collect());
+        } else if vocabulary.config
+            && let Some(token) = argument.strip_prefix("--config=")
+        {
+            if token.is_empty() || config.is_some() {
+                return None;
+            }
+            config = Some(token);
         } else if vocabulary.inputs
             && let Some(stamp) = argument.strip_prefix("--inputs=")
         {
@@ -297,6 +327,7 @@ fn scan_flags(rest: &[String], vocabulary: Vocabulary) -> Option<Flags<'_>> {
         positionals,
         features: features.unwrap_or_default(),
         configs,
+        config,
         inputs,
         threads,
         timings,
@@ -319,6 +350,21 @@ fn plan_cases(rest: &[String]) -> Option<CasesPlan<'_>> {
         simulated_prospect: flags.simulated_prospect,
         vote_slots: flags.vote_slots,
     })
+}
+
+fn plan_guard(rest: &[String]) -> Option<GuardPlan<'_>> {
+    let flags = scan_flags(rest, GUARD_FLAGS)?;
+    if !flags.simulated_prospect || !flags.vote_slots {
+        return None;
+    }
+    let [spec] = flags.positionals.as_slice() else {
+        return None;
+    };
+    let config = match flags.config {
+        Some(token) => Some(config_requests(vec![token])?.pop()?),
+        None => None,
+    };
+    Some(GuardPlan { spec, config })
 }
 
 fn plan_enumerate(rest: &[String]) -> Option<EnumeratePlan<'_>> {
@@ -652,9 +698,17 @@ impl Timings {
     }
 }
 
-fn guard_sweep(path: &str) -> Result<(), String> {
-    let index = read_index(path)?;
-    let lines = guard::sweep(&index).map_err(|error| format!("{path}: {error}"))?;
+/// The whole formation surface: quantified over the powerset when the plan names no configuration, answered by that one configuration when it does.
+fn guard_sweep(plan: &GuardPlan<'_>) -> Result<(), String> {
+    let index = read_index(plan.spec)?;
+    let lines = match plan.config.as_ref() {
+        None => guard::sweep(&index),
+        Some(request) => {
+            let features = feature_syms(&index, plan.spec, &request.features)?;
+            guard::sweep_under(&index, features)
+        }
+    }
+    .map_err(|error| format!("{}: {error}", plan.spec))?;
     write_lines(&lines)
 }
 

@@ -193,6 +193,66 @@ fn a_malformed_command_line_is_a_two_and_an_unanswerable_one_is_a_one() {
     );
 }
 
+/// The guard answers one named configuration through the same verb that answers the powerset, in the same shape, `default` among the names so the no-feature configuration is askable, and refuses what its pinned world cannot honor: a token that is not a configuration's canonical spelling is the usage error `--configs=` makes of it, `--features=` is outside this verb's vocabulary, and a mode flag is a usage error too, because the guard's modes are `guard.rs`'s to pin. A feature the spec never mentions is a refused run rather than a quiet default, exactly as `settle-cases` refuses it.
+#[test]
+fn a_guard_sweep_answers_one_configuration_and_refuses_a_world_flag() {
+    let root = scratch("cli-guard");
+    let spec = spec_at(&root);
+    let quantified = run(&["guard-sweep", word(&spec)]);
+    assert!(
+        quantified.status.success(),
+        "the quantified sweep answers: {}",
+        complaint(&quantified)
+    );
+    for token in ["default", "ss03"] {
+        let under = run(&["guard-sweep", word(&spec), &format!("--config={token}")]);
+        assert!(
+            under.status.success(),
+            "and so does {token}'s: {}",
+            complaint(&under)
+        );
+        assert!(
+            under.stderr.is_empty(),
+            "a clean sweep says nothing on stderr"
+        );
+        assert_eq!(
+            under.stdout.iter().filter(|byte| **byte == b'\n').count(),
+            quantified
+                .stdout
+                .iter()
+                .filter(|byte| **byte == b'\n')
+                .count(),
+            "{token}'s surface has the quantified surface's rows"
+        );
+    }
+    for tail in [
+        vec!["--config="],
+        vec!["--config=ss03+"],
+        vec!["--config=default", "--config=ss03"],
+        vec!["--features=ss03"],
+        vec!["--candidacy-prospect"],
+        vec!["--vote-slots-off"],
+        vec!["--deep-classes-off"],
+    ] {
+        let mut arguments = vec!["guard-sweep", word(&spec)];
+        arguments.extend(&tail);
+        let output = run(&arguments);
+        assert_eq!(
+            output.status.code(),
+            Some(2),
+            "{tail:?} is a usage error: {}",
+            complaint(&output)
+        );
+    }
+    let unknown = run(&["guard-sweep", word(&spec), "--config=ss05"]);
+    assert_eq!(unknown.status.code(), Some(1));
+    assert!(
+        complaint(&unknown).contains("ss05"),
+        "the complaint names the feature this spec never mentions: {}",
+        complaint(&unknown)
+    );
+}
+
 /// A directory globbed after a clean exit holds this run's answer and nothing else: a stream left by a configuration this run was not asked about is gone, and anything that is not a stream is where its owner left it.
 #[test]
 fn a_clean_fan_out_sweeps_the_streams_it_did_not_name() {

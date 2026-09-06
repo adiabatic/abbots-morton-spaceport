@@ -2,7 +2,7 @@
 //!
 //! The verdict is a pure function of the ligature and the two raw slots past its sequence, which is the whole reason it can compile into the formation lookup the font ships: that lookup stages before the stylistic-set marker substitutions and is therefore config-blind, so the verdict is quantified over the powerset of capability-unlock features and fires only where every configuration agrees. The engines that answer it are dedicated ones with both issue-28 flags pinned off and every slot past the two the verdict is keyed on bound to the window edge — `vote_deep_slot` at [`EDGE`], plus `EDGE` in the trace's third and fourth slots — so a vote or a prefer that would need deeper raw text to fire definitively can never flip a formation verdict as a side effect of a settlement-scoring change. Whether the guard should ever follow either flag is its own reviewed change with its own flip inventory, which is why the pins live here rather than being read off the engine defaults.
 //!
-//! [`GuardState`] is ordinary per-spec state, built once and kept: the powerset lives on it rather than in a cache beside it. `settle.form_ligatures` reads its verdicts from the whole swept mapping, which `kernel_exec.guard_sweep` memoizes per spec identity, so one process sweeps one spec once however many texts it forms. The engines are plain ones — no trace memo, so nothing journals and [`Engine::candidates`] runs uncached — because no verdict reads a fired delta.
+//! [`GuardState`] is ordinary per-spec state, built once and kept: the powerset lives on it rather than in a cache beside it. `settle.form_ligatures` reads its verdicts from the whole swept mapping, which `kernel_exec.guard_sweep` memoizes per spec identity, so one process sweeps one spec once however many texts it forms. The engines are plain ones — no trace memo, so nothing journals and [`Engine::candidates`] runs uncached — because no verdict reads a fired delta. [`GuardState::under`] and [`sweep_under`] are the same guard over one named configuration instead of the powerset: nothing the font ships reads them, and what they are for is the rebuild suite's pin of where each configuration's own surface stands against the quantified one — which sets move a single-engine verdict at all, and on which windows — so a configuration delta knows what formation owes it before any configuration is named.
 //!
 //! One structural note: `GuardState::follower_formation` is answered once up front rather than inside the per-engine loop. It reads the spec and the two slots and nothing of the engine, so the answer is the same either way, and hoisting it is what lets the verdict memo and the engines be borrowed apart.
 
@@ -22,30 +22,44 @@ const TAIL_TOKENS: [RightToken; 5] = [EDGE, SPACE, ZWNJ, NAMER_DOT, UNKNOWN];
 /// One verdict's identity: the ligature under formation and the two raw slots past its sequence. Nothing else can reach a verdict, which is exactly the property the emitted lookup depends on.
 type VerdictKey = (Sym, RightToken, RightToken);
 
-/// One spec's guard state: the capability-feature powerset as engines, and the verdicts they have already agreed on.
+/// One spec's guard state: the engines a verdict has to survive — the capability-feature powerset for the config-blind verdict the font ships, or a single named configuration for the pin that holds every configuration to that verdict — and the verdicts they have already agreed on.
 pub struct GuardState<'i> {
     index: &'i SpecIndex,
     engines: Vec<Engine<'i>>,
     verdicts: HashMap<VerdictKey, bool>,
 }
 
+/// The guard's engine modes: the two issue-28 flags off and the vote's deep slot pinned to the window edge, whatever the engine defaults say.
+const GUARD_MODES: EngineModes = EngineModes {
+    vote_deep_slot: EDGE,
+    simulated_prospect: false,
+    vote_slots: false,
+    trace_memo: false,
+    explain_ladder: true,
+};
+
 impl<'i> GuardState<'i> {
-    /// The guard's engines for one spec: one per subset of the capability-unlock features, in `itertools.combinations` order — subset sizes ascending, and within a size the features in sorted-name order — with the two issue-28 flags off and the vote's deep slot pinned to the window edge.
+    /// The guard's engines for one spec: one per subset of the capability-unlock features, in `itertools.combinations` order — subset sizes ascending, and within a size the features in sorted-name order — in [`GUARD_MODES`].
     pub fn new(index: &'i SpecIndex) -> Self {
-        let modes = EngineModes {
-            vote_deep_slot: EDGE,
-            simulated_prospect: false,
-            vote_slots: false,
-            trace_memo: false,
-            explain_ladder: true,
-        };
         let features = capability_features(index);
         let mut engines = Vec::new();
         for size in 0..=features.len() {
             for combination in combinations(&features, size) {
-                engines.push(Engine::with_modes(index, combination, modes));
+                engines.push(Engine::with_modes(index, combination, GUARD_MODES));
             }
         }
+        Self::over(index, engines)
+    }
+
+    /// One configuration's guard: a single engine over exactly `features`, in [`GUARD_MODES`], so its verdicts are what that configuration alone would say. The shipped verdict is [`GuardState::new`]'s, which fires only where every configuration's agrees; this is what the rebuild suite sweeps per configuration to pin which of them do, and where.
+    pub fn under(index: &'i SpecIndex, features: Vec<Sym>) -> Self {
+        Self::over(
+            index,
+            vec![Engine::with_modes(index, features, GUARD_MODES)],
+        )
+    }
+
+    fn over(index: &'i SpecIndex, engines: Vec<Engine<'i>>) -> Self {
         Self {
             index,
             engines,
@@ -224,6 +238,16 @@ fn combinations(features: &[Sym], size: usize) -> Vec<Vec<Sym>> {
 ///
 /// The surface is exhaustively enumerable rather than sampled, which is what lets one sweep answer every formation question a build can ask, with no sampling to argue about. The letter vocabulary is every modeled rune, ligature runes included — the same alphabet the deep-slot liveness probes sweep.
 pub fn sweep(index: &SpecIndex) -> Result<Vec<String>, SettleError> {
+    sweep_with(&mut GuardState::new(index))
+}
+
+/// The same surface in the same order, answered by one configuration alone — `guard-sweep --features=` — so a caller can hold every configuration's surface against the quantified one.
+pub fn sweep_under(index: &SpecIndex, features: Vec<Sym>) -> Result<Vec<String>, SettleError> {
+    sweep_with(&mut GuardState::under(index, features))
+}
+
+fn sweep_with(state: &mut GuardState<'_>) -> Result<Vec<String>, SettleError> {
+    let index = state.index;
     let mut letters: Vec<Sym> = index.runes().iter().map(|(name, _)| *name).collect();
     letters.sort_by(|left, right| index.resolve(*left).cmp(index.resolve(*right)));
     let ligatures: Vec<Sym> = letters
@@ -245,7 +269,6 @@ pub fn sweep(index: &SpecIndex) -> Result<Vec<String>, SettleError> {
             .iter()
             .map(|token| (token.kind().as_str().to_owned(), *token)),
     );
-    let mut state = GuardState::new(index);
     let mut lines = Vec::with_capacity(ligatures.len() * letters.len() * right2_tokens.len());
     for liga in &ligatures {
         let liga_name = index.resolve(*liga);
@@ -304,6 +327,12 @@ mod tests {
         )
     }
 
+    fn exit_unlock(feature: &str) -> String {
+        format!(
+            r#"{{"feature":"{feature}","entry":null,"exit":"baseline","pairing":null,"when":null,"why":null,"provenance":null}}"#
+        )
+    }
+
     fn spec_of(runes: &[(String, String)]) -> SpecIndex {
         fixtures::index_of(&fixtures::dump(
             &object(runes),
@@ -339,8 +368,114 @@ mod tests {
         spec_of(&[pea, tea, may, liga])
     }
 
+    /// [`alphabet`] with the ligature's baseline exit granted by an `ss03` unlock rather than declared, so its verdicts are the one thing the configurations disagree on: the ligature yields with nothing on and forms under ss03.
+    fn alphabet_unlocking_the_ligature_exit() -> SpecIndex {
+        let baseline = object(&[row("baseline", &[])]);
+        let unlocks = fixtures::seq(&[&exit_unlock("ss03")]);
+        let pea = rune(
+            "qsPea",
+            &[stance("half", &baseline, &baseline, &[])],
+            &[("codepoint", "58960")],
+        );
+        let tea = rune(
+            "qsTea",
+            &[stance("plain", &baseline, &baseline, &[])],
+            &[("codepoint", "58962")],
+        );
+        let may = rune(
+            "qsMay",
+            &[stance("plain", &baseline, "{}", &[])],
+            &[("codepoint", "58981")],
+        );
+        let liga = rune(
+            "qsPea_qsTea",
+            &[stance(
+                "joined",
+                "{}",
+                "{}",
+                &[("unlocks", unlocks.as_str())],
+            )],
+            &[("sequence", &fixtures::names(&["qsPea", "qsTea"]))],
+        );
+        spec_of(&[pea, tea, may, liga])
+    }
+
     fn letter(index: &SpecIndex, name: &str) -> RightToken {
         RightToken::Letter(fixtures::sym(index, name))
+    }
+
+    /// One printed surface as `(key, blocked)` pairs, the key being everything before the verdict.
+    fn verdicts(lines: &[String]) -> Vec<(&str, bool)> {
+        lines
+            .iter()
+            .map(|line| {
+                let (key, verdict) = line.rsplit_once('\t').expect("a verdict line");
+                (key, verdict == "blocked")
+            })
+            .collect()
+    }
+
+    #[test]
+    fn one_configuration_answers_alone_and_the_quantified_verdict_needs_every_one_to_block() {
+        let index = alphabet_unlocking_the_ligature_exit();
+        let ss03 = fixtures::sym(&index, "ss03");
+        let liga = fixtures::sym(&index, "qsPea_qsTea");
+        let may = letter(&index, "qsMay");
+        let mut locked = GuardState::under(&index, Vec::new());
+        let mut unlocked = GuardState::under(&index, vec![ss03]);
+        let mut quantified = GuardState::new(&index);
+        assert_eq!(locked.engine_count(), 1);
+        assert_eq!(unlocked.engine_count(), 1);
+        assert_eq!(quantified.engine_count(), 2);
+        assert!(
+            locked
+                .formation_blocked(liga, may, UNKNOWN)
+                .expect("the verdict computes"),
+            "with nothing on the ligature has no exit and yields to its trail"
+        );
+        assert!(
+            !unlocked
+                .formation_blocked(liga, may, UNKNOWN)
+                .expect("the verdict computes"),
+            "under ss03 the unlocked exit reaches the follower"
+        );
+        assert!(
+            !quantified
+                .formation_blocked(liga, may, UNKNOWN)
+                .expect("the verdict computes"),
+            "and the shipped verdict fires only where every configuration blocks"
+        );
+    }
+
+    #[test]
+    fn the_quantified_sweep_blocks_exactly_where_every_configuration_sweep_blocks() {
+        let index = alphabet_unlocking_the_ligature_exit();
+        let ss03 = fixtures::sym(&index, "ss03");
+        let quantified = sweep(&index).expect("the sweep runs");
+        let surfaces = [
+            sweep_under(&index, Vec::new()).expect("the sweep runs"),
+            sweep_under(&index, vec![ss03]).expect("the sweep runs"),
+        ];
+        let quantified = verdicts(&quantified);
+        let surfaces = surfaces.each_ref().map(|surface| verdicts(surface));
+        let mut disagreements = 0;
+        for (seat, (key, blocked)) in quantified.iter().enumerate() {
+            let under_each: Vec<bool> = surfaces
+                .iter()
+                .map(|surface| {
+                    assert_eq!(surface[seat].0, *key, "every surface walks the same order");
+                    surface[seat].1
+                })
+                .collect();
+            assert_eq!(*blocked, under_each.iter().all(|blocked| *blocked), "{key}");
+            if under_each[0] != under_each[1] {
+                disagreements += 1;
+            }
+        }
+        assert!(
+            disagreements > 0,
+            "the fixture is built so the two configurations disagree somewhere"
+        );
     }
 
     #[test]

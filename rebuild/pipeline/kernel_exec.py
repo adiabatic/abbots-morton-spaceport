@@ -8,7 +8,7 @@ The build is `cargo build --release` against the crate's own manifest and nothin
 
 `build_tables` and `enumerate_transitions` are the single-configuration forms in memory, each writing nothing that outlives the call: one spec dumped to a scratch directory, and then either the two tables — `build-tables` into that directory, read back through `table.read_windows` and `table.read_treaty_tsv` — or the raw product, enumerated as a stream and parsed into a `table.FixpointProduct`. The first is how a test, a tool or a hand-assembled spec reaches a table; the second is the raw product a fold consumes, which no build stage and no tool asks for any more, and `rebuild/test_kernel_exec.py` is what keeps that path exercised.
 
-`guard_sweep` is one other in-memory form: one crate invocation and one complete mapping from `(ligature, first raw slot, second raw slot)` to the config-blind formation verdict, memoized per spec identity so a process sweeps one spec once however many callers ask. The settlement verbs sit beside it and share its spec dump. `settle_cases` is the raw form — a file of independent `ams-m1-corpus/3` windows in, the full Rust trace objects out, with count and question echo checked, by the bytes, before anything decodes, and each distinct result decoded once for however many windows answered it. `settle_windows` decodes each answer straight to a `Settled`, for the conform walker, which wants outcomes by the tens of thousands rather than traces; like `settle_sequences` it takes an `on_error`, so a caller prefilling windows it may never read can take `None` for a refusal and leave the rest of the batch standing. `settle_sequences` is what explain, the probe and the review surface reach for: the verb takes independent windows, while a sequence's next left context is the previous window's answer, so a batch of whole sequences advances in waves — all first positions, then all second positions off the first wave's answers — with boundary positions answered locally because they are model constants. `settle_codepoints` is the one-line form over a text. The CLI spells boundary tokens as `edge`, `space`, `zwnj`, `namer-dot`, and `unknown`; the guard mapping converts them to Python's `RightToken` constants at the boundary so consumers never confuse those model tokens with glyph names such as `uni200C` or `periodcentered`.
+`guard_sweep` is one other in-memory form: one crate invocation and one complete mapping from `(ligature, first raw slot, second raw slot)` to the config-blind formation verdict, memoized per spec identity so a process sweeps one spec once however many callers ask. `guard_sweep_under` is the same surface answered by one named configuration instead of the powerset — unmemoized, because nothing that ships reads it; it exists for the rebuild suite's pin of where each configuration's own surface stands against the quantified one. The settlement verbs sit beside it and share its spec dump. `settle_cases` is the raw form — a file of independent `ams-m1-corpus/3` windows in, the full Rust trace objects out, with count and question echo checked, by the bytes, before anything decodes, and each distinct result decoded once for however many windows answered it. `settle_windows` decodes each answer straight to a `Settled`, for the conform walker, which wants outcomes by the tens of thousands rather than traces; like `settle_sequences` it takes an `on_error`, so a caller prefilling windows it may never read can take `None` for a refusal and leave the rest of the batch standing. `settle_sequences` is what explain, the probe and the review surface reach for: the verb takes independent windows, while a sequence's next left context is the previous window's answer, so a batch of whole sequences advances in waves — all first positions, then all second positions off the first wave's answers — with boundary positions answered locally because they are model constants. `settle_codepoints` is the one-line form over a text. The CLI spells boundary tokens as `edge`, `space`, `zwnj`, `namer-dot`, and `unknown`; the guard mapping converts them to Python's `RightToken` constants at the boundary so consumers never confuse those model tokens with glyph names such as `uni200C` or `periodcentered`.
 
 The codecs between the transport rows and the pipeline's model types live here as well — `case_row` and `settled_row` on the way out, `trace_of` on the way back — because every settlement caller needs them and none of them should be reaching into another consumer's module for one. A window the crate refuses answers `{raise, message}`, and that becomes a `settle.SettleError` carrying the crate's bucket and its sentence verbatim, so a caller can sort refusals without reading prose; an answer malformed in any other way is the boundary itself being wrong and stays a `KernelRunError`.
 
@@ -745,9 +745,11 @@ def settle_codepoints(
     return [trace.settled for trace in traces]
 
 
-def _guard_verdicts(spec: ResolvedSpec, spec_path: Path) -> FormationGuard:
-    """Invoke `guard-sweep` over one already-dumped spec and parse its complete answer. Completeness and uniqueness are checked here rather than left to a consumer's lookup miss, because a clean kernel exit that silently omitted or duplicated a row is a broken boundary, not an emitter error."""
+def _guard_verdicts(spec: ResolvedSpec, spec_path: Path, config: str | None = None) -> FormationGuard:
+    """Invoke `guard-sweep` over one already-dumped spec and parse its complete answer — quantified over the powerset when no `config` is named, and under that one configuration otherwise, spelled the way `conform.ACCEPTANCE_CONFIGS` spells it so the no-feature configuration is nameable. Completeness and uniqueness are checked here rather than left to a consumer's lookup miss, because a clean kernel exit that silently omitted or duplicated a row is a broken boundary, not an emitter error."""
     arguments = [str(BINARY), "guard-sweep", str(spec_path)]
+    if config is not None:
+        arguments.append(f"--config={config}")
     finished = _run_kernel(arguments, "guard-sweep")
     errors = finished.stderr.decode(errors="replace").strip()
     if finished.returncode == 2:
@@ -835,6 +837,13 @@ def guard_sweep(spec: ResolvedSpec) -> FormationGuard:
         while len(_GUARD_SWEEPS) > _GUARD_SWEEPS_CAP:
             _GUARD_SWEEPS.popitem(last=False)
         return verdicts
+
+
+def guard_sweep_under(spec: ResolvedSpec, features: frozenset[str]) -> FormationGuard:
+    """The section 5.7 verdict surface as one configuration alone answers it, in the same keys as `guard_sweep`'s. Every call is a crate invocation: nothing that ships reads a per-configuration surface, so there is no memo to keep, and the one caller — the rebuild suite's pin of where each configuration's own surface stands against the quantified one — asks once per configuration."""
+    spec_path = _spec_dump(spec)
+    ensure_built()
+    return _guard_verdicts(spec, spec_path, "+".join(sorted(features)) or "default")
 
 
 def read_stream(stream: Path) -> FixpointProduct:
