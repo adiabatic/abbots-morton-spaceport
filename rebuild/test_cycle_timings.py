@@ -263,7 +263,7 @@ def test_record_check_carries_the_parent_and_the_cost_when_given_them(tmp_path):
     path = tmp_path / "j.ndjson"
     ct.record_check(
         _verdict(
-            check="rebuild-validators",
+            check="rebuild-contracts",
             verdict="red",
             status="FAILED (2 unexplained)",
             failures=["rebuild suite: 2 unexplained failure(s)"],
@@ -276,7 +276,7 @@ def test_record_check_carries_the_parent_and_the_cost_when_given_them(tmp_path):
         path=path,
     )
     (entry,) = _lines(path)
-    assert entry["check"] == "rebuild-validators"
+    assert entry["check"] == "rebuild-contracts"
     assert entry["verdict"] == "red"
     assert entry["status"] == "FAILED (2 unexplained)"
     assert entry["failures"] == ["rebuild suite: 2 unexplained failure(s)"]
@@ -388,7 +388,7 @@ def _mixed_journal(path):
     )
     timings.record_step(_result(), ["uv", "run", "fake"])
     ct.record_pool(
-        "rebuild-validators",
+        "surface",
         width=4,
         worker_peaks={"gw0": 5_560_000_000, "gw1": 4_980_000_000},
         controller_peak_bytes=412_000_000,
@@ -401,7 +401,7 @@ def _mixed_journal(path):
 def test_record_pool_writes_one_pool_line(tmp_path):
     path = tmp_path / "j.ndjson"
     ct.record_pool(
-        "rebuild-validators",
+        "surface",
         width=3,
         worker_peaks={"gw10": 4_980_000_000, "gw2": 5_210_000_000, "gw0": 5_560_000_000},
         controller_peak_bytes=412_000_000,
@@ -410,7 +410,7 @@ def test_record_pool_writes_one_pool_line(tmp_path):
     (entry,) = _lines(path)
     assert entry["format"] == ct.FORMAT
     assert entry["kind"] == "pool"
-    assert entry["unit"] == "rebuild-validators"
+    assert entry["unit"] == "surface"
     assert entry["width"] == 3
     assert entry["controller_peak_rss_bytes"] == 412_000_000
     assert entry["worker_peak_rss_bytes"] == {
@@ -435,7 +435,7 @@ def test_record_pool_round_trips_through_load_pool_records(tmp_path):
     path = tmp_path / "j.ndjson"
     _mixed_journal(path)
     records = ct.load_pool_records(path)
-    assert [record["unit"] for record in records] == ["rebuild-contracts", "rebuild-validators"]
+    assert [record["unit"] for record in records] == ["rebuild-contracts", "surface"]
     assert records[0]["worker_peak_rss_bytes"] == {"gw0": 1_900_000_000}
     assert records[1]["worker_peak_rss_bytes"] == {"gw0": 5_560_000_000, "gw1": 4_980_000_000}
     assert (records[0]["width"], records[1]["width"]) == (8, 4)

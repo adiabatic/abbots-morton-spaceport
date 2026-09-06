@@ -50,7 +50,7 @@ Whether the review server comes down for a pass is the cycle's decision (`server
 
 - Two things a pass writes belong to the running app: the served surface, where a restamped manifest orphans the open tab's store, and the verdict store, which `merge_verdicts` refuses to touch under a live server. A pass that writes either stops the server first; `--stop-server` is the permission, and a bare `make artifact-cycle` refuses and says how.
 - A pass that writes neither leaves the server up and the letters stay on screen through the whole verification.
-- An edit confined to `rebuild/review/static/` is refreshed in place (the `assets-refresh` step, `rebuild.review.build refresh-assets`): the served copy is overwritten and only the manifest's `static` component restamped, so the tab's store stays aligned, the server stays up, and livereload reloads the new shell. That tree is outside the validators lane's closure, so an app JS/CSS/HTML edit costs seconds plus the contracts tests whose recorded closure reaches the edited file (`doc/testing.md` describes the per-test closure).
+- An edit confined to `rebuild/review/static/` is refreshed in place (the `assets-refresh` step, `rebuild.review.build refresh-assets`): the served copy is overwritten and only the manifest's `static` component restamped, so the tab's store stays aligned, the server stays up, and livereload reloads the new shell. An app JS/CSS/HTML edit therefore costs seconds plus the contracts tests whose recorded closure reaches the edited file (`doc/testing.md` describes the per-test closure).
 - While a server is up, retention leaves the journal and the stash sweep alone, because the app appends to the journal as you verdict.
 
 ## The verdict store

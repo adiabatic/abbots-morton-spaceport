@@ -75,16 +75,16 @@ def test_every_pool_name_a_gate_wrapper_sets_is_one_the_registry_reads():
 
 
 def test_a_pool_record_supplies_one_observation_per_worker():
-    record = _pool("rebuild-validators", [1_000_000, 2_000_000, 3_000_000])
-    observed, dropped, _ = cb.observations(_unit("rebuild-validators"), [record], {}, host=HOST, recent=20)
+    record = _pool("font-suite", [1_000_000, 2_000_000, 3_000_000])
+    observed, dropped, _ = cb.observations(_unit("font-suite"), [record], {}, host=HOST, recent=20)
     assert [item.peak_bytes for item in observed] == [1_000_000, 2_000_000, 3_000_000]
     assert {item.source for item in observed} == {"pool"}
     assert dropped == 0
 
 
 def test_the_controllers_own_peak_is_never_one_of_the_workers_observations():
-    record = _pool("rebuild-validators", [1_000_000], controller=9_000_000)
-    observed, _, _ = cb.observations(_unit("rebuild-validators"), [record], {}, host=HOST, recent=20)
+    record = _pool("font-suite", [1_000_000], controller=9_000_000)
+    observed, _, _ = cb.observations(_unit("font-suite"), [record], {}, host=HOST, recent=20)
     assert [item.peak_bytes for item in observed] == [1_000_000]
 
 
@@ -113,19 +113,19 @@ def test_a_make_test_step_peak_is_never_read_as_a_font_suite_worker(tmp_path, ca
 
 
 def test_check_trips_when_an_observed_peak_outruns_its_constant(tmp_path, capsys):
-    peak = CONSTANTS["rebuild-validators"] * 2
-    path = _journal(tmp_path, [_pool("rebuild-validators", [peak])])
+    peak = CONSTANTS["font-suite"] * 2
+    path = _journal(tmp_path, [_pool("font-suite", [peak])])
     code, out = _run(capsys, path, "--check")
     assert code == 1
     assert "OVERRUN" in out
-    assert "VALIDATORS_WORKER_BYTES" in out
+    assert "FONT_SUITE_WORKER_BYTES" in out
 
 
 def test_check_is_green_when_every_observed_peak_fits(tmp_path, capsys):
     path = _journal(
         tmp_path,
         [
-            _pool("rebuild-validators", [CONSTANTS["rebuild-validators"] // 2]),
+            _pool("font-suite", [CONSTANTS["font-suite"] // 2]),
             _step("run_m1", CONSTANTS["kernel-config"] // 2),
         ],
     )
@@ -136,16 +136,14 @@ def test_check_is_green_when_every_observed_peak_fits(tmp_path, capsys):
 
 
 def test_a_unit_with_no_observations_is_informational_rather_than_a_failure(tmp_path, capsys):
-    path = _journal(tmp_path, [_pool("rebuild-validators", [CONSTANTS["rebuild-validators"] // 2])])
+    path = _journal(tmp_path, [_pool("font-suite", [CONSTANTS["font-suite"] // 2])])
     code, out = _run(capsys, path, "--check")
     assert code == 0
     assert "no observations" in out
 
 
 def test_a_unit_with_no_rows_from_this_host_says_the_constant_is_unverified_here(tmp_path, capsys):
-    path = _journal(
-        tmp_path, [_pool("rebuild-validators", [CONSTANTS["rebuild-validators"] // 2], host=OTHER)]
-    )
+    path = _journal(tmp_path, [_pool("font-suite", [CONSTANTS["font-suite"] // 2], host=OTHER)])
     code, out = _run(capsys, path)
     assert code == 0
     assert "UNVERIFIED HERE" in out
@@ -153,12 +151,12 @@ def test_a_unit_with_no_rows_from_this_host_says_the_constant_is_unverified_here
 
 
 def test_rows_from_other_hosts_are_reported_and_never_checked(tmp_path, capsys):
-    peak = CONSTANTS["rebuild-validators"] * 3
+    peak = CONSTANTS["font-suite"] * 3
     path = _journal(
         tmp_path,
         [
-            _pool("rebuild-validators", [peak], host=OTHER),
-            _pool("rebuild-validators", [CONSTANTS["rebuild-validators"] // 2]),
+            _pool("font-suite", [peak], host=OTHER),
+            _pool("font-suite", [CONSTANTS["font-suite"] // 2]),
         ],
     )
     code, out = _run(capsys, path, "--check")
@@ -168,12 +166,12 @@ def test_rows_from_other_hosts_are_reported_and_never_checked(tmp_path, capsys):
 
 
 def test_host_all_checks_every_machine(tmp_path, capsys):
-    peak = CONSTANTS["rebuild-validators"] * 3
+    peak = CONSTANTS["font-suite"] * 3
     path = _journal(
         tmp_path,
         [
-            _pool("rebuild-validators", [peak], host=OTHER),
-            _pool("rebuild-validators", [CONSTANTS["rebuild-validators"] // 2]),
+            _pool("font-suite", [peak], host=OTHER),
+            _pool("font-suite", [CONSTANTS["font-suite"] // 2]),
         ],
     )
     assert _main(path, "--host", "all", "--check") == 1
@@ -181,12 +179,12 @@ def test_host_all_checks_every_machine(tmp_path, capsys):
 
 
 def test_the_recency_bound_ages_out_a_peak_a_memory_saver_retired(tmp_path, capsys):
-    over = CONSTANTS["rebuild-validators"] * 2
-    under = CONSTANTS["rebuild-validators"] // 2
+    over = CONSTANTS["font-suite"] * 2
+    under = CONSTANTS["font-suite"] // 2
     path = _journal(
         tmp_path,
-        [_pool("rebuild-validators", [over], at=f"2026-01-0{day}T12:00:00Z") for day in (1, 2, 3)]
-        + [_pool("rebuild-validators", [under], at=f"2026-08-0{day}T12:00:00Z") for day in (1, 2)],
+        [_pool("font-suite", [over], at=f"2026-01-0{day}T12:00:00Z") for day in (1, 2, 3)]
+        + [_pool("font-suite", [under], at=f"2026-08-0{day}T12:00:00Z") for day in (1, 2)],
     )
     assert _main(path, "--host", HOST, "--recent", "2", "--check") == 0
     capsys.readouterr()
@@ -278,12 +276,12 @@ def test_the_live_tree_dates_its_constants_in_the_journals_own_stamp_shape():
 
 def test_the_recency_window_is_one_machines_worth_under_host_all(tmp_path, capsys):
     """A fleet survey has to be a survey of the fleet. One busy box cycling all day would otherwise fill a global window by itself, and the quiet machine whose peak has actually run away — the one nobody is watching — would drop out of the report without the report saying so."""
-    over = CONSTANTS["rebuild-validators"] * 2
-    under = CONSTANTS["rebuild-validators"] // 2
+    over = CONSTANTS["font-suite"] * 2
+    under = CONSTANTS["font-suite"] // 2
     path = _journal(
         tmp_path,
-        [_pool("rebuild-validators", [under], at=f"2026-08-0{day}T12:00:00Z") for day in (1, 2, 3, 4)]
-        + [_pool("rebuild-validators", [over], at="2026-01-01T12:00:00Z", host=OTHER)],
+        [_pool("font-suite", [under], at=f"2026-08-0{day}T12:00:00Z") for day in (1, 2, 3, 4)]
+        + [_pool("font-suite", [over], at="2026-01-01T12:00:00Z", host=OTHER)],
     )
     assert _main(path, "--host", "all", "--recent", "2", "--check") == 1
     assert "OVERRUN" in capsys.readouterr().out
@@ -307,16 +305,9 @@ def test_the_unmeasured_lane_is_reported_and_never_checked(tmp_path, capsys):
     assert "40.00 GB" in out
 
 
-def test_the_tied_worker_constant_is_named_rather_than_checked(tmp_path, capsys):
-    assert "HEAVIEST_WORKER_BYTES" not in {unit.constant for unit in cb.UNITS}
-    path = _journal(tmp_path, [_pool("rebuild-validators", [CONSTANTS["rebuild-validators"] // 2])])
-    _, out = _run(capsys, path)
-    assert "HEAVIEST_WORKER_BYTES" in out
-
-
 def test_tolerance_admits_a_peak_that_only_just_exceeds_the_constant(tmp_path, capsys):
-    peak = int(CONSTANTS["rebuild-validators"] * 1.05)
-    path = _journal(tmp_path, [_pool("rebuild-validators", [peak])])
+    peak = int(CONSTANTS["font-suite"] * 1.05)
+    path = _journal(tmp_path, [_pool("font-suite", [peak])])
     assert _main(path, "--host", HOST, "--check") == 1
     capsys.readouterr()
     assert _main(path, "--host", HOST, "--check", "--tolerance", "0.1") == 0
@@ -329,7 +320,7 @@ def test_a_missing_journal_reads_as_nothing_measured_rather_than_an_error(tmp_pa
 
 
 def test_the_report_states_the_width_each_constant_implies_here(tmp_path, capsys):
-    path = _journal(tmp_path, [_pool("rebuild-validators", [CONSTANTS["rebuild-validators"] // 2])])
+    path = _journal(tmp_path, [_pool("font-suite", [CONSTANTS["font-suite"] // 2])])
     _, out = _run(capsys, path)
     assert "width here" in out
     assert "GB each out of" in out
@@ -339,7 +330,6 @@ def test_the_width_clauses_answer_for_the_box_and_the_tree_they_are_given(tmp_pa
     """A report about a machine this suite is not running on, read out of a tree it is not checked out of: both are keywords precisely so the arithmetic can be asserted against a box and a cap someone stated rather than against whichever ones the runner happens to have."""
     tree = tmp_path / "tree"
     (tree / "rebuild" / "tools").mkdir(parents=True)
-    (tree / "rebuild" / "conftest.py").write_text(f"{cb.VALIDATORS_CAP_NAME} = 2\n", encoding="utf-8")
     (tree / "rebuild" / "tools" / "artifact_cycle.py").write_text(
         f"{cb.SURFACE_CAP_NAME} = 3\n{cb.SURFACE_PARENT_NAME} = 10_000_000_000\n{cb.SURFACE_WORKER_NAME} = 5_000_000_000\n",
         encoding="utf-8",
@@ -347,7 +337,6 @@ def test_the_width_clauses_answer_for_the_box_and_the_tree_they_are_given(tmp_pa
     rows = cb.build_rows([], {}, constants=CONSTANTS, host=HOST, recent=20, tolerance=0.0, seeded_at={})
     out = "\n".join(cb.render_rows(rows, host=HOST, total_bytes=48_000_000_000, cores=12, root=tree))
     assert "48.00 GB total" in out
-    assert "capped at 2" in out
     assert "capped at 3" in out
     assert "the font suite takes the cores this process may run on (12), not the division" in out
     assert "the surface build's parent is subtracted from the box rather than divided into it" in out
@@ -360,15 +349,15 @@ def test_a_check_that_cannot_run_exits_apart_from_one_that_tripped(tmp_path, cap
         raise RuntimeError("conftest.py defines no FONT_SUITE_WORKER_BYTES")
 
     monkeypatch.setattr(cb, "read_constants", boom)
-    path = _journal(tmp_path, [_pool("rebuild-validators", [CONSTANTS["rebuild-validators"] // 2])])
+    path = _journal(tmp_path, [_pool("font-suite", [CONSTANTS["font-suite"] // 2])])
     assert _main(path, "--host", HOST, "--check") == 2
     assert "FONT_SUITE_WORKER_BYTES" in capsys.readouterr().err
 
 
 def test_an_overrun_that_only_just_clears_the_constant_never_reads_as_no_overrun(tmp_path, capsys):
     """The margin rounds to whole percent, and a peak a hair past its constant is the common trip — these constants are chosen with headroom, so reaching one at all is the event. A line reading "by 0%" beside a nonzero exit would argue against the exit."""
-    peak = int(CONSTANTS["rebuild-validators"] * 1.003) + 1
-    path = _journal(tmp_path, [_pool("rebuild-validators", [peak])])
+    peak = int(CONSTANTS["font-suite"] * 1.003) + 1
+    path = _journal(tmp_path, [_pool("font-suite", [peak])])
     code, out = _run(capsys, path, "--check")
     assert code == 1
     assert "by less than 1%" in out
@@ -376,7 +365,7 @@ def test_an_overrun_that_only_just_clears_the_constant_never_reads_as_no_overrun
 
 
 def test_the_default_view_never_exits_nonzero(tmp_path, capsys):
-    path = _journal(tmp_path, [_pool("rebuild-validators", [CONSTANTS["rebuild-validators"] * 2])])
+    path = _journal(tmp_path, [_pool("font-suite", [CONSTANTS["font-suite"] * 2])])
     code, out = _run(capsys, path)
     assert code == 0
     assert "OVERRUN" in out

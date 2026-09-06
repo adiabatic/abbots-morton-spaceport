@@ -1,7 +1,6 @@
-"""The memory-budget policy's own tests, and the reproduction of the two widths already on record (issue #63, sub-issue #85). Almost everything here is a pure function over an invented box, because `total_bytes`, `floor_bytes` and `fraction` are keywords on every policy function rather than module lookups; only the handful of live-probe tests touch the host, and those assert properties — positive, plausible, at least one core — with the single exception the issue permits, `total_memory_bytes()` against `sysctl -n hw.memsize` behind a Darwin guard. The probes are exercised the way the module split them to be exercised: pure parsers over the checked-in text under `rebuild/fixtures/memory_budget/`, and the two cgroup readers pointed at a sample filesystem root, so every container case is proven on a laptop. The three measured constants below come from the record rather than from solving for an answer — `KERNEL_CONFIG_BYTES` is the frozen reading of what one kernel configuration in flight cost when #46 and #85 were written, kept local and literal on purpose so a reproduction of a recorded width cannot move when the live `kernel_exec.CONFIG_PEAK_BYTES` is re-measured against a fresher cycle-timings journal; `FONT_POOL_BYTES` is ten font-suite workers at the 0.11-0.28 GB apiece the root conftest records beside its `pytest_xdist_auto_num_workers` hook, and keeps the top of that record rather than tracking the shipped `FONT_SUITE_WORKER_BYTES` that rounds up past it, for the same reason `KERNEL_CONFIG_BYTES` stays put; and `ISSUE_RESERVE_FLOOR_BYTES` is the 4 GB floor issue #85 stated its two facts under, passed explicitly because the shipped floor is now 8 GB. That the formula reproduces both facts over an invented 32 GB box is the whole claim: the policy is shown reproducing measurements taken independently of it, not fitted to them. The shipped default stopped being a witness the moment it became derived — it is the running box's width now, so no assertion here may sit it on the right-hand side of an equals sign; what is checked forward instead is that the shipped `CONFIG_PEAK_BYTES` still holds that 32 GB box at the width it shipped, which is the one comparison that can still fail for a reason worth knowing about. Four things checked here are not about the policy at all but about the call sites the policy could not reach on its own. The validators lane's derived width, asserted over invented boxes at each of the two bounds that can decide it. What the repo's two `pytest_xdist_auto_num_workers` hooks actually answer, which nothing else in the tree asserts at all: the hooks are taken off the live plugin objects pytest loaded rather than off a second import of either file, driven with stub configs that carry only the argv and the lane they read, and walked across the bounds that decide them with `AMS_TOTAL_MEMORY_BYTES` — so a lane losing its deliberate fall-through, or the fallback losing either its division or its core cap, fails here instead of quietly changing what `-n auto` means. The five defaults a hand run gets when it names no width (issue #101), each asserted at the shape it resolves to rather than at a number, for the reason nothing else here names one either — the answer is this box's, and another box's is legitimately different — so what is pinned is that a default is still derived at all, and a silent revert of one to the serial 1 it was before #89 fails here instead of waiting for someone to time a hand run and wonder. Three of the five hand their parser over from a `build_parser()` hoisted out of their own `main`; the two whose files sit inside a fingerprint closure are read off the parser their `main` built, through a spy on `parse_args`, because a hoist there would stale a stamped artifact and buy a rebuild of it. And the root conftest's restatement of the validators lane's per-worker figure, which cannot be imported — pytest loads every conftest under the plain name `conftest`, and in any run collected under rebuild/ that name is `rebuild/conftest.py` — so it is read out of the source with `ast` and held equal here rather than trusted. Nothing here reads a live build artifact, so the whole module is contracts-lane — the audit guard in `rebuild/conftest.py` is what keeps it there, by failing any contracts item that reads `rebuild/out/`, `tmp/`, or a root `verdicts-*` store."""
+"""The memory-budget policy's own tests, and the reproduction of the two widths already on record (issue #63, sub-issue #85). Almost everything here is a pure function over an invented box, because `total_bytes`, `floor_bytes` and `fraction` are keywords on every policy function rather than module lookups; only the handful of live-probe tests touch the host, and those assert properties — positive, plausible, at least one core — with the single exception the issue permits, `total_memory_bytes()` against `sysctl -n hw.memsize` behind a Darwin guard. The probes are exercised the way the module split them to be exercised: pure parsers over the checked-in text under `rebuild/fixtures/memory_budget/`, and the two cgroup readers pointed at a sample filesystem root, so every container case is proven on a laptop. The three measured constants below come from the record rather than from solving for an answer — `KERNEL_CONFIG_BYTES` is the frozen reading of what one kernel configuration in flight cost when #46 and #85 were written, kept local and literal on purpose so a reproduction of a recorded width cannot move when the live `kernel_exec.CONFIG_PEAK_BYTES` is re-measured against a fresher cycle-timings journal; `FONT_POOL_BYTES` is ten font-suite workers at the 0.11-0.28 GB apiece the root conftest records beside its `pytest_xdist_auto_num_workers` hook, and keeps the top of that record rather than tracking the shipped `FONT_SUITE_WORKER_BYTES` that rounds up past it, for the same reason `KERNEL_CONFIG_BYTES` stays put; and `ISSUE_RESERVE_FLOOR_BYTES` is the 4 GB floor issue #85 stated its two facts under, passed explicitly because the shipped floor is now 8 GB. That the formula reproduces both facts over an invented 32 GB box is the whole claim: the policy is shown reproducing measurements taken independently of it, not fitted to them. The shipped default stopped being a witness the moment it became derived — it is the running box's width now, so no assertion here may sit it on the right-hand side of an equals sign; what is checked forward instead is that the shipped `CONFIG_PEAK_BYTES` still holds that 32 GB box at the width it shipped, which is the one comparison that can still fail for a reason worth knowing about. Two things checked here are not about the policy at all but about the call sites the policy could not reach on its own. What the repo's two `pytest_xdist_auto_num_workers` hooks actually answer, which nothing else in the tree asserts at all: the hooks are taken off the live plugin objects pytest loaded rather than off a second import of either file, driven with stub configs that carry only the argv and the lane they read, and walked across boxes with `AMS_TOTAL_MEMORY_BYTES` — so a lane losing its deliberate fall-through, or the fallback answering anything but the cores, fails here instead of quietly changing what `-n auto` means. The five defaults a hand run gets when it names no width (issue #101), each asserted at the shape it resolves to rather than at a number, for the reason nothing else here names one either — the answer is this box's, and another box's is legitimately different — so what is pinned is that a default is still derived at all, and a silent revert of one to the serial 1 it was before #89 fails here instead of waiting for someone to time a hand run and wonder. Three of the five hand their parser over from a `build_parser()` hoisted out of their own `main`; the two whose files sit inside a fingerprint closure are read off the parser their `main` built, through a spy on `parse_args`, because a hoist there would stale a stamped artifact and buy a rebuild of it. Nothing here reads a live build artifact, so the whole module is contracts-lane — the audit guard in `rebuild/conftest.py` is what keeps it there, by failing any contracts item that reads `rebuild/out/`, `tmp/`, or a root `verdicts-*` store."""
 
 import argparse
-import ast
 import os
 import re
 import subprocess
@@ -12,7 +11,6 @@ from types import ModuleType, SimpleNamespace
 
 import pytest
 
-from rebuild.conftest import VALIDATORS_LANE_CAP, VALIDATORS_WORKER_BYTES, _validators_workers
 from rebuild.pipeline.kernel_exec import CONFIG_PEAK_BYTES
 from rebuild.tools import memory_budget
 
@@ -27,10 +25,6 @@ BOX_32_GB = 32_000_000_000
 BOX_64_GB = 64_000_000_000
 BOX_1_TB = 1_000_000_000_000
 SPELLINGS_OF_32_GB = (BOX_32_GIB, BOX_32_GB)
-# The box the validators lane's division binds on now that a worker of it costs what it does: a lane worker is cheap enough that a 32 GB box reaches the cap, so the small-box direction has to be argued on a small box.
-BOX_11_GIB = 11_811_160_064
-BOX_11_GB = 11_000_000_000
-SPELLINGS_OF_11_GB = (BOX_11_GIB, BOX_11_GB)
 
 BOX_SIZES = (
     4_000_000_000,
@@ -75,17 +69,6 @@ def _defined_public_names() -> set[str]:
         and not isinstance(value, ModuleType)
         and getattr(value, "__module__", home) == home
     }
-
-
-def _root_conftest_constant(name: str) -> int:
-    """The integer the root `conftest.py` assigns to `name`, read out of the source rather than imported. There is no importable handle on that file from inside this suite: pytest loads a conftest under the plain name `conftest`, and in any run collected under rebuild/ the `conftest` in `sys.modules` is `rebuild/conftest.py`, while `import rebuild.conftest` would execute a second copy of a file pytest has already loaded. `ast` answers the same question without running anything."""
-    tree = ast.parse((REPO_ROOT / "conftest.py").read_text(encoding="utf-8"))
-    for node in tree.body:
-        if isinstance(node, ast.Assign) and any(
-            isinstance(target, ast.Name) and target.id == name for target in node.targets
-        ):
-            return int(ast.literal_eval(node.value))
-    raise AssertionError(f"the root conftest.py defines no {name}")
 
 
 def _loaded_conftest(pytestconfig: pytest.Config, path: Path) -> ModuleType:
@@ -176,25 +159,8 @@ class TestTheWidthsAlreadyOnRecord:
         )
 
 
-class TestTheValidatorsLaneWidth:
-    """The second width this policy decides, checked over invented boxes the way the first one is. Both bounds get an assertion, because which of them binds is the whole design: the cap is what holds a short lane narrow on a box with room to spare, and the divisor is what protects the box that has none."""
-
-    def test_the_lane_cap_binds_where_the_box_has_room_to_spare(self):
-        """A 64 GB box has room for more of these workers than the lane is ever given, and `VALIDATORS_LANE_CAP` is what holds it there, because the argument against the rest is not memory at all — it is a lane short enough that per-worker interpreter and collection cost shows, and whose tail the cap's own slots already drain."""
-        assert _validators_workers(total_bytes=BOX_64_GB, cores=12) == VALIDATORS_LANE_CAP
-
-    @pytest.mark.parametrize("total", SPELLINGS_OF_11_GB)
-    def test_memory_binds_before_the_cap_once_the_box_is_small_enough(self, total: int):
-        """The direction that makes deriving the width worth doing: an 11 GB box has room for two of these workers after the reserve, so it gets two rather than the four a checked-in literal handed every box alike. The box has to be this small to make the point now — the lane stopped holding a corpus, so a worker of it is cheap enough that every box the repo states its other widths against reaches the cap instead — which is the width answer moving with a measured cost rather than with a guess. Both spellings of that box answer the same, so the reproduction does not rest on a unit convention."""
-        assert _validators_workers(total_bytes=total, cores=12) == 2
-
-    def test_a_box_with_fewer_cores_than_the_cap_gets_its_cores(self):
-        """The cap and the core count sit in one `min()` because neither is a memory fact: a two-core box, or a container with a two-core CPU quota, starts two workers rather than `VALIDATORS_LANE_CAP`'s worth of idle ones."""
-        assert _validators_workers(total_bytes=BOX_64_GB, cores=2) == 2
-
-
 class TestWhatDashNAutoResolvesTo:
-    """The two hooks those per-worker figures actually feed, asserted at the answers they give rather than at the constants they read — the step nothing else in the repo takes, and the one that would notice a lane losing its fall-through or a fallback losing its cap. Neither hook takes a keyword, so the box each reads is moved with `AMS_TOTAL_MEMORY_BYTES`, the probe override `memory_budget` documents, which is what lets a laptop watch the division bind on a small box and the cores bind on a large one."""
+    """The two hooks, asserted at the answers they give rather than at the constants they read — the step nothing else in the repo takes, and the one that would notice a lane losing its fall-through or the fallback starting to divide again. Neither hook takes a keyword, so the box each reads is moved with `AMS_TOTAL_MEMORY_BYTES`, the probe override `memory_budget` documents, which is what lets a laptop watch a small box and a large one answer alike."""
 
     @pytest.fixture
     def lane_hook(self, pytestconfig: pytest.Config):
@@ -207,21 +173,13 @@ class TestWhatDashNAutoResolvesTo:
     def test_the_contracts_lane_takes_every_core_and_no_memory_argument_narrows_it(
         self, lane_hook: ModuleType, monkeypatch: pytest.MonkeyPatch
     ):
-        """Nothing in that lane reaches a live artifact, so nothing there holds a working set worth bounding: even a box too small to run one validators worker still gets every core this process may run on."""
+        """Nothing in the suite reaches a live artifact, so nothing there holds a working set worth bounding: even a small box gets every core this process may run on."""
         monkeypatch.setenv("AMS_TOTAL_MEMORY_BYTES", "4000000000")
         answer = lane_hook.pytest_xdist_auto_num_workers(_StubConfig("rebuild/", lane="contracts"))
         assert answer == memory_budget.usable_cores()
 
-    def test_the_validators_lane_takes_the_width_one_of_its_own_workers_leaves_room_for(
-        self, lane_hook: ModuleType
-    ):
-        """Resolved at import, so the number the hook answers and the name a test or WHATNEXT cites are one reading of this box rather than two — and held inside its own bounds, so neither the floor at one nor the lane cap can be lost without this failing."""
-        answer = lane_hook.pytest_xdist_auto_num_workers(_StubConfig("rebuild/", lane="validators"))
-        assert answer == lane_hook.VALIDATORS_WORKERS == _validators_workers()
-        assert 1 <= answer <= VALIDATORS_LANE_CAP
-
     def test_a_run_that_names_no_lane_falls_through_to_the_root_conftest(self, lane_hook: ModuleType):
-        """The fall-through itself, which is load-bearing rather than incidental: a bare `uv run pytest rebuild/`, a single rebuild test file and a mixed collection all arrive here as lane `all`, and answering any of them at this lane's cap would bound a footprint the root fallback's own arithmetic already bounds while costing the whole-suite run most of its width."""
+        """The fall-through itself, which is load-bearing rather than incidental: a bare `uv run pytest rebuild/`, a single rebuild test file and a mixed collection all arrive here as lane `all`, and the root conftest is the one place every run's `-n auto` is answered, `PYTEST_XDIST_AUTO_NUM_WORKERS` included."""
         assert lane_hook.pytest_xdist_auto_num_workers(_StubConfig("rebuild/")) is None
 
     def test_the_font_suite_takes_the_cores_whatever_the_box_has_to_say(
@@ -233,23 +191,17 @@ class TestWhatDashNAutoResolvesTo:
             memory_budget.usable_cores()
         )
 
-    def test_a_run_this_hook_cannot_narrow_is_priced_at_a_validators_worker(
-        self, root_hook: ModuleType, monkeypatch: pytest.MonkeyPatch
+    @pytest.mark.parametrize("total", ["4000000000", str(BOX_1_TB)])
+    def test_a_run_this_hook_cannot_narrow_takes_the_cores_whatever_the_box(
+        self, root_hook: ModuleType, monkeypatch: pytest.MonkeyPatch, total: str
     ):
-        """The half of the fallback that protects a small box: a 10 GB box has room for exactly one worker at this price, so the answer is one rather than the core count, and a fallback that had quietly stopped dividing could not give it."""
-        monkeypatch.setenv("AMS_TOTAL_MEMORY_BYTES", "10000000000")
-        assert root_hook.pytest_xdist_auto_num_workers(_StubConfig("rebuild/")) == 1
-
-    def test_the_cores_cap_that_same_answer_once_the_box_is_large_enough(
-        self, root_hook: ModuleType, monkeypatch: pytest.MonkeyPatch
-    ):
-        """And the half that keeps a roomy box from starting more workers than it has cores to run them on — the cap a division alone would drop silently, since on most boxes here the memory arm answers the lower figure anyway."""
-        monkeypatch.setenv("AMS_TOTAL_MEMORY_BYTES", str(BOX_1_TB))
+        """The fallback for every run the hook cannot tell from a rebuild one: no rebuild worker holds a live artifact, so there is no per-worker cost to divide the box by, and a small box and a roomy one both get the cores this process may run on."""
+        monkeypatch.setenv("AMS_TOTAL_MEMORY_BYTES", total)
         assert root_hook.pytest_xdist_auto_num_workers(_StubConfig("rebuild/")) == (
             memory_budget.usable_cores()
         )
 
-    @pytest.mark.parametrize("lane", ["contracts", "validators", "all"])
+    @pytest.mark.parametrize("lane", ["contracts", "all"])
     def test_the_environment_override_outranks_every_width_either_hook_would_choose(
         self, lane_hook: ModuleType, root_hook: ModuleType, monkeypatch: pytest.MonkeyPatch, lane: str
     ):
@@ -264,7 +216,7 @@ class TestTheHandRunDefaults:
     """The widths a hand run gets when it names none, asserted at the shape each resolves to and never at a number, because the answer is this box's and another box's is legitimately different. What they guard against is the failure issue #101 names: a bad merge or a refactor that drops a `default=` puts one of these back to the serial 1 it was before #89, and nothing at all goes red — it reads as nobody's regression right up until someone times a hand run. The autouse fixture above is what makes each equality a single reading of one box rather than two: both sides are computed inside the test, with the probe override and the xdist override cleared."""
 
     def test_the_extraction_fans_out_to_the_width_its_own_module_resolved(self):
-        """`SHARD_WORKERS_DEFAULT` is resolved once at import, exactly as `KERNEL_THREADS_DEFAULT` and `VALIDATORS_WORKERS` are, and the chain pins both links: the CLI hands that name through instead of a literal sitting beside it, and the name itself still derives from `usable_cores` rather than having been reverted to a checked-in width in place. The second equality is what catches the revert the first would wave through — both sides of `parsed.workers == SHARD_WORKERS_DEFAULT` move together when the constant is edited. Why a whole box's worth of these workers is safe is `_shard_workers_default`'s own docstring's argument."""
+        """`SHARD_WORKERS_DEFAULT` is resolved once at import, exactly as `KERNEL_THREADS_DEFAULT` is, and the chain pins both links: the CLI hands that name through instead of a literal sitting beside it, and the name itself still derives from `usable_cores` rather than having been reverted to a checked-in width in place. The second equality is what catches the revert the first would wave through — both sides of `parsed.workers == SHARD_WORKERS_DEFAULT` move together when the constant is edited. Why a whole box's worth of these workers is safe is `_shard_workers_default`'s own docstring's argument."""
         from rebuild.baseline import cli, extract
 
         parsed = cli.build_parser().parse_args(["extract", "--all"])
@@ -289,7 +241,7 @@ class TestTheHandRunDefaults:
     def test_the_surface_build_takes_the_unreserved_arm_of_its_own_budget(
         self, monkeypatch: pytest.MonkeyPatch
     ):
-        """A hand run has no co-resident `make test` pool to leave cores or bytes to, which is the whole content of the `skip_gates=True` arm, so that arm is what the default is taken at. The second assertion is not decoration: on either box in the fleet memory binds this budget below the cap, where a revert to a checked-in width would pass the first assertion while saying nothing, so the box is moved to one with room and the answer is held at the other bound — the cap, which is where a roomy box stops. Both bounds get an assertion for the reason the validators lane's two do: which one binds is the design."""
+        """A hand run has no co-resident `make test` pool to leave cores or bytes to, which is the whole content of the `skip_gates=True` arm, so that arm is what the default is taken at. The second assertion is not decoration: on either box in the fleet memory binds this budget below the cap, where a revert to a checked-in width would pass the first assertion while saying nothing, so the box is moved to one with room and the answer is held at the other bound — the cap, which is where a roomy box stops. Both bounds get an assertion: which one binds is the design."""
         import rebuild.tools.artifact_cycle as ac
         from rebuild.review import build
 
@@ -730,8 +682,3 @@ def test_the_module_owns_the_arithmetic_and_holds_no_table_of_per_unit_costs():
     }
     assert memory_budget.RESERVE_FLOOR_BYTES == 8_000_000_000
     assert memory_budget.RESERVE_FRACTION == 0.15
-
-
-def test_the_root_fallback_prices_a_worker_the_way_the_validators_lane_does():
-    """The repo's one deliberate second copy of a per-unit cost, checked instead of trusted. The root conftest answers `-n auto` for runs whose composition it cannot see, the heaviest worker such a run can be handed is a validators worker, and it cannot import that figure without executing a second copy of `rebuild/conftest.py`. So the two literals are held equal here, which is what makes re-seeding either one off a fresher peak-RSS line fail loudly until the other moves in the same commit."""
-    assert _root_conftest_constant("HEAVIEST_WORKER_BYTES") == VALIDATORS_WORKER_BYTES

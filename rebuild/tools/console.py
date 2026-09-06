@@ -266,7 +266,6 @@ STEP_ADAPTERS: dict[str, Callable[[str], Event | None]] = {
     "gate:js": node_test_events,
     "gate:make-test": pytest_events,
     "gate:rebuild-contracts": pytest_events,
-    "gate:rebuild-validators": pytest_events,
 }
 
 

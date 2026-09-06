@@ -2541,7 +2541,7 @@ def test_require_reach_counts_a_rule_whose_windows_are_all_verdicted_as_reaching
 
 
 def test_require_reach_refuses_when_a_rule_reaches_nothing(tmp_path, monkeypatch, capsys):
-    """The refusal the deleted validators-lane test became: a checked-in rule matching no window on this surface fails the step, so the plumbing goes red and `make verdict-ready` reads NOT READY. It is a refusal rather than a skip — the fills the reaching rules earned are written first and in full, because the run that produced them is correct and only the rules file is out of date."""
+    """The refusal that holds the checked-in rules to the surface: a checked-in rule matching no window on this surface fails the step, so the plumbing goes red and `make verdict-ready` reads NOT READY. It is a refusal rather than a skip — the fills the reaching rules earned are written first and in full, because the run that produced them is correct and only the rules file is out of date."""
     units = [canonical("u-1"), canonical("u-2")]
     code, payload = _invoke_main(
         tmp_path,

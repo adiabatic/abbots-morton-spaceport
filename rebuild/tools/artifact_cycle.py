@@ -10,7 +10,7 @@ run_m1's exit status is its own gate's verdict, but this driver judges from the 
 
 That trap is also why this process, and not the children it spawns, is what files each check's verdict in the timings journal. Every judged check here — run_m1, conform, both rebuild lanes, make-test, js — appends one kind:"check" line tagged with this run, carrying the verdict the judge reached rather than the exit code the process returned; `make cycle-timings ARGS='--by-outcome'` is what reads them back. Two of those checks have interactive entry points that record their own line when a human runs them, so this driver puts its run id in the environment as AMS_CYCLE_RUN (cycle_timings.CYCLE_RUN_ENV) and every child inherits it, which is their signal to stand down. One invocation, one line, and the count in that report is a count of checks rather than of processes that happened to have an opinion.
 
-The two artifact-independent gates (js, make-test) run from t=0 in a small thread pool while the build chain runs inline-serial in the main thread. gate:conform (the exhaustive font-vs-settle sweep at the per-edit horizon, run_m1 --conform-only) starts after the run_m1 gate passes, queued behind make-test by default; its periodic deep form is `make conform-deep`, which the cycle never runs and only reports on — one line in the summary saying whether the emitted lookup has grown a shape the last deep run never shaped. The rebuild suite runs as two gates over two lanes (rebuild/conftest.py is the authority on which test is which): gate:rebuild-contracts is every test whose fixture closure holds no live build artifact, at the box's full xdist width, and gate:rebuild-validators is the rest — the readers of rebuild/out, the review surface and the fixture caches — at the narrower width rebuild/conftest.py derives for that lane, because each of those workers carries a live fixture's working set. Both are submitted once the surface build settles. For validators that is a correctness requirement: its census-module fixture prefers the provably-fresh live surface and must never observe one mid-rewrite, where the manifest has landed but review.build has not yet written the sidecar beside it. For contracts it is only courtesy — the lane reads no artifact at all — but a full-width pool must not share the box with the M1 or surface build, and waiting costs it nothing, since it parks behind conform anyway and on the common gate pass every upstream stage auto-skips, so it starts at t=0. From there on neither lane reads anything the build lane writes, the census pins included, so nothing downstream has to land before they can start. Under the default queue policy the chain is make-test -> conform -> rebuild-contracts -> rebuild-validators, so only one heavy gate pool is hot at a time — the build chain rides alongside whichever one that is rather than serial, at the widths sweep_job_budget and surface_job_budget resolve (the sweeps take one process per acceptance configuration; the surface build takes the box minus whatever make-test is holding). Contracts goes ahead of validators because it is the short lane and fails fast on a code error before the long one starts. Co-resident, two heavy pools oversubscribe the cores roughly 2:1, and measured that contention roughly tripled the rebuild suite's wall time — a worse critical path than running the same work in sequence. --rebuild-pool overlap restores full co-residency.
+The two artifact-independent gates (js, make-test) run from t=0 in a small thread pool while the build chain runs inline-serial in the main thread. gate:conform (the exhaustive font-vs-settle sweep at the per-edit horizon, run_m1 --conform-only) starts after the run_m1 gate passes, queued behind make-test by default; its periodic deep form is `make conform-deep`, which the cycle never runs and only reports on — one line in the summary saying whether the emitted lookup has grown a shape the last deep run never shaped. The rebuild suite runs as one gate, gate:rebuild-contracts: every test under rebuild/, none of which reads a live build artifact (rebuild/conftest.py's audit guard is what holds that), at the box's full xdist width. It is submitted once the surface build settles, and only as a courtesy — the suite reads no artifact at all — because a full-width pool must not share the box with the M1 or surface build, and waiting costs it nothing, since it parks behind conform anyway and on the common gate pass every upstream stage auto-skips, so it starts at t=0. From there on it reads nothing the build lane writes, the census pins included, so nothing downstream has to land before it can start. Under the default queue policy the chain is make-test -> conform -> rebuild-contracts, so only one heavy gate pool is hot at a time — the build chain rides alongside whichever one that is rather than serial, at the widths sweep_job_budget and surface_job_budget resolve (the sweeps take one process per acceptance configuration; the surface build takes the box minus whatever make-test is holding). Co-resident, two heavy pools oversubscribe the cores roughly 2:1, and measured that contention roughly tripled the rebuild suite's wall time — a worse critical path than running the same work in sequence. --rebuild-pool overlap restores full co-residency.
 
 The cycle runs no cross-language check, because there is no second implementation to check against: the kernel crate is the only engine that enumerates and the only one that settles, so neither the tables nor a window's outcome can drift from a twin. What the cycle does prove about settlement is empirical — gate:conform shapes the compiled font through HarfBuzz and compares it against a re-settle of every swept text, window by window, through the crate's own settle-cases verb, with the memo keyed on the raw window so the sweep stays independent of the crate's enumeration and fold. `make kernel-gate` is the on-demand instrument to reach for around a kernel-semantics change: the crate's own gate, seconds once the crate is built. The spec-ingest parity is a contracts test now and rides gate:rebuild-contracts every cycle.
 
@@ -22,7 +22,7 @@ The key is captured the moment the chain closes, not at the end of the pass, so 
 
 The skip demands that the surface build be skipping too, which is what makes the stamp knowable before the pass runs, and it takes the snapshot with it: the snapshot exists to survive this cycle's surface rewrite and to feed this cycle's carry, and a pass doing neither needs no copy. Such a pass also leaves the snapshot pile alone rather than pruning it to the copy it never made, so the stamp-aligned snapshot the last refreshing pass left stays on disk as the recovery source describe_carry_source points at. A flag that names a carry output or a snapshot directory refuses the skip outright, since honoring it would mean writing neither.
 
-The same provably-unchanged principle guards every other heavy stage, each keyed by a content fingerprint over that stage's full input closure and a green record written only after that exact content passed live: run_m1 skips on rebuild/out/run-m1-green.json (the Stage A fingerprint components plus the contact allow-list, the oracle's subset tables and uv.lock) and re-evaluates its gate from the summary JSONs already on disk; gate:conform skips on conform-green.json, keyed on what the belt samples for rather than on run_m1's closure — the emitted lookup's behavior classes, the font-compilation code and its tools/ closure, the uharfbuzz version, and the sweep horizon, the deep sweep's own posture (`conform_skip_fingerprint`) — so a rune edit that mints no new rule shape leaves that key unmoved, the crate's string replay inside run_m1 having already held the new tables to the engine over every string; each rebuild lane skips on its own record (rebuild-contracts-green.json, rebuild-validators-green.json), keyed by rebuild_lane_fingerprint over that lane's own closure — both hold the suite's repo closure under rebuild/ and glyph_data/ plus conftest.py, pyproject.toml, uv.lock and the site fonts, and validators adds the out/m1 artifacts and the baselines it shapes against, which is exactly why the contracts key holds no artifact and the contracts lane can skip whether or not run_m1 rebuilt: a live M1 rebuild writes only under rebuild/out, which that closure does not contain. The contracts record also carries a per-test input closure beside its key, so a pass whose contracts key moved runs only the tests whose closure the diff reaches, a rune edit re-proving the tests that load the spec and nothing else; rebuild.tools.contracts_closure is the authority on what a closure holds and when a test may be kept off, and every doubt there runs the test. Both records are also written by rebuild.tools.rebuild_gate, the `make test-rebuild` entry point, so interactive suite greens and cycle greens share them; surface-build skips when the manifest's recorded inputs fingerprint already equals the one a build would stamp now (a rebuild would be byte-identical, mtime-floored generated_at included, so the autosave stays aligned). The census step is neither keyed nor skipped: it reads the surface build's census-facts.json sidecar and rewrites one small checked-in file in milliseconds, so it simply runs every pass. The surface skip engages only on cycles where run_m1 itself skipped, and on the gates-only route when the Stage A record on disk is already what that pass will rewrite (`m1_stage_a_current`), since the surface reads nothing else the pass touches — which is the contact-allow bless, the one comparison-side edit outside every Stage A component. Conform's skip and the validators lane's are decided after run_m1 has finished instead, each over the key the artifacts it left actually carry: a route that leaves the emitted lookup's shapes, the compile code and the shaper under its last green key skips the sweep, and one that leaves the out/m1 artifacts and the rest of the lane's closure unmoved skips the lane, whether run_m1 skipped, re-adjudicated, or rebuilt — so a contact-allow bless costs the gates-only re-adjudication and not the lane — and either skip is recorded as proved because a matching green is proof about this exact content. Taking those two keys only once run_m1 is over is also what keeps a live M1 rebuild from invalidating one mid-cycle: there is no key to invalidate until the artifacts have stopped moving. The preflight still answers both ahead of the pass on the one route whose artifacts it can already see — run_m1 skipped, so nothing is about to move — and that is the route --dry-run can predict; on the reuse and rebuild routes the printed plan shows the conform and validators lanes as undecided (`run?`), because only a finished run_m1 knows what the artifacts came out as, so a plan that promises either may be answered by a pass that proves it unnecessary. Green records are written only when the key still matches after the work ran, and a red result whose key matches its record deletes the record. --fresh runs everything regardless.
+The same provably-unchanged principle guards every other heavy stage, each keyed by a content fingerprint over that stage's full input closure and a green record written only after that exact content passed live: run_m1 skips on rebuild/out/run-m1-green.json (the Stage A fingerprint components plus the contact allow-list, the oracle's subset tables and uv.lock) and re-evaluates its gate from the summary JSONs already on disk; gate:conform skips on conform-green.json, keyed on what the belt samples for rather than on run_m1's closure — the emitted lookup's behavior classes, the font-compilation code and its tools/ closure, the uharfbuzz version, and the sweep horizon, the deep sweep's own posture (`conform_skip_fingerprint`) — so a rune edit that mints no new rule shape leaves that key unmoved, the crate's string replay inside run_m1 having already held the new tables to the engine over every string; the rebuild suite skips on rebuild-contracts-green.json, keyed by rebuild_lane_fingerprint over its closure — the suite's repo closure under rebuild/ and glyph_data/ plus conftest.py, pyproject.toml, uv.lock and the site fonts, and no build artifact at all, which is exactly why the suite can skip whether or not run_m1 rebuilt: a live M1 rebuild writes only under rebuild/out, which that closure does not contain. The record also carries a per-test input closure beside its key, so a pass whose key moved runs only the tests whose closure the diff reaches, a rune edit re-proving the tests that load the spec and nothing else; rebuild.tools.contracts_closure is the authority on what a closure holds and when a test may be kept off, and every doubt there runs the test. That record is also written by rebuild.tools.rebuild_gate, the `make test-rebuild` entry point, so interactive suite greens and cycle greens share it; surface-build skips when the manifest's recorded inputs fingerprint already equals the one a build would stamp now (a rebuild would be byte-identical, mtime-floored generated_at included, so the autosave stays aligned). The census step is neither keyed nor skipped: it reads the surface build's census-facts.json sidecar and rewrites one small checked-in file in milliseconds, so it simply runs every pass. The surface skip engages only on cycles where run_m1 itself skipped, and on the gates-only route when the Stage A record on disk is already what that pass will rewrite (`m1_stage_a_current`), since the surface reads nothing else the pass touches — which is the contact-allow bless, the one comparison-side edit outside every Stage A component. Conform's skip is decided after run_m1 has finished instead, over the key the artifacts it left actually carry: a route that leaves the emitted lookup's shapes, the compile code and the shaper under its last green key skips the sweep, whether run_m1 skipped, re-adjudicated, or rebuilt, and the skip is recorded as proved because a matching green is proof about this exact content. Taking that key only once run_m1 is over is also what keeps a live M1 rebuild from invalidating it mid-cycle: there is no key to invalidate until the artifacts have stopped moving. The preflight still answers it ahead of the pass on the one route whose artifacts it can already see — run_m1 skipped, so nothing is about to move — and that is the route --dry-run can predict; on the reuse and rebuild routes the printed plan shows the conform lane as undecided (`run?`), because only a finished run_m1 knows what the artifacts came out as, so a plan that promises the sweep may be answered by a pass that proves it unnecessary. Green records are written only when the key still matches after the work ran, and a red result whose key matches its record deletes the record. --fresh runs everything regardless.
 
 Between the run_m1 skip and a full rebuild there is a third route. When the per-file diff against the run_m1 green is confined to comparison-side inputs — the alias map, the divergence ledger, the contact allow-list, the kern sidecar, the oracle's own module, the baselines and their subsets, every one of them outside the tables' stamp (`comparison_side_label` is the roster and argues each member) — and the tables on disk still carry that stamp and the artifacts are all present, the cycle spawns `run_m1 --gates-only` instead of a build: the defect gate, the Manual-pin gate and the oracle re-run over the tables and font already there, the ledgers' verdicts are re-adjudicated, and nothing is enumerated. The green that pass records covers the new inputs, so the next cycle skips run_m1 outright. `uv.lock` is deliberately not comparison-side — a fontTools or uharfbuzz bump can move the font's bytes and what the shaper makes of them — so a toolchain bump still rebuilds.
 
@@ -80,7 +80,6 @@ CONFORM_GREEN = ROOT / "rebuild" / "out" / "conform-green.json"
 DEEP_SWEEP_GREEN = ROOT / "rebuild" / "out" / "deep-sweep-green.json"
 BEHAVIOR_CLASSES = M1_OUT / "behavior_classes.json"
 REBUILD_CONTRACTS_GREEN = ROOT / "rebuild" / "out" / "rebuild-contracts-green.json"
-REBUILD_VALIDATORS_GREEN = ROOT / "rebuild" / "out" / "rebuild-validators-green.json"
 PLUMBING_GREEN = ROOT / "rebuild" / "out" / "plumbing-green.json"
 JSTEST_DIR = ROOT / "rebuild" / "review" / "jstests"
 
@@ -89,18 +88,15 @@ REBUILD_POOL_POLICY_DEFAULT = "queue"
 PLUMBING_SKIP_NOTE = "surface, verdicts master, live store, and standing approvals unchanged since the last complete plumbing pass; --fresh overrides"
 CONFORM_SKIP_NOTE = "no new rule shape, compile code or shaper since its last green sweep; --fresh overrides"
 CONFORM_MAYBE_NOTE = "runs unless run_m1 leaves the emitted lookup's behavior classes, the compile code and the shaper under the key of its last green sweep, in which case it is re-skipped after run_m1"
-VALIDATORS_SKIP_NOTE = "input closure unchanged since its last green run; --fresh overrides"
-VALIDATORS_MAYBE_NOTE = "submitted once the surface build settles, unless run_m1 leaves the out/m1 artifacts and the rest of the lane's closure under the key of its last green run, in which case it is re-skipped after run_m1"
 UNDECIDED_UNTIL_RUN_M1 = {
     "gate:conform": CONFORM_MAYBE_NOTE,
-    "gate:rebuild-validators": VALIDATORS_MAYBE_NOTE,
 }
 ASSETS_REFRESH_NOTE = "only the review UI assets moved since the surface was stamped; they are copied over the served copy and the manifest's static component restamped in place — no shard, sidecar or generated_at moves; --fresh overrides"
 SERVER_STAYS_UP_NOTE = "rewrites no unit shard, moves no manifest stamp, and leaves the verdict store alone"
 SERVER_STOP_PATTERN = r"rebuild\.review\.serve"
 SERVER_STOP_TIMEOUT = 15.0
-# The gate pool's seats, sized to the tasks the chain submits rather than to the box or to the work actually in flight: under the queue policy a parked task holds its worker for the whole wait — conform on make-test, contracts on both, validators on all three — so every gate task has to be seatable at once, with slack on top of that. A seat short of the task count would serialize a wait behind an unrelated task's completion, which is the queueing this pool exists not to do, and a width taken from the cores in hand would put a small box exactly there. `test_the_gate_pool_seats_every_gate_task_at_once` in rebuild/test_artifact_cycle.py is what holds this and the chain's task list in step.
-_GATE_POOL_WORKERS = 7
+# The gate pool's seats, sized to the tasks the chain submits rather than to the box or to the work actually in flight: under the queue policy a parked task holds its worker for the whole wait — conform on make-test, contracts on both — so every gate task has to be seatable at once, with slack on top of that. A seat short of the task count would serialize a wait behind an unrelated task's completion, which is the queueing this pool exists not to do, and a width taken from the cores in hand would put a small box exactly there. `test_the_gate_pool_seats_every_gate_task_at_once` in rebuild/test_artifact_cycle.py is what holds this and the chain's task list in step.
+_GATE_POOL_WORKERS = 6
 # What one surface worker holds at its peak, and so the divisor a box divides itself by to reach this build's fan-out width. A worker is a persistent spawn process that enriches and drafts a contiguous slice of the corpus, spooling each fragment to disk as it is drafted so that no EnrichedUnit outlives its batch (rebuild/review/build.py's `_FragmentSpool`), so what it holds is its own interpreter and shapers (whose shape memo is released at every unit batch boundary, `rebuild.review.ink.release_shape_memos`, so it holds one batch's windows rather than the slice's — a bound `_MemoizedShaper`'s docstring records as measured rather than assumed, since unreleased the memo alone outgrew every other pile of a serial build), one baseline subset table for every configuration its slice reaches — a slice of three units in a rare configuration pulls in a whole one, and each table is rebuild/review/enrich.py's SubsetRow projection of the three fields the enricher reads, glyph and seam strings interned, rather than every parsed rowmodel.Row — the slice's spool addresses, and the slice's projections until its phase-1 reply is pickled, which is the one term left that scales with the slice: half the corpus at width two against an eighth at width eight. That scaling is why the figure is seeded at width two, the narrowest pool the arithmetic ever starts and so the widest a worker ever gets, so that the constant is an upper bound at every pooled width. The seed is the first width-two pool on the spooling tree, whose two workers read 4.54 and 4.89 GB at their peaks, and whose pile tally (`AMS_SURFACE_PILE_TALLY=1`, rebuild/tools/pile_tally.py) attributed each to its subset tables and its half-corpus of projections in roughly equal parts, with the spool addresses a small fraction of either; the pre-spooling seed of 16 GB priced a worker that retained its slice's EnrichedUnits from phase 1 until phase 2 and its fragments until the parent pulled them, and held full Rows in its tables, none of which a worker holds now. It rounds up past the wider of the two observed for the same reason kernel_exec.CONFIG_PEAK_BYTES rounds up past its own measurement, since a per-unit cost that errs low is what puts a box into swap while one that errs high only narrows a pool. `make job-costs`' surface-worker row is where it stays honest: rebuild/review/build.py files one kind:"pool" record per pooled build, so the constant is priced against the workers that actually ran — and a row that is quiet on a box is not a box this width has sent serial any more, since both machines in the fleet now start a pool. It is a reading to keep current, never a contract.
 SURFACE_WORKER_BYTES = 5_500_000_000
 # What the surface build's parent holds while that pool is live, and so what comes off the box before the division rather than into it: the parent holds the whole workload and every unit's state and projection, the ink-signature store, the unit store's records and located addresses on a served build or the spool addresses on a cold one, the content keys, and of the fragments only the one in hand — each is read back by address out of the build's fresh spool, or a served one out of the previous surface, as the shard that takes it is being written, patched there, and released once the shard, the checker and the sidecar spools have had it. It is flat in the width, which is exactly what makes it a co-resident term and not a divisor. The measurement is the `surface-build` step peak the cycle already stamps on every pass, which is honest for this term and only this one: peak_rss.reap_peak_rss_bytes maxes over the tree instead of summing it, and the widest single process under this step is the parent, the workers holding near-even slices of a corpus the parent holds whole. The seed is the levered tree of issue #155: the served builds of the first cycles on it read 7.63 GB and a cold width-two pooled build read 7.00 GB, where the fragment-shaped pile had reached 20.72 GB and the streaming-but-retaining one 17.10 GB on the same corpus, and it rounds up past the higher of them. The pile tally on that pooled build (rebuild/tools/pile_tally.py) attributes what remains to the per-unit states, the Units themselves, the signature store and the spool addresses, in that order — structural per-unit objects, none of which a further lever shrinks by an order — which is the reading issue #160's on-disk workload was sized against and closed as not needed on: the residual fits beside a pooled fan-out on the smaller box in the fleet. The pile is still corpus-shaped — every migrated letter moves it — so it stays a constant to re-seed as the alphabet migrates, off the surface-parent row of `make job-costs`, which holds a seed only against rows measured after the commit that set it, so the pre-streaming high-water marks still in the journal never read loud against this one. A served build's step peak lands in its manifest+check phase, where the parent copies every served fragment by address and reads the previous sidecars in step (the build's `[t] review.build` phase lines carry the parent's peak so far: 7.35 GB there against 7.02 GB while the pool was live on the corpus issue #183 measured), and the cache phase after it adds nothing, since the store streams out record by record, carrying a served record's line out of the previous store rather than building the record again; the seed sits above that peak, which costs neither box in the fleet a worker, rather than reading loud on every served pass.
@@ -129,16 +125,16 @@ M1_SUMMARY_FILES = {
 }
 CONFORM_SUMMARY = M1_OUT / "conform_summary.json"
 
-REBUILD_LANES = ("contracts", "validators")
+REBUILD_LANES = ("contracts",)
 
 
 def rebuild_lane_green(lane: str) -> Path:
-    """Where a lane's green record lives, read off the module at call time rather than captured, because the rebuild suite's own conftest redirects both constants under tmp_path so a test driving the cycle cannot leave a record in rebuild/out that the next real pass reads as proof."""
-    return {"contracts": REBUILD_CONTRACTS_GREEN, "validators": REBUILD_VALIDATORS_GREEN}[lane]
+    """Where the lane's green record lives, read off the module at call time rather than captured, because the rebuild suite's own conftest redirects the constant under tmp_path so a test driving the cycle cannot leave a record in rebuild/out that the next real pass reads as proof."""
+    return {"contracts": REBUILD_CONTRACTS_GREEN}[lane]
 
 
 def rebuild_lane_argv(lane: str) -> list[str]:
-    """One lane of the rebuild suite. `--lane` is the rebuild conftest's own option, and it also decides the pool width: the contracts lane's `-n auto` resolves to the cores this process may actually run on, since none of its workers holds a live build artifact, while the validators lane takes the narrower width `rebuild/conftest.py` derives from what one live-fixture worker costs. Every run prints its twenty-five slowest tests, so the lane's own record says where its minutes went and a cost survey needs no special invocation. The contracts lane also names the two closure files beside its green record: the selection file the caller writes just before the spawn, naming the tests the record proves unaffected, and the sidecar the suite writes at session end with every test's recorded closure — both resolved at call time off `rebuild_lane_green`, so a test that redirects the record redirects them with it."""
+    """The rebuild suite's one lane. `--lane` is the rebuild conftest's own option, and it also decides the pool width: the contracts lane's `-n auto` resolves to the cores this process may actually run on, since none of its workers holds a live build artifact. Every run prints its twenty-five slowest tests, so the lane's own record says where its minutes went and a cost survey needs no special invocation. The lane also names the two closure files beside its green record: the selection file the caller writes just before the spawn, naming the tests the record proves unaffected, and the sidecar the suite writes at session end with every test's recorded closure — both resolved at call time off `rebuild_lane_green`, so a test that redirects the record redirects them with it."""
     argv = [
         "uv",
         "run",
@@ -372,15 +368,10 @@ REBUILD_GATE_HARNESS_PATHS = (
     "tools/shape_sequences.py",
     "tools/suggest_scoped_anchor_selectors.py",
 )
-VALIDATORS_EXEMPT_PREFIXES = (
-    "rebuild/fixtures/",
-    "rebuild/review/fixtures/units/",
-    "rebuild/review/static/",
-)
 
 
 def _sha256_path(path: Path) -> str:
-    """The streamed read matters here more than anywhere: divergence-audit.tsv is hundreds of megabytes and rides the validators-lane key, which a driver pass recomputes three times. Spelled out rather than borrowing fingerprint.file_sha256 because this module defers every rebuild.pipeline import into the function that needs it, and this one is called per file in a loop."""
+    """The streamed read matters here: the oracle's subset tables and M1.otf are large and ride keys a driver pass recomputes more than once. Spelled out rather than borrowing fingerprint.file_sha256 because this module defers every rebuild.pipeline import into the function that needs it, and this one is called per file in a loop."""
     try:
         with open(path, "rb") as handle:
             return hashlib.file_digest(handle, "sha256").hexdigest()
@@ -657,7 +648,7 @@ def deep_sweep_status(root: Path = ROOT, horizon: int = DEEP_SWEEP_HORIZON_DEFAU
 
 
 def rebuild_gate_closure_files(root: Path) -> list[str] | None:
-    """Every tracked or untracked-unignored file the rebuild pytest suite can read from the repo, and the shared half of both lanes' input closures: rebuild/ and glyph_data/ (minus Markdown and the exempt paths in REBUILD_GATE_EXEMPT_PREFIXES: the carried-verdict evidence, the JS-only jstests, the census pins, and the contact allow-list), the root conftest.py, pyproject.toml and uv.lock, and the harness roster REBUILD_GATE_HARNESS_PATHS, which is what the suite reads outside those trees and why the Markdown filter has an exception: that filter is there for prose no test opens, and doc/glyph-names.md is a fixture rebuild/test_review_enrich.py holds the surface's letter table against. The roster is measured rather than inferred from the tree — issue #127 audited every file both lanes actually open over a green run of each — and every entry has a named reader: rebuild/validation/pins.py collects its pin runs from the three site corpora and puts test/ on sys.path to import test/test_shaping.py, which reads postscript_glyph_names.yaml at the repo root and pulls the tools/ compile modules in with it; rebuild/review/drafts.build_corpus_index reads the same three corpora; the unit-cache environment stamp hashes tools/*.py whole, which is why the roster is the tree rather than the compile modules alone; and rebuild/test_review_build.py pins the review surface's feature descriptions to README.md's stylistic-set list. Until they were keyed, editing any of them left both lanes' greens standing over code and data the suite had just been reading. The pins are out because the suite no longer reads them and the census step rewrites them mid-pass — they are the cycle's own diff artifact, so leaving them in would invalidate the key of every pass that refreshes them. The allow-list is out because no test in either lane reads the live file — only a fake repo writes one — so a bless would re-run the whole suite to prove nothing. The other two human-reviewed ledgers stay in, since tests in both lanes do read them, and buy the same saving a different way: `_closure_digest` hashes them prose-blind, so rewording a `why` or a `note` moves neither key while a structural edit still moves both. None when git is unavailable, in which case the caller must run the gate unconditionally."""
+    """Every tracked or untracked-unignored file the rebuild pytest suite can read from the repo, and the base of the suite's input closure: rebuild/ and glyph_data/ (minus Markdown and the exempt paths in REBUILD_GATE_EXEMPT_PREFIXES: the carried-verdict evidence, the JS-only jstests, the census pins, and the contact allow-list), the root conftest.py, pyproject.toml and uv.lock, and the harness roster REBUILD_GATE_HARNESS_PATHS, which is what the suite reads outside those trees and why the Markdown filter has an exception: that filter is there for prose no test opens, and doc/glyph-names.md is a fixture rebuild/test_review_enrich.py holds the surface's letter table against. The roster is measured rather than inferred from the tree — issue #127 audited every file both lanes actually open over a green run of each — and every entry has a named reader: rebuild/validation/pins.py collects its pin runs from the three site corpora and puts test/ on sys.path to import test/test_shaping.py, which reads postscript_glyph_names.yaml at the repo root and pulls the tools/ compile modules in with it; rebuild/review/drafts.build_corpus_index reads the same three corpora; the unit-cache environment stamp hashes tools/*.py whole, which is why the roster is the tree rather than the compile modules alone; and rebuild/test_review_build.py pins the review surface's feature descriptions to README.md's stylistic-set list. Until they were keyed, editing any of them left both lanes' greens standing over code and data the suite had just been reading. The pins are out because the suite no longer reads them and the census step rewrites them mid-pass — they are the cycle's own diff artifact, so leaving them in would invalidate the key of every pass that refreshes them. The allow-list is out because no test in either lane reads the live file — only a fake repo writes one — so a bless would re-run the whole suite to prove nothing. The other two human-reviewed ledgers stay in, since tests in both lanes do read them, and buy the same saving a different way: `_closure_digest` hashes them prose-blind, so rewording a `why` or a `note` moves neither key while a structural edit still moves both. None when git is unavailable, in which case the caller must run the gate unconditionally."""
     try:
         result = subprocess.run(
             [
@@ -698,23 +689,16 @@ def rebuild_lane_fingerprint(root: Path, lane: str) -> str | None:
 
 
 def rebuild_lane_closure(root: Path, lane: str) -> tuple[str | None, dict[str, str] | None]:
-    """One lane's input closure as the key and the per-label digest map the key is a digest of — one pass over the files answers both, and keeping the map the key's only source is what makes the contracts lane's per-test selection sound: every input the key can move on is a label the selection can see move. Content key over one lane's full input closure, and the two closures are what make the lanes separately skippable. Contracts covers the repo files from rebuild_gate_closure_files, which has already dropped the exempt paths, so a bless of a contact signature moves neither lane's key — plus the site fonts, which are `make all` output its shaping tests measure against, moved by no rune edit, and whose Senior sha every baseline header records and `baseline_subset.prove_font_provenance` holds the oracle's tables to; it deliberately contains no build artifact at all, so a verdict-only or artifact-only cycle re-runs nothing here, and a live M1 rebuild — which writes only under rebuild/out — cannot invalidate the key mid-pass. Validators adds exactly what that lane reads on top: the out/m1 artifacts, the oracle's subset tables, and the baselines. It drops three trees more than the shared exemptions, too, each of them checked-in source no arm of that lane opens: rebuild/review/static/, the copied app shell — the only tests that read the shell (the index-html sanity check and the `node --check` pass in rebuild/test_review_build.py) read it at its source and sit in the contracts lane, whose closure keeps it — and the fixture piles rebuild/fixtures/ and rebuild/review/fixtures/units/, whose readers sit in contracts as well. The rest of rebuild/review/fixtures/ stays in both keys, because rebuild/conftest.py imports the mini bundle's pin module at module scope, so every process of either lane reads it. The harness roster rides both lanes for the same reason the audit found it: collecting rebuild/ imports test/test_shaping.py in every process of both, and the tools/ modules come with it. Only the corpora and the two prose fixtures are over-inclusive there, their readers all sitting in contracts, and they are too few and too rarely edited to be worth a second exemption list. Both contain the rune files and both human-reviewed ledgers that are still in the closure — the divergence ledger and the standing approvals — all three prose-blind, because several contracts tests load the live spec and the live ledgers, and every one of them reads structure rather than prose. The verdict store is absent from both — the suite exercises it only through fixtures — which is what lets a verdict-only cycle skip the suite entirely. None when git is unavailable, in which case the caller must run the lane unconditionally."""
+    """The rebuild suite's input closure as the key and the per-label digest map the key is a digest of — one pass over the files answers both, and keeping the map the key's only source is what makes the per-test selection sound: every input the key can move on is a label the selection can see move. The closure covers the repo files from rebuild_gate_closure_files, which has already dropped the exempt paths, so a bless of a contact signature moves nothing here — plus the site fonts, which are `make all` output its shaping tests measure against, moved by no rune edit, and whose Senior sha every baseline header records and `baseline_subset.prove_font_provenance` holds the oracle's tables to; it deliberately contains no build artifact at all, so a verdict-only or artifact-only cycle re-runs nothing here, and a live M1 rebuild — which writes only under rebuild/out — cannot invalidate the key mid-pass. The harness roster rides in for the reason the audit found it: collecting rebuild/ imports test/test_shaping.py in every process, and the tools/ modules come with it. The closure holds the rune files and both human-reviewed ledgers — the divergence ledger and the standing approvals — all three prose-blind, because several tests load the live spec and the live ledgers, and every one of them reads structure rather than prose. The verdict store is absent — the suite exercises it only through fixtures — which is what lets a verdict-only cycle skip the suite entirely. None when git is unavailable, in which case the caller must run the suite unconditionally."""
     from rebuild.pipeline import fingerprint
 
+    if lane not in REBUILD_LANES:
+        raise ValueError(f"{lane!r} is not a lane of the rebuild suite; the lanes are {REBUILD_LANES}")
     files = rebuild_gate_closure_files(root)
     if files is None:
         return None, None
-    if lane == "validators":
-        files = [
-            rel for rel in files if not any(rel.startswith(prefix) for prefix in VALIDATORS_EXEMPT_PREFIXES)
-        ]
     labels = {rel: _closure_digest(root, rel) for rel in files}
     labels["fonts"] = fingerprint.hash_paths(root, fingerprint.font_paths(root))
-    if lane == "validators":
-        m1 = root / "rebuild" / "out" / "m1"
-        labels.update({f"m1/{name}": _sha256_path(m1 / name) for name in M1_ARTIFACT_NAMES})
-        labels.update({f"m1/{path.name}": _sha256_path(path) for path in _subset_tables(root)})
-        labels["baselines"] = fingerprint.baselines_value(root)
     return _digest_lines([f"{label}\t{digest}" for label, digest in labels.items()]), labels
 
 
@@ -887,7 +871,7 @@ def evaluate_run_m1_gate(pipeline: dict, manual_pins: dict, oracle: dict) -> Che
 
 
 def evaluate_conform_gate(summary: dict | None) -> CheckVerdict:
-    """Judge gate:conform from conform_summary.json's contents (None = the subprocess never wrote one). `pass` is the verdict, and the belt has exactly one way to fail: a font-vs-settle divergence, which is a compiler defect by definition. Whether the font holds every rule the build planned is read-back's claim, re-proved inside run_m1 on every build, and dead generated rules are rebuild/test_rule_witnesses.py's — neither reaches this summary. The sweep fails as a belt rather than as a list of named cases, so there are no failed ids to carry: what a divergence names is a window, and the audit beside the summary is where those are read."""
+    """Judge gate:conform from conform_summary.json's contents (None = the subprocess never wrote one). `pass` is the verdict, and the belt has exactly one way to fail: a font-vs-settle divergence, which is a compiler defect by definition. Whether the font holds every rule the build planned is read-back's claim, re-proved inside run_m1 on every build, and dead generated rules are the build's witness stage's (`run_m1.run_rule_witnesses`, over the certificates the crate wrote beside the rules) — neither reaches this summary. The sweep fails as a belt rather than as a list of named cases, so there are no failed ids to carry: what a divergence names is a window, and the audit beside the summary is where those are read."""
     if summary is None:
         return CheckVerdict(
             check="conform",
@@ -927,11 +911,10 @@ STEP_DESCRIPTIONS = {
     "assets-refresh": "Overwrites the served copy of the review app's JS, CSS, and HTML and restamps only the manifest's static component. No shard or sidecar moves, so the open tab's store stays aligned.",
     "plumbing": "Carries the previous surface's verdicts onto the new one, merges them into the store, and runs the echo and standing fills to their fixpoint. Ends by writing the complaint docket of what still needs a human.",
     "census": "Rewrites rebuild/review-census-pins.json from the census sidecar the surface build emitted and prints its git diff in full. Committing that diff is how the census is accepted.",
-    "gates": "The five post-build gates, skipped together under --skip-gates.",
+    "gates": "The four post-build gates, skipped together under --skip-gates.",
     "gate:js": "Runs the review app's node test suite over its JavaScript. Fast, and independent of every build artifact.",
     "gate:conform": "Shapes the compiled font with HarfBuzz over the swept texts and checks it against a fresh re-settlement window by window, the split-buffer check at horizon 4 included; the ss10 overlay takes its own two-letter arm against the bare rendering. The proof that HarfBuzz does what the tables say over every rule shape the lookup emits; that the tables are complete over the same texts is run_m1's string replay, on every build.",
-    "gate:rebuild-contracts": "Runs the rebuild suite's contracts lane: every test whose subject is the code, over checked-in fixtures and the hermetic mini bundle. Reads no live build artifact.",
-    "gate:rebuild-validators": "Runs the rebuild suite's validators lane: the per-configuration rule-witness arms over the tables this pass built. Refuses a window enumeration stamped from other sources than the ones on disk.",
+    "gate:rebuild-contracts": "Runs the rebuild suite: every test whose subject is the code, over checked-in fixtures and the hermetic mini bundle. Reads no live build artifact.",
     "gate:make-test": "Runs the main font suite and pyright over the whole tree, the same make test you run by hand. Skips when its input closure is unchanged since its last green run.",
     "job-costs": "Checks the recorded per-worker peaks against the memory-budget constants that size every fan-out. A drift here means a width somewhere is priced on stale numbers.",
     "retention": "Prunes the regenerable piles a green cycle leaves behind: old snapshots, stale carried files, stashes the journal already replays, the journal past its 7-day floor, and build logs beyond the last 10.",
@@ -939,7 +922,7 @@ STEP_DESCRIPTIONS = {
 
 
 def step_description(name: str) -> str:
-    """What a step's banner says that step is for, out of the table above: two sentences per step, printed on every run. They are keyed by step name and live beside the step definitions rather than in a document, because the one moment a reader wants to know what gate:conform proves is the moment they are watching it run, and a description that has to be looked up somewhere else is one nobody looks up. Two of those keys name variants rather than steps of their own — `run_m1:gates-only` is the re-adjudication route, which spawns under that name and reports under run_m1's row, and `gates` is the placeholder --skip-gates leaves in place of five. `_run_step` reaches this rather than the plan because it is handed a name and not a plan, and because two of the things it spawns are children of steps rather than steps — the census diff and the job-costs diff — for which the empty answer is the right one."""
+    """What a step's banner says that step is for, out of the table above: two sentences per step, printed on every run. They are keyed by step name and live beside the step definitions rather than in a document, because the one moment a reader wants to know what gate:conform proves is the moment they are watching it run, and a description that has to be looked up somewhere else is one nobody looks up. Two of those keys name variants rather than steps of their own — `run_m1:gates-only` is the re-adjudication route, which spawns under that name and reports under run_m1's row, and `gates` is the placeholder --skip-gates leaves in place of four. `_run_step` reaches this rather than the plan because it is handed a name and not a plan, and because two of the things it spawns are children of steps rather than steps — the census diff and the job-costs diff — for which the empty answer is the right one."""
     return STEP_DESCRIPTIONS.get(name, "")
 
 
@@ -986,8 +969,6 @@ class Plan:
     contracts_note: str = ""
     contracts_skip: list[str] = field(default_factory=list)
     contracts_files: dict[str, str] | None = None
-    skip_validators: bool = False
-    validators_note: str = ""
     conform_note: str = ""
     conform_proven: bool = False
     skip_plumbing: bool = False
@@ -1175,8 +1156,6 @@ def build_plan(
     contracts_note: str = "",
     contracts_skip: list[str] | None = None,
     contracts_files: dict[str, str] | None = None,
-    skip_validators: bool = False,
-    validators_note: str = "",
     conform_note: str = "",
     conform_proven: bool = False,
     skip_plumbing: bool = False,
@@ -1253,8 +1232,6 @@ def build_plan(
         contracts_note=contracts_note,
         contracts_skip=list(contracts_skip or []),
         contracts_files=contracts_files,
-        skip_validators=skip_validators,
-        validators_note=validators_note,
         conform_note=conform_note,
         conform_proven=conform_proven,
         skip_plumbing=skip_plumbing,
@@ -1504,28 +1481,9 @@ def build_plan(
                 Step(
                     "gate:rebuild-contracts",
                     rebuild_lane_argv("contracts"),
-                    "submitted once the surface build settles; queued ahead of the validators lane"
+                    "submitted once the surface build settles"
                     + (f"; {contracts_note}" if contracts_note else ""),
                     lane="contracts",
-                )
-            )
-        if skip_validators:
-            plan.steps.append(
-                Step(
-                    "gate:rebuild-validators",
-                    None,
-                    f"SKIPPED ({validators_note})",
-                    lane="validators",
-                    skipped=True,
-                )
-            )
-        else:
-            plan.steps.append(
-                Step(
-                    "gate:rebuild-validators",
-                    rebuild_lane_argv("validators"),
-                    "submitted once the surface build settles",
-                    lane="validators",
                 )
             )
         if skip_make_test:
@@ -1646,7 +1604,7 @@ def _render_concurrency(plan: Plan) -> list[str]:
         "",
         f"  Concurrency (pool policy: {plan.pool_policy}):",
         f"    Lane t0   [from t=0, background]  : {t0_lane}",
-        "    Lane build[serial, main thread]  : snapshot -> run_m1 -> surface-build -> submit gate:rebuild-contracts, gate:rebuild-validators -> plumbing -> census",
+        "    Lane build[serial, main thread]  : snapshot -> run_m1 -> surface-build -> submit gate:rebuild-contracts -> plumbing -> census",
     ]
     if plan.skip_conform:
         lines.append(
@@ -1684,30 +1642,6 @@ def _render_concurrency(plan: Plan) -> list[str]:
             )
         else:
             lines.append("                                       no other heavy pool running, so no queueing")
-    if plan.skip_validators:
-        lines.append(
-            "    Lane rebuild-validators          : SKIPPED (inputs unchanged since its last green run)"
-        )
-    else:
-        lines.append("    Lane rebuild-validators          : submitted once the surface build settles;")
-        if plan.pool_policy == "overlap":
-            lines.append(
-                "                                       CO-RESIDENT with the other pools (overlap policy)"
-            )
-        elif not plan.skip_contracts:
-            lines.append(
-                "                                       QUEUED behind gate:rebuild-contracts, whose chain already waits on gate:conform and gate:make-test"
-            )
-        elif not plan.skip_conform:
-            lines.append(
-                "                                       QUEUED behind gate:conform (queue policy; the contracts lane is not running)"
-            )
-        elif not plan.skip_make_test:
-            lines.append(
-                "                                       QUEUED behind gate:make-test (queue policy; neither gate:conform nor the contracts lane is running)"
-            )
-        else:
-            lines.append("                                       no other heavy pool running, so no queueing")
     workers = f"{plan.make_test_workers} worker" + ("" if plan.make_test_workers == 1 else "s")
     if plan.skip_make_test:
         kernel_reason = "the table build's memory ceiling, the one width RAM binds"
@@ -1727,9 +1661,9 @@ def _render_concurrency(plan: Plan) -> list[str]:
 
 
 def plan_rows(plan: Plan) -> list[console.PlanRow]:
-    """The plan's steps as the digest's rows. gate:conform and gate:rebuild-validators are the two steps whose fate the plan cannot settle — each one's key is taken over the artifacts run_m1 leaves, so a pass that plans the sweep or the lane may still prove it unnecessary once the build has finished — and they are the only rows that can read `run?`, which is what puts the range in the counts line. Such a row states the condition it turns on (`UNDECIDED_UNTIL_RUN_M1` holds the note for each), because every other row's note says why it will or will not run and a `run?` with nothing beside it is the one row a reader cannot resolve.
+    """The plan's steps as the digest's rows. gate:conform is the one step whose fate the plan cannot settle — its key is taken over the artifacts run_m1 leaves, so a pass that plans the sweep may still prove it unnecessary once the build has finished — and it is the only row that can read `run?`, which is what puts the range in the counts line. Such a row states the condition it turns on (`UNDECIDED_UNTIL_RUN_M1` holds the note), because every other row's note says why it will or will not run and a `run?` with nothing beside it is the one row a reader cannot resolve.
 
-    A pass that skips run_m1 outright is the exception: nothing rebuilds, so the key the mid-run re-decision would compare is the one `main` has already compared and found no green for, and the sweep or the lane will certainly run. So is a `--fresh` pass, which reads no green at all and so has nothing to prove either unnecessary with. Those rows read `run`, and the counts line is a flat number rather than a range it could never reach the top of.
+    A pass that skips run_m1 outright is the exception: nothing rebuilds, so the key the mid-run re-decision would compare is the one `main` has already compared and found no green for, and the sweep will certainly run. So is a `--fresh` pass, which reads no green at all and so has nothing to prove unnecessary with. Those rows read `run`, and the counts line is a flat number rather than a range it could never reach the top of.
     """
     rows: list[console.PlanRow] = []
     for index, step in enumerate(plan.steps, start=1):
@@ -1814,16 +1748,12 @@ class CycleReport:
     gate_js_green: bool | None = None
     gate_contracts: str = "not run"
     gate_contracts_green: bool | None = None
-    gate_validators: str = "not run"
-    gate_validators_green: bool | None = None
     gate_conform: str = "not run"
     gate_conform_green: bool | None = None
     gate_make_test: str = "not run"
     gate_make_test_green: bool | None = None
     contracts_recordable: bool = False
-    validators_recordable: bool = False
     conform_proven: bool = False
-    validators_proven: bool = False
     interrupted: bool = False
     run_m1_failed: bool = False
     retention_figure: str = ""
@@ -1979,7 +1909,7 @@ _ANSI_SGR = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 
 
 def classify_rebuild_output(stdout: str, returncode: int, check: str) -> CheckVerdict:
-    """Turn the rebuild suite's FAILED/ERROR summary lines into a gate verdict — the one judgment of the suite's output, lane-blind and so shared by both of the cycle's rebuild gates and by the interactive wrapper (rebuild.tools.rebuild_gate). `check` names whose invocation this is ("rebuild-contracts" / "rebuild-validators") and does nothing else: it rides into the verdict so the record says which suite ran, while every line of the judgment above it stays blind to the lane. pytest emits ANSI color whenever FORCE_COLOR is set (as it is under the agent harness), wrapping each summary line in escape codes, so strip those first — otherwise no line begins with a literal "FAILED "/"ERROR " and a colored run reports the exit-code placeholder instead of naming its failures. Every failure is unexplained by definition — the suite carries no documented-baseline amnesty — and every green is recordable."""
+    """Turn the rebuild suite's FAILED/ERROR summary lines into a gate verdict — the one judgment of the suite's output, shared by the cycle's rebuild gate and by the interactive wrapper (rebuild.tools.rebuild_gate). `check` names whose invocation this is ("rebuild-contracts") and does nothing else: it rides into the verdict so the record says which suite ran, while every line of the judgment above it stays blind to the lane. pytest emits ANSI color whenever FORCE_COLOR is set (as it is under the agent harness), wrapping each summary line in escape codes, so strip those first — otherwise no line begins with a literal "FAILED "/"ERROR " and a colored run reports the exit-code placeholder instead of naming its failures. Every failure is unexplained by definition — the suite carries no documented-baseline amnesty — and every green is recordable."""
     lines = [_ANSI_SGR.sub("", line) for line in stdout.splitlines()]
     failed_ids = [line.split(None, 2)[1] for line in lines if line.startswith("FAILED ")]
     error_ids = [line.split(None, 2)[1] for line in lines if line.startswith("ERROR ")]
@@ -2385,7 +2315,7 @@ def _gate_make_test_task(
 
 
 def _spawn_with_env(spawn, env: dict[str, str]):
-    """One child's environment, carried on that child's own spawn callable rather than added to the argument list every gate task shares. The alternative is os.environ, and it is the wrong one: run_m1, the surface build and both rebuild lanes spawn from this same process, so a width set there for gate:make-test would pin their `-n auto` pools to it too — the contracts lane wants the whole box and the validators lane its own narrower answer. Wrapping instead of widening the protocol also leaves the task signature alone, which is what keeps the plan the only writer of what a child runs: this adds to the child's environment, never to its argv."""
+    """One child's environment, carried on that child's own spawn callable rather than added to the argument list every gate task shares. The alternative is os.environ, and it is the wrong one: run_m1, the surface build and the rebuild suite spawn from this same process, so a width set there for gate:make-test would pin their `-n auto` pools to it too — the rebuild suite wants the whole box. Wrapping instead of widening the protocol also leaves the task signature alone, which is what keeps the plan the only writer of what a child runs: this adds to the child's environment, never to its argv."""
 
     def spawn_with_env(name, argv, *, emit, registry, stream):
         return spawn(name, argv, emit=emit, registry=registry, stream=stream, env=env)
@@ -2445,31 +2375,12 @@ def _gate_contracts_task(
     registry: _ChildRegistry,
     argv: list[str],
 ) -> CheckVerdict:
-    """The rebuild suite's contracts lane — every test whose fixture closure holds no live build artifact, run at the box's full xdist width. It reads nothing the build lane writes, yet it is still submitted once the surface build settles, for two reasons that have nothing to do with correctness: a full-width pool must not share the box with the M1 build or the surface build, whose peaks are what the repo's parallelism defaults are sized against, and waiting costs it nothing, since under the queue policy it parks behind conform anyway and on the common gate pass every stage upstream auto-skips, so it starts at t=0 regardless. Under the queue policy it parks at the tail of the make-test -> conform chain so only one heavy pool is hot at a time, and it goes ahead of the validators lane because it is the short one and fails fast on a code error before the long lane starts."""
+    """The rebuild suite — every test under rebuild/, none of which reads a live build artifact, run at the box's full xdist width. It reads nothing the build lane writes, yet it is still submitted once the surface build settles, for two reasons that have nothing to do with correctness: a full-width pool must not share the box with the M1 build or the surface build, whose peaks are what the repo's parallelism defaults are sized against, and waiting costs it nothing, since under the queue policy it parks behind conform anyway and on the common gate pass every stage upstream auto-skips, so it starts at t=0 regardless. Under the queue policy it parks at the tail of the make-test -> conform chain so only one heavy pool is hot at a time."""
     if pool_policy == "queue":
         _await_gate_futures(conform_fut, make_fut)
     result = spawn("gate:rebuild-contracts", argv, emit=emit, registry=registry, stream=False)
     verdict = classify_rebuild_output(result.stdout, result.returncode, "rebuild-contracts")
     _close_gate(emit, "gate:rebuild-contracts", result, verdict)
-    return verdict
-
-
-def _gate_validators_task(
-    pool_policy: str,
-    conform_fut: Future | None,
-    contracts_fut: Future | None,
-    make_fut: Future | None,
-    spawn,
-    emit: console.Digest,
-    registry: _ChildRegistry,
-    argv: list[str],
-) -> CheckVerdict:
-    """The rebuild suite's validators lane — the tests that read rebuild/out, the review surface and the fixture caches, at the narrower width rebuild/conftest.py derives from what one of them costs, because each of them carries a live fixture's working set. Submitted once the surface build settles, which for this lane is a correctness requirement rather than a courtesy: its session fixture reads the live surface whenever surface_build_skippable calls it provably fresh, so a lane started against one mid-rewrite would either observe a fresh manifest beside a sidecar review.build has not written yet, or decide the surface is not fresh and waste a whole duplicate build inside the suite. Nothing later in the build lane is an input to it, the census pins included. Under the queue policy it parks at the tail of the whole chain, contracts included."""
-    if pool_policy == "queue":
-        _await_gate_futures(conform_fut, contracts_fut, make_fut)
-    result = spawn("gate:rebuild-validators", argv, emit=emit, registry=registry, stream=False)
-    verdict = classify_rebuild_output(result.stdout, result.returncode, "rebuild-validators")
-    _close_gate(emit, "gate:rebuild-validators", result, verdict)
     return verdict
 
 
@@ -2511,12 +2422,8 @@ def _join_rebuild_lane(
         failures.extend(verdict.failures)
         if timings is not None:
             timings.record_check(verdict)
-    if lane == "contracts":
-        report.gate_contracts, report.gate_contracts_green = status, green
-        report.contracts_recordable = recordable
-    else:
-        report.gate_validators, report.gate_validators_green = status, green
-        report.validators_recordable = recordable
+    report.gate_contracts, report.gate_contracts_green = status, green
+    report.contracts_recordable = recordable
 
 
 def _join_gates(
@@ -2524,13 +2431,12 @@ def _join_gates(
     failures: list[str],
     js_fut: Future | None,
     contracts_fut: Future | None,
-    validators_fut: Future | None,
     conform_fut: Future | None,
     make_fut: Future | None,
     emit: console.Digest,
     timings: CycleTimings | None = None,
 ) -> None:
-    """Fold every gate that ran into the report, and file each one's verdict under this run. Two of the five have no judge of their own — the JS suite and `make test` are pass/fail by exit code and always were — so their verdicts are built here rather than imported, which is what puts all five in the journal in one shape without inventing a judgment either of them does not make. gate:make-test's own wrapper stands down on CYCLE_RUN_ENV precisely so this line is the only one, and `make test`'s rc is honest for the font suite in a way run_m1's is not."""
+    """Fold every gate that ran into the report, and file each one's verdict under this run. Two of the four have no judge of their own — the JS suite and `make test` are pass/fail by exit code and always were — so their verdicts are built here rather than imported, which is what puts all four in the journal in one shape without inventing a judgment either of them does not make. gate:make-test's own wrapper stands down on CYCLE_RUN_ENV precisely so this line is the only one, and `make test`'s rc is honest for the font suite in a way run_m1's is not."""
     if js_fut is not None:
         js = _gate_result(js_fut, "gate:js", failures)
         if js is None:
@@ -2545,8 +2451,6 @@ def _join_gates(
                 timings.record_check(verdict)
     if contracts_fut is not None:
         _join_rebuild_lane(report, failures, contracts_fut, "contracts", emit, timings)
-    if validators_fut is not None:
-        _join_rebuild_lane(report, failures, validators_fut, "validators", emit, timings)
     if conform_fut is not None:
         conform = _gate_result(conform_fut, "gate:conform", failures)
         if conform is None:
@@ -2584,7 +2488,7 @@ def _plumbing_settled(report: CycleReport) -> bool:
 def _record_gate_greens(
     report: CycleReport, plan: Plan, gate_keys: dict[str, str], emit: console.Digest
 ) -> None:
-    """Persist the concurrent gates' green records after they joined. gate:conform's and gate:rebuild-validators' keys are snapshotted right after run_m1 finished, where each one's skip is decided, and the contracts lane's right after the surface build settles, which is where both lanes are submitted — the surface build writes only under rebuild/out/review, which neither lane's closure holds, and the census pins are exempt from the rebuild closure, so neither the build between a snapshot and its submission nor the refresh later in the pass can invalidate a key. Each is recomputed here before recording, so a source file edited while the gates ran — content the gates never tested — can never be recorded green. A red gate whose key still matches its record deletes the falsified record."""
+    """Persist the concurrent gates' green records after they joined. gate:conform's key is snapshotted right after run_m1 finished, where its skip is decided, and the rebuild suite's right after the surface build settles, which is where the suite is submitted — the surface build writes only under rebuild/out/review, which the suite's closure does not hold, and the census pins are exempt from the rebuild closure, so neither the build between a snapshot and its submission nor the refresh later in the pass can invalidate a key. Each is recomputed here before recording, so a source file edited while the gates ran — content the gates never tested — can never be recorded green. A red gate whose key still matches its record deletes the falsified record."""
     key = gate_keys.get("conform")
     if key:
         if report.gate_conform_green is True:
@@ -2597,10 +2501,7 @@ def _record_gate_greens(
                 )
         elif report.gate_conform_green is False:
             clear_contradicted_green(CONFORM_GREEN, key)
-    for lane, recordable, green in (
-        ("contracts", report.contracts_recordable, report.gate_contracts_green),
-        ("validators", report.validators_recordable, report.gate_validators_green),
-    ):
+    for lane, recordable, green in (("contracts", report.contracts_recordable, report.gate_contracts_green),):
         key = gate_keys.get(lane)
         if not key:
             continue
@@ -2692,7 +2593,6 @@ def _run_cycle(
             )
         )
         contracts_fut: Future | None = None
-        validators_fut: Future | None = None
         conform_fut: Future | None = None
         gate_keys: dict[str, str] = {}
         if plan.skip_gates:
@@ -2703,9 +2603,6 @@ def _run_cycle(
         if not plan.skip_gates and plan.skip_contracts:
             report.gate_contracts = f"skipped ({plan.contracts_note})"
             emit.step_skipped("gate:rebuild-contracts", plan.contracts_note)
-        if not plan.skip_gates and plan.skip_validators:
-            report.gate_validators = f"skipped ({plan.validators_note})"
-            emit.step_skipped("gate:rebuild-validators", plan.validators_note)
         if not plan.skip_gates and plan.skip_make_test:
             report.gate_make_test = f"skipped ({plan.make_test_note})"
             emit.step_skipped("gate:make-test", plan.make_test_note)
@@ -2729,13 +2626,10 @@ def _run_cycle(
             if plan.skip_gates or not plan.skip_contracts:
                 report.gate_contracts = "not run (run_m1 gate failed)"
                 emit.step_not_run("gate:rebuild-contracts", "run_m1 gate failed")
-            if plan.skip_gates or not plan.skip_validators:
-                report.gate_validators = "not run (run_m1 gate failed)"
-                emit.step_not_run("gate:rebuild-validators", "run_m1 gate failed")
             if not plan.skip_gates and not plan.skip_conform:
                 report.gate_conform = "not run (run_m1 gate failed)"
                 emit.step_not_run("gate:conform", "run_m1 gate failed")
-            _join_gates(report, failures, js_fut, None, None, None, make_fut, emit, timings)
+            _join_gates(report, failures, js_fut, None, None, make_fut, emit, timings)
             return _finish(report, failures, plan, timings, emit)
 
         if not plan.skip_gates and not plan.skip_conform:
@@ -2761,21 +2655,6 @@ def _run_cycle(
                     plan.argv("gate:conform"),
                 )
 
-        validators_pending = not plan.skip_gates and not plan.skip_validators
-        if validators_pending:
-            validators_key = rebuild_lane_fingerprint(ROOT, "validators")
-            green = None if plan.fresh else read_green_record(REBUILD_VALIDATORS_GREEN)
-            if validators_key is not None and green is not None and green["fingerprint"] == validators_key:
-                validators_pending = False
-                report.validators_proven = True
-                report.gate_validators = f"skipped ({VALIDATORS_SKIP_NOTE})"
-                emit.step_skipped(
-                    "gate:rebuild-validators",
-                    f"SKIPPED after run_m1 — {VALIDATORS_SKIP_NOTE}. The out/m1 artifacts this pass leaves and the rest of the lane's closure carry the key its last green run was taken over, so the lane would read the same tables and font against the same sources.",
-                )
-            elif plan.record_greens:
-                gate_keys["validators"] = validators_key or ""
-
         if plan.runs("assets-refresh") and not _do_assets_refresh(
             report, spawn=spawn, emit=emit, registry=registry, plan=plan
         ):
@@ -2783,10 +2662,7 @@ def _run_cycle(
             if not plan.skip_gates and not plan.skip_contracts:
                 report.gate_contracts = "not run (assets refresh failed)"
                 emit.step_not_run("gate:rebuild-contracts", "assets refresh failed")
-            if validators_pending:
-                report.gate_validators = "not run (assets refresh failed)"
-                emit.step_not_run("gate:rebuild-validators", "assets refresh failed")
-            _join_gates(report, failures, js_fut, None, None, conform_fut, make_fut, emit, timings)
+            _join_gates(report, failures, js_fut, None, conform_fut, make_fut, emit, timings)
             _record_gate_greens(report, plan, gate_keys, emit)
             return _finish(report, failures, plan, timings, emit)
 
@@ -2804,10 +2680,7 @@ def _run_cycle(
             if not plan.skip_gates and not plan.skip_contracts:
                 report.gate_contracts = "not run (surface build failed)"
                 emit.step_not_run("gate:rebuild-contracts", "surface build failed")
-            if validators_pending:
-                report.gate_validators = "not run (surface build failed)"
-                emit.step_not_run("gate:rebuild-validators", "surface build failed")
-            _join_gates(report, failures, js_fut, None, None, conform_fut, make_fut, emit, timings)
+            _join_gates(report, failures, js_fut, None, conform_fut, make_fut, emit, timings)
             _record_gate_greens(report, plan, gate_keys, emit)
             return _finish(report, failures, plan, timings, emit)
 
@@ -2824,18 +2697,6 @@ def _run_cycle(
                 emit,
                 registry,
                 plan.argv("gate:rebuild-contracts"),
-            )
-        if validators_pending:
-            validators_fut = pool.submit(
-                _gate_validators_task,
-                plan.pool_policy,
-                conform_fut,
-                contracts_fut,
-                make_fut,
-                _spawn_with_env(spawn, {"AMS_POOL_UNIT": "rebuild-validators"}),
-                emit,
-                registry,
-                plan.argv("gate:rebuild-validators"),
             )
 
         plumbing_key: str | None = None
@@ -2856,9 +2717,7 @@ def _run_cycle(
         if plumbing_key and report.complaints_ok is True and plan.record_greens and plan.review_out is None:
             record_plumbing_green(plumbing_key)
 
-        _join_gates(
-            report, failures, js_fut, contracts_fut, validators_fut, conform_fut, make_fut, emit, timings
-        )
+        _join_gates(report, failures, js_fut, contracts_fut, conform_fut, make_fut, emit, timings)
         _record_gate_greens(report, plan, gate_keys, emit)
         _do_job_costs(report, spawn=spawn, emit=emit, registry=registry, plan=plan)
         return _finish(report, failures, plan, timings, emit)
@@ -2905,7 +2764,6 @@ def carry_figure(lines: list[str]) -> str:
 _GATE_STATUS_FIELDS = {
     "gate:js": "gate_js",
     "gate:rebuild-contracts": "gate_contracts",
-    "gate:rebuild-validators": "gate_validators",
     "gate:conform": "gate_conform",
     "gate:make-test": "gate_make_test",
 }
@@ -3131,11 +2989,6 @@ def cycle_summary_payload(report: CycleReport, failures: list[str], plan: Plan, 
                 report.gate_contracts_green,
                 _skip_kind(proved=plan.skip_contracts),
             ),
-            "rebuild_validators": _gate_entry(
-                report.gate_validators,
-                report.gate_validators_green,
-                _skip_kind(proved=plan.skip_validators or report.validators_proven),
-            ),
             "conform": _gate_entry(
                 report.gate_conform,
                 report.gate_conform_green,
@@ -3192,7 +3045,6 @@ def cycle_summary_payload(report: CycleReport, failures: list[str], plan: Plan, 
             "skip_surface": plan.skip_surface,
             "refresh_assets": plan.refresh_assets,
             "skip_contracts": plan.skip_contracts,
-            "skip_validators": plan.skip_validators,
             "skip_plumbing": plan.skip_plumbing,
             "review_out": _as_str(plan.review_out),
             "first_run": plan.first_run,
@@ -3487,7 +3339,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--skip-gates",
         action="store_true",
-        help="skip the five post-build gates (JS suite, the rebuild suite's contracts and validators lanes, conformance sweep, make test)",
+        help="skip the four post-build gates (JS suite, the rebuild suite, conformance sweep, make test)",
     )
     parser.add_argument(
         "--skip-conform",
@@ -3514,7 +3366,7 @@ def main(argv: list[str] | None = None) -> int:
         "--rebuild-pool",
         choices=POOL_POLICIES,
         default=REBUILD_POOL_POLICY_DEFAULT,
-        help="how the heavy gates share cores: 'queue' (one pool at a time — make-test, then conform, then the rebuild suite's contracts lane, then its validators lane; default) or 'overlap' (co-resident)",
+        help="how the heavy gates share cores: 'queue' (one pool at a time — make-test, then conform, then the rebuild suite; default) or 'overlap' (co-resident)",
     )
     parser.add_argument(
         "--review-out",
@@ -3566,8 +3418,6 @@ def main(argv: list[str] | None = None) -> int:
     surface_note = ""
     skip_contracts = False
     contracts_note = ""
-    skip_validators = False
-    validators_note = ""
     conform_note = ""
     auto_skip_conform = False
     contracts_skip: list[str] = []
@@ -3623,12 +3473,6 @@ def main(argv: list[str] | None = None) -> int:
             ):
                 auto_skip_conform = True
                 conform_note = CONFORM_SKIP_NOTE
-        if not args.skip_gates:
-            validators_key = rebuild_lane_fingerprint(ROOT, "validators")
-            green = read_green_record(REBUILD_VALIDATORS_GREEN)
-            if validators_key is not None and green is not None and green["fingerprint"] == validators_key:
-                skip_validators = True
-                validators_note = VALIDATORS_SKIP_NOTE
 
     preamble: list[str] = []
 
@@ -3706,8 +3550,6 @@ def main(argv: list[str] | None = None) -> int:
         contracts_note=contracts_note,
         contracts_skip=contracts_skip,
         contracts_files=contracts_files,
-        skip_validators=skip_validators,
-        validators_note=validators_note,
         conform_note=conform_note,
         conform_proven=auto_skip_conform,
         skip_plumbing=skip_plumbing,

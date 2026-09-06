@@ -354,17 +354,13 @@ class TestTheGateNarrows:
     def contracts_store(self, tmp_path, monkeypatch):
         store = tmp_path / "out" / "rebuild-contracts-green.json"
         monkeypatch.setattr(ac, "REBUILD_CONTRACTS_GREEN", store)
-        monkeypatch.setattr(
-            ac, "REBUILD_VALIDATORS_GREEN", tmp_path / "out" / "rebuild-validators-green.json"
-        )
-        monkeypatch.setattr(rg, "m1_tables_stamped", lambda: True)
         return store
 
     def _closures(self, monkeypatch, files_before, files_after):
-        calls = {"contracts": iter([files_before, files_after]), "validators": iter([{"v": "1"}, {"v": "1"}])}
+        calls = iter([files_before, files_after])
 
         def closure(root, lane):
-            files = next(calls[lane])
+            files = next(calls)
             return ac._digest_lines([f"{k}\t{v}" for k, v in files.items()]), files
 
         monkeypatch.setattr(rg, "rebuild_lane_closure", closure)
@@ -457,7 +453,6 @@ def test_the_lane_argv_names_the_closure_files_beside_the_record(tmp_path, monke
     argv = ac.rebuild_lane_argv("contracts")
     assert argv[argv.index("--closure-skip") + 1] == str(tmp_path / "rebuild-contracts-selection.json")
     assert argv[argv.index("--closure-record") + 1] == str(tmp_path / "rebuild-contracts-closures.json")
-    assert "--closure-skip" not in ac.rebuild_lane_argv("validators")
 
 
 def test_the_lane_key_is_the_digest_of_its_labels(tmp_path):

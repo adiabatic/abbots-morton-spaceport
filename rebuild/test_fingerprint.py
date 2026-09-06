@@ -148,7 +148,7 @@ def test_baselines_value_tracks_digests_content(tmp_path):
 
 
 def test_review_code_excludes_the_non_build_modules(tmp_path):
-    """serve.py, status.py, journal.py, and export.py never run in the surface build, so editing one must not stale the surface, drop the per-unit caches, or fail the validators lane — the plumbing key hashes the ones the verdict chain runs."""
+    """serve.py, status.py, journal.py, and export.py never run in the surface build, so editing one must not stale the surface or drop the per-unit caches — the plumbing key hashes the ones the verdict chain runs."""
     root = _fake_repo(tmp_path)
     for name in sorted(fingerprint.REVIEW_NON_BUILD_MODULES):
         assert root / "rebuild" / "review" / name not in fingerprint.review_code_paths(root)

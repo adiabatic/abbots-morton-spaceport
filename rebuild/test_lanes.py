@@ -1,18 +1,18 @@
-"""The lane split's own tests: that membership really is derived from the fixture closure, that the forbidden-path rule draws the line where the build's output actually starts, and — end to end, in a child pytest — that a contracts-lane test which reaches for a live artifact fails instead of quietly succeeding. The child runs as a subprocess rather than in-process because the guard is a `sys.addaudithook`, which cannot be uninstalled: a same-process rehearsal would leave this session's own hook armed against whatever ran next."""
+"""The live-artifact guard's own tests: that the forbidden-path rule draws the line where the build's output actually starts, that the guard governs the rebuild suite and leaves the repo's other suites alone, and — end to end, in a child pytest — that a rebuild test which reaches for a live artifact fails instead of quietly succeeding, whether or not the run named the suite's lane. The child runs as a subprocess rather than in-process because the guard is a `sys.addaudithook`, which cannot be uninstalled: a same-process rehearsal would leave this session's own hook armed against whatever ran next."""
 
 import os
 from pathlib import Path
 
 import pytest
 
-from rebuild.conftest import governs, is_live_artifact_path, lane_for_fixturenames
+from rebuild.conftest import LANES, governs, is_live_artifact_path
 
 pytest_plugins = ("pytester",)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 CHILD_TESTS = '''
-"""Three tests spanning the whole rule: a bare live read, the same read behind the fixture, and a read of a checked-in fixture that must stay legal."""
+"""Two tests spanning the whole rule: a bare live read, which the guard fails, and a read of a checked-in fixture, which must stay legal."""
 
 import os
 from pathlib import Path
@@ -24,31 +24,21 @@ def test_bare_live_read():
     assert os.listdir(REPO_ROOT / "rebuild" / "out")
 
 
-def test_live_read_behind_the_fixture(live_artifacts):
-    assert os.listdir(live_artifacts.m1.parent)
-
-
 def test_checked_in_fixture_read():
     assert (REPO_ROOT / "rebuild" / "review" / "fixtures" / "manifest.json").read_bytes()
 '''
 
 
 def _child(pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch, *args: str):
-    """Runs the three-test file above under a fresh pytest with this conftest force-loaded as a plugin. rebuild/ is a namespace package with no __init__.py, so PYTHONPATH is what lets `-p rebuild.conftest` resolve from the child's own working directory."""
+    """Runs the two-test file above under a fresh pytest with this conftest force-loaded as a plugin. rebuild/ is a namespace package with no __init__.py, so PYTHONPATH is what lets `-p rebuild.conftest` resolve from the child's own working directory."""
     monkeypatch.setenv("PYTHONPATH", str(REPO_ROOT))
     pytester.makepyfile(test_child=CHILD_TESTS.format(root=str(REPO_ROOT)))
     return pytester.runpytest_subprocess("-p", "rebuild.conftest", "-p", "no:cacheprovider", *args)
 
 
-class TestLaneClassification:
-    def test_a_closure_naming_the_live_fixture_is_the_validators_lane(self):
-        assert lane_for_fixturenames(["tmp_path", "live_artifacts"]) == "validators"
-
-    def test_a_closure_without_it_is_the_contracts_lane(self):
-        assert lane_for_fixturenames(["tmp_path", "monkeypatch"]) == "contracts"
-
-    def test_an_empty_closure_is_the_contracts_lane(self):
-        assert lane_for_fixturenames([]) == "contracts"
+def test_the_suite_has_one_lane_and_it_is_the_one_the_gate_names():
+    """The lane's spelling is shared by the green record, the pool unit and the cycle's gate step, so the tuple here is what every one of them is derived from."""
+    assert LANES == ("contracts",)
 
 
 class TestGovernedScope:
@@ -120,24 +110,17 @@ class TestForbiddenPaths:
 
 
 class TestGuardEndToEnd:
-    def test_the_contracts_lane_deselects_the_fixture_user_and_fails_the_bare_read(
+    def test_the_lane_fails_the_bare_read_and_keeps_the_fixture_read(
         self, pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
     ):
         result = _child(pytester, monkeypatch, "--lane", "contracts")
-        result.assert_outcomes(passed=1, failed=1, deselected=1)
+        result.assert_outcomes(passed=1, failed=1)
         result.stdout.fnmatch_lines(["*rebuild lane: contracts*"])
         result.stdout.fnmatch_lines(["*ContractsLaneViolation*"])
-        result.stdout.fnmatch_lines(["*live_artifacts*"])
-
-    def test_the_validators_lane_keeps_only_the_fixture_user(
-        self, pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
-    ):
-        result = _child(pytester, monkeypatch, "--lane", "validators")
-        result.assert_outcomes(passed=1, deselected=2)
-        result.stdout.fnmatch_lines(["*rebuild lane: validators*"])
 
     def test_without_a_lane_every_test_runs_and_the_bare_read_still_fails(
         self, pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
     ):
         result = _child(pytester, monkeypatch)
-        result.assert_outcomes(passed=2, failed=1)
+        result.assert_outcomes(passed=1, failed=1)
+        result.stdout.fnmatch_lines(["*ContractsLaneViolation*"])

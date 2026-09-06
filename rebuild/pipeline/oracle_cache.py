@@ -90,7 +90,7 @@ def oracle_code_paths(repo_root: Path) -> list[Path]:
 
 
 def store_path(out_dir: Path, config: str) -> Path:
-    """Where a promoted store lives: beside the m1 artifacts, but not one of them. The name misses `artifact_cycle.M1_ARTIFACT_NAMES` and every glob over the tables there, so it rides neither the validators-lane key nor the artifacts-present check — this is a cache, and a cycle that deletes it must lose nothing but time."""
+    """Where a promoted store lives: beside the m1 artifacts, but not one of them. The name misses `artifact_cycle.M1_ARTIFACT_NAMES` and every glob over the tables there, so it rides no gate key and not the artifacts-present check — this is a cache, and a cycle that deletes it must lose nothing but time."""
     return Path(out_dir) / f"{STORE_STEM}-{config}.tsv.gz"
 
 

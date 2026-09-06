@@ -13,7 +13,7 @@ A hand-written miniature of a `build_m1` surface — small enough to hold in one
 
 A second, quite different fixture living beside this one: not a hand-written miniature but a **slice of real build output**, frozen so that tests about the build machinery need no live `rebuild/out/`. It holds `audit.tsv` — the divergence audit filtered twice over, keeping every window drawn from ·Pea, ·Tea, ·Day, ·Roe and the boundary tokens, plus every window named in `regenerate.EXAMPLE_WINDOWS`, which is the set the review surface's worked examples name by codepoint — the matching `baseline-<config>.subset.tsv.gz` slice for each acceptance config and no other, `M1.otf`, and the default settlement and treaty tables.
 
-What it lets run in the contracts lane, at full width, instead of the validators lane:
+What it lets run against frozen output, at full width, instead of against the live `rebuild/out/`:
 
 - the whole of `rebuild/test_unit_cache.py` (a mini `build_m1` costs seconds), and the mini build `rebuild/test_app_index.py` holds the shipped sidecars against
 - the ordering and dedupe properties in `rebuild/test_review_audit.py`, and `test_assignment_is_deterministic` in `rebuild/test_review_families.py`
@@ -22,7 +22,7 @@ What it lets run in the contracts lane, at full width, instead of the validators
 - the table-diff build, the snapshot round trip, and the two witness arms in `rebuild/test_review_tablediff.py`, which re-settle the frozen tables under the very spec they were built from
 - the manual-pin gate's teeth, which need a font and a spec that agree with each other rather than the live pair
 
-A worked-example window that stops selecting any audit row fails the regeneration by name, which is where a dissolved exemplar should be found — not in a red lane a rune edit later.
+A worked-example window that stops selecting any audit row fails the regeneration by name, which is where a dissolved exemplar should be found — not in a red suite a rune edit later.
 
 It also holds `pin.json`: the tree and blob shas of `glyph_data/runes`, `rebuild/schema`, `rebuild/script.yaml` and `rebuild/m1-divergences.yaml` at the commit the bundle was regenerated on, with `pin.PINNED_PATHS` in `mini/pin.py` as the authority on that list. The `mini_bundle` fixture in `rebuild/conftest.py` materializes those objects out of git into a session temp directory, and every mini-bundle test hands that directory to `build_m1` as its `spec_root` and reads its ledger from there — so the settlement the enricher re-derives is the one these rows were written under, a rune edit cannot redden the contracts lane, and there is no second copy of the runes in the tree to edit by mistake. The pin is content-addressed, so a rebase that leaves those files' bytes alone keeps it valid, and a pin whose objects this repository no longer holds fails loudly and names the command that regenerates the bundle. Everything else in a mini build still comes from the repo root — the fingerprints, the git head, the manifest's relative paths, the corpus the pin drafts validate against — because those are facts about the checkout rather than about the workload.
 

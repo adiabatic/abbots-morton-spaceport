@@ -2427,7 +2427,7 @@ class Decider:
 
 
 def rule_reach(rules, units, records, stamp, context=None, decide=None) -> Run:
-    """The whole pass in one place, so the records a run writes and the tally it reports can never disagree about what any rule reached: every unit's decision (`decide`, a `Decider.decide` by default, which is where the memo sits), the composed claims first, because they take a window before any single rule is asked about it, then each rule's own answers over what is left. A caller outside the CLI — a validators-lane test holding the checked-in rules against the live surface — gets the same numbers the run printed, without re-deriving a single matcher decision."""
+    """The whole pass in one place, so the records a run writes and the tally it reports can never disagree about what any rule reached: every unit's decision (`decide`, a `Decider.decide` by default, which is where the memo sits), the composed claims first, because they take a window before any single rule is asked about it, then each rule's own answers over what is left. A caller outside the CLI — the standing probe, or a test holding checked-in rules against a synthetic surface — gets the same numbers the run printed, without re-deriving a single matcher decision."""
     if decide is None:
         decide = Decider(rules, context).decide
     order = {rule["id"]: index for index, rule in enumerate(rules)}
