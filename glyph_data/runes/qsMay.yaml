@@ -132,10 +132,6 @@ policy:
       feature: ss03
   - exit: baseline
     when:
-      right: {family: qsTea}
-      feature: ss10
-  - exit: baseline
-    when:
       self: {entry: live}
       right:
         family:
