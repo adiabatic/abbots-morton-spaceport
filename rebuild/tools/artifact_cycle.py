@@ -508,7 +508,7 @@ def moved_inputs_note(record: dict | None, current: dict[str, str], limit: int =
 
 
 def oracle_cache_note(moved: str | None, root: Path = ROOT) -> str | None:
-    """What the inputs a run_m1 skip-miss just named will cost the oracle's per-row verdict store, which is the other thing that note is predicting. The store invalidates at two grains and they look nothing alike in the timings: a rune file moves one family key and re-derives only the rows that can reach that letter, while anything in the comparison's own code closure — or any other input the whole-store stamp folds — drops every row of every configuration. Naming the second one is the point, because a zero-served oracle after a legitimate class-membership or pipeline edit is the expected outcome and would otherwise read as a broken cache. Both sides of the comparison are repo-relative labels, the form `moved_inputs_note` reports in: matched against basenames this answers nothing at all, and answers it silently. The rune verdict is withheld when the note was truncated, since the inputs it did not list could be anything."""
+    """What the inputs a run_m1 skip-miss just named will cost the oracle's per-row verdict store, which is the other thing that note is predicting. The store invalidates at three grains and they look nothing alike in the timings: a rune file moves one family key and re-derives only the rows that can reach that letter; anything in the comparison's own code closure — or any other input the whole-store stamp folds — drops every row of every configuration; and an input only the position stamp folds (the oracle's own module, the kern sidecar, the toolchain lock) keeps every row verdict and re-shapes every position. Naming the second and third is the point, because a zero-served oracle after a legitimate class-membership or pipeline edit is the expected outcome and would otherwise read as a broken cache. Both sides of the comparison are repo-relative labels, the form `moved_inputs_note` reports in: matched against basenames this answers nothing at all, and answers it silently. The rune verdict is withheld when the note was truncated, since the inputs it did not list could be anything."""
     if not moved:
         return None
     from rebuild.pipeline import fingerprint, oracle_cache
@@ -522,11 +522,16 @@ def oracle_cache_note(moved: str | None, root: Path = ROOT) -> str | None:
     stamped = set(oracle_cache.ORACLE_ROW_CODE_PATHS)
     stamped |= {label(path) for path in oracle_cache.oracle_code_paths(root)}
     stamped |= {label(path) for path in oracle_cache.stamped_data_paths(root)}
+    positions = set(oracle_cache.POSITION_CODE_PATHS)
+    positions |= {oracle_cache.TOOLCHAIN_LOCK, "glyph_data/senior_quikscript_kerning.yaml"}
     runes = {label(path) for path in fingerprint.rune_paths(root)}
     names = [entry.rsplit(" (", 1)[0] for entry in moved.split(", ")]
     whole_store = sorted({name for name in names if name in stamped})
     if whole_store:
         return f"the oracle row cache drops whole: {', '.join(whole_store)} is inside its stamp"
+    position_store = sorted({name for name in names if name in positions})
+    if position_store:
+        return f"the oracle row cache keeps its rows and re-shapes every position: {', '.join(position_store)} is inside its position stamp"
     if not moved.endswith(" more") and names and all(name in runes for name in names):
         return "the oracle row cache re-derives only the rows reaching those runes"
     return None
@@ -1079,7 +1084,7 @@ def kernel_threads_budget(
 
 
 def sweep_job_budget(ncores: int | None = None) -> int:
-    """The --jobs budget for the post-build sweeps — run_m1's Manual-pin/oracle shards and gate:conform's belt — which is one process per acceptance configuration and no more, because that is all `run_m1._spawn_pool` will start. This is a CPU budget, not a memory one: a sweep worker holds its shaper, its window memo and one config's rows, a fraction of a gigabyte, so a whole `ACCEPTANCE_CONFIGS`-wide pool of them fits beside anything else the cycle runs. run_m1's memory ceiling lives entirely in the table build, whose width is --kernel-threads and which these jobs never reach."""
+    """The --jobs budget for the post-build sweeps — run_m1's Manual-pin/oracle shards and gate:conform's belt — which is one process per acceptance configuration and no more, because that is all `run_m1._spawn_pool` will start. This is a CPU budget, not a memory one: a sweep worker holds its shaper, its window memo, one config's rows and, for the oracle, one config's row store as a decompressed blob with two small age arrays beside it, a fraction of a gigabyte in all, so a whole `ACCEPTANCE_CONFIGS`-wide pool of them fits beside anything else the cycle runs. run_m1's memory ceiling lives entirely in the table build, whose width is --kernel-threads and which these jobs never reach."""
     from rebuild.pipeline.conform import ACCEPTANCE_CONFIGS
     from rebuild.tools import memory_budget
 

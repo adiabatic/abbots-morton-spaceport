@@ -4,7 +4,7 @@ This is the comparison side of the pipeline, split from conform.py so that it ca
 
 The producer of what the oracle classifies stays in conform.py: `_compare_row` and the memoized `_SettledWindowWalk` are the two entry points the oracle row cache's stamp is cut from (`oracle_cache.ORACLE_ROW_CODE_PATHS`), and the codec between a fresh `DivergentRow` and a stored record (`_cached_verdict`, `_served_verdict`) and the served-sample verification live beside them. This module imports those and is imported by nothing under that stamp, which is what lets a classifier edit serve every row from the store: `rebuild/test_oracle_code_closure.py` holds conform.py to that.
 
-`compare_against_baseline` streams the filtered sub-tables, settles every row through a walk of its own (or, when the caller hands down an `OracleRowCache`, takes the row's pre-position verdict off the previous pass's store and walks only what an edit can still reach — see rebuild/pipeline/oracle_cache.py for what that key does and does not cover), compares ligation, seams and cells against the alias map, classifies each divergent row through `_match_ledger`, and shapes the rows the ledger calls ink-identical against M1.otf to diff drawn positions. The per-configuration form, `oracle_config_worker`, is what run_m1 fans out one process per acceptance configuration, each writing its own audit shard under `oracle_audit_scratch` for `join_oracle_audit` to concatenate.
+`compare_against_baseline` streams the filtered sub-tables, settles every row through a walk of its own (or, when the caller hands down an `OracleRowCache`, takes the row's pre-position verdict off the previous pass's store and walks only what an edit can still reach — see rebuild/pipeline/oracle_cache.py for what that key does and does not cover), compares ligation, seams and cells against the alias map, classifies each divergent row through `_match_ledger`, and shapes the rows the ledger calls ink-identical against M1.otf to diff drawn positions — or takes that answer off the same store, under the position key that adds the font's per-family glyphs and the kern sidecar, and re-shapes only the rows an edit can still reach. The per-configuration form, `oracle_config_worker`, is what run_m1 fans out one process per acceptance configuration, each writing its own audit shard under `oracle_audit_scratch` for `join_oracle_audit` to concatenate.
 """
 
 from __future__ import annotations
@@ -37,7 +37,7 @@ from rebuild.pipeline.conform import (
     load_alias_map,
 )
 from rebuild.pipeline.model import ResolvedSpec
-from rebuild.validation.rowmodel import Row, iter_rows
+from rebuild.validation.rowmodel import Row, format_codepoints, iter_rows
 
 # The same bound on the oracle's side, where the texts arrive as baseline rows rather than as a product.
 ORACLE_ROW_CHUNK = 65536
@@ -53,6 +53,7 @@ class BaselineReport:
     positions_excluded: int = (
         0  # rows skipped by the position channel: seam/ligation divergence, or a matched class that legitimately redraws ink
     )
+    positions_served: int = 0
     counts_by_entry: dict[str, int] = field(default_factory=dict)
     unmatched_count: int = 0
     unmatched_exemplars: list[DivergentRow] = field(default_factory=list)
@@ -62,13 +63,14 @@ class BaselineReport:
 
 @dataclass
 class OracleConfigResult:
-    """One configuration's oracle tally, which travels home from `oracle_config_worker` down a process pipe. The unmatched rows ride as a count plus the first `ORACLE_UNMATCHED_EXEMPLARS` of them rather than as the whole list: `oracle_summary.json` reads a length and quotes that many exemplars, so pickling every unmatched `DivergentRow` back to the parent spent an audit's worth of objects on a number. Nothing is lost by the cap — the worker has already written every unmatched row to its own audit shard, one line each, and `divergence-audit.tsv` is where they are read."""
+    """One configuration's oracle tally, which travels home from `oracle_config_worker` down a process pipe. The unmatched rows ride as a count plus the first `ORACLE_UNMATCHED_EXEMPLARS` of them rather than as the whole list: `oracle_summary.json` reads a length and quotes that many exemplars, so pickling every unmatched `DivergentRow` back to the parent spent an audit's worth of objects on a number. Nothing is lost by the cap — the worker has already written every unmatched row to its own audit shard, one line each, and `divergence-audit.tsv` is where they are read. `positions_served` counts the rows among `positions_compared` whose verdict came off the store rather than out of HarfBuzz."""
 
     config: str
     rows_compared: int = 0
     divergent_rows: int = 0
     positions_compared: int = 0
     positions_excluded: int = 0
+    positions_served: int = 0
     counts_by_entry: dict[str, int] = field(default_factory=dict)
     unmatched_count: int = 0
     unmatched_exemplars: list[DivergentRow] = field(default_factory=list)
@@ -78,13 +80,15 @@ class OracleConfigResult:
 
 @dataclass(frozen=True)
 class OracleRowCache:
-    """What one oracle run hands each of its configurations — `ACCEPTANCE_CONFIGS`, unless the caller narrows them — so each can read the previous pass's row verdicts and stage this pass's. The stamps and the family keys are cut once in the parent, before the first row is compared, and travel down the pool pipe: a worker that re-digested the rune tree for itself would be reading files the run has already been holding for minutes, which is the very race `run_oracle` re-checks at promotion. `read_dir` is where a promoted store lives and `write_dir` where a fresh one is staged; either may be absent on its own, and a pass that may read but not write (`--gates-only`, which recompiled nothing and so may not write a build input) simply leaves `write_dir` None. Such a pass also carries a nonzero `rotation`, because everything that keeps a record from laundering itself advances on the pass ordinal and the ordinal advances only when a store is written — see `oracle_cache.RowStore`."""
+    """What one oracle run hands each of its configurations — `ACCEPTANCE_CONFIGS`, unless the caller narrows them — so each can read the previous pass's row verdicts and stage this pass's. The stamps and the family keys are cut once in the parent, before the first row is compared, and travel down the pool pipe: a worker that re-digested the rune tree for itself would be reading files the run has already been holding for minutes, which is the very race `run_oracle` re-checks at promotion. `position_environment` and `position_keys` are the position store's pair, cut off the font the same way; a run with neither (no font to shape against, or a font whose digests would not cut) records every position as unshaped and serves none. `read_dir` is where a promoted store lives and `write_dir` where a fresh one is staged; either may be absent on its own, and a pass that may read but not write (`--gates-only`, which recompiled nothing and so may not write a build input) simply leaves `write_dir` None. Such a pass also carries a nonzero `rotation`, because everything that keeps a record from laundering itself advances on the pass ordinal and the ordinal advances only when a store is written — see `oracle_cache.RowStore`."""
 
     environment: Mapping[str, oracle_cache.EnvironmentStamp]
     family_keys: Mapping[str, str]
     read_dir: Path | None = None
     write_dir: Path | None = None
     rotation: int = 0
+    position_environment: oracle_cache.EnvironmentStamp | None = None
+    position_keys: Mapping[str, str] | None = None
 
 
 def open_row_cache(
@@ -104,6 +108,8 @@ def open_row_cache(
             spec,
             cache.family_keys,
             cache.rotation,
+            cache.position_environment,
+            cache.position_keys,
         )
     writer = None
     if cache.write_dir is not None:
@@ -113,6 +119,8 @@ def open_row_cache(
             subset_digest,
             oracle_cache.next_pass_ordinal(store),
             cache.family_keys,
+            cache.position_environment,
+            cache.position_keys,
         )
     return store, writer
 
@@ -445,6 +453,39 @@ def _position_drift(
     return (tuple(drifts), kern_attributable)
 
 
+def _cached_position(drift: tuple[tuple[str, ...], bool] | None) -> oracle_cache.CachedPosition | None:
+    """A fresh position answer as the store holds it — `None` for a row that matched, the drift descriptions and the kern flag otherwise."""
+    return None if drift is None else oracle_cache.CachedPosition(drifts=drift[0], kern_attributable=drift[1])
+
+
+def _served_position(cached: oracle_cache.CachedPosition | None) -> tuple[tuple[str, ...], bool] | None:
+    """A stored position verdict back in the shape `_position_drift` answers, so everything after the channel cannot tell a served row from a freshly shaped one."""
+    return None if cached is None else (cached.drifts, cached.kern_attributable)
+
+
+def _verify_served_positions(
+    shaper: Shaper,
+    kern: "KernEvaluator | None",
+    features: frozenset[str],
+    table_path: Path,
+    store: "oracle_cache.RowStore",
+    sample: "oracle_cache.VerificationSample",
+) -> None:
+    """The position channel's half of `conform._verify_served_sample`: re-shape the pass's stratified sample of served positions through HarfBuzz and prove each against the record it was served from. The sample is drawn per family over the rows whose position was served, so a family whose glyphs moved under a key that failed to notice is caught with probability one; a mismatch is a hard stop for the same reason a row mismatch is — the audit is a fingerprinted artifact and a stale position in it reads as green forever."""
+    wanted = set(sample.indexes())
+    if not wanted:
+        return
+    for index, row in enumerate(iter_rows(table_path)):
+        if index not in wanted:
+            continue
+        fresh = _cached_position(_position_drift(shaper, kern, features, row))
+        recorded = store.serve(index, row.codepoints).position
+        if fresh != recorded:
+            raise SystemExit(
+                f"the oracle position store served a stale verdict for {format_codepoints(row.codepoints)}: it holds {recorded}, and shaping the row again gives {fresh} — nothing this store holds can be trusted, so rerun with --fresh-oracle-cache and treat the difference as a staleness bug in the position key"
+            )
+
+
 class KernEvaluator:
     """Read-only evaluation of glyph_data/senior_quikscript_kerning.yaml over old-name glyph pairs, for adding sidecar kerns back before any baseline position diff. Family keys expand by name prefix against the supplied pair, mirroring the sidecar's documented expansion. Every answer is a pure function of the pair and the sidecar is read once, so pairs are memoized: the oracle asks about a few thousand distinct pairs across millions of slots, and the uncached scan over every sidecar rule was the bulk of the position channel."""
 
@@ -621,18 +662,25 @@ def _compare_config(
     walker = _SettledWindowWalk(spec, features, {}, guard_verdicts, memo=settle_memo)
     config_started = time.perf_counter()
     rows = iter_rows(table_path)
-    # Only the stale rows are walked; a served row's pre-position verdict comes back off the store and enters `_match_ledger` in the same state a fresh one does, and the chunk is re-read in table order afterward so the audit's bytes cannot depend on the partition. The verification sample rides on serving rather than on writing, because a pass that may read the store and not write one (`--gates-only`) is exactly a pass whose verdicts all came out of it.
+    # Only the stale rows are walked; a served row's pre-position verdict comes back off the store and enters `_match_ledger` in the same state a fresh one does, and the chunk is re-read in table order afterward so the audit's bytes cannot depend on the partition. The verification samples ride on serving rather than on writing, because a pass that may read the store and not write one (`--gates-only`) is exactly a pass whose verdicts all came out of it. The position verdict is served by the same record under its own key, and only where this pass's ledger still sends the row through the channel; a row the ledger excludes carries its stored verdict forward unread, so a later ledger edit that admits it again finds it.
     sample = (
         oracle_cache.VerificationSample(store.environment.value, store.coverage_ordinal)
         if store is not None
         else None
     )
+    position_sample = (
+        oracle_cache.VerificationSample(f"{store.environment.value}\tpositions", store.coverage_ordinal)
+        if store is not None
+        else None
+    )
+    this_pass = writer.pass_ordinal if writer is not None else 0
     first_row = 0
     while True:
         chunk = list(itertools.islice(rows, ORACLE_ROW_CHUNK))
         if not chunk:
             break
-        served_at: dict[int, oracle_cache.CachedRow | None] = {}
+        served_at: dict[int, oracle_cache.StoredRecord] = {}
+        positions_at: dict[int, tuple[oracle_cache.StoredRecord, tuple[str, ...]]] = {}
         fresh_at: list[int] = []
         for offset, row in enumerate(chunk):
             index = first_row + offset
@@ -648,24 +696,31 @@ def _compare_config(
                 # The row consulted alias entries belonging to a family no key it cites covers, so no key on this store could report them moved. Nothing in the live subset does this; a row that starts to is walked rather than served.
                 fresh_at.append(offset)
                 continue
-            served_at[offset] = store.serve(index, row.codepoints)
+            record = store.serve(index, row.codepoints)
+            served_at[offset] = record
             if sample is not None:
                 sample.offer(index, reachable)
+            if record.position is not oracle_cache.UNSHAPED and not store.position_stale(index, mask):
+                positions_at[offset] = (record, reachable)
         walked = dict(zip(fresh_at, walker.walk_many([chunk[offset].text for offset in fresh_at])))
         for offset, row in enumerate(chunk):
             index = first_row + offset
             result.rows_compared += 1
             if offset in served_at:
-                cached = served_at[offset]
+                record = served_at[offset]
+                cached = record.row
                 divergent = None if cached is None else _served_verdict(config, row, cached)
-                derived_at = store.age(index) if store is not None else 0
+                derived_at = record.row_age
             else:
                 settled, _names = walked[offset]
                 divergent = _compare_row(spec, aliases, config, features, row, settled)
                 cached = _cached_verdict(divergent)
-                derived_at = writer.pass_ordinal if writer is not None else 0
-            if writer is not None:
-                writer.append(row.codepoints, cached, derived_at)
+                derived_at = this_pass
+            carried = positions_at.get(offset)
+            position: oracle_cache.PositionVerdict = oracle_cache.UNSHAPED
+            position_at = this_pass
+            if carried is not None:
+                position, position_at = carried[0].position, carried[0].position_age
             matches = _match_ledger(ledger, divergent) if divergent is not None else []
             if shaper is not None:
                 topology_clean = divergent is None or not ({"ligation", "seam"} & set(divergent.kinds))
@@ -673,7 +728,14 @@ def _compare_config(
                     len(matches) == 1 and matches[0] in ink_identical_ids
                 )
                 if topology_clean and class_claims_ink_identity:
-                    drift = _position_drift(shaper, kern, features, row)
+                    if carried is not None and store is not None and position_sample is not None:
+                        assert not isinstance(position, oracle_cache._Unshaped)
+                        drift = _served_position(position)
+                        store.positions_served += 1
+                        position_sample.offer(index, carried[1])
+                    else:
+                        drift = _position_drift(shaper, kern, features, row)
+                        position, position_at = _cached_position(drift), this_pass
                     result.positions_compared += 1
                     if drift is not None:
                         drift_notes, kern_attributable = drift
@@ -705,6 +767,8 @@ def _compare_config(
                             matches = rematch
                 else:
                     result.positions_excluded += 1
+            if writer is not None:
+                writer.append(row.codepoints, cached, derived_at, position, position_at)
             if divergent is None:
                 continue
             result.divergent_rows += 1
@@ -737,13 +801,16 @@ def _compare_config(
                 )
         first_row += len(chunk)
     served_rows = 0 if store is None else store.served
+    result.positions_served = 0 if store is None else store.positions_served
     if store is not None and sample is not None:
         _verify_served_sample(spec, aliases, config, features, walker, table_path, store, sample)
+    if store is not None and position_sample is not None and shaper is not None:
+        _verify_served_positions(shaper, kern, features, table_path, store, position_sample)
     memo_line = walker.memo_line(config, walker.save_memo())
     if memo_line is not None:
         print(memo_line, file=sys.stderr, flush=True)
     print(
-        f"[t] oracle {config} {time.perf_counter() - config_started:.2f}s rows={result.rows_compared} positions={result.positions_compared} served={served_rows}",
+        f"[t] oracle {config} {time.perf_counter() - config_started:.2f}s rows={result.rows_compared} positions={result.positions_compared} served={served_rows} positions_served={result.positions_served}",
         file=sys.stderr,
         flush=True,
     )
@@ -801,6 +868,7 @@ def merge_oracle_results(results: Iterable[OracleConfigResult]) -> BaselineRepor
         report.divergent_rows += result.divergent_rows
         report.positions_compared += result.positions_compared
         report.positions_excluded += result.positions_excluded
+        report.positions_served += result.positions_served
         for entry_id, count in result.counts_by_entry.items():
             report.counts_by_entry[entry_id] = report.counts_by_entry.get(entry_id, 0) + count
         report.unmatched_count += result.unmatched_count

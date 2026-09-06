@@ -137,6 +137,85 @@ def hash_paths(repo_root: Path, paths: list[Path]) -> str:
     return hashlib.sha256("\n".join(path_lines(repo_root, paths)).encode()).hexdigest()
 
 
+def cursive_anchor_map(font) -> dict[str, list]:
+    """Per glyph, the cursive-attachment geometry the after font positions it by: one (lookup index, entry, exit) triple per CursivePos record naming it, anchors as [x, y] or None. GPOS is the one channel a compiled glyph's rendering reads outside its charstring and advance, so it belongs in the per-glyph digest."""
+    anchors: dict[str, list] = {}
+    if "GPOS" not in font:
+        return anchors
+    lookup_list = font["GPOS"].table.LookupList  # pyright: ignore[reportAttributeAccessIssue]
+    if lookup_list is None:
+        return anchors
+    for index, lookup in enumerate(lookup_list.Lookup):
+        for subtable in lookup.SubTable:
+            if lookup.LookupType == 9:
+                subtable = subtable.ExtSubTable
+            if getattr(subtable, "LookupType", lookup.LookupType) != 3:
+                continue
+            glyphs = subtable.Coverage.glyphs
+            for name, record in zip(glyphs, subtable.EntryExitRecord):
+                entry = record.EntryAnchor
+                exit_anchor = record.ExitAnchor
+                anchors.setdefault(name, []).append(
+                    (
+                        index,
+                        None if entry is None else [entry.XCoordinate, entry.YCoordinate],
+                        None if exit_anchor is None else [exit_anchor.XCoordinate, exit_anchor.YCoordinate],
+                    )
+                )
+    return anchors
+
+
+def after_font_glyph_digests(after_font: Path) -> tuple[dict[str, str], str]:
+    """Per qs family, a digest over the after font's compiled glyphs whose name stem belongs to it (decomposed outline operations, so subroutine plumbing can never hide a change; advance and sidebearing; cursive anchors), plus one environment digest over everything else a shaped run can touch regardless of family: the non-qs glyphs (boundary and marker helpers), the cmap, and the GPOS feature-to-lookup wiring. Two caches key on it — the review unit cache's family content keys (`unit_cache.family_content_keys`) and the oracle's per-row position store (`oracle_cache.position_family_keys`) — and it lives here because `rebuild/review/` imports `rebuild/pipeline/` and never the reverse.
+
+    The GSUB wiring is deliberately not in the environment digest, and it is the one omission worth arguing. A rune edit moves the GSUB lookup list on essentially every cycle, so folding it in made both of the unit cache's whole-store stamps move on exactly the workflow the cache exists for — a store that never once served a unit. What covers a window's glyph selection instead is a pair of things already in the keys: the settled cells the window resolves to (the audit row's `new` column for a unit; the served row verdict's own per-family rune keys for an oracle row), and `gate:conform`, which re-shapes the compiled font through HarfBuzz every cycle and proves its selection is the settlement's. So within a cycle whose conform gate is green, which glyph the after font puts in a window is a function of that window's settled cells, and those cells cannot move without the key moving. Everything the selected glyph then contributes — outline, advance, cursive anchors — is in the per-family digests, for every variant of every family the window can reach rather than only the selected one, and the code that emits the GSUB at all is in the environment stamp's pipeline fingerprint. GPOS stays because its channel is positional: it can move a run without moving a name or a cell.
+    """
+    from fontTools.pens.recordingPen import DecomposingRecordingPen
+    from fontTools.ttLib import TTFont
+
+    font = TTFont(str(after_font))
+    glyph_set = font.getGlyphSet()
+    metrics = font["hmtx"].metrics  # pyright: ignore[reportAttributeAccessIssue]
+    anchors = cursive_anchor_map(font)
+    per_glyph: dict[str, str] = {}
+    for name in sorted(glyph_set.keys()):
+        pen = DecomposingRecordingPen(glyph_set)
+        glyph_set[name].draw(pen)
+        payload = repr((name, tuple(pen.value), metrics.get(name), anchors.get(name)))
+        per_glyph[name] = hashlib.sha256(payload.encode()).hexdigest()
+
+    families: dict[str, list[str]] = {}
+    helper_lines: list[str] = []
+    for name in sorted(per_glyph):
+        stem = name.split(".")[0]
+        if stem.startswith("qs"):
+            families.setdefault(stem, []).append(f"{name}\t{per_glyph[name]}")
+        else:
+            helper_lines.append(f"{name}\t{per_glyph[name]}")
+
+    family_digests = {
+        stem: hashlib.sha256("\n".join(lines).encode()).hexdigest() for stem, lines in families.items()
+    }
+
+    wiring: list = []
+    for tag in ("GPOS",):
+        if tag not in font:
+            continue
+        table = font[tag].table  # pyright: ignore[reportAttributeAccessIssue]
+        features = [
+            (record.FeatureTag, list(record.Feature.LookupListIndex))
+            for record in (table.FeatureList.FeatureRecord if table.FeatureList else ())
+        ]
+        types = [lookup.LookupType for lookup in (table.LookupList.Lookup if table.LookupList else ())]
+        wiring.append((tag, features, types))
+    helper_lines.append(
+        "cmap\t" + hashlib.sha256(repr(sorted((font.getBestCmap() or {}).items())).encode()).hexdigest()
+    )
+    helper_lines.append("layout\t" + hashlib.sha256(repr(wiring).encode()).hexdigest())
+    helpers = hashlib.sha256("\n".join(helper_lines).encode()).hexdigest()
+    return family_digests, helpers
+
+
 # Every policy record kind that carries an author `why`, and the one whose rationale something downstream reads. The difference is the whole of what separates `rune_file_digest` from `rune_explain_digest`.
 POLICY_PROSE_KINDS = ("prefer", "extend", "contract", "resolve", "refuse")
 QUOTED_POLICY_PROSE_KINDS = ("refuse",)

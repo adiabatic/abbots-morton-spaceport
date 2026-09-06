@@ -6,7 +6,7 @@ The glyph-name contract this driver pins: settlement-lookup outcomes are `settle
 
 The split-buffer check that once had a standalone horizon-5 gate of its own now rides gate:conform's belt, so it is proven per build at horizon 4 and periodically at 5 or deeper by `make conform-deep` — the same charter the belt already has, over a rule whose closure property makes a horizon-4 proof cover every window the oracle absorbs. The ZWNJ slot's own structure — zero advance, no ink — is read-back's static boundary-glyphs stage, proven off the written font bytes rather than at every shaped slot.
 
-Run as: uv run python -m rebuild.pipeline.run_m1 — or `--conform-only` for the belt alone against the M1.otf on disk, or `--gates-only` for everything a full run does after the table build except the stages that make the artifacts: the defect gate, the Manual-pin gate and the oracle over the tables and font already there. That is the cheap way to re-adjudicate any comparison-side edit — the divergence ledger, the alias map, the kern sidecar, the contact allow-list the defect gate reads, or the oracle's own code, the classifier and its predicates and the ledger match and the position channel all living in rebuild/pipeline/oracle.py, which the enumeration's stamp leaves out (`fingerprint.table_code_paths`; rebuild/test_build_code_closure.py proves the build never reaches it) — without rebuilding a thing. That pass records run_m1's green when a prior green exists and everything that has moved since it is comparison-side, so the artifact cycle takes the route itself and the pass after it skips run_m1 outright. Either way the oracle serves what it can from the per-row verdict stores rebuild/pipeline/oracle_cache.py keeps beside the tables — a ledger or alias edit moves no family key and no stamp line, so every row is served and the whole re-adjudication is the ledger match and the audit; `--fresh-oracle-cache` distrusts them, and `--gates-only` may read them but never write one.
+Run as: uv run python -m rebuild.pipeline.run_m1 — or `--conform-only` for the belt alone against the M1.otf on disk, or `--gates-only` for everything a full run does after the table build except the stages that make the artifacts: the defect gate, the Manual-pin gate and the oracle over the tables and font already there. That is the cheap way to re-adjudicate any comparison-side edit — the divergence ledger, the alias map, the kern sidecar, the contact allow-list the defect gate reads, or the oracle's own code, the classifier and its predicates and the ledger match and the position channel all living in rebuild/pipeline/oracle.py, which the enumeration's stamp leaves out (`fingerprint.table_code_paths`; rebuild/test_build_code_closure.py proves the build never reaches it) — without rebuilding a thing. That pass records run_m1's green when a prior green exists and everything that has moved since it is comparison-side, so the artifact cycle takes the route itself and the pass after it skips run_m1 outright. Either way the oracle serves what it can from the per-row verdict stores rebuild/pipeline/oracle_cache.py keeps beside the tables — a ledger or alias edit moves no family key and no stamp line, so every row verdict and every position verdict is served and the whole re-adjudication is the ledger match and the audit, while an edit to the kern sidecar or to the oracle's own module keeps the row verdicts and re-shapes the positions; `--fresh-oracle-cache` distrusts them, and `--gates-only` may read them but never write one.
 """
 
 from __future__ import annotations
@@ -344,6 +344,11 @@ def tables_inputs() -> str:
     return inputs
 
 
+def settle_memo_inputs() -> oracle_cache.SettleMemoInputs:
+    """The disk-derived half of the settle memo's keys (`oracle_cache.SettleMemoInputs`), cut where `tables_inputs` is cut — before `load_default_spec`, so a key can only ever name content the settlements are at least as new as. Every entry point that shares a memo with another phase snapshots this beside the tables' stamp and hands both to `conform.settle_memo_files` once the spec is loaded."""
+    return oracle_cache.settle_memo_inputs(REPO_ROOT)
+
+
 def run_font_conformance(
     out_dir: Path = OUT_DIR,
     max_length: int = 4,
@@ -354,9 +359,10 @@ def run_font_conformance(
 
     The fan-out spends the section 5.7 verdict surface once for the whole run rather than once per worker: a spawned worker inherits nothing, so each would otherwise build the crate it found and sweep the spec for itself. The mapping pickles, so it rides the submission; the serial arm sweeps inside `run_conformance` as before.
 
-    At the per-edit horizon each configuration's walk shares its settle memo with the oracle's walk over the same texts, through a file under `out_dir` stamped with the tables' stamp (`conform.settle_memo_files`): whichever phase runs first settles and writes, and the other loads. A deeper sweep shares nothing — its memo is a multiple of the belt's, and a file that size would cost the next belt and oracle workers more to decode than they save.
+    At the per-edit horizon each configuration's walk shares its settle memo with the oracle's walk over the same texts, through a file under `out_dir` keyed per family the way the oracle row cache is (`conform.settle_memo_files`, off `settle_memo_inputs` snapshotted before the spec loads): whichever phase runs first settles and writes, the other loads, and a rune edit retires only the entries whose windows name an edited family. A deeper sweep shares nothing — its memo is a multiple of the belt's, and a file that size would cost the next belt and oracle workers more to decode than they save.
     """
     inputs = tables_inputs()
+    memo_inputs = settle_memo_inputs()
     spec = load_default_spec()
     start = time.perf_counter()
     serialized = serialized_tables(out_dir, inputs)
@@ -367,7 +373,9 @@ def run_font_conformance(
     decisions: Mapping[str, DecisionTable | tuple[DecisionTable, ...]] = serialized
     print(f"[t] load_tables {time.perf_counter() - start:.1f}s", flush=True)
     cell_glyphs = mint_cell_glyphs(spec, decisions)
-    settle_memos = conform.settle_memo_files(out_dir, inputs) if max_length == conform.BELT_HORIZON else {}
+    settle_memos = (
+        conform.settle_memo_files(out_dir, spec, memo_inputs) if max_length == conform.BELT_HORIZON else {}
+    )
     if jobs > 1:
         collected: dict[str, conform.ConformanceConfigResult] = {}
         kernel_exec.ensure_built()
@@ -445,10 +453,13 @@ def _promote_oracle_row_cache(
     scratch: Path,
     keys: Mapping[str, str],
     stamps: Mapping[str, oracle_cache.EnvironmentStamp],
+    position_keys: Mapping[str, str] | None = None,
+    position_stamp: oracle_cache.EnvironmentStamp | None = None,
 ) -> None:
-    """Move this run's staged stores into place, but only after re-cutting both keys off the sources as they stand now and finding them where the run left them. A run whose inputs shifted under it built verdicts nothing on disk describes, and a store recorded under the wrong digest is the one failure that reads as green forever rather than failing once — so the answer to any movement is to write nothing and say so, which costs the next pass a cold oracle and nothing else. An alias map edited mid-run into a shape `alias_family_digests` refuses lands here as the same refusal."""
+    """Move this run's staged stores into place, but only after re-cutting every key off the sources as they stand now and finding them where the run left them — the row keys and stamps off the rune tree, the position keys and stamp off the font and the kern sidecar. A run whose inputs shifted under it built verdicts nothing on disk describes, and a store recorded under the wrong digest is the one failure that reads as green forever rather than failing once — so the answer to any movement is to write nothing and say so, which costs the next pass a cold oracle and nothing else. An alias map edited mid-run into a shape `alias_family_digests` refuses lands here as the same refusal, and so does a font that will not re-digest."""
     try:
         keys_now, stamps_now = oracle_row_cache_keys(spec, out_dir)
+        position_keys_now, position_stamp_now = oracle_position_keys(keys_now, out_dir)
     except (OSError, ValueError, yaml.YAMLError) as error:
         console.warn(f"oracle row cache: not written — its inputs would not re-read ({error})")
         return
@@ -459,6 +470,14 @@ def _promote_oracle_row_cache(
             if moved is not None:
                 moved = f"{config} {moved}"
                 break
+    if moved is None and position_keys is not None:
+        moved = oracle_cache.moved_note(dict(position_keys), position_keys_now or {})
+        if moved is None and position_stamp is not None:
+            moved = oracle_cache.moved_note(
+                position_stamp.labels, position_stamp_now.labels if position_stamp_now else {}
+            )
+        if moved is not None:
+            moved = f"positions {moved}"
     if moved is not None:
         console.warn(
             f"oracle row cache: not written — its inputs moved while the oracle ran ({moved}), so nothing it derived describes what is on disk"
@@ -491,10 +510,24 @@ def oracle_row_cache_keys(
     return keys, stamps
 
 
+def oracle_position_keys(
+    keys: Mapping[str, str], out_dir: Path
+) -> tuple[dict[str, str], oracle_cache.EnvironmentStamp] | tuple[None, None]:
+    """The position store's two keys, cut off the font the oracle is about to shape against and the kern sidecar it reads: `oracle_cache.position_keys` over the row keys already cut. A pass with no compiled font under `out_dir` has nothing to shape and answers the pair of Nones, which records every position as unshaped and serves none."""
+    font = Path(out_dir) / "M1.otf"
+    if not font.is_file():
+        return None, None
+    return oracle_cache.position_keys(REPO_ROOT, keys, font, KERN_SIDECAR_YAML)
+
+
 def _report_oracle_cache(
-    out_dir: Path, keys: Mapping[str, str], stamps: Mapping[str, oracle_cache.EnvironmentStamp]
+    out_dir: Path,
+    keys: Mapping[str, str],
+    stamps: Mapping[str, oracle_cache.EnvironmentStamp],
+    position_keys: Mapping[str, str] | None = None,
+    position_stamp: oracle_cache.EnvironmentStamp | None = None,
 ) -> None:
-    """Say, before the fan-out, what the stores on disk will and will not answer — because the hit rate here is bimodal and a whole-store drop looks exactly like a bug when nothing names the line that caused it. A stamp line that moved (a pipeline module, a predicate class gaining a member, the engine's semantics flags) drops every row of every configuration; a family key that moved re-derives only the rows that can reach it, which is the ordinary shape of a rune edit."""
+    """Say, before the fan-out, what the stores on disk will and will not answer — because the hit rate here is bimodal and a whole-store drop looks exactly like a bug when nothing names the line that caused it. A stamp line that moved (a pipeline module, a predicate class gaining a member, the engine's semantics flags) drops every row of every configuration; a family key that moved re-derives only the rows that can reach it, which is the ordinary shape of a rune edit. The position store answers on its own second line: a position stamp line that moved (the oracle's module, the kern sidecar, the font's helpers) re-shapes every row while the rows are still served, and a position key that moved re-shapes only the rows that reach that family — the shape of a glyph edit."""
     recorded = oracle_cache.read_header(oracle_cache.store_path(out_dir, conform.ACCEPTANCE_CONFIGS[0]))
     if recorded is None:
         print("oracle row cache: no store on disk — this pass derives every row and writes one", flush=True)
@@ -514,6 +547,29 @@ def _report_oracle_cache(
         print("oracle row cache: the stamp and every family key still stand", flush=True)
     else:
         console.warn(f"oracle row cache: re-deriving the rows that reach {moved_keys}")
+    if position_keys is None or position_stamp is None:
+        print("oracle position store: no font to shape against — every position is shaped", flush=True)
+        return
+    stored_position_lines = {
+        label: digest
+        for label, _, digest in (
+            str(line).partition("\t") for line in recorded.get("position_environment") or ()
+        )
+    }
+    moved_position_stamp = oracle_cache.moved_note(stored_position_lines, position_stamp.labels)
+    if moved_position_stamp is not None:
+        console.warn(
+            f"oracle position store: re-shaping every row — the position stamp moved at {moved_position_stamp}"
+        )
+        return
+    stored_position_keys = {
+        str(name): str(value) for name, value in (recorded.get("position_keys") or {}).items()
+    }
+    moved_position_keys = oracle_cache.moved_note(stored_position_keys, dict(position_keys))
+    if moved_position_keys is None:
+        print("oracle position store: the position stamp and every glyph key still stand", flush=True)
+    else:
+        console.warn(f"oracle position store: re-shaping the rows that reach {moved_position_keys}")
 
 
 def run_oracle(
@@ -522,11 +578,11 @@ def run_oracle(
     jobs: int = 1,
     write_cache: bool = True,
     fresh_cache: bool = False,
-    inputs: str | None = None,
+    memo_inputs: oracle_cache.SettleMemoInputs | None = None,
 ) -> dict:
-    """The section 6 oracle over the subset tables, one worker per `conform.ACCEPTANCE_CONFIGS` entry when `jobs` allows, with the row cache read before the first row and written after the last. `inputs` is the tables' stamp the caller already holds, and it names the settle memo files this pass shares with the belt (`conform.settle_memo_files`): the oracle's rows are the belt's texts, so a configuration whose file the belt wrote under this stamp settles nothing, and one the belt has not reached yet writes the file the belt will load. A caller with no stamp shares nothing.
+    """The section 6 oracle over the subset tables, one worker per `conform.ACCEPTANCE_CONFIGS` entry when `jobs` allows, with the row cache read before the first row and written after the last. `memo_inputs` is `settle_memo_inputs` as the caller snapshotted it before loading `spec`, and names the settle memo files this pass shares with the belt (`conform.settle_memo_files`): the oracle's rows are the belt's texts, so a configuration whose file the belt wrote under these keys settles nothing, and one the belt has not reached yet writes the file the belt will load. A caller with no inputs shares nothing.
 
-    The cache's keys are cut once here, from the same read of the rune tree that produced this `spec`, and handed to the workers — and then cut a second time at promotion, where a store is written only if neither the stamp nor a single family key moved while the run held them. That second cut is the point: `fingerprint.rune_digests` reads the rune files off disk, a full run takes minutes, and the house style is to detach a long run and keep editing — so a rune touched mid-run would otherwise be recorded under a digest the verdicts on disk were never built from, and the next pass would serve pre-edit verdicts as fresh, green, forever. `_settle_green`'s recompute-before-recording and `artifact_cycle`'s green keys are the same discipline for the same reason.
+    The cache's keys are cut once here — the row keys from the rune tree, the position keys from the compiled font and the kern sidecar — and handed to the workers, and then cut a second time at promotion, where a store is written only if neither a stamp nor a single key moved while the run held them. That second cut is the point: `fingerprint.rune_digests` reads the rune files off disk, a full run takes minutes, and the house style is to detach a long run and keep editing — so a rune touched mid-run would otherwise be recorded under a digest the verdicts on disk were never built from, and the next pass would serve pre-edit verdicts as fresh, green, forever. `_settle_green`'s recompute-before-recording and `artifact_cycle`'s green keys are the same discipline for the same reason.
 
     Cutting those keys is itself allowed to fail without taking the gate down with it. `alias_family_digests` refuses an alias head no rune digest stands behind, and the alias map is exactly the sort of hand-edited file that arrives one typo away from unreadable — so a key that will not cut leaves this pass with no cache at all: every row derived, no store written, the gate doing what it did before there was a cache. Whether a ledger can be re-adjudicated must never turn on whether a file the comparison does not read parses.
 
@@ -540,26 +596,32 @@ def run_oracle(
     scratch = oracle.oracle_audit_scratch(out_dir)
     keys: dict[str, str] | None = None
     stamps: dict[str, oracle_cache.EnvironmentStamp] | None = None
+    position_keys: dict[str, str] | None = None
+    position_stamp: oracle_cache.EnvironmentStamp | None = None
     row_cache: oracle.OracleRowCache | None = None
     try:
         keys, stamps = oracle_row_cache_keys(spec, out_dir)
+        position_keys, position_stamp = oracle_position_keys(keys, out_dir)
     except (OSError, ValueError, yaml.YAMLError) as error:
         console.warn(
             f"oracle row cache: unavailable for this pass — its keys would not cut ({error}); every row is derived and no store is written"
         )
+        keys = stamps = None
     else:
         if fresh_cache:
             print("oracle row cache: distrusted for this pass — every row is derived", flush=True)
         else:
-            _report_oracle_cache(out_dir, keys, stamps)
+            _report_oracle_cache(out_dir, keys, stamps, position_keys, position_stamp)
         row_cache = oracle.OracleRowCache(
             environment=stamps,
             family_keys=keys,
             read_dir=None if fresh_cache else out_dir,
             write_dir=scratch if write_cache else None,
             rotation=0 if write_cache else int(time.time()),
+            position_environment=position_stamp,
+            position_keys=position_keys,
         )
-    settle_memos = conform.settle_memo_files(out_dir, inputs) if inputs is not None else {}
+    settle_memos = conform.settle_memo_files(out_dir, spec, memo_inputs)
     try:
         if jobs > 1:
             collected: dict[str, oracle.OracleConfigResult] = {}
@@ -600,7 +662,7 @@ def run_oracle(
                 settle_memos=settle_memos,
             )
         if write_cache and keys is not None and stamps is not None:
-            _promote_oracle_row_cache(spec, out_dir, scratch, keys, stamps)
+            _promote_oracle_row_cache(spec, out_dir, scratch, keys, stamps, position_keys, position_stamp)
     finally:
         oracle.discard_oracle_audit_scratch(out_dir)
     summary = {
@@ -608,6 +670,7 @@ def run_oracle(
         "divergent_rows": report.divergent_rows,
         "positions_compared": report.positions_compared,
         "positions_excluded": report.positions_excluded,
+        "positions_served": report.positions_served,
         "counts_by_entry": dict(sorted(report.counts_by_entry.items())),
         "unmatched": report.unmatched_count,
         "multi_matched": len(report.multi_matched),
@@ -666,7 +729,7 @@ def run_gates_only(out_dir: Path = OUT_DIR, jobs: int = 1, fresh_cache: bool = F
 
     It may record run_m1's green, and the condition is what makes that sound: a prior green record must exist and every input that has moved since it must be comparison-side (`artifact_cycle.gates_only_reuse`). The prior green is the proof that the tables and font on disk came from a completed build over every build-side input; the stamp check is the proof that none of those inputs has moved since; and this pass is what re-proves the gates the moved inputs feed. With both in hand the recorded green covers the new inputs too, so the next cycle skips run_m1 outright. Without them the pass still runs, still files its check line, and says which label kept it from recording — a check line only claims how one invocation came out, where a green licenses a later pass to skip work.
 
-    It opens the oracle row cache read-only all the same (`write_cache=False`): a ledger or alias edit moves no family key and no stamp line, so every row is served and the re-adjudication costs seconds, while the store one of these passes would write is a store no build ever produced. Recording no ordinal has one consequence worth naming: the store's renewal slice and its verification sample both advance on the pass a store records, so these passes rotate them on the clock instead — a re-adjudication loop that re-proved one frozen twentieth of the table every time would be no guard at all. `--fresh-oracle-cache` here declines the read rather than taking the stores off disk, since deleting a build input is a write like any other.
+    It opens the oracle row cache read-only all the same (`write_cache=False`): a ledger or alias edit moves no family key and no stamp line, so every row verdict and every position verdict is served and the re-adjudication costs seconds, while the store one of these passes would write is a store no build ever produced. Recording no ordinal has one consequence worth naming: the store's renewal slice and its verification sample both advance on the pass a store records, so these passes rotate them on the clock instead — a re-adjudication loop that re-proved one frozen twentieth of the table every time would be no guard at all. `--fresh-oracle-cache` here declines the read rather than taking the stores off disk, since deleting a build input is a write like any other.
     """
     from rebuild.tools.artifact_cycle import (
         RUN_M1_GREEN,
@@ -685,6 +748,7 @@ def run_gates_only(out_dir: Path = OUT_DIR, jobs: int = 1, fresh_cache: bool = F
     started = time.perf_counter()
     _run_pregate_guards()
     inputs = tables_inputs()
+    memo_inputs = settle_memo_inputs()
     font_path = out_dir / "M1.otf"
     summary_path = out_dir / "pipeline_summary.json"
     serialized = serialized_tables(out_dir, inputs)
@@ -748,7 +812,12 @@ def run_gates_only(out_dir: Path = OUT_DIR, jobs: int = 1, fresh_cache: bool = F
     console.phase("run_oracle")
     start = time.perf_counter()
     oracle_summary = run_oracle(
-        out_dir=out_dir, spec=spec, jobs=jobs, write_cache=False, fresh_cache=fresh_cache, inputs=inputs
+        out_dir=out_dir,
+        spec=spec,
+        jobs=jobs,
+        write_cache=False,
+        fresh_cache=fresh_cache,
+        memo_inputs=memo_inputs,
     )
     print(f"[t] run_oracle {time.perf_counter() - start:.1f}s", flush=True)
     print(json.dumps(oracle_summary, indent=2))
@@ -897,6 +966,7 @@ def main(argv: list[str] | None = None) -> None:
 
     _run_pregate_guards()
     inputs = tables_inputs()
+    memo_inputs = settle_memo_inputs()
     spec = load_default_spec()
     before = run_m1_key()
     try:
@@ -920,7 +990,12 @@ def main(argv: list[str] | None = None) -> None:
             raise SystemExit(f"{pin_failure}; see manual_pins_summary.json")
         console.phase("run_oracle")
         start = time.perf_counter()
-        oracle_summary = run_oracle(spec=spec, jobs=jobs, fresh_cache=args.fresh_oracle_cache, inputs=inputs)
+        oracle_summary = run_oracle(
+            spec=spec,
+            jobs=jobs,
+            fresh_cache=args.fresh_oracle_cache,
+            memo_inputs=memo_inputs,
+        )
         print(f"[t] run_oracle {time.perf_counter() - start:.1f}s", flush=True)
         print(json.dumps(oracle_summary, indent=2))
     except (SystemExit, readback.ReadbackError, emit_gsub.EmitError) as error:

@@ -5,6 +5,7 @@ Every claim below is about a key or a store rather than about any glyph, so noth
 The stamp tests are the load-bearing ones. A per-family key can only decompose the routes that stay inside one rune file; every route that reaches across the registry — a predicate class gaining a member, a rune-local group, a ligature's declared sequence, a capability unlock, the registry's own families and heights, the engine's settlement flags — has to move the whole-store stamp instead, because `specificity::family_set` expands a `class:` reference to its full member set and `compare_axes` ranks by set size, so a rune joining or leaving a class can flip the settlement of a window naming no such rune. Each of those routes is asserted to move a *named* stamp line, not merely to move the value: a route that quietly stops being covered and a route covered twice over look identical from the value alone, and only the first is a cache that serves stale rows in silence.
 """
 
+import shutil
 from dataclasses import replace
 from pathlib import Path
 
@@ -57,8 +58,6 @@ def _rewrite_script(root: Path, edit=None) -> None:
 @pytest.fixture
 def repo(mini_bundle, tmp_path) -> Path:
     """A repo root this test may edit: the pinned spec root's runes, schema, and registry copied under `tmp_path`, with an alias map written beside them. The registry arrives already round-tripped so a later edit is the only thing that moves it."""
-    import shutil
-
     root = tmp_path / "root"
     shutil.copytree(mini_bundle.spec_root, root)
     _rewrite_script(root)
@@ -505,7 +504,7 @@ def test_a_served_row_keeps_the_age_it_was_derived_at(repo, tmp_path):
     keys = _keys(repo, spec)
     carried = tmp_path / "carried.tsv.gz"
     with oracle_cache.RowWriter(carried, stamp, "subset-digest", 1, keys) as writer:
-        writer.append((PEA, PEA), first.serve(0, (PEA, PEA)), first.age(0))
+        writer.append((PEA, PEA), first.serve(0, (PEA, PEA)).row, first.age(0))
         writer.append((PEA, PEA + 1), None, writer.pass_ordinal)
     store = oracle_cache.load_store(carried, stamp, "subset-digest", spec, keys)
     assert store is not None
@@ -532,3 +531,263 @@ def test_the_store_is_not_an_m1_artifact(tmp_path):
         f"baseline-{config}.subset.tsv.gz" for config in conform.ACCEPTANCE_CONFIGS
     }
     assert oracle_cache.scratch_store_path(tmp_path, "default").parent.name == oracle_cache.SCRATCH_SUBDIR
+
+
+# --- the position store ------------------------------------------------------------------
+
+MINI_FONT = REPO_ROOT / "rebuild" / "review" / "fixtures" / "mini" / "M1.otf"
+
+
+def _font_edited(source: Path, target: Path, touches) -> Path:
+    """A copy of `source` in which every glyph `touches` names is advanced by a pixel-odd amount, so a family's compiled digest moves through its metrics alone while every outline stays. Written through fontTools rather than patched, so the copy is a font the shaper and the digest both read."""
+    from fontTools.ttLib import TTFont
+
+    font = TTFont(str(source))
+    metrics = font["hmtx"].metrics  # pyright: ignore[reportAttributeAccessIssue]
+    for name in list(metrics):
+        if touches(name):
+            advance, bearing = metrics[name]
+            metrics[name] = (advance + 37, bearing)
+    font.save(str(target))
+    return target
+
+
+def _position(repo: Path, spec, font: Path, kern: Path | None = None):
+    return oracle_cache.position_keys(REPO_ROOT, _keys(repo, spec), font, kern)
+
+
+def test_a_glyph_edit_moves_only_its_family_s_position_key(repo, tmp_path):
+    """The position key's own grain: a family's compiled glyphs — outlines, advances, cursive anchors — move that family's key and no other, while the font's helper glyphs, cmap and GPOS wiring ride the whole-store position stamp instead. Advances are the edit here because they move a position without moving a name or a cell, which is exactly the channel the row key is blind to."""
+    spec = fixtures.mini_spec()
+    base_keys, base_stamp = _position(repo, spec, MINI_FONT)
+    glyphs, _helpers = fingerprint.after_font_glyph_digests(MINI_FONT)
+    assert oracle_cache.position_family_keys(_keys(repo, spec), glyphs) == base_keys
+
+    tea = _font_edited(MINI_FONT, tmp_path / "tea.otf", lambda name: name.split(".")[0] == "qsTea")
+    keys, stamp = _position(repo, spec, tea)
+    assert oracle_cache.moved_families(base_keys, keys) == frozenset({"qsTea"})
+    assert stamp.lines == base_stamp.lines
+
+    helper = _font_edited(MINI_FONT, tmp_path / "space.otf", lambda name: name == "space")
+    keys, stamp = _position(repo, spec, helper)
+    assert oracle_cache.moved_families(base_keys, keys) == frozenset()
+    assert oracle_cache.moved_note(base_stamp.labels, stamp.labels) == "font_helpers (changed)"
+
+
+def test_the_position_key_embeds_the_row_key(repo):
+    """A position is served only where the row verdict is, and the key says so by construction rather than by a second test at serve time: a rune edit that moves a family's row key moves its position key with it, and the roster is the union of the two sides so a family the font holds glyphs for and the rune tree holds no file for still carries a key."""
+    spec = fixtures.mini_spec()
+    row_keys = _keys(repo, spec)
+    glyphs, _helpers = fingerprint.after_font_glyph_digests(MINI_FONT)
+    base = oracle_cache.position_family_keys(row_keys, glyphs)
+    assert set(base) == set(row_keys) | set(glyphs)
+    _perturb_rune(repo / "glyph_data" / "runes" / "qsPea.yaml")
+    assert oracle_cache.moved_families(
+        base, oracle_cache.position_family_keys(_keys(repo, spec), glyphs)
+    ) == frozenset({"qsPea"})
+
+
+def test_the_position_stamp_names_the_channel_s_code_the_toolchain_and_the_kern_sidecar(repo, tmp_path):
+    """The whole-store position stamp, line by line: the oracle's own module (the drift, the kern normalization and the sidecar evaluator live there), the toolchain lock that pins the shaper, and the kern sidecar's bytes, each asserted to move its own named line and only that. Nothing the row stamp already holds is repeated, so a store loads or drops on the row stamp alone and the position stamp decides only whether the positions beside the rows may be served."""
+    spec = fixtures.mini_spec()
+    kern = tmp_path / "kern.yaml"
+    kern.write_text("global:\n  value: 0\n", encoding="utf-8")
+    module = repo / "rebuild" / "pipeline" / "oracle.py"
+    module.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(REPO_ROOT / "rebuild" / "pipeline" / "oracle.py", module)
+    lock = repo / oracle_cache.TOOLCHAIN_LOCK
+    lock.write_text("version = 1\n", encoding="utf-8")
+    row_keys = _keys(repo, spec)
+
+    def stamp() -> oracle_cache.EnvironmentStamp:
+        return oracle_cache.position_keys(repo, row_keys, MINI_FONT, kern)[1]
+
+    base = stamp()
+    assert set(base.labels) == {"format", "position_code", "toolchain", "font_helpers", "kern"}
+    assert set(base.labels) & set(_stamp(repo, spec).labels) == {"format"}
+    assert stamp().lines == base.lines
+
+    kern.write_text("global:\n  value: 3\n", encoding="utf-8")
+    assert oracle_cache.moved_note(base.labels, stamp().labels) == "kern (changed)"
+    kern.write_text("global:\n  value: 0\n", encoding="utf-8")
+
+    module.write_text(module.read_text(encoding="utf-8") + "\n", encoding="utf-8")
+    assert oracle_cache.moved_note(base.labels, stamp().labels) == "position_code (changed)"
+    shutil.copyfile(REPO_ROOT / "rebuild" / "pipeline" / "oracle.py", module)
+
+    lock.write_text("version = 2\n", encoding="utf-8")
+    assert oracle_cache.moved_note(base.labels, stamp().labels) == "toolchain (changed)"
+
+
+def test_a_record_carries_both_verdicts_and_their_ages():
+    """The codec over every shape a position record takes — never shaped, shaped clean, and drifted with descriptions that carry commas of their own — beside both shapes of row verdict, each half with its own pass."""
+    drifted = oracle_cache.CachedPosition(
+        drifts=(
+            "slot 1 (qsTea.en-y0): origin want (150, 0), got (100, 0)",
+            "total advance: want 500, got 450",
+        ),
+        kern_attributable=True,
+    )
+    row = oracle_cache.CachedRow(
+        kinds=("cell",),
+        position=1,
+        new_cells=("qsPea/full", "qsTea/half"),
+        new_seams=("y5",),
+        phenomena=("stance",),
+    )
+    for cached, position, ages in (
+        (None, oracle_cache.UNSHAPED, (3, 3)),
+        (None, None, (3, 4)),
+        (row, drifted, (2, 5)),
+        (row, oracle_cache.UNSHAPED, (7, 0)),
+    ):
+        line = oracle_cache.encode_record((PEA, TEA), cached, ages[0], position, ages[1])
+        record = oracle_cache.decode_record(line)
+        assert record.row == cached
+        assert (
+            record.position is position if position is oracle_cache.UNSHAPED else record.position == position
+        )
+        assert (record.row_age, record.position_age) == ages
+        assert line.startswith(oracle_cache.row_anchor((PEA, TEA)))
+    assert oracle_cache.encode_record((PEA,), None, 1).endswith("\t-\t?\t1\t0")
+
+
+def test_a_moved_position_stamp_keeps_the_rows_and_retires_every_position(repo):
+    """What the position stamp and keys decide, and what they do not: a store loads on the row stamp alone, and each position verdict is served only where its own stamp and every key the row reaches still stand. A moved stamp retires every position and not one row; a moved key retires the positions of the rows reaching that family; a pass with no position keys at all serves none. `UNSHAPED` is never served whatever the keys say."""
+    spec = fixtures.mini_spec()
+    stamp, keys = _stamp(repo, spec), _keys(repo, spec)
+    position_keys, position_stamp = _position(repo, spec, MINI_FONT)
+    rows = ((PEA, TEA), (TEA, OY), (PEA,))
+    drifted = oracle_cache.CachedPosition(("slot 1 (qsTea): origin want (150, 0), got (100, 0)",), True)
+    path = repo / "store.tsv.gz"
+    with oracle_cache.RowWriter(
+        path, stamp, "subset-digest", 5, keys, position_stamp, position_keys
+    ) as writer:
+        writer.append(rows[0], None, 5, drifted, 5)
+        writer.append(rows[1], None, 5, None, 5)
+        writer.append(rows[2], None, 5)
+
+    def opened(environment, current) -> oracle_cache.RowStore:
+        store = oracle_cache.load_store(path, stamp, "subset-digest", spec, keys, 0, environment, current)
+        assert store is not None
+        assert not any(store.due(index) for index in range(len(rows)))
+        return store
+
+    def stale(store: oracle_cache.RowStore) -> list[bool]:
+        return [store.position_stale(index, store.mask.mask_of(row)) for index, row in enumerate(rows)]
+
+    same = opened(position_stamp, position_keys)
+    assert not same.position_mask.everything
+    assert [same.serve(index, row).position for index, row in enumerate(rows)] == [
+        drifted,
+        None,
+        oracle_cache.UNSHAPED,
+    ]
+    assert stale(same) == [False, False, False]
+
+    moved_stamp = oracle_cache.EnvironmentStamp(lines=position_stamp.lines[:-1] + ("kern\tanother",))
+    dropped = opened(moved_stamp, position_keys)
+    assert dropped.position_mask.everything and not dropped.mask.everything
+    assert stale(dropped) == [True, True, True]
+    assert not any(dropped.stale(index, dropped.mask.mask_of(row)) for index, row in enumerate(rows))
+
+    partial = opened(position_stamp, {**position_keys, "qsTea": "moved"})
+    assert partial.position_mask.moved == frozenset({"qsTea"}) and partial.moved == frozenset()
+    assert stale(partial) == [True, True, False]
+
+    assert opened(None, None).position_mask.everything
+    assert opened(position_stamp, None).position_mask.everything
+
+
+def test_the_position_keys_are_reverified_at_promotion(repo, tmp_path, monkeypatch, capsys):
+    """The mid-run edit on the position side: a font recompiled or a kern sidecar edited while the oracle shaped means positions nothing on disk describes, and promotion refuses them by name exactly as it refuses a rune edited mid-run. The control promotes all six under a font and sidecar that held still."""
+    monkeypatch.setattr(run_m1, "REPO_ROOT", repo)
+    monkeypatch.setattr(run_m1, "ALIAS_YAML", _alias(repo))
+    kern = tmp_path / "kern.yaml"
+    kern.write_text("global:\n  value: 0\n", encoding="utf-8")
+    monkeypatch.setattr(run_m1, "KERN_SIDECAR_YAML", kern)
+    spec = fixtures.mini_spec()
+    out_dir = tmp_path / "m1"
+    out_dir.mkdir()
+    shutil.copyfile(MINI_FONT, out_dir / "M1.otf")
+    keys, stamps = run_m1.oracle_row_cache_keys(spec, out_dir)
+    position_keys, position_stamp = run_m1.oracle_position_keys(keys, out_dir)
+    assert position_keys is not None and position_stamp is not None
+    assert run_m1.oracle_position_keys(keys, tmp_path / "nowhere") == (None, None)
+
+    steady = tmp_path / "steady"
+    _stage(steady, stamps, keys)
+    run_m1._promote_oracle_row_cache(spec, out_dir, steady, keys, stamps, position_keys, position_stamp)
+    assert _promoted(out_dir) == set(conform.ACCEPTANCE_CONFIGS)
+    assert "written for" in capsys.readouterr().out
+    promoted = {
+        config: oracle_cache.store_path(out_dir, config).read_bytes() for config in conform.ACCEPTANCE_CONFIGS
+    }
+
+    _font_edited(MINI_FONT, out_dir / "M1.otf", lambda name: name.split(".")[0] == "qsTea")
+    edited_font = tmp_path / "edited-font"
+    _stage(edited_font, stamps, keys)
+    run_m1._promote_oracle_row_cache(spec, out_dir, edited_font, keys, stamps, position_keys, position_stamp)
+    message = capsys.readouterr().out
+    assert "not written" in message and "positions qsTea (changed)" in message
+    shutil.copyfile(MINI_FONT, out_dir / "M1.otf")
+
+    kern.write_text("global:\n  value: 2\n", encoding="utf-8")
+    edited_kern = tmp_path / "edited-kern"
+    _stage(edited_kern, stamps, keys)
+    run_m1._promote_oracle_row_cache(spec, out_dir, edited_kern, keys, stamps, position_keys, position_stamp)
+    message = capsys.readouterr().out
+    assert "not written" in message and "positions kern (changed)" in message
+    assert {
+        config: oracle_cache.store_path(out_dir, config).read_bytes() for config in conform.ACCEPTANCE_CONFIGS
+    } == promoted
+
+
+# --- the settle memo's keys ----------------------------------------------------------------
+
+
+def test_the_settle_memo_keys_ignore_the_alias_map_and_move_per_family(repo):
+    """The memo's per-family key is the row key without the alias line: the walk that fills the memo never reads the alias map, so retitling a family's aliases retires no settlement, while a geometric edit to one rune moves that family's key and no other."""
+    spec = fixtures.mini_spec()
+    base = oracle_cache.settle_family_keys(oracle_cache.settle_memo_inputs(repo), spec)
+    assert set(base) == set(fingerprint.rune_digests(repo))
+    _write_alias(repo, {**ALIAS_MAP, "qsTea.en-y0": {"rune": "qsTea", "stance": "half", "entry": "y6"}})
+    assert oracle_cache.settle_family_keys(oracle_cache.settle_memo_inputs(repo), spec) == base
+    assert oracle_cache.moved_families(_keys(repo, spec), _keys(repo, spec)) == frozenset()
+    _perturb_rune(repo / "glyph_data" / "runes" / "qsPea.yaml")
+    moved = oracle_cache.settle_family_keys(oracle_cache.settle_memo_inputs(repo), spec)
+    assert oracle_cache.moved_families(base, moved) == frozenset({"qsPea"})
+
+
+def test_the_settle_memo_stamp_moves_with_the_walk_s_routes_and_not_the_comparison_s(repo, monkeypatch):
+    """The memo's whole-store stamp is the row stamp less what only the comparison reads: it moves with the configuration, its features, the walk's code closure, the non-rune data, the spec structure and the settlement flags, and with nothing the alias map, the ledger, the kern sidecar or a subset table can do — each asserted by the named line it moves or leaves."""
+    spec = fixtures.mini_spec()
+    inputs = oracle_cache.settle_memo_inputs(repo)
+    base = oracle_cache.settle_memo_stamp(inputs, spec, "default", frozenset())
+    assert set(base.labels) == {
+        "config",
+        "features",
+        "oracle_code",
+        "data",
+        "spec_structure",
+        "capability_features",
+        "settlement_flags",
+    }
+    assert set(base.labels) < set(_stamp(repo, spec).labels)
+    ss03 = oracle_cache.settle_memo_stamp(inputs, spec, "ss03", conform.features_for_config("ss03"))
+    assert oracle_cache.moved_note(base.labels, ss03.labels) == "config (changed), features (changed)"
+
+    _root, moved_spec = _predicate_class(repo, spec, monkeypatch)
+    structure = oracle_cache.settle_memo_stamp(inputs, moved_spec, "default", frozenset())
+    assert oracle_cache.moved_note(base.labels, structure.labels) == "spec_structure (changed)"
+
+    (repo / "glyph_data" / "senior_quikscript_kerning.yaml").write_text("pairs: []\n", encoding="utf-8")
+    _write_alias(repo, {**ALIAS_MAP, "periodcentered.lowered": "boundary"})
+    (repo / "rebuild" / "m1-divergences.yaml").write_text("[]\n", encoding="utf-8")
+    _perturb_rune(repo / "glyph_data" / "runes" / "qsPea.yaml")
+    same = oracle_cache.settle_memo_stamp(oracle_cache.settle_memo_inputs(repo), spec, "default", frozenset())
+    assert same.lines == base.lines
+
+    _rewrite_script(repo, lambda document: document["heights"].update({"x-height": 4}))
+    data = oracle_cache.settle_memo_stamp(oracle_cache.settle_memo_inputs(repo), spec, "default", frozenset())
+    assert oracle_cache.moved_note(base.labels, data.labels) == "data (changed)"

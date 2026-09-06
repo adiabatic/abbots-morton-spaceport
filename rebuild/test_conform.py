@@ -21,6 +21,7 @@ from rebuild.pipeline.fixtures import mini_spec
 from rebuild.pipeline.model import CellId
 
 MINI = Path(__file__).resolve().parent / "review" / "fixtures" / "mini"
+REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 @pytest.fixture(scope="module")
@@ -740,6 +741,9 @@ class TestOracleUnmatchedTally:
 CACHE_LETTERS = (0xE650, 0xE652, 0xE653, 0xE65A, 0xE665, 0xE667)
 
 
+_INK_IDENTICAL_LEDGER = "- id: ink-identical\n  ink_identical: true\n  match: {}\n"
+
+
 def _cache_subset_table(directory: Path, config: str, rows: Sequence[tuple[int, ...]]) -> Path:
     """One hand-made subset table in the shape `iter_rows` reads, over rows whose old glyph names are minted from their own codepoints so an all-pending alias map makes every row diverge and an empty ledger leaves every divergence UNMATCHED. The names deliberately miss the `qs` prefix `unreachable_glyph_heads` looks for, so no row here is refused service for citing a family its codepoints cannot reach."""
     directory.mkdir(parents=True, exist_ok=True)
@@ -775,9 +779,67 @@ def _cache_stamp(config: str, table: Path) -> oracle_cache.EnvironmentStamp:
 
 
 def _cache_ages(path: Path) -> list[int]:
-    """Every record's `derived_at_pass`, read straight out of the store rather than through `load_store`, so what a pass recomputed is observed independently of the reader that decides what a pass may serve. A record whose age is this pass's ordinal was derived here; one carrying an older ordinal was served."""
+    """Every record's row `derived_at_pass`, read straight out of the store rather than through `load_store`, so what a pass recomputed is observed independently of the reader that decides what a pass may serve. A record whose age is this pass's ordinal was derived here; one carrying an older ordinal was served."""
+    body = gzip.decompress(path.read_bytes()).decode("utf-8").splitlines()
+    return [int(line.rsplit("\t", 2)[1]) for line in body[1:-1]]
+
+
+def _cache_position_ages(path: Path) -> list[int]:
+    """The same read over the position verdict's own pass, the last field of every record."""
     body = gzip.decompress(path.read_bytes()).decode("utf-8").splitlines()
     return [int(line.rsplit("\t", 1)[1]) for line in body[1:-1]]
+
+
+def _cache_position_tags(path: Path) -> list[str]:
+    """Each record's position tag — `?` never shaped, `-` shaped clean, `D` drifted — so a test can see which rows a pass carried a position for without loading the store."""
+    tags: list[str] = []
+    for line in gzip.decompress(path.read_bytes()).decode("utf-8").splitlines()[1:-1]:
+        fields = line.split("\t")
+        tags.append(fields[2] if fields[1] == "-" else fields[7])
+    return tags
+
+
+def _excluded_from_the_channel(audit: Path, rows: int) -> set[int]:
+    """The rows the position channel skips whatever the ledger says — a ligation or seam divergence — read off an audit every row of which is divergent, so its line order is the table's."""
+    lines = audit.read_text().splitlines()[1:]
+    assert len(lines) == rows
+    return {
+        index
+        for index, line in enumerate(lines)
+        if {"ligation", "seam"} & set(line.split("\t")[2].split(","))
+    }
+
+
+def _tea_prefers_half_before_may(spec):
+    """A real rune edit that moves settlement: ·Tea gains an absolute preference for its half stance before ·May, which changes what the ·Tea·May windows settle to and nothing else."""
+    import dataclasses
+
+    from rebuild.pipeline import model
+
+    tea = spec.runes["qsTea"]
+    prefer = model.PolicyRecord(
+        kind="prefer",
+        stance="half",
+        mode="absolute",
+        when=model.When(right=model.Condition(family=("qsMay",))),
+    )
+    runes = dict(spec.runes)
+    runes["qsTea"] = dataclasses.replace(tea, policy=dataclasses.replace(tea.policy, prefer=(prefer,)))
+    return dataclasses.replace(spec, runes=runes)
+
+
+def _font_edited(source: Path, target: Path, touches) -> Path:
+    """A copy of `source` whose glyphs `touches` names are advanced by a pixel-odd amount: a family's compiled digest moves through its metrics alone, every outline stays, and every row that shapes one of those glyphs draws its followers somewhere else."""
+    from fontTools.ttLib import TTFont
+
+    font = TTFont(str(source))
+    metrics = font["hmtx"].metrics  # pyright: ignore[reportAttributeAccessIssue]
+    for name in list(metrics):
+        if touches(name):
+            advance, bearing = metrics[name]
+            metrics[name] = (advance + 37, bearing)
+    font.save(str(target))
+    return target
 
 
 def _cache_renewed(rows: int, pass_ordinal: int) -> set[int]:
@@ -831,21 +893,279 @@ class TestOracleRowCache:
         read_dir: Path | None = None,
         write: bool = True,
         cached: bool = True,
+        font: Path | None = None,
+        kern: Path | None = None,
+        position=None,
     ):
         out = tmp_path / name
         scratch = tmp_path / f"{name}-scratch"
         stores = tmp_path / f"{name}-stores"
+        position_keys, position_stamp = (None, None) if position is None else position
         row_cache = (
-            oracle.OracleRowCache(stamps, keys, read_dir=read_dir, write_dir=scratch if write else None)
+            oracle.OracleRowCache(
+                stamps,
+                keys,
+                read_dir=read_dir,
+                write_dir=scratch if write else None,
+                position_environment=position_stamp,
+                position_keys=position_keys,
+            )
             if cached
             else None
         )
         report = oracle.compare_against_baseline(
-            spec, tables, aliases, ledger, configs=configs, out_dir=out, row_cache=row_cache
+            spec,
+            tables,
+            aliases,
+            ledger,
+            configs=configs,
+            out_dir=out,
+            font_path=font,
+            kern_sidecar_path=kern,
+            row_cache=row_cache,
         )
         if cached and write:
             assert oracle_cache.promote_stores(scratch, stores, configs) == list(configs)
         return report, out / "divergence-audit.tsv", stores
+
+    def _position_bench(self, spec, tmp_path: Path, ledger_entries: str = _INK_IDENTICAL_LEDGER):
+        """The position channel's bench: the frozen mini bundle's default rows that fall inside the mini alphabet — real old-font positions, real old glyph names — under an all-pending alias map, so every row diverges at name grain and stays topology-clean, and a ledger whose one ink-identical entry admits every row to the channel. The font is the bundle's frozen M1.otf, which is the after font those rows were extracted against. Three hand-made ·Tea·May rows ride at the end, because the bundle's four-letter slice holds none and the rune edit the arms share moves exactly that pair."""
+        letters = {rune.codepoint for rune in spec.runes.values() if rune.codepoint is not None}
+        boundaries = {token.codepoint for token in spec.registry.boundary_tokens.values()}
+        rows: list[str] = []
+        names: set[str] = set()
+        with gzip.open(MINI / "baseline-default.subset.tsv.gz", "rt", encoding="utf-8") as handle:
+            for line in handle:
+                if line.startswith("#"):
+                    continue
+                codepoints = {int(item, 16) for item in line.split("\t")[0].split(":")}
+                if codepoints <= letters | boundaries and codepoints & letters:
+                    rows.append(line.rstrip("\n"))
+                    names.update(line.split("\t")[1].split("|"))
+        assert rows
+        for text in ("E652:E665", "E665:E652", "E650:E652:E665"):
+            glyphs = [{"E650": "qsPea", "E652": "qsTea", "E665": "qsMay"}[item] for item in text.split(":")]
+            names.update(glyphs)
+            rows.append(
+                "\t".join(
+                    (
+                        text,
+                        "|".join(glyphs),
+                        ",".join(str(index) for index in range(len(glyphs))),
+                        ",".join(["break"] * (len(glyphs) - 1)),
+                        "|".join(["0,0,150"] * len(glyphs)),
+                    )
+                )
+            )
+        tables = tmp_path / "tables"
+        tables.mkdir(parents=True, exist_ok=True)
+        table = tables / "baseline-default.subset.tsv.gz"
+        with gzip.open(table, "wt", encoding="utf-8") as handle:
+            handle.write("# config: default\n")
+            for row in rows:
+                handle.write(row + "\n")
+        aliases = tmp_path / "aliases.yaml"
+        aliases.write_text(
+            "".join(f"{name}: pending\n" for name in sorted(names - conform.BOUNDARY_GLYPH_NAMES))
+        )
+        ledger = tmp_path / "ledger.yaml"
+        ledger.write_text(ledger_entries)
+        stamps = {"default": _cache_stamp("default", table)}
+        rows_named = [tuple(int(item, 16) for item in row.split("\t")[0].split(":")) for row in rows]
+        return tables, aliases, ledger, stamps, ("default",), rows_named
+
+    def test_a_served_position_channel_writes_the_audit_a_cold_one_writes(self, spec, tmp_path):
+        """The position store's whole correctness claim in one arm, the shape of the row store's: a pass that took its position verdicts off the previous pass's store writes the byte-identical `divergence-audit.tsv` a cold pass writes over the same font, with the uncached path as the third witness, and served every position but the renewal slice. The bench drifts for real — the old font's positions against the frozen after font — so the audit carries position rows and the equality is over drift descriptions, not over an empty channel."""
+        tables, aliases, ledger, stamps, configs, rows = self._position_bench(spec, tmp_path)
+        keys = self._keys(spec)
+        position = oracle_cache.position_keys(REPO_ROOT, keys, MINI / "M1.otf", None)
+        shared: dict[str, Any] = dict(
+            tables=tables, aliases=aliases, ledger=ledger, stamps=stamps, keys=keys, configs=configs
+        )
+        shared.update(font=MINI / "M1.otf", position=position)
+
+        cold_report, cold_audit, cold_stores = self._pass(spec, tmp_path, "cold", **shared)
+        served_report, served_audit, served_stores = self._pass(
+            spec, tmp_path, "served", read_dir=cold_stores, **shared
+        )
+        _uncached, uncached_audit, _ = self._pass(spec, tmp_path, "uncached", cached=False, **shared)
+
+        excluded = _excluded_from_the_channel(cold_audit, len(rows))
+        assert 0 < len(excluded) < len(rows)
+        assert cold_report.positions_compared == len(rows) - len(excluded)
+        assert cold_report.positions_served == 0
+        assert any("position" in line.split("\t")[2] for line in cold_audit.read_text().splitlines()[1:])
+        assert served_audit.read_bytes() == cold_audit.read_bytes() == uncached_audit.read_bytes()
+        assert asdict(served_report) == {
+            **asdict(cold_report),
+            "positions_served": served_report.positions_served,
+        }
+        renewed = _cache_renewed(len(rows), 0)
+        assert served_report.positions_served == len(rows) - len(renewed | excluded)
+        store = oracle_cache.store_path(served_stores, "default")
+        assert {
+            index for index, age in enumerate(_cache_position_ages(store)) if age == 1
+        } == renewed | excluded
+        assert {index for index, age in enumerate(_cache_ages(store)) if age == 1} == renewed
+        assert {index for index, tag in enumerate(_cache_position_tags(store)) if tag == "?"} == excluded
+
+    def test_a_glyph_edit_re_shapes_exactly_the_rows_that_reach_its_family(self, spec, tmp_path):
+        """The position key's grain end to end: the after font's ·Tea glyphs gain an advance, so every row that shapes one draws its followers elsewhere. A pass carrying the previous store across that font has to write the audit a pass that never saw a store writes over the edited font, and the store it leaves shows exactly the rows naming ·Tea re-shaped — every other position served, every row verdict served, so a font edit costs the shaping it moved and nothing settled."""
+        tables, aliases, ledger, stamps, configs, rows = self._position_bench(spec, tmp_path)
+        keys = self._keys(spec)
+        shared: dict[str, Any] = dict(
+            tables=tables, aliases=aliases, ledger=ledger, stamps=stamps, keys=keys, configs=configs
+        )
+        cold_position = oracle_cache.position_keys(REPO_ROOT, keys, MINI / "M1.otf", None)
+        _cold, cold_audit, cold_stores = self._pass(
+            spec, tmp_path, "cold", font=MINI / "M1.otf", position=cold_position, **shared
+        )
+
+        edited = _font_edited(
+            MINI / "M1.otf", tmp_path / "tea.otf", lambda name: name.split(".")[0] == "qsTea"
+        )
+        position = oracle_cache.position_keys(REPO_ROOT, keys, edited, None)
+        assert oracle_cache.moved_families(cold_position[0], position[0]) == frozenset({"qsTea"})
+        carried_report, carried_audit, carried_stores = self._pass(
+            spec, tmp_path, "carried", read_dir=cold_stores, font=edited, position=position, **shared
+        )
+        _fresh, fresh_audit, _ = self._pass(spec, tmp_path, "fresh", cached=False, font=edited, **shared)
+
+        assert carried_audit.read_bytes() == fresh_audit.read_bytes()
+        assert fresh_audit.read_bytes() != cold_audit.read_bytes(), "the glyph edit moved no row"
+        naming = {index for index, codepoints in enumerate(rows) if 0xE652 in codepoints}
+        excluded = _excluded_from_the_channel(cold_audit, len(rows))
+        expected = naming | _cache_renewed(len(rows), 0)
+        store = oracle_cache.store_path(carried_stores, "default")
+        assert {
+            index for index, age in enumerate(_cache_position_ages(store)) if age == 1
+        } == expected | excluded
+        assert {index for index, age in enumerate(_cache_ages(store)) if age == 1} == _cache_renewed(
+            len(rows), 0
+        )
+        assert carried_report.positions_served == len(rows) - len(expected | excluded)
+
+    def test_a_rune_edit_re_shapes_the_rows_it_re_derives(self, spec, tmp_path):
+        """The row key inside the position key, end to end: the same ·Tea edit the row arm uses moves ·Tea's row key, so its rows re-derive and re-shape together — a served position over a fresh settlement would be shaping the previous pass's cells — and the audit a carried pass writes over the edited spec is the one a from-scratch pass writes."""
+        tables, aliases, ledger, stamps, configs, rows = self._position_bench(spec, tmp_path)
+        shared: dict[str, Any] = dict(
+            tables=tables,
+            aliases=aliases,
+            ledger=ledger,
+            stamps=stamps,
+            configs=configs,
+            font=MINI / "M1.otf",
+        )
+        keys = self._keys(spec)
+        _cold, cold_audit, cold_stores = self._pass(
+            spec,
+            tmp_path,
+            "cold",
+            keys=keys,
+            position=oracle_cache.position_keys(REPO_ROOT, keys, MINI / "M1.otf", None),
+            **shared,
+        )
+        edited = _tea_prefers_half_before_may(spec)
+        moved_keys = self._keys(spec, moved=("qsTea",))
+        position = oracle_cache.position_keys(REPO_ROOT, moved_keys, MINI / "M1.otf", None)
+        _carried, carried_audit, carried_stores = self._pass(
+            edited, tmp_path, "carried", keys=moved_keys, position=position, read_dir=cold_stores, **shared
+        )
+        _fresh, fresh_audit, _ = self._pass(
+            edited, tmp_path, "fresh", keys=moved_keys, cached=False, **shared
+        )
+        assert carried_audit.read_bytes() == fresh_audit.read_bytes()
+        assert fresh_audit.read_bytes() != cold_audit.read_bytes(), "the rune edit moved no row"
+        expected = {index for index, codepoints in enumerate(rows) if 0xE652 in codepoints} | _cache_renewed(
+            len(rows), 0
+        )
+        excluded = _excluded_from_the_channel(fresh_audit, len(rows))
+        store = oracle_cache.store_path(carried_stores, "default")
+        assert {index for index, age in enumerate(_cache_ages(store)) if age == 1} == expected
+        assert {
+            index for index, age in enumerate(_cache_position_ages(store)) if age == 1
+        } == expected | excluded
+
+    def test_a_kern_sidecar_edit_re_shapes_every_row_and_serves_every_verdict(self, spec, tmp_path):
+        """The position stamp end to end: a sidecar edit moves what every row's old positions normalize to, so every position re-shapes while every row verdict is still served, and the carried audit is the from-scratch one over the edited sidecar."""
+        tables, aliases, ledger, stamps, configs, rows = self._position_bench(spec, tmp_path)
+        keys = self._keys(spec)
+        shared: dict[str, Any] = dict(
+            tables=tables, aliases=aliases, ledger=ledger, stamps=stamps, keys=keys, configs=configs
+        )
+        shared.update(font=MINI / "M1.otf")
+        kern = tmp_path / "kern.yaml"
+        kern.write_text("global:\n  value: 0\n")
+        _cold, cold_audit, cold_stores = self._pass(
+            spec,
+            tmp_path,
+            "cold",
+            kern=kern,
+            position=oracle_cache.position_keys(REPO_ROOT, keys, MINI / "M1.otf", kern),
+            **shared,
+        )
+        kern.write_text("global:\n  value: 5\n")
+        position = oracle_cache.position_keys(REPO_ROOT, keys, MINI / "M1.otf", kern)
+        carried_report, carried_audit, carried_stores = self._pass(
+            spec, tmp_path, "carried", kern=kern, position=position, read_dir=cold_stores, **shared
+        )
+        _fresh, fresh_audit, _ = self._pass(spec, tmp_path, "fresh", kern=kern, cached=False, **shared)
+        assert carried_audit.read_bytes() == fresh_audit.read_bytes()
+        assert fresh_audit.read_bytes() != cold_audit.read_bytes(), "the sidecar edit moved no row"
+        assert carried_report.positions_served == 0
+        store = oracle_cache.store_path(carried_stores, "default")
+        assert set(_cache_position_ages(store)) == {1}
+        assert {index for index, age in enumerate(_cache_ages(store)) if age == 1} == _cache_renewed(
+            len(rows), 0
+        )
+
+    def test_a_ledger_edit_that_admits_a_row_shapes_it_and_one_that_excludes_it_keeps_its_verdict(
+        self, spec, tmp_path
+    ):
+        """The verdict is stored raw, ahead of the ledger's eligibility test: a pass whose ledger admits no row to the channel records every position as never shaped, and the next pass under an admitting ledger shapes them all and serves none — the audit still the from-scratch one — while a pass whose ledger excludes a row it once shaped carries that verdict forward unread, so the pass after it, admitting the row again, finds it served."""
+        tables, aliases, admitting, stamps, configs, rows = self._position_bench(spec, tmp_path)
+        excluding = tmp_path / "excluding.yaml"
+        excluding.write_text("[]\n")
+        keys = self._keys(spec)
+        position = oracle_cache.position_keys(REPO_ROOT, keys, MINI / "M1.otf", None)
+        shared: dict[str, Any] = dict(
+            tables=tables, aliases=aliases, stamps=stamps, keys=keys, configs=configs
+        )
+        shared.update(font=MINI / "M1.otf", position=position)
+
+        excluded_report, _audit, excluded_stores = self._pass(
+            spec, tmp_path, "excluded", ledger=excluding, **shared
+        )
+        assert excluded_report.positions_compared == 0
+        assert set(_cache_position_tags(oracle_cache.store_path(excluded_stores, "default"))) == {"?"}
+
+        admitted_report, admitted_audit, admitted_stores = self._pass(
+            spec, tmp_path, "admitted", ledger=admitting, read_dir=excluded_stores, **shared
+        )
+        _fresh, fresh_audit, _ = self._pass(spec, tmp_path, "fresh", ledger=admitting, cached=False, **shared)
+        assert admitted_audit.read_bytes() == fresh_audit.read_bytes()
+        excluded = _excluded_from_the_channel(fresh_audit, len(rows))
+        assert admitted_report.positions_compared == len(rows) - len(excluded)
+        assert admitted_report.positions_served == 0
+        tags = _cache_position_tags(oracle_cache.store_path(admitted_stores, "default"))
+        assert {index for index, tag in enumerate(tags) if tag == "?"} == excluded
+
+        carried_report, _audit, carried_stores = self._pass(
+            spec, tmp_path, "carried", ledger=excluding, read_dir=admitted_stores, **shared
+        )
+        assert carried_report.positions_compared == 0
+        tags = _cache_position_tags(oracle_cache.store_path(carried_stores, "default"))
+        assert {index for index, tag in enumerate(tags) if tag == "?"} == _cache_renewed(
+            len(rows), 1
+        ) | excluded
+
+        again_report, again_audit, _ = self._pass(
+            spec, tmp_path, "again", ledger=admitting, read_dir=carried_stores, **shared
+        )
+        assert again_audit.read_bytes() == fresh_audit.read_bytes()
+        assert again_report.positions_served == len(rows) - len(
+            _cache_renewed(len(rows), 1) | _cache_renewed(len(rows), 2) | excluded
+        )
 
     def test_a_served_oracle_writes_the_audit_a_cold_one_writes(self, spec, tmp_path):
         """The whole correctness claim in one arm: a pass that took its verdicts off the previous pass's store writes the byte-identical `divergence-audit.tsv` a cold pass writes, and sends home a tally equal in every field — the counts, the exemplars and the unmatched rows they quote included. The uncached path runs beside them as the third witness, because the claim is not that the two cached passes agree with each other but that neither of them moved the file."""
@@ -916,10 +1236,6 @@ class TestOracleRowCache:
 
     def test_incremental_equals_from_scratch_after_a_real_rune_edit(self, spec, tmp_path):
         """The served claim end to end, over an edit that genuinely moves settlement: ·Tea gains a preference for its half stance before ·May, which changes what the ·Tea·May row settles to and nothing else. A pass that carries the previous store across that edit has to write the audit a pass that never saw a store writes over the same edited spec — so a store that served the changed row, or a rune edit whose reach the mask under-counts, fails here rather than shipping a stale verdict into a fingerprinted artifact."""
-        import dataclasses
-
-        from rebuild.pipeline import model
-
         tables, aliases, stamps, configs = self._bench(tmp_path)
         ledger = tmp_path / "ledger.yaml"
         ledger.write_text("[]\n")
@@ -928,16 +1244,7 @@ class TestOracleRowCache:
         )
         _cold, cold_audit, cold_stores = self._pass(spec, tmp_path, "cold", keys=self._keys(spec), **shared)
 
-        tea = spec.runes["qsTea"]
-        prefer = model.PolicyRecord(
-            kind="prefer",
-            stance="half",
-            mode="absolute",
-            when=model.When(right=model.Condition(family=("qsMay",))),
-        )
-        runes = dict(spec.runes)
-        runes["qsTea"] = dataclasses.replace(tea, policy=dataclasses.replace(tea.policy, prefer=(prefer,)))
-        edited = dataclasses.replace(spec, runes=runes)
+        edited = _tea_prefers_half_before_may(spec)
 
         keys = self._keys(spec, moved=("qsTea",))
         _carried, carried_audit, _stores = self._pass(
@@ -1666,8 +1973,109 @@ class TestSettleMemoFile:
             for combo in itertools.product(alphabet, repeat=length)
         ]
 
-    def _memo(self, tmp_path, stamp=STAMP):
-        return conform.settle_memo_files(tmp_path, stamp)["default"]
+    def _memo(self, tmp_path, stamp=STAMP, keys=None):
+        return conform.SettleMemoFile(tmp_path / "settle-memo-default.gz", stamp, dict(keys or {}))
+
+    def test_settle_memo_files_key_each_configuration_off_the_snapshot(self, spec, tmp_path):
+        inputs = oracle_cache.SettleMemoInputs(rune_digests={"qsTea": "t0"}, oracle_code="code", data="data")
+        files = conform.settle_memo_files(tmp_path, spec, inputs)
+        assert set(files) == set(conform.ACCEPTANCE_CONFIGS)
+        assert files["default"].path == tmp_path / "settle-memo-default.gz"
+        assert len({memo.stamp for memo in files.values()}) == len(files)
+        assert files["default"].family_keys == oracle_cache.settle_family_keys(inputs, spec)
+        assert conform.settle_memo_files(tmp_path, spec, None) == {}
+
+    def test_a_rune_edit_retires_only_the_entries_naming_it(self, spec, guard, tmp_path):
+        """The acceptance test for the per-family memo: a walk over the edited spec that loads the file the unedited walk wrote — under keys that name ·Tea as moved — answers exactly what a walk with no file answers, settles nothing the file still vouches for, and retires exactly the entries whose windows name ·Tea. The edit genuinely moves settlement, so a memo that served across it would answer wrong, which the first assertion is the proof of."""
+        texts = self._texts(spec)
+        keys = {name: f"{name}@0" for name in spec.registry.families}
+        first = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=self._memo(tmp_path, keys=keys))
+        before = first.walk_many(texts)
+        assert first.save_memo()
+
+        def names_tea(window) -> bool:
+            return any(conform._label_family(label) == "qsTea" for label in window)
+
+        naming = {window for window in first.windows if names_tea(window)}
+        assert 0 < len(naming) < len(first.windows)
+
+        edited = _tea_prefers_half_before_may(spec)
+        edited_guard = kernel_exec.guard_sweep(edited)
+        reference = conform._SettledWindowWalk(edited, frozenset(), {}, edited_guard)
+        expected = reference.walk_many(texts)
+        assert expected != before, "the rune edit moved no settlement"
+
+        second = conform._SettledWindowWalk(
+            edited,
+            frozenset(),
+            {},
+            edited_guard,
+            memo=self._memo(tmp_path, keys={**keys, "qsTea": "qsTea@1"}),
+        )
+        assert second.walk_many(texts) == expected
+        assert second.memo_windows == len(first.windows)
+        assert second.stale_windows == len(naming)
+        served = set(first.windows) - naming
+        fresh = set(second.windows) - served
+        assert len(fresh) == second.fresh_windows
+        assert 0 < second.fresh_windows < len(reference.windows)
+        assert all(names_tea(window) or window not in first.windows for window in fresh)
+        assert second.save_memo()
+        third = conform._SettledWindowWalk(
+            edited,
+            frozenset(),
+            {},
+            edited_guard,
+            memo=self._memo(tmp_path, keys={**keys, "qsTea": "qsTea@1"}),
+        )
+        assert third.walk_many(texts) == expected
+        assert third._settle_calls == 0 and third.stale_windows == 0
+
+    def test_a_moved_family_the_registry_cannot_place_reads_as_no_file(self, spec, guard, tmp_path):
+        texts = self._texts(spec, 2)
+        first = conform._SettledWindowWalk(
+            spec, frozenset(), {}, guard, memo=self._memo(tmp_path, keys={"qsTea": "a"})
+        )
+        first.walk_many(texts)
+        assert first.save_memo()
+        second = conform._SettledWindowWalk(
+            spec,
+            frozenset(),
+            {},
+            guard,
+            memo=self._memo(tmp_path, keys={"qsTea": "a", "qsNotInTheRegistry": "b"}),
+        )
+        second.walk_many(texts)
+        assert second.memo_windows == 0 and second.fresh_windows == len(second.windows)
+
+    def test_the_belt_prunes_what_no_text_reaches_and_the_oracle_carries_it(self, spec, guard, tmp_path):
+        """Two walks over the same file with different charters. The oracle's, which reaches only the windows of the rows it walks, writes nothing when it settled nothing and would carry every loaded entry forward if it did; the belt's, which reaches every window any text produces, prunes what it never reached — so a window an edit has orphaned leaves the file on the next sweep rather than riding it forever."""
+        memo = self._memo(tmp_path)
+        long_texts, short_texts = self._texts(spec, 3), self._texts(spec, 2)
+        first = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
+        first.walk_many(long_texts)
+        assert first.save_memo()
+        total = len(first.windows)
+        written = memo.path.read_bytes()
+
+        oracle_side = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
+        oracle_side.walk_many(short_texts)
+        touched = len(oracle_side.windows)
+        assert 0 < touched < total and oracle_side.memo_windows == total
+        assert not oracle_side.save_memo()
+        assert oracle_side.pruned_windows == 0 and memo.path.read_bytes() == written
+
+        belt_side = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
+        belt_side.walk_many(short_texts)
+        assert belt_side.save_memo(prune=True)
+        assert belt_side.pruned_windows == total - touched
+
+        third = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
+        third.walk_many(short_texts)
+        assert third.memo_windows == touched and third._settle_calls == 0
+        fourth = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
+        assert fourth.walk_many(long_texts) == first.walk_many(long_texts)
+        assert fourth.memo_windows == touched and fourth.fresh_windows == total - touched
 
     def test_the_second_walk_over_the_same_texts_never_reaches_the_crate(self, spec, guard, tmp_path):
         texts = self._texts(spec)
@@ -1836,4 +2244,4 @@ class TestSettleMemoFile:
         oracle_line = [
             line for line in capsys.readouterr().err.splitlines() if line.startswith("[t] settle_memo")
         ]
-        assert len(oracle_line) == 1 and oracle_line[0].endswith("fresh=0 written=no")
+        assert len(oracle_line) == 1 and oracle_line[0].endswith("fresh=0 pruned=0 written=no")

@@ -3379,6 +3379,15 @@ def test_oracle_cache_note_speaks_the_labels_a_skip_miss_actually_reports():
     )
     note = ac.oracle_cache_note(f"{rune} (changed), {code} (changed)")
     assert note is not None and note.startswith("the oracle row cache drops whole")
+    for positional in ("rebuild/pipeline/oracle.py", "glyph_data/senior_quikscript_kerning.yaml", "uv.lock"):
+        assert (
+            ac.oracle_cache_note(f"{positional} (changed)")
+            == f"the oracle row cache keeps its rows and re-shapes every position: {positional} is inside its position stamp"
+        )
+    note = ac.oracle_cache_note(f"{rune} (changed), rebuild/pipeline/oracle.py (changed)")
+    assert note is not None and note.startswith("the oracle row cache keeps its rows")
+    note = ac.oracle_cache_note(f"{code} (changed), rebuild/pipeline/oracle.py (changed)")
+    assert note is not None and note.startswith("the oracle row cache drops whole")
     assert ac.oracle_cache_note("rebuild/m1-divergences.yaml (changed)") is None
     assert ac.oracle_cache_note(f"{rune} (changed) and 4 more") is None
     assert ac.oracle_cache_note(None) is None

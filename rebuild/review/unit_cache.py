@@ -1,6 +1,6 @@
 """The persisted per-unit surface cache (issue 20): the review build's phase-1/phase-2 products carried across builds, keyed by per-unit content keys, so a one-rune edit re-enriches the windows that could feel it and serves everything else from the previous surface's shards.
 
-A unit's expensive products — the ink diffs and machine-approval flags, the enrichment (cells, seams, highlights, explain, provenance), and the three drafts, of which a machine-approved or verdict-exempt unit's fragment carries only the first half (`audit.slim_fragment`: it omits the highlight, the explain and the drafts outright, since nothing under them reaches a reviewer) — are a pure function of a nameable closure, and the cache's soundness is exactly the claim that the content key covers that closure. The key is two-grained: per unit, the audit rows (which pin the window, its configs, both fonts' rendered names, and the matched ledger classes) plus a per-family digest for every window letter — the family's explain-aware rune digest expanded by its static `resolve.against` closure, joined with a digest of the after font's compiled glyphs for that family (outlines, advances, and cursive anchors, so a drawing or anchor change invalidates even when no name in the rows moves) — with ligature families included whenever all their components appear in the window. Whole store, everything that can move a unit's products without moving a named family: the code the surface build runs (`surface_code_paths` — the review modules the build imports, the pipeline and validation modules those reach, and the crate modules the `settle-cases` and `guard-sweep` verbs run, a walked closure rebuild/test_review_code_closure.py holds the rosters to, so an edit to the driver, a gate, the oracle, the font compile or the crate's enumeration and fold keeps the store), the non-rune data files, the engine's semantics flags, the resolved spec structure and capability-feature universe (cross-rune routes: predicate-class and group memberships, ligature sequences, the formation guard's feature combos), the before and Junior fonts wholesale, the acceptance configs' subset tables, the draft harness (test/test_shaping.py, tools/, postscript_glyph_names.yaml) and the three site corpus files it validates pins against, and the after font's non-family glyphs, cmap, and GPOS wiring. What is deliberately outside every stamp is the after font's GSUB wiring; `after_font_glyph_digests` carries the argument for why a window's glyph selection is covered without it. The divergence ledger is deliberately not in the store stamp: its per-unit effects reach the shards only through the audit's matched_entry column (in the rows) or through fields the build re-derives and re-patches on every pass (no_verdict, exemplar, class promotion), so a ledger edit invalidates exactly the units whose rows it moved. The refuse prose the explain panel quotes is deliberately not in the store stamp either, for the same reason it is in the family keys: rewording one re-enriches the windows holding that family and leaves every other unit served.
+A unit's expensive products — the ink diffs and machine-approval flags, the enrichment (cells, seams, highlights, explain, provenance), and the three drafts, of which a machine-approved or verdict-exempt unit's fragment carries only the first half (`audit.slim_fragment`: it omits the highlight, the explain and the drafts outright, since nothing under them reaches a reviewer) — are a pure function of a nameable closure, and the cache's soundness is exactly the claim that the content key covers that closure. The key is two-grained: per unit, the audit rows (which pin the window, its configs, both fonts' rendered names, and the matched ledger classes) plus a per-family digest for every window letter — the family's explain-aware rune digest expanded by its static `resolve.against` closure, joined with a digest of the after font's compiled glyphs for that family (outlines, advances, and cursive anchors, so a drawing or anchor change invalidates even when no name in the rows moves) — with ligature families included whenever all their components appear in the window. Whole store, everything that can move a unit's products without moving a named family: the code the surface build runs (`surface_code_paths` — the review modules the build imports, the pipeline and validation modules those reach, and the crate modules the `settle-cases` and `guard-sweep` verbs run, a walked closure rebuild/test_review_code_closure.py holds the rosters to, so an edit to the driver, a gate, the oracle, the font compile or the crate's enumeration and fold keeps the store), the non-rune data files, the engine's semantics flags, the resolved spec structure and capability-feature universe (cross-rune routes: predicate-class and group memberships, ligature sequences, the formation guard's feature combos), the before and Junior fonts wholesale, the acceptance configs' subset tables, the draft harness (test/test_shaping.py, tools/, postscript_glyph_names.yaml) and the three site corpus files it validates pins against, and the after font's non-family glyphs, cmap, and GPOS wiring. What is deliberately outside every stamp is the after font's GSUB wiring; `fingerprint.after_font_glyph_digests` carries the argument for why a window's glyph selection is covered without it. The divergence ledger is deliberately not in the store stamp: its per-unit effects reach the shards only through the audit's matched_entry column (in the rows) or through fields the build re-derives and re-patches on every pass (no_verdict, exemplar, class promotion), so a ledger edit invalidates exactly the units whose rows it moved. The refuse prose the explain panel quotes is deliberately not in the store stamp either, for the same reason it is in the family keys: rewording one re-enriches the windows holding that family and leaves every other unit served.
 
 What the store serves is the previous build's emitted fragment (read back from the shard it lives in, at the address the record carries — the part, byte offset and length the shard writer handed back as it wrote the fragment, so the plan trusts an address rather than parsing the previous surface to find one, and the fragment is parsed once, at the write, where `PriorFragmentReader` holds the bytes at that address to the record's id and stamp) plus the slim projection the parent's global reduces need: the machine flags and ink deltas, the verdict family, the judged pair, the ink-diff digest for echo grouping, the seam-home projection and per-seam rects, and the unit's mismatch lines — and whether the fragment was written slim, because the shape a build writes turns on the exemption, a ledger fact outside the key. So a unit that crosses from machine-approved-or-exempt into the human workload on a ledger edit (no_verdict flipping) is a miss and is re-enriched in full rather than served the slim fragment it earned before the edit, and one crossing the other way is a miss too, so a served surface stays byte-identical to a from-scratch one. Everything order-derived or ledger-derived — id, batch, echo, class, no_verdict, exemplar, the secondary-seam homes — is recomputed over the full universe every build and patched into every fragment by address as its shard is written, a fresh one out of the build's own spool (drafted the moment its unit was enriched, with those fields as placeholders) exactly as a served one out of the previous surface, so a cache hit never freezes a global field and the two kinds of unit take one write path; the cluster id alone is trusted from the served fragment, because its inputs (configs, final class, ink diffs) are all under the key. The byte-identity gate (rebuild/test_unit_cache.py::test_incremental_rebuild_matches_a_from_scratch_build_after_an_edit) is the standing proof: an incrementally rebuilt live surface must match a from-scratch build byte for byte.
 
@@ -80,85 +80,6 @@ def _manifest_stamp(out_dir: Path) -> str:
         return unit_index.manifest_sha256(Path(out_dir))
     except OSError:
         return "missing"
-
-
-def _cursive_anchor_map(font) -> dict[str, list]:
-    """Per glyph, the cursive-attachment geometry the after font positions it by: one (lookup index, entry, exit) triple per CursivePos record naming it, anchors as [x, y] or None. GPOS is the one channel a compiled glyph's rendering reads outside its charstring and advance, so it belongs in the per-glyph digest."""
-    anchors: dict[str, list] = {}
-    if "GPOS" not in font:
-        return anchors
-    lookup_list = font["GPOS"].table.LookupList  # pyright: ignore[reportAttributeAccessIssue]
-    if lookup_list is None:
-        return anchors
-    for index, lookup in enumerate(lookup_list.Lookup):
-        for subtable in lookup.SubTable:
-            if lookup.LookupType == 9:
-                subtable = subtable.ExtSubTable
-            if getattr(subtable, "LookupType", lookup.LookupType) != 3:
-                continue
-            glyphs = subtable.Coverage.glyphs
-            for name, record in zip(glyphs, subtable.EntryExitRecord):
-                entry = record.EntryAnchor
-                exit_anchor = record.ExitAnchor
-                anchors.setdefault(name, []).append(
-                    (
-                        index,
-                        None if entry is None else [entry.XCoordinate, entry.YCoordinate],
-                        None if exit_anchor is None else [exit_anchor.XCoordinate, exit_anchor.YCoordinate],
-                    )
-                )
-    return anchors
-
-
-def after_font_glyph_digests(after_font: Path) -> tuple[dict[str, str], str]:
-    """Per qs family, a digest over the after font's compiled glyphs whose name stem belongs to it (decomposed outline operations, so subroutine plumbing can never hide a change; advance and sidebearing; cursive anchors), plus one environment digest over everything else the shaped run can touch regardless of family: the non-qs glyphs (boundary and marker helpers), the cmap, and the GPOS feature-to-lookup wiring.
-
-    The GSUB wiring is deliberately not in the environment digest, and it is the one omission worth arguing. A rune edit moves the GSUB lookup list on essentially every cycle, so folding it in here made both whole-store stamps move on exactly the workflow the cache exists for — a store that never once served a unit. What covers a window's glyph selection instead is a pair of things already in the keys: the audit row's `new` column, which is the settled cell the window resolves to and which the per-unit and per-signature keys both hash, and `gate:conform`, which re-shapes the compiled font through HarfBuzz every cycle and proves its selection is the settlement's. So within a cycle whose conform gate is green, which glyph the after font puts in a window is a function of that window's settled cells, and those cells cannot move without the unit's key moving. Everything the selected glyph then contributes — outline, advance, cursive anchors — is in the per-family digests, for every variant of every family the window can reach rather than only the selected one, and the code that emits the GSUB at all is in the environment stamp's pipeline fingerprint. GPOS stays because its channel is positional: it can move a run without moving a name or a cell.
-    """
-    from fontTools.pens.recordingPen import DecomposingRecordingPen
-    from fontTools.ttLib import TTFont
-
-    font = TTFont(str(after_font))
-    glyph_set = font.getGlyphSet()
-    metrics = font["hmtx"].metrics  # pyright: ignore[reportAttributeAccessIssue]
-    anchors = _cursive_anchor_map(font)
-    per_glyph: dict[str, str] = {}
-    for name in sorted(glyph_set.keys()):
-        pen = DecomposingRecordingPen(glyph_set)
-        glyph_set[name].draw(pen)
-        payload = repr((name, tuple(pen.value), metrics.get(name), anchors.get(name)))
-        per_glyph[name] = hashlib.sha256(payload.encode()).hexdigest()
-
-    families: dict[str, list[str]] = {}
-    helper_lines: list[str] = []
-    for name in sorted(per_glyph):
-        stem = name.split(".")[0]
-        if stem.startswith("qs"):
-            families.setdefault(stem, []).append(f"{name}\t{per_glyph[name]}")
-        else:
-            helper_lines.append(f"{name}\t{per_glyph[name]}")
-
-    family_digests = {
-        stem: hashlib.sha256("\n".join(lines).encode()).hexdigest() for stem, lines in families.items()
-    }
-
-    wiring: list = []
-    for tag in ("GPOS",):
-        if tag not in font:
-            continue
-        table = font[tag].table  # pyright: ignore[reportAttributeAccessIssue]
-        features = [
-            (record.FeatureTag, list(record.Feature.LookupListIndex))
-            for record in (table.FeatureList.FeatureRecord if table.FeatureList else ())
-        ]
-        types = [lookup.LookupType for lookup in (table.LookupList.Lookup if table.LookupList else ())]
-        wiring.append((tag, features, types))
-    helper_lines.append(
-        "cmap\t" + hashlib.sha256(repr(sorted((font.getBestCmap() or {}).items())).encode()).hexdigest()
-    )
-    helper_lines.append("layout\t" + hashlib.sha256(repr(wiring).encode()).hexdigest())
-    helpers = hashlib.sha256("\n".join(helper_lines).encode()).hexdigest()
-    return family_digests, helpers
 
 
 # The rebuild/pipeline modules the surface build never imports: the driver, the defect and Manual-pin gates it runs, the baseline oracle, the GPOS emitter, the GSUB packer, read-back, the font compile, the CoreText smoke and the cell enumeration the driver realizes glyphs from. Every other pipeline module is in build.py's walked import closure and rides `surface_code_paths`. An exclusion roster rather than an inclusion one, so a module that lands in the tree is hashed until rebuild/test_review_code_closure.py says the build never reaches it.
@@ -258,7 +179,7 @@ def family_content_keys(repo_root: Path, spec: ResolvedSpec, after_font: Path) -
     """Per family (bare letters and ligature runes alike), the digest a window's content key cites for it: the family's explain-aware rune digest — prose-blind but for the refuse `why` the served explain text quotes — joined with the digests of its static `resolve.against` closure, the one route by which its records read another rune file directly, and the after font's compiled-glyph digest for the family. Returns the family keys plus the after font's helpers digest for the environment stamp."""
     digests = fingerprint.rune_explain_digests(Path(repo_root))
     closure = spec_load.rune_closure(spec)
-    glyph_digests, helpers = after_font_glyph_digests(after_font)
+    glyph_digests, helpers = fingerprint.after_font_glyph_digests(after_font)
     keys: dict[str, str] = {}
     for name in sorted(set(digests) | set(glyph_digests)):
         reach = sorted({name} | set(closure.get(name, frozenset())))
