@@ -4,7 +4,7 @@ description: Lengthen or shorten one already-joining rebuild pair by N pixels �
 argument-hint: "[·X·Y] [by N] [baseline|x-height]"
 ---
 
-A pixel change on one already-joining rebuild pair. The record lives on a rune under `glyph_data/runes/`, not in `glyph_data/quikscript.yaml` (that file's `derive.extend_*` / `contract_*` is the old font; AGENTS.md's "How to do simple changes" is the analogue there). Opening a join that currently breaks is a different task.
+A pixel change on one already-joining rebuild pair. The record lives on a rune under `glyph_data/runes/`, not in `glyph_data/quikscript.yaml` (that file's `derive.extend_*` / `contract_*` is the old font; the tweak-an-old-font-join skill is the analogue there). Opening a join that currently breaks is a different task.
 
 `rebuild/schema/rune.schema.json` (`extendRecord`, `contractRecord`) is the record shape. Never author `why:` — AGENTS.md. If the named family has more than one variant on the relevant axis, stop and ask before editing (same letter-name rule).
 

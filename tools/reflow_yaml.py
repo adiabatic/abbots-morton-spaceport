@@ -1,6 +1,6 @@
 """Reflow the data YAML to the project's flow-vs-block style rules.
 
-Two policies live here (see AGENTS.md → YAML files → Formatting). `glyph_data/quikscript.yaml` keeps the width rule: a mapping or list stays inline (flow style) while the whole line fits within 100 columns; past that, the outermost flow collection on the line breaks into block style and the rule re-applies to the resulting lines. The break is at the *outermost* collection because YAML forbids a block collection nested inside a flow one — once any child must be block, its whole map goes block too.
+Two policies live here. `glyph_data/quikscript.yaml` keeps the width rule: a mapping or list stays inline (flow style) while the whole line fits within 100 columns; past that, the outermost flow collection on the line breaks into block style and the rule re-applies to the resulting lines. The break is at the *outermost* collection because YAML forbids a block collection nested inside a flow one — once any child must be block, its whole map goes block too.
 
 The rune files under `glyph_data/runes/` use a structural rule instead: every collection is block style, except three leaf shapes that stay flow — an empty collection (`{}` or `[]`), a single-key mapping whose value is a scalar (`{family: qsDay_qsUtter}`), and a pair of numbers (`[1, 1]`). Width never enters the structural rule, so an edit can't flip a neighboring collection's style and diffs stay local to the changed values.
 

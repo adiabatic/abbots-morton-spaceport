@@ -15,7 +15,7 @@ The design calls are the user's. Where the old record forks — which bitmaps be
 - A rune is gated on its ductus: every stance names a motion, and any motion prose not carried byte-for-byte from the old YAML gets `# DRAFT — pending author sign-off` on its key line.
 - Behavior ground truth outranks a literal reading of the old YAML: when they disagree, transcribe faithfully and let the gates arbitrate — divergences land in the ledger with evidence, never as silent spec edits.
 - Never commit without approval; at the commit point, spawn a fresh sub-agent for commit-message suggestions. Subject `Add ·X`; the body describes how the letters now look and join, not the mechanism.
-- Detach the long steps (`nohup … > tmp/… 2>&1 &`, `caffeinate -i`) and never single-thread pytest — AGENTS.md carries the exact traps and the liveness-watching recipe.
+- Detach the long steps and never single-thread pytest — `doc/running-long-steps.md` carries the detach recipe and the hung-run traps, and `doc/parallelism.md` the width rules.
 
 ## 0 — orient
 

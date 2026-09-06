@@ -44,7 +44,7 @@ The owner works in VS Code, where AskUserQuestion previews are a poor surface fo
 
 ### Interview-style learning (how to ask the owner)
 
-The owner is, by design, not steeped in the schema’s internal machinery — that is the whole reason this documentation exists. So interview questions must **not** themselves lean on unexplained concepts. When the owner’s judgment is needed, anchor the question on something they already know (a join they author by hand, a ·X·Y outcome, a term from `CLAUDE.md`’s “How to do simple changes”) and, where possible, have them **react to a real drafted description** rather than answer an abstract meta-question. Show, don’t quiz.
+The owner is, by design, not steeped in the schema’s internal machinery — that is the whole reason this documentation exists. So interview questions must **not** themselves lean on unexplained concepts. When the owner’s judgment is needed, anchor the question on something they already know (a join they author by hand, a ·X·Y outcome, a term from the tweak-an-old-font-join skill) and, where possible, have them **react to a real drafted description** rather than answer an abstract meta-question. Show, don’t quiz.
 
 Corollary (learned at q11): **plain beats precise-but-dense.** For an abstract field, three dead-simple sentences land where one technically-exact, term-stacked sentence reads as word salad. When a draft piles up jargon (`off-convention`, `binding mechanisms`, `opt out`, `suppress the check`), cut it to how you’d say it out loud.
 

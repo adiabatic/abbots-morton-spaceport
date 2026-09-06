@@ -52,7 +52,7 @@ The machinery sorts every visible leak into **bad** (a real defect — a dangle)
 
 ### When a gate complains
 
-- **`make test` (every run) fails with “NEW bad isolation leak(s)”.** A change you made grew a dangle. Either fix it — make the break-facing edge subtractive (or revert it) for that one context, using the levers in the “How to do simple changes” section of `CLAUDE.md` — or, if you decide the new bad leak is actually acceptable, re-bless (next bullet) so it joins the backlog. Resolving an _existing_ backlog entry never fails the gate; it just prints a “nice — re-bless” notice.
+- **`make test` (every run) fails with “NEW bad isolation leak(s)”.** A change you made grew a dangle. Either fix it — make the break-facing edge subtractive (or revert it) for that one context, using the levers in the tweak-an-old-font-join skill (`.claude/skills/tweak-an-old-font-join/SKILL.md`) — or, if you decide the new bad leak is actually acceptable, re-bless (next bullet) so it joins the backlog. Resolving an _existing_ backlog entry never fails the gate; it just prints a “nice — re-bless” notice.
 - **`make test-leaks` (the deep, ≈1-minute gate) fails on the benign census.** The set of benign variation shifted. This is informational, never a defect on its own — but look at the diff so you _notice_ the organic-variation set moving, then re-bless.
 - **Re-bless after any intended change:** `make leak-snapshot` regenerates both files. Always `git diff` them before committing — that diff is the whole point of the gate, and reviewing it is your job.
 
