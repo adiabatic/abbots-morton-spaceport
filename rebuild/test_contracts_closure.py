@@ -544,7 +544,7 @@ def test_hermetic_git_child():
 
 def test_kernel_child():
     kernel = Path(__file__).parent / "ams-m1-kernel"
-    kernel.write_text("#!/bin/sh\nexit 0\n")
+    kernel.write_text("#!/bin/sh\\nexit 0\\n")
     kernel.chmod(0o755)
     subprocess.run([str(kernel)], check=True)
 
