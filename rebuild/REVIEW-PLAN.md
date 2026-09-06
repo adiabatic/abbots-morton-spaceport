@@ -49,7 +49,9 @@ The render unit is the deduped triple: (`codepoints`, `baseline`, `new`) — one
 
 **Ink-identical machine approval (`ink.py`)**: at build time every unit is shaped in both shipped fonts under every config in its set (uharfbuzz via `rebuild.validation.shaping.Shaper`, kern-neutral per the rule above); each glyph’s outline is recorded with fontTools’ `DecomposingRecordingPen` and placed at the cumulative `x_advance` plus the glyph’s `x_offset`/`y_offset`. The verdict is `config_diff`’s identity sentinel: the two placed runs are aligned from both ends and the middles multiset-subtracted, and a unit whose localized delta is empty with no follower shift under **every** config is `ink_identical: true` — both fonts render it pixel-identically, only glyph names differ, so no human judgment is meaningful and the build machine-approves it. The sentinel implies the sorted-placed-pieces comparison the census originally ran; that retired formulation is held equal by a property test in `rebuild/test_review_ink.py`. The census is reproduced by every build and recorded as the last accepted census in `rebuild/review-census-pins.json`; the live totals — machine-approved units and rows, per class and per channel — are the manifest’s `machine_approved` record. In table-diff mode the same comparison runs over each entry’s witness string under its config; a witnessless entry has no renderable text to shape, so it cannot be proven ink-identical and stays `ink_identical: false` in the human workload.
 
-**Batches cover the human workload only**: fixed slices of 300 non-ink-identical units in triage order, computed at generation time after the ink pass and recorded in the manifest. Ink-identical units carry `batch: null` and are never paged to a human; the manifest carries a separate `machine_approved` record (units, rows, the verification-method one-liner, per-class counts) and each class’s `machine_approved_count`, so sidebar counts, batch labels, and progress denominators count the human workload while the machine-approved total stays one click away, in the header strip’s surface-totals popover.
+**A unit's id is its content**: `unit_cache.unit_id_for` over the carry content key — the sha256 of the unit's carry projection (its non-presentation fields, `unit_cache.carry_projection`), truncated to its first 64 bits and spelled in base58 with the Bitcoin alphabet (`123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz`: the digits and both cases minus 0, O, I and l), case-significant, eleven symbols zero-padded, behind the `u-` prefix: `u-3mJ7kPq2Xw9`. Ordering is not identity: the id says nothing about where the unit sits in the queue, so the same window carries the same id on every surface it appears on, a fragment's bytes depend on its own content and the ledger alone, and a verdict follows its unit across rebuilds by id (`rebuild/tools/carry_verdicts.py`). Echo groups take their ids the same way from their own key (`unit_cache.echo_id_for`), and cluster ids are hashes of their inputs already. Within a class shard, fragments sit in id order, which is the order the app's locator binary-searches.
+
+**Batches cover the human workload only**: the manifest's `human_unit_ids` is the triage index — every unit no machine channel approves and no ledger class exempts, in triage order — and a batch is a fixed slice of 300 of it, `audit.batch_of` being the one rule that turns a position into a batch number. No fragment carries its position or its batch: the app-index rows (§7.4) carry each human unit's `order` and `batch`, and the machine-approved and no-verdict units are outside the index and never paged to a human. The manifest carries a separate `machine_approved` record (units, rows, the verification-method one-liner, per-class counts) and each class’s `machine_approved_count`, so sidebar counts, batch labels, and progress denominators count the human workload while the machine-approved total stays one click away, in the header strip’s surface-totals popover.
 
 ### 2.2 Encoding: sharded JSON, everything precomputed
 
@@ -96,7 +98,7 @@ Design stance per the frontend doc’s pre-coding questions — Purpose: a one-p
 
 ### 3.3 URL state (and what stays out of it)
 
-View state lives in `location.hash` as `URLSearchParams`, tables.html-style (`parseHash` / `writeHash` / single `applyHashState` renderer with rendered-state memos, `hashchange`-driven): `#class=…&batch=N&unit=u-NNNN&group=qsTea:qsOy&config=ss03&family=qsMay&status=unverdicted`. Filters: class, family (either side of the pair), config, verdict status. Every view is bookmarkable; reloading mid-batch returns to the exact cursor.
+View state lives in `location.hash` as `URLSearchParams`, tables.html-style (`parseHash` / `writeHash` / single `applyHashState` renderer with rendered-state memos, `hashchange`-driven): `#class=…&batch=N&unit=u-3mJ7kPq2Xw9&group=qsTea:qsOy&config=ss03&family=qsMay&status=unverdicted`. Filters: class, family (either side of the pair), config, verdict status. Every view is bookmarkable; reloading mid-batch returns to the exact cursor.
 
 **Verdicts are not in the URL and not in localStorage.** They are held in an in-memory `Map` keyed by unit id, with an explicit export channel: a “Download verdicts.json” button emitting the §4.1 format, and a re-import control (file picker) that merges by unit id and warns when the file’s `manifest_generated_at` doesn’t match the loaded manifest. In-progress work is not lost to a reload: the store debounce-POSTs to the serve script’s `/autosave` endpoint, and every write is journaled — see the README’s triage-flow section. The `beforeunload` warning and the unexported-count nudge remain the fallback for when autosave is unavailable.
 
@@ -115,8 +117,8 @@ All three drafts are precomputed per unit by `drafts.py` at generation time and 
   "manifest_generated_at": "2026-06-10T17:02:11Z",
   "exported_at": "2026-06-10T18:40:02Z",
   "verdicts": [
-    {"unit": "u-0412", "verdict": "approve", "note": "", "at": "2026-06-10T18:21:09Z"},
-    {"unit": "u-0413", "verdict": "reject", "note": "seam looks reached-for", "at": "2026-06-10T18:21:40Z"}
+    {"unit": "u-3mJ7kPq2Xw9", "verdict": "approve", "note": "", "at": "2026-06-10T18:21:09Z"},
+    {"unit": "u-8nacGTcgMRS", "verdict": "reject", "note": "seam looks reached-for", "at": "2026-06-10T18:21:40Z"}
   ]
 }
 ```
@@ -133,7 +135,7 @@ review:
   counts: {approve: …, reject: …, either: …, identical: …, neither: …, skip: …, units_total: …, rows_covered: …}
 
 pins:                       # one per approved unit — thumbs-up drafts a whole-word data-expect pin
-  - unit: u-0412
+  - unit: u-3mJ7kPq2Xw9
     codepoints: "200C:E652:E679"
     text_entities: "&#x200C;&#xE652;&#xE679;"
     expect: "◊ZWNJ ·Tea+Oy"
@@ -145,7 +147,7 @@ pins:                       # one per approved unit — thumbs-up drafts a whole
     note: ""
 
 policy_edits:               # one per rejected unit — thumbs-down drafts the one-line refuse/contract/prefer edit; rejects with no mechanical draft still appear, with keypath/suggested_record null and a no_mechanical_draft note
-  - unit: u-0413
+  - unit: u-8nacGTcgMRS
     codepoints: "E650:E665"
     file: glyph_data/runes/qsMay.yaml
     keypath: policy.refuse[+]               # [+] = append to the list
@@ -157,7 +159,7 @@ policy_edits:               # one per rejected unit — thumbs-down drafts the o
     schema_valid: true
 
 any_of:                     # one per fine-either-way unit — both behaviors as full expect strings
-  - unit: u-0501
+  - unit: u-DdcTojn1hba
     text: "qsPea qsOwe qsMay"               # _qs_text-ready family tokens
     features: {}
     candidates:
@@ -167,7 +169,7 @@ any_of:                     # one per fine-either-way unit — both behaviors as
     note: ""
 
 neither:                    # one per neither-verdicted unit — both behaviors look wrong; nothing automatic is drafted
-  - unit: u-0533
+  - unit: u-2WvdGAWe6bX
     codepoints: "E652:200C:E652:E679"
     notation: "·Tea ◊ZWNJ ·Tea·Oy"
     note: "both joins look wrong; needs a fresh stance"
@@ -175,7 +177,7 @@ neither:                    # one per neither-verdicted unit — both behaviors 
       - glyph_data/runes/qsTea.yaml:policy.extend[0]
 
 identical:                  # one per identical-verdicted unit — the reviewer cannot see the flagged difference; nothing is drafted
-  - unit: u-0540
+  - unit: u-hRgMc2EJjbs
     codepoints: "E665:E679"
     notation: "·May·Oy"
     note: "the highlighted joins look the same to me"
@@ -271,8 +273,7 @@ Types: `shards` is a nonempty list of the class’s parts in concatenation order
 
 ```json
 {
-  "id": "u-0412",
-  "batch": 1,
+  "id": "u-3mJ7kPq2Xw9",
   "ink_identical": false,
   "class": "marker-staging-ligature-formation",
   "group": "qsTea:qsOy",
@@ -305,7 +306,7 @@ Types: `shards` is a nonempty list of the class’s parts in concatenation order
 }
 ```
 
-Field semantics: `secondary_seams` is optional (`null` or absent when the unit has no visible secondary seam, and never present on machine-approved units): a list of `{pair: {left, right}, before: rect, after: rect, home: "u-NNNN" | null}` entries per the §2.2 resolution rules, with rects in the same font-unit form as `highlight`; `ink_identical` is required on every unit in both modes (the contract checker enforces it); when true the unit is machine-approved, `batch` is `null`, and the frontend shows it only behind the “Show machine-approved” toggle with verdict controls disabled; on every machine-approved unit and every unit of a no-verdict class (`audit.slim_fragment`) the fragment is slim — `explain`, `drafts` and `highlight` (`audit.SLIM_OMITTED_KEYS`) are absent rather than null, so the app can tell a slim fragment from a whole record with a blank field — and `check_unit` refuses the opposite in both directions, so a human unit is never without its explain material and a slim unit never carries any of it; `text_entities` is the rendered run as numeric character references (never raw PUA — the frontend injects it with `innerHTML` into the sample cells only); `seams` arrays have one entry per inter-glyph gap (`break`, `lig`, or `yN`); `diff_positions` are glyph indices whose cell or trailing seam diverges; `pair` is the primary divergent adjacency to highlight (`null` for single-position divergences with no seam change); `pair_codepoints` is the primary pair’s covered codepoint-position span as an inclusive `[start, end]` (`null` exactly when `pair` is null) — computed at build time because ligatures make cell indices diverge from codepoint positions — and `notation_tokens` is the display-token list aligned one-to-one with codepoint positions (letter names like `·May` plus the boundary tokens `◊ZWNJ`/`␣`/`·`), such that joining them under the notation spacing rule (letters concatenate, boundary tokens take a space on each side) reproduces `notation` exactly; the frontend uses the two together to underline the pair on the notation and codepoints text lines; `highlight` x-values and `boundary_marks[].x` are in font units — the frontend converts with `font-size / upem`; `config_gate` is null for the general case (the set covers every non-ss10 config) and for a set no short conjunction pins, and otherwise the §2.1 clause list, each clause `{feature, state, text}` with `state` one of `on`/`off`; `config_note` is exactly the clause `text`s joined by spaces (the contract checker enforces that), or the literal “only under: …” fallback when the gate is null — the frontend draws one chip per clause and renders each `text` verbatim, falling back to a single unattributed chip carrying `config_note`; `render_groups` partitions `configs` by rendered-outcome identity — exactly one group under the M1 dedupe key, with any extra group rendered as a stacked before/after pair under its own feature settings; `summary` is the always-visible one-line prose summary in rune-name notation; `explain` is display-only preformatted text; `stylistic_set` is `null` or the space-separated zero-padded form (`"02 05"`); `content_key` (m1-audit mode, required) is the build-time stamp of the unit's carry identity — the sha256 of the presentation-free projection defined in `rebuild/review/unit_cache.py` — so `rebuild/tools/carry_verdicts.py` resolves prior verdicts by hash probe instead of re-serializing every unit, and older, unstamped surfaces hash to the same value; all strings are NFC, all keys snake_case. The fixture shard under `rebuild/review/fixtures/` contains about six hand-written units exercising every branch (multi-config, ZWNJ, namer dot, ligation, `pair: null`, a `duplicate_of` pin), and the contract checker in `test_review_build.py` validates fixtures and real output identically.
+Field semantics: `secondary_seams` is optional (`null` or absent when the unit has no visible secondary seam, and never present on machine-approved units): a list of `{pair: {left, right}, before: rect, after: rect, home: <unit id> | null}` entries per the §2.2 resolution rules, with rects in the same font-unit form as `highlight`; `ink_identical` is required on every unit in both modes (the contract checker enforces it); when true the unit is machine-approved, outside the manifest's `human_unit_ids` index, and the frontend shows it only behind the “Show machine-approved” toggle with verdict controls disabled; on every machine-approved unit and every unit of a no-verdict class (`audit.slim_fragment`) the fragment is slim — `explain`, `drafts` and `highlight` (`audit.SLIM_OMITTED_KEYS`) are absent rather than null, so the app can tell a slim fragment from a whole record with a blank field — and `check_unit` refuses the opposite in both directions, so a human unit is never without its explain material and a slim unit never carries any of it; `text_entities` is the rendered run as numeric character references (never raw PUA — the frontend injects it with `innerHTML` into the sample cells only); `seams` arrays have one entry per inter-glyph gap (`break`, `lig`, or `yN`); `diff_positions` are glyph indices whose cell or trailing seam diverges; `pair` is the primary divergent adjacency to highlight (`null` for single-position divergences with no seam change); `pair_codepoints` is the primary pair’s covered codepoint-position span as an inclusive `[start, end]` (`null` exactly when `pair` is null) — computed at build time because ligatures make cell indices diverge from codepoint positions — and `notation_tokens` is the display-token list aligned one-to-one with codepoint positions (letter names like `·May` plus the boundary tokens `◊ZWNJ`/`␣`/`·`), such that joining them under the notation spacing rule (letters concatenate, boundary tokens take a space on each side) reproduces `notation` exactly; the frontend uses the two together to underline the pair on the notation and codepoints text lines; `highlight` x-values and `boundary_marks[].x` are in font units — the frontend converts with `font-size / upem`; `config_gate` is null for the general case (the set covers every non-ss10 config) and for a set no short conjunction pins, and otherwise the §2.1 clause list, each clause `{feature, state, text}` with `state` one of `on`/`off`; `config_note` is exactly the clause `text`s joined by spaces (the contract checker enforces that), or the literal “only under: …” fallback when the gate is null — the frontend draws one chip per clause and renders each `text` verbatim, falling back to a single unattributed chip carrying `config_note`; `render_groups` partitions `configs` by rendered-outcome identity — exactly one group under the M1 dedupe key, with any extra group rendered as a stacked before/after pair under its own feature settings; `summary` is the always-visible one-line prose summary in rune-name notation; `explain` is display-only preformatted text; `stylistic_set` is `null` or the space-separated zero-padded form (`"02 05"`); `content_key` (m1-audit mode, required) is the build-time stamp of the unit's carry identity — the sha256 of the presentation-free projection defined in `rebuild/review/unit_cache.py` — so `rebuild/tools/carry_verdicts.py` resolves prior verdicts by hash probe instead of re-serializing every unit, and older, unstamped surfaces hash to the same value; all strings are NFC, all keys snake_case. The fixture shard under `rebuild/review/fixtures/` contains about six hand-written units exercising every branch (multi-config, ZWNJ, namer dot, ligation, `pair: null`, a `duplicate_of` pin), and the contract checker in `test_review_build.py` validates fixtures and real output identically.
 
 ### 7.3 `verdicts.json`
 
@@ -313,7 +314,7 @@ As in §4.1 — produced by `verdicts.js`, consumed by `export.py`; the round-tr
 
 ### 7.4 The app sidecars — `app-units.ndjson.gz` and the locator pair
 
-A sub-contract of §7.2, not a second copy of it: all three files are projections of the very shard fragments §7.2 defines, written by `rebuild/review/app_index.py` after the manifest so they can carry its stamp, and gzipped on disk with pinned mtimes so consecutive builds of the same inputs stay byte-identical. The index and the locator table are NDJSON whose first line is a header — `{format, manifest_sha256, generated_at, units}`, formats `ams-review-app-index/1` and `ams-review-app-locator/2`, the table’s header also carrying `blocks`, `block_rows`, and `rows_bytes` — and a browser holding a header stamped for another `generated_at` refuses the file rather than reading its byte spans, because the ids of one build name other units in the next.
+A sub-contract of §7.2, not a second copy of it: all three files are projections of the very shard fragments §7.2 defines, written by `rebuild/review/app_index.py` after the manifest so they can carry its stamp, and gzipped on disk with pinned mtimes so consecutive builds of the same inputs stay byte-identical. The index and the locator table are NDJSON whose first line is a header — `{format, manifest_sha256, generated_at, units}`, formats `ams-review-app-index/1` and `ams-review-app-locator/2`, the table’s header also carrying `blocks`, `block_rows`, and `rows_bytes` — and a browser holding a header stamped for another `generated_at` refuses the file rather than reading its byte spans, because the byte spans of one build address other bytes in the next.
 
 `app-units.ndjson.gz` carries one row per unit with `batch is not None` — exactly `manifest.human_unit_ids`, in shard order — projected onto the fields the app reads across the whole queue and nothing else. `app_index.app_row` is the authority for the key list and the projection; the shape worth knowing is that everything a card draws from its own record is gone — `explain`, `provenance`, and `drafts` (§2.2), and with them `text_entities`, `highlight`, and `after`, which the card Range-fetches its record for as it renders — and that the four machine-channel flags are dropped after being asserted false (a `batch is not None` unit provably carries none, which `build.check_unit` enforces).
 
