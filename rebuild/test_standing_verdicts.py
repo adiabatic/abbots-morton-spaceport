@@ -4985,3 +4985,288 @@ def test_the_composed_walk_credits_a_shape_exactly_where_its_own_matcher_does(sl
                 after,
                 window["id"],
             )
+
+
+def _keyed_unit(uid="k-1", **overrides):
+    """A canonical unit carrying the fields the memo key reads: the build's content-key stamp and the ink deltas."""
+    stamped = dict(canonical(uid), content_key="c" * 64, ink_deltas={"ss03": DELTA_A})
+    stamped.update(overrides)
+    return stamped
+
+
+def test_a_unit_the_build_never_stamped_has_no_memo_key():
+    assert sv.unit_key(canonical(), {}) is None
+    assert sv.unit_key(_keyed_unit(content_key=""), {}) is None
+
+
+def test_the_memo_key_moves_with_the_stamp_the_deltas_and_the_families_the_window_names():
+    """Three things reach a fill decision past the content-key stamp — the persisted ink deltas the stamp leaves out and the after font's compiled glyphs for every family the after cells name — and each of them moves the key on its own, while a family the window never names does not."""
+    digests = {"qsPea": "p" * 64, "qsAh": "a" * 64, "qsTea_qsOy": "t" * 64, "qsMay": "m" * 64}
+    key = sv.unit_key(_keyed_unit(), digests)
+    assert key is not None and len(key) == 32
+    assert sv.unit_key(_keyed_unit(), digests) == key
+    assert sv.unit_key(_keyed_unit(content_key="d" * 64), digests) != key
+    assert sv.unit_key(_keyed_unit(ink_deltas={"ss03": DELTA_B}), digests) != key
+    assert sv.unit_key(_keyed_unit(ink_deltas=None), digests) != key
+    assert sv.unit_key(_keyed_unit(), {**digests, "qsAh": "b" * 64}) != key
+    assert sv.unit_key(_keyed_unit(), {**digests, "qsTea_qsOy": "u" * 64}) != key
+    assert sv.unit_key(_keyed_unit(), {**digests, "qsMay": "n" * 64}) == key
+
+
+def test_the_memo_stamp_moves_with_the_rules_files_bytes(tmp_path):
+    """A rule's `note` is quoted into every fill it lands, so the memo keys on the file's raw bytes rather than the prose-blind digest the rebuild lanes use: a reword drops the memo, exactly as it re-runs the plumbing."""
+    surface = _surface(tmp_path, [canonical("u-1")])
+    rules = _write_rules(tmp_path / "rules.yaml", [RULE])
+    stamp, digests = sv.memo_environment(rules, surface)
+    assert digests == {}
+    assert sv.memo_environment(rules, surface) == (stamp, {})
+    reworded = _write_rules(tmp_path / "reworded.yaml", [dict(RULE, note=RULE["note"] + " (reworded)")])
+    assert sv.memo_environment(reworded, surface)[0] != stamp
+
+
+def test_the_memo_stamp_reads_the_fonts_when_the_surface_carries_them(tmp_path, slide_fonts):
+    """With fonts beside the surface the stamp carries the before font wholesale and the after font's family-blind remainder, and the per-family digests the keys cite come back for every family the after font draws."""
+    bare = _surface(tmp_path / "bare", [founding_window()])
+    with_fonts = _surface(tmp_path / "fonts", [founding_window()], fonts=slide_fonts)
+    rules = _write_rules(tmp_path / "rules.yaml", [SLIDE_RULE])
+    bare_stamp, bare_digests = sv.memo_environment(rules, bare)
+    font_stamp, font_digests = sv.memo_environment(rules, with_fonts)
+    assert bare_stamp != font_stamp
+    assert bare_digests == {}
+    assert "qsSee" in font_digests and all(len(digest) == 64 for digest in font_digests.values())
+
+
+def _repo_imports(module, path):
+    """Every repo module the file names in an import, a package-relative `from .x import y` resolved against the module's own package, since the validation tree spells its sibling imports that way."""
+    import ast
+
+    package = module.rsplit(".", 1)[0]
+    found = set()
+    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+        if isinstance(node, ast.Import):
+            found.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            base = f"{package}.{node.module}" if node.level else node.module
+            found.add(base)
+            found.update(f"{base}.{alias.name}" for alias in node.names)
+    return {name for name in found if name.split(".")[0] == "rebuild"}
+
+
+def test_the_memo_code_roster_is_this_modules_import_closure():
+    """The stamp hashes exactly the repo code a decision runs through: this module and everything it reaches by import, less the key side — `unit_cache` and the pipeline modules, whose edits move the keys or the stamp itself rather than any decision. A module that starts deciding without being on the roster is the miss this catches; one on the roster the module never reaches is the other."""
+    from rebuild.test_plumbing_closure import _module_path
+
+    key_side = {"rebuild.review.unit_cache"}
+    seen = {}
+    queue = ["rebuild.tools.standing_verdicts"]
+    while queue:
+        module = queue.pop()
+        if module in seen or module in key_side or module.startswith("rebuild.pipeline"):
+            continue
+        path = _module_path(module)
+        if path is None:
+            continue
+        seen[module] = path
+        queue.extend(_repo_imports(module, path))
+    reached = sorted(str(path.relative_to(sv.ROOT)) for path in seen.values() if path.name != "__init__.py")
+    assert reached == sorted(sv.MEMO_CODE_MODULES)
+    assert all(path.is_file() for path in sv.memo_code_paths())
+
+
+def test_a_memo_stamped_for_another_environment_is_empty(tmp_path):
+    path = tmp_path / "memo.ndjson.gz"
+    unit = _keyed_unit()
+    memo = sv.Memo(path, "env-1", {})
+    decision = sv.Decision(None, frozenset({RULE["id"]}), frozenset())
+    memo.fresh[memo.key_for(unit) or ""] = decision
+    assert memo.write([unit]) == 1
+    assert sv.Memo.open(path, "env-2", {}).entries == {}
+    assert sv.Memo.open(path, "env-1", {}, fresh=True).entries == {}
+    assert sv.Memo.open(path, "env-1", {}).entries == {memo.key_for(unit): decision}
+    path.write_bytes(b"not a memo")
+    assert sv.Memo.open(path, "env-1", {}).entries == {}
+
+
+def test_a_decision_survives_the_memo_round_trip(tmp_path):
+    composed = sv.Composed(("a", "b"), False, "either", "[standing: a + b] note")
+    decisions = {
+        "1" * 64: sv.Decision(composed, frozenset(), frozenset()),
+        "2" * 64: sv.Decision(sv.Composed(("a", "b"), True, None, None), frozenset(), frozenset()),
+        "3" * 64: sv.Decision(None, frozenset({"a", "b"}), frozenset({"c"})),
+    }
+    units = [_keyed_unit(f"k-{index}", content_key=stamp) for index, stamp in enumerate(decisions)]
+    memo = sv.Memo(tmp_path / "memo.ndjson.gz", "env", {})
+    for unit, decision in zip(units, decisions.values()):
+        memo.fresh[memo.key_for(unit) or ""] = decision
+    assert memo.write(units) == 3
+    reopened = sv.Memo.open(tmp_path / "memo.ndjson.gz", "env", {})
+    assert [reopened.entries[memo.key_for(unit) or ""] for unit in units] == list(decisions.values())
+
+
+def test_the_memo_written_back_is_bounded_to_the_surface_and_keeps_what_it_did_not_read(tmp_path):
+    """What goes back to disk is one entry per keyed unit on the surface the run was asked about: a unit that left the surface is dropped, and one still on it whose entry the run never needed — a narrowed run decides only the open units — is carried across unread rather than lost."""
+    path = tmp_path / "memo.ndjson.gz"
+    stays, leaves = _keyed_unit("s-1", content_key="s" * 64), _keyed_unit("l-1", content_key="l" * 64)
+    memo = sv.Memo(path, "env", {})
+    for unit in (stays, leaves):
+        memo.fresh[memo.key_for(unit) or ""] = sv.Decision(None, frozenset(), frozenset())
+    assert memo.write([stays, leaves]) == 2
+    assert sv.Memo.open(path, "env", {}).write([stays]) == 1
+    assert set(sv.Memo.open(path, "env", {}).entries) == {memo.key_for(stays)}
+
+
+def test_a_served_unit_is_never_evaluated_and_an_unstamped_one_always_is(tmp_path):
+    memo = sv.Memo(tmp_path / "memo.ndjson.gz", "env", {})
+    served, unstamped = _keyed_unit("k-1"), canonical("u-1")
+    memo.entries[memo.key_for(served) or ""] = sv.Decision(None, frozenset({"served"}), frozenset())
+    decider = sv.Decider([RULE], None, memo)
+    assert decider.decide(served).matched == {"served"}
+    assert decider.decide(served).matched == {"served"}
+    assert decider.decide(unstamped).matched == {RULE["id"]}
+    assert (decider.served, decider.computed, decider.unkeyed) == (1, 0, 1)
+    assert memo.fresh == {}
+    fresh = _keyed_unit("k-2", content_key="f" * 64)
+    assert decider.decide(fresh).matched == {RULE["id"]}
+    assert decider.computed == 1 and memo.fresh == {memo.key_for(fresh): decider.decide(fresh)}
+
+
+def test_fresh_memo_needs_a_memo(tmp_path, monkeypatch):
+    with pytest.raises(SystemExit):
+        _run_main(tmp_path, monkeypatch, [canonical("u-1")], [], extra=("--fresh-memo",))
+
+
+def test_main_serves_the_second_run_from_the_memo_and_reports_it(tmp_path, monkeypatch, capsys):
+    """The bare tool with `--memo`: a cold run computes and stores, the next run over the same surface and rules serves everything stamped, and both write the same fills and the same report but for the memo's own line."""
+    units = [_keyed_unit("k-1"), _keyed_unit("k-2", content_key="e" * 64), canonical("u-3")]
+    memo = tmp_path / "memo.ndjson.gz"
+    cold = _run_main(tmp_path / "cold", monkeypatch, units, [], extra=("--memo", str(memo)))
+    cold_lines = capsys.readouterr().out.splitlines()
+    warm = _run_main(tmp_path / "warm", monkeypatch, units, [], extra=("--memo", str(memo)))
+    warm_lines = capsys.readouterr().out.splitlines()
+    assert cold == warm and [record["unit"] for record in cold["verdicts"]] == ["k-1", "k-2", "u-3"]
+    assert "  memo: served 0, computed 2, unkeyed 1; memo.ndjson.gz holds 2 entries" in cold_lines
+    assert "  memo: served 2, computed 0, unkeyed 1; memo.ndjson.gz holds 2 entries" in warm_lines
+    assert [line for line in cold_lines if not line.startswith("  memo:")] == [
+        line for line in warm_lines if not line.startswith("  memo:")
+    ]
+
+
+def test_a_reworded_note_drops_the_memo(tmp_path, monkeypatch, capsys):
+    units = [_keyed_unit("k-1")]
+    memo = tmp_path / "memo.ndjson.gz"
+    _run_main(tmp_path / "first", monkeypatch, units, [], extra=("--memo", str(memo)))
+    capsys.readouterr()
+    reworded = dict(RULE, note=RULE["note"] + " (reworded)")
+    payload = _run_main(
+        tmp_path / "second", monkeypatch, units, [], rules_list=(reworded,), extra=("--memo", str(memo))
+    )
+    lines = capsys.readouterr().out.splitlines()
+    assert "  memo: served 0, computed 1, unkeyed 0; memo.ndjson.gz holds 1 entries" in lines
+    assert payload["verdicts"][0]["note"].endswith("(reworded)")
+
+
+MINI = pathlib.Path(sv.ROOT) / "rebuild" / "review" / "fixtures" / "mini"
+
+
+@pytest.fixture(scope="module")
+def mini_surface(tmp_path_factory, mini_bundle):
+    """One real build of the frozen mini bundle, with the fonts, the index and every unit's content-key stamp the memo keys on."""
+    from rebuild.review.build import build_m1
+
+    out = tmp_path_factory.mktemp("standing-memo") / "surface"
+    build_m1(
+        out,
+        audit_path=MINI / "audit.tsv",
+        ledger_path=mini_bundle.ledger,
+        subset_dir=MINI,
+        after_font=MINI / "M1.otf",
+        spec_root=mini_bundle.spec_root,
+        jobs=1,
+    )
+    return out
+
+
+def _human_units(surface):
+    return [
+        unit
+        for unit in sv.load_units(surface)
+        if not unit.get("no_verdict") and unit.get("batch") is not None and unit.get("render_groups") == 1
+    ]
+
+
+def _mini_rules(surface, path):
+    """The checked-in rules, whose composed reading credits windows of the mini bundle, plus one ink-delta rule blessing the digest the bundle's human units carry most, so the run also writes single-rule fills."""
+    from collections import Counter
+
+    digests = Counter(
+        digest for unit in _human_units(surface) for digest in (unit.get("ink_deltas") or {}).values()
+    )
+    mini_rule = {
+        "id": "mini-bundle-ink-delta",
+        "verdict": "approve",
+        "note": "the mini bundle's commonest ink delta",
+        "match": {"after": {"ink_deltas": [digests.most_common(1)[0][0]]}, "except_left": []},
+    }
+    return _write_rules(path, sv.load_rules(sv.RULES) + [mini_rule])
+
+
+def _run_over_mini(tmp_path, monkeypatch, surface, rules, verdicts, extra):
+    """The CLI over the mini surface: its exit code and the fills file's bytes."""
+    stamp = json.loads((surface / "manifest.json").read_text())["generated_at"]
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    verdicts_path = tmp_path / "verdicts.json"
+    verdicts_path.write_text(
+        json.dumps({"format": "ams-review-verdicts/1", "manifest_generated_at": stamp, "verdicts": verdicts})
+    )
+    out = tmp_path / "out.json"
+    argv = [str(verdicts_path), "--surface", str(surface), "--rules", str(rules), "--out", str(out), *extra]
+    monkeypatch.setattr(sys, "argv", ["standing_verdicts.py", *argv])
+    return sv.main(), out.read_bytes()
+
+
+def test_the_mini_bundle_reaches_a_composed_line_and_the_bundle_local_rule(
+    tmp_path, monkeypatch, capsys, mini_surface
+):
+    """What makes the byte-identity proof below worth anything: over a blank store the run lands both kinds of fill, one a composed reading credits and one a single rule's own line writes, so a memo that served either wrong would show."""
+    rules = _mini_rules(mini_surface, tmp_path / "rules.yaml")
+    _code, fills = _run_over_mini(tmp_path, monkeypatch, mini_surface, rules, [], ())
+    capsys.readouterr()
+    notes = [record["note"] for record in json.loads(fills)["verdicts"]]
+    assert any(note.startswith("[standing: mini-bundle-ink-delta]") for note in notes)
+    assert any(" + " in note.partition("]")[0] for note in notes)
+
+
+@pytest.mark.parametrize("form", [(), ("--open-only", "--require-reach")])
+def test_the_memo_serves_the_mini_bundle_byte_for_byte(tmp_path, monkeypatch, capsys, mini_surface, form):
+    """The standing proof that the memo changes nothing but the time: over a real build of the frozen mini bundle, under the checked-in rules and one bundle-local ink-delta rule, with a store holding a reject and an approve, the fills file, the exit code and every report line are byte-identical across a run with no memo, a cold run that writes one, a warm run served entirely from it, and a `--fresh-memo` run that ignores and rewrites it. The warm run's own line says it computed nothing, which is the whole of what the memo buys, in both the bare form and the chain's `--open-only --require-reach` form, whose rollup reads off the same decisions the narrowed pass did."""
+    rules = _mini_rules(mini_surface, tmp_path / "rules.yaml")
+    stamp = json.loads((mini_surface / "manifest.json").read_text())["generated_at"]
+    human = [unit["id"] for unit in _human_units(mini_surface)]
+    verdicts = [
+        {"unit": human[0], "verdict": "reject", "note": "", "at": stamp},
+        {"unit": human[-1], "verdict": "approve", "note": "", "at": stamp},
+    ]
+    memo = tmp_path / "memo.ndjson.gz"
+    runs = {}
+    for label, extra in (
+        ("bare", ()),
+        ("cold", ("--memo", str(memo))),
+        ("warm", ("--memo", str(memo))),
+        ("fresh", ("--memo", str(memo), "--fresh-memo")),
+    ):
+        code, fills = _run_over_mini(
+            tmp_path / label, monkeypatch, mini_surface, rules, verdicts, form + extra
+        )
+        lines = capsys.readouterr().out.splitlines()
+        report = tuple(line for line in lines if not line.startswith("  memo:"))
+        runs[label] = ((code, fills, report), [line for line in lines if line.startswith("  memo:")])
+    assert len({outcome for outcome, _memo_lines in runs.values()}) == 1
+    keyed = len(human)
+    assert runs["bare"][1] == []
+    assert runs["cold"][1] == [
+        f"  memo: served 0, computed {keyed}, unkeyed 0; memo.ndjson.gz holds {keyed} entries"
+    ]
+    assert runs["warm"][1] == [
+        f"  memo: served {keyed}, computed 0, unkeyed 0; memo.ndjson.gz holds {keyed} entries"
+    ]
+    assert runs["fresh"][1] == runs["cold"][1]
