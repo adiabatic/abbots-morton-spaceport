@@ -47,6 +47,33 @@ def test_boundary_positions_render():
     assert "qsTea.full.locked" in text
 
 
+def test_an_overlay_configuration_explains_the_bare_stream_without_the_crate(monkeypatch):
+    """Under ss10 nothing settles, so the report is the registry's answer — every letter its default-stance cell with no seam, a ligature's components unformed, boundaries as boundaries — decided by the overlay stage, rendered as such, and reached without a kernel invocation; a batch that mixes overlay and settling requests keeps its order."""
+    from rebuild.pipeline.settle import ISOLATED_OVERLAY_STAGE
+
+    crate = kernel_exec.settle_sequences
+
+    def only_for_settling(spec, requests, **rest):
+        assert all(not features for _tokens, features in requests)
+        return crate(spec, requests, **rest)
+
+    monkeypatch.setattr(kernel_exec, "settle_sequences", only_for_settling)
+    codepoints = parse_sequence(SPEC, "qsTea:qsOy:zwnj:qsIt")
+    overlay, plain = explain_many(SPEC, [(codepoints, frozenset({"ss10"})), (codepoints, frozenset())])
+    assert overlay.features == frozenset({"ss10"}) and plain.features == frozenset()
+    assert [item.cell.rune for item in overlay.settled] == ["qsTea", "qsOy", "zwnj", "qsIt"]
+    assert all(item.seam is None and item.extension == 0 for item in overlay.settled)
+    assert [position.trace.decided_stage for position in overlay.positions] == [
+        ISOLATED_OVERLAY_STAGE,
+        ISOLATED_OVERLAY_STAGE,
+        "boundary",
+        ISOLATED_OVERLAY_STAGE,
+    ]
+    assert [item.cell.rune for item in plain.settled] == ["qsTea_qsOy", "zwnj", "qsIt"]
+    text = overlay.render()
+    assert "config ss10" in text and "isolated overlay" in text and "join-count" not in text
+
+
 def test_cli_prints_the_rust_backed_report(monkeypatch, capsys):
     monkeypatch.setattr(explain_module, "_load_spec", lambda: (SPEC, None))
     explain_module.main(["qsMay:qsIt"])

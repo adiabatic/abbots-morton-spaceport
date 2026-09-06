@@ -104,6 +104,40 @@ def is_boundary_settled(settled: Settled) -> bool:
     return settled.cell.stance == BOUNDARY_STANCE
 
 
+ISOLATED_OVERLAY_STAGE = "isolated-overlay"
+
+
+def isolated_overlay_settled(spec: ResolvedSpec, tokens: Sequence[RightToken]) -> list[Settled]:
+    """The stream an `overlay: isolated` taste set (ss10) renders for raw tokens: every letter its rune's default-stance cell with no entry, no exit, and no seam, every boundary token its boundary cell. Nothing settles under the overlay because the emitted font's pre-empt lookup has replaced every letter by its anchor-free twin before formation could see the buffer (the twins sit in no formation sequence, marker line, chokepoint class, or settlement input, which read-back proves per build), so the stream is a function of the tokens and the registry alone, and formation is never applied — a ligature's components stand as separate letters."""
+    stream: list[Settled] = []
+    for token in tokens:
+        if token.kind != "letter":
+            stream.append(boundary_settled(token.kind))
+            continue
+        rune = spec.runes[token.letter]
+        stream.append(
+            Settled(cell=CellId(token.letter, rune.default_stance, None, None, ()), seam=None, extension=0)
+        )
+    return stream
+
+
+def isolated_overlay_traces(spec: ResolvedSpec, tokens: Sequence[RightToken]) -> list[TransitionTrace]:
+    """`isolated_overlay_settled` dressed as one trace per position, decided by `ISOLATED_OVERLAY_STAGE` with no candidates and no eliminations, so an explain report or a review unit reads the overlay as what it is rather than as a settlement nobody rendered."""
+    return [
+        TransitionTrace(
+            settled=settled,
+            joint_floor=False,
+            prospect=0,
+            ranked=(),
+            eliminations=(),
+            decided_stage="boundary" if is_boundary_settled(settled) else ISOLATED_OVERLAY_STAGE,
+            runner_up=None,
+            notes=(),
+        )
+        for settled in isolated_overlay_settled(spec, tokens)
+    ]
+
+
 def cell_label(spec: ResolvedSpec, cell: CellId) -> str:
     """A deterministic textual form of a CellId for the diff-stable TSV artifacts and explain output. Not the compiled display name (that is geometry's, with the 63-byte cap); same shape on purpose so the alias map reads naturally."""
     if cell.stance == BOUNDARY_STANCE:

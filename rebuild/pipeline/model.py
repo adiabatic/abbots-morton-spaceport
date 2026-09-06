@@ -349,6 +349,15 @@ def locked_glyph_name(raw_name: str) -> str:
     return f"{raw_name}.noentry"
 
 
+def isolated_overlay_active(spec: ResolvedSpec, features: Collection[str]) -> bool:
+    """Whether any active feature is a registered `overlay: isolated` taste set (ss10). Under one, the emitted font substitutes every letter's cmap glyph by its anchor-free `.ss10` twin before formation, so no ligature forms, nothing settles, and every seam is a break — there is no settlement table for such a configuration, and every consumer that would have settled under it answers the isolated stream instead (`settle.isolated_overlay_settled`)."""
+    return any(
+        spec.registry.features.get(feature) is not None
+        and spec.registry.features[feature].overlay == "isolated"
+        for feature in features
+    )
+
+
 SS10_TWIN_SUFFIX = ".ss10"
 
 

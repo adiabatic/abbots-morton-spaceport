@@ -14,13 +14,15 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from rebuild.pipeline import kernel_exec
-from rebuild.pipeline.model import ResolvedSpec, Settled, feature_config_token
+from rebuild.pipeline.model import ResolvedSpec, Settled, feature_config_token, isolated_overlay_active
 from rebuild.pipeline.settle import (
+    ISOLATED_OVERLAY_STAGE,
     FormationGuard,
     TransitionTrace,
     cell_label,
     form_ligatures,
     is_boundary_settled,
+    isolated_overlay_traces,
     tokens_from_codepoints,
 )
 
@@ -58,6 +60,11 @@ class ExplainReport:
                     "  boundary token; splits run"
                     if settled.cell.rune in ("space", "zwnj")
                     else "  boundary token; does not split the run"
+                )
+                continue
+            if trace.decided_stage == ISOLATED_OVERLAY_STAGE:
+                lines.append(
+                    f"  isolated overlay: the pre-empt renders the letter as its anchor-free twin before formation, so nothing settles and both seams break   settled: {cell_label(self.spec, settled.cell)}"
                 )
                 continue
             lines.append(f"  candidates (join-count = left seam + own seam + optimistic prospect):")
@@ -107,21 +114,33 @@ def explain_many(
     requests: Sequence[tuple[Sequence[int], frozenset[str]]],
     guard_verdicts: FormationGuard | None = None,
 ) -> list[ExplainReport]:
-    """Settle a batch of sequences through the Rust kernel and dress each one as a report. Formation happens here, against the crate's guard surface — swept once for the whole batch when the caller has none in hand — and everything after it is `kernel_exec.settle_sequences`, which groups every same-depth window by feature configuration so a surface build pays for a handful of `settle-cases` processes rather than one per review unit."""
+    """Settle a batch of sequences through the Rust kernel and dress each one as a report. Formation happens here, against the crate's guard surface — swept once for the whole batch when the caller has none in hand — and everything after it is `kernel_exec.settle_sequences`, which groups every same-depth window by feature configuration so a surface build pays for a handful of `settle-cases` processes rather than one per review unit. A request whose features activate an isolated overlay (ss10) never reaches the crate: nothing settles under it, so its report is `settle.isolated_overlay_traces` over the raw tokens, unformed."""
     if not requests:
         return []
-    if guard_verdicts is None:
-        guard_verdicts = kernel_exec.guard_sweep(spec)
-    sequences = [
-        (form_ligatures(spec, tokens_from_codepoints(spec, codepoints), guard_verdicts), frozenset(features))
-        for codepoints, features in requests
-    ]
-    answers = kernel_exec.settle_sequences(spec, sequences)
-    reports = []
-    for (codepoints, features), traces in zip(requests, answers):
-        assert traces is not None
-        reports.append(_report_of(spec, codepoints, frozenset(features), traces))
-    return reports
+    reports: list[ExplainReport | None] = [None] * len(requests)
+    settling: list[int] = []
+    for index, (codepoints, features) in enumerate(requests):
+        if isolated_overlay_active(spec, features):
+            traces = isolated_overlay_traces(spec, tokens_from_codepoints(spec, codepoints))
+            reports[index] = _report_of(spec, codepoints, frozenset(features), traces)
+        else:
+            settling.append(index)
+    if settling:
+        if guard_verdicts is None:
+            guard_verdicts = kernel_exec.guard_sweep(spec)
+        sequences = [
+            (
+                form_ligatures(spec, tokens_from_codepoints(spec, requests[index][0]), guard_verdicts),
+                frozenset(requests[index][1]),
+            )
+            for index in settling
+        ]
+        answers = kernel_exec.settle_sequences(spec, sequences)
+        for index, traces in zip(settling, answers):
+            assert traces is not None
+            codepoints, features = requests[index]
+            reports[index] = _report_of(spec, codepoints, frozenset(features), traces)
+    return [report for report in reports if report is not None]
 
 
 def _report_of(

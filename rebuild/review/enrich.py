@@ -181,25 +181,6 @@ def parse_entry_extension(adjustments: tuple[str, ...]) -> int:
     return total
 
 
-def overlay_settled(spec: ResolvedSpec, settled: list[Settled]) -> list[Settled]:
-    """The conform.py overlay transformation for `overlay: isolated` taste sets (ss10): every letter cell renders as its rune's anchor-free default-stance cell and every seam is visually a break. A ligature-rune cell expands to one such cell per component (the ss10 pre-empt keeps the ligature from ever forming in the buffer, so every letter stands alone)."""
-    out: list[Settled] = []
-    for item in settled:
-        cell = item.cell
-        if isinstance(cell, CellId) and cell.rune in spec.runes and cell.stance != "boundary":
-            for rune_name in spec.runes[cell.rune].sequence or (cell.rune,):
-                out.append(
-                    Settled(
-                        cell=CellId(rune_name, spec.runes[rune_name].default_stance, None, None, ()),
-                        seam=None,
-                        extension=0,
-                    )
-                )
-        else:
-            out.append(Settled(cell=cell, seam=None, extension=0))
-    return out
-
-
 def cell_token(cell: CellId) -> str:
     return f"{cell.rune}/{cell.stance}/{cell.entry}/{cell.exit}/{'+'.join(cell.adjustments)}"
 
@@ -449,8 +430,6 @@ class Enricher:
         if report is None:
             report = self.explain_units([unit])[0]
         settled = list(report.settled)
-        if overlay:
-            settled = overlay_settled(self.spec, settled)
 
         derived_cells = tuple(cell_token(item.cell) for item in settled)
         # The audit's `new` column is overloaded: for cell/seam rows it is the settled cell tokens, but for position-only rows (the kern-channel-out-of-scope residue) it carries per-slot position diagnostics, never cell tokens. Compare the re-settlement against the audit only when `new` is cell-shaped, and always render `after_cells` from the re-derived cells so they parallel `after_seams`.
