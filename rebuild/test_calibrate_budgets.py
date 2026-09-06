@@ -1,4 +1,4 @@
-"""What `make job-costs` has to keep true: a pool record measures one worker apiece and a named step measures one unit, a step whose tree holds more than the pool it names measures nothing here, an overrun is only ever an overrun of this host's own rows inside the recency window, and a constant this box has never tested says so in those words instead of passing quietly. Every fixture peak is computed against the real constants rather than written as a literal, because the assertions are about a relation and a literal would fossilize today's constant into a test that has to survive re-seeding it."""
+"""What `make job-costs` has to keep true: a pool record measures one worker apiece and a named step measures one unit, a step whose tree holds more than the pool it names measures nothing here, an overrun is only ever an overrun of this host's own rows measured since the commit that seeded the constant and inside the recency window, and a constant this box has never tested says so in those words instead of passing quietly. `_main` states no seed stamps, so a fixture's date never collides with the live tree's commits; the tests about the bound state their own. Every fixture peak is computed against the real constants rather than written as a literal, because the assertions are about a relation and a literal would fossilize today's constant into a test that has to survive re-seeding it."""
 
 import json
 
@@ -51,8 +51,8 @@ def _journal(tmp_path, entries):
     return path
 
 
-def _main(path, *args):
-    return cb.main(["--journal", str(path), *args])
+def _main(path, *args, seed_stamps=None):
+    return cb.main(["--journal", str(path), *args], seed_stamps={} if seed_stamps is None else seed_stamps)
 
 
 def _run(capsys, path, *args):
@@ -76,7 +76,7 @@ def test_every_pool_name_a_gate_wrapper_sets_is_one_the_registry_reads():
 
 def test_a_pool_record_supplies_one_observation_per_worker():
     record = _pool("rebuild-validators", [1_000_000, 2_000_000, 3_000_000])
-    observed, dropped = cb.observations(_unit("rebuild-validators"), [record], {}, host=HOST, recent=20)
+    observed, dropped, _ = cb.observations(_unit("rebuild-validators"), [record], {}, host=HOST, recent=20)
     assert [item.peak_bytes for item in observed] == [1_000_000, 2_000_000, 3_000_000]
     assert {item.source for item in observed} == {"pool"}
     assert dropped == 0
@@ -84,23 +84,23 @@ def test_a_pool_record_supplies_one_observation_per_worker():
 
 def test_the_controllers_own_peak_is_never_one_of_the_workers_observations():
     record = _pool("rebuild-validators", [1_000_000], controller=9_000_000)
-    observed, _ = cb.observations(_unit("rebuild-validators"), [record], {}, host=HOST, recent=20)
+    observed, _, _ = cb.observations(_unit("rebuild-validators"), [record], {}, host=HOST, recent=20)
     assert [item.peak_bytes for item in observed] == [1_000_000]
 
 
 def test_a_surface_pool_record_prices_the_worker_constant():
     """The surface build files its own pool records rather than a pytest controller's, and they land on the divisor's row alone: the parent is measured by a step peak and would be nonsense as a worker observation, so the two surface rows never read each other's evidence."""
     record = _pool("surface", [6_000_000_000, 7_000_000_000])
-    observed, _ = cb.observations(_unit("surface-worker"), [record], {}, host=HOST, recent=20)
+    observed, _, _ = cb.observations(_unit("surface-worker"), [record], {}, host=HOST, recent=20)
     assert [item.peak_bytes for item in observed] == [6_000_000_000, 7_000_000_000]
     assert {item.source for item in observed} == {"pool"}
-    parent, _ = cb.observations(_unit("surface-parent"), [record], {}, host=HOST, recent=20)
+    parent, _, _ = cb.observations(_unit("surface-parent"), [record], {}, host=HOST, recent=20)
     assert parent == []
 
 
 def test_a_named_step_peak_supplies_an_observation():
     steps = {"r1": [_step("run_m1", 9_000_000_000)]}
-    observed, _ = cb.observations(_unit("kernel-config"), [], steps, host=HOST, recent=20)
+    observed, _, _ = cb.observations(_unit("kernel-config"), [], steps, host=HOST, recent=20)
     assert [(item.peak_bytes, item.source) for item in observed] == [(9_000_000_000, "step:run_m1")]
 
 
@@ -194,6 +194,88 @@ def test_the_recency_bound_ages_out_a_peak_a_memory_saver_retired(tmp_path, caps
     assert "OVERRUN" in capsys.readouterr().out
 
 
+def test_a_record_older_than_the_constants_commit_is_never_held_against_it(tmp_path, capsys):
+    over = CONSTANTS["kernel-config"] * 3
+    under = CONSTANTS["kernel-config"] // 2
+    path = _journal(
+        tmp_path,
+        [_step("run_m1", over, at="2026-09-04T08:00:00Z", run="old")]
+        + [_step("run_m1", under, at="2026-09-06T08:00:00Z", run="new")],
+    )
+    seeded = {"kernel-config": "2026-09-05T20:18:22Z"}
+    assert _main(path, "--host", HOST, "--check", seed_stamps=seeded) == 0
+    out = capsys.readouterr().out
+    assert (
+        "since     : 2026-09-05T20:18:22Z, the commit that set CONFIG_PEAK_BYTES to its current value; 1 older record set aside"
+        in out
+    )
+    assert _main(path, "--host", HOST, "--check") == 1
+    assert "has no commit yet" in capsys.readouterr().out
+
+
+def test_the_archaeology_pass_reads_past_the_constants_commit(tmp_path, capsys):
+    over = CONSTANTS["kernel-config"] * 3
+    path = _journal(tmp_path, [_step("run_m1", over, at="2026-09-04T08:00:00Z")])
+    seeded = {"kernel-config": "2026-09-05T20:18:22Z"}
+    assert _main(path, "--host", HOST, "--check", seed_stamps=seeded) == 0
+    capsys.readouterr()
+    assert _main(path, "--host", HOST, "--check", "--recent", "0", seed_stamps=seeded) == 1
+
+
+def test_a_record_with_no_stamp_is_kept_under_the_seed_bound():
+    record = _step("run_m1", 1)
+    del record["finished_at"]
+    observed, _, older = cb.observations(
+        _unit("kernel-config"), [], {"r1": [record]}, host=HOST, recent=20, since="2026-09-05T00:00:00Z"
+    )
+    assert [item.peak_bytes for item in observed] == [1]
+    assert older == 0
+
+
+def test_the_seed_stamp_is_the_committer_time_of_the_constants_own_line(tmp_path):
+    import subprocess
+
+    tree = tmp_path / "tree"
+    (tree / "rebuild" / "pipeline").mkdir(parents=True)
+    source = tree / "rebuild" / "pipeline" / "kernel_exec.py"
+    source.write_text("OTHER = 1\nCONFIG_PEAK_BYTES = 4_000_000_000\n", encoding="utf-8")
+    env = {
+        "GIT_AUTHOR_NAME": "t",
+        "GIT_AUTHOR_EMAIL": "t@example.invalid",
+        "GIT_COMMITTER_NAME": "t",
+        "GIT_COMMITTER_EMAIL": "t@example.invalid",
+        "GIT_COMMITTER_DATE": "2026-09-05T20:18:22Z",
+        "GIT_AUTHOR_DATE": "2026-09-05T20:18:22Z",
+        "PATH": __import__("os").environ["PATH"],
+    }
+    git = lambda *args: subprocess.run(["git", *args], cwd=tree, env=env, check=True, capture_output=True)
+    git("init", "-q")
+    git("add", ".")
+    git("commit", "-q", "-m", "seed")
+    assert cb.constant_seeded_at(source, "CONFIG_PEAK_BYTES", root=tree) == "2026-09-05T20:18:22Z"
+    source.write_text("OTHER = 1\nCONFIG_PEAK_BYTES = 3_000_000_000\n", encoding="utf-8")
+    assert cb.constant_seeded_at(source, "CONFIG_PEAK_BYTES", root=tree) is None
+    env["GIT_COMMITTER_DATE"] = env["GIT_AUTHOR_DATE"] = "2026-09-06T01:02:03Z"
+    git("commit", "-q", "-am", "re-seed")
+    assert cb.constant_seeded_at(source, "CONFIG_PEAK_BYTES", root=tree) == "2026-09-06T01:02:03Z"
+
+
+def test_a_tree_that_is_not_a_checkout_has_no_bound(tmp_path):
+    source = tmp_path / "kernel_exec.py"
+    source.write_text("CONFIG_PEAK_BYTES = 4_000_000_000\n", encoding="utf-8")
+    assert cb.constant_seeded_at(source, "CONFIG_PEAK_BYTES", root=tmp_path) is None
+
+
+def test_the_live_tree_dates_its_constants_in_the_journals_own_stamp_shape():
+    import re
+
+    stamps = cb.read_seed_stamps()
+    priced = {unit.name for unit in cb.UNITS if unit.constant is not None}
+    assert set(stamps) <= priced
+    for stamp in stamps.values():
+        assert re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", stamp)
+
+
 def test_the_recency_window_is_one_machines_worth_under_host_all(tmp_path, capsys):
     """A fleet survey has to be a survey of the fleet. One busy box cycling all day would otherwise fill a global window by itself, and the quiet machine whose peak has actually run away — the one nobody is watching — would drop out of the report without the report saying so."""
     over = CONSTANTS["rebuild-validators"] * 2
@@ -262,7 +344,7 @@ def test_the_width_clauses_answer_for_the_box_and_the_tree_they_are_given(tmp_pa
         f"{cb.SURFACE_CAP_NAME} = 3\n{cb.SURFACE_PARENT_NAME} = 10_000_000_000\n{cb.SURFACE_WORKER_NAME} = 5_000_000_000\n",
         encoding="utf-8",
     )
-    rows = cb.build_rows([], {}, constants=CONSTANTS, host=HOST, recent=20, tolerance=0.0)
+    rows = cb.build_rows([], {}, constants=CONSTANTS, host=HOST, recent=20, tolerance=0.0, seeded_at={})
     out = "\n".join(cb.render_rows(rows, host=HOST, total_bytes=48_000_000_000, cores=12, root=tree))
     assert "48.00 GB total" in out
     assert "capped at 2" in out

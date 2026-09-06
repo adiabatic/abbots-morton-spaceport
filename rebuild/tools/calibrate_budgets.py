@@ -8,7 +8,7 @@ What an observation is held against is that unit's constant, read out of its sou
 
 An observed peak past its constant means the divisor is stale. It does not mean an artifact is wrong: what a stale divisor costs is a pool of the wrong width, so nothing here gates a build and `--check`'s nonzero exit is loudness rather than a failure. That nonzero is spelled apart from a crash — `1` is the verdict and `2` is this tool failing to reach one — because the artifact cycle reads the two differently, printing a constants diff on the first and an informational line on the second, and a traceback reported as an overrun would be a measurement nobody ever took. The fix is to re-seed the constant off the fresher measurement, and committing the updated constant is the acceptance — exactly the contract `rebuild/review-census-pins.json` already has for the census, where the diff is what a human reads and the commit is the blessing. The tolerance therefore defaults to zero, which is not strictness for its own sake: these constants are already headroom, each one's own comment saying it rounds up past the top of its measured range because a per-unit cost that errs low is what puts a box into swap while one that errs high only narrows a pool. A measurement that reaches the constant has already eaten all of that deliberate slack, and saying so is the whole news this check exists to deliver; softening it by a further fraction would be headroom on headroom. The knob stays for a caller surveying a fleet with `--host all`, not to soften the default.
 
-Observations are filtered to one host by default, because a per-unit peak is a fact about a working set on a machine and a journal that has been concatenated across boxes mixes a machine that has since gained two memory-savers with one that has not — averaging those two says nothing true about either. The recency bound exists so a retired peak can age out: when a memory-saver lands and a constant is re-seeded downward, the journal still holds the old high-water marks from the same host, and an all-history check would tripwire forever on measurements of code that no longer exists. And one limit cannot be closed, so it is reported rather than papered over: the journal records which box measured a peak, never which box a constant was sized on. A unit with no rows from this host is therefore reported as unverified *here*, which is what is actually known, and never as verified elsewhere.
+Observations are filtered to one host by default, because a per-unit peak is a fact about a working set on a machine and a journal that has been concatenated across boxes mixes a machine that has since gained two memory-savers with one that has not — averaging those two says nothing true about either. A record older than the commit that set a constant's current value is not evidence about that constant, and is set aside before anything is counted: when a memory-saver lands and a constant is re-seeded downward, the journal still holds the old high-water marks from the same host, and a check that read them would tripwire on measurements of code that no longer exists for as long as they stayed inside its window. The commit is found by `git blame` on the constant's own line, so a re-seed clears its row on the very next pass, and a constant edited but not yet committed has no such commit and keeps every record until it does — committing is the acceptance, and the check judging the old rows until then is the check asking whether the new seed has been accepted. The recency bound inside that is the second, narrower window: a handful of the newest records, so that one anomalous run cannot hide a regression and a genuine improvement is believed within a day's work. And one limit cannot be closed, so it is reported rather than papered over: the journal records which box measured a peak, never which box a constant was sized on. A unit with no rows from this host is therefore reported as unverified *here*, which is what is actually known, and never as verified elsewhere.
 """
 
 from __future__ import annotations
@@ -17,9 +17,12 @@ import argparse
 import ast
 import functools
 import socket
+import subprocess
 import statistics
 import sys
+from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 
 from rebuild.tools import memory_budget
@@ -108,17 +111,63 @@ UNITS: tuple[Unit, ...] = (
 
 
 @functools.cache
-def _int_constant(path: Path, name: str) -> int:
-    """The integer `path` assigns to `name` at module scope, read out of the source rather than imported. Importing is not available here and would be the wrong tool if it were: pytest loads every conftest under the plain name `conftest`, so from any run collected under rebuild/ a plain `import conftest` answers the wrong file, while `import rebuild.conftest` would execute a second copy of a file pytest has already loaded and armed hooks in. `ast` answers the same question without running anything, and it keeps this tool from importing pytest at all or inheriting that file's sys.path edits. Only `tree.body` is walked, so a constant is what this reads and a same-named local inside some function is not. A missing name raises rather than defaulting, because a constant that has been renamed out from under the registry is a calibration silently not being performed."""
+def _constant_assignment(path: Path, name: str) -> tuple[int, int]:
+    """The integer `path` assigns to `name` at module scope and the line it is assigned on, read out of the source rather than imported. Importing is not available here and would be the wrong tool if it were: pytest loads every conftest under the plain name `conftest`, so from any run collected under rebuild/ a plain `import conftest` answers the wrong file, while `import rebuild.conftest` would execute a second copy of a file pytest has already loaded and armed hooks in. `ast` answers the same question without running anything, and it keeps this tool from importing pytest at all or inheriting that file's sys.path edits. Only `tree.body` is walked, so a constant is what this reads and a same-named local inside some function is not. A missing name raises rather than defaulting, because a constant that has been renamed out from under the registry is a calibration silently not being performed."""
     tree = ast.parse(path.read_text(encoding="utf-8"))
     for node in tree.body:
         if isinstance(node, ast.Assign) and any(
             isinstance(target, ast.Name) and target.id == name for target in node.targets
         ):
-            return int(ast.literal_eval(node.value))
+            return int(ast.literal_eval(node.value)), node.lineno
     raise RuntimeError(
         f"{path} defines no {name}: make job-costs prices a measured peak against that constant, and a constant it cannot find is a width nothing is watching. Move the name in the UNITS registry beside whatever moved it there."
     )
+
+
+def _int_constant(path: Path, name: str) -> int:
+    return _constant_assignment(path, name)[0]
+
+
+def constant_seeded_at(path: Path, name: str, *, root: Path = ROOT) -> str | None:
+    """When the commit that set `name` to its current value landed, as the ISO-Z stamp the journal's `finished_at` fields are written in, or None where no such commit exists: the line is edited but not yet committed, the file is untracked, `root` is not a git checkout, or git is not on this box. Every one of those reads as "no bound" rather than as an error, because a missing bound only leaves old records standing, which is the state this tool was in before it had one. `git blame` on the assignment's own line is what answers, and it answers with the last commit that touched that line for any reason — a reflow of the line moves it as surely as a re-seed does — which errs in the one direction that is safe here: a bound that is too new sets aside records that were evidence, and the row says so in its count, while a bound that was too old would hold a fresh seed against a retired peak. The committer time rather than the author time is what a journal stamp is comparable to, since a record measured on the tree before the commit landed was measured on code the seed was taken from rather than code the seed was accepted on."""
+    _, lineno = _constant_assignment(path, name)
+    try:
+        blame = subprocess.run(
+            ["git", "blame", "--porcelain", "-L", f"{lineno},{lineno}", "--", str(path)],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError:
+        return None
+    if blame.returncode != 0:
+        return None
+    return _seed_stamp_from_blame(blame.stdout)
+
+
+def _seed_stamp_from_blame(porcelain: str) -> str | None:
+    """The committer time out of one line's porcelain blame, or None for a line no commit holds yet: porcelain names an uncommitted line by the all-zero hash, and its committer time is the moment of the blame rather than of any commit."""
+    lines = porcelain.splitlines()
+    if not lines or lines[0].startswith("0" * 40):
+        return None
+    for line in lines:
+        if line.startswith("committer-time "):
+            seconds = int(line.split()[1])
+            return datetime.fromtimestamp(seconds, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return None
+
+
+def read_seed_stamps(root: Path = ROOT) -> dict[str, str]:
+    """When each unit's constant was last committed, keyed by unit name, for every unit whose constant a commit holds. A unit missing here is one with no bound, and `build_rows` keeps every record for it."""
+    stamps: dict[str, str] = {}
+    for unit in UNITS:
+        if unit.constant is None or unit.source is None:
+            continue
+        stamp = constant_seeded_at(root / unit.source, unit.constant, root=root)
+        if stamp is not None:
+            stamps[unit.name] = stamp
+    return stamps
 
 
 def read_constants(root: Path = ROOT) -> dict[str, int]:
@@ -160,18 +209,30 @@ def observations(
     *,
     host: str | None,
     recent: int,
-) -> tuple[list[Observation], int]:
-    """Every observation of one unit that survives the host filter and the recency bound, plus how many source records the host filter dropped.
+    since: str | None = None,
+) -> tuple[list[Observation], int, int]:
+    """Every observation of one unit that survives the host filter, the seed bound and the recency bound, plus how many source records the host filter dropped and how many the seed bound set aside.
+
+    `since` is the ISO-Z stamp of the commit that set this unit's constant to its current value, and a record that finished before it is set aside before the recency window is cut, so the window holds only records measured on code the seed is a claim about; None is no bound at all. A record with no stamp is kept, since nothing can say it is old.
 
     Every worker peak inside a kept pool record is its own observation, because the unit being calibrated is one worker: a pool of eight is eight measurements of it, which is what makes the median mean "a typical worker" and the max mean "the worst worker seen" — and the worst worker seen is exactly the figure a divisor has to cover. The controller's own peak is carried in the record for a human reading the journal and is deliberately not counted here; it measures a different process, and folding it in would drag the median toward a number no worker ever held.
 
-    The recency bound keeps the most recent `recent` source records — one pool record or one step record apiece, never one worker — per unit and per host, ordered by `finished_at` (the ISO-Z stamps sort lexicographically) with read order as the stable tiebreak; `recent <= 0` keeps everything. What it protects against is a re-seeded constant: when a memory-saver lands and a peak is re-seeded downward, the same host's old high-water marks are still in the journal, and an all-history check would tripwire on measurements of code that no longer exists for as long as the journal survives. The window is per host even when no host was selected, which is what makes `--host all` a survey of a fleet rather than of its busiest member: one machine that cycles ten times a day would otherwise fill a global window by itself and leave every quieter box unchecked while the report said nothing about it — and the quiet box is exactly the one nobody is watching. The dropped count is returned rather than logged so the report can say plainly that other machines' rows exist and were not checked.
+    The recency bound keeps the most recent `recent` source records — one pool record or one step record apiece, never one worker — per unit and per host, ordered by `finished_at` (the ISO-Z stamps sort lexicographically) with read order as the stable tiebreak; `recent <= 0` keeps everything. What it protects against is a single anomalous run standing as the record for as long as the journal survives. The window is per host even when no host was selected, which is what makes `--host all` a survey of a fleet rather than of its busiest member: one machine that cycles ten times a day would otherwise fill a global window by itself and leave every quieter box unchecked while the report said nothing about it — and the quiet box is exactly the one nobody is watching. The dropped count is returned rather than logged so the report can say plainly that other machines' rows exist and were not checked.
     """
     records = _source_records(unit, pool_records, steps_by_run)
     dropped = 0
     if host is not None:
         kept = [item for item in records if str(item[0].get("host", "")) == host]
         dropped = len(records) - len(kept)
+        records = kept
+    older = 0
+    if since is not None:
+        kept = [
+            item
+            for item in records
+            if not (isinstance(item[0].get("finished_at"), str) and item[0]["finished_at"] < since)
+        ]
+        older = len(records) - len(kept)
         records = kept
     if recent > 0:
         by_host: dict[str, list[int]] = {}
@@ -197,7 +258,7 @@ def observations(
             peak = record.get("peak_rss_bytes")
             if isinstance(peak, int | float):
                 observed.append(Observation(int(peak), record_host, at, source))
-    return observed, dropped
+    return observed, dropped, older
 
 
 @dataclass(frozen=True)
@@ -208,6 +269,8 @@ class UnitRow:
     constant_bytes: int | None
     observed: list[Observation]
     dropped_other_hosts: int
+    seeded_at: str | None
+    dropped_older: int
     overrun: bool
     unverified_here: bool
 
@@ -220,14 +283,18 @@ def build_rows(
     host: str | None,
     recent: int,
     tolerance: float,
+    seeded_at: Mapping[str, str] | None = None,
 ) -> list[UnitRow]:
-    """One row per registered unit, in registry order. Pure over its inputs — the constants are injected rather than read here, and the box is not consulted at all — so every assertion about a verdict is an assertion about a function. The overrun test is strictly greater than the constant plus its tolerance: a peak that exactly reaches the constant is a pool that exactly fits, which is what the constant was chosen to mean.
+    """One row per registered unit, in registry order. Pure over its inputs — the constants and the stamps of the commits that seeded them are injected rather than read here, and the box is not consulted at all — so every assertion about a verdict is an assertion about a function. `seeded_at` maps a unit name to the ISO-Z stamp its records must post-date; a unit it does not name keeps every record, and `recent <= 0` — the archaeology pass — ignores the stamps altogether, since a caller who asked for every record meant every record. The overrun test is strictly greater than the constant plus its tolerance: a peak that exactly reaches the constant is a pool that exactly fits, which is what the constant was chosen to mean.
 
     A constant is unverified *here* only when there is a here. Under `--host all` the report is a survey of a fleet and no box was named, so a unit with nothing to show has already said the whole truth in its observed line, and adding a sentence about "this host" would contradict the query that was actually run.
     """
     rows: list[UnitRow] = []
     for unit in UNITS:
-        observed, dropped = observations(unit, pool_records, steps_by_run, host=host, recent=recent)
+        since = (seeded_at or {}).get(unit.name) if recent > 0 else None
+        observed, dropped, older = observations(
+            unit, pool_records, steps_by_run, host=host, recent=recent, since=since
+        )
         constant_bytes = constants.get(unit.name)
         overrun = (
             constant_bytes is not None
@@ -240,6 +307,8 @@ def build_rows(
                 constant_bytes=constant_bytes,
                 observed=observed,
                 dropped_other_hosts=dropped,
+                seeded_at=since,
+                dropped_older=older,
                 overrun=overrun,
                 unverified_here=constant_bytes is not None and not observed and host is not None,
             )
@@ -259,6 +328,18 @@ def _percent(part: float, whole: float) -> int:
 def _plural(count: int, noun: str) -> str:
     """A count with its noun agreeing with it. Worth the three lines because the singular is the common case rather than the corner one — two machines writing into one journal is exactly the arrangement `--host all` exists for, and a report that reads "1 records" in the line a fleet survey is there to print looks like a report nobody read."""
     return f"{count} {noun}" if count == 1 else f"{count} {noun}s"
+
+
+def _since_line(row: UnitRow) -> str | None:
+    """Which records were allowed to speak for this constant, said only where there is a constant to speak for: the stamp of the commit that seeded it and how many older records were set aside, or that the constant is uncommitted and every record stands."""
+    if row.constant_bytes is None:
+        return None
+    if row.seeded_at is None:
+        return f"  since     : {row.unit.constant} has no commit yet (edited, untracked, or no git here), so every record stands"
+    aside = f"; {_plural(row.dropped_older, 'older record')} set aside" if row.dropped_older else ""
+    return (
+        f"  since     : {row.seeded_at}, the commit that set {row.unit.constant} to its current value{aside}"
+    )
 
 
 def _observed_line(row: UnitRow, *, host: str | None) -> str:
@@ -332,6 +413,9 @@ def render_rows(
             lines.append(f"{unit.name}  ({unit.constant} in {unit.source})")
             lines.append(f"  constant  : {format_gb(row.constant_bytes)} GB")
         lines.append(_observed_line(row, host=host))
+        since = _since_line(row)
+        if since is not None:
+            lines.append(since)
         if row.dropped_other_hosts:
             verb = "was" if row.dropped_other_hosts == 1 else "were"
             lines.append(
@@ -371,7 +455,7 @@ def render_rows(
     return lines
 
 
-def _report(args: argparse.Namespace) -> int:
+def _report(args: argparse.Namespace, seed_stamps: Mapping[str, str] | None) -> int:
     """Read the journal, build the rows, print them, and answer the verdict. Split out of `main` so that everything that can go wrong here — a constant renamed out from under the registry, a source file that no longer parses — comes back as a caught exception rather than as an interpreter exit of 1, which is the one code this tool's callers read as a measured overrun."""
     host = None if args.host == "all" else args.host
     pool_records = load_pool_records(args.journal)
@@ -383,9 +467,14 @@ def _report(args: argparse.Namespace) -> int:
         host=host,
         recent=args.recent,
         tolerance=args.tolerance,
+        seeded_at=read_seed_stamps() if seed_stamps is None else seed_stamps,
     )
     scope = f"host {host}" if host else "every host"
-    window = f"most recent {args.recent} records per unit" if args.recent > 0 else "every record"
+    window = (
+        f"most recent {args.recent} records per unit since each constant's commit"
+        if args.recent > 0
+        else "every record"
+    )
     print(f"{args.journal} — {scope}, {window}, tolerance {_percent(args.tolerance, 1)}%")
     print(
         "\n".join(
@@ -400,8 +489,8 @@ def _report(args: argparse.Namespace) -> int:
     return 1 if args.check and any(row.overrun for row in rows) else 0
 
 
-def main(argv: list[str] | None = None) -> int:
-    """Print the report and answer with the verdict: 0 for a report or a green check, 1 for a check that a measured peak tripped, 2 for this tool failing to reach a verdict at all.
+def main(argv: list[str] | None = None, *, seed_stamps: Mapping[str, str] | None = None) -> int:
+    """Print the report and answer with the verdict: 0 for a report or a green check, 1 for a check that a measured peak tripped, 2 for this tool failing to reach a verdict at all. `seed_stamps` is the commit stamp each constant's records must post-date, read from git by default and a keyword so a test can state one or state none.
 
     The third code is what keeps the second honest. `_int_constant` raises on purpose when a constant has been renamed out from under the registry, because a calibration silently not performed is the failure this whole module exists to prevent — but an uncaught raise exits 1, and the artifact cycle reads 1 as "a peak outran its constant", diffs the four constant-bearing files, and writes an OVERRUN into the cycle summary. That would be a measurement nobody took, announced as loudly as a real one and pointing a reader at a re-seeding that nothing asked for. So the failure is caught and spelled 2, which every caller already reads as informational.
     """
@@ -423,7 +512,7 @@ def main(argv: list[str] | None = None) -> int:
         "--recent",
         type=int,
         default=20,
-        help="how many of the most recent source records to keep per unit and host (default: 20, a handful of cycles on a working box — long enough that one anomalous run cannot hide a regression by itself, short enough that a genuine improvement is believed within a day's work). 0 reads every record, for a deliberate archaeology pass.",
+        help="how many of the most recent source records to keep per unit and host, counted from the commit that set each constant to its current value — older records are never held against it (default: 20, a handful of cycles on a working box — long enough that one anomalous run cannot hide a regression by itself, short enough that a genuine improvement is believed within a day's work). 0 reads every record regardless of that commit, for a deliberate archaeology pass.",
     )
     parser.add_argument(
         "--tolerance",
@@ -438,7 +527,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
     try:
-        return _report(args)
+        return _report(args, seed_stamps)
     except Exception as exc:
         print(f"job costs: check FAILED — {exc!r}", file=sys.stderr)
         return 2
