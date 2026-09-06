@@ -1,10 +1,10 @@
 """Conformance gates (M1-PLAN sections 5 and 6, Group 3): HarfBuzz vs the settlement function, and the settlement function vs the section 13.1 baseline oracle.
 
-`run_conformance` promotes prototype/conform.py: the Shaper (MONOTONE_CHARACTERS cluster level; names via TTFont, never HarfBuzz's truncating API), the exhaustive length-1..horizon enumeration per settlement configuration (the per-edit belt, horizon 4 by default), split-buffer equivalence, gap-0 pen positions, and the font-vs-settle oracle diff, which takes no ledger: any divergence is a compiler defect by definition. The isolated-overlay configuration (ss10, `OVERLAY_CONFIGS`) has no settlement to compare against and takes a shorter arm of its own at `OVERLAY_HORIZON`: read-back proves per build that the pre-empt covers every letter cmap glyph and that no twin sits in any formation sequence, marker line, chokepoint class or settlement input, so the expected rendering of any text is per-letter twins at their `hmtx` advances with nothing formed and nothing attached, and one letter (each maps to its twin) plus every pair (no pair forms, joins or moves) is the whole of what HarfBuzz can still be asked. Coverage is deliberately not this sweep's job: read-back (rebuild/pipeline/readback.py) proves per build that the compiled font holds every emitted rule at its planned position, and the dead-rule alarm is split between the crate's fold, which refuses at table-build time any rule no replayed row first-matches (`fold::assert_outcome_partition`), and rebuild/test_rule_witnesses.py, which keeps the realizability half — whether a string exists at all — and reaches it hint-first off the verified witness texts a previous run cached. Enumeration completeness — whether a live raw window a string reaches is one the fixpoint enumerated with its pins satisfied, or one it left at `#NA` or never reached so the font answers it with a wildcard or a default rule — is the crate's `replay-strings` verb's (`rebuild/kernel-rs/src/replay.rs`, `run_m1.run_replay_strings`): `_SettledWindowWalk` and `_first_matching_rule` transcribed over the persisted rules instead of the font, run on every build at `run_m1.REPLAY_HORIZON`, whole-universe on a code or structure change and only over the texts naming an edited family on a rune edit. So the sweep's remaining unique charter is what only shaping the real binary can test — HarfBuzz's application semantics (lookup interaction across features, backtrack-sees-settled across subtable breaks, default-ignorable skipping, class matching, Extension indirection) and the sufficiency of the 6-slot window abstraction itself, which witness-constructed strings structurally cannot probe because witnesses are built from that abstraction. The deep form of the same sweep runs at horizon 5 or deeper on demand (`make conform-deep`, rebuild/tools/deep_sweep.py), armed by the behavior-class enumeration `emit_gsub.behavior_classes` plus the font-compilation code and the uharfbuzz version, so a rune edit that introduces no novel rule shape never stales it. The split-buffer check rides the belt itself, on the texts it can say anything about, which is where the standalone horizon-5 boundary gate's charter now lives: proven per build at the belt's horizon and periodically deeper by `make conform-deep`. The ZWNJ slot's own structure — zero advance, no ink — is read-back's static boundary-glyphs stage now, proven off the font bytes once per build rather than at every shaped slot. Settlement rides `_SettledWindowWalk`'s per-config window memo, so a distinct raw window costs one batched crate answer and every recurrence across the sweep's texts costs a dict probe; the oracle's rows are these same texts, and the two phases share that memo through one file per configuration under rebuild/out/m1 (`SettleMemoFile`), keyed per family the way the oracle row cache is, so a window either of them settles is settled once per configuration until a rune it names moves.
+`run_conformance` promotes prototype/conform.py: the Shaper (MONOTONE_CHARACTERS cluster level; names via TTFont, never HarfBuzz's truncating API), the exhaustive length-1..horizon enumeration per settlement configuration (the per-edit belt, horizon 4 by default), split-buffer equivalence, gap-0 pen positions, and the font-vs-settle oracle diff, which takes no ledger: any divergence is a compiler defect by definition. The isolated-overlay configuration (ss10, `OVERLAY_CONFIGS`) has no settlement to compare against and takes a shorter arm of its own at `OVERLAY_HORIZON`: read-back proves per build that the pre-empt covers every letter cmap glyph and that no twin sits in any formation sequence, marker line, chokepoint class or settlement input, so the expected rendering of any text is per-letter twins at their `hmtx` advances with nothing formed and nothing attached, and one letter (each maps to its twin) plus every pair (no pair forms, joins or moves) is the whole of what HarfBuzz can still be asked. Coverage is deliberately not this sweep's job: read-back (rebuild/pipeline/readback.py) proves per build that the compiled font holds every emitted rule at its planned position, and the dead-rule alarm is split between the crate's fold, which refuses at table-build time any rule no replayed row first-matches (`fold::assert_outcome_partition`), and the build's witness stage (`check_rule_certificates`, run by `run_m1` over the certificates the crate wrote beside the rules), which keeps the realizability half — a string that fires the rule, settled rather than searched for. Enumeration completeness — whether a live raw window a string reaches is one the fixpoint enumerated with its pins satisfied, or one it left at `#NA` or never reached so the font answers it with a wildcard or a default rule — is the crate's `replay-strings` verb's (`rebuild/kernel-rs/src/replay.rs`, `run_m1.run_replay_strings`): `_SettledWindowWalk` and `_first_matching_rule` transcribed over the persisted rules instead of the font, run on every build at `run_m1.REPLAY_HORIZON`, whole-universe on a code or structure change and only over the texts naming an edited family on a rune edit. So the sweep's remaining unique charter is what only shaping the real binary can test — HarfBuzz's application semantics (lookup interaction across features, backtrack-sees-settled across subtable breaks, default-ignorable skipping, class matching, Extension indirection) and the sufficiency of the 6-slot window abstraction itself, which witness-constructed strings structurally cannot probe because witnesses are built from that abstraction. The deep form of the same sweep runs at horizon 5 or deeper on demand (`make conform-deep`, rebuild/tools/deep_sweep.py), armed by the behavior-class enumeration `emit_gsub.behavior_classes` plus the font-compilation code and the uharfbuzz version, so a rune edit that introduces no novel rule shape never stales it. The split-buffer check rides the belt itself, on the texts it can say anything about, which is where the standalone horizon-5 boundary gate's charter now lives: proven per build at the belt's horizon and periodically deeper by `make conform-deep`. The ZWNJ slot's own structure — zero advance, no ink — is read-back's static boundary-glyphs stage now, proven off the font bytes once per build rather than at every shaped slot. Settlement rides `_SettledWindowWalk`'s per-config window memo, so a distinct raw window costs one batched crate answer and every recurrence across the sweep's texts costs a dict probe; the oracle's rows are these same texts, and the two phases share that memo through one file per configuration under rebuild/out/m1 (`SettleMemoFile`), keyed per family the way the oracle row cache is, so a window either of them settles is settled once per configuration until a rune it names moves.
 
 The section 6 oracle gate itself lives in rebuild/pipeline/oracle.py (`compare_against_baseline`, the ledger classifier, the position channel), which is the comparison side the enumeration's stamp leaves out. What stays here is its producer: `_compare_row` compares one baseline row's ligation (clusters), per-seam classification, and cell identity against the settled stream through the hand-written alias map and answers the `DivergentRow` the oracle classifies; `_cached_verdict` and `_served_verdict` are the codec between that answer and the oracle row cache's record, and `_verify_served_sample` re-derives a pass's served sample against the store. Those, with the walk, are the two entry points `oracle_cache.ORACLE_ROW_CODE_PATHS` is cut from, which is why they and not the classifier live in this file.
 
-Settlement itself is the crate's, reached through `kernel_exec`: `_SettledWindowWalk` batches whole waves of distinct raw windows into `kernel_exec.settle_windows`, the witness search hoists one `kernel_exec.guard_sweep` and threads its verdict surface through every formation call below it, and nothing here re-derives a settled cell. The lazy `table` imports inside the entry points that read a decision table no longer keep it out of the shaping half — importing this module imports `kernel_exec`, which imports `table` — and what they still buy is locality: each entry point names the label constants it reads where it reads them.
+Settlement itself is the crate's, reached through `kernel_exec`: `_SettledWindowWalk` batches whole waves of distinct raw windows into `kernel_exec.settle_windows`, the certificate check and the sweep each hoist one `kernel_exec.guard_sweep` and thread its verdict surface through every formation call below it, and nothing here re-derives a settled cell. The lazy `table` imports inside the entry points that read a decision table no longer keep it out of the shaping half — importing this module imports `kernel_exec`, which imports `table` — and what they still buy is locality: each entry point names the label constants it reads where it reads them.
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ from array import array
 from contextlib import suppress
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable, Collection, Iterable, Mapping, Sequence
+from typing import TYPE_CHECKING, Callable, Iterable, Mapping, Sequence
 
 import yaml
 
@@ -713,7 +713,7 @@ class _SettledWindowWalk:
 
     Batching is what makes the crate affordable here. `settle-cases` answers independent windows, but a text's next left is the previous window's answer, so `_run` advances a whole pile of texts in waves: every state runs forward to its first memo miss, the misses contribute one case row each — deduplicated by memo key, since a key that two states reach in the same wave is one question — and one `kernel_exec.settle_windows` invocation answers up to `batch` of them before every state advances again. A wave collects at most `batch` new keys and parks the rest for the next one, so a caller's chunk size bounds its own resident cost rather than the invocation's. `walk` is the same loop over a single text, which means a miss there spends a whole kernel spawn on one window; `single_settles` counts those, so a caller that forgot to `prefill` can see what it is paying.
 
-    A refusal is the one thing the memo can hold that is not an outcome. `on_error="raise"`, the default, lets it out of the batch that met it, as every settlement caller has always done. `on_error="drop"` splits the timing instead: a refusal met during `prefill` is memoized as a `_RefusedWindow`, the text carrying it stops advancing, and the rest of the pile finishes — while `walk` and `walk_many` raise `settle.SettleError` the moment they reach such a key. That pairing is what lets a caller prefill candidate strings it may never read (the witness gate assembles many per rule and reads until the first one witnesses) without a window nobody would have reached aborting the whole gate.
+    A refusal is the one thing the memo can hold that is not an outcome. `on_error="raise"`, the default, lets it out of the batch that met it, as every settlement caller has always done. `on_error="drop"` splits the timing instead: a refusal met during `prefill` is memoized as a `_RefusedWindow`, the text carrying it stops advancing, and the rest of the pile finishes — while `walk` and `walk_many` raise `settle.SettleError` the moment they reach such a key. That pairing is what lets a caller prefill a pile of strings and report each refusal against the string that carried it (the certificate check reads every certificate and names the rule whose certificate the crate refused) without one refusal aborting the whole pile.
 
     `audit_dedupe` is the standing argument for the dedupe made checkable: with it on, every distinct raw case row a memo key carries beyond the representative is settled too and asserted equal to the memoized outcome, which is the claim `_window_rights`' `#NA` cascade makes — that two raw windows keyed alike settle alike.
     """
@@ -1061,7 +1061,7 @@ class _SettledWindowWalk:
 
 
 def _token_text(spec: ResolvedSpec, tokens: Iterable[str]) -> str:
-    """Render a witness token stream (rune family, ligature-rune, or boundary-label tokens) back to codepoints; ligature runes expand to their component sequence, so raw_labels' greedy formation re-folds them to the intended labels."""
+    """Render a certificate's token stream (rune family, ligature-rune, or boundary-label tokens) back to codepoints; ligature runes expand to their component sequence, so raw_labels' greedy formation re-folds them to the intended labels."""
     boundary_codepoints = {
         {"space": "space", "zwnj": "uni200C", "namer-dot": "periodcentered"}[name]: token.codepoint
         for name, token in spec.registry.boundary_tokens.items()
@@ -1082,421 +1082,6 @@ def _token_text(spec: ResolvedSpec, tokens: Iterable[str]) -> str:
     return "".join(chars)
 
 
-def _shortest_window_prefixes(decision):
-    """BFS the decision table's own windows, mirroring the table builder's worklist at label grain: for each (left label, input label, constrained-right1 label or None-for-boundary-seeds) item, the shortest token prefix that realizes it. The prefix holds the tokens BEFORE the input slot — empty for edge-left items, the boundary token for boundary-left items.
-
-    Returns `(prefixes, by_right3)`. `prefixes` is the shortest prefix per window, used to grow longer chains. `by_right3` maps each window to `{(producing-row-right3, producing-row-right4): shortest-prefix}` — the deep lookaheads the realizing row was pinned to (mirroring the table builder's right3/right4 exactness in `table._flag_prospect_joints`). A backtrack whose withdrawal is decided by a raw deep slot (a depth-3- or depth-4-conditional cell) is realized only under specific (right3, right4) values, so a witness for it must pick the prefix whose deep slots match the target window's own look2/look3; the flat `prefixes` map can only offer the shortest, which may carry deep slots the target rule never takes. Deep pins return to label grain at this bucket boundary: a class-grain producer row registers its prefix under every expanded (member3, member4) pair — the producer identity the buckets ride is that a row's right3 raw label is its successor window's right2 one slot over, and class tokens minted in different contexts must never meet across it — so `by_right3` buckets stay label-grain exactly as at label grain, bounded by the old label-grain row count.
-    """
-    from collections import deque
-
-    from rebuild.pipeline.table import BOUNDARY_LEFT_LABELS, BOUNDARYISH
-
-    boundary_prefixes: dict[str, tuple[str, ...]] = {
-        label: () if kind == "edge" else (label,) for kind, label in BOUNDARY_LEFT_LABELS.items()
-    }
-    rows_by_item: dict[tuple[str, str], list] = {}
-    for row in decision.transitions:
-        rows_by_item.setdefault((row.left, row.input_glyph), []).append(row)
-    prefixes: dict[tuple[str, str, str | None], tuple[str, ...]] = {}
-    by_right3: dict[tuple[str, str, str], dict[tuple[str, str], list[tuple[str, ...]]]] = {}
-    queue: deque[tuple[str, str, str | None]] = deque()
-    for left, input_label in sorted(rows_by_item):
-        if left in boundary_prefixes:
-            item = (left, input_label, None)
-            prefixes[item] = boundary_prefixes[left]
-            queue.append(item)
-    while queue:
-        item = queue.popleft()
-        left, input_label, constraint = item
-        extended = prefixes[item] + (_label_family(input_label),)
-        for row in rows_by_item.get((left, input_label), ()):
-            if constraint is not None and row.right1 != constraint:
-                continue
-            if row.right1 in BOUNDARYISH:
-                continue
-            successor = (row.outcome, row.right1, row.right2)
-            options = by_right3.setdefault(successor, {})
-            for member3 in _token_members(decision, row.right3):
-                for member4 in _token_members(decision, row.right4):
-                    deep_key = (member3, member4)
-                    bucket = options.setdefault(deep_key, [])
-                    if extended not in bucket:
-                        # Keep a few shortest alternates, not just the winner: distinct producer paths collapse onto one deep-key (both #NA when the producer is not deep), and a deep record further upstream can invalidate the shortest path for specific target windows — the ·Day·Tea·No·Tea route to a ·Tea.en-y0 left is the worked case.
-                        bucket.append(extended)
-                        bucket.sort(key=lambda p: (len(p), p))
-                        del bucket[6:]
-            if successor in prefixes:
-                continue
-            prefixes[successor] = extended
-            queue.append(successor)
-    return prefixes, by_right3
-
-
-def _refolds_intact(spec, guard_verdicts, tokens) -> bool:
-    """Whether a witness token stream survives the raw replay unchanged: expand ligature tokens to components, re-run guarded formation, and demand the original stream back. A prefix ligature can be un-formed (its guard slots are the witness's own following tokens) and an adjacent pair can re-form — either way the stream no longer realizes the intended window."""
-    boundary_by_label = {
-        "space": settle.SPACE,
-        "uni200C": settle.ZWNJ,
-        "periodcentered": settle.NAMER_DOT,
-    }
-    label_by_kind = {"space": "space", "zwnj": "uni200C", "namer-dot": "periodcentered"}
-    stream: list = []
-    for token in tokens:
-        if token in boundary_by_label:
-            stream.append(boundary_by_label[token])
-            continue
-        for part in spec.runes[token].sequence or (token,):
-            stream.append(settle.RightToken("letter", part))
-    formed = settle.form_ligatures(spec, stream, guard_verdicts)
-    labels = [label_by_kind[t.kind] if t.kind != "letter" else t.letter for t in formed]
-    return labels == list(tokens)
-
-
-def _window_witness_candidates(
-    spec, guard_verdicts, prefixes, by_right3, row, decision=None
-) -> list[tuple[str, ...]]:
-    """Assemble candidate token streams that could realize one transition row's window, most-plausible prefix first: the BFS prefixes pinned to the row's own deep slots — a class token trying each member's label-grain bucket in member order — then the unpinned buckets, then the flat shortest prefixes. Several candidates exist because a deep record upstream of the prefix can invalidate one path for this row's specific right context while another path stays realizable; the caller sweeps or settles each until the window is actually realized."""
-    from rebuild.pipeline.table import NA_LABEL
-
-    # The backtrack cell's own third and fourth lookaheads are this window's look2 and look3 (row.right2, row.right3), so a backtrack whose withdrawal turns on a raw deep slot must be realized by a prefix pinned to those same values — a flat shortest prefix can carry deep slots this rule never takes (the depth-3-/depth-4-conditional withdrawal cases). Each pinned bucket's premise is that its member label sits at the target's own r3 slot, so the assembly pins that member, not the class representative — an unpinned prefix (the #NA buckets and the flat fallbacks) carries no such premise and assembles with the representative.
-    options = by_right3.get((row.left, row.input_glyph, row.right1), {})
-    rep3 = _token_representative(decision, getattr(row, "right3", NA_LABEL))
-    bucket_keys: list[tuple[tuple[str, str], str]] = []
-    for member in _token_members(decision, getattr(row, "right3", NA_LABEL)):
-        bucket_keys.append(((row.right2, member), member))
-    bucket_keys.append(((row.right2, NA_LABEL), rep3))
-    bucket_keys.append(((NA_LABEL, NA_LABEL), rep3))
-    ordered_prefixes: list[tuple[tuple[str, ...], str]] = []
-    seen_keys: set[tuple[str, str]] = set()
-    for bucket_key, member in bucket_keys:
-        if bucket_key in seen_keys:
-            continue
-        seen_keys.add(bucket_key)
-        for prefix in options.get(bucket_key, ()):
-            if (prefix, member) not in ordered_prefixes:
-                ordered_prefixes.append((prefix, member))
-    for flat_key in ((row.left, row.input_glyph, row.right1), (row.left, row.input_glyph, None)):
-        prefix = prefixes.get(flat_key)
-        if prefix is not None and (prefix, rep3) not in ordered_prefixes:
-            ordered_prefixes.append((prefix, rep3))
-    candidates: list[tuple[str, ...]] = []
-    for prefix, member in ordered_prefixes[:6]:
-        tokens = _assemble_window_witness(spec, guard_verdicts, prefix, row, decision, right3_label=member)
-        if tokens is not None and tokens not in candidates:
-            candidates.append(tokens)
-    return candidates
-
-
-def _guard_follower_slots(spec, label):
-    """The raw slots a section 5.7 guard reads when the window slot after a formation pair holds `label`: a formed-ligature label stands for its own component sequence in the raw stream, so the guard's two slots are that ligature's lead and trailing components — pinned by the label itself, with no room for a hunted second-slot token between them — while a letter label is its own first slot with the second left open (None) for the caller's hunt. First possible with qsSee_qsUtter, whose lead is itself a member of another ligature's guard class."""
-    rune = spec.runes.get(label)
-    if rune is not None and rune.sequence:
-        return (
-            settle.RightToken("letter", rune.sequence[0]),
-            settle.RightToken("letter", rune.sequence[-1]),
-        )
-    return settle.RightToken("letter", label), None
-
-
-def _formed_liga_guard_repair(spec, guard_verdicts, tokens: list) -> bool:
-    """A formed-ligature label anywhere in an assembled stream must satisfy its own section 5.7 guard over the raw tokens that follow it, or the raw replay would leave the pair unformed and the stream would never realize the window. An interior label has its guard slots pinned by the stream, so a blocked verdict just discards the candidate — the same fate `_refolds_intact` would deliver, caught early. A label whose letter follower is the stream's last token reads the text edge at the guard's second slot, and a blocked verdict there is repaired in place by appending a letter under which the guard releases. First needed when the guard learned right2-dependent verdicts: a `(qsDay_qsUtter, qsSee)` lookahead adjacency with nothing deeper pinned is realizable only under a ·Low or ·Utter continuation. Returns False when the stream is unrealizable."""
-    from rebuild.pipeline.table import BOUNDARY_LEFT_LABELS
-
-    boundary_kinds = {label: kind for kind, label in BOUNDARY_LEFT_LABELS.items() if kind != "edge"}
-    pairs = {
-        (rune.sequence[-2], rune.sequence[-1]): name for name, rune in spec.runes.items() if rune.sequence
-    }
-
-    def slot(index: int):
-        if index >= len(tokens):
-            return settle.EDGE
-        token = tokens[index]
-        kind = boundary_kinds.get(token)
-        if kind is not None:
-            return settle.RightToken(kind)
-        rune = spec.runes.get(token)
-        if rune is not None and rune.sequence:
-            return settle.RightToken("letter", rune.sequence[0])
-        return settle.RightToken("letter", token)
-
-    for i in range(len(tokens)):
-        rune = spec.runes.get(tokens[i])
-        if rune is None or not rune.sequence:
-            continue
-        follower, pinned_second = (
-            _guard_follower_slots(spec, tokens[i + 1])
-            if i + 1 < len(tokens) and tokens[i + 1] not in boundary_kinds
-            else (slot(i + 1), None)
-        )
-        if follower.kind != "letter":
-            continue
-        second = pinned_second if pinned_second is not None else slot(i + 2)
-        if not settle.guard_blocks(guard_verdicts, tokens[i], follower, second):
-            continue
-        if pinned_second is not None or i + 2 < len(tokens):
-            return False
-        appended = next(
-            (
-                name
-                for name in sorted(spec.runes)
-                if not spec.runes[name].sequence
-                and (tokens[i + 1], name) not in pairs
-                and not settle.guard_blocks(
-                    guard_verdicts, tokens[i], follower, settle.RightToken("letter", name)
-                )
-            ),
-            None,
-        )
-        if appended is None:
-            return False
-        tokens.append(appended)
-    return True
-
-
-def _assemble_window_witness(
-    spec, guard_verdicts, prefix, row, decision=None, right3_label=None
-) -> tuple[str, ...] | None:
-    """One candidate stream from one prefix: the prefix, the input, then just enough right context to pin right1/right2 (a boundary token, a letter, or nothing for the text edge) plus the pinned deep slots — a class token pinned by `right3_label` when the caller's prefix bucket carries a member premise, by its representative member otherwise, and every read below sees the choice because the two locals are resolved at assignment. A window whose input and right1 are a formation pair exists only where the section 5.7 guard fires, and the guard's second slot is the token after right2 — beyond what the window pins — so such a witness is extended with a second-slot letter under which the guard fires. The assembled stream must survive the raw replay unchanged (`_refolds_intact`); a stream the guard would refold differently — a prefix ligature un-formed, an adjacent pair re-formed — is discarded so the caller falls through to the next candidate."""
-    from rebuild.pipeline.table import BOUNDARY_LEFT_LABELS, EDGE_LABEL, NA_LABEL
-
-    boundary_labels = {label for kind, label in BOUNDARY_LEFT_LABELS.items() if kind != "edge"}
-    tokens = list(prefix) + [_label_family(row.input_glyph)]
-    if row.right1 == EDGE_LABEL:
-        pass
-    elif row.right1 in boundary_labels:
-        tokens.append(row.right1)
-    else:
-        tokens.append(_label_family(row.right1))
-        if row.right2 in (EDGE_LABEL, NA_LABEL):
-            pass
-        elif row.right2 in boundary_labels:
-            tokens.append(row.right2)
-        else:
-            tokens.append(_label_family(row.right2))
-            pairs = {
-                (rune.sequence[-2], rune.sequence[-1]): name
-                for name, rune in spec.runes.items()
-                if rune.sequence
-            }
-            right3 = (
-                right3_label
-                if right3_label is not None
-                else _token_representative(decision, getattr(row, "right3", NA_LABEL))
-            )
-            right4 = _token_representative(decision, getattr(row, "right4", NA_LABEL))
-            if right3 not in (EDGE_LABEL, NA_LABEL):
-                # A pinned third slot doubles as the guard-firing follower the two search branches in the else-arm would otherwise hunt for a formation pair at (input, right1) — the table's right3 options already replay that guard's filters. A pair at (right1, right2) instead pushes its guard one slot over, onto (right3, right4): with right4 pinned the table's right4 options already replayed that guard too, otherwise its guard-firing token is searched at the fourth slot. A surviving pair at (right2, right3) needs a guard-firing token at whichever of the fourth or fifth slot is first unpinned, and a surviving pair at (right3, right4) pushes its own guard onto the fifth slot.
-                if right3 in boundary_labels:
-                    tokens.append(right3)
-                else:
-                    tokens.append(_label_family(right3))
-                    right4_letter = right4 not in (EDGE_LABEL, NA_LABEL) and right4 not in boundary_labels
-                    if right4 in boundary_labels:
-                        tokens.append(right4)
-                    elif right4_letter:
-                        tokens.append(_label_family(right4))
-                    liga_at_lookahead = pairs.get((_label_family(row.right1), _label_family(row.right2)))
-                    if liga_at_lookahead is not None and right4 in (EDGE_LABEL, NA_LABEL):
-                        follower, pinned_second = _guard_follower_slots(spec, _label_family(right3))
-                        if pinned_second is not None:
-                            if not settle.guard_blocks(
-                                guard_verdicts, liga_at_lookahead, follower, pinned_second
-                            ):
-                                return None
-                        elif not settle.guard_blocks(
-                            guard_verdicts, liga_at_lookahead, follower, settle.EDGE
-                        ):
-                            second = next(
-                                (
-                                    name
-                                    for name in sorted(spec.runes)
-                                    if not spec.runes[name].sequence
-                                    and (_label_family(right3), name) not in pairs
-                                    and settle.guard_blocks(
-                                        guard_verdicts,
-                                        liga_at_lookahead,
-                                        follower,
-                                        settle.RightToken("letter", name),
-                                    )
-                                ),
-                                None,
-                            )
-                            if second is None:
-                                return None
-                            tokens.append(second)
-                    liga_past = pairs.get((_label_family(row.right2), _label_family(right3)))
-                    if liga_past is not None and right4_letter:
-                        r4_token, pinned_second = _guard_follower_slots(spec, _label_family(right4))
-                        if pinned_second is not None:
-                            if not settle.guard_blocks(guard_verdicts, liga_past, r4_token, pinned_second):
-                                return None
-                        elif not settle.guard_blocks(guard_verdicts, liga_past, r4_token, settle.EDGE):
-                            second = next(
-                                (
-                                    name
-                                    for name in sorted(spec.runes)
-                                    if not spec.runes[name].sequence
-                                    and (_label_family(right4), name) not in pairs
-                                    and settle.guard_blocks(
-                                        guard_verdicts, liga_past, r4_token, settle.RightToken("letter", name)
-                                    )
-                                ),
-                                None,
-                            )
-                            if second is None:
-                                return None
-                            tokens.append(second)
-                    elif (
-                        liga_past is not None
-                        and right4 in (EDGE_LABEL, NA_LABEL)
-                        and not settle.guard_blocks(guard_verdicts, liga_past, settle.EDGE, settle.EDGE)
-                    ):
-                        follower = next(
-                            (
-                                name
-                                for name in sorted(spec.runes)
-                                if not spec.runes[name].sequence
-                                and (_label_family(right3), name) not in pairs
-                                and settle.guard_blocks(
-                                    guard_verdicts,
-                                    liga_past,
-                                    settle.RightToken("letter", name),
-                                    settle.EDGE,
-                                )
-                            ),
-                            None,
-                        )
-                        if follower is None:
-                            return None
-                        tokens.append(follower)
-                    if right4_letter:
-                        liga_next = pairs.get((_label_family(right3), _label_family(right4)))
-                        if liga_next is not None and not settle.guard_blocks(
-                            guard_verdicts, liga_next, settle.EDGE, settle.EDGE
-                        ):
-                            follower = next(
-                                (
-                                    name
-                                    for name in sorted(spec.runes)
-                                    if not spec.runes[name].sequence
-                                    and (_label_family(right4), name) not in pairs
-                                    and settle.guard_blocks(
-                                        guard_verdicts,
-                                        liga_next,
-                                        settle.RightToken("letter", name),
-                                        settle.EDGE,
-                                    )
-                                ),
-                                None,
-                            )
-                            if follower is None:
-                                return None
-                            tokens.append(follower)
-            else:
-                liga = pairs.get((_label_family(row.input_glyph), _label_family(row.right1)))
-                if liga is not None:
-                    follower, pinned_second = _guard_follower_slots(spec, _label_family(row.right2))
-                    if pinned_second is not None:
-                        if not settle.guard_blocks(guard_verdicts, liga, follower, pinned_second):
-                            return None
-                    elif not settle.guard_blocks(guard_verdicts, liga, follower, settle.EDGE):
-                        second = next(
-                            (
-                                name
-                                for name in sorted(spec.runes)
-                                if not spec.runes[name].sequence
-                                and (_label_family(row.right2), name) not in pairs
-                                and settle.guard_blocks(
-                                    guard_verdicts, liga, follower, settle.RightToken("letter", name)
-                                )
-                            ),
-                            None,
-                        )
-                        if second is None:
-                            return None
-                        tokens.append(second)
-                liga_at_lookahead = pairs.get((_label_family(row.right1), _label_family(row.right2)))
-                if liga_at_lookahead is not None and not settle.guard_blocks(
-                    guard_verdicts, liga_at_lookahead, settle.EDGE, settle.EDGE
-                ):
-                    follower = next(
-                        (
-                            name
-                            for name in sorted(spec.runes)
-                            if not spec.runes[name].sequence
-                            and (_label_family(row.right2), name) not in pairs
-                            and settle.guard_blocks(
-                                guard_verdicts,
-                                liga_at_lookahead,
-                                settle.RightToken("letter", name),
-                                settle.EDGE,
-                            )
-                        ),
-                        None,
-                    )
-                    if follower is None:
-                        return None
-                    tokens.append(follower)
-    if not _formed_liga_guard_repair(spec, guard_verdicts, tokens):
-        return None
-    if not _refolds_intact(spec, guard_verdicts, tokens):
-        return None
-    return tuple(tokens)
-
-
-WITNESS_ROW_CAP = 32
-
-
-def _first_match_rows(decision, only: Collection[int] | None = None) -> dict[int, list]:
-    """Group the table's transitions by the rule index that first-matches each window, replaying the same first-match-wins semantics assert_outcome_partition proves — the static answer to 'which windows would make rule N fire?'. A deep slot holding a class token is tested through its representative member, exact by the build's union-of-fibers assertion. Nothing here decides whether a rule is dead any more: the crate's fold tallies the same first-match per replayed row and refuses a table whose rule none of them reaches, so this replay only seeds the search for a realizing string.
-
-    `only` narrows it to the rules a witness is still wanted for. A row whose input glyph belongs to none of them is skipped whole, but within a row the rules of its input are still tested in their own order — an earlier rule can never be skipped, because skipping it is exactly what would hand a later rule a window the first-match semantics gives to someone else — and a row is kept only when the index that wins is one of `only`. So a narrowed call answers the same rows for the rules it names as the unnarrowed one, at a fraction of the work.
-
-    At most `WITNESS_ROW_CAP` rows are kept per rule, because the witness search only ever reads the shortest candidates any of them yields, as many as `_candidate_witness_tokens`'s own `limit` keeps, and a popular rule first-matches tens of thousands of windows — assembling candidates for all of them was the whole cost of the gate. The bound is on the search, not on the verdict: a rule whose only realizable window sat past the cap would be reported unwitnessed, a false alarm and never a false pass.
-    """
-    rules_by_input: dict[str, list[tuple[int, Rule]]] = {}
-    for index, rule in enumerate(decision.rules):
-        rules_by_input.setdefault(rule.input_glyph, []).append((index, rule))
-    wanted = None if only is None else set(only)
-    inputs = None if wanted is None else {decision.rules[index].input_glyph for index in wanted}
-    rows_by_rule: dict[int, list] = {}
-    for row in decision.transitions:
-        if inputs is not None and row.input_glyph not in inputs:
-            continue
-        right3 = _token_representative(decision, getattr(row, "right3", "#NA"))
-        right4 = _token_representative(decision, getattr(row, "right4", "#NA"))
-        for index, rule in rules_by_input.get(row.input_glyph, ()):
-            if rule.backtrack is not None and row.left not in rule.backtrack:
-                continue
-            if rule.look1 is not None and row.right1 not in rule.look1:
-                continue
-            if rule.look2 is not None and row.right2 not in rule.look2:
-                continue
-            look3 = getattr(rule, "look3", None)
-            if look3 is not None and right3 not in look3:
-                continue
-            look4 = getattr(rule, "look4", None)
-            if look4 is not None and right4 not in look4:
-                continue
-            if wanted is None or index in wanted:
-                rows = rows_by_rule.setdefault(index, [])
-                if len(rows) < WITNESS_ROW_CAP:
-                    rows.append(row)
-            break
-    return rows_by_rule
-
-
-def _candidate_witness_tokens(
-    spec, guard_verdicts, prefixes, by_right3, rows, decision=None, limit: int = 10
-) -> list[tuple[str, ...]]:
-    candidates = {
-        tokens
-        for row in rows
-        for tokens in _window_witness_candidates(spec, guard_verdicts, prefixes, by_right3, row, decision)
-    }
-    return sorted(candidates, key=lambda tokens: (len(tokens), tokens))[:limit]
-
-
 def rule_signature(rule) -> str:
     slots = ", ".join(
         f"{name}={list(value) if value is not None else 'any'}"
@@ -1511,126 +1096,86 @@ def rule_signature(rule) -> str:
     return f"{rule.input_glyph} [{slots}] -> {rule.outcome}"
 
 
+class WitnessError(Exception):
+    """A settlement rule whose certificate does not realize it: the build's own realizing string, settled through the crate, fires some other rule or none at the input it names, which means either the fold's pins or the fold's ordering is wrong."""
+
+
 @dataclass
 class WitnessReport:
+    """One configuration's certificate check: how many rules the table carries, the certificate text each verified rule fired in, one sentence per rule whose certificate did not fire it, and how the walk's windows were paid for — `served` off the shared settle memo, `fresh` settled by the crate for this check."""
+
     config: str
     rules: int
     witnessed: dict[int, str] = field(default_factory=dict)
-    unwitnessed: list[int] = field(default_factory=list)
-    searched: list[int] = field(default_factory=list)
+    failures: list[str] = field(default_factory=list)
+    served: int = 0
+    fresh: int = 0
+
+    @property
+    def passed(self) -> bool:
+        return not self.failures and len(self.witnessed) == self.rules
 
 
-def find_rule_witnesses(
-    spec, features, decision, glyph_names=None, guard_verdicts=None, hints: Mapping[str, str] | None = None
+def check_rule_certificates(
+    spec, features, decision, guard_verdicts=None, memo: SettleMemoFile | None = None
 ) -> WitnessReport:
-    """The realizability half of rule coverage: for every settlement rule, produce a string the crate's settlement confirms the rule first-matches somewhere in. Its sibling, that no rule sits behind another and can never win a window at all, is the crate's own — `fold::assert_outcome_partition` tallies the first-matching rule of every replayed row and refuses the table when one is never first, so a rule dead in the static sense fails the build rather than this gate. What is left here is the question a fold cannot answer: whether any string realizes the windows that rule owns. A rule left unwitnessed has none the table can construct — dead code in the emitted FEA — so this stays the always-on generator-defect alarm (rebuild/test_rule_witnesses.py), font-free by construction: it asks whether a rule can ever fire, where read-back asks whether the compiled font holds it and the sweep asks whether HarfBuzz applies it the way the kernel says.
+    """The realizability half of rule coverage, settled rather than searched: every rule the table carries arrived with a certificate — the token stream the crate closed off the shortest producer chain of a row the rule first-matches (`certificate.rs`) — and this settles each certificate's text through the crate and asserts the rule first-matches at some position of it, under the exact first-match-wins the emitted lookup compiles to (`_matched_windows`). The sibling claim, that no rule sits behind another and can never win a window, is the crate's fold: `fold::assert_outcome_partition` refuses a table with a never-first rule before any certificate is closed.
 
-    `hints` is what makes the answer cheap on the run after the first: a mapping from `rule_signature` to a witness text a previous run verified, keyed by the signature rather than by the rule's index so it survives a table that reindexed around an edit. Nothing is trusted. Every hint is walked and re-checked against `_matched_windows` exactly as a freshly derived candidate would be, and a hint that no longer wins its rule — or that the crate now refuses, which is a stale text and no generator defect — is simply a miss. The persisted form is `read_witness_hints` / `write_witness_hints`; a caller that passes none searches for everything, which is what the fixture-scale callers do.
+    What the settle proves is the pins. A certificate's prefix is the chain of rows whose outcomes put the rule's left state in place, and the fixpoint only ever pinned those rows' slots — a settled left is reachable alongside the right1 that was the producing window's right2, and the deeper slots ride the allowed-sets. Settling the text from the run edge re-derives that left from nothing, so a pin the worklist got wrong settles the certificate to some other left, which first-matches some other rule, and the rule is reported. A table whose certificates do not cover its rules — a count that differs from the rule count — fails every rule, since nothing vouches for them.
 
-    The search runs only for the misses, and pays what it always paid for them: one guard sweep and one walk serve the whole table, the BFS over the table's windows and `_first_match_rows` are narrowed to the unwitnessed rules, and candidate streams are assembled for all of them before any is walked, because the assembly is where the section 5.7 guard is read hundreds of thousands of times and a per-call sweep would spawn a kernel for each. Then every candidate text prefills the walk in waves, so the lazy first-witness loop below settles nothing — it reads the memo the prefill filled. The prefill is tolerant (`on_error="drop"`) precisely because it is eager where the loop is lazy: it settles every candidate of every rule, including the ones after the first witness that the loop will never look at, and a window the crate refuses in one of those must not take the gate down. Memoized as a refusal, it surfaces if and only if the loop actually walks that text — which is the semantics the per-candidate settle had before the prefill existed.
+    O(rules) settles and no search: the texts prefill one `_SettledWindowWalk` in waves, and `memo` is the configuration's shared settle memo (`settle_memo_files`), keyed per family the way the oracle row cache is, so a window the belt or the oracle has already settled since the runes it names last moved costs a dict probe and the windows this check settles are handed on to them. That key is where the window-locality theorem reaches the certificates: a certificate names a handful of families, its windows survive exactly as long as those families' keys do, and a rune edit re-settles only the certificates naming an edited family.
     """
-    from rebuild.pipeline.emit_gsub import _raw_rename_map
-
     if guard_verdicts is None:
         guard_verdicts = kernel_exec.guard_sweep(spec)
-    if glyph_names is None:
-        glyph_names = {cell: settle.cell_label(spec, cell) for cell in decision.reachable_cells()}
     features = frozenset(features)
-    rules_by_input = _renamed_rules_by_input(spec, features, decision)
-    deep_index = (
-        _DeepTokenIndex(decision, _raw_rename_map(spec, features))
-        if getattr(decision, "deep_classes", None)
-        else None
-    )
-    walker = _SettledWindowWalk(spec, features, glyph_names, guard_verdicts, on_error="drop")
     report = WitnessReport(config=decision.config, rules=len(decision.rules))
-
-    def first_matches(index: int, text: str) -> bool:
-        _settled, expected = walker.walk(text)
-        return any(
-            matched == index
-            for _pos, _window, matched in _matched_windows(
-                spec, text, features, guard_verdicts, expected, rules_by_input, deep_index
-            )
+    certificates = tuple(getattr(decision, "certificates", ()))
+    if len(certificates) != len(decision.rules):
+        report.failures.append(
+            f"{decision.config}: the table carries {len(certificates)} certificate(s) for {len(decision.rules)} rule(s), so nothing vouches for its rules — a build-tables run that folded the rules writes one certificate per rule beside them"
         )
-
-    offered: Mapping[str, str] = hints or {}
-    hinted = {
-        index: offered[signature]
-        for index, rule in enumerate(decision.rules)
-        if (signature := rule_signature(rule)) in offered
-    }
-    if hinted:
-        with suppress(settle.SettleError):
-            walker.prefill(sorted(set(hinted.values())))
-        for index, text in hinted.items():
-            with suppress(settle.SettleError):
-                if first_matches(index, text):
-                    report.witnessed[index] = text
-    misses = [index for index in range(len(decision.rules)) if index not in report.witnessed]
-    if not misses:
         return report
-    report.searched = misses
-    prefixes, by_right3 = _shortest_window_prefixes(decision)
-    rows_by_rule = _first_match_rows(decision, only=misses)
-    candidates = {
-        index: [
-            _token_text(spec, tokens)
-            for tokens in _candidate_witness_tokens(
-                spec, guard_verdicts, prefixes, by_right3, rows_by_rule.get(index, ()), decision
+    glyph_names = {cell: settle.cell_label(spec, cell) for cell in decision.reachable_cells()}
+    rules_by_input = _renamed_rules_by_input(spec, features, decision)
+    walker = _SettledWindowWalk(spec, features, glyph_names, guard_verdicts, on_error="drop", memo=memo)
+    texts: list[str | None] = []
+    for index, tokens in enumerate(certificates):
+        try:
+            texts.append(_token_text(spec, tokens))
+        except (KeyError, ValueError) as error:
+            texts.append(None)
+            report.failures.append(
+                f"{decision.config} rule {index} ({rule_signature(decision.rules[index])}): its certificate {list(tokens)} does not render as text ({error})"
+            )
+    with suppress(settle.SettleError):
+        walker.prefill(sorted({text for text in texts if text}))
+    for index, text in enumerate(texts):
+        if text is None:
+            continue
+        try:
+            _settled, names = walker.walk(text)
+        except settle.SettleError as error:
+            report.failures.append(
+                f"{decision.config} rule {index} ({rule_signature(decision.rules[index])}): the crate refused its certificate {text!r} ({error})"
+            )
+            continue
+        fired = [
+            matched
+            for _position, _window, matched in _matched_windows(
+                spec, text, features, guard_verdicts, names, rules_by_input
             )
         ]
-        for index in misses
-    }
-    walker.prefill(sorted({text for texts in candidates.values() for text in texts}))
-    for index in misses:
-        witness = next((text for text in candidates[index] if first_matches(index, text)), None)
-        if witness is None:
-            report.unwitnessed.append(index)
+        if index in fired:
+            report.witnessed[index] = text
         else:
-            report.witnessed[index] = witness
+            report.failures.append(
+                f"{decision.config} rule {index} ({rule_signature(decision.rules[index])}): its certificate {text!r} fires rules {fired} and never this one"
+            )
+    if memo is not None:
+        walker.save_memo()
+    report.served = walker.memo_windows
+    report.fresh = walker.fresh_windows
     return report
-
-
-WITNESS_HINTS_FORMAT = "ams-m1-witness-hints/1"
-
-
-def witness_hints_path(out_dir: Path, config: str) -> Path:
-    """Where one configuration's witness hints live, beside the enumeration they were derived from. Regenerable and gitignored, and deliberately outside `artifact_cycle.M1_ARTIFACT_NAMES` and every glob the validators-lane key runs over that directory, so the file can never move the validators lane's own key: a hint is a speed device whose every entry is re-verified before it is believed."""
-    return out_dir / f"witness-hints-{config}.json"
-
-
-def read_witness_hints(path: Path, config: str) -> dict[str, str]:
-    """The hints a previous run wrote for `config`, or nothing at all. Every way of not having them — no file, unreadable, not JSON, written by another format version, written for another configuration, or carrying anything but a flat map of strings — answers the same empty mapping, because the only cost of an absent hint is the search that would have run anyway."""
-    try:
-        record = json.loads(path.read_text(encoding="utf-8"))
-    except OSError, ValueError:
-        return {}
-    if not isinstance(record, dict):
-        return {}
-    if record.get("format") != WITNESS_HINTS_FORMAT or record.get("config") != config:
-        return {}
-    hints = record.get("hints")
-    if not isinstance(hints, dict):
-        return {}
-    if not all(isinstance(key, str) and isinstance(value, str) for key, value in hints.items()):
-        return {}
-    return dict(hints)
-
-
-def write_witness_hints(path: Path, decision, report: WitnessReport) -> None:
-    """Record this run's verified witnesses for the next one, keyed by `rule_signature` so a table that reindexed around an edit still finds them. Only witnessed rules are written, so a signature nothing witnesses this run is pruned by the write itself and the file never accumulates. Replaced atomically through a sibling temp file, so a run interrupted mid-write leaves the previous hints intact rather than a truncated file the reader would answer empty for."""
-    record = {
-        "format": WITNESS_HINTS_FORMAT,
-        "config": decision.config,
-        "hints": {
-            rule_signature(decision.rules[index]): text for index, text in sorted(report.witnessed.items())
-        },
-    }
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temp = path.with_name(f"{path.name}.tmp")
-    temp.write_text(json.dumps(record, sort_keys=True, ensure_ascii=False) + "\n", encoding="utf-8")
-    os.replace(temp, path)
 
 
 def run_conformance(
@@ -1868,7 +1413,7 @@ def _verify_served_sample(
     store: "oracle_cache.RowStore",
     sample: "oracle_cache.VerificationSample",
 ) -> None:
-    """Re-derive the pass's stratified sample of served rows and prove each against the record it was served from. Every family that served a row contributes rows here, so a family-wide poisoning — the shape a rune edited mid-run produces — is caught with probability one rather than with probability sample-over-served, and the seed carries the pass ordinal so the covered slice rotates instead of re-proving the same fraction of a percent every pass. The rows are re-read in a second streaming pass over the same table rather than held from the first: the draw is only final once the last row has been offered, and a couple of hundred rows are cheap to find again where tens of thousands of live `Row` objects would not be cheap to keep. A mismatch is a hard stop, not a miss — the store is describing verdicts this build does not produce, and `divergence-audit.tsv` is a fingerprinted artifact whose bytes ride the validators-lane key."""
+    """Re-derive the pass's stratified sample of served rows and prove each against the record it was served from. Every family that served a row contributes rows here, so a family-wide poisoning — the shape a rune edited mid-run produces — is caught with probability one rather than with probability sample-over-served, and the seed carries the pass ordinal so the covered slice rotates instead of re-proving the same fraction of a percent every pass. The rows are re-read in a second streaming pass over the same table rather than held from the first: the draw is only final once the last row has been offered, and a couple of hundred rows are cheap to find again where tens of thousands of live `Row` objects would not be cheap to keep. A mismatch is a hard stop, not a miss — the store is describing verdicts this build does not produce, and `divergence-audit.tsv` is a fingerprinted artifact the surface build's manifest is stamped against."""
     wanted = set(sample.indexes())
     if not wanted:
         return

@@ -1,6 +1,6 @@
 """The M1 integration driver (M1-PLAN Phase 5): the full pipeline run over the real rune files, writing every section 8 artifact under rebuild/out/m1/.
 
-Stages: load_default_spec -> per-configuration decision/treaty tables, one pair per settlement configuration (`conform.SETTLEMENT_CONFIGS`; enumerated and folded in the kernel crate, one process per configuration: the first-match-wins replay asserted as each one folds, TSVs written, and the window enumeration serialized under the fingerprint of the sources it came from, so `--conform-only` mints its glyph inventory from it and refuses to run against a stale or missing one) -> the string replay (`run_replay_strings`: every settlement configuration's persisted rules walked in the crate over the string universe against the crate's own settlement, whole-universe on a code or structure change and only over the texts naming an edited family on a rune edit, red naming the offending text; `rebuild/out/m1/replay_summary.json` is its record) -> glyph inventory minting (settled cells named by the table's own cell labels, plus the raw cmap glyphs, marker twins, chokepoint twins, and the namer dot pair) -> defect gates (defects.run_gates under the reviewed allow-list) -> emit_gsub/emit_gpos (whose plan also enumerates the emitted lookup's HarfBuzz-facing shapes into behavior_classes.json, the arming key rebuild/tools/deep_sweep.py reads) -> build_mini_font -> read-back (the font just written, re-parsed from its own bytes and structurally proven against the plan the emitters held, with the GSUB's uint16 subtable-offset headroom read off the raw table bytes in that same parse and held to its floor, and that plan's settlement rows recorded beside the summary with their per-configuration sources for the witness gate to count coverage over; rebuild/pipeline/readback.py).
+Stages: load_default_spec -> per-configuration decision/treaty tables, one pair per settlement configuration (`conform.SETTLEMENT_CONFIGS`; enumerated and folded in the kernel crate, one process per configuration: the first-match-wins replay asserted as each one folds, TSVs written, one realizing certificate per rule closed off the rows' own producer chains, and the window enumeration serialized under the fingerprint of the sources it came from, so `--conform-only` mints its glyph inventory from it and refuses to run against a stale or missing one) -> the string replay (`run_replay_strings`: every settlement configuration's persisted rules walked in the crate over the string universe against the crate's own settlement, whole-universe on a code or structure change and only over the texts naming an edited family on a rune edit, red naming the offending text; `rebuild/out/m1/replay_summary.json` is its record) -> the witness stage (`run_rule_witnesses`: every certificate settled through the crate and its rule asserted to fire, the realizability half of the dead-rule alarm, written to witness_summary.json) -> glyph inventory minting (settled cells named by the table's own cell labels, plus the raw cmap glyphs, marker twins, chokepoint twins, and the namer dot pair) -> defect gates (defects.run_gates under the reviewed allow-list) -> emit_gsub/emit_gpos (whose plan also enumerates the emitted lookup's HarfBuzz-facing shapes into behavior_classes.json, the arming key rebuild/tools/deep_sweep.py reads) -> build_mini_font -> read-back (the font just written, re-parsed from its own bytes and structurally proven against the plan the emitters held, with the GSUB's uint16 subtable-offset headroom read off the raw table bytes in that same parse and held to its floor, and that plan's settlement rows recorded beside the summary with their per-configuration sources for the witness gate to count coverage over; rebuild/pipeline/readback.py).
 
 The glyph-name contract this driver pins: settlement-lookup outcomes are `settle.cell_label` names, so the decision-table rules and the compiled glyph set agree by construction; the raw cmap glyph for each rune is the bare rune name drawn as the isolated cell but carrying no curs anchors; marker, chokepoint, and ss10 twins reuse the bare drawing (under ss10 the pre-empt lookup substitutes every letter's cmap glyph by its anchor-free `.ss10` twin before formation, so no ligature ever forms, nothing settles, each letter keeps its own cluster, and every seam is a break). That is why the overlay configuration (`conform.OVERLAY_CONFIGS`) has no table of its own: read-back proves the pre-empt covers every letter cmap glyph and keeps the twins out of every other stage, the belt sweeps it at `conform.OVERLAY_HORIZON`, and the oracle holds its rows against the bare stream with the twins' `hmtx` advances for positions.
 
@@ -252,8 +252,9 @@ def run(
     spec: ResolvedSpec | None = None,
     inputs: str | None = None,
     kernel_threads: int | None = None,
+    memo_inputs: oracle_cache.SettleMemoInputs | None = None,
 ) -> dict:
-    """`inputs` is `tables_inputs` over the sources `spec` was loaded from, snapshotted before the load so it can only ever name content the tables are at least as new as. Supplying it serializes the window enumeration under `out_dir` for the conformance sweep; a caller running a spec of its own leaves it out. `kernel_threads` reaches the table build and nothing else."""
+    """`inputs` is `tables_inputs` over the sources `spec` was loaded from, snapshotted before the load so it can only ever name content the tables are at least as new as. Supplying it serializes the window enumeration under `out_dir` for the conformance sweep; a caller running a spec of its own leaves it out. `memo_inputs` is `settle_memo_inputs` cut at the same moment, and lets the witness stage share the belt's and the oracle's settle memo; without it the stage settles every certificate and shares nothing. `kernel_threads` reaches the table build and the string replay and nothing else."""
     out_dir.mkdir(parents=True, exist_ok=True)
     console.phase("spec_load")
     start = time.perf_counter()
@@ -280,6 +281,15 @@ def run(
     print(f"replay_strings: horizon {replay['horizon']}, {walked}", flush=True)
     if not replay["pass"]:
         raise SystemExit(f"the string replay found the tables incomplete: {replay['complaint']}")
+
+    console.phase("rule_witnesses")
+    start = time.perf_counter()
+    witness_summary = run_rule_witnesses(spec, tables, out_dir, memo_inputs)
+    print(f"[t] rule_witnesses {time.perf_counter() - start:.1f}s", flush=True)
+    if not witness_summary["pass"]:
+        raise conform.WitnessError(
+            f"{len(witness_summary['failures'])} rule(s) whose certificate does not fire them; see {out_dir / 'witness_summary.json'}"
+        )
 
     console.phase("glyph_minting")
     start = time.perf_counter()
@@ -445,6 +455,43 @@ def run_replay_strings(
             summary["complaint"] = str(error)
     if recordable:
         (out_dir / REPLAY_SUMMARY).write_text(json.dumps(summary, indent=2) + "\n")
+    return summary
+
+
+def run_rule_witnesses(
+    spec: ResolvedSpec,
+    tables: Mapping[str, tuple],
+    out_dir: Path,
+    memo_inputs: oracle_cache.SettleMemoInputs | None,
+) -> dict:
+    """The witness stage: every configuration's certificates settled through the crate and each rule asserted to fire in its own (`conform.check_rule_certificates`), which is the realizability half of the dead-rule alarm — the crate's fold refuses a rule no replayed row first-matches, and this refuses a rule whose replayed row no string reaches, which is what a wrong pin in the worklist would look like. It runs here, on the tables the build just folded, because the certificates are a fact about exactly those tables: nothing can check them against stale artifacts, and `--gates-only` reuses tables this stage already passed.
+
+    Each configuration's walk shares the settle memo the belt and the oracle share (`conform.settle_memo_files`, keyed per family off `memo_inputs` the way the oracle row cache is), so a window any of the three has settled since the runes it names last moved is settled once — and this stage, running first, is the one that seeds the file. That key is where the window-locality theorem reaches the certificates: a rune edit retires only the memo entries naming an edited family, so only the certificates naming one are re-settled. A caller building a spec of its own has no memo inputs and no memo, and settles everything. The summary is written beside the other gate summaries; a red one stops the build before a glyph is minted.
+    """
+    guard_verdicts = kernel_exec.guard_sweep(spec)
+    memos = conform.settle_memo_files(out_dir, spec, memo_inputs)
+    per_config: dict[str, dict] = {}
+    failures: list[str] = []
+    for config, entry in tables.items():
+        started = time.perf_counter()
+        decision = entry[0] if isinstance(entry, (tuple, list)) else entry
+        report = conform.check_rule_certificates(
+            spec, conform.features_for_config(config), decision, guard_verdicts, memo=memos.get(config)
+        )
+        per_config[config] = {
+            "rules": report.rules,
+            "witnessed": len(report.witnessed),
+            "failures": list(report.failures),
+            "served_windows": report.served,
+            "fresh_windows": report.fresh,
+        }
+        failures.extend(report.failures)
+        print(
+            f"[t] rule_witnesses[{config}] {time.perf_counter() - started:.1f}s\trules={report.rules} witnessed={len(report.witnessed)} served={report.served} fresh={report.fresh}",
+            flush=True,
+        )
+    summary = {"pass": not failures, "configs": per_config, "failures": failures[:50]}
+    (out_dir / "witness_summary.json").write_text(json.dumps(summary, indent=2) + "\n")
     return summary
 
 
@@ -1103,7 +1150,7 @@ def main(argv: list[str] | None = None) -> None:
     try:
         console.phase("run_total")
         start = time.perf_counter()
-        summary = run(spec=spec, inputs=inputs, kernel_threads=args.kernel_threads)
+        summary = run(spec=spec, inputs=inputs, kernel_threads=args.kernel_threads, memo_inputs=memo_inputs)
         print(
             f"[t] run_total {time.perf_counter() - start:.1f}s {rss_token(process_peak_rss_bytes())}",
             flush=True,
@@ -1129,7 +1176,7 @@ def main(argv: list[str] | None = None) -> None:
         )
         print(f"[t] run_oracle {time.perf_counter() - start:.1f}s", flush=True)
         print(json.dumps(oracle_summary, indent=2))
-    except (SystemExit, readback.ReadbackError, emit_gsub.EmitError) as error:
+    except (SystemExit, readback.ReadbackError, emit_gsub.EmitError, conform.WitnessError) as error:
         _settle_green(RUN_M1_GREEN, before, False, run_m1_key, "run_m1")
         _record_cli_check(_failed_check("run_m1", str(error)), started)
         if isinstance(error, SystemExit):

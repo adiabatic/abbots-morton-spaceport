@@ -568,7 +568,7 @@ class TestConformanceMerge:
 
 
 class TestOracleAudit:
-    """`divergence-audit.tsv` is a fingerprinted artifact its readers parse straight off disk — the review surface's unit assembly, the census, the lanes' filtered load — so the file's bytes are the contract, and they no longer come from one `"\n".join` in the parent: each configuration's rows are written where they are produced and the parent concatenates the shards behind the header. Pin the new assembly against the old formula over the shapes the audit can take, an empty configuration and an empty audit included, because those are where a hand-held layout drifts first — and pin the refusals, because the way this goes wrong is a short audit that reads as a complete one."""
+    """`divergence-audit.tsv` is a fingerprinted artifact its readers parse straight off disk — the review surface's unit assembly, the census, the rebuild suite's filtered load — so the file's bytes are the contract, and they no longer come from one `"\n".join` in the parent: each configuration's rows are written where they are produced and the parent concatenates the shards behind the header. Pin the new assembly against the old formula over the shapes the audit can take, an empty configuration and an empty audit included, because those are where a hand-held layout drifts first — and pin the refusals, because the way this goes wrong is a short audit that reads as a complete one."""
 
     def _shard(self, scratch: Path, config: str, lines: Sequence[str]) -> None:
         shard = oracle.oracle_audit_shard(scratch, config)
@@ -1610,7 +1610,7 @@ class TestRawLabelsLateFormation:
 
 
 class TestSettledWindowWalk:
-    """The memo keys on the raw window — every slot one settlement can read, none of them blanked — so the bar is two things at once: observational identity with an unmemoized settlement of the same tokens, and key agreement with `_matched_windows`, which reads the same raw slots. Over-keying was never the risk; under-keying was (a key that blanks a slot the kernel can still read replays a wrong outcome somewhere), and both paths run exhaustively here, the walk reusing its memo from the second text on while the reference path settles every text in a sequence of its own. The rule replay itself no longer rides the walk — `_matched_windows` and `_DeepTokenIndex` keep it, for the font-free witness gate — so the arms that need rules exercise them there."""
+    """The memo keys on the raw window — every slot one settlement can read, none of them blanked — so the bar is two things at once: observational identity with an unmemoized settlement of the same tokens, and key agreement with `_matched_windows`, which reads the same raw slots. Over-keying was never the risk; under-keying was (a key that blanks a slot the kernel can still read replays a wrong outcome somewhere), and both paths run exhaustively here, the walk reusing its memo from the second text on while the reference path settles every text in a sequence of its own. The rule replay itself does not ride the walk — `_matched_windows` and `_DeepTokenIndex` keep it, for the build's certificate check — so the arms that need rules exercise them there."""
 
     SWEEP_CHUNK = 4096
 
@@ -1776,7 +1776,7 @@ class TestSettledWindowWalk:
     def test_a_dropping_walk_prefills_past_a_refusal_and_raises_only_when_it_is_walked(
         self, spec, guard, monkeypatch
     ):
-        """The witness gate's pairing, which is why `on_error` exists at all: the prefill is eager over candidates the lazy first-witness loop may never read, so a window the crate refuses in one of them must not take the whole gate down. Under `on_error="drop"` it is memoized as a refusal and the text carrying it stops advancing; the walk that later reaches that key is where the refusal surfaces — the semantics the per-candidate settle had before any prefill existed. The default stays strict, and the same prefill raises there."""
+        """The certificate check's pairing, which is why `on_error` exists at all: the prefill is eager over every certificate, so a window the crate refuses in one of them must not take the whole check down before the other rules are read. Under `on_error="drop"` it is memoized as a refusal and the text carrying it stops advancing; the walk that later reaches that key is where the refusal surfaces, against the one rule whose certificate carried it. The default stays strict, and the same prefill raises there."""
         refused = "qsTea"
         clean, refusing_text = chr(0xE665) + chr(0xE670), chr(0xE665) + chr(0xE652)
         original = kernel_exec.settle_windows
@@ -1902,140 +1902,6 @@ class TestDeepTokenIndex:
         assert (
             bare_renamed_r3_under_class_r4
         ), "no row exercises the renamed-bare-r3 + class-r4 shape this arm exists for"
-
-
-class TestWitnessRowCap:
-    """The witness search reads a bounded sample of each rule's first-matching windows. What must survive the bound is the alarm: a rule no window can realize still comes back unwitnessed, and the sample never invents a witness for one."""
-
-    def _tables(self):
-        from rebuild.pipeline import kernel_exec
-
-        return kernel_exec.build_tables(mini_spec(), frozenset())
-
-    def test_the_cap_bounds_the_rows_kept_per_rule(self):
-        spec = mini_spec()
-        decision, _treaty = self._tables()
-        rows = conform._first_match_rows(decision)
-        assert rows
-        assert all(len(kept) <= conform.WITNESS_ROW_CAP for kept in rows.values())
-        assert not conform.find_rule_witnesses(spec, frozenset(), decision).unwitnessed
-
-    def test_a_dead_rule_is_still_reported_under_the_cap(self, monkeypatch):
-        import dataclasses
-
-        from rebuild.pipeline.table import Rule
-
-        spec = mini_spec()
-        decision, _treaty = self._tables()
-        dead = Rule(
-            input_glyph="qsMay",
-            backtrack=("qsNever.loop",),
-            look1=None,
-            look2=None,
-            look3=None,
-            look4=None,
-            outcome="qsMay",
-            provenance=(),
-            joint=False,
-        )
-        poisoned = dataclasses.replace(decision, rules=decision.rules + (dead,))
-        monkeypatch.setattr(conform, "WITNESS_ROW_CAP", 1)
-        report = conform.find_rule_witnesses(spec, frozenset(), poisoned)
-        assert report.unwitnessed == [len(decision.rules)]
-
-
-class TestWitnessHints:
-    """The witness search's memo of verified witness texts. What must hold is that a hint is never believed: one that still wins its rule spares the search, one that does not is a miss the search picks up, and neither can turn a rule nothing realizes into a witnessed one."""
-
-    def _tables(self):
-        return kernel_exec.build_tables(mini_spec(), frozenset())
-
-    def _plain(self):
-        spec = mini_spec()
-        decision, _treaty = self._tables()
-        report = conform.find_rule_witnesses(spec, frozenset(), decision)
-        hints = {
-            conform.rule_signature(decision.rules[index]): text for index, text in report.witnessed.items()
-        }
-        return spec, decision, report, hints
-
-    def test_a_full_hint_set_spares_the_search_entirely(self, monkeypatch):
-        spec, decision, plain, hints = self._plain()
-
-        def refuse(*args, **kwargs):
-            raise AssertionError("the search ran for a rule every hint already witnessed")
-
-        monkeypatch.setattr(conform, "_shortest_window_prefixes", refuse)
-        monkeypatch.setattr(conform, "_first_match_rows", refuse)
-        report = conform.find_rule_witnesses(spec, frozenset(), decision, hints=hints)
-        assert report.searched == []
-        assert report.unwitnessed == []
-        assert report.witnessed == plain.witnessed
-
-    def test_a_hint_that_no_longer_wins_its_rule_is_searched_for(self):
-        spec, decision, plain, hints = self._plain()
-        letters = {}
-        for char in sorted(conform.spec_alphabet(spec)):
-            token = settle.tokens_from_codepoints(spec, [ord(char)])[0]
-            if token.kind == "letter":
-                letters[token.rune] = char
-        index, foreign = next(
-            (index, letters[rune])
-            for index in sorted(plain.witnessed)
-            for rune in sorted(letters)
-            if rune not in decision.rules[index].input_glyph
-        )
-        stale = dict(hints, **{conform.rule_signature(decision.rules[index]): foreign})
-        report = conform.find_rule_witnesses(spec, frozenset(), decision, hints=stale)
-        assert report.searched == [index]
-        assert report.unwitnessed == []
-        assert len(report.witnessed) == len(decision.rules)
-
-    def test_a_dead_rule_survives_a_hint_set_that_covers_every_other(self):
-        from rebuild.pipeline.table import Rule
-
-        spec, decision, plain, hints = self._plain()
-        dead = Rule(
-            input_glyph="qsMay",
-            backtrack=("qsNever.loop",),
-            look1=None,
-            look2=None,
-            look3=None,
-            look4=None,
-            outcome="qsMay",
-            provenance=(),
-            joint=False,
-        )
-        poisoned = replace(decision, rules=(dead,) + decision.rules)
-        report = conform.find_rule_witnesses(spec, frozenset(), poisoned, hints=hints)
-        assert report.searched == [0]
-        assert report.unwitnessed == [0]
-        assert report.witnessed == {index + 1: text for index, text in plain.witnessed.items()}
-
-    def test_the_hint_file_round_trips_and_everything_else_reads_empty(self, tmp_path):
-        _spec, decision, plain, hints = self._plain()
-        path = conform.witness_hints_path(tmp_path / "m1", decision.config)
-        conform.write_witness_hints(path, decision, plain)
-        assert conform.read_witness_hints(path, decision.config) == hints
-        assert conform.read_witness_hints(tmp_path / "absent.json", decision.config) == {}
-        corrupt = tmp_path / "corrupt.json"
-        corrupt.write_text("{not json at all", encoding="utf-8")
-        assert conform.read_witness_hints(corrupt, decision.config) == {}
-        assert conform.read_witness_hints(path, "some-other-config") == {}
-        record = json.loads(path.read_text(encoding="utf-8"))
-        foreign = tmp_path / "foreign.json"
-        foreign.write_text(json.dumps(dict(record, format="not-this-format")), encoding="utf-8")
-        assert conform.read_witness_hints(foreign, decision.config) == {}
-        malformed = tmp_path / "malformed.json"
-        malformed.write_text(json.dumps(dict(record, hints=["a", "b"])), encoding="utf-8")
-        assert conform.read_witness_hints(malformed, decision.config) == {}
-
-    def test_narrowing_the_replay_answers_the_rules_it_names_unchanged(self):
-        decision, _treaty = self._tables()
-        rows = conform._first_match_rows(decision)
-        assert rows
-        for index in sorted(rows)[:: max(1, len(rows) // 8)]:
-            assert conform._first_match_rows(decision, only={index}) == {index: rows[index]}
 
 
 class TestSettleMemoFile:
