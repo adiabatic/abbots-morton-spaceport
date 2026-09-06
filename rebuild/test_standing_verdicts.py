@@ -5053,15 +5053,14 @@ def _repo_imports(module, path):
 
 
 def test_the_memo_code_roster_is_this_modules_import_closure():
-    """The stamp hashes exactly the repo code a decision runs through: this module and everything it reaches by import, less the key side — `unit_cache` and the pipeline modules, whose edits move the keys or the stamp itself rather than any decision. A module that starts deciding without being on the roster is the miss this catches; one on the roster the module never reaches is the other."""
+    """The stamp hashes exactly the repo code a decision runs through: this module and everything it reaches by import, less the key side — the pipeline modules, whose edits move the keys or the stamp itself rather than any decision (`fingerprint` cuts the after-font digest the unit keys cite). A module that starts deciding without being on the roster is the miss this catches; one on the roster the module never reaches is the other."""
     from rebuild.test_plumbing_closure import _module_path
 
-    key_side = {"rebuild.review.unit_cache"}
     seen = {}
     queue = ["rebuild.tools.standing_verdicts"]
     while queue:
         module = queue.pop()
-        if module in seen or module in key_side or module.startswith("rebuild.pipeline"):
+        if module in seen or module.startswith("rebuild.pipeline"):
             continue
         path = _module_path(module)
         if path is None:

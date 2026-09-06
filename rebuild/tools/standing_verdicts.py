@@ -61,7 +61,7 @@ This is the zero-touch sibling of echo_verdicts.py: echo fill extends the user's
 
 Records are stamped with the manifest's generated_at, so any human verdict beats a standing fill on merge, and a parked unit (a skip verdict) is not blank and is never filled. The artifact cycle runs this after the echo fill, with a merge_verdicts pass to land the file. The run's report rolls every composed line's credit back up per rule, so each rule's whole reach reads in one place — deliberately not a column that sums across rules, since a window two rules explain between them counts toward each of them.
 
-Every decision above is per-unit pure: what the composed reading credits a window with, whether a guard holds it, and which rules' own matchers accept or hold it are a function of the unit's index record, the two fonts' rendering of its window, and the rules file, and of nothing else — the verdict store only decides which of those decisions become fills. `Decider.decide` is that function, `rule_reach` assembles a run out of its answers, and the memo (`Memo`, the `--memo` flag; the verdict chain passes it) persists the answers across passes so a surface-moving pass evaluates only the units whose key is new. A unit's key is its build-time `content_key` stamp, joined with the persisted `ink_deltas` that stamp deliberately leaves out and with the after font's compiled-glyph digest for every family the window's after cells name (`unit_cache.after_font_glyph_digests`, the same per-family grain the review unit cache invalidates at, so a drawing or anchor change reaches exactly the windows that can feel it); a unit the surface never stamped is evaluated every pass and never stored. The memo's own stamp is the rules file's raw bytes, since the fill quotes each rule's `note` into every record, the code that decides (`MEMO_CODE_MODULES`, held to this module's import closure by rebuild/test_standing_verdicts.py), the before font wholesale, the after font's family-blind remainder, and `uv.lock` for the shaper; any of those moving drops the memo entirely, and over-invalidation is the safe direction. What is written back is bounded to the units on this surface, so it never outgrows the human domain, and the fills and the report are byte-identical served or computed, which rebuild/test_standing_verdicts.py proves over the frozen mini bundle. The `--require-reach` rollup reads the same answers, so its pass over the whole domain costs no second evaluation.
+Every decision above is per-unit pure: what the composed reading credits a window with, whether a guard holds it, and which rules' own matchers accept or hold it are a function of the unit's index record, the two fonts' rendering of its window, and the rules file, and of nothing else — the verdict store only decides which of those decisions become fills. `Decider.decide` is that function, `rule_reach` assembles a run out of its answers, and the memo (`Memo`, the `--memo` flag; the verdict chain passes it) persists the answers across passes so a surface-moving pass evaluates only the units whose key is new. A unit's key is its build-time `content_key` stamp, joined with the persisted `ink_deltas` that stamp deliberately leaves out and with the after font's compiled-glyph digest for every family the window's after cells name (`fingerprint.after_font_glyph_digests`, the same per-family grain the review unit cache and the oracle's position store invalidate at, so a drawing or anchor change reaches exactly the windows that can feel it); a unit the surface never stamped is evaluated every pass and never stored. The memo's own stamp is the rules file's raw bytes, since the fill quotes each rule's `note` into every record, the code that decides (`MEMO_CODE_MODULES`, held to this module's import closure by rebuild/test_standing_verdicts.py), the before font wholesale, the after font's family-blind remainder, and `uv.lock` for the shaper; any of those moving drops the memo entirely, and over-invalidation is the safe direction. What is written back is bounded to the units on this surface, so it never outgrows the human domain, and the fills and the report are byte-identical served or computed, which rebuild/test_standing_verdicts.py proves over the frozen mini bundle. The `--require-reach` rollup reads the same answers, so its pass over the whole domain costs no second evaluation.
 """
 
 import argparse
@@ -80,7 +80,6 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from rebuild.pipeline import fingerprint  # noqa: E402
-from rebuild.review import unit_cache  # noqa: E402
 from rebuild.review.ink import IDENTITY_DIFF, InkComparator, delta_digest, features_for  # noqa: E402
 from rebuild.validation.classify import PIXEL_SIZE  # noqa: E402
 from rebuild.tools.review_docket import ACCEPTING_VERDICTS, latest_verdicts, load_units  # noqa: E402
@@ -91,7 +90,7 @@ OUT = ROOT / "verdicts-standing-fill.json"
 FORMAT = "ams-standing-approvals/1"
 MEMO_FORMAT = "ams-standing-fill-memo/1"
 MEMO_NAME = "standing-fill-memo.ndjson.gz"
-# The code a fill decision is a function of: this module and every repo module it reaches that reads a unit or shapes a window. rebuild/test_standing_verdicts.py holds the roster to the walked import graph, stopping at the key side — unit_cache and the pipeline modules, whose edits move the keys or the stamp rather than a decision.
+# The code a fill decision is a function of: this module and every repo module it reaches that reads a unit or shapes a window. rebuild/test_standing_verdicts.py holds the roster to the walked import graph, stopping at the key side — the pipeline modules, whose edits move the keys or the stamp rather than a decision.
 MEMO_CODE_MODULES = (
     "rebuild/review/ink.py",
     "rebuild/review/unit_index.py",
@@ -2283,7 +2282,7 @@ def memo_environment(rules_path, surface, root=ROOT) -> tuple[str, dict[str, str
     family_digests: dict[str, str] = {}
     helpers = "-"
     if after_font.is_file():
-        family_digests, helpers = unit_cache.after_font_glyph_digests(after_font)
+        family_digests, helpers = fingerprint.after_font_glyph_digests(after_font)
     lines = [
         f"format\t{MEMO_FORMAT}",
         f"rules\t{fingerprint.file_sha256(pathlib.Path(rules_path))}",
