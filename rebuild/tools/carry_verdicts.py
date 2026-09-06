@@ -13,6 +13,7 @@ from rebuild.review.ink import InkComparator  # noqa: E402
 from rebuild.review.unit_cache import (  # noqa: E402
     CARRY_PRESENTATION_KEYS,
     carry_projection,
+    is_content_id,
     is_positional_id,
     unit_id_for,
 )
@@ -37,8 +38,20 @@ def iter_surface(root):
         yield record
 
 
+def surface_is_positional(root):
+    """Whether the surface under `root` names its units positionally: read off the manifest's triage index alone, since every verdict names a human unit and the index lists exactly those, so a surface whose index holds no positional id has nothing a migration could rewrite and is never walked to find that out."""
+    try:
+        manifest = json.loads((pathlib.Path(root) / "manifest.json").read_text())
+        index = manifest.get("human_unit_ids") or ()
+    except OSError, ValueError, AttributeError:
+        return False
+    return any(is_positional_id(unit_id) for unit_id in index)
+
+
 def id_migration(root):
-    """The rewrite that carries a surface's positional unit ids onto content ids: for every unit of the surface under `root` whose id is of the positional shape (`unit_cache.is_positional_id`), the content id its carry key names (`unit_cache.unit_id_for`), keyed by the positional id. Empty for a surface already content-addressed, which is what makes the cutover a one-time event: the chain runs this over the snapshot it carries from, and once every snapshot carries content ids there is nothing to rewrite. The content key is the same on both sides of the cutover — only the id scheme moved — so the mapping is exact for every unit whose content did not move in the same cycle, and a unit whose content did move maps to the id of what was judged, which is the identity the journal should keep."""
+    """The rewrite that carries a surface's positional unit ids onto content ids: for every unit of the surface under `root` whose id is of the positional shape (`unit_cache.is_positional_id`), the content id its carry key names (`unit_cache.unit_id_for`), keyed by the positional id. Empty for a surface already content-addressed (`surface_is_positional`, which costs a manifest read and no walk), which is what makes the cutover a one-time event: the chain runs this over the snapshot it carries from, and once every snapshot carries content ids there is nothing to rewrite. The content key is the same on both sides of the cutover — only the id scheme moved — so the mapping is exact for every unit whose content did not move in the same cycle, and a unit whose content did move maps to the id of what was judged, which is the identity the journal should keep."""
+    if not surface_is_positional(root):
+        return {}
     return {
         unit["id"]: unit_id_for(content_hash(unit))
         for unit in iter_surface(root)
@@ -97,8 +110,14 @@ def check_source_stamps(root, verdict_file, payload):
         )
 
 
+def identity_of(unit):
+    """The cross-surface identity a verdict carries by: the unit's content id — its own id on a content-addressed surface, and `unit_cache.unit_id_for` over its carry hash on one that named its units positionally — so a verdict recorded on either kind of surface resolves against either kind."""
+    unit_id = unit["id"]
+    return unit_id if is_content_id(unit_id) else unit_id_for(content_hash(unit))
+
+
 def resolve_prior(sources):
-    """Every source surface's verdicts keyed by the carry identity of the unit they name, newest `at` winning. Each source's units are held only for the length of its own pass — the whole point of the helper is that a prior surface's four hundred thousand records leave memory before the current surface's are read, rather than the two piles coexisting for the sake of the fifty thousand entries that survive into the result."""
+    """Every source surface's verdicts keyed by the content id of the unit they name, newest `at` winning. A verdict that already names a content id is its own resolution — the id is the identity, and the source surface is never opened for it — where one naming a positional id is resolved through the surface it was recorded on. The units held back for the ink fallback are only those a positional resolution read on the way; a content-id verdict's unit is fetched later, and only if it turns out stranded (`stranded_units`). Each source's units are held only for the length of its own pass — the whole point of the helper is that a prior surface's four hundred thousand records leave memory before the current surface's are read, rather than the two piles coexisting for the sake of the fifty thousand entries that survive into the result."""
     prior = {}
     surface_roots = {}
     for root, verdict_file in sources:
@@ -106,18 +125,40 @@ def resolve_prior(sources):
         check_source_stamps(root, verdict_file, payload)
         surface_roots[root.name] = root
         verdicts = latest_verdicts(payload)
-        units_by_id = {u["id"]: u for u in iter_surface(root) if u["id"] in verdicts}
+        positional = {unit_id for unit_id in verdicts if not is_content_id(unit_id)}
+        units_by_id = {u["id"]: u for u in iter_surface(root) if u["id"] in positional} if positional else {}
         used = 0
+        by_identity = 0
         for unit_id, record in verdicts.items():
-            unit = units_by_id.get(unit_id)
-            if unit is None:
-                continue
-            key = content_hash(unit)
+            if unit_id in positional:
+                unit = units_by_id.get(unit_id)
+                if unit is None:
+                    continue
+                key = identity_of(unit)
+            else:
+                unit = None
+                key = unit_id
+                by_identity += 1
             if key not in prior or record["at"] > prior[key][0]["at"]:
                 prior[key] = (record, root.name, unit)
             used += 1
-        print(f"{verdict_file.name}: {used} verdicts resolved against {root.name}")
+        print(
+            f"{verdict_file.name}: {used} verdicts resolved against {root.name} "
+            f"({by_identity} by identity, {used - by_identity} through the surface)"
+        )
     return prior, surface_roots
+
+
+def stranded_units(root, stranded):
+    """The prior surface's records for the stranded verdicts resolved by identity, which never read one: `stranded` is a list of (record, source, unit-or-None) over one source, and the units still None are fetched off that surface in one pass, keyed by the content id the verdict names."""
+    wanted = {record["unit"] for record, _source, unit in stranded if unit is None}
+    if not wanted:
+        return stranded
+    found = {u["id"]: u for u in iter_surface(root) if u["id"] in wanted}
+    return [
+        (record, source, unit if unit is not None else found.get(record["unit"]))
+        for record, source, unit in stranded
+    ]
 
 
 def main(argv=None, *, current_units=None):
@@ -149,7 +190,7 @@ def main(argv=None, *, current_units=None):
     current = current_units if current_units is not None else load_surface(args.current_surface)
     human = [u for u in current if u.get("batch") is not None]
 
-    key_by_id = {u["id"]: content_hash(u) for u in current}
+    key_by_id = {u["id"]: identity_of(u) for u in current}
 
     carried = []
     kinds = collections.Counter()
@@ -181,10 +222,13 @@ def main(argv=None, *, current_units=None):
         current_comparator = surface_comparator(args.current_surface)
         prior_comparators = {name: surface_comparator(root) for name, root in surface_roots.items()}
         stranded_by_ink = collections.defaultdict(list)
-        for record, source, unit in stranded:
-            key = ink_key(prior_comparators[source], unit)
-            if key is not None:
-                stranded_by_ink[key].append((record, source))
+        for name, root in surface_roots.items():
+            for record, source, unit in stranded_units(root, [s for s in stranded if s[1] == name]):
+                if unit is None:
+                    continue
+                key = ink_key(prior_comparators[source], unit)
+                if key is not None:
+                    stranded_by_ink[key].append((record, source))
         ink_carried = 0
         conflicts = []
         for unit in unhit:

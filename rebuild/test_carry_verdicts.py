@@ -6,7 +6,17 @@ from pathlib import Path
 
 import pytest
 
-from rebuild.tools.carry_verdicts import PRESENTATION_KEYS, content_hash, content_key, main
+from rebuild.review import unit_cache
+from rebuild.tools import carry_verdicts
+from rebuild.tools.carry_verdicts import (
+    PRESENTATION_KEYS,
+    content_hash,
+    content_key,
+    id_migration,
+    identity_of,
+    main,
+    stranded_units,
+)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 FIXTURE_UNITS = REPO_ROOT / "rebuild" / "review" / "fixtures" / "units"
@@ -149,3 +159,90 @@ def test_picture_identity_is_invisible_to_the_content_key_unlike_ink_identity():
     """`picture_identical` is a pure function of the window and both fonts' placed glyphs, all of which the key already covers, and it arrived after every archived snapshot was stamped — so it is a presentation key, while `ink_identical` stays inside the key only as the byte-identity contract with those snapshots."""
     unit = _fixture_units()[0]
     assert content_key({**unit, "picture_identical": not unit["picture_identical"]}) == content_key(unit)
+
+
+def _content_unit(codepoints: str, **fields) -> dict:
+    """A unit as a content-addressed surface writes it: stamped over its carry projection and named by that stamp."""
+    unit = {"id": None, "codepoints": codepoints, "configs": ["default"], "window": "w", **fields}
+    unit["content_key"] = content_hash({key: value for key, value in unit.items() if key != "id"})
+    unit["id"] = unit_cache.unit_id_for(unit["content_key"])
+    return unit
+
+
+def _surfaces_read(monkeypatch) -> list[Path]:
+    """Every surface root the carry walks, so a test can say which surfaces the carry never opened."""
+    roots: list[Path] = []
+    real = carry_verdicts.iter_surface
+
+    def spy(root):
+        roots.append(Path(root))
+        return real(root)
+
+    monkeypatch.setattr(carry_verdicts, "iter_surface", spy)
+    return roots
+
+
+def test_a_content_id_verdict_carries_by_identity_without_opening_its_surface(tmp_path, monkeypatch):
+    """A content id is the identity the carry resolves by, so a verdict naming one is its own resolution: it lands on the current unit of the same id, and the surface it was recorded on is never read for it."""
+    unit = _content_unit("E650:E652")
+    prior = tmp_path / "prior"
+    _write_surface(prior, "2026-07-01T00:00:00Z", [unit])
+    current = tmp_path / "current"
+    _write_surface(current, "2026-07-02T00:00:00Z", [unit, _content_unit("E652:E653")])
+    verdicts = tmp_path / "verdicts.json"
+    _write_verdicts(
+        verdicts,
+        "2026-07-01T00:00:00Z",
+        [{"unit": unit["id"], "verdict": "reject", "note": "n", "at": "2026-07-01T01:00:00Z"}],
+    )
+    roots = _surfaces_read(monkeypatch)
+    out = tmp_path / "out.json"
+    _run_carry(monkeypatch, prior, verdicts, out, current)
+    payload = json.loads(out.read_text())
+    assert [(record["unit"], record["verdict"]) for record in payload["verdicts"]] == [(unit["id"], "reject")]
+    assert prior not in roots
+
+
+def test_identity_of_names_the_content_id_on_either_surface_shape():
+    """A unit named positionally and the same unit named by its content resolve to one identity, which is what lets a verdict recorded before the cutover land on a surface written after it."""
+    unit = _content_unit("E650:E652")
+    positional = {**unit, "id": "u-0412"}
+    assert identity_of(unit) == unit["id"]
+    assert identity_of(positional) == unit["id"]
+    moved = {key: value for key, value in positional.items() if key != "content_key"}
+    assert identity_of(moved) == unit["id"]
+    assert identity_of({**moved, "codepoints": "E650:E650"}) != unit["id"]
+
+
+def test_stranded_units_fetches_only_the_records_the_identity_path_never_read(tmp_path):
+    first, second = _content_unit("E650:E652"), _content_unit("E652:E653")
+    prior = tmp_path / "prior"
+    _write_surface(prior, "2026-07-01T00:00:00Z", [first, second])
+    held = {"id": first["id"], "already": True}
+    stranded = [
+        ({"unit": first["id"]}, "prior", held),
+        ({"unit": second["id"]}, "prior", None),
+        ({"unit": "u-gone"}, "prior", None),
+    ]
+    resolved = stranded_units(prior, stranded)
+    assert resolved[0][2] is held
+    fetched = resolved[1][2]
+    assert fetched is not None and fetched["codepoints"] == "E652:E653"
+    assert resolved[2][2] is None
+    assert stranded_units(prior, [stranded[0]]) == [stranded[0]]
+
+
+def test_id_migration_maps_a_positional_surface_and_never_walks_a_content_addressed_one(
+    tmp_path, monkeypatch
+):
+    """The cutover rewrite: every positional id on the snapshot maps to the content id its stamp names, and a snapshot whose index already carries content ids answers empty off its manifest alone, without a walk over its units."""
+    unit = _content_unit("E650:E652")
+    positional = tmp_path / "positional"
+    _write_surface(positional, "2026-07-01T00:00:00Z", [{**unit, "id": "u-0412"}])
+    assert id_migration(positional) == {"u-0412": unit["id"]}
+    addressed = tmp_path / "addressed"
+    _write_surface(addressed, "2026-07-02T00:00:00Z", [unit])
+    roots = _surfaces_read(monkeypatch)
+    assert id_migration(addressed) == {}
+    assert roots == []
+    assert id_migration(tmp_path / "missing") == {}
