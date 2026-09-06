@@ -283,6 +283,7 @@ def test_dry_run_plan_default():
         "--surface",
         str(ac.REVIEW_OUT),
     ]
+    contracts_record = ac.rebuild_lane_green("contracts")
     assert by_name["gate:rebuild-contracts"].argv == [
         "uv",
         "run",
@@ -298,6 +299,10 @@ def test_dry_run_plan_default():
         "--tb=no",
         "-rfE",
         "--durations=25",
+        "--closure-skip",
+        str(contracts_record.with_name("rebuild-contracts-selection.json")),
+        "--closure-record",
+        str(contracts_record.with_name("rebuild-contracts-closures.json")),
     ]
     assert by_name["gate:rebuild-validators"].argv == [
         "uv",
@@ -997,6 +1002,9 @@ def _patch_gate_fingerprints(monkeypatch):
     """The gate greens' keys, for a test that only cares that a green was or wasn't recorded. Unstubbed these are the live ones: _run_cycle snapshots them before the gates and _record_gate_greens recomputes them after, and each pass runs git ls-files over the repo and sha256s all of rebuild/, glyph_data/, the fonts, and the baseline TSVs — several seconds per test, and an answer that depends on the working tree rather than on the arrangement the test set up. Whether a moved key withholds the green is its own test."""
     monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, horizon=None: "cfp")
     monkeypatch.setattr(ac, "rebuild_lane_fingerprint", lambda root, lane: f"rfp-{lane}")
+    monkeypatch.setattr(
+        ac, "rebuild_lane_closure", lambda root, lane: (f"rfp-{lane}", {"key": f"rfp-{lane}"})
+    )
 
 
 def _patch_build_chain(monkeypatch):
@@ -3995,6 +4003,9 @@ def _unsettled_repo(tmp_path, monkeypatch, stamp="2026-07-17T20:24:44Z"):
     monkeypatch.setattr(ac, "run_m1_skip_fingerprint", lambda root=None: "key")
     monkeypatch.setattr(ac, "make_test_closure_fingerprint", lambda root=None: None)
     monkeypatch.setattr(ac, "rebuild_lane_fingerprint", lambda root, lane: f"no-match-{lane}")
+    monkeypatch.setattr(
+        ac, "rebuild_lane_closure", lambda root, lane: (f"no-match-{lane}", {"key": f"no-match-{lane}"})
+    )
 
 
 def test_main_runs_every_heavy_gate_on_a_pass_that_rebuilds(tmp_path, monkeypatch, capsys):
@@ -4012,6 +4023,9 @@ def test_main_auto_skips_the_contracts_lane_even_when_run_m1_runs_live(tmp_path,
     """The contracts closure holds no build artifact at all, so a live M1 rebuild cannot invalidate its key mid-pass — which is why the preflight can settle that skip on every route. The validators closure holds the out/m1 artifacts the rebuild is about to write, so its skip is decided only once run_m1 has finished, and the plan a rebuilding pass prints shows the lane undecided rather than skipped, even over a record that matches the artifacts as they stand now."""
     _unsettled_repo(tmp_path, monkeypatch)
     monkeypatch.setattr(ac, "rebuild_lane_fingerprint", lambda root, lane: f"key-{lane}")
+    monkeypatch.setattr(
+        ac, "rebuild_lane_closure", lambda root, lane: (f"key-{lane}", {"key": f"key-{lane}"})
+    )
     ac.record_green(ac.REBUILD_CONTRACTS_GREEN, "key-contracts")
     ac.record_green(ac.REBUILD_VALIDATORS_GREEN, "key-validators")
     assert ac.main(["--dry-run"]) == 0
@@ -4030,6 +4044,9 @@ def test_main_auto_skips_both_lanes_once_the_artifacts_have_settled(tmp_path, mo
     monkeypatch.setattr(ac, "m1_artifacts_present", lambda root=None: True)
     monkeypatch.setattr(ac, "surface_build_skippable", lambda root=None: True)
     monkeypatch.setattr(ac, "rebuild_lane_fingerprint", lambda root, lane: f"key-{lane}")
+    monkeypatch.setattr(
+        ac, "rebuild_lane_closure", lambda root, lane: (f"key-{lane}", {"key": f"key-{lane}"})
+    )
     ac.record_green(ac.REBUILD_CONTRACTS_GREEN, "key-contracts")
     ac.record_green(ac.REBUILD_VALIDATORS_GREEN, "key-validators")
     assert ac.main(["--dry-run"]) == 0
@@ -4041,6 +4058,9 @@ def test_main_auto_skips_both_lanes_once_the_artifacts_have_settled(tmp_path, mo
 def test_main_forces_both_lanes_under_fresh(tmp_path, monkeypatch, capsys):
     _unsettled_repo(tmp_path, monkeypatch)
     monkeypatch.setattr(ac, "rebuild_lane_fingerprint", lambda root, lane: f"key-{lane}")
+    monkeypatch.setattr(
+        ac, "rebuild_lane_closure", lambda root, lane: (f"key-{lane}", {"key": f"key-{lane}"})
+    )
     ac.record_green(ac.REBUILD_CONTRACTS_GREEN, "key-contracts")
     assert ac.main(["--dry-run", "--fresh"]) == 0
     out = capsys.readouterr().out
@@ -4118,6 +4138,9 @@ def test_main_leaves_the_validators_lane_undecided_on_the_reuse_route(tmp_path, 
     """A contact-allow bless is outside the lane's closure, so the record on disk matches the key the gates-only pass will leave — but the plan cannot promise that, because only the finished pass knows what the out/m1 artifacts came out as. The dry run shows the lane as `run?` with its condition, never as skipped; the skip itself is the pass's to prove (`test_run_cycle_skips_the_validators_lane_after_run_m1_on_the_key_the_finished_artifacts_carry`). --fresh reads no record at all, so under it the row is a plain `run`."""
     _comparison_side_drift(tmp_path, monkeypatch, moved="rebuild/m1-contact-allow.yaml")
     monkeypatch.setattr(ac, "rebuild_lane_fingerprint", lambda root, lane: f"key-{lane}")
+    monkeypatch.setattr(
+        ac, "rebuild_lane_closure", lambda root, lane: (f"key-{lane}", {"key": f"key-{lane}"})
+    )
     ac.record_green(ac.REBUILD_VALIDATORS_GREEN, "key-validators")
     assert ac.main(["--dry-run"]) == 0
     out = capsys.readouterr().out
@@ -4193,6 +4216,9 @@ def test_run_cycle_skips_the_sweep_after_run_m1_on_the_key_the_finished_artifact
     monkeypatch.setattr(ac, "CONFORM_GREEN", tmp_path / "conform-green.json")
     monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, horizon=None: "cfp")
     monkeypatch.setattr(ac, "rebuild_lane_fingerprint", lambda root, lane: f"rfp-{lane}")
+    monkeypatch.setattr(
+        ac, "rebuild_lane_closure", lambda root, lane: (f"rfp-{lane}", {"key": f"rfp-{lane}"})
+    )
     ac.record_green(ac.CONFORM_GREEN, "cfp")
     swept: list[list[str]] = []
 
@@ -4226,6 +4252,9 @@ def test_run_cycle_sweeps_when_the_finished_artifacts_carry_no_green(monkeypatch
     monkeypatch.setattr(ac, "CONFORM_GREEN", tmp_path / "conform-green.json")
     monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, horizon=None: "cfp")
     monkeypatch.setattr(ac, "rebuild_lane_fingerprint", lambda root, lane: f"rfp-{lane}")
+    monkeypatch.setattr(
+        ac, "rebuild_lane_closure", lambda root, lane: (f"rfp-{lane}", {"key": f"rfp-{lane}"})
+    )
     ac.record_green(ac.CONFORM_GREEN, "a-font-ago")
     swept: list[list[str]] = []
 

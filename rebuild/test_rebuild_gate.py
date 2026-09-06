@@ -32,9 +32,14 @@ def green_store(tmp_path, monkeypatch):
 
 
 def _fingerprints(monkeypatch, values):
-    """Per-lane fingerprint sequences: one entry per call the wrapper makes for that lane, so a two-element list is the before/after pair a lane that runs to a green consumes."""
+    """Per-lane fingerprint sequences: one entry per call the wrapper makes for that lane, so a two-element list is the before/after pair a lane that runs to a green consumes. The closure the wrapper reads is the key and one label carrying it, which is enough for the contracts lane's selection to find nothing recorded and run the whole lane."""
     calls = {lane: iter(seq) for lane, seq in values.items()}
-    monkeypatch.setattr(rg, "rebuild_lane_fingerprint", lambda root, lane: next(calls[lane]))
+
+    def closure(root, lane):
+        key = next(calls[lane])
+        return key, (None if key is None else {"key": key})
+
+    monkeypatch.setattr(rg, "rebuild_lane_closure", closure)
 
 
 def _suite_stub(monkeypatch, outcomes):

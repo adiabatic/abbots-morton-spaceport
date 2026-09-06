@@ -4,6 +4,8 @@ The suite splits into two lanes, and rebuild/conftest.py is the authority on whi
 
 Contracts runs first, and a hard failure there returns immediately without starting validators — running the cheap lane first is what buys that fail-fast, since a code error surfaces in minutes instead of after the long lane has finished. Each lane that actually runs is judged through the cycle's own failure classifier, which parses the FAILED/ERROR summary lines so a failure is named rather than just counted; every green is recordable. That verdict is also filed, as a kind:"check" line in the timings journal under the lane's own name — rebuild-contracts or rebuild-validators, the same spelling its pool line already uses — carrying the ids the lane failed on, so `make cycle-timings --by-outcome` can say which test has ever caught anything across every run rather than only across the ones a cycle happened to drive. This wrapper files that line unconditionally, because no cycle ever spawns it: `make test-rebuild` is always someone at a terminal, so there is never a second writer to stand down for the way the `make test` gate stands down for its parent. A lane that skips files a check too, judged skipped and carrying no seconds — a closure judged unchanged is still a judgment and worth counting, while a lane that never ran has no duration to report and a zero would drag the timing rows toward a suite that never happened. The green record is a separate ledger on separate rules: a green run during which that lane's closure moved records nothing, because the tested content is no longer on disk; a red run whose closure still matches its record deletes it, since the green it claims is contradicted; and without git there is no closure to key on, so the lane runs unconditionally and records nothing. `make test-rebuild FORCE=1` (--force) runs both lanes regardless.
 
+The contracts lane runs narrower than its key says. Its green record carries a per-test input closure beside the key — what each test read, imported and spawned, recorded by rebuild/conftest.py's audit guard — and when the key has moved this wrapper diffs the record's per-label digests against the tree, writes the ids the diff cannot reach to a selection file the suite deselects from, and prints what that kept off. `rebuild.tools.contracts_closure` is the authority on the closure and the selection, and its rule is that every doubt runs the test: a test with no closure, a new or renamed id, a test that spawned a child the hook could not follow, and every test at all when an input was added or removed or a global one moved. A green narrowed run records a green for the whole lane, because the tests it kept off passed against inputs whose bytes have not changed, and it merges its sidecar into the record so those tests keep the closures they were recorded with. `--force` runs the whole lane and re-records every closure.
+
 AMS_RUN_PYRIGHT rides the environment into whichever lane actually spawns first and is stripped from every lane after it: pyright checks the whole tree from `[tool.pyright] include` and its answer cannot change between two pytest invocations of the same working tree, so type-checking twice would only cost a second copy of the same verdict.
 
 The validators lane has one precondition the closure fingerprint cannot state: the window enumerations under rebuild/out/m1 have to be the ones the sources on disk describe, since that lane's readers measure a live artifact and a stale one fails them on contents nobody edited. The refusal for that fires before the lane spawns rather than after it has collected, because every red this journal has recorded against rebuild/test_rule_witnesses.py was a stale stamp rather than a defect, and a stamp that will fail the suite is worth naming in seconds instead of at the end of the long lane. The check is `run_m1.tables_inputs` against the six windows heads — `artifact_cycle.m1_tables_stamped`, one line read per configuration — and --force does not bypass it, because forcing a lane to run says nothing about whether there is anything current to run it against.
@@ -24,6 +26,7 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from rebuild.tools import contracts_closure
 from rebuild.tools.artifact_cycle import (
     REBUILD_LANES,
     classify_rebuild_output,
@@ -31,7 +34,7 @@ from rebuild.tools.artifact_cycle import (
     m1_tables_stamped,
     read_green_record,
     rebuild_lane_argv,
-    rebuild_lane_fingerprint,
+    rebuild_lane_closure,
     rebuild_lane_green,
     record_green,
 )
@@ -59,7 +62,7 @@ def _run_lane(lane: str, env: dict[str, str], force: bool) -> tuple[int, bool]:
     """
     check = POOL_UNIT_BY_LANE[lane]
     record_path = rebuild_lane_green(lane)
-    before = rebuild_lane_fingerprint(ROOT, lane)
+    before, roster = rebuild_lane_closure(ROOT, lane)
     recorded = read_green_record(record_path)
     if not force and before is not None and recorded is not None and before == recorded["fingerprint"]:
         print(
@@ -91,6 +94,7 @@ def _run_lane(lane: str, env: dict[str, str], force: bool) -> tuple[int, bool]:
         return 1, False
 
     argv = rebuild_lane_argv(lane)
+    files = _narrow_contracts(record_path, roster, recorded, force) if lane == "contracts" else None
     lane_env = {**env, POOL_UNIT_ENV: check}
     started = time.perf_counter()
     returncode, stdout = _run_suite(argv, lane_env)
@@ -108,15 +112,47 @@ def _run_lane(lane: str, env: dict[str, str], force: bool) -> tuple[int, bool]:
             f"make test-rebuild: {lane} lane {outcome.status} (closure fingerprint unavailable without git — not recorded)"
         )
         return 0, True
-    if rebuild_lane_fingerprint(ROOT, lane) != before:
-        print(
-            f"make test-rebuild: {lane} lane {outcome.status}, but its input closure changed while the suite ran — green not recorded"
+    after, after_roster = rebuild_lane_closure(ROOT, lane)
+    drifted = f"make test-rebuild: {lane} lane {outcome.status}, but its input closure changed while the suite ran — green not recorded"
+    if after != before:
+        print(drifted)
+        return 0, True
+    where = record_path.relative_to(ROOT) if record_path.is_relative_to(ROOT) else record_path
+    if lane == "contracts":
+        payload = contracts_closure.record_payload(
+            ROOT, files or {}, after_roster or {}, recorded, contracts_closure.sidecar_path(record_path)
         )
+        if payload.moved:
+            print(drifted)
+            return 0, True
+        record_green(record_path, before, files=payload.files, closures=payload.closures)
+        recorded_what = (
+            "closure fingerprint and per-test closures" if payload.closures else "closure fingerprint"
+        )
+        print(f"make test-rebuild: {lane} lane {outcome.status} — {recorded_what} recorded in {where}")
         return 0, True
     record_green(record_path, before)
-    where = record_path.relative_to(ROOT) if record_path.is_relative_to(ROOT) else record_path
     print(f"make test-rebuild: {lane} lane {outcome.status} — closure fingerprint recorded in {where}")
     return 0, True
+
+
+def _narrow_contracts(
+    record_path: Path, roster: dict[str, str] | None, recorded: dict | None, force: bool
+) -> dict[str, str] | None:
+    """Write the selection file the contracts spawn reads and say what it keeps off, returning the widened digest map the selection was taken over so the green can be recorded against the same labels. An empty selection — no record, no closures in it, a structural or global diff, `--force`, or no repository to key on — runs the whole lane, and the previous sidecar is cleared first so a suite that dies before session end cannot leave last run's closures to be merged as this one's."""
+    selection_file = contracts_closure.selection_path(record_path)
+    contracts_closure.sidecar_path(record_path).unlink(missing_ok=True)
+    if roster is None:
+        contracts_closure.write_selection(selection_file, ())
+        return None
+    files = contracts_closure.current_files(ROOT, roster, recorded)
+    if force:
+        selection = contracts_closure.Selection(reason="--force runs the whole lane")
+    else:
+        selection = contracts_closure.select(recorded, files)
+    contracts_closure.write_selection(selection_file, selection.skip)
+    print(f"make test-rebuild: contracts lane — {selection.describe()}")
+    return files
 
 
 def main(argv: list[str] | None = None) -> int:

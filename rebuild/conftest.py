@@ -4,21 +4,24 @@ The suite divides into two lanes, and lane membership is *derived*, never hand-l
 
 A derived rule needs a check that the derivation is honest, so a `sys.addaudithook` guard makes lane membership structural rather than aspirational. It is installed once per process, sits inactive, and is switched on only for the setup, call, and teardown of a contracts-lane item; while active, any read or write whose path falls under the live-artifact trees (`rebuild/out/`, the whole of `tmp/`, the gate's own exempt prefixes, the root `verdicts-*` stores) raises `ContractsLaneViolation` naming the test and the path, and a phase that swallows that exception still fails through `pytest_runtest_makereport`. What the guard does not cover is documented at the hook: subprocess children run unaudited, and `Path.exists()`/stat never reach it — it is the content reads that are caught, which is the leak that matters.
 
+The same hook, in the same window, is the recorder behind the lane's per-test input closure (`rebuild.tools.contracts_closure` is the reader and the authority on what a closure means and when it may keep a test off a run). Every repo file a contracts item opens goes into that item's sink, every module it imports for the first time into its module list, a file a module opens while its own body is being imported is credited to that module (`_attribute_import_read`) so every test whose closure holds the module inherits the read, and every child an item spawns marks it unclosable — a multiprocessing worker raises no audit event, so `BaseProcess.start` is wrapped to say so — with the one exception `contracts_closure.hermetic_child` argues. Reads a fixture makes during its own setup are credited to the fixture and folded into every item that requests it, since a session fixture sets up once and the hook sees that once under one item. `--closure-record PATH` has the controller write the sink of every worker to a sidecar at session end, and `--closure-skip PATH` deselects the contracts items a selection file names; both are the gate's to pass, and a bare `uv run pytest rebuild/` neither records nor skips.
+
 `_redirect_cycle_writes` is the standing guarantee that running the suite never costs the working repo a file; it is autouse, so every module in rebuild/ gets it whether or not its author thought about the cycle.
 
 What the validators lane still holds is short enough to name: the per-configuration rule-witness arms in `rebuild/test_rule_witnesses.py`, whose subject is the live tables. Everything else that once sat here reads the frozen mini bundle under `rebuild/review/fixtures/mini/` — the enrich and drafts worked examples through `example_units` below, the ink comparisons, the table-diff witnesses, the manual-pins teeth — because none of them was ever a claim about today's corpus, only about the code that reads one. What that buys is not only width: a dissolved exemplar now fails the bundle regeneration, which names the window, rather than a lane a rune edit later.
 """
 
+import multiprocessing.process
 import os
 import sys
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import pytest
 
 from rebuild.review.fixtures.mini import pin
-from rebuild.tools import artifact_cycle, cycle_timings, memory_budget
+from rebuild.tools import artifact_cycle, contracts_closure, cycle_timings, memory_budget
 
 REAL_RUN_RETENTION = artifact_cycle.run_retention
 REAL_READINESS_BLOCK = artifact_cycle.readiness_block
@@ -71,6 +74,13 @@ _FORBIDDEN = tuple(
     )
 )
 _FORBIDDEN_TREES = frozenset(prefix.rstrip(os.sep) for prefix in _FORBIDDEN if prefix.endswith(os.sep))
+_ROOT_PREFIX = str(REPO_ROOT) + os.sep
+# The events whose first argument is a path the process reads: a content read for the closure. os.scandir and os.listdir are audited for violations but not recorded, because a listing changes only when an input is added or removed, and that diff runs the whole lane.
+_READ_EVENTS = frozenset(("open", "shutil.copyfile", "shutil.copytree", "shutil.move"))
+# Every way this interpreter starts a child that the hook can see. subprocess.Popen carries the argv, which is what lets a hermetic git command through; the os.* events carry no argv worth reading and always mark the item.
+_SPAWN_EVENTS = frozenset(
+    ("subprocess.Popen", "os.fork", "os.forkpty", "os.posix_spawn", "os.exec", "os.spawn", "os.system")
+)
 _AUDITED_EVENTS = frozenset(
     (
         "open",
@@ -125,25 +135,48 @@ def lane_of(item: pytest.Item) -> str:
     return lane_for_fixturenames(getattr(item, "fixturenames", ()))
 
 
-def is_live_artifact_path(candidate: object) -> bool:
-    """Whether an audited argument names something under the live trees. Takes `object` because audit events hand over whatever the caller passed — an int file descriptor, a None, a socket — and everything that is not a path is simply not a path, not an error. Normalization is `os.fsdecode` plus `os.path.normpath` against the cwd for relative names; deliberately no `realpath`, since resolving symlinks would cost a stat on every open in the worker to catch a case this repo does not have."""
+def _normalized(candidate: object) -> str | None:
+    """An audited argument as an absolute, normalized path, or None for everything that is not a path. Audit events hand over whatever the caller passed — an int file descriptor, a None, a socket — and everything that is not a path is simply not a path, not an error. Normalization is `os.fsdecode` plus `os.path.normpath` against the cwd for relative names; deliberately no `realpath`, since resolving symlinks would cost a stat on every open in the worker to catch a case this repo does not have."""
     if isinstance(candidate, (str, bytes, os.PathLike)):
         try:
             path = os.fsdecode(candidate)
         except TypeError, ValueError, UnicodeDecodeError:
-            return False
+            return None
     else:
-        return False
+        return None
     if not path:
-        return False
+        return None
     if not os.path.isabs(path):
         path = os.path.join(os.getcwd(), path)
-    path = os.path.normpath(path)
-    return path.startswith(_FORBIDDEN) or path in _FORBIDDEN_TREES
+    return os.path.normpath(path)
+
+
+def is_live_artifact_path(candidate: object) -> bool:
+    """Whether an audited argument names something under the live trees."""
+    path = _normalized(candidate)
+    return path is not None and (path.startswith(_FORBIDDEN) or path in _FORBIDDEN_TREES)
+
+
+def repo_relative_read(candidate: object) -> str | None:
+    """The repo-relative source a read names, for the closure, or None when the read is outside the repo or inside a tree no closure should hold: the interpreter's own packages under `.venv/`, the caches, the crate's build output, and bytecode, which `contracts_closure.source_of` maps back to the module it was compiled from."""
+    path = _normalized(candidate)
+    if path is None or not path.startswith(_ROOT_PREFIX):
+        return None
+    rel = contracts_closure.source_of(path[len(_ROOT_PREFIX) :].replace(os.sep, "/"))
+    return rel if contracts_closure.recordable(rel) else None
 
 
 class ContractsLaneViolation(RuntimeError):
     """Raised out of the audit hook, inside whatever call tried the read."""
+
+
+@dataclass
+class _Sink:
+    """What one item, or one fixture's setup, was seen to depend on: the repo files it read, the names of the modules it loaded for the first time in this process, and whether it started a child the hook cannot follow."""
+
+    reads: set[str] = field(default_factory=set)
+    module_names: set[str] = field(default_factory=set)
+    unclosable: bool = False
 
 
 class _Guard:
@@ -151,27 +184,141 @@ class _Guard:
         self.active = False
         self.nodeid = ""
         self.violations: list[tuple[str, str]] = []
+        self.item = _Sink()
+        self.fixtures: list[_Sink] = []
+
+    def begin(self, nodeid: str) -> None:
+        self.nodeid = nodeid
+        self.violations.clear()
+        self.item = _Sink()
+        self.fixtures.clear()
+        self.active = True
+
+    def sinks(self) -> Iterable[_Sink]:
+        yield self.item
+        yield from self.fixtures
+
+    def read(self, rel: str) -> None:
+        for sink in self.sinks():
+            sink.reads.add(rel)
+
+    def module(self, name: str) -> None:
+        for sink in self.sinks():
+            sink.module_names.add(name)
+
+    def spawn(self) -> None:
+        for sink in self.sinks():
+            sink.unclosable = True
 
 
 _guard = _Guard()
 _guard_installed = False
+# Per process: what each fixture's own setup read, by fixture name — every name a fixture can be requested under is unioned rather than told apart by definition site, which can only widen a closure — the sink of every finished contracts item, and every contracts id this process collected before any selection file deselected it.
+_fixture_sinks: dict[str, _Sink] = {}
+_item_closures: dict[str, dict] = {}
+_collected_contracts: list[str] = []
+_module_files: dict[str, str | None] = {}
+# Import-time reads, by the repo module whose body was executing: a module that opens a file as it is imported does so once per process, under whichever item or collection happened to import it first, so the read is attributed to the module and folded into every test whose closure holds that module. `_pending_imports` is the names the import event has announced whose load may still be running; a read checks each against `sys.modules` and drops the ones that have finished.
+_pending_imports: set[str] = set()
+_import_reads: dict[str, set[str]] = {}
+# What the workers hand back at session end, gathered on the controller as each node shuts down.
+_worker_closures: list[dict] = []
 
 
 def _audit(event: str, args: tuple[object, ...]) -> None:
-    """The hook itself, called on every audited event in the process — so the inactive path is one attribute load and a return, and the active path does no work until the event is one of the handful that can carry a live path. Two gaps are deliberate and worth knowing: a subprocess child runs with its own hooks, so nothing a test spawns is covered, and `Path.exists()` / `os.stat` raise no audit event, so a contracts test may still ask whether a live artifact is there. It is the content that is guarded, which is the leak that turns a contracts test into a validators one."""
+    """The hook itself, called on every audited event in the process — so the inactive path is one attribute load and a return, and the active path does no work until the event is one of the handful that can carry a live path, a read, an import, or a spawn. Two gaps are deliberate and worth knowing: a subprocess child runs with its own hooks, so nothing a test spawns is covered — which is why a spawn makes the item unclosable rather than being followed — and `Path.exists()` / `os.stat` raise no audit event, so a contracts test may still ask whether a live artifact is there. It is the content that is guarded, which is the leak that turns a contracts test into a validators one."""
+    if event == "import":
+        if args and isinstance(args[0], str):
+            _pending_imports.add(args[0])
+            if _guard.active:
+                _guard.module(args[0])
+        return
     if not _guard.active:
+        if _pending_imports and event in _READ_EVENTS and args:
+            rel = repo_relative_read(args[0])
+            if rel is not None:
+                _attribute_import_read(rel)
         return
-    if event not in _AUDITED_EVENTS:
-        return
-    for arg in args:
-        if is_live_artifact_path(arg):
-            path = os.fsdecode(arg)  # pyright: ignore[reportArgumentType]
-            _guard.violations.append((event, path))
-            raise ContractsLaneViolation(
-                f"{_guard.nodeid} is a contracts-lane test but reached a live build artifact: {event} on {path}. "
-                f"A test whose assertion is about live build output belongs in the validators lane — request the "
-                f"`live_artifacts` fixture. A test that only needed *a* directory should build one under `tmp_path`."
-            )
+    if event in _AUDITED_EVENTS:
+        for arg in args:
+            if is_live_artifact_path(arg):
+                path = os.fsdecode(arg)  # pyright: ignore[reportArgumentType]
+                _guard.violations.append((event, path))
+                raise ContractsLaneViolation(
+                    f"{_guard.nodeid} is a contracts-lane test but reached a live build artifact: {event} on {path}. "
+                    f"A test whose assertion is about live build output belongs in the validators lane — request the "
+                    f"`live_artifacts` fixture. A test that only needed *a* directory should build one under `tmp_path`."
+                )
+        if event in _READ_EVENTS and args:
+            rel = repo_relative_read(args[0])
+            if rel is not None:
+                _guard.read(rel)
+                if _pending_imports:
+                    _attribute_import_read(rel)
+    elif event in _SPAWN_EVENTS:
+        if event == "subprocess.Popen" and len(args) > 1 and contracts_closure.hermetic_child(args[1]):
+            return
+        _guard.spawn()
+
+
+def _module_file(name: str) -> str | None:
+    """The repo-relative file behind a module name the hook saw imported, looked up in `sys.modules` once the import has finished; None for a module outside the repo or one that never finished loading, and only a loaded module's answer is cached."""
+    if name in _module_files:
+        return _module_files[name]
+    module = sys.modules.get(name)
+    if module is None:
+        return None
+    origin = getattr(module, "__file__", None)
+    _module_files[name] = repo_relative_read(origin) if origin else None
+    return _module_files[name]
+
+
+def _attribute_import_read(rel: str) -> None:
+    """Credit a read to every repo module whose body is executing right now — importlib flags a module's spec `_initializing` from the moment it enters `sys.modules` until its body returns — and forget the pending names whose load has finished."""
+    for name in list(_pending_imports):
+        module = sys.modules.get(name)
+        if module is None:
+            continue
+        if getattr(getattr(module, "__spec__", None), "_initializing", False):
+            file = _module_file(name)
+            if file is not None:
+                _import_reads.setdefault(file, set()).add(rel)
+        else:
+            _pending_imports.discard(name)
+
+
+def _finish_item(item: pytest.Item) -> None:
+    """Fold the item's own sink and the sinks of every fixture it requested into one closure entry. The fixture union goes by name over `item.fixturenames`, the transitive closure pytest resolved, so a test that names no fixture of its own still inherits what a fixture-of-a-fixture read when it was set up under an earlier item."""
+    sinks = [
+        _guard.item,
+        *(
+            sink
+            for name in getattr(item, "fixturenames", ())
+            if (sink := _fixture_sinks.get(name)) is not None
+        ),
+    ]
+    reads: set[str] = set()
+    modules: set[str] = set()
+    for sink in sinks:
+        reads.update(sink.reads)
+        modules.update(path for name in sink.module_names if (path := _module_file(name)) is not None)
+    _item_closures[item.nodeid] = {
+        "reads": sorted(reads),
+        "modules": sorted(modules),
+        "unclosable": any(sink.unclosable for sink in sinks),
+    }
+
+
+def _wrap_process_start() -> None:
+    """A multiprocessing worker starts through `_posixsubprocess.fork_exec` under the spawn method and raises no audit event on the way, so the hook alone would let a pooled build pass as closable. Wrapping `BaseProcess.start` — the one method every start method, `Pool` and `ProcessPoolExecutor` go through — marks the item the way a `subprocess.Popen` event does."""
+    original = multiprocessing.process.BaseProcess.start
+
+    def start(self, *args, **kwargs):
+        if _guard.active:
+            _guard.spawn()
+        return original(self, *args, **kwargs)
+
+    multiprocessing.process.BaseProcess.start = start
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
@@ -182,6 +329,20 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         choices=[*LANES, "all"],
         help="Run only one lane of the rebuild suite: contracts (no live build artifacts, every core this process may run on) or validators (reads rebuild/out, at the narrower width one of its own workers' measured cost leaves room for).",
     )
+    parser.addoption(
+        "--closure-record",
+        action="store",
+        default=None,
+        metavar="PATH",
+        help="Write every contracts-lane item's recorded input closure to this sidecar at session end (rebuild.tools.contracts_closure reads it into the lane's green record).",
+    )
+    parser.addoption(
+        "--closure-skip",
+        action="store",
+        default=None,
+        metavar="PATH",
+        help="Deselect the contracts-lane items this selection file names as proven unaffected by the diff since the lane's last green run.",
+    )
 
 
 def pytest_configure(config: pytest.Config) -> None:
@@ -190,6 +351,7 @@ def pytest_configure(config: pytest.Config) -> None:
         return
     _guard_installed = True
     sys.addaudithook(_audit)
+    _wrap_process_start()
 
 
 def governs(path: Path) -> bool:
@@ -205,14 +367,22 @@ def _governed(item: pytest.Item) -> bool:
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    """Two deselections, in order: the lane, then the selection file. The contracts ids are noted between them, before the selection can drop any, because the sidecar has to name every test the lane holds — an id the selection kept off keeps its previous closure in the merge only by being listed as collected."""
     lane = config.getoption("lane", default="all")
-    if lane == "all":
-        return
+    skip_path = config.getoption("closure_skip", default=None)
+    skip = contracts_closure.read_selection(Path(skip_path)) if skip_path else frozenset()
     kept: list[pytest.Item] = []
     dropped: list[pytest.Item] = []
     for item in items:
-        target = kept if not _governed(item) or lane_of(item) == lane else dropped
-        target.append(item)
+        governed = _governed(item)
+        if governed and lane_of(item) == "contracts":
+            _collected_contracts.append(item.nodeid)
+        if governed and lane != "all" and lane_of(item) != lane:
+            dropped.append(item)
+        elif governed and lane_of(item) == "contracts" and item.nodeid in skip:
+            dropped.append(item)
+        else:
+            kept.append(item)
     if dropped:
         config.hook.pytest_deselected(items=dropped)
     items[:] = kept
@@ -247,10 +417,21 @@ def pytest_report_header(config: pytest.Config) -> str:
 def pytest_runtest_setup(item: pytest.Item):
     """Setup is inside the guarded window, not before it, because a module-scoped fixture that reads a live artifact is instantiated here — which is exactly the shape the guard exists to catch, a whole module of tests riding one unannounced read."""
     if lane_of(item) == "contracts":
-        _guard.nodeid = item.nodeid
-        _guard.violations.clear()
-        _guard.active = True
+        _guard.begin(item.nodeid)
     return (yield)
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_fixture_setup(fixturedef, request):
+    """A fixture's own setup records into a sink of its own beside the item's, so what a session, module or class fixture reads the once it is set up can be credited to every later item that requests it. Only a real setup comes through here — a cached fixture value never re-enters the hook — which is exactly the once the closure needs. A function-scoped fixture sets up inside every requesting item's own window and needs no sink of its own; giving it one would only pool its reads across items, which for a parametrized fixture is every parameter's file in every test."""
+    if not _guard.active or fixturedef.scope == "function":
+        return (yield)
+    sink = _fixture_sinks.setdefault(fixturedef.argname, _Sink())
+    _guard.fixtures.append(sink)
+    try:
+        return (yield)
+    finally:
+        _guard.fixtures.remove(sink)
 
 
 @pytest.hookimpl(wrapper=True)
@@ -258,7 +439,41 @@ def pytest_runtest_teardown(item: pytest.Item, nextitem: pytest.Item | None):
     try:
         return (yield)
     finally:
+        if _guard.active and _governed(item):
+            _finish_item(item)
         _guard.active = False
+
+
+def pytest_sessionfinish(session: pytest.Session) -> None:
+    """A worker hands its closures back through workeroutput; the controller — or the one process of an un-pooled run — writes the sidecar `--closure-record` named, after every node has reported. Nothing is written without the option, so a bare run and the pytester children of test_lanes leave no file behind."""
+    config = session.config
+    local = {
+        "collected": list(_collected_contracts),
+        "tests": dict(_item_closures),
+        "module_reads": {module: sorted(reads) for module, reads in _import_reads.items()},
+    }
+    if hasattr(config, "workerinput"):
+        config.workeroutput["contracts_closures"] = local  # pyright: ignore[reportAttributeAccessIssue]
+        return
+    record = config.getoption("closure_record", default=None)
+    if not record:
+        return
+    collected: list[str] = []
+    tests: dict[str, dict] = {}
+    module_reads: dict[str, set[str]] = {}
+    for payload in (*_worker_closures, local):
+        collected.extend(payload["collected"])
+        tests.update(payload["tests"])
+        for module, reads in payload.get("module_reads", {}).items():
+            module_reads.setdefault(module, set()).update(reads)
+    contracts_closure.write_sidecar(Path(record), collected, tests, module_reads)
+
+
+def pytest_testnodedown(node, error) -> None:
+    payload = getattr(node, "workeroutput", None) or {}
+    closures = payload.get("contracts_closures")
+    if isinstance(closures, dict):
+        _worker_closures.append(closures)
 
 
 @pytest.hookimpl(wrapper=True)
@@ -338,7 +553,7 @@ class MiniBundle:
 def mini_bundle(tmp_path_factory) -> MiniBundle:
     """The mini bundle and the spec its rows settled under, the latter materialized out of git — from the tree and blob shas `rebuild/review/fixtures/mini/pin.json` records — once per session per worker, tens of milliseconds, into pytest's temp root. Hand `spec_root` to `build_m1` or `load_spec` and `ledger` to `load_workload` or `load_ledger`, and the settlement the enricher re-derives is the one the frozen rows were written under, whatever the working tree's runes say today.
 
-    This is a contracts-lane fixture and must stay one: it reads `.git` through git subprocesses and writes only under pytest's temp root, never `rebuild/out` and never the repo's `tmp/`, and it must never request `live_artifacts`.
+    This is a contracts-lane fixture and must stay one: it reads `.git` through git subprocesses and writes only under pytest's temp root, never `rebuild/out` and never the repo's `tmp/`, and it must never request `live_artifacts`. Those subprocesses are `git cat-file` and `git archive` by sha, which `contracts_closure.hermetic_child` lets through the closure recorder: the bytes they read are content-addressed and the pin file that names them is read in this process, so every test built on this fixture stays closable.
     """
     spec_root = pin.materialize(tmp_path_factory.mktemp("mini-spec"))
     return MiniBundle(spec_root=spec_root, ledger=spec_root / "rebuild" / "m1-divergences.yaml")

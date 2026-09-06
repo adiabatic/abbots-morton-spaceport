@@ -22,7 +22,7 @@ The key is captured the moment the chain closes, not at the end of the pass, so 
 
 The skip demands that the surface build be skipping too, which is what makes the stamp knowable before the pass runs, and it takes the snapshot with it: the snapshot exists to survive this cycle's surface rewrite and to feed this cycle's carry, and a pass doing neither needs no copy. Such a pass also leaves the snapshot pile alone rather than pruning it to the copy it never made, so the stamp-aligned snapshot the last refreshing pass left stays on disk as the recovery source describe_carry_source points at. A flag that names a carry output or a snapshot directory refuses the skip outright, since honoring it would mean writing neither.
 
-The same provably-unchanged principle guards every other heavy stage, each keyed by a content fingerprint over that stage's full input closure and a green record written only after that exact content passed live: run_m1 skips on rebuild/out/run-m1-green.json (the Stage A fingerprint components plus the contact allow-list, the oracle's subset tables and uv.lock) and re-evaluates its gate from the summary JSONs already on disk; gate:conform skips on conform-green.json, keyed on the sweep's own closure rather than on run_m1's — the spec and build-side code the tables' stamp covers, the engine's semantics tokens, the M1.otf bytes, uv.lock for the shaper, and the sweep horizon — so a comparison-side edit that leaves the font byte-identical leaves that key unmoved; each rebuild lane skips on its own record (rebuild-contracts-green.json, rebuild-validators-green.json), keyed by rebuild_lane_fingerprint over that lane's own closure — both hold the suite's repo closure under rebuild/ and glyph_data/ plus conftest.py, pyproject.toml, uv.lock and the site fonts, and validators adds the out/m1 artifacts and the baselines it shapes against, which is exactly why the contracts key holds no artifact and the contracts lane can skip whether or not run_m1 rebuilt: a live M1 rebuild writes only under rebuild/out, which that closure does not contain. Both records are also written by rebuild.tools.rebuild_gate, the `make test-rebuild` entry point, so interactive suite greens and cycle greens share them; surface-build skips when the manifest's recorded inputs fingerprint already equals the one a build would stamp now (a rebuild would be byte-identical, mtime-floored generated_at included, so the autosave stays aligned). The census step is neither keyed nor skipped: it reads the surface build's census-facts.json sidecar and rewrites one small checked-in file in milliseconds, so it simply runs every pass. The surface skip engages only on cycles where run_m1 itself skipped, and on the gates-only route when the Stage A record on disk is already what that pass will rewrite (`m1_stage_a_current`), since the surface reads nothing else the pass touches — which is the contact-allow bless, the one comparison-side edit outside every Stage A component. Conform's skip and the validators lane's are decided after run_m1 has finished instead, each over the key the artifacts it left actually carry: a route that leaves the font byte-identical skips the sweep, and one that leaves the out/m1 artifacts and the rest of the lane's closure unmoved skips the lane, whether run_m1 skipped, re-adjudicated, or rebuilt — so a contact-allow bless costs the gates-only re-adjudication and not the lane — and either skip is recorded as proved because a matching green is proof about this exact content. Taking those two keys only once run_m1 is over is also what keeps a live M1 rebuild from invalidating one mid-cycle: there is no key to invalidate until the artifacts have stopped moving. The preflight still answers both ahead of the pass on the one route whose artifacts it can already see — run_m1 skipped, so nothing is about to move — and that is the route --dry-run can predict; on the reuse and rebuild routes the printed plan shows the conform and validators lanes as undecided (`run?`), because only a finished run_m1 knows what the artifacts came out as, so a plan that promises either may be answered by a pass that proves it unnecessary. Green records are written only when the key still matches after the work ran, and a red result whose key matches its record deletes the record. --fresh runs everything regardless.
+The same provably-unchanged principle guards every other heavy stage, each keyed by a content fingerprint over that stage's full input closure and a green record written only after that exact content passed live: run_m1 skips on rebuild/out/run-m1-green.json (the Stage A fingerprint components plus the contact allow-list, the oracle's subset tables and uv.lock) and re-evaluates its gate from the summary JSONs already on disk; gate:conform skips on conform-green.json, keyed on the sweep's own closure rather than on run_m1's — the spec and build-side code the tables' stamp covers, the engine's semantics tokens, the M1.otf bytes, uv.lock for the shaper, and the sweep horizon — so a comparison-side edit that leaves the font byte-identical leaves that key unmoved; each rebuild lane skips on its own record (rebuild-contracts-green.json, rebuild-validators-green.json), keyed by rebuild_lane_fingerprint over that lane's own closure — both hold the suite's repo closure under rebuild/ and glyph_data/ plus conftest.py, pyproject.toml, uv.lock and the site fonts, and validators adds the out/m1 artifacts and the baselines it shapes against, which is exactly why the contracts key holds no artifact and the contracts lane can skip whether or not run_m1 rebuilt: a live M1 rebuild writes only under rebuild/out, which that closure does not contain. The contracts record also carries a per-test input closure beside its key, so a pass whose contracts key moved runs only the tests whose closure the diff reaches, a rune edit re-proving the tests that load the spec and nothing else; rebuild.tools.contracts_closure is the authority on what a closure holds and when a test may be kept off, and every doubt there runs the test. Both records are also written by rebuild.tools.rebuild_gate, the `make test-rebuild` entry point, so interactive suite greens and cycle greens share them; surface-build skips when the manifest's recorded inputs fingerprint already equals the one a build would stamp now (a rebuild would be byte-identical, mtime-floored generated_at included, so the autosave stays aligned). The census step is neither keyed nor skipped: it reads the surface build's census-facts.json sidecar and rewrites one small checked-in file in milliseconds, so it simply runs every pass. The surface skip engages only on cycles where run_m1 itself skipped, and on the gates-only route when the Stage A record on disk is already what that pass will rewrite (`m1_stage_a_current`), since the surface reads nothing else the pass touches — which is the contact-allow bless, the one comparison-side edit outside every Stage A component. Conform's skip and the validators lane's are decided after run_m1 has finished instead, each over the key the artifacts it left actually carry: a route that leaves the font byte-identical skips the sweep, and one that leaves the out/m1 artifacts and the rest of the lane's closure unmoved skips the lane, whether run_m1 skipped, re-adjudicated, or rebuilt — so a contact-allow bless costs the gates-only re-adjudication and not the lane — and either skip is recorded as proved because a matching green is proof about this exact content. Taking those two keys only once run_m1 is over is also what keeps a live M1 rebuild from invalidating one mid-cycle: there is no key to invalidate until the artifacts have stopped moving. The preflight still answers both ahead of the pass on the one route whose artifacts it can already see — run_m1 skipped, so nothing is about to move — and that is the route --dry-run can predict; on the reuse and rebuild routes the printed plan shows the conform and validators lanes as undecided (`run?`), because only a finished run_m1 knows what the artifacts came out as, so a plan that promises either may be answered by a pass that proves it unnecessary. Green records are written only when the key still matches after the work ran, and a red result whose key matches its record deletes the record. --fresh runs everything regardless.
 
 Between the run_m1 skip and a full rebuild there is a third route. When the per-file diff against the run_m1 green is confined to comparison-side inputs — the alias map, the divergence ledger, the contact allow-list, the kern sidecar, the oracle's own module, the baselines and their subsets, every one of them outside the tables' stamp (`comparison_side_label` is the roster and argues each member) — and the tables on disk still carry that stamp and the artifacts are all present, the cycle spawns `run_m1 --gates-only` instead of a build: the defect gate, the Manual-pin gate and the oracle re-run over the tables and font already there, the ledgers' verdicts are re-adjudicated, and nothing is enumerated. The green that pass records covers the new inputs, so the next cycle skips run_m1 outright. `uv.lock` is deliberately not comparison-side — a fontTools or uharfbuzz bump can move the font's bytes and what the shaper makes of them — so a toolchain bump still rebuilds.
 
@@ -138,8 +138,8 @@ def rebuild_lane_green(lane: str) -> Path:
 
 
 def rebuild_lane_argv(lane: str) -> list[str]:
-    """One lane of the rebuild suite. `--lane` is the rebuild conftest's own option, and it also decides the pool width: the contracts lane's `-n auto` resolves to the cores this process may actually run on, since none of its workers holds a live build artifact, while the validators lane takes the narrower width `rebuild/conftest.py` derives from what one live-fixture worker costs. Every run prints its twenty-five slowest tests, so the lane's own record says where its minutes went and a cost survey needs no special invocation."""
-    return [
+    """One lane of the rebuild suite. `--lane` is the rebuild conftest's own option, and it also decides the pool width: the contracts lane's `-n auto` resolves to the cores this process may actually run on, since none of its workers holds a live build artifact, while the validators lane takes the narrower width `rebuild/conftest.py` derives from what one live-fixture worker costs. Every run prints its twenty-five slowest tests, so the lane's own record says where its minutes went and a cost survey needs no special invocation. The contracts lane also names the two closure files beside its green record: the selection file the caller writes just before the spawn, naming the tests the record proves unaffected, and the sidecar the suite writes at session end with every test's recorded closure — both resolved at call time off `rebuild_lane_green`, so a test that redirects the record redirects them with it."""
+    argv = [
         "uv",
         "run",
         "pytest",
@@ -155,6 +155,17 @@ def rebuild_lane_argv(lane: str) -> list[str]:
         "-rfE",
         "--durations=25",
     ]
+    if lane == "contracts":
+        from rebuild.tools import contracts_closure
+
+        record = rebuild_lane_green(lane)
+        argv += [
+            "--closure-skip",
+            str(contracts_closure.selection_path(record)),
+            "--closure-record",
+            str(contracts_closure.sidecar_path(record)),
+        ]
+    return argv
 
 
 MAKE_TEST_EXEMPT_PREFIXES = (
@@ -268,11 +279,15 @@ def _record_outcome(path: Path, payload: dict) -> None:
     os.replace(tmp, path)
 
 
-def record_green(path: Path, fingerprint: str, files: dict[str, str] | None = None) -> None:
-    """`files` is the per-file `label -> digest` map behind the fingerprint, when the caller has it: stored beside the key so a later skip miss can name exactly which input moved instead of reporting only that some digest did."""
+def record_green(
+    path: Path, fingerprint: str, files: dict[str, str] | None = None, closures: dict | None = None
+) -> None:
+    """`files` is the per-file `label -> digest` map behind the fingerprint, when the caller has it: stored beside the key so a later skip miss can name exactly which input moved instead of reporting only that some digest did. `closures` is the contracts lane's per-test input closure over those same labels (`rebuild.tools.contracts_closure`), which is what lets a skip miss run only the tests the moved inputs can reach."""
     payload: dict = {"fingerprint": fingerprint}
     if files is not None:
         payload["files"] = files
+    if closures is not None:
+        payload["closures"] = closures
     _record_outcome(path, payload)
 
 
@@ -671,24 +686,29 @@ def rebuild_gate_closure_files(root: Path) -> list[str] | None:
 
 
 def rebuild_lane_fingerprint(root: Path, lane: str) -> str | None:
-    """Content key over one lane's full input closure, and the two closures are what make the lanes separately skippable. Contracts covers the repo files from rebuild_gate_closure_files, which has already dropped the exempt paths, so a bless of a contact signature moves neither lane's key — plus the site fonts, which are `make all` output its shaping tests measure against, moved by no rune edit, and whose Senior sha every baseline header records and `baseline_subset.prove_font_provenance` holds the oracle's tables to; it deliberately contains no build artifact at all, so a verdict-only or artifact-only cycle re-runs nothing here, and a live M1 rebuild — which writes only under rebuild/out — cannot invalidate the key mid-pass. Validators adds exactly what that lane reads on top: the out/m1 artifacts, the oracle's subset tables, and the baselines. It drops three trees more than the shared exemptions, too, each of them checked-in source no arm of that lane opens: rebuild/review/static/, the copied app shell — the only tests that read the shell (the index-html sanity check and the `node --check` pass in rebuild/test_review_build.py) read it at its source and sit in the contracts lane, whose closure keeps it — and the fixture piles rebuild/fixtures/ and rebuild/review/fixtures/units/, whose readers sit in contracts as well. The rest of rebuild/review/fixtures/ stays in both keys, because rebuild/conftest.py imports the mini bundle's pin module at module scope, so every process of either lane reads it. The harness roster rides both lanes for the same reason the audit found it: collecting rebuild/ imports test/test_shaping.py in every process of both, and the tools/ modules come with it. Only the corpora and the two prose fixtures are over-inclusive there, their readers all sitting in contracts, and they are too few and too rarely edited to be worth a second exemption list. Both contain the rune files and both human-reviewed ledgers that are still in the closure — the divergence ledger and the standing approvals — all three prose-blind, because several contracts tests load the live spec and the live ledgers, and every one of them reads structure rather than prose. The verdict store is absent from both — the suite exercises it only through fixtures — which is what lets a verdict-only cycle skip the suite entirely. None when git is unavailable, in which case the caller must run the lane unconditionally."""
+    """Content key over one lane's full input closure: `rebuild_lane_closure`'s digest, whose per-label lines are the authority on what the key covers."""
+    return rebuild_lane_closure(root, lane)[0]
+
+
+def rebuild_lane_closure(root: Path, lane: str) -> tuple[str | None, dict[str, str] | None]:
+    """One lane's input closure as the key and the per-label digest map the key is a digest of — one pass over the files answers both, and keeping the map the key's only source is what makes the contracts lane's per-test selection sound: every input the key can move on is a label the selection can see move. Content key over one lane's full input closure, and the two closures are what make the lanes separately skippable. Contracts covers the repo files from rebuild_gate_closure_files, which has already dropped the exempt paths, so a bless of a contact signature moves neither lane's key — plus the site fonts, which are `make all` output its shaping tests measure against, moved by no rune edit, and whose Senior sha every baseline header records and `baseline_subset.prove_font_provenance` holds the oracle's tables to; it deliberately contains no build artifact at all, so a verdict-only or artifact-only cycle re-runs nothing here, and a live M1 rebuild — which writes only under rebuild/out — cannot invalidate the key mid-pass. Validators adds exactly what that lane reads on top: the out/m1 artifacts, the oracle's subset tables, and the baselines. It drops three trees more than the shared exemptions, too, each of them checked-in source no arm of that lane opens: rebuild/review/static/, the copied app shell — the only tests that read the shell (the index-html sanity check and the `node --check` pass in rebuild/test_review_build.py) read it at its source and sit in the contracts lane, whose closure keeps it — and the fixture piles rebuild/fixtures/ and rebuild/review/fixtures/units/, whose readers sit in contracts as well. The rest of rebuild/review/fixtures/ stays in both keys, because rebuild/conftest.py imports the mini bundle's pin module at module scope, so every process of either lane reads it. The harness roster rides both lanes for the same reason the audit found it: collecting rebuild/ imports test/test_shaping.py in every process of both, and the tools/ modules come with it. Only the corpora and the two prose fixtures are over-inclusive there, their readers all sitting in contracts, and they are too few and too rarely edited to be worth a second exemption list. Both contain the rune files and both human-reviewed ledgers that are still in the closure — the divergence ledger and the standing approvals — all three prose-blind, because several contracts tests load the live spec and the live ledgers, and every one of them reads structure rather than prose. The verdict store is absent from both — the suite exercises it only through fixtures — which is what lets a verdict-only cycle skip the suite entirely. None when git is unavailable, in which case the caller must run the lane unconditionally."""
     from rebuild.pipeline import fingerprint
 
     files = rebuild_gate_closure_files(root)
     if files is None:
-        return None
+        return None, None
     if lane == "validators":
         files = [
             rel for rel in files if not any(rel.startswith(prefix) for prefix in VALIDATORS_EXEMPT_PREFIXES)
         ]
-    lines = [f"{rel}\t{_closure_digest(root, rel)}" for rel in files]
-    lines.append(f"fonts\t{fingerprint.hash_paths(root, fingerprint.font_paths(root))}")
+    labels = {rel: _closure_digest(root, rel) for rel in files}
+    labels["fonts"] = fingerprint.hash_paths(root, fingerprint.font_paths(root))
     if lane == "validators":
         m1 = root / "rebuild" / "out" / "m1"
-        lines += [f"m1/{name}\t{_sha256_path(m1 / name)}" for name in M1_ARTIFACT_NAMES]
-        lines += [f"m1/{path.name}\t{_sha256_path(path)}" for path in _subset_tables(root)]
-        lines.append(f"baselines\t{fingerprint.baselines_value(root)}")
-    return _digest_lines(lines)
+        labels.update({f"m1/{name}": _sha256_path(m1 / name) for name in M1_ARTIFACT_NAMES})
+        labels.update({f"m1/{path.name}": _sha256_path(path) for path in _subset_tables(root)})
+        labels["baselines"] = fingerprint.baselines_value(root)
+    return _digest_lines([f"{label}\t{digest}" for label, digest in labels.items()]), labels
 
 
 def surface_build_skippable(
@@ -957,6 +977,8 @@ class Plan:
     surface_note: str = ""
     skip_contracts: bool = False
     contracts_note: str = ""
+    contracts_skip: list[str] = field(default_factory=list)
+    contracts_files: dict[str, str] | None = None
     skip_validators: bool = False
     validators_note: str = ""
     conform_note: str = ""
@@ -1144,6 +1166,8 @@ def build_plan(
     surface_note: str = "",
     skip_contracts: bool = False,
     contracts_note: str = "",
+    contracts_skip: list[str] | None = None,
+    contracts_files: dict[str, str] | None = None,
     skip_validators: bool = False,
     validators_note: str = "",
     conform_note: str = "",
@@ -1220,6 +1244,8 @@ def build_plan(
         surface_note=surface_note,
         skip_contracts=skip_contracts,
         contracts_note=contracts_note,
+        contracts_skip=list(contracts_skip or []),
+        contracts_files=contracts_files,
         skip_validators=skip_validators,
         validators_note=validators_note,
         conform_note=conform_note,
@@ -1471,7 +1497,8 @@ def build_plan(
                 Step(
                     "gate:rebuild-contracts",
                     rebuild_lane_argv("contracts"),
-                    "submitted once the surface build settles; queued ahead of the validators lane",
+                    "submitted once the surface build settles; queued ahead of the validators lane"
+                    + (f"; {contracts_note}" if contracts_note else ""),
                     lane="contracts",
                 )
             )
@@ -2572,15 +2599,46 @@ def _record_gate_greens(
             continue
         record = rebuild_lane_green(lane)
         if recordable:
-            if rebuild_lane_fingerprint(ROOT, lane) == key:
+            drifted = f"gate:rebuild-{lane} green, but its input closure changed while the cycle ran — green not recorded"
+            if lane == "contracts":
+                now, roster = rebuild_lane_closure(ROOT, lane)
+                payload = _contracts_payload(plan, roster) if now == key else None
+                if payload is None:
+                    emit.note(f"gate:rebuild-{lane}", drifted)
+                else:
+                    record_green(record, key, files=payload.files, closures=payload.closures)
+            elif rebuild_lane_fingerprint(ROOT, lane) == key:
                 record_green(record, key)
             else:
-                emit.note(
-                    f"gate:rebuild-{lane}",
-                    f"gate:rebuild-{lane} green, but its input closure changed while the cycle ran — green not recorded",
-                )
+                emit.note(f"gate:rebuild-{lane}", drifted)
         elif green is False:
             clear_contradicted_green(record, key)
+
+
+def _write_contracts_selection(plan: Plan) -> None:
+    """The selection file the contracts spawn reads, written from the ids the plan resolved, and the previous run's sidecar cleared so a suite that dies before session end cannot leave a stale one to be merged as this run's."""
+    from rebuild.tools import contracts_closure
+
+    record = rebuild_lane_green("contracts")
+    contracts_closure.write_selection(contracts_closure.selection_path(record), plan.contracts_skip)
+    contracts_closure.sidecar_path(record).unlink(missing_ok=True)
+
+
+def _contracts_payload(plan: Plan, roster: dict[str, str] | None):
+    """What a green contracts gate records beside its key, or None when a label the selection was taken over has moved since — the same drift check the key makes, extended to the paths a recorded closure names outside the lane's roster."""
+    from rebuild.tools import contracts_closure
+
+    if roster is None:
+        return None
+    record = rebuild_lane_green("contracts")
+    payload = contracts_closure.record_payload(
+        ROOT,
+        plan.contracts_files or {},
+        roster,
+        read_green_record(record),
+        contracts_closure.sidecar_path(record),
+    )
+    return None if payload.moved else payload
 
 
 def _timed_spawn(spawn, report: CycleReport):
@@ -2749,6 +2807,7 @@ def _run_cycle(
         if not plan.skip_gates and not plan.skip_contracts:
             if plan.record_greens:
                 gate_keys["contracts"] = rebuild_lane_fingerprint(ROOT, "contracts") or ""
+            _write_contracts_selection(plan)
             contracts_fut = pool.submit(
                 _gate_contracts_task,
                 plan.pool_policy,
@@ -3504,12 +3563,21 @@ def main(argv: list[str] | None = None) -> int:
     validators_note = ""
     conform_note = ""
     auto_skip_conform = False
+    contracts_skip: list[str] = []
+    contracts_files: dict[str, str] | None = None
     if not args.fresh and not args.skip_gates:
-        contracts_key = rebuild_lane_fingerprint(ROOT, "contracts")
+        from rebuild.tools import contracts_closure
+
+        contracts_key, contracts_roster = rebuild_lane_closure(ROOT, "contracts")
         green = read_green_record(REBUILD_CONTRACTS_GREEN)
         if contracts_key is not None and green is not None and green["fingerprint"] == contracts_key:
             skip_contracts = True
             contracts_note = "input closure unchanged since its last green run; --fresh overrides"
+        elif contracts_roster is not None:
+            contracts_files = contracts_closure.current_files(ROOT, contracts_roster, green)
+            selection = contracts_closure.select(green, contracts_files)
+            contracts_skip = sorted(selection.skip)
+            contracts_note = selection.describe()
     if not args.fresh:
         green = read_green_record(RUN_M1_GREEN)
         if green is not None and green["fingerprint"] == run_m1_fp and m1_artifacts_present(ROOT):
@@ -3629,6 +3697,8 @@ def main(argv: list[str] | None = None) -> int:
         surface_note=surface_note,
         skip_contracts=skip_contracts,
         contracts_note=contracts_note,
+        contracts_skip=contracts_skip,
+        contracts_files=contracts_files,
         skip_validators=skip_validators,
         validators_note=validators_note,
         conform_note=conform_note,
