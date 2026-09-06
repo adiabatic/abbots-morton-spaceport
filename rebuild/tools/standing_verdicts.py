@@ -2686,7 +2686,7 @@ def main(argv=None, *, units=None):
         held = memo.write(units)
         lines.append(
             f"  memo: served {decider.served}, computed {decider.computed}, unkeyed {decider.unkeyed}; "
-            f"{memo.path.name} holds {held} entries"
+            f"{memo.path.name} holds {held} {'entry' if held == 1 else 'entries'}"
         )
     lines += _tally_lines(rules, run, args.open_only)
     if args.require_reach or not args.open_only:

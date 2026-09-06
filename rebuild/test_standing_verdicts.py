@@ -5161,7 +5161,7 @@ def test_a_reworded_note_drops_the_memo(tmp_path, monkeypatch, capsys):
         tmp_path / "second", monkeypatch, units, [], rules_list=(reworded,), extra=("--memo", str(memo))
     )
     lines = capsys.readouterr().out.splitlines()
-    assert "  memo: served 0, computed 1, unkeyed 0; memo.ndjson.gz holds 1 entries" in lines
+    assert "  memo: served 0, computed 1, unkeyed 0; memo.ndjson.gz holds 1 entry" in lines
     assert payload["verdicts"][0]["note"].endswith("(reworded)")
 
 
