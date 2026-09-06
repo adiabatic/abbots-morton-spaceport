@@ -1392,6 +1392,8 @@ def build_plan(
             plumbing_argv += ["--no-merge"]
         if plan.complaints_note:
             plumbing_argv += ["--no-complaints"]
+        if fresh:
+            plumbing_argv += ["--fresh-standing-memo"]
         if do_carry and not do_merge:
             note = (
                 "carry only (rehearsal: the live autosave is never written)"

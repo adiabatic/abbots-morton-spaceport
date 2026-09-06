@@ -719,6 +719,10 @@ def test_the_plan_block_counts_its_steps_and_leaves_the_sweep_and_the_validators
     assert fresh_by_name["gate:rebuild-validators"].status == console.STATUS_RUN
     assert fresh_by_name["gate:rebuild-validators"].note == "submitted once the surface build settles"
     assert "–" not in console.counts_line(fresh_rows)
+    plumbing = {step.name: step for step in fresh.steps}["plumbing"].argv
+    assert plumbing is not None and "--fresh-standing-memo" in plumbing
+    settled_plumbing = {step.name: step for step in settled.steps}["plumbing"].argv
+    assert settled_plumbing is None or "--fresh-standing-memo" not in settled_plumbing
 
 
 def test_the_plan_block_leads_with_its_arithmetic_and_puts_the_paths_after_the_rows():

@@ -1,6 +1,6 @@
 """The cycle's verdict plumbing as one process: carry, merge, echo fill, standing fill, their merges, the echo pass that witnesses the fixpoint, and the complaint docket, over one copy of the surface's unit index.
 
-Every one of those steps reaches a few slim fields per unit, and each run as its own `uv run` subprocess would parse the whole of the unit shards to get at them — gigabytes per step, most of the chain's wall time in parsing. They read the index sidecar instead (rebuild/review/unit_index), and reading it once and handing it down is the whole reason this module exists. The steps themselves are the tools' own: each tool's `main` does its own work and writes its own file, so `rebuild/tools/complaint_docket.py` and the rest are runnable on their own for the sitting-prep targets in the Makefile. The standing fill runs in its `--open-only --require-reach` form here. The narrowing is what it writes from — the blanks and the units verdicted outside the accepting set are the only units that can move a fill or a warning — while the reach check is a reading of the surface rather than of the queue, taken over the whole human domain against a blank store, and it is a refusal: a checked-in rule that reaches no window on this surface fails this step, which turns the plumbing red and `make verdict-ready` NOT READY, until the rule is deleted or the form it waits for migrates.
+Every one of those steps reaches a few slim fields per unit, and each run as its own `uv run` subprocess would parse the whole of the unit shards to get at them — gigabytes per step, most of the chain's wall time in parsing. They read the index sidecar instead (rebuild/review/unit_index), and reading it once and handing it down is the whole reason this module exists. The steps themselves are the tools' own: each tool's `main` does its own work and writes its own file, so `rebuild/tools/complaint_docket.py` and the rest are runnable on their own for the sitting-prep targets in the Makefile. The standing fill runs in its `--open-only --require-reach` form here. The narrowing is what it writes from — the blanks and the units verdicted outside the accepting set are the only units that can move a fill or a warning — while the reach check is a reading of the surface rather than of the queue, taken over the whole human domain against a blank store, and it is a refusal: a checked-in rule that reaches no window on this surface fails this step, which turns the plumbing red and `make verdict-ready` NOT READY, until the rule is deleted or the form it waits for migrates. The fill also gets its memo (`--standing-memo`, beside the surface directory by default), so a pass whose surface moved evaluates only the units whose content moved; `--fresh-standing-memo` is the cycle's `--fresh` reaching it.
 
 The chain opens each step with `rebuild.tools.console`'s `[phase] <step>` line and closes it with `[t] <step> <secs>s`, so the cycle surfaces the step it is on and the duration it took exactly as it does for every other child, and the cycle-timings journal reads what it always did. The `[chain] ` prefix is left to the two lines that are results rather than phases — the fixpoint witness and a step's failure — which is what still delimits the sections the driver reads its per-step report out of.
 
@@ -110,6 +110,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--standing-out", type=pathlib.Path, default=STANDING_FILL)
     parser.add_argument("--rules", type=pathlib.Path, default=standing_verdicts.RULES)
     parser.add_argument(
+        "--standing-memo",
+        type=pathlib.Path,
+        help=f"where the standing fill keeps its per-unit decisions across passes; defaults to {standing_verdicts.MEMO_NAME} beside the surface directory, outside it, so a surface rebuild never clears it and the pre-pass snapshot never copies it",
+    )
+    parser.add_argument(
+        "--fresh-standing-memo",
+        action="store_true",
+        help="have the standing fill evaluate every unit regardless of its memo, and rewrite it (the cycle's --fresh)",
+    )
+    parser.add_argument(
         "--no-merge",
         action="store_true",
         help="carry only: never write the live store, and run neither fill nor the docket (the rehearsal form)",
@@ -182,7 +192,11 @@ def main(argv: list[str] | None = None) -> int:
                 str(args.standing_out),
                 "--open-only",
                 "--require-reach",
+                "--memo",
+                str(args.standing_memo or surface.parent / standing_verdicts.MEMO_NAME),
             ]
+            if args.fresh_standing_memo:
+                standing_argv.append("--fresh-memo")
             code = _run("standing-fill", lambda: standing_verdicts.main(standing_argv, units=units))
             if code:
                 return code

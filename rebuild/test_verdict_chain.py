@@ -33,8 +33,8 @@ def test_a_step_opens_a_phase_and_the_timing_that_follows_closes_it(capsys):
     assert lines[-1] == f"{console.FAILED_LINE}merge (exit 3)"
 
 
-def test_the_chain_runs_the_standing_fill_in_its_open_only_form(tmp_path, monkeypatch):
-    """The narrowing and the refusal are both the tool's, so the chain still hands over the whole index and merely names the form."""
+def _chain(tmp_path, monkeypatch, extra=()):
+    """The chain over a stub surface with every step but the standing fill stubbed out, returning its exit code, the index it loaded, the standing fill's calls, and where the fill was told to write."""
     surface = tmp_path / "review"
     surface.mkdir()
     (surface / "manifest.json").write_text(json.dumps({"generated_at": STAMP}))
@@ -71,12 +71,32 @@ def test_the_chain_runs_the_standing_fill_in_its_open_only_form(tmp_path, monkey
             "--rules",
             str(tmp_path / "standing-approvals.yaml"),
             "--no-complaints",
+            *extra,
         ]
     )
+    return code, index, calls, standing_out
 
+
+def test_the_chain_runs_the_standing_fill_in_its_open_only_form(tmp_path, monkeypatch):
+    """The narrowing and the refusal are both the tool's, so the chain still hands over the whole index and merely names the form — and hands it the memo beside the surface directory, outside it, so a surface rebuild never clears it."""
+    code, index, calls, standing_out = _chain(tmp_path, monkeypatch)
     assert code == 0
     [(argv, units)] = calls
     assert "--open-only" in argv
     assert "--require-reach" in argv
     assert argv[argv.index("--out") + 1] == str(standing_out)
+    assert argv[argv.index("--memo") + 1] == str(tmp_path / vc.standing_verdicts.MEMO_NAME)
+    assert "--fresh-memo" not in argv
     assert units is index
+
+
+def test_the_chain_passes_a_named_memo_and_the_fresh_form_through(tmp_path, monkeypatch):
+    """`--standing-memo` names where the fill keeps its decisions and `--fresh-standing-memo` — the cycle's `--fresh` — has it evaluate everything and rewrite the file."""
+    memo = tmp_path / "elsewhere" / "memo.ndjson.gz"
+    code, _index, calls, _out = _chain(
+        tmp_path, monkeypatch, ("--standing-memo", str(memo), "--fresh-standing-memo")
+    )
+    assert code == 0
+    [(argv, _units)] = calls
+    assert argv[argv.index("--memo") + 1] == str(memo)
+    assert "--fresh-memo" in argv
