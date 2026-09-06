@@ -1,4 +1,4 @@
-"""The window enumerations the build stage serializes so nothing downstream rebuilds a fixpoint the same sources already produced — `run_m1.serialized_tables`' header read, which mints the sweep's glyph inventory, and the full rows the font-free witness gate reads: what `table.read_windows` gets back off the artifact, the fingerprint guard that decides between loading and rebuilding, and the drop that keeps a million rows per configuration out of the build's parent process. Every fixture here is a real build's artifact rather than something Python composed, because since the fold moved into the crate the writer is `artifacts::write_windows` and the packer is `run_m1._pack_windows`; a fixture that needs a stamp the build did not give it edits the build's own file through `restamp`."""
+"""The window enumerations the build stage serializes so nothing downstream rebuilds a fixpoint the same sources already produced — `run_m1.serialized_tables`' header read, which mints the sweep's glyph inventory and hands the build's witness stage its certificates, and the full rows the conform replay reads: what `table.read_windows` gets back off the artifact, the fingerprint guard that decides between loading and rebuilding, and the drop that keeps a million rows per configuration out of the build's parent process. Every fixture here is a real build's artifact rather than something Python composed, because since the fold moved into the crate the writer is `artifacts::write_windows` and the packer is `run_m1._pack_windows`; a fixture that needs a stamp the build did not give it edits the build's own file through `restamp`."""
 
 import gzip
 import json
@@ -74,6 +74,23 @@ class TestRoundTrip:
         assert head.transitions == ()
         assert head.rules == built.rules
         assert head.reachable_cells() == built.reachable_cells()
+
+    def test_the_head_carries_one_certificate_per_rule(self, built, written):
+        """The certificates ride the head beside the rules, one token stream per rule in rule order, spelled in the windows vocabulary — rune names and the three boundary glyph labels, never the edge or `#NA` — and every one names its rule's input somewhere along it."""
+        _inputs, head = table_module.read_windows(written, windows=False)
+        assert head.certificates == built.certificates
+        assert len(head.certificates) == len(head.rules)
+        boundaries = {"space", "uni200C", "periodcentered"}
+        for rule, certificate in zip(head.rules, head.certificates):
+            assert certificate
+            assert all(token in boundaries or token in SPEC.runes for token in certificate), certificate
+            assert rule.input_glyph.split(".")[0] in certificate, (rule, certificate)
+
+    def test_the_certificates_are_outside_both_digests(self, built):
+        from dataclasses import replace
+
+        stripped = replace(built, certificates=())
+        assert table_module.windows_digest(stripped) == table_module.windows_digest(built)
 
     def test_two_builds_of_one_spec_write_the_same_bytes(self, build_a, build_b):
         """Diff-stability where it is actually stated — over two whole builds rather than over two calls to one writer — since the settlement and treaty TSVs are the crate's bytes and the enumeration is the crate's payload under this side's zeroed gzip stamp."""

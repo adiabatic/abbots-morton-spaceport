@@ -140,6 +140,7 @@ KERNEL_NON_SURFACE_MODULES = frozenset(
     {
         "artifacts.rs",
         "census.rs",
+        "certificate.rs",
         "fanout.rs",
         "fiber.rs",
         "fixpoint.rs",

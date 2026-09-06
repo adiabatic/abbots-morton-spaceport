@@ -225,7 +225,7 @@ pub fn run_configs_tables(
     })
 }
 
-/// One configuration folded in place: its fixpoint, the fold over the product that fixpoint still holds, the three artifact files, and the digest of the pair. The two phases are named `enumerate[<config>]` and `fold[<config>]` when the caller wants them timed, the census's `[c]` lines riding ahead of them as they do for a stream run.
+/// One configuration folded in place: its fixpoint, the fold over the product that fixpoint still holds — the rule certificates closed over the enumeration's own [`crate::options::WindowOptions`], so the guard is swept once — the three artifact files, and the digest of the pair. The two phases are named `enumerate[<config>]` and `fold[<config>]` when the caller wants them timed, the census's `[c]` lines riding ahead of them as they do for a stream run.
 pub fn run_config_tables(
     index: &SpecIndex,
     config: &Configuration<'_>,
@@ -238,11 +238,12 @@ pub fn run_config_tables(
     let mut timed: Vec<String> = Vec::new();
     let mut census: Vec<String> = Vec::new();
     let started = Instant::now();
-    let product = if report.census {
-        fixpoint::enumerate_censused(index, &config.features, modes, &mut census)
-    } else {
-        fixpoint::enumerate_transitions(index, &config.features, modes)
-    }?;
+    let (product, mut options) = fixpoint::enumerate_for_tables(
+        index,
+        &config.features,
+        modes,
+        report.census.then_some(&mut census),
+    )?;
     timed.append(&mut census);
     if report.timings {
         timed.push(timing_line(
@@ -251,7 +252,7 @@ pub fn run_config_tables(
         ));
     }
     let started = Instant::now();
-    let folded = fold::fold_product(index, product)?;
+    let folded = fold::fold_with(index, product, &mut options)?;
     let settlement = outdir.join(format!("settlement-{token}.tsv"));
     write_text(&settlement, &artifacts::settlement_tsv(&folded.decision))?;
     let treaties = outdir.join(format!("treaties-{token}.tsv"));

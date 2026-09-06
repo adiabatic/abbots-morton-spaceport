@@ -313,7 +313,7 @@ impl<'i> WindowOptions<'i> {
     }
 
     /// Whether putting `option` after `lead` would form a pair no survivable window admits — the first filter of both pipelines, which drops a letter that the pair's own formation would swallow.
-    fn formation_impossible(&self, lead: Sym, option: RightToken) -> bool {
+    pub fn formation_impossible(&self, lead: Sym, option: RightToken) -> bool {
         option.kind() == TokenKind::Letter
             && self.formation_pairs.contains(&(lead, option.letter()))
             && !self.survivable.contains_key(&(lead, option.letter()))

@@ -10,7 +10,7 @@ Rows carry a fourth window slot, `right3`, enumerated lazily and only where live
 
 Joint rows combine both section 6.1 flags: ranking ties broken by the structural floor between candidates differing in seam realization, and windows whose deliberately optimistic prospect diverges from the follower's actual settled choice. Both TSV artifacts are diff-stable (section 8): sorted rows, provenance pointers, deterministic labels.
 
-The windows artifact the kernel writes and `read_windows` reads back persists a built table so the font-vs-settle sweep never rebuilds what the same sources already produced: the rules, the reachable cells and the enumerated windows, stamped with `fingerprint.tables_value` over the sources the fixpoint read. The windows come back as `Window` rows — labels only, which is everything a replay consults — so the file is a fraction of the resident table and the head alone answers "which cells are reachable".
+The windows artifact the kernel writes and `read_windows` reads back persists a built table so the font-vs-settle sweep never rebuilds what the same sources already produced: the rules, the reachable cells, one realizing certificate per rule and the enumerated windows, stamped with `fingerprint.tables_value` over the sources the fixpoint read. The windows come back as `Window` rows — labels only, which is everything a replay consults — so the file is a fraction of the resident table and the head alone answers "which cells are reachable" and hands the build's witness stage its certificates. Neither digest below reads the certificates: they are evidence the rules are realizable, closed off the rows' own producer chains in the crate's `certificate.rs`, not part of what the rules say.
 """
 
 from __future__ import annotations
@@ -128,6 +128,9 @@ class DecisionTable:
         frozenset()
     )  # YAML pointers of every authored record the engine fired while tabulating this configuration (Engine.fired); the dead-policy gate's exercised-ness channel
     deep_classes: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
+    certificates: tuple[tuple[str, ...], ...] = (
+        ()
+    )  # one realizing token stream per rule, in rule order, closed by the crate off the shortest chain of rows that produces a row the rule first-matches (certificate.rs); `conform.check_rule_certificates` settles each and asserts its rule fires
     _cells: frozenset[CellId] = field(default_factory=frozenset)
 
     def reachable_cells(self) -> frozenset[CellId]:
@@ -288,6 +291,7 @@ def _windows_of(handle: IO[str], windows: bool, name: str) -> tuple[str, Decisio
         identity_guard_rules=head["identity_guard_rules"],
         cited_provenance=frozenset(head["cited_provenance"]),
         deep_classes={token: tuple(members) for token, members in head["deep_classes"]},
+        certificates=tuple(tuple(tokens) for tokens in head.get("certificates", ())),
         _cells=frozenset(
             CellId(rune, stance, entry, exit_, tuple(adjustments))
             for rune, stance, entry, exit_, adjustments in head["cells"]

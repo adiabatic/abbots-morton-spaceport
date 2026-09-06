@@ -184,7 +184,7 @@ fn sorted_cells<'a>(index: &SpecIndex, cells: &'a [CellId]) -> Vec<&'a CellId> {
 
 /// `write_windows`' payload, uncompressed: the head line carrying the fingerprint of the sources the table was built from, then the column line, then one row per enumerated window.
 ///
-/// The head's keys ride in the order Python's dict literal inserts them — `config`, `inputs`, `identity_guard_rules`, `cited_provenance`, `cells`, `deep_classes`, `rules` — with the set-valued ones sorted here rather than by whoever produced them.
+/// The head's keys ride in the order Python's dict literal inserts them — `config`, `inputs`, `identity_guard_rules`, `cited_provenance`, `cells`, `deep_classes`, `rules` — with the set-valued ones sorted here rather than by whoever produced them, and `certificates` after them: one token list per rule, in rule order, the realizing strings [`crate::certificate`] closed, which `run_m1`'s witness stage settles and which stay outside both digests because they are evidence about the rules rather than part of what the rules say.
 pub fn write_windows(
     index: &SpecIndex,
     decision: &DecisionTable,
@@ -238,16 +238,25 @@ fn head_into(out: &mut String, index: &SpecIndex, decision: &DecisionTable, inpu
         })
         .collect();
     let rules: Vec<String> = decision.rules.iter().map(rule_json).collect();
+    let certificates: Vec<String> = decision
+        .certificates
+        .iter()
+        .map(|tokens| {
+            let quoted: Vec<String> = tokens.iter().map(|token| json_string(token)).collect();
+            format!("[{}]", quoted.join(","))
+        })
+        .collect();
     let _ = write!(
         out,
-        "{{\"config\":{},\"inputs\":{},\"identity_guard_rules\":{},\"cited_provenance\":[{}],\"cells\":[{}],\"deep_classes\":[{}],\"rules\":[{}]}}",
+        "{{\"config\":{},\"inputs\":{},\"identity_guard_rules\":{},\"cited_provenance\":[{}],\"cells\":[{}],\"deep_classes\":[{}],\"rules\":[{}],\"certificates\":[{}]}}",
         json_string(&decision.config),
         json_string(inputs),
         decision.identity_guard_rules,
         cited.join(","),
         cells.join(","),
         classes.join(","),
-        rules.join(",")
+        rules.join(","),
+        certificates.join(",")
     );
 }
 

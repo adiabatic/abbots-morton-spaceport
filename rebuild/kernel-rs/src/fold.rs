@@ -5,11 +5,15 @@
 //! The expansion is where this fold's whole memory argument sits. Python materialized the label-grain stream as whole `Transition` objects — a second copy of a product that already cost gigabytes — because a class row expands to its full member product at right3 x right4. Here an expanded row is the seat of the class row it came from plus its two deep labels, which is what makes the fold's own working set a rounding error beside the enumeration's: everything else an expanded row says (the input, the left, the two near slots, the outcome, the settled cells, the prospect and the provenance) is the class row's and is read through the seat.
 //!
 //! Expansion order is the sort Python performs over the whole stream, arrived at without performing it: the product's rows are already in key order, so rows sharing an (input, left, right1, right2) prefix are contiguous, and sorting each such run by its two deep labels alone leaves the whole vector in the order a global sort would. Both sorts are stable, so rows that tie on the full key keep the class-row order Python's stable sort would have kept them in.
+//!
+//! The replay that asserts the partition is also where the rules meet their realizing strings. It records, per rule, the replayed rows with the shortest producer chains that first-match it, and [`crate::certificate`] closes each such row's chain into a string the rule first-matches at the row's own position — one certificate per rule, written into the windows head beside the rules, which is how the build proves every rule reachable by settling rather than by searching.
 
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
+use crate::certificate;
 use crate::index::SpecIndex;
+use crate::options::WindowOptions;
 use crate::rulefold::rules_for_input;
 use crate::stream::{
     FixpointProduct, TransitionRow, cell_key, cell_key_repr, key_repr, python_repr, python_tuple,
@@ -79,6 +83,8 @@ pub struct DecisionTable {
     pub cited_provenance: Vec<String>,
     pub deep_classes: Vec<(String, Vec<String>)>,
     pub cells: Vec<CellId>,
+    /// One realizing string per rule, in rule order, as the tokens the text spells — rune names and the three boundary glyph labels — closed by [`crate::certificate`] so the rule first-matches at the row's own position. The windows head carries them beside the rules.
+    pub certificates: Vec<Vec<String>>,
 }
 
 /// One configuration's treaty table, `table.TreatyTable`.
@@ -193,10 +199,20 @@ impl<'a> LabelRows<'a> {
     }
 }
 
-/// One configuration's two tables, folded from the product the worklist produced, with no stream between them: the expansion, then the passes in order, then the raises where a fold-side invariant does not hold.
+/// [`fold_with`] over a fresh [`WindowOptions`], for the callers that hold none — the tests, and any fold of a product that did not come straight out of this process's own enumeration.
+pub fn fold_product(index: &SpecIndex, product: FixpointProduct) -> Result<Folded, String> {
+    let mut options = WindowOptions::new(index).map_err(|error| error.to_string())?;
+    fold_with(index, product, &mut options)
+}
+
+/// One configuration's two tables, folded from the product the worklist produced, with no stream between them: the expansion, then the passes in order, then the raises where a fold-side invariant does not hold, and last the certificates, one realizing string per rule closed over `options` — the enumeration's own, lent so the formation guard's verdicts are read out of the memo that already answered the worklist rather than swept a second time.
 ///
 /// The assertions run where the transcribed fold ran them — the reachable-cells cross-check between the rule fold and the treaty fold, the reduced first-match-wins replay last — with the deep-class union check after them, which the Python original stated only on its fixture because there it cost nothing, and which costs almost nothing here either.
-pub fn fold_product(index: &SpecIndex, mut product: FixpointProduct) -> Result<Folded, String> {
+pub fn fold_with(
+    index: &SpecIndex,
+    mut product: FixpointProduct,
+    options: &mut WindowOptions<'_>,
+) -> Result<Folded, String> {
     assert_key_sorted(&product.transitions)?;
     let mut fold_rows = expand(&product);
     flag_prospect_joints(&product.transitions, &product.seats, &mut fold_rows);
@@ -276,8 +292,16 @@ pub fn fold_product(index: &SpecIndex, mut product: FixpointProduct) -> Result<F
         .collect();
     treaty_rows.sort();
 
-    assert_outcome_partition(&rows, &rules, Some(&replay_lefts))?;
+    let prefixes = certificate::Prefixes::over(&rows);
+    let first_rows = first_match_rows(
+        &rows,
+        &rules,
+        Some(&replay_lefts),
+        certificate::ROW_CAP,
+        Some(prefixes.dist()),
+    )?;
     assert_deep_class_unions(&product, &rules)?;
+    let certificates = certificate::certify(index, options, &prefixes, &rows, &rules, &first_rows)?;
 
     let config = product.config.clone();
     let decision = DecisionTable {
@@ -288,6 +312,7 @@ pub fn fold_product(index: &SpecIndex, mut product: FixpointProduct) -> Result<F
         cited_provenance: product.cited_provenance,
         deep_classes: product.deep_classes,
         cells: product.cells,
+        certificates,
     };
     Ok(Folded {
         decision,
@@ -487,6 +512,11 @@ pub fn assert_outcome_partition(
     rules: &[Rule],
     lefts: Option<&ReplayLefts>,
 ) -> Result<(), String> {
+    first_match_rows(rows, rules, lefts, 1, None).map(|_| ())
+}
+
+/// The rules grouped by the input they rewrite, each seat beside its rule in table order — the shape a first-match-wins replay walks.
+pub fn rules_by_input(rules: &[Rule]) -> HashMap<&str, Vec<(usize, &Rule)>> {
     let mut by_input: HashMap<&str, Vec<(usize, &Rule)>> = HashMap::new();
     for (seat, rule) in rules.iter().enumerate() {
         by_input
@@ -494,9 +524,41 @@ pub fn assert_outcome_partition(
             .or_default()
             .push((seat, rule));
     }
+    by_input
+}
+
+/// First-match-wins over one window's six labels: the seat of the first rule of the input whose five constrained slots all admit the labels standing at them, or `None` where no rule matches and the input stands. This is the semantics the emitted lookup compiles to, stated once for the replay and the certificates both.
+pub fn first_match(by_input: &HashMap<&str, Vec<(usize, &Rule)>>, key: [&str; 6]) -> Option<usize> {
+    for (seat, rule) in by_input.get(key[0]).map_or(&[][..], Vec::as_slice) {
+        if rule
+            .slots()
+            .iter()
+            .zip([key[1], key[2], key[3], key[4], key[5]])
+            .any(|(slot, label)| {
+                slot.as_ref()
+                    .is_some_and(|members| !members.iter().any(|member| &**member == label))
+            })
+        {
+            continue;
+        }
+        return Some(*seat);
+    }
+    None
+}
+
+/// [`assert_outcome_partition`]'s replay, handing back what it learned on the way: for every rule, up to `keep` of the replayed rows that first-match it, as seats into `rows` — the ones with the shortest producer chains when `dist` ranks the rows ([`crate::certificate::Prefixes`]), an unreached row ranking last, else the first in replay order. The refusals are the assertion's own — an outcome mismatch, or a rule no replayed row first-matches — so a caller that gets rows back gets a whole partition with them.
+pub fn first_match_rows(
+    rows: &LabelRows<'_>,
+    rules: &[Rule],
+    lefts: Option<&ReplayLefts>,
+    keep: usize,
+    dist: Option<&[u32]>,
+) -> Result<Vec<Vec<usize>>, String> {
+    let by_input = rules_by_input(rules);
     let mut failures: Vec<String> = Vec::new();
     let mut count = 0usize;
-    let mut was_first = vec![false; rules.len()];
+    let mut first_rows: Vec<Vec<usize>> = vec![Vec::new(); rules.len()];
+    let mut ranks: Vec<Vec<u32>> = vec![Vec::new(); rules.len()];
     for row in 0..rows.len() {
         let key = rows.key(row);
         if let Some(lefts) = lefts
@@ -507,21 +569,29 @@ pub fn assert_outcome_partition(
             continue;
         }
         let mut predicted: &str = key[0];
-        for (seat, rule) in by_input.get(key[0]).map_or(&[][..], Vec::as_slice) {
-            if rule
-                .slots()
-                .iter()
-                .zip([key[1], key[2], key[3], key[4], key[5]])
-                .any(|(slot, label)| {
-                    slot.as_ref()
-                        .is_some_and(|members| !members.iter().any(|member| &**member == label))
-                })
-            {
-                continue;
+        if let Some(seat) = first_match(&by_input, key) {
+            predicted = &rules[seat].outcome;
+            match dist {
+                None => {
+                    if first_rows[seat].len() < keep {
+                        first_rows[seat].push(row);
+                    }
+                }
+                Some(dist) => {
+                    let rank = dist[row];
+                    let kept = &mut first_rows[seat];
+                    let ranked = &mut ranks[seat];
+                    if kept.len() < keep || rank < *ranked.last().expect("a full list has a last") {
+                        let at = ranked.partition_point(|held| *held <= rank);
+                        ranked.insert(at, rank);
+                        kept.insert(at, row);
+                        if kept.len() > keep {
+                            ranked.pop();
+                            kept.pop();
+                        }
+                    }
+                }
             }
-            predicted = &rule.outcome;
-            was_first[*seat] = true;
-            break;
         }
         let settled: &str = rows.outcome(row);
         if predicted != settled {
@@ -540,9 +610,11 @@ pub fn assert_outcome_partition(
             failures.join("; ")
         ));
     }
-    let never: Vec<usize> = (0..rules.len()).filter(|seat| !was_first[*seat]).collect();
+    let never: Vec<usize> = (0..rules.len())
+        .filter(|seat| first_rows[*seat].is_empty())
+        .collect();
     if never.is_empty() {
-        return Ok(());
+        return Ok(first_rows);
     }
     let listed: Vec<String> = never
         .iter()

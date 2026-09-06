@@ -7,6 +7,7 @@
 pub mod artifacts;
 pub mod cases;
 pub mod census;
+pub mod certificate;
 pub mod emit;
 pub mod engine;
 pub mod error;

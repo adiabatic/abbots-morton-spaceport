@@ -247,7 +247,17 @@ pub fn enumerate_transitions(
     features: &[Sym],
     modes: EnumerationModes,
 ) -> Result<FixpointProduct, String> {
-    enumerate_seeded(index, features, modes, contract_seeds, None)
+    enumerate_seeded(index, features, modes, contract_seeds, None).map(|(product, _)| product)
+}
+
+/// [`enumerate_transitions`] handing back the [`WindowOptions`] it ran over as well, with the census lines when `census` is given: the table build folds the product it still holds, and the fold's certificates read the formation guard through the same options — whose verdict memo the worklist already warmed — rather than sweeping the guard a second time.
+pub fn enumerate_for_tables<'i>(
+    index: &'i SpecIndex,
+    features: &[Sym],
+    modes: EnumerationModes,
+    census: Option<&mut Vec<String>>,
+) -> Result<(FixpointProduct, WindowOptions<'i>), String> {
+    enumerate_seeded(index, features, modes, contract_seeds, census)
 }
 
 /// [`enumerate_transitions`] with the `--cache-census` diagnostic switched on: the same product, plus a `[c]` line per collection on the way past the drain saying how many entries it held and in how many buckets, the elimination text the memos were carrying, and the process's resident size sampled either side of the drain and the sort. Nothing here reaches the stream — the lines are the caller's to put on stderr — and nothing is computed unless the caller asked, so the shipping path pays nothing for it.
@@ -260,16 +270,17 @@ pub fn enumerate_censused(
     census: &mut Vec<String>,
 ) -> Result<FixpointProduct, String> {
     enumerate_seeded(index, features, modes, contract_seeds, Some(census))
+        .map(|(product, _)| product)
 }
 
 /// [`enumerate_transitions`] with the seeding left open, which is how the order-independence of the pinned world is testable at all. Production always passes [`contract_seeds`]; a test passes a permutation and asserts the same product, which is a statement about that world rather than about the discipline, since class grain makes the first visitor of a fiber decide its representative.
-fn enumerate_seeded(
-    index: &SpecIndex,
+fn enumerate_seeded<'i>(
+    index: &'i SpecIndex,
     features: &[Sym],
     modes: EnumerationModes,
     seeds: fn(&WindowOptions<'_>) -> Vec<Item>,
     mut census: Option<&mut Vec<String>>,
-) -> Result<FixpointProduct, String> {
+) -> Result<(FixpointProduct, WindowOptions<'i>), String> {
     let mut engine = Engine::with_modes(
         index,
         features.iter().copied(),
@@ -890,7 +901,7 @@ fn enumerate_seeded(
         };
         check.run(&product)?;
     }
-    Ok(product)
+    Ok((product, options))
 }
 
 /// The seeds the fixpoint starts from: every letter against every boundary left, boundary-major, unpinned. Pushed in this order and popped from the back, which is the traversal class grain reads: the first item to reach a fiber fixes that row's representative.
@@ -2255,9 +2266,9 @@ mod tests {
     #[test]
     fn a_permuted_seed_order_reaches_the_same_pinned_world_product() {
         let index = deep_alphabet();
-        let contract = enumerate_seeded(&index, &[], PINNED, contract_seeds, None)
+        let (contract, _) = enumerate_seeded(&index, &[], PINNED, contract_seeds, None)
             .expect("the fixpoint closes");
-        let reversed = enumerate_seeded(&index, &[], PINNED, reversed_seeds, None)
+        let (reversed, _) = enumerate_seeded(&index, &[], PINNED, reversed_seeds, None)
             .expect("the fixpoint closes");
         // Compared as the stream rather than as the product, because two of the product's fields are sets whose vector spelling is the emitter's business: `cited_provenance` comes out of a hash set and has no order of its own.
         assert_eq!(
