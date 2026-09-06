@@ -1,6 +1,6 @@
 """Read-back verification: the font that was just written, re-parsed from its own bytes and structurally proven against the plan the emitters held in memory (issue #73).
 
-The build stage before this one hands feaLib a block of FEA text and gets an OTF back, and everything between those two — feaLib's parse, its lookup and subtable format choices, `pack_gsub`'s repack of the settlement lookup, fontTools' serialization, and the re-parse — is machinery no gate downstream reads structurally. `gate:conform` proves the font *shapes* what settlement says, through HarfBuzz, which is the behavioral claim and the one that matters; but it can only see what its sweep reaches, and it says nothing about a rule that is present and inert, a feature registered under the wrong tag, or a lookupFlag that skips a class nobody probed. This stage makes the transcription claim instead: every lookup's decompiled content equals what the emitter planned, every feature and script registration is the one the plan implies, the cross-feature LookupList order that pins application order on both shapers is the definition order the emitters chose, and every lookupFlag is zero. The two glyphs a word boundary is made of are proven inert on the same bytes: no substituted position of any lookup admits `uni200C` or `space` — a format-2 class 0 resolved to the complement of its ClassDef, so a rule that reaches a slot through the unnamed class is visible here — `uni200C` is zero-advance in `hmtx`, and neither glyph draws an outline, so gate:conform's belt no longer has to weigh a ZWNJ slot per shaped text. Zero divergences means the compiled font provably holds the rules the plan intended.
+The build stage before this one hands feaLib a block of FEA text and gets an OTF back, and everything between those two — feaLib's parse, its lookup and subtable format choices, `pack_gsub`'s repack of the settlement lookup, fontTools' serialization, and the re-parse — is machinery no gate downstream reads structurally. `gate:conform` proves the font *shapes* what settlement says, through HarfBuzz, which is the behavioral claim and the one that matters; but it can only see what its sweep reaches, and it says nothing about a rule that is present and inert, a feature registered under the wrong tag, or a lookupFlag that skips a class nobody probed. This stage makes the transcription claim instead: every lookup's decompiled content equals what the emitter planned, every feature and script registration is the one the plan implies, the cross-feature LookupList order that pins application order on both shapers is the definition order the emitters chose, and every lookupFlag is zero. The two glyphs a word boundary is made of are proven inert on the same bytes: no substituted position of any lookup admits `uni200C` or `space` — a format-2 class 0 resolved to the complement of its ClassDef, so a rule that reaches a slot through the unnamed class is visible here — `uni200C` is zero-advance in `hmtx`, and neither glyph draws an outline, so gate:conform's belt no longer has to weigh a ZWNJ slot per shaped text. The isolated overlay is proven on the same bytes (`_check_isolation`): the ss10 pre-empt covers every letter cmap glyph, no `.ss10` twin has a cmap entry of its own, sits in any formation sequence, marker line, chokepoint class or settlement input, or carries a cursive anchor — so under ss10 nothing forms, nothing settles and nothing attaches, which is what lets the overlay configuration go without a settlement table, take a two-letter arm of gate:conform's belt, and be oracled against the bare stream at the twins' `hmtx` advances. Zero divergences means the compiled font provably holds the rules the plan intended.
 
 It is deliberately a transcription round-trip and nothing more. `pack_gsub`'s repack is proven here, over the written bytes, by decompiling the settlement lookup through `pack_gsub.per_glyph_sequences` and holding each input glyph's ordered rules to the plan the emitters held — the pass itself no longer replays its own output in memory. It predicts no cascade: it never asks what a buffer would do, never composes stages, never resolves which of two competing rules wins. Ordered rules are compared at the grain first-match-wins actually runs on (per input glyph for settlement, per lead glyph for formation), because rules that cannot share an input cannot compete and feaLib is free to regroup them — it picks whichever of the three chained-context subtable formats compiles smallest, so the guarded formation rides format 1 in a small font and format 3 in the shipped one, and the settlement lookup arrives packed into a format-2/format-3 mix. Shaping behavior stays gate:conform's.
 
@@ -334,6 +334,91 @@ def _check_boundary_glyphs(
         if inked:
             divergences.append(f"{stage}: {name} draws ink over {pen.bounds}, expected an empty outline")
     return {"substituted_positions": positions, **metrics}
+
+
+def _check_isolation(
+    font: Any,
+    plan: GsubPlan,
+    lookups: list[Any],
+    all_glyphs: frozenset[str],
+    preempt: Any,
+    exempt: frozenset[int],
+    divergences: list[str],
+) -> dict:
+    """The overlay's isolation claim, proven on the bytes rather than asserted in ledger prose: the pre-empt's mapping covers exactly the letter cmap glyphs (every cmap entry but the boundary glyphs and the namer dot), none of its twins is reachable from a codepoint, and no twin appears at any position of any other GSUB lookup — the keys and values of every single substitution, every ligature's components and result, and every input slot of every chained-context rule, a format-2 class 0 resolved to its complement so a slot reached through the unnamed class is visible. `exempt` names the lookups allowed to see twins, which is the namer-dot stage alone: its follower class holds the Short twins on purpose, so the dot still lowers under ss10. Backtrack and lookahead slots are not held, because a twin there can match nothing — under ss10 every input is a twin and no input slot admits one, and outside ss10 no twin is ever in the buffer. GPOS is the other half, checked beside the cursive registrations: no twin carries an anchor."""
+    stage = "isolation"
+    cmap = font.getBestCmap() or {}
+    boundary: set[str] = set(BOUNDARY_GLYPHS)
+    if plan.namer_dot_stage is not None:
+        boundary.add(plan.namer_dot_stage[0])
+    letters = frozenset(name for name in cmap.values() if name not in boundary)
+    mapping = _single_mapping(preempt)
+    if mapping is None:
+        divergences.append(f"{stage}: the pre-empt holds no single substitutions")
+        return {"cmap_letters": len(letters), "twins": 0, "positions_checked": 0}
+    uncovered = sorted(letters - set(mapping))
+    if uncovered:
+        divergences.append(
+            f"{stage}: {len(uncovered)} letter cmap glyphs stay in the join pipeline under ss10: {uncovered[:5]}"
+        )
+    stray = sorted(set(mapping) - letters)
+    if stray:
+        divergences.append(f"{stage}: the pre-empt substitutes {stray[:5]}, which no codepoint reaches")
+    twins = frozenset(mapping.values())
+    encoded = sorted(twins & set(cmap.values()))
+    if encoded:
+        divergences.append(f"{stage}: twins {encoded[:5]} carry cmap entries of their own")
+    positions = 0
+    for index, lookup in enumerate(lookups):
+        if lookup is preempt or index in exempt:
+            continue
+        for subtable in _unwrapped(lookup):
+            kind = type(subtable).__name__
+            if kind == "SingleSubst":
+                positions += len(subtable.mapping)
+                hit = sorted((set(subtable.mapping) | set(subtable.mapping.values())) & twins)
+                if hit:
+                    divergences.append(f"{stage}: lookup {index} substitutes a twin ({hit[:5]})")
+            elif kind == "LigatureSubst":
+                for first, ligatures in subtable.ligatures.items():
+                    for ligature in ligatures:
+                        positions += 1
+                        hit = sorted(({first, *ligature.Component, ligature.LigGlyph}) & twins)
+                        if hit:
+                            divergences.append(
+                                f"{stage}: lookup {index} forms {' '.join((first, *ligature.Component))} -> {ligature.LigGlyph}, which names a twin ({hit[:5]})"
+                            )
+            elif kind == "ChainContextSubst":
+                rows, problems = _chain_rows(lookup, all_glyphs)
+                for problem in problems:
+                    divergences.append(f"{stage}: lookup {index} {problem}")
+                for row_index, row in enumerate(rows):
+                    for slot_index, slot in enumerate(row.input):
+                        positions += 1
+                        hit = sorted(slot & twins)
+                        if hit:
+                            divergences.append(
+                                f"{stage}: lookup {index} row {row_index} input slot {slot_index} admits a twin ({hit[:5]})"
+                            )
+                break
+    return {"cmap_letters": len(letters), "twins": len(twins), "positions_checked": positions}
+
+
+def _check_anchorless_twins(gpos: Any, twins: frozenset[str], divergences: list[str]) -> int:
+    """The GPOS half of the isolation claim: no twin is covered by any cursive-attachment subtable, so a twin next to anything attaches to nothing and its slot's pen is its `hmtx` advance alone."""
+    stage = "isolation"
+    anchored: set[str] = set()
+    for index, lookup in enumerate(gpos.LookupList.Lookup or []):
+        for subtable in _unwrapped(lookup):
+            if type(subtable).__name__ != "CursivePos":
+                continue
+            hit = set(subtable.Coverage.glyphs) & twins
+            if hit:
+                anchored |= hit
+                divergences.append(
+                    f"{stage}: GPOS lookup {index} registers cursive anchors on twins {sorted(hit)[:5]}"
+                )
+    return len(twins - anchored)
 
 
 def _feature_indices(table: Any) -> dict[str, list[int]]:
@@ -672,7 +757,7 @@ def verify_font(
     plan: GsubPlan,
     cursive: Mapping[int, Mapping[str, Registration]],
 ) -> dict:
-    """Re-parse the font at `font_path` and compare every GSUB/GPOS registration, lookup order, lookupFlag and lookup body against the emitters' plan, prove the boundary glyphs inert (no substituted position admits `uni200C` or `space`, zero advance, no outline), and read the GSUB's uint16 offset budget off the raw table bytes in the same parse; returns the JSON-ready report `run_m1` writes to `readback_summary.json`. Divergences are collected, never raised."""
+    """Re-parse the font at `font_path` and compare every GSUB/GPOS registration, lookup order, lookupFlag and lookup body against the emitters' plan, prove the boundary glyphs inert (no substituted position admits `uni200C` or `space`, zero advance, no outline), prove the overlay isolated (the pre-empt covers every letter cmap glyph and its twins sit in no other stage and carry no anchor), and read the GSUB's uint16 offset budget off the raw table bytes in the same parse; returns the JSON-ready report `run_m1` writes to `readback_summary.json`. Divergences are collected, never raised."""
     from fontTools.ttLib import TTFont
 
     divergences: list[str] = []
@@ -703,6 +788,12 @@ def verify_font(
                     if preempt is not None:
                         checked["ss10_substitutions"] = _check_single_stage(
                             "ss10 pre-empt", preempt, plan.ss10_preempt, divergences
+                        )
+                        exempt = frozenset(
+                            index for name, index in stages.items() if name == "m1_namer_dot_word_start"
+                        )
+                        checked["isolation"] = _check_isolation(
+                            font, plan, lookups, all_glyphs, preempt, exempt, divergences
                         )
                 marker_substitutions = 0
                 for feature in sorted(plan.marker_lines):
@@ -747,6 +838,10 @@ def verify_font(
             checked["gpos_features"] = len(gpos.FeatureList.FeatureRecord or [])
             checked["gpos_lookups_flag_checked"] = _check_lookup_flags(gpos, "GPOS", divergences)
             checked["cursive_anchors"] = _check_cursive(gpos, cursive, divergences)
+            if plan.ss10_preempt:
+                checked["anchorless_twins"] = _check_anchorless_twins(
+                    gpos, frozenset(plan.ss10_preempt.values()), divergences
+                )
     finally:
         font.close()
 

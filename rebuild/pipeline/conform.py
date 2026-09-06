@@ -1,6 +1,6 @@
 """Conformance gates (M1-PLAN sections 5 and 6, Group 3): HarfBuzz vs the settlement function, and the settlement function vs the section 13.1 baseline oracle.
 
-`run_conformance` promotes prototype/conform.py: the Shaper (MONOTONE_CHARACTERS cluster level; names via TTFont, never HarfBuzz's truncating API), the exhaustive length-1..horizon enumeration per acceptance configuration (the per-edit belt, horizon 4 by default), split-buffer equivalence, gap-0 pen positions, and the font-vs-settle oracle diff, which takes no ledger: any divergence is a compiler defect by definition. Coverage is deliberately not this sweep's job: read-back (rebuild/pipeline/readback.py) proves per build that the compiled font holds every emitted rule at its planned position, and the dead-rule alarm is split between the crate's fold, which refuses at table-build time any rule no replayed row first-matches (`fold::assert_outcome_partition`), and rebuild/test_rule_witnesses.py, which keeps the realizability half — whether a string exists at all — and reaches it hint-first off the verified witness texts a previous run cached, so the sweep's remaining unique charter is what only shaping the real binary can test — HarfBuzz's application semantics (lookup interaction across features, backtrack-sees-settled across subtable breaks, default-ignorable skipping, class matching, Extension indirection) and the sufficiency of the 6-slot window abstraction itself, which witness-constructed strings structurally cannot probe because witnesses are built from that abstraction. The deep form of the same sweep runs at horizon 5 or deeper on demand (`make conform-deep`, rebuild/tools/deep_sweep.py), armed by the behavior-class enumeration `emit_gsub.behavior_classes` plus the font-compilation code and the uharfbuzz version, so a rune edit that introduces no novel rule shape never stales it. The split-buffer check rides the belt itself, on the texts it can say anything about, which is where the standalone horizon-5 boundary gate's charter now lives: proven per build at the belt's horizon and periodically deeper by `make conform-deep`. The ZWNJ slot's own structure — zero advance, no ink — is read-back's static boundary-glyphs stage now, proven off the font bytes once per build rather than at every shaped slot. Settlement rides `_SettledWindowWalk`'s per-config window memo, so a distinct raw window costs one batched crate answer and every recurrence across the sweep's texts costs a dict probe; the oracle's rows are these same texts, and the two phases share that memo through one file per configuration under rebuild/out/m1 (`SettleMemoFile`), keyed per family the way the oracle row cache is, so a window either of them settles is settled once per configuration until a rune it names moves.
+`run_conformance` promotes prototype/conform.py: the Shaper (MONOTONE_CHARACTERS cluster level; names via TTFont, never HarfBuzz's truncating API), the exhaustive length-1..horizon enumeration per settlement configuration (the per-edit belt, horizon 4 by default), split-buffer equivalence, gap-0 pen positions, and the font-vs-settle oracle diff, which takes no ledger: any divergence is a compiler defect by definition. The isolated-overlay configuration (ss10, `OVERLAY_CONFIGS`) has no settlement to compare against and takes a shorter arm of its own at `OVERLAY_HORIZON`: read-back proves per build that the pre-empt covers every letter cmap glyph and that no twin sits in any formation sequence, marker line, chokepoint class or settlement input, so the expected rendering of any text is per-letter twins at their `hmtx` advances with nothing formed and nothing attached, and one letter (each maps to its twin) plus every pair (no pair forms, joins or moves) is the whole of what HarfBuzz can still be asked. Coverage is deliberately not this sweep's job: read-back (rebuild/pipeline/readback.py) proves per build that the compiled font holds every emitted rule at its planned position, and the dead-rule alarm is split between the crate's fold, which refuses at table-build time any rule no replayed row first-matches (`fold::assert_outcome_partition`), and rebuild/test_rule_witnesses.py, which keeps the realizability half — whether a string exists at all — and reaches it hint-first off the verified witness texts a previous run cached, so the sweep's remaining unique charter is what only shaping the real binary can test — HarfBuzz's application semantics (lookup interaction across features, backtrack-sees-settled across subtable breaks, default-ignorable skipping, class matching, Extension indirection) and the sufficiency of the 6-slot window abstraction itself, which witness-constructed strings structurally cannot probe because witnesses are built from that abstraction. The deep form of the same sweep runs at horizon 5 or deeper on demand (`make conform-deep`, rebuild/tools/deep_sweep.py), armed by the behavior-class enumeration `emit_gsub.behavior_classes` plus the font-compilation code and the uharfbuzz version, so a rune edit that introduces no novel rule shape never stales it. The split-buffer check rides the belt itself, on the texts it can say anything about, which is where the standalone horizon-5 boundary gate's charter now lives: proven per build at the belt's horizon and periodically deeper by `make conform-deep`. The ZWNJ slot's own structure — zero advance, no ink — is read-back's static boundary-glyphs stage now, proven off the font bytes once per build rather than at every shaped slot. Settlement rides `_SettledWindowWalk`'s per-config window memo, so a distinct raw window costs one batched crate answer and every recurrence across the sweep's texts costs a dict probe; the oracle's rows are these same texts, and the two phases share that memo through one file per configuration under rebuild/out/m1 (`SettleMemoFile`), keyed per family the way the oracle row cache is, so a window either of them settles is settled once per configuration until a rune it names moves.
 
 The section 6 oracle gate itself lives in rebuild/pipeline/oracle.py (`compare_against_baseline`, the ledger classifier, the position channel), which is the comparison side the enumeration's stamp leaves out. What stays here is its producer: `_compare_row` compares one baseline row's ligation (clusters), per-seam classification, and cell identity against the settled stream through the hand-written alias map and answers the `DivergentRow` the oracle classifies; `_cached_verdict` and `_served_verdict` are the codec between that answer and the oracle row cache's record, and `_verify_served_sample` re-derives a pass's served sample against the store. Those, with the walk, are the two entry points `oracle_cache.ORACLE_ROW_CODE_PATHS` is cut from, which is why they and not the classifier live in this file.
 
@@ -33,6 +33,7 @@ from rebuild.pipeline.model import (
     ResolvedSpec,
     Settled,
     feature_config_token,
+    isolated_overlay_active,
     marker_glyph_name,
     relevant_marker_features,
     ss10_twin_name,
@@ -46,10 +47,17 @@ if TYPE_CHECKING:
 ZWNJ = "\u200c"
 ZWNJ_SENTINEL = "<zwnj>"
 BOUNDARY_GLYPH_NAMES = {"space", "uni200C", "periodcentered", "periodcentered.lowered"}
-ACCEPTANCE_CONFIGS = ("default", "ss03", "ss04", "ss05", "ss03+ss05", "ss10")
+# The configurations letters settle under: one settlement table, treaty table, window enumeration, settle memo and rule-witness arm each, enumerated by the kernel one process apiece.
+SETTLEMENT_CONFIGS = ("default", "ss03", "ss04", "ss05", "ss03+ss05")
+# The isolated-overlay taste configurations: no table, because nothing settles under them (`model.isolated_overlay_active`); swept at `OVERLAY_HORIZON` behind read-back's isolation proof and oracled against the bare stream. `rebuild/test_conform.py` holds this roster to the registry's `overlay: isolated` features.
+OVERLAY_CONFIGS = ("ss10",)
+# Every configuration the font is accepted under: what the belt shapes, the oracle compares and stores rows for, the Manual pins replay against and the review surface lists.
+ACCEPTANCE_CONFIGS = SETTLEMENT_CONFIGS + OVERLAY_CONFIGS
 # How many of a belt bucket's texts one walk holds at a time. The bucket itself is streamed, never materialized: horizon 5's length-5 bucket is millions of texts, while a chunk's states cost tens of megabytes whatever the horizon.
 TEXT_CHUNK = 65536
 BELT_HORIZON = 4
+# The overlay arm's horizon, whatever the belt's: one letter proves each cmap glyph maps to its twin, and every pair proves no pair forms, joins or moves, which with read-back's isolation proof is the whole claim.
+OVERLAY_HORIZON = 2
 SETTLE_MEMO_FORMAT = "ams-settle-memo/2"
 # Windows per block of the settle memo file; each block is its own pickle, so a writer streams the memo out and a reader decodes it in with this many entries in flight rather than the whole memo twice over.
 SETTLE_MEMO_BLOCK = 65536
@@ -134,6 +142,10 @@ class Shaper:
             }
             for info, pos in zip(buf.glyph_infos, buf.glyph_positions)
         ]
+
+    def advance(self, glyph_name: str) -> int:
+        """The glyph's `hmtx` advance, which is where a slot's pen moves when nothing positions it — the overlay arm's whole expectation for every slot."""
+        return self.tt["hmtx"][glyph_name][0]
 
     def outline_signature(self, glyph_name: str) -> tuple:
         cached = self._outline_cache.get(glyph_name)
@@ -339,27 +351,100 @@ def anchors_in_font_units(glyphs_by_name: Mapping[str, GlyphRecord]) -> Callable
     return lookup
 
 
-def isolated_overlay_active(spec: ResolvedSpec, features: frozenset[str]) -> bool:
-    return any(
-        spec.registry.features.get(feature) is not None
-        and spec.registry.features[feature].overlay == "isolated"
-        for feature in features
-    )
-
-
-def isolated_overlay_names(spec: ResolvedSpec, settled: Iterable) -> list[str]:
-    """The expected rendering under an `overlay: isolated` taste set: settlement is unchanged, but every letter cell renders as its rune's anchor-free `.ss10` twin (drawn identically to the raw cmap glyph), so every seam is visually a break. A ligature-rune cell expands to its components' twins in sequence order — the 2026-07-04 ratification that join suppression also means ligation suppression, realized by the pre-empt lookup substituting the twins before formation, so no ligature ever forms and each letter keeps its own cluster."""
-    names: list[str] = []
-    for item in settled:
-        cell = getattr(item, "cell", None)
-        if cell is not None and isinstance(cell, CellId) and cell.rune in spec.runes:
-            names.extend(ss10_twin_name(name) for name in spec.runes[cell.rune].sequence or (cell.rune,))
-        else:
-            names.extend(settled_names(spec, [item]))
-    return names
-
-
 _BOUNDARY_KIND_LABELS = {"space": "space", "zwnj": "uni200C", "namer-dot": "periodcentered"}
+
+
+def isolated_overlay_labels(spec: ResolvedSpec, tokens: Sequence[settle.RightToken]) -> list[str]:
+    """The glyph names an `overlay: isolated` taste set renders for raw tokens: every letter its anchor-free `.ss10` twin, every boundary token its own glyph. One name per raw token, because the pre-empt substitutes the twins before formation and no ligature ever forms — the 2026-07-04 ratification that join suppression also means ligation suppression."""
+    return [
+        ss10_twin_name(token.letter) if token.kind == "letter" else _BOUNDARY_KIND_LABELS[token.kind]
+        for token in tokens
+    ]
+
+
+def isolated_overlay_tokens(spec: ResolvedSpec, text: str) -> list[settle.RightToken]:
+    return settle.tokens_from_codepoints(spec, [ord(ch) for ch in text])
+
+
+class IsolatedOverlayWalk:
+    """The overlay configuration's stand-in for `_SettledWindowWalk`: the same `walk_many` shape over the same texts, answered from the registry alone — `settle.isolated_overlay_settled` for the stream, `isolated_overlay_labels` for the names — with no crate, no memo and nothing to save. It exists so the oracle's per-configuration compare hands both kinds of configuration the same loop."""
+
+    single_settles = 0
+
+    def __init__(self, spec: ResolvedSpec):
+        self.spec = spec
+
+    def walk_many(self, texts: Sequence[str]) -> list[tuple[list[Settled], list[str]]]:
+        answers: list[tuple[list[Settled], list[str]]] = []
+        for text in texts:
+            tokens = isolated_overlay_tokens(self.spec, text)
+            answers.append(
+                (
+                    settle.isolated_overlay_settled(self.spec, tokens),
+                    isolated_overlay_labels(self.spec, tokens),
+                )
+            )
+        return answers
+
+    def walk(self, text: str) -> tuple[list[Settled], list[str]]:
+        return self.walk_many([text])[0]
+
+    def save_memo(self) -> bool:
+        return False
+
+    def memo_line(self, config: str, written: bool) -> str | None:
+        return None
+
+
+class IsolatedOverlayShaper:
+    """What HarfBuzz answers under the overlay, computed instead of asked: every letter its twin, every boundary character its glyph, each slot at zero offset with its `hmtx` advance. It is the position channel's shaper for the overlay configuration, which the belt's overlay arm licenses — that arm holds every shaped slot of every text up to `OVERLAY_HORIZON` to exactly this shape, and cursive attachment is pairwise, so a glyph no pair moves is moved by no text. The namer dot is the one slot the overlay does not name outright: the font lowers it before a Short twin, so both dot glyphs must carry one advance for the pen to be a function of the text alone, and the constructor refuses a font where they differ."""
+
+    def __init__(self, font_path: Path, spec: ResolvedSpec):
+        from fontTools.ttLib import TTFont
+
+        self.spec = spec
+        self.font_path = Path(font_path)
+        self.tt = TTFont(str(font_path))
+        self._advances = {name: metrics[0] for name, metrics in self.tt["hmtx"].metrics.items()}
+        dot, lowered = "periodcentered", "periodcentered.lowered"
+        if lowered in self._advances and self._advances[lowered] != self._advances.get(dot):
+            raise ValueError(
+                f"{font_path}: {dot} advances {self._advances.get(dot)} but {lowered} advances {self._advances[lowered]}, so the overlay's pen positions are not a function of the text alone"
+            )
+
+    def shape(self, text: str, features: frozenset[str]) -> list[dict]:
+        labels = isolated_overlay_labels(self.spec, isolated_overlay_tokens(self.spec, text))
+        return [
+            {
+                "name": name,
+                "gid": self.tt.getGlyphID(name),
+                "cluster": cluster,
+                "x_advance": self._advances[name],
+                "x_offset": 0,
+                "y_offset": 0,
+            }
+            for cluster, name in enumerate(labels)
+        ]
+
+
+def check_isolated_positions(text, config, shaper: Shaper, shaped, divergences) -> None:
+    """Every shaped slot at zero offset with its glyph's `hmtx` advance, which is what a font that attaches nothing under the overlay must answer; a ZWNJ slot, which HarfBuzz hides behind the space glyph at zero advance, is held to zero. The check is what licenses `IsolatedOverlayShaper` to stand in for HarfBuzz on the oracle's side."""
+    hidden = zwnj_slots(text, shaped)
+    for index, glyph in enumerate(shaped):
+        want = (0, 0, 0 if index in hidden else shaper.advance(glyph["name"]))
+        got = (glyph["x_offset"], glyph["y_offset"], glyph["x_advance"])
+        if got != want:
+            divergences.append(
+                Divergence(
+                    text,
+                    config,
+                    index,
+                    f"offset (0, 0) advance {want[2]} ({glyph['name']})",
+                    f"offset ({got[0]}, {got[1]}) advance {got[2]}",
+                    "overlay-position",
+                )
+            )
+            return
 
 
 def raw_labels(
@@ -605,7 +690,7 @@ class SettleMemoFile:
 def settle_memo_files(
     out_dir: Path, spec: ResolvedSpec, inputs: oracle_cache.SettleMemoInputs | None
 ) -> dict[str, SettleMemoFile]:
-    """One `SettleMemoFile` per acceptance configuration under `out_dir`, keyed off `inputs` — the disk-derived half a caller snapshotted before loading `spec` — and off `spec` itself. Empty for a caller with no inputs, which shares nothing."""
+    """One `SettleMemoFile` per settlement configuration under `out_dir` (the overlay configuration settles nothing and has none), keyed off `inputs` — the disk-derived half a caller snapshotted before loading `spec` — and off `spec` itself. Empty for a caller with no inputs, which shares nothing."""
     if inputs is None:
         return {}
     keys = oracle_cache.settle_family_keys(inputs, spec)
@@ -615,7 +700,7 @@ def settle_memo_files(
             oracle_cache.settle_memo_stamp(inputs, spec, config, features_for_config(config)).value,
             keys,
         )
-        for config in ACCEPTANCE_CONFIGS
+        for config in SETTLEMENT_CONFIGS
     }
 
 
@@ -1610,23 +1695,35 @@ def _conformance_config(
     guard_verdicts: settle.FormationGuard | None = None,
     settle_memo: SettleMemoFile | None = None,
 ) -> ConformanceConfigResult:
-    """One config's belt run: every string of length 1..max_length over the alphabet, shaped against the font and diffed against the settled stream, with split-buffer equivalence and gap-0 pen positions riding along. Configs share nothing, so this is the unit both the serial wrapper and the process-pool worker call. Settlement rides `_SettledWindowWalk`'s per-config memo, which is a speed device only — the sweep's verdict does not depend on which windows it has already seen — and `settle_memo` is where that memo is shared with the oracle's walk over the same texts: loaded on the first miss, written back at the end when this sweep settled anything the file lacked, pruned of every entry no text reached — this sweep walks the whole universe, so it is the one walk that can say which windows still exist. Each length's texts are streamed through the walk `TEXT_CHUNK` at a time rather than enumerated whole, because a bucket at any interesting horizon is millions of strings and only the chunk in flight need be resident; the swept order is the product's own either way. The one structural check runs here on the texts it can say anything about — a splitter-free text is trivially identical to its own single segment — which is the whole of its coverage now that the standalone horizon-5 boundary pass has gone; the deep sweep takes it past this horizon on its own arming key. The ZWNJ slot's own structure — zero advance, no ink — is read-back's static boundary-glyphs stage, proven off the font bytes once per build."""
+    """One config's belt run: every string of length 1..max_length over the alphabet, shaped against the font and diffed against the settled stream, with split-buffer equivalence and gap-0 pen positions riding along. Configs share nothing, so this is the unit both the serial wrapper and the process-pool worker call. An overlay config takes the overlay arm instead, whatever `max_length` says: every string of length 1..`OVERLAY_HORIZON`, its expected names `isolated_overlay_labels` over the raw tokens, no walk and no memo, and every slot held to zero offset at its `hmtx` advance (`check_isolated_positions`) — the split-buffer check rides it as it rides the belt. Settlement rides `_SettledWindowWalk`'s per-config memo, which is a speed device only — the sweep's verdict does not depend on which windows it has already seen — and `settle_memo` is where that memo is shared with the oracle's walk over the same texts: loaded on the first miss, written back at the end when this sweep settled anything the file lacked, pruned of every entry no text reached — this sweep walks the whole universe, so it is the one walk that can say which windows still exist. Each length's texts are streamed through the walk `TEXT_CHUNK` at a time rather than enumerated whole, because a bucket at any interesting horizon is millions of strings and only the chunk in flight need be resident; the swept order is the product's own either way. The one structural check runs here on the texts it can say anything about — a splitter-free text is trivially identical to its own single segment — which is the whole of its coverage now that the standalone horizon-5 boundary pass has gone; the deep sweep takes it past this horizon on its own arming key. The ZWNJ slot's own structure — zero advance, no ink — is read-back's static boundary-glyphs stage, proven off the font bytes once per build."""
     features = features_for_config(config)
-    if guard_verdicts is None:
-        guard_verdicts = kernel_exec.guard_sweep(spec)
-
     result = ConformanceConfigResult(config=config)
     modes: set[str] = set()
-    overlay = isolated_overlay_active(spec, features)
+    if isolated_overlay_active(spec, features):
+        for length in range(1, OVERLAY_HORIZON + 1):
+            for combo in itertools.product(alphabet, repeat=length):
+                text = "".join(combo)
+                result.sequences += 1
+                shaped = shaper.shape(text, features)
+                result.shaping_runs += 1
+                if set(text) & splitters:
+                    check_split_buffer(text, config, features, shaper, shaped, result.divergences, splitters)
+                expected = isolated_overlay_labels(spec, isolated_overlay_tokens(spec, text))
+                check_oracle(text, config, shaped, expected, result.divergences, modes)
+                check_isolated_positions(text, config, shaper, shaped, result.divergences)
+        result.modes = sorted(modes)
+        return result
+
+    if guard_verdicts is None:
+        guard_verdicts = kernel_exec.guard_sweep(spec)
     walker = _SettledWindowWalk(spec, features, glyph_names, guard_verdicts, memo=settle_memo)
 
-    def sweep_text(text: str, settled: list[Settled], names: list[str]) -> None:
+    def sweep_text(text: str, names: list[str]) -> None:
         shaped = shaper.shape(text, features)
         result.shaping_runs += 1
         if set(text) & splitters:
             check_split_buffer(text, config, features, shaper, shaped, result.divergences, splitters)
-        expected = isolated_overlay_names(spec, settled) if overlay else names
-        check_oracle(text, config, shaped, expected, result.divergences, modes)
+        check_oracle(text, config, shaped, names, result.divergences, modes)
         if anchors_of is not None:
             check_join_gaps(text, config, shaper, shaped, anchors_of, result.divergences)
 
@@ -1637,8 +1734,8 @@ def _conformance_config(
             if not chunk:
                 break
             result.sequences += len(chunk)
-            for text, (settled, names) in zip(chunk, walker.walk_many(chunk)):
-                sweep_text(text, settled, names)
+            for text, (_settled, names) in zip(chunk, walker.walk_many(chunk)):
+                sweep_text(text, names)
 
     memo_line = walker.memo_line(config, walker.save_memo(prune=True))
     if memo_line is not None:
@@ -1656,14 +1753,14 @@ def conformance_config_worker(
     guard_verdicts: settle.FormationGuard | None = None,
     settle_memo: SettleMemoFile | None = None,
 ) -> ConformanceConfigResult:
-    """One config's sweep in its own process, everything it needs rebuilt here from the spec and the font. The section 5.7 verdict surface is one of those things: a fan-out hands each worker its own spec, so each sweeps once for itself unless the caller has one to pass down — a fifth of a second against a sweep that runs for a minute. `settle_memo` rides the submission the same way; it is a path and a stamp, and the worker is where the file is read and written."""
+    """One config's sweep in its own process, everything it needs rebuilt here from the spec and the font. The section 5.7 verdict surface is one of those things: a fan-out hands each worker its own spec, so each sweeps once for itself unless the caller has one to pass down — a fifth of a second against a sweep that runs for a minute — and an overlay config, which forms nothing, never sweeps it. `settle_memo` rides the submission the same way; it is a path and a stamp, and the worker is where the file is read and written."""
     shaper = Shaper(Path(font_path))
     alphabet = spec_alphabet(spec)
     splitters = splitting_boundary_chars(spec)
     glyph_names = {cell: record.name for cell, record in (glyphs or {}).items()}
     glyphs_by_name = {record.name: record for record in (glyphs or {}).values()}
     anchors_of = anchors_in_font_units(glyphs_by_name) if glyphs else None
-    if guard_verdicts is None:
+    if guard_verdicts is None and not isolated_overlay_active(spec, features_for_config(config)):
         guard_verdicts = kernel_exec.guard_sweep(spec)
     return _conformance_config(
         shaper,
@@ -1680,7 +1777,7 @@ def conformance_config_worker(
 
 
 def merge_conformance_results(font_path: Path, results: Iterable[ConformanceConfigResult]) -> ConformReport:
-    """Fold per-config results into one ConformReport. `sequences` comes from the first result — every config sweeps the identical sequence set — while the shaping runs sum and the divergences/notes concatenate in the caller's config order; the oracle modes are unioned and appended sorted, so the report is the same whichever config finished first."""
+    """Fold per-config results into one ConformReport. `sequences` comes from the first result — every settlement config sweeps the identical sequence set, and the overlay arm's shorter one is counted in the shaping runs — while the shaping runs sum and the divergences/notes concatenate in the caller's config order; the oracle modes are unioned and appended sorted, so the report is the same whichever config finished first."""
     report = ConformReport(font=str(font_path))
     results = list(results)
     report.sequences = results[0].sequences if results else 0
@@ -1766,7 +1863,7 @@ def _verify_served_sample(
     aliases,
     config: str,
     features: frozenset[str],
-    walker: "_SettledWindowWalk",
+    walker: "_SettledWindowWalk | IsolatedOverlayWalk",
     table_path: Path,
     store: "oracle_cache.RowStore",
     sample: "oracle_cache.VerificationSample",
@@ -1794,24 +1891,7 @@ def _compare_row(
     row: Row,
     settled: Sequence[Settled],
 ) -> DivergentRow | None:
-    """One baseline row against the settlement its text already produced. `settled` is that stream, handed in by the caller's walk rather than fetched here, so a row is settled exactly once."""
-    if isolated_overlay_active(spec, features):
-        # The overlay renders the anchor-free isolated drawing at every letter position; in cell terms that is the boundary cell of the default stance (the alias map's bare-name denotation), with every seam visually a break. A ligature-rune cell expands to one such cell per component (the ss10 pre-empt keeps the ligature from ever forming in the buffer), so a window whose pair formed in the old font diverges at ligation grain.
-        expanded: list = []
-        for item in settled:
-            cell = getattr(item, "cell", None)
-            if isinstance(cell, CellId) and cell.rune in spec.runes:
-                for rune_name in spec.runes[cell.rune].sequence or (cell.rune,):
-                    expanded.append(
-                        Settled(
-                            cell=CellId(rune_name, spec.runes[rune_name].default_stance, None, None, ()),
-                            seam=None,
-                            extension=0,
-                        )
-                    )
-            else:
-                expanded.append(item)
-        settled = expanded
+    """One baseline row against the settlement its text already produced. `settled` is that stream, handed in by the caller's walk rather than fetched here, so a row is settled exactly once; under the overlay configuration it is `IsolatedOverlayWalk`'s bare stream — every letter its default-stance cell with no seam, the alias map's bare-name denotation, one per raw token so a window whose pair formed in the old font diverges at ligation grain."""
     new_cells: list[str] = []
     new_seams: list[str] = []
     for index, item in enumerate(settled):

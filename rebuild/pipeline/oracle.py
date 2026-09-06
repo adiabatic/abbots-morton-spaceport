@@ -4,7 +4,7 @@ This is the comparison side of the pipeline, split from conform.py so that it ca
 
 The producer of what the oracle classifies stays in conform.py: `_compare_row` and the memoized `_SettledWindowWalk` are the two entry points the oracle row cache's stamp is cut from (`oracle_cache.ORACLE_ROW_CODE_PATHS`), and the codec between a fresh `DivergentRow` and a stored record (`_cached_verdict`, `_served_verdict`) and the served-sample verification live beside them. This module imports those and is imported by nothing under that stamp, which is what lets a classifier edit serve every row from the store: `rebuild/test_oracle_code_closure.py` holds conform.py to that.
 
-`compare_against_baseline` streams the filtered sub-tables, settles every row through a walk of its own (or, when the caller hands down an `OracleRowCache`, takes the row's pre-position verdict off the previous pass's store and walks only what an edit can still reach — see rebuild/pipeline/oracle_cache.py for what that key does and does not cover), compares ligation, seams and cells against the alias map, classifies each divergent row through `_match_ledger`, and shapes the rows the ledger calls ink-identical against M1.otf to diff drawn positions — or takes that answer off the same store, under the position key that adds the font's per-family glyphs and the kern sidecar, and re-shapes only the rows an edit can still reach. The per-configuration form, `oracle_config_worker`, is what run_m1 fans out one process per acceptance configuration, each writing its own audit shard under `oracle_audit_scratch` for `join_oracle_audit` to concatenate.
+`compare_against_baseline` streams the filtered sub-tables, settles every row through a walk of its own (or, when the caller hands down an `OracleRowCache`, takes the row's pre-position verdict off the previous pass's store and walks only what an edit can still reach — see rebuild/pipeline/oracle_cache.py for what that key does and does not cover), compares ligation, seams and cells against the alias map, classifies each divergent row through `_match_ledger`, and shapes the rows the ledger calls ink-identical against M1.otf to diff drawn positions — or takes that answer off the same store, under the position key that adds the font's per-family glyphs and the kern sidecar, and re-shapes only the rows an edit can still reach. The per-configuration form, `oracle_config_worker`, is what run_m1 fans out one process per acceptance configuration, each writing its own audit shard under `oracle_audit_scratch` for `join_oracle_audit` to concatenate. The overlay configuration (ss10) is compared against a stream no table produced: its rows walk through `conform.IsolatedOverlayWalk`, which answers every letter bare from the registry alone, and its position channel shapes through `conform.IsolatedOverlayShaper`, the twins' `hmtx` advances in place of HarfBuzz — both licensed by read-back's isolation proof and the belt's overlay arm — so the old font's ss10 rows are held against "all bare", a function of the baseline and the alphabet, with no settlement and no shaping spent on them.
 """
 
 from __future__ import annotations
@@ -26,6 +26,8 @@ from rebuild.pipeline.conform import (
     ACCEPTANCE_CONFIGS,
     BOUNDARY_GLYPH_NAMES,
     DivergentRow,
+    IsolatedOverlayShaper,
+    IsolatedOverlayWalk,
     SettleMemoFile,
     Shaper,
     _cached_verdict,
@@ -36,7 +38,7 @@ from rebuild.pipeline.conform import (
     features_for_config,
     load_alias_map,
 )
-from rebuild.pipeline.model import ResolvedSpec
+from rebuild.pipeline.model import ResolvedSpec, isolated_overlay_active
 from rebuild.validation.rowmodel import Row, format_codepoints, iter_rows
 
 # The same bound on the oracle's side, where the texts arrive as baseline rows rather than as a product.
@@ -424,7 +426,7 @@ def _kern_normalized_positions(
 
 
 def _position_drift(
-    shaper: Shaper, kern: "KernEvaluator | None", features: frozenset[str], row: Row
+    shaper: "Shaper | IsolatedOverlayShaper", kern: "KernEvaluator | None", features: frozenset[str], row: Row
 ) -> tuple[tuple[str, ...], bool] | None:
     """Shape the row against the new font and diff drawn positions against the kern-normalized baseline. The comparison is visual, not encoding-level: per-slot glyph origins (pen + x_offset, y_offset) plus the run's total advance, because the two fonts legitimately decompose a seam differently between the left glyph's advance and the right glyph's x_offset while drawing the identical join. Returns (drift descriptions, kern-attributable) or None when every slot and the total match."""
     shaped = shaper.shape(row.text, features)
@@ -464,7 +466,7 @@ def _served_position(cached: oracle_cache.CachedPosition | None) -> tuple[tuple[
 
 
 def _verify_served_positions(
-    shaper: Shaper,
+    shaper: "Shaper | IsolatedOverlayShaper",
     kern: "KernEvaluator | None",
     features: frozenset[str],
     table_path: Path,
@@ -644,22 +646,28 @@ def _compare_config(
     aliases,
     ledger,
     ink_identical_ids,
-    shaper: "Shaper | None",
+    shaper: "Shaper | IsolatedOverlayShaper | None",
     kern: "KernEvaluator | None",
-    guard_verdicts: settle.FormationGuard,
+    guard_verdicts: settle.FormationGuard | None,
     audit: TextIO | None,
     *,
     store: "oracle_cache.RowStore | None" = None,
     writer: "oracle_cache.RowWriter | None" = None,
     settle_memo: SettleMemoFile | None = None,
 ) -> OracleConfigResult:
+    """One configuration's rows compared, classified, audited and position-checked. `guard_verdicts` is the crate's formation surface the walk forms under, and `None` only for the overlay configuration, whose walk forms nothing; `shaper` is likewise the overlay's synthetic shaper there, and a real one everywhere else."""
     result = OracleConfigResult(config=config)
     table_path = Path(subset_tables_dir) / f"baseline-{config}.subset.tsv.gz"
     if not table_path.exists():
         result.notes.append(f"{config}: subset table missing at {table_path}")
         return result
-    # The oracle's rows are the same texts the belt sweeps, so they settle through the window memo the belt's walk shares by file (`settle_memo`) rather than from scratch a row at a time: a chunk of rows walks in waves, and each row is compared against the settled stream that walk already handed back rather than being walked a second time. Names go unread here — the row's own cells are what `_compare_row` reads — so the walk gets no glyph inventory; its keys are the same either way.
-    walker = _SettledWindowWalk(spec, features, {}, guard_verdicts, memo=settle_memo)
+    # The oracle's rows are the same texts the belt sweeps, so they settle through the window memo the belt's walk shares by file (`settle_memo`) rather than from scratch a row at a time: a chunk of rows walks in waves, and each row is compared against the settled stream that walk already handed back rather than being walked a second time. Names go unread here — the row's own cells are what `_compare_row` reads — so the walk gets no glyph inventory; its keys are the same either way. The overlay configuration's walk is the registry's answer and settles nothing.
+    walker: _SettledWindowWalk | IsolatedOverlayWalk
+    if isolated_overlay_active(spec, features):
+        walker = IsolatedOverlayWalk(spec)
+    else:
+        assert guard_verdicts is not None
+        walker = _SettledWindowWalk(spec, features, {}, guard_verdicts, memo=settle_memo)
     config_started = time.perf_counter()
     rows = iter_rows(table_path)
     # Only the stale rows are walked; a served row's pre-position verdict comes back off the store and enters `_match_ledger` in the same state a fresh one does, and the chunk is re-read in table order afterward so the audit's bytes cannot depend on the partition. The verification samples ride on serving rather than on writing, because a pass that may read the store and not write one (`--gates-only`) is exactly a pass whose verdicts all came out of it. The position verdict is served by the same record under its own key, and only where this pass's ledger still sends the row through the channel; a row the ledger excludes carries its stored verdict forward unread, so a later ledger edit that admits it again finds it.
@@ -829,13 +837,14 @@ def oracle_config_worker(
     row_cache: "OracleRowCache | None" = None,
     settle_memo: SettleMemoFile | None = None,
 ) -> OracleConfigResult:
-    """One config's oracle compare in its own process, its audit rows written to this configuration's shard under `audit_dir` so only counts ride the result home. The section 5.7 verdict surface is swept here, once per worker, exactly as the belt's worker sweeps its own. The row cache is opened here rather than handed in already open for the same reason the shard is: a spawned worker inherits no file handles, and opening it on this side of the pipe is what keeps this path and the serial one byte-equal. `settle_memo` is the belt's shared settle memo file for this configuration, read and written on this side of the pipe for the same reason."""
+    """One config's oracle compare in its own process, its audit rows written to this configuration's shard under `audit_dir` so only counts ride the result home. The section 5.7 verdict surface is swept here, once per worker, exactly as the belt's worker sweeps its own — except by the overlay configuration's worker, which forms nothing and shapes through `IsolatedOverlayShaper` instead of HarfBuzz. The row cache is opened here rather than handed in already open for the same reason the shard is: a spawned worker inherits no file handles, and opening it on this side of the pipe is what keeps this path and the serial one byte-equal. `settle_memo` is the belt's shared settle memo file for this configuration, read and written on this side of the pipe for the same reason."""
     aliases = load_alias_map(alias_path)
     ledger = yaml.safe_load(Path(ledger_path).read_text()) or []
     ink_identical_ids = {entry.get("id") for entry in ledger if entry.get("ink_identical")}
-    shaper = Shaper(Path(font_path)) if font_path is not None else None
-    kern = KernEvaluator(Path(kern_sidecar_path)) if kern_sidecar_path is not None else None
     features = features_for_config(config)
+    overlay = isolated_overlay_active(spec, features)
+    shaper = _shaper_for(spec, font_path, overlay)
+    kern = KernEvaluator(Path(kern_sidecar_path)) if kern_sidecar_path is not None else None
     shard = oracle_audit_shard(audit_dir, config)
     shard.parent.mkdir(parents=True, exist_ok=True)
     store, writer = open_row_cache(row_cache, spec, config)
@@ -853,12 +862,23 @@ def oracle_config_worker(
             ink_identical_ids,
             shaper,
             kern,
-            kernel_exec.guard_sweep(spec),
+            None if overlay else kernel_exec.guard_sweep(spec),
             audit,
             store=store,
             writer=writer,
             settle_memo=settle_memo,
         )
+
+
+def _shaper_for(
+    spec: ResolvedSpec, font_path: Path | None, overlay: bool
+) -> "Shaper | IsolatedOverlayShaper | None":
+    """The position channel's shaper for one configuration: none without a font, the synthetic overlay shaper under an isolated overlay, HarfBuzz otherwise."""
+    if font_path is None:
+        return None
+    if overlay:
+        return IsolatedOverlayShaper(Path(font_path), spec)
+    return Shaper(Path(font_path))
 
 
 def merge_oracle_results(results: Iterable[OracleConfigResult]) -> BaselineReport:
@@ -893,9 +913,9 @@ def compare_against_baseline(
     aliases = load_alias_map(alias_path)
     ledger = yaml.safe_load(Path(ledger_path).read_text()) or []
     ink_identical_ids = {entry.get("id") for entry in ledger if entry.get("ink_identical")}
-    shaper = Shaper(Path(font_path)) if font_path is not None else None
+    shapers: dict[bool, "Shaper | IsolatedOverlayShaper | None"] = {}
     kern = KernEvaluator(Path(kern_sidecar_path)) if kern_sidecar_path is not None else None
-    guard_verdicts = kernel_exec.guard_sweep(spec)
+    guard_verdicts: settle.FormationGuard | None = None
     started = time.perf_counter()
 
     results: list[OracleConfigResult] = []
@@ -906,6 +926,12 @@ def compare_against_baseline(
             audit = stack.enter_context(staging.open("w", encoding="utf-8", newline="\n"))
             audit.write(ORACLE_AUDIT_HEADER + "\n")
         for config in configs:
+            features = features_for_config(config)
+            overlay = isolated_overlay_active(spec, features)
+            if overlay not in shapers:
+                shapers[overlay] = _shaper_for(spec, font_path, overlay)
+            if not overlay and guard_verdicts is None:
+                guard_verdicts = kernel_exec.guard_sweep(spec)
             store, writer = open_row_cache(row_cache, spec, config)
             with ExitStack() as per_config:
                 if writer is not None:
@@ -915,13 +941,13 @@ def compare_against_baseline(
                         spec,
                         subset_tables_dir,
                         config,
-                        features_for_config(config),
+                        features,
                         aliases,
                         ledger,
                         ink_identical_ids,
-                        shaper,
+                        shapers[overlay],
                         kern,
-                        guard_verdicts,
+                        None if overlay else guard_verdicts,
                         audit,
                         store=store,
                         writer=writer,

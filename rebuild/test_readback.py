@@ -37,6 +37,48 @@ def built(tmp_path_factory):
     return font_path, gsub_plan, cursive, ss10_twins
 
 
+class TestOverlayArm:
+    """The belt's overlay arm on the real mini font, which is what licenses the oracle's synthetic shaper: HarfBuzz under ss10 answers every text up to `OVERLAY_HORIZON` as per-letter twins at zero offset with their `hmtx` advances, nothing formed and nothing attached, and `IsolatedOverlayShaper` answers the same slots without shaping."""
+
+    def test_the_overlay_arm_passes_on_the_mini_font(self, built):
+        spec = fixtures.mini_spec()
+        font_path, _plan, _cursive, _twins = built
+        result = conform._conformance_config(
+            conform.Shaper(font_path),
+            spec,
+            "ss10",
+            conform.spec_alphabet(spec),
+            conform.splitting_boundary_chars(spec),
+            {},
+            None,
+            conform.BELT_HORIZON,
+            None,
+        )
+        assert result.divergences == []
+        alphabet = len(conform.spec_alphabet(spec))
+        assert result.sequences == alphabet + alphabet**2
+
+    def test_the_synthetic_shaper_answers_what_harfbuzz_answers(self, built):
+        import itertools
+
+        spec = fixtures.mini_spec()
+        font_path, _plan, _cursive, _twins = built
+        real = conform.Shaper(font_path)
+        synthetic = conform.IsolatedOverlayShaper(font_path, spec)
+        features = conform.features_for_config("ss10")
+        alphabet = conform.spec_alphabet(spec)
+        texts = [
+            "".join(combo) for length in (1, 2, 3) for combo in itertools.product(alphabet, repeat=length)
+        ]
+        for text in texts:
+            shaped = real.shape(text, features)
+            expected = synthetic.shape(text, features)
+            assert conform.normalize_actual(text, shaped) == conform.normalize_actual(text, expected), text
+            assert [(g["x_advance"], g["x_offset"], g["y_offset"]) for g in shaped] == [
+                (g["x_advance"], 0, 0) for g in expected
+            ], text
+
+
 def _feature_record(font, table_tag, feature_tag):
     for record in font[table_tag].table.FeatureList.FeatureRecord:
         if record.FeatureTag == feature_tag:
@@ -80,6 +122,31 @@ class TestReadback:
         assert report["checked"]["settle_rules"] == plan.rule_count
         assert report["checked"]["guarded_rows"] == len(plan.formation_guarded_rows) > 0
         assert report["checked"]["cursive_anchors"]
+
+    def test_the_isolation_claim_is_recorded_off_the_bytes(self, built):
+        """The overlay's whole license in one record: every letter cmap glyph has a twin, the twins sit at no position of any other GSUB stage (counted), and none carries a cursive anchor."""
+        from fontTools.ttLib import TTFont
+
+        font_path, plan, cursive, twins = built
+        report = readback.verify_font(font_path, plan, cursive)
+        isolation = report["checked"]["isolation"]
+        font = TTFont(str(font_path))
+        try:
+            letters = {
+                name
+                for name in (font.getBestCmap() or {}).values()
+                if name not in ("space", "uni200C", "periodcentered")
+            }
+        finally:
+            font.close()
+        assert letters == set(twins)
+        assert isolation == {
+            "cmap_letters": len(letters),
+            "twins": len(twins),
+            "positions_checked": isolation["positions_checked"],
+        }
+        assert isolation["positions_checked"] > report["checked"]["settle_rules"]
+        assert report["checked"]["anchorless_twins"] == len(twins)
 
     def test_the_plan_carries_every_stage_in_definition_order(self, built):
         _font_path, plan, _cursive, twins = built
@@ -339,6 +406,84 @@ class TestCorruptions:
         report = _corrupted_report(built, tmp_path, "no-ss10", mutate)
         assert not report["pass"]
         assert _named(report, "feature list:")
+
+    def test_a_letter_the_preempt_leaves_in_the_join_pipeline(self, built, tmp_path):
+        """A cmap letter with no twin would still form, settle and attach under ss10; the isolation stage names it off the cmap and the pre-empt's own mapping, whatever the plan says."""
+
+        def mutate(font, plan):
+            stray = next(iter(plan.marker_lines["ss03"].values()))
+            for table in font["cmap"].tables:
+                table.cmap[0xE6FF] = stray
+
+        report = _corrupted_report(built, tmp_path, "uncovered-letter", mutate)
+        assert not report["pass"]
+        named = _named(report, "isolation:")
+        assert named and any("stay in the join pipeline" in line for line in named)
+
+    def test_a_twin_with_a_cmap_entry(self, built, tmp_path):
+        def mutate(font, plan):
+            twin = next(iter(plan.ss10_preempt.values()))
+            for table in font["cmap"].tables:
+                table.cmap[0xE6FF] = twin
+
+        report = _corrupted_report(built, tmp_path, "encoded-twin", mutate)
+        assert not report["pass"]
+        named = _named(report, "isolation:")
+        assert named and any("cmap entries of their own" in line for line in named)
+
+    def test_a_twin_in_a_formation_sequence(self, built, tmp_path):
+        def mutate(font, plan):
+            lookup = font["GSUB"].table.LookupList.Lookup[_stage_index(font, plan, "m1_formation")]
+            subtable = _inner(lookup.SubTable[0])
+            subtable.ligatures[plan.ss10_preempt["qsTea"]] = subtable.ligatures["qsTea"]
+
+        report = _corrupted_report(built, tmp_path, "twin-forms", mutate)
+        assert not report["pass"]
+        named = _named(report, "isolation:")
+        assert named and any("forms" in line and "names a twin" in line for line in named)
+
+    def test_a_twin_in_a_marker_line(self, built, tmp_path):
+        def mutate(font, plan):
+            index = _feature_record(font, "GSUB", "ss03").Feature.LookupListIndex[0]
+            mapping = _inner(font["GSUB"].table.LookupList.Lookup[index].SubTable[0]).mapping
+            mapping[plan.ss10_preempt["qsTea"]] = next(iter(plan.marker_lines["ss03"].values()))
+
+        report = _corrupted_report(built, tmp_path, "twin-marker", mutate)
+        assert not report["pass"]
+        named = _named(report, "isolation:")
+        assert named and any("substitutes a twin" in line for line in named)
+
+    def test_a_twin_in_the_chokepoint_class(self, built, tmp_path):
+        def mutate(font, plan):
+            lookup = font["GSUB"].table.LookupList.Lookup[_stage_index(font, plan, "m1_zwnj")]
+            inner = next(
+                candidate
+                for candidate in (_inner(subtable) for subtable in lookup.SubTable)
+                if candidate.Format == 3
+            )
+            glyphs = inner.InputCoverage[0].glyphs
+            glyphs.append(plan.ss10_preempt["qsTea"])
+            glyphs.sort(key=font.getGlyphID)
+
+        report = _corrupted_report(built, tmp_path, "twin-chokepoint", mutate)
+        assert not report["pass"]
+        named = _named(report, "isolation:")
+        assert named and any("input slot" in line and "admits a twin" in line for line in named)
+
+    def test_a_twin_with_a_cursive_anchor(self, built, tmp_path):
+        def mutate(font, plan):
+            index = _feature_record(font, "GPOS", "curs").Feature.LookupListIndex[0]
+            subtable = _inner(font["GPOS"].table.LookupList.Lookup[index].SubTable[0])
+            twin = plan.ss10_preempt["qsTea"]
+            subtable.Coverage.glyphs = sorted(set(subtable.Coverage.glyphs) | {twin}, key=font.getGlyphID)
+            record = subtable.EntryExitRecord[0]
+            subtable.EntryExitRecord.insert(subtable.Coverage.glyphs.index(twin), record)
+            subtable.EntryExitCount = len(subtable.EntryExitRecord)
+
+        report = _corrupted_report(built, tmp_path, "anchored-twin", mutate)
+        assert not report["pass"]
+        named = _named(report, "isolation:")
+        assert named and any("cursive anchors on twins" in line for line in named)
 
     def test_moving_a_cursive_anchor(self, built, tmp_path):
         def mutate(font, _plan):

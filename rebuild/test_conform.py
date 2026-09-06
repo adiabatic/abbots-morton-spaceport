@@ -89,25 +89,105 @@ class TestNormalization:
         item.cell = cell
         assert conform.settled_names(spec, [item], {cell: "qsMay"}) == ["qsMay"]
 
-    def test_isolated_overlay_names_render_ss10_twins(self, spec):
-        class Letter:
-            cell = CellId("qsIt", "hapax", "x-height", "baseline", ())
-            seam = None
-
-        class Ligature:
-            cell = CellId("qsTea_qsOy", "hapax", None, "baseline", ())
-            seam = None
-
-        class Boundary:
-            glyph_name = "uni200C"
-
-        names = conform.isolated_overlay_names(spec, [Letter(), Ligature(), Boundary()])
-        assert names == ["qsIt.ss10", "qsTea.ss10", "qsOy.ss10", "uni200C"]
+    def test_isolated_overlay_labels_render_one_twin_per_raw_token(self, spec):
+        """Under the overlay a ligature's components stand as two twins — the pre-empt substitutes before formation, so nothing forms — and a boundary token is its own glyph."""
+        tokens = conform.isolated_overlay_tokens(spec, IT + TEA + OY + ZWNJ)
+        assert conform.isolated_overlay_labels(spec, tokens) == [
+            "qsIt.ss10",
+            "qsTea.ss10",
+            "qsOy.ss10",
+            "uni200C",
+        ]
 
 
 TEA, MAY, IT, OY = chr(0xE652), chr(0xE665), chr(0xE670), chr(0xE679)
 ZWNJ = chr(0x200C)
 DOT = chr(0x00B7)
+
+
+class TestIsolatedOverlay:
+    """The overlay configuration has no settlement table: `OVERLAY_CONFIGS` names exactly the acceptance configurations whose features activate a registered `overlay: isolated` taste set, the settlement roster is the rest, and everything the oracle and the belt do for it comes from the registry and the font's `hmtx` rather than from the crate."""
+
+    def test_the_rosters_partition_the_acceptance_set_by_the_registry(self, spec):
+        from rebuild.pipeline.model import isolated_overlay_active
+        from rebuild.pipeline.spec_load import load_default_spec
+
+        assert conform.SETTLEMENT_CONFIGS + conform.OVERLAY_CONFIGS == conform.ACCEPTANCE_CONFIGS
+        assert not set(conform.SETTLEMENT_CONFIGS) & set(conform.OVERLAY_CONFIGS)
+        for registry_spec in (spec, load_default_spec()):
+            overlays = tuple(
+                config
+                for config in conform.ACCEPTANCE_CONFIGS
+                if isolated_overlay_active(registry_spec, conform.features_for_config(config))
+            )
+            assert overlays == conform.OVERLAY_CONFIGS
+        inputs = oracle_cache.SettleMemoInputs(rune_digests={}, oracle_code="code", data="data")
+        assert set(conform.settle_memo_files(Path("m1"), spec, inputs)) == set(conform.SETTLEMENT_CONFIGS)
+
+    def test_the_overlay_walk_answers_the_bare_stream_from_the_registry(self, spec, monkeypatch):
+        crate_reached: list = []
+        monkeypatch.setattr(kernel_exec, "settle_windows", lambda *a, **k: crate_reached.append(a))
+        monkeypatch.setattr(kernel_exec, "settle_cases", lambda *a, **k: crate_reached.append(a))
+        walker = conform.IsolatedOverlayWalk(spec)
+        settled, names = walker.walk_many([TEA + OY + ZWNJ + IT])[0]
+        assert names == ["qsTea.ss10", "qsOy.ss10", "uni200C", "qsIt.ss10"]
+        assert [item.cell.rune for item in settled] == ["qsTea", "qsOy", "zwnj", "qsIt"]
+        assert all(item.seam is None and item.extension == 0 for item in settled)
+        for item in settled:
+            if item.cell.stance != settle.BOUNDARY_STANCE:
+                assert item.cell == CellId(
+                    item.cell.rune, spec.runes[item.cell.rune].default_stance, None, None, ()
+                )
+        assert walker.walk(TEA + OY) == walker.walk_many([TEA + OY])[0]
+        assert walker.save_memo() is False and walker.memo_line("ss10", False) is None
+        assert not crate_reached
+
+    def test_a_row_the_old_font_ligated_diverges_at_ligation_grain_through_the_overlay_walk(self, spec):
+        from rebuild.validation.rowmodel import Row
+
+        row = Row(
+            codepoints=(0xE652, 0xE679),
+            glyphs=("qsTea_qsOy",),
+            clusters=(0, 0),
+            seams=("lig",),
+            positions=((0, 0, 300),),
+        )
+        settled, _names = conform.IsolatedOverlayWalk(spec).walk_many([row.text])[0]
+        divergent = conform._compare_row(spec, {}, "ss10", frozenset({"ss10"}), row, settled)
+        assert divergent is not None
+        assert divergent.kinds == ("ligation",)
+        assert divergent.new_cells == (
+            f"qsTea/{spec.runes['qsTea'].default_stance}/None/None/",
+            f"qsOy/{spec.runes['qsOy'].default_stance}/None/None/",
+        )
+        assert divergent.new_seams == ("break",)
+
+    def test_the_overlay_arm_sweeps_two_letters_and_never_reaches_the_crate(self, spec, monkeypatch):
+        """Whatever horizon the belt runs at, the overlay arm sweeps every letter and every pair and no more, and it forms, settles and memoizes nothing — the crate is unreachable for the whole of it."""
+
+        def unreachable(*args, **kwargs):
+            raise AssertionError("the overlay arm reached the crate")
+
+        for name in ("settle_windows", "settle_cases", "guard_sweep", "settle_sequences"):
+            monkeypatch.setattr(kernel_exec, name, unreachable)
+        monkeypatch.setattr(conform, "check_split_buffer", lambda *args, **kwargs: None)
+        shaper = _SilentShaper()
+        result = conform._conformance_config(
+            shaper,  # pyright: ignore[reportArgumentType]
+            spec,
+            "ss10",
+            conform.spec_alphabet(spec),
+            conform.splitting_boundary_chars(spec),
+            {},
+            None,
+            conform.BELT_HORIZON + 3,
+            None,
+        )
+        alphabet = len(conform.spec_alphabet(spec))
+        assert result.sequences == alphabet + alphabet**2
+        assert result.shaping_runs == result.sequences == len(shaper.shaped)
+        assert all(len(text) <= conform.OVERLAY_HORIZON for text in shaper.shaped)
+        assert result.divergences and {divergence.kind for divergence in result.divergences} == {"length"}
 
 
 class TestRawLabels:
@@ -1979,7 +2059,7 @@ class TestSettleMemoFile:
     def test_settle_memo_files_key_each_configuration_off_the_snapshot(self, spec, tmp_path):
         inputs = oracle_cache.SettleMemoInputs(rune_digests={"qsTea": "t0"}, oracle_code="code", data="data")
         files = conform.settle_memo_files(tmp_path, spec, inputs)
-        assert set(files) == set(conform.ACCEPTANCE_CONFIGS)
+        assert set(files) == set(conform.SETTLEMENT_CONFIGS)
         assert files["default"].path == tmp_path / "settle-memo-default.gz"
         assert len({memo.stamp for memo in files.values()}) == len(files)
         assert files["default"].family_keys == oracle_cache.settle_family_keys(inputs, spec)
