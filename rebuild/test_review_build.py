@@ -820,7 +820,7 @@ def _tally_lines(text: str, parent: bool = False) -> dict[str, dict[str, int]]:
 def test_a_serial_build_tallies_its_piles_at_every_phase_boundary_and_writes_the_same_bytes(
     tmp_path, mini_bundle, capsys, monkeypatch
 ):
-    """The tally is an instrument and nothing else: with `AMS_SURFACE_PILE_TALLY=1` in the environment a serial build prints one boundary per phase onto stdout, each naming the piles the parent holds at that moment with the counts the build's own figures corroborate — every unit in the workload, its audit rows at load and none once the content keys have read them, a spool address per fresh unit from the units phase until the runner closes and none after, the state record and the checker's identity for every unit written, and no pile of enrichments at any boundary — and the shards and manifest it writes are byte-for-byte the ones the same build writes with the variable unset."""
+    """The tally is an instrument and nothing else: with `AMS_SURFACE_PILE_TALLY=1` in the environment a serial build prints one boundary per phase onto stdout, each naming the piles the parent holds at that moment with the counts the build's own figures corroborate — every unit in the workload, its audit rows at load and none once the content keys have read them, a spool address per fresh unit from the units phase until the runner closes and none after, the state record and the checker's identity for every unit written, no pile of store records at the cache boundary (the store is streamed out record by record), and no pile of enrichments at any boundary — and the shards and manifest it writes are byte-for-byte the ones the same build writes with the variable unset."""
 
     def build(out: Path) -> dict:
         return review_build.build_m1(
@@ -856,7 +856,7 @@ def test_a_serial_build_tallies_its_piles_at_every_phase_boundary_and_writes_the
     assert tallies["census-facts"]["runner.spooled"] == 0 and tallies["cache"]["runner.spooled"] == 0
     assert tallies["manifest+check"]["checker.identity"] == total
     assert tallies["manifest+check"]["written.content_keys"] == total
-    assert tallies["cache"]["unit_cache.records"] == total
+    assert "unit_cache.records" not in tallies["cache"]
     for name in tallies:
         assert "/" not in name
     assert not _enrichment_piles(tallies)

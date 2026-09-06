@@ -9,13 +9,13 @@
       "dangling-anchor-dropped",
       "bare-name-live-join",
       "may-jai-extension-consolidated",
-      "deferred-ss04",
       "jai-entry-contraction-respelled",
       "ss10-isolation-completed",
       "ss10-ligature-suppressed",
       "kern-channel-out-of-scope",
-      "deferred-ss10",
       "extension-non-summing",
+      "deferred-ss04",
+      "deferred-ss10",
       "deferred-ss03"
     ],
     "no_verdict_classes": [
@@ -56,13 +56,13 @@
           "dangling-anchor-dropped": 147042,
           "bare-name-live-join": 285586,
           "may-jai-extension-consolidated": 633,
-          "deferred-ss04": 3,
           "jai-entry-contraction-respelled": 99,
           "ss10-isolation-completed": 270481,
           "ss10-ligature-suppressed": 6656,
           "kern-channel-out-of-scope": 8058,
-          "deferred-ss10": 42503,
           "extension-non-summing": 748,
+          "deferred-ss04": 3,
+          "deferred-ss10": 42503,
           "deferred-ss03": 1
         }
       },
