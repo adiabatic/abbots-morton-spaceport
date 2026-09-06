@@ -3024,13 +3024,21 @@ def test_run_m1_skip_fingerprint_moves_with_runes_and_subsets(tmp_path):
     assert ac.run_m1_skip_fingerprint(tmp_path) != fourth
 
 
-def test_conform_skip_fingerprint_includes_horizon_and_font(tmp_path):
+def test_conform_skip_fingerprint_includes_horizon_and_the_behavior_classes(tmp_path):
+    """The belt's key is the deep sweep's arming key plus the compile's tools/ closure and the horizon. Without a behavior-class sidecar it still answers, under a line that names the sidecar absent, so the two preflight readers that ask before any build has run get a key rather than an exception; a sidecar, a class appearing in it, and the horizon each move it, and the font's own bytes do not."""
     (tmp_path / "rebuild" / "out" / "m1").mkdir(parents=True)
     base = ac.conform_skip_fingerprint(tmp_path, 5)
     assert ac.conform_skip_fingerprint(tmp_path, 5) == base
     assert ac.conform_skip_fingerprint(tmp_path, 4) != base
+    assert ac.conform_skip_files(tmp_path, 5)["behavior_classes"] == "absent"
     (tmp_path / "rebuild" / "out" / "m1" / "M1.otf").write_bytes(b"OTTO")
-    assert ac.conform_skip_fingerprint(tmp_path, 5) != base
+    assert ac.conform_skip_fingerprint(tmp_path, 5) == base
+    _write_behavior_classes(tmp_path, ["backtrack:1"])
+    with_sidecar = ac.conform_skip_fingerprint(tmp_path, 5)
+    assert with_sidecar != base
+    assert "class:backtrack:1" in ac.conform_skip_files(tmp_path, 5)
+    _write_behavior_classes(tmp_path, ["backtrack:1", "lookahead:4"])
+    assert ac.conform_skip_fingerprint(tmp_path, 5) != with_sidecar
 
 
 def _fake_run_m1_root(tmp_path):
@@ -3042,9 +3050,15 @@ def _fake_run_m1_root(tmp_path):
         "rebuild/validation",
         "rebuild/kernel-rs/src",
         "rebuild/out/m1",
+        "tools",
     ):
         (tmp_path / rel).mkdir(parents=True, exist_ok=True)
+    _write_behavior_classes(tmp_path, ["backtrack:1"])
     for rel, text in (
+        ("tools/build_font.py", "build = 1\n"),
+        ("rebuild/pipeline/emit_gsub.py", "emit = 1\n"),
+        ("rebuild/pipeline/pack_gsub.py", "pack = 1\n"),
+        ("rebuild/pipeline/compile_font.py", "compile = 1\n"),
         ("glyph_data/runes/qsX.yaml", "rune: qsX\n"),
         ("rebuild/schema/rune.json", "{}\n"),
         ("rebuild/script.yaml", "script: 1\n"),
@@ -3147,9 +3161,7 @@ def test_the_divergence_ledger_line_is_prose_blind(tmp_path):
 
 
 def test_a_comparison_side_edit_moves_the_run_key_and_leaves_the_sweeps_alone(tmp_path):
-    """Why the two keys had to stop being built from one another. The sweep shapes the compiled font and re-settles the windows beside it; it opens no ledger, no allow-list, no kern sidecar, no baseline and none of the oracle's code, so an edit to any of those can move the key that decides whether to rebuild without moving the key that decides whether to sweep. The second half is what keeps that honest: everything the sweep does read still moves it."""
-    from rebuild.pipeline import kernel_exec
-
+    """Why the two keys are built from different closures. The sweep shapes the compiled font and re-settles the windows beside it; it opens no ledger, no allow-list, no kern sidecar, no baseline and none of the oracle's code, so an edit to any of those can move the key that decides whether to rebuild without moving the key that decides whether to sweep. The second half is the belt's own posture, the deep sweep's: a rune edit, a crate edit, a toolchain bump and the font's own bytes leave the key where it is — the crate's string replay inside run_m1 is what answers for those — while a rule shape the lookup has not emitted before, the compile code, the tools/ closure the compile runs, the shaper and the horizon each move it."""
     root = _fake_run_m1_root(tmp_path)
     conform = ac.conform_skip_fingerprint(root, 4)
     run_key = ac.run_m1_skip_fingerprint(root)
@@ -3161,26 +3173,35 @@ def test_a_comparison_side_edit_moves_the_run_key_and_leaves_the_sweeps_alone(tm
         ("rebuild/pipeline/oracle.py", "verdict = 2\n"),
         ("rebuild/out/baseline-default.tsv.gz", "many more baseline rows\n"),
         ("rebuild/out/m1/baseline-default.subset.tsv.gz", "many more subset rows\n"),
+        ("glyph_data/runes/qsX.yaml", "rune: qsX\nstances: {}\n"),
+        ("rebuild/pipeline/settle.py", "settle = 2\n"),
+        ("rebuild/kernel-rs/src/lib.rs", "fn settle() { loop {} }\n"),
+        ("uv.lock", "lock-2\n"),
     ):
         (root / rel).write_text(text)
         moved = ac.run_m1_skip_fingerprint(root)
         assert moved != run_key, rel
         assert ac.conform_skip_fingerprint(root, 4) == conform, rel
         run_key = moved
+    (root / "rebuild/out/m1/M1.otf").write_text("OTTO and then some\n")
+    assert ac.conform_skip_fingerprint(root, 4) == conform
 
     for rel, text in (
-        ("glyph_data/runes/qsX.yaml", "rune: qsX\nstances: {}\n"),
-        ("rebuild/pipeline/settle.py", "settle = 2\n"),
-        ("rebuild/kernel-rs/src/lib.rs", "fn settle() { loop {} }\n"),
-        ("uv.lock", "lock-2\n"),
-        ("rebuild/out/m1/M1.otf", "OTTO and then some\n"),
+        ("rebuild/pipeline/emit_gsub.py", "emit = 2\n"),
+        ("rebuild/pipeline/pack_gsub.py", "pack = 2\n"),
+        ("rebuild/pipeline/compile_font.py", "compile = 2\n"),
+        ("tools/build_font.py", "build = 2\n"),
     ):
         (root / rel).write_text(text)
         moved = ac.conform_skip_fingerprint(root, 4)
         assert moved != conform, rel
         conform = moved
-    assert ac.conform_skip_fingerprint(root, 5) != conform
-    assert ac.conform_skip_files(root, 4)["semantics"] == "+".join(kernel_exec.enumeration_tokens())
+    _write_behavior_classes(root, ["backtrack:1", "lookahead:4"])
+    assert ac.conform_skip_fingerprint(root, 4) != conform
+    assert ac.conform_skip_fingerprint(root, 5) != ac.conform_skip_fingerprint(root, 4)
+    files = ac.conform_skip_files(root, 4)
+    assert "class:lookahead:4" in files and "uharfbuzz" in files
+    assert "semantics" not in files and "M1.otf" not in files
 
 
 def test_gates_only_reuse_licenses_only_a_diff_the_tables_stamp_cannot_see():
@@ -3330,9 +3351,7 @@ def test_run_m1_skip_files_carry_the_lines_behind_the_fingerprint(tmp_path):
     assert ac._digest_lines(ac.run_m1_skip_lines(tmp_path)) == ac.run_m1_skip_fingerprint(tmp_path)
     conform = ac.conform_skip_files(tmp_path, 5)
     assert conform["horizon"] == "5"
-    assert "M1.otf" in conform
-    assert "uv.lock" in conform
-    assert "semantics" in conform
+    assert conform == {"behavior_classes": "absent", "horizon": "5"}
 
 
 def test_record_green_stores_the_files_and_the_reader_returns_them(tmp_path):
