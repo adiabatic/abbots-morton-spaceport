@@ -4,7 +4,7 @@
 //!
 //! An engine is one (spec, feature configuration) pair, and the spec arrives as a [`SpecIndex`] the engine borrows rather than owns, so the guard's whole engine powerset and every replay share one index and one string pool. Everything the engine itself holds is cache: the caches exist because the table build's fixpoint asks the same questions about the same windows thousands of times. The trace memo is also what one engine may read of another's: a finished memo leaves its engine as a [`crate::memo::MemoSnapshot`] and enters another as a base, read behind an exclusion naming the runes the two engines do not settle alike ([`Engine::seed_bases`]), which is how a configuration enumerates as a delta over `default`. The module-level `id()`-keyed dictionaries Python used to fake per-spec state are ordinary fields here, because [`StanceId`] is a stable seat pair rather than a recyclable address and therefore needs neither an identity re-check nor an LRU cap.
 //!
-//! The fired-provenance journal is the subtle part and is contract rather than bookkeeping. `fired` is the set of authored records that demonstrably fired under this configuration, and the dead-policy gate reads it, so a memoized sub-result must not silently swallow the firings its first evaluation performed: every cache entry stores the delta its computation journaled, and every hit replays that delta. That is what makes each entry's delta order-independent and a warm engine's `fired` equal to a cold one's. The journal only runs in trace-memo mode, because that is the only mode where anything asks for a per-evaluation delta; outside it there is no journal, and — following Python exactly — [`Engine::candidates`] does not consult its cache at all, since the entry it would store could not carry a delta to replay.
+//! The fired-provenance journal is the subtle part and is contract rather than bookkeeping. `fired` is the set of authored records that demonstrably fired under this configuration, and the dead-policy gate reads it, so a memoized sub-result must not silently swallow the firings its first evaluation performed: every cache entry stores the delta its computation journaled, and every hit replays that delta into whatever capture is open — and into the set itself only where the set may not hold it yet, which is a base entry's delta on its first hit, an own entry's pointers having entered the set when the entry was recorded. That is what makes each entry's delta order-independent and a warm engine's `fired` equal to a cold one's. The journal only runs in trace-memo mode, because that is the only mode where anything asks for a per-evaluation delta; outside it there is no journal, and — following Python exactly — [`Engine::candidates`] does not consult its cache at all, since the entry it would store could not carry a delta to replay.
 //!
 //! A pointer is Python's `str(Provenance)`, the `file:path` spelling. It rides here as a [`Pointer`], the two symbols side by side, rather than as the composed string: the pair is what the provenance already is, it is `Copy` and hashes on two integers, and the string is built only where one is emitted. Nothing else in the engine holds an owned `String` except the elimination descriptions, whose exact wording is contract against the Python original and which are read by people rather than keyed on.
 //!
@@ -545,6 +545,8 @@ pub struct Engine<'i> {
     trace_cache: Option<TraceMemo>,
     /// The finished memos of other enumerations this engine may read, in the order it reads them, each behind the exclusion that says which keys it may not answer ([`crate::memo`]). A window the engine's own memo misses is looked up here before it is settled, and a hit is answered — delta replayed — exactly as an own hit is, without being copied into the own memo: the bases are shared read-only across a whole fan-out, and a copy per hit would rebuild the pile the sharing exists to avoid.
     bases: Vec<MemoBase>,
+    /// Per base, which of its delta seats this engine has replayed into its fired set, so a base delta hit for the second time costs the set nothing.
+    base_fired: Vec<Vec<bool>>,
     /// How many windows the bases answered, for the cache census.
     base_hits: u64,
 }
@@ -581,6 +583,7 @@ impl<'i> Engine<'i> {
             explain_ladder: modes.explain_ladder,
             trace_cache: modes.trace_memo.then(TraceMemo::default),
             bases: Vec::new(),
+            base_fired: Vec::new(),
             base_hits: 0,
         }
     }
@@ -591,6 +594,10 @@ impl<'i> Engine<'i> {
             self.trace_cache.is_some(),
             "a memo base can only answer an engine that journals, which is the trace-memo engine"
         );
+        self.base_fired = bases
+            .iter()
+            .map(|base| vec![false; base.memo.deltas.len()])
+            .collect();
         self.bases = bases;
     }
 
@@ -1296,7 +1303,6 @@ impl<'i> Engine<'i> {
         let entry = match self.candidates_cache.entries.get(&key) {
             Some(&cached) => {
                 replay_into(
-                    &mut self.fired,
                     &mut self.fired_log,
                     &self.capture_starts,
                     self.deltas.get(cached.delta),
@@ -1614,7 +1620,6 @@ impl<'i> Engine<'i> {
         };
         if let Some(&(cached, delta)) = self.closure_cache.get(&key) {
             replay_into(
-                &mut self.fired,
                 &mut self.fired_log,
                 &self.capture_starts,
                 self.deltas.get(delta),
@@ -1708,7 +1713,6 @@ impl<'i> Engine<'i> {
         };
         if let Some(&(cached, seat)) = self.prospect_cache.get(&key) {
             replay_into(
-                &mut self.fired,
                 &mut self.fired_log,
                 &self.capture_starts,
                 self.deltas.get(seat),
@@ -2449,19 +2453,20 @@ impl<'i> Engine<'i> {
         {
             let trace = memo.trace(&key, entry);
             replay_into(
-                &mut self.fired,
                 &mut self.fired_log,
                 &self.capture_starts,
                 self.deltas.get(entry.delta),
             );
             return Ok(trace);
         }
-        if let Some((base, entry)) = base_entry(&self.bases, &key) {
+        if let Some((seat, base, entry)) = base_entry(&self.bases, &key) {
             let trace = base.memo.trace(entry);
-            replay_into(
+            replay_base(
                 &mut self.fired,
                 &mut self.fired_log,
                 &self.capture_starts,
+                &mut self.base_fired[seat],
+                entry.delta,
                 base.memo.delta(entry),
             );
             self.base_hits += 1;
@@ -2532,19 +2537,20 @@ impl<'i> Engine<'i> {
         if let Some(&entry) = memo.entries.get(&key) {
             let answer = read(memo.settled.get(entry.settled));
             replay_into(
-                &mut self.fired,
                 &mut self.fired_log,
                 &self.capture_starts,
                 self.deltas.get(entry.delta),
             );
             return Some(answer);
         }
-        let (base, entry) = base_entry(&self.bases, &key)?;
+        let (seat, base, entry) = base_entry(&self.bases, &key)?;
         let answer = read(base.memo.settled(entry));
-        replay_into(
+        replay_base(
             &mut self.fired,
             &mut self.fired_log,
             &self.capture_starts,
+            &mut self.base_fired[seat],
+            entry.delta,
             base.memo.delta(entry),
         );
         self.base_hits += 1;
@@ -2756,34 +2762,48 @@ fn record_elimination(
     }
 }
 
-/// The first base holding `key` and admitting it, with the entry it holds. A base holding the key under an exclusion that names one of its runes is passed over rather than answered, because what it recorded was settled under runes this engine does not share.
-fn base_entry<'b>(bases: &'b [MemoBase], key: &TraceKey) -> Option<(&'b MemoBase, TraceEntry)> {
-    bases.iter().find_map(|base| {
+/// The first base holding `key` and admitting it, with its seat among the bases and the entry it holds. A base holding the key under an exclusion that names one of its runes is passed over rather than answered, because what it recorded was settled under runes this engine does not share.
+fn base_entry<'b>(
+    bases: &'b [MemoBase],
+    key: &TraceKey,
+) -> Option<(usize, &'b MemoBase, TraceEntry)> {
+    bases.iter().enumerate().find_map(|(seat, base)| {
         base.memo
             .entries
             .get(key)
             .filter(|_| base.excluded.admits(key))
-            .map(|&entry| (base, entry))
+            .map(|&entry| (seat, base, entry))
     })
 }
 
-/// One memo entry's fired delta replayed into the journal, spelled over the three fields it touches rather than over the whole engine. That is what lets a hit replay the delta where it sits in the memo instead of copying it out first: the memo and the journal are disjoint fields, and only a receiver that named the whole engine made them look otherwise.
-fn replay_into(
+/// One own-memo entry's fired delta replayed into the journal, spelled over the two fields it touches rather than over the whole engine. That is what lets a hit replay the delta where it sits in the memo instead of copying it out first: the memo and the journal are disjoint fields, and only a receiver that named the whole engine made them look otherwise. The fired set is not touched, because an own entry's pointers entered it when the entry was recorded — a delta is what the journal captured, and the journal inserts every pointer it logs — so a hit owes the set nothing and owes an open capture the delta: the enclosing window's delta must carry what its evaluation would have fired. A configuration's windows hit their own memo tens of millions of times, and a hash insert per pointer per hit was the larger part of what a hit cost.
+fn replay_into(fired_log: &mut Option<Vec<Pointer>>, capture_starts: &[usize], delta: &[Pointer]) {
+    if delta.is_empty() || capture_starts.is_empty() {
+        return;
+    }
+    let log = fired_log
+        .as_mut()
+        .expect("a capture is only ever open while the journal exists");
+    log.extend_from_slice(delta);
+}
+
+/// A base entry's fired delta replayed the same way, with the one difference a base makes: its pointers were journaled by another engine, so the fired set holds them only once this engine has replayed that delta seat before, which `replayed` — one flag per delta seat of the base — records.
+fn replay_base(
     fired: &mut HashSet<Pointer>,
     fired_log: &mut Option<Vec<Pointer>>,
     capture_starts: &[usize],
+    replayed: &mut [bool],
+    seat: DeltaSeat,
     delta: &[Pointer],
 ) {
     if delta.is_empty() {
         return;
     }
-    fired.extend(delta.iter().copied());
-    if !capture_starts.is_empty() {
-        let log = fired_log
-            .as_mut()
-            .expect("a capture is only ever open while the journal exists");
-        log.extend_from_slice(delta);
+    if !replayed[seat.index()] {
+        fired.extend(delta.iter().copied());
+        replayed[seat.index()] = true;
     }
+    replay_into(fired_log, capture_starts, delta);
 }
 
 /// One authored value out of a `cell:` / `over:` / `pick:` mapping. The model keeps these ordered rather than hashed, and they hold two or three keys, so the scan is the lookup.
@@ -4329,14 +4349,19 @@ mod tests {
             .get(&Engine::candidates_key(&left, may, EDGE, EDGE))
             .expect("the window this test enumerated is memoized");
         assert_eq!(memoized.deltas.get(entry.delta), [unlock]);
-        memoized.fired.clear();
+        assert!(
+            memoized.fired().contains(&unlock),
+            "the first evaluation journaled the unlock into the set"
+        );
+        memoized.begin_capture();
         let again = memoized
             .candidates(&left, may, EDGE, EDGE, None)
             .expect("the fixture raises nothing");
         assert_eq!(again, first);
-        assert!(
-            memoized.fired().contains(&unlock),
-            "the hit replayed the delta its first evaluation journaled"
+        assert_eq!(
+            &*memoized.end_capture(),
+            [unlock],
+            "the hit replayed the delta its first evaluation journaled into the open capture"
         );
     }
 
@@ -6017,11 +6042,16 @@ mod tests {
         let mut warm = Engine::with_modes(&index, [ss03], modes);
         warm.transition_trace(&left, token, slots)
             .expect("the fixture settles");
-        warm.fired.clear();
+        warm.begin_capture();
         let again = warm
             .transition_trace(&left, token, slots)
             .expect("the fixture settles");
         assert_eq!(again, first);
+        assert_eq!(
+            &*warm.end_capture(),
+            cold_delta.as_slice(),
+            "the hit replayed the cold delta into the open capture"
+        );
         assert_eq!(warm.fired(), cold.fired());
         assert_eq!(
             warm.trace_delta(&left, token, slots)
