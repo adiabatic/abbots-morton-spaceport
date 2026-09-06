@@ -2,9 +2,9 @@
 
 A test's closure is the union of four things. Its **reads**: every repo file the audit hook saw opened during the test's setup, call, and teardown — a font HarfBuzz mapped included, which the conftest announces to the hook itself — with a `.pyc` mapped back to the source it was compiled from and the reads a shared fixture made during its own setup credited to every test that requests the fixture (the setup runs once per scope, so the hook sees it under one test only). Its **static import closure**: the repo modules reachable from the test module through `import` statements at any nesting, absolute or relative, `if TYPE_CHECKING:` included, resolved against the repo root and the sibling `test/` and `tools/` directories that go on `sys.path`. The same closure of every module the test imported **dynamically** — the `import` audit event fires for an import statement's first load in a worker, and a source file the test opened is followed as a module too, which is how `importlib.import_module` shows up, since it raises no import event and loads the source through `open` — and of both conftests, which run for every test. The **import-time reads** of every module in that closure: a file a module opens while its body executes is opened once per process, under whichever test or collection imported it first, so the recorder credits it to the module and the closure folds it back in for every test that can reach the module. And the four global inputs in `GLOBAL_LABELS`, which every test depends on without opening: the conftests, pyproject.toml, and uv.lock, plus the `fonts` label, which the lane key hashes as one value.
 
-Selection is sound by construction or it is nothing, so every doubt resolves to running the test. A test with no recorded closure runs, which covers a new or renamed test id. A test that spawned a child runs — the hook sees nothing a subprocess or a multiprocessing worker reads — except when the child is a `git` command that reads the object store or a ref and never the working tree (`hermetic_child`), since nothing in the diff can reach those bytes. A diff that adds or removes any input runs the whole lane rather than reasoning about which directory listings or existence checks might have noticed, because `Path.exists()` and `os.stat` raise no audit event. A diff that touches a global label runs the whole lane. What is left is a test whose recorded closure misses every changed file, and that test's outcome is a function of inputs whose bytes are the ones it already passed against.
+Selection is sound by construction or it is nothing, so every doubt resolves to running the test. A test with no recorded closure runs, which covers a new or renamed test id. A test that spawned a child runs — the hook sees nothing a subprocess or a multiprocessing worker reads — with two argued exceptions: a `git` command that reads the object store or a ref and never the working tree (`hermetic_child`), since nothing in the diff can reach those bytes, and the M1 kernel or the `cargo build` that makes it (`kernel_child`), whose reads outside the scratch files its parent wrote are the crate's own sources, so every tracked file under `KERNEL_PREFIX` joins that test's closure instead. A diff that adds or removes any input runs the whole lane rather than reasoning about which directory listings or existence checks might have noticed, because `Path.exists()` and `os.stat` raise no audit event. A diff that touches a global label runs the whole lane. What is left is a test whose recorded closure misses every changed file, and that test's outcome is a function of inputs whose bytes are the ones it already passed against.
 
-The record lives in the lane's green record beside the key (`rebuild_gate` and the artifact cycle both write it through `record_payload`): `files` is the per-label digest map the selection diffs against, widened past the lane's roster by any path a test read outside it, and `closures` holds `static` (module file to its import closure), `module_reads` (module file to what its body reads when imported) and `tests` (test id to its reads, dynamic modules and the unclosable flag). A narrowed run merges its sidecar into the previous record: tests that ran replace their entries, tests the selection kept off keep theirs — their inputs did not move, so neither did what they read — and ids the run no longer collected are dropped.
+The record lives in the lane's green record beside the key (`rebuild_gate` and the artifact cycle both write it through `record_payload`): `files` is the per-label digest map the selection diffs against, widened past the lane's roster by any path a test read outside it, and `closures` holds `static` (module file to its import closure), `module_reads` (module file to what its body reads when imported) and `tests` (test id to its reads, dynamic modules, whether it spawned the kernel, and the unclosable flag). A narrowed run merges its sidecar into the previous record: tests that ran replace their entries, tests the selection kept off keep theirs — their inputs did not move, so neither did what they read — and ids the run no longer collected are dropped.
 """
 
 from __future__ import annotations
@@ -30,6 +30,9 @@ IGNORED_PREFIXES = (
     "rebuild/kernel-rs/target/",
 )
 HERMETIC_GIT_SUBCOMMANDS = frozenset(("rev-parse", "cat-file", "archive"))
+KERNEL_PREFIX = "rebuild/kernel-rs/"
+KERNEL_BINARY = "ams-m1-kernel"
+KERNEL_MANIFEST = KERNEL_PREFIX + "Cargo.toml"
 
 
 def hermetic_child(argv: object) -> bool:
@@ -42,6 +45,36 @@ def hermetic_child(argv: object) -> bool:
     except TypeError, ValueError:
         return False
     return head == "git" and subcommand in HERMETIC_GIT_SUBCOMMANDS
+
+
+def kernel_files(files: dict[str, str]) -> frozenset[str]:
+    """The crate's tracked files among a record's labels: what a test that spawned the kernel depends on beyond its own reads. A crate file added since the record is an input added, which runs the whole lane before this set is consulted."""
+    return frozenset(label for label in files if label.startswith(KERNEL_PREFIX))
+
+
+def _argv_strings(argv: object) -> list[str] | None:
+    if not isinstance(argv, (list, tuple)) or not argv:
+        return None
+    try:
+        return [os.fsdecode(arg) for arg in argv]  # pyright: ignore[reportArgumentType]
+    except TypeError, ValueError:
+        return None
+
+
+def kernel_child(argv: object) -> bool:
+    """Whether a spawned command is the M1 kernel, or the `cargo build` of it that `kernel_exec.ensure_built` runs before a process's first invocation. The kernel reads what its argv names — a spec dump and a cases file its parent wrote to a scratch directory out of what the parent had already read — and its own binary, which is a function of the crate's tracked sources and is rebuilt from them before it answers; cargo reads the same sources and the registry the lockfile pins by hash. So a test that spawns either is closable once the crate's files are folded into its closure, which `closure_of` does for every entry flagged `kernel`."""
+    strings = _argv_strings(argv)
+    if strings is None:
+        return False
+    head = os.path.basename(strings[0])
+    if head == KERNEL_BINARY:
+        return True
+    if head != "cargo" or len(strings) < 2 or strings[1] != "build":
+        return False
+    manifests = [arg for flag, arg in zip(strings, strings[1:]) if flag == "--manifest-path"]
+    return bool(manifests) and all(
+        manifest.replace(os.sep, "/").endswith("/" + KERNEL_MANIFEST) for manifest in manifests
+    )
 
 
 def source_of(rel: str) -> str:
@@ -139,14 +172,16 @@ def test_file_of(nodeid: str) -> str:
     return nodeid.split("::", 1)[0]
 
 
-def closure_of(closures: dict, nodeid: str) -> frozenset[str] | None:
-    """One test's whole closure out of a record, or None when the record cannot vouch for it: the test is unclosable, it has no entry, or a static closure it needs is missing. Every None is a test that runs."""
+def closure_of(closures: dict, nodeid: str, kernel: frozenset[str] = frozenset()) -> frozenset[str] | None:
+    """One test's whole closure out of a record, or None when the record cannot vouch for it: the test is unclosable, it has no entry, or a static closure it needs is missing. Every None is a test that runs. `kernel` is the crate's files, folded in for a test that spawned the kernel."""
     entry = closures.get("tests", {}).get(nodeid)
     static = closures.get("static", {})
     module_reads = closures.get("module_reads", {})
     if not isinstance(entry, dict) or entry.get("unclosable"):
         return None
     paths: set[str] = set(entry.get("reads", ()))
+    if entry.get("kernel"):
+        paths.update(kernel)
     reachable: set[str] = set()
     for module in (test_file_of(nodeid), *CONFTEST_PATHS, *entry.get("modules", ())):
         closure = static.get(module)
@@ -203,10 +238,11 @@ def select(record: dict | None, current: dict[str, str]) -> Selection:
             changed=tuple(moved), known=known, reason=f"a global input moved: {capped_labels(global_moved)}"
         )
     changed = frozenset(moved)
+    kernel = kernel_files(stored)
     skip = {
         nodeid
         for nodeid in closures.get("tests", {})
-        if (closure := closure_of(closures, nodeid)) is not None and not (closure & changed)
+        if (closure := closure_of(closures, nodeid, kernel)) is not None and not (closure & changed)
     }
     return Selection(skip=frozenset(skip), changed=tuple(sorted(changed)), known=known)
 
@@ -281,6 +317,7 @@ def merge_closures(root: Path, previous: dict | None, sidecar: dict | None) -> d
                 "modules": sorted(
                     set(entry.get("modules", ())) | {rel for rel in reads if rel.endswith(".py")}
                 ),
+                "kernel": bool(entry.get("kernel")),
                 "unclosable": bool(entry.get("unclosable")),
             }
     graph = ImportGraph(root)

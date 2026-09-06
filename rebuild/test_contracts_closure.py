@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from rebuild.pipeline import kernel_exec
 from rebuild.tools import artifact_cycle as ac
 from rebuild.tools import contracts_closure as cc
 from rebuild.tools import rebuild_gate as rg
@@ -51,6 +52,34 @@ class TestHermeticChildren:
     )
     def test_everything_else_is_unclosable(self, argv):
         assert not cc.hermetic_child(argv)
+        assert not cc.kernel_child(argv)
+
+    @pytest.mark.parametrize(
+        "argv",
+        [
+            [str(kernel_exec.BINARY), "settle-cases", "/scratch/spec.json", "/scratch/cases.tsv"],
+            ["cargo", "build", "--release", "--manifest-path", str(kernel_exec.MANIFEST)],
+        ],
+    )
+    def test_the_kernel_and_its_build_are_kernel_children(self, argv):
+        assert cc.kernel_child(argv)
+        assert not cc.hermetic_child(argv)
+
+    @pytest.mark.parametrize(
+        "argv",
+        [
+            ["cargo", "build", "--release"],
+            ["cargo", "test", "--manifest-path", str(kernel_exec.MANIFEST)],
+            ["cargo", "build", "--manifest-path", "/elsewhere/Cargo.toml"],
+            ["/opt/bin/other-kernel", "settle-cases"],
+        ],
+    )
+    def test_other_cargo_and_other_binaries_are_not(self, argv):
+        assert not cc.kernel_child(argv)
+
+    def test_kernel_files_are_the_crates_labels(self):
+        files = {"rebuild/kernel-rs/src/engine.rs": "e", "rebuild/kernel-rs/Cargo.lock": "l", "a.yaml": "1"}
+        assert cc.kernel_files(files) == {"rebuild/kernel-rs/src/engine.rs", "rebuild/kernel-rs/Cargo.lock"}
 
 
 class TestReadNormalization:
@@ -141,6 +170,7 @@ BASE_FILES = {
     "b.yaml": "2",
     "m.py": "m",
     "n.py": "n",
+    "rebuild/kernel-rs/src/engine.rs": "e",
 }
 TESTS = {
     "rebuild/test_t.py::reads_a": {"reads": ["a.yaml"], "modules": [], "unclosable": False},
@@ -163,6 +193,15 @@ class TestSelection:
     def test_an_unclosable_test_always_runs(self):
         record = _record(BASE_FILES, TESTS, dict(STATIC))
         assert "rebuild/test_t.py::spawns" not in cc.select(record, {**BASE_FILES, "a.yaml": "9"}).skip
+
+    def test_a_test_that_spawned_the_kernel_runs_on_a_crate_edit_and_on_nothing_else_new(self):
+        settles = {"reads": ["a.yaml"], "modules": [], "kernel": True, "unclosable": False}
+        record = _record(BASE_FILES, {**TESTS, "rebuild/test_t.py::settles": settles}, dict(STATIC))
+        crate_edit = cc.select(record, {**BASE_FILES, "rebuild/kernel-rs/src/engine.rs": "9"})
+        assert "rebuild/test_t.py::settles" not in crate_edit.skip
+        assert "rebuild/test_t.py::reads_b" in crate_edit.skip
+        other_edit = cc.select(record, {**BASE_FILES, "b.yaml": "9"})
+        assert "rebuild/test_t.py::settles" in other_edit.skip
 
     def test_a_dynamically_imported_modules_closure_counts(self):
         record = _record(BASE_FILES, TESTS, dict(STATIC))
@@ -256,6 +295,7 @@ class TestMerge:
                 "rebuild/test_t.py::ran": {
                     "reads": ["fresh.yaml", "pkg/c.py"],
                     "modules": ["pkg/lazy.py"],
+                    "kernel": True,
                     "unclosable": False,
                 },
                 "rebuild/test_t.py::new": {"reads": [], "modules": [], "unclosable": True},
@@ -272,6 +312,8 @@ class TestMerge:
         assert merged["tests"]["rebuild/test_t.py::kept_off"]["reads"] == ["k.yaml"]
         assert merged["tests"]["rebuild/test_t.py::ran"]["reads"] == ["fresh.yaml", "pkg/c.py"]
         assert merged["tests"]["rebuild/test_t.py::new"]["unclosable"] is True
+        assert merged["tests"]["rebuild/test_t.py::ran"]["kernel"] is True
+        assert merged["tests"]["rebuild/test_t.py::kept_off"]["kernel"] is False
         assert set(merged["static"]) == {"rebuild/test_t.py", "pkg/lazy.py", "pkg/c.py", *cc.CONFTEST_PATHS}
         assert merged["tests"]["rebuild/test_t.py::ran"]["modules"] == ["pkg/c.py", "pkg/lazy.py"]
         assert "pkg/sib.py" in merged["static"]["rebuild/test_t.py"]
@@ -469,7 +511,7 @@ def shared():
 """
 
 CHILD_TESTS = '''
-"""One test per recorded fact: a plain read, a font mapped through HarfBuzz, a fixture's read credited to two requesters, a hermetic git child, an ordinary child, a multiprocessing child, and a dynamic import, which `importlib.import_module` performs without the import audit event a statement raises, so the module's source shows up as a read."""
+"""One test per recorded fact: a plain read, a font mapped through HarfBuzz, a fixture's read credited to two requesters, a hermetic git child, the kernel, an ordinary child, a multiprocessing child, and a dynamic import, which `importlib.import_module` performs without the import audit event a statement raises, so the module's source shows up as a read."""
 
 import multiprocessing
 import subprocess
@@ -500,6 +542,10 @@ def test_hermetic_git_child():
     subprocess.run(["git", "rev-parse", "HEAD"], cwd=REPO_ROOT, check=True, capture_output=True)
 
 
+def test_kernel_child():
+    subprocess.run([{binary!r}], check=False, capture_output=True)
+
+
 def test_ordinary_child():
     subprocess.run(["true"], check=True)
 
@@ -518,9 +564,11 @@ def test_dynamic_import():
 
 
 def _child(pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch, *args: str):
+    """The kernel is built here rather than in the child, whose `HOME` pytester points at a scratch directory where cargo would find no registry."""
+    kernel_exec.ensure_built()
     monkeypatch.setenv("PYTHONPATH", str(REPO_ROOT))
     pytester.makeconftest(CHILD_CONFTEST.format(root=str(REPO_ROOT)))
-    pytester.makepyfile(test_child=CHILD_TESTS.format(root=str(REPO_ROOT)))
+    pytester.makepyfile(test_child=CHILD_TESTS.format(root=str(REPO_ROOT), binary=str(kernel_exec.BINARY)))
     return pytester.runpytest_subprocess(
         "-p", "rebuild.conftest", "-p", "no:cacheprovider", "--rootdir", str(pytester.path), *args
     )
@@ -533,7 +581,7 @@ class TestTheRecorderEndToEnd:
         result = _child(
             pytester, monkeypatch, "--lane", "contracts", "-n", workers, "--closure-record", str(sidecar)
         )
-        result.assert_outcomes(passed=8)
+        result.assert_outcomes(passed=9)
         payload = cc.read_sidecar(sidecar)
         assert payload is not None
         tests = payload["tests"]
@@ -546,6 +594,9 @@ class TestTheRecorderEndToEnd:
             assert MANIFEST in tests[nodeid]["reads"], nodeid
             assert not tests[nodeid]["unclosable"]
         assert not tests["test_child.py::test_hermetic_git_child"]["unclosable"]
+        assert not tests["test_child.py::test_hermetic_git_child"]["kernel"]
+        assert tests["test_child.py::test_kernel_child"]["kernel"]
+        assert not tests["test_child.py::test_kernel_child"]["unclosable"]
         assert tests["test_child.py::test_ordinary_child"]["unclosable"]
         assert tests["test_child.py::test_multiprocessing_child"]["unclosable"]
         assert "rebuild/tools/pile_tally.py" in tests["test_child.py::test_dynamic_import"]["reads"]
@@ -570,7 +621,7 @@ class TestTheRecorderEndToEnd:
             "--closure-skip",
             str(selection),
         )
-        result.assert_outcomes(passed=6, deselected=2)
+        result.assert_outcomes(passed=7, deselected=2)
         payload = cc.read_sidecar(sidecar)
         assert payload is not None
         assert "test_child.py::test_plain_read" in payload["collected"]
@@ -578,5 +629,5 @@ class TestTheRecorderEndToEnd:
 
     def test_without_the_option_no_sidecar_is_written(self, pytester, monkeypatch, tmp_path):
         result = _child(pytester, monkeypatch, "--lane", "contracts", "-n", "0")
-        result.assert_outcomes(passed=8)
+        result.assert_outcomes(passed=9)
         assert not list(tmp_path.glob("*.json"))

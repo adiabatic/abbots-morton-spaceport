@@ -4,7 +4,7 @@ The suite divides into two lanes, and lane membership is *derived*, never hand-l
 
 A derived rule needs a check that the derivation is honest, so a `sys.addaudithook` guard makes lane membership structural rather than aspirational. It is installed once per process, sits inactive, and is switched on only for the setup, call, and teardown of a contracts-lane item; while active, any read or write whose path falls under the live-artifact trees (`rebuild/out/`, the whole of `tmp/`, the gate's own exempt prefixes, the root `verdicts-*` stores) raises `ContractsLaneViolation` naming the test and the path, and a phase that swallows that exception still fails through `pytest_runtest_makereport`. What the guard does not cover is documented at the hook: subprocess children run unaudited, and `Path.exists()`/stat never reach it — it is the content reads that are caught, which is the leak that matters.
 
-The same hook, in the same window, is the recorder behind the lane's per-test input closure (`rebuild.tools.contracts_closure` is the reader and the authority on what a closure means and when it may keep a test off a run). Every repo file a contracts item opens goes into that item's sink — a font `uharfbuzz` maps included, since `_wrap_blob_reads` announces that C-level read as the `open` event the hook handles — every module it imports for the first time into its module list, a file a module opens while its own body is being imported is credited to that module (`_attribute_import_read`) so every test whose closure holds the module inherits the read, and every child an item spawns marks it unclosable — a multiprocessing worker raises no audit event, so `BaseProcess.start` is wrapped to say so — with the one exception `contracts_closure.hermetic_child` argues. Reads a fixture makes during its own setup are credited to the fixture and folded into every item that requests it, since a session fixture sets up once and the hook sees that once under one item. `--closure-record PATH` has the controller write the sink of every worker to a sidecar at session end, and `--closure-skip PATH` deselects the contracts items a selection file names; both are the gate's to pass, and a bare `uv run pytest rebuild/` neither records nor skips.
+The same hook, in the same window, is the recorder behind the lane's per-test input closure (`rebuild.tools.contracts_closure` is the reader and the authority on what a closure means and when it may keep a test off a run). Every repo file a contracts item opens goes into that item's sink — a font `uharfbuzz` maps included, since `_wrap_blob_reads` announces that C-level read as the `open` event the hook handles — every module it imports for the first time into its module list, a file a module opens while its own body is being imported is credited to that module (`_attribute_import_read`) so every test whose closure holds the module inherits the read, and every child an item spawns marks it unclosable — a multiprocessing worker raises no audit event, so `BaseProcess.start` is wrapped to say so — with the two exceptions `contracts_closure.hermetic_child` and `contracts_closure.kernel_child` argue, the second flagging the item so the crate's sources join its closure. Reads a fixture makes during its own setup are credited to the fixture and folded into every item that requests it, since a session fixture sets up once and the hook sees that once under one item. `--closure-record PATH` has the controller write the sink of every worker to a sidecar at session end, and `--closure-skip PATH` deselects the contracts items a selection file names; both are the gate's to pass, and a bare `uv run pytest rebuild/` neither records nor skips.
 
 `_redirect_cycle_writes` is the standing guarantee that running the suite never costs the working repo a file; it is autouse, so every module in rebuild/ gets it whether or not its author thought about the cycle.
 
@@ -172,10 +172,11 @@ class ContractsLaneViolation(RuntimeError):
 
 @dataclass
 class _Sink:
-    """What one item, or one fixture's setup, was seen to depend on: the repo files it read, the names of the modules it loaded for the first time in this process, and whether it started a child the hook cannot follow."""
+    """What one item, or one fixture's setup, was seen to depend on: the repo files it read, the names of the modules it loaded for the first time in this process, whether it spawned the M1 kernel, and whether it started a child the hook cannot follow."""
 
     reads: set[str] = field(default_factory=set)
     module_names: set[str] = field(default_factory=set)
+    kernel: bool = False
     unclosable: bool = False
 
 
@@ -209,6 +210,10 @@ class _Guard:
     def spawn(self) -> None:
         for sink in self.sinks():
             sink.unclosable = True
+
+    def kernel(self) -> None:
+        for sink in self.sinks():
+            sink.kernel = True
 
 
 _guard = _Guard()
@@ -256,9 +261,13 @@ def _audit(event: str, args: tuple[object, ...]) -> None:
                 if _pending_imports:
                     _attribute_import_read(rel)
     elif event in _SPAWN_EVENTS:
-        if event == "subprocess.Popen" and len(args) > 1 and contracts_closure.hermetic_child(args[1]):
+        argv = args[1] if event == "subprocess.Popen" and len(args) > 1 else None
+        if contracts_closure.hermetic_child(argv):
             return
-        _guard.spawn()
+        if contracts_closure.kernel_child(argv):
+            _guard.kernel()
+        else:
+            _guard.spawn()
 
 
 def _module_file(name: str) -> str | None:
@@ -305,6 +314,7 @@ def _finish_item(item: pytest.Item) -> None:
     _item_closures[item.nodeid] = {
         "reads": sorted(reads),
         "modules": sorted(modules),
+        "kernel": any(sink.kernel for sink in sinks),
         "unclosable": any(sink.unclosable for sink in sinks),
     }
 
