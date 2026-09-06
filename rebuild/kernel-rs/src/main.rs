@@ -13,7 +13,7 @@
 //! - `ams-m1-kernel guard-sweep <spec> [--config=<token>]` writes the whole section 5.7 late-formation surface, one tab-separated verdict per line: quantified over the capability-unlock powerset, which is the surface the font ships, or answered by the one configuration `--config=` names — a token spelled as `--configs=` spells one, `default` included, so the no-feature configuration is nameable where an empty `--features=` could not name it — which is what the rebuild suite holds against the quantified one per configuration. The guard pins its own engine modes, so the two mode flags are a usage error here rather than a world to answer in.
 //! - `ams-m1-kernel enumerate <spec> [--features=a,b,…] [--candidacy-prospect] [--vote-slots-off] [--deep-classes-off] [--timings]` runs one configuration's whole table-build fixpoint and writes the uncompressed `ams-m1-transitions/1` stream — the head line and one row per window. `--deep-classes-off` is Python's `AMS_DEEP_CLASSES=0`, the label-grain arm; in the pinned candidacy world enumeration is label-grain regardless, so the flag is accepted and does nothing there. The stream is written plain, which is what `kernel_exec.read_stream` parses back.
 //! - `ams-m1-kernel enumerate-configs <spec> <outdir> --configs=a,b,… [--threads=N] [--candidacy-prospect] [--vote-slots-off] [--deep-classes-off] [--timings]` runs several configurations' fixpoints in one process and writes each one's stream to `<outdir>/transitions-<config>.ndjson`, creating the directory with its parents and overwriting what it finds. stdout stays silent, because here the answer is the files — and they mean nothing except on exit 0, since a configuration that fails exits 1 naming itself and leaves whatever the other configurations had already written behind. A run that does reach exit 0 leaves that promise glob-safe: any `transitions-*.ndjson` already in the directory naming a configuration this run was not asked about is swept before the first one is written, so the whole set a consumer finds there is the set the command line named. `--configs=` is required and spells the configurations the way Python does, `conform.ACCEPTANCE_CONFIGS`'s own tokens: `default` for no features, anything else a `+`-joined feature list whose names are checked against the spec exactly as `--features=` checks them. A token that is not the canonical spelling of the features it names — out of order, repeated, empty, or empty between two `+` — is a usage error rather than a configuration, which is what keeps the filename, the stream head's `config` and the caller's own word for it in agreement by construction. The world flags name one world for the whole invocation, as they do for one `enumerate`.
-//! - `ams-m1-kernel build-tables <spec> <outdir> --configs=a,b,… --inputs=<stamp> [--threads=N] [--config-seed-off] [--candidacy-prospect] [--vote-slots-off] [--deep-classes-off] [--timings] [--cache-census]` runs the same fixpoints and then folds each one in place, writing `<outdir>/settlement-<config>.tsv`, `<outdir>/treaties-<config>.tsv` and the uncompressed `<outdir>/windows-<config>.tsv` under the fingerprint `--inputs` names, and writing one `{"config":…,"digest":…}` line per configuration to stdout in the order the command line named them. The configurations past `default` are enumerated as deltas over it: `default` runs first and alone, keeping its trace memo, and the rest then run `--threads` at a time reading that memo for every window naming none of their own unlocking runes ([`ams_m1_kernel::memo`]), which files the bytes a from-scratch enumeration files; `--config-seed-off` is that from-scratch arm, and a set without `default` runs as if it were on. The same memo crosses builds: `--memo-stamp=<text>` writes each configuration's finished memo as `<outdir>/memo-<config>.tsv` under a head carrying the configuration, the world and that stamp, and `--seed=<dir>` reads a previous build's files from there behind `--edited=a,b,…`, the runes whose content moved since, so a window naming none of them is answered as it was answered then; a file for another configuration or world is refused, a missing one is simply not read, and `--edited=` without `--seed=` is a usage error. No stream is written and none is read: the fold runs on the product the worklist still holds, so the several hundred megabytes a stream would cost to write and read back are never spent. The harness gzips the windows payload, as it gzips the stream, for the same reason. The directory is created and nothing in it is swept — a build writes into its own artifact directory beside a dozen other families. `--inputs=` is required, because a serialized enumeration is trusted or refused on the stamp it carries.
+//! - `ams-m1-kernel build-tables <spec> <outdir> --configs=a,b,… --inputs=<stamp> [--threads=N] [--config-seed-off] [--candidacy-prospect] [--vote-slots-off] [--deep-classes-off] [--timings] [--cache-census]` runs the same fixpoints and then folds each one in place, writing `<outdir>/settlement-<config>.tsv`, `<outdir>/treaties-<config>.tsv` and the uncompressed `<outdir>/windows-<config>.tsv` under the fingerprint `--inputs` names, and writing one `{"config":…,"digest":…}` line per configuration to stdout in the order the command line named them. The configurations past `default` are enumerated as deltas over it: `default` runs first and alone, keeping its trace memo, and the rest then run `--threads` at a time reading that memo for every window naming none of their own unlocking runes ([`ams_m1_kernel::memo`]), which files the bytes a from-scratch enumeration files; `--config-seed-off` is that from-scratch arm, and a set without `default` runs as if it were on. The same memo crosses builds: `--memo-stamp=<text>` writes each configuration's finished memo as `<outdir>/memo-<config>.tsv` under a head carrying the configuration, the world and that stamp, and `--seed=<dir>` reads a previous build's files from there behind `--edited=a,b,…`, the runes whose content moved since, and `--moved-classes=a,b,…`, the predicate classes whose membership did, so a window whose evaluation read none of them is answered as it was answered then; a file for another configuration or world is refused, a missing one is simply not read, a moved class this spec no longer declares is passed over (nothing in a valid memo can have read it), and either list without `--seed=` is a usage error. No stream is written and none is read: the fold runs on the product the worklist still holds, so the several hundred megabytes a stream would cost to write and read back are never spent. The harness gzips the windows payload, as it gzips the stream, for the same reason. The directory is created and nothing in it is swept — a build writes into its own artifact directory beside a dozen other families. `--inputs=` is required, because a serialized enumeration is trusted or refused on the stamp it carries.
 //! - `ams-m1-kernel replay-strings <spec> <outdir> --configs=a,b,… --horizon=N [--families=a,b,…] [--threads=N] [--candidacy-prospect] [--vote-slots-off] [--timings]` reads each named configuration's `<outdir>/settlement-<config>.tsv` back and walks every text of length 1 through `N` over the spec's alphabet — or, with `--families=`, only the texts naming one of those runes, a ligature being named through its components — applying the rules first-match with the settled left fed forward and holding every window's rule outcome to this engine's own settlement of it ([`ams_m1_kernel::replay`]). It is the enumeration-completeness check `run_m1` runs on every build, and one `{"config":…,"texts":…,"windows":…,"skipped":…}` line per configuration on stdout is a clean answer; a window the rules and the engine disagree on exits 1 naming the configuration, the window and the text it was reached in, as does a window the engine refuses. The horizon is required rather than defaulted, because the depth a walk proved is a claim its caller records. The grain flag is not spelled: a replay settles single windows, which have no grain to name.
 //! - `ams-m1-kernel liveness-cases <spec> <keys> [--features=a,b,…] [--candidacy-prospect] [--vote-slots-off]` answers one deep-slot question per key line: `3<tab><input><tab><r1><tab><r2>` and `4<tab><input><tab><r1><tab><r2><tab><r3>` answer `live` or `dead` — the full filter verdict, chain arm and liveness arm together — and `fibers<tab><input><tab><r1><tab><r2>` answers with the context's fiber partition as compact JSON. Every name is a rune family name; a key naming anything else stops the run. Each output line is the key line, a tab, and the answer, in file order.
 //!
@@ -44,7 +44,7 @@ use ams_m1_kernel::options::WindowOptions;
 use ams_m1_kernel::stream::feature_config_token;
 use ams_m1_kernel::{cases, emit, fanout, guard, parse};
 
-const USAGE: &str = "usage: ams-m1-kernel spec-echo <spec>\n       ams-m1-kernel settle-cases <spec> <cases> [--features=a,b] [--candidacy-prospect] [--vote-slots-off]\n       ams-m1-kernel guard-sweep <spec> [--config=default|ss03+ss05]\n       ams-m1-kernel enumerate <spec> [--features=a,b] [--candidacy-prospect] [--vote-slots-off] [--deep-classes-off] [--timings] [--cache-census]\n       ams-m1-kernel enumerate-configs <spec> <outdir> --configs=default,ss03 [--threads=N] [--candidacy-prospect] [--vote-slots-off] [--deep-classes-off] [--timings] [--cache-census]\n       ams-m1-kernel build-tables <spec> <outdir> --configs=default,ss03 --inputs=<stamp> [--threads=N] [--config-seed-off] [--seed=<dir> [--edited=qsPea,qsTea]] [--memo-stamp=<text>] [--candidacy-prospect] [--vote-slots-off] [--deep-classes-off] [--timings] [--cache-census]\n       ams-m1-kernel replay-strings <spec> <outdir> --configs=default,ss03 --horizon=N [--families=qsPea,qsTea] [--threads=N] [--candidacy-prospect] [--vote-slots-off] [--timings]\n       ams-m1-kernel liveness-cases <spec> <keys> [--features=a,b] [--candidacy-prospect] [--vote-slots-off]";
+const USAGE: &str = "usage: ams-m1-kernel spec-echo <spec>\n       ams-m1-kernel settle-cases <spec> <cases> [--features=a,b] [--candidacy-prospect] [--vote-slots-off]\n       ams-m1-kernel guard-sweep <spec> [--config=default|ss03+ss05]\n       ams-m1-kernel enumerate <spec> [--features=a,b] [--candidacy-prospect] [--vote-slots-off] [--deep-classes-off] [--timings] [--cache-census]\n       ams-m1-kernel enumerate-configs <spec> <outdir> --configs=default,ss03 [--threads=N] [--candidacy-prospect] [--vote-slots-off] [--deep-classes-off] [--timings] [--cache-census]\n       ams-m1-kernel build-tables <spec> <outdir> --configs=default,ss03 --inputs=<stamp> [--threads=N] [--config-seed-off] [--seed=<dir> [--edited=qsPea,qsTea] [--moved-classes=a,b]] [--memo-stamp=<text>] [--candidacy-prospect] [--vote-slots-off] [--deep-classes-off] [--timings] [--cache-census]\n       ams-m1-kernel replay-strings <spec> <outdir> --configs=default,ss03 --horizon=N [--families=qsPea,qsTea] [--threads=N] [--candidacy-prospect] [--vote-slots-off] [--timings]\n       ams-m1-kernel liveness-cases <spec> <keys> [--features=a,b] [--candidacy-prospect] [--vote-slots-off]";
 
 /// What a command line named, before any verb has said how many positionals it wants. The three mode flags are spelled as negations because all three modes ship on, so a plain invocation is the shipping configuration.
 struct Flags<'a> {
@@ -61,6 +61,7 @@ struct Flags<'a> {
     config_seed: bool,
     seed: Option<&'a str>,
     edited: Option<Vec<&'a str>>,
+    moved_classes: Option<Vec<&'a str>>,
     memo_stamp: Option<&'a str>,
     simulated_prospect: bool,
     vote_slots: bool,
@@ -82,7 +83,7 @@ struct Vocabulary {
     timings: bool,
     /// `--horizon=` and `--families=`, the string replay's own two: how deep to walk, and which runes' texts to walk.
     horizon: bool,
-    /// The table build's own four: `--config-seed-off` enumerates every configuration from scratch instead of reading `default`'s finished memo for the windows a configuration shares with it; `--seed=` names a previous build's memo files and `--edited=` the runes that moved since, which only arrives beside it; `--memo-stamp=` is the stamp this build writes its own memo files under, and a build handed none writes none.
+    /// The table build's own five: `--config-seed-off` enumerates every configuration from scratch instead of reading `default`'s finished memo for the windows a configuration shares with it; `--seed=` names a previous build's memo files, and `--edited=` the runes and `--moved-classes=` the predicate classes that moved since, which only arrive beside it; `--memo-stamp=` is the stamp this build writes its own memo files under, and a build handed none writes none.
     seeding: bool,
 }
 
@@ -205,6 +206,7 @@ struct TablesPlan<'a> {
     config_seed: bool,
     seed: Option<&'a str>,
     edited: Vec<&'a str>,
+    moved_classes: Vec<&'a str>,
     memo_stamp: Option<&'a str>,
     simulated_prospect: bool,
     vote_slots: bool,
@@ -328,6 +330,7 @@ fn scan_flags(rest: &[String], vocabulary: Vocabulary) -> Option<Flags<'_>> {
     let mut config_seed = true;
     let mut seed: Option<&str> = None;
     let mut edited: Option<Vec<&str>> = None;
+    let mut moved_classes: Option<Vec<&str>> = None;
     let mut memo_stamp: Option<&str> = None;
     let mut simulated_prospect = true;
     let mut vote_slots = true;
@@ -355,6 +358,13 @@ fn scan_flags(rest: &[String], vocabulary: Vocabulary) -> Option<Flags<'_>> {
                 return None;
             }
             edited = Some(list.split(',').collect());
+        } else if vocabulary.seeding
+            && let Some(list) = argument.strip_prefix("--moved-classes=")
+        {
+            if list.is_empty() || moved_classes.is_some() {
+                return None;
+            }
+            moved_classes = Some(list.split(',').collect());
         } else if vocabulary.seeding
             && let Some(stamp) = argument.strip_prefix("--memo-stamp=")
         {
@@ -435,6 +445,7 @@ fn scan_flags(rest: &[String], vocabulary: Vocabulary) -> Option<Flags<'_>> {
         config_seed,
         seed,
         edited,
+        moved_classes,
         memo_stamp,
         simulated_prospect,
         vote_slots,
@@ -542,7 +553,7 @@ fn plan_tables(rest: &[String]) -> Option<TablesPlan<'_>> {
     let [spec, outdir] = flags.positionals.as_slice() else {
         return None;
     };
-    if flags.edited.is_some() && flags.seed.is_none() {
+    if (flags.edited.is_some() || flags.moved_classes.is_some()) && flags.seed.is_none() {
         return None;
     }
     let configs = config_requests(flags.configs?)?;
@@ -555,6 +566,7 @@ fn plan_tables(rest: &[String]) -> Option<TablesPlan<'_>> {
         config_seed: flags.config_seed,
         seed: flags.seed,
         edited: flags.edited.unwrap_or_default(),
+        moved_classes: flags.moved_classes.unwrap_or_default(),
         memo_stamp: flags.memo_stamp,
         simulated_prospect: flags.simulated_prospect,
         vote_slots: flags.vote_slots,
@@ -778,6 +790,11 @@ fn build_tables(plan: &TablesPlan<'_>) -> Result<(), String> {
                 .ok_or_else(|| format!("{}: {name} is not a rune this spec models", plan.spec))
         })
         .collect::<Result<Vec<Sym>, String>>()?;
+    let moved_classes: Vec<Sym> = plan
+        .moved_classes
+        .iter()
+        .filter_map(|name| index.sym_of(name))
+        .collect();
     let answers = fanout::run_configs_tables(
         &index,
         &resolved,
@@ -790,6 +807,7 @@ fn build_tables(plan: &TablesPlan<'_>) -> Result<(), String> {
             config_seed: plan.config_seed,
             seed_dir: plan.seed.map(PathBuf::from),
             edited,
+            moved_classes,
             memo_stamp: plan.memo_stamp.map(str::to_owned),
         },
     )

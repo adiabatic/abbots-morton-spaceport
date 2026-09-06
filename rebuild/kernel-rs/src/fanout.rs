@@ -30,12 +30,13 @@ pub struct Configuration<'a> {
     pub features: Vec<Sym>,
 }
 
-/// What a table build may read before it settles a window itself, and what it leaves for the next one ([`crate::memo`]). `config_seed` is the per-configuration delta: `default` enumerates first, alone, and every other configuration then reads its finished memo for the windows naming none of its own unlocking runes; off, every configuration enumerates from scratch, which is the from-scratch arm the delta is held byte-identical to. `seed_dir` is a previous build's memo files, read as a base per configuration behind an exclusion naming `edited`, the runes that moved since that build; a configuration with no file there reads nothing. `memo_stamp` is the stamp under which this build writes its own memo files beside its tables, and a build handed none writes none.
+/// What a table build may read before it settles a window itself, and what it leaves for the next one ([`crate::memo`]). `config_seed` is the per-configuration delta: `default` enumerates first, alone, and every other configuration then reads its finished memo for the windows naming none of its own unlocking runes; off, every configuration enumerates from scratch, which is the from-scratch arm the delta is held byte-identical to. `seed_dir` is a previous build's memo files, read as a base per configuration behind an exclusion naming `edited`, the runes whose content moved since that build, and `moved_classes`, the predicate classes whose membership did; a configuration with no file there reads nothing. `memo_stamp` is the stamp under which this build writes its own memo files beside its tables, and a build handed none writes none.
 #[derive(Clone, Debug)]
 pub struct Seeding {
     pub config_seed: bool,
     pub seed_dir: Option<PathBuf>,
     pub edited: Vec<Sym>,
+    pub moved_classes: Vec<Sym>,
     pub memo_stamp: Option<String>,
 }
 
@@ -45,6 +46,7 @@ impl Default for Seeding {
             config_seed: true,
             seed_dir: None,
             edited: Vec::new(),
+            moved_classes: Vec::new(),
             memo_stamp: None,
         }
     }
@@ -306,7 +308,8 @@ pub fn run_configs_tables(
 ) -> Result<Vec<TableAnswer>, String> {
     std::fs::create_dir_all(outdir).map_err(|error| format!("{}: {error}", outdir.display()))?;
     let world = modes.world_token();
-    let edited = Exclusion::of(seeding.edited.iter().copied());
+    let edited = Exclusion::of(seeding.edited.iter().copied())
+        .with_classes(seeding.moved_classes.iter().copied());
     let default_seat = seeding
         .config_seed
         .then(|| configs.iter().position(|config| config.features.is_empty()))
@@ -376,7 +379,8 @@ pub fn run_configs_tables(
         }];
         bases.extend(base_over(
             previous_default.as_ref(),
-            Exclusion::of(unlocking.iter().chain(edited.runes()).copied()),
+            Exclusion::of(unlocking.iter().chain(edited.runes()).copied())
+                .with_classes(edited.classes().iter().copied()),
         ));
         bases.extend(base_over(previous_own.as_ref(), edited.clone()));
         let carried = base_over(previous_own.as_ref(), edited.clone())

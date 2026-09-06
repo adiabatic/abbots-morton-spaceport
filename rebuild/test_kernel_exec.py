@@ -478,10 +478,12 @@ class TestTheKernelInvocation:
     ):
         """The seed across builds, held at the artifacts: a build over an edited spec into the directory a previous build left its memos in reads them behind the edited rune and files the same packed windows, settlement TSVs and treaty TSVs, byte for byte, as a build of the edited spec into an empty directory, while actually seeding — the previous memos are unpacked and the edited rune named — and leaves memos of its own under the edited spec's stamp."""
         asked = []
+        asked_classes = []
         real = kernel_exec.build_table_files
 
         def build_table_files(*args, **rest):
             asked.append((rest.get("seed"), rest.get("edited"), rest.get("memo_stamp")))
+            asked_classes.append(rest.get("moved_classes"))
             return real(*args, **rest)
 
         monkeypatch.setattr(kernel_exec, "build_table_files", build_table_files)
@@ -489,7 +491,9 @@ class TestTheKernelInvocation:
         edited = replace(
             SPEC, runes={**SPEC.runes, "qsTea": replace(tea, policy=replace(tea.policy, refuse=()))}
         )
-        assert run_m1.memo_edited(run_m1.memo_stamp(SPEC), run_m1.memo_stamp(edited)) == ["qsTea"]
+        assert run_m1.memo_edited(run_m1.memo_stamp(SPEC), run_m1.memo_stamp(edited)) == run_m1.MemoDelta(
+            runes=("qsTea",), classes=()
+        )
         seeded = tmp_path / "seeded"
         run_m1.build_tables(SPEC, seeded, inputs=STAMP)
         assert asked[-1] == (None, (), run_m1.memo_stamp(SPEC))
@@ -501,6 +505,7 @@ class TestTheKernelInvocation:
         run_m1.build_tables(edited, seeded, inputs=STAMP)
         seed, named, stamp = asked[-1]
         assert seed is not None and named == ("qsTea",) and stamp == run_m1.memo_stamp(edited)
+        assert asked_classes[-1] == ()
         scratch = tmp_path / "scratch"
         run_m1.build_tables(edited, scratch, inputs=STAMP)
         assert asked[-1] == (None, (), run_m1.memo_stamp(edited))
@@ -609,7 +614,9 @@ class TestTheMemoStamp:
             },
         )
         assert run_m1.rune_content_digests(reworded) == run_m1.rune_content_digests(SPEC)
-        assert run_m1.memo_edited(run_m1.memo_stamp(SPEC), run_m1.memo_stamp(reworded)) == []
+        assert run_m1.memo_edited(run_m1.memo_stamp(SPEC), run_m1.memo_stamp(reworded)) == run_m1.MemoDelta(
+            runes=(), classes=()
+        )
 
     def test_a_moved_structure_or_another_format_refuses_the_memo_and_a_new_rune_is_edited(self):
         stamp = json.loads(run_m1.memo_stamp(SPEC))
@@ -620,9 +627,27 @@ class TestTheMemoStamp:
         fewer = json.dumps(
             {**stamp, "runes": {name: digest for name, digest in list(stamp["runes"].items())[1:]}}
         )
-        assert run_m1.memo_edited(fewer, run_m1.memo_stamp(SPEC)) == [next(iter(stamp["runes"]))]
+        assert run_m1.memo_edited(fewer, run_m1.memo_stamp(SPEC)) == run_m1.MemoDelta(
+            runes=(next(iter(stamp["runes"])),), classes=()
+        )
         more = json.dumps({**stamp, "runes": {**stamp["runes"], "qsGone": "digest"}})
         assert run_m1.memo_edited(more, run_m1.memo_stamp(SPEC)) is None
+
+    def test_a_class_whose_membership_moved_is_named_and_moves_no_structure(self):
+        """The class-membership hatch of the locality theorem is mechanical (issue #184): a rune joining a predicate class leaves the memo readable — the structure stamp is cut without the classes — and names the class alone as moved, which the crate's read journal turns into exactly the windows that consulted it."""
+        registry = SPEC.registry
+        name, members = next(iter(registry.predicate_classes.items()))
+        joined = replace(
+            SPEC,
+            registry=replace(
+                registry,
+                predicate_classes={**registry.predicate_classes, name: frozenset(members) | {"qsGone"}},
+            ),
+        )
+        assert run_m1.memo_structure_stamp(joined) == run_m1.memo_structure_stamp(SPEC)
+        assert run_m1.memo_edited(run_m1.memo_stamp(SPEC), run_m1.memo_stamp(joined)) == run_m1.MemoDelta(
+            runes=(), classes=(name,)
+        )
 
     def test_the_seed_reads_only_memos_whose_head_and_stamp_hold(self, tmp_path):
         stamp = run_m1.memo_stamp(SPEC)
@@ -638,6 +663,7 @@ class TestTheMemoStamp:
         seed = run_m1.memo_seed(tmp_path, stamp, tmp_path / "seed")
         assert seed is not None
         assert seed.edited == ()
+        assert seed.moved_classes == ()
         assert sorted(path.name for path in seed.directory.iterdir()) == ["memo-default.tsv"]
         assert run_m1.memo_seed(tmp_path / "empty", stamp, tmp_path / "seed2") is None
 

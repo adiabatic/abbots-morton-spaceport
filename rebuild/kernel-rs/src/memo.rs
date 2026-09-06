@@ -4,6 +4,8 @@
 //!
 //! The same rule carries a memo across builds (issue #179). A table build writes each configuration's finished memo beside its tables as `memo-<config>.tsv` ([`write_memo`]), and the next build reads it back as a base whose exclusion names every rune edited in between ([`read_memo`]): a window naming no edited rune settles as it settled last time, and only the rest are traced. The file is at the raw-window grain of the memo itself rather than at the rows' — it holds the probe windows the liveness and fiber derivations trace, with their virtual lefts and unknown coordinates, beside the rows' own — so the derivations that quantify over the whole alphabet are re-run every build and answered out of the base wherever a probe names no edited rune, which is what keeps a verdict that aggregates over every letter exact without persisting the verdict itself. Which runes count as edited, and whether the file may be read at all, is `run_m1`'s decision: the head carries the configuration, the world and an opaque stamp the writer chose, the crate refuses a file whose configuration or world is not the one asked for, and everything about the stamp — the structure it names and the rune digests it records — is read on the Python side.
 //!
+//! Which windows a base may answer is decided by what each entry's evaluation read (issue #184). The index journals every rune whose resolved content and every predicate class whose membership its accessors hand out while a capture is open ([`crate::index`]), and the entry keeps that set beside its fired delta, so an [`Exclusion`] naming runes and classes refuses exactly the entries that read one of them — a window whose deep slots name a rune its evaluation never consulted stays answerable when that rune moves, and a class whose membership moved invalidates only the windows that consulted it rather than the whole store. The six runes a key names are still refused as well, a belt under the journal: over-invalidation costs a trace, under-invalidation a wrong table.
+//!
 //! The snapshot is shared behind an [`Arc`] rather than copied per configuration, because the memo is the enumeration's high-water mark and a copy per delta configuration would put the fan-out back on the memory bound the delta was meant to lift. It therefore holds no `Rc`, no reference into any engine, and no ladder — the fixpoint never records one — and a base is read-only from the moment it is built.
 
 use std::collections::{HashMap, HashSet};
@@ -12,8 +14,8 @@ use std::io::{BufRead, Write as _};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use crate::engine::{DeltaSeat, Pointer, TraceEntry, TraceKey};
-use crate::index::SpecIndex;
+use crate::engine::{DeltaSeat, Pointer, ReadsSeat, TraceEntry, TraceKey};
+use crate::index::{Read, SpecIndex};
 use crate::model::{PolicyRecord, Provenance, Sym, When};
 use crate::types::{
     AdjustmentToken, CellId, DecidedStage, NotesSeat, Settled, SettledSeat, TokenKind,
@@ -27,6 +29,7 @@ pub struct MemoSnapshot {
     pub(crate) settled: Vec<Settled>,
     pub(crate) notes: Vec<Vec<String>>,
     pub(crate) deltas: Vec<Box<[Pointer]>>,
+    pub(crate) reads: Vec<Box<[Read]>>,
 }
 
 impl MemoSnapshot {
@@ -60,20 +63,33 @@ impl MemoSnapshot {
     pub(crate) fn delta(&self, entry: TraceEntry) -> &[Pointer] {
         &self.deltas[entry.delta.index()]
     }
+
+    /// The runes and classes one entry's evaluation read, where they sit.
+    pub(crate) fn reads(&self, entry: TraceEntry) -> &[Read] {
+        &self.reads[entry.reads.index()]
+    }
 }
 
-/// The runes a base may not answer for: a key naming any of them is a miss on that base, whatever the base holds. Membership is by the six runes a [`TraceKey`] carries — the left cell's, the input's and the four raw slots' — because those are the only runes the engine reads while settling the window (the module doc says why the theorem makes that the whole list).
+/// What a base may not answer for: an entry whose evaluation read any of these runes' content or any of these classes' membership is a miss on that base, whatever the base holds, and so is an entry whose key names one of the runes — the six a [`TraceKey`] carries, the left cell's, the input's and the four raw slots' — which the journal makes redundant and the module doc keeps as a belt.
 #[derive(Clone, Debug, Default)]
 pub struct Exclusion {
     runes: HashSet<Sym>,
+    classes: HashSet<Sym>,
 }
 
 impl Exclusion {
-    /// An exclusion over exactly these runes.
+    /// An exclusion over exactly these runes and no classes.
     pub fn of(runes: impl IntoIterator<Item = Sym>) -> Self {
         Self {
             runes: runes.into_iter().collect(),
+            classes: HashSet::new(),
         }
+    }
+
+    /// The same exclusion naming these predicate classes as well.
+    pub fn with_classes(mut self, classes: impl IntoIterator<Item = Sym>) -> Self {
+        self.classes = classes.into_iter().collect();
+        self
     }
 
     /// An exclusion naming nothing, under which a base answers every key it holds.
@@ -81,14 +97,26 @@ impl Exclusion {
         Self::default()
     }
 
-    /// Whether this base may answer for `key`: none of the runes it names is excluded.
-    pub(crate) fn admits(&self, key: &TraceKey) -> bool {
-        self.runes.is_empty() || !key.runes_named().any(|rune| self.runes.contains(&rune))
+    /// Whether this base may answer for `key` given what its entry read: no named rune among the key's, and no excluded rune or class among the reads.
+    pub(crate) fn admits(&self, key: &TraceKey, reads: &[Read]) -> bool {
+        if self.runes.is_empty() && self.classes.is_empty() {
+            return true;
+        }
+        !key.runes_named().any(|rune| self.runes.contains(&rune))
+            && !reads.iter().any(|read| match read {
+                Read::Rune(rune) => self.runes.contains(rune),
+                Read::Class(class) => self.classes.contains(class),
+            })
     }
 
     /// The runes this exclusion names.
     pub fn runes(&self) -> &HashSet<Sym> {
         &self.runes
+    }
+
+    /// The classes this exclusion names.
+    pub fn classes(&self) -> &HashSet<Sym> {
+        &self.classes
     }
 }
 
@@ -277,6 +305,18 @@ fn delta_line(index: &SpecIndex, symbols: &mut Symbols, pointers: &[Pointer]) ->
     format!("D\t{}", spelled.join(&LIST_SEPARATOR.to_string()))
 }
 
+/// One read set as its `R` line: `r` and a rune's symbol seat, or `c` and a class's.
+fn reads_line(index: &SpecIndex, symbols: &mut Symbols, reads: &[Read]) -> String {
+    let spelled: Vec<String> = reads
+        .iter()
+        .map(|read| match read {
+            Read::Rune(rune) => format!("r{}", symbols.seat(index, *rune)),
+            Read::Class(class) => format!("c{}", symbols.seat(index, *class)),
+        })
+        .collect();
+    format!("R\t{}", spelled.join(&LIST_SEPARATOR.to_string()))
+}
+
 /// One notes list as its `N` line, or the refusal a note the format cannot carry earns.
 fn notes_line(list: &[String]) -> Result<String, String> {
     for note in list {
@@ -287,7 +327,7 @@ fn notes_line(list: &[String]) -> Result<String, String> {
     Ok(format!("N\t{}", list.join(&LIST_SEPARATOR.to_string())))
 }
 
-/// One configuration's memo written as `memo-<config>.tsv`: the head line, then the four tables — `Y` for every symbol the file names, `S` for the settled records, `N` for the notes lists, `D` for the fired deltas, each seated in file order, the lists' members set apart by [`LIST_SEPARATOR`] — then one `E` line per window naming its key by symbol seats, its three record seats, its prospect, its joint flag and its stage. The windows are `own`'s and, after them, every window of each carried base that the base's exclusion admits and no earlier source held, so the file is the union a later build may read and never a copy of a window twice, and they go out in key order rather than in the order the maps happen to hold them, so two builds of one memo write one file. Every name is spelled as text once, in the `Y` table, because a symbol is an interning order this spec happens to have and the next spec need not; the windows themselves are streamed to the file rather than built up in memory, since a configuration's memo runs to millions of them.
+/// One configuration's memo written as `memo-<config>.tsv`: the head line, then the five tables — `Y` for every symbol the file names, `S` for the settled records, `N` for the notes lists, `D` for the fired deltas, `R` for the read sets, each seated in file order, the lists' members set apart by [`LIST_SEPARATOR`] — then one `E` line per window naming its key by symbol seats, its four record seats, its prospect, its joint flag and its stage. The windows are `own`'s and, after them, every window of each carried base that the base's exclusion admits and no earlier source held, so the file is the union a later build may read and never a copy of a window twice, and they go out in key order rather than in the order the maps happen to hold them, so two builds of one memo write one file. Every name is spelled as text once, in the `Y` table, because a symbol is an interning order this spec happens to have and the next spec need not; the windows themselves are streamed to the file rather than built up in memory, since a configuration's memo runs to millions of them.
 ///
 /// The stamp may carry neither a tab nor a newline, since the head is one tab-separated line; a writer handing one over is refused rather than written around.
 pub fn write_memo(
@@ -305,14 +345,16 @@ pub fn write_memo(
         .chain(carried.iter().map(|base| (&*base.memo, &base.excluded)))
         .collect();
     let held_earlier = |seat: usize, key: &TraceKey| {
-        sources[..seat]
-            .iter()
-            .any(|(memo, excluded)| memo.entries.contains_key(key) && excluded.admits(key))
+        sources[..seat].iter().any(|(memo, excluded)| {
+            memo.entries
+                .get(key)
+                .is_some_and(|entry| excluded.admits(key, memo.reads(*entry)))
+        })
     };
     let mut keyed: Vec<(&TraceKey, TraceEntry, usize)> = Vec::new();
     for (seat, (memo, excluded)) in sources.iter().enumerate() {
         for (key, entry) in &memo.entries {
-            if !excluded.admits(key) || held_earlier(seat, key) {
+            if !excluded.admits(key, memo.reads(*entry)) || held_earlier(seat, key) {
                 continue;
             }
             keyed.push((key, *entry, seat));
@@ -323,8 +365,9 @@ pub fn write_memo(
     let mut settled: FileTable<Settled> = FileTable::new();
     let mut notes: FileTable<Vec<String>> = FileTable::new();
     let mut deltas: FileTable<Box<[Pointer]>> = FileTable::new();
+    let mut reads: FileTable<Box<[Read]>> = FileTable::new();
     // Two passes over the same order: the first seats every symbol and record so the tables can go out ahead of the windows that name them, the second streams the windows.
-    let mut seated: Vec<(u32, u32, u32)> = Vec::with_capacity(keyed.len());
+    let mut seated: Vec<(u32, u32, u32, u32)> = Vec::with_capacity(keyed.len());
     for (key, entry, seat) in &keyed {
         let (memo, _) = sources[*seat];
         for symbol in key.runes_named() {
@@ -343,7 +386,10 @@ pub fn write_memo(
         let delta_seat = deltas.seat(&memo.deltas[entry.delta.index()], |delta| {
             Ok(delta_line(index, &mut symbols, delta))
         })?;
-        seated.push((settled_seat, notes_seat, delta_seat));
+        let reads_seat = reads.seat(&memo.reads[entry.reads.index()], |list| {
+            Ok(reads_line(index, &mut symbols, list))
+        })?;
+        seated.push((settled_seat, notes_seat, delta_seat, reads_seat));
     }
     let file =
         std::fs::File::create(path).map_err(|error| format!("{}: {error}", path.display()))?;
@@ -355,13 +401,21 @@ pub fn write_memo(
         head.config, head.world, head.stamp
     )
     .map_err(complain)?;
-    for table in [&symbols.lines, &settled.lines, &notes.lines, &deltas.lines] {
+    for table in [
+        &symbols.lines,
+        &settled.lines,
+        &notes.lines,
+        &deltas.lines,
+        &reads.lines,
+    ] {
         for line in table {
             writeln!(out, "{line}").map_err(complain)?;
         }
     }
     let mut line = String::new();
-    for ((key, entry, _), (settled_seat, notes_seat, delta_seat)) in keyed.iter().zip(seated) {
+    for ((key, entry, _), (settled_seat, notes_seat, delta_seat, reads_seat)) in
+        keyed.iter().zip(seated)
+    {
         line.clear();
         let _ = write!(
             line,
@@ -382,7 +436,7 @@ pub fn write_memo(
         }
         let _ = write!(
             line,
-            "\t{settled_seat}\t{notes_seat}\t{delta_seat}\t{}\t{}\t{}",
+            "\t{settled_seat}\t{notes_seat}\t{delta_seat}\t{reads_seat}\t{}\t{}\t{}",
             entry.prospect,
             u8::from(entry.joint_floor),
             entry.decided_stage.as_str()
@@ -465,6 +519,7 @@ pub(crate) fn read_memo(
     let mut symbols: Vec<Option<Sym>> = Vec::new();
     let mut settled_usable: Vec<bool> = Vec::new();
     let mut delta_usable: Vec<bool> = Vec::new();
+    let mut reads_usable: Vec<bool> = Vec::new();
     for (offset, line) in lines {
         let number = offset + 1;
         let line = line.map_err(|error| format!("{}: {error}", path.display()))?;
@@ -544,6 +599,29 @@ pub(crate) fn read_memo(
                 memo.deltas
                     .push(parsed.unwrap_or_default().into_boxed_slice());
             }
+            Some("R") => {
+                let text = fields.next().unwrap_or_default();
+                if fields.next().is_some() {
+                    return Err(complain(number, "a read set is one field"));
+                }
+                let parsed: Option<Vec<Read>> = if text.is_empty() {
+                    Some(Vec::new())
+                } else {
+                    text.split(LIST_SEPARATOR)
+                        .map(|read| {
+                            let symbol = symbol_at(&symbols, &read[1..]).ok()??;
+                            match &read[..1] {
+                                "r" => Some(Read::Rune(symbol)),
+                                "c" => Some(Read::Class(symbol)),
+                                _ => None,
+                            }
+                        })
+                        .collect()
+                };
+                reads_usable.push(parsed.is_some());
+                memo.reads
+                    .push(parsed.unwrap_or_default().into_boxed_slice());
+            }
             Some("E") => {
                 let fields: Vec<&str> = fields.collect();
                 let [
@@ -560,22 +638,24 @@ pub(crate) fn read_memo(
                     settled_seat,
                     notes_seat,
                     delta_seat,
+                    reads_seat,
                     prospect,
                     joint,
                     stage,
                 ] = fields.as_slice()
                 else {
-                    return Err(complain(number, "a window has sixteen fields"));
+                    return Err(complain(number, "a window has seventeen fields"));
                 };
                 let left_kind = kind_of_letter(left_kind)
                     .ok_or_else(|| complain(number, "a left kind is one of the six"))?;
                 let left_extension: i16 = left_extension
                     .parse()
                     .map_err(|_| complain(number, "a left extension is a count"))?;
-                let (Some(settled_seat), Some(notes_seat), Some(delta_seat)) = (
+                let (Some(settled_seat), Some(notes_seat), Some(delta_seat), Some(reads_seat)) = (
                     seat_at(settled_seat),
                     seat_at(notes_seat),
                     seat_at(delta_seat),
+                    seat_at(reads_seat),
                 ) else {
                     return Err(complain(number, "a seat is a count"));
                 };
@@ -592,13 +672,17 @@ pub(crate) fn read_memo(
                 if settled_seat >= memo.settled.len()
                     || notes_seat >= memo.notes.len()
                     || delta_seat >= memo.deltas.len()
+                    || reads_seat >= memo.reads.len()
                 {
                     return Err(complain(
                         number,
                         "a seat names a record the file seated first",
                     ));
                 }
-                if !settled_usable[settled_seat] || !delta_usable[delta_seat] {
+                if !settled_usable[settled_seat]
+                    || !delta_usable[delta_seat]
+                    || !reads_usable[reads_seat]
+                {
                     continue;
                 }
                 let key = (|| {
@@ -638,6 +722,7 @@ pub(crate) fn read_memo(
                         settled: SettledSeat::at(settled_seat),
                         notes: NotesSeat::at(notes_seat),
                         delta: DeltaSeat::at(delta_seat),
+                        reads: ReadsSeat::at(reads_seat),
                         prospect,
                         joint_floor,
                         decided_stage,
@@ -742,6 +827,7 @@ mod tests {
                 memo.notes[entry.notes.index()]
             );
             assert_eq!(back.delta(again), memo.delta(*entry));
+            assert_eq!(back.reads(again), memo.reads(*entry));
             assert_eq!(
                 (again.prospect, again.joint_floor, again.decided_stage),
                 (entry.prospect, entry.joint_floor, entry.decided_stage)
@@ -790,12 +876,13 @@ mod tests {
         );
         assert!(
             !own.is_empty(),
-            "the windows naming qsTea were traced afresh"
+            "the windows that read qsTea were traced afresh"
         );
         assert!(
             own.entries
-                .keys()
-                .all(|key| key.runes_named().any(|rune| rune == tea)),
+                .iter()
+                .all(|(key, entry)| key.runes_named().any(|rune| rune == tea)
+                    || own.reads(*entry).contains(&Read::Rune(tea))),
             "and nothing else was"
         );
     }
@@ -845,15 +932,35 @@ mod tests {
         let tea = fixtures::sym(&index, "qsTea");
         let excluded = Exclusion::of([may]);
         let mut key = TraceKey::for_test(pea, [Some(tea), None, None, None]);
-        assert!(excluded.admits(&key));
-        assert!(Exclusion::none().admits(&key));
+        assert!(excluded.admits(&key, &[]));
+        assert!(Exclusion::none().admits(&key, &[Read::Rune(may)]));
         key.runes[2] = Some(may);
-        assert!(!excluded.admits(&key));
+        assert!(!excluded.admits(&key, &[]));
         key.runes[2] = None;
         key.left_rune = Some(may);
-        assert!(!excluded.admits(&key));
+        assert!(!excluded.admits(&key, &[]));
         key.left_rune = None;
         key.token = may;
-        assert!(!excluded.admits(&key));
+        assert!(!excluded.admits(&key, &[]));
+    }
+
+    /// The journal is what the exclusion reads (issue #184): an entry whose evaluation read an excluded rune or class is refused whatever its key names, and one that read neither is admitted though its deep slots name the rune.
+    #[test]
+    fn an_exclusion_refuses_an_entry_by_what_it_read() {
+        let index = fixtures::mini();
+        let may = fixtures::sym(&index, "qsMay");
+        let pea = fixtures::sym(&index, "qsPea");
+        let tea = fixtures::sym(&index, "qsTea");
+        let class = fixtures::sym(&index, "halves-that-exit-at-x-height");
+        let key = TraceKey::for_test(pea, [Some(tea), None, None, None]);
+        let by_reads = Exclusion::of([may]).with_classes([class]);
+        assert!(by_reads.admits(&key, &[Read::Rune(pea), Read::Rune(tea)]));
+        assert!(!by_reads.admits(&key, &[Read::Rune(pea), Read::Rune(may)]));
+        assert!(!by_reads.admits(&key, &[Read::Class(class)]));
+        assert!(
+            Exclusion::of([])
+                .with_classes([class])
+                .admits(&key, &[Read::Rune(may)])
+        );
     }
 }

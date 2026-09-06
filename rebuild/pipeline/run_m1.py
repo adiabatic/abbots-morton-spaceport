@@ -104,21 +104,57 @@ def rune_content_digests(spec: ResolvedSpec) -> dict[str, str]:
     }
 
 
+def memo_structure_stamp(spec: ResolvedSpec, root: Path = REPO_ROOT) -> str:
+    """The whole-store half of a memo's stamp: `locality_lines` with the predicate classes' membership taken out of the structure line, since the memo invalidates by class through the crate's read journal rather than by refusing the whole store — what stays is the alphabet and its ligature sequences, the resolved rune-local groups (which ride the rune content digests as well), the registry, the code and the crate, and the semantics tokens."""
+    lines = [
+        (f"structure\t{_classless_structure_digest(spec)}" if line.startswith("structure\t") else line)
+        for line in locality_lines(spec, root)
+    ]
+    return hashlib.sha256("\n".join(lines).encode()).hexdigest()
+
+
+def _classless_structure_digest(spec: ResolvedSpec) -> str:
+    """`spec_load.spec_structure_digest` less the predicate classes: the alphabet with its ligature sequences and the resolved rune-local groups."""
+    payload = {
+        "runes": {name: list(rune.sequence) if rune.sequence else None for name, rune in spec.runes.items()},
+        "groups": {
+            name: {group: sorted(members) for group, members in rune.policy.groups.items()}
+            for name, rune in spec.runes.items()
+            if rune.policy.groups
+        },
+    }
+    return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
+
+
+def class_memberships(spec: ResolvedSpec) -> dict[str, list[str]]:
+    """Every registry predicate class's sorted membership, the grain the memo stamp records classes at and `memo_edited` compares them at."""
+    return {name: sorted(members) for name, members in spec.registry.predicate_classes.items()}
+
+
 def memo_stamp(spec: ResolvedSpec, root: Path = REPO_ROOT) -> str:
-    """The stamp a build's memo files carry in their heads and the next build reads them against: the locality theorem's whole-store half — `locality_structure_stamp`, the same lines the string replay's stamp is cut from less the horizon — and every rune's `rune_content_digests` entry, as compact sorted JSON on one line, which is the shape the crate's head line takes verbatim. `memo_edited` is its reader."""
+    """The stamp a build's memo files carry in their heads and the next build reads them against: the locality theorem's whole-store half less the classes (`memo_structure_stamp`), every rune's `rune_content_digests` entry, and every predicate class's membership (`class_memberships`), as compact sorted JSON on one line, which is the shape the crate's head line takes verbatim. `memo_edited` is its reader."""
     return json.dumps(
         {
             "format": MEMO_STAMP_FORMAT,
-            "structure": locality_structure_stamp(spec, root),
+            "structure": memo_structure_stamp(spec, root),
             "runes": rune_content_digests(spec),
+            "classes": class_memberships(spec),
         },
         sort_keys=True,
         separators=(",", ":"),
     )
 
 
-def memo_edited(previous: str, current: str) -> list[str] | None:
-    """Which runes a memo written under the stamp `previous` may not answer for under `current`, sorted, or None when it may not be read at all: another stamp format, a moved structure (the crate, the build-side code, the registry, the alphabet and its ligatures, the classes and groups, the semantics tokens), or a recorded rune this spec no longer models. A rune new to the spec since the memo counts as edited, though the structure stamp has already refused such a memo; the empty list is a memo every window of which still holds."""
+@dataclass(frozen=True)
+class MemoDelta:
+    """What moved between two memo stamps: the runes whose content did, and the predicate classes whose membership did, each sorted."""
+
+    runes: tuple[str, ...]
+    classes: tuple[str, ...]
+
+
+def memo_edited(previous: str, current: str) -> MemoDelta | None:
+    """What a memo written under the stamp `previous` may not answer for under `current`, or None when it may not be read at all: another stamp format, a moved structure (the crate, the build-side code, the registry, the alphabet and its ligatures, the groups, the semantics tokens), or a recorded rune this spec no longer models. A rune new to the spec since the memo counts as edited, though the structure stamp has already refused such a memo; a class present in one stamp and not the other counts as moved; an empty delta is a memo every window of which still holds."""
     try:
         before = json.loads(previous)
         after = json.loads(current)
@@ -132,21 +168,36 @@ def memo_edited(previous: str, current: str) -> list[str] | None:
     runes = after.get("runes")
     if not isinstance(recorded, dict) or not isinstance(runes, dict) or recorded.keys() - runes.keys():
         return None
-    return sorted(name for name, digest in runes.items() if recorded.get(name) != digest)
+    recorded_classes = before.get("classes")
+    classes = after.get("classes")
+    if not isinstance(recorded_classes, dict) or not isinstance(classes, dict):
+        return None
+    return MemoDelta(
+        runes=tuple(sorted(name for name, digest in runes.items() if recorded.get(name) != digest)),
+        classes=tuple(
+            sorted(
+                name
+                for name in recorded_classes.keys() | classes.keys()
+                if recorded_classes.get(name) != classes.get(name)
+            )
+        ),
+    )
 
 
 @dataclass(frozen=True)
 class MemoSeed:
-    """What a table build reads before it settles a window itself: the directory holding the previous build's unpacked memo files, and every rune any of them must not answer for."""
+    """What a table build reads before it settles a window itself: the directory holding the previous build's unpacked memo files, every rune any of them must not answer for, and every predicate class likewise."""
 
     directory: Path
     edited: tuple[str, ...]
+    moved_classes: tuple[str, ...]
 
 
 def memo_seed(out_dir: Path, stamp: str, scratch: Path) -> MemoSeed | None:
     """The previous build's memos under `out_dir` that this build may read, unpacked into `scratch`, or None when none may be: each configuration's packed memo is read for its head, held to this process's world and to `stamp` through `memo_edited`, and unpacked plain for the crate only where it passes; the edited runes are the union over every memo unpacked, so a rune one memo must not answer for is answered by no memo. A memo that fails — its head, its stamp, or a gzip that will not unpack whole — is left where it is and simply not read, and this build's own memo replaces it on the way out."""
     world = "+".join(kernel_exec.enumeration_tokens()) or "pinned"
     edited: set[str] = set()
+    moved_classes: set[str] = set()
     unpacked = False
     for config in conform.SETTLEMENT_CONFIGS:
         packed = kernel_exec.memo_path(out_dir, config)
@@ -164,11 +215,14 @@ def memo_seed(out_dir: Path, stamp: str, scratch: Path) -> MemoSeed | None:
         except OSError, EOFError, gzip.BadGzipFile:
             plain_path.unlink(missing_ok=True)
             continue
-        edited.update(moved)
+        edited.update(moved.runes)
+        moved_classes.update(moved.classes)
         unpacked = True
     if not unpacked:
         return None
-    return MemoSeed(directory=scratch, edited=tuple(sorted(edited)))
+    return MemoSeed(
+        directory=scratch, edited=tuple(sorted(edited)), moved_classes=tuple(sorted(moved_classes))
+    )
 
 
 def build_tables(
@@ -213,7 +267,7 @@ def build_tables(
             start = time.perf_counter()
             seed = memo_seed(out_dir, stamp, directory / "seed")
             print(
-                f"[t] memo_seed {time.perf_counter() - start:.1f}s edited={','.join(seed.edited) if seed else '-'}",
+                f"[t] memo_seed {time.perf_counter() - start:.1f}s edited={','.join(seed.edited) if seed else '-'} classes={','.join(seed.moved_classes) if seed else '-'}",
                 flush=True,
             )
         start = time.perf_counter()
@@ -226,6 +280,7 @@ def build_tables(
             timings=True,
             seed=seed.directory if seed else None,
             edited=seed.edited if seed else (),
+            moved_classes=seed.moved_classes if seed else (),
             memo_stamp=stamp,
         )
         print(f"[t] kernel_build_tables {time.perf_counter() - start:.1f}s", flush=True)

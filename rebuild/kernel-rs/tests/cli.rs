@@ -477,6 +477,19 @@ fn a_build_seeded_from_the_previous_memo_files_the_bytes_a_from_scratch_one_file
         Some(2),
         "--edited= without --seed= is a usage error"
     );
+    let output = run(&[
+        "build-tables",
+        word(&after),
+        word(&root.join("misuse")),
+        "--configs=default",
+        "--inputs=cli-stamp",
+        "--moved-classes=halves-that-exit-at-x-height",
+    ]);
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "--moved-classes= without --seed= is a usage error too"
+    );
 }
 
 /// The word each TSV's own comment line uses for itself.

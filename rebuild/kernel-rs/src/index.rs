@@ -2,10 +2,13 @@
 //!
 //! The model is deliberately lookup-free — `model.rs` says so, and says the sub-issue that needs indexed access should build the index it needs. This is that index. It exists because Python gets these lookups for free from `dict`: `spec.runes[name]`, `stance.surface.entries.get(height)`, `spec.registry.heights[height]` are all constant-time reads of a mapping that also remembers its insertion order, and the Rust model splits those two properties apart — the [`Table`] keeps the order and this module adds the lookup. Nothing here changes a semantic; every accessor answers exactly what the corresponding Python subscript answers, including which answer is "absent".
 //!
+//! The index also keeps the read journal (issue #184): a thread-local log of every rune whose resolved content and every predicate class whose membership an accessor here handed out while the engine had a capture open. A memo entry across configurations and across builds is invalidated by what its evaluation *read*, and the accessors are the one place every such read passes through, so the journal is kept here rather than at the engine's call sites — a rune's stances, rows, order, strokes, entry-bearing flag and groups all journal the rune, a predicate class's membership journals the class, and the alphabet, the registry's heights and tokens, and a symbol's text journal nothing, being the whole-store structure a memo is stamped with instead. The log is per thread because the index is shared across a fan-out's threads and holds nothing mutable of its own; an engine is confined to one thread, and it is the engine's captures that arm and drain the log ([`crate::engine`]).
+//!
 //! Two further things live here because they are pure functions of the spec that a per-engine cache would only recompute, and a per-spec answer is the same answer. The stance order index — `policy.order` extended by declaration order, with `order.index(...)`'s exact arithmetic including the seats that names not naming a stance still occupy — is resolved once at build time rather than per engine, and so are `is_entry_bearing` and the per-rune entry-stroke set, both feature-blind reads of the surface. `settle.is_entry_bearing` answers the first of those on the Python side too, for the callers that ask it before a window reaches this crate.
 //!
 //! The index takes ownership of the [`Spec`] rather than borrowing it, which buys two things. There are no lifetimes to thread through the engine, the guard, and the caches; and the interner is reachable mutably at build time, so [`Vocab`] and the withdrawn-state symbols can be interned into the spec's own pool instead of living in a second one. Interning into that pool cannot disturb emission, which walks the tree and never the pool.
 
+use std::cell::{Cell, RefCell};
 use std::collections::{BTreeSet, HashMap};
 
 use crate::error::SettleError;
@@ -40,6 +43,57 @@ struct RuneIndex {
     groups: HashMap<Sym, BTreeSet<Sym>>,
     entry_strokes: BTreeSet<Sym>,
     entry_bearing: bool,
+}
+
+/// One thing a settlement's evaluation read of the spec, at the grain a memo across builds is invalidated at: a rune's resolved content, or a predicate class's membership. The module doc says which accessors journal which.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum Read {
+    Rune(Sym),
+    Class(Sym),
+}
+
+thread_local! {
+    // The flag sits apart from the log so the accessors' common case — no capture open — is one thread-local `Cell` read and a branch, with the `RefCell` borrow paid only while a capture is journaling.
+    static ARMED: Cell<bool> = const { Cell::new(false) };
+    static LOG: RefCell<Vec<Read>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Switch this thread's read journal on or off. Off, the accessors cost a flag test and log nothing.
+pub(crate) fn journal_arm(armed: bool) {
+    ARMED.with(|flag| flag.set(armed));
+}
+
+/// How many reads the journal holds, which is what a capture records on opening so it can take its own slice on closing.
+pub(crate) fn journal_len() -> usize {
+    LOG.with(|log| log.borrow().len())
+}
+
+/// The reads journaled since `start`, sorted with repeats collapsed — the set a capture's evaluation read. The log keeps them, since an enclosing capture reads the same slice.
+pub(crate) fn journal_since(start: usize) -> Box<[Read]> {
+    LOG.with(|log| {
+        let mut reads: Vec<Read> = log.borrow()[start..].to_vec();
+        reads.sort_unstable();
+        reads.dedup();
+        reads.into_boxed_slice()
+    })
+}
+
+/// A memo hit's recorded reads replayed into the journal, so an open capture's own slice carries what the hit's evaluation read; a no-op while the journal is off.
+pub(crate) fn journal_extend(reads: &[Read]) {
+    if ARMED.with(Cell::get) {
+        LOG.with(|log| log.borrow_mut().extend_from_slice(reads));
+    }
+}
+
+/// Empty the journal, which the engine does when its outermost capture closes or is abandoned.
+pub(crate) fn journal_clear() {
+    LOG.with(|log| log.borrow_mut().clear());
+}
+
+fn journal(read: Read) {
+    if ARMED.with(Cell::get) {
+        LOG.with(|log| log.borrow_mut().push(read));
+    }
 }
 
 /// The indexed view over one parsed dump. Built once, read everywhere; nothing on it is mutable, so every engine, the guard's whole engine powerset, and the corpus replay share one.
@@ -206,7 +260,9 @@ impl SpecIndex {
 
     /// One rune by declaration seat.
     pub fn rune_at(&self, seat: u32) -> &Rune {
-        &self.rune_entry(seat).1
+        let (name, rune) = self.rune_entry(seat);
+        journal(Read::Rune(*name));
+        rune
     }
 
     /// One rune's name by declaration seat.
@@ -222,22 +278,26 @@ impl SpecIndex {
     /// One stance's identity, or `None` when the rune or the stance is absent.
     pub fn stance_id(&self, rune: Sym, stance: Sym) -> Option<StanceId> {
         let seat = self.rune_seat(rune)?;
+        journal(Read::Rune(rune));
         let stance_seat = *self.rune_index[seat as usize].stances.get(&stance)?;
         Some(StanceId::new(seat, stance_seat))
     }
 
     /// One stance by identity.
     pub fn stance(&self, id: StanceId) -> &Stance {
+        journal(Read::Rune(self.rune_name_at(id.rune)));
         &self.stance_entry(id).1
     }
 
     /// One stance's name by identity.
     pub fn stance_name(&self, id: StanceId) -> Sym {
+        journal(Read::Rune(self.rune_name_at(id.rune)));
         self.stance_entry(id).0
     }
 
     /// How many stances a rune declares.
     pub fn stance_count(&self, seat: u32) -> usize {
+        journal(Read::Rune(self.rune_name_at(seat)));
         self.rune_index[seat as usize].order_index.len()
     }
 
@@ -245,6 +305,7 @@ impl SpecIndex {
     ///
     /// The arithmetic is load-bearing: the order list is `policy.order` when it is non-empty and declaration order otherwise, then every stance the list omits is appended in declaration order, and each stance's index is its first position in that list. A name in `policy.order` that is not a stance still occupies its seat, so the stances after it rank one lower than a naive enumeration would give them.
     pub fn order_index(&self, id: StanceId) -> usize {
+        journal(Read::Rune(self.rune_name_at(id.rune)));
         self.rune_index[id.rune as usize].order_index[id.stance as usize]
     }
 
@@ -272,6 +333,7 @@ impl SpecIndex {
 
     /// Whether the stance declares an exit at this height — `height in stance.surface.exits` as `model.Surface` spells it, the shadowing test an unlock exit has to pass.
     pub fn declares_exit(&self, id: StanceId, height: Sym) -> bool {
+        journal(Read::Rune(self.rune_name_at(id.rune)));
         self.rows(id).exits.contains_key(&height)
     }
 
@@ -305,12 +367,15 @@ impl SpecIndex {
 
     /// One registry predicate class's resolved membership.
     pub fn predicate_class(&self, name: Sym) -> Option<&BTreeSet<Sym>> {
-        self.predicate_classes.get(&name)
+        let members = self.predicate_classes.get(&name)?;
+        journal(Read::Class(name));
+        Some(members)
     }
 
     /// One rune's local group membership.
     pub fn rune_group(&self, rune: Sym, name: Sym) -> Option<&BTreeSet<Sym>> {
         let seat = self.rune_seat(rune)?;
+        journal(Read::Rune(rune));
         self.rune_index[seat as usize].groups.get(&name)
     }
 
@@ -323,15 +388,18 @@ impl SpecIndex {
         owner: Option<Sym>,
     ) -> Result<&BTreeSet<Sym>, SettleError> {
         if let Some(members) = self.predicate_classes.get(&name) {
+            journal(Read::Class(name));
             return Ok(members);
         }
         if let Some(owner) = owner
             && let Some(seat) = self.rune_seat(owner)
             && let Some(members) = self.rune_index[seat as usize].groups.get(&name)
         {
+            journal(Read::Rune(owner));
             return Ok(members);
         }
         if let Some(seat) = self.group_owner.get(&name) {
+            journal(Read::Rune(self.rune_name_at(*seat)));
             return Ok(&self.rune_index[*seat as usize].groups[&name]);
         }
         Err(SettleError::Plain(format!(
@@ -343,15 +411,20 @@ impl SpecIndex {
     /// Every stroke a rune offers on a selectable entry row, across its stances — the set a right-side `stroke:` condition tests membership in. An unmodeled rune has none rather than raising, because a condition may name one.
     pub fn entry_strokes(&self, rune: Sym) -> &BTreeSet<Sym> {
         match self.rune_seat(rune) {
-            Some(seat) => &self.rune_index[seat as usize].entry_strokes,
+            Some(seat) => {
+                journal(Read::Rune(rune));
+                &self.rune_index[seat as usize].entry_strokes
+            }
             None => &self.empty,
         }
     }
 
     /// Whether the ZWNJ chokepoint locks this rune, `settle.is_entry_bearing`: some stance offers a selectable declared entry row, or some stance carries an entry unlock. Feature-blind, like the chokepoint itself. An unmodeled rune answers `false`, where Python raises `KeyError`; every call site checks first.
     pub fn is_entry_bearing(&self, rune: Sym) -> bool {
-        self.rune_seat(rune)
-            .is_some_and(|seat| self.rune_index[seat as usize].entry_bearing)
+        self.rune_seat(rune).is_some_and(|seat| {
+            journal(Read::Rune(rune));
+            self.rune_index[seat as usize].entry_bearing
+        })
     }
 
     fn rune_entry(&self, seat: u32) -> &(Sym, Rune) {
