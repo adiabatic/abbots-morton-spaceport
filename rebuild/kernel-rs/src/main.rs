@@ -41,7 +41,7 @@ use ams_m1_kernel::liveness::ProspectLiveness;
 use ams_m1_kernel::model::Sym;
 use ams_m1_kernel::options::WindowOptions;
 use ams_m1_kernel::stream::feature_config_token;
-use ams_m1_kernel::{cases, emit, fanout, guard, parse, stream};
+use ams_m1_kernel::{cases, emit, fanout, guard, parse};
 
 const USAGE: &str = "usage: ams-m1-kernel spec-echo <spec>\n       ams-m1-kernel settle-cases <spec> <cases> [--features=a,b] [--candidacy-prospect] [--vote-slots-off]\n       ams-m1-kernel guard-sweep <spec> [--config=default|ss03+ss05]\n       ams-m1-kernel enumerate <spec> [--features=a,b] [--candidacy-prospect] [--vote-slots-off] [--deep-classes-off] [--timings] [--cache-census]\n       ams-m1-kernel enumerate-configs <spec> <outdir> --configs=default,ss03 [--threads=N] [--candidacy-prospect] [--vote-slots-off] [--deep-classes-off] [--timings] [--cache-census]\n       ams-m1-kernel build-tables <spec> <outdir> --configs=default,ss03 --inputs=<stamp> [--threads=N] [--candidacy-prospect] [--vote-slots-off] [--deep-classes-off] [--timings] [--cache-census]\n       ams-m1-kernel liveness-cases <spec> <keys> [--features=a,b] [--candidacy-prospect] [--vote-slots-off]";
 
@@ -383,25 +383,31 @@ fn plan_enumerate(rest: &[String]) -> Option<EnumeratePlan<'_>> {
     })
 }
 
-/// What a set of configuration tokens named, or `None` for a set this verb will not answer.
-///
-/// The tokens are checked against their own canonical spelling here, before any spec has been read, because the check is a fact about the token rather than about the alphabet: a token is refused unless it is exactly what [`stream::config_token`] would name the features it parses into. `ss05+ss03` and `ss03+ss03` are therefore usage errors rather than aliases of `ss03+ss05` and `ss03`, and so is a repeated token — two runs of one configuration would race for one filename. An empty stretch between two `+`, or before the first or after the last, is refused on its own account rather than left to the canonical check, which `+ss03` would otherwise pass by sorting its nameless feature to the front. Whether those feature names exist is the spec's question and is asked later, exactly where `--features=` asks it.
+/// The no-feature configuration's token, `stream::DEFAULT_CONFIG` restated. A command line's tokens are checked before any spec is read, and `guard-sweep`'s handler reaches that check, so naming the stream module here would put the enumeration's stream writer inside the surface stamp's crate walk (`rebuild/test_review_code_closure.py`) for the sake of one literal; the unit tests hold the two spellings equal.
+const DEFAULT_CONFIG_TOKEN: &str = "default";
+
+/// The feature names one configuration token spells, or `None` for a token that is not its features' canonical spelling: `default` names none, and anything else is feature names joined by `+` in strictly ascending order with no empty stretch — exactly what `stream::config_token` prints for them, so `ss05+ss03` and `ss03+ss03` are refused rather than read as aliases of `ss03+ss05` and `ss03`, and `+ss03`, `ss03+` and `ss03++ss05` are refused on their empty stretch rather than left to a sort that would pass `+ss03` by putting its nameless feature first. Whether those feature names exist is the spec's question and is asked later, exactly where `--features=` asks it. The rule is restated here rather than read off `stream::config_token` for the reason [`DEFAULT_CONFIG_TOKEN`] gives, and the unit tests hold the two to one answer.
+fn config_features(token: &str) -> Option<Vec<&str>> {
+    if token == DEFAULT_CONFIG_TOKEN {
+        return Some(Vec::new());
+    }
+    let features: Vec<&str> = token.split('+').collect();
+    if features.iter().any(|name| name.is_empty())
+        || features.windows(2).any(|pair| pair[0] >= pair[1])
+    {
+        return None;
+    }
+    Some(features)
+}
+
+/// What a set of configuration tokens named, or `None` for a set this verb will not answer: every token in [`config_features`]'s canonical spelling, and none of them twice — two runs of one configuration would race for one filename.
 fn config_requests(tokens: Vec<&str>) -> Option<Vec<ConfigRequest<'_>>> {
     let mut configs: Vec<ConfigRequest<'_>> = Vec::new();
     for token in tokens {
-        if token.is_empty() || configs.iter().any(|named| named.token == token) {
+        if configs.iter().any(|named| named.token == token) {
             return None;
         }
-        let features: Vec<&str> = if token == stream::DEFAULT_CONFIG {
-            Vec::new()
-        } else {
-            token.split('+').collect()
-        };
-        if features.iter().any(|name| name.is_empty())
-            || stream::config_token(features.iter().copied()) != token
-        {
-            return None;
-        }
+        let features = config_features(token)?;
         configs.push(ConfigRequest { token, features });
     }
     Some(configs)
@@ -1098,6 +1104,26 @@ mod tests {
         assert!(fanned(&["spec.json", "out", "--configs="]).is_none());
         assert!(fanned(&["spec.json", "out", "--configs=default,default"]).is_none());
         assert!(fanned(&["spec.json", "out", "--configs=default", "--configs=ss03"]).is_none());
+    }
+
+    /// The token rule restated in this file is the stream's own: the default token is the stream's, every token the rule accepts is what `config_token` prints for the features it parses into, and every token it refuses is one `config_token` would spell differently or one with an empty stretch.
+    #[test]
+    fn the_configuration_token_rule_is_the_streams_own() {
+        use ams_m1_kernel::stream;
+        assert_eq!(DEFAULT_CONFIG_TOKEN, stream::DEFAULT_CONFIG);
+        for token in ["default", "ss03", "ss03+ss05", "ss03+ss04+ss05"] {
+            let features = config_features(token).expect("a canonical token parses");
+            assert_eq!(stream::config_token(features.iter().copied()), token);
+        }
+        for token in ["ss05+ss03", "ss03+ss03", "+ss03", "ss03+", "ss03++ss05", ""] {
+            assert!(config_features(token).is_none(), "{token:?} is refused");
+            let names: Vec<&str> = token.split('+').collect();
+            assert!(
+                stream::config_token(names.iter().copied()) != token
+                    || names.iter().any(|name| name.is_empty()),
+                "{token:?} is refused for a reason the stream's spelling shows"
+            );
+        }
     }
 
     /// A token has to be the canonical spelling of the features it names, which is what keeps the filename, the stream head and the caller's own word for a configuration in agreement.
