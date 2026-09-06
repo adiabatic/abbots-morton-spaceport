@@ -59,6 +59,7 @@ Git holds the history, so a checked-in note earns its place only by recording th
 
 - The Python and Rust here run against hard CPU and RAM limits: a routine that holds a little more per unit narrows a fan-out and lengthens every cycle after it. `doc/parallelism.md` has the policy and the coding guidance.
   - A change that moves a per-unit peak revises the `*_BYTES` constant and the docstring that argues it at the same call site; nothing else checks the widths derived from it.
+- Every gate sizes its pool to the whole box, so two gates running at once oversubscribe it. When a workflow fans work out across agents, parallelize the editing and serialize the testing: one `make test` / `make test-rebuild` / cycle pass at a time across all agents, never one per agent. `doc/parallelism.md` says why.
 
 ## Python
 
@@ -71,7 +72,7 @@ Git holds the history, so a checked-in note earns its place only by recording th
     ```
 
   - Reserve `-n 0` for a single test id or a tiny handful where you want an unscrambled traceback. Never spell it `-p no:xdist`: the root `conftest.py` defines xdist hooks, so disabling the plugin kills collection before any test runs.
-  - When delegating test runs to sub-agents, tell them this explicitly.
+  - When delegating test runs to sub-agents, tell them this explicitly, and that only one of them runs a gate at a time.
 - Fan-out widths derive from the box at run time; `rebuild/tools/memory_budget.py` is the authority on the arithmetic and `doc/parallelism.md` maps each width to its constant, its call site, and the environment variable that overrides it — never edit the checked-in values for a one-off run.
 - IMPORTANT: After any Python change, run `make prettier`.
 - Pyright covers the whole Python tree, `rebuild/` included. Run it bare, with no paths — `[tool.pyright] include` in `pyproject.toml` is the single authority for what is checked.

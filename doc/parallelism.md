@@ -27,6 +27,10 @@ A one-off run overrides in the environment, never by editing the checked-in valu
 
 The first two win ahead of everything derived.
 
+## One gate at a time
+
+Widths derive from total memory, never from what is free, so a gate started while another runs does not see it: both fan out to the full box and page or starve each other. The artifact cycle already serializes its own steps and takes gate:make-test's pool off the box before dividing the kernel's; nothing does that across independent processes. A workflow that runs agents in parallel therefore runs its gates through a single serialized stage, with each agent's edits landing before that stage rather than each agent gating its own work.
+
 ## Measuring
 
 - `make cycle-timings` summarizes what each step costs, host-tagged; `ARGS='--by-step'` compares step medians across machines. Read it before deciding a run is hung and before picking a watcher's timeout.
