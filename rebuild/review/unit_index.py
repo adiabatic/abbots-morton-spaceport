@@ -132,6 +132,44 @@ def index_line(fragment: dict, *, order: int | None = None, batch: int | None = 
     return (json.dumps(index_record(fragment, order=order, batch=batch), ensure_ascii=False) + "\n").encode()
 
 
+def line_head(unit_id: str, order: int | None, batch: int | None) -> bytes:
+    """The opening of an index or app-index line — the id and the unit's place in the queue — as `json.dumps` writes it, up to and not including the closing brace, so a line whose remaining fields did not move can be respooled by splicing this onto its tail."""
+    return json.dumps({"id": unit_id, "order": order, "batch": batch}, ensure_ascii=False).encode()[:-1]
+
+
+def respool_index_line(line: bytes, *, unit_id: str, order: int | None, batch: int | None) -> bytes:
+    """A previous surface's index line for a served unit, rewritten to this surface's queue: only `order` and `batch` come from the queue, and every field after them is the fragment's own, which a unit served verbatim carries unchanged — so the line is the id and the new place spliced onto the old tail, byte for byte what `index_line` writes for the same fragment."""
+    return line_head(unit_id, order, batch) + line[line.index(b', "class": ') :]
+
+
+class LineCursor:
+    """A forward-only reader over one of a surface's gzipped NDJSON files — a sidecar, or the unit store — handing out the line whose leading `field` carries a requested value and skipping every line before it. Each of those files is written in an order every term of which is content-derived (shard order for the sidecars, triage order for the store), so a served unit keeps its place in it from one surface to the next and the build walks the previous file once, in step with what it writes, never holding it. A line skipped is a unit this build re-projects; a value the file does not reach — a file from another build, or none at all — answers None from then on, which is the caller's cue to project the unit itself instead."""
+
+    def __init__(self, path: Path, field: str = "id") -> None:
+        self._field = field
+        self._stream = None
+        try:
+            self._stream = gzip.open(path, "rb")
+            next(self._stream)
+        except OSError, EOFError, StopIteration:
+            self.close()
+
+    def take(self, value: str) -> bytes | None:
+        if self._stream is None:
+            return None
+        prefix = f"{{{json.dumps(self._field)}: {json.dumps(value)}, ".encode()
+        for line in self._stream:
+            if line.startswith(prefix):
+                return line
+        self.close()
+        return None
+
+    def close(self) -> None:
+        if self._stream is not None:
+            self._stream.close()
+            self._stream = None
+
+
 def _manifest(surface: Path) -> dict:
     try:
         document = json.loads((Path(surface) / "manifest.json").read_text(encoding="utf-8"))

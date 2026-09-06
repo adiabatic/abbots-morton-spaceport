@@ -21,12 +21,12 @@ import sys
 import time
 import traceback
 import warnings
-from collections.abc import Callable, Collection, Iterator, Mapping
+from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
 from dataclasses import dataclass, replace
 from functools import lru_cache
 from itertools import batched, combinations
 from pathlib import Path
-from typing import TextIO, cast
+from typing import BinaryIO, cast
 
 from rebuild.pipeline import fingerprint
 from rebuild.pipeline.baseline_subset import M1_ALPHABET
@@ -547,7 +547,7 @@ def _write_json(path: Path, payload) -> None:
 
 
 class _ShardWriter:
-    """Streams classes into byte-capped shard parts, one fragment at a time, in the order the build hands them over: `open` a class, `add` each of its fragments and get back that fragment's (part index, byte start, byte length), `close` it for the relative paths the manifest lists in part order, and `commit` once every class is on disk. Nothing is held between calls but the open handle and the running byte count, which is what lets phase 2 stream into the shards instead of being assembled in the parent first.
+    """Streams classes into byte-capped shard parts, one fragment at a time, in the order the build hands them over: `open` a class, `add` each of its fragments (or `add_verbatim` the bytes of one the previous surface already holds) and get back that fragment's (part index, byte start, byte length), `close` it for the relative paths the manifest lists in part order, and `commit` once every class is on disk. Nothing is held between calls but the open handle and the running byte count, which is what lets phase 2 stream into the shards instead of being assembled in the parent first.
 
     The cap exists for the browser: the app parses each part as one JSON string, and V8's `String::kMaxLength` under pointer compression is 2**29 - 24 bytes. Blink hands `JSON.parse` an empty string rather than an error when it cannot materialize a body that long, so an oversized shard surfaces as "Unexpected end of JSON input" from a fetch that looked like it succeeded. `SHARD_PART_BYTES` is half that ceiling, and the other half is headroom.
 
@@ -555,66 +555,137 @@ class _ShardWriter:
 
     The framing is `_write_json`'s, for the reasons its docstring gives: each fragment is serialized inside a one-element list whose framing is peeled back off, so a part's bytes are the one-shot `json.dumps(part, indent=1, ensure_ascii=True) + "\\n"` bytes by construction. Every part lands within the cap except one holding a single fragment that exceeds it alone, which nothing here can make smaller.
 
-    That framing is a byte-addressing contract as well as a serialization one, and the spans returned here are what the review app's explain panel Range-fetches against — and what the next build reads its served units back through, since the unit store records each fragment's span as its address and `unit_cache.locate_prior_fragments` re-derives the same address off the written part for a record that lacks one: no punctuation is interleaved with a fragment's own bytes, and `ensure_ascii=True` under a utf-8 handle makes the running character count the byte offset, so `bytes[start:start + length]` is a standalone JSON element. A change to the `indent`, `ensure_ascii` or `separators` of the dump below breaks that silently — `rebuild/test_app_index.py` slices every fragment back out to catch it.
+    That framing is a byte-addressing contract as well as a serialization one, and the spans returned here are what the review app's explain panel Range-fetches against — and what the next build reads its served units back through, since the unit store records each fragment's span as its address and `unit_cache.locate_prior_fragments` re-derives the same address off the written part for a record that lacks one: no punctuation is interleaved with a fragment's own bytes, and `ensure_ascii=True` makes the running character count the byte offset, so `bytes[start:start + length]` is a standalone JSON element. A change to the `indent`, `ensure_ascii` or `separators` of the dump below breaks that silently — `rebuild/test_app_index.py` slices every fragment back out to catch it.
 
-    Every part is staged under a sibling name and renamed only at `commit`, after the last class has closed, rather than as each class finishes. The build reads its served units out of the previous surface's shards by address while it writes this one, so a shard replaced class by class could put a unit's bytes under a new file before a later class asked for them; deferring the sweep keeps the previous surface whole until this one is entirely on disk, and it keeps what per-class renaming already gave: a failed encode or a build killed mid-write leaves the previous build's units in place rather than a truncated part, with `abort` sweeping the staging names away.
+    A class opened with the previous surface's part list is written against it: a part is presumed to be the previous surface's part as it lies, and stays that way while every fragment handed over is the verbatim bytes of a fragment that already sits at exactly the offset the writer would put it at — which is what a served unit whose content and patched fields did not move hands over. The first fragment that does not fit that presumption, a fresh one or one out of place, turns the part into a staged one carrying the same prefix, copied out of the previous file, and the writer continues as it would have from the start; a part whose fragments all fit and whose previous file ends where the writer would end it is never written at all. So a class nothing moved in costs one read of its bytes and no write, and a class a fresh unit landed in costs a copy from the first fresh unit on, with no fragment parsed or serialized that did not have to be.
+
+    Every staged part is written under a sibling name and renamed only at `commit`, after the last class has closed, rather than as each class finishes. The build reads its served units out of the previous surface's shards by address while it writes this one, so a shard replaced class by class could put a unit's bytes under a new file before a later class asked for them; deferring the sweep keeps the previous surface whole until this one is entirely on disk, and it keeps what per-class renaming already gave: a failed encode or a build killed mid-write leaves the previous build's units in place rather than a truncated part, with `abort` sweeping the staging names away. A kept part is already in place under its name; one whose name changes with the class's part count is copied under the new name and renamed with the rest.
     """
 
+    _CLOSING = b"\n]\n"
+
     def __init__(self, out_dir: Path) -> None:
-        self._units_dir = Path(out_dir) / "units"
+        self._out_dir = Path(out_dir)
+        self._units_dir = self._out_dir / "units"
         self._units_dir.mkdir(parents=True, exist_ok=True)
         self._pending: list[tuple[Path, Path]] = []
         self._class_id: str | None = None
-        self._staged: list[Path] = []
-        self._handle: TextIO | None = None
+        self._prior: list[str] = []
+        self._parts: list[Path | str] = []
+        self._handle: BinaryIO | None = None
+        self._open = False
         self._size = 0
 
-    def open(self, class_id: str) -> None:
+    def open(self, class_id: str, prior_parts: Sequence[str] = ()) -> None:
         assert self._class_id is None, "close the open class first"
         self._class_id = class_id
-        self._staged = []
+        self._prior = [part for part in prior_parts if (self._out_dir / part).is_file()]
+        self._parts = []
+        self._handle = None
+        self._open = False
         self._size = 0
 
-    def add(self, fragment: dict) -> tuple[int, int, int]:
-        body = json.dumps([fragment], indent=1, ensure_ascii=True)[1:-2]
-        if self._handle is not None and self._size + len(body) + len(",\n]\n") > SHARD_PART_BYTES:
-            self._handle.write("\n]\n")
+    def _staging(self, index: int) -> Path:
+        return self._units_dir / f"{self._class_id}.{index:03d}.json.partial"
+
+    def _begin_part(self) -> None:
+        index = len(self._parts)
+        self._size = 1
+        if index < len(self._prior):
+            self._parts.append(self._prior[index])
+            self._handle = None
+        else:
+            path = self._staging(index)
+            self._handle = path.open("wb")
+            self._handle.write(b"[")
+            self._parts.append(path)
+        self._open = True
+
+    def _materialize(self, prefix: int) -> None:
+        """Turn the open kept part into a staged one holding the first `prefix` bytes of the previous file, which are exactly what the writer would have written so far."""
+        index = len(self._parts) - 1
+        prior = self._parts[index]
+        assert isinstance(prior, str)
+        path = self._staging(index)
+        with (self._out_dir / prior).open("rb") as source, path.open("wb") as target:
+            remaining = prefix
+            while remaining:
+                chunk = source.read(min(remaining, 1 << 20))
+                if not chunk:
+                    raise ValueError(f"{prior} is shorter than the {prefix} bytes this build read out of it")
+                target.write(chunk)
+                remaining -= len(chunk)
+        self._handle = path.open("ab")
+        self._parts[index] = path
+
+    def _end_part(self) -> None:
+        if self._handle is None:
+            prior = self._parts[-1]
+            assert isinstance(prior, str)
+            if (self._out_dir / prior).stat().st_size != self._size + len(self._CLOSING):
+                self._materialize(self._size)
+        if self._handle is not None:
+            self._handle.write(self._CLOSING)
             self._handle.close()
             self._handle = None
+        self._open = False
+
+    def _reserve(self, length: int) -> tuple[int, int, bool]:
+        """Where the next fragment of `length` bytes goes: its part index and byte start, and whether it opens the part (else a comma precedes it)."""
+        if self._open and self._size + length + 1 + len(self._CLOSING) > SHARD_PART_BYTES:
+            self._end_part()
+        if not self._open:
+            self._begin_part()
+            return len(self._parts) - 1, self._size, True
+        return len(self._parts) - 1, self._size + 1, False
+
+    def _emit(self, body: bytes, index: int, start: int, first: bool) -> tuple[int, int, int]:
         if self._handle is None:
-            self._staged.append(self._units_dir / f"{self._class_id}.{len(self._staged):03d}.json.partial")
-            self._handle = self._staged[-1].open("w", encoding="utf-8", newline="\n")
-            self._handle.write("[")
-            self._size = 1
-        else:
-            self._handle.write(",")
-            self._size += 1
-        span = (len(self._staged) - 1, self._size, len(body))
+            self._materialize(self._size)
+        assert self._handle is not None
+        if not first:
+            self._handle.write(b",")
         self._handle.write(body)
-        self._size += len(body)
-        return span
+        self._size = start + len(body)
+        return index, start, len(body)
+
+    def add(self, fragment: dict) -> tuple[int, int, int]:
+        body = json.dumps([fragment], indent=1, ensure_ascii=True)[1:-2].encode("ascii")
+        index, start, first = self._reserve(len(body))
+        return self._emit(body, index, start, first)
+
+    def add_verbatim(self, body: bytes, source: unit_cache.PriorFragment) -> tuple[int, int, int]:
+        """A served fragment's bytes as the previous surface holds them, at `source`. When the open part is the previous surface's and the bytes already lie at the offset the writer would put them at, nothing is written and the part stays as it lies; otherwise the bytes go down exactly as `add` would have put them."""
+        index, start, first = self._reserve(len(body))
+        if self._handle is None and source.part == self._parts[index] and source.start == start:
+            self._size = start + len(body)
+            return index, start, len(body)
+        return self._emit(body, index, start, first)
 
     def close(self) -> list[str]:
         class_id = self._class_id
         assert class_id is not None, "no class is open"
-        if self._handle is None:
-            self._staged.append(self._units_dir / f"{class_id}.000.json.partial")
-            self._handle = self._staged[-1].open("w", encoding="utf-8", newline="\n")
-            self._handle.write("[]\n")
-        else:
-            self._handle.write("\n]\n")
-        self._handle.close()
-        self._handle = None
+        if self._open:
+            self._end_part()
+        if not self._parts:
+            path = self._staging(0)
+            path.write_bytes(b"[]\n")
+            self._parts.append(path)
         names = (
             [f"{class_id}.json"]
-            if len(self._staged) == 1
-            else [f"{class_id}.{index:03d}.json" for index in range(len(self._staged))]
+            if len(self._parts) == 1
+            else [f"{class_id}.{index:03d}.json" for index in range(len(self._parts))]
         )
-        self._pending.extend(
-            (staging, self._units_dir / name) for staging, name in zip(self._staged, names, strict=True)
-        )
+        for index, (part, name) in enumerate(zip(self._parts, names, strict=True)):
+            if isinstance(part, str):
+                if part == f"units/{name}":
+                    continue
+                staging = self._staging(index)
+                shutil.copyfile(self._out_dir / part, staging)
+                self._parts[index] = part = staging
+            self._pending.append((part, self._units_dir / name))
         self._class_id = None
-        self._staged = []
+        self._parts = []
         return [f"units/{name}" for name in names]
 
     def commit(self) -> None:
@@ -626,13 +697,15 @@ class _ShardWriter:
         if self._handle is not None:
             self._handle.close()
             self._handle = None
-        for staging in self._staged:
-            staging.unlink(missing_ok=True)
+        for part in self._parts:
+            if isinstance(part, Path):
+                part.unlink(missing_ok=True)
         for staging, _target in self._pending:
             staging.unlink(missing_ok=True)
-        self._staged = []
+        self._parts = []
         self._pending = []
         self._class_id = None
+        self._open = False
 
 
 def _write_shard(
@@ -1151,17 +1224,46 @@ class _FreshRunner:
         self._spooled.clear()
 
 
-class _SidecarSpool:
-    """The three sidecars' lines, spooled to disk as the shards stream out and replayed into the stamped files once the manifest exists. Each sidecar carries the manifest's identity in its header, and the manifest cannot be written until every class's part list is known, so a build that no longer holds its fragments has to keep the projected lines somewhere until then: on disk under `.partial` names beside the files they become, which is bounded by the projection's own size and never by the corpus in the parent. `finish` writes the real files through the same writers `write_index` and `write_app_artifacts` reach, so the bytes are the ones a build holding every fragment would have written; `discard` sweeps the spools whether or not it did."""
+@dataclass(frozen=True, slots=True)
+class _Emission:
+    """One unit as the write receives it: either a fragment to serialize — fresh out of the spool, or served but patched afresh because a field the reduces or the ledger write over it moved — or the bytes of a served fragment the previous surface holds exactly as this build would write them, with the address they lie at and the slim identity the cross-unit checks and the sidecars read for it. `content_key` and `policy_file` are what the store and the census keep of a unit past the write, and they come from the fragment or the store record alike."""
 
-    def __init__(self, out_dir: Path) -> None:
+    unit_id: str
+    content_key: str
+    policy_file: str | None
+    fragment: dict | None = None
+    body: bytes | None = None
+    source: unit_cache.PriorFragment | None = None
+    identity: dict | None = None
+
+
+class _SidecarSpool:
+    """The three sidecars' lines, spooled to disk as the shards stream out and replayed into the stamped files once the manifest exists. Each sidecar carries the manifest's identity in its header, and the manifest cannot be written until every class's part list is known, so a build that no longer holds its fragments has to keep the projected lines somewhere until then: on disk under `.partial` names beside the files they become, which is bounded by the projection's own size and never by the corpus in the parent. `finish` writes the real files through the same writers `write_index` and `write_app_artifacts` reach, so the bytes are the ones a build holding every fragment would have written; `discard` sweeps the spools whether or not it did.
+
+    A unit served verbatim is projected without parsing it: its line in the previous surface's index, and its row in the previous app index when it is human, are read in step through `unit_index.LineCursor` — both files are in shard order, and a served unit keeps its place in it — and respooled with this build's queue place and shard address spliced on (`unit_index.respool_index_line`, `app_index.respool_app_line`), every other field being the fragment's own and unchanged; its locator row needs nothing but its id, class and address. The cursors are opened only when the previous sidecars are stamped for the manifest beside them, and a unit a cursor cannot reach falls back to the parse, so the bytes are the same either way and only the cost differs.
+    """
+
+    def __init__(self, out_dir: Path, *, respool: bool = False) -> None:
+        out_dir = Path(out_dir)
         self._paths = {
-            name: Path(out_dir) / f"{name}.spool.partial"
+            name: out_dir / f"{name}.spool.partial"
             for name in (unit_index.INDEX_NAME, app_index.APP_INDEX_NAME, app_index.LOCATOR_NAME)
         }
         self._handles = {name: path.open("wb") for name, path in self._paths.items()}
+        self._index_cursor: unit_index.LineCursor | None = None
+        self._app_cursor: unit_index.LineCursor | None = None
+        if (
+            respool
+            and unit_index.index_is_current(out_dir)
+            and app_index.artifact_is_current(out_dir, app_index.APP_INDEX_NAME, app_index.APP_INDEX_FORMAT)
+        ):
+            self._index_cursor = unit_index.LineCursor(unit_index.index_path(out_dir))
+            self._app_cursor = unit_index.LineCursor(
+                app_index.artifact_path(out_dir, app_index.APP_INDEX_NAME)
+            )
         self.human = 0
         self.machine = 0
+        self.respooled = 0
 
     def unit(self, fragment: dict, span: tuple[int, int, int], order: int | None, batch: int | None) -> None:
         self._handles[unit_index.INDEX_NAME].write(unit_index.index_line(fragment, order=order, batch=batch))
@@ -1173,6 +1275,35 @@ class _SidecarSpool:
                 app_index.app_line(fragment, *span, order=order, batch=batch)
             )
             self.human += 1
+
+    def served(
+        self, emission: _Emission, span: tuple[int, int, int], order: int | None, batch: int | None
+    ) -> None:
+        assert emission.body is not None and emission.identity is not None
+        unit_id = emission.unit_id
+        line = self._index_cursor.take(unit_id) if self._index_cursor is not None else None
+        row = None
+        if line is not None and order is not None and batch is not None and self._app_cursor is not None:
+            row = self._app_cursor.take(unit_id)
+        if line is None or (order is not None and row is None):
+            self.unit(json.loads(emission.body), span, order, batch)
+            return
+        self._handles[unit_index.INDEX_NAME].write(
+            unit_index.respool_index_line(line, unit_id=unit_id, order=order, batch=batch)
+        )
+        if order is None or batch is None:
+            self._handles[app_index.LOCATOR_NAME].write(app_index.locator_line(emission.identity, *span))
+            self.machine += 1
+        else:
+            assert row is not None
+            part, start, length = span
+            self._handles[app_index.APP_INDEX_NAME].write(
+                app_index.respool_app_line(
+                    row, unit_id=unit_id, order=order, batch=batch, part=part, start=start, length=length
+                )
+            )
+            self.human += 1
+        self.respooled += 1
 
     def _lines(self, name: str) -> Iterator[bytes]:
         with self._paths[name].open("rb") as handle:
@@ -1193,18 +1324,33 @@ class _SidecarSpool:
     def discard(self) -> None:
         for handle in self._handles.values():
             handle.close()
+        for cursor in (self._index_cursor, self._app_cursor):
+            if cursor is not None:
+                cursor.close()
         for path in self._paths.values():
             path.unlink(missing_ok=True)
 
 
 @dataclass(frozen=True)
 class _WrittenSurface:
-    """What `_write_surface` hands back beside the manifest: the three per-unit values the build still reads after the fragments are gone — each unit's `config_note`, which the census facts histogram, and its `content_key` and shard address, which the unit store records so the next build's plan can serve the fragment without walking the shard to find it. An address is the writer's own span resolved to the part name the manifest lists, one tuple per unit over a part name shared by every unit in the part."""
+    """What `_write_surface` hands back beside the manifest: the per-unit values the build still reads after the fragments are gone — each unit's `config_note`, which the census facts histogram, its `content_key`, shard address and policy-draft file, which the unit store records so the next build's plan can serve the fragment without walking the shard to find it and check it without parsing it — and how many units were written without a parse. An address is the writer's own span resolved to the part name the manifest lists, one tuple per unit over a part name shared by every unit in the part."""
 
     manifest: dict
     config_notes: dict[str, str | None]
     content_keys: dict[str, str]
     addresses: dict[str, tuple[str, int, int]]
+    policy_files: dict[str, str | None]
+    verbatim: int
+    respooled: int
+
+
+def _prior_parts(out_dir: Path) -> dict[str, list[str]]:
+    """The previous surface's shard parts per class, off the manifest beside them, for the shard writer to write each class against; nothing when there is no manifest to read."""
+    try:
+        manifest = json.loads((Path(out_dir) / "manifest.json").read_text(encoding="utf-8"))
+        return {meta["id"]: unit_index.class_shards(meta) for meta in manifest["classes"]}
+    except OSError, ValueError, KeyError, TypeError, AttributeError:
+        return {}
 
 
 def _write_surface(
@@ -1212,7 +1358,7 @@ def _write_surface(
     workload,
     classes: list,
     by_class: dict,
-    fragments: Callable[[list[Unit]], Iterator[dict]],
+    fragments: Callable[[list[Unit]], Iterator[_Emission]],
     seam_census: dict,
     echo_count: int,
     total_batches: int,
@@ -1238,6 +1384,8 @@ def _write_surface(
     config_notes: dict[str, str | None] = {}
     content_keys: dict[str, str] = {}
     addresses: dict[str, tuple[str, int, int]] = {}
+    policy_files: dict[str, str | None] = {}
+    verbatim = 0
     check = _SurfaceCheck(
         mode="m1-audit",
         descriptions=FEATURE_DESCRIPTIONS,
@@ -1250,8 +1398,10 @@ def _write_surface(
         tally.hold("written.config_notes", config_notes)
         tally.hold("written.content_keys", content_keys)
         tally.hold("written.addresses", addresses)
+        tally.hold("written.policy_files", policy_files)
+    prior_parts = _prior_parts(out_dir) if served_ids else {}
     writer = _ShardWriter(out_dir)
-    spool = _SidecarSpool(out_dir)
+    spool = _SidecarSpool(out_dir, respool=bool(served_ids))
     try:
         for entry in ordered:
             units = by_class[entry.id]
@@ -1273,17 +1423,28 @@ def _write_surface(
                 "batches": sorted({unit.batch for unit in units if unit.batch is not None}),
             }
             check.class_start(meta)
-            writer.open(entry.id)
+            writer.open(entry.id, prior_parts.get(entry.id, ()))
             spans: list[tuple[int, int, int]] = []
             for unit in units:
-                fragment = next(stream)
-                assert fragment["id"] == unit.unit_id, (fragment["id"], unit.unit_id)
-                span = writer.add(fragment)
-                check.unit(fragment)
-                spool.unit(fragment, span, unit.order, unit.batch)
+                emission = next(stream)
+                assert emission.unit_id == unit.unit_id, (emission.unit_id, unit.unit_id)
+                if emission.fragment is not None:
+                    fragment = emission.fragment
+                    span = writer.add(fragment)
+                    check.unit(fragment)
+                    spool.unit(fragment, span, unit.order, unit.batch)
+                    config_notes[unit.unit_id] = fragment["config_note"]
+                else:
+                    assert emission.body is not None and emission.source is not None
+                    assert emission.identity is not None
+                    span = writer.add_verbatim(emission.body, emission.source)
+                    check.unit(emission.identity)
+                    spool.served(emission, span, unit.order, unit.batch)
+                    config_notes[unit.unit_id] = config_note(unit.configs, ACCEPTANCE_CONFIGS)
+                    verbatim += 1
                 spans.append(span)
-                config_notes[unit.unit_id] = fragment["config_note"]
-                content_keys[unit.unit_id] = fragment["content_key"]
+                content_keys[unit.unit_id] = emission.content_key
+                policy_files[unit.unit_id] = emission.policy_file
             meta["shards"] = writer.close()
             for unit, (part, start, length) in zip(units, spans, strict=True):
                 addresses[unit.unit_id] = (meta["shards"][part], start, length)
@@ -1348,7 +1509,9 @@ def _write_surface(
     errors.extend(check.finish(manifest))
     if errors:
         raise SystemExit("contract check failed:\n" + "\n".join(errors[:20]))
-    return _WrittenSurface(manifest, config_notes, content_keys, addresses)
+    return _WrittenSurface(
+        manifest, config_notes, content_keys, addresses, policy_files, verbatim, spool.respooled
+    )
 
 
 @dataclass(slots=True)
@@ -1397,6 +1560,55 @@ def _pooled_seam_home(seam_home: SeamHomeUnit, pool: dict) -> SeamHomeUnit:
 def _slim_for(unit: Unit, cached: unit_cache.CachedUnit) -> bool:
     """Whether this build would write the unit slim, answered before phase 1 runs from what the store already knows: the machine flags are the record's — pure functions of the fonts and the window, everything under the key, so the store's answer is this build's answer — and the exemption is this build's ledger's, which is the one input that can flip under a key-stable unit. Held against the record's own `slim` flag to decide whether the fragment it names is servable at all."""
     return cached.ink_identical or cached.picture_identical or cached.junior_equivalent or unit.no_verdict
+
+
+def _policy_file(fragment: Mapping) -> str | None:
+    """The rune file a fragment's policy draft names, or None — the one field of the drafts the cross-unit check reads, kept in the store so a fragment served verbatim can answer it without being parsed."""
+    policy = (fragment.get("drafts") or {}).get("policy") or {}
+    file = policy.get("file")
+    return file if isinstance(file, str) else None
+
+
+def _homes(seam_assign) -> list[list]:
+    """A unit's secondary-seam homes as the store records them: one `[home, suppressed]` pair per seam in the seam's order, the whole of what `patch_fragment` writes over a fragment from the home reduce."""
+    return [[home, bool(suppressed)] for home, suppressed in seam_assign]
+
+
+def _served_as_is(
+    unit: Unit, cached: unit_cache.CachedUnit, found: unit_cache.PriorFragment, seam_assign
+) -> bool:
+    """Whether a served fragment's bytes on disk are already what this build writes for the unit, so the write copies them by address instead of reading, patching and serializing them. Everything under the content key is equal by the serving; the machine flags and ink deltas are the store's, which this build has taken as its own; what is left is what `patch_fragment` writes over a fragment from outside the key — the class after family promotion, the echo group, the ledger's exemplar and exemption flags, and the secondary-seam homes — each compared against the value the store says the fragment was written with. The address has to be one the shard writer returned (`verbatim`), since only the writer's own framing is safe to copy as bytes."""
+    return (
+        found.verbatim
+        and cached.prior_class == unit.class_id
+        and cached.echo == unit.echo
+        and cached.exemplar == unit.exemplar
+        and cached.no_verdict == unit.no_verdict
+        and cached.homes == _homes(seam_assign)
+    )
+
+
+def _served_identity(unit: Unit, cached: unit_cache.CachedUnit, seam_assign) -> dict:
+    """The stand-in `_SurfaceCheck.unit` and the locator row read for a fragment served verbatim, in place of the fragment itself: every field the cross-unit predicates and the sidecars touch, drawn from the unit as this build holds it and from its store record, so a served unit is checked against its neighbors on every build without being parsed on any."""
+    return {
+        "id": unit.unit_id,
+        "ink_identical": unit.ink_identical,
+        "picture_identical": unit.picture_identical,
+        "junior_equivalent": unit.junior_equivalent,
+        "no_verdict": unit.no_verdict,
+        "echo": unit.echo,
+        "cluster": unit.cluster,
+        "class": unit.class_id,
+        "group": unit.group,
+        "codepoints": unit.codepoints,
+        "configs": list(unit.configs),
+        "config_gate": config_gate(unit.configs, ACCEPTANCE_CONFIGS),
+        "pair": (
+            {"left": cached.proj["pair"][0], "right": cached.proj["pair"][1]} if cached.proj["pair"] else None
+        ),
+        "secondary_seams": [{"home": home} for home, suppressed in seam_assign if not suppressed] or None,
+        "drafts": {"policy": {"file": cached.policy_file}} if cached.policy_file else None,
+    }
 
 
 def _cached_seam_home(unit, cached: unit_cache.CachedUnit) -> SeamHomeUnit:
@@ -1709,26 +1921,43 @@ def build_m1(
             f"(jobs={jobs}, fresh={len(fresh):,}, verified={len(verified):,} served)",
         )
 
-        # The write is phase 2, and it is one pass over both kinds of unit: each fragment is read back by address as the shard that takes it goes down — a served one out of the previous surface at the address the locate pass recorded, a fresh one out of the runner's spool at the address phase 1 recorded — patched with this build's scaffold and seam homes through `patch_fragment`, stamped if it is fresh, and gone from the parent once the shard, the checker and the sidecar spools have had it. It runs under the runner because the spool is the runner's.
+        # The write is phase 2, and it is one pass over both kinds of unit, each read back by address as the shard that takes it goes down. A fresh fragment comes out of the runner's spool at the address phase 1 recorded, is patched with this build's scaffold and seam homes through `patch_fragment`, stamped, and gone from the parent once the shard, the checker and the sidecar spools have had it. A served one is read out of the previous surface at the address the plan recorded: as bytes, never parsed, when `_served_as_is` says every field the patch would write is already what the fragment carries — which is what lets the shard writer leave it, and the whole part around it, where it lies — and as a fragment to patch and serialize again otherwise. It runs under the runner because the spool is the runner's.
         console.phase("review.build manifest+check", file=sys.stderr)
         phase = time.perf_counter()
         reader = unit_cache.PriorFragmentReader(out_dir)
 
-        def fragments_in(ordered_units: list[Unit]) -> Iterator[dict]:
+        def emissions_in(ordered_units: list[Unit]) -> Iterator[_Emission]:
             for unit in ordered_units:
                 cached = served.get(unit.input_key)
+                seam_assign = assignments[unit.unit_id]
                 try:
                     if cached is None:
                         fragment = runner.fragment(unit.unit_id)
+                        seams = states[unit.unit_id].seam_rects
+                    elif _served_as_is(unit, cached, located[cached.prior_id], seam_assign):
+                        found = located[cached.prior_id]
+                        yield _Emission(
+                            unit.unit_id,
+                            cached.content_key,
+                            cached.policy_file,
+                            body=reader.read_bytes(found),
+                            source=found,
+                            identity=_served_identity(unit, cached, seam_assign),
+                        )
+                        continue
                     else:
                         fragment = reader.read(located[cached.prior_id])
+                        seams = cached.seams
                 except ValueError as error:
                     raise SystemExit(
                         f"the fragment for {unit.unit_id} cannot be read back: {error}"
                     ) from None
-                seams = states[unit.unit_id].seam_rects if cached is None else cached.seams
-                fragment = patch_fragment(fragment, unit, seams, assignments[unit.unit_id])
-                yield fragment if cached is not None else hold_stamp(fragment)
+                fragment = patch_fragment(fragment, unit, seams, seam_assign)
+                if cached is None:
+                    hold_stamp(fragment)
+                yield _Emission(
+                    unit.unit_id, fragment["content_key"], _policy_file(fragment), fragment=fragment
+                )
 
         try:
             written = _write_surface(
@@ -1736,7 +1965,7 @@ def build_m1(
                 workload,
                 classes,
                 by_class,
-                fragments_in,
+                emissions_in,
                 seam_census,
                 echo_count,
                 total_batches,
@@ -1761,7 +1990,12 @@ def build_m1(
     finally:
         runner.close()
     manifest = written.manifest
-    _phase_timing("review.build manifest+check", phase)
+    _phase_timing(
+        "review.build manifest+check",
+        phase,
+        f"(verbatim {written.verbatim:,} of {len(workload.units):,} fragments, "
+        f"respooled {written.respooled:,} sidecar rows)",
+    )
 
     console.phase("review.build census-facts", file=sys.stderr)
     phase = time.perf_counter()
@@ -1790,20 +2024,37 @@ def build_m1(
         tally.boundary("census-facts")
     _phase_timing("review.build census-facts", phase)
 
+    # The store is written as a merge over the previous one: a unit whose fragment went down as it lay and whose address did not move has a record identical to the one the previous store holds — every field of it is the served record's own — so its line is copied out of that store through a cursor that walks it in step, and only a fresh, re-patched or re-addressed unit's record is built and serialized. The two stores list units in one order, the triage order, which every term of `audit.triage_key` makes content-derived, so the cursor never has to look back.
     console.phase("review.build cache", file=sys.stderr)
     phase = time.perf_counter()
-    records = []
-    for unit in workload.units:
-        state = states[unit.unit_id]
-        assert state.cluster is not None
-        records.append(
-            unit_cache.CachedUnit(
+    prior_store = unit_cache.StoreCursor(out_dir) if served else None
+    carried = 0
+
+    def store_entries() -> Iterator[unit_cache.CachedUnit | bytes]:
+        nonlocal carried
+        for unit in workload.units:
+            cached = served.get(unit.input_key)
+            address = written.addresses[unit.unit_id]
+            if (
+                cached is not None
+                and prior_store is not None
+                and address == cached.address
+                and _served_as_is(unit, cached, located[cached.prior_id], assignments[unit.unit_id])
+            ):
+                line = prior_store.take(unit.input_key)
+                if line is not None:
+                    carried += 1
+                    yield line
+                    continue
+            state = states[unit.unit_id]
+            assert state.cluster is not None
+            yield unit_cache.CachedUnit(
                 key=unit.input_key,
                 prior_id=unit.unit_id,
                 prior_class=unit.class_id,
                 content_key=written.content_keys[unit.unit_id],
                 slim=unit.slim_fragment,
-                address=written.addresses[unit.unit_id],
+                address=address,
                 ink_identical=unit.ink_identical,
                 picture_identical=unit.picture_identical,
                 junior_equivalent=unit.junior_equivalent,
@@ -1815,14 +2066,29 @@ def build_m1(
                 proj=_seam_home_record(state.seam_home),
                 seams=state.seam_rects,
                 mismatches=state.mismatches,
+                echo=unit.echo,
+                exemplar=unit.exemplar,
+                no_verdict=unit.no_verdict,
+                homes=_homes(assignments[unit.unit_id]),
+                policy_file=written.policy_files[unit.unit_id],
             )
+
+    try:
+        unit_cache.write_store(
+            out_dir,
+            environment,
+            store_entries(),
+            parts=[part for meta in manifest["classes"] for part in unit_index.class_shards(meta)],
         )
-    unit_cache.write_store(out_dir, environment, records)
+    finally:
+        if prior_store is not None:
+            prior_store.close()
     unit_cache.write_signature_store(out_dir, signature_environment, signature_entries)
     if tally:
-        tally.hold("unit_cache.records", records)
         tally.boundary("cache")
-    _phase_timing("review.build cache", phase)
+    _phase_timing(
+        "review.build cache", phase, f"(carried {carried:,} of {len(workload.units):,} store records)"
+    )
     return manifest
 
 

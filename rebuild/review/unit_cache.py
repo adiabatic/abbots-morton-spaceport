@@ -2,7 +2,7 @@
 
 A unit's expensive products — the ink diffs and machine-approval flags, the enrichment (cells, seams, highlights, explain, provenance), and the three drafts, of which a machine-approved or verdict-exempt unit's fragment carries only the first half (`audit.slim_fragment`: it omits the highlight, the explain and the drafts outright, since nothing under them reaches a reviewer) — are a pure function of a nameable closure, and the cache's soundness is exactly the claim that the content key covers that closure. The key is two-grained: per unit, the audit rows (which pin the window, its configs, both fonts' rendered names, and the matched ledger classes) plus a per-family digest for every window letter — the family's explain-aware rune digest expanded by its static `resolve.against` closure, joined with a digest of the after font's compiled glyphs for that family (outlines, advances, and cursive anchors, so a drawing or anchor change invalidates even when no name in the rows moves) — with ligature families included whenever all their components appear in the window. Whole store, everything that can move a unit's products without moving a named family: the code the surface build runs (`surface_code_paths` — the review modules the build imports, the pipeline and validation modules those reach, and the crate modules the `settle-cases` and `guard-sweep` verbs run, a walked closure rebuild/test_review_code_closure.py holds the rosters to, so an edit to the driver, a gate, the oracle, the font compile or the crate's enumeration and fold keeps the store), the non-rune data files, the engine's semantics flags, the resolved spec structure and capability-feature universe (cross-rune routes: predicate-class and group memberships, ligature sequences, the formation guard's feature combos), the before and Junior fonts wholesale, the acceptance configs' subset tables, the draft harness (test/test_shaping.py, tools/, postscript_glyph_names.yaml) and the three site corpus files it validates pins against, and the after font's non-family glyphs, cmap, and GPOS wiring. What is deliberately outside every stamp is the after font's GSUB wiring; `fingerprint.after_font_glyph_digests` carries the argument for why a window's glyph selection is covered without it. The divergence ledger is deliberately not in the store stamp: its per-unit effects reach the shards only through the audit's matched_entry column (in the rows) or through fields the build re-derives and re-patches on every pass (no_verdict, exemplar, class promotion), so a ledger edit invalidates exactly the units whose rows it moved. The refuse prose the explain panel quotes is deliberately not in the store stamp either, for the same reason it is in the family keys: rewording one re-enriches the windows holding that family and leaves every other unit served.
 
-What the store serves is the previous build's emitted fragment (read back from the shard it lives in, at the address the record carries — the part, byte offset and length the shard writer handed back as it wrote the fragment, so the plan trusts an address rather than parsing the previous surface to find one, and the fragment is parsed once, at the write, where `PriorFragmentReader` holds the bytes at that address to the record's id and stamp) plus the slim projection the parent's global reduces need: the machine flags and ink deltas, the verdict family, the judged pair, the ink-diff digest for echo grouping, the seam-home projection and per-seam rects, and the unit's mismatch lines — and whether the fragment was written slim, because the shape a build writes turns on the exemption, a ledger fact outside the key. So a unit that crosses from machine-approved-or-exempt into the human workload on a ledger edit (no_verdict flipping) is a miss and is re-enriched in full rather than served the slim fragment it earned before the edit, and one crossing the other way is a miss too, so a served surface stays byte-identical to a from-scratch one. Everything order-derived or ledger-derived — id, batch, echo, class, no_verdict, exemplar, the secondary-seam homes — is recomputed over the full universe every build and patched into every fragment by address as its shard is written, a fresh one out of the build's own spool (drafted the moment its unit was enriched, with those fields as placeholders) exactly as a served one out of the previous surface, so a cache hit never freezes a global field and the two kinds of unit take one write path; the cluster id alone is trusted from the served fragment, because its inputs (configs, final class, ink diffs) are all under the key. The byte-identity gate (rebuild/test_unit_cache.py::test_incremental_rebuild_matches_a_from_scratch_build_after_an_edit) is the standing proof: an incrementally rebuilt live surface must match a from-scratch build byte for byte.
+What the store serves is the previous build's emitted fragment (read back from the shard it lives in, at the address the record carries — the part, byte offset and length the shard writer handed back as it wrote the fragment, so the plan trusts an address rather than parsing the previous surface to find one) plus the slim projection the parent's global reduces need: the machine flags and ink deltas, the verdict family, the judged pair, the ink-diff digest for echo grouping, the seam-home projection and per-seam rects, and the unit's mismatch lines — whether the fragment was written slim, because the shape a build writes turns on the exemption, a ledger fact outside the key — and the fields the fragment was written with from outside the key: its echo group, its class after family promotion, the ledger's exemplar and exemption flags, its secondary-seam homes, and the rune file its policy draft names. So a unit that crosses from machine-approved-or-exempt into the human workload on a ledger edit (no_verdict flipping) is a miss and is re-enriched in full rather than served the slim fragment it earned before the edit, and one crossing the other way is a miss too, so a served surface stays byte-identical to a from-scratch one. Everything ledger-derived or reduce-derived — echo, class, no_verdict, exemplar, the secondary-seam homes — is recomputed over the full universe every build; a unit's id is its content key's and moves with nothing else. A served fragment every one of whose recomputed fields equals what the store says it was written with is copied into the new surface by address as bytes, never parsed (`build._served_as_is`; `PriorFragmentReader.read_bytes` holds the bytes to the record's id and stamp as substrings), and the shard writer leaves a part whose every fragment lands that way where it lies; one with a moved field is parsed once, patched and serialized again, exactly as a fresh fragment is read out of the build's own spool, so no cache hit ever freezes a global field. The cluster id alone is trusted from the served record, because its inputs (configs, final class, ink diffs) are all under the key. The byte-identity gate (rebuild/test_unit_cache.py::test_incremental_rebuild_matches_a_from_scratch_build_after_an_edit) is the standing proof: an incrementally rebuilt live surface must match a from-scratch build byte for byte, and the no-change rebuild beside it proves the served path writes no shard part at all.
 
 This module also owns the carry content key (the render identity rebuild/tools/carry_verdicts.py resolves prior verdicts against), so the build can stamp each unit's `content_key` at emission time and carry can probe stamped hashes instead of re-serializing every unit — one definition, shared by both sides, with the stamp itself excluded from the projection it hashes.
 
@@ -26,7 +26,7 @@ from rebuild.review import unit_index
 from rebuild.review.audit import ACCEPTANCE_CONFIGS, AuditRow, Unit, parse_codepoints
 from rebuild.review.drafts import CORPUS_FILES
 
-STORE_FORMAT = "ams-review-unit-cache/4"
+STORE_FORMAT = "ams-review-unit-cache/5"
 STORE_NAME = "unit-cache.ndjson.gz"
 SIGNATURE_STORE_FORMAT = "ams-review-ink-signatures/2"
 SIGNATURE_STORE_NAME = "ink-signatures.tsv.gz"
@@ -280,6 +280,8 @@ class CachedUnit:
     """One prior unit's reusable products: the identity needed to fetch its emitted fragment from the prior shards, plus the slim projection the parent's global reduces read. The record also carries the fragment's own `content_key` stamp — distinct from `key`, which is the content key over the unit's *inputs* — and a prior fragment is served only when the stamp on disk equals it, so what is fetched is proved to be the bytes this record describes. `slim` says which shape those bytes are (`audit.slim_fragment`), and the build serves them only when that is the shape it would write for the unit now.
 
     `address` is where those bytes are: the shard part (the manifest's relative spelling), byte offset and length the shard writer handed back as the fragment went down, the same `(part, start, length)` the app's sidecars carry for a Range fetch. It is recorded from the writer's own return rather than derived from anything else, and it is never a second copy of the stamp: the stamp beside it is what `PriorFragmentReader` holds the bytes at the address to when the fragment is read back at the write. A record without one — a store written before addresses were recorded, or one whose part `load_store` found resized underneath the store — is served through the walk (`locate_prior_fragments`), which re-derives the address off the part's own text.
+
+    `echo`, `exemplar`, `no_verdict`, `homes` and `policy_file` are what the fragment was written with beyond its content: the four fields `build.patch_fragment` writes over a fragment from the reduces and the ledger, and the one field of the drafts the cross-unit check reads. They are what lets the build tell a served fragment whose bytes on disk are already what it would write — every patched field equal to this build's — from one it has to read, patch and serialize again; the former is copied by address, and a whole shard part of them is left where it lies.
     """
 
     key: str
@@ -299,6 +301,11 @@ class CachedUnit:
     proj: dict
     seams: list[dict]
     mismatches: list[str]
+    echo: str | None
+    exemplar: bool
+    no_verdict: bool
+    homes: list[list]
+    policy_file: str | None
 
     def to_record(self) -> dict:
         return {
@@ -318,15 +325,20 @@ class CachedUnit:
             "proj": self.proj,
             "seams": self.seams,
             "mismatches": self.mismatches,
+            "echo": self.echo,
+            "exemplar": self.exemplar,
+            "no_verdict": self.no_verdict,
+            "homes": self.homes,
+            "policy_file": self.policy_file,
             "address": list(self.address) if self.address else None,
         }
 
     def located(self) -> "PriorFragment | None":
-        """The record's address as the plan's `PriorFragment`, stamped with the record's own `content_key`, or None for a record the walk has to place."""
+        """The record's address as the plan's `PriorFragment`, stamped with the record's own `content_key` and marked verbatim — the bytes there were written by the shard writer and may be copied as they lie — or None for a record the walk has to place."""
         if self.address is None:
             return None
         part, start, length = self.address
-        return PriorFragment(part, start, length, self.prior_id, self.content_key)
+        return PriorFragment(part, start, length, self.prior_id, self.content_key, verbatim=True)
 
     @classmethod
     def from_record(cls, record: dict) -> "CachedUnit":
@@ -356,6 +368,11 @@ class CachedUnit:
             proj=proj,
             seams=record["seams"],
             mismatches=list(record["mismatches"]),
+            echo=record["echo"],
+            exemplar=record["exemplar"],
+            no_verdict=record["no_verdict"],
+            homes=[[home, bool(suppressed)] for home, suppressed in record["homes"]],
+            policy_file=record["policy_file"],
         )
 
 
@@ -370,21 +387,45 @@ def _part_sizes(out_dir: Path, parts: Iterable[str]) -> dict[str, int | None]:
     return {part: _file_size(Path(out_dir) / part) for part in sorted(set(parts))}
 
 
-def write_store(out_dir: Path, environment: str, records: Iterable[CachedUnit]) -> None:
-    """Written after the manifest, stamped with the manifest's identity (`unit_index.manifest_sha256`, which projects the copied UI assets' components out), so a store can prove it describes the shards beside it while an assets refresh that rewrites only that field leaves it current; a crash between the two leaves a stamp mismatch and the next build falls back to a full pass. The header also carries the byte size of every shard part the records' addresses point into, read off the committed parts here: the manifest stamp says nothing about the shards' bytes, and the size is the one fact about a part that a rewrite cannot leave where it was without leaving every address right too, so `load_store` can tell a part whose addresses still hold from one to walk again at the cost of a stat per part. The gzip mtime is pinned so consecutive identical builds stay byte-identical, and the compression level with it — level 1 rather than 9, because this file is written once and read once per build and the four seconds level 9 spends buying ten megabytes on a scratch artifact are four seconds off every cycle."""
-    records = list(records)
+def record_line(record: CachedUnit) -> bytes:
+    """One store record as the line the file holds it on. `from_record` and `to_record` are inverses down to the bytes — every field round-trips through JSON in the order and spelling it was written — so a line a previous store holds for a record this build would write unchanged is this very line, which is what lets the build copy it through a `StoreCursor` instead of building the record again."""
+    return (json.dumps(record.to_record()) + "\n").encode()
+
+
+class StoreCursor(unit_index.LineCursor):
+    """A forward-only reader over the previous build's store, handing out the line for an input key on request; `unit_index.LineCursor` keyed on the record's leading `key` field. The build walks it in triage order while it writes the new store, copying the line of every unit whose record it would write unchanged and building the rest."""
+
+    def __init__(self, out_dir: Path) -> None:
+        super().__init__(store_path(out_dir), field="key")
+
+
+def write_store(
+    out_dir: Path,
+    environment: str,
+    records: Iterable[CachedUnit | bytes],
+    parts: Iterable[str] | None = None,
+) -> None:
+    """Written after the manifest, stamped with the manifest's identity (`unit_index.manifest_sha256`, which projects the copied UI assets' components out), so a store can prove it describes the shards beside it while an assets refresh that rewrites only that field leaves it current; a crash between the two leaves a stamp mismatch and the next build falls back to a full pass. The header also carries the byte size of every shard part the records' addresses point into — `parts` when the caller names them, else the parts the records address — read off the committed parts here: the manifest stamp says nothing about the shards' bytes, and the size is the one fact about a part that a rewrite cannot leave where it was without leaving every address right too, so `load_store` can tell a part whose addresses still hold from one to walk again at the cost of a stat per part. A record arrives either as a `CachedUnit` to serialize or as the line a previous store already holds for it (`record_line` is the identity between the two), and the file is staged under a sibling name and renamed last, so the previous store stays readable through a `StoreCursor` until this one is whole. The gzip mtime is pinned so consecutive identical builds stay byte-identical, and the compression level with it — level 1 rather than 9, because this file is written once and read once per build and the four seconds level 9 spends buying ten megabytes on a scratch artifact are four seconds off every cycle."""
+    if parts is None:
+        records = list(records)
+        parts = (record.address[0] for record in records if isinstance(record, CachedUnit) and record.address)
     header = {
         "format": STORE_FORMAT,
         "environment": environment,
         "manifest_sha256": _manifest_stamp(out_dir),
-        "parts": _part_sizes(out_dir, (record.address[0] for record in records if record.address)),
+        "parts": _part_sizes(out_dir, parts),
     }
     path = store_path(out_dir)
-    with open(path, "wb") as handle:
-        with gzip.GzipFile(fileobj=handle, mode="wb", mtime=0, compresslevel=1) as stream:
-            stream.write((json.dumps(header) + "\n").encode())
-            for record in records:
-                stream.write((json.dumps(record.to_record()) + "\n").encode())
+    staging = path.with_name(path.name + ".partial")
+    try:
+        with open(staging, "wb") as handle:
+            with gzip.GzipFile(fileobj=handle, mode="wb", mtime=0, compresslevel=1) as stream:
+                stream.write((json.dumps(header) + "\n").encode())
+                for record in records:
+                    stream.write(record if isinstance(record, bytes) else record_line(record))
+        staging.replace(path)
+    finally:
+        staging.unlink(missing_ok=True)
 
 
 def load_store(out_dir: Path, environment: str) -> dict[str, CachedUnit] | None:
@@ -463,13 +504,14 @@ def load_signature_store(out_dir: Path, environment: str) -> dict[str, str] | No
 
 @dataclass(frozen=True)
 class PriorFragment:
-    """Where one of the prior surface's fragments lives and the stamp it carries: the shard part it was written to (the manifest's relative spelling), the byte offset and length of its own JSON element there, and its `content_key`. The address is the same `(part, start, length)` the app's sidecars carry for a Range fetch. It comes from the store record (`CachedUnit.located`), which took it off the shard writer's own return, or from `locate_prior_fragments`, which re-derives it off the part's own text for a record without one and so stays right for a shard something rewrote by hand as long as the part is still ASCII."""
+    """Where one of the prior surface's fragments lives and the stamp it carries: the shard part it was written to (the manifest's relative spelling), the byte offset and length of its own JSON element there, and its `content_key`. The address is the same `(part, start, length)` the app's sidecars carry for a Range fetch. It comes from the store record (`CachedUnit.located`), which took it off the shard writer's own return, or from `locate_prior_fragments`, which re-derives it off the part's own text for a record without one and so stays right for a shard something rewrote by hand as long as the part is still ASCII. `verbatim` says which: bytes at a store address are the shard writer's own framing and may be copied into the next surface as they lie, where bytes the walk found may be anything that parses and are read, patched and serialized again."""
 
     part: str
     start: int
     length: int
     unit_id: str
     content_key: str | None
+    verbatim: bool = False
 
 
 _JSON_WHITESPACE = re.compile(r"[ \t\n\r]*")
@@ -538,23 +580,39 @@ class PriorFragmentReader:
         self._part: str | None = None
         self._handle: BinaryIO | None = None
 
-    def read(self, located: PriorFragment) -> dict:
+    def _refusal(self, located: PriorFragment) -> ValueError:
+        return ValueError(
+            f"{located.part} no longer holds unit {located.unit_id} at bytes "
+            f"{located.start}+{located.length}: the prior surface changed underneath this build"
+        )
+
+    def _bytes(self, located: PriorFragment) -> bytes:
         if self._handle is None or self._part != located.part:
             self.close()
             self._handle = (self._out_dir / located.part).open("rb")
             self._part = located.part
         self._handle.seek(located.start)
-        fragment = json.loads(self._handle.read(located.length))
+        return self._handle.read(located.length)
+
+    def read(self, located: PriorFragment) -> dict:
+        fragment = json.loads(self._bytes(located))
         if (
             not isinstance(fragment, dict)
             or fragment.get("id") != located.unit_id
             or fragment.get("content_key") != located.content_key
         ):
-            raise ValueError(
-                f"{located.part} no longer holds unit {located.unit_id} at bytes "
-                f"{located.start}+{located.length}: the prior surface changed underneath this build"
-            )
+            raise self._refusal(located)
         return fragment
+
+    def read_bytes(self, located: PriorFragment) -> bytes:
+        """The fragment's bytes as they lie, held to the address without parsing them: the shard writer's framing puts each field on its own line as `"key": value`, so the id and the stamp the address was located under are found as substrings, and a fragment edited in place under its address — the one change the part-size guard cannot see — is refused here exactly as `read` refuses it. Only a verbatim address is read this way, since the framing is the writer's; a walked address parses."""
+        body = self._bytes(located)
+        if located.verbatim and (
+            f'"id": {json.dumps(located.unit_id)}'.encode() not in body
+            or f'"content_key": {json.dumps(located.content_key)}'.encode() not in body
+        ):
+            raise self._refusal(located)
+        return body
 
     def close(self) -> None:
         if self._handle is not None:

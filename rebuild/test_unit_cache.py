@@ -59,10 +59,24 @@ def _tree(path: Path) -> dict[str, bytes]:
     }
 
 
+def _counts(text: str, pattern: str) -> tuple[int, ...]:
+    match = re.search(pattern, text)
+    assert match, f"the build did not report {pattern!r}"
+    return tuple(int(group.replace(",", "")) for group in match.groups())
+
+
+SERVED = r"served (\d[\d,]*) of (\d[\d,]*) units from cache"
+VERBATIM = r"verbatim (\d[\d,]*) of (\d[\d,]*) fragments, respooled (\d[\d,]*) sidecar rows"
+CARRIED = r"carried (\d[\d,]*) of (\d[\d,]*) store records"
+
+
 def _served(capfd) -> tuple[int, int]:
-    match = re.search(r"served (\d[\d,]*) of (\d[\d,]*) units from cache", capfd.readouterr().err)
-    assert match, "the build did not report its cache plan"
-    return int(match.group(1).replace(",", "")), int(match.group(2).replace(",", ""))
+    served, total = _counts(capfd.readouterr().err, SERVED)
+    return served, total
+
+
+def _part_mtimes(surface: Path) -> dict[str, int]:
+    return {path.name: path.stat().st_mtime_ns for path in _shard_paths(surface)}
 
 
 def _copy(base: Path, tmp_path: Path) -> Path:
@@ -72,11 +86,19 @@ def _copy(base: Path, tmp_path: Path) -> Path:
 
 
 def test_no_change_rebuild_serves_every_unit_and_is_byte_stable(base_surface, mini_bundle, tmp_path, capfd):
+    """A rebuild over unchanged inputs serves every unit, writes every fragment's bytes as they lie — no shard part is rewritten at all, which the parts' mtimes witness — projects every sidecar row off the previous sidecars without parsing a fragment, and carries every store record's line out of the previous store; and the surface it leaves is byte for byte the one it found."""
     surface = _copy(base_surface, tmp_path)
     before = _tree(surface)
+    mtimes = _part_mtimes(surface)
+    capfd.readouterr()
     _build(surface, mini_bundle, jobs=1)
-    served, total = _served(capfd)
+    report = capfd.readouterr().err
+    served, total = _counts(report, SERVED)
     assert served == total
+    verbatim, written, respooled = _counts(report, VERBATIM)
+    assert (verbatim, written, respooled) == (total, total, total)
+    assert _counts(report, CARRIED) == (total, total)
+    assert _part_mtimes(surface) == mtimes
     assert _tree(surface) == before
 
 
@@ -117,11 +139,17 @@ def test_incremental_rebuild_matches_a_from_scratch_build_after_an_edit(
 ):
     """The soundness gate at mini scale: dropping one window renumbers every unit behind it and retagging another moves its class, and the incremental pass — serving nearly everything, re-patching ids, batches, echo numbers, and seam homes — must land byte-for-byte on what a cache-blind build of the same audit writes, the store included."""
     incremental = _copy(base_surface, tmp_path)
+    mtimes = _part_mtimes(incremental)
     edited = _edited_audit(tmp_path)
     capfd.readouterr()
     _build(incremental, mini_bundle, audit_path=edited, jobs=1)
-    served, total = _served(capfd)
+    report = capfd.readouterr().err
+    served, total = _counts(report, SERVED)
     assert 0 < total - served <= 2
+    verbatim, _written, _respooled = _counts(report, VERBATIM)
+    assert 0 < verbatim <= served
+    kept = {name for name, stamp in _part_mtimes(incremental).items() if mtimes.get(name) == stamp}
+    assert kept, "a class the edit never reached must keep its shard part on disk"
     scratch = tmp_path / "scratch"
     _build(scratch, mini_bundle, audit_path=edited, jobs=1)
     assert _tree(incremental) == _tree(scratch)
@@ -702,6 +730,11 @@ def _round_trip_unit() -> unit_cache.CachedUnit:
             }
         ],
         mismatches=[],
+        echo="e-2WvdGAWe6bX",
+        exemplar=False,
+        no_verdict=False,
+        homes=[["u-DdcTojn1hba", False]],
+        policy_file="glyph_data/runes/qsTea.yaml",
     )
 
 
@@ -718,6 +751,28 @@ def test_store_round_trip_and_invalidation(tmp_path):
     assert unit_cache.load_store(tmp_path, "env-b") is None
     (tmp_path / "manifest.json").write_text('{"changed": true}', encoding="utf-8")
     assert unit_cache.load_store(tmp_path, "env-a") is None
+
+
+def test_a_store_line_and_its_record_are_inverses_down_to_the_bytes(tmp_path):
+    """What lets the build copy a previous store's line for a record it would write unchanged: parsing a line back and serializing the record again gives the same bytes, and a cursor over the store hands the lines back in file order, once each, and None past the end."""
+    first = _round_trip_unit()
+    second = replace(first, key="k2", prior_id="u-8nacGTcgMRS", address=("units/small.json", 1, 5))
+    line = unit_cache.record_line(first)
+    assert unit_cache.record_line(unit_cache.CachedUnit.from_record(json.loads(line))) == line
+    (tmp_path / "manifest.json").write_text("{}", encoding="utf-8")
+    unit_cache.write_store(tmp_path, "env-a", [first, second])
+    cursor = unit_cache.StoreCursor(tmp_path)
+    assert cursor.take("k2") == unit_cache.record_line(second)
+    assert cursor.take("k1") is None
+    cursor.close()
+    cursor = unit_cache.StoreCursor(tmp_path)
+    assert cursor.take("k1") == line
+    assert cursor.take("k2") == unit_cache.record_line(second)
+    cursor.close()
+    unit_cache.write_store(tmp_path, "env-a", [line, second], parts=["units/small.json"])
+    loaded = unit_cache.load_store(tmp_path, "env-a")
+    assert loaded is not None and loaded["k1"] == first and loaded["k2"] == replace(second, address=None)
+    assert unit_cache.StoreCursor(tmp_path / "missing").take("k1") is None
 
 
 def test_a_record_keeps_its_address_only_while_its_part_is_the_size_the_store_recorded(tmp_path):

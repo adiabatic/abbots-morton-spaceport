@@ -119,6 +119,15 @@ def locator_line(fragment: dict, part: int, start: int, length: int) -> bytes:
     return _line(locator_row(fragment, part, start, length))
 
 
+def respool_app_line(
+    line: bytes, *, unit_id: str, order: int, batch: int, part: int, start: int, length: int
+) -> bytes:
+    """A previous surface's app-index row for a served unit, rewritten to this surface: the id and the queue place at the head and the address at the tail are this build's, and everything between is the fragment's own, unchanged on a unit served verbatim — so the row is the two ends spliced onto the old middle, byte for byte what `app_line` writes for the same fragment."""
+    middle = line[line.index(b', "class": ') : line.rindex(b', "shard_part": ')]
+    tail = json.dumps({"shard_part": part, "byte_start": start, "byte_length": length}).encode()[1:]
+    return unit_index.line_head(unit_id, order, batch) + middle + b", " + tail + b"\n"
+
+
 def write_app_artifacts_lines(
     surface: Path,
     index_lines: Iterable[bytes],
