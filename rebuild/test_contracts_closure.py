@@ -511,7 +511,7 @@ def shared():
 """
 
 CHILD_TESTS = '''
-"""One test per recorded fact: a plain read, a font mapped through HarfBuzz, a fixture's read credited to two requesters, a hermetic git child, the kernel, an ordinary child, a multiprocessing child, and a dynamic import, which `importlib.import_module` performs without the import audit event a statement raises, so the module's source shows up as a read."""
+"""One test per recorded fact: a plain read, a font mapped through HarfBuzz, a fixture's read credited to two requesters, a hermetic git child, a child named as the kernel is, an ordinary child, a multiprocessing child, and a dynamic import, which `importlib.import_module` performs without the import audit event a statement raises, so the module's source shows up as a read."""
 
 import multiprocessing
 import subprocess
@@ -543,7 +543,10 @@ def test_hermetic_git_child():
 
 
 def test_kernel_child():
-    subprocess.run([{binary!r}], check=False, capture_output=True)
+    kernel = Path(__file__).parent / "ams-m1-kernel"
+    kernel.write_text("#!/bin/sh\nexit 0\n")
+    kernel.chmod(0o755)
+    subprocess.run([str(kernel)], check=True)
 
 
 def test_ordinary_child():
@@ -564,11 +567,10 @@ def test_dynamic_import():
 
 
 def _child(pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch, *args: str):
-    """The kernel is built here rather than in the child, whose `HOME` pytester points at a scratch directory where cargo would find no registry."""
-    kernel_exec.ensure_built()
+    """The kernel the child spawns is a script of that name under the pytester root: `kernel_child` judges by argv, and building the real one here — after pytester has pointed `HOME` at a scratch directory — would have cargo rebuild it under an empty registry and every other worker rebuild it back."""
     monkeypatch.setenv("PYTHONPATH", str(REPO_ROOT))
     pytester.makeconftest(CHILD_CONFTEST.format(root=str(REPO_ROOT)))
-    pytester.makepyfile(test_child=CHILD_TESTS.format(root=str(REPO_ROOT), binary=str(kernel_exec.BINARY)))
+    pytester.makepyfile(test_child=CHILD_TESTS.format(root=str(REPO_ROOT)))
     return pytester.runpytest_subprocess(
         "-p", "rebuild.conftest", "-p", "no:cacheprovider", "--rootdir", str(pytester.path), *args
     )
