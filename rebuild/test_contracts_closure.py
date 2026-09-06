@@ -469,7 +469,7 @@ def shared():
 """
 
 CHILD_TESTS = '''
-"""One test per recorded fact: a plain read, a fixture's read credited to two requesters, a hermetic git child, an ordinary child, a multiprocessing child, and a dynamic import, which `importlib.import_module` performs without the import audit event a statement raises, so the module's source shows up as a read."""
+"""One test per recorded fact: a plain read, a font mapped through HarfBuzz, a fixture's read credited to two requesters, a hermetic git child, an ordinary child, a multiprocessing child, and a dynamic import, which `importlib.import_module` performs without the import audit event a statement raises, so the module's source shows up as a read."""
 
 import multiprocessing
 import subprocess
@@ -480,6 +480,12 @@ REPO_ROOT = Path({root!r})
 
 def test_plain_read():
     assert (REPO_ROOT / "glyph_data" / "runes" / "qsPea.yaml").read_bytes()
+
+
+def test_font_blob():
+    import uharfbuzz as hb
+
+    assert len(hb.Blob.from_file_path(str(REPO_ROOT / "rebuild" / "review" / "fixtures" / "mini" / "M1.otf")))
 
 
 def test_first_fixture_user(shared):
@@ -527,13 +533,15 @@ class TestTheRecorderEndToEnd:
         result = _child(
             pytester, monkeypatch, "--lane", "contracts", "-n", workers, "--closure-record", str(sidecar)
         )
-        result.assert_outcomes(passed=7)
+        result.assert_outcomes(passed=8)
         payload = cc.read_sidecar(sidecar)
         assert payload is not None
         tests = payload["tests"]
         assert sorted(payload["collected"]) == sorted(tests)
         assert "glyph_data/runes/qsPea.yaml" in tests["test_child.py::test_plain_read"]["reads"]
         assert not tests["test_child.py::test_plain_read"]["unclosable"]
+        assert "rebuild/review/fixtures/mini/M1.otf" in tests["test_child.py::test_font_blob"]["reads"]
+        assert not tests["test_child.py::test_font_blob"]["unclosable"]
         for nodeid in ("test_child.py::test_first_fixture_user", "test_child.py::test_second_fixture_user"):
             assert MANIFEST in tests[nodeid]["reads"], nodeid
             assert not tests[nodeid]["unclosable"]
@@ -562,7 +570,7 @@ class TestTheRecorderEndToEnd:
             "--closure-skip",
             str(selection),
         )
-        result.assert_outcomes(passed=5, deselected=2)
+        result.assert_outcomes(passed=6, deselected=2)
         payload = cc.read_sidecar(sidecar)
         assert payload is not None
         assert "test_child.py::test_plain_read" in payload["collected"]
@@ -570,5 +578,5 @@ class TestTheRecorderEndToEnd:
 
     def test_without_the_option_no_sidecar_is_written(self, pytester, monkeypatch, tmp_path):
         result = _child(pytester, monkeypatch, "--lane", "contracts", "-n", "0")
-        result.assert_outcomes(passed=7)
+        result.assert_outcomes(passed=8)
         assert not list(tmp_path.glob("*.json"))
