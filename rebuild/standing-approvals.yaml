@@ -1069,3 +1069,24 @@ rules:
         follower_reach: 1
         pivot_stub_drop: 1
       except_left: []
+  - id: may-i-baseline-join-created
+    verdict: approve
+    note: "·May joins ·I at the baseline where the old font left a break, and ·I closes two columns onto it on the tighter bowl it draws there. qsI's baseline entry has carried qsMay on its from-list since “·I: Use the `smaller-loop` bitmap after ·May”, qsMay's grounded-loop stance supplies the baseline exit and refuses nothing before ·I, and the bowl that meets the join is qsI's smaller-loop prefer, widened to ·Tea and ·It in “Use the smaller-loop ·I after both ·Tea and ·It” and carved back once in “Give ·I its regular loop again after ·Roe”; i-smaller-loop is that bowl itself, the trade ·I's own new form makes in the same window, with the user's why on the prefer record, and i-regular-loop-after-roe the carve-out. may-ah-baseline-join-created is ·May's same new baseline join one follower over, on the same two pivot cells and the same numbers, and may-gay-baseline-join-created is its third; where ·Utter leads, utter-baseline-join-created and utter-may-baseline-join-retargeted speak for the rest of the window. Every window that reached a sitting approved this join or called it either"
+    match:
+      before:
+        pivot: qsMay
+        seam_out: break
+        follower: qsI
+      after:
+        joined: y0
+        pivot_cells:
+          - qsMay/grounded-loop/None/baseline/
+          - qsMay/grounded-loop/x-height/baseline/
+        receiver_cells:
+          - qsI/smaller-loop/baseline/None/
+          - qsI/smaller-loop/baseline/x-height/
+          - qsI/smaller-loop/baseline/x-height/ex-ext-1
+        shift: -2
+        follower_advance: 0
+        follower_reach: 0
+      except_left: []

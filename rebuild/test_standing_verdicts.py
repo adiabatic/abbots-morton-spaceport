@@ -5427,14 +5427,24 @@ def test_a_slide_and_a_widened_created_join_in_one_window_compose(slide_context)
     assert events == {SLIDE_RULE["id"]: [1], WIDENED_CREATED_JOIN_RULE["id"]: [2]}
 
 
-def test_a_retarget_chained_behind_a_created_join_carries_the_follower_advance(slide_context):
-    """A retarget whose pivot is a widened created join's follower reads that letter under the join's shift alone, while its own follower and everything past it carry the advance the wider form gave back."""
+def test_a_retarget_chained_behind_a_created_join_spends_the_follower_advance(slide_context):
+    """A retarget whose pivot is a widened created join's follower reads that letter under the join's shift alone, and its own counts, read with that pivot standing, already hold the advance the wider form gave back."""
+    events = sv._composed(
+        RETARGET_BEHIND_WIDENED_JOIN_RULES, retarget_behind_created_join_window(), slide_context()
+    )
+    assert events == {RETARGET_BEHIND_WIDENED_JOIN_RULE["id"]: [1], RETARGET_RULE["id"]: [2]}
+
+
+def test_a_retarget_chained_behind_a_created_join_refuses_a_follower_moved_by_the_advance_too(
+    slide_context,
+):
+    """A follower that moves the declared advance further than the retarget's own count refuses, rather than the walk adding that advance a second time."""
     events = sv._composed(
         RETARGET_BEHIND_WIDENED_JOIN_RULES,
         retarget_behind_created_join_window(),
         slide_context("after-created-join-widened-follower"),
     )
-    assert events == {RETARGET_BEHIND_WIDENED_JOIN_RULE["id"]: [1], RETARGET_RULE["id"]: [2]}
+    assert events is None
 
 
 def test_a_created_join_chains_behind_an_entry_contraction_on_its_pivot(slide_context):
@@ -5490,7 +5500,7 @@ def test_a_retarget_chains_behind_a_created_join_on_its_follower(slide_context):
 
 
 def test_a_retarget_chains_behind_a_created_join_whose_follower_reached_back(slide_context):
-    """The join's declared reach is what judges that letter's own-frame origin, so a follower that reached back over its old left edge to take the join still carries its own retarget onward."""
+    """The join's declared reach is what judges that letter's own-frame origin, so a follower that reached back over its old left edge to take the join still carries its own retarget onward, the columns it reached back over its own pen being what the join hands the retarget."""
     events = sv._composed(
         RETARGET_BEHIND_REACHING_JOIN_RULES, retarget_behind_reaching_join_window(), slide_context()
     )
