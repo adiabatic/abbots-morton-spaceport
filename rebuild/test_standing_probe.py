@@ -42,6 +42,7 @@ RETARGET_RULE = {
             "pivot_cells": ["qsTea/full/None/baseline/"],
             "receiver_cells": ["qsNo/flipped/baseline/None/"],
             "shift": -1,
+            "follower_shift": 0,
         },
         "except_left": [],
     },

@@ -218,6 +218,27 @@ RETARGET_RULE = {
                 "qsNo/flipped/baseline/baseline/",
             ],
             "shift": -1,
+            "follower_shift": 0,
+        },
+        "except_left": [],
+    },
+}
+
+MOVING_RETARGET_RULE = {
+    "id": "fixture-join-retargeted-with-a-moving-follower",
+    "verdict": "approve",
+    "note": "·Tea reaches ·No at the baseline and pulls it a column back into the reach",
+    "match": {
+        "before": {"pivot": "qsTea.half", "seam_out": "y5", "follower": "qsNo"},
+        "after": {
+            "retarget": "y0",
+            "pivot_cells": ["qsTea/full/None/baseline/"],
+            "receiver_cells": [
+                "qsNo/flipped/baseline/None/",
+                "qsNo/flipped/baseline/baseline/",
+            ],
+            "shift": -2,
+            "follower_shift": -1,
         },
         "except_left": [],
     },
@@ -1473,6 +1494,7 @@ register_glyph("before", "qsFcovered.en-ext-1", OVERHANGING_FOLLOWER, 100)
 register_glyph("before", "qsMay.en-y5", EXTENDED_ENTRY_LOW, 150)
 register_glyph("before", "qsK", TWO_COLUMNS, 100)
 register_glyph("before", "qsTea.half.ex-y5", (_rect(0, 100, 100, 150),), 100)
+register_glyph("before", "qsTea.half.ex-y5.moving-fixture", (_rect(0, 100, 100, 150),), 100)
 register_glyph("before", "qsPea.half.ex-y5", (_rect(0, 100, 100, 150),), 100)
 register_glyph("before", "qsNo.en-ext-1", TWO_COLUMNS, 100)
 register_glyph("before", "qsNo.en-ext-1.chain-fixture", TWO_COLUMNS, 200)
@@ -1516,6 +1538,7 @@ register_glyph("after", "qsBay.contract-lead", TWO_COLUMNS, 50)
 register_glyph("after", "qsFcovered.hapax", TWO_COLUMNS, 100)
 register_glyph("after", "qsK", TWO_COLUMNS, 150)
 register_glyph("after", "qsTea", TWO_COLUMNS, 100)
+register_glyph("after", "qsTea.moving-fixture", TWO_COLUMNS, 50)
 register_glyph("after", "qsPea", TWO_COLUMNS, 100)
 register_glyph("after", "qsNo", TRIMMED_PIVOT, 50)
 register_glyph("after", "qsNo.chain-fixture", TRIMMED_PIVOT, 50)
@@ -1555,6 +1578,7 @@ IT_EXITING = register_pair("qsIt.ex-y5", "qsIt.hapax")
 ET_JOIN = register_pair("qsEt.join", "qsEt.join")
 LOW = register_pair("qsLow.en-ext-1", "qsLow.hapax")
 TEA = register_pair("qsTea.half.ex-y5", "qsTea")
+MOVING_TEA = register_pair("qsTea.half.ex-y5.moving-fixture", "qsTea.moving-fixture")
 PEA = register_pair("qsPea.half.ex-y5", "qsPea")
 NO = register_pair("qsNo.en-ext-1", "qsNo")
 NO_CHAINED = register_pair("qsNo.en-ext-1.chain-fixture", "qsNo.chain-fixture")
@@ -4369,6 +4393,16 @@ JOIN_RETARGET_RULES = [JOIN_RULE, RETARGET_RULE]
 RETARGETED_CREATED_JOIN_GLYPHS = ["qsL", "qsTea.half.ex-y5", "qsNo.en-ext-1.chain-fixture", "qsF3"]
 RETARGETED_CREATED_JOIN_CODEPOINTS = spell(LEAD, TEA, NO_CHAINED, FOLLOWER_3)
 RETARGETED_CREATED_JOIN_RULES = [RETARGET_RULE, RETARGETED_CREATED_JOIN_RULE]
+MOVING_RETARGET_GLYPHS = ["qsL", "qsTea.half.ex-y5.moving-fixture", "qsNo.en-ext-1", "qsF1"]
+MOVING_RETARGET_CODEPOINTS = spell(LEAD, MOVING_TEA, NO, FOLLOWER_1)
+MOVING_RETARGETED_CREATED_JOIN_GLYPHS = [
+    "qsL",
+    "qsTea.half.ex-y5.moving-fixture",
+    "qsNo.en-ext-1.chain-fixture",
+    "qsF3",
+]
+MOVING_RETARGETED_CREATED_JOIN_CODEPOINTS = spell(LEAD, MOVING_TEA, NO_CHAINED, FOLLOWER_3)
+MOVING_RETARGETED_CREATED_JOIN_RULES = [MOVING_RETARGET_RULE, RETARGETED_CREATED_JOIN_RULE]
 RETARGET_BEHIND_CREATED_JOIN_GLYPHS = [
     "qsL",
     "qsJ.ex-y0.ex-ext-3.long",
@@ -4409,6 +4443,44 @@ def retarget_window(uid="r-1"):
         ],
         ["y0", "y0", "y0"],
         codepoints=RETARGET_CODEPOINTS,
+        configs=("default",),
+        ink_deltas={"default": SLIDE_DELTA},
+        pair={"left": 1, "right": 2},
+    )
+
+
+def moving_retarget_window(uid="mr-1"):
+    return unit(
+        uid,
+        list(MOVING_RETARGET_GLYPHS),
+        ["y0", "y5", "y0"],
+        [
+            "qsL/full/None/None/",
+            "qsTea/full/None/baseline/",
+            "qsNo/flipped/baseline/None/",
+            "qsF1/full/None/None/",
+        ],
+        ["y0", "y0", "y0"],
+        codepoints=MOVING_RETARGET_CODEPOINTS,
+        configs=("default",),
+        ink_deltas={"default": SLIDE_DELTA},
+        pair={"left": 1, "right": 2},
+    )
+
+
+def moving_retargeted_created_join_window(uid="mrcj-1"):
+    return unit(
+        uid,
+        list(MOVING_RETARGETED_CREATED_JOIN_GLYPHS),
+        ["y0", "y5", "break"],
+        [
+            "qsL/full/None/None/",
+            "qsTea/full/None/baseline/",
+            "qsNo/flipped/baseline/baseline/",
+            "qsF3/full/None/None/",
+        ],
+        ["y0", "y0", "y0"],
+        codepoints=MOVING_RETARGETED_CREATED_JOIN_CODEPOINTS,
         configs=("default",),
         ink_deltas={"default": SLIDE_DELTA},
         pair={"left": 1, "right": 2},
@@ -4739,6 +4811,27 @@ def test_the_checked_in_pea_no_rule_reads_the_retarget(slide_context):
     unnamed = pea_retarget_window()
     unnamed["after"]["cells"][1] = "qsPea/half/None/x-height/"
     assert not sv._matches(match, unnamed, context=context)
+
+
+def test_a_retarget_that_brings_its_follower_nearer_matches(slide_context):
+    assert sv._matches(MOVING_RETARGET_RULE["match"], moving_retarget_window(), context=slide_context())
+
+
+def test_a_follower_that_stands_still_defeats_the_moving_retarget_match(slide_context):
+    assert not sv._matches(MOVING_RETARGET_RULE["match"], retarget_window(), context=slide_context())
+
+
+def test_a_follower_that_moves_defeats_the_standing_retarget_match(slide_context):
+    assert not sv._matches(RETARGET_RULE["match"], moving_retarget_window(), context=slide_context())
+
+
+def test_a_created_join_chains_behind_a_retarget_that_moved_its_follower(slide_context):
+    events = sv._composed(
+        MOVING_RETARGETED_CREATED_JOIN_RULES,
+        moving_retargeted_created_join_window(),
+        slide_context(),
+    )
+    assert events == {MOVING_RETARGET_RULE["id"]: [1], RETARGETED_CREATED_JOIN_RULE["id"]: [2]}
 
 
 def test_an_unmoved_follower_defeats_the_retarget_match(slide_context):

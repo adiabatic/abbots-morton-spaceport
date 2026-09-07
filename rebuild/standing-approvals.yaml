@@ -243,6 +243,7 @@ rules:
           - qsNo/flipped/baseline/None/
           - qsNo/flipped/baseline/baseline/
         shift: -1
+        follower_shift: 0
       except_left: []
   - id: pea-no-xheight-join-retargeted
     verdict: approve
@@ -262,6 +263,7 @@ rules:
           - qsNo/flipped/baseline/None/
           - qsNo/flipped/baseline/baseline/
         shift: -1
+        follower_shift: 0
       except_left: []
   - id: it-may-exit-extension-dropped
     verdict: approve
@@ -614,6 +616,7 @@ rules:
           - qsNo/flipped/baseline/None/
           - qsNo/flipped/baseline/baseline/
         shift: 0
+        follower_shift: 0
       except_left: []
   - id: roe-xheight-entry-contracted
     verdict: approve
@@ -647,6 +650,7 @@ rules:
           - qsNo/loop/x-height/x-height/
           - qsNo/loop/x-height/x-height/ex-ext-1
         shift: -1
+        follower_shift: 0
       except_left: []
   - id: gay-baseline-join-created
     verdict: approve
@@ -755,6 +759,7 @@ rules:
           - qsNo/flipped/baseline/None/
           - qsNo/flipped/baseline/baseline/
         shift: 0
+        follower_shift: 0
       except_left: []
   - id: utter-gay-exit-extension-dropped
     verdict: approve
@@ -830,4 +835,23 @@ rules:
           - qsAh/hapax/baseline/x-height/ex-ext-1
         shift: -2
         follower_advance: 0
+      except_left: []
+  - id: utter-may-baseline-join-retargeted
+    verdict: approve
+    note: "·Utter reaches ·May at the x-height where the old font joined the two at the baseline, and ·May comes two columns back into that reach — qsUtter's prefer record keeps the bare baseline join and yields it exactly here, on the why the user wrote at “Make ·Utter·May·May chain through a pulled-back-grounded ·May”, where the mono x-height reach into a pulled-back ·May “wins only when it buys a better join”; what it buys is the new baseline join into ·Ah that may-ah-baseline-join-created records, so the two rules explain the ·Utter·May·Ah windows between them. qsMay's x-height entry has carried qsUtter on its from-list since “Name ·May's x-height arrivers once”, and beyond that yielding prefer the seam settles on join-count rank with no policy record involved. utter-gay-exit-extension-dropped, utter-tea-baseline-join-created and utter-xheight-join-created are ·Utter's other standing changes on this surface"
+    match:
+      before:
+        pivot: qsUtter
+        seam_out: y0
+        follower: qsMay
+      after:
+        retarget: y5
+        pivot_cells:
+          - qsUtter/mono/None/x-height/
+          - qsUtter/mono/baseline/x-height/
+        receiver_cells:
+          - qsMay/grounded-loop/x-height/baseline/
+          - qsMay/loop/x-height/None/
+        shift: -2
+        follower_shift: -2
       except_left: []
