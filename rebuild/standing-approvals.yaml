@@ -713,3 +713,20 @@ rules:
           - qsAh/hapax/baseline/x-height/ex-ext-1
         shift: -1
       except_left: []
+  - id: no-thaw-baseline-join-created
+    verdict: approve
+    note: "·No joins ·Thaw at the baseline where the old font left a break, and ·Thaw closes three columns onto it — qsThaw's baseline entry has carried qsNo on its from-list since the letter landed in “Add ·Thaw”, and qsNo's flipped stance opens its baseline exit to everything, so the join goes live wherever that stance is selected; pea-no-xheight-join-retargeted and tea-no-xheight-join-retargeted record the flip that puts ·No on the baseline in front of it, and no-ah-baseline-join-created and it-baseline-join-created are the same new baseline join into the letters next door. Every window that reached a sitting approved it"
+    match:
+      before:
+        pivot: qsNo
+        seam_out: break
+        follower: qsThaw
+      after:
+        joined: y0
+        pivot_cells:
+          - qsNo/flipped/None/baseline/
+          - qsNo/flipped/baseline/baseline/
+        receiver_cells:
+          - qsThaw/hapax/baseline/None/
+        shift: -3
+      except_left: []
