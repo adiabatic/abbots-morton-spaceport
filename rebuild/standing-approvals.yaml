@@ -1241,3 +1241,21 @@ rules:
         receiver_cells:
           - qsThaw/hapax/None/None/
       except_left: []
+  - id: utter-day-xheight-join-retargeted
+    verdict: approve
+    note: "·Utter drops to the baseline to join ·Day, where the old font reached up to the x-height, and ·Day settles onto its half form — the ·Utter that has taken an x-height entry draws its alternate stance, and that stance has one exit and must use it: qsUtter's alternate carries a mandatory baseline exit, the one the user records on the same rune's policy (“·Utter.alt has a mandatory exit, so it can't help consuming ·Tea's baseline slot”), while qsDay's order reaches for the full stance first and finds only an x-height entry there, so a baseline exit lands on the half stance instead, whose baseline entry is open to every left letter but ·Way. Both records landed with the two letters in “Checkpoint the qsDay/qsUtter/qsNo migration batch with its triage residue down to 2,535”. The pivot is that alternate ·Utter only where something reaches it at the x-height, which is the join utter-xheight-join-created records, so this rule never speaks alone: the created join names ·Utter's incoming seam and this one its outgoing seam, and the two explain each window between them. Read with the pivot standing, ·Day sits one column to its right, which is ·Day standing exactly where the old font drew it — the reaches-way-back ·Utter is a column wider than the mono form it replaces and gives straight back the column the join in front closed — and everything past ·Day stands still with it. utter-may-baseline-join-retargeted is ·Utter's other retarget and runs the other way, up from the baseline into ·May, while tea-no-xheight-join-retargeted, pea-no-xheight-join-retargeted, it-no-xheight-join-retargeted and no-no-xheight-join-retargeted record the same lowered seam into a different follower; utter-gay-exit-extension-dropped, utter-tea-baseline-join-created and utter-baseline-join-created are ·Utter's other standing changes on this surface. Every window that reached a sitting approved the lowered join or called it either"
+    match:
+      before:
+        pivot: qsUtter
+        seam_out: y5
+        follower: qsDay
+      after:
+        retarget: y0
+        pivot_cells:
+          - qsUtter/alternate/x-height/baseline/
+        receiver_cells:
+          - qsDay/half/baseline/None/
+          - qsDay/half/baseline/baseline/
+        shift: 1
+        follower_shift: 1
+      except_left: []
