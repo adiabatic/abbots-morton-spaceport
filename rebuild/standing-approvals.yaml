@@ -1187,3 +1187,22 @@ rules:
         follower_advance: 0
         follower_reach: 0
       except_left: []
+  - id: no-fee-xheight-join-created
+    verdict: approve
+    note: "·No reaches a pixel further and joins ·Fee at the x-height where the old font left a break, and ·Fee turns its loop around and stands exactly where it was — the extra pixel is qsNo's own extend record, an x-height exit lengthened by 1 before ·Fee, which is why nothing in the window has to move to close the gap, and the reversed loop is the only x-height entry qsFee has, carrying qsNo on its from-list since the letter landed in “Add ·Fee” and last touched in “Make ·Fee join forward at the x-height, and back into ·Day·Utter”. ·Fee draws it only where it has nothing to reach forward to: qsFee's prefer takes the forward exit over that backward entry on the user's why at “Generally connecting to the next letter is easier to do than to bend ·Fee backwards”, generalized to every neighbor in “·Fee: Prefer connecting to the next letter, not the previous”, so the receiver cell carries no exit at all. ·No's side is the loop stance's open x-height exit, which has no toward-list, so every follower with an open x-height entry meets it; that stance and the reach before ·Fee both landed in “Checkpoint the qsDay/qsUtter/qsNo migration batch with its triage residue down to 2,535”. ·Fee holds its own advance across the change, so whatever follows the pair stands where it was. no-jai-xheight-join-created is the same seam one follower over, no-ah-baseline-join-created and no-thaw-baseline-join-created are ·No's new joins one height down, and no-baseline-join-retargeted, no-thaw-baseline-join-dropped and no-gay-baseline-join-dropped are its other outgoing seams on this surface; utter-xheight-join-created records the same break becoming an x-height join with ·No among its pivots, ah-bay-exit-extension-dropped is this same ·Fee entry where the old font already joined the pair, and fee-unjoined-loop is the ·Fee that is left unjoined instead. Where ·Gay leads, gay-no-baseline-join-retargeted names ·No's incoming seam and this rule its outgoing one, and the join ·Gay itself takes — gay-baseline-join-created or gay-baseline-join-created-reaching-back — is a third change in the same window, so those windows are the composed reading's. Every window that reached a sitting approved the join"
+    match:
+      before:
+        pivot: qsNo
+        seam_out: break
+        follower: qsFee
+      after:
+        joined: y5
+        pivot_cells:
+          - qsNo/loop/None/x-height/ex-ext-1
+          - qsNo/loop/x-height/x-height/ex-ext-1
+        receiver_cells:
+          - qsFee/reversed-loop/x-height/None/
+        shift: 0
+        follower_advance: 0
+        follower_reach: 0
+      except_left: []
