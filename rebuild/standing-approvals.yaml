@@ -1226,3 +1226,18 @@ rules:
         follower_advance: -3
         follower_reach: 0
       except_left: []
+  - id: it-thaw-baseline-join-dropped
+    verdict: approve
+    note: "·Thaw sits two columns further from ·It, and ·It gives up the pixel of exit the old font drew for it — the two no longer join, because an ·It that has taken a baseline entry has no baseline exit left to reach ·Thaw with: qsIt's pairing table carries no baseline-entry-and-baseline-exit pairing at all and unlocks that one combination behind ss04 alone, which is what “Let ss04 join ·It at the baseline on both sides with any neighbor” authored, and is why these windows diverge under every config but that one. qsIt's baseline entry is open to every left letter but ·It itself, so the baseline exits ·Utter and ·No now reach it with are enough to close the pairing off; qsThaw's baseline entry, the only entry the letter has, has carried qsIt on its from-list since “Add ·Thaw”. it-baseline-join-created records the same pairing from the other side, where ·Et, ·Awe, ·Ox, ·Oy and ·Ooze take the entry and ·It hands the exit back. ·It redraws in place as the exit goes, the extra pixel going with the stroke it lengthened — qsIt's by-1 baseline-exit extend, which draws only where the letter's own entry is live and the letter behind it joined at the x-height, the record it-may-exit-extension-dropped and it-ah-exit-extension-dropped already cite — which is why the rule names the cells both letters settle into rather than holding ·It's picture. It is bounded to the ·It the old font entered at the x-height, which is the ·It that carried that pixel; one the old font left unentered gives up a bare exit and sets ·Thaw a column further still, so that is a window of its own. Where ·Utter leads, utter-xheight-join-created names ·Utter's incoming seam and this rule ·It's outgoing one, and where ·Pea leads into ·No, pea-no-xheight-join-retargeted does. it-et-xheight-join-dropped and at-it-xheight-join-dropped are ·It's other breaks on the books, no-thaw-baseline-join-dropped and no-gay-baseline-join-dropped the rest of them, and no-thaw-baseline-join-created is ·Thaw's own seam running the other way. Nothing in this survey has reached a sitting — every window of it is blank — so the break is ruled from the docket rather than echoed from a verdict"
+    match:
+      before:
+        pivot: qsIt.en-y5
+        seam_out: y0
+        follower: qsThaw
+      after:
+        gap: 2
+        pivot_cells:
+          - qsIt/hapax/baseline/None/
+        receiver_cells:
+          - qsThaw/hapax/None/None/
+      except_left: []
