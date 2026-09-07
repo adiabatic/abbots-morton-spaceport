@@ -855,3 +855,25 @@ rules:
         shift: -2
         follower_shift: -2
       except_left: []
+  - id: utter-baseline-join-created
+    verdict: approve
+    note: "·Bay and ·Gay both join ·Utter at the baseline where the old font left a break, and ·Utter closes a column onto each of them and gives it straight back: the mono form that takes the join carries its exit a column further, so the letter comes nearer while everything past it stands where it was. qsUtter's mono stance carries an unrestricted baseline entry — no from-list at all, so every left letter with an open baseline exit reaches it — and has since the letter landed in “Checkpoint the qsDay/qsUtter/qsNo migration batch with its triage residue down to 2,535”, while the alternate stance's only entry is the scoped x-height one, which is why the old pipeline broke here and why utter-xheight-join-created is a different join into the same letter one height up. Where ·May follows, ·Utter's outgoing seam rises to the x-height in the same window and utter-may-baseline-join-retargeted speaks for that half, on the reach the user asked for in “Reach ·Utter into ·May, and rejoin four more chains”; utter-gay-exit-extension-dropped and utter-tea-baseline-join-created are ·Utter's other standing changes on this surface. Every window that reached a sitting approved this one"
+    match:
+      before:
+        pivot: [qsBay, qsGay]
+        seam_out: break
+        follower: qsUtter
+      after:
+        joined: y0
+        pivot_cells:
+          - qsBay/hapax/None/baseline/
+          - qsBay/hapax/x-height/baseline/
+          - qsGay/hapax/None/baseline/
+          - qsGay/hapax/x-height/baseline/
+        receiver_cells:
+          - qsUtter/mono/baseline/None/
+          - qsUtter/mono/baseline/x-height/
+          - qsUtter/mono/baseline/x-height/ex-ext-1
+        shift: -1
+        follower_advance: 1
+      except_left: []
