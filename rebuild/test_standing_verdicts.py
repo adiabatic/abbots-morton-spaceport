@@ -352,6 +352,23 @@ REDRAWN_BEHIND_CREATED_JOIN_RULE = {
     },
 }
 
+REDRAWN_BEHIND_RETARGET_RULE = {
+    "id": "fixture-join-retargeted-before-a-redraw",
+    "verdict": "approve",
+    "note": "·Tea reaches ·Eight at the baseline where the old font joined the two at the x-height",
+    "match": {
+        "before": {"pivot": "qsTea.half", "seam_out": "y5", "follower": "qsEight"},
+        "after": {
+            "retarget": "y0",
+            "pivot_cells": ["qsTea/full/None/baseline/"],
+            "receiver_cells": ["qsEight/smaller-loop/None/None/"],
+            "shift": 0,
+            "follower_shift": 0,
+        },
+        "except_left": [],
+    },
+}
+
 WIDENED_CREATED_JOIN_RULE = {
     "id": "fixture-join-created-with-a-widened-follower",
     "verdict": "approve",
@@ -4622,6 +4639,9 @@ CONTRACTED_REDRAWN_CHAIN_RULES = [CONTRACTED_ENTRY_RULE, REDRAWN_EXT_RULE, CONTR
 REDRAWN_BEHIND_CREATED_JOIN_GLYPHS = ["qsL", "qsNo.en-ext-1", "qsEight.ex-ext-1", "qsF3"]
 REDRAWN_BEHIND_CREATED_JOIN_CODEPOINTS = spell(LEAD, NO, EIGHT_EXTENDED, FOLLOWER_3)
 REDRAWN_BEHIND_CREATED_JOIN_RULES = [REDRAWN_EXT_RULE, REDRAWN_BEHIND_CREATED_JOIN_RULE]
+REDRAWN_BEHIND_RETARGET_GLYPHS = ["qsL", "qsTea.half.ex-y5", "qsEight.ex-ext-1", "qsF3"]
+REDRAWN_BEHIND_RETARGET_CODEPOINTS = spell(LEAD, TEA, EIGHT_EXTENDED, FOLLOWER_3)
+REDRAWN_BEHIND_RETARGET_RULES = [REDRAWN_EXT_RULE, REDRAWN_BEHIND_RETARGET_RULE]
 RETARGETED_EXTENSION_CHAIN_GLYPHS = [
     "qsL",
     "qsTea.half.ex-y5",
@@ -4994,6 +5014,25 @@ def contracted_redrawn_chain_window(uid="crc-1"):
         ],
         ["y0", "y5", "y0"],
         codepoints=CONTRACTED_REDRAWN_CHAIN_CODEPOINTS,
+        configs=("default",),
+        ink_deltas={"default": SLIDE_DELTA},
+        pair={"left": 1, "right": 2},
+    )
+
+
+def redrawn_behind_retarget_window(uid="rdbr-1"):
+    return unit(
+        uid,
+        list(REDRAWN_BEHIND_RETARGET_GLYPHS),
+        ["y0", "y5", "y0"],
+        [
+            "qsL/full/None/None/",
+            "qsTea/full/None/baseline/",
+            "qsEight/smaller-loop/None/None/",
+            "qsF3/full/None/None/",
+        ],
+        ["y0", "y0", "y0"],
+        codepoints=REDRAWN_BEHIND_RETARGET_CODEPOINTS,
         configs=("default",),
         ink_deltas={"default": SLIDE_DELTA},
         pair={"left": 1, "right": 2},
@@ -5572,6 +5611,29 @@ def test_a_redraw_chained_behind_a_created_join_still_needs_both_shifts(slide_co
     events = sv._composed(
         REDRAWN_BEHIND_CREATED_JOIN_RULES,
         redrawn_behind_created_join_window(),
+        slide_context("after-redrawn-unmoved-follower"),
+    )
+    assert events is None
+
+
+def test_a_redraw_chains_behind_a_retarget_on_its_follower(slide_context):
+    """A retarget judges the letter it brings in and a redrawn trade the picture that letter settles into, so the two explain one window between them exactly as a created join and a trade do."""
+    events = sv._composed(REDRAWN_BEHIND_RETARGET_RULES, redrawn_behind_retarget_window(), slide_context())
+    assert events == {REDRAWN_BEHIND_RETARGET_RULE["id"]: [1], REDRAWN_EXT_RULE["id"]: [2]}
+
+
+def test_neither_rule_alone_reads_a_redraw_behind_a_retarget(slide_context):
+    window = redrawn_behind_retarget_window()
+    for rule in REDRAWN_BEHIND_RETARGET_RULES:
+        assert not sv._matches(rule["match"], window, context=slide_context())
+        assert sv._composed_walk([rule], window, slide_context()) is None
+
+
+def test_a_redraw_chained_behind_a_retarget_still_needs_its_column(slide_context):
+    """The retarget has already judged where the redrawn letter stands, so what the chained trade still owes the walk is the column it carries on to everything past it."""
+    events = sv._composed(
+        REDRAWN_BEHIND_RETARGET_RULES,
+        redrawn_behind_retarget_window(),
         slide_context("after-redrawn-unmoved-follower"),
     )
     assert events is None

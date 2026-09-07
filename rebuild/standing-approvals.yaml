@@ -1102,3 +1102,15 @@ rules:
         added: [[2, 5], [3, 5]]
         shift: 0
       except_left: []
+  - id: may-xheight-exit-dropped
+    verdict: approve
+    note: "·May draws its plain loop where the old font drew an x-height exit stroke into a break, and whatever follows it comes a column closer. Before ·Tea the letter has no exit left to draw: qsMay's refuse record gives the baseline exit up there on the user's why at “Let ·Ah·May·Tea join on both sides of ·May again”, everywhere but after ·Ah, and the x-height exit that would otherwise stand in its place is the one qsMay's prefer record declines before ·Tea, an exception it has carried since “Reach ·Utter into ·May, and rejoin four more chains”, so a ·May that has taken ·Utter's x-height entry keeps it and reaches nothing forward. Where ·Utter leads, utter-baseline-join-created and utter-may-baseline-join-retargeted speak for the rest of the window, the retarget naming ·May's incoming seam and this rule the stroke at its other end. may-entry-stub-dropped, may-entry-extension-dropped and bay-may-entry-contracted are ·May's other standing changes at its entry, and may-gay-baseline-join-created, may-ah-baseline-join-created and may-i-baseline-join-created its new baseline joins. The rule names the word-final loop beside the one a letter stands after, since ·May draws the same picture either way and the declared column only ever reaches a follower; the ·May that also gives up the pixel of reach its extend record drew there loses a column more and is not this trade. Every window that reached a sitting approved this loop"
+    match:
+      before:
+        pivots: [qsMay.en-y0.ex-y5]
+      after:
+        pivots: [qsMay.loop.en-y5]
+        dropped: [[1, 1], [1, 2], [1, 4], [1, 5], [2, 6], [2, 7], [3, 0], [3, 3], [3, 8], [4, 1], [4, 2], [4, 8]]
+        added: [[0, 1], [0, 2], [0, 4], [0, 5], [1, 0], [1, 6], [1, 7], [2, 8], [3, 1], [3, 2]]
+        shift: -1
+      except_left: []
