@@ -877,3 +877,25 @@ rules:
         shift: -1
         follower_advance: 1
       except_left: []
+  - id: it-xheight-join-created
+    verdict: approve
+    note: "·Low and ·Ah both join ·It at the x-height where the old font left a break, and ·It closes one column onto each of them — qsIt's x-height entry is open to every left letter but ·It itself, the single exclusion “Never join ·It to itself” carved, and neither qsLow's nor qsAh's x-height exit refuses anything, so the join follows from open surfaces on both sides rather than from a pair ruling, and has since the letters landed in “Add ·Low” and “Add ·Ah”. it-baseline-join-created is the same decision one height down into the same letter, and ah-gay-xheight-join-created is ·Ah's other new x-height join here; where ·Gay closes the window, gay-entry-contracted speaks for its pulled-in baseline entry. Every window that reached a sitting approved it"
+    match:
+      before:
+        pivot: [qsLow, qsAh]
+        seam_out: break
+        follower: qsIt
+      after:
+        joined: y5
+        pivot_cells:
+          - qsLow/hapax/None/x-height/
+          - qsLow/hapax/baseline/x-height/
+          - qsAh/hapax/None/x-height/
+          - qsAh/hapax/baseline/x-height/
+          - qsAh/hapax/baseline/x-height/en-con-1
+        receiver_cells:
+          - qsIt/hapax/x-height/None/
+          - qsIt/hapax/x-height/baseline/
+        shift: -1
+        follower_advance: 0
+      except_left: []
