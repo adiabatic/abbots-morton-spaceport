@@ -312,6 +312,40 @@ EXTENSION_BEHIND_CREATED_JOIN_RULE = {
     },
 }
 
+CONTRACTED_REDRAWN_CHAIN_RULE = {
+    "id": "fixture-join-created-behind-a-contraction-before-a-redraw",
+    "verdict": "approve",
+    "note": "·May joins ·Eight at the x-height where the old font left a break",
+    "match": {
+        "before": {"pivot": "qsMay", "seam_out": "break", "follower": "qsEight"},
+        "after": {
+            "joined": "y5",
+            "pivot_cells": ["qsMay/loop/baseline/x-height/en-con-1"],
+            "receiver_cells": ["qsEight/smaller-loop/None/None/"],
+            "shift": -2,
+            "follower_advance": 0,
+        },
+        "except_left": [],
+    },
+}
+
+REDRAWN_BEHIND_CREATED_JOIN_RULE = {
+    "id": "fixture-join-created-before-a-redraw",
+    "verdict": "approve",
+    "note": "·No joins ·Eight at the baseline where the old font left a break",
+    "match": {
+        "before": {"pivot": "qsNo", "seam_out": "break", "follower": "qsEight"},
+        "after": {
+            "joined": "y0",
+            "pivot_cells": ["qsNo/flipped/baseline/baseline/"],
+            "receiver_cells": ["qsEight/smaller-loop/None/None/"],
+            "shift": -1,
+            "follower_advance": 0,
+        },
+        "except_left": [],
+    },
+}
+
 WIDENED_CREATED_JOIN_RULE = {
     "id": "fixture-join-created-with-a-widened-follower",
     "verdict": "approve",
@@ -4415,6 +4449,19 @@ RETARGET_BEHIND_CREATED_JOIN_RULES = [RETARGET_RULE, RETARGET_BEHIND_CREATED_JOI
 EXTENSION_BEHIND_CREATED_JOIN_GLYPHS = ["qsL", "qsNo.en-ext-1", "qsJ.ex-y0.ex-ext-1", "qsF3"]
 EXTENSION_BEHIND_CREATED_JOIN_CODEPOINTS = spell(LEAD, NO, PIVOT, FOLLOWER_3)
 EXTENSION_BEHIND_CREATED_JOIN_RULES = [COMPOSED_EXT_RULE, EXTENSION_BEHIND_CREATED_JOIN_RULE]
+CONTRACTED_REDRAWN_CHAIN_GLYPHS = [
+    "qsBay.contract-lead",
+    "qsMay.en-y0.ex-y5.contract-fixture",
+    "qsEight.ex-ext-1",
+    "qsF3",
+]
+CONTRACTED_REDRAWN_CHAIN_CODEPOINTS = spell(
+    CONTRACTION_LEAD, CONTRACTED_JOINING_MAY, EIGHT_EXTENDED, FOLLOWER_3
+)
+CONTRACTED_REDRAWN_CHAIN_RULES = [CONTRACTED_ENTRY_RULE, REDRAWN_EXT_RULE, CONTRACTED_REDRAWN_CHAIN_RULE]
+REDRAWN_BEHIND_CREATED_JOIN_GLYPHS = ["qsL", "qsNo.en-ext-1", "qsEight.ex-ext-1", "qsF3"]
+REDRAWN_BEHIND_CREATED_JOIN_CODEPOINTS = spell(LEAD, NO, EIGHT_EXTENDED, FOLLOWER_3)
+REDRAWN_BEHIND_CREATED_JOIN_RULES = [REDRAWN_EXT_RULE, REDRAWN_BEHIND_CREATED_JOIN_RULE]
 RETARGETED_EXTENSION_CHAIN_GLYPHS = [
     "qsL",
     "qsTea.half.ex-y5",
@@ -4672,6 +4719,44 @@ def extension_behind_created_join_window(uid="ebcj-1"):
         ],
         ["y0", "y0", "y0"],
         codepoints=EXTENSION_BEHIND_CREATED_JOIN_CODEPOINTS,
+        configs=("default",),
+        ink_deltas={"default": SLIDE_DELTA},
+        pair={"left": 1, "right": 2},
+    )
+
+
+def contracted_redrawn_chain_window(uid="crc-1"):
+    return unit(
+        uid,
+        list(CONTRACTED_REDRAWN_CHAIN_GLYPHS),
+        ["y0", "break", "y0"],
+        [
+            "qsBay/full/None/None/",
+            "qsMay/loop/baseline/x-height/en-con-1",
+            "qsEight/smaller-loop/None/None/",
+            "qsF3/full/None/None/",
+        ],
+        ["y0", "y5", "y0"],
+        codepoints=CONTRACTED_REDRAWN_CHAIN_CODEPOINTS,
+        configs=("default",),
+        ink_deltas={"default": SLIDE_DELTA},
+        pair={"left": 1, "right": 2},
+    )
+
+
+def redrawn_behind_created_join_window(uid="rdbcj-1"):
+    return unit(
+        uid,
+        list(REDRAWN_BEHIND_CREATED_JOIN_GLYPHS),
+        ["y0", "break", "y0"],
+        [
+            "qsL/full/None/None/",
+            "qsNo/flipped/baseline/baseline/",
+            "qsEight/smaller-loop/None/None/",
+            "qsF3/full/None/None/",
+        ],
+        ["y0", "y0", "y0"],
+        codepoints=REDRAWN_BEHIND_CREATED_JOIN_CODEPOINTS,
         configs=("default",),
         ink_deltas={"default": SLIDE_DELTA},
         pair={"left": 1, "right": 2},
@@ -5124,6 +5209,47 @@ def test_an_extension_chained_behind_a_created_join_still_needs_both_shifts(slid
         EXTENSION_BEHIND_CREATED_JOIN_RULES,
         extension_behind_created_join_window(),
         slide_context("after-extension-behind-created-join-unmoved"),
+    )
+    assert events is None
+
+
+def test_a_redraw_chains_behind_a_created_join_on_its_follower(slide_context):
+    events = sv._composed(
+        REDRAWN_BEHIND_CREATED_JOIN_RULES, redrawn_behind_created_join_window(), slide_context()
+    )
+    assert events == {REDRAWN_BEHIND_CREATED_JOIN_RULE["id"]: [1], REDRAWN_EXT_RULE["id"]: [2]}
+
+
+def test_neither_rule_alone_reads_a_redraw_behind_a_created_join(slide_context):
+    window = redrawn_behind_created_join_window()
+    for rule in REDRAWN_BEHIND_CREATED_JOIN_RULES:
+        assert not sv._matches(rule["match"], window, context=slide_context())
+        assert sv._composed_walk([rule], window, slide_context()) is None
+
+
+def test_a_redraw_chained_behind_a_created_join_still_needs_both_shifts(slide_context):
+    events = sv._composed(
+        REDRAWN_BEHIND_CREATED_JOIN_RULES,
+        redrawn_behind_created_join_window(),
+        slide_context("after-redrawn-unmoved-follower"),
+    )
+    assert events is None
+
+
+def test_a_contraction_a_created_join_and_a_redraw_chain_through_one_window(slide_context):
+    events = sv._composed(CONTRACTED_REDRAWN_CHAIN_RULES, contracted_redrawn_chain_window(), slide_context())
+    assert events == {
+        CONTRACTED_ENTRY_RULE["id"]: [1],
+        CONTRACTED_REDRAWN_CHAIN_RULE["id"]: [1],
+        REDRAWN_EXT_RULE["id"]: [2],
+    }
+
+
+def test_a_redraw_behind_a_chained_created_join_still_needs_every_shift(slide_context):
+    events = sv._composed(
+        CONTRACTED_REDRAWN_CHAIN_RULES,
+        contracted_redrawn_chain_window(),
+        slide_context("after-redrawn-unmoved-follower"),
     )
     assert events is None
 

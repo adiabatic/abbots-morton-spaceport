@@ -899,3 +899,15 @@ rules:
         shift: -1
         follower_advance: 0
       except_left: []
+  - id: gay-xheight-entry-exit-extension-dropped
+    verdict: approve
+    note: "·Gay gives up the pixel of baseline exit it drew before the followers on qsGay's extend record, and the stub its x-height entry only inks when withdrawn comes off in the same stroke — that record is guarded by an entry of its own (`self: {entry: none}`), so ·Ah's x-height entry disqualifies the extension outright; the guard has stood since the letter landed in “Add ·Gay” and was last touched in “Join ·Gay ~x~ ·Et and ·Gay ~x~ ·No”. The join it rides on is ·Ah reaching that entry in “Bring back the ·Ah ~x~ ·Gay join”, which ah-gay-xheight-join-created already records, so the two rules explain these windows between them and neither can speak for one alone; gay-no-xheight-extension-added, gay-entry-contracted, gay-no-baseline-join-retargeted and gay-baseline-join-created are ·Gay's other standing changes on this surface, and every window that reached a sitting approved this one"
+    match:
+      before:
+        pivots: [qsGay.ex-y0.ex-ext-1]
+      after:
+        pivots: [qsGay.hapax.en-y5.ex-y0]
+        dropped: [[2, 8], [4, 3]]
+        added: []
+        shift: -1
+      except_left: []
