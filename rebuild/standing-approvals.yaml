@@ -995,3 +995,14 @@ rules:
         gained: [[12, 8]]
         shift: 1
       except_left: []
+  - id: day-utter-xheight-extension-added
+    verdict: approve
+    note: "·Day+Utter gains one pixel of x-height exit into ·Gay and carries ·Gay one column right — qsDay_qsUtter’s extend record lengthens that reach before ·Bay, ·Gay and ·Fee, and before ·Tea under ss03, one decision on one stroke, so the rule speaks for the whole of that list rather than for ·Gay alone; qsGay joined it in “Add ·Gay”, ·Bay in “Add ·Bay” and ·Fee in “Add ·Fee”. vie-utter-xheight-extension-added is the same gained exit pixel on the other ·Utter ligature’s record, and gay-no-xheight-extension-added is ·Gay’s own"
+    match:
+      before:
+        pivots: [qsDay_qsUtter]
+      after:
+        pivots: [qsDay_qsUtter.full.ex-y5.ex-ext-1]
+        gained: [[7, 8]]
+        shift: 1
+      except_left: []
