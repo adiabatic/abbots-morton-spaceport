@@ -352,6 +352,23 @@ REDRAWN_BEHIND_CREATED_JOIN_RULE = {
     },
 }
 
+RETARGET_BEHIND_RETARGET_RULE = {
+    "id": "fixture-join-retargeted-behind-a-retarget",
+    "verdict": "approve",
+    "note": "·No reaches ·F3 at the x-height where the old font joined the two at the baseline",
+    "match": {
+        "before": {"pivot": "qsNo", "seam_out": "y0", "follower": "qsF3"},
+        "after": {
+            "retarget": "y5",
+            "pivot_cells": ["qsNo/flipped/baseline/baseline/"],
+            "receiver_cells": ["qsF3/full/None/None/"],
+            "shift": 0,
+            "follower_shift": 0,
+        },
+        "except_left": [],
+    },
+}
+
 REDRAWN_BEHIND_RETARGET_RULE = {
     "id": "fixture-join-retargeted-before-a-redraw",
     "verdict": "approve",
@@ -1630,6 +1647,7 @@ register_glyph("before", "qsPea.half.ex-y5", (_rect(0, 100, 100, 150),), 100)
 register_glyph("before", "qsNo.en-ext-1", TWO_COLUMNS, 100)
 register_glyph("before", "qsNo.en-ext-1.chain-fixture", TWO_COLUMNS, 200)
 register_glyph("before", "qsNo.en-ext-1.extension-chain-fixture", TWO_COLUMNS, 150)
+register_glyph("before", "qsNo.en-ext-1.retarget-chain-fixture", TWO_COLUMNS, 100)
 register_glyph("before", "qsEight", EIGHTISH, 100)
 register_glyph("before", "qsEight.ex-ext-1", EIGHTISH_EXTENDED, 150)
 register_glyph("before", "qsEight.en-ext-1", EIGHTISH_ENTRY_EXTENDED, 150)
@@ -1674,6 +1692,7 @@ register_glyph("after", "qsPea", TWO_COLUMNS, 100)
 register_glyph("after", "qsNo", TRIMMED_PIVOT, 50)
 register_glyph("after", "qsNo.chain-fixture", TRIMMED_PIVOT, 50)
 register_glyph("after", "qsNo.extension-chain-fixture", TRIMMED_PIVOT, 50)
+register_glyph("after", "qsNo.retarget-chain-fixture", TRIMMED_PIVOT, 100)
 register_glyph("after", "qsEight.smaller-loop", EIGHTISH_SMALLER, 100)
 register_glyph("after", "qsEight.smaller-loop.en-ext-1", EIGHTISH_ENTRY_EXTENDED_SMALLER, 150)
 register_glyph("after", "qsEight.normal-sized-loop", EIGHTISH, 100)
@@ -1723,6 +1742,7 @@ PEA = register_pair("qsPea.half.ex-y5", "qsPea")
 NO = register_pair("qsNo.en-ext-1", "qsNo")
 NO_CHAINED = register_pair("qsNo.en-ext-1.chain-fixture", "qsNo.chain-fixture")
 NO_EXTENSION_CHAINED = register_pair("qsNo.en-ext-1.extension-chain-fixture", "qsNo.extension-chain-fixture")
+NO_RETARGET_CHAINED = register_pair("qsNo.en-ext-1.retarget-chain-fixture", "qsNo.retarget-chain-fixture")
 VIE = register_pair("qsVie.en-ext-1", "qsVie.normal")
 VIE_UTTER = register_pair("qsVie_qsUtter.en-ext-1", "qsVie_qsUtter.hapax")
 MAY = register_pair("qsMay.en-y0.ex-y5.en-ext-1", "qsMay.loop")
@@ -1831,6 +1851,10 @@ SLIDE_FONTS = {
     ),
     "after-retarget-behind-created-join-unmoved": (
         {**AFTER_GLYPHS, "qsNo": (TRIMMED_PIVOT, 100)},
+        AFTER_CMAP,
+    ),
+    "after-retarget-behind-retarget-moved-follower": (
+        {**AFTER_GLYPHS, "qsNo.retarget-chain-fixture": (TRIMMED_PIVOT, 150)},
         AFTER_CMAP,
     ),
     "after-extension-behind-created-join-unmoved": (
@@ -4639,6 +4663,14 @@ CONTRACTED_REDRAWN_CHAIN_RULES = [CONTRACTED_ENTRY_RULE, REDRAWN_EXT_RULE, CONTR
 REDRAWN_BEHIND_CREATED_JOIN_GLYPHS = ["qsL", "qsNo.en-ext-1", "qsEight.ex-ext-1", "qsF3"]
 REDRAWN_BEHIND_CREATED_JOIN_CODEPOINTS = spell(LEAD, NO, EIGHT_EXTENDED, FOLLOWER_3)
 REDRAWN_BEHIND_CREATED_JOIN_RULES = [REDRAWN_EXT_RULE, REDRAWN_BEHIND_CREATED_JOIN_RULE]
+RETARGET_BEHIND_RETARGET_GLYPHS = [
+    "qsL",
+    "qsTea.half.ex-y5",
+    "qsNo.en-ext-1.retarget-chain-fixture",
+    "qsF3",
+]
+RETARGET_BEHIND_RETARGET_CODEPOINTS = spell(LEAD, TEA, NO_RETARGET_CHAINED, FOLLOWER_3)
+RETARGET_BEHIND_RETARGET_RULES = [RETARGET_RULE, RETARGET_BEHIND_RETARGET_RULE]
 REDRAWN_BEHIND_RETARGET_GLYPHS = ["qsL", "qsTea.half.ex-y5", "qsEight.ex-ext-1", "qsF3"]
 REDRAWN_BEHIND_RETARGET_CODEPOINTS = spell(LEAD, TEA, EIGHT_EXTENDED, FOLLOWER_3)
 REDRAWN_BEHIND_RETARGET_RULES = [REDRAWN_EXT_RULE, REDRAWN_BEHIND_RETARGET_RULE]
@@ -5014,6 +5046,25 @@ def contracted_redrawn_chain_window(uid="crc-1"):
         ],
         ["y0", "y5", "y0"],
         codepoints=CONTRACTED_REDRAWN_CHAIN_CODEPOINTS,
+        configs=("default",),
+        ink_deltas={"default": SLIDE_DELTA},
+        pair={"left": 1, "right": 2},
+    )
+
+
+def retarget_behind_retarget_window(uid="rbr-1"):
+    return unit(
+        uid,
+        list(RETARGET_BEHIND_RETARGET_GLYPHS),
+        ["y0", "y5", "y0"],
+        [
+            "qsL/full/None/None/",
+            "qsTea/full/None/baseline/",
+            "qsNo/flipped/baseline/baseline/",
+            "qsF3/full/None/None/",
+        ],
+        ["y0", "y0", "y5"],
+        codepoints=RETARGET_BEHIND_RETARGET_CODEPOINTS,
         configs=("default",),
         ink_deltas={"default": SLIDE_DELTA},
         pair={"left": 1, "right": 2},
@@ -5612,6 +5663,29 @@ def test_a_redraw_chained_behind_a_created_join_still_needs_both_shifts(slide_co
         REDRAWN_BEHIND_CREATED_JOIN_RULES,
         redrawn_behind_created_join_window(),
         slide_context("after-redrawn-unmoved-follower"),
+    )
+    assert events is None
+
+
+def test_a_retarget_chains_behind_a_retarget_on_its_follower(slide_context):
+    """The earlier retarget judges that letter's incoming seam and the later its outgoing one, so the earlier hands on nothing of the shift it declared beyond its follower's own move: the later event's counts, read with its own pivot standing, already hold whatever that letter's advance did."""
+    events = sv._composed(RETARGET_BEHIND_RETARGET_RULES, retarget_behind_retarget_window(), slide_context())
+    assert events == {RETARGET_RULE["id"]: [1], RETARGET_BEHIND_RETARGET_RULE["id"]: [2]}
+
+
+def test_neither_rule_alone_reads_a_retarget_behind_a_retarget(slide_context):
+    window = retarget_behind_retarget_window()
+    for rule in RETARGET_BEHIND_RETARGET_RULES:
+        assert not sv._matches(rule["match"], window, context=slide_context())
+        assert sv._composed_walk([rule], window, slide_context()) is None
+
+
+def test_a_retarget_chained_behind_a_retarget_still_needs_its_follower_standing(slide_context):
+    """What the chained retarget owes the walk is where its own follower lands, which the earlier event says nothing about."""
+    events = sv._composed(
+        RETARGET_BEHIND_RETARGET_RULES,
+        retarget_behind_retarget_window(),
+        slide_context("after-retarget-behind-retarget-moved-follower"),
     )
     assert events is None
 
