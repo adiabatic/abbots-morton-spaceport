@@ -22,7 +22,7 @@ Each expressible delta shape is a row in SHAPES, and a rule declares exactly one
 
 - The `redrawn` shape judges the same rendered pixels for a letter redrawn in place to a named new form: the old-font pivot form gives way to a named new form whose own-frame picture is the old one with the named cells gone and the named cells added — both sets read at one common column offset, because an entry extension inserts a column at the pivot's left edge and carries the whole frame right with it, so an entry-extended variant shows the same trade one column over — the own-frame origin standing still, and everything after the pivot sliding by the declared count, which may be zero when the new form keeps the pivot's advance: ·Eight's bowl pulling in one column before ·Tea and ·It, beside the dropped connector extension that slides ·It closer, is the founding example, and a window that also carries a second blessed change still needs the composed reading. The pivot's own placement stands still too, unless its new form names an entry contraction, which lets the letter sit up to that many columns closer to whatever precedes it — however much of the contraction the seam behind it had left to give, since a left neighbor the old font had already drawn that tight leaves nothing to close — and everything after the pivot carries whatever it took there on top of the declared count: ·J'ai's crown coming in after a half-height ·Pea or ·Tea moves the letter and the rest of the word, while the same crown after an ·At the old font had already contracted moves only what the dropped tail moves. Its added set may be empty, which is a form that only gives ink up — ·Key's foot dropping its terminal pixel before ·May, ·No and ·It, its follower coming a column closer — and that is the shape an exit contraction wants whenever the survey's windows carry anything else at all, because the `follower_cells` shape reads only names and would bless whatever else the window did.
 
-- The `join-created` shape judges a named pair that newly joins: the pivot and follower may redraw, the pivot keeping its own-frame origin while the follower either keeps its own or reaches back over its old left edge by a declared column count, the pivot stays under the standing displacement, the follower moves by a second declared count, everything after it moves by that count combined with the follower's own declared advance delta, and the recorded break becomes the named height. A follower reaches back when the form that takes the join inserts columns at its left edge — ·Gay's reachable-at-the-baseline stroke does, which is why a rule has to say so rather than let a moved origin read as a slide. The shift and the advance are two counts because a follower that redraws wider gives back what the join closed — the reaches-way-back ·Utter comes a column nearer ·May and leaves the rest of the word standing — and one number cannot say both. Its pivot side may name several families at once, which is how one letter's new entry is recorded in a single rule for every left neighbor that now reaches it — a window with any other ink change needs the composed reading.
+- The `join-created` shape judges a named pair that newly joins: the pivot and follower may redraw, the pivot keeping its own-frame origin while the follower either keeps its own or reaches back over its old left edge by a declared column count, the pivot stays under the standing displacement, the follower moves by a second declared count, everything after it moves by that count combined with the follower's own declared advance delta, and the recorded break becomes the named height. A follower reaches back when the form that takes the join inserts columns at its left edge — ·Gay's reachable-at-the-baseline stroke does, which is why a rule has to say so rather than let a moved origin read as a slide. The shift and the advance are two counts because a follower that redraws wider gives back what the join closed — the reaches-way-back ·Utter comes a column nearer ·May and leaves the rest of the word standing — and one number cannot say both. A rule may also declare a stub drop the pivot itself takes: the left-side entry the old font stacked in front of the join comes off, so the pivot's ink starts up to that many columns later while its own frame stands, and the follower and everything past it carry whatever it took on top of the declared shift and advance — which is what ·May's own entry coming off in front of its new baseline join into ·Gay looks like, in the same windows where a ·May the old font drew without that entry stands exactly where it was. Its pivot side may name several families at once, which is how one letter's new entry is recorded in a single rule for every left neighbor that now reaches it — a window with any other ink change needs the composed reading.
 
 - The `retarget` shape judges a named join that has changed height: the pivot and the follower may both redraw, they keep their own-frame origin, the pivot keeps its column placement, the follower comes a declared number of columns nearer — none at all where the new seam leaves it standing, two where ·Utter reaching ·May at the x-height pulls it back into itself — and everything after the follower sits a second declared number of columns over. Half-·Tea joining ·No at the x-height becoming full ·Tea joining flipped ·No at the baseline is what that looks like, as distinct from a join becoming a break (the gap shape, whose pictures stay and whose follower sits further).
 
@@ -42,14 +42,14 @@ The walk then re-shapes the window in the surface's font pair and carries a runn
 - an ink-gain event adds the named cells on the pivot, judged piece by piece, and moves by the declared count with the next glyph leading the next span
 - an entry-drop event leaves the pivot under the standing displacement, or the part of a contraction its own frame did not take further left still, compacting its remaining ink left by the named columns, and moves the displacement closer with the next glyph leading the next span
 - a redrawn event trades the named cells on the pivot under the standing displacement, or up to the entry contraction its new form names further left still, and moves the displacement by its declared count plus whatever the pivot took there, with the next glyph leading the next span
-- a join-created event leaves the pivot under the standing displacement while its follower leads the declared shift and the glyphs past the follower lead that shift combined with the follower's advance delta — or, when its pivot is itself an entry-contraction event, chains behind that event: the contraction judges the pivot's entry and origin, the created join judges only its follower, and the follower leads by both shifts combined, which is what lets ·Ah's contracted entry after ·J'ai and its new x-height join into ·Gay explain one window between them — and it chains the same way when its pivot is a join-retargeted event's follower, the retarget judging that letter's incoming seam and the created join its outgoing one, which is what lets ·It's lowered join into ·No and ·No's new join into ·Gay explain one window between them; and its own follower may in turn be the next event rather than the head of a span — a retarget on that letter's outgoing seam, the exit extension that letter gives up, or the trade its own new form makes — which is what lets ·Pea's lowered join into ·No, ·No's new join into ·Ah and ·Ah's dropped tail before ·Bay explain one window between the three of them; it holds however the join itself arose, so ·Ah's new x-height join into ·Gay and ·Gay's own redraw, which meets that seam and gives its baseline tail up in one stroke, explain one window between them, and with ·J'ai leading, ·Ah's contracted entry reads as a third event in the same window
-- a join-retargeted event leaves the pivot in place under the standing displacement — both it and the follower may redraw — brings the follower the columns it declares nearer, which is none at all where the retargeted join leaves it standing, moves the displacement the rest of the way to the declared shift, and moves again with the glyph after the follower leading the next span — or, when its pivot is a join-created event's follower, chains behind that event the other way round: the created join judges that letter's incoming seam and the retarget its outgoing one, so the glyph after the retarget's follower leads by both shifts combined, which is what lets ·Et's new baseline join into ·Gay and ·Gay's raised join into ·No explain one window between them
+- a join-created event leaves the pivot under the standing displacement, or up to the stub drop its rule declares to the right of it, while its follower leads the declared shift with whatever the pivot took there and the glyphs past the follower lead that shift combined with the follower's advance delta — or, when its pivot is itself an entry-contraction event, chains behind that event: the contraction judges the pivot's entry and origin, the created join judges only its follower, and the follower leads by both shifts combined, which is what lets ·Ah's contracted entry after ·J'ai and its new x-height join into ·Gay explain one window between them — and it chains the same way when its pivot is a join-retargeted event's follower, the retarget judging that letter's incoming seam and the created join its outgoing one, which is what lets ·It's lowered join into ·No and ·No's new join into ·Gay explain one window between them; and its own follower may in turn be the next event rather than the head of a span — a retarget on that letter's outgoing seam, the exit extension that letter gives up, or the trade its own new form makes — which is what lets ·Pea's lowered join into ·No, ·No's new join into ·Ah and ·Ah's dropped tail before ·Bay explain one window between the three of them; it holds however the join itself arose, so ·Ah's new x-height join into ·Gay and ·Gay's own redraw, which meets that seam and gives its baseline tail up in one stroke, explain one window between them, and with ·J'ai leading, ·Ah's contracted entry reads as a third event in the same window
+- a join-retargeted event leaves the pivot in place under the standing displacement — both it and the follower may redraw — brings the follower the columns it declares nearer, which is none at all where the retargeted join leaves it standing, moves the displacement the rest of the way to the declared shift, and moves again with the glyph after the follower leading the next span — or, when its pivot is a join-created event's follower, chains behind that event the other way round: the created join judges that letter's incoming seam and the retarget its outgoing one, so the glyph after the retarget's follower leads by both shifts combined, which is what lets ·Et's new baseline join into ·Gay and ·Gay's raised join into ·No explain one window between them, and the join's declared reach stands for that letter's own-frame origin there, so a ·Gay that reached back over its old left edge to take ·May's new join still carries its own raised join into ·No
 
 Every stretch between events is a span whose before picture, displaced by whatever has accumulated, must equal its after picture exactly.
 
 A join-dropped or extension event whose follower is itself an event chains instead of consuming that follower: the follower is the next event under the displacement the first event just applied, which is what lets ·At's dropped x-height join and ·It's dropped exit extension explain one window between them.
 
-A candidate whose own contract fails is simply not an event and its ink is judged as ordinary span ink, so adding a rule to this file can never un-explain a window; two rules claiming one position, or a join-retargeted or join-created event whose follower position is itself claimed, is ambiguous and refuses. The sanctioned shares of a position are the four chains above — a created join behind an entry contraction is a claim on the letter's seam beside a claim on its entry, and a created join behind a retarget on that retarget's follower, or a retarget, an exit-extension drop or a redrawn trade behind a created join on that join's follower, is a claim on the letter's outgoing seam beside a claim on its incoming one, none of them two claims on the same thing — and a created join whose pivot moved its origin is not an event at all without a contraction to chain behind. An extension's follower is the named after cell, not a pixel-identity translation, so a named redraw (·May losing the entry the old font stacked on the same seam, ·I's smaller loop after ·Tea) is the rule's own subject and does not block composition.
+A candidate whose own contract fails is simply not an event and its ink is judged as ordinary span ink, so adding a rule to this file can never un-explain a window; two rules claiming one position, or a join-retargeted or join-created event whose follower position is itself claimed, is ambiguous and refuses. The sanctioned shares of a position are the four chains above — a created join behind an entry contraction is a claim on the letter's seam beside a claim on its entry, and a created join behind a retarget on that retarget's follower, or a retarget, an exit-extension drop or a redrawn trade behind a created join on that join's follower, is a claim on the letter's outgoing seam beside a claim on its incoming one, none of them two claims on the same thing — and a created join whose pivot moved its origin is not an event at all without a contraction to chain behind, as a retarget whose pivot moved its origin is none without a created join in front of it whose reach declared that move. An extension's follower is the named after cell, not a pixel-identity translation, so a named redraw (·May losing the entry the old font stacked on the same seam, ·I's smaller loop after ·Tea) is the rule's own subject and does not block composition.
 
 One refusal stays deliberate: because the pivot is judged piece by piece rather than in a union, a pivot whose after form also drops a cell off the seam row (·J'ai's crown contracting under an ·At tuck) never composes. An ink-gain whose after form loses a cell or gains one the rule did not name never fires as an event, which leaves that ink to be judged as ordinary span ink; an entry-drop whose remaining cells do not equal the old picture shifted left by the named columns, or that drops a cell outside those columns, never fires either; a redrawn candidate whose trade is not exactly the named cells at one common column offset never fires either.
 
@@ -1079,6 +1079,14 @@ def _pull(before, after, expected, room):
     return offset // PIXEL_SIZE
 
 
+def _push(before, after, expected, room):
+    """How far a pivot's own placement sits to the right of where the walk expects it: zero when it stands exactly there, up to `room` columns further right when the left-side entry the old font drew in front of the join comes off and the letter's remaining ink starts that much later, and None anywhere else — off the grid, further right than the drop can account for, or further left at all."""
+    offset = after[2] - before[2] - expected * PIXEL_SIZE
+    if offset % PIXEL_SIZE or not 0 <= offset <= room * PIXEL_SIZE:
+        return None
+    return offset // PIXEL_SIZE
+
+
 def _redrawn_geometry(match, unit, comparator):
     """Whether the window's rendered before→after change is exactly the named trade on the named pivot, re-derived from the fonts: shape the window under one of the unit's configs and walk it position by position the way the composed walk does, because a pivot here is a position, not a name — the same before name can stand at one position as the pivot and at another as the untouched letter (a second ·Eight keeping its normal loop beside the one that pulls in), and only the after side's settled form says which is which. A pivot position is one whose before name carries a before prefix and whose after name carries an after prefix; it is judged as the named redraw at the same height and own-frame origin with its placement carrying the displacement accumulated so far, or up to the entry contraction its new form names closer than that, and every span between pivots must render identically under that displacement, which grows by the declared shift and by whatever the pivot took at each pivot. Anything the contract cannot hold — no pivot position at all, a shaped run that contradicts the unit's recorded glyphs, sides that spell different letters, an off-grid placement, a non-rectilinear outline, a cell traded outside the named sets — reads as no match, so the unit queues."""
     codepoints = unit.get("codepoints") or ""
@@ -1219,8 +1227,8 @@ def _retarget_piece_holds(before, after, reach=0):
     return before[2] % PIXEL_SIZE == 0 and after[2] % PIXEL_SIZE == 0 and before[3] % PIXEL_SIZE == 0
 
 
-def _retarget_geometry(match, unit, comparator, follower_shift, onward, follower_reach=0):
-    """Whether the window's rendered before→after change is exactly the named pair gaining a join or changing its join height, re-derived from the fonts: shape the window under one of the unit's configs, find every pivot–follower pair whose recorded seam moved from the named state to the named after seam and whose after cells the rule names, require the pivot to keep its own-frame origin and the follower to keep its own or reach back over its old left edge by the declared columns, require the pivot to keep its column placement and the follower to move by the columns the caller declares — none at all for a retarget whose follower stands still, the declared count for one whose follower comes closer and for every new join — and require each span strictly outside those pairs to render identically once displaced by the cumulative carry — the span before the first pair by nothing, the span after the first pair by what that pair carries onward (the retarget's declared shift, or a new join's shift with its follower's advance delta), and one more of that for every further pair. Anything the contract cannot hold — no pair, a shaped run that contradicts the unit's recorded glyphs, sides that spell different letters, a pivot or follower that moved contrary to the declared shape, an off-grid placement — reads as no match, so the unit queues."""
+def _retarget_geometry(match, unit, comparator, follower_shift, onward, follower_reach=0, pivot_room=0):
+    """Whether the window's rendered before→after change is exactly the named pair gaining a join or changing its join height, re-derived from the fonts: shape the window under one of the unit's configs, find every pivot–follower pair whose recorded seam moved from the named state to the named after seam and whose after cells the rule names, require the pivot to keep its own-frame origin and the follower to keep its own or reach back over its old left edge by the declared columns, require the pivot to keep its column placement — or to sit up to the columns of left-side entry the caller says it may give up further right — and the follower to move by the columns the caller declares plus whatever the pivot took there — none at all for a retarget whose follower stands still, the declared count for one whose follower comes closer and for every new join — and require each span strictly outside those pairs to render identically once displaced by the cumulative carry — the span before the first pair by nothing, the span after the first pair by what that pair carries onward (the retarget's declared shift, or a new join's shift with its follower's advance delta) plus what the pivot took, and one more of that for every further pair. Anything the contract cannot hold — no pair, a shaped run that contradicts the unit's recorded glyphs, sides that spell different letters, a pivot or follower that moved contrary to the declared shape, an off-grid placement — reads as no match, so the unit queues."""
     codepoints = unit.get("codepoints") or ""
     if not codepoints:
         return False
@@ -1243,19 +1251,24 @@ def _retarget_geometry(match, unit, comparator, follower_shift, onward, follower
     pairs = _retarget_pairs(match, unit)
     if not pairs:
         return False
+    taken = [0]
     for index in pairs:
-        for piece_index in (index, index + 1):
-            before, after = before_pieces.get(piece_index), after_pieces.get(piece_index)
-            if before is None or after is None:
-                return False
-            follows = piece_index == index + 1
-            movement = follower_shift if follows else 0
-            reach = follower_reach if follows else 0
-            if (
-                not _retarget_piece_holds(before, after, reach)
-                or after[2] != before[2] + movement * PIXEL_SIZE
-            ):
-                return False
+        if any(
+            pieces.get(at) is None for pieces in (before_pieces, after_pieces) for at in (index, index + 1)
+        ):
+            return False
+        pivot_before, pivot_after = before_pieces[index], after_pieces[index]
+        follower_before, follower_after = before_pieces[index + 1], after_pieces[index + 1]
+        if not _retarget_piece_holds(pivot_before, pivot_after):
+            return False
+        push = _push(pivot_before, pivot_after, taken[-1], pivot_room)
+        if push is None:
+            return False
+        if not _retarget_piece_holds(follower_before, follower_after, follower_reach):
+            return False
+        if follower_after[2] != follower_before[2] + (follower_shift + taken[-1] + push) * PIXEL_SIZE:
+            return False
+        taken.append(taken[-1] + push)
     intern = comparator.intern
     pivots = set(pairs)
     followers = {index + 1 for index in pairs}
@@ -1264,7 +1277,7 @@ def _retarget_geometry(match, unit, comparator, follower_shift, onward, follower
     step = 0
     for index in range(len(before_names)):
         if index in pivots:
-            if not _span_settled(intern, before_span, after_span, onward * step):
+            if not _span_settled(intern, before_span, after_span, onward * step + taken[step]):
                 return False
             continue
         if index in followers:
@@ -1276,7 +1289,7 @@ def _retarget_geometry(match, unit, comparator, follower_shift, onward, follower
             before_span.append(before_pieces[index])
         if index in after_pieces:
             after_span.append(after_pieces[index])
-    return _span_settled(intern, before_span, after_span, onward * step)
+    return _span_settled(intern, before_span, after_span, onward * step + taken[step])
 
 
 def _matches_join_retarget(match, unit, excluded, context=None):
@@ -1314,7 +1327,7 @@ def _matches_join_retarget(match, unit, excluded, context=None):
 
 
 def _matches_join_created(match, unit, excluded, context=None):
-    """A named pair — or any of several named pivots into one follower — that has newly joined, matched at the rendered-pixel grain: the pivot and follower may both redraw, the pivot keeps its own-frame origin and the follower either keeps its own or reaches back by the declared columns, the pivot keeps its column placement, the follower moves by the declared shift, everything after it moves by that shift combined with the follower's declared advance delta, and the recorded break becomes the named join height. Those placement constraints distinguish a created join from a retarget, whose follower stands still, and from a general redraw; any other ink change anywhere in the window fails this match closed, which is where the composed reading picks up. One shaped config speaks for all of them, on the same digest-agreement precondition the slide shape holds. except_left reads the whole window, as the join-retargeted shape does."""
+    """A named pair — or any of several named pivots into one follower — that has newly joined, matched at the rendered-pixel grain: the pivot and follower may both redraw, the pivot keeps its own-frame origin and the follower either keeps its own or reaches back by the declared columns, the pivot keeps its column placement or sits up to the declared stub drop further right, the follower moves by the declared shift plus whatever the pivot took there, everything after it moves by that shift combined with the follower's declared advance delta, and the recorded break becomes the named join height. Those placement constraints distinguish a created join from a retarget, whose follower stands still, and from a general redraw; any other ink change anywhere in the window fails this match closed, which is where the composed reading picks up. One shaped config speaks for all of them, on the same digest-agreement precondition the slide shape holds. except_left reads the whole window, as the join-retargeted shape does."""
     deltas = unit.get("ink_deltas")
     if not isinstance(deltas, dict) or not deltas:
         return False
@@ -1336,6 +1349,7 @@ def _matches_join_created(match, unit, excluded, context=None):
         match["after"]["shift"],
         match["after"]["follower_advance"],
         match["after"]["follower_reach"],
+        match["after"].get("pivot_stub_drop", 0),
         unit["id"],
     )
     verdict = context.memo.get(key)
@@ -1348,6 +1362,7 @@ def _matches_join_created(match, unit, excluded, context=None):
             shift,
             shift + match["after"]["follower_advance"],
             match["after"]["follower_reach"],
+            match["after"].get("pivot_stub_drop", 0),
         )
     if not verdict:
         return False
@@ -1385,7 +1400,7 @@ def _validate_join_retarget(rule_id, match) -> None:
 
 
 def _validate_join_created(rule_id, match) -> None:
-    """The join-created shape's own coherence, checked once at load: the before seam must be a break and the after seam a yK height, because a pair that already joined belongs to the retarget or extension shape, while a new break belongs to the gap shape. The follower's declared reach cannot be negative, since a form that pulls its left edge in is an entry contraction rather than a new join's receiver. The cells have to belong to the letters the rule names, on either side — a rule may name several pivots, which is what lets one letter's new entry be recorded once for every left neighbor that now reaches it."""
+    """The join-created shape's own coherence, checked once at load: the before seam must be a break and the after seam a yK height, because a pair that already joined belongs to the retarget or extension shape, while a new break belongs to the gap shape. The follower's declared reach cannot be negative, since a form that pulls its left edge in is an entry contraction rather than a new join's receiver, and a declared pivot stub drop has to be at least a column, since a pivot that gives nothing up is the plain created join and says so by leaving the field off. The cells have to belong to the letters the rule names, on either side — a rule may name several pivots, which is what lets one letter's new entry be recorded once for every left neighbor that now reaches it."""
     if match["before"]["seam_out"] != "break":
         _fail(
             f"rule {rule_id!r}: match.before.seam_out names {match['before']['seam_out']!r}; "
@@ -1401,6 +1416,12 @@ def _validate_join_created(rule_id, match) -> None:
             f"rule {rule_id!r}: match.after.follower_reach is negative; a follower reaches back over "
             "its old left edge or stands where it was, and a frame that pulls in is a contraction"
         )
+    if "pivot_stub_drop" in match["after"] and match["after"]["pivot_stub_drop"] < 1:
+        _fail(
+            f"rule {rule_id!r}: match.after.pivot_stub_drop is "
+            f"{match['after']['pivot_stub_drop']}; a pivot that gives up no left-side entry is the "
+            "plain created join, which says so by leaving the field off"
+        )
     named = (
         ("pivot_cells", [_family(name) for name in _families(match["before"]["pivot"])]),
         ("receiver_cells", _families(match["before"]["follower"])),
@@ -1415,7 +1436,7 @@ def _validate_join_created(rule_id, match) -> None:
 
 
 class Event(NamedTuple):
-    """One position a composable rule was credited at in a composed walk: the rule's id, which shape spoke there (`slide`, `extension`, `gain`, `join`, `entry`, `stub`, `redrawn`, `retarget`, or `joined`), the columns the window's running displacement moves by at that position — the declared slide, minus the extension's column count, the declared join gap, an entry shortening combined with any exit-extension delta on that pivot, the declared created-join shift or the columns a retarget brings its follower nearer, the stub-drop's placement bump (followers unmoved), or the declared ink-gain or redrawn shift — how far the pivot's own placement sits ahead of the span behind it, which only an entry contraction whose after frame did not take it into its origin is ever anything but zero, how much further ahead of that it may sit, which only a redrawn trade whose new form names an entry contraction ever gives room for, whether the event's own contract judged its pivot, which only a created join ever answers no to: one whose pivot moved its origin has judged its follower alone and is an event only behind an entry-contraction event at the same position, and the columns the displacement moves by again once the walk is past the follower, which a created join whose follower redrew to a different advance carries and a retarget carries whatever its declared shift leaves over its follower's own move."""
+    """One position a composable rule was credited at in a composed walk: the rule's id, which shape spoke there (`slide`, `extension`, `gain`, `join`, `entry`, `stub`, `redrawn`, `retarget`, or `joined`), the columns the window's running displacement moves by at that position — the declared slide, minus the extension's column count, the declared join gap, an entry shortening combined with any exit-extension delta on that pivot, the declared created-join shift or the columns a retarget brings its follower nearer, the stub-drop's placement bump (followers unmoved), or the declared ink-gain or redrawn shift — how far the pivot's own placement sits ahead of the span behind it, which only an entry contraction whose after frame did not take it into its origin is ever anything but zero, how much room the pivot's own placement has beyond where the walk expects it — to the left for a redrawn trade whose new form names an entry contraction, to the right for a created join whose pivot gives up a left-side stub as it takes the join — whether the event's own contract judged its pivot, which only a created join and a retarget ever answer no to: a created join whose pivot moved its origin has judged its follower alone and is an event only behind an entry-contraction event at the same position, and a retarget whose pivot moved its origin only where a created join in front of it has declared that move as its follower's reach, and the columns the displacement moves by again once the walk is past the follower, which a created join whose follower redrew to a different advance carries and a retarget carries whatever its declared shift leaves over its follower's own move."""
 
     rule_id: str
     kind: str
@@ -1639,17 +1660,23 @@ def _join_event(match, rule_id, index, before_pieces, after_pieces):
 
 
 def _retarget_event(match, rule_id, index, before_pieces, after_pieces):
-    """Whether one join-retargeted candidate's own contract holds at the rendered grain: both the pivot and the follower keep their own-frame origin, both on the grid. Height and picture may change. Placement under the running displacement is the walk's job, not this contract's, mirroring `_join_event` leaving the span equality to the walk. The event carries the two counts the walk needs apart — how far the follower itself comes, which is nothing for a retarget that leaves it standing, and how much further the displacement moves once the walk is past it. None when any of that fails, which leaves both pieces to be judged as ordinary span ink."""
-    if not _retarget_piece_holds(before_pieces.get(index), after_pieces.get(index)):
+    """Whether one join-retargeted candidate's own contract holds at the rendered grain: both the pivot and the follower keep their own-frame origin, both on the grid. Height and picture may change. A pivot that draws ink on both sides but moved its origin comes back with `pivot_judged` false rather than as no event, exactly as a created join's does: the walk honors that only where the pivot is a created join's follower, because the join's declared reach has already judged that origin move, and drops it otherwise, so a letter that redrew its own left edge never rides through a retarget alone. Placement under the running displacement is the walk's job, not this contract's, mirroring `_join_event` leaving the span equality to the walk. The event carries the two counts the walk needs apart — how far the follower itself comes, which is nothing for a retarget that leaves it standing, and how much further the displacement moves once the walk is past it. None when the follower fails or the pivot draws nothing, which leaves both pieces to be judged as ordinary span ink."""
+    if before_pieces.get(index) is None or after_pieces.get(index) is None:
         return None
     if not _retarget_piece_holds(before_pieces.get(index + 1), after_pieces.get(index + 1)):
         return None
     follower_shift = match["after"]["follower_shift"]
-    return Event(rule_id, "retarget", follower_shift, advance=match["after"]["shift"] - follower_shift)
+    return Event(
+        rule_id,
+        "retarget",
+        follower_shift,
+        _retarget_piece_holds(before_pieces[index], after_pieces[index]),
+        advance=match["after"]["shift"] - follower_shift,
+    )
 
 
 def _created_join_event(match, rule_id, index, before_pieces, after_pieces):
-    """Whether one join-created candidate's own contract holds at the rendered grain: the follower keeps its own-frame origin or reaches back by the columns the rule declares, on the grid, and the pivot keeps its own. Height and picture may change. A pivot that exists as ink on both sides but moved its origin comes back with `pivot_judged` false rather than as no event: the walk honors that only behind an entry-contraction event at the same position — the contraction has judged the pivot's entry and origin, so the created join needs only its follower — and drops it otherwise, so a redrawn pivot never rides through a created join alone. Placement under the running displacement is the walk's job, with the pivot standing under the old displacement, the follower leading the new one, and the follower's advance delta carried on past it. None when the follower fails or the pivot draws nothing, which leaves both pieces to be judged as ordinary span ink."""
+    """Whether one join-created candidate's own contract holds at the rendered grain: the follower keeps its own-frame origin or reaches back by the columns the rule declares, on the grid, and the pivot keeps its own. Height and picture may change. A pivot that exists as ink on both sides but moved its origin comes back with `pivot_judged` false rather than as no event: the walk honors that only behind an entry-contraction event at the same position — the contraction has judged the pivot's entry and origin, so the created join needs only its follower — and drops it otherwise, so a redrawn pivot never rides through a created join alone. Placement under the running displacement is the walk's job, with the pivot standing under the old displacement or up to the declared stub drop right of it, the follower leading the new one, and the follower's advance delta carried on past it. None when the follower fails or the pivot draws nothing, which leaves both pieces to be judged as ordinary span ink."""
     if not _retarget_piece_holds(
         before_pieces.get(index + 1), after_pieces.get(index + 1), match["after"]["follower_reach"]
     ):
@@ -1658,7 +1685,12 @@ def _created_join_event(match, rule_id, index, before_pieces, after_pieces):
         return None
     pivot_judged = _retarget_piece_holds(before_pieces[index], after_pieces[index])
     return Event(
-        rule_id, "joined", match["after"]["shift"], pivot_judged, advance=match["after"]["follower_advance"]
+        rule_id,
+        "joined",
+        match["after"]["shift"],
+        pivot_judged,
+        advance=match["after"]["follower_advance"],
+        room=match["after"].get("pivot_stub_drop", 0),
     )
 
 
@@ -1706,7 +1738,7 @@ def _span_explained(
 
 
 def _composed_walk(rules, unit, context):
-    """The composed reading itself, re-derived from the surface's own fonts: shape both sides of the window, hold each shaped run against what the index recorded, evaluate every composable rule's candidates at the rendered grain, and walk the window left to right carrying a running column displacement — each span between events judged as a picture under the displacement standing when it began, each event judged as its own contract plus a placement offset, and each event's pivot (a slide's) or follower (an extension's or a join-dropped's — or that follower itself as the next event, when it is one) or next glyph (an ink-gain's, an entry shortening's, or a redrawn trade's) leading the next span under the new displacement. A retargeted pair keeps its pivot under the standing displacement and brings its follower the columns it declares nearer before the declared shift leads the following span; a newly joined pair keeps its pivot under the standing displacement while its follower leads the new one and hands the follower's advance delta on to whatever comes after it — and when that pivot is an entry-contraction event's, or is a retarget event's follower, the created join chains behind it, the earlier event judging the pivot and the join judging only the follower, which then leads by both shifts combined, while a retarget, an exit-extension drop or a redrawn trade whose pivot is a created join's follower chains the other way round, the join leading that letter and the later event carrying the glyphs after it by both shifts and the advance delta — which a created join chained behind a contraction hands on the same way, so all three can stand in one window. An extension follower's span may also compact left by a dropped entry extension, so the stacked entry coming off ·May is the same seam as ·It's dropped tail, not a third change. A candidate whose own contract fails is simply not an event and its ink is judged as ordinary span ink, so adding a rule to the file can never un-explain a window that was explained without it; two rules claiming one position, or a join-retargeted or join-created event whose follower position is itself claimed, is ambiguous and refuses outright — the chains behind a contraction, behind a retarget and behind a created join being the sanctioned shares, and a created join whose pivot moved its origin being no event at all without a contraction under it. A join-dropped or extension event whose follower is itself an event chains: the follower is the next event under the new displacement rather than consumed. Returns each credited rule's event positions, or None when no such reading of the window exists. It carries no arity threshold of its own — a single-event reading is a real reading of a window, and it is `_composed` that requires two — which is what lets it be held directly against each single-shape matcher."""
+    """The composed reading itself, re-derived from the surface's own fonts: shape both sides of the window, hold each shaped run against what the index recorded, evaluate every composable rule's candidates at the rendered grain, and walk the window left to right carrying a running column displacement — each span between events judged as a picture under the displacement standing when it began, each event judged as its own contract plus a placement offset, and each event's pivot (a slide's) or follower (an extension's or a join-dropped's — or that follower itself as the next event, when it is one) or next glyph (an ink-gain's, an entry shortening's, or a redrawn trade's) leading the next span under the new displacement. A retargeted pair keeps its pivot under the standing displacement and brings its follower the columns it declares nearer before the declared shift leads the following span; a newly joined pair keeps its pivot under the standing displacement, or up to the stub drop its rule declares to the right of it, while its follower leads the new one and hands the follower's advance delta on to whatever comes after it — and when that pivot is an entry-contraction event's, or is a retarget event's follower, the created join chains behind it, the earlier event judging the pivot and the join judging only the follower, which then leads by both shifts combined, while a retarget, an exit-extension drop or a redrawn trade whose pivot is a created join's follower chains the other way round, the join leading that letter and the later event carrying the glyphs after it by both shifts and the advance delta — which a created join chained behind a contraction hands on the same way, so all three can stand in one window. An extension follower's span may also compact left by a dropped entry extension, so the stacked entry coming off ·May is the same seam as ·It's dropped tail, not a third change. A candidate whose own contract fails is simply not an event and its ink is judged as ordinary span ink, so adding a rule to the file can never un-explain a window that was explained without it; two rules claiming one position, or a join-retargeted or join-created event whose follower position is itself claimed, is ambiguous and refuses outright — the chains behind a contraction, behind a retarget and behind a created join being the sanctioned shares, a created join whose pivot moved its origin being no event at all without a contraction under it, and a retarget whose pivot moved its origin none without the created join in front of it whose reach declared that move. A join-dropped or extension event whose follower is itself an event chains: the follower is the next event under the new displacement rather than consumed. Returns each credited rule's event positions, or None when no such reading of the window exists. It carries no arity threshold of its own — a single-event reading is a real reading of a window, and it is `_composed` that requires two — which is what lets it be held directly against each single-shape matcher."""
     deltas = unit.get("ink_deltas")
     if not isinstance(deltas, dict) or not deltas:
         return None
@@ -1782,18 +1814,25 @@ def _composed_walk(rules, unit, context):
                 found.setdefault(index, []).append(event)
     events: dict[int, Event] = {}
     chained: dict[int, Event] = {}
+    reached: dict[int, Event] = {}
     for index, claims in found.items():
         judged = [claim for claim in claims if claim.pivot_judged]
         unjudged = [claim for claim in claims if not claim.pivot_judged]
         if len(judged) > 1:
             return None
         if not judged:
+            if len(unjudged) == 1:
+                reached[index] = unjudged[0]
             continue
         events[index] = judged[0]
         if unjudged and judged[0].kind == "entry":
             if len(unjudged) > 1:
                 return None
             chained[index] = unjudged[0]
+    for index, event in reached.items():
+        prior = events.get(index - 1)
+        if event.kind == "retarget" and prior is not None and prior.kind == "joined":
+            events[index] = event
     behind_retarget = {
         index + 1
         for index, event in events.items()
@@ -1898,9 +1937,10 @@ def _composed_walk(rules, unit, context):
                     displacement += joined.advance
                     index += 1
         elif event.kind == "joined":
-            if after_pieces[index][2] != before_pieces[index][2] + displacement * PIXEL_SIZE:
+            push = _push(before_pieces[index], after_pieces[index], displacement, event.room)
+            if push is None:
                 return None
-            displacement += event.shift
+            displacement += event.shift + push
             if after_pieces[index + 1][2] != before_pieces[index + 1][2] + displacement * PIXEL_SIZE:
                 return None
             before_span, after_span = [], []
@@ -2009,7 +2049,7 @@ class SlideContext:
 
 
 class Shape(NamedTuple):
-    """One expressible delta shape: the match.after field that declares it, the field names match.before and match.after must carry exactly (an empty tuple means the block itself must be absent), which of those fields are lists of cell strings, of delta digests, or of glyph-name prefixes — or integer column counts, or a family name that may also be a list of them — rather than plain scalars, the matcher that reads a unit for it, and its own coherence check. The row also carries the three facts a run has to know about a shape before it reads any unit — whether it can take part in a composed reading, whether it re-shapes windows in the surface's own font pair, and whether it reads the surface's persisted ink deltas, which are independent of one another — and the scope its except_left guard is read in when a composed reading credits it: the whole window, or the left neighbor of each credited position, and None for a shape that never composes."""
+    """One expressible delta shape: the match.after field that declares it, the field names match.before and match.after must carry exactly (an empty tuple means the block itself must be absent), the further match.after fields a rule may carry but need not — an arm a window only sometimes shows, which every rule without it declares by leaving it off — which of those fields are lists of cell strings, of delta digests, or of glyph-name prefixes — or integer column counts, or a family name that may also be a list of them — rather than plain scalars, the matcher that reads a unit for it, and its own coherence check. The row also carries the three facts a run has to know about a shape before it reads any unit — whether it can take part in a composed reading, whether it re-shapes windows in the surface's own font pair, and whether it reads the surface's persisted ink deltas, which are independent of one another — and the scope its except_left guard is read in when a composed reading credits it: the whole window, or the left neighbor of each credited position, and None for a shape that never composes."""
 
     keyed_by: str
     before: tuple[str, ...]
@@ -2017,6 +2057,7 @@ class Shape(NamedTuple):
     cell_lists: tuple[str, ...]
     matcher: Callable[[dict, dict, set[str], "SlideContext | None"], bool]
     validate: Callable[[str, dict], None] | None = None
+    optional: tuple[str, ...] = ()
     digest_lists: tuple[str, ...] = ()
     name_lists: tuple[str, ...] = ()
     int_fields: tuple[str, ...] = ()
@@ -2179,7 +2220,8 @@ SHAPES = {
         cell_lists=("pivot_cells", "receiver_cells"),
         matcher=_matches_join_created,
         validate=_validate_join_created,
-        int_fields=("shift", "follower_advance", "follower_reach"),
+        optional=("pivot_stub_drop",),
+        int_fields=("shift", "follower_advance", "follower_reach", "pivot_stub_drop"),
         family_fields=("pivot", "follower"),
         composable=True,
         font_backed=True,
@@ -2229,17 +2271,18 @@ def load_rules(path) -> list:
             )
         shape = SHAPES[declared[0]]
         for block, fields in (("before", shape.before), ("after", shape.after)):
+            optional = shape.optional if block == "after" else ()
             if not fields:
                 if block in match:
                     _fail(f"rule {rule_id!r}: the {declared[0]} shape carries no match.{block} block")
                 continue
             got = match.get(block)
-            if not isinstance(got, dict) or set(got) != set(fields):
+            if not isinstance(got, dict) or not set(fields) <= set(got) <= set(fields) | set(optional):
                 _fail(
                     f"rule {rule_id!r}: the {declared[0]} shape needs match.{block} to be exactly "
-                    f"{', '.join(fields)}"
+                    f"{', '.join(fields)}" + (f", optionally with {', '.join(optional)}" if optional else "")
                 )
-            for field in fields:
+            for field in got:
                 value = got[field]
                 if field in shape.cell_lists:
                     if not isinstance(value, list) or not value or not all(_is_cell(cell) for cell in value):

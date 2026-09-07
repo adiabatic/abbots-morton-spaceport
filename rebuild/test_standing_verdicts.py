@@ -388,6 +388,24 @@ RETARGET_BEHIND_WIDENED_JOIN_RULE = {
     },
 }
 
+REACHING_JOIN_BEFORE_RETARGET_RULE = {
+    "id": "fixture-join-created-reaching-before-a-retarget",
+    "verdict": "approve",
+    "note": "·J joins ·Tea at the baseline where the old font left a break, and ·Tea takes the join on a form that reaches back a column",
+    "match": {
+        "before": {"pivot": "qsJ", "seam_out": "break", "follower": "qsTea"},
+        "after": {
+            "joined": "y0",
+            "pivot_cells": ["qsJ/hapax/None/baseline/ex-ext-1"],
+            "receiver_cells": ["qsTea/full/None/baseline/"],
+            "shift": -3,
+            "follower_advance": 1,
+            "follower_reach": 1,
+        },
+        "except_left": [],
+    },
+}
+
 REACHING_CREATED_JOIN_RULE = {
     "id": "fixture-join-created-with-a-reaching-follower",
     "verdict": "approve",
@@ -401,6 +419,25 @@ REACHING_CREATED_JOIN_RULE = {
             "shift": -3,
             "follower_advance": 1,
             "follower_reach": 1,
+        },
+        "except_left": [],
+    },
+}
+
+STUB_CREATED_JOIN_RULE = {
+    "id": "fixture-join-created-whose-pivot-drops-a-stub",
+    "verdict": "approve",
+    "note": "·J joins ·F3 where the old font left a break, and gives up the entry stub the old font drew in front of it",
+    "match": {
+        "before": {"pivot": "qsJ", "seam_out": "break", "follower": "qsF3"},
+        "after": {
+            "joined": "y0",
+            "pivot_cells": ["qsJ/hapax/None/baseline/ex-ext-1"],
+            "receiver_cells": ["qsF3/full/None/None/"],
+            "shift": -2,
+            "follower_advance": 0,
+            "follower_reach": 0,
+            "pivot_stub_drop": 1,
         },
         "except_left": [],
     },
@@ -1631,6 +1668,12 @@ register_glyph("after", "qsRoe.hapax.en-y5.ex-y0.en-con-1", PLACED_CONTRACTION_R
 register_glyph("after", "space", (), 50)
 register_glyph("before", "qsF3.reaching", TUCKED_FOLLOWER, 100)
 register_glyph("after", "qsF3.reached", TWO_COLUMNS, 100)
+register_glyph("before", "qsBay.stub-lead", TWO_COLUMNS, 100)
+register_glyph("after", "qsBay.stub-lead", TWO_COLUMNS, 150)
+register_glyph("before", "qsTea.half.ex-y5.reach-fixture", (_rect(50, 100, 150, 150),), 100)
+register_glyph("after", "qsTea.reaching", TWO_COLUMNS, 100)
+register_glyph("before", "qsSee.ex-y0.stub-fixture", GROUNDED_SEE, 250)
+register_glyph("after", "qsSee.straighter.stub-fixture", STRAIGHTER_SEE, 250)
 
 LEAD = register_pair("qsL", "qsL")
 SEE = register_pair("qsSee.ex-y0", "qsSee.straighter")
@@ -1688,6 +1731,9 @@ TEA_VERTICAL_GAIN_MISALIGNED = register_pair(
 )
 PLACED_CONTRACTION = register_pair("qsRoe.ex-y0.placed-contraction", "qsRoe.hapax.en-y5.ex-y0.en-con-1")
 FOLLOWER_3_REACHING = register_pair("qsF3.reaching", "qsF3.reached")
+STUB_LEAD = register_pair("qsBay.stub-lead", "qsBay.stub-lead")
+STUB_SEE = register_pair("qsSee.ex-y0.stub-fixture", "qsSee.straighter.stub-fixture")
+REACHING_TEA = register_pair("qsTea.half.ex-y5.reach-fixture", "qsTea.reaching")
 
 BEFORE_GLYPHS = _OUTLINES["before"]
 AFTER_GLYPHS = _OUTLINES["after"]
@@ -4519,6 +4565,16 @@ COMPOSED_REACHING_JOIN_GLYPHS = [
 COMPOSED_REACHING_JOIN_CODEPOINTS = spell(LEAD, SEE, PIVOT_SHORTENED, FOLLOWER_3_REACHING, FOLLOWER_1)
 COMPOSED_REACHING_JOIN_RULES = [SLIDE_RULE, REACHING_CREATED_JOIN_RULE]
 RETARGET_BEHIND_WIDENED_JOIN_RULES = [RETARGET_RULE, RETARGET_BEHIND_WIDENED_JOIN_RULE]
+STUB_CREATED_JOIN_GLYPHS = ["qsBay.stub-lead", "qsJ.ex-y0.ex-ext-3.long", "qsF3"]
+STUB_CREATED_JOIN_CODEPOINTS = spell(STUB_LEAD, PIVOT_SHORTENED, FOLLOWER_3)
+COMPOSED_STUB_JOIN_GLYPHS = [
+    "qsL",
+    "qsSee.ex-y0.stub-fixture",
+    "qsJ.ex-y0.ex-ext-3.long",
+    "qsF3",
+]
+COMPOSED_STUB_JOIN_CODEPOINTS = spell(LEAD, STUB_SEE, PIVOT_SHORTENED, FOLLOWER_3)
+COMPOSED_STUB_JOIN_RULES = [SLIDE_RULE, STUB_CREATED_JOIN_RULE]
 CONTRACTED_CREATED_JOIN_GLYPHS = ["qsBay.contract-lead", "qsMay.en-y0.ex-y5.contract-fixture", "qsF3"]
 CONTRACTED_CREATED_JOIN_CODEPOINTS = spell(CONTRACTION_LEAD, CONTRACTED_JOINING_MAY, FOLLOWER_3)
 CONTRACTED_UNMOVED_JOIN_CODEPOINTS = spell(CONTRACTION_LEAD, CONTRACTED_MAY, FOLLOWER_3)
@@ -4548,6 +4604,8 @@ RETARGET_BEHIND_CREATED_JOIN_GLYPHS = [
 ]
 RETARGET_BEHIND_CREATED_JOIN_CODEPOINTS = spell(LEAD, PIVOT_SHORTENED, TEA, NO, FOLLOWER_1)
 RETARGET_BEHIND_CREATED_JOIN_RULES = [RETARGET_RULE, RETARGET_BEHIND_CREATED_JOIN_RULE]
+RETARGET_BEHIND_REACHING_JOIN_CODEPOINTS = spell(LEAD, PIVOT_SHORTENED, REACHING_TEA, NO, FOLLOWER_1)
+RETARGET_BEHIND_REACHING_JOIN_RULES = [RETARGET_RULE, REACHING_JOIN_BEFORE_RETARGET_RULE]
 EXTENSION_BEHIND_CREATED_JOIN_GLYPHS = ["qsL", "qsNo.en-ext-1", "qsJ.ex-y0.ex-ext-1", "qsF3"]
 EXTENSION_BEHIND_CREATED_JOIN_CODEPOINTS = spell(LEAD, NO, PIVOT, FOLLOWER_3)
 EXTENSION_BEHIND_CREATED_JOIN_RULES = [COMPOSED_EXT_RULE, EXTENSION_BEHIND_CREATED_JOIN_RULE]
@@ -4770,6 +4828,43 @@ def composed_reaching_join_window(uid="crjr-1"):
     )
 
 
+def stub_created_join_window(uid="scj-1"):
+    return unit(
+        uid,
+        list(STUB_CREATED_JOIN_GLYPHS),
+        ["y0", "break"],
+        [
+            "qsBay/full/None/None/",
+            "qsJ/hapax/None/baseline/ex-ext-1",
+            "qsF3/full/None/None/",
+        ],
+        ["y0", "y0"],
+        codepoints=STUB_CREATED_JOIN_CODEPOINTS,
+        configs=("default",),
+        ink_deltas={"default": SLIDE_DELTA},
+        pair={"left": 1, "right": 2},
+    )
+
+
+def composed_stub_join_window(uid="csj-1"):
+    return unit(
+        uid,
+        list(COMPOSED_STUB_JOIN_GLYPHS),
+        ["y0", "y0", "break"],
+        [
+            "qsL/full/None/None/",
+            "qsSee/full/None/None/",
+            "qsJ/hapax/None/baseline/ex-ext-1",
+            "qsF3/full/None/None/",
+        ],
+        ["y0", "y0", "y0"],
+        codepoints=COMPOSED_STUB_JOIN_CODEPOINTS,
+        configs=("default",),
+        ink_deltas={"default": SLIDE_DELTA},
+        pair={"left": 2, "right": 3},
+    )
+
+
 def contracted_created_join_window(uid="ccjc-1", codepoints=CONTRACTED_CREATED_JOIN_CODEPOINTS):
     return unit(
         uid,
@@ -4821,6 +4916,26 @@ def retargeted_created_join_window(uid="rcj-1"):
         ],
         ["y0", "y0", "y0"],
         codepoints=RETARGETED_CREATED_JOIN_CODEPOINTS,
+        configs=("default",),
+        ink_deltas={"default": SLIDE_DELTA},
+        pair={"left": 1, "right": 2},
+    )
+
+
+def retarget_behind_reaching_join_window(uid="rbrj-1"):
+    return unit(
+        uid,
+        ["qsL", "qsJ.ex-y0.ex-ext-3.long", "qsTea.half.ex-y5.reach-fixture", "qsNo.en-ext-1", "qsF1"],
+        ["y0", "break", "y5", "y0"],
+        [
+            "qsL/full/None/None/",
+            "qsJ/hapax/None/baseline/ex-ext-1",
+            "qsTea/full/None/baseline/",
+            "qsNo/flipped/baseline/None/",
+            "qsF1/full/None/None/",
+        ],
+        ["y0", "y0", "y0", "y0"],
+        codepoints=RETARGET_BEHIND_REACHING_JOIN_CODEPOINTS,
         configs=("default",),
         ink_deltas={"default": SLIDE_DELTA},
         pair={"left": 1, "right": 2},
@@ -4989,6 +5104,33 @@ def test_a_created_join_whose_follower_keeps_its_origin_is_refused_by_the_reachi
 def test_a_slide_and_a_reaching_created_join_in_one_window_compose(slide_context):
     events = sv._composed(COMPOSED_REACHING_JOIN_RULES, composed_reaching_join_window(), slide_context())
     assert events == {SLIDE_RULE["id"]: [1], REACHING_CREATED_JOIN_RULE["id"]: [2]}
+
+
+def test_a_new_join_whose_pivot_gives_up_a_left_side_stub_matches(slide_context):
+    assert sv._matches(STUB_CREATED_JOIN_RULE["match"], stub_created_join_window(), context=slide_context())
+
+
+def test_a_created_join_rule_declaring_no_stub_drop_is_refused_by_a_pivot_that_gives_one_up(slide_context):
+    assert not sv._matches(CREATED_JOIN_RULE["match"], stub_created_join_window(), context=slide_context())
+
+
+def test_a_created_join_rule_declaring_a_stub_drop_still_matches_a_pivot_that_keeps_its_entry(
+    slide_context,
+):
+    """The declared drop is the room the pivot has, not a move it has to make: the same rule speaks for the window where the old font drew no entry in front of the join and the letter stands exactly where it was."""
+    assert sv._matches(STUB_CREATED_JOIN_RULE["match"], created_join_window(), context=slide_context())
+
+
+def test_a_slide_and_a_stub_dropping_created_join_in_one_window_compose(slide_context):
+    events = sv._composed(COMPOSED_STUB_JOIN_RULES, composed_stub_join_window(), slide_context())
+    assert events == {SLIDE_RULE["id"]: [1], STUB_CREATED_JOIN_RULE["id"]: [2]}
+
+
+def test_a_created_join_rule_dropping_no_stub_at_all_is_refused_at_load(tmp_path):
+    rule = json.loads(json.dumps(STUB_CREATED_JOIN_RULE))
+    rule["match"]["after"]["pivot_stub_drop"] = 0
+    with pytest.raises(SystemExit, match="gives up no left-side entry"):
+        sv.load_rules(_write_rules(tmp_path / "rules.yaml", [rule]))
 
 
 def test_a_created_join_rule_reaching_back_a_negative_count_is_refused_at_load(tmp_path):
@@ -5345,6 +5487,22 @@ def test_a_retarget_chains_behind_a_created_join_on_its_follower(slide_context):
         RETARGET_BEHIND_CREATED_JOIN_RULES, retarget_behind_created_join_window(), slide_context()
     )
     assert events == {RETARGET_BEHIND_CREATED_JOIN_RULE["id"]: [1], RETARGET_RULE["id"]: [2]}
+
+
+def test_a_retarget_chains_behind_a_created_join_whose_follower_reached_back(slide_context):
+    """The join's declared reach is what judges that letter's own-frame origin, so a follower that reached back over its old left edge to take the join still carries its own retarget onward."""
+    events = sv._composed(
+        RETARGET_BEHIND_REACHING_JOIN_RULES, retarget_behind_reaching_join_window(), slide_context()
+    )
+    assert events == {REACHING_JOIN_BEFORE_RETARGET_RULE["id"]: [1], RETARGET_RULE["id"]: [2]}
+
+
+def test_neither_rule_alone_reads_a_retarget_behind_a_reaching_created_join(slide_context):
+    """A retarget whose pivot moved its own-frame origin is no event on its own: without the created join in front of it, nothing has declared that move."""
+    window = retarget_behind_reaching_join_window()
+    for rule in RETARGET_BEHIND_REACHING_JOIN_RULES:
+        assert not sv._matches(rule["match"], window, context=slide_context())
+        assert sv._composed_walk([rule], window, slide_context()) is None
 
 
 def test_neither_rule_alone_reads_a_retarget_behind_a_created_join(slide_context):
@@ -5892,6 +6050,11 @@ COMPOSED_WALK_CORPORA = {
         REACHING_CREATED_JOIN_RULE,
         lambda: [reaching_created_join_window(), composed_reaching_join_window(), created_join_window()],
         ("after", "after-created-join-follower-not-reaching"),
+    ),
+    "join-created-whose-pivot-drops-a-stub": (
+        STUB_CREATED_JOIN_RULE,
+        lambda: [stub_created_join_window(), composed_stub_join_window(), created_join_window()],
+        ("after", "after-created-join-unmoved"),
     ),
     "join-created-behind-a-contraction": (
         CONTRACTED_CREATED_JOIN_RULE,
