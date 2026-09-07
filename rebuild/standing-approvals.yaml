@@ -1166,3 +1166,24 @@ rules:
           - qsGay/hapax/None/None/
         follower_give_back: 1
       except_left: []
+  - id: no-jai-xheight-join-created
+    verdict: approve
+    note: "·No joins ·J’ai at the x-height where the old font left a break, and ·J’ai closes two columns onto it on the tighter crown it draws there — qsJai's x-height entry has carried qsNo on its from-list since the letter landed in “Add ·J’ai”, and qsNo's loop stance exits at the x-height with no toward-list at all, so every follower with an open x-height entry meets it; that stance landed in “Checkpoint the qsDay/qsUtter/qsNo migration batch with its triage residue down to 2,535”. The pixel of crown that comes off as the join is taken is qsJai's own contract record — the by-1 x-height entry after ·No, ·Low, ·At and ·I, which landed with the letter — so ·J’ai settles into an en-con-1 cell and that pixel rides inside the declared columns; jai-crown-contracted is the same pixel where the old font already joined the pair, and it cannot speak at this seam, whose old-font ·J’ai carries no entry at all. ·J’ai holds its own advance across the change, so whatever follows the pair moves with it, and the rule names the word-final crown beside the one that goes on to a baseline exit, since the letter draws the same picture either way. it-xheight-join-created and ah-gay-xheight-join-created are the same shape one follower over, and no-baseline-join-retargeted, no-thaw-baseline-join-dropped and no-gay-baseline-join-dropped are ·No's other outgoing seams on this surface. Where ·Gay raises ·No in front of the join, gay-no-baseline-join-retargeted names ·No's incoming seam and this rule its outgoing one, and the new join that ·Gay itself takes — gay-baseline-join-created, et-gay-baseline-join-created, may-gay-baseline-join-created or gay-baseline-join-created-reaching-back — is a third change in the same window, so those windows are the composed reading's. Every window that reached a sitting approved the join"
+    match:
+      before:
+        pivot: qsNo
+        seam_out: break
+        follower: qsJai
+      after:
+        joined: y5
+        pivot_cells:
+          - qsNo/loop/None/x-height/
+          - qsNo/loop/x-height/x-height/
+        receiver_cells:
+          - qsJai/hapax/x-height/None/en-con-1
+          - qsJai/hapax/x-height/baseline/en-con-1
+          - qsJai/hapax/x-height/baseline/en-con-1+ex-ext-1
+        shift: -2
+        follower_advance: 0
+        follower_reach: 0
+      except_left: []
