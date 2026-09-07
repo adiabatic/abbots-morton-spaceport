@@ -500,13 +500,13 @@ rules:
       except_left: []
   - id: ah-bay-exit-extension-dropped
     verdict: approve
-    note: "·Bay sits a pixel closer to ·Ah — the extra pixel of x-height exit came off qsAh's extend record in “Stop extending ·Ah ~x~ ·{Bay,Fee} by a pixel”"
+    note: "·Bay and ·Fee sit a pixel closer to ·Ah — the extra pixel of x-height exit came off qsAh's extend record for both of them at once in “Stop extending ·Ah ~x~ ·{Bay,Fee} by a pixel”, and every window that reached a sitting approved the shorter reach"
     match:
       before:
         pivot: qsAh
         exit_extension: ex-ext-1
         seam_out: y5
-        follower: qsBay
+        follower: [qsBay, qsFee]
       after:
         pivot_cells:
           - qsAh/hapax/None/x-height/
@@ -515,6 +515,7 @@ rules:
         follower_cells:
           - qsBay/hapax/x-height/None/
           - qsBay/hapax/x-height/baseline/
+          - qsFee/reversed-loop/x-height/None/
       except_left: []
   - id: jai-entry-contracted-exit-extension-dropped
     verdict: approve
