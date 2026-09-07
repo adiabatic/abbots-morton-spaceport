@@ -164,6 +164,24 @@ class TestPackGsub:
         again.save(second)
         assert first.getvalue() == second.getvalue()
 
+    def test_a_rule_over_a_glyphless_class_refuses_to_decompile(self):
+        font = _build_font()
+        pack_gsub.pack_font(font, min_subtables=2)
+        lookup = _settle_lookup(font)
+        subtable = next(
+            wrapper.ExtSubTable
+            for wrapper in lookup.SubTable
+            if wrapper.ExtSubTable.Format == 2 and wrapper.ExtSubTable.LookAheadClassDef.classDefs
+        )
+        class_defs = subtable.LookAheadClassDef.classDefs
+        members: dict[int, list[str]] = {}
+        for glyph, klass in class_defs.items():
+            members.setdefault(klass, []).append(glyph)
+        klass, (glyph,) = next((klass, glyphs) for klass, glyphs in members.items() if len(glyphs) == 1)
+        class_defs[glyph] = max(class_defs.values()) + 1
+        with pytest.raises(pack_gsub.PackError, match=f"lookahead class {klass}"):
+            pack_gsub.per_glyph_sequences(lookup)
+
     def test_below_threshold_untouched(self):
         font = _build_font()
         stats = pack_gsub.pack_font(font, min_subtables=64)

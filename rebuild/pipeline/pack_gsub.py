@@ -55,6 +55,14 @@ def _class_sets(class_defs: dict[str, int]) -> dict[int, frozenset[str]]:
     return {klass: frozenset(glyphs) for klass, glyphs in by_class.items()}
 
 
+def _classed(sets: dict[int, frozenset[str]], klass: int, slot: str) -> frozenset[str]:
+    """The glyphs a packed rule's class number stands for, refused as a `PackError` when the ClassDef classes no glyph under that number — a rule no glyph can ever satisfy, which read-back reports as a divergence rather than a traceback."""
+    members = sets.get(klass)
+    if members is None:
+        raise PackError(f"packed rule references {slot} class {klass}, which classes no glyph")
+    return members
+
+
 def _format2_rules(subtable: Any) -> dict[str, list[LogicalRule]]:
     """The per-input-glyph logical rule sequences a format-2 subtable expresses, which is what read-back decompiles the packed lookup back through: rules of one ChainSubClassSet apply, in order, to every covered glyph of that input class."""
     backtrack_sets = _class_sets(subtable.BacktrackClassDef.classDefs)
@@ -72,9 +80,13 @@ def _format2_rules(subtable: Any) -> dict[str, list[LogicalRule]]:
             if 0 in (rule.Backtrack or []) or 0 in (rule.LookAhead or []):
                 raise PackError("packed rule references class 0")
             logical = LogicalRule(
-                backtrack=tuple(backtrack_sets[klass] for klass in rule.Backtrack or []),
+                backtrack=tuple(
+                    _classed(backtrack_sets, klass, "backtrack") for klass in rule.Backtrack or []
+                ),
                 input=frozenset(input_glyphs),
-                lookahead=tuple(lookahead_sets[klass] for klass in rule.LookAhead or []),
+                lookahead=tuple(
+                    _classed(lookahead_sets, klass, "lookahead") for klass in rule.LookAhead or []
+                ),
                 records=_records_of(rule),
             )
             for glyph in input_glyphs:
