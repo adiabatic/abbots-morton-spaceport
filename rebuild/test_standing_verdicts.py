@@ -347,6 +347,24 @@ EXTENSION_BEHIND_CREATED_JOIN_RULE = {
     },
 }
 
+CREATED_JOIN_BEHIND_CREATED_JOIN_RULE = {
+    "id": "fixture-join-created-behind-a-created-join",
+    "verdict": "approve",
+    "note": "·J joins ·F3 at the baseline where the old font left a break",
+    "match": {
+        "before": {"pivot": "qsJ", "seam_out": "break", "follower": "qsF3"},
+        "after": {
+            "joined": "y0",
+            "pivot_cells": ["qsJ/full/None/None/"],
+            "receiver_cells": ["qsF3/full/None/None/"],
+            "shift": -1,
+            "follower_advance": 0,
+            "follower_reach": 0,
+        },
+        "except_left": [],
+    },
+}
+
 CONTRACTED_REDRAWN_CHAIN_RULE = {
     "id": "fixture-join-created-behind-a-contraction-before-a-redraw",
     "verdict": "approve",
@@ -1894,6 +1912,10 @@ SLIDE_FONTS = {
         AFTER_CMAP,
     ),
     "after-extension-behind-created-join-unmoved": (
+        {**AFTER_GLYPHS, "qsJ.hapax.ex-y0": (TRIMMED_PIVOT, 100)},
+        AFTER_CMAP,
+    ),
+    "after-created-join-behind-created-join-unmoved": (
         {**AFTER_GLYPHS, "qsJ.hapax.ex-y0": (TRIMMED_PIVOT, 100)},
         AFTER_CMAP,
     ),
@@ -4753,6 +4775,12 @@ RETARGET_BEHIND_REACHING_JOIN_RULES = [RETARGET_RULE, REACHING_JOIN_BEFORE_RETAR
 EXTENSION_BEHIND_CREATED_JOIN_GLYPHS = ["qsL", "qsNo.en-ext-1", "qsJ.ex-y0.ex-ext-1", "qsF3"]
 EXTENSION_BEHIND_CREATED_JOIN_CODEPOINTS = spell(LEAD, NO, PIVOT, FOLLOWER_3)
 EXTENSION_BEHIND_CREATED_JOIN_RULES = [COMPOSED_EXT_RULE, EXTENSION_BEHIND_CREATED_JOIN_RULE]
+CREATED_JOIN_BEHIND_CREATED_JOIN_GLYPHS = ["qsL", "qsNo.en-ext-1", "qsJ.ex-y0.ex-ext-1", "qsF3"]
+CREATED_JOIN_BEHIND_CREATED_JOIN_CODEPOINTS = spell(LEAD, NO, PIVOT, FOLLOWER_3)
+CREATED_JOIN_BEHIND_CREATED_JOIN_RULES = [
+    EXTENSION_BEHIND_CREATED_JOIN_RULE,
+    CREATED_JOIN_BEHIND_CREATED_JOIN_RULE,
+]
 CONTRACTED_REDRAWN_CHAIN_GLYPHS = [
     "qsBay.contract-lead",
     "qsMay.en-y0.ex-y5.contract-fixture",
@@ -5140,6 +5168,25 @@ def extension_behind_created_join_window(uid="ebcj-1"):
         ],
         ["y0", "y0", "y0"],
         codepoints=EXTENSION_BEHIND_CREATED_JOIN_CODEPOINTS,
+        configs=("default",),
+        ink_deltas={"default": SLIDE_DELTA},
+        pair={"left": 1, "right": 2},
+    )
+
+
+def created_join_behind_created_join_window(uid="cjbcj-1"):
+    return unit(
+        uid,
+        list(CREATED_JOIN_BEHIND_CREATED_JOIN_GLYPHS),
+        ["y0", "break", "break"],
+        [
+            "qsL/full/None/None/",
+            "qsNo/flipped/baseline/baseline/",
+            "qsJ/full/None/None/",
+            "qsF3/full/None/None/",
+        ],
+        ["y0", "y0", "y0"],
+        codepoints=CREATED_JOIN_BEHIND_CREATED_JOIN_CODEPOINTS,
         configs=("default",),
         ink_deltas={"default": SLIDE_DELTA},
         pair={"left": 1, "right": 2},
@@ -5819,6 +5866,35 @@ def test_an_extension_chained_behind_a_created_join_still_needs_both_shifts(slid
         EXTENSION_BEHIND_CREATED_JOIN_RULES,
         extension_behind_created_join_window(),
         slide_context("after-extension-behind-created-join-unmoved"),
+    )
+    assert events is None
+
+
+def test_a_created_join_chains_behind_a_created_join_on_its_follower(slide_context):
+    """The earlier join judges that letter's incoming seam and the later its outgoing one, so the letter stands where the earlier join put it and the later carries everything past its own follower by both shifts."""
+    events = sv._composed(
+        CREATED_JOIN_BEHIND_CREATED_JOIN_RULES,
+        created_join_behind_created_join_window(),
+        slide_context(),
+    )
+    assert events == {
+        EXTENSION_BEHIND_CREATED_JOIN_RULE["id"]: [1],
+        CREATED_JOIN_BEHIND_CREATED_JOIN_RULE["id"]: [2],
+    }
+
+
+def test_neither_rule_alone_reads_a_created_join_behind_a_created_join(slide_context):
+    window = created_join_behind_created_join_window()
+    for rule in CREATED_JOIN_BEHIND_CREATED_JOIN_RULES:
+        assert not sv._matches(rule["match"], window, context=slide_context())
+        assert sv._composed_walk([rule], window, slide_context()) is None
+
+
+def test_a_created_join_chained_behind_a_created_join_still_needs_both_shifts(slide_context):
+    events = sv._composed(
+        CREATED_JOIN_BEHIND_CREATED_JOIN_RULES,
+        created_join_behind_created_join_window(),
+        slide_context("after-created-join-behind-created-join-unmoved"),
     )
     assert events is None
 
