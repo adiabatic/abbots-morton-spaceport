@@ -1,4 +1,4 @@
-"""Tests for the standing-approval fill: the delta shapes — the two structural pattern matches, being the ligature shape (pivot glyph, seams into and out of it, follower family, post-ligature seam, flank-seam identity) and the extension-dropped shape (pivot glyph giving up a named stretch of exit — an `ex-ext-N` it carried, in whole or down to a shorter one its named after cell keeps, or an `ex-con-N` its named after cell carries when the before glyph never had an exit extension — the seam it exits into holding its height, the full after-cell identity of pivot and follower, every other seam standing still, nothing ligating anywhere, and the unit's own judgment fields agreeing that this seam is the question), the ink-exact ink-delta shape (the unit's persisted per-config digests being a nonempty subset of the ones the rule blesses, so an ink-identical window matches nothing and one unlisted delta under one config fails the whole unit closed, and a surface predating the field refuses the run outright), and the rendered-pixel slide shape, whose preconditions are read off the index record before anything is shaped (a nonempty `ink_deltas` holding one distinct digest whose keys are exactly the unit's config set, and a pivot-prefix name among the recorded before glyphs) and whose geometry is then re-derived in a purpose-built font pair, where the pivot keeps its exact ink with its own-frame origin displaced by the declared column count and every span's union of ink slides cumulatively — so a union-invisible name-grain re-spelling to the pivot's right rides along, while one stray pixel anywhere in the window, or a font pair that never settles into the named pivot, fails the match closed — the rendered-pixel ink-gain shape, whose preconditions match the slide shape's and whose geometry is the named pivot keeping its placement, height, and own-frame origin while gaining exactly the named cells, every following span moving by the declared count — the rendered-pixel join-dropped shape, whose preconditions are a named pivot–follower seam dropping from a yK height to a break plus the slide shape's digest-agreement, and whose geometry is both letters keeping their exact picture and own-frame origin with the follower sitting the declared gap further and everything after it sitting the same extra gap away — the rendered-pixel entry-extension-dropped shape, whose preconditions match the slide shape's and whose geometry is the named pivot keeping its placement, height, and own-frame origin while its after picture is the old one compacted left by the declared column count, everything after the pivot sliding closer by that count — the rendered-pixel stub-dropped shape, whose preconditions match the slide shape's and whose geometry is walked position by position because a pivot is a position rather than a name: each position that settles into a named after form is judged as the old picture compacted left by the declared column count with its placement moving right by that count and its origin standing still, every span between pivots rendering identically with no displacement — so a second same-family letter keeping its old form rides as span ink, and one stray pixel anywhere fails the match closed — the rendered-pixel redrawn shape, whose preconditions match the slide shape's and whose geometry is walked position by position because a pivot is a position rather than a name: each position that settles into a named after form is judged as the named cell trade at one common column offset (an entry-extended frame names the same trade one column over), its placement carrying the displacement accumulated so far — or up to the entry contraction its new form names closer than that, which the rest of the window then carries too — every span between pivots rendering identically under it, and the displacement growing by the declared shift and whatever the pivot took at each pivot — so a second same-family letter keeping its old form rides as span ink, a trade that only gives ink up names an empty added set (an exit contraction, which the name-grain extension-dropped shape would speak for too but blindly), and one stray pixel anywhere fails the match closed — the composed reading that runs before all of them and credits two or more rules for one window — its name-grain pre-gate refusing to shape a window fewer than two rules have a candidate in, its walk carrying a running column displacement across the window so that each span between events must render identically once displaced, its chaining of a join-dropped or extension event whose follower is itself the next event, its skipping of an extension's named follower so a named redraw does not block composition, its refusal of a pivot contracting off the seam row, of a tail wider than the pivot gave up, and of two rules claiming one position, its judging of a failed candidate as ordinary span ink, its per-shape guard scopes, and its own reporting line, which `main` keeps clear of the per-rule lines — the except_left guard, which reads a ligature's trailing left component and refuses the whole unit rather than the one position, blankness against the verdicts file (parked skip verdicts are not blank), the non-winning manifest stamp on every emitted record, and rules-file validation, which admits exactly one shape per rule and checks that shape's own coherence."""
+"""Tests for the standing-approval fill: the delta shapes — the two structural pattern matches, being the ligature shape (pivot glyph, seams into and out of it, follower family, post-ligature seam, flank-seam identity) and the extension-dropped shape (pivot glyph giving up a named stretch of exit — an `ex-ext-N` it carried, in whole or down to a shorter one its named after cell keeps, or an `ex-con-N` its named after cell carries when the before glyph never had an exit extension — the seam it exits into holding its height, the full after-cell identity of pivot and follower, every other seam standing still, nothing ligating anywhere, and the unit's own judgment fields agreeing that this seam is the question), the ink-exact ink-delta shape (the unit's persisted per-config digests being a nonempty subset of the ones the rule blesses, so an ink-identical window matches nothing and one unlisted delta under one config fails the whole unit closed, and a surface predating the field refuses the run outright), and the rendered-pixel slide shape, whose preconditions are read off the index record before anything is shaped (a nonempty `ink_deltas` holding one distinct digest whose keys are exactly the unit's config set, and a pivot-prefix name among the recorded before glyphs) and whose geometry is then re-derived in a purpose-built font pair, where the pivot keeps its exact ink with its own-frame origin displaced by the declared column count and every span's union of ink slides cumulatively — so a union-invisible name-grain re-spelling to the pivot's right rides along, while one stray pixel anywhere in the window, or a font pair that never settles into the named pivot, fails the match closed — the rendered-pixel ink-gain shape, whose preconditions match the slide shape's and whose geometry is the named pivot keeping its placement, height, and own-frame origin while gaining exactly the named cells, every following span moving by the declared count — the rendered-pixel join-dropped shape, whose preconditions are a named pivot–follower seam dropping from a yK height to a break plus the slide shape's digest-agreement, and whose geometry is both letters keeping their exact picture and own-frame origin with the follower sitting the declared gap further and everything after it sitting the same extra gap away — the rendered-pixel entry-extension-dropped shape, whose preconditions match the slide shape's and whose geometry is the named pivot keeping its placement, height, and own-frame origin while its after picture is the old one compacted left by the declared column count, everything after the pivot sliding closer by that count — the rendered-pixel stub-dropped shape, whose preconditions match the slide shape's and whose geometry is walked position by position because a pivot is a position rather than a name: each position that settles into a named after form is judged as the old picture compacted left by the declared column count with its placement moving right by that count and its origin standing still, every span between pivots rendering identically with no displacement — so a second same-family letter keeping its old form rides as span ink, and one stray pixel anywhere fails the match closed — the rendered-pixel redrawn shape, whose preconditions match the slide shape's and whose geometry is walked position by position because a pivot is a position rather than a name: each position that settles into a named after form is judged as the named cell trade at one common column offset (an entry-extended frame names the same trade one column over), its placement carrying the displacement accumulated so far — or up to the entry contraction its new form names closer than that, which the rest of the window then carries too — every span between pivots rendering identically under it, and the displacement growing by the declared shift and whatever the pivot took at each pivot — so a second same-family letter keeping its old form rides as span ink, a trade that only gives ink up names an empty added set (an exit contraction, which the name-grain extension-dropped shape would speak for too but blindly), and one stray pixel anywhere fails the match closed — the composed reading that runs before all of them and credits two or more events in one window, whether they come from two rules or from one rule speaking twice — its name-grain pre-gate refusing to shape a window holding fewer than two candidate positions, its walk carrying a running column displacement across the window so that each span between events must render identically once displaced, its chaining of a join-dropped or extension event whose follower is itself the next event, its skipping of an extension's named follower so a named redraw does not block composition, its refusal of a pivot contracting off the seam row, of a tail wider than the pivot gave up, and of two rules claiming one position, its judging of a failed candidate as ordinary span ink, its per-shape guard scopes, and its own reporting line, which `main` keeps clear of the per-rule lines — the except_left guard, which reads a ligature's trailing left component and refuses the whole unit rather than the one position, blankness against the verdicts file (parked skip verdicts are not blank), the non-winning manifest stamp on every emitted record, and rules-file validation, which admits exactly one shape per rule and checks that shape's own coherence."""
 
 import json
 import pathlib
@@ -2938,7 +2938,7 @@ class _RefusingComparator:
     intern = None
 
     def named_run(self, *args, **kwargs):
-        raise AssertionError("the pre-gate let a window only one rule speaks for reach the fonts")
+        raise AssertionError("the pre-gate let a window holding one candidate position reach the fonts")
 
 
 class _RefusingContext:
@@ -2950,9 +2950,24 @@ class _RefusingContext:
         self.composed = {}
 
 
+def twice_slid_window(uid="c-twice"):
+    """One rule's own change at two positions in one window: two grounded ·See letters, each pulling everything after it a column closer."""
+    return slide_unit(
+        uid,
+        ["qsL", "qsSee.ex-y0", "qsF1", "qsSee.ex-y0", "qsF1"],
+        spell(LEAD, SEE, FOLLOWER_1, SEE, FOLLOWER_1),
+    )
+
+
 def test_a_slide_and_an_extension_in_one_window_compose(slide_context):
     events = sv._composed(COMPOSABLE_RULES, composed_window(), slide_context())
     assert events == {SLIDE_RULE["id"]: [1], COMPOSED_EXT_RULE["id"]: [3]}
+
+
+def test_one_rule_at_two_positions_composes(slide_context):
+    """Two applications of one blessed change explain a window between them exactly as two rules do — the reading a window carrying the same dropped tail twice needs, since no single rule can be asked twice on its own line."""
+    events = sv._composed(COMPOSABLE_RULES, twice_slid_window(), slide_context())
+    assert events == {SLIDE_RULE["id"]: [1, 3]}
 
 
 def test_main_writes_one_composed_record_and_leaves_the_per_rule_lines(
@@ -2983,6 +2998,26 @@ def test_main_writes_one_composed_record_and_leaves_the_per_rule_lines(
         f"  {SLIDE_RULE['id']} + {COMPOSED_EXT_RULE['id']}: 1 filled, 0 already verdicted, "
         "0 held for review by except_left"
     ) in lines
+
+
+def test_main_writes_a_twice_slid_window_on_a_composed_line(tmp_path, monkeypatch, capsys, slide_fonts):
+    """A composed line crediting one rule twice over carries that rule's own id, so it reads as the same line its single-position windows land on and only the block it sits in tells them apart."""
+    payload = _run_main(
+        tmp_path,
+        monkeypatch,
+        [twice_slid_window("c-1")],
+        [],
+        rules_list=(SLIDE_RULE, COMPOSED_EXT_RULE),
+        fonts=slide_fonts,
+    )
+    assert [record["unit"] for record in payload["verdicts"]] == ["c-1"]
+    assert payload["verdicts"][0]["note"] == f"[standing: {SLIDE_RULE['id']}] {SLIDE_RULE['note']}"
+    lines = capsys.readouterr().out.splitlines()
+    assert (
+        lines.count(f"  {SLIDE_RULE['id']}: 1 filled, 0 already verdicted, 0 held for review by except_left")
+        == 1
+    )
+    assert f"    {SLIDE_RULE['id']}: 0 on its own line, 1 credited across 1 composed line, 1 in all" in lines
 
 
 def test_open_only_names_the_composed_pair_without_the_column(tmp_path, monkeypatch, capsys, slide_fonts):
@@ -3357,7 +3392,7 @@ def test_a_tail_wider_than_the_named_extension_is_refused(slide_context):
     assert sv._composed(COMPOSABLE_RULES, wide, slide_context()) is None
 
 
-def test_a_window_only_one_rule_has_a_candidate_in_is_never_shaped():
+def test_a_window_holding_one_candidate_position_is_never_shaped():
     assert sv._composed(COMPOSABLE_RULES, founding_window(), _RefusingContext()) is None
     assert sv._composed(COMPOSABLE_RULES, extension_only_window(), _RefusingContext()) is None
 
