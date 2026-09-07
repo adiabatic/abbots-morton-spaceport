@@ -748,3 +748,15 @@ rules:
           - qsNo/flipped/baseline/baseline/
         shift: 0
       except_left: []
+  - id: utter-gay-exit-extension-dropped
+    verdict: approve
+    note: "·Gay sits a pixel closer to ·Utter — the extra pixel of x-height exit came off qsUtter's extend record in “Stop extending ·Utter ~x~ ·Gay by a pixel”, and every window that reached a sitting approved the shorter reach"
+    match:
+      before:
+        pivots: [qsUtter.ex-ext-1]
+      after:
+        pivots: [qsUtter.mono.ex-y5]
+        dropped: [[5, 5]]
+        added: []
+        shift: -1
+      except_left: []
