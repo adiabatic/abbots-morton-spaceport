@@ -593,3 +593,21 @@ rules:
           - qsIt/hapax/baseline/x-height/
         shift: -1
       except_left: []
+  - id: it-no-xheight-join-retargeted
+    verdict: approve
+    note: "·It drops to the baseline to join the flipped ·No — the old font reached up to the x-height; qsNo prefers its flipped stance whenever ·It joins on the baseline, the condition “Keep the ·It·No x-height join in ·Day·It·No·Tea” carved that preference back to, and every window that reached a sitting approved the lowered join; tea-no-xheight-join-retargeted and pea-no-xheight-join-retargeted record the same seam decision one pivot over, into the same flipped ·No cells, and ·It holds its own advance across the change where ·Tea and ·Pea each gave a column up"
+    match:
+      before:
+        pivot: qsIt
+        seam_out: y5
+        follower: qsNo
+      after:
+        retarget: y0
+        pivot_cells:
+          - qsIt/hapax/None/baseline/
+          - qsIt/hapax/baseline/baseline/
+        receiver_cells:
+          - qsNo/flipped/baseline/None/
+          - qsNo/flipped/baseline/baseline/
+        shift: 0
+      except_left: []
