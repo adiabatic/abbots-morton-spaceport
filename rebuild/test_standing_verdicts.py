@@ -255,6 +255,22 @@ RETARGETED_CREATED_JOIN_RULE = {
     },
 }
 
+RETARGET_BEHIND_CREATED_JOIN_RULE = {
+    "id": "fixture-join-created-before-a-retarget",
+    "verdict": "approve",
+    "note": "·J joins ·Tea at the baseline where the old font left a break",
+    "match": {
+        "before": {"pivot": "qsJ", "seam_out": "break", "follower": "qsTea"},
+        "after": {
+            "joined": "y0",
+            "pivot_cells": ["qsJ/hapax/None/baseline/ex-ext-1"],
+            "receiver_cells": ["qsTea/full/None/baseline/"],
+            "shift": -2,
+        },
+        "except_left": [],
+    },
+}
+
 CONTRACTED_CREATED_JOIN_RULE = {
     "id": "fixture-join-created-behind-a-contraction",
     "verdict": "approve",
@@ -1569,6 +1585,10 @@ SLIDE_FONTS = {
     ),
     "after-chained-created-join-unmoved": (
         {**AFTER_GLYPHS, "qsNo.chain-fixture": (TRIMMED_PIVOT, 150)},
+        AFTER_CMAP,
+    ),
+    "after-retarget-behind-created-join-unmoved": (
+        {**AFTER_GLYPHS, "qsNo": (TRIMMED_PIVOT, 100)},
         AFTER_CMAP,
     ),
     "after-stub-companion-pixel": (
@@ -4264,6 +4284,15 @@ JOIN_RETARGET_RULES = [JOIN_RULE, RETARGET_RULE]
 RETARGETED_CREATED_JOIN_GLYPHS = ["qsL", "qsTea.half.ex-y5", "qsNo.en-ext-1.chain-fixture", "qsF3"]
 RETARGETED_CREATED_JOIN_CODEPOINTS = spell(LEAD, TEA, NO_CHAINED, FOLLOWER_3)
 RETARGETED_CREATED_JOIN_RULES = [RETARGET_RULE, RETARGETED_CREATED_JOIN_RULE]
+RETARGET_BEHIND_CREATED_JOIN_GLYPHS = [
+    "qsL",
+    "qsJ.ex-y0.ex-ext-3.long",
+    "qsTea.half.ex-y5",
+    "qsNo.en-ext-1",
+    "qsF1",
+]
+RETARGET_BEHIND_CREATED_JOIN_CODEPOINTS = spell(LEAD, PIVOT_SHORTENED, TEA, NO, FOLLOWER_1)
+RETARGET_BEHIND_CREATED_JOIN_RULES = [RETARGET_RULE, RETARGET_BEHIND_CREATED_JOIN_RULE]
 
 
 def retarget_window(uid="r-1"):
@@ -4392,6 +4421,26 @@ def retargeted_created_join_window(uid="rcj-1"):
         ],
         ["y0", "y0", "y0"],
         codepoints=RETARGETED_CREATED_JOIN_CODEPOINTS,
+        configs=("default",),
+        ink_deltas={"default": SLIDE_DELTA},
+        pair={"left": 1, "right": 2},
+    )
+
+
+def retarget_behind_created_join_window(uid="rbcj-1"):
+    return unit(
+        uid,
+        list(RETARGET_BEHIND_CREATED_JOIN_GLYPHS),
+        ["y0", "break", "y5", "y0"],
+        [
+            "qsL/full/None/None/",
+            "qsJ/hapax/None/baseline/ex-ext-1",
+            "qsTea/full/None/baseline/",
+            "qsNo/flipped/baseline/None/",
+            "qsF1/full/None/None/",
+        ],
+        ["y0", "y0", "y0", "y0"],
+        codepoints=RETARGET_BEHIND_CREATED_JOIN_CODEPOINTS,
         configs=("default",),
         ink_deltas={"default": SLIDE_DELTA},
         pair={"left": 1, "right": 2},
@@ -4722,6 +4771,29 @@ def test_a_created_join_chained_behind_a_retarget_still_needs_both_shifts(slide_
         RETARGETED_CREATED_JOIN_RULES,
         retargeted_created_join_window(),
         slide_context("after-chained-created-join-unmoved"),
+    )
+    assert events is None
+
+
+def test_a_retarget_chains_behind_a_created_join_on_its_follower(slide_context):
+    events = sv._composed(
+        RETARGET_BEHIND_CREATED_JOIN_RULES, retarget_behind_created_join_window(), slide_context()
+    )
+    assert events == {RETARGET_BEHIND_CREATED_JOIN_RULE["id"]: [1], RETARGET_RULE["id"]: [2]}
+
+
+def test_neither_rule_alone_reads_a_retarget_behind_a_created_join(slide_context):
+    window = retarget_behind_created_join_window()
+    for rule in RETARGET_BEHIND_CREATED_JOIN_RULES:
+        assert not sv._matches(rule["match"], window, context=slide_context())
+        assert sv._composed_walk([rule], window, slide_context()) is None
+
+
+def test_a_retarget_chained_behind_a_created_join_still_needs_both_shifts(slide_context):
+    events = sv._composed(
+        RETARGET_BEHIND_CREATED_JOIN_RULES,
+        retarget_behind_created_join_window(),
+        slide_context("after-retarget-behind-created-join-unmoved"),
     )
     assert events is None
 
