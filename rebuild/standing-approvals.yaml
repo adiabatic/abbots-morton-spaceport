@@ -292,13 +292,13 @@ rules:
       except_left: []
   - id: it-ah-exit-extension-dropped
     verdict: approve
-    note: "·At and ·Ah sit a pixel closer to ·It — the extra pixel of exit the old font drew came off once ·It lost the live x-height entry qsIt's baseline-exit extend requires, and every window that reached a sitting approved the shorter reach"
+    note: "·At, ·I and ·Ah sit a pixel closer to ·It — the extra pixel of exit the old font drew came off once ·It lost the live x-height entry qsIt's baseline-exit extend requires (·I sits on that record's own except list besides), and every window that reached a sitting approved the shorter reach; the ·I that meets the shorter reach is the tighter bowl of “Use the smaller-loop ·I after both ·Tea and ·It” that i-smaller-loop records, and tea-i-exit-extension-dropped already blesses the same pair and the same after cells behind ·Tea"
     match:
       before:
         pivot: qsIt
         exit_extension: ex-ext-1
         seam_out: y0
-        follower: [qsAt, qsAh]
+        follower: [qsAt, qsI, qsAh]
       after:
         pivot_cells:
           - qsIt/hapax/None/baseline/
@@ -306,6 +306,9 @@ rules:
         follower_cells:
           - qsAt/rising/baseline/None/
           - qsAt/rising/baseline/x-height/
+          - qsI/smaller-loop/baseline/None/
+          - qsI/smaller-loop/baseline/x-height/
+          - qsI/smaller-loop/baseline/x-height/ex-ext-1
           - qsAh/hapax/baseline/None/
           - qsAh/hapax/baseline/x-height/
           - qsAh/hapax/baseline/x-height/ex-ext-1
