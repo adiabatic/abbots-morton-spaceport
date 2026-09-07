@@ -972,3 +972,15 @@ rules:
         follower_advance: 1
         follower_reach: 1
       except_left: []
+  - id: jai-crown-contracted
+    verdict: approve
+    note: "·J’ai’s crown pulls in a pixel after ·Pea, ·Tea, ·No, ·Low, ·At and ·I while the baseline reach the letter carries stays exactly as it was — the tighter crown is qsJai’s contract record, which landed with the letter in “Add ·J’ai”, was widened to ·At in “Add ·At”, and was split out for ·Pea and ·Tea in “Don’t have so much space between ·{Pea,Tea}.half·J’ai”. jai-entry-contracted-exit-extension-dropped and jai-entry-contracted-by-two-exit-extension-dropped are the same crown coming in beside a tail that comes off in the same stroke, one column of crown deep and two; this is the window where nothing else on the letter moves. ·I’s smaller loop in front of it is i-smaller-loop and ·Ah’s contracted entry behind it is ah-entry-contracted-after-jai, so a window carrying those is the composed reading’s. Every window that reached a sitting approved the tighter crown"
+    match:
+      before:
+        pivots: [qsJai.en-y5.ex-y0]
+      after:
+        pivots: [qsJai.hapax.en-y5.ex-y0.en-con-1]
+        dropped: [[1, 8]]
+        added: []
+        shift: 0
+      except_left: []
