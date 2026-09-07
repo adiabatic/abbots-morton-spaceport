@@ -455,10 +455,10 @@ rules:
       except_left: []
   - id: gay-entry-contracted
     verdict: approve
-    note: "·Gay's baseline entry pulls in one pixel after ·Bay, ·Key, ·No and ·Et — the four pair rulings are recorded by qsGay's contract under their matching “Contract … by a pixel” commits"
+    note: "·Gay's baseline entry pulls in one pixel after ·Bay, ·Day, ·Key, ·No, ·Et and ·Awe — every one of those pair rulings sits on qsGay's contract record, each landed under its own “Contract … by a pixel” commit, ·Day and ·Awe in “Contract ·{Day,Awe} ~b~ ·Gay by a pixel”"
     match:
       before:
-        left: [qsBay, qsKey, qsNo, qsEt]
+        left: [qsBay, qsDay, qsKey, qsNo, qsEt, qsAwe]
         pivots: [qsGay.en-y0.ex-y5]
       after:
         pivots:
