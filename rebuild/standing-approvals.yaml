@@ -644,3 +644,34 @@ rules:
           - qsNo/loop/x-height/x-height/ex-ext-1
         shift: -1
       except_left: []
+  - id: gay-baseline-join-created
+    verdict: approve
+    note: "·Bay, ·Day, ·Key, ·No and ·Awe all join ·Gay at the baseline where the old font left a break, and ·Gay closes two columns onto each of them — qsGay's baseline entry has carried all five on its from-list since the letter landed in “Add ·Gay”, and its reachable-at-the-baseline bitmap is the stroke that meets them. One of those two columns is ·Gay's own entry pulling in, which sits on the same rune's contract record for the same five letters and is recorded as gay-entry-contracted wherever the old font already joined; ah-gay-xheight-join-created is the same new join into ·Gay one height up, and every window that reached a sitting approved it"
+    match:
+      before:
+        pivot: [qsBay, qsDay, qsKey, qsNo, qsAwe]
+        seam_out: break
+        follower: qsGay
+      after:
+        joined: y0
+        pivot_cells:
+          - qsBay/hapax/None/baseline/
+          - qsBay/hapax/x-height/baseline/
+          - qsDay/full/None/baseline/
+          - qsDay/full/x-height/baseline/
+          - qsDay/half/baseline/baseline/
+          - qsDay/half/baseline/baseline/en-ext-1
+          - qsKey/hapax/None/baseline/
+          - qsKey/hapax/top/baseline/
+          - qsNo/flipped/None/baseline/
+          - qsNo/flipped/baseline/baseline/
+          - qsAwe/hapax/None/baseline/
+          - qsAwe/hapax/x-height/baseline/
+          - qsAwe/hapax/x-height/baseline/en-ext-1
+        receiver_cells:
+          - qsGay/hapax/baseline/None/en-con-1
+          - qsGay/hapax/baseline/x-height/en-con-1
+          - qsGay/hapax/baseline/x-height/en-con-1+ex-ext-1
+          - qsGay/hapax/baseline/x-height/en-con-1+ex-ext-3
+        shift: -2
+      except_left: []
