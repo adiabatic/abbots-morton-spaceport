@@ -234,6 +234,7 @@ CREATED_JOIN_RULE = {
             "pivot_cells": ["qsJ/hapax/None/baseline/ex-ext-1"],
             "receiver_cells": ["qsF3/full/None/None/"],
             "shift": -2,
+            "follower_advance": 0,
         },
         "except_left": [],
     },
@@ -250,6 +251,7 @@ RETARGETED_CREATED_JOIN_RULE = {
             "pivot_cells": ["qsNo/flipped/baseline/baseline/"],
             "receiver_cells": ["qsF3/full/None/None/"],
             "shift": -2,
+            "follower_advance": 0,
         },
         "except_left": [],
     },
@@ -266,6 +268,7 @@ RETARGET_BEHIND_CREATED_JOIN_RULE = {
             "pivot_cells": ["qsJ/hapax/None/baseline/ex-ext-1"],
             "receiver_cells": ["qsTea/full/None/baseline/"],
             "shift": -2,
+            "follower_advance": 0,
         },
         "except_left": [],
     },
@@ -282,6 +285,41 @@ EXTENSION_BEHIND_CREATED_JOIN_RULE = {
             "pivot_cells": ["qsNo/flipped/baseline/baseline/"],
             "receiver_cells": ["qsJ/full/None/None/"],
             "shift": -1,
+            "follower_advance": 0,
+        },
+        "except_left": [],
+    },
+}
+
+WIDENED_CREATED_JOIN_RULE = {
+    "id": "fixture-join-created-with-a-widened-follower",
+    "verdict": "approve",
+    "note": "·J joins ·F3 where the old font left a break, and ·F3 redraws a column wider",
+    "match": {
+        "before": {"pivot": "qsJ", "seam_out": "break", "follower": "qsF3"},
+        "after": {
+            "joined": "y0",
+            "pivot_cells": ["qsJ/hapax/None/baseline/ex-ext-1"],
+            "receiver_cells": ["qsF3/full/None/None/"],
+            "shift": -2,
+            "follower_advance": 1,
+        },
+        "except_left": [],
+    },
+}
+
+RETARGET_BEHIND_WIDENED_JOIN_RULE = {
+    "id": "fixture-join-created-widened-before-a-retarget",
+    "verdict": "approve",
+    "note": "·J joins ·Tea at the baseline where the old font left a break, and ·Tea redraws a column wider",
+    "match": {
+        "before": {"pivot": "qsJ", "seam_out": "break", "follower": "qsTea"},
+        "after": {
+            "joined": "y0",
+            "pivot_cells": ["qsJ/hapax/None/baseline/ex-ext-1"],
+            "receiver_cells": ["qsTea/full/None/baseline/"],
+            "shift": -2,
+            "follower_advance": 1,
         },
         "except_left": [],
     },
@@ -298,6 +336,7 @@ CONTRACTED_CREATED_JOIN_RULE = {
             "pivot_cells": ["qsMay/loop/baseline/x-height/en-con-1"],
             "receiver_cells": ["qsF3/full/x-height/None/"],
             "shift": -2,
+            "follower_advance": 0,
         },
         "except_left": [],
     },
@@ -1410,6 +1449,7 @@ register_glyph("before", "qsSee.ex-y0.blank", (), 50)
 register_glyph("before", "qsF1", TWO_COLUMNS, 50)
 register_glyph("before", "qsF2", TWO_COLUMNS, 100)
 register_glyph("before", "qsF3", TWO_COLUMNS, 100)
+register_glyph("before", "qsF3.narrow", TWO_COLUMNS, 100)
 register_glyph("before", "qsM", TWO_COLUMNS, 100)
 register_glyph("before", "qsJ.ex-y0.ex-ext-1", EXTENDED_PIVOT, 100)
 register_glyph("before", "qsJ.ex-y0.ex-ext-1.wide", WIDE_TAIL_PIVOT, 150)
@@ -1453,6 +1493,7 @@ register_glyph("after", "qsSee.wandered", TWO_COLUMNS, 250)
 register_glyph("after", "qsF1", TWO_COLUMNS, 50)
 register_glyph("after", "qsF2", TUCKED_FOLLOWER, 100)
 register_glyph("after", "qsF3", TWO_COLUMNS, 100)
+register_glyph("after", "qsF3.wider", TWO_COLUMNS, 150)
 register_glyph("after", "qsM", TWO_COLUMNS, 100)
 register_glyph("after", "qsJ.hapax.ex-y0", TRIMMED_PIVOT, 50)
 register_glyph("after", "qsJ.hapax.ex-y0.ex-ext-1", EXTENDED_PIVOT, 100)
@@ -1493,6 +1534,7 @@ SEE = register_pair("qsSee.ex-y0", "qsSee.straighter")
 FOLLOWER_1 = register_pair("qsF1", "qsF1")
 FOLLOWER_2 = register_pair("qsF2", "qsF2")
 FOLLOWER_3 = register_pair("qsF3", "qsF3")
+FOLLOWER_3_WIDENED = register_pair("qsF3.narrow", "qsF3.wider")
 MIDDLE = register_pair("qsM", "qsM")
 MARKER = register_pair("space", "space")
 SEE_UNSETTLED = register_pair("qsSee.ex-y0", "qsOther")
@@ -1600,6 +1642,14 @@ SLIDE_FONTS = {
     ),
     "after-created-join-unmoved": (
         {**AFTER_GLYPHS, "qsJ.hapax.ex-y0.ex-ext-1": (EXTENDED_PIVOT, 200)},
+        AFTER_CMAP,
+    ),
+    "after-created-join-follower-not-widened": (
+        {**AFTER_GLYPHS, "qsF3.wider": (TWO_COLUMNS, 100)},
+        AFTER_CMAP,
+    ),
+    "after-created-join-widened-follower": (
+        {**AFTER_GLYPHS, "qsTea": (TWO_COLUMNS, 150)},
         AFTER_CMAP,
     ),
     "after-chained-created-join-unmoved": (
@@ -4297,6 +4347,18 @@ CREATED_JOIN_CODEPOINTS = spell(LEAD, PIVOT_SHORTENED, FOLLOWER_3)
 COMPOSED_CREATED_JOIN_GLYPHS = ["qsL", "qsSee.ex-y0", "qsJ.ex-y0.ex-ext-3.long", "qsF3"]
 COMPOSED_CREATED_JOIN_CODEPOINTS = spell(LEAD, SEE, PIVOT_SHORTENED, FOLLOWER_3)
 COMPOSED_CREATED_JOIN_RULES = [SLIDE_RULE, CREATED_JOIN_RULE]
+WIDENED_CREATED_JOIN_GLYPHS = ["qsL", "qsJ.ex-y0.ex-ext-3.long", "qsF3.narrow", "qsF1"]
+WIDENED_CREATED_JOIN_CODEPOINTS = spell(LEAD, PIVOT_SHORTENED, FOLLOWER_3_WIDENED, FOLLOWER_1)
+COMPOSED_WIDENED_JOIN_GLYPHS = [
+    "qsL",
+    "qsSee.ex-y0",
+    "qsJ.ex-y0.ex-ext-3.long",
+    "qsF3.narrow",
+    "qsF1",
+]
+COMPOSED_WIDENED_JOIN_CODEPOINTS = spell(LEAD, SEE, PIVOT_SHORTENED, FOLLOWER_3_WIDENED, FOLLOWER_1)
+COMPOSED_WIDENED_JOIN_RULES = [SLIDE_RULE, WIDENED_CREATED_JOIN_RULE]
+RETARGET_BEHIND_WIDENED_JOIN_RULES = [RETARGET_RULE, RETARGET_BEHIND_WIDENED_JOIN_RULE]
 CONTRACTED_CREATED_JOIN_GLYPHS = ["qsBay.contract-lead", "qsMay.en-y0.ex-y5.contract-fixture", "qsF3"]
 CONTRACTED_CREATED_JOIN_CODEPOINTS = spell(CONTRACTION_LEAD, CONTRACTED_JOINING_MAY, FOLLOWER_3)
 CONTRACTED_UNMOVED_JOIN_CODEPOINTS = spell(CONTRACTION_LEAD, CONTRACTED_MAY, FOLLOWER_3)
@@ -4406,6 +4468,45 @@ def composed_created_join_window(uid="ccj-1"):
         configs=("default",),
         ink_deltas={"default": SLIDE_DELTA},
         pair={"left": 2, "right": 3},
+    )
+
+
+def widened_created_join_window(uid="wcj-1"):
+    return unit(
+        uid,
+        list(WIDENED_CREATED_JOIN_GLYPHS),
+        ["y0", "break", "y0"],
+        [
+            "qsL/full/None/None/",
+            "qsJ/hapax/None/baseline/ex-ext-1",
+            "qsF3/full/None/None/",
+            "qsF1/full/None/None/",
+        ],
+        ["y0", "y0", "y0"],
+        codepoints=WIDENED_CREATED_JOIN_CODEPOINTS,
+        configs=("default",),
+        ink_deltas={"default": SLIDE_DELTA},
+        pair={"left": 1, "right": 2},
+    )
+
+
+def composed_widened_join_window(uid="cwj-1"):
+    return unit(
+        uid,
+        list(COMPOSED_WIDENED_JOIN_GLYPHS),
+        ["y0", "y0", "break", "y0"],
+        [
+            "qsL/full/None/None/",
+            "qsSee/full/None/None/",
+            "qsJ/hapax/None/baseline/ex-ext-1",
+            "qsF3/full/None/None/",
+            "qsF1/full/None/None/",
+        ],
+        ["y0", "y0", "y0", "y0"],
+        codepoints=COMPOSED_WIDENED_JOIN_CODEPOINTS,
+        configs=("default",),
+        ink_deltas={"default": SLIDE_DELTA},
+        pair={"left": 3, "right": 4},
     )
 
 
@@ -4545,6 +4646,26 @@ def test_a_created_join_whose_receiver_does_not_move_by_the_declared_shift_is_re
         created_join_window(),
         context=slide_context("after-created-join-unmoved"),
     )
+
+
+def test_a_new_join_whose_follower_redraws_wider_matches(slide_context):
+    assert sv._matches(
+        WIDENED_CREATED_JOIN_RULE["match"], widened_created_join_window(), context=slide_context()
+    )
+
+
+def test_a_created_join_whose_follower_keeps_its_advance_is_refused_by_the_widened_rule(slide_context):
+    assert not sv._matches(
+        WIDENED_CREATED_JOIN_RULE["match"],
+        widened_created_join_window(),
+        context=slide_context("after-created-join-follower-not-widened"),
+    )
+
+
+def test_a_created_join_rule_declaring_no_advance_is_refused_by_a_widened_follower(slide_context):
+    unwidened = json.loads(json.dumps(WIDENED_CREATED_JOIN_RULE))
+    unwidened["match"]["after"]["follower_advance"] = 0
+    assert not sv._matches(unwidened["match"], widened_created_join_window(), context=slide_context())
 
 
 def _several_pivots(*families):
@@ -4806,6 +4927,21 @@ def test_a_slide_and_a_join_retarget_in_one_window_compose(slide_context):
 def test_a_slide_and_a_created_join_in_one_window_compose(slide_context):
     events = sv._composed(COMPOSED_CREATED_JOIN_RULES, composed_created_join_window(), slide_context())
     assert events == {SLIDE_RULE["id"]: [1], CREATED_JOIN_RULE["id"]: [2]}
+
+
+def test_a_slide_and_a_widened_created_join_in_one_window_compose(slide_context):
+    events = sv._composed(COMPOSED_WIDENED_JOIN_RULES, composed_widened_join_window(), slide_context())
+    assert events == {SLIDE_RULE["id"]: [1], WIDENED_CREATED_JOIN_RULE["id"]: [2]}
+
+
+def test_a_retarget_chained_behind_a_created_join_carries_the_follower_advance(slide_context):
+    """A retarget whose pivot is a widened created join's follower reads that letter under the join's shift alone, while its own follower and everything past it carry the advance the wider form gave back."""
+    events = sv._composed(
+        RETARGET_BEHIND_WIDENED_JOIN_RULES,
+        retarget_behind_created_join_window(),
+        slide_context("after-created-join-widened-follower"),
+    )
+    assert events == {RETARGET_BEHIND_WIDENED_JOIN_RULE["id"]: [1], RETARGET_RULE["id"]: [2]}
 
 
 def test_a_created_join_chains_behind_an_entry_contraction_on_its_pivot(slide_context):
@@ -5322,6 +5458,11 @@ COMPOSED_WALK_CORPORA = {
         CREATED_JOIN_RULE,
         lambda: [created_join_window(), composed_created_join_window(), founding_window()],
         ("after", "after-created-join-unmoved"),
+    ),
+    "join-created-with-a-widened-follower": (
+        WIDENED_CREATED_JOIN_RULE,
+        lambda: [widened_created_join_window(), composed_widened_join_window(), created_join_window()],
+        ("after", "after-created-join-follower-not-widened"),
     ),
     "join-created-behind-a-contraction": (
         CONTRACTED_CREATED_JOIN_RULE,

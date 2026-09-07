@@ -120,6 +120,7 @@ rules:
           - qsTea/full/x-height/None/
           - qsTea/full/x-height/baseline/
         shift: -3
+        follower_advance: 0
       except_left: []
   - id: et-may-exit-contracted
     verdict: approve
@@ -444,6 +445,7 @@ rules:
         receiver_cells:
           - qsPea/full/baseline/None/
         shift: -4
+        follower_advance: 0
       except_left: []
   - id: gay-no-xheight-extension-added
     verdict: approve
@@ -562,6 +564,7 @@ rules:
           - qsGay/hapax/x-height/None/
           - qsGay/hapax/x-height/baseline/
         shift: -3
+        follower_advance: 0
       except_left: []
   - id: it-baseline-join-created
     verdict: approve
@@ -592,6 +595,7 @@ rules:
           - qsIt/hapax/baseline/baseline/
           - qsIt/hapax/baseline/x-height/
         shift: -1
+        follower_advance: 0
       except_left: []
   - id: it-no-xheight-join-retargeted
     verdict: approve
@@ -674,6 +678,7 @@ rules:
           - qsGay/hapax/baseline/x-height/en-con-1+ex-ext-1
           - qsGay/hapax/baseline/x-height/en-con-1+ex-ext-3
         shift: -2
+        follower_advance: 0
       except_left: []
   - id: et-gay-baseline-join-created
     verdict: approve
@@ -693,6 +698,7 @@ rules:
           - qsGay/hapax/baseline/None/en-con-1
           - qsGay/hapax/baseline/x-height/en-con-1+ex-ext-1
         shift: -3
+        follower_advance: 0
       except_left: []
   - id: no-ah-baseline-join-created
     verdict: approve
@@ -712,6 +718,7 @@ rules:
           - qsAh/hapax/baseline/x-height/
           - qsAh/hapax/baseline/x-height/ex-ext-1
         shift: -1
+        follower_advance: 0
       except_left: []
   - id: no-thaw-baseline-join-created
     verdict: approve
@@ -729,6 +736,7 @@ rules:
         receiver_cells:
           - qsThaw/hapax/baseline/None/
         shift: -3
+        follower_advance: 0
       except_left: []
   - id: no-no-xheight-join-retargeted
     verdict: approve
@@ -776,4 +784,30 @@ rules:
         receiver_cells:
           - qsTea/full/baseline/None/
         shift: -1
+        follower_advance: 0
+      except_left: []
+  - id: utter-xheight-join-created
+    verdict: approve
+    note: "·Fee, ·May, ·No and ·Utter all join ·Utter at the x-height where the old font left a break, and the alternate ·Utter closes a column onto each of them and gives it straight back: its reaches-way-back form is a column wider than the mono one, so the letter comes nearer while everything past it stands where it was. qsUtter's alternate stance carries all four on that x-height entry's from-list, which is what the user asked for on the same rune's policy (“if `·Utter.alt ~b~ ·May` works, then `·No ~x~ ·Utter.alt ~b~ ·May` should work too; we should have an ·Utter.alt that can connect to the previous letter at the x-height”) — the stance and its from-list landed in “Checkpoint the qsDay/qsUtter/qsNo migration batch with its triage residue down to 2,535”, the pair went live in “Do `{·No, ·Utter} ~x~ ·Utter.alt`” and reached past word-initial ·No in “Let any letter that reaches ·Utter.alt at the x-height take the tie-break before ·May, not just word-initial ·No”, with ·Fee's x-height exit from “Make ·Fee join forward at the x-height, and back into ·Day·Utter” and ·May's from qsMay's own refuse record, which shuts its baseline exit before ·Utter and leaves the x-height one. utter-gay-exit-extension-dropped and utter-tea-baseline-join-created are ·Utter's other standing changes on this surface, and every window that reached a sitting approved this one or called it either"
+    match:
+      before:
+        pivot: [qsFee, qsMay, qsNo, qsUtter]
+        seam_out: break
+        follower: qsUtter
+      after:
+        joined: y5
+        pivot_cells:
+          - qsFee/loop/None/x-height/
+          - qsFee/loop/top/x-height/
+          - qsMay/loop/None/x-height/
+          - qsMay/loop/baseline/x-height/en-con-1+ex-ext-1
+          - qsMay/loop/baseline/x-height/ex-ext-1
+          - qsNo/loop/None/x-height/
+          - qsNo/loop/x-height/x-height/
+          - qsUtter/mono/None/x-height/
+          - qsUtter/mono/baseline/x-height/
+        receiver_cells:
+          - qsUtter/alternate/x-height/baseline/
+        shift: -1
+        follower_advance: 1
       except_left: []
