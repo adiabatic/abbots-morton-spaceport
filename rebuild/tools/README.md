@@ -14,4 +14,4 @@ Start here:
 - `cycle_timings.py` (`make cycle-timings`, `make job-costs`) — summarize recorded step timings and check verdicts
 - `deep_sweep.py` (`make conform-deep`) — the periodic deep form of gate:conform
 
-One file here is a library rather than a script: `console.py` defines the four-line protocol every in-house child prints for the cycle to read back (`[t]`, `[phase]`, `[progress]`, `[warn]`) and the digest the artifact cycle renders it with — the plan block, the per-step banners, the per-step logs under `tmp/build-logs/`, and the closing table. Read it before adding a line of output to anything the cycle spawns.
+One file here is a library rather than a script: `console.py` defines the four-line protocol every in-house child prints for the cycle to read back (`[t]`, `[phase]`, `[progress]`, `[warn]`) and the digest the artifact cycle renders it with — the plan block, the per-step banners, the per-step logs under `var/build-logs/`, and the closing table. Read it before adding a line of output to anything the cycle spawns.

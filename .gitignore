@@ -21,8 +21,11 @@ wheels/
 /site/scoped-anchor-review/
 /rebuild/kernel-rs/target/
 
-# Scratch files
+# Scratch files, wiped freely between change sets
 tmp/
+
+# Kept output: cycle build logs, review-surface snapshots, hand-kept archives
+/var/
 
 # Rebuild baseline extraction output
 rebuild/out/

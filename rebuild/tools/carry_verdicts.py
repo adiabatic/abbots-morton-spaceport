@@ -106,7 +106,7 @@ def check_source_stamps(root, verdict_file, payload):
         raise SystemExit(
             f"{verdict_file.name} is stamped {recorded}, but {root} holds the surface generated at {held}. "
             "These verdicts were recorded against a different surface, and resolving their unit ids here would carry them onto the wrong windows. "
-            "Pair the file with the surface it was recorded on — the stamp-matching tmp/review-pre-* snapshot — and rerun."
+            "Pair the file with the surface it was recorded on — the stamp-matching var/review-pre-* snapshot — and rerun."
         )
 
 

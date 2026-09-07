@@ -631,13 +631,13 @@ def test_a_step_that_spawns_nothing_leaves_no_log_behind(capsys, tmp_path):
     run = tmp_path / "run"
     with _digest(log_dir=run) as digest:
         digest.step_start("snapshot", None, "Copies the surface that is currently served.")
-        digest.step_end("snapshot", None, "ok", "clone -> tmp/review-pre-abc1234")
+        digest.step_end("snapshot", None, "ok", "clone -> var/review-pre-abc1234")
         digest.step_start("run_m1", ["true"], "Builds the tables.")
         digest.child_line("run_m1", console.STDOUT, "wrote tables.json")
         digest.step_end("run_m1", _Result(), "ok", "")
     assert sorted(path.name for path in run.iterdir()) == ["02-run_m1.log", "terminal.log"]
     surfaced = _surfaced(capsys.readouterr().out)
-    assert any("clone -> tmp/review-pre-abc1234" in line for line in surfaced)
+    assert any("clone -> var/review-pre-abc1234" in line for line in surfaced)
 
 
 def test_a_skip_says_the_word_once(capsys, tmp_path):

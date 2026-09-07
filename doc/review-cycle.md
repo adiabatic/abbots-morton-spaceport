@@ -69,11 +69,11 @@ uv run python -m rebuild.tools.merge_verdicts --restore-as-of <time> --apply
 
 ## Retention
 
-A green pass ends with a retention pass over the regenerable piles; `--keep-history` skips it, and the tracked copy under `rebuild/evidence/` is never touched.
+A green pass ends with a retention pass over the regenerable piles; `--keep-history` skips it, and the tracked copy under `rebuild/evidence/` is never touched. Both piles live under `var/`, the gitignored tree for output that outlives a run; `tmp/` holds only scratch and is safe to wipe between change sets.
 
-- Only this pass's `tmp/review-pre-*` snapshot and the stamp-aligned `verdicts-carried-<sha>.json` survive.
+- Only this pass's `var/review-pre-*` snapshot and the stamp-aligned `verdicts-carried-<sha>.json` survive.
 - `verdicts-autosave-*` stashes older than the journal's last base event go; the journal replays them.
-- The journal is compacted to the restore floor `RETENTION_WINDOW_DAYS` states, and run directories under `tmp/build-logs/` beyond `BUILD_LOGS_KEEP` go (both in `rebuild/tools/artifact_cycle.py`).
+- The journal is compacted to the restore floor `RETENTION_WINDOW_DAYS` states, and run directories under `var/build-logs/` beyond `BUILD_LOGS_KEEP` go (both in `rebuild/tools/artifact_cycle.py`).
 
 ## Logs and timings
 

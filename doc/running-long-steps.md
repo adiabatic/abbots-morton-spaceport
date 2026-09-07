@@ -14,7 +14,8 @@ pid=$!
 
 ## Where the output lands
 
-- Every cycle opens a run directory under `tmp/build-logs/`, with `tmp/build-logs/latest` pointing at the newest one. It holds `plan.txt`, `terminal.log` as a byte copy of what the terminal saw, and one `<nn>-<step>.log` per spawned step with stdout and stderr merged in arrival order and the stderr lines tagged.
+- The redirect log under `tmp/` is scratch: it holds the same terminal output and the wrapper's `rc=` line, and the next run overwrites it. The run directory is the kept record.
+- Every cycle opens a run directory under `var/build-logs/`, with `var/build-logs/latest` pointing at the newest one. It holds `plan.txt`, `terminal.log` as a byte copy of what the terminal saw, and one `<nn>-<step>.log` per spawned step with stdout and stderr merged in arrival order and the stderr lines tagged.
 - Watch `terminal.log` for the completion banner: the summary table, then `Cycle complete.` on a green pass or a `CYCLE FAILED:` block of reasons on a red one. When a step goes red or falls quiet, open its own log beside it.
 - A child speaks to the cycle through four line prefixes — `[t]`, `[phase]`, `[progress]`, `[warn]` — and `rebuild/tools/console.py` is the authority on both the producers and the digest that renders them.
 

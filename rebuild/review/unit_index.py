@@ -4,7 +4,7 @@ The shards are the authority and this file is a projection of them — never a s
 
 Two fields are counted rather than copied, because counting is all any reader does with them: `render_groups` is the number of groups (standing fill wants "exactly one") and `secondary_seams` the number of seams (standing fill wants "none"). Two more are the manifest's rather than the shard's: `order` is the unit's position in the manifest's triage index (`human_unit_ids`) and `batch` the slice of `batch_size` that position falls in, both null for a unit outside the index — a fragment carries neither, because a unit's place in the queue is not a fact about the unit, and `human_positions` is how every reader derives them. Everything else is the shard's own value.
 
-The file is stamped with the manifest's identity digest (`manifest_sha256`), exactly as the unit store is, so a surface half-written by a crashed build can never be read as describing the shards beside it — and a reader that finds no index, or one stamped for another manifest, falls back to streaming the shards through the same projection. That fallback is what lets carry resolve verdicts against the archived snapshots under tmp/review-pre-*, every one of which predates this file.
+The file is stamped with the manifest's identity digest (`manifest_sha256`), exactly as the unit store is, so a surface half-written by a crashed build can never be read as describing the shards beside it — and a reader that finds no index, or one stamped for another manifest, falls back to streaming the shards through the same projection. That fallback is what lets carry resolve verdicts against the archived snapshots under var/review-pre-*, every one of which predates this file.
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ def class_shard_key(class_id: str) -> str:
 
 
 def class_shards(meta: Mapping[str, Any]) -> list[str]:
-    """One manifest class entry's shard parts, in part order. A `ams-review-manifest/1` entry carries a single `shard` string instead of the `shards` list, and reading either is load-bearing rather than politeness: the unit cache reads the prior surface's shards and the carry reads the archived snapshots under `tmp/review-pre-*`, both of which are the older shape until they are rebuilt."""
+    """One manifest class entry's shard parts, in part order. A `ams-review-manifest/1` entry carries a single `shard` string instead of the `shards` list, and reading either is load-bearing rather than politeness: the unit cache reads the prior surface's shards and the carry reads the archived snapshots under `var/review-pre-*`, both of which are the older shape until they are rebuilt."""
     shards = meta.get("shards")
     if shards is None:
         return [str(meta["shard"])]

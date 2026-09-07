@@ -244,7 +244,7 @@ def test_dry_run_plan_default():
         ncores=1,
         total_bytes=BOX_44_GB,
     )
-    assert plan.snapshot_dir == ac.ROOT / "tmp" / "review-pre-abc1234"
+    assert plan.snapshot_dir == ac.ROOT / "var" / "review-pre-abc1234"
     assert plan.carry_out == ac.ROOT / "verdicts-carried-abc1234.json"
 
     by_name = {step.name: step for step in plan.steps}
@@ -375,7 +375,7 @@ def test_dry_run_plan_runs_the_whole_chain_as_one_step():
         "--surface",
         str(ac.REVIEW_OUT),
         "--source",
-        str(ac.ROOT / "tmp" / "review-pre-abc1234"),
+        str(ac.ROOT / "var" / "review-pre-abc1234"),
         "v.json",
         "--carry-out",
     ]
@@ -2480,6 +2480,7 @@ def test_make_test_exempt_classification():
         "WHATNEXT.md",
         "FONTLOG.md",
         "tmp/scratch.txt",
+        "var/build-logs/latest/plan.txt",
         ".claude/settings.json",
         "rebuild/tools/scaling_sweep.py",
         "rebuild/scaling-ladder.txt",
@@ -2548,7 +2549,7 @@ def _git_repo(tmp_path):
     (tmp_path / "rebuild" / "notes.py").write_text("x = 1\n")
     (tmp_path / "README.md").write_text("hello\n")
     (tmp_path / "Makefile").write_text(FAKE_MAKEFILE)
-    (tmp_path / ".gitignore").write_text("tmp/\n")
+    (tmp_path / ".gitignore").write_text("tmp/\nvar/\n")
     (tmp_path / ".vscode").mkdir()
     (tmp_path / ".vscode" / "settings.json").write_text("{}\n")
     (tmp_path / "reference").mkdir()
@@ -3819,11 +3820,11 @@ def test_resolve_snapshot_dir_takes_the_first_free_name(tmp_path):
 def test_build_plan_gives_a_second_pass_at_one_head_its_own_snapshot(tmp_path, monkeypatch):
     monkeypatch.setattr(ac, "ROOT", tmp_path)
     monkeypatch.setattr(ac, "JSTEST_DIR", tmp_path / "jstests")
-    (tmp_path / "tmp").mkdir()
+    (tmp_path / "var").mkdir()
     first = _plan(snapshot_dir=None).snapshot_dir
-    assert first == tmp_path / "tmp" / "review-pre-testid"
+    assert first == tmp_path / "var" / "review-pre-testid"
     first.mkdir()
-    assert _plan(snapshot_dir=None).snapshot_dir == tmp_path / "tmp" / "review-pre-testid-2"
+    assert _plan(snapshot_dir=None).snapshot_dir == tmp_path / "var" / "review-pre-testid-2"
 
 
 def test_prune_snapshots_collects_the_suffixed_names(tmp_path):
@@ -3838,7 +3839,7 @@ def test_prune_snapshots_collects_the_suffixed_names(tmp_path):
 def _unsettled_repo(tmp_path, monkeypatch, stamp="2026-07-17T20:24:44Z"):
     """A repo where no keyed stage can auto-skip: run_m1's key matches no record, the make-test closure is unreadable, and neither rebuild lane's key matches. `_settled_repo` is the converged counterpart."""
     _seed_auto_repo(tmp_path, monkeypatch, stamp=stamp)
-    (tmp_path / "tmp").mkdir()
+    (tmp_path / "var").mkdir()
     (tmp_path / "verdicts-autosave.json").write_text(json.dumps(_verdicts_doc(stamp, ["u-1"])))
     monkeypatch.setattr(ac, "run_m1_skip_fingerprint", lambda root=None: "key")
     monkeypatch.setattr(ac, "make_test_closure_fingerprint", lambda root=None: None)
@@ -5617,11 +5618,11 @@ def test_retention_leaves_the_snapshots_alone_when_the_pass_took_none(
 ):
     """A skip pass never makes the snapshot retention prunes to, so pruning would delete the last stamp-aligned copy — the very one describe_carry_source tells you to recover from when a surface gets restamped outside a cycle."""
     skipping = _plan(skip_plumbing=True, plumbing_note=ac.PLUMBING_SKIP_NOTE)
-    ordinary = _plan(snapshot_dir=tmp_path / "tmp" / "review-pre-fresh")
+    ordinary = _plan(snapshot_dir=tmp_path / "var" / "review-pre-fresh")
     monkeypatch.setattr(ac, "ROOT", tmp_path)
     monkeypatch.setattr(ac, "REVIEW_OUT", tmp_path / "review")
-    (tmp_path / "tmp").mkdir()
-    survivor = tmp_path / "tmp" / "review-pre-abc1234"
+    (tmp_path / "var").mkdir()
+    survivor = tmp_path / "var" / "review-pre-abc1234"
     survivor.mkdir()
     monkeypatch.setattr(journal, "compact", lambda path, cutoff: {"compacted": False})
     monkeypatch.setattr(ac, "prune_stashes", lambda root, journal_path: [])
@@ -5645,7 +5646,7 @@ def test_retention_leaves_the_journal_and_stashes_alone_while_the_server_is_up(
     monkeypatch.setattr(ac, "REVIEW_OUT", tmp_path / "review")
     (tmp_path / "review").mkdir()
     (tmp_path / "review" / "manifest.json").write_text(json.dumps({"generated_at": "2026-08-07T00:00:00Z"}))
-    (tmp_path / "tmp").mkdir()
+    (tmp_path / "var").mkdir()
     (tmp_path / "verdicts-carried-old.json").write_text(_carried("2026-01-01T00:00:00Z"))
     compacted: list[str] = []
     monkeypatch.setattr(
@@ -6005,7 +6006,7 @@ def test_main_copies_what_it_said_before_the_digest_into_the_terminal_log(tmp_pa
     _settled_repo(tmp_path, monkeypatch)
     ac.record_plumbing_green("plu")
     monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: False)
-    stranded = tmp_path / "tmp" / "review-pre-dead123"
+    stranded = tmp_path / "var" / "review-pre-dead123"
     stranded.mkdir()
     monkeypatch.setattr(ac, "unfinished_cycle_snapshot", lambda summary_path=None: stranded)
     seen: dict[str, ac.Plan] = {}
@@ -6057,10 +6058,10 @@ def test_retention_prunes_the_build_logs_under_a_live_server_too(tmp_path, monke
     plan = _plan(skip_plumbing=True, plumbing_note=ac.PLUMBING_SKIP_NOTE)
     monkeypatch.setattr(ac, "ROOT", tmp_path)
     monkeypatch.setattr(ac, "REVIEW_OUT", tmp_path / "review")
-    monkeypatch.setattr(ac, "BUILD_LOGS_ROOT", tmp_path / "tmp" / "build-logs")
-    (tmp_path / "tmp" / "build-logs").mkdir(parents=True)
+    monkeypatch.setattr(ac, "BUILD_LOGS_ROOT", tmp_path / "var" / "build-logs")
+    (tmp_path / "var" / "build-logs").mkdir(parents=True)
     for index in range(ac.BUILD_LOGS_KEEP + 3):
-        (tmp_path / "tmp" / "build-logs" / f"2026010{index // 9}T00000{index % 9}Z-abc").mkdir()
+        (tmp_path / "var" / "build-logs" / f"2026010{index // 9}T00000{index % 9}Z-abc").mkdir()
     monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: True)
 
     pruned = real_run_retention(plan)
@@ -6069,7 +6070,7 @@ def test_retention_prunes_the_build_logs_under_a_live_server_too(tmp_path, monke
         f"build logs: removed 3; kept the last {ac.BUILD_LOGS_KEEP} runs" in line for line in pruned.lines
     )
     assert "3 build logs" in pruned.figure
-    assert len(list((tmp_path / "tmp" / "build-logs").iterdir())) == ac.BUILD_LOGS_KEEP
+    assert len(list((tmp_path / "var" / "build-logs").iterdir())) == ac.BUILD_LOGS_KEEP
 
 
 def test_failing_cycle_still_journals_a_run_line(monkeypatch, tmp_path):

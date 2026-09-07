@@ -39,7 +39,7 @@ def _write(surface: Path) -> Path:
 
 
 def test_class_shards_reads_either_manifest_format():
-    """A `ams-review-manifest/1` class carries one `shard` string, and both the prior surface the unit cache reads and the archived snapshots under tmp/review-pre-* the carry resolves against are that shape until they are rebuilt — so both spellings have to answer."""
+    """A `ams-review-manifest/1` class carries one `shard` string, and both the prior surface the unit cache reads and the archived snapshots under var/review-pre-* the carry resolves against are that shape until they are rebuilt — so both spellings have to answer."""
     assert unit_index.class_shards({"id": "a", "shard": "units/a.json"}) == ["units/a.json"]
     assert unit_index.class_shards({"id": "a", "shards": ["units/a.000.json", "units/a.001.json"]}) == [
         "units/a.000.json",

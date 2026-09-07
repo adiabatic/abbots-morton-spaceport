@@ -1,6 +1,6 @@
 """The one-command driver for the commit-time artifact cycle.
 
-It mechanizes the commit-time sequence: snapshot the current review surface (the only recovery copy, since everything under rebuild/out is gitignored), recompile M1.otf and vet it, rebuild the review surface in place, run the verdict plumbing over it, refresh the census pins from the surface's census sidecar and print their git diff (the checked-in pins are the last accepted census, so reviewing that diff at commit time is what accepts a new one), run the five gates, and — once they have joined and their pytest controllers have stamped this pass's own per-worker peaks into the timings journal — hold the checked-in per-unit peaks against what this box actually measured (rebuild.tools.calibrate_budgets --check). Always ending on a summary table, even on failure. What the terminal shows is a digest — one banner per step carrying the description of what that step is for, the phases and counters its child speaks, every warning, and a closing line — while the whole of every child's output lands under tmp/build-logs/<stamp>-<short sha>/: one log per step with stdout and stderr merged in arrival order, beside plan.txt and a byte copy of the terminal, with tmp/build-logs/latest pointing at the newest run and a failed step replaying its own log verbatim under its banner. rebuild.tools.console owns both halves of that — the line protocol a child speaks and the renderer that reads it.
+It mechanizes the commit-time sequence: snapshot the current review surface (the only recovery copy, since everything under rebuild/out is gitignored), recompile M1.otf and vet it, rebuild the review surface in place, run the verdict plumbing over it, refresh the census pins from the surface's census sidecar and print their git diff (the checked-in pins are the last accepted census, so reviewing that diff at commit time is what accepts a new one), run the five gates, and — once they have joined and their pytest controllers have stamped this pass's own per-worker peaks into the timings journal — hold the checked-in per-unit peaks against what this box actually measured (rebuild.tools.calibrate_budgets --check). Always ending on a summary table, even on failure. What the terminal shows is a digest — one banner per step carrying the description of what that step is for, the phases and counters its child speaks, every warning, and a closing line — while the whole of every child's output lands under var/build-logs/<stamp>-<short sha>/: one log per step with stdout and stderr merged in arrival order, beside plan.txt and a byte copy of the terminal, with var/build-logs/latest pointing at the newest run and a failed step replaying its own log verbatim under its banner. rebuild.tools.console owns both halves of that — the line protocol a child speaks and the renderer that reads it.
 
 That last step gates nothing, by the same argument the census pins are not a gate: a divisor that has gone stale makes a pool the wrong width, which is a cost rather than a defect, so it is reported loudly and never fails a pass whose artifacts are green. Committing the re-seeded constant is the acceptance, and when the check trips the driver diffs the three files that hold those constants so a working tree where one has already moved says so.
 
@@ -28,7 +28,7 @@ Between the run_m1 skip and a full rebuild there is a third route. When the per-
 
 Which passes cost the reviewer their letters is decided here rather than by the caller, because only the resolved plan knows. Two of the things a cycle writes belong to the running app — the surface it serves, where livereload watches every shard and a restamped manifest orphans the tab's store, and the verdict store, which merge_verdicts refuses to touch under a live server because an open tab would flush its own copy back over the merge. A pass whose plan skips both writes neither, so a listening server is left alone and the letters stay on screen for the whole run: that is the pass with no artifact work, whose long verification would otherwise black the app out for every minute of it. A pass whose surface did not move but whose store did takes a shape of its own: the carry there is provably the identity — the snapshot it would read is a clone of the same surface, every content key resolves to itself, and the carry preserves each record's `at`, which the merge compares strictly — so the snapshot and the carry are skipped and the master is merged straight in, which is the one thing the store's own hash cannot see. That pass still writes the store, so it is a port-taking one. An edit confined to rebuild/review/static/ has a shape of its own as well: the copied app assets are the one surface input no unit can feel, so instead of rebuilding, the pass copies them over the served copy and restamps that single fingerprint component (`assets-refresh`), which leaves every shard, both sidecars, the unit-cache store and `generated_at` exactly where they were — nothing under the app moves that the tab is keyed on, so the server stays up and livereload reloads it onto the new shell. A pass that does write under the app needs the port to itself, and --stop-server (which `make review-cycle` passes) is permission to take it — terminate the server and wait out the port — where a bare run still refuses and says how. Retention is the third writer: the app appends to the journal as you verdict, and a compaction rewrites the file around a read, so with a server up the journal and the stash sweep that indexes off it are both left for a later pass.
 
-A green finish ends with a retention pass over the cycle's own disk piles, all of them regenerable or journal-covered: every tmp/review-pre-* snapshot except this cycle's is deleted (a snapshot is read once, by its own cycle's carry, and never again), root verdicts-carried-*.json files not stamped for the live surface are deleted (only the stamp-aligned frontier is ever read; the tracked copy under rebuild/evidence/ is never touched), verdicts-autosave-* stashes not referenced by a journal event at or after the last base event are deleted (the journal, not the stashes, is the sanctioned recovery path — and the reference index is the test because a stash's mtime predates the event that created it), and the journal itself is compacted to the newest base event older than RETENTION_WINDOW_DAYS, keeping at least that many days of --restore-as-of history. Failed, interrupted, first-run, and rehearsal cycles never prune; --keep-history opts out entirely; a retention error warns and never turns a green cycle red.
+A green finish ends with a retention pass over the cycle's own disk piles, all of them regenerable or journal-covered: every var/review-pre-* snapshot except this cycle's is deleted (a snapshot is read once, by its own cycle's carry, and never again), root verdicts-carried-*.json files not stamped for the live surface are deleted (only the stamp-aligned frontier is ever read; the tracked copy under rebuild/evidence/ is never touched), verdicts-autosave-* stashes not referenced by a journal event at or after the last base event are deleted (the journal, not the stashes, is the sanctioned recovery path — and the reference index is the test because a stash's mtime predates the event that created it), and the journal itself is compacted to the newest base event older than RETENTION_WINDOW_DAYS, keeping at least that many days of --restore-as-of history. Failed, interrupted, first-run, and rehearsal cycles never prune; --keep-history opts out entirely; a retention error warns and never turns a green cycle red.
 
 Run as: uv run python rebuild/tools/artifact_cycle.py — the carry source is auto-resolved from the autosave and the verdicts-*.json exports; pass --verdicts to name one explicitly.
 """
@@ -115,7 +115,7 @@ COMPILE_CODE_FILES = (
 )
 RETENTION_WINDOW_DAYS = 7
 # Where a pass keeps everything the terminal did not show, and how many such runs survive the green-finish retention pass. The root is a module constant so the rebuild suite can point it under a temp root — every other cycle write is redirected that way, and a run directory minted into the live repo by a test that drives main is the same kind of litter. Ten is a working week of passes: enough that a question about "the run before last" is still answerable, few enough that the pile stays a pile rather than an archive, and the whole of any one run is regenerable by running it again.
-BUILD_LOGS_ROOT = ROOT / "tmp" / "build-logs"
+BUILD_LOGS_ROOT = ROOT / "var" / "build-logs"
 BUILD_LOGS_KEEP = 10
 
 M1_SUMMARY_FILES = {
@@ -169,6 +169,7 @@ MAKE_TEST_EXEMPT_PREFIXES = (
     "glyph_data/runes/",
     "doc/",
     "tmp/",
+    "var/",
     ".claude/",
     ".vscode/",
     ".github/",
@@ -806,13 +807,13 @@ def plumbing_skip_fingerprint(
     return _digest_lines(lines)
 
 
-def resolve_snapshot_dir(tmp_dir: Path, short_id: str) -> Path:
+def resolve_snapshot_dir(var_dir: Path, short_id: str) -> Path:
     """A free name for this pass's surface snapshot. The short id names the commit, but a snapshot names one run: two cycles at an unmoved HEAD — every look-edit-look pass, and every retry after a cycle that stopped early — would otherwise land on the same directory, and the driver refuses to overwrite one because an unfinished cycle's snapshot can be the only copy of a surface it already clobbered. So take the first free `-2`, `-3`, … suffix instead, and let unfinished_cycle_snapshot spare the copy that refusal was protecting. They cannot pile up otherwise: prune_snapshots globs `review-pre-*` and keeps only the current pass's. The carried-verdicts filename keeps the bare short id, since that one is deliberately commit-stamped."""
-    base = tmp_dir / f"review-pre-{short_id}"
+    base = var_dir / f"review-pre-{short_id}"
     if not base.exists():
         return base
     suffix = 2
-    while (candidate := tmp_dir / f"review-pre-{short_id}-{suffix}").exists():
+    while (candidate := var_dir / f"review-pre-{short_id}-{suffix}").exists():
         suffix += 1
     return candidate
 
@@ -904,7 +905,7 @@ def conform_gate_argv(jobs: int, horizon: int = CONFORM_HORIZON_DEFAULT) -> list
 
 
 STEP_DESCRIPTIONS = {
-    "snapshot": "Copies the review surface that is currently served to tmp/review-pre-<sha> before anything overwrites it. The carry reads this copy to bring your verdicts forward onto the new surface.",
+    "snapshot": "Copies the review surface that is currently served to var/review-pre-<sha> before anything overwrites it. The carry reads this copy to bring your verdicts forward onto the new surface.",
     "run_m1": "Builds the M1 tables for every settlement configuration in the Rust kernel (the ss10 overlay settles nothing and gets none), mints the glyphs, emits GSUB and GPOS, compiles the font, and reads it back. Then runs the defect gates, the Manual-pin gate, and the oracle over what it built.",
     "run_m1:gates-only": "Re-adjudicates the tables and font already on disk with the defect gates, the Manual-pin gate, and the oracle, rebuilding nothing. Taken when only comparison-side inputs moved since the last green build.",
     "surface-build": "Rebuilds the review surface: every unit the tables reach is drafted, enriched, and checked, with cache-served units re-verified by content key. Writes the shards, manifest, and census sidecar that the app and the verdict plumbing read.",
@@ -1167,7 +1168,7 @@ def build_plan(
     recipe_serves: bool = False,
 ) -> Plan:
     resolved_snapshot = (
-        snapshot_dir if snapshot_dir is not None else resolve_snapshot_dir(ROOT / "tmp", short_id)
+        snapshot_dir if snapshot_dir is not None else resolve_snapshot_dir(ROOT / "var", short_id)
     )
     do_carry = not no_carry and not first_run and not skip_plumbing and not store_only
     # The snapshot exists to survive this cycle's surface rewrite and to feed this cycle's carry; a pass doing neither takes no copy, unless the caller named a directory explicitly.
@@ -1506,7 +1507,7 @@ def build_plan(
             Step(
                 "retention",
                 None,
-                f"on green finish: keep only this cycle's tmp/review-pre-* snapshot and the stamp-aligned verdicts-carried-*.json, drop verdicts-autosave-* stashes older than the journal's last base event, compact the journal to a {RETENTION_WINDOW_DAYS}-day restore floor; --keep-history skips",
+                f"on green finish: keep only this cycle's var/review-pre-* snapshot and the stamp-aligned verdicts-carried-*.json, drop verdicts-autosave-* stashes older than the journal's last base event, compact the journal to a {RETENTION_WINDOW_DAYS}-day restore floor; --keep-history skips",
             )
         )
     elif keep_history:
@@ -1555,7 +1556,7 @@ def describe_carry_source(resolved: dict, root: Path) -> str:
     return (
         f"ERROR: the best carry source, {shown} ({resolved['count']} effective verdicts), is stamped {resolved['stamp']}, not the served surface. "
         "Its verdicts were recorded against a surface rebuild/out/review no longer holds — review.build ran outside a cycle, or a cycle died between its surface build and its merge — and pairing them with a snapshot of the live directory would resolve their unit ids onto the wrong windows, which carry_verdicts now refuses outright. "
-        "Recover first: carry the file onto the live surface from its stamp-matching tmp/review-pre-* snapshot (uv run python rebuild/tools/carry_verdicts.py --source <snapshot> <verdicts>, then rebuild.tools.merge_verdicts), or rerun with --no-carry to proceed without these verdicts, or --verdicts to name a different master."
+        "Recover first: carry the file onto the live surface from its stamp-matching var/review-pre-* snapshot (uv run python rebuild/tools/carry_verdicts.py --source <snapshot> <verdicts>, then rebuild.tools.merge_verdicts), or rerun with --no-carry to proceed without these verdicts, or --verdicts to name a different master."
     )
 
 
@@ -3126,13 +3127,13 @@ def _preflight(args: argparse.Namespace, *, may_stay_up: bool = False) -> bool:
     return False
 
 
-def prune_snapshots(tmp_dir: Path, keep: Path, preserve: Path | None = None) -> list[Path]:
+def prune_snapshots(var_dir: Path, keep: Path, preserve: Path | None = None) -> list[Path]:
     """Delete every surface snapshot but this pass's. `preserve` spares one more: the snapshot of a cycle that never finished, which can be the only copy of a surface that cycle had already begun rewriting."""
     spared = {keep.resolve()}
     if preserve is not None:
         spared.add(preserve.resolve())
     removed: list[Path] = []
-    for path in sorted(tmp_dir.glob("review-pre-*")):
+    for path in sorted(var_dir.glob("review-pre-*")):
         if not path.is_dir() or path.resolve() in spared:
             continue
         shutil.rmtree(path, ignore_errors=True)
@@ -3246,7 +3247,7 @@ def run_retention(plan: Plan) -> RetentionResult:
         )
         intact.append("snapshots")
     else:
-        removed = prune_snapshots(ROOT / "tmp", plan.snapshot_dir, plan.preserve_snapshot)
+        removed = prune_snapshots(ROOT / "var", plan.snapshot_dir, plan.preserve_snapshot)
         removed_counts.append(swept(len(removed), "snapshot", "snapshots"))
         if removed:
             lines.append(
@@ -3334,7 +3335,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--snapshot-dir",
         type=Path,
-        help="where to snapshot the current surface (default: tmp/review-pre-<short hash>, or the first free -2, -3 name when a pass at this commit already took it)",
+        help="where to snapshot the current surface (default: var/review-pre-<short hash>, or the first free -2, -3 name when a pass at this commit already took it)",
     )
     parser.add_argument(
         "--skip-gates",
