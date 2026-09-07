@@ -271,6 +271,22 @@ RETARGET_BEHIND_CREATED_JOIN_RULE = {
     },
 }
 
+EXTENSION_BEHIND_CREATED_JOIN_RULE = {
+    "id": "fixture-join-created-before-an-extension",
+    "verdict": "approve",
+    "note": "·No joins ·J at the baseline where the old font left a break",
+    "match": {
+        "before": {"pivot": "qsNo", "seam_out": "break", "follower": "qsJ"},
+        "after": {
+            "joined": "y0",
+            "pivot_cells": ["qsNo/flipped/baseline/baseline/"],
+            "receiver_cells": ["qsJ/full/None/None/"],
+            "shift": -1,
+        },
+        "except_left": [],
+    },
+}
+
 CONTRACTED_CREATED_JOIN_RULE = {
     "id": "fixture-join-created-behind-a-contraction",
     "verdict": "approve",
@@ -1420,6 +1436,7 @@ register_glyph("before", "qsTea.half.ex-y5", (_rect(0, 100, 100, 150),), 100)
 register_glyph("before", "qsPea.half.ex-y5", (_rect(0, 100, 100, 150),), 100)
 register_glyph("before", "qsNo.en-ext-1", TWO_COLUMNS, 100)
 register_glyph("before", "qsNo.en-ext-1.chain-fixture", TWO_COLUMNS, 200)
+register_glyph("before", "qsNo.en-ext-1.extension-chain-fixture", TWO_COLUMNS, 150)
 register_glyph("before", "qsEight", EIGHTISH, 100)
 register_glyph("before", "qsEight.ex-ext-1", EIGHTISH_EXTENDED, 150)
 register_glyph("before", "qsEight.en-ext-1", EIGHTISH_ENTRY_EXTENDED, 150)
@@ -1461,6 +1478,7 @@ register_glyph("after", "qsTea", TWO_COLUMNS, 100)
 register_glyph("after", "qsPea", TWO_COLUMNS, 100)
 register_glyph("after", "qsNo", TRIMMED_PIVOT, 50)
 register_glyph("after", "qsNo.chain-fixture", TRIMMED_PIVOT, 50)
+register_glyph("after", "qsNo.extension-chain-fixture", TRIMMED_PIVOT, 50)
 register_glyph("after", "qsEight.smaller-loop", EIGHTISH_SMALLER, 100)
 register_glyph("after", "qsEight.smaller-loop.en-ext-1", EIGHTISH_ENTRY_EXTENDED_SMALLER, 150)
 register_glyph("after", "qsEight.normal-sized-loop", EIGHTISH, 100)
@@ -1498,6 +1516,7 @@ TEA = register_pair("qsTea.half.ex-y5", "qsTea")
 PEA = register_pair("qsPea.half.ex-y5", "qsPea")
 NO = register_pair("qsNo.en-ext-1", "qsNo")
 NO_CHAINED = register_pair("qsNo.en-ext-1.chain-fixture", "qsNo.chain-fixture")
+NO_EXTENSION_CHAINED = register_pair("qsNo.en-ext-1.extension-chain-fixture", "qsNo.extension-chain-fixture")
 VIE = register_pair("qsVie.en-ext-1", "qsVie.normal")
 VIE_UTTER = register_pair("qsVie_qsUtter.en-ext-1", "qsVie_qsUtter.hapax")
 MAY = register_pair("qsMay.en-y0.ex-y5.en-ext-1", "qsMay.loop")
@@ -1589,6 +1608,10 @@ SLIDE_FONTS = {
     ),
     "after-retarget-behind-created-join-unmoved": (
         {**AFTER_GLYPHS, "qsNo": (TRIMMED_PIVOT, 100)},
+        AFTER_CMAP,
+    ),
+    "after-extension-behind-created-join-unmoved": (
+        {**AFTER_GLYPHS, "qsJ.hapax.ex-y0": (TRIMMED_PIVOT, 100)},
         AFTER_CMAP,
     ),
     "after-stub-companion-pixel": (
@@ -4293,6 +4316,22 @@ RETARGET_BEHIND_CREATED_JOIN_GLYPHS = [
 ]
 RETARGET_BEHIND_CREATED_JOIN_CODEPOINTS = spell(LEAD, PIVOT_SHORTENED, TEA, NO, FOLLOWER_1)
 RETARGET_BEHIND_CREATED_JOIN_RULES = [RETARGET_RULE, RETARGET_BEHIND_CREATED_JOIN_RULE]
+EXTENSION_BEHIND_CREATED_JOIN_GLYPHS = ["qsL", "qsNo.en-ext-1", "qsJ.ex-y0.ex-ext-1", "qsF3"]
+EXTENSION_BEHIND_CREATED_JOIN_CODEPOINTS = spell(LEAD, NO, PIVOT, FOLLOWER_3)
+EXTENSION_BEHIND_CREATED_JOIN_RULES = [COMPOSED_EXT_RULE, EXTENSION_BEHIND_CREATED_JOIN_RULE]
+RETARGETED_EXTENSION_CHAIN_GLYPHS = [
+    "qsL",
+    "qsTea.half.ex-y5",
+    "qsNo.en-ext-1.extension-chain-fixture",
+    "qsJ.ex-y0.ex-ext-1",
+    "qsF3",
+]
+RETARGETED_EXTENSION_CHAIN_CODEPOINTS = spell(LEAD, TEA, NO_EXTENSION_CHAINED, PIVOT, FOLLOWER_3)
+RETARGETED_EXTENSION_CHAIN_RULES = [
+    RETARGET_RULE,
+    COMPOSED_EXT_RULE,
+    EXTENSION_BEHIND_CREATED_JOIN_RULE,
+]
 
 
 def retarget_window(uid="r-1"):
@@ -4441,6 +4480,45 @@ def retarget_behind_created_join_window(uid="rbcj-1"):
         ],
         ["y0", "y0", "y0", "y0"],
         codepoints=RETARGET_BEHIND_CREATED_JOIN_CODEPOINTS,
+        configs=("default",),
+        ink_deltas={"default": SLIDE_DELTA},
+        pair={"left": 1, "right": 2},
+    )
+
+
+def extension_behind_created_join_window(uid="ebcj-1"):
+    return unit(
+        uid,
+        list(EXTENSION_BEHIND_CREATED_JOIN_GLYPHS),
+        ["y0", "break", "y0"],
+        [
+            "qsL/full/None/None/",
+            "qsNo/flipped/baseline/baseline/",
+            "qsJ/full/None/None/",
+            "qsF3/full/None/None/",
+        ],
+        ["y0", "y0", "y0"],
+        codepoints=EXTENSION_BEHIND_CREATED_JOIN_CODEPOINTS,
+        configs=("default",),
+        ink_deltas={"default": SLIDE_DELTA},
+        pair={"left": 1, "right": 2},
+    )
+
+
+def retargeted_extension_chain_window(uid="rec-1"):
+    return unit(
+        uid,
+        list(RETARGETED_EXTENSION_CHAIN_GLYPHS),
+        ["y0", "y5", "break", "y0"],
+        [
+            "qsL/full/None/None/",
+            "qsTea/full/None/baseline/",
+            "qsNo/flipped/baseline/baseline/",
+            "qsJ/full/None/None/",
+            "qsF3/full/None/None/",
+        ],
+        ["y0", "y0", "y0", "y0"],
+        codepoints=RETARGETED_EXTENSION_CHAIN_CODEPOINTS,
         configs=("default",),
         ink_deltas={"default": SLIDE_DELTA},
         pair={"left": 1, "right": 2},
@@ -4794,6 +4872,49 @@ def test_a_retarget_chained_behind_a_created_join_still_needs_both_shifts(slide_
         RETARGET_BEHIND_CREATED_JOIN_RULES,
         retarget_behind_created_join_window(),
         slide_context("after-retarget-behind-created-join-unmoved"),
+    )
+    assert events is None
+
+
+def test_an_extension_chains_behind_a_created_join_on_its_follower(slide_context):
+    events = sv._composed(
+        EXTENSION_BEHIND_CREATED_JOIN_RULES, extension_behind_created_join_window(), slide_context()
+    )
+    assert events == {EXTENSION_BEHIND_CREATED_JOIN_RULE["id"]: [1], COMPOSED_EXT_RULE["id"]: [2]}
+
+
+def test_neither_rule_alone_reads_an_extension_behind_a_created_join(slide_context):
+    window = extension_behind_created_join_window()
+    for rule in EXTENSION_BEHIND_CREATED_JOIN_RULES:
+        assert not sv._matches(rule["match"], window, context=slide_context())
+        assert sv._composed_walk([rule], window, slide_context()) is None
+
+
+def test_an_extension_chained_behind_a_created_join_still_needs_both_shifts(slide_context):
+    events = sv._composed(
+        EXTENSION_BEHIND_CREATED_JOIN_RULES,
+        extension_behind_created_join_window(),
+        slide_context("after-extension-behind-created-join-unmoved"),
+    )
+    assert events is None
+
+
+def test_a_retarget_a_created_join_and_an_extension_chain_through_one_window(slide_context):
+    events = sv._composed(
+        RETARGETED_EXTENSION_CHAIN_RULES, retargeted_extension_chain_window(), slide_context()
+    )
+    assert events == {
+        RETARGET_RULE["id"]: [1],
+        EXTENSION_BEHIND_CREATED_JOIN_RULE["id"]: [2],
+        COMPOSED_EXT_RULE["id"]: [3],
+    }
+
+
+def test_a_chain_of_three_still_needs_the_extension_to_deliver_its_column(slide_context):
+    events = sv._composed(
+        RETARGETED_EXTENSION_CHAIN_RULES,
+        retargeted_extension_chain_window(),
+        slide_context("after-extension-behind-created-join-unmoved"),
     )
     assert events is None
 
