@@ -20,7 +20,7 @@ Each expressible delta shape is a row in SHAPES, and a rule declares exactly one
 
 - The `stub_drop` shape judges the same rendered pixels for a letter that gives up a named left-side stub while the ink it keeps stays where it was: the old-font pivot form gives way to a named new form whose own-frame picture is the old one compacted left by that many columns, its own-frame origin standing still while its placement moves right by the same count — the left edge catching up to the ink that remains — and every other pixel in the window unmoved, which is what tells stub-dropped from entry-extension-dropped, whose remaining ink slides closer while its placement stands still: a window whose only change is ·May losing the leftover left pixel after ·Ah matches, and a window that also carries a blessed join-drop still needs the composed reading. A pivot here is a position, not a name: a second ·May keeping its old loop beside the one that lost the stub rides as span ink, because only the before side's named form says which of the two after loops is the drop.
 
-- The `redrawn` shape judges the same rendered pixels for a letter redrawn in place to a named new form: the old-font pivot form gives way to a named new form whose own-frame picture is the old one with the named cells gone and the named cells added — both sets read at one common column offset, because an entry extension inserts a column at the pivot's left edge and carries the whole frame right with it, so an entry-extended variant shows the same trade one column over — origin and placement standing still, and everything after the pivot sliding by the declared count, which may be zero when the new form keeps the pivot's advance: ·Eight's bowl pulling in one column before ·Tea and ·It, beside the dropped connector extension that slides ·It closer, is the founding example, and a window that also carries a second blessed change still needs the composed reading. Its added set may be empty, which is a form that only gives ink up — ·Key's foot dropping its terminal pixel before ·May, ·No and ·It, its follower coming a column closer — and that is the shape an exit contraction wants whenever the survey's windows carry anything else at all, because the `follower_cells` shape reads only names and would bless whatever else the window did.
+- The `redrawn` shape judges the same rendered pixels for a letter redrawn in place to a named new form: the old-font pivot form gives way to a named new form whose own-frame picture is the old one with the named cells gone and the named cells added — both sets read at one common column offset, because an entry extension inserts a column at the pivot's left edge and carries the whole frame right with it, so an entry-extended variant shows the same trade one column over — the own-frame origin standing still, and everything after the pivot sliding by the declared count, which may be zero when the new form keeps the pivot's advance: ·Eight's bowl pulling in one column before ·Tea and ·It, beside the dropped connector extension that slides ·It closer, is the founding example, and a window that also carries a second blessed change still needs the composed reading. The pivot's own placement stands still too, unless its new form names an entry contraction, which lets the letter sit up to that many columns closer to whatever precedes it — however much of the contraction the seam behind it had left to give, since a left neighbor the old font had already drawn that tight leaves nothing to close — and everything after the pivot carries whatever it took there on top of the declared count: ·J'ai's crown coming in after a half-height ·Pea or ·Tea moves the letter and the rest of the word, while the same crown after an ·At the old font had already contracted moves only what the dropped tail moves. Its added set may be empty, which is a form that only gives ink up — ·Key's foot dropping its terminal pixel before ·May, ·No and ·It, its follower coming a column closer — and that is the shape an exit contraction wants whenever the survey's windows carry anything else at all, because the `follower_cells` shape reads only names and would bless whatever else the window did.
 
 - The `join-created` shape judges a named pair that newly joins: the pivot and follower may redraw, the pivot keeping its own-frame origin while the follower either keeps its own or reaches back over its old left edge by a declared column count, the pivot stays under the standing displacement, the follower moves by a second declared count, everything after it moves by that count combined with the follower's own declared advance delta, and the recorded break becomes the named height. A follower reaches back when the form that takes the join inserts columns at its left edge — ·Gay's reachable-at-the-baseline stroke does, which is why a rule has to say so rather than let a moved origin read as a slide. The shift and the advance are two counts because a follower that redraws wider gives back what the join closed — the reaches-way-back ·Utter comes a column nearer ·May and leaves the rest of the word standing — and one number cannot say both. Its pivot side may name several families at once, which is how one letter's new entry is recorded in a single rule for every left neighbor that now reaches it — a window with any other ink change needs the composed reading.
 
@@ -41,7 +41,7 @@ The walk then re-shapes the window in the surface's font pair and carries a runn
 - a join-dropped event leaves the pivot in place under the standing displacement, adds the declared gap, and moves again with the follower leading
 - an ink-gain event adds the named cells on the pivot, judged piece by piece, and moves by the declared count with the next glyph leading the next span
 - an entry-drop event leaves the pivot under the standing displacement, or the part of a contraction its own frame did not take further left still, compacting its remaining ink left by the named columns, and moves the displacement closer with the next glyph leading the next span
-- a redrawn event trades the named cells on the pivot under the standing displacement and moves the displacement by its declared count with the next glyph leading the next span
+- a redrawn event trades the named cells on the pivot under the standing displacement, or up to the entry contraction its new form names further left still, and moves the displacement by its declared count plus whatever the pivot took there, with the next glyph leading the next span
 - a join-created event leaves the pivot under the standing displacement while its follower leads the declared shift and the glyphs past the follower lead that shift combined with the follower's advance delta — or, when its pivot is itself an entry-contraction event, chains behind that event: the contraction judges the pivot's entry and origin, the created join judges only its follower, and the follower leads by both shifts combined, which is what lets ·Ah's contracted entry after ·J'ai and its new x-height join into ·Gay explain one window between them — and it chains the same way when its pivot is a join-retargeted event's follower, the retarget judging that letter's incoming seam and the created join its outgoing one, which is what lets ·It's lowered join into ·No and ·No's new join into ·Gay explain one window between them; and its own follower may in turn be the next event rather than the head of a span — a retarget on that letter's outgoing seam, the exit extension that letter gives up, or the trade its own new form makes — which is what lets ·Pea's lowered join into ·No, ·No's new join into ·Ah and ·Ah's dropped tail before ·Bay explain one window between the three of them; it holds however the join itself arose, so ·Ah's new x-height join into ·Gay and ·Gay's own redraw, which meets that seam and gives its baseline tail up in one stroke, explain one window between them, and with ·J'ai leading, ·Ah's contracted entry reads as a third event in the same window
 - a join-retargeted event leaves the pivot in place under the standing displacement — both it and the follower may redraw — brings the follower the columns it declares nearer, which is none at all where the retargeted join leaves it standing, moves the displacement the rest of the way to the declared shift, and moves again with the glyph after the follower leading the next span — or, when its pivot is a join-created event's follower, chains behind that event the other way round: the created join judges that letter's incoming seam and the retarget its outgoing one, so the glyph after the retarget's follower leads by both shifts combined, which is what lets ·Et's new baseline join into ·Gay and ·Gay's raised join into ·No explain one window between them
 
@@ -1063,8 +1063,24 @@ def _redrawn_holds(match, before, after, intern):
     return {(column + offset, row) for column, row in added} == gained
 
 
+def _contraction_room(before, after):
+    """How many columns of entry contraction the after form names beyond the before glyph's — the most a redrawn letter may sit closer to what precedes it, since a seam the old font had already drawn that tight has nothing left to close."""
+    return max(
+        0,
+        _glyph_adjustment(after[0], ENTRY_CONTRACTION) - _glyph_adjustment(before[0], ENTRY_CONTRACTION),
+    )
+
+
+def _pull(before, after, expected, room):
+    """How far a pivot's own placement sits ahead of where the walk expects it: zero when it stands exactly there, up to `room` columns closer when its new form pulls its entry in that far, and None anywhere else — off the grid, further left than the contraction can account for, or further right at all."""
+    offset = after[2] - before[2] - expected * PIXEL_SIZE
+    if offset % PIXEL_SIZE or not -room * PIXEL_SIZE <= offset <= 0:
+        return None
+    return offset // PIXEL_SIZE
+
+
 def _redrawn_geometry(match, unit, comparator):
-    """Whether the window's rendered before→after change is exactly the named trade on the named pivot, re-derived from the fonts: shape the window under one of the unit's configs and walk it position by position the way the composed walk does, because a pivot here is a position, not a name — the same before name can stand at one position as the pivot and at another as the untouched letter (a second ·Eight keeping its normal loop beside the one that pulls in), and only the after side's settled form says which is which. A pivot position is one whose before name carries a before prefix and whose after name carries an after prefix; it is judged as the named redraw at the same height and own-frame origin with its placement carrying the displacement accumulated so far, and every span between pivots must render identically under that displacement, which grows by the declared shift at each pivot. Anything the contract cannot hold — no pivot position at all, a shaped run that contradicts the unit's recorded glyphs, sides that spell different letters, an off-grid placement, a non-rectilinear outline, a cell traded outside the named sets — reads as no match, so the unit queues."""
+    """Whether the window's rendered before→after change is exactly the named trade on the named pivot, re-derived from the fonts: shape the window under one of the unit's configs and walk it position by position the way the composed walk does, because a pivot here is a position, not a name — the same before name can stand at one position as the pivot and at another as the untouched letter (a second ·Eight keeping its normal loop beside the one that pulls in), and only the after side's settled form says which is which. A pivot position is one whose before name carries a before prefix and whose after name carries an after prefix; it is judged as the named redraw at the same height and own-frame origin with its placement carrying the displacement accumulated so far, or up to the entry contraction its new form names closer than that, and every span between pivots must render identically under that displacement, which grows by the declared shift and by whatever the pivot took at each pivot. Anything the contract cannot hold — no pivot position at all, a shaped run that contradicts the unit's recorded glyphs, sides that spell different letters, an off-grid placement, a non-rectilinear outline, a cell traded outside the named sets — reads as no match, so the unit queues."""
     codepoints = unit.get("codepoints") or ""
     if not codepoints:
         return False
@@ -1108,17 +1124,18 @@ def _redrawn_geometry(match, unit, comparator):
         before, after = before_pieces.get(index), after_pieces.get(index)
         if before is None or after is None:
             return False
-        if after[2] != before[2] + displacement * PIXEL_SIZE:
-            return False
         if not _redrawn_holds(match, before, after, intern):
             return False
-        displacement += shift
+        pull = _pull(before, after, displacement, _contraction_room(before, after))
+        if pull is None:
+            return False
+        displacement += shift + pull
         before_span, after_span = [], []
     return _span_settled(intern, before_span, after_span, displacement)
 
 
 def _matches_redrawn(match, unit, excluded, context=None):
-    """A letter redrawn in place to a named new form, matched at the rendered-pixel grain: the old-font pivot form gives way to a named new form whose own-frame picture is the old one with the named cells traded at one common column offset, origin and placement standing still, everything after the pivot sliding by the declared count — which may be zero when the new form keeps the pivot's advance, since the trade itself is the change. The added set may be empty, which is a form that only gives ink up: ·Key's foot dropping its terminal pixel and its follower coming a column closer is the pure-loss reading, as distinct from the exit stretch the extension-dropped shape names at the name grain, which cannot see what the rest of the window did. Any other ink change anywhere in the window fails this match closed — which is where the composed reading picks up, so a window this shape refuses only because a second separately-blessed change moved a pixel it has no vocabulary for may still be explained by both rules together. One shaped config speaks for all of them, on the same digest-agreement precondition the slide shape holds. except_left reads the whole window, as the slide and ink-gain shapes do."""
+    """A letter redrawn in place to a named new form, matched at the rendered-pixel grain: the old-font pivot form gives way to a named new form whose own-frame picture is the old one with the named cells traded at one common column offset, the own-frame origin standing still and the placement with it unless the new form names an entry contraction, which lets the letter sit up to that many columns closer to what precedes it and carries the same amount on past it; everything after the pivot slides by the declared count — which may be zero when the new form keeps the pivot's advance, since the trade itself is the change. The added set may be empty, which is a form that only gives ink up: ·Key's foot dropping its terminal pixel and its follower coming a column closer is the pure-loss reading, as distinct from the exit stretch the extension-dropped shape names at the name grain, which cannot see what the rest of the window did. Any other ink change anywhere in the window fails this match closed — which is where the composed reading picks up, so a window this shape refuses only because a second separately-blessed change moved a pixel it has no vocabulary for may still be explained by both rules together. One shaped config speaks for all of them, on the same digest-agreement precondition the slide shape holds. except_left reads the whole window, as the slide and ink-gain shapes do."""
     deltas = unit.get("ink_deltas")
     if not isinstance(deltas, dict) or not deltas:
         return False
@@ -1398,7 +1415,7 @@ def _validate_join_created(rule_id, match) -> None:
 
 
 class Event(NamedTuple):
-    """One position a composable rule was credited at in a composed walk: the rule's id, which shape spoke there (`slide`, `extension`, `gain`, `join`, `entry`, `stub`, `redrawn`, `retarget`, or `joined`), the columns the window's running displacement moves by at that position — the declared slide, minus the extension's column count, the declared join gap, an entry shortening combined with any exit-extension delta on that pivot, the declared created-join shift or the columns a retarget brings its follower nearer, the stub-drop's placement bump (followers unmoved), or the declared ink-gain or redrawn shift — how far the pivot's own placement sits ahead of the span behind it, which only an entry contraction whose after frame did not take it into its origin is ever anything but zero, whether the event's own contract judged its pivot, which only a created join ever answers no to: one whose pivot moved its origin has judged its follower alone and is an event only behind an entry-contraction event at the same position, and the columns the displacement moves by again once the walk is past the follower, which a created join whose follower redrew to a different advance carries and a retarget carries whatever its declared shift leaves over its follower's own move."""
+    """One position a composable rule was credited at in a composed walk: the rule's id, which shape spoke there (`slide`, `extension`, `gain`, `join`, `entry`, `stub`, `redrawn`, `retarget`, or `joined`), the columns the window's running displacement moves by at that position — the declared slide, minus the extension's column count, the declared join gap, an entry shortening combined with any exit-extension delta on that pivot, the declared created-join shift or the columns a retarget brings its follower nearer, the stub-drop's placement bump (followers unmoved), or the declared ink-gain or redrawn shift — how far the pivot's own placement sits ahead of the span behind it, which only an entry contraction whose after frame did not take it into its origin is ever anything but zero, how much further ahead of that it may sit, which only a redrawn trade whose new form names an entry contraction ever gives room for, whether the event's own contract judged its pivot, which only a created join ever answers no to: one whose pivot moved its origin has judged its follower alone and is an event only behind an entry-contraction event at the same position, and the columns the displacement moves by again once the walk is past the follower, which a created join whose follower redrew to a different advance carries and a retarget carries whatever its declared shift leaves over its follower's own move."""
 
     rule_id: str
     kind: str
@@ -1406,6 +1423,7 @@ class Event(NamedTuple):
     pivot_judged: bool = True
     lead: int = 0
     advance: int = 0
+    room: int = 0
 
 
 def _shape_of(match):
@@ -1571,7 +1589,7 @@ def _stub_event(match, rule_id, index, after_names, intern, before_pieces, after
 
 
 def _redrawn_event(match, rule_id, index, after_names, intern, before_pieces, after_pieces):
-    """Whether one redrawn candidate's own contract holds at the rendered grain, one position at a time: the after side settles into one of the rule's named after forms, and the pivot keeps its height and own-frame origin while its after picture is its before picture with the named cells traded at one common column offset. Placement under the running displacement is the walk's job, not this contract's, mirroring `_entry_event` leaving the span equality to the walk. None when any of that fails, which leaves the piece to be judged as ordinary span ink."""
+    """Whether one redrawn candidate's own contract holds at the rendered grain, one position at a time: the after side settles into one of the rule's named after forms, and the pivot keeps its height and own-frame origin while its after picture is its before picture with the named cells traded at one common column offset. Placement under the running displacement is the walk's job, not this contract's, mirroring `_entry_event` leaving the span equality to the walk, and so is how much of the entry contraction the new form names the pivot takes there — the contract says only how much room there is for it. None when any of that fails, which leaves the piece to be judged as ordinary span ink."""
     before, after = before_pieces.get(index), after_pieces.get(index)
     if before is None or after is None:
         return None
@@ -1579,7 +1597,7 @@ def _redrawn_event(match, rule_id, index, after_names, intern, before_pieces, af
         return None
     if not _redrawn_holds(match, before, after, intern):
         return None
-    return Event(rule_id, "redrawn", match["after"]["shift"])
+    return Event(rule_id, "redrawn", match["after"]["shift"], room=_contraction_room(before, after))
 
 
 def _extension_event(match, rule_id, index, intern, before_pieces, after_pieces, cell):
@@ -1832,9 +1850,10 @@ def _composed_walk(rules, unit, context):
             displacement += event.shift
             index += 1
         elif event.kind in ("gain", "entry", "redrawn"):
-            if after_pieces[index][2] != before_pieces[index][2] + (displacement + event.lead) * PIXEL_SIZE:
+            pull = _pull(before_pieces[index], after_pieces[index], displacement + event.lead, event.room)
+            if pull is None:
                 return None
-            displacement += carried + event.shift
+            displacement += carried + event.shift + pull
             carried = 0
             before_span, after_span = [], []
             if event.kind == "entry":
