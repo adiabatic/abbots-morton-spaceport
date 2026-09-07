@@ -1025,3 +1025,15 @@ rules:
         follower_advance: 2
         follower_reach: 1
       except_left: []
+  - id: jai-entry-extension-dropped
+    verdict: approve
+    note: "·J’ai gives up the two columns of crown entry the old font drew after ·Gay and ·May, redrawing to the plain hapax crown, and whatever follows it comes a column closer — the connector now sits wholly on the left letter's exit. qsJai carries no entry-extension record at all: the ·Gay arm was deleted in “Extend ·Gay ~x~ ·J’ai by another pixel”, which put that reach on qsGay's x-height exit at by-3, and the ·May arm never entered the rune, qsMay's own by-2 exit toward the qsJai family carrying it instead; rebuild/m1-divergences.yaml holds both readings, as same-seam-extension-non-summing and may-jai-extension-consolidated. The rule names the word-final crown beside the one that goes on to a baseline exit, since the letter draws the same picture either way and the declared column only ever reaches a follower. jai-crown-contracted, jai-entry-contracted-exit-extension-dropped and jai-entry-contracted-by-two-exit-extension-dropped are ·J’ai's other standing changes at the crown, each on a window the old font drew with no entry extension to give up, and jai-exit-extension-dropped is the reach at the other end. What the ·Gay in front of it does is a decision of its own, so a window where that ·Gay takes its new baseline join is the composed reading's, with gay-baseline-join-created-reaching-back-before-jai. Every window that reached a sitting approved the tighter crown"
+    match:
+      before:
+        pivots: [qsJai.en-y5.ex-y0.en-ext-2]
+      after:
+        pivots: [qsJai.hapax.en-y5.ex-y0, qsJai.hapax.en-y5]
+        dropped: [[0, 8], [1, 1], [2, 0], [2, 2], [3, 1], [4, 2], [5, 4], [5, 5], [5, 8], [6, 3], [6, 6], [6, 7]]
+        added: [[0, 1], [1, 0], [1, 2], [2, 1], [2, 3], [3, 2], [4, 4], [4, 5], [5, 6], [5, 7]]
+        shift: -1
+      except_left: []
