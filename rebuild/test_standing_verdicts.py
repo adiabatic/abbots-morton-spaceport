@@ -175,6 +175,20 @@ CONTRACTED_ENTRY_RULE = {
     },
 }
 
+PLACED_CONTRACTION_RULE = {
+    "id": "fixture-entry-contracted-by-placement",
+    "verdict": "approve",
+    "note": "·Roe sits a pixel closer after ·Bay, its own frame keeping its origin",
+    "match": {
+        "before": {"left": "qsBay", "pivots": ["qsRoe.ex-y0"]},
+        "after": {
+            "pivots": ["qsRoe.hapax.en-y5.ex-y0.en-con-1"],
+            "entry_contraction": 1,
+        },
+        "except_left": [],
+    },
+}
+
 STUB_RULE = {
     "id": "fixture-stub-dropped",
     "verdict": "approve",
@@ -1324,6 +1338,8 @@ MISALIGNED_FULL_TEA_BAR = (_rect(0, 50, 50, 500),)
 FOOTED_KEY = (_rect(0, 0, 50, 450), _rect(50, 0, 100, 50))
 SHORTENED_FOOT_KEY = (_rect(0, 0, 50, 450),)
 SHORTENED_FOOT_KEY_AND_A_CROWN = (_rect(0, 0, 50, 450), _rect(50, 400, 100, 450))
+PLACED_CONTRACTION_ROE = (_rect(0, 0, 50, 100), _rect(50, 0, 150, 150))
+PLACED_CONTRACTION_ROE_PULLED = (_rect(0, 50, 50, 100), _rect(50, 0, 150, 150))
 
 _OUTLINES: dict[str, dict[str, tuple]] = {"before": {}, "after": {}}
 _CODEPOINTS: dict[tuple[str, str], int] = {}
@@ -1378,6 +1394,7 @@ register_glyph("before", "qsVie.en-ext-1", EXTENDED_ENTRY_LOW, 150)
 register_glyph("before", "qsVie_qsUtter.en-ext-1", EXTENDED_ENTRY_LOW, 150)
 register_glyph("before", "qsMay.en-y0.ex-y5.en-ext-1", EXTENDED_ENTRY_LOW, 150)
 register_glyph("before", "qsMay.en-y0.ex-y5.contract-fixture", EXTENDED_ENTRY_LOW, 150)
+register_glyph("before", "qsRoe.ex-y0.placed-contraction", PLACED_CONTRACTION_ROE, 150)
 register_glyph("before", "qsMay.en-y0.ex-y5.unchanged-fixture", TWO_COLUMNS, 100)
 register_glyph("before", "qsBay.contract-lead", TWO_COLUMNS, 100)
 register_glyph("before", "qsFcovered.en-ext-1", OVERHANGING_FOLLOWER, 100)
@@ -1434,6 +1451,7 @@ register_glyph("after", "qsEight.normal-sized-loop", EIGHTISH, 100)
 register_glyph("after", "qsTea.full.en-y5", FULL_TEA_BAR, 50)
 register_glyph("after", "qsTea.full.en-y5.misaligned", MISALIGNED_FULL_TEA_BAR, 50)
 register_glyph("after", "qsKey.hapax.ex-y0.ex-con-1", SHORTENED_FOOT_KEY, 50)
+register_glyph("after", "qsRoe.hapax.en-y5.ex-y0.en-con-1", PLACED_CONTRACTION_ROE_PULLED, 150)
 register_glyph("after", "space", (), 50)
 
 LEAD = register_pair("qsL", "qsL")
@@ -1486,6 +1504,7 @@ TEA_VERTICAL_GAIN = register_pair("qsTea.half.en-y5.after-xheight-exit", "qsTea.
 TEA_VERTICAL_GAIN_MISALIGNED = register_pair(
     "qsTea.half.en-y5.after-xheight-exit", "qsTea.full.en-y5.misaligned"
 )
+PLACED_CONTRACTION = register_pair("qsRoe.ex-y0.placed-contraction", "qsRoe.hapax.en-y5.ex-y0.en-con-1")
 
 BEFORE_GLYPHS = _OUTLINES["before"]
 AFTER_GLYPHS = _OUTLINES["after"]
@@ -1566,6 +1585,10 @@ SLIDE_FONTS = {
     ),
     "after-key-crowned": (
         {**AFTER_GLYPHS, "qsKey.hapax.ex-y0.ex-con-1": (SHORTENED_FOOT_KEY_AND_A_CROWN, 50)},
+        AFTER_CMAP,
+    ),
+    "after-placed-contraction-unmoved-pivot": (
+        {**AFTER_GLYPHS, "qsBay.contract-lead": (TWO_COLUMNS, 100)},
         AFTER_CMAP,
     ),
 }
@@ -3657,6 +3680,23 @@ DUPLICATE_MAY_AFTER_GLYPHS = [
     "qsF1",
 ]
 DUPLICATE_MAY_AFTER_CODEPOINTS = spell(CONTRACTION_LEAD, CONTRACTED_MAY, LEAD, UNCHANGED_MAY, FOLLOWER_1)
+PLACED_CONTRACTION_GLYPHS = ["qsBay.contract-lead", "qsRoe.ex-y0.placed-contraction", "qsF1"]
+PLACED_CONTRACTION_CODEPOINTS = spell(CONTRACTION_LEAD, PLACED_CONTRACTION, FOLLOWER_1)
+COMPOSED_PLACED_CONTRACTION_GLYPHS = [
+    "qsL",
+    "qsSee.ex-y0",
+    "qsBay.contract-lead",
+    "qsRoe.ex-y0.placed-contraction",
+    "qsF1",
+]
+COMPOSED_PLACED_CONTRACTION_CODEPOINTS = spell(
+    LEAD,
+    SEE,
+    CONTRACTION_LEAD,
+    PLACED_CONTRACTION,
+    FOLLOWER_1,
+)
+COMPOSED_PLACED_CONTRACTION_RULES = [SLIDE_RULE, PLACED_CONTRACTION_RULE]
 
 
 def entry_window(uid="e-1"):
@@ -3696,6 +3736,22 @@ def composed_contracted_entry_covered_window(uid="cec-covered-1"):
         COMPOSED_CONTRACTED_ENTRY_COVERED_CODEPOINTS,
     )
     window["after"]["cells"][3] = "qsMay/loop/baseline/None/en-con-1"
+    return window
+
+
+def placed_contraction_window(uid="pc-1"):
+    window = slide_unit(uid, PLACED_CONTRACTION_GLYPHS, PLACED_CONTRACTION_CODEPOINTS)
+    window["after"]["cells"][1] = "qsRoe/hapax/x-height/baseline/en-con-1"
+    return window
+
+
+def composed_placed_contraction_window(uid="cpc-1"):
+    window = slide_unit(
+        uid,
+        COMPOSED_PLACED_CONTRACTION_GLYPHS,
+        COMPOSED_PLACED_CONTRACTION_CODEPOINTS,
+    )
+    window["after"]["cells"][3] = "qsRoe/hapax/x-height/baseline/en-con-1"
     return window
 
 
@@ -3816,6 +3872,31 @@ def test_a_union_invisible_suffix_respelling_rides_in_a_composed_entry_contracti
         slide_context(),
     )
     assert events == {SLIDE_RULE["id"]: [1], CONTRACTED_ENTRY_RULE["id"]: [3]}
+
+
+def test_a_contraction_the_placement_carries_matches(slide_context):
+    assert sv._matches(
+        PLACED_CONTRACTION_RULE["match"],
+        placed_contraction_window(),
+        context=slide_context(),
+    )
+
+
+def test_an_unmoved_pivot_defeats_a_contraction_the_placement_carries(slide_context):
+    assert not sv._matches(
+        PLACED_CONTRACTION_RULE["match"],
+        placed_contraction_window(),
+        context=slide_context("after-placed-contraction-unmoved-pivot"),
+    )
+
+
+def test_a_slide_and_a_placement_carried_contraction_in_one_window_compose(slide_context):
+    events = sv._composed(
+        COMPOSED_PLACED_CONTRACTION_RULES,
+        composed_placed_contraction_window(),
+        slide_context(),
+    )
+    assert events == {SLIDE_RULE["id"]: [1], PLACED_CONTRACTION_RULE["id"]: [3]}
 
 
 def test_a_vertical_gain_and_an_entry_contraction_in_one_window_compose(slide_context):

@@ -16,7 +16,7 @@ Each expressible delta shape is a row in SHAPES, and a rule declares exactly one
 
 - The `entry_drop` shape judges the same rendered pixels for a letter that gives up a named stretch of left-side entry: the old-font pivot form gives way to a named new form whose own-frame picture is the old one compacted left by that many columns — every dropped cell sitting in the columns that came off, the remaining cells shifting left by the same count, origin and placement standing still — and everything after the pivot sliding closer by that count, so a window whose only change is ·Low losing the extra baseline pixel the old font drew after ·See matches, and a window that also carries a blessed slide still needs the composed reading.
 
-- The `entry-contracted` shape judges the same rendered pixels for one or more named left–pivot pairs whose pivot pulls its entry inward by a declared number of columns: the placed pivot ink stands still while its own-frame origin moves right by that count, the left-side loss stays inside the contracted columns, any far-right tail change is exactly the difference between the exit extensions named by the before and after glyphs, and everything after the pivot moves by the contraction combined with that exact exit-extension delta. A name-grain respelling in the suffix may ride along when the pivot still paints every cell it appears to lose, so the visible pivot-plus-suffix union remains exact; any visible ink change fails closed for the composed reading.
+- The `entry-contracted` shape judges the same rendered pixels for one or more named left–pivot pairs whose pivot pulls its entry inward by a declared number of columns: the letter comes that many columns closer, carried by however the after form's own frame took the contraction — a frame that moved its own-frame origin right by the whole count holds its placement still, one that moved its origin not at all carries its placement the whole count left, and the ink lands in the same place either way. The left-side loss stays inside the contracted columns, any far-right tail change is exactly the difference between the exit extensions named by the before and after glyphs, and everything after the pivot moves by the contraction combined with that exact exit-extension delta. A name-grain respelling in the suffix may ride along when the pivot still paints every cell it appears to lose, so the visible pivot-plus-suffix union remains exact; any visible ink change fails closed for the composed reading.
 
 - The `stub_drop` shape judges the same rendered pixels for a letter that gives up a named left-side stub while the ink it keeps stays where it was: the old-font pivot form gives way to a named new form whose own-frame picture is the old one compacted left by that many columns, its own-frame origin standing still while its placement moves right by the same count — the left edge catching up to the ink that remains — and every other pixel in the window unmoved, which is what tells stub-dropped from entry-extension-dropped, whose remaining ink slides closer while its placement stands still: a window whose only change is ·May losing the leftover left pixel after ·Ah matches, and a window that also carries a blessed join-drop still needs the composed reading. A pivot here is a position, not a name: a second ·May keeping its old loop beside the one that lost the stub rides as span ink, because only the before side's named form says which of the two after loops is the drop.
 
@@ -40,7 +40,7 @@ The walk then re-shapes the window in the surface's font pair and carries a runn
 - an extension event drops off the named seam row the tail the pivot gave up — the named extension, less any shorter one its after cell keeps, or the named contraction — and moves again with the named follower leading — that span a translation, or the same picture compacted left by a dropped entry extension, or the named follower skipped when it redrew some other way
 - a join-dropped event leaves the pivot in place under the standing displacement, adds the declared gap, and moves again with the follower leading
 - an ink-gain event adds the named cells on the pivot, judged piece by piece, and moves by the declared count with the next glyph leading the next span
-- an entry-drop event leaves the pivot in place under the standing displacement, compacting its remaining ink left by the named columns, and moves the displacement closer with the next glyph leading the next span
+- an entry-drop event leaves the pivot under the standing displacement, or the part of a contraction its own frame did not take further left still, compacting its remaining ink left by the named columns, and moves the displacement closer with the next glyph leading the next span
 - a redrawn event trades the named cells on the pivot under the standing displacement and moves the displacement by its declared count with the next glyph leading the next span
 - a join-created event leaves the pivot under the standing displacement while its follower leads the declared shift — or, when its pivot is itself an entry-contraction event, chains behind that event: the contraction judges the pivot's entry and origin, the created join judges only its follower, and the follower leads by both shifts combined, which is what lets ·Ah's contracted entry after ·J'ai and its new x-height join into ·Gay explain one window between them — and it chains the same way when its pivot is a join-retargeted event's follower, the retarget judging that letter's incoming seam and the created join its outgoing one, which is what lets ·It's lowered join into ·No and ·No's new join into ·Gay explain one window between them
 - a join-retargeted event leaves the pivot and the follower in place under the standing displacement — both may redraw — adds the declared shift, and moves again with the glyph after the follower leading the next span
@@ -716,52 +716,65 @@ def _entry_shift(match, before_name, after_name):
 
 
 def _entry_drop_holds(match, before, after, intern):
-    """Whether one pivot piece is the named entry shortening: same height, both on the grid, and either an old entry extension comes off under a fixed own-frame origin or a named after-side entry contraction moves that origin right by the same count. In the fixed-origin case the after picture is the before picture compacted left by the named columns. In the contraction case the two pictures are aligned back into the before form's frame: the only left-side loss is inside those columns, and any far-right difference must be exactly the exit-extension count the glyph names say changed. No other cell may disappear or appear."""
+    """How far the pivot's own placement moves under the named entry shortening, or None when the piece is not one: same height, both on the grid, and either an old entry extension comes off under a fixed own-frame origin or a named after-side entry contraction pulls the letter in. In the fixed-origin case the after picture is the before picture compacted left by the named columns and the placement stands still. In the contraction case the two pictures are aligned by however far the after form moved its own-frame origin, and the placement makes up the rest of the contraction: a frame that took the whole contraction into its origin leaves the placement standing still, one that took none of it carries the letter the whole contraction closer, and the ink lands in the same place either way. The only left-side loss is inside the contracted columns, and any far-right difference must be exactly the exit-extension count the glyph names say changed. No other cell may disappear or appear."""
     if before[3] != after[3]:
-        return False
+        return None
     if before[2] % PIXEL_SIZE or after[2] % PIXEL_SIZE or before[3] % PIXEL_SIZE:
-        return False
+        return None
     painted, kept = intern.cells(before[1]), intern.cells(after[1])
     if painted is None or kept is None or not kept:
-        return False
+        return None
     columns = _entry_columns(match)
     shifted = {(column + columns, row) for column, row in kept}
     dropped = painted - shifted
     gained = shifted - painted
-    if before[4] == after[4]:
-        return bool(dropped) and not gained and all(column < columns for column, _row in dropped)
-    if after[4] != before[4] + columns * PIXEL_SIZE:
-        return False
+    if before[4] == after[4] and dropped and not gained and all(column < columns for column, _row in dropped):
+        return 0
+    origin_move = after[4] - before[4]
+    if origin_move % PIXEL_SIZE:
+        return None
+    offset = origin_move // PIXEL_SIZE
+    if not 0 <= offset <= columns:
+        return None
+    if offset != columns:
+        shifted = {(column + offset, row) for column, row in kept}
+        dropped = painted - shifted
+        gained = shifted - painted
+    lead = offset - columns
     if _glyph_adjustment(after[0], ENTRY_CONTRACTION) != columns:
-        return False
+        return None
     if _glyph_adjustment(before[0], ENTRY_EXTENSION):
-        return False
+        return None
     entry_dropped = {(column, row) for column, row in dropped if column < columns}
     tail_dropped = dropped - entry_dropped
     if not entry_dropped:
-        return False
+        return None
     before_extension = _glyph_adjustment(before[0], EXIT_EXTENSION)
     after_extension = _glyph_adjustment(after[0], EXIT_EXTENSION)
     extension_delta = after_extension - before_extension
     if extension_delta >= 0:
         if tail_dropped or len(gained) != extension_delta:
-            return False
+            return None
         if not gained:
-            return True
+            return lead
         edge = max(column for column, _row in painted)
-        return len({row for _column, row in gained}) == 1 and {column for column, _row in gained} == set(
+        if len({row for _column, row in gained}) == 1 and {column for column, _row in gained} == set(
             range(edge + 1, edge + 1 + extension_delta)
-        )
+        ):
+            return lead
+        return None
     if gained or len(tail_dropped) != -extension_delta:
-        return False
+        return None
     edge = max(column for column, _row in shifted)
-    return len({row for _column, row in tail_dropped}) == 1 and {
-        column for column, _row in tail_dropped
-    } == set(range(edge + 1, edge + 1 - extension_delta))
+    if len({row for _column, row in tail_dropped}) == 1 and {column for column, _row in tail_dropped} == set(
+        range(edge + 1, edge + 1 - extension_delta)
+    ):
+        return lead
+    return None
 
 
 def _entry_geometry(match, unit, comparator, pivot_positions=None):
-    """Whether the window's rendered before→after change is exactly the named left-side entry shortening on the named pivot, re-derived from the fonts: shape the window under one of the unit's configs, judge each pivot piece by `_entry_drop_holds` at the same placement, and require every span strictly between the pivots to render identically once displaced by the cumulative drop — the span before the first pivot by nothing, the span after the first pivot by the full drop, and one more drop for every further pivot. Each post-pivot span is compared together with that pivot's already-validated after picture, so a suffix glyph may give up cells the pivot still paints without turning an invisible ownership handoff into another visual question. A pair-specific caller passes the positions already scoped by its named left family; the general entry-drop shape leaves them unset and judges every named pivot. Anything the contract cannot hold — no pivot on the before side, pivot counts that disagree, a shaped run that contradicts the unit's recorded glyphs, an off-grid placement, a non-rectilinear outline, a dropped cell outside the named columns, an unnamed visible cell — reads as no match, so the unit queues."""
+    """Whether the window's rendered before→after change is exactly the named left-side entry shortening on the named pivot, re-derived from the fonts: shape the window under one of the unit's configs, judge each pivot piece by `_entry_drop_holds` at the placement that contract answers for, and require every span strictly between the pivots to render identically once displaced by the cumulative drop — the span before the first pivot by nothing, the span after the first pivot by the full drop, and one more drop for every further pivot. Each post-pivot span is compared together with that pivot's already-validated after picture, so a suffix glyph may give up cells the pivot still paints without turning an invisible ownership handoff into another visual question. A pair-specific caller passes the positions already scoped by its named left family; the general entry-drop shape leaves them unset and judges every named pivot. Anything the contract cannot hold — no pivot on the before side, pivot counts that disagree, a shaped run that contradicts the unit's recorded glyphs, an off-grid placement, a non-rectilinear outline, a dropped cell outside the named columns, an unnamed visible cell — reads as no match, so the unit queues."""
     codepoints = unit.get("codepoints") or ""
     if not codepoints:
         return False
@@ -803,9 +816,10 @@ def _entry_geometry(match, unit, comparator, pivot_positions=None):
     for step in range(len(before_pivots)):
         before = before_run[before_pivots[step]]
         after = after_run[after_pivots[step]]
-        if after[2] != before[2] + displacement * PIXEL_SIZE:
+        lead = _entry_drop_holds(match, before, after, intern)
+        if lead is None:
             return False
-        if not _entry_drop_holds(match, before, after, intern):
+        if after[2] != before[2] + (displacement + lead) * PIXEL_SIZE:
             return False
         displacement += _entry_shift(match, before[0], after[0])
         if not _span_settled(
@@ -820,7 +834,7 @@ def _entry_geometry(match, unit, comparator, pivot_positions=None):
 
 
 def _matches_entry_drop(match, unit, excluded, context=None):
-    """A letter that gives up a named stretch of left-side entry, matched at the rendered-pixel grain: either the old form's extra entry columns come off under a fixed origin, or a named after-side entry contraction moves the own-frame origin right by the same count while holding the placed ink still; everything after the pivot slides closer by that count. The contraction reading admits only the exact far-right tail difference named by the before and after glyphs' exit-extension modifiers. Any other ink change anywhere in the window fails this match closed — which is where the composed reading picks up, so a window this shape refuses only because a second separately-blessed change moved a pixel it has no vocabulary for may still be explained by both rules together. One shaped config speaks for all of them, on the same digest-agreement precondition the slide shape holds. except_left reads the whole window, as the slide and ink-gain shapes do."""
+    """A letter that gives up a named stretch of left-side entry, matched at the rendered-pixel grain: either the old form's extra entry columns come off under a fixed origin, or a named after-side entry contraction pulls the letter that many columns closer — taken into the after form's own-frame origin, into its placement, or shared between them; everything after the pivot slides closer by that count. The contraction reading admits only the exact far-right tail difference named by the before and after glyphs' exit-extension modifiers. Any other ink change anywhere in the window fails this match closed — which is where the composed reading picks up, so a window this shape refuses only because a second separately-blessed change moved a pixel it has no vocabulary for may still be explained by both rules together. One shaped config speaks for all of them, on the same digest-agreement precondition the slide shape holds. except_left reads the whole window, as the slide and ink-gain shapes do."""
     deltas = unit.get("ink_deltas")
     if not isinstance(deltas, dict) or not deltas:
         return False
@@ -860,7 +874,7 @@ def _contracted_entry_candidates(match, unit):
 
 
 def _matches_entry_contracted(match, unit, excluded, context=None):
-    """One or more named left–pivot pairs whose pivot contracts its entry by the declared columns, using `_entry_geometry` for the same rendered-pixel contract as the contraction arm of the entry-extension-dropped shape. Naming the immediate left families keeps a pair-specific decision pair-specific; the after glyph must carry the declared `en-con-N`, its own-frame origin must move right by that count while its placed ink stands still, and the exact exit-extension delta named by the before and after glyphs is the only far-right change admitted. Everything after the pivot must move by the contraction combined with that exit-extension delta, and any other ink change fails closed for the composed reading to consider."""
+    """One or more named left–pivot pairs whose pivot contracts its entry by the declared columns, using `_entry_geometry` for the same rendered-pixel contract as the contraction arm of the entry-extension-dropped shape. Naming the immediate left families keeps a pair-specific decision pair-specific; the after glyph must carry the declared `en-con-N`, the letter must come that many columns closer however its own frame took the contraction — origin, placement, or the two between them — and the exact exit-extension delta named by the before and after glyphs is the only far-right change admitted. Everything after the pivot must move by the contraction combined with that exit-extension delta, and any other ink change fails closed for the composed reading to consider."""
     deltas = unit.get("ink_deltas")
     if not isinstance(deltas, dict) or not deltas:
         return False
@@ -934,8 +948,8 @@ def _stub_geometry(match, unit, comparator):
         before, after = before_pieces.get(index), after_pieces.get(index)
         if before is None or after is None:
             return False
-        if after[2] != before[2] + columns * PIXEL_SIZE or not _entry_drop_holds(
-            {"after": {"entry_drop": columns}}, before, after, intern
+        if after[2] != before[2] + columns * PIXEL_SIZE or (
+            _entry_drop_holds({"after": {"entry_drop": columns}}, before, after, intern) is None
         ):
             return False
         before_span, after_span = [], []
@@ -1362,12 +1376,13 @@ def _validate_join_created(rule_id, match) -> None:
 
 
 class Event(NamedTuple):
-    """One position a composable rule was credited at in a composed walk: the rule's id, which shape spoke there (`slide`, `extension`, `gain`, `join`, `entry`, `stub`, `redrawn`, `retarget`, or `joined`), the columns the window's running displacement moves by at that position — the declared slide, minus the extension's column count, the declared join gap, an entry shortening combined with any exit-extension delta on that pivot, the declared retarget or created-join shift, the stub-drop's placement bump (followers unmoved), or the declared ink-gain or redrawn shift — and whether the event's own contract judged its pivot, which only a created join ever answers no to: one whose pivot moved its origin has judged its follower alone and is an event only behind an entry-contraction event at the same position."""
+    """One position a composable rule was credited at in a composed walk: the rule's id, which shape spoke there (`slide`, `extension`, `gain`, `join`, `entry`, `stub`, `redrawn`, `retarget`, or `joined`), the columns the window's running displacement moves by at that position — the declared slide, minus the extension's column count, the declared join gap, an entry shortening combined with any exit-extension delta on that pivot, the declared retarget or created-join shift, the stub-drop's placement bump (followers unmoved), or the declared ink-gain or redrawn shift — how far the pivot's own placement sits ahead of the span behind it, which only an entry contraction whose after frame did not take it into its origin is ever anything but zero, and whether the event's own contract judged its pivot, which only a created join ever answers no to: one whose pivot moved its origin has judged its follower alone and is an event only behind an entry-contraction event at the same position."""
 
     rule_id: str
     kind: str
     shift: int
     pivot_judged: bool = True
+    lead: int = 0
 
 
 def _shape_of(match):
@@ -1507,15 +1522,16 @@ def _gain_event(match, rule_id, index, after_names, intern, before_pieces, after
 
 
 def _entry_event(match, rule_id, index, after_names, intern, before_pieces, after_pieces):
-    """Whether one entry-shortening candidate's own contract holds at the rendered grain, one position at a time: the after side settles into one of the rule's named after forms, and `_entry_drop_holds` proves either the fixed-origin entry drop or the named entry contraction. Placement under the running displacement is the walk's job, not this contract's, mirroring `_gain_event` leaving the span equality to the walk. None when any of that fails, which leaves the piece to be judged as ordinary span ink."""
+    """Whether one entry-shortening candidate's own contract holds at the rendered grain, one position at a time: the after side settles into one of the rule's named after forms, and `_entry_drop_holds` proves either the fixed-origin entry drop or the named entry contraction and says how far the pivot's own placement sits ahead of the span behind it. Placement under the running displacement is the walk's job, not this contract's, mirroring `_gain_event` leaving the span equality to the walk. None when any of that fails, which leaves the piece to be judged as ordinary span ink."""
     before, after = before_pieces.get(index), after_pieces.get(index)
     if before is None or after is None:
         return None
     if not _named_pivot(after_names[index], match["after"]["pivots"]):
         return None
-    if not _entry_drop_holds(match, before, after, intern):
+    lead = _entry_drop_holds(match, before, after, intern)
+    if lead is None:
         return None
-    return Event(rule_id, "entry", _entry_shift(match, before[0], after[0]))
+    return Event(rule_id, "entry", _entry_shift(match, before[0], after[0]), lead=lead)
 
 
 def _stub_event(match, rule_id, index, after_names, intern, before_pieces, after_pieces):
@@ -1526,7 +1542,7 @@ def _stub_event(match, rule_id, index, after_names, intern, before_pieces, after
     if not _named_pivot(after_names[index], match["after"]["pivots"]):
         return None
     columns = match["after"]["stub_drop"]
-    if not _entry_drop_holds({"after": {"entry_drop": columns}}, before, after, intern):
+    if _entry_drop_holds({"after": {"entry_drop": columns}}, before, after, intern) is None:
         return None
     return Event(rule_id, "stub", columns)
 
@@ -1780,7 +1796,7 @@ def _composed_walk(rules, unit, context):
             displacement += event.shift
             index += 1
         elif event.kind in ("gain", "entry", "redrawn"):
-            if after_pieces[index][2] != before_pieces[index][2] + displacement * PIXEL_SIZE:
+            if after_pieces[index][2] != before_pieces[index][2] + (displacement + event.lead) * PIXEL_SIZE:
                 return None
             displacement += event.shift
             before_span, after_span = [], []

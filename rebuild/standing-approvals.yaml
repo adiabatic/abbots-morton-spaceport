@@ -611,3 +611,16 @@ rules:
           - qsNo/flipped/baseline/baseline/
         shift: 0
       except_left: []
+  - id: roe-xheight-entry-contracted
+    verdict: approve
+    note: "·Roe sits a pixel closer after ·Pea, ·Tea and ·He — its x-height entry pulls in one column on qsRoe's contract record, which has named all three left letters since the letter landed in “Declare ·I done and add ·Roe”, and every window that reached a sitting approved the tighter seam; the baseline-entry contraction the same record carries beside it is a separate pair ruling and no business of this rule"
+    match:
+      before:
+        left: [qsPea, qsTea, qsHe]
+        pivots: [qsRoe]
+      after:
+        pivots:
+          - qsRoe.hapax.en-y5.en-con-1
+          - qsRoe.hapax.en-y5.ex-y0.en-con-1
+        entry_contraction: 1
+      except_left: []
