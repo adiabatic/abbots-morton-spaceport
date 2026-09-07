@@ -1037,3 +1037,15 @@ rules:
         added: [[0, 1], [1, 0], [1, 2], [2, 1], [2, 3], [3, 2], [4, 4], [4, 5], [5, 6], [5, 7]]
         shift: -1
       except_left: []
+  - id: jai-utter-entry-extension-dropped
+    verdict: approve
+    note: "·J’ai+Utter gives up the two columns of crown entry the old font drew after ·Gay and ·May, redrawing to the plain hapax crown, and whatever follows the ligature comes a column closer — the connector now sits wholly on the left letter's exit. qsJai_qsUtter carries no entry-extension record at all: the ·Gay arm was deleted in “Extend ·Gay ~x~ ·J’ai by another pixel”, which put that reach on qsGay's x-height exit at by-3, toward the ligature as toward the bare letter, and the ·May arm never entered the rune, qsMay's own by-2 exit toward the qsJai family carrying it instead; rebuild/m1-divergences.yaml holds both readings, as same-seam-extension-non-summing, which names this ligature's deleted record beside ·J’ai's own, and may-jai-extension-consolidated, whose second exemplar is this very seam. jai-entry-extension-dropped is the same crown entry coming off the bare letter. The rule names the word-final crown beside the one that goes on to an x-height exit, since the ligature draws the same picture either way and the declared column only ever reaches a follower; the ligature that also keeps the by-1 reach its own extend record gives it toward ·Bay, ·Gay and ·Fee carries its tail a column further out and is not this trade. What the ·Gay in front of it does is a decision of its own, so a window where that ·Gay takes its new baseline join is the composed reading's, with gay-baseline-join-created-reaching-back-before-jai, and one where it pulls its baseline entry in is gay-entry-contracted's. Every window that reached a sitting approved the tighter crown"
+    match:
+      before:
+        pivots: [qsJai_qsUtter.en-ext-2]
+      after:
+        pivots: [qsJai_qsUtter.hapax.en-y5, qsJai_qsUtter.hapax.en-y5.ex-y5]
+        dropped: [[0, 8], [1, 1], [2, 2], [3, 0], [3, 3], [4, 1], [5, 2], [5, 3], [5, 4], [5, 8], [6, 5], [6, 7], [7, 6], [8, 7], [10, 8]]
+        added: [[0, 1], [1, 0], [1, 2], [2, 3], [3, 1], [3, 4], [4, 2], [4, 3], [4, 5], [5, 6], [5, 7], [7, 7], [8, 8]]
+        shift: -1
+      except_left: []
