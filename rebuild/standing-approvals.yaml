@@ -1135,3 +1135,18 @@ rules:
         shift: 0
         follower_shift: 0
       except_left: []
+  - id: no-thaw-baseline-join-dropped
+    verdict: approve
+    note: "·Thaw sits three columns further from ·No — the two no longer join, because a ·No the letter in front of it has raised to the x-height has nothing left to reach down with: qsNo's loop stance carries an x-height exit and no baseline one, and the baseline entry is the only entry qsThaw has, carrying qsNo on its from-list since the letter landed in “Add ·Thaw”. Where ·Gay does the raising the two rules explain the window between them, gay-no-baseline-join-retargeted naming ·No's incoming seam and this one the reach it no longer has, that join itself arriving in “Join ·Gay ~x~ ·Et and ·Gay ~x~ ·No”. ·No redraws into its loop stance as it takes the raised seam, which is why the rule names the cells both letters settle into rather than holding ·No's picture. no-thaw-baseline-join-created is the same pair running the other way, where a ·No still on the baseline reaches a ·Thaw the old font left standing apart, and at-it-xheight-join-dropped and it-et-xheight-join-dropped are the other breaks on the books. Every window that reached a sitting approved the break or called it either"
+    match:
+      before:
+        pivot: qsNo
+        seam_out: y0
+        follower: qsThaw
+      after:
+        gap: 3
+        pivot_cells:
+          - qsNo/loop/x-height/None/
+        receiver_cells:
+          - qsThaw/hapax/None/None/
+      except_left: []
