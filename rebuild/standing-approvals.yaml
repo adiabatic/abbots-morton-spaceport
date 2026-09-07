@@ -1206,3 +1206,23 @@ rules:
         follower_advance: 0
         follower_reach: 0
       except_left: []
+  - id: no-oy-xheight-join-created
+    verdict: approve
+    note: "·No joins ·Oy at the x-height where the old font left a break, and ·Oy opens its loop on the left to receive it — coming a column nearer, and drawing that open form three columns narrower, so whatever follows the pair comes nearer by both. The open-on-the-left bitmap is qsOy's own record of the join, hanging off the only x-height entry the letter has, whose from-list has carried qsNo since “Migrate the four worst families to the new rune-file format, conformance-verified”, so the redraw is the follower half of this join rather than a change of its own. ·No's side is the loop stance's x-height exit, which has no toward-list at all, so every follower with an open x-height entry meets it; that stance landed in “Checkpoint the qsDay/qsUtter/qsNo migration batch with its triage residue down to 2,535”, and what puts ·No on it in front of ·Oy is the yielding prefer that takes the x-height-exit cell over the baseline-exit one whenever ·Day, ·No, ·It or ·Oy follows and the left letter is neither ·Pea nor ·It, on the why recorded in “Give ·Pea·No the baseline join no matter what follows it” (its right-family list from “Let ·Day and ·No yield so ·Tea groups forward in ·Day·Tea·Day, ·Day·Tea·It, and ·No·Tea·It”). The rule names the ·No that takes an x-height entry beside the ·No that takes none, since the letter draws the same loop either way, and the word-final ·Oy beside the one that goes on to a baseline exit, for the same reason. no-jai-xheight-join-created and no-fee-xheight-join-created are the same seam one follower over, no-ah-baseline-join-created and no-thaw-baseline-join-created are ·No's new joins one height down, and no-baseline-join-retargeted, no-thaw-baseline-join-dropped and no-gay-baseline-join-dropped are its other outgoing seams on this surface; it-xheight-join-created, ah-gay-xheight-join-created and utter-xheight-join-created are the same break becoming an x-height join into other letters. Where the letter in front raises ·No's own seam, no-baseline-join-retargeted names ·No's incoming seam and this rule its outgoing one, and a window carrying a third blessed change beside them is the composed reading's. Every window that reached a sitting approved the join or called it either"
+    match:
+      before:
+        pivot: qsNo
+        seam_out: break
+        follower: qsOy
+      after:
+        joined: y5
+        pivot_cells:
+          - qsNo/loop/None/x-height/
+          - qsNo/loop/x-height/x-height/
+        receiver_cells:
+          - qsOy/hapax/x-height/None/
+          - qsOy/hapax/x-height/baseline/
+        shift: -1
+        follower_advance: -3
+        follower_reach: 0
+      except_left: []
