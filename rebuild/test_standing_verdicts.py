@@ -256,6 +256,7 @@ CREATED_JOIN_RULE = {
             "receiver_cells": ["qsF3/full/None/None/"],
             "shift": -2,
             "follower_advance": 0,
+            "follower_reach": 0,
         },
         "except_left": [],
     },
@@ -273,6 +274,7 @@ RETARGETED_CREATED_JOIN_RULE = {
             "receiver_cells": ["qsF3/full/None/None/"],
             "shift": -2,
             "follower_advance": 0,
+            "follower_reach": 0,
         },
         "except_left": [],
     },
@@ -290,6 +292,7 @@ RETARGET_BEHIND_CREATED_JOIN_RULE = {
             "receiver_cells": ["qsTea/full/None/baseline/"],
             "shift": -2,
             "follower_advance": 0,
+            "follower_reach": 0,
         },
         "except_left": [],
     },
@@ -307,6 +310,7 @@ EXTENSION_BEHIND_CREATED_JOIN_RULE = {
             "receiver_cells": ["qsJ/full/None/None/"],
             "shift": -1,
             "follower_advance": 0,
+            "follower_reach": 0,
         },
         "except_left": [],
     },
@@ -324,6 +328,7 @@ CONTRACTED_REDRAWN_CHAIN_RULE = {
             "receiver_cells": ["qsEight/smaller-loop/None/None/"],
             "shift": -2,
             "follower_advance": 0,
+            "follower_reach": 0,
         },
         "except_left": [],
     },
@@ -341,6 +346,7 @@ REDRAWN_BEHIND_CREATED_JOIN_RULE = {
             "receiver_cells": ["qsEight/smaller-loop/None/None/"],
             "shift": -1,
             "follower_advance": 0,
+            "follower_reach": 0,
         },
         "except_left": [],
     },
@@ -358,6 +364,7 @@ WIDENED_CREATED_JOIN_RULE = {
             "receiver_cells": ["qsF3/full/None/None/"],
             "shift": -2,
             "follower_advance": 1,
+            "follower_reach": 0,
         },
         "except_left": [],
     },
@@ -375,6 +382,25 @@ RETARGET_BEHIND_WIDENED_JOIN_RULE = {
             "receiver_cells": ["qsTea/full/None/baseline/"],
             "shift": -2,
             "follower_advance": 1,
+            "follower_reach": 0,
+        },
+        "except_left": [],
+    },
+}
+
+REACHING_CREATED_JOIN_RULE = {
+    "id": "fixture-join-created-with-a-reaching-follower",
+    "verdict": "approve",
+    "note": "·J joins ·F3 where the old font left a break, and ·F3 takes the join on a form that reaches back a column",
+    "match": {
+        "before": {"pivot": "qsJ", "seam_out": "break", "follower": "qsF3"},
+        "after": {
+            "joined": "y0",
+            "pivot_cells": ["qsJ/hapax/None/baseline/ex-ext-1"],
+            "receiver_cells": ["qsF3/full/None/None/"],
+            "shift": -3,
+            "follower_advance": 1,
+            "follower_reach": 1,
         },
         "except_left": [],
     },
@@ -392,6 +418,7 @@ CONTRACTED_CREATED_JOIN_RULE = {
             "receiver_cells": ["qsF3/full/x-height/None/"],
             "shift": -2,
             "follower_advance": 0,
+            "follower_reach": 0,
         },
         "except_left": [],
     },
@@ -1585,6 +1612,8 @@ register_glyph("after", "qsTea.full.en-y5.misaligned", MISALIGNED_FULL_TEA_BAR, 
 register_glyph("after", "qsKey.hapax.ex-y0.ex-con-1", SHORTENED_FOOT_KEY, 50)
 register_glyph("after", "qsRoe.hapax.en-y5.ex-y0.en-con-1", PLACED_CONTRACTION_ROE_PULLED, 150)
 register_glyph("after", "space", (), 50)
+register_glyph("before", "qsF3.reaching", TUCKED_FOLLOWER, 100)
+register_glyph("after", "qsF3.reached", TWO_COLUMNS, 100)
 
 LEAD = register_pair("qsL", "qsL")
 SEE = register_pair("qsSee.ex-y0", "qsSee.straighter")
@@ -1640,6 +1669,7 @@ TEA_VERTICAL_GAIN_MISALIGNED = register_pair(
     "qsTea.half.en-y5.after-xheight-exit", "qsTea.full.en-y5.misaligned"
 )
 PLACED_CONTRACTION = register_pair("qsRoe.ex-y0.placed-contraction", "qsRoe.hapax.en-y5.ex-y0.en-con-1")
+FOLLOWER_3_REACHING = register_pair("qsF3.reaching", "qsF3.reached")
 
 BEFORE_GLYPHS = _OUTLINES["before"]
 AFTER_GLYPHS = _OUTLINES["after"]
@@ -1704,6 +1734,10 @@ SLIDE_FONTS = {
     ),
     "after-created-join-follower-not-widened": (
         {**AFTER_GLYPHS, "qsF3.wider": (TWO_COLUMNS, 100)},
+        AFTER_CMAP,
+    ),
+    "after-created-join-follower-not-reaching": (
+        {**AFTER_GLYPHS, "qsF3.reached": (TUCKED_FOLLOWER, 100)},
         AFTER_CMAP,
     ),
     "after-created-join-widened-follower": (
@@ -4416,6 +4450,17 @@ COMPOSED_WIDENED_JOIN_GLYPHS = [
 ]
 COMPOSED_WIDENED_JOIN_CODEPOINTS = spell(LEAD, SEE, PIVOT_SHORTENED, FOLLOWER_3_WIDENED, FOLLOWER_1)
 COMPOSED_WIDENED_JOIN_RULES = [SLIDE_RULE, WIDENED_CREATED_JOIN_RULE]
+REACHING_CREATED_JOIN_GLYPHS = ["qsL", "qsJ.ex-y0.ex-ext-3.long", "qsF3.reaching", "qsF1"]
+REACHING_CREATED_JOIN_CODEPOINTS = spell(LEAD, PIVOT_SHORTENED, FOLLOWER_3_REACHING, FOLLOWER_1)
+COMPOSED_REACHING_JOIN_GLYPHS = [
+    "qsL",
+    "qsSee.ex-y0",
+    "qsJ.ex-y0.ex-ext-3.long",
+    "qsF3.reaching",
+    "qsF1",
+]
+COMPOSED_REACHING_JOIN_CODEPOINTS = spell(LEAD, SEE, PIVOT_SHORTENED, FOLLOWER_3_REACHING, FOLLOWER_1)
+COMPOSED_REACHING_JOIN_RULES = [SLIDE_RULE, REACHING_CREATED_JOIN_RULE]
 RETARGET_BEHIND_WIDENED_JOIN_RULES = [RETARGET_RULE, RETARGET_BEHIND_WIDENED_JOIN_RULE]
 CONTRACTED_CREATED_JOIN_GLYPHS = ["qsBay.contract-lead", "qsMay.en-y0.ex-y5.contract-fixture", "qsF3"]
 CONTRACTED_CREATED_JOIN_CODEPOINTS = spell(CONTRACTION_LEAD, CONTRACTED_JOINING_MAY, FOLLOWER_3)
@@ -4629,6 +4674,45 @@ def composed_widened_join_window(uid="cwj-1"):
     )
 
 
+def reaching_created_join_window(uid="rcjr-1"):
+    return unit(
+        uid,
+        list(REACHING_CREATED_JOIN_GLYPHS),
+        ["y0", "break", "y0"],
+        [
+            "qsL/full/None/None/",
+            "qsJ/hapax/None/baseline/ex-ext-1",
+            "qsF3/full/None/None/",
+            "qsF1/full/None/None/",
+        ],
+        ["y0", "y0", "y0"],
+        codepoints=REACHING_CREATED_JOIN_CODEPOINTS,
+        configs=("default",),
+        ink_deltas={"default": SLIDE_DELTA},
+        pair={"left": 1, "right": 2},
+    )
+
+
+def composed_reaching_join_window(uid="crjr-1"):
+    return unit(
+        uid,
+        list(COMPOSED_REACHING_JOIN_GLYPHS),
+        ["y0", "y0", "break", "y0"],
+        [
+            "qsL/full/None/None/",
+            "qsSee/full/None/None/",
+            "qsJ/hapax/None/baseline/ex-ext-1",
+            "qsF3/full/None/None/",
+            "qsF1/full/None/None/",
+        ],
+        ["y0", "y0", "y0", "y0"],
+        codepoints=COMPOSED_REACHING_JOIN_CODEPOINTS,
+        configs=("default",),
+        ink_deltas={"default": SLIDE_DELTA},
+        pair={"left": 3, "right": 4},
+    )
+
+
 def contracted_created_join_window(uid="ccjc-1", codepoints=CONTRACTED_CREATED_JOIN_CODEPOINTS):
     return unit(
         uid,
@@ -4823,6 +4907,38 @@ def test_a_created_join_rule_declaring_no_advance_is_refused_by_a_widened_follow
     unwidened = json.loads(json.dumps(WIDENED_CREATED_JOIN_RULE))
     unwidened["match"]["after"]["follower_advance"] = 0
     assert not sv._matches(unwidened["match"], widened_created_join_window(), context=slide_context())
+
+
+def test_a_new_join_whose_follower_reaches_back_matches(slide_context):
+    assert sv._matches(
+        REACHING_CREATED_JOIN_RULE["match"], reaching_created_join_window(), context=slide_context()
+    )
+
+
+def test_a_created_join_rule_declaring_no_reach_is_refused_by_a_follower_that_reaches_back(slide_context):
+    unreaching = json.loads(json.dumps(REACHING_CREATED_JOIN_RULE))
+    unreaching["match"]["after"]["follower_reach"] = 0
+    assert not sv._matches(unreaching["match"], reaching_created_join_window(), context=slide_context())
+
+
+def test_a_created_join_whose_follower_keeps_its_origin_is_refused_by_the_reaching_rule(slide_context):
+    assert not sv._matches(
+        REACHING_CREATED_JOIN_RULE["match"],
+        reaching_created_join_window(),
+        context=slide_context("after-created-join-follower-not-reaching"),
+    )
+
+
+def test_a_slide_and_a_reaching_created_join_in_one_window_compose(slide_context):
+    events = sv._composed(COMPOSED_REACHING_JOIN_RULES, composed_reaching_join_window(), slide_context())
+    assert events == {SLIDE_RULE["id"]: [1], REACHING_CREATED_JOIN_RULE["id"]: [2]}
+
+
+def test_a_created_join_rule_reaching_back_a_negative_count_is_refused_at_load(tmp_path):
+    rule = json.loads(json.dumps(REACHING_CREATED_JOIN_RULE))
+    rule["match"]["after"]["follower_reach"] = -1
+    with pytest.raises(SystemExit, match="a follower reaches back"):
+        sv.load_rules(_write_rules(tmp_path / "rules.yaml", [rule]))
 
 
 def _several_pivots(*families):
@@ -5682,6 +5798,11 @@ COMPOSED_WALK_CORPORA = {
         WIDENED_CREATED_JOIN_RULE,
         lambda: [widened_created_join_window(), composed_widened_join_window(), created_join_window()],
         ("after", "after-created-join-follower-not-widened"),
+    ),
+    "join-created-with-a-reaching-follower": (
+        REACHING_CREATED_JOIN_RULE,
+        lambda: [reaching_created_join_window(), composed_reaching_join_window(), created_join_window()],
+        ("after", "after-created-join-follower-not-reaching"),
     ),
     "join-created-behind-a-contraction": (
         CONTRACTED_CREATED_JOIN_RULE,

@@ -121,6 +121,7 @@ rules:
           - qsTea/full/x-height/baseline/
         shift: -3
         follower_advance: 0
+        follower_reach: 0
       except_left: []
   - id: et-may-exit-contracted
     verdict: approve
@@ -448,6 +449,7 @@ rules:
           - qsPea/full/baseline/None/
         shift: -4
         follower_advance: 0
+        follower_reach: 0
       except_left: []
   - id: gay-no-xheight-extension-added
     verdict: approve
@@ -567,6 +569,7 @@ rules:
           - qsGay/hapax/x-height/baseline/
         shift: -3
         follower_advance: 0
+        follower_reach: 0
       except_left: []
   - id: it-baseline-join-created
     verdict: approve
@@ -598,6 +601,7 @@ rules:
           - qsIt/hapax/baseline/x-height/
         shift: -1
         follower_advance: 0
+        follower_reach: 0
       except_left: []
   - id: it-no-xheight-join-retargeted
     verdict: approve
@@ -683,6 +687,7 @@ rules:
           - qsGay/hapax/baseline/x-height/en-con-1+ex-ext-3
         shift: -2
         follower_advance: 0
+        follower_reach: 0
       except_left: []
   - id: et-gay-baseline-join-created
     verdict: approve
@@ -703,6 +708,7 @@ rules:
           - qsGay/hapax/baseline/x-height/en-con-1+ex-ext-1
         shift: -3
         follower_advance: 0
+        follower_reach: 0
       except_left: []
   - id: no-ah-baseline-join-created
     verdict: approve
@@ -723,6 +729,7 @@ rules:
           - qsAh/hapax/baseline/x-height/ex-ext-1
         shift: -1
         follower_advance: 0
+        follower_reach: 0
       except_left: []
   - id: no-thaw-baseline-join-created
     verdict: approve
@@ -741,6 +748,7 @@ rules:
           - qsThaw/hapax/baseline/None/
         shift: -3
         follower_advance: 0
+        follower_reach: 0
       except_left: []
   - id: no-no-xheight-join-retargeted
     verdict: approve
@@ -790,6 +798,7 @@ rules:
           - qsTea/full/baseline/None/
         shift: -1
         follower_advance: 0
+        follower_reach: 0
       except_left: []
   - id: utter-xheight-join-created
     verdict: approve
@@ -815,6 +824,7 @@ rules:
           - qsUtter/alternate/x-height/baseline/
         shift: -1
         follower_advance: 1
+        follower_reach: 0
       except_left: []
   - id: may-ah-baseline-join-created
     verdict: approve
@@ -835,6 +845,7 @@ rules:
           - qsAh/hapax/baseline/x-height/ex-ext-1
         shift: -2
         follower_advance: 0
+        follower_reach: 0
       except_left: []
   - id: utter-may-baseline-join-retargeted
     verdict: approve
@@ -876,6 +887,7 @@ rules:
           - qsUtter/mono/baseline/x-height/ex-ext-1
         shift: -1
         follower_advance: 1
+        follower_reach: 0
       except_left: []
   - id: it-xheight-join-created
     verdict: approve
@@ -898,6 +910,7 @@ rules:
           - qsIt/hapax/x-height/baseline/
         shift: -1
         follower_advance: 0
+        follower_reach: 0
       except_left: []
   - id: gay-xheight-entry-exit-extension-dropped
     verdict: approve
@@ -910,4 +923,30 @@ rules:
         dropped: [[2, 8], [4, 3]]
         added: []
         shift: -1
+      except_left: []
+  - id: gay-baseline-join-created-reaching-back
+    verdict: approve
+    note: "·Gay and ·J’ai both join ·Gay at the baseline where the old font left a break, and ·Gay takes the join on its full reaching-back form: neither left letter pulls that entry in, so the stroke inserts a column at ·Gay's left edge, the letter comes two columns nearer and its own advance stands where it was. qsGay's baseline entry carries the reachable-at-the-baseline bitmap that meets them and has named both families on its from-list since the letter landed in “Add ·Gay”, where qsGay's and qsJai's own baseline exits already reached it. gay-baseline-join-created is the same new join into ·Gay from the five left letters that do pull the entry in, which is why ·Gay settles there into an en-con-1 cell and closes the same two columns without reaching back; ah-gay-xheight-join-created records the same decision one height up, it-baseline-join-created is the multi-pivot precedent, and gay-no-baseline-join-retargeted, gay-no-xheight-extension-added, gay-entry-contracted and gay-xheight-entry-exit-extension-dropped are ·Gay's other standing changes on this surface. What ·Gay's own outgoing seam does in the same window is a decision of its own and carries the tail further than the declared advance, so a window where the baseline join beyond ·Gay goes away, or where its exit reach grows, still reaches the docket. Every window that reached a sitting approved this join or called it either"
+    match:
+      before:
+        pivot: [qsGay, qsJai]
+        seam_out: break
+        follower: qsGay
+      after:
+        joined: y0
+        pivot_cells:
+          - qsGay/hapax/None/baseline/
+          - qsGay/hapax/x-height/baseline/
+          - qsJai/hapax/None/baseline/
+          - qsJai/hapax/x-height/baseline/
+          - qsJai/hapax/x-height/baseline/en-con-1
+          - qsJai/hapax/x-height/baseline/en-con-2
+        receiver_cells:
+          - qsGay/hapax/baseline/None/
+          - qsGay/hapax/baseline/x-height/
+          - qsGay/hapax/baseline/x-height/ex-ext-1
+          - qsGay/hapax/baseline/x-height/ex-ext-3
+        shift: -2
+        follower_advance: 1
+        follower_reach: 1
       except_left: []
