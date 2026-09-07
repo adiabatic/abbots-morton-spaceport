@@ -4294,6 +4294,43 @@ def test_a_created_join_whose_receiver_does_not_move_by_the_declared_shift_is_re
     )
 
 
+def _several_pivots(*families):
+    rule = json.loads(json.dumps(CREATED_JOIN_RULE))
+    rule["id"] = "fixture-join-created-several-pivots"
+    rule["match"]["before"]["pivot"] = list(families)
+    rule["match"]["after"]["pivot_cells"] = [f"{family}/hapax/None/baseline/ex-ext-1" for family in families]
+    return rule
+
+
+def test_a_created_join_rule_naming_several_pivots_reaches_one_that_is_not_first(slide_context):
+    rule = _several_pivots("qsSee", "qsJ")
+    assert sv._matches(rule["match"], created_join_window(), context=slide_context())
+
+
+def test_a_created_join_rule_whose_pivot_list_omits_the_window_letter_does_not_match(slide_context):
+    rule = _several_pivots("qsSee", "qsTea")
+    assert not sv._matches(rule["match"], created_join_window(), context=slide_context())
+
+
+def test_a_created_join_rule_naming_several_pivots_still_composes(slide_context):
+    rule = _several_pivots("qsSee", "qsJ")
+    events = sv._composed([SLIDE_RULE, rule], composed_created_join_window(), slide_context())
+    assert events == {SLIDE_RULE["id"]: [1], rule["id"]: [2]}
+
+
+def test_a_created_join_pivot_cell_outside_the_pivot_list_is_refused_at_load(tmp_path):
+    rule = _several_pivots("qsSee", "qsJ")
+    rule["match"]["after"]["pivot_cells"].append("qsMay/loop/None/baseline/ex-ext-1")
+    with pytest.raises(SystemExit, match="is not a cell of"):
+        sv.load_rules(_write_rules(tmp_path / "rules.yaml", [rule]))
+
+
+def test_a_created_join_pivot_list_that_repeats_a_family_is_refused_at_load(tmp_path):
+    rule = _several_pivots("qsJ", "qsJ")
+    with pytest.raises(SystemExit, match="distinct family names"):
+        sv.load_rules(_write_rules(tmp_path / "rules.yaml", [rule]))
+
+
 def pea_retarget_window(uid="pr-1"):
     return unit(
         uid,

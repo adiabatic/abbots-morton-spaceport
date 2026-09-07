@@ -200,7 +200,7 @@ def _extension_pairs(units, blankness, pivot, token, seam):
 
 
 def _retarget_pairs(units, blankness, pivot, before_seam, follower, after_seam):
-    """Every window where a PIVOT glyph's seam into a follower moves from BEFORE_SEAM to AFTER_SEAM, keyed the same way. `follower` may be None, which reaches every follower family — the relaxed form `--coverage` needs, since a rule that names its followers can never be told which ones it is missing by an enumeration that filters on them."""
+    """Every window where a PIVOT glyph's seam into a follower moves from BEFORE_SEAM to AFTER_SEAM, keyed the same way. `pivot` may be one glyph-name prefix or a list of them, as a join-created rule's own pivot side may be. `follower` may be None, which reaches every follower family — the relaxed form `--coverage` needs, since a rule that names its followers can never be told which ones it is missing by an enumeration that filters on them."""
     pairs: dict[tuple, collections.Counter] = collections.defaultdict(collections.Counter)
     for unit in units:
         if not sv._letter_for_letter(unit):
@@ -209,7 +209,7 @@ def _retarget_pairs(units, blankness, pivot, before_seam, follower, after_seam):
         cells, after_seams = unit["after"]["cells"], unit["after"]["seams"]
         reach = min(len(glyphs), len(cells), len(seams) + 1, len(after_seams) + 1) - 1
         for index in range(reach):
-            if not sv._is_pivot(glyphs[index], pivot):
+            if not any(sv._is_pivot(glyphs[index], name) for name in sv._families(pivot)):
                 continue
             family = sv._family(glyphs[index + 1])
             if follower is not None and family != follower:

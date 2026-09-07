@@ -559,3 +559,33 @@ rules:
           - qsGay/hapax/x-height/baseline/
         shift: -3
       except_left: []
+  - id: it-baseline-join-created
+    verdict: approve
+    note: "·It takes a baseline entry from ·Et, ·Awe, ·Ox, ·Oy and ·Ooze where the old font left a break, closes one column onto each of them, and gives up the baseline exit its own pairing table only unlocks under ss04, so the gained entry and the surrendered exit are one decision — qsIt's baseline entry refuses only ·It itself, qsAwe, qsOx and qsOoze have carried qsIt on their baseline-exit toward-lists since “Add ·Awe”, “Add ·Ox” and “Add ·Ooze”, qsOy's open baseline exit withholds only before the ·It·No chain, qsEt's baseline exit is open to everything, and every window that reached a sitting approved the join"
+    match:
+      before:
+        pivot: [qsEt, qsAwe, qsOx, qsOy, qsOoze]
+        seam_out: break
+        follower: qsIt
+      after:
+        joined: y0
+        pivot_cells:
+          - qsEt/hapax/None/baseline/
+          - qsEt/hapax/x-height/baseline/
+          - qsEt/hapax/x-height/baseline/en-ext-1
+          - qsAwe/hapax/None/baseline/
+          - qsAwe/hapax/x-height/baseline/
+          - qsAwe/hapax/x-height/baseline/en-ext-1
+          - qsOx/hapax/None/baseline/
+          - qsOx/hapax/x-height/baseline/
+          - qsOx/hapax/x-height/baseline/en-ext-1
+          - qsOy/hapax/None/baseline/
+          - qsOy/hapax/x-height/baseline/
+          - qsOoze/hapax/None/baseline/
+          - qsOoze/hapax/baseline/baseline/
+        receiver_cells:
+          - qsIt/hapax/baseline/None/
+          - qsIt/hapax/baseline/baseline/
+          - qsIt/hapax/baseline/x-height/
+        shift: -1
+      except_left: []

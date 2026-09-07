@@ -22,7 +22,7 @@ Each expressible delta shape is a row in SHAPES, and a rule declares exactly one
 
 - The `redrawn` shape judges the same rendered pixels for a letter redrawn in place to a named new form: the old-font pivot form gives way to a named new form whose own-frame picture is the old one with the named cells gone and the named cells added — both sets read at one common column offset, because an entry extension inserts a column at the pivot's left edge and carries the whole frame right with it, so an entry-extended variant shows the same trade one column over — origin and placement standing still, and everything after the pivot sliding by the declared count, which may be zero when the new form keeps the pivot's advance: ·Eight's bowl pulling in one column before ·Tea and ·It, beside the dropped connector extension that slides ·It closer, is the founding example, and a window that also carries a second blessed change still needs the composed reading. Its added set may be empty, which is a form that only gives ink up — ·Key's foot dropping its terminal pixel before ·May, ·No and ·It, its follower coming a column closer — and that is the shape an exit contraction wants whenever the survey's windows carry anything else at all, because the `follower_cells` shape reads only names and would bless whatever else the window did.
 
-- The `join-created` shape judges a named pair that newly joins: the pivot and follower may redraw while keeping their own-frame origins, the pivot stays under the standing displacement, the follower and everything after it move by a declared column count, and the recorded break becomes the named height — a window with any other ink change needs the composed reading.
+- The `join-created` shape judges a named pair that newly joins: the pivot and follower may redraw while keeping their own-frame origins, the pivot stays under the standing displacement, the follower and everything after it move by a declared column count, and the recorded break becomes the named height; its pivot side may name several families at once, which is how one letter's new entry is recorded in a single rule for every left neighbor that now reaches it — a window with any other ink change needs the composed reading.
 
 - The `retarget` shape judges a named join that has changed height: the pivot and the follower may both redraw, they keep their own-frame origin and their column placement, the named seam becomes the named new height, and everything after the follower sits a declared number of columns over — which is what half-·Tea joining ·No at the x-height becoming full ·Tea joining flipped ·No at the baseline looks like, as distinct from a join becoming a break (the gap shape, whose pictures stay and whose follower sits further).
 
@@ -1155,20 +1155,20 @@ def _validate_redrawn(rule_id, match) -> None:
 
 
 def _retarget_pairs(match, unit):
-    """Glyph indices where the named pair changed its join state: the pivot prefix, the follower's family, the named before seam becoming the named after seam, letter for letter, with the pivot and follower settling into cells the rule names in full and the follower's after cell still that same family's."""
+    """Glyph indices where the named pair changed its join state: any of the pivot prefixes, the follower's family, the named before seam becoming the named after seam, letter for letter, with the pivot and follower settling into cells the rule names in full and the follower's after cell still that same family's."""
     if not _letter_for_letter(unit):
         return []
     glyphs, seams = unit["before"]["glyphs"], unit["before"]["seams"]
     cells, after_seams = unit["after"]["cells"], unit["after"]["seams"]
     followers = _families(match["before"]["follower"])
-    pivot = match["before"]["pivot"]
+    pivots = _families(match["before"]["pivot"])
     seam = match["before"]["seam_out"]
     retarget = match["after"].get("retarget", match["after"].get("joined"))
     reach = min(len(glyphs), len(cells), len(seams) + 1, len(after_seams) + 1) - 1
     return [
         i
         for i in range(reach)
-        if _is_pivot(glyphs[i], pivot)
+        if any(_is_pivot(glyphs[i], pivot) for pivot in pivots)
         and _family(glyphs[i + 1]) in followers
         and seams[i] == seam
         and after_seams[i] == retarget
@@ -1276,7 +1276,7 @@ def _matches_join_retarget(match, unit, excluded, context=None):
 
 
 def _matches_join_created(match, unit, excluded, context=None):
-    """A named pair that has newly joined, matched at the rendered-pixel grain: the pivot and follower may both redraw, they keep their own-frame origin, the pivot keeps its column placement, the follower and everything after it move by the declared shift, and the recorded break becomes the named join height. Those placement constraints distinguish a created join from a retarget, whose follower stands still, and from a general redraw; any other ink change anywhere in the window fails this match closed, which is where the composed reading picks up. One shaped config speaks for all of them, on the same digest-agreement precondition the slide shape holds. except_left reads the whole window, as the join-retargeted shape does."""
+    """A named pair — or any of several named pivots into one follower — that has newly joined, matched at the rendered-pixel grain: the pivot and follower may both redraw, they keep their own-frame origin, the pivot keeps its column placement, the follower and everything after it move by the declared shift, and the recorded break becomes the named join height. Those placement constraints distinguish a created join from a retarget, whose follower stands still, and from a general redraw; any other ink change anywhere in the window fails this match closed, which is where the composed reading picks up. One shaped config speaks for all of them, on the same digest-agreement precondition the slide shape holds. except_left reads the whole window, as the join-retargeted shape does."""
     deltas = unit.get("ink_deltas")
     if not isinstance(deltas, dict) or not deltas:
         return False
@@ -1290,7 +1290,7 @@ def _matches_join_created(match, unit, excluded, context=None):
         )
     key = (
         "join-created",
-        match["before"]["pivot"],
+        tuple(_families(match["before"]["pivot"])),
         tuple(_families(match["before"]["follower"])),
         match["after"]["joined"],
         tuple(match["after"]["pivot_cells"]),
@@ -1337,7 +1337,7 @@ def _validate_join_retarget(rule_id, match) -> None:
 
 
 def _validate_join_created(rule_id, match) -> None:
-    """The join-created shape's own coherence, checked once at load: the before seam must be a break and the after seam a yK height, because a pair that already joined belongs to the retarget or extension shape, while a new break belongs to the gap shape. The cells have to belong to the letters the rule names."""
+    """The join-created shape's own coherence, checked once at load: the before seam must be a break and the after seam a yK height, because a pair that already joined belongs to the retarget or extension shape, while a new break belongs to the gap shape. The cells have to belong to the letters the rule names, on either side — a rule may name several pivots, which is what lets one letter's new entry be recorded once for every left neighbor that now reaches it."""
     if match["before"]["seam_out"] != "break":
         _fail(
             f"rule {rule_id!r}: match.before.seam_out names {match['before']['seam_out']!r}; "
@@ -1349,7 +1349,7 @@ def _validate_join_created(rule_id, match) -> None:
             "which is not a yK height"
         )
     named = (
-        ("pivot_cells", [_family(match["before"]["pivot"])]),
+        ("pivot_cells", [_family(name) for name in _families(match["before"]["pivot"])]),
         ("receiver_cells", _families(match["before"]["follower"])),
     )
     for field, runes in named:
@@ -2080,7 +2080,7 @@ SHAPES = {
         matcher=_matches_join_created,
         validate=_validate_join_created,
         int_fields=("shift",),
-        family_fields=("follower",),
+        family_fields=("pivot", "follower"),
         composable=True,
         font_backed=True,
         needs_ink_deltas=True,
