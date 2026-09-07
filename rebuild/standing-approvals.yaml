@@ -926,7 +926,7 @@ rules:
       except_left: []
   - id: gay-baseline-join-created-reaching-back
     verdict: approve
-    note: "·Gay and ·J’ai both join ·Gay at the baseline where the old font left a break, and ·Gay takes the join on its full reaching-back form: neither left letter pulls that entry in, so the stroke inserts a column at ·Gay's left edge, the letter comes two columns nearer and its own advance stands where it was. qsGay's baseline entry carries the reachable-at-the-baseline bitmap that meets them and has named both families on its from-list since the letter landed in “Add ·Gay”, where qsGay's and qsJai's own baseline exits already reached it. gay-baseline-join-created is the same new join into ·Gay from the five left letters that do pull the entry in, which is why ·Gay settles there into an en-con-1 cell and closes the same two columns without reaching back; ah-gay-xheight-join-created records the same decision one height up, it-baseline-join-created is the multi-pivot precedent, and gay-no-baseline-join-retargeted, gay-no-xheight-extension-added, gay-entry-contracted and gay-xheight-entry-exit-extension-dropped are ·Gay's other standing changes on this surface. What ·Gay's own outgoing seam does in the same window is a decision of its own and carries the tail further than the declared advance, so a window where the baseline join beyond ·Gay goes away, or where its exit reach grows, still reaches the docket. Every window that reached a sitting approved this join or called it either"
+    note: "·Gay and ·J’ai both join ·Gay at the baseline where the old font left a break, and ·Gay takes the join on its full reaching-back form: neither left letter pulls that entry in, so the stroke inserts a column at ·Gay's left edge, the letter comes two columns nearer and its own advance stands where it was. qsGay's baseline entry carries the reachable-at-the-baseline bitmap that meets them and has named both families on its from-list since the letter landed in “Add ·Gay”, where qsGay's and qsJai's own baseline exits already reached it. gay-baseline-join-created is the same new join into ·Gay from the five left letters that do pull the entry in, which is why ·Gay settles there into an en-con-1 cell and closes the same two columns without reaching back; ah-gay-xheight-join-created records the same decision one height up, it-baseline-join-created is the multi-pivot precedent, and gay-no-baseline-join-retargeted, gay-no-xheight-extension-added, gay-entry-contracted and gay-xheight-entry-exit-extension-dropped are ·Gay's other standing changes on this surface. What ·Gay's own outgoing seam does in the same window is a decision of its own and carries the tail further than the declared advance: gay-baseline-join-created-reaching-back-before-jai is the same join where that reach grows into ·J’ai and widens the letter by a second column, and a window where the baseline join beyond ·Gay goes away still reaches the docket. Every window that reached a sitting approved this join or called it either"
     match:
       before:
         pivot: [qsGay, qsJai]
@@ -945,7 +945,6 @@ rules:
           - qsGay/hapax/baseline/None/
           - qsGay/hapax/baseline/x-height/
           - qsGay/hapax/baseline/x-height/ex-ext-1
-          - qsGay/hapax/baseline/x-height/ex-ext-3
         shift: -2
         follower_advance: 1
         follower_reach: 1
@@ -1005,4 +1004,24 @@ rules:
         pivots: [qsDay_qsUtter.full.ex-y5.ex-ext-1]
         gained: [[7, 8]]
         shift: 1
+      except_left: []
+  - id: gay-baseline-join-created-reaching-back-before-jai
+    verdict: approve
+    note: "·Gay and ·J’ai both join ·Gay at the baseline where the old font left a break, and this is the window where the ·Gay that takes the join goes straight on to ·J’ai: it draws the same full reaching-back form, so the stroke inserts a column at its left edge and the letter comes two columns nearer, and it carries the longer x-height reach into ·J’ai, so its own advance is two columns wider — one for the stroke, one for the longer reach — and the rest of the word stands where it was. qsGay's baseline entry carries the reachable-at-the-baseline bitmap that meets both left letters and has named both families on its from-list since the letter landed in “Add ·Gay”; the reach in front of it is qsGay's extend record before qsJai and qsJai_qsUtter, lengthened in “Extend ·Gay ~x~ ·J’ai by another pixel” and held steady in “Stop letting the letter after ·J’ai shorten ·Gay ~x~ ·J’ai”. gay-baseline-join-created-reaching-back is the same join onto the same reaching-back ·Gay wherever that exit is shorter and the letter widens by the stroke alone, gay-baseline-join-created is the join from the five left letters that do pull the entry in, may-gay-baseline-join-created is ·May’s, and ah-gay-xheight-join-created records the same decision one height up. What ·J’ai does under the longer reach is a change of its own, so a window where it gives up the entry extension the old font drew there is the composed reading’s. Every window that reached a sitting approved this join"
+    match:
+      before:
+        pivot: [qsGay, qsJai]
+        seam_out: break
+        follower: qsGay
+      after:
+        joined: y0
+        pivot_cells:
+          - qsGay/hapax/None/baseline/
+          - qsGay/hapax/x-height/baseline/
+          - qsJai/hapax/None/baseline/
+        receiver_cells:
+          - qsGay/hapax/baseline/x-height/ex-ext-3
+        shift: -2
+        follower_advance: 2
+        follower_reach: 1
       except_left: []
