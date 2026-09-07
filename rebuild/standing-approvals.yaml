@@ -1150,3 +1150,19 @@ rules:
         receiver_cells:
           - qsThaw/hapax/None/None/
       except_left: []
+  - id: no-gay-baseline-join-dropped
+    verdict: approve
+    note: "·Gay sits two columns further from ·No and gives up the stroke it reached back with — the two no longer join, because a ·No that takes an x-height entry has no baseline exit left to reach down with: qsNo's policy order takes the loop stance first, and that stance's surface carries an x-height entry and an x-height exit and nothing else, while qsGay's x-height entry names only ·Ah and ·Utter on its from-list and its baseline entry, which does carry ·No, wants a baseline exit this ·No has not. Both from-lists date from “Add ·Gay” and were last revisited in “Bring back the ·Ah ~x~ ·Gay join”; the ·Gay ~x~ ·No exit that raises ·No in the first place arrived in “Join ·Gay ~x~ ·Et and ·Gay ~x~ ·No”. ·No redraws into that loop as the seam behind it rises and ·Gay settles onto the form it draws when nothing joins it, handing back the column its reachable-at-the-baseline stroke inserted at its left edge — the same column gay-baseline-join-created-reaching-back declares where that stroke is taking a join rather than losing one — which is why the rule names the cells both letters settle into and the column the follower gives up. Where ·Gay raises ·No the two rules explain the window between them, gay-no-baseline-join-retargeted naming ·No's incoming seam and this one the reach it no longer has; no-thaw-baseline-join-dropped is the same break behind the same raised ·No, and at-it-xheight-join-dropped and it-et-xheight-join-dropped are the other breaks on the books. The rule is bounded to the ·No that took an x-height entry, which is the ·No with no reach left; one still drawing its baseline exit settles into a different cell and carries ·Gay into a different one, so it is a window of its own. Every window that reached a sitting approved the break"
+    match:
+      before:
+        pivot: qsNo
+        seam_out: y0
+        follower: qsGay
+      after:
+        gap: 2
+        pivot_cells:
+          - qsNo/loop/x-height/None/
+        receiver_cells:
+          - qsGay/hapax/None/None/
+        follower_give_back: 1
+      except_left: []

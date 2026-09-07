@@ -1,4 +1,4 @@
-"""Tests for the standing-approval fill: the delta shapes — the two structural pattern matches, being the ligature shape (pivot glyph, seams into and out of it, follower family, post-ligature seam, flank-seam identity) and the extension-dropped shape (pivot glyph giving up a named stretch of exit — an `ex-ext-N` it carried, in whole or down to a shorter one its named after cell keeps, or an `ex-con-N` its named after cell carries when the before glyph never had an exit extension — the seam it exits into holding its height, the full after-cell identity of pivot and follower, every other seam standing still, nothing ligating anywhere, and the unit's own judgment fields agreeing that this seam is the question), the ink-exact ink-delta shape (the unit's persisted per-config digests being a nonempty subset of the ones the rule blesses, so an ink-identical window matches nothing and one unlisted delta under one config fails the whole unit closed, and a surface predating the field refuses the run outright), and the rendered-pixel slide shape, whose preconditions are read off the index record before anything is shaped (a nonempty `ink_deltas` holding one distinct digest whose keys are exactly the unit's config set, and a pivot-prefix name among the recorded before glyphs) and whose geometry is then re-derived in a purpose-built font pair, where the pivot keeps its exact ink with its own-frame origin displaced by the declared column count and every span's union of ink slides cumulatively — so a union-invisible name-grain re-spelling to the pivot's right rides along, while one stray pixel anywhere in the window, or a font pair that never settles into the named pivot, fails the match closed — the rendered-pixel ink-gain shape, whose preconditions match the slide shape's and whose geometry is the named pivot keeping its placement, height, and own-frame origin while gaining exactly the named cells, every following span moving by the declared count — the rendered-pixel join-dropped shape, whose preconditions are a named pivot–follower seam dropping from a yK height to a break plus the slide shape's digest-agreement, and whose geometry is both letters keeping their exact picture and own-frame origin — or, where the rule names in full the cells both letters settle into, the pivot keeping only that origin and free to redraw in place — with the follower sitting the declared gap further and everything after it sitting the same extra gap away — the rendered-pixel entry-extension-dropped shape, whose preconditions match the slide shape's and whose geometry is the named pivot keeping its placement, height, and own-frame origin while its after picture is the old one compacted left by the declared column count, everything after the pivot sliding closer by that count — the rendered-pixel stub-dropped shape, whose preconditions match the slide shape's and whose geometry is walked position by position because a pivot is a position rather than a name: each position that settles into a named after form is judged as the old picture compacted left by the declared column count with its placement moving right by that count and its origin standing still, every span between pivots rendering identically with no displacement — so a second same-family letter keeping its old form rides as span ink, and one stray pixel anywhere fails the match closed — the rendered-pixel redrawn shape, whose preconditions match the slide shape's and whose geometry is walked position by position because a pivot is a position rather than a name: each position that settles into a named after form is judged as the named cell trade at one common column offset (an entry-extended frame names the same trade one column over), its placement carrying the displacement accumulated so far — or up to the entry contraction its new form names closer than that, which the rest of the window then carries too — every span between pivots rendering identically under it, and the displacement growing by the declared shift and whatever the pivot took at each pivot — so a second same-family letter keeping its old form rides as span ink, a trade that only gives ink up names an empty added set (an exit contraction, which the name-grain extension-dropped shape would speak for too but blindly), and one stray pixel anywhere fails the match closed — the composed reading that runs before all of them and credits two or more events in one window, whether they come from two rules or from one rule speaking twice — its name-grain pre-gate refusing to shape a window holding fewer than two candidate positions, its walk carrying a running column displacement across the window so that each span between events must render identically once displaced, its chaining of a join-dropped or extension event whose follower is itself the next event, its skipping of an extension's named follower so a named redraw does not block composition, its refusal of a pivot contracting off the seam row, of a tail wider than the pivot gave up, and of two rules claiming one position, its judging of a failed candidate as ordinary span ink, its per-shape guard scopes, and its own reporting line, which `main` keeps clear of the per-rule lines — the except_left guard, which reads a ligature's trailing left component and refuses the whole unit rather than the one position, blankness against the verdicts file (parked skip verdicts are not blank), the non-winning manifest stamp on every emitted record, and rules-file validation, which admits exactly one shape per rule and checks that shape's own coherence."""
+"""Tests for the standing-approval fill: the delta shapes — the two structural pattern matches, being the ligature shape (pivot glyph, seams into and out of it, follower family, post-ligature seam, flank-seam identity) and the extension-dropped shape (pivot glyph giving up a named stretch of exit — an `ex-ext-N` it carried, in whole or down to a shorter one its named after cell keeps, or an `ex-con-N` its named after cell carries when the before glyph never had an exit extension — the seam it exits into holding its height, the full after-cell identity of pivot and follower, every other seam standing still, nothing ligating anywhere, and the unit's own judgment fields agreeing that this seam is the question), the ink-exact ink-delta shape (the unit's persisted per-config digests being a nonempty subset of the ones the rule blesses, so an ink-identical window matches nothing and one unlisted delta under one config fails the whole unit closed, and a surface predating the field refuses the run outright), and the rendered-pixel slide shape, whose preconditions are read off the index record before anything is shaped (a nonempty `ink_deltas` holding one distinct digest whose keys are exactly the unit's config set, and a pivot-prefix name among the recorded before glyphs) and whose geometry is then re-derived in a purpose-built font pair, where the pivot keeps its exact ink with its own-frame origin displaced by the declared column count and every span's union of ink slides cumulatively — so a union-invisible name-grain re-spelling to the pivot's right rides along, while one stray pixel anywhere in the window, or a font pair that never settles into the named pivot, fails the match closed — the rendered-pixel ink-gain shape, whose preconditions match the slide shape's and whose geometry is the named pivot keeping its placement, height, and own-frame origin while gaining exactly the named cells, every following span moving by the declared count — the rendered-pixel join-dropped shape, whose preconditions are a named pivot–follower seam dropping from a yK height to a break plus the slide shape's digest-agreement, and whose geometry is both letters keeping their exact picture and own-frame origin — or, where the rule names in full the cells both letters settle into, the pivot keeping only that origin and free to redraw in place, and, where it declares the columns its follower hands back, the follower moving that origin right by them and free to redraw inside the receiver cells — with the follower sitting the declared gap further and everything after it sitting the same extra gap away — the rendered-pixel entry-extension-dropped shape, whose preconditions match the slide shape's and whose geometry is the named pivot keeping its placement, height, and own-frame origin while its after picture is the old one compacted left by the declared column count, everything after the pivot sliding closer by that count — the rendered-pixel stub-dropped shape, whose preconditions match the slide shape's and whose geometry is walked position by position because a pivot is a position rather than a name: each position that settles into a named after form is judged as the old picture compacted left by the declared column count with its placement moving right by that count and its origin standing still, every span between pivots rendering identically with no displacement — so a second same-family letter keeping its old form rides as span ink, and one stray pixel anywhere fails the match closed — the rendered-pixel redrawn shape, whose preconditions match the slide shape's and whose geometry is walked position by position because a pivot is a position rather than a name: each position that settles into a named after form is judged as the named cell trade at one common column offset (an entry-extended frame names the same trade one column over), its placement carrying the displacement accumulated so far — or up to the entry contraction its new form names closer than that, which the rest of the window then carries too — every span between pivots rendering identically under it, and the displacement growing by the declared shift and whatever the pivot took at each pivot — so a second same-family letter keeping its old form rides as span ink, a trade that only gives ink up names an empty added set (an exit contraction, which the name-grain extension-dropped shape would speak for too but blindly), and one stray pixel anywhere fails the match closed — the composed reading that runs before all of them and credits two or more events in one window, whether they come from two rules or from one rule speaking twice — its name-grain pre-gate refusing to shape a window holding fewer than two candidate positions, its walk carrying a running column displacement across the window so that each span between events must render identically once displaced, its chaining of a join-dropped or extension event whose follower is itself the next event, its skipping of an extension's named follower so a named redraw does not block composition, its refusal of a pivot contracting off the seam row, of a tail wider than the pivot gave up, and of two rules claiming one position, its judging of a failed candidate as ordinary span ink, its per-shape guard scopes, and its own reporting line, which `main` keeps clear of the per-rule lines — the except_left guard, which reads a ligature's trailing left component and refuses the whole unit rather than the one position, blankness against the verdicts file (parked skip verdicts are not blank), the non-winning manifest stamp on every emitted record, and rules-file validation, which admits exactly one shape per rule and checks that shape's own coherence."""
 
 import json
 import pathlib
@@ -160,6 +160,22 @@ REDRAWN_JOIN_RULE = {
             "gap": 1,
             "pivot_cells": ["qsNo/flipped/baseline/None/"],
             "receiver_cells": ["qsF3/full/None/None/"],
+        },
+        "except_left": [],
+    },
+}
+
+GIVE_BACK_JOIN_RULE = {
+    "id": "fixture-join-dropped-with-a-follower-handing-a-column-back",
+    "verdict": "approve",
+    "note": "·F2 sits two columns further from ·No and hands back the column its reaching form inserted to take the join",
+    "match": {
+        "before": {"pivot": "qsNo", "seam_out": "y0", "follower": "qsF2"},
+        "after": {
+            "gap": 2,
+            "pivot_cells": ["qsNo/flipped/baseline/None/"],
+            "receiver_cells": ["qsF2/full/None/None/"],
+            "follower_give_back": 1,
         },
         "except_left": [],
     },
@@ -1824,6 +1840,7 @@ SLIDE_FONTS = {
     "after-join-unmoved": ({**AFTER_GLYPHS, "qsAt": (TWO_COLUMNS, 100)}, AFTER_CMAP),
     "after-join-redrawn-pivot": ({**AFTER_GLYPHS, "qsAt": (TUCKED_FOLLOWER, 150)}, AFTER_CMAP),
     "after-join-pivot-moved-origin": ({**AFTER_GLYPHS, "qsNo.gap-fixture": (GROUNDED_SEE, 150)}, AFTER_CMAP),
+    "after-join-follower-keeping-its-pen": ({**AFTER_GLYPHS, "qsF2": (TWO_COLUMNS, 100)}, AFTER_CMAP),
     "after-join-redrawn-follower": ({**AFTER_GLYPHS, "qsIt": (TUCKED_FOLLOWER, 100)}, AFTER_CMAP),
     "after-join-regrouped": ({**AFTER_GLYPHS, "qsIt": (TWO_COLUMNS, 50)}, AFTER_CMAP),
     "after-join-extra-prefix-pixel": ({**AFTER_GLYPHS, "qsL": (TWO_COLUMNS_AND_A_PIXEL, 100)}, AFTER_CMAP),
@@ -2436,6 +2453,24 @@ def test_a_pivot_moving_its_own_frame_origin_defeats_the_join_match(slide_contex
     )
 
 
+def test_a_join_dropped_rule_may_declare_the_column_its_follower_hands_back(slide_context):
+    """The form that inserted a column at its left edge to take the join gives it up as the join dies, so the follower's own-frame origin moves right by the declared count and it redraws inside the receiver cells — a created join's follower reach running the other way, which is what ·Gay does when the ·No in front of it is raised past reaching it."""
+    assert sv._matches(GIVE_BACK_JOIN_RULE["match"], give_back_join_window(), context=slide_context())
+
+
+def test_a_follower_keeping_its_own_pen_defeats_the_give_back_match(slide_context):
+    assert not sv._matches(
+        GIVE_BACK_JOIN_RULE["match"],
+        give_back_join_window(),
+        context=slide_context("after-join-follower-keeping-its-pen"),
+    )
+
+
+def test_a_follower_settling_into_an_unnamed_cell_defeats_the_give_back_match(slide_context):
+    window = give_back_join_window(cell="qsF2/hapax/None/None/")
+    assert not sv._matches(GIVE_BACK_JOIN_RULE["match"], window, context=slide_context())
+
+
 def test_a_redrawn_follower_defeats_the_join_match(slide_context):
     assert not sv._matches(
         JOIN_RULE["match"], join_window(), context=slide_context("after-join-redrawn-follower")
@@ -2549,6 +2584,22 @@ def test_a_join_rule_naming_another_letters_cell_is_refused_at_load(tmp_path):
     rule = json.loads(json.dumps(REDRAWN_JOIN_RULE))
     rule["match"]["after"]["pivot_cells"] = ["qsMay/loop/baseline/None/"]
     with pytest.raises(SystemExit, match="is not a cell of qsNo"):
+        sv.load_rules(_write_rules(tmp_path / "rules.yaml", [rule]))
+
+
+def test_a_give_back_that_hands_nothing_back_is_refused_at_load(tmp_path):
+    for columns in (0, -1):
+        rule = json.loads(json.dumps(GIVE_BACK_JOIN_RULE))
+        rule["match"]["after"]["follower_give_back"] = columns
+        with pytest.raises(SystemExit, match="follower that keeps its own pen leaves the field off"):
+            sv.load_rules(_write_rules(tmp_path / "rules.yaml", [rule]))
+
+
+def test_a_give_back_without_receiver_cells_is_refused_at_load(tmp_path):
+    rule = json.loads(json.dumps(GIVE_BACK_JOIN_RULE))
+    del rule["match"]["after"]["pivot_cells"]
+    del rule["match"]["after"]["receiver_cells"]
+    with pytest.raises(SystemExit, match="follower_give_back needs receiver_cells"):
         sv.load_rules(_write_rules(tmp_path / "rules.yaml", [rule]))
 
 
@@ -4720,6 +4771,11 @@ REDRAWN_JOIN_CODEPOINTS = spell(LEAD, NO_GAP_REDRAWN, FOLLOWER_3)
 JOIN_BEHIND_RETARGET_GLYPHS = ["qsL", "qsTea.half.ex-y5", "qsNo.en-ext-1.gap-fixture", "qsF3"]
 JOIN_BEHIND_RETARGET_CODEPOINTS = spell(LEAD, TEA, NO_GAP_REDRAWN, FOLLOWER_3)
 JOIN_BEHIND_RETARGET_RULES = [RETARGET_RULE, REDRAWN_JOIN_RULE]
+GIVE_BACK_JOIN_GLYPHS = ["qsL", "qsNo.en-ext-1.gap-fixture", "qsF2"]
+GIVE_BACK_JOIN_CODEPOINTS = spell(LEAD, NO_GAP_REDRAWN, FOLLOWER_2)
+GIVE_BACK_BEHIND_RETARGET_GLYPHS = ["qsL", "qsTea.half.ex-y5", "qsNo.en-ext-1.gap-fixture", "qsF2"]
+GIVE_BACK_BEHIND_RETARGET_CODEPOINTS = spell(LEAD, TEA, NO_GAP_REDRAWN, FOLLOWER_2)
+GIVE_BACK_BEHIND_RETARGET_RULES = [RETARGET_RULE, GIVE_BACK_JOIN_RULE]
 RETARGET_BEHIND_RETARGET_GLYPHS = [
     "qsL",
     "qsTea.half.ex-y5",
@@ -5136,6 +5192,39 @@ def join_behind_retarget_window(uid="jbr-1"):
         ],
         ["y0", "y0", "break"],
         codepoints=JOIN_BEHIND_RETARGET_CODEPOINTS,
+        configs=("default",),
+        ink_deltas={"default": SLIDE_DELTA},
+        pair={"left": 1, "right": 2},
+    )
+
+
+def give_back_join_window(uid="gbj-1", cell="qsF2/full/None/None/"):
+    return unit(
+        uid,
+        list(GIVE_BACK_JOIN_GLYPHS),
+        ["y0", "y0"],
+        ["qsL/full/None/None/", "qsNo/flipped/baseline/None/", cell],
+        ["y0", "break"],
+        codepoints=GIVE_BACK_JOIN_CODEPOINTS,
+        configs=("default",),
+        ink_deltas={"default": SLIDE_DELTA},
+        pair={"left": 1, "right": 2},
+    )
+
+
+def give_back_behind_retarget_window(uid="gbr-1"):
+    return unit(
+        uid,
+        list(GIVE_BACK_BEHIND_RETARGET_GLYPHS),
+        ["y0", "y5", "y0"],
+        [
+            "qsL/full/None/None/",
+            "qsTea/full/None/baseline/",
+            "qsNo/flipped/baseline/None/",
+            "qsF2/full/None/None/",
+        ],
+        ["y0", "y0", "break"],
+        codepoints=GIVE_BACK_BEHIND_RETARGET_CODEPOINTS,
         configs=("default",),
         ink_deltas={"default": SLIDE_DELTA},
         pair={"left": 1, "right": 2},
@@ -5803,6 +5892,21 @@ def test_a_join_drop_chained_behind_a_retarget_still_needs_its_pivot_standing(sl
     assert events is None
 
 
+def test_a_join_drop_whose_follower_hands_a_column_back_chains_behind_a_retarget(slide_context):
+    """The give-back rides inside the dropped join rather than beside it, so the retarget on ·No's incoming seam and the gap on its outgoing one still explain the window between them however far the follower redrew."""
+    events = sv._composed(
+        GIVE_BACK_BEHIND_RETARGET_RULES, give_back_behind_retarget_window(), slide_context()
+    )
+    assert events == {RETARGET_RULE["id"]: [1], GIVE_BACK_JOIN_RULE["id"]: [2]}
+
+
+def test_neither_rule_alone_reads_a_give_back_join_behind_a_retarget(slide_context):
+    window = give_back_behind_retarget_window()
+    for rule in GIVE_BACK_BEHIND_RETARGET_RULES:
+        assert not sv._matches(rule["match"], window, context=slide_context())
+        assert sv._composed_walk([rule], window, slide_context()) is None
+
+
 def test_a_redraw_chains_behind_a_retarget_on_its_follower(slide_context):
     """A retarget judges the letter it brings in and a redrawn trade the picture that letter settles into, so the two explain one window between them exactly as a created join and a trade do."""
     events = sv._composed(REDRAWN_BEHIND_RETARGET_RULES, redrawn_behind_retarget_window(), slide_context())
@@ -6276,6 +6380,11 @@ COMPOSED_WALK_CORPORA = {
         REDRAWN_JOIN_RULE,
         lambda: [redrawn_join_window(), join_behind_retarget_window(), join_window()],
         ("after", "after-join-pivot-moved-origin"),
+    ),
+    "join-dropped-with-a-follower-handing-a-column-back": (
+        GIVE_BACK_JOIN_RULE,
+        lambda: [give_back_join_window(), give_back_behind_retarget_window(), join_window()],
+        ("after", "after-join-follower-keeping-its-pen"),
     ),
     "entry-extension-dropped": (
         ENTRY_RULE,
