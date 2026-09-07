@@ -1090,3 +1090,15 @@ rules:
         follower_advance: 0
         follower_reach: 0
       except_left: []
+  - id: fee-unjoined-loop
+    verdict: approve
+    note: "·Fee draws its plain loop where the old font bent it back into the letter before it — the reversed loop is qsFee's only x-height entry and it carries no exit at all, so ·Fee can never take both (“No matter what, ·Fee cannot join both to and from at the x-height on the same letter”), and which one it keeps is qsFee's prefer record, carrying the user's why at “·Fee: Prefer connecting to the next letter, not the previous”. Where ·May leads, the break is decided from ·May's side: qsMay's prefer yields its own x-height exit before ·Fee under the except clause added in “Make ·Fee join forward at the x-height, and back into ·Day·Utter”, so a ·May that has taken ·Utter's new x-height entry has no exit left to reach with, and qsMay's loop stance forbids taking an x-height entry and an x-height exit at once. The rule names the word-final loop beside the one that goes on to an x-height exit, since ·Fee draws the same picture either way; the loop that also paints the reach its extend record gives ·Day, ·No, ·Roe, ·It, ·Et, ·Eight and ·May carries extra columns and is not this trade. It speaks only where ·Fee stands where the window leaves it, so a break that opens a gap and sets ·Fee a column further from what precedes it still reaches the docket. Where ·Utter leads into that ·May, utter-baseline-join-created and utter-may-baseline-join-retargeted speak for the rest of the window. Every window that reached a sitting approved this loop or called it either"
+    match:
+      before:
+        pivots: [qsFee.en-y5]
+      after:
+        pivots: [qsFee.loop]
+        dropped: [[1, 5]]
+        added: [[2, 5], [3, 5]]
+        shift: 0
+      except_left: []
