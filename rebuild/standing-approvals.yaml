@@ -730,3 +730,21 @@ rules:
           - qsThaw/hapax/baseline/None/
         shift: -3
       except_left: []
+  - id: no-no-xheight-join-retargeted
+    verdict: approve
+    note: "·No joins ·No at the baseline where the old font joined at the x-height, and both loops redraw into the flipped stance in place — qsNo's flipped stance has carried qsNo on its own baseline entry from-list since the letter landed in “Checkpoint the qsDay/qsUtter/qsNo migration batch with its triage residue down to 2,535”, and join-count rank settles the seam with no policy record narrowing it; the one ·No·No ruling on the books, “Don't drop ·No·No to the baseline for a ·No·See join that never happens”, held one chain back rather than the drop itself, and tea-no-xheight-join-retargeted, pea-no-xheight-join-retargeted and it-no-xheight-join-retargeted record the same lowered seam into the same flipped ·No cells one pivot over, ·No holding its own advance across the change as ·It does where ·Tea and ·Pea each gave a column up. Every window that reached a sitting approved the lowered join"
+    match:
+      before:
+        pivot: qsNo
+        seam_out: y5
+        follower: qsNo
+      after:
+        retarget: y0
+        pivot_cells:
+          - qsNo/flipped/None/baseline/
+          - qsNo/flipped/baseline/baseline/
+        receiver_cells:
+          - qsNo/flipped/baseline/None/
+          - qsNo/flipped/baseline/baseline/
+        shift: 0
+      except_left: []
