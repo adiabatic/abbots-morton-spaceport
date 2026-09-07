@@ -760,3 +760,20 @@ rules:
         added: []
         shift: -1
       except_left: []
+  - id: utter-tea-baseline-join-created
+    verdict: approve
+    note: "·Utter joins ·Tea at the baseline where the old font left a break, and ·Tea closes one column onto it — qsUtter's alternate stance carries a baseline exit open to every follower and demands it be used, the mandatory exit the user records on qsUtter's own policy (“·Utter.alt has a mandatory exit, so it can't help consuming ·Tea's baseline slot”), and qsTea's full stance takes a baseline entry from anything; that exit took its present stroke in “Draw ·Utter, ·No, ·Day, and ·Day·Utter with their full terminal nub instead of a pulled-back exit”. Where ·Bay, ·Day, ·Key or ·Awe leads into ·Gay before it, ·Gay's baseline entry pulls in a column at the position before, which gay-entry-contracted already names, so those windows read composed and ·Tea lands two columns closer rather than one; utter-gay-exit-extension-dropped is ·Utter's other standing change on this surface. Every window that reached a sitting approved it or called it either"
+    match:
+      before:
+        pivot: qsUtter
+        seam_out: break
+        follower: qsTea
+      after:
+        joined: y0
+        pivot_cells:
+          - qsUtter/alternate/None/baseline/
+          - qsUtter/alternate/x-height/baseline/
+        receiver_cells:
+          - qsTea/full/baseline/None/
+        shift: -1
+      except_left: []
