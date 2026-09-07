@@ -509,13 +509,13 @@ rules:
       except_left: []
   - id: ah-bay-exit-extension-dropped
     verdict: approve
-    note: "·Bay and ·Fee sit a pixel closer to ·Ah — the extra pixel of x-height exit came off qsAh's extend record for both of them at once in “Stop extending ·Ah ~x~ ·{Bay,Fee} by a pixel”, and every window that reached a sitting approved the shorter reach"
+    note: "·Bay, ·Tea and ·Fee sit a pixel closer to ·Ah — the extra pixel of x-height exit came off qsAh's extend record for ·Bay and ·Fee at once in “Stop extending ·Ah ~x~ ·{Bay,Fee} by a pixel”, and off the record that drew it before ·Tea under ss03 in “Stop expanding ·Ah ~x~ ·Tea by a pixel under ss03”, and every window that reached a sitting approved the shorter reach. Where the ·Tea that meets the shorter reach takes the full bar in the same stroke, that is a change of its own — tea-full-bar-after-xheight-stroke-ss03 records it, on “Always draw ·Tea's full bar after a flat x-height stroke under ss03” — so the window is the composed reading's; the ·Tea that keeps its half picture and the ·Tea that goes on to take a baseline exit settle into cells named here too, the second of those carrying a join of its own and so reading composed as well. The rule is bounded to the seam that stood at the x-height on both sides: an ·Ah the old font left breaking in front of ·Tea drew that tail into a gap rather than into a join, so it is a window of its own. it-ah-exit-extension-dropped and jai-exit-extension-dropped are the same stretch coming off other letters, and ah-gay-xheight-join-created and ah-entry-contracted-after-jai are ·Ah's other standing changes on this surface. The shape reads the two letters at its own seam and nothing else, so what holds an unrelated stroke out of the fill is the surface's own judged pair and secondary-seam fields — a window whose other letters keep every seam still can have redrawn one of them, and the rule cannot see it"
     match:
       before:
         pivot: qsAh
         exit_extension: ex-ext-1
         seam_out: y5
-        follower: [qsBay, qsFee]
+        follower: [qsBay, qsTea, qsFee]
       after:
         pivot_cells:
           - qsAh/hapax/None/x-height/
@@ -524,6 +524,9 @@ rules:
         follower_cells:
           - qsBay/hapax/x-height/None/
           - qsBay/hapax/x-height/baseline/
+          - qsTea/full/x-height/None/
+          - qsTea/full/x-height/baseline/
+          - qsTea/half/x-height/None/
           - qsFee/reversed-loop/x-height/None/
       except_left: []
   - id: jai-entry-contracted-exit-extension-dropped
