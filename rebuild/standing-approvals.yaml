@@ -950,3 +950,25 @@ rules:
         follower_advance: 1
         follower_reach: 1
       except_left: []
+  - id: may-gay-baseline-join-created
+    verdict: approve
+    note: "·May joins ·Gay at the baseline where the old font left a break, and ·Gay takes the join on its full reaching-back form: ·May does not pull that entry in, so the stroke inserts a column at ·Gay's left edge, the letter comes three columns nearer and its own advance is a column wider for the stroke, leaving the rest of the word two columns over. qsGay's baseline entry has carried qsMay on its from-list since the letter landed in “Add ·Gay”, where the reachable-at-the-baseline bitmap that meets it arrived with it, and qsMay's grounded-loop stance supplies the baseline exit that reaches it. gay-baseline-join-created-reaching-back is the same join onto the same reaching-back ·Gay from ·Gay and ·J’ai, closing one column less; gay-baseline-join-created is the join from the five left letters that do pull the entry in, which is why ·Gay settles there into an en-con-1 cell without reaching back at all, and ah-gay-xheight-join-created records the same decision one height up. may-ah-baseline-join-created, may-entry-stub-dropped and may-entry-extension-dropped are ·May's other standing changes on this surface. A window where ·May's own entry comes off in front of this join carries the pivot a column over and still reaches the docket. Every window that reached a sitting approved this join"
+    match:
+      before:
+        pivot: qsMay
+        seam_out: break
+        follower: qsGay
+      after:
+        joined: y0
+        pivot_cells:
+          - qsMay/grounded-loop/None/baseline/
+          - qsMay/grounded-loop/x-height/baseline/
+        receiver_cells:
+          - qsGay/hapax/baseline/None/
+          - qsGay/hapax/baseline/x-height/
+          - qsGay/hapax/baseline/x-height/ex-ext-1
+          - qsGay/hapax/baseline/x-height/ex-ext-3
+        shift: -3
+        follower_advance: 1
+        follower_reach: 1
+      except_left: []
