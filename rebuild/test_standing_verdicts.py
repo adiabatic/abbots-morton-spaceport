@@ -7091,27 +7091,6 @@ def test_a_reworded_note_drops_the_memo(tmp_path, monkeypatch, capsys):
     assert payload["verdicts"][0]["note"].endswith("(reworded)")
 
 
-MINI = pathlib.Path(sv.ROOT) / "rebuild" / "review" / "fixtures" / "mini"
-
-
-@pytest.fixture(scope="module")
-def mini_surface(tmp_path_factory, mini_bundle):
-    """One real build of the frozen mini bundle, with the fonts, the index and every unit's content-key stamp the memo keys on."""
-    from rebuild.review.build import build_m1
-
-    out = tmp_path_factory.mktemp("standing-memo") / "surface"
-    build_m1(
-        out,
-        audit_path=MINI / "audit.tsv",
-        ledger_path=mini_bundle.ledger,
-        subset_dir=MINI,
-        after_font=MINI / "M1.otf",
-        spec_root=mini_bundle.spec_root,
-        jobs=1,
-    )
-    return out
-
-
 def _human_units(surface):
     return [
         unit

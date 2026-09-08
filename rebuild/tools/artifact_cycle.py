@@ -763,6 +763,7 @@ PLUMBING_TOOL_MODULES = (
     "merge_verdicts",
     "review_docket",
     "review_server",
+    "standing_client",
     "standing_verdicts",
     "verdict_chain",
     "verdict_notes",
