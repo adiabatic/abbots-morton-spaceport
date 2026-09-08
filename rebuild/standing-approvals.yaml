@@ -776,12 +776,12 @@ rules:
       except_left: []
   - id: utter-gay-exit-extension-dropped
     verdict: approve
-    note: "·Gay sits a pixel closer to ·Utter — the extra pixel of x-height exit came off qsUtter's extend record in “Stop extending ·Utter ~x~ ·Gay by a pixel”, and every window that reached a sitting approved the shorter reach"
+    note: "·Gay sits a pixel closer to ·Utter — the extra pixel of x-height exit came off qsUtter's extend record in “Stop extending ·Utter ~x~ ·Gay by a pixel”, and every window that reached a sitting approved the shorter reach. The rule names the ·Utter that takes a baseline entry beside the one that takes none, since the letter draws the same mono stroke either way and the pixel comes off both: any left letter that joins ·Utter at the baseline settles it into an entered cell and changes nothing about this seam. Where a second blessed change rides in the same window the composed reading takes it, with fee-tea-ss03-exit-extension-shortened, eight-smaller-loop, pea-it-baseline-join-retargeted, utter-it-baseline-join-retargeted, no-baseline-join-retargeted or it-xheight-join-created-lengthened-reach naming that half; utter-tea-baseline-join-created, utter-xheight-join-created, utter-may-baseline-join-retargeted, utter-day-xheight-join-retargeted and utter-baseline-join-created are ·Utter's other standing changes on this surface"
     match:
       before:
         pivots: [qsUtter.ex-ext-1]
       after:
-        pivots: [qsUtter.mono.ex-y5]
+        pivots: [qsUtter.mono.ex-y5, qsUtter.mono.en-y0.ex-y5]
         dropped: [[5, 5]]
         added: []
         shift: -1
