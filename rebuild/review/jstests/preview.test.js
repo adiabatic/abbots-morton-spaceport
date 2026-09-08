@@ -45,6 +45,13 @@ test('boundary tokens from the notation line work', () => {
   assert.deepEqual(parsePreview('·'), { text: '·', unknown: [] });
 });
 
+test('an adjacent diamond starts a boundary token without inserting spaces', () => {
+  assert.deepEqual(parsePreview('·They·It◊ZWNJ·Day'), { text: '\ue657\ue670\u200c\ue653', unknown: [] });
+  assert.deepEqual(parsePreview('.They.It◊ZWNJ.Day'), { text: '\ue657\ue670\u200c\ue653', unknown: [] });
+  assert.deepEqual(parsePreview('◊zwnj·It◊ZWNJ◊ZWNJ'), { text: '\u200c\ue670\u200c\u200c', unknown: [] });
+  assert.deepEqual(parsePreview('·It◊unknown·Day'), { text: '\ue670\ue653', unknown: ['◊unknown'] });
+});
+
 test('raw codepoint tokens resolve, with bare hex confined to the PUA', () => {
   assert.deepEqual(parsePreview('uniE653'), { text: '\ue653', unknown: [] });
   assert.deepEqual(parsePreview('U+E653·utter'), { text: '\ue653\ue67a', unknown: [] });
