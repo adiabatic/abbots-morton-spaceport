@@ -77,10 +77,10 @@ function resolveToken(piece) {
 function piecesOf(word) {
   // Plain dots work as separators too (.day.utter), but only when every piece is a recognized token — otherwise the dot is literal text (3.14, actual punctuation in pasted Quikscript).
   if (word.includes('.')) {
-    const dotSplit = word.split(/[·.]/u);
+    const dotSplit = word.split(/[·.]|(?=◊)/u);
     if (dotSplit.every((piece) => piece === '' || resolveToken(piece) !== null)) return dotSplit;
   }
-  return word.split('·');
+  return word.split(/·|(?=◊)/u);
 }
 
 export function parsePreview(input) {
