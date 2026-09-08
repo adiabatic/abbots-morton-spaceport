@@ -1582,3 +1582,17 @@ rules:
         follower_advance: 0
         follower_reach: 0
       except_left: []
+  - id: jai-crown-contracted-by-two
+    verdict: approve
+    note: "·J’ai’s crown pulls in after ·Ah while the baseline reach the letter carries stays exactly as it was — qsJai’s contract record has asked for two columns of crown after ·Ah and ·Utter since the letter landed, and the old font spelled that seam partly on ·Ah’s exit anchor and partly on ·J’ai’s own trimmed left edge, the tuck-versus-trim re-spelling rebuild/m1-divergences.yaml records, so one pixel of crown is what comes off here. jai-crown-contracted is the same stroke one column deep, after ·Pea, ·Tea, ·No, ·Low, ·At and ·I; jai-entry-contracted-by-two-exit-extension-dropped is this crown beside a tail that comes off in the same stroke; and the ·Utter that asks for the same two columns meets a ·J’ai the old font drew with its crown full and loses a second pixel, so it is a window of its own. The rule names the word-final crown beside the one that goes on to a baseline exit, since ·J’ai draws the same picture either way. Every window that reached a sitting approved the tighter crown"
+    match:
+      before:
+        pivots: [qsJai.en-y5.ex-y0.en-trim-2]
+      after:
+        pivots:
+          - qsJai.hapax.en-y5.en-con-2
+          - qsJai.hapax.en-y5.ex-y0.en-con-2
+        dropped: [[2, 8]]
+        added: []
+        shift: 0
+      except_left: []
