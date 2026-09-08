@@ -1718,3 +1718,24 @@ rules:
         shift: 0
         follower_shift: 0
       except_left: []
+  - id: roe-oy-xheight-join-created
+    verdict: approve
+    note: "·Roe joins ·Oy at the x-height where the old font left a break, ·Oy opens its loop on the left to receive it, and the pair holds its column: the open form is three columns narrower, so whatever follows comes that much nearer while ·Oy itself stands where it was. The open-on-the-left bitmap hangs off the only x-height entry ·Oy has, whose from-list has carried qsRoe since “Migrate the four worst families to the new rune-file format, conformance-verified”, so the redraw is the follower half of this join rather than a change of its own, and qsRoe's x-height exit has named qsOy on its toward-list since the letter landed in “Declare ·I done and add ·Roe”. no-oy-xheight-join-created is the same break becoming the same join from ·No, where the pivot closes a column onto the follower as well. The rule names the ·Roe that takes a baseline entry beside the one that takes none, since the letter draws the same closing arm either way, and the word-final ·Oy beside the one that goes on to a baseline exit, for the same reason; the ·Roe whose entry contracts moves its own frame, which a created join can only declare as a reach back over its old left edge, so those windows are not this one. Where ·It's seam into ·Roe comes down in the same window, it-roe-xheight-join-retargeted names ·Roe's incoming seam and this rule its outgoing one. Every window that reached a sitting approved the join"
+    match:
+      before:
+        pivot: qsRoe
+        seam_out: break
+        follower: qsOy
+      after:
+        joined: y5
+        pivot_cells:
+          - qsRoe/hapax/None/x-height/
+          - qsRoe/hapax/baseline/x-height/
+          - qsRoe/hapax/baseline/x-height/en-ext-1
+        receiver_cells:
+          - qsOy/hapax/x-height/None/
+          - qsOy/hapax/x-height/baseline/
+        shift: 0
+        follower_advance: -3
+        follower_reach: 0
+      except_left: []
