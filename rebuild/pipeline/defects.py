@@ -154,10 +154,8 @@ def _check_anchors(report: DefectReport, allow: frozenset[str], glyphs: Mapping[
                     error=True,
                 )
         if record.exit is not None and "exit" not in record.convention_exempt:
-            y = record.exit[1]
+            y = record.exit[1] if record.exit_ink_y is None else record.exit_ink_y
             span = geometry.ink_span(record.bitmap, record.y_offset, y)
-            if span is None and record.exit_ink_y is not None:
-                span = geometry.ink_span(record.bitmap, record.y_offset, record.exit_ink_y)
             if span is None or span[1] + 1 != record.exit[0]:
                 _report(
                     report,

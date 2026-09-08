@@ -1,35 +1,37 @@
-{"runes": 6, "letters": 4, "ligs": 2, "windows": 7667, "rules": 119, "cells": 46, "cpu": 0.097, "wall": 0.457, "spec_parse_s": 0.0, "enumerate_s": 0.1, "fold_s": 0.0, "rss_high_water_gb": 0.01, "world": "shipping defaults", "digest": "1e23f5af09dad3370ac1907a828806ca1f0795c077784e00e58ae6455869c3a5"}
-{"runes": 8, "letters": 5, "ligs": 3, "windows": 22804, "rules": 277, "cells": 70, "cpu": 0.243, "wall": 0.245, "spec_parse_s": 0.0, "enumerate_s": 0.2, "fold_s": 0.0, "rss_high_water_gb": 0.02, "world": "shipping defaults", "digest": "59bfc9cdbdc805bc7a987e55905e043bd3b2bf105ac7a4f967350a194fa9c15c"}
-{"runes": 10, "letters": 6, "ligs": 4, "windows": 49518, "rules": 464, "cells": 86, "cpu": 0.623, "wall": 0.626, "spec_parse_s": 0.0, "enumerate_s": 0.6, "fold_s": 0.1, "rss_high_water_gb": 0.06, "world": "shipping defaults", "digest": "1c221161b9666caaa48f8ab77e79c9af2fa43fe951c3806081a1e07186920fab"}
-{"runes": 12, "letters": 7, "ligs": 5, "windows": 91956, "rules": 574, "cells": 94, "cpu": 1.147, "wall": 1.15, "spec_parse_s": 0.0, "enumerate_s": 1.0, "fold_s": 0.1, "rss_high_water_gb": 0.1, "world": "shipping defaults", "digest": "ee267331cbb5f6a06e7df7680c6392cbb9b98c07071ec42daa022c3f6061526c"}
-{"runes": 14, "letters": 8, "ligs": 6, "windows": 141031, "rules": 646, "cells": 103, "cpu": 1.772, "wall": 1.776, "spec_parse_s": 0.0, "enumerate_s": 1.6, "fold_s": 0.2, "rss_high_water_gb": 0.12, "world": "shipping defaults", "digest": "0223957b63c50d09774aa70d30d6ec510d08bcba3a8d466306ef8f3ef964c52c"}
-{"runes": 16, "letters": 10, "ligs": 6, "windows": 228823, "rules": 680, "cells": 119, "cpu": 2.796, "wall": 2.801, "spec_parse_s": 0.0, "enumerate_s": 2.5, "fold_s": 0.3, "rss_high_water_gb": 0.19, "world": "shipping defaults", "digest": "bdf104e04358387410d0c748baf307ed40efa0c5bda082e987ad52bfdd27edec"}
-{"runes": 18, "letters": 12, "ligs": 6, "windows": 381521, "rules": 880, "cells": 150, "cpu": 4.604, "wall": 4.611, "spec_parse_s": 0.0, "enumerate_s": 4.1, "fold_s": 0.5, "rss_high_water_gb": 0.38, "world": "shipping defaults", "digest": "7eea04c977f0fcda6ab393468c49cac9dad166cd067f5f94d35d187ad787504f"}
-{"runes": 20, "letters": 14, "ligs": 6, "windows": 602958, "rules": 1046, "cells": 170, "cpu": 7.003, "wall": 7.013, "spec_parse_s": 0.0, "enumerate_s": 6.2, "fold_s": 0.8, "rss_high_water_gb": 0.42, "world": "shipping defaults", "digest": "ca2937b5607b03e31f6ec85db3bc99f600b3fc36c6a940e91a09a7bc41da056c"}
-{"runes": 22, "letters": 16, "ligs": 6, "windows": 922148, "rules": 1781, "cells": 206, "cpu": 11.431, "wall": 11.438, "spec_parse_s": 0.0, "enumerate_s": 10.2, "fold_s": 1.3, "rss_high_water_gb": 0.76, "world": "shipping defaults", "digest": "5bc68757992e7412c4ab08890aace44e463f737c1664254a8590721bcdc328fb"}
-{"runes": 24, "letters": 18, "ligs": 6, "windows": 1310900, "rules": 2385, "cells": 232, "cpu": 18.705, "wall": 18.715, "spec_parse_s": 0.0, "enumerate_s": 16.8, "fold_s": 1.9, "rss_high_water_gb": 1.34, "world": "shipping defaults", "digest": "44176672a7a03a9bf5ae0e607e78d570ac8b63d54ba6674462f4a2abe777b023"}
-{"runes": 26, "letters": 20, "ligs": 6, "windows": 1776935, "rules": 2606, "cells": 259, "cpu": 24.652, "wall": 24.665, "spec_parse_s": 0.0, "enumerate_s": 22.0, "fold_s": 2.6, "rss_high_water_gb": 1.46, "world": "shipping defaults", "digest": "1611e3891077e88dae3c6556beb647ee6beec534c5ab88e9d70058ac6dc1f445"}
-{"runes": 28, "letters": 22, "ligs": 6, "windows": 2603660, "rules": 6462, "cells": 304, "cpu": 44.82, "wall": 44.84, "spec_parse_s": 0.0, "enumerate_s": 39.5, "fold_s": 5.3, "rss_high_water_gb": 2.66, "world": "shipping defaults", "digest": "b6e1c5c4b77a76d53861dd7339ceee4630ab9c6c3de5dea63fd5df8ac52c3489"}
-{"runes": 30, "letters": 24, "ligs": 6, "windows": 3355534, "rules": 6838, "cells": 320, "cpu": 56.614, "wall": 56.628, "spec_parse_s": 0.0, "enumerate_s": 49.7, "fold_s": 6.9, "rss_high_water_gb": 2.48, "world": "shipping defaults", "digest": "6f21ad901315bbb628947bd45fcb9a3cdc8771058ee7c005320866668cf1232d"}
-{"runes": 32, "letters": 26, "ligs": 6, "windows": 4530811, "rules": 8184, "cells": 362, "cpu": 78.786, "wall": 78.809, "spec_parse_s": 0.0, "enumerate_s": 68.6, "fold_s": 10.1, "rss_high_water_gb": 2.77, "world": "shipping defaults", "digest": "11215719f09ee9abb5f49d619fcdb53672f05921484a2479bdd1f8fc45374abf"}
-{"runes": 33, "letters": 27, "ligs": 6, "windows": 5018393, "rules": 8190, "cells": 365, "cpu": 87.347, "wall": 87.384, "spec_parse_s": 0.0, "enumerate_s": 76.3, "fold_s": 11.1, "rss_high_water_gb": 4.71, "world": "shipping defaults", "digest": "cedc4e319ad5b92490106d85840bd938762839ef302d84dc7fe543752038a33b"}
+{"runes": 6, "letters": 4, "ligs": 2, "windows": 7667, "rules": 119, "cells": 46, "cpu": 0.091, "wall": 0.395, "spec_parse_s": 0.0, "enumerate_s": 0.1, "fold_s": 0.0, "rss_high_water_gb": 0.01, "world": "shipping defaults", "digest": "1e23f5af09dad3370ac1907a828806ca1f0795c077784e00e58ae6455869c3a5"}
+{"runes": 8, "letters": 5, "ligs": 3, "windows": 22804, "rules": 277, "cells": 70, "cpu": 0.25, "wall": 0.255, "spec_parse_s": 0.0, "enumerate_s": 0.2, "fold_s": 0.0, "rss_high_water_gb": 0.02, "world": "shipping defaults", "digest": "59bfc9cdbdc805bc7a987e55905e043bd3b2bf105ac7a4f967350a194fa9c15c"}
+{"runes": 10, "letters": 6, "ligs": 4, "windows": 49518, "rules": 464, "cells": 86, "cpu": 0.651, "wall": 0.655, "spec_parse_s": 0.0, "enumerate_s": 0.6, "fold_s": 0.1, "rss_high_water_gb": 0.04, "world": "shipping defaults", "digest": "1c221161b9666caaa48f8ab77e79c9af2fa43fe951c3806081a1e07186920fab"}
+{"runes": 12, "letters": 7, "ligs": 5, "windows": 91956, "rules": 574, "cells": 94, "cpu": 1.211, "wall": 1.215, "spec_parse_s": 0.0, "enumerate_s": 1.0, "fold_s": 0.2, "rss_high_water_gb": 0.07, "world": "shipping defaults", "digest": "ee267331cbb5f6a06e7df7680c6392cbb9b98c07071ec42daa022c3f6061526c"}
+{"runes": 14, "letters": 8, "ligs": 6, "windows": 157213, "rules": 659, "cells": 118, "cpu": 1.971, "wall": 1.976, "spec_parse_s": 0.0, "enumerate_s": 1.7, "fold_s": 0.3, "rss_high_water_gb": 0.13, "world": "shipping defaults", "digest": "271e4890067c63d39a1247f659bc5a6330bbdfe6b70c7585fe23a54a30cea636"}
+{"runes": 16, "letters": 9, "ligs": 7, "windows": 227792, "rules": 739, "cells": 130, "cpu": 2.933, "wall": 2.94, "spec_parse_s": 0.0, "enumerate_s": 2.5, "fold_s": 0.4, "rss_high_water_gb": 0.16, "world": "shipping defaults", "digest": "1d8a84986206efe3fbcd22966905ac27655c927ae7f32311ead98954d60e09e7"}
+{"runes": 18, "letters": 11, "ligs": 7, "windows": 347495, "rules": 781, "cells": 150, "cpu": 4.328, "wall": 4.336, "spec_parse_s": 0.0, "enumerate_s": 3.7, "fold_s": 0.7, "rss_high_water_gb": 0.3, "world": "shipping defaults", "digest": "1e2f45b206403af760774baf114f97d7607c787774ab74ad067efebd5ab9f746"}
+{"runes": 20, "letters": 13, "ligs": 7, "windows": 552547, "rules": 965, "cells": 166, "cpu": 6.664, "wall": 6.672, "spec_parse_s": 0.0, "enumerate_s": 5.5, "fold_s": 1.1, "rss_high_water_gb": 0.43, "world": "shipping defaults", "digest": "4e98888756e766a19150a6461a444e7b81e7cf088eb2a238486c8817a228316c"}
+{"runes": 22, "letters": 15, "ligs": 7, "windows": 841462, "rules": 1131, "cells": 186, "cpu": 10.072, "wall": 10.086, "spec_parse_s": 0.0, "enumerate_s": 8.3, "fold_s": 1.8, "rss_high_water_gb": 0.56, "world": "shipping defaults", "digest": "ecce77bf563c5ade1e80186743b34ef3b8dd33aa15c33c30ad51ccecfeced3ca"}
+{"runes": 24, "letters": 17, "ligs": 7, "windows": 1247103, "rules": 1887, "cells": 222, "cpu": 16.231, "wall": 16.242, "spec_parse_s": 0.0, "enumerate_s": 13.3, "fold_s": 2.9, "rss_high_water_gb": 0.8, "world": "shipping defaults", "digest": "e71b9a977941b3bdb14cbb42f0b7d769fc8e39fcb2469f43f8e3def7d6012f98"}
+{"runes": 26, "letters": 19, "ligs": 7, "windows": 1726361, "rules": 2517, "cells": 248, "cpu": 27.251, "wall": 27.271, "spec_parse_s": 0.0, "enumerate_s": 22.8, "fold_s": 4.5, "rss_high_water_gb": 1.1, "world": "shipping defaults", "digest": "d497631cc2d803be95f38bcdf2146cc04058797095667dc670cc0a2e1ba8a9ce"}
+{"runes": 28, "letters": 21, "ligs": 7, "windows": 2292509, "rules": 2734, "cells": 275, "cpu": 36.143, "wall": 36.176, "spec_parse_s": 0.0, "enumerate_s": 30.2, "fold_s": 6.0, "rss_high_water_gb": 1.6, "world": "shipping defaults", "digest": "aa6568b582ced29a14d7344a4f9dc2c879aa0236bc1cd1a0ac1c0b29469268fc"}
+{"runes": 30, "letters": 23, "ligs": 7, "windows": 3273570, "rules": 6618, "cells": 318, "cpu": 61.315, "wall": 61.35, "spec_parse_s": 0.0, "enumerate_s": 50.6, "fold_s": 10.7, "rss_high_water_gb": 2.08, "world": "shipping defaults", "digest": "397b0009a8a1d5a0953d8289bcd9756b52f48eab935630256c4e3d4909efe731"}
+{"runes": 32, "letters": 25, "ligs": 7, "windows": 4159206, "rules": 6994, "cells": 334, "cpu": 73.108, "wall": 73.132, "spec_parse_s": 0.0, "enumerate_s": 59.5, "fold_s": 13.6, "rss_high_water_gb": 3.06, "world": "shipping defaults", "digest": "403032ae032a2570311915127bce91ebc04d4df75d0dfc1ba07d9100be744a67"}
+{"runes": 34, "letters": 27, "ligs": 7, "windows": 5537462, "rules": 8381, "cells": 376, "cpu": 99.588, "wall": 99.682, "spec_parse_s": 0.0, "enumerate_s": 80.4, "fold_s": 19.2, "rss_high_water_gb": 2.85, "world": "shipping defaults", "digest": "2f8c1de13d8c19b05979c40d18a96e59c0adedc021e9fdf75e10557d3b06222e"}
+{"runes": 35, "letters": 28, "ligs": 7, "windows": 6096649, "rules": 8387, "cells": 379, "cpu": 108.381, "wall": 108.411, "spec_parse_s": 0.0, "enumerate_s": 87.2, "fold_s": 21.2, "rss_high_water_gb": 4.01, "world": "shipping defaults", "digest": "bf977b9b04c0a350e1537c516afe8242811737e142d970098fed5395440ce17d"}
 
 runes_a->runes_b   window exponent   cpu exponent
- 6-> 8   windows  3.79   cpu  3.19
- 8->10   windows  3.47   cpu  4.22
-10->12   windows  3.39   cpu  3.35
-12->14   windows  2.77   cpu  2.82
-14->16   windows  3.62   cpu  3.42
-16->18   windows  4.34   cpu  4.23
-18->20   windows  4.34   cpu  3.98
-20->22   windows  4.46   cpu  5.14
-22->24   windows  4.04   cpu  5.66
-24->26   windows  3.80   cpu  3.45
-26->28   windows  5.16   cpu  8.07
-28->30   windows  3.68   cpu  3.39
-30->32   windows  4.65   cpu  5.12
-32->33   windows  3.32   cpu  3.35
+ 6-> 8   windows  3.79   cpu  3.51
+ 8->10   windows  3.47   cpu  4.29
+10->12   windows  3.39   cpu  3.40
+12->14   windows  3.48   cpu  3.16
+14->16   windows  2.78   cpu  2.98
+16->18   windows  3.59   cpu  3.30
+18->20   windows  4.40   cpu  4.10
+20->22   windows  4.41   cpu  4.33
+22->24   windows  4.52   cpu  5.48
+24->26   windows  4.06   cpu  6.47
+26->28   windows  3.83   cpu  3.81
+28->30   windows  5.16   cpu  7.66
+30->32   windows  3.71   cpu  2.73
+32->34   windows  4.72   cpu  5.10
+34->35   windows  3.32   cpu  2.92
 
-whole-ladder fit over 15 rungs (runes 6..33, letters 4..27)
-  windows ~ runes^3.81  letters^3.18
-  cpu     ~ runes^4.04  letters^3.38
+whole-ladder fit over 16 rungs (runes 6..35, letters 4..28)
+  windows ~ runes^3.78  letters^3.21
+  cpu     ~ runes^4.04  letters^3.43

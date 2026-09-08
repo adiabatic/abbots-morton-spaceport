@@ -1057,3 +1057,57 @@
 - signature: contact:qsGay.hapax.en-y5.ex-y0:qsDay_qsUtter.half.en-y0:y-2
 - signature: contact:qsGay.hapax.en-y5.ex-y0:qsDay_qsUtter.half.en-y0.ex-y5:y-2
 - signature: contact:qsGay.hapax.en-y5.ex-y0:qsDay_qsUtter.half.en-y0.ex-y5.ex-ext-1:y-2
+
+# ·They's top-side x-height exit stands its down-stroke beside a follower whose entry stroke is a vertical: ·They's stroke at (2, 4) sits one column from ·Et's and ·It's left bar at y4, one row below the y5 seam — the corner the shipped font draws on every such window (baseline rows E657:E672 and E657:E670 carry a y5 seam). One signature per exit/lock variant against each follower variant the gate inspects separately; all are the same corner.
+- signature: contact:qsThey.hapax.ex-y5:qsEt.hapax.en-y5:y4
+- signature: contact:qsThey.hapax.ex-y5:qsEt.hapax.en-y5.ex-y0:y4
+- signature: contact:qsThey.hapax.ex-y5:qsEt.hapax.en-y5.ex-y0.ex-con-1:y4
+- signature: contact:qsThey.hapax.ex-y5:qsIt.hapax.en-y5:y4
+- signature: contact:qsThey.hapax.ex-y5:qsIt.hapax.en-y5.ex-y0:y4
+- signature: contact:qsThey.hapax.ex-y5:qsIt.hapax.en-y5.ex-y0.ex-ext-1:y4
+- signature: contact:qsThey.hapax.ex-y5.locked:qsEt.hapax.en-y5:y4
+- signature: contact:qsThey.hapax.ex-y5.locked:qsEt.hapax.en-y5.ex-y0:y4
+- signature: contact:qsThey.hapax.ex-y5.locked:qsEt.hapax.en-y5.ex-y0.ex-con-1:y4
+- signature: contact:qsThey.hapax.ex-y5.locked:qsIt.hapax.en-y5:y4
+- signature: contact:qsThey.hapax.ex-y5.locked:qsIt.hapax.en-y5.ex-y0:y4
+- signature: contact:qsThey.hapax.ex-y5.locked:qsIt.hapax.en-y5.ex-y0.ex-ext-1:y4
+
+# Entered ·They lifts its hook to the baseline anchor from y=-1, so before a Deep follower whose foot also sits below the baseline the hook's last pixel and the foot stand side by side one row under the y0 seam: half-·Day's descender and the half ·Day+Utter ligature's, the corner the shipped font draws in every such window (baseline rows E676:E657:E653 and E676:E657:E653:E67A carry the same advances). One signature per entry variant against each follower variant the gate inspects separately; all are the same corner.
+- signature: contact:qsThey.hapax.en-y5.ex-y0:qsDay.half.en-y0:y-1
+- signature: contact:qsThey.hapax.en-y5.ex-y0:qsDay.half.en-y0.ex-y0:y-1
+- signature: contact:qsThey.hapax.en-y5.ex-y0:qsDay_qsUtter.half.en-y0:y-1
+- signature: contact:qsThey.hapax.en-y5.ex-y0:qsDay_qsUtter.half.en-y0.ex-y5:y-1
+- signature: contact:qsThey.hapax.en-y5.ex-y0:qsDay_qsUtter.half.en-y0.ex-y5.ex-ext-1:y-1
+- signature: contact:qsThey.hapax.en-y5.ex-y0.en-ext-1:qsDay.half.en-y0:y-1
+- signature: contact:qsThey.hapax.en-y5.ex-y0.en-ext-1:qsDay.half.en-y0.ex-y0:y-1
+- signature: contact:qsThey.hapax.en-y5.ex-y0.en-ext-1:qsDay_qsUtter.half.en-y0:y-1
+- signature: contact:qsThey.hapax.en-y5.ex-y0.en-ext-1:qsDay_qsUtter.half.en-y0.ex-y5:y-1
+- signature: contact:qsThey.hapax.en-y5.ex-y0.en-ext-1:qsDay_qsUtter.half.en-y0.ex-y5.ex-ext-1:y-1
+
+# The ·They+Utter ligature's crown is ·Utter's nub, unconditional letterform ink on the ·J'ai+Utter precedent: the shipped font draws the bare ligature with the full crown at every word edge and before every non-joining follower, and no withdrawn form exists in quikscript.yaml. The crown's terminal pixel has no ink above or below it, so it cannot earn the automatic `withdrawal: safe` proof. One signature per entry/lock variant the gate inspects separately; all are the same terminal.
+- signature: dangle:qsThey_qsUtter.hapax:exit:x-height
+  why: The ·They·Utter ligature's crown terminal (·Utter's nub at y5), drawn unconditionally in the shipped font; the declined exit keeps it.
+- signature: dangle:qsThey_qsUtter.hapax.en-y5:exit:x-height
+  why: The ligature entered at the top keeps the same crown terminal on a declined exit.
+- signature: dangle:qsThey_qsUtter.hapax.en-y5.en-ext-1:exit:x-height
+  why: The entry-extended ligature keeps the same crown terminal; the extension touches the top only.
+- signature: dangle:qsThey_qsUtter.hapax.locked:exit:x-height
+  why: The ZWNJ-locked twin of the ligature's crown terminal; identical drawing.
+
+# ·I ~x~ ·They abuts with no connector, because the old font's `en-ext-1` after ·I adds its pixel on ·I's own last column and so draws exactly this composite: ·I's loop, which swings back left below the x-height, stands one column from ·They's down-stroke at y3, two rows under the y5 seam — the corner the shipped font draws in every ·I·They and ·I·They+Utter window (baseline rows E675:E657 and E675:E657:E67A carry the same advances). One signature per ·I stance/entry/lock variant against each entered ·They and ligature cell the gate inspects separately; all are the same corner.
+- signature: contact:qsI.loop.en-y0.ex-y5:qsThey.hapax.en-y5:y3
+- signature: contact:qsI.loop.en-y0.ex-y5:qsThey.hapax.en-y5.ex-y0:y3
+- signature: contact:qsI.loop.en-y0.ex-y5:qsThey_qsUtter.hapax.en-y5:y3
+- signature: contact:qsI.loop.en-y0.ex-y5:qsThey_qsUtter.hapax.en-y5.ex-y5:y3
+- signature: contact:qsI.loop.ex-y5:qsThey.hapax.en-y5:y3
+- signature: contact:qsI.loop.ex-y5:qsThey.hapax.en-y5.ex-y0:y3
+- signature: contact:qsI.loop.ex-y5:qsThey_qsUtter.hapax.en-y5:y3
+- signature: contact:qsI.loop.ex-y5:qsThey_qsUtter.hapax.en-y5.ex-y5:y3
+- signature: contact:qsI.loop.ex-y5.locked:qsThey.hapax.en-y5:y3
+- signature: contact:qsI.loop.ex-y5.locked:qsThey.hapax.en-y5.ex-y0:y3
+- signature: contact:qsI.loop.ex-y5.locked:qsThey_qsUtter.hapax.en-y5:y3
+- signature: contact:qsI.loop.ex-y5.locked:qsThey_qsUtter.hapax.en-y5.ex-y5:y3
+- signature: contact:qsI.smaller-loop.en-y0.ex-y5:qsThey.hapax.en-y5:y3
+- signature: contact:qsI.smaller-loop.en-y0.ex-y5:qsThey.hapax.en-y5.ex-y0:y3
+- signature: contact:qsI.smaller-loop.en-y0.ex-y5:qsThey_qsUtter.hapax.en-y5:y3
+- signature: contact:qsI.smaller-loop.en-y0.ex-y5:qsThey_qsUtter.hapax.en-y5.ex-y5:y3

@@ -45,6 +45,8 @@ policy:
         family:
         - qsBay
         - qsGay
+        - qsThey
+        - qsThey_qsUtter
         - qsFee
   - exit: x-height
     by: 1

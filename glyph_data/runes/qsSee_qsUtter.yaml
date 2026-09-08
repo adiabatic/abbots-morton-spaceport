@@ -40,6 +40,8 @@ policy:
       right:
         family:
         - qsBay
+        - qsThey
+        - qsThey_qsUtter
         - qsFee
   - exit: x-height
     by: 1

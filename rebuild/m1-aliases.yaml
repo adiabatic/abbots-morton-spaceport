@@ -61,6 +61,18 @@ qsGay.noentry: {rune: qsGay, stance: hapax, adjustments: [locked]}
 qsThaw: {rune: qsThaw, stance: hapax}
 qsThaw.after-tall: {rune: qsThaw, stance: hapax}
 qsThaw.noentry: {rune: qsThaw, stance: hapax, adjustments: [locked]}
+qsThey: {rune: qsThey, stance: hapax}
+qsThey.en-y5: {rune: qsThey, stance: hapax, entry: x-height}
+qsThey.en-y5.en-ext-1: {rune: qsThey, stance: hapax, entry: x-height}
+qsThey.ex-y0.before-may: {rune: qsThey, stance: hapax, exit: baseline}
+qsThey.ex-y0.before-may.en-y5: {rune: qsThey, stance: hapax, entry: x-height, exit: baseline}
+qsThey.ex-y0.before-may.en-y5.en-ext-1: {rune: qsThey, stance: hapax, entry: x-height, exit: baseline}
+qsThey.ex-y5: {rune: qsThey, stance: hapax, exit: x-height}
+qsThey.noentry: {rune: qsThey, stance: hapax, adjustments: [locked]}
+qsThey_qsUtter: {rune: qsThey_qsUtter, stance: hapax}
+qsThey_qsUtter.en-ext-1: {rune: qsThey_qsUtter, stance: hapax, entry: x-height}
+qsThey_qsUtter.noentry: {rune: qsThey_qsUtter, stance: hapax}
+qsThey_qsUtter.noentry.ex-con-1: {rune: qsThey_qsUtter, stance: hapax, exit: x-height}
 qsDay_qsUtter: {rune: qsDay_qsUtter, stance: full}
 qsDay_qsUtter.ex-con-2: {rune: qsDay_qsUtter, stance: full, exit: x-height}
 qsDay_qsUtter.ex-ext-1: {rune: qsDay_qsUtter, stance: full, exit: x-height, adjustments: [ex-ext-1]}
@@ -130,6 +142,8 @@ qsMay.en-y5.ex-y0.after-i: {rune: qsMay, stance: grounded-loop, entry: x-height,
 qsMay.en-y0.ex-y5.en-ext-1: {rune: qsMay, stance: loop, entry: baseline, exit: x-height, adjustments: [en-ext-1]}
 qsMay.en-y0.ex-y5.en-ext-1.ex-ext-1: {rune: qsMay, stance: loop, entry: baseline, exit: x-height, adjustments: [en-ext-1, ex-ext-1]}
 qsMay.en-y0.ex-y5.ex-ext-1: {rune: qsMay, stance: loop, entry: baseline, exit: x-height, adjustments: [ex-ext-1]}
+qsMay.en-y0.ex-noentry: {rune: qsMay, stance: loop, entry: baseline}
+qsMay.en-y0.ex-noentry.en-ext-1: {rune: qsMay, stance: loop, entry: baseline, adjustments: [en-ext-1]}
 qsMay.ex-ext-1: {rune: qsMay, stance: loop, exit: x-height, adjustments: [ex-ext-1]}
 qsMay.ex-y0: {rune: qsMay, stance: grounded-loop, exit: baseline}
 qsMay.noentry: {rune: qsMay, stance: loop, adjustments: [locked]}

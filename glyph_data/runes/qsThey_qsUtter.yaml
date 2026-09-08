@@ -1,0 +1,66 @@
+rune: qsThey_qsUtter
+sequence:
+- qsThey
+- qsUtter
+ductus:
+  hapax: | # DRAFT — pending author sign-off
+    The ·They stroke and the ·Utter stroke drawn as one motion: the ·They part as usual from the top down into its descender hook, but instead of ending at the hook's tip, the stroke keeps climbing diagonally up and to the right, out of the descender and past the baseline, and finishes with ·Utter's short rightward crown at the x-height, where it may connect to the next letter.
+stances:
+  hapax:
+    motion: hapax
+    traits: []
+    bitmap:
+    - "  #      ##"  #
+    - "  #     #  "
+    - " #     #   "
+    - " #    #    "
+    - " #   #     "
+    - "#    #     "  #
+    - "#   #      "
+    - "#   #      "
+    - " ###       "
+    y_offset: -3
+    surface:
+      entries:
+        x-height:
+          x: 2
+          stroke: vertical
+          from:
+          - family:
+            - qsI
+            - qsAh
+            - qsUtter
+      exits:
+        x-height:
+          x: 11
+          stroke: horizontal
+          toward:
+          - family:
+            - qsPea
+            - qsTea
+            - qsDay
+            - qsDay_qsUtter
+            - qsGay
+            - qsJai
+            - qsJai_qsUtter
+            - qsMay
+            - qsNo
+            - qsRoe
+            - qsIt
+            - qsEt
+            - qsEight
+            - qsAwe
+            - qsOx
+            - qsOy
+      cells: []
+      unlocks: []
+      require: []
+policy:
+  order:
+  - hapax
+  refuse: []
+  prefer: []
+  extend: []
+  contract: []
+  resolve: []
+  groups: {}
