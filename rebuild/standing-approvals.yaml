@@ -1433,3 +1433,22 @@ rules:
         shift: 0
         follower_shift: 0
       except_left: []
+  - id: utter-it-baseline-join-retargeted
+    verdict: approve
+    note: "·Utter reaches ·It at the x-height where the old font joined the two at the baseline, drawing its mono stroke where the old font drew the alternate, and ·It stands where it was — qsUtter's stance order takes mono first and that stance's x-height exit carries no toward-list at all, so every follower with an open x-height entry meets it, while the alternate stance the old font drew here has a mandatory baseline exit and only the scoped x-height entry; qsIt's x-height entry is open to every left letter but ·It itself, the single exclusion “Never join ·It to itself” carved. The stance order and both surfaces landed with the letter in “Checkpoint the qsDay/qsUtter/qsNo migration batch with its triage residue down to 2,535”. Neither letter moves a column of its own, so whatever follows the pair stands still with it, and the rule names the ·Utter that takes a baseline entry beside the one that takes none, and the word-final ·It beside the one that goes on to a baseline exit. utter-may-baseline-join-retargeted is the same raised seam one follower over and utter-day-xheight-join-retargeted the seam running the other way; pea-it-baseline-join-retargeted and no-baseline-join-retargeted record this same raised seam into ·It from ·Pea and ·No, and it-xheight-join-created and it-xheight-join-created-lengthened-reach are the new joins into that same entry. utter-gay-exit-extension-dropped, utter-tea-baseline-join-created, utter-xheight-join-created and utter-baseline-join-created are ·Utter's other standing changes on this surface, and where ·Gay closes the window gay-entry-contracted speaks for its pulled-in baseline entry, so those windows are the composed reading's. Every window that reached a sitting approved the raised join"
+    match:
+      before:
+        pivot: qsUtter
+        seam_out: y0
+        follower: qsIt
+      after:
+        retarget: y5
+        pivot_cells:
+          - qsUtter/mono/None/x-height/
+          - qsUtter/mono/baseline/x-height/
+        receiver_cells:
+          - qsIt/hapax/x-height/None/
+          - qsIt/hapax/x-height/baseline/
+        shift: 0
+        follower_shift: 0
+      except_left: []
