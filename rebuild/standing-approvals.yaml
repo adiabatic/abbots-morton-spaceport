@@ -1758,3 +1758,22 @@ rules:
         shift: 0
         follower_shift: 0
       except_left: []
+  - id: roe-thaw-baseline-join-created
+    verdict: approve
+    note: "·Roe joins ·Thaw at the baseline where the old font left a break, and ·Thaw closes three columns onto it while holding its own advance. qsThaw's baseline entry is the only entry the letter has and has carried qsRoe on its from-list since “Add ·Thaw”, and qsRoe's baseline exit has named qsThaw first on its toward-list since the letter landed in “Declare ·I done and add ·Roe”, so the join follows from open surfaces on both sides rather than from a pair ruling. The rule names the ·Roe that takes no entry beside the one entered at the x-height with the extra column its extend record draws after ·It, since the letter draws the same closing arm either way. Where ·It's seam into ·Roe rises in the same window, it-roe-baseline-join-retargeted names ·Roe's incoming seam and this rule its outgoing one, and the two explain the window between them. it-thaw-baseline-join-dropped and no-thaw-baseline-join-dropped are the reaches ·Thaw loses on the same surface, and no-thaw-baseline-join-created the one it gains from ·No. Nothing in this survey has reached a sitting — every window of it is blank — so the join is ruled from the docket rather than echoed from a verdict, exactly as ·It's break in front of ·Thaw was"
+    match:
+      before:
+        pivot: qsRoe
+        seam_out: break
+        follower: qsThaw
+      after:
+        joined: y0
+        pivot_cells:
+          - qsRoe/hapax/None/baseline/
+          - qsRoe/hapax/x-height/baseline/en-ext-1
+        receiver_cells:
+          - qsThaw/hapax/baseline/None/
+        shift: -3
+        follower_advance: 0
+        follower_reach: 0
+      except_left: []
